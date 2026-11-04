@@ -764,7 +764,10 @@ describe('moving photos or a folder out of their session', () => {
     await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
     vi.mocked(invoke).mockImplementation(async (command) => {
       if (command === Invokes.MoveSession)
-        throw 'Finish or cancel the exports of this session first; nothing was moved.';
+        throw {
+          code: 'exports_pending',
+          message: 'Finish or cancel the exports of this session first; nothing was moved.'
+        };
       return undefined;
     });
     useUIStore.getState().confirmModalState.onConfirm?.();
@@ -777,7 +780,8 @@ describe('moving photos or a folder out of their session', () => {
     const { result } = hook();
     await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
     vi.mocked(invoke).mockImplementation(async (command) => {
-      if (command === Invokes.MoveSession) throw 'The session S7Job is open in another program';
+      if (command === Invokes.MoveSession)
+        throw { code: 'internal', message: 'The session S7Job is open in another program' };
       return undefined;
     });
     useUIStore.getState().confirmModalState.onConfirm?.();

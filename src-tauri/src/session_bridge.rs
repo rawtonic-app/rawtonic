@@ -550,12 +550,12 @@ fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
 }
 /// Runs `f` holding the ingest gate (a session moving): no ingest, library
 /// copy or other session move starts meanwhile; `busy` when one runs.
-pub(crate) fn holding_import_gate<T>(
+pub(crate) fn holding_import_gate<T, E: From<String>>(
     busy: &str,
-    f: impl FnOnce() -> Result<T, String>,
-) -> Result<T, String> {
+    f: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
-        return Err(busy.into());
+        return Err(busy.to_string().into());
     }
     struct Release;
     impl Drop for Release {

@@ -18,7 +18,9 @@ afterEach(() => {
 describe('face retouch models', () => {
   it('downloads the face models only when asked (PRIVACY.md)', async () => {
     invoke.mockImplementation((_command: string, args: { download?: boolean }) =>
-      args.download ? Promise.resolve({ frame: 'f', faces: [] }) : Promise.reject('face-models-missing')
+      args.download
+        ? Promise.resolve({ frame: 'f', faces: [] })
+        : Promise.reject({ code: 'models_missing', message: 'face-models-missing' })
     );
     useEditorStore.setState({
       selectedImage: { path: '/s/Capture/a.CR3', isReady: true } as never,

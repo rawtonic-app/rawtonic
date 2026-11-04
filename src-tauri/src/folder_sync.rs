@@ -1,6 +1,7 @@
 //! Synchronize Folder and Previous Import for the open library (glue over
 //! `rawtonic_catalog::folder_sync` and `add`), and the background pass that
 //! records content hashes so moves can be verified later.
+use crate::ipc::{CommandError, ErrorCode};
 use crate::session_bridge::{after_relink, with_library};
 use rawtonic_catalog::{
     ImportBatchInfo, Library,
@@ -32,9 +33,12 @@ pub async fn folder_sync_scan(
     directory: String,
     folder: Option<String>,
     app: tauri::AppHandle,
-) -> Result<SyncPlan, String> {
+) -> Result<SyncPlan, CommandError> {
     if SYNC_RUNNING.swap(true, Ordering::AcqRel) {
-        return Err("A synchronization is already running".into());
+        return Err(CommandError::new(
+            ErrorCode::Busy,
+            "A synchronization is already running",
+        ));
     }
     CANCEL_SYNC.store(false, Ordering::Release);
     let result = with_library(directory, false, move |lib| {
@@ -48,26 +52,28 @@ pub async fn folder_sync_scan(
                 let _ = app.emit(SYNC_PROGRESS, progress);
             }
         };
-        lib.scan_folder_sync(
-            folder.as_deref().map(Path::new),
-            &SyncOptions {
-                accept: &|path| crate::formats::is_supported_image_file(path),
-                cancel: &CANCEL_SYNC,
-                progress: &progress,
-            },
-        )
-        .map_err(|e| {
-            if e.downcast_ref::<Cancelled>().is_some() {
-                "cancelled".to_string()
-            } else {
-                format!("{e:#}")
-            }
-        })
+        // The scan's own error, kept apart from opening the library.
+        Ok(lib
+            .scan_folder_sync(
+                folder.as_deref().map(Path::new),
+                &SyncOptions {
+                    accept: &|path| crate::formats::is_supported_image_file(path),
+                    cancel: &CANCEL_SYNC,
+                    progress: &progress,
+                },
+            )
+            .map_err(|e| {
+                if e.downcast_ref::<Cancelled>().is_some() {
+                    CommandError::cancelled("cancelled")
+                } else {
+                    CommandError::internal(format!("{e:#}"))
+                }
+            }))
     })
     .await
     .map_err(|e| e.to_string());
     SYNC_RUNNING.store(false, Ordering::Release);
-    result?
+    result??
 }
 
 #[tauri::command]

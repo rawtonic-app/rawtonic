@@ -59,6 +59,7 @@ mod identity_migration;
 mod image_loader;
 mod image_processing;
 mod inpainting;
+mod ipc;
 mod launch_request;
 mod legal;
 mod lens_correction;

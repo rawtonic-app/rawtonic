@@ -1,9 +1,6 @@
 import i18n from 'i18next';
 import { notify } from '../activity/notify';
-
-/** Start of the backend's error when ONNX Runtime is missing or cannot be
- * loaded (`rawtonic_onnx::RUNTIME_UNAVAILABLE`). */
-export const AI_RUNTIME_UNAVAILABLE = 'AI runtime unavailable';
+import { errorCode, errorMessage } from '../shared/ipc/errors';
 
 /** One toast for the runtime, however many AI tools fail at once. */
 const RUNTIME_TOAST_ID = 'ai-runtime-unavailable';
@@ -12,25 +9,27 @@ const RUNTIME_TOAST_ID = 'ai-runtime-unavailable';
  * per session. */
 let backgroundRuntimeNoticeShown = false;
 
+/** ONNX Runtime is missing or cannot be loaded (`rawtonic_onnx::RuntimeError`). */
 export function isAiRuntimeError(error: unknown): boolean {
-  return String(error).includes(AI_RUNTIME_UNAVAILABLE);
+  return errorCode(error) === 'ai_runtime_unavailable';
 }
 
 /** The backend had another photo loaded than the mask was asked for
  * (`ai_commands::PHOTO_CHANGED`): the request is dropped, not failed. */
 export function isPhotoChanged(error: unknown): boolean {
-  return String(error).includes('The photo changed while its mask was asked for');
+  return errorCode(error) === 'stale';
 }
 
+/** The task was cancelled (Cancel, or a newer request replaced it). */
 export function isAiTaskCancelled(error: unknown): boolean {
-  return String(error).includes('cancelled');
+  return errorCode(error) === 'cancelled';
 }
 
 /** Text for an AI tool's failure: our own translated sentence when the AI
  * runtime is missing or broken, else `fallback` (the error by default). */
 export function aiErrorMessage(error: unknown, fallback?: string): string {
   if (isAiRuntimeError(error)) return i18n.t('editor.ai.runtimeUnavailable');
-  return fallback ?? String(error);
+  return fallback ?? errorMessage(error);
 }
 
 /** Shows an AI tool's failure as a toast; nothing for a cancelled task.

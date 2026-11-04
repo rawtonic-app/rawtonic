@@ -11,6 +11,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
+import { errorMessage } from '../shared/ipc/errors';
 
 type Params = Record<string, unknown>;
 
@@ -534,7 +535,7 @@ export function startQaControl() {
     } catch (error) {
       reply = {
         id: payload.id,
-        error: error instanceof Error ? error.message : String(error)
+        error: errorMessage(error)
       };
     }
     await emit('qa-control-reply', reply);

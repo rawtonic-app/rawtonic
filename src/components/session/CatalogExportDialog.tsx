@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import OperationError from '../ui/OperationError';
 import { Invokes } from '../ui/AppProperties';
+import { errorCode, errorMessage } from '../../shared/ipc/errors';
 import { flushBeforeQuit, registerQuitFlush } from '../../utils/quit';
 import { openDialog } from '../../utils/fileDialog';
 import { useActivityStore } from '../../store/useActivityStore';
@@ -144,12 +145,11 @@ export async function runCatalogExport(request: CatalogExportRequest, onOpen: (d
       }
     );
   } catch (e) {
-    const message = String(e);
     useActivityStore.getState().resolve(id);
-    if (/cancelled/i.test(message)) {
+    if (errorCode(e) === 'cancelled') {
       notify.info(t('session.catalogExport.cancelled', { name }), { source: 'files' });
     } else {
-      notify.error(t('session.catalogExport.failed', { name }), { source: 'files', detail: message });
+      notify.error(t('session.catalogExport.failed', { name }), { source: 'files', detail: errorMessage(e) });
     }
   } finally {
     unregister();

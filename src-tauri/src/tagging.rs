@@ -16,6 +16,7 @@ use crate::app_state::AppState;
 use crate::file_management::{self, SaveFailure, parse_virtual_path};
 use crate::formats::is_supported_image_file;
 use crate::image_processing::ImageMetadata;
+use crate::ipc::CommandError;
 use crate::tagging_utils::candidates::TAG_CANDIDATES;
 use crate::tagging_utils::hierarchy::TAG_HIERARCHY;
 use rawtonic_metadata::labels;
@@ -240,7 +241,7 @@ pub async fn start_background_indexing(
     folder_path: String,
     app_handle: AppHandle,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     if let Some(handle) = state.indexing_task_handle.lock().unwrap().take() {
         println!("Cancelling previous indexing task.");
         handle.abort();
@@ -270,7 +271,7 @@ pub async fn start_background_indexing(
         is_custom,
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(CommandError::from)?;
     // The tag list and its embeddings, once for the whole folder.
     let (tag_names, tag_embeddings) = match &tag_models.text {
         Some(text) if is_custom => {

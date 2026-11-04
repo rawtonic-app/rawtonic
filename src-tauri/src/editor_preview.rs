@@ -32,6 +32,7 @@ use crate::image_processing::warp_image_geometry;
 use crate::image_processing::{
     get_all_adjustments_from_json, get_all_adjustments_with_masks, mask_definitions_from_json,
 };
+use crate::ipc::{CommandError, ErrorCode};
 use crate::lut_processing;
 use crate::mask_generation::MaskDefinition;
 use crate::mask_generation::get_cached_or_generate_mask;
@@ -1045,6 +1046,14 @@ pub(crate) async fn update_wgpu_transform(
 /// The webview matches it to tell the user instead of keeping a stale frame.
 pub(crate) const PREVIEW_RENDER_FAILED: &str = "Preview rendering failed";
 
+/// The error of a preview the renderer could not make at all.
+fn render_failed(error: impl std::fmt::Display) -> CommandError {
+    CommandError::new(
+        ErrorCode::RenderFailed,
+        format!("{PREVIEW_RENDER_FAILED}: {error}"),
+    )
+}
+
 /// The image Develop renders from: the full decode, or until it is in the
 /// photograph's preview proxy (preview_proxy.rs), with `source_scale` proxy
 /// pixels per full-resolution pixel and the full-resolution size.
@@ -1482,7 +1491,7 @@ pub(crate) fn process_preview_job(
     mask_overlay: Option<&crate::app_state::MaskOverlayRequest>,
     crop_edit: bool,
     render_generation: usize,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, CommandError> {
     let fn_start = std::time::Instant::now();
     #[cfg(feature = "performance-profiling")]
     let setup_stage = crate::performance::PerformanceStage::new("preview_setup");
@@ -1870,7 +1879,7 @@ pub(crate) fn process_preview_job(
                 fn_start.elapsed(),
                 error
             );
-            return Err(format!("{PREVIEW_RENDER_FAILED}: {error}"));
+            return Err(render_failed(error));
         }
     };
     state.rendered_source.mark(&loaded_image.image);
@@ -1908,7 +1917,7 @@ pub(crate) fn process_preview_job(
     let final_processed_image = Arc::new(final_processed_image);
     let final_rgba_image = match &*final_processed_image {
         DynamicImage::ImageRgba8(img) => img,
-        _ => return Err("Expected Rgba8 image from GPU for encoding".to_string()),
+        _ => return Err("Expected Rgba8 image from GPU for encoding".into()),
     };
 
     let step_start = std::time::Instant::now();
@@ -1976,7 +1985,7 @@ pub(crate) fn process_preview_job(
                 Ok(jpeg_bytes)
             }
         }
-        Err(e) => Err(format!("Failed to encode preview: {}", e)),
+        Err(e) => Err(format!("Failed to encode preview: {}", e).into()),
     }
 }
 
@@ -2766,7 +2775,7 @@ pub(crate) async fn render_split_before(
     js_adjustments: serde_json::Value,
     target_resolution: Option<u32>,
     app_handle: tauri::AppHandle,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
         render_split_before_blocking(&app_handle, &path, js_adjustments, target_resolution)
     })
@@ -2779,7 +2788,7 @@ fn render_split_before_blocking(
     path: &str,
     mut adjustments: serde_json::Value,
     target_resolution: Option<u32>,
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("split_before");
     let state = app_handle.state::<AppState>();
@@ -2877,7 +2886,7 @@ fn develop_split_before(
     preview_dim: u32,
     interim: bool,
     tm_override: Option<u32>,
-) -> Result<image::RgbaImage, String> {
+) -> Result<image::RgbaImage, CommandError> {
     // The edit's preview base when the before shares it (same framing and
     // retouch); else its own, without touching the edit's caches.
     let transform_hash = calculate_transform_hash(adjustments);
@@ -2953,7 +2962,7 @@ fn develop_split_before(
         },
         "split_before",
     )
-    .map_err(|error| format!("{PREVIEW_RENDER_FAILED}: {error}"))?;
+    .map_err(render_failed)?;
     Ok(rendered.into_rgba8())
 }
 
@@ -2975,7 +2984,7 @@ pub(crate) async fn apply_adjustments(
     crop_edit: Option<bool>,
     browser_preview_uri: Option<bool>,
     state: tauri::State<'_, AppState>,
-) -> Result<Response, String> {
+) -> Result<Response, CommandError> {
     let preview_channel: Option<tauri::ipc::Channel<Response>> =
         preview_channel.map(|id| id.channel_on(webview));
     #[cfg(feature = "performance-profiling")]
@@ -2993,8 +3002,10 @@ pub(crate) async fn apply_adjustments(
         .unwrap_or_else(|e| e.into_inner())
         .resolve(js_adjustments, live_stroke, sequence)?;
     // On receipt: a later request may refer to these strokes even if this
-    // job is superseded before it runs.
-    rawtonic_engine::mask_parameters::hydrate(&mut js_adjustments)?;
+    // job is superseded before it runs. Its only error: a reference to
+    // strokes the store does not hold, which the editor sends again.
+    rawtonic_engine::mask_parameters::hydrate(&mut js_adjustments)
+        .map_err(|e| CommandError::new(ErrorCode::MaskParametersMissing, e))?;
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     let kept = state.preview_jobs.submit(PreviewJob {
@@ -3066,7 +3077,8 @@ pub(crate) async fn apply_adjustments(
             Ok(Response::new(bytes))
         }
         Ok(Err(error)) => Err(error),
-        Err(_) => Err("Superseded or worker failed".to_string()),
+        // The worker dropped the job: a newer request replaced it.
+        Err(_) => Err(CommandError::cancelled("Superseded or worker failed")),
     }
 }
 

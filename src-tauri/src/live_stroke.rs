@@ -9,9 +9,17 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::ipc::{CommandError, ErrorCode};
+
 /// The reply to points that do not continue the stroke held here (a frame
 /// was lost or overtaken); the webview then sends the recipe again.
 pub const LIVE_STROKE_RESYNC: &str = "Live stroke out of sync";
+
+/// The error of a frame that does not continue the stroke held: the
+/// editor sends the whole recipe again.
+fn resync() -> CommandError {
+    CommandError::new(ErrorCode::LiveStrokeResync, LIVE_STROKE_RESYNC)
+}
 
 /// The stroke part of a live frame. With the recipe, `from` is the number of
 /// points its line holds; without it, `points` are those added since `from`.
@@ -45,7 +53,7 @@ impl LiveStrokeRecipe {
         adjustments: Option<Value>,
         stroke: Option<LiveStroke>,
         sequence: Option<u64>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, CommandError> {
         let sequence = sequence.unwrap_or(0);
         match (adjustments, stroke) {
             (Some(adjustments), None) => {
@@ -70,15 +78,15 @@ impl LiveStrokeRecipe {
                     .0
                     .as_mut()
                     .filter(|held| held.id == stroke.id && sequence > held.sequence)
-                    .ok_or(LIVE_STROKE_RESYNC)?;
+                    .ok_or_else(resync)?;
                 let points = stroke_points_mut(&mut held.adjustments, &stroke)
                     .filter(|points| points.len() == stroke.from)
-                    .ok_or(LIVE_STROKE_RESYNC)?;
+                    .ok_or_else(resync)?;
                 points.extend(stroke.points);
                 held.sequence = sequence;
                 Ok(held.adjustments.clone())
             }
-            (None, None) => Err("No adjustments".to_string()),
+            (None, None) => Err("No adjustments".into()),
         }
     }
 }
@@ -178,23 +186,23 @@ mod tests {
         // Nothing held yet.
         assert_eq!(
             held.resolve(None, Some(stroke(1, 0, 0..2)), Some(1)),
-            Err(LIVE_STROKE_RESYNC.into())
+            Err(resync())
         );
         held.resolve(Some(recipe(3)), Some(stroke(1, 3, 0..0)), Some(10))
             .unwrap();
         // A frame was overtaken: its successor starts past the held points.
         assert_eq!(
             held.resolve(None, Some(stroke(1, 5, 5..7)), Some(12)),
-            Err(LIVE_STROKE_RESYNC.into())
+            Err(resync())
         );
         // Another stroke, or a frame older than the held recipe.
         assert_eq!(
             held.resolve(None, Some(stroke(2, 3, 3..4)), Some(13)),
-            Err(LIVE_STROKE_RESYNC.into())
+            Err(resync())
         );
         assert_eq!(
             held.resolve(None, Some(stroke(1, 3, 3..4)), Some(9)),
-            Err(LIVE_STROKE_RESYNC.into())
+            Err(resync())
         );
         // The held stroke is unchanged by refused points.
         assert_eq!(
@@ -211,7 +219,7 @@ mod tests {
         assert_eq!(held.resolve(Some(recipe(1)), None, Some(11)), Ok(recipe(1)));
         assert_eq!(
             held.resolve(None, Some(stroke(1, 3, 3..4)), Some(12)),
-            Err(LIVE_STROKE_RESYNC.into())
+            Err(resync())
         );
     }
 
@@ -225,7 +233,7 @@ mod tests {
         );
         assert_eq!(
             held.resolve(None, Some(stroke(1, 4, 4..5)), Some(11)),
-            Err(LIVE_STROKE_RESYNC.into())
+            Err(resync())
         );
         // An older recipe arriving late does not replace a newer one.
         held.resolve(Some(recipe(3)), Some(stroke(1, 3, 0..0)), Some(20))

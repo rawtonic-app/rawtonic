@@ -6,6 +6,7 @@
 //! the same drive, a verified copy on another, the original trashed only
 //! after the copy was verified).
 use crate::file_operations::OperationSummary;
+use crate::ipc::{CommandError, ErrorCode};
 use rawtonic_catalog::session_move::{check_session_move, plan_session_move};
 use rawtonic_fileops::{Operation, State, Step, Target};
 use serde::Serialize;
@@ -102,13 +103,22 @@ pub const EXPORTS_PENDING: &str =
 /// Why nothing may move the session at `session` now: a watched folder or
 /// a tethered camera writes into the open session, or an export of it is
 /// waiting, running or paused.
-fn busy(session: &Path) -> Option<&'static str> {
+fn busy(session: &Path) -> Option<CommandError> {
     if crate::hot_folder::hot_folder_status().is_some() {
-        Some("Stop the watched folder before moving the session; nothing was moved.")
+        Some(CommandError::new(
+            ErrorCode::Busy,
+            "Stop the watched folder before moving the session; nothing was moved.",
+        ))
     } else if crate::camera_tethering::tether_status().is_some() {
-        Some("Disconnect the tethered camera before moving the session; nothing was moved.")
+        Some(CommandError::new(
+            ErrorCode::Busy,
+            "Disconnect the tethered camera before moving the session; nothing was moved.",
+        ))
     } else if crate::export_queue::has_unfinished_job_in(session) {
-        Some(EXPORTS_PENDING)
+        Some(CommandError::new(
+            ErrorCode::ExportsPending,
+            EXPORTS_PENDING,
+        ))
     } else {
         None
     }
@@ -167,10 +177,10 @@ pub async fn move_session(
     session: String,
     destination: String,
     app: AppHandle,
-) -> Result<OperationSummary, String> {
+) -> Result<OperationSummary, CommandError> {
     crate::file_management::blocking(move || {
-        if let Some(reason) = busy(Path::new(&session)) {
-            return Err(reason.to_string());
+        if let Some(refusal) = busy(Path::new(&session)) {
+            return Err(refusal);
         }
         crate::session_bridge::holding_import_gate(IMPORT_BUSY, || {
             let session = Path::new(&session);
@@ -237,8 +247,8 @@ pub(crate) fn before_reversal(
         return Ok(None);
     };
     let now = if forward { &step.from } else { target };
-    if let Some(reason) = busy(now) {
-        return Err(reason.to_string());
+    if let Some(refusal) = busy(now) {
+        return Err(refusal.message);
     }
     let resume = ResumePasses;
     wait_until_free(now, || {

@@ -389,7 +389,7 @@ pub struct PreviewJob {
     /// display then places it by the crop geometry.
     pub crop_edit: bool,
     /// A dropped responder means the job was superseded; `Err` is a real failure.
-    pub responder: tokio::sync::oneshot::Sender<Result<Vec<u8>, String>>,
+    pub responder: tokio::sync::oneshot::Sender<Result<Vec<u8>, crate::ipc::CommandError>>,
 }
 
 impl crate::preview_slot::Supersedes for PreviewJob {

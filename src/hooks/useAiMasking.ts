@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { isPhotoChanged, noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
+import { errorMessage } from '../shared/ipc/errors';
 import { DETECT_PENDING } from '../utils/settingsClipboard';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
@@ -447,7 +448,7 @@ export function useAiMasking() {
       return !applied;
     } catch (error) {
       if (isPhotoChanged(error)) return true;
-      toastAiError(error, `AI Mask Failed: ${error}`);
+      toastAiError(error, `AI Mask Failed: ${errorMessage(error)}`);
       return false;
     } finally {
       objectSelectionsComputing.delete(computing);
@@ -484,7 +485,7 @@ export function useAiMasking() {
       return !applyAiResult(selectedImage.path, subMaskId, newParameters, DEPTH_LIMITS);
     } catch (error) {
       if (isPhotoChanged(error)) return true;
-      toastAiError(error, `AI Depth Mask Failed: ${error}`);
+      toastAiError(error, `AI Depth Mask Failed: ${errorMessage(error)}`);
       return false;
     } finally {
       unregisterAiTask(subMaskId);
@@ -519,7 +520,7 @@ export function useAiMasking() {
       return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       if (isPhotoChanged(error)) return true;
-      toastAiError(error, `AI Foreground Mask Failed: ${error}`);
+      toastAiError(error, `AI Foreground Mask Failed: ${errorMessage(error)}`);
       return false;
     } finally {
       unregisterAiTask(subMaskId);
@@ -547,7 +548,7 @@ export function useAiMasking() {
       return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       if (isPhotoChanged(error)) return true;
-      toastAiError(error, `AI Sky Mask Failed: ${error}`);
+      toastAiError(error, `AI Sky Mask Failed: ${errorMessage(error)}`);
       return false;
     } finally {
       unregisterAiTask(subMaskId);
@@ -589,7 +590,7 @@ export function useAiMasking() {
       applyAiResult(selectedImage.path, subMaskId, newParameters);
       return true;
     } catch (error) {
-      toastAiError(error, `People mask failed: ${error}`);
+      toastAiError(error, `People mask failed: ${errorMessage(error)}`);
       return false;
     } finally {
       unregisterAiTask(subMaskId);

@@ -80,6 +80,7 @@ import {
 } from '../utils/appUndo';
 import { editUndoOrder, historyOrders, nextUndoOrder, setHistoryOrders } from '../utils/undoOrder';
 import { withSourceFrameOf } from '../utils/sourceFrame';
+import { errorCode } from '../shared/ipc/errors';
 import {
   allPhotoWritesSettled,
   batchPhotosReported,
@@ -1067,7 +1068,7 @@ async function runAutoStraightenOnce(
     result = await invoke(Invokes.CalculateAutoStraighten, { path: selectedImage.path, adjustments });
   } catch (err) {
     // The decode was another photograph's (auto_straighten.rs ANOTHER_PHOTO).
-    if (String(err).includes('another photograph is open')) return 'stale';
+    if (errorCode(err) === 'stale') return 'stale';
     throw err;
   }
   const now = (draftFor(selectedImage.path) ?? useEditorStore.getState().adjustments) as unknown as Record<

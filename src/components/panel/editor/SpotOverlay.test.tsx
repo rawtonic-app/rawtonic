@@ -574,7 +574,7 @@ describe('spot removal overlay', () => {
     expect(screen.getByTestId('remove-progress').textContent).toMatch(/3\D+9/);
     fireEvent.click(screen.getByRole('button'));
     expect(invoke).toHaveBeenCalledWith('cancel_ai_task', { taskId });
-    await act(async () => failFill('Task cancelled'));
+    await act(async () => failFill({ code: 'cancelled', message: 'Task cancelled' }));
     expect(screen.queryByTestId('remove-progress')).toBeNull();
     expect(useEditorStore.getState().adjustments.aiPatches ?? []).toHaveLength(0);
   });
@@ -631,7 +631,7 @@ describe('spot removal overlay', () => {
     expect(screen.getByTestId('remove-progress').textContent).toContain('Preparing large-area removal');
     fireEvent.click(screen.getByRole('button'));
     expect(invoke).toHaveBeenCalledWith('cancel_ai_task', { taskId });
-    await act(async () => failFill('Task cancelled'));
+    await act(async () => failFill({ code: 'cancelled', message: 'Task cancelled' }));
     expect(screen.queryByTestId('remove-progress')).toBeNull();
     expect(useEditorStore.getState().adjustments.aiPatches ?? []).toHaveLength(0);
   });

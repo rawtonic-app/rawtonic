@@ -6,6 +6,8 @@ pub use rawtonic_engine::auto_straighten::*;
 use serde::Serialize;
 use tauri::Manager;
 
+use crate::ipc::{CommandError, ErrorCode};
+
 /// What Auto straighten sets on the open photograph.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,17 +57,17 @@ pub async fn calculate_auto_straighten(
     path: String,
     adjustments: serde_json::Value,
     app_handle: tauri::AppHandle,
-) -> Result<Option<AutoStraightenResult>, String> {
+) -> Result<Option<AutoStraightenResult>, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<crate::app_state::AppState>();
         let loaded = crate::image_loader::wait_for_original_image(&state)?;
         if loaded.path != path {
-            return Err(ANOTHER_PHOTO.to_string());
+            return Err(CommandError::new(ErrorCode::Stale, ANOTHER_PHOTO));
         }
         let image = loaded.image;
         let (width, height) = (image.width(), image.height());
         Ok(straighten_recipe(&image, width, height, &adjustments).map(AutoStraightenResult::from))
     })
     .await
-    .map_err(|e| format!("Auto straighten failed: {e}"))?
+    .map_err(|e| CommandError::internal(format!("Auto straighten failed: {e}")))?
 }

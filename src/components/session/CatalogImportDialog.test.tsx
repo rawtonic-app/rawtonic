@@ -246,9 +246,28 @@ it('reports the result and refreshes the catalog; a failure says nothing was cha
     /1 new photo added\n2 photos updated\n1 changed photo kept as it was\n5 unchanged photos skipped/
   );
   expect(onDone).toHaveBeenCalled();
-  vi.mocked(invoke).mockRejectedValue('disk full');
+  vi.mocked(invoke).mockRejectedValue({ code: 'internal', message: 'disk full' });
   await runCatalogImport('/Main', '/laptop/Job', 'Laptop', options, onDone);
   const failed = useActivityStore.getState().entries.find((entry) => entry.status === 'failure')!;
   expect(failed.title).toMatch(/nothing was changed/);
   expect(failed.detail).toBe('disk full');
+});
+
+it('says an import was cancelled by its code, not by the words of its error', async () => {
+  const options = {
+    newPhotos: { mode: 'reference' as const },
+    changed: null,
+    overrides: {},
+    includeNew: true,
+    beforeSnapshot: 'Before'
+  };
+  const titles = () => useActivityStore.getState().entries.map((entry) => `${entry.status}: ${entry.title}`);
+  vi.mocked(invoke).mockRejectedValue({ code: 'cancelled', message: 'Ingest cancelled' });
+  await runCatalogImport('/Main', '/laptop/Job', 'Laptop', options, vi.fn());
+  expect(titles()).toContain('done: Import from catalog “Laptop” cancelled; nothing was changed');
+  expect(titles().some((title) => title.startsWith('failure'))).toBe(false);
+  // The word alone in a failure is a failure.
+  vi.mocked(invoke).mockRejectedValue({ code: 'internal', message: 'The copy was cancelled by the disk' });
+  await runCatalogImport('/Main', '/laptop/Job', 'Laptop', options, vi.fn());
+  expect(titles().some((title) => title.startsWith('failure'))).toBe(true);
 });

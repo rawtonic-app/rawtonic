@@ -48,9 +48,9 @@ export interface LiveStrokeArgs {
   points: Coord[];
 }
 
-/** The native side's reply to new points it cannot append (a frame was lost
- * or overtaken); the next frame sends the recipe again. */
-export const LIVE_STROKE_RESYNC = 'Live stroke out of sync';
+/* The native side rejects new points it cannot append (a frame was lost or
+ * overtaken) with the code `live_stroke_resync`; the next frame sends the
+ * recipe again. */
 
 let strokeSent: { id: number; points: number } | null = null;
 

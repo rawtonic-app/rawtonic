@@ -31,11 +31,12 @@ import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
 import { sourceDevelopToApply } from '../utils/aiDenoise';
 import { beforeAdjustments, beforeSnapshot } from '../utils/beforeSnapshot';
 import { toastAiError } from '../utils/aiErrors';
+import { errorCode, errorMessage } from '../shared/ipc/errors';
 
-// Matches PREVIEW_RENDER_FAILED in src-tauri/src/lib.rs.
+// The toast id of a preview the renderer could not make (code
+// `render_failed`, editor_preview::PREVIEW_RENDER_FAILED): one at a time.
 const PREVIEW_RENDER_FAILED = 'Preview rendering failed';
 import {
-  LIVE_STROKE_RESYNC,
   forgetLiveStroke,
   liveStrokeFrame,
   registerLiveMaskRenderer,
@@ -49,12 +50,7 @@ import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
 import { needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
-import {
-  MASK_PARAMETERS_MISSING,
-  acknowledgeParameters,
-  forgetParameterReferences,
-  withParameterReferences
-} from '../utils/maskParameterRefs';
+import { acknowledgeParameters, forgetParameterReferences, withParameterReferences } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
 import { viewerShown } from '../utils/viewerMode';
 
@@ -392,20 +388,21 @@ export function useImageProcessing(
           }
         }
       } catch (err) {
-        if (referenced && typeof err === 'string' && err.startsWith(MASK_PARAMETERS_MISSING)) {
+        if (referenced && errorCode(err) === 'mask_parameters_missing') {
           // The backend lost strokes it held: send them in full again.
           forgetParameterReferences();
           await executeRef.current(currentAdjustments, dragging, targetRes, live, inputAt, dispatchAt);
           return;
         }
-        if (err === LIVE_STROKE_RESYNC) forgetLiveStroke();
-        else if (err !== 'Superseded or worker failed') {
+        if (errorCode(err) === 'live_stroke_resync') forgetLiveStroke();
+        // A newer request superseded this one.
+        else if (errorCode(err) !== 'cancelled') {
           console.error('Failed to apply adjustments:', err);
         }
         // The native worker could not render at all (e.g. an invalid GPU shader).
         // Say so instead of leaving a stale or black frame; one toast at a time.
-        if (typeof err === 'string' && err.startsWith(PREVIEW_RENDER_FAILED)) {
-          notify.error(err, { toastId: PREVIEW_RENDER_FAILED });
+        if (errorCode(err) === 'render_failed') {
+          notify.error(errorMessage(err), { toastId: PREVIEW_RENDER_FAILED });
         }
         if (!dragging) {
           setEditor((state) => {
@@ -626,7 +623,7 @@ export function useImageProcessing(
         const editor = useEditorStore.getState();
         settleBusy();
         // A newer request or another photograph replaced this one.
-        if (String(err).includes('Load cancelled')) return;
+        if (errorCode(err) === 'cancelled') return;
         editor.setEditor({
           ...(editor.selectedImage?.path === path
             ? {
@@ -643,7 +640,7 @@ export function useImageProcessing(
               }
             : {})
         });
-        if (changesAiDenoise) toastAiError(err, `AI Denoise failed: ${err}`);
+        if (changesAiDenoise) toastAiError(err, `AI Denoise failed: ${errorMessage(err)}`);
         else console.error('Developing the source again failed:', err);
       });
   }, [
@@ -995,8 +992,8 @@ export function requestSplitBefore(targetRes: number) {
       }
     })
     .catch((err) => {
-      if (typeof err === 'string' && err.startsWith(PREVIEW_RENDER_FAILED)) {
-        notify.error(err, { toastId: PREVIEW_RENDER_FAILED });
+      if (errorCode(err) === 'render_failed') {
+        notify.error(errorMessage(err), { toastId: PREVIEW_RENDER_FAILED });
       } else {
         console.warn('Split view before failed:', err);
       }

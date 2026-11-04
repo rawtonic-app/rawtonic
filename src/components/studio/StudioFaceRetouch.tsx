@@ -13,6 +13,7 @@ import type {
   RetouchFace
 } from '../../utils/adjustments';
 import { aiErrorMessage } from '../../utils/aiErrors';
+import { errorCode } from '../../shared/ipc/errors';
 import AdjustmentControl from './AdjustmentControl';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../../utils/geometryKeys';
 import { frameGeometry as shownGeometry, reframePoint } from '../../utils/maskGeometry';
@@ -77,10 +78,6 @@ interface Analysis {
 /** Analyses of photos (path + geometry), so a photo's faces are found
  * once per session even before a slider moves. */
 const analyses = new Map<string, Promise<Analysis>>();
-
-/** The backend's answer when the face models are not installed and the
- * analysis was not allowed to download them (ai_faces.rs). */
-const MODELS_MISSING = 'face-models-missing';
 
 /** `download`: the user asked for the face models (PRIVACY.md: nothing is
  * downloaded just because the tab opened). */
@@ -194,7 +191,14 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const geometry = JSON.stringify(faceRetouchGeometry(adjustments));
   const stored = adjustments.faceRetouch ?? null;
   const current = faceRetouchIsCurrent(stored, adjustments) ? stored : null;
-  const [found, setFound] = useState<{ key: string; analysis?: Analysis; error?: string } | null>(null);
+  // `modelsMissing`: the face models are not installed and the analysis was
+  // not allowed to download them (`ai_faces::FACE_MODELS_MISSING`).
+  const [found, setFound] = useState<{
+    key: string;
+    analysis?: Analysis;
+    error?: string;
+    modelsMissing?: boolean;
+  } | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const showBlemishes = useEditorStore((s) => s.showFaceBlemishes);
   const multiSelected = useLibraryStore((s) => s.multiSelectedPaths);
@@ -275,7 +279,15 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           };
         });
       })
-      .catch((error) => live && setFound({ key: `${path}\n${geometry}`, error: aiErrorMessage(error) }));
+      .catch(
+        (error) =>
+          live &&
+          setFound({
+            key: `${path}\n${geometry}`,
+            error: aiErrorMessage(error),
+            modelsMissing: errorCode(error) === 'models_missing'
+          })
+      );
     return () => {
       live = false;
     };
@@ -314,7 +326,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const valueOf = (key: SliderKey, initial: number) => face?.settings[key] ?? settings[key] ?? initial;
   const busy = !current && !analysis && !(found?.key === key && found.error);
   const failure = found?.key === key ? found.error : undefined;
-  const modelsMissing = failure === MODELS_MISSING;
+  const modelsMissing = found?.key === key && Boolean(found.modelsMissing);
   const error = modelsMissing ? undefined : failure;
 
   return (

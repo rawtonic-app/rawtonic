@@ -211,7 +211,7 @@ it('shows progress and Cancel in the activity centre and the result with Open ca
 });
 
 it('reports a failure and that nothing was created', async () => {
-  vi.mocked(invoke).mockRejectedValue('Originals not available (1)');
+  vi.mocked(invoke).mockRejectedValue({ code: 'internal', message: 'Originals not available (1)' });
   await runCatalogExport(
     {
       source: '/Main',
@@ -227,6 +227,24 @@ it('reports a failure and that nothing was created', async () => {
   expect(entry.status).toBe('failure');
   expect(entry.title).toMatch(/nothing was created/);
   expect(entry.detail).toMatch(/Originals not available/);
+});
+
+it('says an export was cancelled by its code', async () => {
+  vi.mocked(invoke).mockRejectedValue({ code: 'cancelled', message: 'Ingest cancelled' });
+  await runCatalogExport(
+    {
+      source: '/Main',
+      paths: ['/a'],
+      destination: '/laptop/Job',
+      includeOriginals: true,
+      includePreviews: false,
+      leaveOutOwnedElsewhere: false
+    },
+    vi.fn()
+  );
+  const entry = useActivityStore.getState().entries[0];
+  expect(entry.status).not.toBe('failure');
+  expect(entry.title).toBe('Catalog export “Job” cancelled; nothing was created');
 });
 
 it('photos another project owns are left out only after Export the others, and never all of them', async () => {

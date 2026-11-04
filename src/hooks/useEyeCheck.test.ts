@@ -1,3 +1,4 @@
+import '../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
@@ -8,6 +9,8 @@ import { Invokes, RawStatus, type AppSettings, type ImageFile } from '../compone
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
+const { toast } = vi.hoisted(() => ({ toast: { warn: vi.fn(), error: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: toast }));
 const mockInvoke = vi.mocked(invoke);
 
 const photo = (path: string) => ({ path }) as ImageFile;
@@ -73,4 +76,23 @@ it('keeps a saved eye filter while the settings are still loading', () => {
   renderHook(() => useEyeCheck());
   expect(useLibraryStore.getState().filterCriteria.eyes).toBe('closed');
   expect(starts()).toBe(0);
+});
+
+it('offers the face models when they are missing, and shows any other failure', async () => {
+  toast.warn.mockReset();
+  mockInvoke.mockRejectedValueOnce({ code: 'models_missing', message: 'face-models-missing' });
+  const { unmount } = renderHook(() => useEyeCheck());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(toast.warn).toHaveBeenCalledTimes(1);
+  const [text, options] = toast.warn.mock.calls[0];
+  expect(text).not.toContain('face-models-missing');
+  expect(options.actions).toHaveLength(1);
+  unmount();
+  toast.warn.mockReset();
+  mockInvoke.mockRejectedValueOnce({ code: 'internal', message: 'Disk full' });
+  renderHook(() => useEyeCheck());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(toast.warn).toHaveBeenCalledTimes(1);
+  expect(toast.warn.mock.calls[0][0]).toContain('Disk full');
+  expect(toast.warn.mock.calls[0][1]).toBeUndefined();
 });

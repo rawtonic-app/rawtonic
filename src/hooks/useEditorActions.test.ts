@@ -842,7 +842,9 @@ describe('Auto straighten', () => {
     expect(vi.mocked(invoke).mock.calls.at(-1)?.[1]).toMatchObject({ path: '/first.dng' });
     const request = pending.find((r) => r.command === Invokes.CalculateAutoStraighten)!;
     request.settled = true;
-    await act(async () => request.resolve(Promise.reject('auto straighten: another photograph is open')));
+    await act(async () =>
+      request.resolve(Promise.reject({ code: 'stale', message: 'auto straighten: another photograph is open' }))
+    );
     await act(async () => {});
     expect(outcome).toBe('stale');
     expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);

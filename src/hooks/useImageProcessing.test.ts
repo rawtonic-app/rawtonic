@@ -12,10 +12,15 @@ import { Invokes, Panel } from '../components/ui/AppProperties';
 import { debouncedSave } from './useEditorActions';
 import { notify as toast } from '../activity/notify';
 import { flushSliderDraft, renderDraft } from '../utils/sliderDraft';
+import { forgetLiveStroke } from '../utils/liveMaskRender';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('./useEditorActions', () => ({ debouncedSave: vi.fn(), registerScheduledRecipe: vi.fn(() => () => {}) }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
+vi.mock('../utils/liveMaskRender', async (actual) => {
+  const module = await actual<typeof import('../utils/liveMaskRender')>();
+  return { ...module, forgetLiveStroke: vi.fn(module.forgetLiveStroke) };
+});
 
 const photo = (path: string, isReady = true) => ({
   path,
@@ -250,7 +255,7 @@ it('keeps original-preview overrides out of saved adjustments', async () => {
 it('reports a native render failure but not a superseded preview', async () => {
   mount();
   await act(async () => {
-    fail.shift()!('Superseded or worker failed');
+    fail.shift()!({ code: 'cancelled', message: 'Superseded or worker failed' });
   });
   expect(toast.error).not.toHaveBeenCalled();
   act(() =>
@@ -260,11 +265,44 @@ it('reports a native render failure but not a superseded preview', async () => {
   );
   const error = "Preview rendering failed: GPU shader 'Image Processing Shader' could not be created";
   await act(async () => {
-    fail.shift()!(error);
+    fail.shift()!({ code: 'render_failed', message: error });
   });
   expect(toast.error).toHaveBeenCalledExactlyOnceWith(error, {
     toastId: 'Preview rendering failed'
   });
+});
+
+it('reports only a render failure by its code, not by its text', async () => {
+  mount();
+  await act(async () => {
+    fail.shift()!({ code: 'internal', message: 'Preview rendering failed: in the text only' });
+  });
+  expect(toast.error).not.toHaveBeenCalled();
+});
+
+it('sends the strokes in full again when the backend lost their parameters', async () => {
+  mount();
+  expect(calls()).toHaveLength(1);
+  await act(async () => {
+    fail.shift()!({ code: 'mask_parameters_missing', message: 'MASK_PARAMETERS_MISSING: t1' });
+  });
+  expect(calls()).toHaveLength(2);
+  expect(toast.error).not.toHaveBeenCalled();
+  // The text alone is an ordinary failure: no second request.
+  await act(async () => {
+    fail.shift()!('MASK_PARAMETERS_MISSING: t1');
+  });
+  expect(calls()).toHaveLength(2);
+});
+
+it('starts a live stroke over when the backend cannot append its points', async () => {
+  mount();
+  const forgotten = () => vi.mocked(forgetLiveStroke).mock.calls.length;
+  const before = forgotten();
+  await act(async () => {
+    fail.shift()!({ code: 'live_stroke_resync', message: 'Live stroke out of sync' });
+  });
+  expect(forgotten()).toBe(before + 1);
 });
 
 it('renders the uncropped, unrotated crop-editing frame natively while cropping', async () => {
@@ -366,6 +404,21 @@ it("renders the split view's before again when a view state changes on live fram
   useEditorStore.setState({ splitView: false, hasRenderedFirstFrame: false });
 });
 
+it('reports a split view before the renderer could not make, by its code', async () => {
+  const nativeFrame = () => new TextEncoder().encode('WGPU_RENDER').buffer as ArrayBuffer;
+  const befores = () => vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.RenderSplitBefore);
+  useEditorStore.setState({ splitView: true, hasRenderedFirstFrame: true });
+  useUIStore.setState({ activePanel: Panel.Adjustments });
+  mount();
+  await act(async () => complete.shift()!(nativeFrame()));
+  expect(befores()).toHaveLength(1);
+  const error = 'Preview rendering failed: out of memory';
+  const index = vi.mocked(invoke).mock.calls.findIndex(([name]) => name === Invokes.RenderSplitBefore);
+  await act(async () => fail[index]({ code: 'render_failed', message: error }));
+  expect(toast.error).toHaveBeenCalledExactlyOnceWith(error, { toastId: 'Preview rendering failed' });
+  useEditorStore.setState({ splitView: false, hasRenderedFirstFrame: false });
+});
+
 describe('AI Denoise busy note', () => {
   const decoded = (path: string) => ({ ...photo(path), isDecoded: true });
   /** Starts a develop request for AI Denoise and returns how to end it. */
@@ -391,7 +444,7 @@ describe('AI Denoise busy note', () => {
 
   it('clears when the request is cancelled', async () => {
     const request = startDenoise();
-    await act(async () => request.reject('Load cancelled'));
+    await act(async () => request.reject({ code: 'cancelled', message: 'Load cancelled' }));
     expect(useEditorStore.getState().aiDenoiseBusy).toBe(false);
     expect(toast.error).not.toHaveBeenCalled();
   });
@@ -409,7 +462,7 @@ describe('AI Denoise busy note', () => {
   it('stays while a newer request runs', async () => {
     const first = startDenoise();
     act(() => useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiDenoise: 70 } }));
-    await act(async () => first.reject('Load cancelled'));
+    await act(async () => first.reject({ code: 'cancelled', message: 'Load cancelled' }));
     expect(useEditorStore.getState().aiDenoiseBusy).toBe(true);
   });
 });

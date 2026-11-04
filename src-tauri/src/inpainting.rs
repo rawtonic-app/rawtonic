@@ -1,5 +1,6 @@
 use std::io::Cursor;
 
+use crate::ipc::CommandError;
 use base64::{Engine as _, engine::general_purpose};
 use image::{DynamicImage, GenericImageView, Rgb, RgbImage, RgbaImage};
 use serde_json::Value;
@@ -504,7 +505,7 @@ async fn fill_large_hole(
     bounds: (usize, usize, usize, usize),
     task_id: Option<&str>,
     token: Option<std::sync::Arc<crate::app_state::AiTaskToken>>,
-) -> Result<Option<RgbaImage>, String> {
+) -> Result<Option<RgbaImage>, CommandError> {
     use tauri::Emitter;
 
     let (x0, x1, y0, y1) = bounds;
@@ -530,7 +531,7 @@ async fn fill_large_hole(
     let loaded = match &token {
         Some(token) => tokio::select! {
             loaded = loading => loaded,
-            _ = token.wait_for_cancel() => return Err("Task cancelled".to_string()),
+            _ = token.wait_for_cancel() => return Err(crate::ai_commands::task_cancelled()),
         },
         None => loading.await,
     };
@@ -561,7 +562,7 @@ async fn fill_large_hole(
     };
     let load_ms = start.elapsed().as_millis();
     if token.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(crate::ai_commands::task_cancelled());
     }
     let hole_mask = binary_hole(mask);
     let rgb = source.to_rgb8();
@@ -613,7 +614,7 @@ async fn fill_large_hole(
     let (guided, hole_mask) = match guided {
         Ok(Some(done)) => done,
         Ok(None) if token.as_ref().is_some_and(|t| t.is_cancelled()) => {
-            return Err("Task cancelled".to_string());
+            return Err(crate::ai_commands::task_cancelled());
         }
         Ok(None) => {
             log::info!(
@@ -648,14 +649,14 @@ pub async fn invoke_generative_replace_with_mask_def(
     task_id: Option<String>,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     let _guard = task_id
         .as_ref()
         .map(|id| crate::app_state::AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(crate::ai_commands::task_cancelled());
     }
 
     // MI-GAN follows the masking models' lifecycle (ai_lifecycle).
@@ -719,7 +720,7 @@ pub async fn invoke_generative_replace_with_mask_def(
     let mask_ms = started.elapsed().as_millis() - source_ms;
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(crate::ai_commands::task_cancelled());
     }
 
     let fill_start = std::time::Instant::now();
@@ -748,10 +749,10 @@ pub async fn invoke_generative_replace_with_mask_def(
             &state.ai_init_lock,
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
         if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-            return Err("Task cancelled".to_string());
+            return Err(crate::ai_commands::task_cancelled());
         }
 
         let filled =
@@ -760,7 +761,7 @@ pub async fn invoke_generative_replace_with_mask_def(
     };
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-        return Err("Task cancelled".to_string());
+        return Err(crate::ai_commands::task_cancelled());
     }
 
     let (patch_w, patch_h) = patch_rgba.dimensions();
@@ -821,7 +822,7 @@ pub async fn invoke_generative_replace_with_mask_def(
         patch_definition.name,
         started.elapsed().as_millis()
     );
-    result
+    result.map_err(CommandError::from)
 }
 
 #[cfg(test)]
