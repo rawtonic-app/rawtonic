@@ -23,5 +23,12 @@ for package in $packages; do
         status=1
     fi
 done
+# The recipe crate sits below the engine: serde and serde_json only (plan 2.2).
+recipe_deps=$(cargo tree --locked -p rawtonic-recipe -e normal --target all --depth 1 --prefix none --format '{p}' |
+    awk 'NR > 1 {print $1}' | grep -v -E '^(serde|serde_json)$' | sort -u || true)
+if [ -n "$recipe_deps" ]; then
+    echo "rawtonic-recipe depends on more than serde/serde_json: $(echo "$recipe_deps" | tr '\n' ' ')" >&2
+    status=1
+fi
 [ "$status" -eq 0 ] && echo "Layering: no engine or core crate depends on Tauri ($(echo "$packages" | wc -l | tr -d ' ') crates)."
 exit "$status"

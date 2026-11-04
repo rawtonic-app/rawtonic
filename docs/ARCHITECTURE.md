@@ -43,7 +43,8 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `runtime` | stage timing, allocator release | none | `performance`, `allocator` | none special |
 | `rawdecode` | RAW bytes → oriented linear RGB | `rawler`, `runtime` | `raw_processing`, `demosaic` | fixtures |
-| `engine` | develop model, masks, looks, lens | fs, metadata, rawdecode, runtime | `image_processing` | `-p engine` |
+| `recipe` | stored + resolved develop recipe, typed keys | serde, serde_json only | `stored`, `tone` | `-p recipe` |
+| `engine` | develop model, masks, looks, lens | fs, metadata, rawdecode, recipe, runtime | `image_processing` | `-p engine` |
 | `gpu` | wgpu pipeline, shaders, display | engine, fs, rawdecode, runtime | `gpu_processing` | `--ignored` GPU |
 | `export` | render, encoders, queue | engine, fs, gpu, metadata, naming, rawdecode, runtime | `file_export` | exports |
 
@@ -393,6 +394,19 @@ blacks of `renderVersion` 8 (`black_bias`), maker-note capture data, camera colo
 camera_crop (the aspect ratio set in the camera where the RAW keeps the whole sensor: Canon AspectInfo, the Exif image
 size), demosaic, gpu_demosaic, DNG opcodes/colour, capture_info, camera colour/exposure tables);
 
+
+#### `recipe`
+
+`recipe` (plan 2.2, ADR 0021) holds the develop recipe in two representations. `StoredRecipe` (owned) and `StoredRef`
+(borrowed) are the JSON value exactly as saved — key presence, explicit `null`s, unknown and nested fields — read and
+written only through typed keys (`Key<T> { name, default, since_version }`, one registry per section module); nothing is
+filled in on load or save. `ResolvedRecipe` holds the typed sections as they render (value objects such as `tone::Ev`
+and `tone::Amount`, which carry the Develop slider ranges but do not clamp), produced only by `rawtonic_recipe::normalize`
+from a stored recipe and never saved. Sections move in one per PR; moved so far: tone (exposure, contrast, highlights,
+shadows, whites, blacks, brightness, centré), which `image_processing::get_global_adjustments_from_json` reads from
+`ResolvedRecipe::tone`. The crate is below the engine and depends on serde and serde_json only
+(`scripts/check_layering.sh`). The `*Version` keys stay in `engine::recipe_versions` for now (their newest versions and
+`is_new_recipe` live with the engine's tools).
 
 #### `engine`
 

@@ -29,6 +29,7 @@ use anyhow::Result;
 use image::DynamicImage;
 use image::GenericImageView;
 use image::codecs::jpeg::JpegEncoder;
+use rawtonic_recipe::tone;
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
@@ -108,11 +109,11 @@ fn source_mtime(source: &Path) -> Option<u64> {
 /// Whites or Blacks.
 fn uses_tone_sliders(adjustments: &serde_json::Value) -> bool {
     let sets = |values: &serde_json::Value| {
-        ["contrast", "shadows", "whites", "blacks"]
+        [tone::CONTRAST, tone::SHADOWS, tone::WHITES, tone::BLACKS]
             .iter()
             .any(|key| {
                 values
-                    .get(key)
+                    .get(key.name())
                     .and_then(serde_json::Value::as_f64)
                     .is_some_and(|v| v != 0.0)
             })

@@ -5,6 +5,7 @@ use glam::{Mat3, Vec2, Vec3};
 use image::{DynamicImage, GenericImageView, Rgb32FImage};
 use imageproc::geometric_transformations::Projection;
 use nalgebra::{Matrix3 as NaMatrix3, Vector3 as NaVector3};
+use rawtonic_recipe::{StoredRef, tone};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -5126,6 +5127,10 @@ fn get_global_adjustments_from_json(
     tonemapper_override: Option<u32>,
 ) -> GlobalAdjustments {
     let versions = RecipeVersions::of(js_adjustments, is_raw);
+    // The tone section, resolved by the recipe crate (plan 2.2); the other
+    // sections are still read from the stored recipe below.
+    let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments));
+    let tone = &resolved.tone;
     let visibility = js_adjustments.get("sectionVisibility");
     let is_visible = |section: &str| -> bool {
         visibility
@@ -5275,13 +5280,13 @@ fn get_global_adjustments_from_json(
     };
 
     let mut global = GlobalAdjustments {
-        exposure: get_val("basic", "exposure", SCALES.exposure, None),
-        brightness: get_val("basic", "brightness", SCALES.brightness, None),
-        contrast: get_val("basic", "contrast", SCALES.contrast, None),
-        highlights: get_val("basic", "highlights", SCALES.highlights, None),
-        shadows: get_val("basic", "shadows", SCALES.shadows, None),
-        whites: get_val("basic", "whites", SCALES.whites, None),
-        blacks: get_val("basic", "blacks", SCALES.blacks, None),
+        exposure: tone.exposure.get() as f32 / SCALES.exposure,
+        brightness: tone.brightness.get() as f32 / SCALES.brightness,
+        contrast: tone.contrast.get() as f32 / SCALES.contrast,
+        highlights: tone.highlights.get() as f32 / SCALES.highlights,
+        shadows: tone.shadows.get() as f32 / SCALES.shadows,
+        whites: tone.whites.get() as f32 / SCALES.whites,
+        blacks: tone.blacks.get() as f32 / SCALES.blacks,
 
         saturation: get_val("color", "saturation", SCALES.saturation, None),
         temperature: get_val("color", "temperature", SCALES.temperature, None),
@@ -5315,7 +5320,7 @@ fn get_global_adjustments_from_json(
         clarity: get_val("details", "clarity", SCALES.clarity, None),
         dehaze: get_val("details", "dehaze", SCALES.dehaze, None),
         structure: get_val("details", "structure", SCALES.structure, None),
-        centré: get_val("details", "centré", SCALES.centré, None),
+        centré: tone.centre.get() as f32 / SCALES.centré,
         vignette_amount: get_val("effects", "vignetteAmount", SCALES.vignette_amount, None),
         vignette_midpoint: get_val(
             "effects",
@@ -7217,15 +7222,15 @@ pub fn perform_auto_analysis(image: &DynamicImage) -> AutoAdjustmentResults {
 
 pub fn auto_results_to_json(results: &AutoAdjustmentResults) -> serde_json::Value {
     json!({
-        "exposure": results.exposure,
-        "brightness": results.brightness,
-        "contrast": results.contrast,
-        "highlights": results.highlights,
-        "shadows": results.shadows,
+        tone::EXPOSURE.name(): results.exposure,
+        tone::BRIGHTNESS.name(): results.brightness,
+        tone::CONTRAST.name(): results.contrast,
+        tone::HIGHLIGHTS.name(): results.highlights,
+        tone::SHADOWS.name(): results.shadows,
         "vibrance": results.vibrancy,
         "vignetteAmount": results.vignette_amount,
         "clarity": results.clarity,
-        "centré": results.centre,
+        tone::CENTRE.name(): results.centre,
 
         "dehaze": results.dehaze,
         "sectionVisibility": {
@@ -7233,8 +7238,8 @@ pub fn auto_results_to_json(results: &AutoAdjustmentResults) -> serde_json::Valu
             "color": true,
             "effects": true
         },
-        "whites": results.whites,
-        "blacks": results.blacks
+        tone::WHITES.name(): results.whites,
+        tone::BLACKS.name(): results.blacks
     })
 }
 

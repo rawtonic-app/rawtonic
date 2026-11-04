@@ -199,7 +199,8 @@ fn measure_image(
 fn recipe_facts(path: &str) -> (f32, Option<WhiteBalance>, u64) {
     let (source, sidecar) = parse_virtual_path(path);
     let recipe = crate::exif_processing::load_sidecar(&sidecar).adjustments;
-    let exposure = recipe["exposure"].as_f64().unwrap_or(0.0) as f32;
+    let exposure = rawtonic_recipe::StoredRef::new(&recipe)
+        .get_or_default(&rawtonic_recipe::tone::EXPOSURE) as f32;
     let source = source.to_string_lossy();
     let white_balance = crate::image_processing::recipe_white_balance(&recipe)
         .or_else(|| rawtonic_engine::camera_profile::as_shot_white_balance(&source))

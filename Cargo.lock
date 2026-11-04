@@ -5398,6 +5398,7 @@ dependencies = [
  "rawtonic-naming",
  "rawtonic-onnx",
  "rawtonic-rawdecode",
+ "rawtonic-recipe",
  "rawtonic-runtime",
  "rawtonic-segment",
  "rawtonic-tether",
@@ -5551,6 +5552,7 @@ dependencies = [
  "rawtonic-fs",
  "rawtonic-metadata",
  "rawtonic-rawdecode",
+ "rawtonic-recipe",
  "rawtonic-runtime",
  "rayon",
  "serde",
@@ -5783,6 +5785,14 @@ dependencies = [
  "serde",
  "sha2 0.11.0",
  "wgpu",
+]
+
+[[package]]
+name = "rawtonic-recipe"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
