@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { KEYBIND_DEFINITIONS, buildComboMap, conflictingActions, shortcutHint, splitByView } from './keyboardUtils';
+import {
+  KEYBIND_DEFINITIONS,
+  buildComboMap,
+  conflictingActions,
+  fieldOwnsKey,
+  shortcutHint,
+  splitByView
+} from './keyboardUtils';
 
 describe('keybinds', () => {
   it.each([
@@ -90,5 +97,21 @@ describe('keybinds', () => {
     expect(shortcutHint('tool_brush', null, 'macos')).toBe('B');
     expect(shortcutHint('toggle_export', null, 'macos')).toBe('⌘ + Shift + E');
     expect(shortcutHint('copy_files', null, 'macos')).toBeNull();
+  });
+});
+
+describe('fieldOwnsKey with a command key', () => {
+  it('lets ⌘/Ctrl combos pass a select or checkbox but not a text field', () => {
+    const select = document.createElement('select');
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    const text = document.createElement('input');
+    const area = document.createElement('textarea');
+    document.body.append(select, check, text, area);
+    expect(fieldOwnsKey(select, 'KeyZ')).toBe(true);
+    expect(fieldOwnsKey(select, 'KeyZ', true)).toBe(false);
+    expect(fieldOwnsKey(check, 'KeyZ', true)).toBe(false);
+    expect(fieldOwnsKey(text, 'KeyZ', true)).toBe(true);
+    expect(fieldOwnsKey(area, 'KeyZ', true)).toBe(true);
   });
 });

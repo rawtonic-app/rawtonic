@@ -1287,7 +1287,7 @@ export const useKeyboardShortcuts = ({
         event.defaultPrevented ||
         state.ui.isSettingsOpen ||
         shortcutsHeld(state) ||
-        fieldOwnsKey(document.activeElement, event.code)
+        fieldOwnsKey(document.activeElement, event.code, event.metaKey || event.ctrlKey)
       )
         return;
       syncMacCapsLock(event, state);
@@ -1311,8 +1311,9 @@ export const useKeyboardShortcuts = ({
       // field's keys do; a slider keeps only the keys that move it.
       const rangeFocused =
         document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
-      const rangeOwnsKey = rangeFocused && fieldOwnsKey(document.activeElement, event.code);
-      if (!rangeFocused && fieldOwnsKey(document.activeElement, event.code)) return;
+      const rangeOwnsKey =
+        rangeFocused && fieldOwnsKey(document.activeElement, event.code, event.metaKey || event.ctrlKey);
+      if (!rangeFocused && fieldOwnsKey(document.activeElement, event.code, event.metaKey || event.ctrlKey)) return;
       // Tab moves the focus between fields and controls; it hides panels only
       // from the photograph, the browser tiles or with nothing focused.
       if (event.code === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;
