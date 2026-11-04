@@ -65,7 +65,9 @@ pub fn open_source(target: &Library, other: &Path) -> Result<Source, IngestError
     snapshot_database(&other, &manifest, temp.path())?;
     manifest.mode = Mode::Catalog;
     rawtonic_fs::atomic_write(
-        &temp.path().join("catalog.json"),
+        &temp
+            .path()
+            .join(rawtonic_catalog::layout::manifest_name(Mode::Catalog)),
         serde_json::to_vec_pretty(&manifest)?,
     )?;
     // Opening migrates the snapshot (an older catalog), never the other.

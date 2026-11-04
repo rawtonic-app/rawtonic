@@ -7,7 +7,7 @@
 //! another), which the caller runs with the session closed.
 use crate::CatalogError;
 use crate::error::{bail, ensure};
-use crate::{Manifest, Mode, db_name};
+use crate::{Manifest, Mode, layout::database_name};
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OpenFlags};
 use std::{fs, path::Path, path::PathBuf};
@@ -50,7 +50,7 @@ pub fn check_session_move(session: &Path, destination: &Path) -> Result<SessionM
         .canonicalize()
         .with_context(|| format!("{} is not available", session.display()))?;
     let manifest: Manifest = serde_json::from_slice(
-        &fs::read(from.join("session.json"))
+        &fs::read(from.join(crate::layout::SESSION_MANIFEST))
             .with_context(|| format!("{} holds no Rawtonic session", from.display()))?,
     )
     .context("The session's session.json cannot be read")?;
@@ -78,10 +78,8 @@ pub fn check_session_move(session: &Path, destination: &Path) -> Result<SessionM
         manifest.name,
         into.display()
     );
-    if let Some(library) = into
-        .ancestors()
-        .find(|p| p.join("session.json").is_file() || p.join("catalog.json").is_file())
-    {
+    if let Some(library) = crate::layout::LibraryLayout::at_or_above(&into) {
+        let library = library.directory();
         bail!(
             "A session cannot go inside another session or catalog ({}); nothing was moved.",
             library.display()
@@ -110,7 +108,7 @@ pub fn check_session_move(session: &Path, destination: &Path) -> Result<SessionM
 /// exclusive lock, without waiting, fails exactly then. On success the
 /// probe's close checkpoints the WAL into the database file.
 pub fn in_use_elsewhere(session: &Path) -> Result<bool, CatalogError> {
-    let db = session.join(db_name(Mode::Session));
+    let db = session.join(database_name(Mode::Session));
     ensure!(
         db.is_file(),
         "The session's database is missing: {}",

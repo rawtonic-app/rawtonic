@@ -149,9 +149,10 @@ pub(crate) fn scan_dir_lazy(
 /// them (the preference is off) must not replace the session's own.
 fn counts_wanted(path: &Path, requested: bool) -> bool {
     requested
-        || path
-            .ancestors()
-            .any(|dir| dir.join("session.json").is_file() && dir.join("session.sqlite").is_file())
+        || path.ancestors().any(|dir| {
+            dir.join(rawtonic_catalog::layout::SESSION_MANIFEST)
+                .is_file()
+        })
 }
 
 pub(crate) fn get_folder_tree_sync(

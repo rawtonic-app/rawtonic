@@ -154,6 +154,7 @@ fn render(
         pristine: Arc::clone(image),
         patched: None,
         measures: None,
+        library: None,
     };
     process_image_for_export_pipeline(
         path,

@@ -107,9 +107,7 @@ fn sweep_tree(top: &Path, library: &Path, now: SystemTime, cancel: &AtomicBool, 
         if cancel.load(Ordering::Acquire) {
             break;
         }
-        if folder != library
-            && (folder.join("session.json").is_file() || folder.join("catalog.json").is_file())
-        {
+        if folder != library && crate::layout::LibraryLayout::at(&folder).is_some() {
             continue;
         }
         swept.add_temp(temp::sweep_folder(&folder, now));

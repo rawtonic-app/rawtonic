@@ -285,6 +285,7 @@ pub async fn auto_gray_mix(
             &mut adjustments.global,
             &path,
             measures.as_ref(),
+            crate::photo_library::library_of_str(&path).as_deref(),
         );
         adjustments.global.detail_scale = scale;
         adjustments.global.show_clipping = 0;

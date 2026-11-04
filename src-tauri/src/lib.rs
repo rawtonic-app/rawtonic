@@ -78,6 +78,7 @@ mod negative_conversion;
 mod open_with;
 #[cfg(feature = "performance-profiling")]
 mod performance;
+mod photo_library;
 mod preset_converter;
 mod preview_cache;
 mod preview_jpeg;

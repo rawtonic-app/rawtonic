@@ -11,8 +11,8 @@
 use crate::CatalogError;
 use crate::error::ensure;
 use crate::{
-    Library, Manifest, Mode, SCHEMA_VERSION, db_name, external_root_key, insert_root,
-    manifest_name, prune_blobs,
+    Library, Manifest, Mode, SCHEMA_VERSION, external_root_key, insert_root, layout::database_name,
+    layout::manifest_name, prune_blobs,
 };
 use anyhow::{Context, Result};
 use rawtonic_fs::atomic_write;
@@ -22,11 +22,9 @@ use uuid::Uuid;
 
 /// Reads the manifest of the library (session or catalog) at `source`.
 pub fn read_manifest(source: &Path) -> Result<Manifest, CatalogError> {
-    let path = source.join(if source.join("session.json").is_file() {
-        "session.json"
-    } else {
-        "catalog.json"
-    });
+    let path = crate::layout::LibraryLayout::at(source)
+        .map(|layout| layout.manifest())
+        .unwrap_or_else(|| source.join(crate::layout::CATALOG_MANIFEST));
     let manifest: Manifest = serde_json::from_slice(
         &fs::read(&path).context("No Rawtonic session or catalog in this folder")?,
     )?;
@@ -48,7 +46,7 @@ pub fn snapshot_database(
     manifest: &Manifest,
     folder: &Path,
 ) -> Result<std::path::PathBuf, CatalogError> {
-    let source_db = source.join(db_name(manifest.mode));
+    let source_db = source.join(database_name(manifest.mode));
     ensure!(
         source_db.is_file() && !fs::symlink_metadata(&source_db)?.file_type().is_symlink(),
         "Library database is missing or a symbolic link"
@@ -58,7 +56,7 @@ pub fn snapshot_database(
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
-    let database = folder.join(db_name(Mode::Catalog));
+    let database = folder.join(database_name(Mode::Catalog));
     ensure!(!database.exists(), "Snapshot destination already exists");
     conn.execute("VACUUM INTO ?", [database.to_string_lossy().as_ref()])?;
     Ok(database)

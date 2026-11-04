@@ -89,10 +89,13 @@ fn registered_form(source: &Path) -> PathBuf {
 /// folders.
 pub(crate) fn culling_library_for(source: &Path, selected: Option<&Path>) -> Option<PathBuf> {
     session_for(source)
-        .or_else(|| rawtonic_engine::session_layout::outside_folder_owner(source))
+        .or_else(|| crate::photo_library::outside_folder_owner(source))
         .or_else(|| {
             selected
-                .filter(|dir| dir.join("catalog.json").is_file())
+                .filter(|dir| {
+                    dir.join(rawtonic_catalog::layout::CATALOG_MANIFEST)
+                        .is_file()
+                })
                 .map(Path::to_path_buf)
         })
 }
@@ -522,7 +525,7 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashS
 /// Registers the folders the session at `dir` keeps outside it (none for a
 /// catalog), so its photographs there are its own (G38).
 pub(crate) fn register_outside_folders(dir: &Path) {
-    rawtonic_engine::session_layout::set_outside_folders(
+    crate::photo_library::set_outside_folders(
         dir,
         rawtonic_catalog::session_folders::outside_folders_of(dir)
             .into_iter()
@@ -537,7 +540,7 @@ fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .replace(dir.into());
     if let Some(previous) = previous.filter(|p| p != dir) {
-        rawtonic_engine::session_layout::set_outside_folders(&previous, Vec::new());
+        crate::photo_library::set_outside_folders(&previous, Vec::new());
     }
     register_outside_folders(dir);
     let cache = app.path().app_config_dir().map_err(|e| e.to_string())?;
