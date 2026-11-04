@@ -254,7 +254,7 @@ pub(crate) fn before_reversal(
         return Err(refusal.message);
     }
     let resume = ResumePasses;
-    wait_until_free(now, || {
+    wait_until_free(now, || -> anyhow::Result<()> {
         anyhow::ensure!(
             !rawtonic_catalog::session_move::in_use_elsewhere(now)?,
             "The session at {} is open in another program (another Rawtonic window or the rawtonic command); close it there and try again. Nothing was moved.",
