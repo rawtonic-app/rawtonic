@@ -525,29 +525,16 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
     rawtonic_engine::image_processing::apply_render_default(&mut base);
     rawtonic_engine::edge_fringe::apply_default(&mut base, true, is_raw);
     rawtonic_engine::lateral_ca::apply_default(&mut base, true, is_raw);
-    // The tone sliders' response a new edit gets: without the key the
-    // recipe keeps the first response, whose lowered Highlights darkened
-    // bright areas several times further than the other editor (notes:
-    // benchmark-results/hl-highlights-2026-11-01).
-    base[rawtonic_engine::image_processing::TONE_VERSION_KEY] =
-        json!(rawtonic_engine::image_processing::TONE_VERSION);
-    // Every other tool's response a new edit gets (`initialAdjustmentsFor`
-    // in the editor): without the keys an import rendered Clarity, noise
-    // reduction, Defringe and grain with their first responses (notes:
-    // benchmark-results/lc3-lr-import-2026-11-01).
-    {
-        use rawtonic_engine::image_processing as ip;
-        base[ip::CLARITY_VERSION_KEY] = json!(ip::CLARITY_VERSION);
-        base[rawtonic_engine::color_noise::VERSION_KEY] =
-            json!(rawtonic_engine::color_noise::VERSION);
-        base[ip::LUMA_NOISE_VERSION_KEY] = json!(ip::LUMA_NOISE_VERSION);
-        base[ip::DEFRINGE_VERSION_KEY] = json!(ip::DEFRINGE_VERSION);
-        base[ip::BW_VERSION_KEY] = json!(ip::BW_VERSION);
-        base[ip::GRAIN_VERSION_KEY] = json!(ip::GRAIN_VERSION);
-        if is_raw {
-            base[rawtonic_engine::recipe_versions::AI_DENOISE_VERSION_KEY] =
-                json!(rawtonic_engine::image_loader::AI_DENOISE_VERSION);
-        }
+    // The tone sliders' and every other tool's response a new edit gets
+    // (`initialAdjustmentsFor` in the editor): without the keys an import
+    // rendered lowered Highlights several times darker than the other editor
+    // and Clarity, noise reduction, Defringe and grain with their first
+    // responses (notes: benchmark-results/hl-highlights-2026-11-01,
+    // lc3-lr-import-2026-11-01).
+    if let Some(map) = base.as_object_mut() {
+        map.extend(rawtonic_engine::image_processing::new_edit_responses(
+            is_raw,
+        ));
     }
     if let (Some(map), Some(base)) = (adjustments.as_object_mut(), base.as_object()) {
         for (key, value) in base {

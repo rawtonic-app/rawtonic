@@ -2389,14 +2389,9 @@ pub(crate) async fn activate_photo(
 
 /// The recipe a step renders the photograph's first frame with natively:
 /// `adjustments` (the webview's, when it has them), else its sidecar's, with
-/// the lens data a never-edited RAW starts with (as its export). A new
-/// recipe also gets the luminance noise reduction the editor gives new
-/// edits (`LUMA_NOISE_VERSION`, src/utils/adjustments.ts), so the frame is
-/// the one the editor's own request renders next, not one that changes
-/// when it arrives: the render defaults of new recipes
-/// (`image_processing::apply_render_default`) leave it at version 1, and on
-/// 9 of 13 never-edited card RAWs that rendered other pixels (notes:
-/// benchmark-results/fs2-culling-c1-2026-11-01/REPORT.md).
+/// the lens data and tool responses a never-edited RAW starts with (as its
+/// export, `normalize`), so the frame is the one the editor's own request
+/// renders next, not one that changes when it arrives.
 fn activation_recipe(
     adjustments: Option<serde_json::Value>,
     source_path: &std::path::Path,
@@ -2408,19 +2403,12 @@ fn activation_recipe(
     if recipe.is_null() {
         recipe = serde_json::json!({});
     }
-    let new = rawtonic_engine::image_processing::is_new_recipe(&recipe);
     let _ = rawtonic_export::normalize::normalize(
         &mut recipe,
         &rawtonic_export::normalize::RecipeSource::file(source_path),
         rawtonic_export::normalize::Bitmaps::None,
         rawtonic_export::normalize::Defaults::Render,
     );
-    if new && let Some(map) = recipe.as_object_mut() {
-        map.entry(rawtonic_engine::image_processing::LUMA_NOISE_VERSION_KEY)
-            .or_insert(serde_json::json!(
-                rawtonic_engine::image_processing::LUMA_NOISE_VERSION
-            ));
-    }
     recipe
 }
 

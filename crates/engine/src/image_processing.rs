@@ -6111,6 +6111,34 @@ pub fn apply_render_default(adjustments: &mut serde_json::Value) {
     }
 }
 
+/// The tool responses the editor's new edit of a RAW (`is_raw`) or other
+/// photo starts with (`initialAdjustmentsFor`, `newEditResponses`), beside
+/// the render, sharpening and frame versions (`apply_render_default`) and
+/// the RAW passes (`edge_fringe`, `lateral_ca`, `embedded_lens`). Without
+/// the keys a recipe keeps each tool's first response, e.g. the luminance
+/// noise reduction without speck removal at the RAW default amount 15.
+pub fn new_edit_responses(is_raw: bool) -> serde_json::Map<String, serde_json::Value> {
+    use serde_json::json;
+    let mut map = serde_json::Map::new();
+    map.insert(TONE_VERSION_KEY.into(), json!(TONE_VERSION));
+    map.insert(CLARITY_VERSION_KEY.into(), json!(CLARITY_VERSION));
+    map.insert(
+        crate::color_noise::VERSION_KEY.into(),
+        json!(crate::color_noise::VERSION),
+    );
+    map.insert(LUMA_NOISE_VERSION_KEY.into(), json!(LUMA_NOISE_VERSION));
+    map.insert(DEFRINGE_VERSION_KEY.into(), json!(DEFRINGE_VERSION));
+    map.insert(BW_VERSION_KEY.into(), json!(BW_VERSION));
+    map.insert(GRAIN_VERSION_KEY.into(), json!(GRAIN_VERSION));
+    if is_raw {
+        map.insert(
+            crate::recipe_versions::AI_DENOISE_VERSION_KEY.into(),
+            json!(crate::image_loader::AI_DENOISE_VERSION),
+        );
+    }
+    map
+}
+
 /// The recipe key naming the Defringe fringe detector a recipe was made with.
 pub const DEFRINGE_VERSION_KEY: &str = "defringeVersion";
 /// The newest detector: 2 (2026-10-17) takes only colour that the edge
