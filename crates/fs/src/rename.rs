@@ -32,7 +32,9 @@
 //! by name could take a file another program put there meanwhile). A crash
 //! after the claim but before the journal recorded it leaves it unnamed.
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::Path};
+#[cfg(unix)]
+use std::fs;
+use std::{io, path::Path};
 
 /// How [`rename_no_clobber`] put the file under its new name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -818,6 +820,7 @@ mod tests {
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::*;
+    use std::fs;
 
     #[cfg(windows)]
     #[test]
