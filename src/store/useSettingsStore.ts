@@ -15,6 +15,28 @@ interface SettingsState {
   handleSettingsChange: (newSettings: AppSettings) => Promise<void>;
 }
 
+let inFlight: Promise<void> | null = null;
+
+/**
+ * Saves a settings snapshot, after every earlier save has finished (at once
+ * when none is under way). The backend saves off the main thread, so two
+ * snapshots sent together could otherwise be written in the other order and
+ * the older one win.
+ */
+export function saveSettings(settings: AppSettings): Promise<void> {
+  const send = () => invoke<void>(Invokes.SaveSettings, { settings });
+  const save = inFlight ? inFlight.then(send) : Promise.resolve(send());
+  const settled = save.then(
+    () => undefined,
+    () => undefined
+  );
+  inFlight = settled;
+  void settled.then(() => {
+    if (inFlight === settled) inFlight = null;
+  });
+  return save;
+}
+
 export const useSettingsStore = create<SettingsState>((set) => ({
   appSettings: null,
   supportedTypes: null,
@@ -45,7 +67,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set({ appSettings: newSettings });
 
     try {
-      await invoke(Invokes.SaveSettings, { settings: settingsToSave });
+      await saveSettings(settingsToSave);
     } catch (err) {
       console.error('Failed to save settings:', err);
     }

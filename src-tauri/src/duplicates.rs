@@ -222,7 +222,7 @@ pub async fn duplicates_groups(
     app: tauri::AppHandle,
     directory: String,
 ) -> Result<Vec<Vec<ReviewMember>>, String> {
-    let settings = crate::app_settings::load_settings(app).unwrap_or_default();
+    let settings = crate::state::settings::current(&app);
     with_library(directory, false, move |lib| {
         let groups = lib.duplicate_groups().map_err(|e| e.to_string())?;
         Ok(groups

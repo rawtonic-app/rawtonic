@@ -2,7 +2,7 @@
 //! and app-state access stay here, the logic lives in the engine crate.
 pub use rawtonic_engine::image_loader::*;
 
-use crate::app_settings::{AppSettings, load_settings};
+use crate::app_settings::AppSettings;
 use crate::app_state::{AppState, LoadedImage, SourceSignal};
 use crate::exif_processing;
 use crate::file_management::{parse_virtual_path, read_file_mapped};
@@ -477,7 +477,7 @@ pub async fn load_image_proxy(
     }
     open_source(&state, &path);
     crate::editor_preview::release_still_for(&state, &path);
-    let settings = load_settings(app_handle).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let variant = stored_decode_variant(&path);
     let decoded_key = decoded_cache_key(&source_path_str, None, variant);
     if state
@@ -815,7 +815,7 @@ pub async fn apply_ai_denoise(
     let (image, measures) = match cached {
         Some((image, _, measures)) => (image, measures),
         None => {
-            let settings = load_settings(app_handle.clone()).unwrap_or_default();
+            let settings = crate::state::settings::current(&app_handle);
             let cancel_token = Some((tracker, my_generation));
             let decode_source = source.clone();
             let ((image, measures), exif) = tokio::task::spawn_blocking(move || {
@@ -1038,7 +1038,7 @@ pub async fn load_image(
         None
     };
 
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let proxy_settings = settings.clone();
 
     let path_clone = source_path_str.clone();

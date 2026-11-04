@@ -39,7 +39,6 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
-use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
@@ -733,7 +732,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
 /// The Standard proxy size wanted now.
 fn wanted_size(app_handle: &tauri::AppHandle, viewer_dim: u32) -> u32 {
     let state = app_handle.state::<AppState>();
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     let dim = state.last_preview_dim.load(Ordering::Relaxed);
     preview_proxy::standard_size(if dim > 0 { dim } else { viewer_dim }, &settings)
 }
@@ -761,7 +760,7 @@ fn prepare(
     if !is_raw_file(&source) || preview_proxy::proxy_path(&source).is_none() {
         return;
     }
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     let size = wanted_size(app_handle, 0);
     if preview_proxy::stored_size(&source, &settings).is_some_and(|s| s >= size)
         || !preview_proxy::source_available(&source)
@@ -985,7 +984,7 @@ fn build(app_handle: &tauri::AppHandle, worker: &Worker, item: &BuildItem) -> Ou
             "The RAW file is missing (offline)".into()
         });
     }
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     let size = wanted_size(app_handle, worker.viewer_dim.load(Ordering::Relaxed));
     let needs_standard =
         preview_proxy::stored_size(&source, &settings).is_none_or(|stored| stored < size);
@@ -1176,7 +1175,7 @@ pub async fn apply_preview_limits(
     folder: Option<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<usize, String> {
-    let settings = load_settings(app_handle).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     tauri::async_runtime::spawn_blocking(move || {
         [
             session_previews_dir(folder.as_deref()),
@@ -1218,7 +1217,7 @@ pub fn apply_limits_near(app_handle: &tauri::AppHandle, path: &str) {
         }
         last.insert(dir.clone(), now);
     }
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     apply_limits(&dir, &settings);
 }
 

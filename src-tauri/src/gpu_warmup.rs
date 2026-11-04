@@ -14,7 +14,7 @@
 //! after creating the device. Bounded by `LIMIT`; whatever compiled by then
 //! is in the file (each compile is written as it finishes). It logs to
 //! `gpu-warmup.log` beside `app.log`; it reads the backend choice from the
-//! settings file without the migrations of `load_settings` and writes
+//! settings file without the settings store's migrations and writes
 //! nothing but the cache file and that log (no photos, settings, app log or
 //! crash flag). Only the one-time carry-over from the former identity
 //! (`identity_migration`, a no-clobber copy) runs before it, as at every

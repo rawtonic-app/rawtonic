@@ -1000,7 +1000,7 @@ fn check_template(template: &str) -> Result<(), String> {
 /// The user's opt-in to Canon cameras on the camera library's untested
 /// path (Preferences > Tethering; off when the settings cannot be read).
 fn experimental_canon(app: &AppHandle) -> bool {
-    crate::app_settings::load_settings(app.clone())
+    crate::state::settings::try_current(app)
         .ok()
         .and_then(|settings| settings.tether_experimental_canon)
         .unwrap_or(false)

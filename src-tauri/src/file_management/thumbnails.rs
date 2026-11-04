@@ -19,7 +19,6 @@ use crate::image_processing::apply_flip;
 use crate::image_processing::apply_geometry_warp;
 use crate::image_processing::apply_rotation;
 use crate::image_processing::get_all_adjustments_from_json;
-use crate::load_settings;
 use crate::mask_generation::ParametricMaskSource;
 use crate::mask_generation::prepare_parametric_mask_source;
 use crate::mask_generation::{MaskBitmap, MaskDefinition};
@@ -319,7 +318,7 @@ pub(crate) fn develop_thumbnail(
     let new_recipe = (is_raw && crate::image_processing::is_new_recipe(&adjustments))
         .then(|| adjustments.clone());
 
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     let always_decode_raw = settings.always_decode_raw_thumbnails.unwrap_or(false);
 
     // A preview proxy (preview_proxy.rs) develops the thumbnail like the
@@ -1064,7 +1063,7 @@ pub(crate) fn generate_single_thumbnail_and_cache(
 pub fn refresh_thumbnail(app_handle: &AppHandle, path: &str) {
     let state = app_handle.state::<crate::app_state::AppState>();
     let gpu_context = crate::gpu_processing::get_or_init_gpu_context(&state, app_handle).ok();
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     let Ok(cache_dir) = get_thumb_cache_dir(app_handle) else {
         return;
     };
@@ -1104,7 +1103,7 @@ pub(crate) fn take_next_thumbnail_path(
 pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
     let state = app_handle.state::<crate::app_state::AppState>();
     let manager = state.thumbnail_manager.clone();
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let thread_count = settings.thumbnail_worker_threads.unwrap_or(4).clamp(1, 16);
 
     for _ in 0..thread_count {
@@ -1140,7 +1139,7 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                 let gpu_context =
                     crate::gpu_processing::get_or_init_gpu_context(&state, &app_clone).ok();
 
-                let current_settings = load_settings(app_clone.clone()).unwrap_or_default();
+                let current_settings = crate::state::settings::current(&app_clone);
 
                 if let Ok(cache_dir) = get_thumb_cache_dir(&app_clone) {
                     if manager_clone.rotational_disk.load(Ordering::Relaxed) {
@@ -1341,7 +1340,7 @@ pub async fn restore_thumbnail(
     restoration_job(move || {
         let state = app_handle.state::<AppState>();
         let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
-        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let settings = crate::state::settings::current(&app_handle);
         let directory = get_thumb_cache_dir(&app_handle)?;
         generate_single_thumbnail_and_cache(
             &path,
@@ -1404,7 +1403,7 @@ pub fn get_cached_or_generate_thumbnail_image(
     gpu_context: Option<&GpuContext>,
 ) -> Result<DynamicImage> {
     let thumb_cache_dir = get_thumb_cache_dir(app_handle).map_err(|e| anyhow::anyhow!(e))?;
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     let target_width_small = settings.small_thumbnail_resolution.unwrap_or(480);
     let target_width_medium = settings.medium_thumbnail_resolution.unwrap_or(1280);
 

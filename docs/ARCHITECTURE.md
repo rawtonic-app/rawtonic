@@ -478,6 +478,11 @@ engine crates.
 `export_processing`, `image_loader`, `exif_processing` and the other same-named modules are now thin glue over the
 engine/export crates; still inherited and Tauri-bound: file_management, ai_*, inpainting, tagging, camera_tethering.
 
+`src-tauri/src/state/` holds the sub-states split out of `AppState` (plan step 3.3), each managed on its own:
+`state::settings::SettingsStore` reads and migrates `settings.json` once per run and serves it from memory
+(`current` / `try_current`; changes through `update`, one read-modify-write under one lock). Its `README.md` has the
+lock policy (`state::lock::lock_recover`) and the lock order.
+
 ADR 0009 moves AI/tether only when a consumer outside the app needs them, by its move-don't-rewrite method and
 byte-identical-export gate.
 

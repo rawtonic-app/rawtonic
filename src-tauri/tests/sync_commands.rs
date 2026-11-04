@@ -12,10 +12,6 @@ use std::path::Path;
 /// (command, why it may run on the main thread)
 const SYNC_COMMANDS: &[(&str, &str)] = &[
     (
-        "save_settings",
-        "read-modify-write against the frontend's own saves: stays ordered with them on the main thread; moving it off needs a library-level lock (follow-up)",
-    ),
-    (
         "add_to_album",
         "read-modify-write against the frontend's own saves: stays ordered with them on the main thread; moving it off needs a library-level lock (follow-up)",
     ),

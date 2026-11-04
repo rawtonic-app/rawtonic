@@ -13,7 +13,6 @@ use std::io::Cursor;
 use std::path::Path;
 use tauri::AppHandle;
 
-use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::image_processing::downscale_f32_image;
 use tauri::Emitter;
@@ -207,7 +206,7 @@ pub async fn preview_negative_conversion(
                         loaded.image.clone().as_ref().clone()
                     } else {
                         drop(original_lock);
-                        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+                        let settings = crate::state::settings::current(&app_handle);
 
                         match read_file_mapped(Path::new(&source_path_str)) {
                             Ok(mmap) => load_base_image_from_bytes(
@@ -234,7 +233,7 @@ pub async fn preview_negative_conversion(
                     }
                 } else {
                     drop(original_lock);
-                    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+                    let settings = crate::state::settings::current(&app_handle);
 
                     match read_file_mapped(Path::new(&source_path_str)) {
                         Ok(mmap) => load_base_image_from_bytes(
@@ -302,7 +301,7 @@ pub async fn convert_negatives(
             let (source_path, _) = parse_virtual_path(path_str);
             let real_path = source_path.to_string_lossy().to_string();
 
-            let settings = load_settings(app_handle.clone()).unwrap_or_default();
+            let settings = crate::state::settings::current(&app_handle);
 
             let img = match read_file_mapped(Path::new(&real_path)) {
                 Ok(mmap) => load_base_image_from_bytes(&mmap, &real_path, false, &settings, None),

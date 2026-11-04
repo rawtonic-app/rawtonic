@@ -1061,10 +1061,8 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
     Ok(AppSettings::default())
 }
 
-static SETTINGS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// The processing backend chosen in Preferences, read without
-/// `load_settings`' migrations or the keeping of an unreadable file: for a
+/// The processing backend chosen in Preferences, read without the
+/// settings store's migrations or the keeping of an unreadable file: for a
 /// run that must leave the settings alone (`gpu_warmup`, run by the
 /// installer before the first launch).
 pub fn read_processing_backend(app_handle: &AppHandle) -> Option<String> {
@@ -1079,16 +1077,12 @@ fn processing_backend_in(path: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
-pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
-    let _guard = SETTINGS_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let path = get_settings_path(&app_handle)?;
-    let mut settings = read_settings_file(&path)?;
-
+/// Brings settings written by an older version (or an older frontend
+/// snapshot) up to date. Idempotent; returns whether anything changed.
+pub(crate) fn migrate_settings(settings: &mut AppSettings) -> bool {
     let all_current_keys = all_available_adjustments();
     let default_included = default_included_adjustments();
-    let mut settings_modified = migrate_viewer_background(&mut settings);
+    let mut settings_modified = migrate_viewer_background(settings);
 
     if settings.root_folders.is_empty()
         && let Some(last) = &settings.last_root_path
@@ -1134,42 +1128,50 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
             settings_modified = true;
         }
     }
+    settings_modified
+}
 
-    if settings_modified && let Ok(json_string) = serde_json::to_string_pretty(&settings) {
-        let _ = rawtonic_metadata::atomic_write(&path, json_string);
+/// Reads `path`, migrates it and writes a migrated file back (best effort).
+/// The settings store calls it once per run (`state::settings`).
+pub(crate) fn load_settings_file(path: &Path) -> Result<AppSettings, String> {
+    let mut settings = read_settings_file(path)?;
+    if migrate_settings(&mut settings)
+        && let Ok(json_string) = serde_json::to_string_pretty(&settings)
+    {
+        let _ = rawtonic_metadata::atomic_write(path, json_string);
     }
-
     Ok(settings)
 }
 
+/// Saves a frontend snapshot. Runs in a blocking worker: the frontend sends
+/// its saves one after another (`useSettingsStore` `saveSettings`), and the
+/// store does each read-modify-write under its one write lock.
 #[tauri::command]
-pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result<(), String> {
-    let _guard = SETTINGS_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let path = get_settings_path(&app_handle)?;
-    write_settings_file(&path, &mut settings)?;
+pub async fn save_settings(settings: AppSettings, app_handle: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || save_settings_snapshot(settings, &app_handle))
+        .await
+        .map_err(|e| e.to_string())?
+}
 
+fn save_settings_snapshot(settings: AppSettings, app_handle: &AppHandle) -> Result<(), String> {
+    let cache_size = crate::state::settings::update(app_handle, |saved| {
+        take_frontend_snapshot(saved, settings);
+        Ok(saved.image_cache_size.unwrap_or(5) as usize)
+    })?;
     let state = app_handle.state::<AppState>();
-    let cache_size = settings.image_cache_size.unwrap_or(5) as usize;
-    state
-        .decoded_image_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .set_capacity(cache_size);
+    crate::state::lock::lock_recover(&state.decoded_image_cache).set_capacity(cache_size);
     Ok(())
 }
 
 /// Frontend snapshots must never roll back the backend's throttle timestamp,
 /// nor the usage-statistics choice, which only `persist_usage_stats` changes.
-fn write_settings_file(path: &Path, settings: &mut AppSettings) -> Result<(), String> {
-    let saved = read_settings_file(path)?;
-    settings.last_update_check = saved.last_update_check;
-    settings.usage_stats = saved.usage_stats;
-    persist_settings_file(path, settings)
+fn take_frontend_snapshot(saved: &mut AppSettings, mut snapshot: AppSettings) {
+    snapshot.last_update_check = saved.last_update_check;
+    snapshot.usage_stats = saved.usage_stats;
+    *saved = snapshot;
 }
 
-fn persist_settings_file(path: &Path, settings: &AppSettings) -> Result<(), String> {
+pub(crate) fn persist_settings_file(path: &Path, settings: &AppSettings) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?;
     may_replace_settings(path)?;
     rawtonic_metadata::atomic_write(path, json).map_err(|e| e.to_string())
@@ -1178,16 +1180,10 @@ fn persist_settings_file(path: &Path, settings: &AppSettings) -> Result<(), Stri
 /// Saves the usage-statistics choice on its own (ADR 0017): the switch
 /// reports a failed save instead of showing a choice that is not kept.
 pub(crate) fn persist_usage_stats(app: &AppHandle, on: bool) -> Result<(), String> {
-    let _guard = SETTINGS_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    persist_usage_stats_at(&get_settings_path(app)?, on)
-}
-
-fn persist_usage_stats_at(path: &Path, on: bool) -> Result<(), String> {
-    let mut settings = read_settings_file(path)?;
-    settings.usage_stats = Some(on);
-    persist_settings_file(path, &settings)
+    crate::state::settings::update(app, |settings| {
+        settings.usage_stats = Some(on);
+        Ok(())
+    })
 }
 
 /// Reserve an attempt before any network access; failed attempts are throttled too.
@@ -1196,19 +1192,18 @@ pub(crate) fn reserve_update_check(
     manual: bool,
     now: u64,
 ) -> Result<Option<AppSettings>, String> {
-    let _guard = SETTINGS_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let path = get_settings_path(app)?;
-    reserve_update_check_at(&path, manual, now)
+    crate::state::settings::update_if(app, |settings| {
+        reserve_update_check_in(settings, manual, now)
+    })
 }
 
-fn reserve_update_check_at(
-    path: &Path,
+/// Marks the attempt in `settings` when one is due; the store writes it
+/// before the caller goes online (`None`: none due, nothing written).
+fn reserve_update_check_in(
+    settings: &mut AppSettings,
     manual: bool,
     now: u64,
 ) -> Result<Option<AppSettings>, String> {
-    let mut settings = read_settings_file(path)?;
     crate::update_check::core::when_due(
         settings.check_for_updates.unwrap_or(true),
         settings.last_update_check,
@@ -1216,8 +1211,7 @@ fn reserve_update_check_at(
         manual,
         || {
             settings.last_update_check = Some(now);
-            persist_settings_file(path, &settings)?;
-            Ok(settings)
+            Ok(settings.clone())
         },
     )
     .transpose()
@@ -1226,6 +1220,42 @@ fn reserve_update_check_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::settings::SettingsStore;
+
+    // Each helper uses a fresh store, as a new launch would: these tests are
+    // about what reaches the file. The store within one run: `state::settings`.
+    fn in_store<R>(
+        path: &Path,
+        change: impl FnOnce(&mut AppSettings) -> Result<R, String>,
+    ) -> Result<R, String> {
+        SettingsStore::default().update(|| Ok(path.to_path_buf()), change)
+    }
+
+    fn write_settings_file(path: &Path, settings: &mut AppSettings) -> Result<(), String> {
+        let snapshot = settings.clone();
+        in_store(path, |saved| {
+            take_frontend_snapshot(saved, snapshot);
+            Ok(())
+        })
+    }
+
+    fn persist_usage_stats_at(path: &Path, on: bool) -> Result<(), String> {
+        in_store(path, |settings| {
+            settings.usage_stats = Some(on);
+            Ok(())
+        })
+    }
+
+    fn reserve_update_check_at(
+        path: &Path,
+        manual: bool,
+        now: u64,
+    ) -> Result<Option<AppSettings>, String> {
+        SettingsStore::default().update_if(
+            || Ok(path.to_path_buf()),
+            |settings| reserve_update_check_in(settings, manual, now),
+        )
+    }
 
     #[test]
     fn recent_libraries_round_trip_and_distinguish_clear_from_legacy_settings() {
@@ -1273,7 +1303,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("settings.json");
         assert_eq!(processing_backend_in(&path), None);
-        // Settings an older version wrote, which `load_settings` migrates.
+        // Settings an older version wrote, which the settings store migrates.
         let content = r#"{"lastRootPath":"/Photos","processingBackend":"dx12"}"#;
         fs::write(&path, content).unwrap();
         assert_eq!(processing_backend_in(&path).as_deref(), Some("dx12"));
@@ -1560,8 +1590,10 @@ mod tests {
             check_for_updates: Some(false),
             ..Default::default()
         };
-        let original = serde_json::to_vec(&initial).unwrap();
-        rawtonic_metadata::atomic_write(&path, &original).unwrap();
+        rawtonic_metadata::atomic_write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        // As the app finds it: migrated once at start-up.
+        load_settings_file(&path).unwrap();
+        let original = std::fs::read(&path).unwrap();
         assert!(
             reserve_update_check_at(&path, false, 100)
                 .unwrap()
@@ -1572,16 +1604,17 @@ mod tests {
     }
 }
 
-/// The Tauri commands: file I/O and the settings lock run in a blocking
-/// worker, not on the main thread. The sync functions above stay for the Rust
-/// callers.
+/// The Tauri commands: the first read of the file runs in a blocking
+/// worker, not on the main thread.
 pub mod command {
     use super::{AppHandle, AppSettings};
 
     #[tauri::command]
     pub async fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
-        tauri::async_runtime::spawn_blocking(move || super::load_settings(app_handle))
-            .await
-            .map_err(|e| e.to_string())?
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::state::settings::try_current(&app_handle).map(|s| (*s).clone())
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 }

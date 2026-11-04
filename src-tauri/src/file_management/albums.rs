@@ -8,7 +8,6 @@ use super::is_cloud_placeholder;
 use super::parse_virtual_path;
 use super::resolve_image_metadata;
 use super::resolve_xmp_path;
-use crate::load_settings;
 use rawtonic_metadata::photo_ref::{self, PhotoRef};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -237,7 +236,7 @@ pub async fn get_album_images(
 }
 
 fn album_images(paths: Vec<String>, app_handle: AppHandle) -> Result<Vec<ImageFile>, String> {
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(&app_handle);
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     // Photographs a library holds whose file is offline stay in their

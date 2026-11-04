@@ -104,7 +104,7 @@ pub fn after_first_display_variant() {
 /// that can (the processor of the old one is dropped).
 #[cfg(not(target_os = "linux"))]
 pub fn attach_display(state: &tauri::State<AppState>, app_handle: &tauri::AppHandle) {
-    let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     if !settings.use_wgpu_renderer.unwrap_or(true) {
         return;
     }

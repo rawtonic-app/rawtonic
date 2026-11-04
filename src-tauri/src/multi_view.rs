@@ -22,7 +22,6 @@ use std::time::Instant;
 use image::{DynamicImage, GenericImageView};
 use tauri::{Emitter, Manager};
 
-use crate::app_settings::load_settings;
 use crate::app_state::AppState;
 use crate::editor_preview::{reduced_preview_base, reduced_preview_scale};
 use crate::file_management::{parse_virtual_path, read_file_mapped};
@@ -679,7 +678,7 @@ fn load_source(
         };
         return Ok((proxy.image, scale, facts, "proxy-memory"));
     }
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     if is_raw
         && proxy_fits
         && let Some(proxy) = crate::preview_proxy::read(&source_path, &settings)
@@ -927,7 +926,7 @@ fn develop_rgba(
     input: DevelopInput,
 ) -> Result<image::RgbaImage, String> {
     let state = app_handle.state::<AppState>();
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     let recipe = input.recipe;
     let (width, height) = input.image.dimensions();
     let masks: Vec<MaskDefinition> = recipe
@@ -1561,7 +1560,7 @@ fn prepare_region(
     let loading = Instant::now();
     // Before the settings: a change after makes a decode made now stale.
     let generation = crate::multi_view_prefetch::decodes_generation();
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     let (source, source_scale, facts, source_kind, preview_key) =
         load_full_source(app_handle, path, recipe, &settings, generation)?;
     log::info!(
@@ -1695,7 +1694,7 @@ fn prepare_region_from_rows(
     let start = Instant::now();
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     // The source and its true size (the cells' facts may come from a fast
     // decode, whose size is rounded).
     let decoded = decode_in_memory(&state, path, recipe, &settings)
@@ -1910,7 +1909,7 @@ fn region_source_ready(
 ) -> bool {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = crate::state::settings::current(app_handle);
     let in_memory = decode_in_memory(&state, path, recipe, &settings).is_some();
     in_memory
         || (zoom.scale >= 1.0
