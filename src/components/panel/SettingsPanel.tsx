@@ -1533,7 +1533,7 @@ export default function SettingsPanel({
                         </SettingItem>
                       )}
 
-                      {restartRequired && (
+                      {(restartRequired || relaunchFailed) && (
                         <>
                           <Text
                             as="div"
