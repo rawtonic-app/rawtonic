@@ -95,6 +95,27 @@ fn symlink_or_skip(original: &Path, link: &Path) -> bool {
     }
 }
 
+/// Windows: symbolic links need Developer Mode or the symlink privilege;
+/// without it (ERROR_PRIVILEGE_NOT_HELD) the test is skipped, as on FAT.
+#[cfg(windows)]
+fn symlink_or_skip(original: &Path, link: &Path) -> bool {
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+    const ERROR_PRIVILEGE_NOT_HELD: i32 = 1314;
+    let made = if original.is_dir() {
+        symlink_dir(original, link)
+    } else {
+        symlink_file(original, link)
+    };
+    match made {
+        Ok(()) => true,
+        Err(e) if e.raw_os_error() == Some(ERROR_PRIVILEGE_NOT_HELD) => {
+            eprintln!("SKIP: no right to make symbolic links ({e})");
+            false
+        }
+        Err(e) => panic!("cannot make a link at {}: {e}", link.display()),
+    }
+}
+
 /// A source folder, a target folder on another volume where possible, a
 /// trash on the source volume and a journal.
 struct World {

@@ -126,12 +126,20 @@ if [ "$RUST" = 1 ]; then
   else
     printf 'skip %-45s (no libgphoto2; brew install libgphoto2 / apt install libgphoto2-dev)\n' "rust: tether helper with libgphoto2"
   fi
-  # Windows-only code in the crates without C dependencies (the others need a
-  # MinGW compiler): catches cfg(windows) slips that Linux/macOS never compile.
+  # Windows-only code: catches cfg(windows) slips that Linux/macOS never compile.
   if rustup target list --installed 2>/dev/null | grep -qx x86_64-pc-windows-gnu; then
     run "rust: windows clippy (fs, metadata, tether)" \
       cargo clippy -p rawtonic-fs -p rawtonic-metadata -p rawtonic-tether \
       --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
+    # The crates with C dependencies (bundled SQLite, aws-lc) need a MinGW C
+    # compiler for the Windows target.
+    if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+      run "rust: windows clippy (fileops, catalog, ingest, contribute)" \
+        cargo clippy -p rawtonic-fileops -p rawtonic-catalog -p rawtonic-ingest -p rawtonic-contribute \
+        --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
+    else
+      printf 'skip %-45s (brew install mingw-w64 / apt install gcc-mingw-w64-x86-64)\n' "rust: windows clippy (C crates)"
+    fi
   else
     printf 'skip %-45s (rustup target add x86_64-pc-windows-gnu)\n' "rust: windows clippy"
   fi
