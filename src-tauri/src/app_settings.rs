@@ -1259,7 +1259,11 @@ mod tests {
     ) -> Result<Option<AppSettings>, String> {
         SettingsStore::default().update_if(
             || Ok(path.to_path_buf()),
-            |settings| reserve_update_check_in(settings, manual, now),
+            |settings| {
+                // The privacy notice gate (`privacy_notice`) is not under test here.
+                settings.privacy_notice_seen = Some(true);
+                reserve_update_check_in(settings, manual, now)
+            },
         )
     }
 

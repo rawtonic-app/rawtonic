@@ -446,9 +446,10 @@ jobs:
           if (-not (Get-ChildItem old\*-setup.exe)) { Write-Error 'the last release has no NSIS installer'; exit 1 }
       - name: Install the old version, then update over it
         run: |
-          $dir = Join-Path $env:LOCALAPPDATA 'Rawtonic'
+          # A custom folder: the update must find and keep it.
+          $dir = Join-Path $env:RUNNER_TEMP 'Rawtonic custom folder'
           $old = (Get-ChildItem old\*-setup.exe)[0].FullName
-          $p = Start-Process $old -ArgumentList '/S' -PassThru -Wait
+          $p = Start-Process $old -ArgumentList '/S', "/D=$dir" -PassThru -Wait
           if ($p.ExitCode -ne 0) { Write-Error "old install failed ($($p.ExitCode))"; exit 1 }
           $oldVersion = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Rawtonic').DisplayVersion
           "installed $oldVersion; HKCU\Software keys: $((Get-ChildItem HKCU:\Software | Where-Object { $_.PSChildName -match 'rawtonic' }).PSChildName -join ', ')"

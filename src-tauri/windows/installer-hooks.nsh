@@ -13,6 +13,11 @@
 !include nsDialogs.nsh
 !include FileFunc.nsh
 
+; Tauri's .onInit picks the install folder (the default one, then the folder of
+; the new publisher key) before any page runs, so an earlier installation in a
+; custom folder is found here, by its legacy key; /D= still wins.
+InstallDirRegKey HKCU "Software\rawtonic\Rawtonic" ""
+
 Page custom RawtonicPrivacyPre RawtonicPrivacyLeave
 
 Function RawtonicMoveLegacyKey
