@@ -10,8 +10,10 @@
 //! analysis) is written once, under `STRINGS_KEY`, and referred to by its
 //! SHA-256: twenty snapshots of a photograph with AI masks wrote 18.5 MB
 //! per save with a copy each, 1.8 MB like this (`snapshot_timing`).
+use crate::CatalogError;
+use crate::error::ensure;
 use crate::{BLOB_MIN_LEN, Library, load_blobs, prune_blobs, store_blobs, visit_strings};
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -41,7 +43,7 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// A new snapshot of `adjustments`, taken now.
-    pub fn new(name: &str, adjustments: Value) -> Result<Self> {
+    pub fn new(name: &str, adjustments: Value) -> Result<Self, CatalogError> {
         let snapshot = Self {
             id: Uuid::new_v4().to_string(),
             name: clean_name(name)?,
@@ -69,7 +71,7 @@ impl Snapshot {
 
 /// `name` as a snapshot is named: trimmed, not empty, at most `MAX_NAME`
 /// characters.
-pub fn clean_name(name: &str) -> Result<String> {
+pub fn clean_name(name: &str) -> Result<String, CatalogError> {
     let name = name.trim();
     ensure!(!name.is_empty(), "A snapshot needs a name");
     ensure!(
@@ -125,7 +127,7 @@ pub fn in_state(state: &Value) -> Vec<Snapshot> {
 
 /// `snapshots` as a sidecar holds them: the list (`SIDECAR_KEY`) and its
 /// long strings, each once (`STRINGS_KEY`). None for no snapshots.
-pub fn for_sidecar(snapshots: &[Snapshot]) -> Result<Option<(Value, Value)>> {
+pub fn for_sidecar(snapshots: &[Snapshot]) -> Result<Option<(Value, Value)>, CatalogError> {
     if snapshots.is_empty() {
         return Ok(None);
     }
@@ -143,7 +145,7 @@ pub fn for_sidecar(snapshots: &[Snapshot]) -> Result<Option<(Value, Value)>> {
 
 /// Gives an editor state `snapshots` as a sidecar holds them, in place of
 /// any it carries.
-pub fn set_in_state(state: &mut Value, snapshots: &[Snapshot]) -> Result<()> {
+pub fn set_in_state(state: &mut Value, snapshots: &[Snapshot]) -> Result<(), CatalogError> {
     let packed = for_sidecar(snapshots)?;
     if let Some(map) = state.as_object_mut() {
         map.remove(SIDECAR_KEY);
@@ -284,14 +286,18 @@ pub(crate) fn any(tx: &Connection, version: &str) -> Result<bool> {
 
 /// Takes a snapshot into `list`, the snapshots an editor sidecar keeps (a
 /// photograph in no library), as `Library::add_snapshot` does.
-pub fn add_to(list: &mut Vec<Snapshot>, name: &str, adjustments: Value) -> Result<Snapshot> {
+pub fn add_to(
+    list: &mut Vec<Snapshot>,
+    name: &str,
+    adjustments: Value,
+) -> Result<Snapshot, CatalogError> {
     let snapshot = Snapshot::new(name, adjustments)?;
     list.push(snapshot.clone());
     Ok(snapshot)
 }
 
 /// Renames the snapshot `id` of `list` (`Library::rename_snapshot`).
-pub fn rename_in(list: &mut [Snapshot], id: &str, name: &str) -> Result<()> {
+pub fn rename_in(list: &mut [Snapshot], id: &str, name: &str) -> Result<(), CatalogError> {
     let name = clean_name(name)?;
     let snapshot = list
         .iter_mut()
@@ -302,7 +308,7 @@ pub fn rename_in(list: &mut [Snapshot], id: &str, name: &str) -> Result<()> {
 }
 
 /// Gives the snapshot `id` of `list` new adjustments (`Library::update_snapshot`).
-pub fn update_in(list: &mut [Snapshot], id: &str, adjustments: Value) -> Result<()> {
+pub fn update_in(list: &mut [Snapshot], id: &str, adjustments: Value) -> Result<(), CatalogError> {
     let snapshot = list
         .iter_mut()
         .find(|s| s.id == id)
@@ -317,7 +323,7 @@ pub fn update_in(list: &mut [Snapshot], id: &str, adjustments: Value) -> Result<
 }
 
 /// Deletes the snapshot `id` of `list` (`Library::delete_snapshot`).
-pub fn delete_from(list: &mut Vec<Snapshot>, id: &str) -> Result<()> {
+pub fn delete_from(list: &mut Vec<Snapshot>, id: &str) -> Result<(), CatalogError> {
     let before = list.len();
     list.retain(|s| s.id != id);
     ensure!(list.len() < before, "Unknown snapshot");
@@ -327,7 +333,11 @@ pub fn delete_from(list: &mut Vec<Snapshot>, id: &str) -> Result<()> {
 impl Library {
     /// The version a photograph's edit is: its primary one, or the virtual
     /// copy `copy` (None when that copy is not recorded).
-    pub fn version_for(&self, asset: &str, copy: Option<&str>) -> Result<Option<String>> {
+    pub fn version_for(
+        &self,
+        asset: &str,
+        copy: Option<&str>,
+    ) -> Result<Option<String>, CatalogError> {
         match copy {
             None => self.primary_version(asset).map(Some),
             Some(copy) => Ok(self
@@ -342,12 +352,17 @@ impl Library {
     }
 
     /// The snapshots of `version`, in the order they were taken.
-    pub fn snapshots(&self, version: &str) -> Result<Vec<Snapshot>> {
-        read(&self.conn, &self.directory, version)
+    pub fn snapshots(&self, version: &str) -> Result<Vec<Snapshot>, CatalogError> {
+        Ok(read(&self.conn, &self.directory, version)?)
     }
 
     /// Takes a snapshot of `adjustments` for `version` under `name`.
-    pub fn add_snapshot(&self, version: &str, name: &str, adjustments: Value) -> Result<Snapshot> {
+    pub fn add_snapshot(
+        &self,
+        version: &str,
+        name: &str,
+        adjustments: Value,
+    ) -> Result<Snapshot, CatalogError> {
         let snapshot = Snapshot::new(name, adjustments)?;
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         ensure!(
@@ -367,7 +382,7 @@ impl Library {
     }
 
     /// Renames the snapshot `id` of `version`.
-    pub fn rename_snapshot(&self, version: &str, id: &str, name: &str) -> Result<()> {
+    pub fn rename_snapshot(&self, version: &str, id: &str, name: &str) -> Result<(), CatalogError> {
         let name = clean_name(name)?;
         ensure!(
             self.conn.execute(
@@ -381,7 +396,12 @@ impl Library {
 
     /// Gives the snapshot `id` of `version` new adjustments (Lightroom's
     /// Update with Current Settings); its name, id and time stay.
-    pub fn update_snapshot(&self, version: &str, id: &str, adjustments: Value) -> Result<()> {
+    pub fn update_snapshot(
+        &self,
+        version: &str,
+        id: &str,
+        adjustments: Value,
+    ) -> Result<(), CatalogError> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let mut snapshot = read(&tx, &self.directory, version)?
             .into_iter()
@@ -417,7 +437,7 @@ impl Library {
 
     /// Deletes the snapshot `id` of `version` (and the stored strings only
     /// it used).
-    pub fn delete_snapshot(&self, version: &str, id: &str) -> Result<()> {
+    pub fn delete_snapshot(&self, version: &str, id: &str) -> Result<(), CatalogError> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         ensure!(
             tx.execute(

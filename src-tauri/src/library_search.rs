@@ -162,11 +162,11 @@ pub const AI_FACTS_CHANGED: &str = "library-ai-facts-changed";
 
 /// Runs `save` (a recipe write of asset `id` in `lib`) and announces when
 /// it changed the photograph's AI facts (`AI_FACTS_CHANGED`).
-pub(crate) fn announcing_ai_facts<T>(
+pub(crate) fn announcing_ai_facts<T, E>(
     lib: &Library,
     id: &str,
-    save: impl FnOnce() -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
+    save: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
     let before = lib.ai_facts(id).ok();
     let saved = save()?;
     if before != lib.ai_facts(id).ok()

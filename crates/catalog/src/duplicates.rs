@@ -17,6 +17,7 @@
 //!
 //! Near-duplicates (visual similarity) and merging metadata are stage 2
 //! (notes: parity-gaps/G36-organization.md).
+use crate::CatalogError;
 use crate::image_hash::{current, image_hash};
 use crate::{Library, Owner};
 use anyhow::Result;
@@ -220,13 +221,18 @@ impl Library {
     }
 
     /// How many present photographs have no current image hash.
-    pub fn image_hash_backlog(&self) -> Result<usize> {
+    pub fn image_hash_backlog(&self) -> Result<usize, CatalogError> {
         Ok(self.image_hash_todo()?.0.len())
     }
 
     /// Records `hash` for asset `id` when its file still has `stamp` (the
     /// one taken before it was read). Returns whether it was recorded.
-    pub fn record_image_hash(&self, id: &str, hash: &str, stamp: (u64, i64)) -> Result<bool> {
+    pub fn record_image_hash(
+        &self,
+        id: &str,
+        hash: &str,
+        stamp: (u64, i64),
+    ) -> Result<bool, CatalogError> {
         let asset = self.asset(id)?;
         if file_stamp(&asset.path) != Some(stamp) {
             return Ok(false);
@@ -247,7 +253,7 @@ impl Library {
         workers: usize,
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(usize, usize),
-    ) -> Result<HashPass> {
+    ) -> Result<HashPass, CatalogError> {
         let (todo, photos) = self.image_hash_todo()?;
         let total = todo.len();
         let mut pass = HashPass {
@@ -307,7 +313,7 @@ impl Library {
     /// Groups of present, visible photographs with identical image data
     /// (current hashes only), each in import order (oldest first); groups
     /// ordered by their first photograph's path.
-    pub fn duplicate_groups(&self) -> Result<Vec<Vec<DuplicateMember>>> {
+    pub fn duplicate_groups(&self) -> Result<Vec<Vec<DuplicateMember>>, CatalogError> {
         let visible = self.visible_assets();
         let mut query = self.conn.prepare(&format!(
             "SELECT a.id,a.rel_path,r.path,r.external,a.size,{captured},
@@ -419,7 +425,7 @@ impl Library {
         &self,
         keep: &[PathBuf],
         trash: &[PathBuf],
-    ) -> Result<Vec<(PathBuf, Refusal)>> {
+    ) -> Result<Vec<(PathBuf, Refusal)>, CatalogError> {
         let mut kept = std::collections::HashSet::new();
         let mut kept_companions = std::collections::HashSet::new();
         for path in keep {
@@ -505,7 +511,7 @@ impl Library {
     }
 
     /// The image hashes on record by asset id (tests, the CLI).
-    pub fn image_hashes(&self) -> Result<HashMap<String, Option<String>>> {
+    pub fn image_hashes(&self) -> Result<HashMap<String, Option<String>>, CatalogError> {
         Ok(self
             .conn
             .prepare(

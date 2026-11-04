@@ -4,11 +4,13 @@
 //! (`plan_add`), then all of them are inserted with it in one transaction
 //! (`insert_planned`). A failure keeps none of them, so a retry adds them
 //! complete; nothing is ever written to or beside the files.
+use crate::CatalogError;
+use crate::error::ensure;
 use crate::{
     Asset, Library, Mode, external_root_key, fingerprint, insert_root, search_text, write_metadata,
     write_recipe,
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use rawtonic_metadata::Metadata;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -95,7 +97,7 @@ impl Contents {
     /// label and keywords also seed an editor state. Reads only; an
     /// unreadable sidecar is an error, so the photograph is not added
     /// without what it holds.
-    pub fn read_sidecars(photo: &Path) -> Result<Self> {
+    pub fn read_sidecars(photo: &Path) -> Result<Self, CatalogError> {
         let name = photo.file_name().context("No filename")?;
         let editor = photo.with_file_name(format!("{}.rrdata", name.to_string_lossy()));
         if editor.is_file() {
@@ -195,7 +197,7 @@ impl PlannedAsset {
     pub fn edit_metadata(
         mut self,
         edit: impl FnOnce(&mut Metadata, bool) -> Result<()>,
-    ) -> Result<Self> {
+    ) -> Result<Self, CatalogError> {
         let initialized = self.metadata.is_some();
         let metadata = self.metadata.get_or_insert_default();
         edit(metadata, initialized)?;
@@ -206,7 +208,7 @@ impl PlannedAsset {
     /// Registers the photograph with `name`, a file beside it, as its
     /// companion (a RAW's JPEG; its size, fingerprint and SHA-256 read now),
     /// in the same transaction.
-    pub fn with_companion(mut self, name: &str) -> Result<Self> {
+    pub fn with_companion(mut self, name: &str) -> Result<Self, CatalogError> {
         crate::companion::validate_name(name)?;
         let identity = crate::companion::Identity::read(&self.path.with_file_name(name))?;
         self.companion = Some((name.to_string(), identity));
@@ -300,7 +302,7 @@ impl Library {
     /// Reads `path` (size, modification time, content fingerprint) and
     /// validates what it brings (`contents`) as it will be stored. Writes
     /// nothing.
-    pub fn plan_add(&self, path: &Path, contents: Contents) -> Result<PlannedAsset> {
+    pub fn plan_add(&self, path: &Path, contents: Contents) -> Result<PlannedAsset, CatalogError> {
         let place = self.place(path)?;
         let meta = fs::metadata(&place.path)?;
         let fingerprint = fingerprint(&place.path)?;
@@ -364,7 +366,10 @@ impl Library {
     /// transaction (into the current import batch, if any): all of them or,
     /// on any failure, none. A file registered meanwhile is left as it is.
     /// Returns each one's asset id and whether it was added.
-    pub fn insert_planned(&self, planned: Vec<PlannedAsset>) -> Result<Vec<(String, bool)>> {
+    pub fn insert_planned(
+        &self,
+        planned: Vec<PlannedAsset>,
+    ) -> Result<Vec<(String, bool)>, CatalogError> {
         let mut batch = self.import.get();
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let mut result = Vec::with_capacity(planned.len());
@@ -475,8 +480,8 @@ impl Library {
     /// left alone, a photograph's companion (`Library::companion`) too (both
     /// reported as `known`, the companion as its photograph); files that
     /// cannot be added are reported, not added.
-    pub fn add_files(&self, paths: &[PathBuf]) -> Result<AddReport> {
-        self.add_files_prepared(paths, Ok)
+    pub fn add_files(&self, paths: &[PathBuf]) -> Result<AddReport, CatalogError> {
+        Ok(self.add_files_prepared(paths, Ok)?)
     }
 
     /// Add with a metadata edit in the registration transaction, retaining
@@ -488,11 +493,11 @@ impl Library {
         &self,
         paths: &[PathBuf],
         mut edit: impl FnMut(&Path, &mut Metadata, bool) -> Result<()>,
-    ) -> Result<AddReport> {
-        self.add_files_prepared(paths, |plan| {
+    ) -> Result<AddReport, CatalogError> {
+        Ok(self.add_files_prepared(paths, |plan| {
             let path = plan.path.clone();
-            plan.edit_metadata(|metadata, initialized| edit(&path, metadata, initialized))
-        })
+            Ok(plan.edit_metadata(|metadata, initialized| edit(&path, metadata, initialized))?)
+        })?)
     }
 
     fn add_files_prepared(
@@ -550,11 +555,11 @@ impl Library {
     /// sidecars hold, recipe and metadata in one transaction. Checked again
     /// inside it, so an edit made meanwhile is never replaced. Returns
     /// whether anything was adopted.
-    pub fn adopt_contents(&self, id: &str, contents: &Contents) -> Result<bool> {
+    pub fn adopt_contents(&self, id: &str, contents: &Contents) -> Result<bool, CatalogError> {
         if contents.is_empty() {
             return Ok(false);
         }
-        self.write_contents(id, contents, true)
+        Ok(self.write_contents(id, contents, true)?)
     }
 
     /// Before a metadata write (rating, flag, text, Use XMP, Keep library):
@@ -568,7 +573,7 @@ impl Library {
     /// `with_library_metadata` does); an XMP conflict stays one. An editor
     /// sidecar that cannot be read is left as it is (the app shows no edit
     /// from it). Returns whether an edit was adopted.
-    pub fn adopt_editor_sidecar(&self, id: &str) -> Result<bool> {
+    pub fn adopt_editor_sidecar(&self, id: &str) -> Result<bool, CatalogError> {
         if has_editor_state(&self.conn, id)? {
             return Ok(false);
         }
@@ -626,14 +631,14 @@ impl Library {
 
     /// Whether a registered photograph was never edited nor had metadata
     /// adopted: what its sidecars hold is not the library's yet.
-    pub fn is_untouched(&self, id: &str) -> Result<bool> {
-        untouched(&self.conn, id)
+    pub fn is_untouched(&self, id: &str) -> Result<bool, CatalogError> {
+        Ok(untouched(&self.conn, id)?)
     }
 
     /// Stores `contents` for a registered photograph (an import from another
     /// program's catalog), recipe and metadata in one transaction.
-    pub fn apply_contents(&self, id: &str, contents: &Contents) -> Result<()> {
-        self.write_contents(id, contents, false).map(|_| ())
+    pub fn apply_contents(&self, id: &str, contents: &Contents) -> Result<(), CatalogError> {
+        Ok(self.write_contents(id, contents, false).map(|_| ())?)
     }
 
     fn write_contents(&self, id: &str, contents: &Contents, only_new: bool) -> Result<bool> {
@@ -665,7 +670,7 @@ impl Library {
     }
 
     /// The newest import batch, if any photographs were ever added in one.
-    pub fn previous_import(&self) -> Result<Option<ImportBatchInfo>> {
+    pub fn previous_import(&self) -> Result<Option<ImportBatchInfo>, CatalogError> {
         let row: Option<(i64, String, String, i64)> = self
             .conn
             .query_row(
@@ -689,7 +694,7 @@ impl Library {
 
     /// The photographs of the newest import batch still in the library, in
     /// path order.
-    pub fn previous_import_assets(&self) -> Result<Vec<Asset>> {
+    pub fn previous_import_assets(&self) -> Result<Vec<Asset>, CatalogError> {
         let ids: Vec<String> = self
             .conn
             .prepare(&format!(
@@ -706,7 +711,7 @@ impl Library {
     /// full disk or a broken database would (tests of all-or-nothing
     /// writes). `clear_write_failures` ends it.
     #[cfg(any(test, feature = "test-support"))]
-    pub fn inject_write_failure(&self, table: &str) -> Result<()> {
+    pub fn inject_write_failure(&self, table: &str) -> Result<(), CatalogError> {
         ensure!(
             !table.is_empty()
                 && table
@@ -722,7 +727,7 @@ impl Library {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn clear_write_failures(&self) -> Result<()> {
+    pub fn clear_write_failures(&self) -> Result<(), CatalogError> {
         let names: Vec<String> = self
             .conn
             .prepare("SELECT name FROM sqlite_temp_master WHERE type='trigger' AND name LIKE 'rawtonic_fail_%'")?

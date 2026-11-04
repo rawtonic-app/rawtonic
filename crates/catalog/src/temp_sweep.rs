@@ -11,6 +11,7 @@
 //!   and its snapshot of the other catalog): only marked ones no job holds
 //!   (`rawtonic_fs::staging`).
 
+use crate::CatalogError;
 use crate::Library;
 use anyhow::Result;
 use rawtonic_fs::{staging, temp};
@@ -36,7 +37,11 @@ impl Library {
     /// Sweeps the library folder (its caches too, not libraries nested
     /// inside it), the external folders it links, and the backup folders of
     /// its unfinished ingest jobs. Symlinked folders are not followed.
-    pub fn sweep_leftovers(&self, now: SystemTime, cancel: &AtomicBool) -> Result<Swept> {
+    pub fn sweep_leftovers(
+        &self,
+        now: SystemTime,
+        cancel: &AtomicBool,
+    ) -> Result<Swept, CatalogError> {
         let mut folders = vec![self.directory.clone()];
         let mut roots = self
             .conn

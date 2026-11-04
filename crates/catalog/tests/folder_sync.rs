@@ -1,6 +1,4 @@
-use rawtonic_catalog::folder_sync::{
-    Cancelled, SyncAction, SyncOptions, SyncPlan, SyncProgress, is_photo,
-};
+use rawtonic_catalog::folder_sync::{SyncAction, SyncOptions, SyncPlan, SyncProgress, is_photo};
 use rawtonic_catalog::{ImportKind, Library, Mode, Volume};
 use serde_json::json;
 use std::{
@@ -486,7 +484,11 @@ fn a_scan_can_be_cancelled_and_reports_progress() {
             },
         )
         .unwrap_err();
-    assert!(error.downcast_ref::<Cancelled>().is_some());
+    assert!(
+        matches!(error, rawtonic_catalog::CatalogError::Cancelled(_)),
+        "{error}"
+    );
+    assert_eq!(error.to_string(), "Synchronization cancelled");
     let seen = std::sync::Mutex::new(Vec::<SyncProgress>::new());
     let plan = lib
         .scan_folder_sync(

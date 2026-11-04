@@ -8,18 +8,20 @@
 //!
 //! Asset ids stay the same, so Import from Catalog finds each photograph in
 //! the catalog it came from by its id.
+use crate::CatalogError;
+use crate::error::ensure;
 use crate::{
     Library, Manifest, Mode, SCHEMA_VERSION, db_name, external_root_key, insert_root,
     manifest_name, prune_blobs,
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use rawtonic_fs::atomic_write;
 use rusqlite::{TransactionBehavior, params};
 use std::{fs, path::Path};
 use uuid::Uuid;
 
 /// Reads the manifest of the library (session or catalog) at `source`.
-pub fn read_manifest(source: &Path) -> Result<Manifest> {
+pub fn read_manifest(source: &Path) -> Result<Manifest, CatalogError> {
     let path = source.join(if source.join("session.json").is_file() {
         "session.json"
     } else {
@@ -45,7 +47,7 @@ pub fn snapshot_database(
     source: &Path,
     manifest: &Manifest,
     folder: &Path,
-) -> Result<std::path::PathBuf> {
+) -> Result<std::path::PathBuf, CatalogError> {
     let source_db = source.join(db_name(manifest.mode));
     ensure!(
         source_db.is_file() && !fs::symlink_metadata(&source_db)?.file_type().is_symlink(),
@@ -77,7 +79,7 @@ impl Library {
         folder: &Path,
         name: &str,
         keep: &[String],
-    ) -> Result<(Library, Vec<crate::stacks::Stack>)> {
+    ) -> Result<(Library, Vec<crate::stacks::Stack>), CatalogError> {
         ensure!(
             !name.trim().is_empty() && name.len() <= 255,
             "Library name must be 1–255 bytes"
@@ -122,7 +124,7 @@ impl Library {
     /// source library rather than to its photographs: queued jobs, the file
     /// operation journal, the watched folder and the folder drive cache.
     /// One transaction. Every id in `keep` must be a photograph here.
-    pub fn retain_only(&self, keep: &[String]) -> Result<()> {
+    pub fn retain_only(&self, keep: &[String]) -> Result<(), CatalogError> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         tx.execute_batch("CREATE TEMP TABLE keep_assets(id TEXT PRIMARY KEY)")?;
         {
@@ -176,7 +178,10 @@ impl Library {
     /// folder, as a catalog folder registers it (a photograph exported by
     /// reference from a session: its file stays in the session). Nothing
     /// on disk changes; a file that is not there is marked missing.
-    pub fn reference_assets(&self, places: &[(String, std::path::PathBuf)]) -> Result<()> {
+    pub fn reference_assets(
+        &self,
+        places: &[(String, std::path::PathBuf)],
+    ) -> Result<(), CatalogError> {
         ensure!(
             self.manifest.mode == Mode::Catalog,
             "Only a catalog refers to photographs outside its folder"
@@ -228,7 +233,7 @@ impl Library {
     pub fn place_without_original(
         &self,
         places: &[(String, std::path::PathBuf, Option<String>)],
-    ) -> Result<()> {
+    ) -> Result<(), CatalogError> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         for (id, relative, sha256) in places {
             let stored = crate::portable_relative(relative)?;
@@ -259,7 +264,7 @@ impl Library {
     /// full-text deletions only mark entries until their index segments
     /// merge, and `VACUUM` alone keeps live segments as they are. The index
     /// is made again from its remaining rows with its own definition.
-    pub fn compact(&self) -> Result<()> {
+    pub fn compact(&self) -> Result<(), CatalogError> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let ddl: String = tx.query_row(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='asset_search'",

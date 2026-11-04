@@ -21,7 +21,9 @@
 //! whole content, marked `file`: the narrower whole-file identity.
 //! Hashes carry the scheme version and the container, so a change of what
 //! is hashed recomputes them, and different containers never compare.
-use anyhow::{Context, Result, bail, ensure};
+use crate::CatalogError;
+use crate::error::{bail, ensure};
+use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::{
     fs::File,
@@ -60,7 +62,7 @@ impl Container {
 
 /// `SCHEME:container:sha256-hex` of the image data of the file at `path`;
 /// `None` when `cancel` was set meanwhile.
-pub fn image_hash(path: &Path, cancel: &AtomicBool) -> Result<Option<String>> {
+pub fn image_hash(path: &Path, cancel: &AtomicBool) -> Result<Option<String>, CatalogError> {
     let mut file = File::open(path).with_context(|| format!("Cannot read {}", path.display()))?;
     let len = file.metadata()?.len();
     let mut head = [0u8; 16];
@@ -90,7 +92,7 @@ pub fn image_hash(path: &Path, cancel: &AtomicBool) -> Result<Option<String>> {
                 if cancel.load(Ordering::Relaxed) {
                     return Ok(None);
                 }
-                return Err(e);
+                return Err(e.into());
             }
             Container::File
         }

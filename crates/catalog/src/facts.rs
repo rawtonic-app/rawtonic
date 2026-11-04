@@ -5,6 +5,7 @@
 //! pass (`fill_facts`) reads the photographs added without them, each file
 //! once, with a reader the caller brings (`rawtonic_ingest::capture_facts`
 //! in the app and the CLI).
+use crate::CatalogError;
 use crate::Library;
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -165,12 +166,12 @@ pub type Rated = Vec<(PathBuf, u8)>;
 impl Library {
     /// Records what asset `id`'s file says about its capture. Returns
     /// whether the asset exists.
-    pub fn record_facts(&self, id: &str, facts: &CaptureFacts) -> Result<bool> {
+    pub fn record_facts(&self, id: &str, facts: &CaptureFacts) -> Result<bool, CatalogError> {
         Ok(write_facts(&self.conn, id, facts)?.0)
     }
 
     /// Asset `id`'s capture facts, and whether its file was read for them.
-    pub fn facts(&self, id: &str) -> Result<Option<(CaptureFacts, bool)>> {
+    pub fn facts(&self, id: &str) -> Result<Option<(CaptureFacts, bool)>, CatalogError> {
         Ok(self
             .conn
             .query_row(
@@ -206,7 +207,7 @@ impl Library {
     }
 
     /// How many present photographs were not read for their facts yet.
-    pub fn facts_backlog(&self) -> Result<usize> {
+    pub fn facts_backlog(&self) -> Result<usize, CatalogError> {
         Ok(self.conn.query_row(
             "SELECT count(*) FROM assets WHERE facts_read=0 AND missing=0",
             [],
@@ -234,7 +235,7 @@ impl Library {
         cancel: &AtomicBool,
         read: &dyn Fn(&Path) -> Option<CaptureFacts>,
         turn: &dyn Fn() -> T,
-    ) -> Result<(usize, usize, Rated)> {
+    ) -> Result<(usize, usize, Rated), CatalogError> {
         let rows: Vec<(i64, String, String, String, bool)> = self
             .conn
             .prepare(
@@ -287,7 +288,7 @@ impl Library {
         &self,
         cancel: &AtomicBool,
         read: &dyn Fn(&Path) -> Option<CaptureFacts>,
-    ) -> Result<usize> {
+    ) -> Result<usize, CatalogError> {
         let mut cursor = 0;
         let mut recorded = 0;
         loop {

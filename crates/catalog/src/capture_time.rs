@@ -13,8 +13,10 @@
 //! UTC offset (EXIF OffsetTimeOriginal). A shift moves the wall time by
 //! calendar arithmetic (no time zone or daylight-saving conversion), keeps
 //! every fraction digit and the offset as written, and invents none.
+use crate::CatalogError;
 use crate::Library;
-use anyhow::{Result, bail};
+use crate::error::bail;
+use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -371,7 +373,7 @@ pub fn overlay(state: &mut Value, time: &CaptureTime) {
 
 impl Library {
     /// Asset `id`'s corrected capture time, if it has one.
-    pub fn capture_override(&self, id: &str) -> Result<Option<CaptureTime>> {
+    pub fn capture_override(&self, id: &str) -> Result<Option<CaptureTime>, CatalogError> {
         Ok(self
             .conn
             .query_row(
@@ -389,7 +391,10 @@ impl Library {
     }
 
     /// The corrected capture times of those of `ids` that have one.
-    pub fn capture_overrides(&self, ids: &[String]) -> Result<HashMap<String, CaptureTime>> {
+    pub fn capture_overrides(
+        &self,
+        ids: &[String],
+    ) -> Result<HashMap<String, CaptureTime>, CatalogError> {
         let mut query = self.conn.prepare_cached(
             "SELECT captured,subsec,offset FROM capture_overrides WHERE asset_id=?",
         )?;
@@ -415,7 +420,10 @@ impl Library {
     /// photograph is gone or its correction is no longer the one expected
     /// (changed since the change was planned), nothing is written and those
     /// photographs are returned. Returns no conflicts once written.
-    pub fn set_capture_times(&self, changes: &[CaptureChange]) -> Result<Vec<String>> {
+    pub fn set_capture_times(
+        &self,
+        changes: &[CaptureChange],
+    ) -> Result<Vec<String>, CatalogError> {
         let mut checked = Vec::with_capacity(changes.len());
         for change in changes {
             let new = match &change.new {
@@ -463,7 +471,11 @@ impl Library {
 }
 
 /// A `CaptureTime` from its parts (tests and callers that build one).
-pub fn time(local: &str, subsec: Option<&str>, offset: Option<&str>) -> Result<CaptureTime> {
+pub fn time(
+    local: &str,
+    subsec: Option<&str>,
+    offset: Option<&str>,
+) -> Result<CaptureTime, CatalogError> {
     match CaptureTime::new(local, subsec, offset) {
         Ok(time) => Ok(time),
         Err(e) => bail!("{local:?}: {e}"),

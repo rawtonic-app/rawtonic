@@ -455,7 +455,7 @@ pub fn import(
         done: 0,
         total: used.len(),
     });
-    match check(cancel).and_then(|_| target.apply_import(&source.snapshot, &plan)) {
+    match check(cancel).and_then(|_| Ok(target.apply_import(&source.snapshot, &plan)?)) {
         Ok(report) => {
             placed.keep();
             // What came in is now the same here: the new common state.

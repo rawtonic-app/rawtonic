@@ -39,9 +39,11 @@
 //! removals stay applied and the files are reported skipped with the error.
 //! Files on disk are never moved, modified or deleted; a removal only
 //! removes the library's entry.
+use crate::CatalogError;
 use crate::checksum::{sha256_file, stamp};
+use crate::error::{bail, ensure};
 use crate::{Library, Mode, RelinkReport, add::ImportKind, fingerprint, resolve_moved};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result};
 use rusqlite::TransactionBehavior;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -81,17 +83,10 @@ pub fn is_photo(path: &Path) -> bool {
         })
 }
 
-/// A scan was cancelled (`SyncOptions::cancel`).
-#[derive(Debug)]
-pub struct Cancelled;
-
-impl std::fmt::Display for Cancelled {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Synchronization cancelled")
-    }
+/// The stop of a scan (`SyncOptions::cancel`; `CatalogError::Cancelled`).
+pub(crate) const fn stopped() -> rawtonic_runtime::Cancelled {
+    rawtonic_runtime::Cancelled::new("Synchronization cancelled")
 }
-
-impl std::error::Error for Cancelled {}
 
 /// A file as a scan read it. An action whose file reads differently when
 /// applied is skipped.
@@ -105,7 +100,7 @@ pub struct FileIdentity {
 }
 
 impl FileIdentity {
-    pub fn read(path: &Path) -> Result<Self> {
+    pub fn read(path: &Path) -> Result<Self, CatalogError> {
         let (size, mtime) =
             stamp(path).with_context(|| format!("{} is not a file", path.display()))?;
         Ok(Self {
@@ -218,7 +213,7 @@ pub struct SyncProgress {
 pub struct SyncOptions<'a> {
     /// Which files are photographs.
     pub accept: &'a dyn Fn(&Path) -> bool,
-    /// Stops the scan between files and hash chunks (`Cancelled`).
+    /// Stops the scan between files and hash chunks (`CatalogError::Cancelled`).
     pub cancel: &'a AtomicBool,
     pub progress: &'a dyn Fn(SyncProgress),
 }
@@ -332,7 +327,7 @@ enum Found {
 
 fn cancelled(cancel: &AtomicBool) -> Result<()> {
     if cancel.load(Ordering::Relaxed) {
-        return Err(Cancelled.into());
+        return Err(stopped().into());
     }
     Ok(())
 }
@@ -425,7 +420,7 @@ impl Library {
     /// The folders a synchronization of `folder` (or of the whole library
     /// with `None`) lists: for a session its folder, for a catalog its own
     /// folder and every catalog folder outside it (the topmost ones).
-    pub fn sync_scope(&self, folder: Option<&Path>) -> Result<Vec<PathBuf>> {
+    pub fn sync_scope(&self, folder: Option<&Path>) -> Result<Vec<PathBuf>, CatalogError> {
         if let Some(folder) = folder {
             let folder = resolve_moved(folder);
             ensure!(
@@ -584,7 +579,7 @@ impl Library {
         &self,
         folder: Option<&Path>,
         options: &SyncOptions<'_>,
-    ) -> Result<SyncPlan> {
+    ) -> Result<SyncPlan, CatalogError> {
         let folders = self.sync_scope(folder)?;
         let known = self.known_assets()?;
         let disconnected = self.disconnected()?;
@@ -606,7 +601,7 @@ impl Library {
             self.walk(folder, options, &mut files, &mut failed)?;
             walked.push(folder.clone());
         }
-        self.classify(
+        Ok(self.classify(
             Scanned {
                 known,
                 disconnected,
@@ -616,7 +611,7 @@ impl Library {
                 failed,
             },
             options,
-        )
+        )?)
     }
 
     /// Classifies `files` alone, as a scan would: which are photographs of
@@ -628,8 +623,8 @@ impl Library {
         &self,
         files: &[PathBuf],
         options: &SyncOptions<'_>,
-    ) -> Result<SyncPlan> {
-        self.classify(
+    ) -> Result<SyncPlan, CatalogError> {
+        Ok(self.classify(
             Scanned {
                 known: self.known_assets()?,
                 disconnected: self.disconnected()?,
@@ -639,7 +634,7 @@ impl Library {
                 failed: Vec::new(),
             },
             options,
-        )
+        )?)
     }
 
     /// A scan's findings for the photograph files listed.
@@ -725,7 +720,7 @@ impl Library {
             }
             let hash = match sha256_file(&file, options.cancel) {
                 Ok(Some(hash)) => hash,
-                Ok(None) => return Err(Cancelled.into()),
+                Ok(None) => return Err(stopped().into()),
                 Err(e) => {
                     plan.errors.push(SyncIssue {
                         path: file,
@@ -917,7 +912,7 @@ impl Library {
     /// photograph took its place, its drive went away. Moves and removals
     /// commit together in one transaction, new files in another, as one
     /// import batch. Nothing on disk is moved, modified or deleted.
-    pub fn apply_folder_sync(&self, actions: &[SyncAction]) -> Result<SyncApplied> {
+    pub fn apply_folder_sync(&self, actions: &[SyncAction]) -> Result<SyncApplied, CatalogError> {
         let mut applied = SyncApplied::default();
         let mut moves: Vec<(String, PathBuf, PathBuf)> = Vec::new();
         let mut removals: Vec<(String, PathBuf)> = Vec::new();

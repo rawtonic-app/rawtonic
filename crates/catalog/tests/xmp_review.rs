@@ -2,7 +2,7 @@
 //! failed writes) apart from conflicts (changed outside Rawtonic), and both
 //! ways of resolving a conflict.
 
-use rawtonic_catalog::{Library, Mode, XmpOffline, XmpProblem};
+use rawtonic_catalog::{CatalogError, Library, Mode, XmpProblem};
 use serde_json::json;
 use std::{fs, path::PathBuf};
 
@@ -79,20 +79,15 @@ fn an_offline_photo_stays_pending_and_nothing_is_written_beside_it() {
     fs::rename(&f.photo, f.photo.with_file_name("elsewhere.arw")).unwrap();
     set_rating(&f, 5);
     let error = f.lib.sync_xmp(&f.id).unwrap_err();
-    assert!(error.is::<XmpOffline>(), "{error}");
+    assert!(matches!(error, CatalogError::XmpOffline), "{error}");
     assert_eq!(
         fs::read(&f.xmp).unwrap(),
         before,
         "nothing written beside a missing photograph"
     );
     assert_eq!(state(&f), Some(Some(XmpProblem::Offline)));
-    assert!(
-        f.lib
-            .keep_library_xmp(&f.id)
-            .unwrap_err()
-            .is::<XmpOffline>()
-    );
-    assert!(f.lib.use_xmp(&f.id).unwrap_err().is::<XmpOffline>());
+    assert!(f.lib.keep_library_xmp(&f.id).unwrap_err().is_xmp_offline());
+    assert!(f.lib.use_xmp(&f.id).unwrap_err().is_xmp_offline());
     assert_eq!(f.lib.summary().unwrap().xmp_pending, 1);
     // Back again: the pending write goes through.
     fs::rename(f.photo.with_file_name("elsewhere.arw"), &f.photo).unwrap();

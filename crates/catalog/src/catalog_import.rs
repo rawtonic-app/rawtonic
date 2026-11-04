@@ -14,12 +14,14 @@
 //! what the photographer chose, in one transaction. Replacing an edit adds
 //! the incoming state as a new step of the photograph's history, so Undo
 //! and the History panel return to the state it replaced.
+use crate::CatalogError;
+use crate::error::ensure;
 use crate::stacks::{Member, Stack};
 use crate::{
     Library, Metadata, external_root_key, insert_root, portable_relative, prune_blobs,
     valid_copy_id, write_metadata, write_recipe,
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -496,7 +498,7 @@ impl Library {
         origin: &str,
         source: &Path,
         stacks: Vec<Stack>,
-    ) -> Result<Baseline> {
+    ) -> Result<Baseline, CatalogError> {
         let mut digests = Digests {
             cache: HashMap::new(),
         };
@@ -579,7 +581,7 @@ impl Library {
 
     /// Records the stack states both catalogs hold now (`stack_import_common`),
     /// so a later import tells a stack changed there from one changed here.
-    pub fn record_stacks(&self, other: &Library, stacks: Vec<Stack>) -> Result<()> {
+    pub fn record_stacks(&self, other: &Library, stacks: Vec<Stack>) -> Result<(), CatalogError> {
         let Some(file) = import_record(&self.directory, &other.manifest.id) else {
             return Ok(());
         };
@@ -593,7 +595,10 @@ impl Library {
 
     /// The stacks of `other`, their members named as here (`here`: asset id
     /// there → here); a member that is not here is left out.
-    pub fn stacks_as_here(other: &Library, here: &HashMap<&str, &str>) -> Result<Vec<Stack>> {
+    pub fn stacks_as_here(
+        other: &Library,
+        here: &HashMap<&str, &str>,
+    ) -> Result<Vec<Stack>, CatalogError> {
         Ok(other
             .stacks()?
             .into_iter()
@@ -625,7 +630,7 @@ impl Library {
         other: &Library,
         other_dir: &Path,
         pairs: &[(String, String)],
-    ) -> Result<()> {
+    ) -> Result<(), CatalogError> {
         let mut digests = Digests {
             cache: HashMap::new(),
         };
@@ -692,7 +697,11 @@ impl Library {
     /// Puts back (`back`) or applies again the metadata an import replaced,
     /// all of them or none: a photograph whose metadata changed since is
     /// left as it is and the step refused.
-    pub fn travel_import(&self, steps: &[crate::xmp_review::XmpUndo], back: bool) -> Result<()> {
+    pub fn travel_import(
+        &self,
+        steps: &[crate::xmp_review::XmpUndo],
+        back: bool,
+    ) -> Result<(), CatalogError> {
         let tx = self.conn.unchecked_transaction()?;
         for step in steps {
             let (to, from) = if back {
@@ -860,7 +869,11 @@ impl Library {
     /// Sorts every photograph of `other` (a snapshot of the catalog at
     /// `other_dir`) into new, changed and unchanged for this catalog.
     /// Reads only.
-    pub fn review_import(&self, other: &Library, other_dir: &Path) -> Result<Vec<Incoming>> {
+    pub fn review_import(
+        &self,
+        other: &Library,
+        other_dir: &Path,
+    ) -> Result<Vec<Incoming>, CatalogError> {
         let mut digests = Digests {
             cache: HashMap::new(),
         };
@@ -1092,7 +1105,7 @@ impl Library {
     /// Applies `plan` with the photographs of `other` (a snapshot whose
     /// edit resources already name files of this catalog) in one
     /// transaction: nothing is applied when anything fails.
-    pub fn apply_import(&self, other: &Library, plan: &Plan) -> Result<Report> {
+    pub fn apply_import(&self, other: &Library, plan: &Plan) -> Result<Report, CatalogError> {
         ensure!(
             self.manifest.mode == crate::Mode::Catalog,
             "Import from Catalog brings photographs into a catalog; sessions stay self-contained"

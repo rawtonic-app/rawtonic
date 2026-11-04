@@ -1,6 +1,7 @@
 //! Shared portable session/catalog storage, independent of Tauri and rendering.
 pub mod portable;
-use anyhow::{Context, Result, bail, ensure};
+use crate::error::{bail, ensure};
+use anyhow::{Context, Result};
 use rawtonic_fs::atomic_write;
 use rawtonic_metadata::culling::{Flag, Rating, RatingOutOfRange};
 use rawtonic_metadata::{Metadata, labels};
@@ -23,6 +24,7 @@ pub mod checksum;
 pub mod companion;
 pub mod derived;
 pub mod duplicates;
+mod error;
 pub mod face_eyes;
 pub mod facts;
 pub mod folder_sync;
@@ -42,12 +44,13 @@ pub mod volume;
 pub mod xmp_review;
 pub mod xmp_state;
 pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
+pub use error::CatalogError;
 pub use facts::{CaptureFacts, Rated};
 pub use hot_folder::{HotFolderConfig, HotFolderFile};
 pub use query::{Combine, Field, Op, Rule};
 pub use snapshots::Snapshot;
 pub use volume::Volume;
-pub use xmp_review::{XmpEntry, XmpOffline, XmpUndo};
+pub use xmp_review::{XmpEntry, XmpUndo};
 pub use xmp_state::{SidecarStamps, UnsavedXmp, XmpCheck, XmpProblem, XmpRetry};
 
 /// Version of the session/catalog manifest (`session.json`).
@@ -228,7 +231,7 @@ pub struct Library {
 #[cfg(any(test, feature = "test-support"))]
 pub type MarkStep = Box<dyn Fn() -> Result<()> + Send>;
 
-pub fn validate_relative(path: &Path) -> Result<()> {
+pub fn validate_relative(path: &Path) -> Result<(), CatalogError> {
     ensure!(
         !path.as_os_str().is_empty()
             && path.components().all(|c| matches!(c, Component::Normal(_))),
@@ -255,7 +258,7 @@ pub fn validate_relative(path: &Path) -> Result<()> {
 /// two folders on Windows. `Path::components` normalises interior `.` and
 /// repeated separators in these native paths. A remaining `CurDir`
 /// component is refused; dot-prefixed file names are allowed.
-pub fn portable_relative(path: &Path) -> Result<String> {
+pub fn portable_relative(path: &Path) -> Result<String, CatalogError> {
     let mut names = Vec::new();
     for component in path.components() {
         let Component::Normal(name) = component else {
@@ -275,7 +278,7 @@ pub fn portable_relative(path: &Path) -> Result<String> {
     Ok(names.join("/"))
 }
 
-pub fn fingerprint(path: &Path) -> Result<String> {
+pub fn fingerprint(path: &Path) -> Result<String, CatalogError> {
     let mut file = fs::File::open(path)?;
     let meta = file.metadata()?;
     ensure!(meta.is_file(), "Asset must be a regular file");
@@ -336,7 +339,7 @@ impl Library {
         Ok(())
     }
 
-    pub fn create(directory: &Path, name: &str, mode: Mode) -> Result<Self> {
+    pub fn create(directory: &Path, name: &str, mode: Mode) -> Result<Self, CatalogError> {
         ensure!(
             !name.trim().is_empty() && name.len() <= 255,
             "Library name must be 1–255 bytes"
@@ -407,7 +410,7 @@ impl Library {
         })
     }
 
-    pub fn open(directory: &Path) -> Result<Self> {
+    pub fn open(directory: &Path) -> Result<Self, CatalogError> {
         let directory = directory.canonicalize()?;
         let manifest_path = if directory.join("session.json").exists() {
             directory.join("session.json")
@@ -524,14 +527,14 @@ impl Library {
 
     /// All registered photographs, including Trash records retained for undo.
     /// Capture naming uses this registry count rather than visible view totals.
-    pub fn registered_asset_count(&self) -> Result<usize> {
+    pub fn registered_asset_count(&self) -> Result<usize, CatalogError> {
         Ok(self
             .conn
             .query_row("SELECT count(*) FROM assets", [], |r| r.get::<_, i64>(0))?
             as usize)
     }
 
-    pub fn summary(&self) -> Result<Summary> {
+    pub fn summary(&self) -> Result<Summary, CatalogError> {
         let (assets, picked, rated, pending, missing) = self.conn.query_row(
             &format!(
                 "SELECT count(*),coalesce(sum(m.flag=1),0),coalesce(sum(m.rating>0),0),
@@ -570,7 +573,7 @@ impl Library {
     /// registered file returns its asset). Sessions only accept contained
     /// files; catalogs register an external root. `add_files` also brings
     /// each file's sidecar edits and XMP metadata, in the same transaction.
-    pub fn add_asset(&self, path: &Path) -> Result<Asset> {
+    pub fn add_asset(&self, path: &Path) -> Result<Asset, CatalogError> {
         let planned = self.plan_add(path, Contents::default())?;
         if let Some(id) = self.registered_id(&planned.root, &planned.rel)? {
             Self::mark_present(&self.conn, &id)?;
@@ -583,7 +586,7 @@ impl Library {
         self.asset(&id)
     }
 
-    pub fn asset(&self, id: &str) -> Result<Asset> {
+    pub fn asset(&self, id: &str) -> Result<Asset, CatalogError> {
         self.conn.query_row("SELECT a.id,a.rel_path,a.size,a.fingerprint,m.rating,m.label,m.flag,a.missing,r.path,r.external,a.mtime FROM assets a JOIN metadata m ON m.asset_id=a.id JOIN roots r ON r.id=a.root_id WHERE a.id=?", [id], |r| {
             let relative: String = r.get(1)?; let root: String = r.get(8)?; let external: bool = r.get(9)?;
             Ok(Asset { id:r.get(0)?, path: if external { PathBuf::from(root).join(&relative) } else { self.directory.join(&relative) }, rel_path:relative, size:r.get::<_,i64>(2)? as u64, fingerprint:r.get(3)?, rating:r.get(4)?, label:r.get(5)?, flag:r.get(6)?, missing:r.get(7)?, mtime:r.get(10)? })
@@ -592,7 +595,7 @@ impl Library {
 
     /// The asset registered at `path`; also when its file is missing (the
     /// path is resolved through its nearest existing folder).
-    pub fn asset_at(&self, path: &Path) -> Result<Option<Asset>> {
+    pub fn asset_at(&self, path: &Path) -> Result<Option<Asset>, CatalogError> {
         let path = resolve_moved(path);
         let id = if let Ok(relative) = path.strip_prefix(&self.directory) {
             match portable_relative(relative) {
@@ -616,7 +619,7 @@ impl Library {
     /// Every registered asset, including hidden Trash records needed by
     /// backup and metadata synchronization, optionally filtered by text.
     /// User-facing views use `search` / `collection_paths` instead.
-    pub fn assets(&self, query: Option<&str>) -> Result<Vec<Asset>> {
+    pub fn assets(&self, query: Option<&str>) -> Result<Vec<Asset>, CatalogError> {
         let ids: Vec<String> = if let Some(q) = query.filter(|s| !s.trim().is_empty()) {
             self.registered_search_ids(&Rule::text(q))?
         } else {
@@ -628,7 +631,7 @@ impl Library {
         ids.iter().map(|id| self.asset(id)).collect()
     }
 
-    pub fn metadata(&self, id: &str) -> Result<Metadata> {
+    pub fn metadata(&self, id: &str) -> Result<Metadata, CatalogError> {
         let data: String =
             self.conn
                 .query_row("SELECT data FROM metadata WHERE asset_id=?", [id], |r| {
@@ -639,7 +642,7 @@ impl Library {
 
     /// Empty schema defaults have never been adopted or edited. Even an explicit
     /// clear-to-zero is initialized metadata and must not be reimported on open.
-    pub fn metadata_initialized(&self, id: &str) -> Result<bool> {
+    pub fn metadata_initialized(&self, id: &str) -> Result<bool, CatalogError> {
         Ok(self.conn.query_row(
             "SELECT data != '{}' FROM metadata WHERE asset_id=?",
             [id],
@@ -647,7 +650,7 @@ impl Library {
         )?)
     }
 
-    pub fn index_entries(&self) -> Result<HashMap<PathBuf, AssetIndexEntry>> {
+    pub fn index_entries(&self) -> Result<HashMap<PathBuf, AssetIndexEntry>, CatalogError> {
         let mut query = self.conn.prepare(
             "SELECT a.id,a.rel_path,r.path,r.external,
                     CASE WHEN m.data != '{}' AND m.from_camera=0 THEN 0
@@ -679,7 +682,7 @@ impl Library {
 
     /// Sparse culling read model, resolved against the current library location.
     /// One query; no per-photo database opens or original-file reads.
-    pub fn flags(&self) -> Result<std::collections::HashMap<PathBuf, i8>> {
+    pub fn flags(&self) -> Result<std::collections::HashMap<PathBuf, i8>, CatalogError> {
         let mut query = self.conn.prepare(
             "SELECT a.rel_path,r.path,r.external,m.flag FROM assets a
              JOIN roots r ON r.id=a.root_id JOIN metadata m ON m.asset_id=a.id
@@ -700,7 +703,7 @@ impl Library {
     }
 
     /// Commit an entire selection together, preserving ratings, keywords and edits.
-    pub fn set_flags(&self, ids: &[String], flag: i8) -> Result<()> {
+    pub fn set_flags(&self, ids: &[String], flag: i8) -> Result<(), CatalogError> {
         Flag::try_from(flag)?;
         let mut seen = HashSet::new();
         let values = ids
@@ -715,7 +718,10 @@ impl Library {
     /// Set or restore a selection atomically, returning its exact previous flags.
     /// A missing asset or invalid value rolls the whole step back. Undo follows
     /// the normal pending-XMP path and preserves all unrelated metadata.
-    pub fn set_flag_values(&self, values: &[(String, i8)]) -> Result<Vec<(String, i8)>> {
+    pub fn set_flag_values(
+        &self,
+        values: &[(String, i8)],
+    ) -> Result<Vec<(String, i8)>, CatalogError> {
         for (id, _) in values {
             self.adopt_editor_sidecar(id)?;
         }
@@ -740,7 +746,7 @@ impl Library {
     /// Replaces the photograph's metadata. A caller that changes what it
     /// read calls `adopt_editor_sidecar` before reading, so an edit only in
     /// the editor sidecar (and its rating, label and keywords) is kept.
-    pub fn set_metadata(&self, id: &str, metadata: &Metadata) -> Result<()> {
+    pub fn set_metadata(&self, id: &str, metadata: &Metadata) -> Result<(), CatalogError> {
         metadata.validate()?;
         let tx = self.conn.unchecked_transaction()?;
         write_metadata(&tx, id, metadata)?;
@@ -750,7 +756,7 @@ impl Library {
 
     /// Every asset's path and metadata in one query (the Library's metadata
     /// tools cache it per session).
-    pub fn all_metadata(&self) -> Result<Vec<(PathBuf, Metadata)>> {
+    pub fn all_metadata(&self) -> Result<Vec<(PathBuf, Metadata)>, CatalogError> {
         let mut query = self.conn.prepare(
             "SELECT a.rel_path,r.path,r.external,m.data FROM assets a \
              JOIN metadata m ON m.asset_id=a.id JOIN roots r ON r.id=a.root_id",
@@ -776,7 +782,7 @@ impl Library {
 
     /// Albums by name, with how many assets each holds (a smart album:
     /// how many its rules match now; damaged rules: none).
-    pub fn collections(&self) -> Result<Vec<Collection>> {
+    pub fn collections(&self) -> Result<Vec<Collection>, CatalogError> {
         let mut query = self.conn.prepare(
             &format!("SELECT c.id,c.name,c.parent,(SELECT COUNT(*) FROM collection_assets ca JOIN assets a ON a.id=ca.asset_id WHERE ca.collection_id=c.id AND {}),c.kind,c.position,c.rules \
              FROM collections c ORDER BY c.position, c.name COLLATE NOCASE, c.id", self.visible_assets()),
@@ -810,7 +816,7 @@ impl Library {
         name: &str,
         parent: Option<&str>,
         rules: &Rule,
-    ) -> Result<Collection> {
+    ) -> Result<Collection, CatalogError> {
         let name = Self::collection_name(name)?;
         let rules = &rules.relative_to(&self.directory)?;
         rules.validate()?;
@@ -845,7 +851,7 @@ impl Library {
 
     /// Replaces a smart album's rules (folders inside the library kept
     /// relative to it, as `create_smart_collection` does).
-    pub fn set_collection_rules(&self, id: &str, rules: &Rule) -> Result<()> {
+    pub fn set_collection_rules(&self, id: &str, rules: &Rule) -> Result<(), CatalogError> {
         let rules = &rules.relative_to(&self.directory)?;
         rules.validate()?;
         ensure!(
@@ -871,7 +877,11 @@ impl Library {
         Ok(name.to_string())
     }
 
-    pub fn create_collection(&self, name: &str, parent: Option<&str>) -> Result<Collection> {
+    pub fn create_collection(
+        &self,
+        name: &str,
+        parent: Option<&str>,
+    ) -> Result<Collection, CatalogError> {
         self.create_collection_of_kind(name, parent, ALBUM)
     }
 
@@ -881,7 +891,7 @@ impl Library {
         name: &str,
         parent: Option<&str>,
         kind: &str,
-    ) -> Result<Collection> {
+    ) -> Result<Collection, CatalogError> {
         let name = Self::collection_name(name)?;
         ensure!(
             kind == ALBUM || kind == GROUP,
@@ -929,16 +939,20 @@ impl Library {
 
     /// Moves an album or group into `parent` (top level when `None`) at
     /// `index` among its siblings; a group cannot move into itself.
-    pub fn move_collection(&self, id: &str, parent: Option<&str>, index: usize) -> Result<()> {
+    pub fn move_collection(
+        &self,
+        id: &str,
+        parent: Option<&str>,
+        index: usize,
+    ) -> Result<(), CatalogError> {
         self.ensure_group(parent)?;
         let tx = self.conn.unchecked_transaction()?;
-        ensure!(
-            tx.query_row("SELECT COUNT(*) FROM collections WHERE id=?", [id], |r| r
-                .get::<_, i64>(
-                0
-            ))? == 1,
-            "Unknown album"
-        );
+        if tx.query_row("SELECT COUNT(*) FROM collections WHERE id=?", [id], |r| {
+            r.get::<_, i64>(0)
+        })? != 1
+        {
+            return Err(CatalogError::UnknownAlbum);
+        }
         if let Some(parent) = parent {
             let inside: bool = tx.query_row(
                 "WITH RECURSIVE up(id,parent) AS (SELECT id,parent FROM collections WHERE id=? \
@@ -971,20 +985,20 @@ impl Library {
         Ok(())
     }
 
-    pub fn rename_collection(&self, id: &str, name: &str) -> Result<()> {
+    pub fn rename_collection(&self, id: &str, name: &str) -> Result<(), CatalogError> {
         let name = Self::collection_name(name)?;
-        ensure!(
-            self.conn.execute(
-                "UPDATE collections SET name=? WHERE id=?",
-                params![name, id]
-            )? == 1,
-            "Unknown album"
-        );
+        if self.conn.execute(
+            "UPDATE collections SET name=? WHERE id=?",
+            params![name, id],
+        )? != 1
+        {
+            return Err(CatalogError::UnknownAlbum);
+        }
         Ok(())
     }
 
     /// Removes an album and the albums inside it; their assets stay.
-    pub fn delete_collection(&self, id: &str) -> Result<()> {
+    pub fn delete_collection(&self, id: &str) -> Result<(), CatalogError> {
         let tx = self.conn.unchecked_transaction()?;
         let ids: Vec<String> = tx
             .prepare(
@@ -993,7 +1007,9 @@ impl Library {
             )?
             .query_map([id], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
-        ensure!(!ids.is_empty(), "Unknown album");
+        if ids.is_empty() {
+            return Err(CatalogError::UnknownAlbum);
+        }
         // Children first: their parent reference must not dangle.
         for id in ids.iter().rev() {
             tx.execute("DELETE FROM collections WHERE id=?", [id])?;
@@ -1003,14 +1019,16 @@ impl Library {
     }
 
     /// Adds assets (already in the album: kept once). All or nothing.
-    pub fn add_to_collection(&self, id: &str, assets: &[String]) -> Result<()> {
+    pub fn add_to_collection(&self, id: &str, assets: &[String]) -> Result<(), CatalogError> {
         let tx = self.conn.unchecked_transaction()?;
         let kind: Option<String> = tx
             .query_row("SELECT kind FROM collections WHERE id=?", [id], |r| {
                 r.get(0)
             })
             .optional()?;
-        ensure!(kind.is_some(), "Unknown album");
+        if kind.is_none() {
+            return Err(CatalogError::UnknownAlbum);
+        }
         ensure!(
             kind.as_deref() == Some(ALBUM),
             "Only albums hold photographs (groups hold albums, smart albums rules)"
@@ -1025,7 +1043,7 @@ impl Library {
         Ok(())
     }
 
-    pub fn remove_from_collection(&self, id: &str, assets: &[String]) -> Result<()> {
+    pub fn remove_from_collection(&self, id: &str, assets: &[String]) -> Result<(), CatalogError> {
         let tx = self.conn.unchecked_transaction()?;
         let kind: Option<String> = tx
             .query_row("SELECT kind FROM collections WHERE id=?", [id], |r| {
@@ -1048,18 +1066,18 @@ impl Library {
 
     /// The album's assets in path order; a smart album's are those its
     /// rules match now, a group's those of the albums in it.
-    pub fn collection_assets(&self, id: &str) -> Result<Vec<Asset>> {
+    pub fn collection_assets(&self, id: &str) -> Result<Vec<Asset>, CatalogError> {
         let ids = self.search_ids(&Rule::album(id))?;
         ids.iter().map(|id| self.asset(id)).collect()
     }
 
     /// Paths of the album's photographs (as `collection_assets`), in one
     /// query.
-    pub fn collection_paths(&self, id: &str) -> Result<Vec<PathBuf>> {
+    pub fn collection_paths(&self, id: &str) -> Result<Vec<PathBuf>, CatalogError> {
         self.search(&Rule::album(id))
     }
 
-    pub fn primary_version(&self, asset: &str) -> Result<String> {
+    pub fn primary_version(&self, asset: &str) -> Result<String, CatalogError> {
         Ok(self.conn.query_row(
             "SELECT id FROM versions WHERE asset_id=? AND is_primary=1",
             [asset],
@@ -1072,7 +1090,7 @@ impl Library {
         version: &str,
         payload: &Value,
         snapshot: Option<&str>,
-    ) -> Result<i64> {
+    ) -> Result<i64, CatalogError> {
         ensure!(
             payload.get("schema_version").and_then(Value::as_u64) == Some(1),
             "Unsupported recipe schema"
@@ -1126,7 +1144,7 @@ impl Library {
         Ok(id)
     }
 
-    pub fn recipe(&self, version: &str) -> Result<Option<Value>> {
+    pub fn recipe(&self, version: &str) -> Result<Option<Value>, CatalogError> {
         let text: Option<String> = self
             .conn
             .query_row(
@@ -1149,7 +1167,7 @@ impl Library {
     /// sidecar the library never adopted (`is_untouched`; one the editor
     /// loaded from that sidecar): then they are taken over, in the same
     /// transaction.
-    pub fn save_editor_state(&self, asset: &str, legacy: &Value) -> Result<()> {
+    pub fn save_editor_state(&self, asset: &str, legacy: &Value) -> Result<(), CatalogError> {
         // A state read before its capture time was corrected (an editor
         // still open) keeps the correction in its EXIF.
         let corrected;
@@ -1213,7 +1231,7 @@ impl Library {
     }
 
     /// The editor state of `asset`'s primary version, with its snapshots.
-    pub fn editor_state(&self, asset: &str) -> Result<Option<Value>> {
+    pub fn editor_state(&self, asset: &str) -> Result<Option<Value>, CatalogError> {
         let version = self.primary_version(asset)?;
         let snapshots = self.snapshots(&version)?;
         let state = self
@@ -1245,7 +1263,7 @@ impl Library {
         &self,
         paths: &HashSet<PathBuf>,
         mut visit: impl FnMut(&Path, Option<Value>),
-    ) -> Result<()> {
+    ) -> Result<(), CatalogError> {
         let mut query = self.conn.prepare(
             "SELECT a.rel_path,r.path,r.external,p.payload,m.data
              FROM assets a JOIN roots r ON r.id=a.root_id
@@ -1285,7 +1303,7 @@ impl Library {
     }
 
     /// Adopt an existing sidecar only as an explicit initialization/sync action.
-    pub fn adopt_xmp(&self, asset: &str) -> Result<Metadata> {
+    pub fn adopt_xmp(&self, asset: &str) -> Result<Metadata, CatalogError> {
         self.adopt_editor_sidecar(asset)?;
         let path = rawtonic_metadata::sidecar_path(&self.asset(asset)?.path);
         let text = fs::read_to_string(path)?;
@@ -1348,10 +1366,10 @@ impl Library {
     }
 
     /// Brings the photograph's XMP sidecar up to date with the library. An
-    /// offline photograph (`XmpOffline`) or a failed write (read-only
+    /// offline photograph (`CatalogError::XmpOffline`) or a failed write (read-only
     /// sidecar, full disk) stays pending; a sidecar changed outside Rawtonic,
     /// or one the library never adopted, is a conflict and is not replaced.
-    pub fn sync_xmp(&self, asset: &str) -> Result<()> {
+    pub fn sync_xmp(&self, asset: &str) -> Result<(), CatalogError> {
         let path = self.writable_sidecar(asset)?;
         // A sidecar a crash left published but not committed is the library's.
         self.settle_xmp_publishing(asset, &path)?;
@@ -1364,13 +1382,14 @@ impl Library {
             self.mark_xmp_conflict(asset)?;
             return Err(
                 anyhow::Error::new(rawtonic_metadata::MetadataError::XmpConflict)
-                    .context("Existing XMP has not been adopted; refusing to replace its metadata"),
+                    .context("Existing XMP has not been adopted; refusing to replace its metadata")
+                    .into(),
             );
         }
-        self.write_sidecar(asset, &path, hash.as_deref())
+        Ok(self.write_sidecar(asset, &path, hash.as_deref())?)
     }
 
-    pub fn undo(&self, version: &str) -> Result<bool> {
+    pub fn undo(&self, version: &str) -> Result<bool, CatalogError> {
         let parent: Option<i64> = self
             .conn
             .query_row(
@@ -1394,14 +1413,14 @@ impl Library {
     /// ones as present again; never removes any. Catalog folders on a drive
     /// that is now mounted elsewhere (another mount point or name) are
     /// followed first (`follow_volumes`). Returns how many are missing.
-    pub fn verify_paths(&self) -> Result<usize> {
+    pub fn verify_paths(&self) -> Result<usize, CatalogError> {
         Ok(self.check_files()?.missing)
     }
 
     /// `verify_paths`, also telling which photographs came back (their file
     /// was missing and is found again, or their drive was followed), so
     /// files derived from the library can be brought up to date.
-    pub fn check_files(&self) -> Result<FileCheck> {
+    pub fn check_files(&self) -> Result<FileCheck, CatalogError> {
         let mut found = Vec::new();
         let mut followed = Vec::new();
         if self.manifest.mode == Mode::Catalog && self.has_lost_roots()? {
@@ -1484,7 +1503,7 @@ impl Library {
     /// Linux mount) are followed there: photographs whose file is at the
     /// same place on that drive, with the registered size, move to it.
     /// Returns how many moved.
-    pub fn follow_volumes(&self, mounted: &[Volume]) -> Result<usize> {
+    pub fn follow_volumes(&self, mounted: &[Volume]) -> Result<usize, CatalogError> {
         Ok(self.follow_volume_ids(mounted)?.len())
     }
 
@@ -1613,7 +1632,7 @@ impl Library {
     /// edits and metadata at the new place. A session asset that left the
     /// session is kept as missing (an undo brings it back). Returns how many
     /// assets moved.
-    pub fn relocate(&self, from: &Path, to: &Path) -> Result<usize> {
+    pub fn relocate(&self, from: &Path, to: &Path) -> Result<usize, CatalogError> {
         let (from, to) = (resolve_moved(from), resolve_moved(to));
         let mut query = self.conn.prepare(
             "SELECT a.id,a.rel_path,r.path,r.external FROM assets a JOIN roots r ON r.id=a.root_id",
@@ -1685,8 +1704,8 @@ impl Library {
     /// Every registered photograph whose file is missing (as of the last
     /// `verify_paths` or file operation), in path order, with the drive it
     /// is on when that drive is disconnected.
-    pub fn offline_assets(&self) -> Result<Vec<OfflineAsset>> {
-        self.offline_rows(&format!("a.missing=1 AND {}", self.visible_assets()), &[])
+    pub fn offline_assets(&self) -> Result<Vec<OfflineAsset>, CatalogError> {
+        Ok(self.offline_rows(&format!("a.missing=1 AND {}", self.visible_assets()), &[])?)
     }
 
     /// A registered photograph whose file is gone and that has the content
@@ -1694,7 +1713,7 @@ impl Library {
     /// or moved into its folder outside Rawtonic (a folder renamed in
     /// Finder). Registering `path` would make a duplicate without its
     /// edits; `relink` follows it instead.
-    pub fn vanished_as(&self, path: &Path) -> Result<Option<String>> {
+    pub fn vanished_as(&self, path: &Path) -> Result<Option<String>, CatalogError> {
         let name = path.file_name().context("No filename")?;
         let candidates: Vec<String> = self
             .conn
@@ -1721,7 +1740,7 @@ impl Library {
     /// cheap test whether a file is already in the library before importing
     /// it (the import itself still compares SHA-256 before it skips a
     /// duplicate).
-    pub fn content_keys(&self) -> Result<HashSet<(u64, String)>> {
+    pub fn content_keys(&self) -> Result<HashSet<(u64, String)>, CatalogError> {
         Ok(self
             .conn
             .prepare(
@@ -1736,10 +1755,11 @@ impl Library {
     }
 
     /// The asset as an offline asset (whether or not its file is there now).
-    pub fn offline_asset(&self, id: &str) -> Result<OfflineAsset> {
-        self.offline_rows("a.id=?", &[&id])?
+    pub fn offline_asset(&self, id: &str) -> Result<OfflineAsset, CatalogError> {
+        Ok(self
+            .offline_rows("a.id=?", &[&id])?
             .pop()
-            .context("Unknown asset")
+            .context("Unknown asset")?)
     }
 
     /// Assets matching `filter` (SQL over `a` = assets, `r` = roots), as
@@ -1787,7 +1807,11 @@ impl Library {
     /// The photographs registered in `folder` (with `recursive`, also below
     /// it) whose file is not there now, so a folder listing keeps showing
     /// them. Reads only (the missing flags follow at the next check).
-    pub fn offline_in(&self, folder: &Path, recursive: bool) -> Result<Vec<OfflineAsset>> {
+    pub fn offline_in(
+        &self,
+        folder: &Path,
+        recursive: bool,
+    ) -> Result<Vec<OfflineAsset>, CatalogError> {
         let folder = resolve_moved(folder);
         let like = |prefix: &str| {
             format!(
@@ -1837,7 +1861,7 @@ impl Library {
     /// the same places in the new folder, as `relink_folder` does. Files are
     /// only read; the library's record of their place changes in one
     /// transaction.
-    pub fn relink(&self, id: &str, to: &Path, nearby: bool) -> Result<RelinkReport> {
+    pub fn relink(&self, id: &str, to: &Path, nearby: bool) -> Result<RelinkReport, CatalogError> {
         let asset = self.asset(id)?;
         ensure!(
             !asset.path.is_file(),
@@ -1883,7 +1907,7 @@ impl Library {
     /// below is looked for at the same place in `to`, and relinked when that
     /// file is the same photograph (size and fingerprint). Files are only
     /// read; all relinks commit together.
-    pub fn relink_folder(&self, from: &Path, to: &Path) -> Result<RelinkReport> {
+    pub fn relink_folder(&self, from: &Path, to: &Path) -> Result<RelinkReport, CatalogError> {
         let to = to
             .canonicalize()
             .context("The located folder cannot be read")?;
@@ -1950,14 +1974,14 @@ impl Library {
     /// Marks the asset registered at `path`, or every asset below that folder,
     /// as missing or present; finding an original present clears its trash state.
     /// Returns how many matched.
-    pub fn set_missing_at(&self, path: &Path, missing: bool) -> Result<usize> {
-        self.set_path_status(path, missing, false)
+    pub fn set_missing_at(&self, path: &Path, missing: bool) -> Result<usize, CatalogError> {
+        Ok(self.set_path_status(path, missing, false)?)
     }
 
     /// System Trash and undo keep identity/memberships while hiding the
     /// deleted photograph, independently of whether its drive is mounted.
-    pub fn set_trashed_at(&self, path: &Path, trashed: bool) -> Result<usize> {
-        self.set_path_status(path, trashed, true)
+    pub fn set_trashed_at(&self, path: &Path, trashed: bool) -> Result<usize, CatalogError> {
+        Ok(self.set_path_status(path, trashed, true)?)
     }
 
     fn set_path_status(&self, path: &Path, missing: bool, trash_operation: bool) -> Result<usize> {
@@ -2023,7 +2047,7 @@ impl Library {
     /// records go with their versions, recipes, masks, metadata and album
     /// memberships. Paths outside the library's folder are refused. Running
     /// it again finds nothing. Returns how many were forgotten.
-    pub fn forget_at(&self, path: &Path) -> Result<usize> {
+    pub fn forget_at(&self, path: &Path) -> Result<usize, CatalogError> {
         let path = resolve_moved(path);
         let relative = path.strip_prefix(&self.directory).with_context(|| {
             format!(
@@ -2064,7 +2088,7 @@ impl Library {
         Ok(ids.len())
     }
 
-    pub fn checkpoint(&self) -> Result<()> {
+    pub fn checkpoint(&self) -> Result<(), CatalogError> {
         self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
         Ok(())
     }
@@ -2074,7 +2098,7 @@ impl Library {
     /// how many photographs it holds, how many of those are missing (as of
     /// the last check) and the drive it was registered on. In path order;
     /// nothing is read from disk.
-    pub fn folders(&self) -> Result<Vec<FolderRecord>> {
+    pub fn folders(&self) -> Result<Vec<FolderRecord>, CatalogError> {
         let mut query = self.conn.prepare(
             "SELECT r.path,r.volume_id,r.volume_name,r.volume_path,
                     count(a.id),coalesce(sum(a.missing),0),r.volume_kind
@@ -2104,7 +2128,12 @@ impl Library {
     /// Its snapshots are the library's (`Library::add_snapshot`); those the
     /// state carries are taken over only when the copy is first recorded
     /// (a copy's sidecar adopted).
-    pub fn save_copy_state(&self, asset: &str, copy: &str, state: &Value) -> Result<()> {
+    pub fn save_copy_state(
+        &self,
+        asset: &str,
+        copy: &str,
+        state: &Value,
+    ) -> Result<(), CatalogError> {
         ensure!(valid_copy_id(copy), "Not a virtual copy id: {copy}");
         let carried = snapshots::in_state(state);
         let mut state = state.clone();
@@ -2130,7 +2159,7 @@ impl Library {
     }
 
     /// The recorded editor state of a virtual copy, with its snapshots.
-    pub fn copy_state(&self, asset: &str, copy: &str) -> Result<Option<Value>> {
+    pub fn copy_state(&self, asset: &str, copy: &str) -> Result<Option<Value>, CatalogError> {
         let row: Option<(String, Option<String>)> = self
             .conn
             .query_row(
@@ -2152,7 +2181,7 @@ impl Library {
     }
 
     /// The ids of the virtual copies recorded for `asset`, in id order.
-    pub fn copies(&self, asset: &str) -> Result<Vec<String>> {
+    pub fn copies(&self, asset: &str) -> Result<Vec<String>, CatalogError> {
         Ok(self
             .conn
             .prepare("SELECT name FROM versions WHERE asset_id=? AND is_primary=0 ORDER BY name")?
@@ -2161,7 +2190,7 @@ impl Library {
     }
 
     /// Forgets a virtual copy (its sidecar was deleted). Returns whether one was recorded.
-    pub fn remove_copy(&self, asset: &str, copy: &str) -> Result<bool> {
+    pub fn remove_copy(&self, asset: &str, copy: &str) -> Result<bool, CatalogError> {
         let removed = self.conn.execute(
             "DELETE FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
             params![asset, copy],
@@ -2525,7 +2554,7 @@ impl Library {
     /// Records `volume` as the drive of the catalog folder `folder` (normally
     /// read from the system when the folder is registered; tests and tools
     /// set it directly).
-    pub fn set_folder_volume(&self, folder: &Path, volume: &Volume) -> Result<()> {
+    pub fn set_folder_volume(&self, folder: &Path, volume: &Volume) -> Result<(), CatalogError> {
         let folder = resolve_moved(folder);
         ensure!(
             self.conn.query_row(
@@ -2536,7 +2565,11 @@ impl Library {
             "No catalog folder is registered at {}",
             folder.display()
         );
-        record_volume(&self.conn, &external_root_key(&folder), volume)
+        Ok(record_volume(
+            &self.conn,
+            &external_root_key(&folder),
+            volume,
+        )?)
     }
 
     /// Runs `step` inside `mark_changed_elsewhere`'s transaction after each

@@ -8,8 +8,10 @@
 //! sidecar is ever written, through `rawtonic_metadata::write_xmp` (atomic,
 //! unowned XMP kept); the photograph itself is never touched.
 
+use crate::CatalogError;
+use crate::error::{bail, ensure};
 use crate::{Library, XmpProblem, search_text};
-use anyhow::{Result, bail, ensure};
+use anyhow::Result;
 use rawtonic_metadata::{Metadata, MetadataError};
 use rusqlite::{TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -43,22 +45,10 @@ pub struct XmpUndo {
     pub from_camera: bool,
 }
 
-/// The error of a write refused because the photograph is offline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct XmpOffline;
-
-impl std::fmt::Display for XmpOffline {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("The photograph is offline; its XMP is written when it is back")
-    }
-}
-
-impl std::error::Error for XmpOffline {}
-
 impl Library {
     /// The photographs `Summary::xmp_pending` counts, in path order, with
     /// why each is not written (the same check as `write_pending_xmp`).
-    pub fn xmp_unsynced(&self) -> Result<Vec<XmpEntry>> {
+    pub fn xmp_unsynced(&self) -> Result<Vec<XmpEntry>, CatalogError> {
         let rows = self.offline_rows(
             &format!(
                 "a.id IN (SELECT asset_id FROM metadata WHERE xmp_status!='synced') AND {}",
@@ -87,7 +77,7 @@ impl Library {
     /// stay in the sidecar; only explicit empty values clear them. Refused
     /// while the photograph is offline; a sidecar changed again meanwhile
     /// is a conflict again, not overwritten.
-    pub fn keep_library_xmp(&self, asset: &str) -> Result<()> {
+    pub fn keep_library_xmp(&self, asset: &str) -> Result<(), CatalogError> {
         let path = self.writable_sidecar(asset)?;
         // The edit the photograph shows is what the sidecar gets.
         self.adopt_editor_sidecar(asset)?;
@@ -96,7 +86,7 @@ impl Library {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e.into()),
         };
-        self.write_sidecar(asset, &path, current.as_deref())
+        Ok(self.write_sidecar(asset, &path, current.as_deref())?)
     }
 
     /// Resolves a conflict for the sidecar: the metadata Rawtonic reads
@@ -106,7 +96,7 @@ impl Library {
     /// the library's flag. The photograph is then pending: `sync_xmp`
     /// writes the library's recipe into the sidecar it has just read (a
     /// sidecar changed again meanwhile is a conflict again).
-    pub fn use_xmp(&self, asset: &str) -> Result<XmpUndo> {
+    pub fn use_xmp(&self, asset: &str) -> Result<XmpUndo, CatalogError> {
         let path = self.writable_sidecar(asset)?;
         let text = match fs::read_to_string(&path) {
             Ok(text) => text,
@@ -158,7 +148,7 @@ impl Library {
     /// Puts back the library's metadata as it was before `use_xmp`, with
     /// its XMP state (a conflict is a conflict again). Refused when the
     /// metadata was changed since.
-    pub fn undo_use_xmp(&self, undo: &XmpUndo) -> Result<()> {
+    pub fn undo_use_xmp(&self, undo: &XmpUndo) -> Result<(), CatalogError> {
         ensure!(
             ["pending", "conflict", "synced"].contains(&undo.xmp_status.as_str()),
             "Unknown XMP state"
@@ -202,7 +192,7 @@ impl Library {
         let a = self.asset(asset)?;
         // Never write beside a missing file: the XMP follows when it is back.
         if !a.path.is_file() {
-            return Err(XmpOffline.into());
+            return Err(crate::CatalogError::XmpOffline.into());
         }
         // RAW+JPEG siblings would share a stem; refuse ambiguity rather than clobber.
         ensure!(

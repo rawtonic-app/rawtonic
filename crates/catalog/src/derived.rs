@@ -3,15 +3,17 @@
 //! derived asset's `assets.stack` holds the id of that original; the
 //! original keeps `stack` empty, so a stack is the original plus every
 //! asset naming it. Nothing here touches files.
+use crate::CatalogError;
+use crate::error::ensure;
 use crate::{Asset, Library};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 use std::path::Path;
 
 impl Library {
     /// Records that `derived` was rendered from `original`. A derived file's
     /// own derivatives join its original's stack, so stacks stay one level.
-    pub fn set_derived_from(&self, derived: &str, original: &str) -> Result<()> {
+    pub fn set_derived_from(&self, derived: &str, original: &str) -> Result<(), CatalogError> {
         ensure!(
             derived != original,
             "A photograph cannot derive from itself"
@@ -37,7 +39,7 @@ impl Library {
     }
 
     /// The photograph `id` was rendered from, while it is still registered.
-    pub fn derived_from(&self, id: &str) -> Result<Option<Asset>> {
+    pub fn derived_from(&self, id: &str) -> Result<Option<Asset>, CatalogError> {
         let stack: Option<String> = self
             .conn
             .query_row("SELECT stack FROM assets WHERE id=?", [id], |r| r.get(0))
@@ -53,7 +55,7 @@ impl Library {
     }
 
     /// The files rendered from `id`, oldest first.
-    pub fn derivatives(&self, id: &str) -> Result<Vec<Asset>> {
+    pub fn derivatives(&self, id: &str) -> Result<Vec<Asset>, CatalogError> {
         let mut statement = self
             .conn
             .prepare("SELECT id FROM assets WHERE stack=? AND id<>? ORDER BY rowid")?;
@@ -66,7 +68,7 @@ impl Library {
     /// After another program saved asset `id`'s file in place (an Edit With
     /// render): records its new size, time and fingerprint, and forgets its
     /// content hash (the background pass hashes it again).
-    pub fn file_saved(&self, id: &str) -> Result<()> {
+    pub fn file_saved(&self, id: &str) -> Result<(), CatalogError> {
         let asset = self.asset(id)?;
         let (size, mtime) = crate::checksum::stamp(&asset.path)
             .with_context(|| format!("{} is not there", asset.path.display()))?;
@@ -82,7 +84,7 @@ impl Library {
     /// differs from it only in letter case, also while its file is missing:
     /// a new file there would be taken for it on a volume that does not
     /// tell case apart.
-    pub fn registered_ignoring_case(&self, path: &Path) -> Result<bool> {
+    pub fn registered_ignoring_case(&self, path: &Path) -> Result<bool, CatalogError> {
         let path = crate::resolve_moved(path);
         let fold = crate::FOLD;
         let found = if let Ok(relative) = path.strip_prefix(&self.directory) {

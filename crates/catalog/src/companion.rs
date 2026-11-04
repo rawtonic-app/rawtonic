@@ -6,8 +6,10 @@
 //! Synchronize Folder) and the app does not list it, and a file of that
 //! name that is not it (the RAW relinked next to another JPEG) is never
 //! taken for it. Nothing here touches files.
+use crate::CatalogError;
+use crate::error::ensure;
 use crate::{Asset, Library, fingerprint};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use rusqlite::params;
 use std::{
     collections::HashMap,
@@ -100,14 +102,17 @@ impl CompanionRecord {
 impl Library {
     /// Every recorded companion, also those whose file is gone or is no
     /// longer the one recorded (names a new copy must not take).
-    pub fn companion_records(&self) -> Result<Vec<CompanionRecord>> {
-        self.records_where("1", [])
+    pub fn companion_records(&self) -> Result<Vec<CompanionRecord>, CatalogError> {
+        Ok(self.records_where("1", [])?)
     }
 
     /// The recorded companions of `size` bytes (a source's candidates; no
     /// file is read).
-    pub fn companion_records_of_size(&self, size: u64) -> Result<Vec<CompanionRecord>> {
-        self.records_where("a.companion_size=?", [size as i64])
+    pub fn companion_records_of_size(
+        &self,
+        size: u64,
+    ) -> Result<Vec<CompanionRecord>, CatalogError> {
+        Ok(self.records_where("a.companion_size=?", [size as i64])?)
     }
 
     fn records_where<P: rusqlite::Params>(
@@ -152,7 +157,7 @@ impl Library {
 
     /// The companion file of `asset` (beside its file), if it has one and
     /// that file is the one recorded (size and content fingerprint).
-    pub fn companion(&self, asset: &Asset) -> Result<Option<PathBuf>> {
+    pub fn companion(&self, asset: &Asset) -> Result<Option<PathBuf>, CatalogError> {
         Ok(self
             .companion_record(asset)?
             .filter(CompanionRecord::present)
@@ -161,7 +166,7 @@ impl Library {
 
     /// `companion`, its whole content checked (SHA-256): the file to move
     /// or trash with the photograph.
-    pub fn companion_verified(&self, asset: &Asset) -> Result<Option<PathBuf>> {
+    pub fn companion_verified(&self, asset: &Asset) -> Result<Option<PathBuf>, CatalogError> {
         Ok(self
             .companion_record(asset)?
             .filter(CompanionRecord::verified)
@@ -169,7 +174,7 @@ impl Library {
     }
 
     /// `asset`'s companion record, whether its file is there or not.
-    pub fn companion_record(&self, asset: &Asset) -> Result<Option<CompanionRecord>> {
+    pub fn companion_record(&self, asset: &Asset) -> Result<Option<CompanionRecord>, CatalogError> {
         Ok(self
             .records_where("a.id=?", [&asset.id])?
             .into_iter()
@@ -178,12 +183,15 @@ impl Library {
 
     /// Every companion file that is there as recorded (size and content
     /// fingerprint), with the asset it belongs to.
-    pub fn companions(&self) -> Result<HashMap<PathBuf, String>> {
+    pub fn companions(&self) -> Result<HashMap<PathBuf, String>, CatalogError> {
         self.companions_in(None)
     }
 
     /// The recorded companions at or below `folder` (no file read).
-    pub fn companion_records_in(&self, folder: &Path) -> Result<Vec<CompanionRecord>> {
+    pub fn companion_records_in(
+        &self,
+        folder: &Path,
+    ) -> Result<Vec<CompanionRecord>, CatalogError> {
         Ok(self
             .companion_records()?
             .into_iter()
@@ -192,7 +200,10 @@ impl Library {
     }
 
     /// `companions` at or below `folder` (only their files are read).
-    pub fn companions_in(&self, folder: Option<&Path>) -> Result<HashMap<PathBuf, String>> {
+    pub fn companions_in(
+        &self,
+        folder: Option<&Path>,
+    ) -> Result<HashMap<PathBuf, String>, CatalogError> {
         Ok(self
             .companion_records()?
             .into_iter()
@@ -203,7 +214,7 @@ impl Library {
     }
 
     /// The asset whose companion `path` is (its recorded file).
-    pub fn companion_owner(&self, path: &Path) -> Result<Option<Asset>> {
+    pub fn companion_owner(&self, path: &Path) -> Result<Option<Asset>, CatalogError> {
         let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         self.companion_records()?
             .into_iter()
@@ -214,7 +225,7 @@ impl Library {
 
     /// Records `name`, a file beside the photograph `id`, as its companion
     /// (with that file's size and content fingerprint), or clears it.
-    pub fn set_companion(&self, id: &str, name: Option<&str>) -> Result<()> {
+    pub fn set_companion(&self, id: &str, name: Option<&str>) -> Result<(), CatalogError> {
         let identity = match name {
             Some(name) => {
                 validate_name(name)?;

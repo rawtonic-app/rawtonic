@@ -1,8 +1,10 @@
 //! Consistent database snapshots and remapping for complete library copies.
 //! File copying/verification is owned by ingest; these methods affect only
 //! the destination database, never the live source.
+use crate::CatalogError;
+use crate::error::ensure;
 use crate::{Library, Manifest, SCHEMA_VERSION, db_name, manifest_name, portable_relative};
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use rusqlite::params;
 use serde_json::Value;
 use std::{
@@ -22,7 +24,7 @@ pub struct ResourceUse<'a> {
 }
 
 impl Library {
-    pub fn snapshot_from(source: &Path, folder: &Path) -> Result<Library> {
+    pub fn snapshot_from(source: &Path, folder: &Path) -> Result<Library, CatalogError> {
         let manifest_path = source.join(if source.join("session.json").exists() {
             "session.json"
         } else {
@@ -56,7 +58,7 @@ impl Library {
         Library::open(folder)
     }
 
-    pub fn check_integrity(&self) -> Result<()> {
+    pub fn check_integrity(&self) -> Result<(), CatalogError> {
         let result: String = self
             .conn
             .query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
@@ -73,7 +75,7 @@ impl Library {
     pub fn rewrite_resources(
         &self,
         mut rewrite: impl FnMut(&str, ResourceUse<'_>) -> Result<String>,
-    ) -> Result<()> {
+    ) -> Result<(), CatalogError> {
         let tx = self.conn.unchecked_transaction()?;
         for (table, key, column, current) in [
             (
@@ -132,7 +134,7 @@ impl Library {
                     }
                 });
                 if let Some(e) = error {
-                    return Err(e);
+                    return Err(e.into());
                 }
                 tx.execute(
                     &format!("UPDATE {table} SET {column}=? WHERE {key}=?"),
@@ -163,7 +165,7 @@ impl Library {
         Ok(())
     }
 
-    pub fn internalize_assets(&self, paths: &[(String, PathBuf)]) -> Result<()> {
+    pub fn internalize_assets(&self, paths: &[(String, PathBuf)]) -> Result<(), CatalogError> {
         let tx = self.conn.unchecked_transaction()?;
         for (id, relative) in paths {
             // `relative` is a native path (the copied file's place below the
@@ -200,7 +202,7 @@ impl Library {
 
     /// Emit the snapshot's authoritative states, including offline copies,
     /// beside the photographs inside the library folder.
-    pub fn write_portable_sidecars(&self) -> Result<()> {
+    pub fn write_portable_sidecars(&self) -> Result<(), CatalogError> {
         for asset in self.assets(None)? {
             // Photographs referenced outside the library (a catalog exported
             // by reference) keep the sidecars beside their files untouched.

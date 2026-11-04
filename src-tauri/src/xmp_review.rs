@@ -12,8 +12,7 @@
 //! opens, the app is back in front or a folder is shown).
 
 use crate::session_bridge::with_library;
-use rawtonic_catalog::{Library, SidecarStamps, XmpOffline, XmpProblem, XmpUndo};
-use rawtonic_metadata::MetadataError;
+use rawtonic_catalog::{CatalogError, Library, SidecarStamps, XmpProblem, XmpUndo};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -74,16 +73,11 @@ pub fn review(lib: &Library) -> anyhow::Result<Vec<XmpReviewEntry>> {
 }
 
 impl XmpReport {
-    fn note(&mut self, path: String, result: anyhow::Result<()>) {
+    fn note(&mut self, path: String, result: Result<(), CatalogError>) {
         match result {
             Ok(()) => self.done.push(path),
-            Err(e) if e.is::<XmpOffline>() => self.offline.push(path),
-            Err(e)
-                if e.downcast_ref::<MetadataError>()
-                    .is_some_and(|e| matches!(e, MetadataError::XmpConflict)) =>
-            {
-                self.conflicts.push(path)
-            }
+            Err(e) if e.is_xmp_offline() => self.offline.push(path),
+            Err(e) if e.is_xmp_conflict() => self.conflicts.push(path),
             Err(e) => self.failed.push(XmpFailure {
                 path,
                 reason: format!("{e:#}"),
@@ -125,7 +119,7 @@ pub fn resolve(lib: &Library, paths: &[String], keep: XmpChoice) -> anyhow::Resu
                 report.undo.push(undo);
                 report.read.push(shown.clone());
                 lib.sync_xmp(&asset.id).map_err(|e| {
-                    anyhow::anyhow!("Read from the XMP sidecar; writing it back failed: {e}")
+                    anyhow::anyhow!("Read from the XMP sidecar; writing it back failed: {e}").into()
                 })
             }),
         };

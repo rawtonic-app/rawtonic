@@ -142,7 +142,7 @@ pub fn plan_folder_add(
             || match library.asset_at(path) {
                 Ok(asset) => asset.is_some(),
                 Err(e) => {
-                    *failure.borrow_mut() = Some(e);
+                    *failure.borrow_mut() = Some(e.into());
                     return false;
                 }
             }
