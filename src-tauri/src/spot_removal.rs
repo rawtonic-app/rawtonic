@@ -339,7 +339,6 @@ fn started_recipe(adjustments: &mut Value, source_path: &std::path::Path) {
         *adjustments = serde_json::json!({});
     }
     rawtonic_engine::camera_crop::apply_default(adjustments, source_path);
-    crate::image_processing::apply_render_default(adjustments);
 }
 
 /// The camera of a photo from its metadata: make and model, and whether it

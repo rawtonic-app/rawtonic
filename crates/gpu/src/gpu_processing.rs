@@ -15,6 +15,7 @@ use crate::mask_generation::MaskBitmap;
 use crate::scopes::ClippedSides;
 use rawtonic_engine::color_noise::{self, ChromaPyramid};
 use rawtonic_engine::output_color_space::OutputColorSpace;
+use rawtonic_engine::recipe_versions::{ClarityVersion, GrainVersion, ToneVersion};
 use rayon::prelude::*;
 
 #[cfg(test)]
@@ -4717,7 +4718,7 @@ impl DetailKey {
 /// Whether raised Shadows of tone version 6 reads the small blur's mean log
 /// luminance (shader.wgsl shadows_v6_wide), on the photo or a layer.
 fn shadows_v6_used(adjustments: &AllAdjustments) -> bool {
-    adjustments.global.tone_version > 5.5
+    ToneVersion::from_uniform(adjustments.global.tone_version).shadow_detail()
         && (adjustments.global.shadows > 0.0
             || adjustments
                 .mask_adjustments
@@ -4729,7 +4730,7 @@ fn shadows_v6_used(adjustments: &AllAdjustments) -> bool {
 /// Whether lowered Whites of tone version 10 reads the small blur's mean log
 /// luminance (shader.wgsl whites_v10_offset), on the photo or a layer.
 fn whites_v10_used(adjustments: &AllAdjustments) -> bool {
-    adjustments.global.tone_version > 9.5
+    ToneVersion::from_uniform(adjustments.global.tone_version).whites_local_base()
         && (adjustments.global.whites < 0.0
             || adjustments
                 .mask_adjustments
@@ -4746,7 +4747,7 @@ fn clarity_reach(adjustments: &AllAdjustments, scale: f32) -> u32 {
             .iter()
             .take(adjustments.mask_count as usize)
             .any(|m| m.clarity != 0.0);
-    if g.clarity_version < 2 || !used {
+    if !ClarityVersion::from_uniform(g.clarity_version).edge_aware() || !used {
         return 0;
     }
     2 * (10.0 * scale).clamp(1.0, 60.0).round() as u32
@@ -4781,13 +4782,13 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
     // its bands.
     let luma_nr = g.luma_noise_reduction != 0.0;
     // Clarity version 2 also weighs the small blur into its base.
-    let clarity_v2 = g.clarity_version >= 2;
+    let clarity_v2 = ClarityVersion::from_uniform(g.clarity_version).edge_aware();
     // Raised Shadows of tone version 6 takes its level from the small blur
     // too (shader.wgsl shadows_v6_wide).
-    let shadows_v6 = g.tone_version > 5.5;
+    let shadows_v6 = ToneVersion::from_uniform(g.tone_version).shadow_detail();
     // Lowered Whites of tone version 10 takes its base from it as well
     // (shader.wgsl whites_v10_offset).
-    let whites_v10 = g.tone_version > 9.5;
+    let whites_v10 = ToneVersion::from_uniform(g.tone_version).whites_local_base();
     let mut required = [
         g.sharpness != 0.0 || g.color_noise_reduction != 0.0 || luma_nr,
         g.sharpness != 0.0
@@ -8299,19 +8300,20 @@ impl GpuProcessor {
                 })
             });
         let lut_shaper = lut_shaper.as_ref().unwrap_or(&self.no_lut_shaper);
-        let film_grain = if request.adjustments.uniforms.global.grain_version >= 3
-            && request.adjustments.uniforms.global.grain_amount > 0.0
-        {
-            self.film_grain_tile.get_or_init(|| {
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Film grain tile"),
-                    contents: bytemuck::cast_slice(&film_grain_tile_data()),
-                    usage: wgpu::BufferUsages::STORAGE,
+        let film_grain =
+            if GrainVersion::from_uniform(request.adjustments.uniforms.global.grain_version).film()
+                && request.adjustments.uniforms.global.grain_amount > 0.0
+            {
+                self.film_grain_tile.get_or_init(|| {
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Film grain tile"),
+                        contents: bytemuck::cast_slice(&film_grain_tile_data()),
+                        usage: wgpu::BufferUsages::STORAGE,
+                    })
                 })
-            })
-        } else {
-            &self.no_film_grain
-        };
+            } else {
+                &self.no_film_grain
+            };
 
         let adjustments = request.adjustments.uniforms;
         self.update_camera_profile_tables(&adjustments.global);
@@ -8581,7 +8583,8 @@ impl GpuProcessor {
         // the log luminance of its colour (blur.wgsl, flag bit 2): in deep
         // shadows the absolute value kept only 0.008 EV in 16 bits, which
         // raised Shadows' level turned into steps on smooth gradients.
-        let relative_log = log_alpha && adjustments.global.tone_version > 5.5;
+        let relative_log =
+            log_alpha && ToneVersion::from_uniform(adjustments.global.tone_version).shadow_detail();
         let largest_beyond = ((40.0 * scale).ceil() as u32 + reach).saturating_sub(TILE_OVERLAP);
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {

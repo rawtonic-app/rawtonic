@@ -53,6 +53,8 @@ impl CaModel {
     };
 }
 
+use crate::recipe_versions::AutoCaVersion;
+
 /// The recipe key naming the estimate a recipe's automatic lateral CA
 /// correction uses.
 pub const VERSION_KEY: &str = "autoCaVersion";
@@ -71,11 +73,7 @@ pub const SWITCH_KEY: &str = "autoChromaticAberration";
 /// The recipe's estimate version: `autoCaVersion`, 1 when missing, never
 /// newer than this renderer knows.
 pub fn version_of(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(1)
-        .clamp(1, VERSION)
+    AutoCaVersion::of(adjustments).get()
 }
 
 /// Whether the automatic correction runs for a recipe in place of any
@@ -89,7 +87,7 @@ pub fn applies(adjustments: &serde_json::Value, has_own_tca: bool) -> bool {
         .and_then(serde_json::Value::as_bool)
     {
         Some(on) => on,
-        None => version_of(adjustments) >= 2 && !has_own_tca,
+        None => AutoCaVersion::of(adjustments).refined() && !has_own_tca,
     }
 }
 
@@ -105,7 +103,7 @@ pub fn competes(adjustments: &serde_json::Value, own_tca_untouched: bool) -> boo
             .get(SWITCH_KEY)
             .and_then(serde_json::Value::as_bool)
             .is_none()
-        && version_of(adjustments) >= 3
+        && AutoCaVersion::of(adjustments).competes()
 }
 
 /// Sets the current version on the recipe of a never-edited RAW (as the
@@ -362,14 +360,14 @@ pub fn estimate_cached(image: &Rgb32FImage, version: u64) -> Option<CaModel> {
 /// the estimate competes with from version 3) `estimate_versus`: `None`
 /// then keeps `own`.
 pub fn estimate_for(image: &Rgb32FImage, version: u64, own: Option<CaModel>) -> Option<CaModel> {
-    let own = own.filter(|_| version >= 3);
+    let own = own.filter(|_| AutoCaVersion::from_raw(version).competes());
     let key = image_key(image, version, own);
     if let Some(value) = cached(key) {
         return value;
     }
     let value = match own {
         Some(own) => estimate_versus(image, own),
-        None if version >= 2 => estimate_v2(image),
+        None if AutoCaVersion::from_raw(version).refined() => estimate_v2(image),
         None => estimate(image),
     };
     remember(key, value);
@@ -388,10 +386,10 @@ pub fn share_estimate(
     version: u64,
     own: Option<CaModel>,
 ) {
-    if version < 2 {
+    if !AutoCaVersion::from_raw(version).refined() {
         return;
     }
-    let own = own.filter(|_| version >= 3);
+    let own = own.filter(|_| AutoCaVersion::from_raw(version).competes());
     let value = estimate_for(full, version, own);
     remember(image_key(reduced, version, own), value);
 }
@@ -401,7 +399,7 @@ pub fn share_estimate(
 /// `share_estimate` gave it one that is still cached (the cache keeps the
 /// latest 16 photos).
 pub fn is_shared(reduced: &Rgb32FImage, version: u64, own: Option<CaModel>) -> bool {
-    version < 2 || shared(reduced, version, own).is_some()
+    !AutoCaVersion::from_raw(version).refined() || shared(reduced, version, own).is_some()
 }
 
 /// The estimate `share_estimate` gave `reduced` (still cached), without
@@ -411,7 +409,11 @@ pub fn shared(
     version: u64,
     own: Option<CaModel>,
 ) -> Option<Option<CaModel>> {
-    cached(image_key(reduced, version, own.filter(|_| version >= 3)))
+    cached(image_key(
+        reduced,
+        version,
+        own.filter(|_| AutoCaVersion::from_raw(version).competes()),
+    ))
 }
 
 /// The shift (pixels, outward positive) at which `plane` along the radius

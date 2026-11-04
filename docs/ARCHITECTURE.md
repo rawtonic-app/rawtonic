@@ -401,7 +401,8 @@ camera defaults and DCP profiles, looks and colour tools, Lensfun parsing and le
 versions 1–4; version 5 on the GPU in `edge_fringe/gpu.rs` with its WGSL, using the device the app or
 `GpuContext::headless` registers, as rawdecode's GPU demosaic does), the geometry warp of `renderVersion` 7 on that
 device (`warp_gpu.rs`), spot removal, mask layer definitions; `masks::paste_layers` and `pending_detections`: the
-copy/sync layer rule and the export refusal of AI selections not detected yet, ADR 0015). The adapter re-exports them
+copy/sync layer rule and the export refusal of AI selections not detected yet, ADR 0015; `recipe_versions`: every
+recipe `*Version` key read once, with its clamp and a named predicate per gate). The adapter re-exports them
 under their former module names and keeps their Tauri commands in thin modules of the same name. `engine` also holds
 mask rasterisation and the recipe hashes.
 
@@ -456,7 +457,9 @@ jobs and their photos with state, output, error and timing; pause, cancel, resum
 
 `export` (export settings/geometry/encoders, render pipeline with `RenderEnv`, exif_processing/tiff_exif/xmp_embed with
 `export_metadata_with` + `encode_with_metadata`, `sidecars` (virtual paths, `.rrdata` reading, library walk, export
-naming), `output::write_new_output`, `file_export::FileExporter`).
+naming), `output::write_new_output`, `file_export::FileExporter`, and `normalize::normalize`, the one entry that makes a
+stored or editor recipe renderable: bitmaps, offline lens, new-edit crop and versions, camera lens defaults, Lightroom
+orientation, in that order; every render caller in the app and the CLI calls it once).
 
 
 #### Layering check and colour pipeline

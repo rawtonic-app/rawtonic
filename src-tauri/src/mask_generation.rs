@@ -79,7 +79,7 @@ pub async fn sample_luma_range(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
         let develop = app_handle.state::<DevelopSession>();
-        crate::adjustment_utils::hydrate_adjustments(&develop, &mut js_adjustments);
+        crate::adjustment_utils::normalize_editor_recipe(&develop, &mut js_adjustments);
         let (source, is_raw) = crate::editor_preview::get_original_image(&state)?;
         let mask_source = ParametricMaskSource::new(
             get_cached_full_warped_image(&state, &develop, &source, is_raw, &js_adjustments)?,
@@ -113,7 +113,7 @@ fn generate_mask_overlay_bytes(
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("mask_overlay");
     if let Some(ref mut adj) = js_adjustments {
-        crate::adjustment_utils::hydrate_adjustments(&develop, adj);
+        crate::adjustment_utils::normalize_editor_recipe(&develop, adj);
     }
 
     if let Some(sub_masks) = mask_def.get_mut("subMasks").and_then(|v| v.as_array_mut()) {
@@ -224,7 +224,7 @@ fn mask_thumbnails(
         )
     };
     let (layer_size, component_size) = (clamp(layer_size), clamp(component_size));
-    crate::adjustment_utils::hydrate_adjustments(develop, &mut adjustments);
+    crate::adjustment_utils::normalize_editor_recipe(develop, &mut adjustments);
     let masks: Vec<MaskDefinition> = adjustments
         .get("masks")
         .and_then(|m| serde_json::from_value(m.clone()).ok())

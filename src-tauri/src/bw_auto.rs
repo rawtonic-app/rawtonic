@@ -49,7 +49,11 @@ const V2: Response = Response {
 };
 
 fn response(version: u64) -> &'static Response {
-    if version >= 2 { &V2 } else { &V1 }
+    if version >= rawtonic_engine::recipe_versions::STRONG_PULL_BW_VERSION {
+        &V2
+    } else {
+        &V1
+    }
 }
 const BASE: [f32; 24] = [
     -0.071, -0.13, -0.194, -0.144, -0.058, -0.006, 0.021, 0.004, 0.061, 0.115, 0.209, 0.238, 0.133,
@@ -274,7 +278,7 @@ pub async fn auto_gray_mix(
         };
         let mut recipe = js_adjustments;
         let version = crate::image_processing::bw_version(&recipe);
-        crate::adjustment_utils::hydrate_adjustments(&develop, &mut recipe);
+        crate::adjustment_utils::normalize_editor_recipe(&develop, &mut recipe);
         recipe["blackAndWhite"] = serde_json::Value::Bool(false);
         recipe["masks"] = serde_json::json!([]);
         let tone_mapper =

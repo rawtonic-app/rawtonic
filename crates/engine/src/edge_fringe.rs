@@ -45,6 +45,8 @@ pub mod gpu;
 #[cfg(test)]
 mod reference;
 
+use crate::recipe_versions::FringeVersion;
+
 /// The recipe key naming the edge-fringe treatment a recipe was made with.
 pub const VERSION_KEY: &str = "fringeVersion";
 /// The newest treatment: 1 (2026-10-16) removes edge fringes as described
@@ -80,8 +82,8 @@ pub const VERSION: u64 = 6;
 /// version 2's low-noise photos: on GM1S (noise 0.017) they raised the
 /// specks 176 → 402 per Mpx. `noise` is the full-resolution luminance
 /// noise (`luminance_noise`).
-fn radius_for(version: u64, noise: f32) -> f32 {
-    let wide = if version >= 6 {
+fn radius_for(version: FringeVersion, noise: f32) -> f32 {
+    let wide = if version.moderate_noise_windows() {
         noise < WIDE_NOISE
     } else {
         low_noise(version, noise)
@@ -95,8 +97,8 @@ fn radius_for(version: u64, noise: f32) -> f32 {
 const WIDE_NOISE: f32 = 0.9 * EDGE_LOW;
 
 /// Whether version 2's wider windows and version 3's colour lines apply.
-fn low_noise(version: u64, noise: f32) -> bool {
-    version >= 2 && noise < 0.5 * EDGE_LOW
+fn low_noise(version: FringeVersion, noise: f32) -> bool {
+    version.wide_windows() && noise < 0.5 * EDGE_LOW
 }
 
 /// What the pass does to an image: the window radius (in the image's
@@ -144,14 +146,16 @@ impl AxialPlan {
 
 /// The plan for `version` on an image at `scale` of the full resolution
 /// whose full-resolution luminance noise is `noise`.
-fn plan_for(version: u64, noise: f32, scale: f32) -> Plan {
+fn plan_for(version: FringeVersion, noise: f32, scale: f32) -> Plan {
     let scale = scale.min(1.0);
     Plan {
         radius: ((radius_for(version, noise) * scale).round() as usize).max(1),
-        colour_lines: version >= 3 && low_noise(version, noise),
+        colour_lines: version.colour_lines() && low_noise(version, noise),
         // A reduced image's own noise is about its scale of the full one.
-        axial: (version >= 4).then(|| AxialPlan::new(noise * scale, scale)),
-        gpu: version >= 5,
+        axial: version
+            .axial()
+            .then(|| AxialPlan::new(noise * scale, scale)),
+        gpu: version.gpu(),
     }
 }
 
@@ -159,7 +163,7 @@ fn plan_for(version: u64, noise: f32, scale: f32) -> Plan {
 /// luminance noise is `noise` (the GPU crate's equivalence tests).
 #[cfg(feature = "test-support")]
 pub fn plan_of(version: u64, noise: f32, scale: f32) -> Plan {
-    plan_for(version.min(VERSION), noise, scale)
+    plan_for(FringeVersion::clamped(version), noise, scale)
 }
 
 /// The full-resolution luminance noise the plan of `data` is made with
@@ -261,7 +265,7 @@ pub const DRAFT_KEY: &str = "fringeDraft";
 /// Whether a draft (`DRAFT_KEY`) renders differently from the recipe: it
 /// has the chromatic-aberration stage.
 pub fn has_draft(adjustments: &serde_json::Value) -> bool {
-    version_of(adjustments) >= 4
+    FringeVersion::of(adjustments).axial()
 }
 
 /// Whether `adjustments` is such a draft.
@@ -275,11 +279,7 @@ pub fn is_draft(adjustments: &serde_json::Value) -> bool {
 /// The recipe's edge-fringe version: `fringeVersion`, 0 (none) when
 /// missing, never newer than this renderer knows.
 pub fn version_of(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0)
-        .min(VERSION)
+    FringeVersion::of(adjustments).get()
 }
 
 /// Sets the current version on the recipe of a never-edited RAW (as the
@@ -305,8 +305,7 @@ pub fn apply_for_recipe<'a>(
     adjustments: &serde_json::Value,
     scale: f32,
 ) -> Result<Cow<'a, DynamicImage>, String> {
-    let version = version_of(adjustments);
-    if version == 0 || scale.is_nan() || scale < MIN_SCALE {
+    if !FringeVersion::of(adjustments).enabled() || scale.is_nan() || scale < MIN_SCALE {
         return Ok(image);
     }
     if !matches!(
@@ -349,9 +348,9 @@ fn recipe_plan_with_noise(
     scale: f32,
     noise: impl FnOnce() -> f32,
 ) -> Plan {
-    let version = version_of(adjustments);
+    let version = FringeVersion::of(adjustments);
     // A reduced preview averages the noise down by about its scale.
-    let noise = if version >= 2 {
+    let noise = if version.wide_windows() {
         noise() / scale.min(1.0)
     } else {
         0.0
@@ -366,7 +365,7 @@ fn recipe_plan_with_noise(
 /// Whether [`apply_for_recipe_into_texture`] runs the recipe's pass on
 /// `image` at full resolution: version 5's GPU pass on RGB floats.
 pub fn runs_into_texture(image: &DynamicImage, adjustments: &serde_json::Value) -> bool {
-    plan_for(version_of(adjustments), 0.0, 1.0).gpu
+    plan_for(FringeVersion::of(adjustments), 0.0, 1.0).gpu
         && image.width() > 0
         && image.height() > 0
         && matches!(image, DynamicImage::ImageRgb32F(_))
@@ -427,7 +426,7 @@ pub fn apply_for_recipe_into_texture_from_buffer(
 ) -> Result<(), String> {
     let [x, y, width, height] = window.map(|v| v as usize);
     let (w, h) = (w as usize, h as usize);
-    if !plan_for(version_of(adjustments), 0.0, 1.0).gpu || w == 0 || h == 0 {
+    if !plan_for(FringeVersion::of(adjustments), 0.0, 1.0).gpu || w == 0 || h == 0 {
         return Err("The edge-fringe pass of this recipe does not run into a texture.".to_string());
     }
     if width == 0 || height == 0 || x + width > w || y + height > h {
@@ -610,8 +609,8 @@ pub fn full_resolution_plan(
     h: usize,
     row: impl Fn(usize) -> Vec<f32> + Sync,
 ) -> Option<Plan> {
-    let version = version_of(adjustments);
-    if version == 0 {
+    let version = FringeVersion::of(adjustments);
+    if !version.enabled() {
         return None;
     }
     let noise = if full_resolution_plan_reads_rows(adjustments, w) {
@@ -630,7 +629,7 @@ pub fn full_resolution_plan(
 /// Whether [`full_resolution_plan`] of `adjustments` on an image `w`
 /// wide asks for rows (to measure the noise).
 pub fn full_resolution_plan_reads_rows(adjustments: &serde_json::Value, w: usize) -> bool {
-    version_of(adjustments) >= 2 && w >= 2
+    FringeVersion::of(adjustments).wide_windows() && w >= 2
 }
 
 /// How far [`apply`] reads around a pixel (rows and columns): the
@@ -1583,8 +1582,8 @@ mod tests {
         assert_eq!(run(&noisy, 3), run(&noisy, 1));
         let clean = noisy_grey(0.004);
         assert!(luminance_noise(clean.as_raw(), 96, 96, 3) < 0.5 * EDGE_LOW);
-        assert_eq!(radius_for(2, 0.004), 3.0);
-        assert_eq!(radius_for(1, 0.004), 2.0);
+        assert_eq!(radius_for(FringeVersion::from_raw(2), 0.004), 3.0);
+        assert_eq!(radius_for(FringeVersion::from_raw(1), 0.004), 2.0);
     }
 
     fn linear_mix(a: [f32; 3], b: [f32; 3], t: f32) -> image::Rgb<f32> {
@@ -1850,7 +1849,11 @@ mod tests {
         // one band.
         let mut whole = img.clone();
         let (w, h) = (img.width() as usize, img.height() as usize);
-        let plan = plan_for(3, luminance_noise(img.as_raw(), w, h, 3), 1.0);
+        let plan = plan_for(
+            FringeVersion::from_raw(3),
+            luminance_noise(img.as_raw(), w, h, 3),
+            1.0,
+        );
         assert!(plan.colour_lines);
         let changes = suppress_tile(img.as_raw(), w, h, 3, plan.radius, 0..h, 0..w);
         for (i, red, blue) in changes {
@@ -1917,26 +1920,29 @@ mod tests {
         // Between version 2's low-noise gate and `WIDE_NOISE`: 7 × 7 without
         // the colour lines; versions 2–5 keep 5 × 5 there.
         for noise in [0.0, 0.01, 0.016, 0.023, 0.0269] {
-            let plan = plan_for(6, noise, 1.0);
+            let plan = plan_for(FringeVersion::from_raw(6), noise, 1.0);
             assert_eq!(plan.radius, 3, "noise {noise}");
             assert_eq!(plan.colour_lines, noise < 0.5 * EDGE_LOW, "noise {noise}");
             assert_eq!(
                 Plan {
                     radius: 3,
-                    ..plan_for(5, noise, 1.0)
+                    ..plan_for(FringeVersion::from_raw(5), noise, 1.0)
                 },
                 plan,
                 "version 6 otherwise plans version 5's stages (noise {noise})"
             );
         }
         for noise in [0.016, 0.023] {
-            assert_eq!(plan_for(5, noise, 1.0).radius, 2);
+            assert_eq!(plan_for(FringeVersion::from_raw(5), noise, 1.0).radius, 2);
         }
         for noise in [0.0271, 0.031, 0.05] {
-            assert_eq!(plan_for(6, noise, 1.0), plan_for(5, noise, 1.0));
+            assert_eq!(
+                plan_for(FringeVersion::from_raw(6), noise, 1.0),
+                plan_for(FringeVersion::from_raw(5), noise, 1.0)
+            );
         }
         // Reduced previews scale the radius as before.
-        assert_eq!(plan_for(6, 0.02, 0.5).radius, 2);
+        assert_eq!(plan_for(FringeVersion::from_raw(6), 0.02, 0.5).radius, 2);
     }
 
     #[test]
@@ -1947,11 +1953,11 @@ mod tests {
         let error =
             apply_for_recipe(Cow::Borrowed(&fringed), &recipe, 1.0).expect_err("no CPU fallback");
         assert!(error.contains("graphics card"), "{error}");
-        let plan = plan_for(5, 0.0, 1.0);
+        let plan = plan_for(FringeVersion::from_raw(5), 0.0, 1.0);
         assert!(plan.gpu && plan.colour_lines && plan.axial.is_some());
         assert_eq!(
             Plan { gpu: false, ..plan },
-            plan_for(4, 0.0, 1.0),
+            plan_for(FringeVersion::from_raw(4), 0.0, 1.0),
             "version 5 plans version 4's stages"
         );
     }

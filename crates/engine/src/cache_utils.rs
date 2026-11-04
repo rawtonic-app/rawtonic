@@ -67,9 +67,9 @@ pub fn calculate_geometry_hash(adjustments: &serde_json::Value) -> u64 {
 /// The warps' and straightening's resampling differs by render version
 /// (`GeometryParams::keep_negative`); version 1 leaves the hash as it was.
 fn hash_resampling(adjustments: &serde_json::Value, hasher: &mut DefaultHasher) {
-    let version = crate::image_processing::render_version(adjustments);
-    if version >= 2 {
-        ("renderVersion", version).hash(hasher);
+    let render = crate::recipe_versions::RenderVersion::of(adjustments);
+    if render.keeps_negative() {
+        (crate::image_processing::RENDER_VERSION_KEY, render.get()).hash(hasher);
     }
 }
 

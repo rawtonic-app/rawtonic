@@ -566,7 +566,7 @@ pub async fn edit_with_start(
             crate::export_queue::app_queue(),
             &|adjustments| {
                 let mut adjustments = adjustments.clone();
-                crate::adjustment_utils::hydrate_adjustments(&develop, &mut adjustments);
+                crate::adjustment_utils::normalize_editor_recipe(&develop, &mut adjustments);
                 rawtonic_engine::image_loader::has_generated_areas(&adjustments)
             },
         )

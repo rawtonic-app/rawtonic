@@ -43,7 +43,7 @@ pub fn requested_flag(adjustments: &serde_json::Value) -> f32 {
     if adjustments["diffractionCorrection"].as_bool() != Some(true) {
         return 0.0;
     }
-    if adjustments[VERSION_KEY].as_u64().unwrap_or(1) >= 2 {
+    if crate::recipe_versions::DiffractionVersion::of(adjustments).whole_database() {
         2.0
     } else {
         1.0

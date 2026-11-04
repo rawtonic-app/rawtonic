@@ -2738,7 +2738,8 @@ fn blend_stroke_auto_mask_v2(
     combine: impl Fn(u8, u8) -> u8 + Sync,
 ) {
     let scale_of = |dab: usize| scales.get(dab).copied().unwrap_or((1.0, 1.0));
-    let models: Vec<AutoMaskModel> = if version >= 3 {
+    let models: Vec<AutoMaskModel> = if version >= crate::recipe_versions::auto_mask::COLOUR_MODELS
+    {
         let clusters: Vec<Option<AutoMaskClusters>> = dabs
             .par_iter()
             .enumerate()
@@ -3293,7 +3294,7 @@ fn apply_brush_line(
         (None, None) => None,
     };
     let tip = match line.dab_version {
-        Some(version) if version >= 2 => tip.map(|tip| {
+        Some(version) if version >= crate::recipe_versions::dab::SMOOTH_END => tip.map(|tip| {
             tip.dab_version_2(line.hardness.is_some() && !(line.auto_mask && !is_eraser))
         }),
         _ => tip,
@@ -3318,7 +3319,9 @@ fn apply_brush_line(
         (blended.clamp(0.0, 1.0) * 255.0).round() as u8
     };
     if let Some(tip) = tip {
-        let edge_aware = line.auto_mask_version.is_some_and(|version| version >= 2);
+        let edge_aware = line
+            .auto_mask_version
+            .is_some_and(|version| version >= crate::recipe_versions::auto_mask::EDGE_AWARE);
         let colours = auto_mask
             .filter(|_| !edge_aware)
             .map(|sampler| source_lab_region(sampler, bounds));

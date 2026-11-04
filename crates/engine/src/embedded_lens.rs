@@ -1213,11 +1213,7 @@ pub const CA_VERSION: u64 = 1;
 
 /// The recipe's camera CA version: `cameraCaVersion`, 0 when missing.
 pub fn ca_version_of(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(CA_VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0)
-        .min(CA_VERSION)
+    crate::recipe_versions::CameraCaVersion::of(adjustments).get()
 }
 
 /// The recipe key naming how a camera-mode recipe's camera data were read
@@ -1258,14 +1254,17 @@ const SONY_TABLE_GEOMETRY: u64 = 6;
 /// as the cameras do.
 const PANASONIC_FUJIFILM_GEOMETRY: u64 = 5;
 
+/// The camera geometry version that frames Nikon Z data as the camera does.
+const NIKON_FRAMING_GEOMETRY: u64 = 2;
+
+/// The camera geometry version that reads Sony's distortion (and frame) as
+/// Camera Raw does.
+const SONY_FRAME_GEOMETRY: u64 = 1;
+
 /// The recipe's camera geometry version: `cameraGeometryVersion`, 0 when
 /// missing.
 pub fn geometry_version_of(adjustments: &serde_json::Value) -> u64 {
-    adjustments
-        .get(GEOMETRY_VERSION_KEY)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0)
-        .min(GEOMETRY_VERSION)
+    crate::recipe_versions::CameraGeometryVersion::of(adjustments).get()
 }
 
 /// The correction data stored in the RAW file, if any, for the newest
@@ -1375,7 +1374,7 @@ pub fn read_version(
                 .take(1 << 20)
                 .read_to_end(&mut head)
                 .ok()?;
-            let uncut = frame_version > 0
+            let uncut = frame_version != crate::recipe_versions::ORIGINAL_SOURCE_FRAME
                 && crate::raw_processing::sensor_and_frame(&source, frame_version)
                     != crate::raw_processing::sensor_and_frame(&source, 0);
             let frame_reach = match crate::capture_info::aspect_crop(&head) {
@@ -1390,7 +1389,7 @@ pub fn read_version(
             let frame = SonyFrame {
                 frame_reach,
                 interchangeable_lens: settings.is_some_and(|s| s.interchangeable_lens),
-                ..if geometry_version == 0 {
+                ..if geometry_version < SONY_FRAME_GEOMETRY {
                     SonyFrame::FULL
                 } else {
                     sony_sensor_frame(&source, frame_version).unwrap_or(SonyFrame::FULL)
@@ -1427,7 +1426,9 @@ pub fn read_version(
         "rw2" | "rwl" => {
             let path = path.to_str()?;
             let chromatic = crate::capture_info::panasonic_ca_info(path)
-                .filter(|_| ca_version >= 1)
+                .filter(|_| {
+                    crate::recipe_versions::CameraCaVersion::from_raw(ca_version).panasonic()
+                })
                 .and_then(|(values, half_diagonal)| panasonic_chromatic(&values, half_diagonal));
             // Version 5 also finds the frame of the bodies that write their
             // aspect crop as zeros (G7, G70: version 0 read their 3:2, 16:9
@@ -1476,7 +1477,7 @@ pub fn read_version(
                             nikon_centre(&info, width, height, frame.orientation)
                         })
                         .flatten();
-                    nikon_curve(&info, geometry_version >= 2, centre)
+                    nikon_curve(&info, geometry_version >= NIKON_FRAMING_GEOMETRY, centre)
                 }
                 None => nikon_compact_curve(&parse_nikon_compact_distortion(&blob)?),
             }
@@ -1844,7 +1845,7 @@ const PANASONIC_CA_FACTS: u32 = 3;
 pub fn recipe_params_known(source: &Path, adjustments: &serde_json::Value) -> bool {
     crate::source_facts::registered(&source.to_string_lossy()).is_none_or(|facts| {
         (facts.version >= PANASONIC_CA_FACTS
-            || ca_version_of(adjustments) == 0
+            || !crate::recipe_versions::CameraCaVersion::of(adjustments).panasonic()
             || !is_panasonic(source))
             && geometry_version_of(adjustments) <= known_geometry_version(source, facts.version)
             && facts.camera_lens_known(
@@ -1897,7 +1898,9 @@ pub fn params_for_version(
     let frame = crate::source_frame::effective(&source.to_string_lossy(), frame_version);
     if let Some(facts) = crate::source_facts::registered(&source.to_string_lossy()) {
         let params = facts.camera_lens_for(geometry_version, frame);
-        if ca_version == 0 && is_panasonic(source) {
+        if !crate::recipe_versions::CameraCaVersion::from_raw(ca_version).panasonic()
+            && is_panasonic(source)
+        {
             return params
                 .map(LensDistortionParams::without_tca)
                 .filter(|p| !p.is_identity());

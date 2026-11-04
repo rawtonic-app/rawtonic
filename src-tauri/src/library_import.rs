@@ -545,7 +545,8 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
         base[ip::BW_VERSION_KEY] = json!(ip::BW_VERSION);
         base[ip::GRAIN_VERSION_KEY] = json!(ip::GRAIN_VERSION);
         if is_raw {
-            base["aiDenoiseVersion"] = json!(rawtonic_engine::image_loader::AI_DENOISE_VERSION);
+            base[rawtonic_engine::recipe_versions::AI_DENOISE_VERSION_KEY] =
+                json!(rawtonic_engine::image_loader::AI_DENOISE_VERSION);
         }
     }
     if let (Some(map), Some(base)) = (adjustments.as_object_mut(), base.as_object()) {

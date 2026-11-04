@@ -344,8 +344,12 @@ pub(crate) fn develop_thumbnail(
             } else {
                 adjustments.clone()
             };
-            rawtonic_engine::camera_crop::apply_default(&mut recipe, &source_path);
-            crate::embedded_lens::apply_default(&mut recipe, &source_path);
+            let _ = rawtonic_export::normalize::normalize(
+                &mut recipe,
+                &rawtonic_export::normalize::RecipeSource::file(&source_path),
+                rawtonic_export::normalize::Bitmaps::None,
+                rawtonic_export::normalize::Defaults::NewEdit,
+            );
             let mut meta = metadata.unwrap_or_default();
             meta.adjustments = recipe.clone();
             (Some(meta), recipe)
@@ -591,7 +595,7 @@ pub(crate) fn develop_thumbnail(
         let rotated_image = apply_rotation(
             flipped_image,
             rotation_degrees,
-            rawtonic_engine::image_processing::render_version(&meta.adjustments) >= 2,
+            rawtonic_engine::recipe_versions::RenderVersion::of(&meta.adjustments).keeps_negative(),
         );
 
         let scaled_crop_json = if let Some(c) = &crop_data {
