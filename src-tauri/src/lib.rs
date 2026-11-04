@@ -84,6 +84,7 @@ mod preview_cache;
 mod preview_jpeg;
 mod preview_proxy;
 mod preview_slot;
+mod privacy_notice;
 mod profile_thumbnails;
 mod proof_sheet;
 mod proxy_worker;
@@ -787,6 +788,8 @@ pub fn run() {
             storage::storage_clear,
             storage::storage_apply_limits,
             update_check::check_updates,
+            privacy_notice::privacy_notice_pending,
+            privacy_notice::privacy_notice_acknowledge,
             contribute::contribution_app_info,
             contribute::contribution_available,
             contribute::contribution_prepare,

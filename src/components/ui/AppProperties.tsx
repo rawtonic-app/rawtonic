@@ -220,6 +220,8 @@ export enum Invokes {
   LoadPresets = 'load_presets',
   LoadBuiltinPresets = 'load_builtin_presets',
   CheckUpdates = 'check_updates',
+  PrivacyNoticePending = 'privacy_notice_pending',
+  PrivacyNoticeAcknowledge = 'privacy_notice_acknowledge',
   ContributionAppInfo = 'contribution_app_info',
   ContributionAvailable = 'contribution_available',
   ContributionDelete = 'contribution_delete',
@@ -453,6 +455,8 @@ export interface AppSettings {
   checkForUpdates?: boolean;
   /** Backend-owned Unix timestamp in seconds throttling automatic update checks. */
   lastUpdateCheck?: number | null;
+  /** Backend-owned: the first-start privacy notice was shown (Windows copies without an installer page). */
+  privacyNoticeSeen?: boolean | null;
   /** Rawtonic's own presets and styles in the Styles panel and the tools' preset menus (missing: shown). */
   showBuiltinPresets?: boolean;
   favoriteProfiles?: string[];

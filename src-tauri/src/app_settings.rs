@@ -596,6 +596,9 @@ pub struct AppSettings {
     pub update_prereleases: Option<bool>,
     #[serde(default)]
     pub last_update_check: Option<u64>,
+    /// The first-start privacy notice was shown (`privacy_notice`; backend-owned).
+    #[serde(default)]
+    pub privacy_notice_seen: Option<bool>,
     #[serde(default)]
     pub dismissed_update_version: Option<String>,
     /// The version that ran last; a newer one shows its CHANGELOG section once.
@@ -861,6 +864,7 @@ impl Default for AppSettings {
             check_for_updates: None,
             update_prereleases: None,
             last_update_check: None,
+            privacy_notice_seen: None,
             dismissed_update_version: None,
             last_run_version: None,
             show_whats_new: None,
@@ -1166,6 +1170,7 @@ fn save_settings_snapshot(settings: AppSettings, app_handle: &AppHandle) -> Resu
 /// nor the usage-statistics choice, which only `persist_usage_stats` changes.
 fn take_frontend_snapshot(saved: &mut AppSettings, mut snapshot: AppSettings) {
     snapshot.last_update_check = saved.last_update_check;
+    snapshot.privacy_notice_seen = saved.privacy_notice_seen;
     snapshot.usage_stats = saved.usage_stats;
     *saved = snapshot;
 }
@@ -1203,8 +1208,20 @@ fn reserve_update_check_in(
     manual: bool,
     now: u64,
 ) -> Result<Option<AppSettings>, String> {
+    let notice_shown = crate::privacy_notice::shown(settings.privacy_notice_seen);
+    reserve_update_check_when(settings, manual, now, notice_shown)
+}
+
+/// `reserve_update_check_in` with the privacy-notice state given: nothing
+/// automatic goes online (or is reserved) before the notice was shown.
+fn reserve_update_check_when(
+    settings: &mut AppSettings,
+    manual: bool,
+    now: u64,
+    notice_shown: bool,
+) -> Result<Option<AppSettings>, String> {
     crate::update_check::core::when_due(
-        settings.check_for_updates.unwrap_or(true),
+        settings.check_for_updates.unwrap_or(true) && notice_shown,
         settings.last_update_check,
         now,
         manual,
@@ -1252,8 +1269,36 @@ mod tests {
     ) -> Result<Option<AppSettings>, String> {
         SettingsStore::default().update_if(
             || Ok(path.to_path_buf()),
-            |settings| reserve_update_check_in(settings, manual, now),
+            |settings| {
+                // The privacy notice gate (`privacy_notice`) is not under test here.
+                settings.privacy_notice_seen = Some(true);
+                reserve_update_check_in(settings, manual, now)
+            },
         )
+    }
+
+    #[test]
+    fn no_automatic_check_is_reserved_before_the_privacy_notice_was_shown() {
+        let mut settings = AppSettings::default();
+        assert!(
+            reserve_update_check_when(&mut settings, false, 100, false)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(settings.last_update_check, None);
+        // A manual check is the user's own action.
+        assert!(
+            reserve_update_check_when(&mut settings, true, 100, false)
+                .unwrap()
+                .is_some()
+        );
+        let mut settings = AppSettings::default();
+        assert!(
+            reserve_update_check_when(&mut settings, false, 100, true)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(settings.last_update_check, Some(100));
     }
 
     #[test]

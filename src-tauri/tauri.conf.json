@@ -50,6 +50,8 @@
       "lensfun_db"
     ],
     "category": "Photography",
+    "publisher": "Rawtonic Project",
+    "copyright": "Copyright 2026 Rawtonic contributors",
     "fileAssociations": [
       {
         "ext": [
@@ -336,6 +338,11 @@
         "installerHooks": "windows/installer-hooks.nsh"
       },
       "wix": {
+        "language": {
+          "en-US": {
+            "localePath": "windows/msi-en-US.wxl"
+          }
+        },
         "fragmentPaths": [
           "windows/msi-warmup.wxs"
         ],

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Rawtonic MSI strings (bundle.windows.wix.language.en-US.localePath). Tauri
+  uses this file instead of its own en-US strings, so the first six are its
+  defaults; WelcomeDlgDescription replaces the stock Welcome text with the
+  privacy notice SignPath asks for (docs/CODE_SIGNING.md). Keep the notice
+  short: the Welcome dialog's text box holds about five lines.
+-->
+<WixLocalization Culture="en-US" Language="1033" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+  <String Id="LaunchApp" Overridable="yes">Launch [ProductName]</String>
+  <String Id="DowngradeErrorMessage" Overridable="yes">A newer version of [ProductName] is already installed.</String>
+  <String Id="PathEnvVarFeature" Overridable="yes">Add the install location of the [ProductName] executable to the PATH system environment variable. This allows the [ProductName] executable to be called from any location.</String>
+  <String Id="InstallAppFeature" Overridable="yes">Installs [ProductName].</String>
+  <String Id="TauriCodepage" Overridable="yes">1252</String>
+  <String Id="TauriLanguage" Overridable="yes">1033</String>
+  <String Id="WelcomeDlgDescription" Overridable="yes">Privacy: the only thing Rawtonic sends on its own is a startup check for new versions (GitHub, at most once a day). Turn it off in Preferences &gt; General. Details: rawtonic.cc/privacy</String>
+</WixLocalization>

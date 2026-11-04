@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { useTranslation } from 'react-i18next';
 import { useUpdateStore } from '../store/useUpdateStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { Invokes } from './ui/AppProperties';
 import { ReleaseNotesDialog } from './ReleaseNotes';
 
 const megabytes = (bytes: number, language: string) =>
@@ -14,9 +16,50 @@ export default function UpdateNotice() {
   const update = useUpdateStore((s) => s.update);
   const settingsReady = useSettingsStore((s) => s.appSettings !== null);
   const [notesOpen, setNotesOpen] = useState(false);
+  // Windows copies no installer introduced (portable zip, silent install) show
+  // the privacy notice once; the startup check waits until it was shown.
+  const [noticePending, setNoticePending] = useState(false);
   useEffect(() => {
-    void useUpdateStore.getState().check(false);
+    void invoke<boolean>(Invokes.PrivacyNoticePending)
+      .catch(() => false)
+      .then((pending) => {
+        if (pending === true) setNoticePending(true);
+        else void useUpdateStore.getState().check(false);
+      });
   }, []);
+  if (noticePending) {
+    const acknowledge = () => {
+      void invoke(Invokes.PrivacyNoticeAcknowledge)
+        .catch(console.error)
+        .then(() => {
+          setNoticePending(false);
+          void useUpdateStore.getState().check(false);
+        });
+    };
+    return (
+      <aside role="dialog" aria-labelledby="privacy-notice-title" className="app-notice app-update-notice">
+        <div className="app-notice-body">
+          <p id="privacy-notice-title" className="app-notice-title">
+            {t('updates.privacyNoticeTitle')}
+          </p>
+          <p className="app-notice-detail">{t('updates.privacyNoticeBody')}</p>
+          <div className="app-notice-actions">
+            <button type="button" className="is-primary" onClick={acknowledge}>
+              {t('updates.privacyNoticeOk')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void open('https://rawtonic.cc/privacy/').catch(console.error);
+              }}
+            >
+              {t('updates.privacyNoticeLink')}
+            </button>
+          </div>
+        </div>
+      </aside>
+    );
+  }
   // Dismissal saves a version in settings; never offer it before those are loaded.
   if (!update || !settingsReady) return null;
   const dismiss = async () => {

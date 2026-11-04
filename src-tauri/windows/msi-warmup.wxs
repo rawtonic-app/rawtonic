@@ -22,7 +22,16 @@
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
-    <ComponentGroup Id="RawtonicGpuWarmup" />
+    <ComponentGroup Id="RawtonicGpuWarmup">
+      <!-- The privacy notice on the Welcome dialog (msi-en-US.wxl) was shown:
+           only an interactive install (full UI, UILevel 5: /qb and /qr show no Welcome dialog) sets the marker the app reads
+           (src-tauri/src/privacy_notice.rs); a silent install does not, so the
+           app then shows the notice itself on its first start. -->
+      <Component Id="RawtonicPrivacyNoticeShown" Directory="INSTALLDIR" Guid="6f0d5b1e-3c1a-4e55-9a57-2f7c0c1d8e41">
+        <Condition>UILevel &gt;= 5</Condition>
+        <RegistryValue Root="HKCU" Key="Software\Rawtonic Project\Rawtonic" Name="PrivacyNoticeShown" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
     <Property Id="RAWTONICNSISINSTALL" Secure="yes">
       <RegistrySearch Id="RawtonicNsisUninstall" Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Rawtonic" Name="UninstallString" Type="raw" />
     </Property>

@@ -13,6 +13,11 @@ the usage statistics if you switch them on (below). Turn off
 “Check for updates at startup” in Preferences → General to stop it. “Check now”
 requests a check even when the startup check is off.
 
+On Windows the same notice comes before the first check: the installers
+(NSIS and MSI) show it on their first page, and a copy no installer introduced
+(the portable zip, a silent install) shows it once on its first start. Nothing
+goes online before it was shown; the portable copy waits until you close it.
+
 Each check sends one GET to GitHub's public Releases API for
 `rawtonic-app/rawtonic`, considering the ten most recent releases. GitHub receives your IP address and a User-Agent of
 `Rawtonic/<version>`; no cookies, identifiers, photos, paths or settings are sent.
