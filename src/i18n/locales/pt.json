@@ -2623,6 +2623,7 @@
       "renderScaleDesc": "Dimensiona a resolução de renderização em relação à sua tela. Valores mais baixos melhoram o desempenho em telas de alta resolução ao custo de alguma nitidez.",
       "restartRequired": "As alterações no mecanismo de processamento exigem uma reinicialização do aplicativo para entrarem em vigor.",
       "saveRelaunch": "Salvar e Reiniciar",
+      "saveRelaunchFailed": "Não foi possível guardar as preferências, por isso o Rawtonic não foi reiniciado. Verifique se há espaço no disco e tente novamente.",
       "smallThumbnailRes": "Resolução das miniaturas da grade",
       "smallThumbnailResDesc": "Resolução das miniaturas exibidas na grade da biblioteca.",
       "staticDesc": "O editor renderiza a imagem em uma resolução fixa. Esse modo é o mais rápido e consistente, tornando-o ideal para hardware de baixo desempenho, onde o desempenho suave é priorizado sobre o zoom com pixels perfeitos.",

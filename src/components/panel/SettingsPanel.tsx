@@ -48,7 +48,7 @@ import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
 import { RotateCcw } from 'lucide-react';
 import { useUIStore } from '../../store/useUIStore';
-import { flushSettingsSaves } from '../../store/useSettingsStore';
+import { relaunchAfterSettingsSaves } from '../../store/useSettingsStore';
 import {
   DEFAULT_PROOF_MARGIN_PERCENT,
   PROOF_MARGIN_PERCENTS,
@@ -320,6 +320,7 @@ export default function SettingsPanel({
     useAppleRaw9: appSettings?.useAppleRaw9 ?? false
   });
   const [restartRequired, setRestartRequired] = useState(false);
+  const [relaunchFailed, setRelaunchFailed] = useState(false);
   const [activeCategory, setActiveCategory] = useState('general');
   // A page asked for from outside (the menu bar's About, Keyboard Shortcuts).
   const requestedCategory = useUIStore((state) => state.settingsCategory);
@@ -483,9 +484,7 @@ export default function SettingsPanel({
       ...appSettings,
       ...processingSettings
     });
-    // A relaunch ends the process without the quit drain.
-    await flushSettingsSaves();
-    await relaunch();
+    setRelaunchFailed((await relaunchAfterSettingsSaves(relaunch)).length > 0);
   };
 
   const handlePreviewModeChange = (mode: 'static' | 'dynamic') => {
@@ -1544,6 +1543,11 @@ export default function SettingsPanel({
                             <Info size={18} />
                             <p>{t('settings.processing.restartRequired')}</p>
                           </Text>
+                          {relaunchFailed && (
+                            <Text as="p" color={TextColors.error} role="alert">
+                              {t('settings.processing.saveRelaunchFailed')}
+                            </Text>
+                          )}
                           <div className="flex justify-end">
                             <Button onClick={handleSaveAndRelaunch}>{t('settings.processing.saveRelaunch')}</Button>
                           </div>

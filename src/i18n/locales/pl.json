@@ -2758,6 +2758,7 @@
       "renderScaleDesc": "Skaluje rozdzielczość względem twojego ekranu. Niższe wartości poprawiają wydajność na ekranach o wysokiej rozdzielczości kosztem ostrości.",
       "restartRequired": "Zmiany w silniku przetwarzania wymagają ponownego uruchomienia aplikacji, aby odniosły skutek.",
       "saveRelaunch": "Zapisz i uruchom ponownie",
+      "saveRelaunchFailed": "Nie udało się zapisać preferencji, więc Rawtonic nie został uruchomiony ponownie. Sprawdź, czy na dysku jest miejsce, i spróbuj ponownie.",
       "smallThumbnailRes": "Rozdzielczość miniatur w siatce",
       "smallThumbnailResDesc": "Rozdzielczość miniatur wyświetlanych w siatce biblioteki.",
       "staticDesc": "Edytor renderuje obraz w stałej rozdzielczości. Ten tryb jest najszybszy i najbardziej spójny, idealny dla słabszych komputerów, gdzie priorytetem jest płynne działanie a nie perfekcyjna jakość po zbliżeniu.",

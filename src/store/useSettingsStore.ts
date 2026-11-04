@@ -71,6 +71,17 @@ export function flushSettingsSaves(timeoutMs = SETTINGS_FLUSH_TIMEOUT_MS): Promi
   return Promise.race([drainSettingsSaves(), expired]).finally(() => clearTimeout(timer));
 }
 
+/**
+ * Relaunches once every queued settings save is written (a relaunch ends
+ * the process without the quit drain); a save that could not be written
+ * keeps the app open. Resolves with what could not be saved.
+ */
+export async function relaunchAfterSettingsSaves(relaunch: () => Promise<void>): Promise<string[]> {
+  const failures = await flushSettingsSaves();
+  if (failures.length === 0) await relaunch();
+  return failures;
+}
+
 export const useSettingsStore = create<SettingsState>((set) => ({
   appSettings: null,
   supportedTypes: null,

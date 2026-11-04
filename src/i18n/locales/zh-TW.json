@@ -2396,6 +2396,7 @@
       "renderScaleDesc": "相對於顯示器縮放渲染解析度。較低的值可在高解析度螢幕上提高效能，但會犧牲一些清晰度。",
       "restartRequired": "處理引擎的更改需要重啟應用程式才能生效。",
       "saveRelaunch": "儲存並重新啟動",
+      "saveRelaunchFailed": "無法儲存偏好設定，因此 Rawtonic 未重新啟動。請檢查磁碟空間後再試一次。",
       "smallThumbnailRes": "網格縮圖解析度",
       "smallThumbnailResDesc": "圖庫網格中顯示的縮圖解析度。",
       "staticDesc": "編輯器以固定解析度渲染影像。此模式最快且最一致，非常適合低端硬體，優先考慮流暢效能而非畫素完美的縮放。",

@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { flushSettingsSaves, saveSettings, SETTINGS_WRITE_NAME } from './useSettingsStore';
+import { flushSettingsSaves, relaunchAfterSettingsSaves, saveSettings, SETTINGS_WRITE_NAME } from './useSettingsStore';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -84,6 +84,18 @@ it('quitting writes a failed settings save once more and reports it when that fa
   expect(invoke).toHaveBeenCalledTimes(3);
   expect(await flushSettingsSaves()).toEqual([]);
   expect(invoke).toHaveBeenCalledTimes(3);
+});
+
+it('Save and Relaunch keeps the app open when the settings cannot be written', async () => {
+  vi.mocked(invoke).mockRejectedValue('disk full');
+  await expect(saveSettings(snapshot('dark'))).rejects.toBe('disk full');
+  const relaunch = vi.fn(() => Promise.resolve());
+  expect(await relaunchAfterSettingsSaves(relaunch)).toEqual([SETTINGS_WRITE_NAME]);
+  expect(relaunch).not.toHaveBeenCalled();
+  // Once the disk takes it again, the retry writes it and the app relaunches.
+  vi.mocked(invoke).mockResolvedValue(undefined);
+  expect(await relaunchAfterSettingsSaves(relaunch)).toEqual([]);
+  expect(relaunch).toHaveBeenCalledTimes(1);
 });
 
 it('quitting waits for a hung settings save only so long, then reports it', async () => {

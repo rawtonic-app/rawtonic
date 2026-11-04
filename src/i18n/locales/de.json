@@ -2487,6 +2487,7 @@
       "renderScaleDesc": "Skaliert die Renderauflösung relativ zu deinem Bildschirm. Niedrigere Werte verbessern die Leistung auf hochauflösenden Bildschirmen.",
       "restartRequired": "Änderungen an der Verarbeitungs-Engine erfordern einen Neustart der Anwendung.",
       "saveRelaunch": "Speichern & Neu starten",
+      "saveRelaunchFailed": "Die Einstellungen konnten nicht gesichert werden, daher wurde Rawtonic nicht neu gestartet. Prüfe, ob auf dem Datenträger Platz ist, und versuche es erneut.",
       "smallThumbnailRes": "Raster-Miniaturbild-Auflösung",
       "smallThumbnailResDesc": "Auflösung der Miniaturbilder, die im Bibliotheksraster angezeigt werden.",
       "staticDesc": "Der Editor rendert das Bild in einer festen Auflösung. Dieser Modus ist am schnellsten und am besten für schwächere Hardware geeignet.",
