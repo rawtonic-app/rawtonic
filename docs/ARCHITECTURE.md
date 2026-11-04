@@ -30,7 +30,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 | `metadata` | XMP sidecars, provenance, labels, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs` | `lib`, `provenance`, `labels`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | none | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | none | `lib` | `core:test` |
-| `ingest` | verified no-clobber copy, queue | catalog, fileops, fs, metadata, naming | `copy`, `queue` | `core:test` |
+| `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
 | `interop` | other editors' settings → ours | `metadata` | `lightroom`, `capture_one` | `-p rawtonic-interop` |
 | `tether` | camera tethering helper (ADR 0012) | `fs` | `protocol`, `staging`, `client` | `--mock` camera |
 | `contribute` | scrubbing, relay client (ADR 0017) | `fs` | `scrub`, `payload`, `crash` | panic/abort tests |

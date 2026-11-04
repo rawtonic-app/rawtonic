@@ -3,7 +3,8 @@
 //! its new place with every photograph, rating and edit; refused moves leave
 //! the session where and as it was.
 use rawtonic_catalog::{Library, Mode, session_move::plan_session_move};
-use rawtonic_fileops::{Journal, Step, SystemTrash, Target, rename_no_clobber};
+use rawtonic_fileops::{Journal, Step, SystemTrash, Target};
+use rawtonic_fs::rename_no_clobber;
 use std::{
     cell::Cell,
     fs,
@@ -33,7 +34,7 @@ impl SystemTrash for FolderTrash {
         Ok(item.to_string_lossy().into_owned())
     }
     fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
-        Ok(rename_no_clobber(Path::new(item), original)?)
+        Ok(rename_no_clobber(Path::new(item), original).map(drop)?)
     }
     fn contains(&self, item: &str) -> bool {
         Path::new(item).exists()

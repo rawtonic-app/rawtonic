@@ -58,10 +58,7 @@ impl SystemTrash for PlatformTrash {
         Ok(trashed.to_string())
     }
     fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
-        Ok(rawtonic_fileops::rename_no_clobber(
-            Path::new(item),
-            original,
-        )?)
+        Ok(rawtonic_fs::rename_no_clobber(Path::new(item), original).map(drop)?)
     }
     fn contains(&self, item: &str) -> bool {
         fs::symlink_metadata(item).is_ok()
@@ -2034,10 +2031,7 @@ mod tests {
             Ok(item.to_string_lossy().into_owned())
         }
         fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
-            Ok(rawtonic_fileops::rename_no_clobber(
-                Path::new(item),
-                original,
-            )?)
+            Ok(rawtonic_fs::rename_no_clobber(Path::new(item), original).map(drop)?)
         }
         fn contains(&self, item: &str) -> bool {
             Path::new(item).exists()

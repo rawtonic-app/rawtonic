@@ -448,7 +448,7 @@ pub fn copy_library(
         flush_staged(stage_root.join(relative))?;
     }
     check(cancel)?;
-    rawtonic_fileops::rename_no_clobber(&stage_root, &destination)?;
+    rawtonic_fs::rename_no_clobber(&stage_root, &destination)?;
     Ok(receipt)
 }
 

@@ -10,7 +10,6 @@ workspace = true
 [dependencies]
 rawtonic-fs = { path = "../fs", version = "0.1.0" }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
-rawtonic-fileops = { path = "../fileops", version = "0.1.0" }
 kamadak-exif = { workspace = true }
 memchr = "2.8.3"
 roxmltree = { workspace = true }

@@ -74,7 +74,7 @@ impl SystemTrash for FakeTrash {
         Ok(item.to_string_lossy().into_owned())
     }
     fn restore(&self, item: &str, original: &Path) -> Result<()> {
-        Ok(rename_no_clobber(Path::new(item), original)?)
+        Ok(rename_no_clobber(Path::new(item), original).map(drop)?)
     }
     fn contains(&self, item: &str) -> bool {
         exists(Path::new(item))

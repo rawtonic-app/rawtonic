@@ -5681,7 +5681,6 @@ dependencies = [
  "memchr",
  "rawler",
  "rawtonic-catalog",
- "rawtonic-fileops",
  "rawtonic-fs",
  "rawtonic-merge",
  "rawtonic-metadata",

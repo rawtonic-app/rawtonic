@@ -18,8 +18,7 @@
 //! system Trash; its staging copies are the only other files this crate
 //! removes.
 use anyhow::{Context, Result, bail, ensure};
-#[cfg(unix)]
-use rawtonic_fs::c_path;
+use rawtonic_fs::rename_no_clobber;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -38,7 +37,7 @@ mod xattr;
 pub use tree::TreeEntry;
 pub use volume::{
     CopyObserver, Publish, SPACE_RESERVE, Stamp, Unobserved, VolumeInfo, probe_exclusive_rename,
-    publish_mode, rename_exclusive, volume_info,
+    publish_mode, volume_info,
 };
 use volume::{Tally, copy_verified, same_content, sync_folder};
 
@@ -1888,6 +1887,7 @@ fn remove_created_dirs(dirs: &[PathBuf]) {
 fn apply(step: &mut Step, trash: &dyn SystemTrash) -> Result<()> {
     match &mut step.to {
         Target::Path { path } => rename_no_clobber(&step.from, path)
+            .map(drop)
             .with_context(|| format!("Cannot move {} to {}", step.from.display(), path.display())),
         Target::SystemTrash { item } => {
             *item =
@@ -1902,13 +1902,15 @@ fn apply(step: &mut Step, trash: &dyn SystemTrash) -> Result<()> {
 
 fn reverse(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
     match &step.to {
-        Target::Path { path } => rename_no_clobber(path, &step.from).with_context(|| {
-            format!(
-                "Cannot move {} back to {}",
-                path.display(),
-                step.from.display()
-            )
-        }),
+        Target::Path { path } => rename_no_clobber(path, &step.from)
+            .map(drop)
+            .with_context(|| {
+                format!(
+                    "Cannot move {} back to {}",
+                    path.display(),
+                    step.from.display()
+                )
+            }),
         Target::SystemTrash { item } => {
             let item = item.as_deref().context("Trashed item was not recorded")?;
             if let Some(parent) = step.from.parent() {
@@ -2343,7 +2345,7 @@ fn publish(step: &Step, direction: Direction) -> Result<()> {
         // Verified under its final name already.
         return Ok(());
     }
-    rename_exclusive(staged, destination).with_context(|| {
+    rename_no_clobber(staged, destination).with_context(|| {
         format!(
             "Cannot put the copy of {} at {}",
             step.from.display(),
@@ -2403,7 +2405,8 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
         destination.display(),
         source.display()
     );
-    rename_exclusive(destination, staged)
+    rename_no_clobber(destination, staged)
+        .map(drop)
         .with_context(|| format!("Cannot take the copy at {} back", destination.display()))
 }
 
@@ -2623,9 +2626,11 @@ fn reapply_after_undo_if_reversed(step: &Step, trash: &dyn SystemTrash) -> Resul
     match &step.to {
         Target::OtherVolume { .. } => unpublish(step, Direction::Back),
         Target::Path { path } if exists(&step.from) && !exists(path) => {
-            rename_no_clobber(&step.from, path).with_context(|| {
-                format!("Cannot move {} to {}", step.from.display(), path.display())
-            })
+            rename_no_clobber(&step.from, path)
+                .map(drop)
+                .with_context(|| {
+                    format!("Cannot move {} to {}", step.from.display(), path.display())
+                })
         }
         Target::SystemTrash { .. } if exists(&step.from) => trash
             .trash(&step.from)
@@ -2676,67 +2681,6 @@ fn same_volume(from: &Path, to: &Path) -> Result<bool> {
         _ => None,
     };
     Ok(prefix(from) == prefix(to))
-}
-
-/// Renames `from` to `to`, failing if `to` exists (except for a case-only
-/// rename of the same file). Atomic on macOS, Linux and Windows.
-pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<()> {
-    // Windows MoveFileExW handles case-only renames itself. Never select a
-    // replacing rename using a case-folded spelling: NTFS directories can be
-    // case-sensitive, with two different entries named a.RAF and A.RAF.
-    #[cfg(not(windows))]
-    if same_file(from, to) {
-        return fs::rename(from, to);
-    }
-    #[cfg(target_vendor = "apple")]
-    {
-        let (f, t) = (c_path(from)?, c_path(to)?);
-        // SAFETY: both are valid NUL-terminated paths for the call's duration.
-        if unsafe { libc::renamex_np(f.as_ptr(), t.as_ptr(), libc::RENAME_EXCL) } == 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        if error.raw_os_error() != Some(libc::ENOTSUP) {
-            return Err(error);
-        }
-    }
-    #[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "musl")))]
-    {
-        let (f, t) = (c_path(from)?, c_path(to)?);
-        // SAFETY: both are valid NUL-terminated paths for the call's duration.
-        let result = unsafe {
-            libc::renameat2(
-                libc::AT_FDCWD,
-                f.as_ptr(),
-                libc::AT_FDCWD,
-                t.as_ptr(),
-                libc::RENAME_NOREPLACE,
-            )
-        };
-        if result == 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        if !matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOSYS)) {
-            return Err(error);
-        }
-    }
-    // Windows: the system's own move without replacement, atomic there.
-    #[cfg(windows)]
-    {
-        volume::rename_exclusive(from, to)
-    }
-    #[cfg(not(windows))]
-    {
-        // Volumes without an exclusive rename: check, then rename.
-        if exists(to) {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                format!("{} already exists", to.display()),
-            ));
-        }
-        fs::rename(from, to)
-    }
 }
 
 /// Simulated crashes for the tests: an armed point panics, leaving the
@@ -2891,47 +2835,6 @@ mod tests {
         assert_eq!(pending[0].id, id);
         assert_eq!(pending[0].state, State::Undone);
         assert!(root.join("a").is_file() && root.join("b").is_file());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn native_no_clobber_retains_case_only_rename_on_ordinary_windows_directory() {
-        let temp = tempfile::tempdir().unwrap();
-        let source = temp.path().join("a.RAF");
-        let destination = temp.path().join("A.RAF");
-        fs::write(&source, b"synthetic original").unwrap();
-        rename_no_clobber(&source, &destination).unwrap();
-        assert_eq!(fs::read(&destination).unwrap(), b"synthetic original");
-        let names: Vec<_> = fs::read_dir(temp.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, [std::ffi::OsString::from("A.RAF")]);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    #[ignore = "Enables case sensitivity only on a fresh synthetic directory; run explicitly on NTFS"]
-    fn native_no_clobber_refuses_distinct_case_sensitive_windows_entries() {
-        let temp = tempfile::tempdir().unwrap();
-        let enabled = std::process::Command::new("fsutil.exe")
-            .args(["file", "setCaseSensitiveInfo"])
-            .arg(temp.path())
-            .arg("enable")
-            .output()
-            .unwrap();
-        assert!(
-            enabled.status.success(),
-            "Case-sensitive NTFS setup is unavailable: {}",
-            String::from_utf8_lossy(&enabled.stdout)
-        );
-        let source = temp.path().join("a.RAF");
-        let destination = temp.path().join("A.RAF");
-        fs::write(&source, b"source").unwrap();
-        fs::write(&destination, b"occupied").unwrap();
-        assert!(rename_no_clobber(&source, &destination).is_err());
-        assert_eq!(fs::read(&source).unwrap(), b"source");
-        assert_eq!(fs::read(&destination).unwrap(), b"occupied");
     }
 
     #[test]

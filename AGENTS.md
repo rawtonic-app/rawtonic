@@ -65,7 +65,7 @@ scripts/check.sh --brief --changed   # while working: only the gates/Rust packag
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-npm run core:test               # core crates only: catalog, naming, ingest, metadata, fileops
+npm run core:test               # core crates only: catalog, naming, ingest, fs, metadata, fileops
 cargo test -p rawtonic-catalog --test session <name>   # single core test
 cargo test -p rawtonic-app <name>                     # single native/adapter test
 cargo test -p rawtonic-engine <name>                  # develop model, masks, looks (also -p rawtonic-rawdecode / rawtonic-gpu)

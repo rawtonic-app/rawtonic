@@ -1,10 +1,14 @@
 //! File-safety kernel shared by the core and engine crates: atomic
-//! replacement and no-clobber publication of files, temporary and staging
-//! files beside the user's files. It never deletes or replaces a file
-//! other than the one a caller names to be replaced.
+//! replacement and no-clobber publication of files, renaming without
+//! replacing, temporary and staging files beside the user's files. It never
+//! deletes or replaces a file other than the one a caller names to be
+//! replaced.
 pub mod no_clobber;
+mod rename;
 pub mod staging;
 pub mod temp;
+
+pub use rename::{Renamed, rename_no_clobber};
 
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};

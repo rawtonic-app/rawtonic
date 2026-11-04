@@ -1,7 +1,6 @@
 //! Redo of undone operations and emptying a folder (a session's Trash).
-use rawtonic_fileops::{
-    Journal, NoSystemTrash, State, Step, SystemTrash, Target, plan_purge, rename_no_clobber,
-};
+use rawtonic_fileops::{Journal, NoSystemTrash, State, Step, SystemTrash, Target, plan_purge};
+use rawtonic_fs::rename_no_clobber;
 use std::{
     cell::Cell,
     fs,
@@ -33,7 +32,7 @@ impl SystemTrash for FolderTrash {
         Ok(item.to_string_lossy().into_owned())
     }
     fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
-        Ok(rename_no_clobber(Path::new(item), original)?)
+        Ok(rename_no_clobber(Path::new(item), original).map(drop)?)
     }
     fn contains(&self, item: &str) -> bool {
         Path::new(item).exists()

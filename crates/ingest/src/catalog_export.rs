@@ -418,7 +418,7 @@ pub fn export_catalog(
         fs::remove_dir(&destination)?;
     }
     let staged = staged.unmark()?;
-    rawtonic_fileops::rename_no_clobber(&stage_root, &destination)?;
+    rawtonic_fs::rename_no_clobber(&stage_root, &destination)?;
     // Published: the temporary folder's name is gone, nothing to clean up.
     let _ = staged.keep();
     receipt.abandoned = abandoned;
