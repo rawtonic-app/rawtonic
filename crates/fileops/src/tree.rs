@@ -119,7 +119,7 @@ fn is_companion(path: &Path, meta: &fs::Metadata, names: &[std::ffi::OsString]) 
 /// Volumes on which macOS stores extended attributes in `._name` files.
 #[cfg(target_vendor = "apple")]
 fn apple_double_volume(root: &Path) -> bool {
-    volume::volume_info(root).is_ok_and(|v| {
+    rawtonic_fs::volume::volume_info(root).is_ok_and(|v| {
         matches!(
             v.file_system.as_str(),
             "msdos" | "msdosfs" | "exfat" | "smbfs" | "webdav"

@@ -2,11 +2,13 @@
 //! replacement and no-clobber publication of files, renaming without
 //! replacing, temporary and staging files beside the user's files. It never
 //! deletes or replaces a file other than the one a caller names to be
-//! replaced.
+//! replaced. It also detects volumes ([`volume`]).
+#![warn(clippy::undocumented_unsafe_blocks)]
 pub mod no_clobber;
 mod rename;
 pub mod staging;
 pub mod temp;
+pub mod volume;
 
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use rename::test_hooks;
@@ -80,6 +82,22 @@ pub fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
     use std::os::unix::ffi::OsStrExt;
     std::ffi::CString::new(path.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Path contains a NUL byte"))
+}
+
+/// `path` as the NUL-terminated wide string the Windows API takes, from its
+/// own text (a verbatim or UNC path is passed as it is); a NUL in it is
+/// refused.
+#[cfg(windows)]
+pub(crate) fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
+    use std::os::windows::ffi::OsStrExt;
+    let text: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if text.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} contains a NUL byte", path.display()),
+        ));
+    }
+    Ok(text.into_iter().chain(Some(0)).collect())
 }
 
 /// Same-directory temporary file, fsync, atomic replace. Reject symlink targets.

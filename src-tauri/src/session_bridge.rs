@@ -1796,7 +1796,7 @@ pub const VOLUMES_CHANGED: &str = "volumes-changed";
 /// Watches the mounts for the whole run (system notifications where the
 /// platform has them, else a poll of the mount list) and tells the webview.
 pub fn start_mount_watch(app: tauri::AppHandle) {
-    let kind = rawtonic_catalog::volume::watch_mounts(move || {
+    let kind = rawtonic_fs::volume::watch_mounts(move || {
         let seen = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0.0, |d| d.as_secs_f64() * 1000.0);

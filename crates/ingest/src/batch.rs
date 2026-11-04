@@ -325,7 +325,7 @@ pub enum Medium {
 /// system does not say, a Linux removable-media mount point (`/media/…`,
 /// `/run/media/…`) counts as a card too. External drives are not
 /// removable media: their photographs are on a drive.
-pub fn classify_medium(path: &Path, media: &rawtonic_catalog::volume::MediaInfo) -> Medium {
+pub fn classify_medium(path: &Path, media: &rawtonic_fs::volume::MediaInfo) -> Medium {
     let dcim = path
         .components()
         .any(|c| c.as_os_str().eq_ignore_ascii_case("DCIM"));
@@ -343,7 +343,7 @@ pub fn classify_medium(path: &Path, media: &rawtonic_catalog::volume::MediaInfo)
 
 /// `classify_medium` with the system's answer for `path`.
 pub fn source_medium(path: &Path) -> Medium {
-    classify_medium(path, &rawtonic_catalog::volume::media_info(path))
+    classify_medium(path, &rawtonic_fs::volume::media_info(path))
 }
 
 /// Adds `sources` to a catalog where they are (Lightroom's "Add"), one
@@ -1008,7 +1008,7 @@ mod tests {
 
     #[test]
     fn classifies_cards_and_drives() {
-        use rawtonic_catalog::volume::MediaInfo;
+        use rawtonic_fs::volume::MediaInfo;
         let info = |removable: Option<bool>, mount: Option<&str>| MediaInfo {
             removable,
             mount_point: mount.map(PathBuf::from),

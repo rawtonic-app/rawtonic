@@ -116,7 +116,9 @@ impl Probe for SystemProbe {
         path.is_dir()
     }
     fn space(&self, mount: &Path) -> Option<(u64, u64)> {
-        volume::space(mount)
+        rawtonic_fs::volume::space(mount)
+            .ok()
+            .map(|space| (space.free, space.total))
     }
 }
 

@@ -1,65 +1,21 @@
-//! What a move to another volume needs (ADR 0016): which volume a path is
-//! on (name, file system, free space, network or not), whether that volume
-//! renames without replacing, an exclusive rename that never falls back to
-//! check-then-rename, and a copy that is synced, read back from the drive
-//! and compared byte for byte with its source.
+//! What a move to another volume needs (ADR 0016), beyond which volume a
+//! path is on ([`rawtonic_fs::volume::volume_info`]): whether that volume
+//! renames without replacing, how copies are published there, and a copy
+//! that is synced, read back from the drive and compared byte for byte with
+//! its source.
 use crate::xattr;
 use anyhow::{Context, Result, bail, ensure};
 #[cfg(unix)]
-use rawtonic_fs::c_path;
+use rawtonic_fs::volume::volume_info;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 /// Free space a move to another volume leaves on it, beyond its files.
 pub const SPACE_RESERVE: u64 = 64 * 1024 * 1024;
-
-/// The volume a path is on.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VolumeInfo {
-    /// Where it is mounted.
-    pub mount_point: PathBuf,
-    /// What the user calls it: the mount point's last component (the
-    /// drive's label on macOS and in Linux desktop mounts), or the mount
-    /// point itself for `/`.
-    pub name: String,
-    /// The file system type as the system names it (`ext4`, `exfat`, `apfs`, …).
-    pub file_system: String,
-    /// Bytes free for this user.
-    pub free_bytes: u64,
-    /// A network file system (NFS, SMB, AFP, WebDAV, sshfs, …).
-    pub network: bool,
-}
-
-/// The volume of `path`'s nearest existing ancestor.
-pub fn volume_info(path: &Path) -> Result<VolumeInfo> {
-    let existing = path
-        .ancestors()
-        .find(|p| fs::symlink_metadata(p).is_ok())
-        .with_context(|| format!("{} has no existing folder", path.display()))?;
-    let real = existing
-        .canonicalize()
-        .with_context(|| format!("Cannot resolve {}", existing.display()))?;
-    let (mount_point, file_system, network) = mount_of(&real)?;
-    let name = volume_name(&mount_point);
-    // GetDiskFreeSpaceExW requires a directory; statvfs accepts the
-    // resolved file itself, which avoids another mount-table lookup.
-    #[cfg(windows)]
-    let space_path = &mount_point;
-    #[cfg(not(windows))]
-    let space_path = &real;
-    Ok(VolumeInfo {
-        name,
-        free_bytes: free_bytes(space_path)?,
-        mount_point,
-        file_system,
-        network,
-    })
-}
 
 /// A volume's mount point is the identity `copy_needs` groups by (`C:\`
 /// on Windows, not `C:\Temp` in one program and `\\?\C:\Temp` in
@@ -69,293 +25,6 @@ pub(super) fn same_mount(a: &Path, b: &Path) -> bool {
         (Ok(x), Ok(y)) => x == y,
         _ => a == b,
     }
-}
-
-/// What the user calls the volume at `mount_point`: a drive (`D:`), a
-/// network share (`\\server\share`), a folder it is mounted into, the
-/// root `/`, or the mount point itself.
-fn volume_name(mount_point: &Path) -> String {
-    if let Some(name) = mount_point.file_name() {
-        return name.to_string_lossy().into_owned();
-    }
-    let text = mount_point.to_string_lossy();
-    // A Windows drive root has no last component: `D:\` is `D:`. (A
-    // `\\?\` form is not canonical here and only decides the fallback.)
-    match text.strip_suffix(std::path::MAIN_SEPARATOR) {
-        Some(without) if !without.is_empty() => without.to_string(),
-        _ => text.into_owned(),
-    }
-}
-
-/// File systems whose sync and read-back do not prove what reached the
-/// disk, by the names Linux and macOS give them.
-#[cfg(any(target_os = "linux", target_vendor = "apple", test))]
-fn is_network_fs(name: &str) -> bool {
-    const NETWORK: &[&str] = &[
-        "nfs",
-        "nfs4",
-        "cifs",
-        "smb",
-        "smb3",
-        "smbfs",
-        "afpfs",
-        "webdav",
-        "davfs",
-        "ncpfs",
-        "afs",
-        "ceph",
-        "glusterfs",
-        "9p",
-        "fuse.sshfs",
-        "fuse.rclone",
-        "fuse.gvfsd-fuse",
-        "fuse.s3fs",
-    ];
-    NETWORK.contains(&name)
-}
-
-/// Mount point, file system type and whether it is a network file system,
-/// for a canonical path: the longest mount point above it in
-/// `/proc/self/mountinfo` (the last one listed for a path mounted over).
-#[cfg(target_os = "linux")]
-fn mount_of(path: &Path) -> Result<(PathBuf, String, bool)> {
-    let table =
-        fs::read_to_string("/proc/self/mountinfo").context("Cannot read the mount table")?;
-    let mut best: Option<(PathBuf, String)> = None;
-    for line in table.lines() {
-        let Some((left, right)) = line.split_once(" - ") else {
-            continue;
-        };
-        let (Some(mount), Some(fs_type)) = (left.split(' ').nth(4), right.split(' ').next()) else {
-            continue;
-        };
-        let mount = PathBuf::from(unescape_mount(mount));
-        if path.starts_with(&mount)
-            && best
-                .as_ref()
-                .is_none_or(|(b, _)| mount.as_os_str().len() >= b.as_os_str().len())
-        {
-            best = Some((mount, fs_type.to_string()));
-        }
-    }
-    let (mount, fs_type) = best.context("The volume was not found in the mount table")?;
-    let network = is_network_fs(&fs_type);
-    Ok((mount, fs_type, network))
-}
-
-/// `/proc/self/mountinfo` writes space, tab, newline and backslash as
-/// octal escapes (`\040`).
-#[cfg(target_os = "linux")]
-fn unescape_mount(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        let octal = bytes
-            .get(i + 1..i + 4)
-            .filter(|d| d.iter().all(|c| (b'0'..=b'7').contains(c)) && d[0] <= b'3');
-        if let (b'\\', Some(d)) = (bytes[i], octal) {
-            out.push((d[0] - b'0') * 64 + (d[1] - b'0') * 8 + (d[2] - b'0'));
-            i += 4;
-        } else {
-            out.push(bytes[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-#[cfg(target_vendor = "apple")]
-fn mount_of(path: &Path) -> Result<(PathBuf, String, bool)> {
-    use std::ffi::CStr;
-    let c = c_path(path)?;
-    // SAFETY: a zeroed statfs is a valid out value; the path is a valid
-    // NUL-terminated string for the call's duration.
-    let mut stats: libc::statfs = unsafe { std::mem::zeroed() };
-    if unsafe { libc::statfs(c.as_ptr(), &mut stats) } != 0 {
-        return Err(io::Error::last_os_error())
-            .with_context(|| format!("Cannot read the volume of {}", path.display()));
-    }
-    // SAFETY: the kernel fills both as NUL-terminated strings.
-    let (mount, fs_type) = unsafe {
-        (
-            CStr::from_ptr(stats.f_mntonname.as_ptr()),
-            CStr::from_ptr(stats.f_fstypename.as_ptr()),
-        )
-    };
-    let fs_type = fs_type.to_string_lossy().into_owned();
-    let local = stats.f_flags & (libc::MNT_LOCAL as u32) != 0;
-    let network = !local || is_network_fs(&fs_type);
-    Ok((
-        PathBuf::from(mount.to_string_lossy().into_owned()),
-        fs_type,
-        network,
-    ))
-}
-
-/// A path as the NUL-terminated wide string the Windows API takes, from its
-/// own text (a verbatim or UNC path is passed as it is); a NUL byte in it
-/// is refused.
-#[cfg(windows)]
-fn wide_path(path: &Path) -> Result<Vec<u16>> {
-    use std::os::windows::ffi::OsStrExt;
-    let text: Vec<u16> = path.as_os_str().encode_wide().collect();
-    ensure!(!text.contains(&0), "{} contains a NUL byte", path.display());
-    Ok(text.into_iter().chain(Some(0)).collect())
-}
-
-/// What the system reports for the volume at `root` (`C:\`, a volume
-/// mounted into a folder of another one, `\\server\share\`): whether the
-/// call failed, its own file system name and whether the drive the path
-/// is on is remote (`DRIVE_REMOTE`).
-#[cfg(windows)]
-fn volume_of_root(root: &Path) -> Result<(bool, String, bool)> {
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetVolumeInformationW(
-            root: *const u16,
-            volume_name: *mut u16,
-            volume_name_len: u32,
-            serial: *mut u32,
-            max_component_len: *mut u32,
-            flags: *mut u32,
-            file_system_name: *mut u16,
-            file_system_name_len: u32,
-        ) -> i32;
-        fn GetDriveTypeW(root: *const u16) -> u32;
-    }
-    // DRIVE_REMOTE: a mapped network drive, or any `\\server\share` path.
-    const DRIVE_REMOTE: u32 = 4;
-    const MAX_PATH: usize = 260;
-    let root = wide_path(root)?;
-    let mut file_system = [0u16; MAX_PATH + 1];
-    // SAFETY: every pointer is valid for the given length (null for the
-    // outputs not asked for); `root` is NUL-terminated and outlives the calls.
-    let known = unsafe {
-        GetVolumeInformationW(
-            root.as_ptr(),
-            std::ptr::null_mut(),
-            0,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            file_system.as_mut_ptr(),
-            file_system.len() as u32,
-        )
-    } != 0;
-    let network = unsafe { GetDriveTypeW(root.as_ptr()) } == DRIVE_REMOTE;
-    let len = file_system
-        .iter()
-        .position(|&c| c == 0)
-        .unwrap_or(file_system.len());
-    Ok((
-        known,
-        String::from_utf16_lossy(&file_system[..len]),
-        network,
-    ))
-}
-
-/// The volume of a Windows path: the mount root the system gives it
-/// (`GetVolumePathNameW`: `C:\`, `C:\mounted\`, `\\server\share\`,
-/// verbatim and UNC alike, from the path's own text), the file system
-/// there and whether it is a network drive.
-#[cfg(windows)]
-fn mount_of(path: &Path) -> Result<(PathBuf, String, bool)> {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetVolumePathNameW(path: *const u16, volume_path: *mut u16, len: u32) -> i32;
-    }
-    // The canonical input is absolute. A mount root cannot exceed its full
-    // path plus a trailing separator; allow an extra NUL as documented by
-    // GetVolumePathNameW, which can otherwise omit a trailing separator.
-    let wide = wide_path(path)?;
-    let len = wide.len().max(260) + 1;
-    let api_len = u32::try_from(len).context("Volume path is too long")?;
-    let mut buffer = vec![0u16; len];
-    // SAFETY: the input is NUL-terminated and the output has api_len units.
-    if unsafe { GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), api_len) } == 0 {
-        return Err(io::Error::last_os_error())
-            .with_context(|| format!("Cannot read the volume of {}", path.display()));
-    }
-    let end = buffer.iter().position(|&c| c == 0).unwrap_or(0);
-    let root = PathBuf::from(OsString::from_wide(&buffer[..end]));
-    let (known, file_system, network) = volume_of_root(&root)?;
-    // Unreadable details do not refuse the volume by themselves: free
-    // space, asked separately and then required, decides whether a move
-    // there may go ahead.
-    let file_system = if known {
-        file_system
-    } else {
-        String::from("unknown")
-    };
-    Ok((root, file_system, network))
-}
-
-#[cfg(not(any(target_os = "linux", target_vendor = "apple", windows)))]
-fn mount_of(path: &Path) -> Result<(PathBuf, String, bool)> {
-    let root = path.ancestors().last().unwrap_or(path).to_path_buf();
-    Ok((root, "unknown".into(), false))
-}
-
-#[cfg(unix)]
-fn free_bytes(path: &Path) -> Result<u64> {
-    let c = c_path(path)?;
-    // SAFETY: a zeroed statvfs is a valid out value; the path is a valid
-    // NUL-terminated string for the call's duration.
-    let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
-    if unsafe { libc::statvfs(c.as_ptr(), &mut stats) } != 0 {
-        return Err(io::Error::last_os_error())
-            .with_context(|| format!("Cannot read the free space of {}", path.display()));
-    }
-    // The field types differ per platform (u32 or u64).
-    #[allow(clippy::useless_conversion)]
-    Ok(u64::from(stats.f_bavail).saturating_mul(u64::from(stats.f_frsize)))
-}
-
-/// Bytes free to the calling user on the volume of `path`
-/// (`GetDiskFreeSpaceExW`, as `f_bavail` is on Unix). A call that fails is
-/// an error, never a guess.
-#[cfg(windows)]
-fn free_bytes(path: &Path) -> Result<u64> {
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetDiskFreeSpaceExW(
-            directory: *const u16,
-            free_for_caller: *mut u64,
-            total: *mut u64,
-            total_free: *mut u64,
-        ) -> i32;
-    }
-    let directory = wide_path(path)?;
-    let mut free_for_caller = 0u64;
-    // SAFETY: a NUL-terminated wide path that outlives the call, a valid
-    // out value, and null for the totals not asked for.
-    let ok = unsafe {
-        GetDiskFreeSpaceExW(
-            directory.as_ptr(),
-            &mut free_for_caller,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    } != 0;
-    if !ok {
-        let error = io::Error::last_os_error();
-        return Err(anyhow::anyhow!(
-            "Cannot read the free space of {} ({error})",
-            path.display()
-        ));
-    }
-    Ok(free_for_caller)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn free_bytes(path: &Path) -> Result<u64> {
-    bail!(
-        "Free space of {} cannot be read on this system",
-        path.display()
-    )
 }
 
 const PROBE_A: &str = ".rawtonic-probe-a";
@@ -816,91 +485,23 @@ fn uncached(file: &File) {
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn mount_escapes_are_read() {
-        assert_eq!(
-            unescape_mount(r"/run/media/u/My\040Disk"),
-            "/run/media/u/My Disk"
-        );
-        assert_eq!(unescape_mount(r"/a\134b"), r"/a\b");
-        assert_eq!(unescape_mount("/plain"), "/plain");
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn the_root_volume_is_found_and_local() {
-        let info = volume_info(Path::new("/proc/self")).unwrap();
-        assert_eq!(info.file_system, "proc");
-        assert!(!info.network);
-        let tmp = tempfile::tempdir().unwrap();
-        let info = volume_info(&tmp.path().join("not/yet/there")).unwrap();
-        assert!(
-            tmp.path()
-                .canonicalize()
-                .unwrap()
-                .starts_with(&info.mount_point)
-        );
-        assert!(info.free_bytes > 0);
-    }
-
-    #[cfg(target_vendor = "apple")]
-    #[test]
-    fn the_temporary_folders_volume_is_found_and_local() {
-        // The temporary folder is on the data volume, mounted at
-        // /System/Volumes/Data but reached through /private (firmlinks).
-        let tmp = tempfile::tempdir().unwrap();
-        let info = volume_info(&tmp.path().join("not/yet/there")).unwrap();
-        assert!(info.mount_point.is_dir(), "{info:?}");
-        assert_eq!(info.file_system, "apfs");
-        assert!(!info.network);
-        assert!(info.free_bytes > 0);
-    }
-
-    #[test]
-    fn network_file_systems_are_named() {
-        for name in ["nfs4", "cifs", "smb3", "fuse.sshfs", "fuse.gvfsd-fuse"] {
-            assert!(is_network_fs(name), "{name}");
-        }
-        for name in ["ext4", "btrfs", "exfat", "vfat", "fuseblk", "tmpfs"] {
-            assert!(!is_network_fs(name), "{name}");
-        }
-    }
-
-    /// A Windows path is on the volume root the system gives it (`C:\\`
-    /// for a temporary folder), even when it does not exist yet, and the
-    /// free space is the user's to write there (a real query, not a
-    /// stand-in). The folder's canonical form may be verbatim (`\\?\C:\…`)
-    /// while the mount root is not, so identity is compared by
+    /// A Windows folder's canonical form may be verbatim (`\\?\C:\…`)
+    /// while its mount root is not, so identity is compared by
     /// [`same_mount`]s rule, not by one path prefixing the other.
     #[cfg(windows)]
     #[test]
-    fn a_windows_folder_reports_its_mount_root_and_its_real_free_space() {
+    fn a_windows_folders_mount_root_is_compared_by_identity() {
+        use rawtonic_fs::volume::volume_info;
         let tmp = tempfile::tempdir().unwrap();
         let existing = tmp.path().canonicalize().unwrap();
         let folder = existing.join("not").join("yet").join("there");
         let info = volume_info(&folder).unwrap();
         let root = info.mount_point.canonicalize().unwrap();
-        assert!(
-            existing.starts_with(&root),
-            "{info:?} is not its mount root"
-        );
-        assert!(!info.name.is_empty());
-        assert!(!info.network);
-        assert!(!info.file_system.is_empty(), "{info:?}");
         let child = folder.with_file_name("also");
         let child_volume = volume_info(&child).unwrap();
         assert!(same_mount(&child_volume.mount_point, &info.mount_point));
         // Canonical and ordinary spellings of an existing root compare alike.
         assert!(same_mount(&root, &info.mount_point));
-        // The drive the temporary folder is on needs room to make one.
-        assert!(
-            info.free_bytes > 0,
-            "a temporary folder needs free space, got {info:?}"
-        );
-        // Free space that cannot be read is an error, never a figure.
-        let unreadable = Path::new(r"\\?\GLOBALROOT\Device\Null");
-        assert!(free_bytes(unreadable).is_err(), "{unreadable:?}");
     }
 
     /// A Windows volume renames exclusively by the system's own move that

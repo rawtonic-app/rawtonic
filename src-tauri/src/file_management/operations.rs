@@ -534,7 +534,7 @@ pub(crate) fn other_drive_plan(
     };
     let mut drives = BTreeSet::new();
     for (source, _) in &pairs {
-        if let Ok(info) = rawtonic_fileops::volume_info(source) {
+        if let Ok(info) = rawtonic_fs::volume::volume_info(source) {
             drives.insert(drive_name(source, info.name));
         }
     }

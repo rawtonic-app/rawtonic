@@ -26,9 +26,9 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 | Crate | Owns | Depends on | Key modules | Tests/hooks |
 |---|---|---|---|---|
 | `catalog` | SQLite schema, sessions/catalogs, recipes, search | `fs`, `metadata` | `lib`, `query`, `add` | `core:test` |
-| `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files | none | `lib`, `no_clobber`, `temp`, `staging` | `core:test` |
+| `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection | none | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test` |
 | `metadata` | XMP sidecars, provenance, labels, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs` | `lib`, `provenance`, `labels`, `photo_ref` | `core:test` |
-| `fileops` | journaled rename/move/trash, `purge` | none | `lib`, `volume`, `tree` | `core:test`; crash hooks |
+| `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | none | `lib` | `core:test` |
 | `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
 | `interop` | other editors' settings → ours | `metadata` | `lightroom`, `capture_one` | `-p rawtonic-interop` |
@@ -203,7 +203,11 @@ New Rust workspace crates isolate data and file safety.
 temporary file under a new name, never replacing one (export outputs, ingest copies, generated images; tether transfer
 slots use `persist_in_own_folder`), with an O_EXCL copy where the volume has no exclusive rename or hard links
 (exFAT/FAT; the copy's short non-atomic window is documented there); `temp` (recognisable `.rawtonic-tmp-` names and
-their sweep) and `staging` (locked staging folders of jobs, removed only when abandoned).
+their sweep) and `staging` (locked staging folders of jobs, removed only when abandoned). `volume` is the one place that
+asks the system about mounts (`statfs`/`getfsstat`/`getattrlist` on macOS, `/proc/self/mountinfo` and
+`/dev/disk/by-*` on Linux, the Windows volume API): the mount of a path and every mount (`Mount`), `VolumeInfo` (name,
+file system, free space, network), the one list of network file systems, removable media, free space and mount-change
+notifications; the catalog builds volume identity from it, file operations plan moves with it.
 
 #### `metadata`
 
@@ -244,8 +248,8 @@ roots added before.
 
 `fileops` — journaled, undoable and redoable rename/move/trash (validated plan, no-clobber renames, rollback, crash
 recovery; redo re-validates; the system Trash is a trait the app implements) moves to another volume as a verified copy
-published by an exclusive rename, the originals then trashed, undone by copying back (ADR 0016; `volume`: volume
-name/free space/network check, exclusive-rename probe, copy + read-back compare; `tree`: a whole folder as one step —
+published by an exclusive rename, the originals then trashed, undone by copying back (ADR 0016; `volume`: free space
+check, exclusive-rename probe, copy + read-back compare; `tree`: a whole folder as one step —
 listing without links, tree copy, unchanged checks); and `purge`, the only deletion: emptying one real folder (a
 session's `Trash/`) — entries set aside first, committed, then deleted without following links; not undoable, it ends
 Undo for earlier operations. App glue: `src-tauri/src/file_operations.rs`; renames are planned once by
@@ -571,7 +575,8 @@ Nothing removes an asset because its file is gone: it is marked missing (offline
 stays listed in its folder and albums and in the Missing Photographs view, and opens on its previews; edits made offline
 go to SQLite only and the derived sidecars follow when it comes back.
 
-External roots record their volume (UUID, name, mount point; `crates/catalog/src/volume.rs`), so a disconnected drive is
+External roots record their volume (UUID, name, mount point; `crates/catalog/src/volume.rs`, from the mount facts of
+`rawtonic_fs::volume`), so a disconnected drive is
 named and a drive mounted elsewhere is followed. Volume kind (startup/local/removable/network) and configured roots
 without photographs keep their last observed drive in SQLite (schema 15, `folder_root_volumes`); the Folders panel
 orders the startup disk first and marks network shares.

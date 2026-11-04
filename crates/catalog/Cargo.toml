@@ -24,9 +24,6 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 sha2 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 
-[target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
-
 [target.'cfg(windows)'.dependencies]
 same-file = "1.0.6"
 
