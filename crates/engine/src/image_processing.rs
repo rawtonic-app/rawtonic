@@ -6063,14 +6063,22 @@ pub fn render_version(adjustments: &serde_json::Value) -> u64 {
         .clamp(1, RENDER_VERSION)
 }
 
+/// The colour label a library writes into each recipe it reads
+/// (`rawtonic_catalog::apply_editor_metadata`, `""` without a label): the
+/// photograph's metadata, not a develop setting.
+pub const LIBRARY_LABEL_KEY: &str = "colorLabel";
+
 /// Whether a recipe is new: none, or empty (Library Reset saves `{}`, or
 /// only the photograph's frame, `source_frame::reset_recipe`; the editor's
-/// load adds only `lensProfileFor`). It renders as a new edit.
+/// load adds only `lensProfileFor`, a library read only its colour label,
+/// `LIBRARY_LABEL_KEY`). It renders as a new edit.
 pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
     adjustments.is_null()
         || adjustments.as_object().is_some_and(|map| {
             map.keys().all(|key| {
-                key == crate::lens_recipe::LENS_PROFILE_FOR || key == crate::source_frame::KEY
+                key == crate::lens_recipe::LENS_PROFILE_FOR
+                    || key == crate::source_frame::KEY
+                    || key == LIBRARY_LABEL_KEY
             })
         })
 }

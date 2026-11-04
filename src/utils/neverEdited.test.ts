@@ -7,7 +7,7 @@ import {
   SOURCE_FRAME_VERSION,
   type Adjustments
 } from './adjustments';
-import { savedSourceFrame, withNeverEditedDefaults } from './neverEdited';
+import { newSaved, savedSourceFrame, withNeverEditedDefaults } from './neverEdited';
 
 it('gives a never-edited RAW its defaults but keeps versions its recipe states', async () => {
   const camera = async () => ({ params: { k1: 0.1 } as unknown as Adjustments['lensDistortionParams'] });
@@ -41,4 +41,12 @@ it('asks for the camera lens data of the frame a saved recipe develops', () => {
   // An edit from before the key (a batch paste without a lens mode, too):
   // the first frame, as source_frame::requested.
   expect(savedSourceFrame({ exposure: 1 })).toBe(0);
+});
+
+it('counts a Library Reset read from a library (its colour label written in) as new', () => {
+  // The library writes the photo's colour label into each recipe it reads
+  // (crates/catalog `apply_editor_metadata`); a Reset's recipe stays new.
+  expect(newSaved({ colorLabel: '' })).toBe(true);
+  expect(newSaved({ colorLabel: 'Red', sourceFrameVersion: 0 })).toBe(true);
+  expect(newSaved({ colorLabel: '', exposure: 0.5 } as Partial<Adjustments>)).toBe(false);
 });

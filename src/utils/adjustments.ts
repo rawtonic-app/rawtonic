@@ -1511,11 +1511,12 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
       };
 
 /** Whether a saved recipe is new: empty (Library Reset saves `{}`, or only
- * the photo's frame; loading adds only `lensProfileFor`). It renders as a
- * new edit, as the backend does (`image_processing::is_new_recipe`,
+ * the photo's frame; loading adds only `lensProfileFor`, and a library read
+ * only its colour label, `colorLabel`). It renders as a new edit, as the
+ * backend does (`image_processing::is_new_recipe`,
  * `embedded_lens::apply_default`). */
 export const isNewRecipe = (loaded: Partial<Adjustments>): boolean =>
-  Object.keys(loaded).every((key) => key === 'lensProfileFor' || key === 'sourceFrameVersion');
+  Object.keys(loaded).every((key) => key === 'lensProfileFor' || key === 'sourceFrameVersion' || key === 'colorLabel');
 
 /** The render version of a saved recipe: its own; the current one for a new
  * recipe; else the first (missing key). */
