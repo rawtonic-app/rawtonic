@@ -467,19 +467,8 @@ mod unix {
 
 #[cfg(windows)]
 mod windows {
+    use crate::wide_path as wide;
     use std::{io, path::Path};
-
-    fn wide(path: &Path) -> io::Result<Vec<u16>> {
-        use std::os::windows::ffi::OsStrExt;
-        let text: Vec<u16> = path.as_os_str().encode_wide().collect();
-        if text.contains(&0) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("{} contains a NUL byte", path.display()),
-            ));
-        }
-        Ok(text.into_iter().chain(Some(0)).collect())
-    }
 
     /// `MoveFileExW` with no flags: no `MOVEFILE_REPLACE_EXISTING` (a taken
     /// name is refused), no `MOVEFILE_COPY_ALLOWED` (the system never copies

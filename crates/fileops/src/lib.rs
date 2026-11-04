@@ -34,10 +34,10 @@ mod migrations;
 mod tree;
 mod volume;
 mod xattr;
+use rawtonic_fs::volume::{VolumeInfo, volume_info};
 pub use tree::TreeEntry;
 pub use volume::{
-    CopyObserver, Publish, SPACE_RESERVE, Stamp, Unobserved, VolumeInfo, probe_exclusive_rename,
-    publish_mode, volume_info,
+    CopyObserver, Publish, SPACE_RESERVE, Stamp, Unobserved, probe_exclusive_rename, publish_mode,
 };
 use volume::{Tally, copy_verified, same_content, sync_folder};
 

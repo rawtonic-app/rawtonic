@@ -154,18 +154,10 @@ fn ensure_space(path: &Path, len: u64) -> io::Result<()> {
             Some(parent) if !parent.as_os_str().is_empty() => parent,
             _ => Path::new("."),
         };
-        let Ok(folder) = crate::c_path(folder) else {
+        let Ok(space) = crate::volume::statvfs(folder) else {
             return Ok(());
         };
-        // SAFETY: a zeroed statvfs is a valid out value; the path is a
-        // valid NUL-terminated string for the call's duration.
-        let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
-        if unsafe { libc::statvfs(folder.as_ptr(), &mut stats) } != 0 {
-            return Ok(());
-        }
-        // The field types differ per platform (u32 or u64).
-        #[allow(clippy::useless_conversion)]
-        let free = u64::from(stats.f_bavail).saturating_mul(u64::from(stats.f_frsize));
+        let free = space.free;
         if free < len {
             return Err(io::Error::new(
                 io::ErrorKind::StorageFull,

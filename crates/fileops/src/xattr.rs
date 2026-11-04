@@ -90,7 +90,7 @@ pub(crate) fn cannot_keep(
     attributes: &[Attribute],
     error: &io::Error,
 ) -> anyhow::Error {
-    let drive = crate::volume::volume_info(folder)
+    let drive = rawtonic_fs::volume::volume_info(folder)
         .map(|v| v.name)
         .unwrap_or_else(|_| folder.display().to_string());
     let names: Vec<_> = attributes
