@@ -90,7 +90,7 @@ fn save_metadata_blocking(
         .map_err(|e| e.to_string())?;
     drop(turn);
 
-    if let Ok(settings) = crate::state::settings::try_current(&app_handle)
+    if let Ok(settings) = crate::state::settings::try_current(app_handle)
         && settings.enable_xmp_sync.unwrap_or(false)
     {
         let create_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
@@ -222,7 +222,7 @@ fn regenerate_thumbnails(app_handle: AppHandle, paths: Vec<String>) {
 
 /// `Some(create if missing)` when edits are synced to XMP sidecars.
 pub(crate) fn xmp_sync(app_handle: &AppHandle) -> Option<bool> {
-    let settings = crate::state::settings::current(&app_handle);
+    let settings = crate::state::settings::current(app_handle);
     settings
         .enable_xmp_sync
         .unwrap_or(false)
@@ -422,7 +422,7 @@ pub async fn apply_adjustments_to_paths(
             &members,
             batch_journal::current,
         );
-        let settings = crate::state::settings::current(&app_handle);
+        let settings = crate::state::settings::current(app_handle);
         let lens_db = crate::lens_correction::global_lens_db();
 
         // Lightroom geometry (gradients, brushes) from an imported preset is placed in each

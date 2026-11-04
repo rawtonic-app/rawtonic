@@ -668,7 +668,7 @@ pub(crate) fn plan(app_handle: &tauri::AppHandle, paths: Vec<String>, primary: O
         return;
     }
     let worker = worker(app_handle);
-    let settings = crate::state::settings::current(&app_handle);
+    let settings = crate::state::settings::current(app_handle);
     let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
     // Decodes held for photographs no longer shown are let go (the
     // primary's too, once its cell is gone; all when the multi view ends).
@@ -1062,7 +1062,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                 // only the whole preview tells (lateral CA estimate, fringe
                 // radius).
                 write_pool.install(|| {
-                    let settings = crate::state::settings::current(&app_handle);
+                    let settings = crate::state::settings::current(app_handle);
                     crate::multi_view::measure_preview(
                         &path,
                         &crate::multi_view::stored_recipe(&path),
@@ -1109,7 +1109,7 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
     }
     // Before the settings are read: a change after makes this decode stale.
     let generation = decodes_generation();
-    let settings = crate::state::settings::current(&app_handle);
+    let settings = crate::state::settings::current(app_handle);
     // The Standard preview too, when missing (cheap from the decode): the
     // cell is then developed from it when the multi view is shown again,
     // without a decode.
@@ -1196,7 +1196,7 @@ fn write(app_handle: &tauri::AppHandle, held: &Written) {
     let path = held.path.as_str();
     let (source, _): (PathBuf, _) = parse_virtual_path(path);
     let settings = &held.settings;
-    let now = crate::state::settings::current(&app_handle);
+    let now = crate::state::settings::current(app_handle);
     if !labels_hold(
         held,
         preview_proxy::current_key(&source, &now, held.variant).as_ref(),

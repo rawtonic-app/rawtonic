@@ -30,7 +30,7 @@ pub fn resolve_tonemapper_override_from_handle(
     app_handle: &tauri::AppHandle,
     is_raw: bool,
 ) -> Option<u32> {
-    let settings = crate::state::settings::current(&app_handle);
+    let settings = crate::state::settings::current(app_handle);
     resolve_tonemapper_override(&settings, is_raw)
 }
 

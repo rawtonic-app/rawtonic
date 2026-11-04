@@ -283,7 +283,7 @@ mod tests {
         let path = dir.path().join("settings.json");
         fs::write(&path, r#"{"theme":"light"}"#).unwrap();
         let store = SettingsStore::default();
-        let before = fs::read(&store_loaded(&store, &path)).unwrap();
+        let before = fs::read(store_loaded(&store, &path)).unwrap();
         let refused: Result<(), _> = store.update(at(&path), |s| {
             s.theme = Some("dark".into());
             Err("no".into())

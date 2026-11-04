@@ -99,7 +99,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
     }
     let state = app_handle.state::<AppState>();
     let context = get_or_init_gpu_context(&state, app_handle)?;
-    let settings = crate::state::settings::current(&app_handle);
+    let settings = crate::state::settings::current(app_handle);
     let tiff = spec.format == "tiff";
     let extension = if tiff { "tiff" } else { "jpg" };
     let export_settings: ExportSettings = serde_json::from_value(serde_json::json!({

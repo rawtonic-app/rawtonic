@@ -1507,7 +1507,7 @@ pub(crate) fn process_preview_job(
     };
 
     let new_transform_hash = calculate_transform_hash(&adjustments_clone);
-    let settings = crate::state::settings::current(&app_handle);
+    let settings = crate::state::settings::current(app_handle);
     let live_quality = settings.live_preview_quality.as_deref().unwrap_or("high");
 
     let default_preview_dim = settings.editor_preview_resolution.unwrap_or(1920);
@@ -2474,7 +2474,7 @@ async fn develop_kept_decode(
     if rawtonic_engine::image_loader::ai_denoise_amount(&saved) > 0.0 {
         return None;
     }
-    let settings = crate::state::settings::current(&app_handle);
+    let settings = crate::state::settings::current(app_handle);
     let key = crate::image_loader::decoded_cache_key(&source, None, variant);
     let now = crate::preview_proxy::current_key(&source_path, &settings, variant);
     let never_edited = crate::embedded_still::never_edited(&saved);
@@ -2791,7 +2791,7 @@ fn render_split_before_blocking(
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("split_before");
     let state = app_handle.state::<AppState>();
-    let settings = crate::state::settings::current(&app_handle);
+    let settings = crate::state::settings::current(app_handle);
     #[cfg(not(target_os = "linux"))]
     let use_wgpu_renderer = settings.use_wgpu_renderer.unwrap_or(true);
     #[cfg(target_os = "linux")]
