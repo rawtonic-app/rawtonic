@@ -185,6 +185,9 @@ pub fn apply_base_look(
     measures: Option<&crate::image_loader::DecodeMeasures>,
     library: Option<&std::path::Path>,
 ) {
+    // A virtual copy's path (`<photo>?vc=<id>`, as Develop and the browser
+    // render it): everything here is its source file's.
+    let path = rawtonic_metadata::photo_ref::source_of(path);
     base_look(path).apply(global);
     crate::camera_profile::apply(global, path, library);
     crate::diffraction::apply(global, path);
@@ -809,6 +812,30 @@ mod tests {
             ),
             (0.03, 0.2, 0.7, 0.4)
         );
+    }
+
+    /// A virtual copy (`<photo>?vc=<id>`, the path Develop and the browser
+    /// render it under) develops with its photograph's base look, camera
+    /// profile and measures: they are the source file's. With the copy's
+    /// path read as a file name it had none, and a Fujifilm copy opened
+    /// several stops darker than its photograph (report #22).
+    #[test]
+    fn a_virtual_copy_develops_with_its_photographs_base_look() {
+        let look = |path: &str| {
+            let mut global = GlobalAdjustments::default();
+            super::apply_base_look(&mut global, path, None, None);
+            bytemuck::bytes_of(&global).to_vec()
+        };
+        let none = look("/nonexistent/copy-test.jpg");
+        for photo in [
+            "/nonexistent/copy-test.RAF",
+            "/nonexistent/copy-test.arw",
+            "/nonexistent/copy-test.dng",
+        ] {
+            crate::noise_level::record(photo, 0.02);
+            assert_ne!(look(photo), none, "{photo}");
+            assert_eq!(look(&format!("{photo}?vc=0f1e2d")), look(photo), "{photo}");
+        }
     }
 
     #[test]
