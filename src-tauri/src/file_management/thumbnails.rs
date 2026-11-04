@@ -22,6 +22,7 @@ use crate::image_processing::get_all_adjustments_from_json;
 use crate::mask_generation::ParametricMaskSource;
 use crate::mask_generation::prepare_parametric_mask_source;
 use crate::mask_generation::{MaskBitmap, MaskDefinition};
+use crate::state::develop::DevelopSession;
 use anyhow::Result;
 use image::DynamicImage;
 use image::GenericImageView;
@@ -362,6 +363,7 @@ pub(crate) fn develop_thumbnail(
         && !meta.adjustments.is_null()
     {
         let state = app_handle.state::<AppState>();
+        let develop = app_handle.state::<DevelopSession>();
         let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
 
         let base_cache_hash = crate::cache_utils::calculate_thumbnail_base_hash(&meta.adjustments);
@@ -626,7 +628,7 @@ pub(crate) fn develop_thumbnail(
             .iter()
             .filter_map(|def| {
                 crate::mask_generation::get_cached_or_generate_mask(
-                    &state,
+                    &develop,
                     def,
                     preview_w,
                     preview_h,
@@ -668,6 +670,7 @@ pub(crate) fn develop_thumbnail(
             gpu_processing::process_and_get_dynamic_image_with_display_shader(
                 context,
                 &state,
+                &develop,
                 cropped_preview.as_ref(),
                 unique_hash,
                 gpu_processing::RenderRequest {

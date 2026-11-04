@@ -1239,7 +1239,7 @@ fn write(app_handle: &tauri::AppHandle, held: &Written) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn paths(names: &[&str]) -> Vec<String> {
@@ -1298,8 +1298,9 @@ mod tests {
     }
 
     /// The tests that use the module's statics (the worker, the decodes
-    /// held) run one at a time.
-    static STATICS: Mutex<()> = Mutex::new(());
+    /// held) run one at a time, also those elsewhere that let them go
+    /// (`Scope::Decoder`).
+    pub(crate) static STATICS: Mutex<()> = Mutex::new(());
 
     /// The static worker, without its thread (shared by these tests only).
     fn test_worker() -> Arc<Worker> {
@@ -1346,12 +1347,13 @@ mod tests {
         let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
         let worker = test_worker();
         let state = crate::app_state::AppState::default();
+        let develop = crate::state::develop::DevelopSession::default();
         HELD.lock()
             .unwrap()
             .extend([held("x.raf", 1, true, 1), held("y.raf", 1, false, 2)]);
-        crate::image_loader::clear_source_caches(&state);
+        crate::image_loader::clear_source_caches(&state, &develop);
         assert_eq!(HELD.lock().unwrap().len(), 2);
-        crate::cache_utils::clear_decoder_caches(&state);
+        develop.invalidate(crate::state::develop::Scope::Decoder);
         assert_eq!(HELD.lock().unwrap().len(), 0);
         worker
             .queue

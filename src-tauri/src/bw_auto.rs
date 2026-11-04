@@ -239,6 +239,7 @@ pub async fn auto_gray_mix(
     let context = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<crate::app_state::AppState>();
+        let develop = app_handle.state::<crate::state::develop::DevelopSession>();
         let Some((source, is_raw, measures)) = state
             .original_image
             .lock()
@@ -255,7 +256,7 @@ pub async fn auto_gray_mix(
         else {
             return Ok(None);
         };
-        let Some((base, transform_hash, scale)) = state
+        let Some((base, transform_hash, scale)) = develop
             .cached_preview
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -273,7 +274,7 @@ pub async fn auto_gray_mix(
         };
         let mut recipe = js_adjustments;
         let version = crate::image_processing::bw_version(&recipe);
-        crate::adjustment_utils::hydrate_adjustments(&state, &mut recipe);
+        crate::adjustment_utils::hydrate_adjustments(&develop, &mut recipe);
         recipe["blackAndWhite"] = serde_json::Value::Bool(false);
         recipe["masks"] = serde_json::json!([]);
         let tone_mapper =
@@ -293,6 +294,7 @@ pub async fn auto_gray_mix(
         let developed = crate::gpu_processing::process_and_get_dynamic_image(
             &context,
             &state,
+            &develop,
             &base,
             transform_hash,
             crate::gpu_processing::RenderRequest {

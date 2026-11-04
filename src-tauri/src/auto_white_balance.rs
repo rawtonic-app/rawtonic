@@ -8,6 +8,7 @@
 //! and blue hour some of their blue. Tint (green/magenta casts) is corrected within 0 to +30, the range
 //! of real light.
 
+use crate::state::develop::DevelopSession;
 use image::DynamicImage;
 
 /// The estimate's small cool bias (3 mireds on scenes with a measured grey).
@@ -57,6 +58,7 @@ pub async fn auto_white_balance_for(
     use tauri::Manager;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<crate::app_state::AppState>();
+        let develop = app_handle.state::<DevelopSession>();
         let Some(source) = state
             .original_image
             .lock()
@@ -67,7 +69,7 @@ pub async fn auto_white_balance_for(
         else {
             return Ok(None);
         };
-        let base = state
+        let base = develop
             .cached_preview
             .lock()
             .unwrap_or_else(|e| e.into_inner())

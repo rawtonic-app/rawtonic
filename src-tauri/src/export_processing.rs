@@ -38,6 +38,7 @@ use crate::cache_utils::{calculate_full_job_hash, calculate_transform_hash};
 use crate::editor_preview::generate_transformed_preview;
 use crate::export_queue::Stage;
 use crate::mask_generation::{get_cached_or_generate_mask, resolve_warped_image_for_masks};
+use crate::state::develop::DevelopSession;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExportCancellationRequest {
@@ -500,6 +501,7 @@ fn export_masks_for_image(
     source_path_str: &str,
     context: &Arc<GpuContext>,
     state: &tauri::State<AppState>,
+    develop: &DevelopSession,
     is_raw: bool,
     app_handle: &tauri::AppHandle,
     pinned: &PinnedPhoto,
@@ -563,6 +565,7 @@ fn export_masks_for_image(
             let processed = process_and_get_dynamic_image_with_precision(
                 context,
                 state,
+                develop,
                 transformed_image.as_ref(),
                 unique_hash,
                 RenderRequest {
@@ -646,6 +649,7 @@ fn export_adjustments_as_lut(
     source_path_str: &str,
     context: &Arc<GpuContext>,
     state: &tauri::State<AppState>,
+    develop: &DevelopSession,
     app_handle: &tauri::AppHandle,
     cancellation_token: &AtomicBool,
 ) -> Result<Vec<u8>, String> {
@@ -679,6 +683,7 @@ fn export_adjustments_as_lut(
     let processed_lut = process_and_get_dynamic_image(
         context,
         state,
+        develop,
         &identity_image,
         unique_hash,
         RenderRequest {
@@ -1375,6 +1380,7 @@ fn export_photo(
     }
 
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let image_path_str = item.image_path_str;
     let (source_path, _) = parse_virtual_path(image_path_str);
     let source_path_str = source_path.to_string_lossy().to_string();
@@ -1391,7 +1397,7 @@ fn export_photo(
     };
     let mut js_adjustments = std::mem::take(&mut pinned.adjustments);
 
-    hydrate_adjustments(&state, &mut js_adjustments);
+    hydrate_adjustments(&develop, &mut js_adjustments);
     // A never-edited photo exports with the camera's lens data,
     // as Develop shows it (profile corrections on by default).
     if let Err(e) =
@@ -1440,6 +1446,7 @@ fn export_photo(
                 &source_path_str,
                 context,
                 &state,
+                &develop,
                 app_handle,
                 cancellation_token,
             )?;
@@ -1563,7 +1570,7 @@ fn export_photo(
     let env = RenderEnv {
         context,
         processor: &state.export_gpu_processor,
-        image_cache: &state.gpu_image_cache,
+        image_cache: &develop.gpu_image_cache,
         tonemapper_override: &tonemapper_override,
         load_lut: &load_lut,
         render_inputs: None,
@@ -1702,6 +1709,7 @@ fn export_photo(
                     &source_path_str,
                     context,
                     &state,
+                    &develop,
                     is_raw,
                     app_handle,
                     &pinned,
@@ -2086,6 +2094,7 @@ pub async fn estimate_export_sizes(
             current_edit_path,
             current_edit_adjustments,
             app.state::<AppState>(),
+            app.state::<DevelopSession>(),
             app_handle,
         )
     })
@@ -2093,6 +2102,7 @@ pub async fn estimate_export_sizes(
     .map_err(|e| format!("Export size estimate failed: {e}"))?
 }
 
+#[allow(clippy::too_many_arguments)]
 fn estimate_sizes(
     paths: Vec<String>,
     export_settings: ExportSettings,
@@ -2100,6 +2110,7 @@ fn estimate_sizes(
     current_edit_path: Option<String>,
     current_edit_adjustments: Option<Value>,
     state: tauri::State<'_, AppState>,
+    develop: tauri::State<'_, DevelopSession>,
     app_handle: tauri::AppHandle,
 ) -> Result<usize, String> {
     if output_format.to_lowercase() == "cube" {
@@ -2129,10 +2140,10 @@ fn estimate_sizes(
             .clone()
             .ok_or("No original image loaded")?;
         let mut adjustments_clone = current_edit_adjustments.clone().unwrap();
-        hydrate_adjustments(&state, &mut adjustments_clone);
+        hydrate_adjustments(&develop, &mut adjustments_clone);
 
         let new_transform_hash = calculate_transform_hash(&adjustments_clone);
-        let cached_preview_lock = state.cached_preview.lock().unwrap();
+        let cached_preview_lock = develop.cached_preview.lock().unwrap();
         let preview_dim = settings.editor_preview_resolution.unwrap_or(1920);
 
         let (preview_image, scale, unscaled_crop_offset) = if let Some(cached) =
@@ -2151,7 +2162,7 @@ fn estimate_sizes(
             } else {
                 drop(cached_preview_lock);
                 generate_transformed_preview(
-                    &state,
+                    &develop,
                     &loaded_image,
                     &adjustments_clone,
                     preview_dim,
@@ -2159,7 +2170,7 @@ fn estimate_sizes(
             }
         } else {
             drop(cached_preview_lock);
-            generate_transformed_preview(&state, &loaded_image, &adjustments_clone, preview_dim)?
+            generate_transformed_preview(&develop, &loaded_image, &adjustments_clone, preview_dim)?
         };
 
         let (img_w, img_h) = preview_image.dimensions();
@@ -2175,6 +2186,7 @@ fn estimate_sizes(
 
         let warped_image = resolve_warped_image_for_masks(
             &state,
+            &develop,
             &loaded_image.image,
             loaded_image.is_raw,
             1.0,
@@ -2187,7 +2199,7 @@ fn estimate_sizes(
             .iter()
             .filter_map(|def| {
                 get_cached_or_generate_mask(
-                    &state,
+                    &develop,
                     def,
                     img_w,
                     img_h,
@@ -2220,6 +2232,7 @@ fn estimate_sizes(
         let processed_preview = process_and_get_dynamic_image_with_precision(
             &context,
             &state,
+            &develop,
             &preview_image,
             unique_hash,
             RenderRequest {
@@ -2356,7 +2369,7 @@ fn estimate_sizes(
             .iter()
             .filter_map(|def| {
                 get_cached_or_generate_mask(
-                    &state,
+                    &develop,
                     def,
                     preview_w,
                     preview_h,
@@ -2389,6 +2402,7 @@ fn estimate_sizes(
         let processed_preview = process_and_get_dynamic_image_with_precision(
             &context,
             &state,
+            &develop,
             &preview_base,
             unique_hash,
             RenderRequest {

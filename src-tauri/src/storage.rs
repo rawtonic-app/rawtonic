@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Preferences storage inventory and maintenance of explicit app-owned roots.
+use crate::state::develop::{DevelopSession, Scope};
 use crate::{app_state::AppState, storage_fs};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -181,12 +182,10 @@ pub async fn storage_usage(
                 return Err("Storage scan cancelled".into());
             }
             if category == Category::Decoded {
-                let bytes = app
-                    .state::<AppState>()
-                    .decoded_image_cache
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .retained_bytes() as u64;
+                let bytes = crate::state::lock::lock_recover(
+                    &app.state::<DevelopSession>().decoded_image_cache,
+                )
+                .retained_bytes() as u64;
                 entries.push(Entry {
                     category,
                     bytes: Some(bytes),
@@ -334,11 +333,8 @@ pub async fn storage_clear(
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = MAINTENANCE.lock().unwrap_or_else(|e| e.into_inner());
         if category == Category::Decoded {
-            app.state::<AppState>()
-                .decoded_image_cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clear();
+            app.state::<DevelopSession>()
+                .invalidate(Scope::DecodedCache);
             return Ok(());
         }
         if category == Category::SystemModels {

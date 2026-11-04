@@ -14,6 +14,7 @@ use crate::image_processing::{
     mask_definitions_from_json, resolve_tonemapper_override_from_handle,
 };
 use crate::lut_processing;
+use crate::state::develop::DevelopSession;
 use image::{DynamicImage, GenericImageView};
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -112,14 +113,15 @@ fn render_tiles(
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("profile_thumbnails");
     let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
     let context = get_or_init_gpu_context(&state, app_handle)?;
-    hydrate_adjustments(&state, &mut recipe);
+    hydrate_adjustments(&develop, &mut recipe);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
     if loaded_image.path != path {
         return Ok(Vec::new());
     }
     let transform_hash = calculate_transform_hash(&recipe);
-    let Some((base, scale, unscaled_crop_offset)) = state
+    let Some((base, scale, unscaled_crop_offset)) = develop
         .cached_preview
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -139,6 +141,7 @@ fn render_tiles(
     let mask_definitions = mask_definitions_from_json(&recipe);
     let mask_bitmaps = preview_mask_bitmaps(
         &state,
+        &develop,
         &recipe,
         &mask_definitions,
         (&loaded_image, source_scale, full_dims),
@@ -154,7 +157,7 @@ fn render_tiles(
             continue;
         }
         let mut tile = tile_recipe(&recipe, variant);
-        hydrate_adjustments(&state, &mut tile);
+        hydrate_adjustments(&develop, &mut tile);
         let mut probe = get_all_adjustments_with_masks(
             &tile,
             loaded_image.is_raw,
@@ -173,6 +176,7 @@ fn render_tiles(
         let image = gpu_processing::process_and_get_dynamic_image_with_preview_shader(
             &context,
             &state,
+            &develop,
             &small,
             small_hash,
             RenderRequest {

@@ -7,6 +7,7 @@ functions, not through `AppState`.
 | Sub-state | Holds | Access |
 |---|---|---|
 | `settings::SettingsStore` | `settings.json`, read + migrated once per run | `settings::current(app)` / `try_current(app)` (cheap `Arc`), `settings::update(app, \|s\| …)` |
+| `develop::DevelopSession` | the caches built from the open photograph (decodes, preview bases, GPU upload, masks, warps, geometry bases, the editor's patches) | `app.state::<DevelopSession>()`, passed on as `&DevelopSession`; dropped only through `invalidate(Scope)` |
 
 ## Lock policy
 
@@ -30,3 +31,26 @@ the reverse):
 
 `save_settings` takes `AppState.decoded_image_cache` only after the store's locks are released.
 Readers (`current`) take only `current` for reading, except on the first read of a run.
+
+### `DevelopSession`
+
+`invalidate(scope)` takes each cache's lock alone, one after the other, in field order, and the
+caller holds no `DevelopSession` lock (except `cached_preview` for `Scope::PreviewUpload`, which
+takes only `gpu_image_cache`). `Scope::Decoder` then takes the multi view's prefetch queue and held
+decodes, and the proxy worker's kept decodes (`forget_decodes`, `forget_ahead`), with no
+`DevelopSession` lock held.
+
+Nested locks in use (earlier one held while the later one is taken):
+
+1. `AppState.original_image` → `full_warped_cache` (publishing a warp built from the source still
+   open, `editor_preview::full_warped_image`)
+2. `geometry_cache` → `AppState.original_image` (negative preview base,
+   `negative_conversion::preview_negative_conversion`); nothing takes `geometry_cache` while
+   holding `original_image`.
+3. `cached_preview` → `reusable_previews`, `full_transformed_cache`, `patched_warped_cache`,
+   `gpu_image_cache` (building the preview base under its lock, `editor_preview::process_preview_job`;
+   each taken alone).
+
+Every other access holds one `DevelopSession` lock for one step. The sites outside `state/` keep
+their lock calls (`lock().unwrap()` or recovery) until their context's part of 3.3; `invalidate`
+recovers poisoned locks (`lock_recover`), where `clear_image_caches` skipped a poisoned one.
