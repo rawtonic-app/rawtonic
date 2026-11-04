@@ -47,7 +47,7 @@ impl ImportMetadata {
                 "Unsupported import metadata field {key}"
             );
         }
-        Metadata {
+        Ok(Metadata {
             creator: self.creator.clone(),
             copyright: self.copyright.clone(),
             description: self.description.clone(),
@@ -55,7 +55,7 @@ impl ImportMetadata {
             keywords: self.keywords.clone(),
             ..Metadata::default()
         }
-        .validate()
+        .validate()?)
     }
 
     pub fn apply(&self, metadata: &mut Metadata, year: i32) {

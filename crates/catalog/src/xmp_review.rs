@@ -10,7 +10,7 @@
 
 use crate::{Library, XmpProblem, search_text};
 use anyhow::{Result, bail, ensure};
-use rawtonic_metadata::{Metadata, XmpConflict};
+use rawtonic_metadata::{Metadata, MetadataError};
 use rusqlite::{TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -273,10 +273,10 @@ impl Library {
                 Ok(())
             }
             Err(e) => {
-                if e.is::<XmpConflict>() {
+                if matches!(e, MetadataError::XmpConflict) {
                     self.mark_xmp_conflict(asset)?;
                 }
-                Err(e)
+                Err(e.into())
             }
         }
     }

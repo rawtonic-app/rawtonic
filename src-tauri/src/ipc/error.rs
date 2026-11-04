@@ -133,15 +133,35 @@ fn io_code(kind: std::io::ErrorKind) -> ErrorCode {
 
 /// The code a typed cause in `error`'s chain implies; `Internal` without one.
 fn code_of(error: &anyhow::Error) -> ErrorCode {
-    for cause in error.chain() {
-        if cause.is::<rawtonic_onnx::RuntimeError>() {
-            return ErrorCode::AiRuntimeUnavailable;
-        }
-        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
-            return io_code(io.kind());
-        }
+    error
+        .chain()
+        .find_map(cause_code)
+        .unwrap_or(ErrorCode::Internal)
+}
+
+/// The code one cause implies by its type, if any. A core crate's error
+/// enum holds its cause (`Io`, `Other`) instead of chaining it, so it is
+/// looked into.
+fn cause_code(cause: &(dyn std::error::Error + 'static)) -> Option<ErrorCode> {
+    if cause.is::<rawtonic_onnx::RuntimeError>() {
+        return Some(ErrorCode::AiRuntimeUnavailable);
     }
-    ErrorCode::Internal
+    if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+        return Some(io_code(io.kind()));
+    }
+    if let Some(error) = cause.downcast_ref::<rawtonic_metadata::MetadataError>() {
+        return metadata_code(error);
+    }
+    None
+}
+
+fn metadata_code(error: &rawtonic_metadata::MetadataError) -> Option<ErrorCode> {
+    use rawtonic_metadata::MetadataError as E;
+    match error {
+        E::XmpConflict => None,
+        E::Io(io) => Some(io_code(io.kind())),
+        E::Other(cause) => cause.chain().find_map(cause_code),
+    }
 }
 
 impl From<std::io::Error> for CommandError {
@@ -155,6 +175,13 @@ impl From<std::io::Error> for CommandError {
 impl From<anyhow::Error> for CommandError {
     fn from(error: anyhow::Error) -> Self {
         Self::new(code_of(&error), error.to_string())
+    }
+}
+
+impl From<rawtonic_metadata::MetadataError> for CommandError {
+    fn from(error: rawtonic_metadata::MetadataError) -> Self {
+        let code = metadata_code(&error).unwrap_or(ErrorCode::Internal);
+        Self::new(code, error.to_string())
     }
 }
 
@@ -277,6 +304,32 @@ mod tests {
         let chained = CommandError::chain(error);
         assert_eq!(chained.code, ErrorCode::NotFound);
         assert_eq!(chained.message, "Reading the photo: no file");
+    }
+
+    #[test]
+    fn metadata_errors_keep_their_text_and_the_code_of_their_cause() {
+        use rawtonic_metadata::MetadataError;
+        let conflict = CommandError::from(MetadataError::XmpConflict);
+        assert_eq!(
+            (conflict.code, conflict.message.as_str()),
+            (
+                ErrorCode::Internal,
+                "XMP conflict: external changes must be reviewed"
+            )
+        );
+        let missing = || std::io::Error::new(std::io::ErrorKind::NotFound, "no sidecar");
+        let io = CommandError::from(MetadataError::from(missing()));
+        assert_eq!(
+            (io.code, io.message.as_str()),
+            (ErrorCode::NotFound, "no sidecar")
+        );
+        let wrapped = anyhow::Error::from(MetadataError::from(missing())).context("Saving");
+        assert_eq!(CommandError::chain(wrapped).code, ErrorCode::NotFound);
+        let other = MetadataError::from(anyhow::Error::from(missing()).context("Reading"));
+        assert_eq!(
+            CommandError::from(anyhow::Error::from(other)),
+            CommandError::new(ErrorCode::NotFound, "Reading")
+        );
     }
 
     #[test]
