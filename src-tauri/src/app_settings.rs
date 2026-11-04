@@ -1208,10 +1208,20 @@ fn reserve_update_check_in(
     manual: bool,
     now: u64,
 ) -> Result<Option<AppSettings>, String> {
+    let notice_shown = crate::privacy_notice::shown(settings.privacy_notice_seen);
+    reserve_update_check_when(settings, manual, now, notice_shown)
+}
+
+/// `reserve_update_check_in` with the privacy-notice state given: nothing
+/// automatic goes online (or is reserved) before the notice was shown.
+fn reserve_update_check_when(
+    settings: &mut AppSettings,
+    manual: bool,
+    now: u64,
+    notice_shown: bool,
+) -> Result<Option<AppSettings>, String> {
     crate::update_check::core::when_due(
-        // Nothing automatic goes online before the privacy notice was shown.
-        settings.check_for_updates.unwrap_or(true)
-            && crate::privacy_notice::shown(settings.privacy_notice_seen),
+        settings.check_for_updates.unwrap_or(true) && notice_shown,
         settings.last_update_check,
         now,
         manual,
@@ -1265,6 +1275,30 @@ mod tests {
                 reserve_update_check_in(settings, manual, now)
             },
         )
+    }
+
+    #[test]
+    fn no_automatic_check_is_reserved_before_the_privacy_notice_was_shown() {
+        let mut settings = AppSettings::default();
+        assert!(
+            reserve_update_check_when(&mut settings, false, 100, false)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(settings.last_update_check, None);
+        // A manual check is the user's own action.
+        assert!(
+            reserve_update_check_when(&mut settings, true, 100, false)
+                .unwrap()
+                .is_some()
+        );
+        let mut settings = AppSettings::default();
+        assert!(
+            reserve_update_check_when(&mut settings, false, 100, true)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(settings.last_update_check, Some(100));
     }
 
     #[test]
