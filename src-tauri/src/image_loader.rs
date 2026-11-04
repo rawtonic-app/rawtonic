@@ -656,7 +656,7 @@ pub fn decoded_cache_key(
 }
 
 /// Drops the open photograph's source and everything derived from it.
-fn clear_source_caches(state: &AppState) {
+pub(crate) fn clear_source_caches(state: &AppState) {
     *state
         .original_image
         .lock()
@@ -1964,6 +1964,154 @@ mod patch_cache_tests {
         open_source(&state, "b.ARW");
         assert!(!sent(&state));
         assert_eq!(*state.current_source.lock().unwrap(), "b.ARW");
+    }
+}
+
+#[cfg(test)]
+mod develop_cache_scenarios {
+    //! What each develop event costs in decodes and preview bases, with the
+    //! loader's cache decisions: opening a photograph decodes it when the
+    //! decoded cache lacks it (`load_image`), and its preview builds a base
+    //! when the reusable bases lack it (`editor_preview`). The counts pin
+    //! which caches each event's invalidation keeps (plan step 3.3).
+    use super::*;
+    use crate::preview_cache::PreviewBase;
+
+    const DIM: u32 = 1920;
+
+    #[derive(Debug, Default, PartialEq)]
+    pub(crate) struct Counts {
+        pub decodes: usize,
+        pub bases: usize,
+    }
+
+    pub(crate) struct Editor<'a> {
+        pub state: &'a AppState,
+        pub counts: Counts,
+    }
+
+    impl Editor<'_> {
+        /// Opens `path` as the editor does: another photograph's source and
+        /// what was built from it are dropped, then its decode is taken from
+        /// the cache or made, and its preview shown.
+        pub fn open(&mut self, path: &str) {
+            open_source(self.state, path);
+            let other = self
+                .state
+                .original_image
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|o| o.path != path);
+            if other {
+                clear_source_caches(self.state);
+            }
+            let key = decoded_cache_key(path, None, DecodeVariant::default());
+            let cached = self.state.decoded_image_cache.lock().unwrap().get(&key);
+            let image = match cached {
+                Some((image, _)) => image,
+                None => {
+                    self.counts.decodes += 1;
+                    let image = Arc::new(DynamicImage::new_rgb32f(4, 4));
+                    self.state.decoded_image_cache.lock().unwrap().insert(
+                        key,
+                        Arc::clone(&image),
+                        HashMap::new(),
+                        None,
+                    );
+                    image
+                }
+            };
+            *self.state.original_image.lock().unwrap() = Some(LoadedImage {
+                path: path.to_string(),
+                image,
+                is_raw: true,
+                decode: Some(DecodeVariant::default()),
+                measures: None,
+            });
+            self.preview(1);
+        }
+
+        /// Renders the open photograph's preview for a recipe whose
+        /// geometry has `preparation_key`.
+        pub fn preview(&mut self, preparation_key: u64) {
+            let image = Arc::clone(
+                &self
+                    .state
+                    .original_image
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .image,
+            );
+            let mut bases = self.state.reusable_previews.lock().unwrap();
+            if bases.get(&image, preparation_key, DIM).is_none() {
+                self.counts.bases += 1;
+                let base = PreviewBase {
+                    image: Arc::new(DynamicImage::new_rgb32f(2, 2)),
+                    scale: 1.0,
+                    unscaled_crop_offset: (0.0, 0.0),
+                };
+                bases.insert(&image, preparation_key, DIM, base);
+            }
+        }
+
+        pub fn take_counts(&mut self) -> Counts {
+            std::mem::take(&mut self.counts)
+        }
+    }
+
+    #[test]
+    fn decodes_and_preview_bases_per_develop_event() {
+        let state = AppState::default();
+        state.decoded_image_cache.lock().unwrap().set_capacity(5);
+        let mut editor = Editor {
+            state: &state,
+            counts: Counts::default(),
+        };
+        editor.open("a.ARW");
+        assert_eq!(
+            editor.take_counts(),
+            Counts {
+                decodes: 1,
+                bases: 1
+            }
+        );
+        // Photo switch and back: the first photograph's decode and preview
+        // base are kept.
+        editor.open("b.ARW");
+        editor.open("a.ARW");
+        assert_eq!(
+            editor.take_counts(),
+            Counts {
+                decodes: 1,
+                bases: 1
+            }
+        );
+        // Recipe edit: a tone change keeps the base, a geometry change
+        // builds one, neither decodes; going back to the first geometry
+        // reuses its base.
+        editor.preview(1);
+        editor.preview(2);
+        editor.preview(1);
+        assert_eq!(
+            editor.take_counts(),
+            Counts {
+                decodes: 0,
+                bases: 1
+            }
+        );
+        // The decoder's settings change: decoded again, base built again.
+        crate::cache_utils::clear_decoder_caches(&state);
+        editor.open("a.ARW");
+        assert_eq!(
+            editor.take_counts(),
+            Counts {
+                decodes: 1,
+                bases: 1
+            }
+        );
     }
 }
 

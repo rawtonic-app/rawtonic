@@ -1338,6 +1338,29 @@ mod tests {
         assert_eq!(decodes_generation(), generation + 1);
     }
 
+    /// Decodes the multi view holds per develop event (plan step 3.3): a
+    /// photo switch keeps them, a change of the decoder's settings lets
+    /// them go (decoded again).
+    #[test]
+    fn held_decodes_per_develop_event() {
+        let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
+        let worker = test_worker();
+        let state = crate::app_state::AppState::default();
+        HELD.lock()
+            .unwrap()
+            .extend([held("x.raf", 1, true, 1), held("y.raf", 1, false, 2)]);
+        crate::image_loader::clear_source_caches(&state);
+        assert_eq!(HELD.lock().unwrap().len(), 2);
+        crate::cache_utils::clear_decoder_caches(&state);
+        assert_eq!(HELD.lock().unwrap().len(), 0);
+        worker
+            .queue
+            .lock()
+            .unwrap()
+            .todo
+            .retain(|p| p != "x.raf" && p != "y.raf");
+    }
+
     #[test]
     fn a_cell_made_the_primary_opens_on_its_decode_under_way() {
         let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());

@@ -6,6 +6,12 @@ use crate::app_state::AppState;
 
 #[tauri::command]
 pub fn clear_image_caches(state: tauri::State<AppState>) {
+    clear_decoder_caches(&state);
+}
+
+/// The decoder's settings changed: drops the decodes and what was built
+/// from them.
+pub(crate) fn clear_decoder_caches(state: &AppState) {
     if let Ok(mut decoded_cache) = state.decoded_image_cache.lock() {
         decoded_cache.clear();
     }
