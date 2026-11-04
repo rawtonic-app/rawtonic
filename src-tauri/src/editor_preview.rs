@@ -2260,9 +2260,9 @@ pub(crate) async fn activate_photo(
     path: String,
     adjustments: Option<serde_json::Value>,
     state: tauri::State<'_, AppState>,
-    develop: tauri::State<'_, DevelopSession>,
     app_handle: tauri::AppHandle,
 ) -> Result<Activation, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     #[cfg(feature = "performance-profiling")]
     let received = crate::performance::epoch_ms();
     let (source_path, sidecar_path) = parse_virtual_path(&path);
@@ -3123,9 +3123,9 @@ pub(crate) async fn apply_adjustments(
 pub(crate) async fn generate_uncropped_preview(
     js_adjustments: serde_json::Value,
     state: tauri::State<'_, AppState>,
-    develop: tauri::State<'_, DevelopSession>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let context = get_or_init_gpu_context(&state, &app_handle)?;
     let mut adjustments_clone = js_adjustments.clone();
     hydrate_adjustments(&develop, &mut adjustments_clone);

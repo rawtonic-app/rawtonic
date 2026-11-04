@@ -650,8 +650,8 @@ pub async fn invoke_generative_replace_with_mask_def(
     task_id: Option<String>,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-    develop: tauri::State<'_, DevelopSession>,
 ) -> Result<String, CommandError> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let _guard = task_id
         .as_ref()
         .map(|id| crate::app_state::AiTaskGuard::new(&state.active_ai_tasks, id.clone()));

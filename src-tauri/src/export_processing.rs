@@ -2094,7 +2094,6 @@ pub async fn estimate_export_sizes(
             current_edit_path,
             current_edit_adjustments,
             app.state::<AppState>(),
-            app.state::<DevelopSession>(),
             app_handle,
         )
     })
@@ -2102,7 +2101,6 @@ pub async fn estimate_export_sizes(
     .map_err(|e| format!("Export size estimate failed: {e}"))?
 }
 
-#[allow(clippy::too_many_arguments)]
 fn estimate_sizes(
     paths: Vec<String>,
     export_settings: ExportSettings,
@@ -2110,9 +2108,9 @@ fn estimate_sizes(
     current_edit_path: Option<String>,
     current_edit_adjustments: Option<Value>,
     state: tauri::State<'_, AppState>,
-    develop: tauri::State<'_, DevelopSession>,
     app_handle: tauri::AppHandle,
 ) -> Result<usize, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     if output_format.to_lowercase() == "cube" {
         return Ok(1_050_000 * paths.len());
     }

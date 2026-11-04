@@ -467,9 +467,9 @@ pub struct ProxyInfo {
 pub async fn load_image_proxy(
     path: String,
     state: tauri::State<'_, AppState>,
-    develop: tauri::State<'_, DevelopSession>,
     app_handle: tauri::AppHandle,
 ) -> Result<Option<ProxyInfo>, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     #[cfg(feature = "performance-profiling")]
     let performance_start = Instant::now();
     let (source_path, _) = parse_virtual_path(&path);
@@ -721,9 +721,10 @@ pub async fn apply_ai_denoise(
     border_black: Option<bool>,
     highlight_ratios: Option<bool>,
     state: tauri::State<'_, AppState>,
-    develop: tauri::State<'_, DevelopSession>,
     app_handle: tauri::AppHandle,
 ) -> Result<f32, CommandError> {
+    // Not a command argument (`src/contracts/commandErrors.test.ts` pins them).
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let (source_path, _) = parse_virtual_path(&path);
     let source = source_path.to_string_lossy().to_string();
     if !is_raw_file(&source) {
@@ -947,9 +948,9 @@ fn draft_sink(
 pub async fn load_image(
     path: String,
     state: tauri::State<'_, AppState>,
-    develop: tauri::State<'_, DevelopSession>,
     app_handle: tauri::AppHandle,
 ) -> Result<LoadImageResult, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     #[cfg(feature = "performance-profiling")]
     let performance_start = Instant::now();
     #[cfg(feature = "performance-profiling")]

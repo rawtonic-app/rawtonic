@@ -184,9 +184,9 @@ pub async fn preview_negative_conversion(
     path: String,
     params: NegativeConversionParams,
     state: tauri::State<'_, AppState>,
-    develop: tauri::State<'_, DevelopSession>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
+    let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let (source_path, _) = parse_virtual_path(&path);
     let source_path_str = source_path.to_string_lossy().to_string();
 
