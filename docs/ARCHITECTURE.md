@@ -102,6 +102,13 @@ New Rust workspace crates isolate data and file safety.
 `catalog` — SQLite schema/migrations, session and catalog modes (one schema), relative-path validation
 (traversal/symlinks), asset identity, metadata, versioned recipe history. SQLite is authoritative for managed assets.
 
+- `migrations`: the schema's one table of steps (`MIGRATIONS`, the SQL scripts in `crates/catalog/migrations/`) and its
+  one runner; a new library is migrated from schema 0, an opened one from its `user_version`, in one immediate
+  transaction. Adding schema 25 = `migrations/0025.sql` + one `MIGRATIONS` line (`crates/catalog/README.md`).
+  `tests/migration_fixtures.rs` upgrades a populated catalog of every schema (1–24) and compares it with the recorded
+  result (schema, rows, foreign keys, searches). `fileops` keeps its journal's steps in its own `migrations.rs` of the
+  same shape.
+
 
 - `query`: the library search and smart albums (ADR 0014; rules over text, keywords, culling, file type, camera, lens,
   exposure, dates, albums, folders, compiled to one SQL query; value lists with counts; schema 17 adds `Field::Ai`

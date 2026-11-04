@@ -29,6 +29,7 @@ use std::{
 
 #[cfg(test)]
 mod copy_move_tests;
+mod migrations;
 mod tree;
 mod volume;
 mod xattr;
@@ -387,8 +388,6 @@ impl SystemTrash for NoSystemTrash {
     }
 }
 
-const JOURNAL_VERSION: u32 = 2;
-
 /// The hidden folder inside an emptied folder that its entries are moved
 /// into before they are deleted (followed by the operation's id).
 const PURGE_STAGING_PREFIX: &str = ".rawtonic-emptying-";
@@ -412,39 +411,7 @@ impl Journal {
         })?;
         conn.busy_timeout(Duration::from_secs(5))?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
-        let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        ensure!(
-            version <= JOURNAL_VERSION,
-            "The file operation journal is from a newer Rawtonic (version {version})"
-        );
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS operations(
-               seq INTEGER PRIMARY KEY AUTOINCREMENT,
-               id TEXT NOT NULL UNIQUE,
-               kind TEXT NOT NULL,
-               label TEXT NOT NULL,
-               state TEXT NOT NULL,
-               synced INTEGER NOT NULL DEFAULT 0,
-               payload TEXT NOT NULL,
-               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);",
-        )?;
-        if version < 2 {
-            // Version 2: the redo stack. Operations undone before it are
-            // not redoable (nothing offered them).
-            let tx = conn.unchecked_transaction()?;
-            let has_column: bool = tx.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('operations') WHERE name='redoable'",
-                [],
-                |r| r.get(0),
-            )?;
-            if !has_column {
-                tx.execute_batch(
-                    "ALTER TABLE operations ADD COLUMN redoable INTEGER NOT NULL DEFAULT 0;",
-                )?;
-            }
-            tx.execute_batch("PRAGMA user_version=2;")?;
-            tx.commit()?;
-        }
+        migrations::migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -3283,6 +3250,22 @@ mod tests {
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
         assert_eq!(version, 2);
+        // Upgraded, it has a new journal's schema (but for its layout).
+        let schema = |conn: &Connection| -> Vec<String> {
+            conn.prepare("SELECT ifnull(sql, name) FROM sqlite_schema ORDER BY name")
+                .unwrap()
+                .query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .map(|sql| {
+                    sql.unwrap()
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .collect()
+        };
+        let new = Journal::open(&dir.path().join("new.sqlite")).unwrap();
+        assert_eq!(schema(&journal.conn), schema(&new.conn));
         assert_eq!(journal.operation("old").unwrap().state, State::Undone);
         assert!(journal.last_redoable().unwrap().is_none());
         drop(journal);

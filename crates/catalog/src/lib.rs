@@ -29,6 +29,7 @@ pub mod folders;
 pub mod hot_folder;
 pub mod image_hash;
 pub mod ingest_jobs;
+mod migrations;
 pub mod query;
 pub mod session_folders;
 pub mod session_move;
@@ -54,18 +55,10 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// use `visible_assets_for_listing` so their metadata remains filterable.
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
-/// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 24;
+/// Version of the SQLite schema (the last of `migrations::MIGRATIONS`);
+/// older databases are migrated when opened.
+pub const DB_SCHEMA_VERSION: u32 = migrations::LATEST;
 
-/// Schema 22's burst and bracket fact columns of `assets` (`migrations/0022.sql`).
-const COLUMNS_22: &[(&str, &str)] = &[
-    ("exposure_mode", "INTEGER"),
-    ("exposure_bias", "REAL"),
-    ("sequence", "INTEGER"),
-];
-/// Schema 23's digest of the XMP sidecar being published, in `metadata`
-/// (`migrations/0023.sql`).
-const COLUMNS_23: &[(&str, &str)] = &[("xmp_publishing", "TEXT")];
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -377,32 +370,7 @@ impl Library {
         };
         let conn = Connection::open(directory.join(db_name(mode)))?;
         Self::configure(&conn)?;
-        conn.execute_batch(include_str!("../migrations/0001.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0002.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0003.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0004.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0005.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0006.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0007.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0008.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0009.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0010.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0011.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0012.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0013.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0014.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0015.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0016.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0017.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0018.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0019.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0020.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0021.sql"))?;
-        Self::add_missing_columns(&conn, "assets", COLUMNS_22)?;
-        conn.execute_batch(include_str!("../migrations/0022.sql"))?;
-        Self::add_missing_columns(&conn, "metadata", COLUMNS_23)?;
-        conn.execute_batch(include_str!("../migrations/0023.sql"))?;
-        conn.execute_batch(include_str!("../migrations/0024.sql"))?;
+        migrations::create(&conn)?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -465,7 +433,7 @@ impl Library {
         );
         let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         Self::configure(&conn)?;
-        Self::migrate(&conn)?;
+        migrations::upgrade(&conn)?;
         Ok(Self {
             directory,
             manifest,
@@ -476,112 +444,6 @@ impl Library {
             #[cfg(any(test, feature = "test-support"))]
             crash_after_publish: Default::default(),
         })
-    }
-
-    /// Brings an older database up to `DB_SCHEMA_VERSION` in one immediate
-    /// transaction (another connection may be migrating at the same time).
-    /// Newer databases are refused rather than misread.
-    fn migrate(conn: &Connection) -> Result<()> {
-        let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        ensure!(
-            (1..=DB_SCHEMA_VERSION).contains(&version),
-            "Unsupported database schema {version}; this Rawtonic reads up to {DB_SCHEMA_VERSION}"
-        );
-        if version == DB_SCHEMA_VERSION {
-            return Ok(());
-        }
-        let tx = rusqlite::Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-        let version: u32 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version < 2 {
-            tx.execute_batch(include_str!("../migrations/0002.sql"))?;
-        }
-        if version < 3 {
-            tx.execute_batch(include_str!("../migrations/0003.sql"))?;
-        }
-        if version < 4 {
-            tx.execute_batch(include_str!("../migrations/0004.sql"))?;
-        }
-        if version < 5 {
-            tx.execute_batch(include_str!("../migrations/0005.sql"))?;
-        }
-        if version < 6 {
-            tx.execute_batch(include_str!("../migrations/0006.sql"))?;
-        }
-        if version < 7 {
-            tx.execute_batch(include_str!("../migrations/0007.sql"))?;
-        }
-        if version < 8 {
-            tx.execute_batch(include_str!("../migrations/0008.sql"))?;
-        }
-        if version < 9 {
-            tx.execute_batch(include_str!("../migrations/0009.sql"))?;
-        }
-        if version < 10 {
-            tx.execute_batch(include_str!("../migrations/0010.sql"))?;
-        }
-        if version < 11 {
-            tx.execute_batch(include_str!("../migrations/0011.sql"))?;
-        }
-        if version < 12 {
-            tx.execute_batch(include_str!("../migrations/0012.sql"))?;
-        }
-        if version < 13 {
-            tx.execute_batch(include_str!("../migrations/0013.sql"))?;
-        }
-        if version < 14 {
-            tx.execute_batch(include_str!("../migrations/0014.sql"))?;
-        }
-        if version < 15 {
-            tx.execute_batch(include_str!("../migrations/0015.sql"))?;
-        }
-        if version < 16 {
-            tx.execute_batch(include_str!("../migrations/0016.sql"))?;
-        }
-        if version < 17 {
-            tx.execute_batch(include_str!("../migrations/0017.sql"))?;
-        }
-        if version < 18 {
-            tx.execute_batch(include_str!("../migrations/0018.sql"))?;
-        }
-        if version < 19 {
-            tx.execute_batch(include_str!("../migrations/0019.sql"))?;
-        }
-        if version < 20 {
-            tx.execute_batch(include_str!("../migrations/0020.sql"))?;
-        }
-        if version < 21 {
-            tx.execute_batch(include_str!("../migrations/0021.sql"))?;
-        }
-        if version < 22 {
-            Self::add_missing_columns(&tx, "assets", COLUMNS_22)?;
-            tx.execute_batch(include_str!("../migrations/0022.sql"))?;
-        }
-        if version < 23 {
-            Self::add_missing_columns(&tx, "metadata", COLUMNS_23)?;
-            tx.execute_batch(include_str!("../migrations/0023.sql"))?;
-        }
-        if version < 24 {
-            tx.execute_batch(include_str!("../migrations/0024.sql"))?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
-    /// A migration's new columns (schema 22's burst and bracket facts,
-    /// schema 23's XMP publishing digest), each only where it is missing, so
-    /// the script can run again on a library a test took back to an older
-    /// schema.
-    fn add_missing_columns(conn: &Connection, table: &str, add: &[(&str, &str)]) -> Result<()> {
-        let columns: Vec<String> = conn
-            .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))?
-            .query_map([], |r| r.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
-        for (name, kind) in add {
-            if !columns.iter().any(|c| c == name) {
-                conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {name} {kind}"))?;
-            }
-        }
-        Ok(())
     }
 
     fn configure(conn: &Connection) -> Result<()> {

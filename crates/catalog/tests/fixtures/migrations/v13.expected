@@ -1,0 +1,388 @@
+# user_version 24
+# schema
+'index' | 'asset_imports_batch' | 'asset_imports' | 'CREATE INDEX asset_imports_batch ON asset_imports(batch_id)'
+'index' | 'asset_keywords_keyword' | 'asset_keywords' | 'CREATE INDEX asset_keywords_keyword ON asset_keywords(keyword)'
+'index' | 'assets_capture_time' | 'assets' | 'CREATE INDEX assets_capture_time ON assets(capture_time)'
+'index' | 'assets_facts_unread' | 'assets' | 'CREATE INDEX assets_facts_unread ON assets(facts_read) WHERE facts_read=0'
+'index' | 'assets_fingerprint' | 'assets' | 'CREATE INDEX assets_fingerprint ON assets(fingerprint)'
+'index' | 'image_hashes_hash' | 'image_hashes' | 'CREATE INDEX image_hashes_hash ON image_hashes(hash)'
+'index' | 'metadata_rating' | 'metadata' | 'CREATE INDEX metadata_rating ON metadata(rating)'
+'index' | 'primary_version' | 'versions' | 'CREATE UNIQUE INDEX primary_version ON versions(asset_id) WHERE is_primary=1'
+'index' | 'recipe_blob_refs_hash' | 'recipe_blob_refs' | 'CREATE INDEX recipe_blob_refs_hash ON recipe_blob_refs(hash)'
+'index' | 'snapshot_blob_refs_hash' | 'snapshot_blob_refs' | 'CREATE INDEX snapshot_blob_refs_hash ON snapshot_blob_refs(hash)'
+'index' | 'sqlite_autoindex_asset_imports_1' | 'asset_imports' | NULL
+'index' | 'sqlite_autoindex_assets_1' | 'assets' | NULL
+'index' | 'sqlite_autoindex_assets_2' | 'assets' | NULL
+'index' | 'sqlite_autoindex_capture_overrides_1' | 'capture_overrides' | NULL
+'index' | 'sqlite_autoindex_collection_assets_1' | 'collection_assets' | NULL
+'index' | 'sqlite_autoindex_collections_1' | 'collections' | NULL
+'index' | 'sqlite_autoindex_export_recipes_1' | 'export_recipes' | NULL
+'index' | 'sqlite_autoindex_eye_reads_1' | 'eye_reads' | NULL
+'index' | 'sqlite_autoindex_face_eyes_1' | 'face_eyes' | NULL
+'index' | 'sqlite_autoindex_file_ops_log_1' | 'file_ops_log' | NULL
+'index' | 'sqlite_autoindex_folder_root_volumes_1' | 'folder_root_volumes' | NULL
+'index' | 'sqlite_autoindex_hot_folder_files_1' | 'hot_folder_files' | NULL
+'index' | 'sqlite_autoindex_image_hashes_1' | 'image_hashes' | NULL
+'index' | 'sqlite_autoindex_ingest_items_1' | 'ingest_items' | NULL
+'index' | 'sqlite_autoindex_keymaps_1' | 'keymaps' | NULL
+'index' | 'sqlite_autoindex_masks_1' | 'masks' | NULL
+'index' | 'sqlite_autoindex_metadata_1' | 'metadata' | NULL
+'index' | 'sqlite_autoindex_naming_templates_1' | 'naming_templates' | NULL
+'index' | 'sqlite_autoindex_presets_1' | 'presets' | NULL
+'index' | 'sqlite_autoindex_recipe_blob_refs_1' | 'recipe_blob_refs' | NULL
+'index' | 'sqlite_autoindex_recipe_blobs_1' | 'recipe_blobs' | NULL
+'index' | 'sqlite_autoindex_roots_1' | 'roots' | NULL
+'index' | 'sqlite_autoindex_snapshot_blob_refs_1' | 'snapshot_blob_refs' | NULL
+'index' | 'sqlite_autoindex_snapshots_1' | 'snapshots' | NULL
+'index' | 'sqlite_autoindex_stack_members_1' | 'stack_members' | NULL
+'index' | 'sqlite_autoindex_stacks_1' | 'stacks' | NULL
+'index' | 'sqlite_autoindex_styles_1' | 'styles' | NULL
+'index' | 'sqlite_autoindex_tasks_1' | 'tasks' | NULL
+'index' | 'sqlite_autoindex_versions_1' | 'versions' | NULL
+'index' | 'sqlite_autoindex_workspaces_1' | 'workspaces' | NULL
+'index' | 'stack_members_stack' | 'stack_members' | 'CREATE INDEX stack_members_stack ON stack_members(stack_id, position)'
+'index' | 'tasks_kind_state' | 'tasks' | 'CREATE INDEX tasks_kind_state ON tasks(kind, state)'
+'index' | 'versions_ai_facts' | 'versions' | 'CREATE INDEX versions_ai_facts ON versions(ai_facts, asset_id) WHERE ai_facts != 0'
+'table' | 'asset_imports' | 'asset_imports' | 'CREATE TABLE "asset_imports"(
+ asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+ batch_id INTEGER NOT NULL REFERENCES "import_batches"(id) ON DELETE CASCADE
+)'
+'table' | 'asset_keywords' | 'asset_keywords' | 'CREATE TABLE asset_keywords(
+ asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+ keyword TEXT NOT NULL COLLATE NOCASE,
+ PRIMARY KEY(asset_id, keyword)
+) WITHOUT ROWID'
+'table' | 'asset_search' | 'asset_search' | 'CREATE VIRTUAL TABLE asset_search USING fts5(asset_id UNINDEXED, content, tokenize=''trigram case_sensitive 1'')'
+'table' | 'asset_search_config' | 'asset_search_config' | 'CREATE TABLE ''asset_search_config''(k PRIMARY KEY, v) WITHOUT ROWID'
+'table' | 'asset_search_content' | 'asset_search_content' | 'CREATE TABLE ''asset_search_content''(id INTEGER PRIMARY KEY, c0, c1)'
+'table' | 'asset_search_data' | 'asset_search_data' | 'CREATE TABLE ''asset_search_data''(id INTEGER PRIMARY KEY, block BLOB)'
+'table' | 'asset_search_docsize' | 'asset_search_docsize' | 'CREATE TABLE ''asset_search_docsize''(id INTEGER PRIMARY KEY, sz BLOB)'
+'table' | 'asset_search_idx' | 'asset_search_idx' | 'CREATE TABLE ''asset_search_idx''(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID'
+'table' | 'assets' | 'assets' | 'CREATE TABLE assets(
+ id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES roots(id), rel_path TEXT NOT NULL,
+ size INTEGER NOT NULL, mtime INTEGER NOT NULL, fingerprint TEXT NOT NULL, capture_time TEXT,
+ camera TEXT NOT NULL DEFAULT '''', lens TEXT NOT NULL DEFAULT '''', width INTEGER, height INTEGER,
+ orientation INTEGER NOT NULL DEFAULT 1, kind TEXT NOT NULL, raw_jpeg_pair TEXT, stack TEXT,
+ missing INTEGER NOT NULL DEFAULT 0, search_text TEXT NOT NULL DEFAULT '''', sha256 TEXT, companion_size INTEGER, companion_fingerprint TEXT, companion_sha256 TEXT, make TEXT NOT NULL DEFAULT '''', focal_length REAL, aperture REAL, iso INTEGER, exposure REAL, facts_read INTEGER NOT NULL DEFAULT 0, trashed INTEGER NOT NULL DEFAULT 0 CHECK(trashed IN (0,1)), source_type TEXT NOT NULL DEFAULT '''', exposure_mode INTEGER, exposure_bias REAL, sequence INTEGER, UNIQUE(root_id, rel_path)
+)'
+'table' | 'capture_overrides' | 'capture_overrides' | 'CREATE TABLE capture_overrides(
+ asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+ captured TEXT NOT NULL, subsec TEXT, offset TEXT)'
+'table' | 'collection_assets' | 'collection_assets' | 'CREATE TABLE "collection_assets"(
+ collection_id TEXT REFERENCES "collections"(id) ON DELETE CASCADE,
+ asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+ PRIMARY KEY(collection_id, asset_id)
+)'
+'table' | 'collections' | 'collections' | 'CREATE TABLE "collections"(
+ id TEXT PRIMARY KEY,
+ name TEXT NOT NULL,
+ parent TEXT REFERENCES "collections"(id),
+ kind TEXT NOT NULL DEFAULT ''album'' CHECK(kind IN (''album'',''group'',''smart'')),
+ position INTEGER NOT NULL DEFAULT 0,
+ rules TEXT,
+ CHECK((kind = ''smart'') = (rules IS NOT NULL))
+)'
+'table' | 'export_recipes' | 'export_recipes' | 'CREATE TABLE export_recipes(id TEXT PRIMARY KEY, name TEXT NOT NULL, recipe_json TEXT NOT NULL)'
+'table' | 'eye_reads' | 'eye_reads' | 'CREATE TABLE eye_reads(
+ asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+ version INTEGER NOT NULL,
+ fingerprint TEXT NOT NULL,
+ error TEXT)'
+'table' | 'face_eyes' | 'face_eyes' | 'CREATE TABLE face_eyes(
+ asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+ face INTEGER NOT NULL,
+ x REAL NOT NULL, y REAL NOT NULL, w REAL NOT NULL, h REAL NOT NULL,
+ state TEXT NOT NULL CHECK(state IN (''open'',''closed'',''notVisible'',''uncertain'')),
+ ear REAL,
+ accessories REAL,
+ override_state TEXT CHECK(override_state IN (''open'',''closed'',''notVisible'')),
+ PRIMARY KEY(asset_id, face))'
+'table' | 'file_ops_log' | 'file_ops_log' | 'CREATE TABLE file_ops_log(id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+'table' | 'folder_root_volumes' | 'folder_root_volumes' | 'CREATE TABLE folder_root_volumes(path TEXT PRIMARY KEY, volume TEXT NOT NULL)'
+'table' | 'hot_folder' | 'hot_folder' | 'CREATE TABLE hot_folder(
+ id INTEGER PRIMARY KEY CHECK(id=1),
+ folder TEXT NOT NULL,
+ template TEXT NOT NULL,
+ include_subfolders INTEGER NOT NULL DEFAULT 0,
+ settings_json TEXT NOT NULL DEFAULT ''{}'',
+ last_capture TEXT REFERENCES assets(id) ON DELETE SET NULL,
+ started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)'
+'table' | 'hot_folder_files' | 'hot_folder_files' | 'CREATE TABLE hot_folder_files(
+ rel_path TEXT PRIMARY KEY,
+ size INTEGER NOT NULL,
+ mtime_ns INTEGER
+)'
+'table' | 'image_hashes' | 'image_hashes' | 'CREATE TABLE image_hashes(
+ asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+ hash TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL)'
+'table' | 'import_batches' | 'import_batches' | 'CREATE TABLE "import_batches"(
+ id INTEGER PRIMARY KEY,
+ kind TEXT NOT NULL CHECK(kind IN (''ingest'',''add'',''sync'',''hotfolder'',''tether'')),
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)'
+'table' | 'ingest_items' | 'ingest_items' | 'CREATE TABLE ingest_items(
+ job_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+ position INTEGER NOT NULL,
+ number INTEGER NOT NULL,
+ source TEXT NOT NULL,
+ source_size INTEGER,
+ source_mtime_ns INTEGER,
+ source_fingerprint TEXT,
+ companion TEXT,
+ companion_size INTEGER,
+ companion_mtime_ns INTEGER,
+ companion_fingerprint TEXT,
+ state TEXT NOT NULL CHECK(state IN (''pending'',''copying'',''done'',''failed'')),
+ destination TEXT,
+ companion_destination TEXT,
+ error TEXT,
+ PRIMARY KEY(job_id, position)
+)'
+'table' | 'keymaps' | 'keymaps' | 'CREATE TABLE keymaps(id TEXT PRIMARY KEY, name TEXT NOT NULL, bindings_json TEXT NOT NULL)'
+'table' | 'masks' | 'masks' | 'CREATE TABLE masks(id TEXT PRIMARY KEY, version_id TEXT NOT NULL REFERENCES versions(id), vector_json TEXT, raster_path TEXT, hash TEXT)'
+'table' | 'metadata' | 'metadata' | 'CREATE TABLE metadata(asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+ rating INTEGER NOT NULL DEFAULT 0 CHECK(rating BETWEEN 0 AND 5), label TEXT NOT NULL DEFAULT '''',
+ flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1), data TEXT NOT NULL DEFAULT ''{}'',
+ xmp_hash TEXT, xmp_status TEXT NOT NULL DEFAULT ''pending'', from_camera INTEGER NOT NULL DEFAULT 0, xmp_publishing TEXT)'
+'table' | 'naming_templates' | 'naming_templates' | 'CREATE TABLE naming_templates(id TEXT PRIMARY KEY, name TEXT NOT NULL, template TEXT NOT NULL)'
+'table' | 'presets' | 'presets' | 'CREATE TABLE presets(id TEXT PRIMARY KEY, name TEXT NOT NULL, recipe_json TEXT NOT NULL)'
+'table' | 'recipe_blob_refs' | 'recipe_blob_refs' | 'CREATE TABLE recipe_blob_refs(
+ recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+ hash TEXT NOT NULL REFERENCES recipe_blobs(hash),
+ PRIMARY KEY(recipe_id, hash)
+)'
+'table' | 'recipe_blobs' | 'recipe_blobs' | 'CREATE TABLE recipe_blobs(hash TEXT PRIMARY KEY, data TEXT NOT NULL)'
+'table' | 'recipes' | 'recipes' | 'CREATE TABLE recipes(id INTEGER PRIMARY KEY, version_id TEXT NOT NULL REFERENCES versions(id) ON DELETE CASCADE,
+ parent INTEGER REFERENCES recipes(id), schema_version INTEGER NOT NULL DEFAULT 1, payload TEXT NOT NULL,
+ snapshot TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+'table' | 'roots' | 'roots' | 'CREATE TABLE roots(id TEXT PRIMARY KEY, path TEXT NOT NULL, volume_id TEXT, external INTEGER NOT NULL DEFAULT 0, volume_name TEXT, volume_path TEXT, volume_kind TEXT CHECK(volume_kind IN (''startup'',''local'',''removable'',''network'')))'
+'table' | 'snapshot_blob_refs' | 'snapshot_blob_refs' | 'CREATE TABLE snapshot_blob_refs(
+ snapshot_key INTEGER NOT NULL REFERENCES snapshots(key) ON DELETE CASCADE,
+ hash TEXT NOT NULL REFERENCES recipe_blobs(hash),
+ PRIMARY KEY(snapshot_key, hash)
+)'
+'table' | 'snapshots' | 'snapshots' | 'CREATE TABLE snapshots(
+ key INTEGER PRIMARY KEY,
+ id TEXT NOT NULL,
+ version_id TEXT NOT NULL REFERENCES versions(id) ON DELETE CASCADE,
+ name TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ adjustments TEXT NOT NULL,
+ UNIQUE(version_id, id)
+)'
+'table' | 'stack_members' | 'stack_members' | 'CREATE TABLE stack_members(
+ stack_id TEXT NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
+ asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+ copy TEXT NOT NULL DEFAULT '''',
+ position INTEGER NOT NULL,
+ PRIMARY KEY(asset_id, copy))'
+'table' | 'stacks' | 'stacks' | 'CREATE TABLE stacks(
+ id TEXT PRIMARY KEY,
+ collapsed INTEGER NOT NULL DEFAULT 1 CHECK(collapsed IN (0,1)))'
+'table' | 'styles' | 'styles' | 'CREATE TABLE styles(id TEXT PRIMARY KEY, name TEXT NOT NULL, recipe_json TEXT NOT NULL)'
+'table' | 'tasks' | 'tasks' | 'CREATE TABLE tasks(id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, progress REAL NOT NULL DEFAULT 0, error TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+'table' | 'versions' | 'versions' | 'CREATE TABLE versions(id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+ name TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, head INTEGER, legacy_state TEXT, ai_facts INTEGER NOT NULL DEFAULT 0)'
+'table' | 'workspaces' | 'workspaces' | 'CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT NOT NULL, settings_json TEXT NOT NULL)'
+'trigger' | 'assets_ad' | 'assets' | 'CREATE TRIGGER assets_ad AFTER DELETE ON assets BEGIN
+ DELETE FROM asset_search WHERE asset_id = old.id;
+END'
+'trigger' | 'assets_ai' | 'assets' | 'CREATE TRIGGER assets_ai AFTER INSERT ON assets BEGIN
+ INSERT INTO asset_search(asset_id, content)
+  VALUES(new.id, rawtonic_fold(new.rel_path || '' '' || new.search_text || '' '' || new.make || '' '' || new.camera || '' '' || new.lens));
+END'
+'trigger' | 'assets_au' | 'assets' | 'CREATE TRIGGER assets_au AFTER UPDATE OF rel_path, search_text, make, camera, lens ON assets BEGIN
+ DELETE FROM asset_search WHERE asset_id = old.id;
+ INSERT INTO asset_search(asset_id, content)
+  VALUES(new.id, rawtonic_fold(new.rel_path || '' '' || new.search_text || '' '' || new.make || '' '' || new.camera || '' '' || new.lens));
+END'
+'trigger' | 'assets_image_hash_stale' | 'assets' | 'CREATE TRIGGER assets_image_hash_stale AFTER UPDATE OF size,mtime,fingerprint ON assets
+ WHEN new.size IS NOT old.size OR new.mtime IS NOT old.mtime OR new.fingerprint IS NOT old.fingerprint
+ BEGIN DELETE FROM image_hashes WHERE asset_id=new.id; END'
+'trigger' | 'metadata_keywords_ai' | 'metadata' | 'CREATE TRIGGER metadata_keywords_ai AFTER INSERT ON metadata BEGIN
+ INSERT OR IGNORE INTO asset_keywords(asset_id, keyword)
+  SELECT new.asset_id, rawtonic_trim(value) FROM json_each(new.data, ''$.keywords'')
+  WHERE json_valid(new.data) AND type = ''text'' AND rawtonic_trim(value) != '''';
+END'
+'trigger' | 'metadata_keywords_au' | 'metadata' | 'CREATE TRIGGER metadata_keywords_au AFTER UPDATE OF data ON metadata BEGIN
+ DELETE FROM asset_keywords WHERE asset_id = old.asset_id;
+ INSERT OR IGNORE INTO asset_keywords(asset_id, keyword)
+  SELECT new.asset_id, rawtonic_trim(value) FROM json_each(new.data, ''$.keywords'')
+  WHERE json_valid(new.data) AND type = ''text'' AND rawtonic_trim(value) != '''';
+END'
+'trigger' | 'recipes_ai_facts_au' | 'recipes' | 'CREATE TRIGGER recipes_ai_facts_au AFTER UPDATE OF payload ON recipes BEGIN
+ UPDATE versions SET ai_facts = rawtonic_ai_facts(new.payload) WHERE head = new.id;
+END'
+'trigger' | 'stack_members_copy_gone' | 'versions' | 'CREATE TRIGGER stack_members_copy_gone AFTER DELETE ON versions
+WHEN OLD.is_primary=0
+BEGIN
+ DELETE FROM stack_members WHERE asset_id=OLD.asset_id AND copy=OLD.name;
+END'
+'trigger' | 'stack_members_dissolve' | 'stack_members' | 'CREATE TRIGGER stack_members_dissolve AFTER DELETE ON stack_members
+BEGIN
+ DELETE FROM stacks WHERE id=OLD.stack_id
+  AND (SELECT count(*) FROM stack_members WHERE stack_id=OLD.stack_id) < 2;
+END'
+'trigger' | 'versions_ai_facts_ai' | 'versions' | 'CREATE TRIGGER versions_ai_facts_ai AFTER INSERT ON versions BEGIN
+ UPDATE versions SET ai_facts = rawtonic_ai_facts(
+  CASE WHEN new.head IS NOT NULL THEN (SELECT payload FROM recipes WHERE id=new.head) ELSE new.legacy_state END)
+ WHERE id = new.id;
+END'
+'trigger' | 'versions_ai_facts_au' | 'versions' | 'CREATE TRIGGER versions_ai_facts_au AFTER UPDATE OF head, legacy_state ON versions BEGIN
+ UPDATE versions SET ai_facts = rawtonic_ai_facts(
+  CASE WHEN new.head IS NOT NULL THEN (SELECT payload FROM recipes WHERE id=new.head) ELSE new.legacy_state END)
+ WHERE id = new.id;
+END'
+# table roots (2 rows): id, path, volume_id, external, volume_name, volume_path, volume_kind
+'ext-archive' | '/Volumes/ARCHIVE/Photos' | '4C1A2B3D-0000-4000-8000-00000000A001' | 1 | 'ARCHIVE' | '/Volumes/ARCHIVE' | NULL
+'session' | '.' | NULL | 0 | NULL | NULL | NULL
+# table assets (9 rows): id, root_id, rel_path, size, mtime, fingerprint, capture_time, camera, lens, width, height, orientation, kind, raw_jpeg_pair, stack, missing, search_text, sha256, companion_size, companion_fingerprint, companion_sha256, make, focal_length, aperture, iso, exposure, facts_read, trashed, source_type, exposure_mode, exposure_bias, sequence
+'00000000-0000-4000-8000-000000000001' | 'session' | 'Capture/Day 1/DSC00123.ARW' | 20000001 | 1780000001 | 'xxh3:0000000000001eef' | '2026-06-01 10:00:00' | 'ILCE-7RM4' | 'FE 24-70mm F2.8 GM' | 6000 | 4000 | 1 | 'arw' | 'DSC00123.JPG' | NULL | 0 | 'wedding ceremony' | '0000000000000000000000000000000000000000000000000000000000000001' | 5000000 | 'xxh3:00000000000c0001' | '00000000000000000000000000000000000000000000000000000000000003e9' | 'SONY' | 50.0 | 2.8 | 100 | 0.004 | 0 | 0 | '' | NULL | NULL | NULL
+'00000000-0000-4000-8000-000000000002' | 'session' | 'Capture/Day 1/DSC00124.ARW' | 20000002 | 1780000002 | 'xxh3:0000000000003dde' | '2026-06-01 18:30:00' | 'ILCE-7RM4' | 'FE 85mm F1.4 GM' | 6000 | 4000 | 1 | 'arw' | 'DSC00124.JPG' | NULL | 0 | 'wedding   sunset ' | '0000000000000000000000000000000000000000000000000000000000000002' | 5000000 | 'xxh3:00000000000c0001' | '00000000000000000000000000000000000000000000000000000000000003ea' | 'SONY' | 50.0 | 2.8 | 3200 | 0.004 | 0 | 0 | '' | NULL | NULL | NULL
+'00000000-0000-4000-8000-000000000003' | 'session' | 'Capture/Day 2/IMG_0001.CR3' | 20000003 | 1780000003 | 'xxh3:0000000000005ccd' | NULL | 'Canon EOS R5' | 'RF 50mm F1.2 L USM' | 6000 | 4000 | 1 | 'cr3' | NULL | NULL | 0 | 'portrait' | '0000000000000000000000000000000000000000000000000000000000000003' | NULL | NULL | NULL | 'Canon' | 50.0 | 2.8 | 800 | 0.004 | 0 | 0 | '' | NULL | NULL | NULL
+'00000000-0000-4000-8000-000000000004' | 'session' | 'Capture/scan.jpg' | 20000004 | 1780000004 | 'xxh3:0000000000007bbc' | NULL | '' | '' | 6000 | 4000 | 1 | 'jpg' | NULL | NULL | 0 | 'archive Wedding' | '0000000000000000000000000000000000000000000000000000000000000004' | NULL | NULL | NULL | '' | NULL | NULL | NULL | NULL | 0 | 0 | '' | NULL | NULL | NULL
+'00000000-0000-4000-8000-000000000005' | 'session' | 'Output/merge.dng' | 20000005 | 1780000005 | 'xxh3:0000000000009aab' | '2026-06-02 09:15:00' | 'ILCE-7RM4' | '' | 6000 | 4000 | 1 | 'dng' | NULL | NULL | 0 | '' | '0000000000000000000000000000000000000000000000000000000000000005' | NULL | NULL | NULL | 'SONY' | NULL | NULL | NULL | NULL | 0 | 0 | '' | NULL | NULL | NULL
+'00000000-0000-4000-8000-000000000006' | 'ext-archive' | '2024/03/DSC_0042.NEF' | 20000006 | 1780000006 | 'xxh3:000000000000b99a' | '2024-03-10 12:00:00' | 'NIKON Z 8' | 'NIKKOR Z 24-120mm f/4 S' | 6000 | 4000 | 1 | 'nef' | NULL | NULL | 1 | '' | '0000000000000000000000000000000000000000000000000000000000000006' | NULL | NULL | NULL | 'NIKON CORPORATION' | 50.0 | 2.8 | 64 | 0.004 | 0 | 0 | '' | NULL | NULL | NULL
+'00000000-0000-4000-8000-000000000007' | 'session' | 'Trash/DSC00099.ARW' | 20000007 | 1780000007 | 'xxh3:000000000000d889' | '2026-06-01 11:00:00' | 'ILCE-7RM4' | '' | 6000 | 4000 | 1 | 'arw' | NULL | NULL | 1 | '' | '0000000000000000000000000000000000000000000000000000000000000007' | NULL | NULL | NULL | 'SONY' | NULL | NULL | NULL | NULL | 0 | 0 | '' | NULL | NULL | NULL
+'00000000-0000-4000-8000-000000000008' | 'session' | 'Selects/DSC00200.ARW' | 20000008 | 1780000008 | 'xxh3:000000000000f778' | NULL | '' | '' | 6000 | 4000 | 1 | 'arw' | NULL | NULL | 0 | '' | '0000000000000000000000000000000000000000000000000000000000000008' | NULL | NULL | NULL | '' | NULL | NULL | NULL | NULL | 0 | 0 | '' | NULL | NULL | NULL
+'00000000-0000-4000-8000-000000000009' | 'session' | 'Capture/Day 2/DSCF1234.RAF' | 20000009 | 1780000009 | 'xxh3:0000000000011667' | '2026-06-03 07:45:00' | 'X-T5' | '' | 6000 | 4000 | 1 | 'raf' | NULL | NULL | 0 | 'landscape' | '0000000000000000000000000000000000000000000000000000000000000009' | NULL | NULL | NULL | 'FUJIFILM' | NULL | NULL | 160 | 0.004 | 0 | 0 | '' | NULL | NULL | NULL
+# table versions (12 rows): id, asset_id, name, is_primary, head, legacy_state, ai_facts
+'00000000-0000-4000-9000-000000000001' | '00000000-0000-4000-8000-000000000001' | 'Original' | 1 | 3 | NULL | 516
+'00000000-0000-4000-9000-000000000002' | '00000000-0000-4000-8000-000000000002' | 'Original' | 1 | 4 | NULL | 0
+'00000000-0000-4000-9000-000000000003' | '00000000-0000-4000-8000-000000000003' | 'Original' | 1 | 6 | NULL | 0
+'00000000-0000-4000-9000-000000000004' | '00000000-0000-4000-8000-000000000004' | 'Original' | 1 | NULL | NULL | 0
+'00000000-0000-4000-9000-000000000005' | '00000000-0000-4000-8000-000000000005' | 'Original' | 1 | NULL | NULL | 0
+'00000000-0000-4000-9000-000000000006' | '00000000-0000-4000-8000-000000000006' | 'Original' | 1 | NULL | NULL | 0
+'00000000-0000-4000-9000-000000000007' | '00000000-0000-4000-8000-000000000007' | 'Original' | 1 | NULL | NULL | 0
+'00000000-0000-4000-9000-000000000008' | '00000000-0000-4000-8000-000000000008' | 'Original' | 1 | NULL | NULL | 0
+'00000000-0000-4000-9000-000000000009' | '00000000-0000-4000-8000-000000000009' | 'Original' | 1 | NULL | NULL | 0
+'00000000-0000-4000-9000-000000000101' | '00000000-0000-4000-8000-000000000001' | 'a1b2c3' | 0 | NULL | '{"adjustments":{"exposure":1.0}}' | 0
+'00000000-0000-4000-9000-000000000102' | '00000000-0000-4000-8000-000000000001' | '0f0f0f' | 0 | NULL | '{"adjustments":{"aiPatches":[{"id":"p1","patchData":{"color":"rawtonic-blob:sha256:none","model":"external"},"visible":true}]}}' | 33
+'00000000-0000-4000-9000-000000000103' | '00000000-0000-4000-8000-000000000002' | 'beef01' | 0 | NULL | '{"adjustments":{"saturation":-100}}' | 0
+# table recipes (6 rows): id, version_id, parent, schema_version, payload, snapshot, created_at
+1 | '00000000-0000-4000-9000-000000000001' | NULL | 1 | '{"adjustments":{"exposure":0.3}}' | NULL | '2026-06-01 12:00:01'
+2 | '00000000-0000-4000-9000-000000000001' | 1 | 1 | '{"adjustments":{"contrast":10,"exposure":0.5}}' | 'Before AI' | '2026-06-01 12:00:02'
+3 | '00000000-0000-4000-9000-000000000001' | 2 | 1 | '{"adjustments":{"aiDenoise":40,"aiDenoiseVersion":1,"contrast":10,"exposure":0.5,"masks":[{"id":"m1","image":"rawtonic-blob:sha256:5f1c0e6b2a9d4c3e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e"}]}}' | NULL | '2026-06-01 12:00:03'
+4 | '00000000-0000-4000-9000-000000000002' | NULL | 1 | '{"adjustments":{"temperature":5200}}' | NULL | '2026-06-02 12:00:04'
+5 | '00000000-0000-4000-9000-000000000003' | NULL | 1 | '{"adjustments":{"exposure":-0.2}}' | NULL | '2026-06-03 12:00:05'
+6 | '00000000-0000-4000-9000-000000000003' | 5 | 1 | '{"adjustments":{"exposure":-0.2,"vibrance":15}}' | NULL | '2026-06-03 12:00:06'
+# table metadata (9 rows): asset_id, rating, label, flag, data, xmp_hash, xmp_status, from_camera, xmp_publishing
+'00000000-0000-4000-8000-000000000001' | 5 | 'red' | 1 | '{"creator":"Synthetic Photographer","flag":1,"keywords":["wedding","ceremony"],"label":"red","rating":5,"title":"First kiss"}' | 'digest-1' | 'synced' | 0 | NULL
+'00000000-0000-4000-8000-000000000002' | 4 | 'yellow' | 0 | '{"flag":0,"keywords":["wedding","  sunset ",7],"label":"yellow","rating":4}' | 'digest-2' | 'pending' | 0 | NULL
+'00000000-0000-4000-8000-000000000003' | 3 | 'green' | -1 | '{"flag":-1,"keywords":["portrait"],"label":"green","rating":3}' | NULL | 'pending' | 1 | NULL
+'00000000-0000-4000-8000-000000000004' | 1 | '' | 0 | '{"flag":0,"keywords":["archive","Wedding"],"label":"","rating":1}' | NULL | 'pending' | 0 | NULL
+'00000000-0000-4000-8000-000000000005' | 0 | '' | 0 | '{"flag":0,"label":"","rating":0}' | NULL | 'pending' | 0 | NULL
+'00000000-0000-4000-8000-000000000006' | 2 | '' | 0 | '{"flag":0,"label":"","rating":2}' | 'digest-6' | 'synced' | 0 | NULL
+'00000000-0000-4000-8000-000000000007' | 0 | '' | 0 | '{"flag":0,"label":"","rating":0}' | NULL | 'pending' | 0 | NULL
+'00000000-0000-4000-8000-000000000008' | 0 | '' | 0 | '{}' | NULL | 'synced' | 0 | NULL
+'00000000-0000-4000-8000-000000000009' | 0 | '' | 0 | '{"flag":0,"keywords":["landscape"],"label":"","rating":0}' | NULL | 'pending' | 0 | NULL
+# table masks (1 rows): id, version_id, vector_json, raster_path, hash
+'mask-1' | '00000000-0000-4000-9000-000000000001' | '{"type":"radial"}' | 'masks/mask-1.png' | 'mask-hash-1'
+# table presets (1 rows): id, name, recipe_json
+'presets-1' | 'Warm' | '{"temperature":5600}'
+# table styles (1 rows): id, name, recipe_json
+'styles-1' | 'Warm' | '{"temperature":5600}'
+# table export_recipes (1 rows): id, name, recipe_json
+'export_recipes-1' | 'Warm' | '{"temperature":5600}'
+# table naming_templates (1 rows): id, name, template
+'naming-1' | 'Date and counter' | '{date}_{counter:4}'
+# table workspaces (1 rows): id, name, settings_json
+'ws-1' | 'Culling' | '{}'
+# table keymaps (1 rows): id, name, bindings_json
+'km-1' | 'Default' | '{}'
+# table tasks (1 rows): id, kind, state, payload, progress, error, created_at
+'job-1' | 'ingest' | 'interrupted' | '{"destination":"Capture"}' | 0.5 | NULL | '2026-06-01 09:00:00'
+# table file_ops_log (1 rows): id, kind, state, payload, created_at
+'op-1' | 'rename' | 'committed' | '{}' | '2026-06-01 09:30:00'
+# table recipe_blobs (1 rows): hash, data
+'5f1c0e6b2a9d4c3e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e' | 'data:image/png;base64,iVBORw0KGgo='
+# table recipe_blob_refs (1 rows): recipe_id, hash
+3 | '5f1c0e6b2a9d4c3e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e'
+# table hot_folder (1 rows): id, folder, template, include_subfolders, settings_json, last_capture, started_at
+1 | '/Users/photographer/Tethered' | '{original}' | 1 | '{"rating":0}' | '00000000-0000-4000-8000-000000000008' | '2026-06-03 08:00:00'
+# table hot_folder_files (1 rows): rel_path, size, mtime_ns
+'DSC00200.ARW' | 20000008 | 1780000008000000000
+# table import_batches (4 rows): id, kind, created_at
+1 | 'ingest' | '2026-06-01 08:00:00'
+2 | 'add' | '2026-06-02 08:00:00'
+3 | 'hotfolder' | '2026-06-03 08:00:00'
+4 | 'tether' | '2026-06-04 08:00:00'
+# table asset_imports (6 rows): asset_id, batch_id
+'00000000-0000-4000-8000-000000000001' | 1
+'00000000-0000-4000-8000-000000000002' | 1
+'00000000-0000-4000-8000-000000000003' | 2
+'00000000-0000-4000-8000-000000000005' | 2
+'00000000-0000-4000-8000-000000000008' | 3
+'00000000-0000-4000-8000-000000000009' | 4
+# table ingest_items (1 rows): job_id, position, number, source, source_size, source_mtime_ns, source_fingerprint, companion, companion_size, companion_mtime_ns, companion_fingerprint, state, destination, companion_destination, error
+'job-1' | 0 | 1 | '/Volumes/CARD/DCIM/100MSDCF/DSC00123.ARW' | 20000001 | 1780000000000000001 | 'xxh3:0000000000001eef' | '/Volumes/CARD/DCIM/100MSDCF/DSC00123.JPG' | NULL | NULL | NULL | 'done' | 'Capture/Day 1/DSC00123.ARW' | NULL | NULL
+# table asset_keywords (8 rows): asset_id, keyword
+'00000000-0000-4000-8000-000000000001' | 'ceremony'
+'00000000-0000-4000-8000-000000000001' | 'wedding'
+'00000000-0000-4000-8000-000000000002' | 'sunset'
+'00000000-0000-4000-8000-000000000002' | 'wedding'
+'00000000-0000-4000-8000-000000000003' | 'portrait'
+'00000000-0000-4000-8000-000000000004' | 'Wedding'
+'00000000-0000-4000-8000-000000000004' | 'archive'
+'00000000-0000-4000-8000-000000000009' | 'landscape'
+# table asset_search (9 rows): asset_id, content
+'00000000-0000-4000-8000-000000000001' | 'capture/day 1/dsc00123.arw wedding ceremony sony ilce-7rm4 fe 24-70mm f2.8 gm'
+'00000000-0000-4000-8000-000000000002' | 'capture/day 1/dsc00124.arw wedding   sunset  sony ilce-7rm4 fe 85mm f1.4 gm'
+'00000000-0000-4000-8000-000000000003' | 'capture/day 2/img_0001.cr3 portrait canon canon eos r5 rf 50mm f1.2 l usm'
+'00000000-0000-4000-8000-000000000004' | 'capture/scan.jpg archive wedding   '
+'00000000-0000-4000-8000-000000000005' | 'output/merge.dng  sony ilce-7rm4 '
+'00000000-0000-4000-8000-000000000006' | '2024/03/dsc_0042.nef  nikon corporation nikon z 8 nikkor z 24-120mm f/4 s'
+'00000000-0000-4000-8000-000000000007' | 'trash/dsc00099.arw  sony ilce-7rm4 '
+'00000000-0000-4000-8000-000000000008' | 'selects/dsc00200.arw    '
+'00000000-0000-4000-8000-000000000009' | 'capture/day 2/dscf1234.raf landscape fujifilm x-t5 '
+# table collections (4 rows): id, name, parent, kind, position, rules
+'album-portraits' | 'Portraits' | NULL | 'album' | 1 | NULL
+'album-wedding' | 'Wedding' | 'group-clients' | 'album' | 0 | NULL
+'group-clients' | 'Clients' | NULL | 'group' | 0 | NULL
+'smart-five-stars' | 'Four stars and up' | NULL | 'smart' | 2 | '{"combine":"all","rules":[{"field":"rating","op":"ge","value":4}]}'
+# table collection_assets (5 rows): collection_id, asset_id
+'album-portraits' | '00000000-0000-4000-8000-000000000003'
+'album-portraits' | '00000000-0000-4000-8000-000000000007'
+'album-wedding' | '00000000-0000-4000-8000-000000000001'
+'album-wedding' | '00000000-0000-4000-8000-000000000002'
+'album-wedding' | '00000000-0000-4000-8000-000000000004'
+# table snapshots (2 rows): key, id, version_id, name, created_at, adjustments
+1 | 'snap-1' | '00000000-0000-4000-9000-000000000001' | 'Before retouch' | '2026-06-01T12:00:00Z' | '{"exposure":0.3,"mask":"rawtonic-blob:sha256:5f1c0e6b2a9d4c3e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e"}'
+2 | 'snap-2' | '00000000-0000-4000-9000-000000000101' | 'Copy look' | '2026-06-01T12:05:00Z' | '{"exposure":1.0}'
+# table snapshot_blob_refs (1 rows): snapshot_key, hash
+1 | '5f1c0e6b2a9d4c3e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e'
+# table folder_root_volumes (0 rows): path, volume
+# table capture_overrides (0 rows): asset_id, captured, subsec, offset
+# table image_hashes (0 rows): asset_id, hash, size, mtime
+# table eye_reads (0 rows): asset_id, version, fingerprint, error
+# table face_eyes (0 rows): asset_id, face, x, y, w, h, state, ear, accessories, override_state
+# table stacks (0 rows): id, collapsed
+# table stack_members (0 rows): stack_id, asset_id, copy, position
+# foreign_key_check
+# searches
+text contains 0123: ["00000000-0000-4000-8000-000000000001"]
+text contains kiss: []
+keyword is wedding: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000004"]
+keyword is sunset: ["00000000-0000-4000-8000-000000000002"]
+camera is ILCE-7RM4: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000005"]
+make is sony: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000005"]
+lens starts with FE: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"]
+file type jpeg or dng: ["00000000-0000-4000-8000-000000000004", "00000000-0000-4000-8000-000000000005"]
+rating at least 3: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003"]
+picked: ["00000000-0000-4000-8000-000000000001"]
+label red or green: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000003"]
+iso at least 800: ["00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003"]
+captured in June 2026: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000009", "00000000-0000-4000-8000-000000000005"]
+imported 2026-06-01 to 03: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000005", "00000000-0000-4000-8000-000000000008"]
+album Wedding: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000004"]
+group Clients: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000004"]
+smart album: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"]
+previous import: ["00000000-0000-4000-8000-000000000009"]
+offline: ["00000000-0000-4000-8000-000000000006"]
+AI Denoise: ["00000000-0000-4000-8000-000000000001"]
+generated areas: ["00000000-0000-4000-8000-000000000001"]
+source type: []
+duplicates: []
+eyes closed: []
+none of: keyword wedding, rating 0: ["00000000-0000-4000-8000-000000000006", "00000000-0000-4000-8000-000000000003"]
