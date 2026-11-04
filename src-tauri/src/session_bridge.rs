@@ -772,7 +772,7 @@ pub async fn session_ingest_scan(
         );
         let duplicates = match directory {
             Some(directory) => Library::open(Path::new(&directory))
-                .map_err(anyhow::Error::from)
+                .map_err(rawtonic_ingest::IngestError::from)
                 .and_then(|lib| rawtonic_ingest::batch::known_in_library(&lib, &files))
                 .unwrap_or_else(|e| {
                     log::warn!("Import: duplicates not checked: {e}");

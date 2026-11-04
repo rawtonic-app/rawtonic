@@ -14,7 +14,9 @@
 //! Durability: files and folders are synced as they are written; the drive
 //! cache is flushed by [`Barrier::flush`], once per volume for everything
 //! synced since, before a caller records a copy. See ADR 0019.
-use anyhow::{Context, Result, ensure};
+use crate::IngestError;
+use crate::error::ensure;
+use anyhow::{Context, Result};
 use rawtonic_fs::hex;
 use sha2::{Digest, Sha256};
 use std::{
@@ -357,7 +359,7 @@ pub(crate) struct Verified {
 impl Verified {
     /// Publishes the copy for `destinations[index]` of [`copy_verified`]
     /// there, never replacing a file, and syncs its folder (`barrier`).
-    pub fn publish(&mut self, index: usize, barrier: &mut Barrier) -> Result<PathBuf> {
+    pub fn publish(&mut self, index: usize, barrier: &mut Barrier) -> Result<PathBuf, IngestError> {
         let (temp, destination) = self.temps[index]
             .take()
             .context("This copy was published already")?;
@@ -405,7 +407,10 @@ pub(crate) fn copy_verified(
 ) -> Result<Verified> {
     let read = ahead.and_then(|ahead| ahead.take(source, cancel));
     // Cancelled while it waited: nothing more is opened.
-    ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
+    ensure!(
+        !cancel.load(Ordering::Acquire),
+        crate::error::ingest_cancelled()
+    );
     copy_verified_from(
         source,
         destinations,
@@ -450,7 +455,10 @@ fn copy_verified_from(
             destination.to_path_buf(),
         ));
     }
-    ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
+    ensure!(
+        !cancel.load(Ordering::Acquire),
+        crate::error::ingest_cancelled()
+    );
     let (sha256, bytes, content) = match read {
         Some((buffer, sha256)) => {
             progress(buffer.len() as u64);
@@ -469,7 +477,10 @@ fn copy_verified_from(
             && after.modified()? == before.modified()?,
         "Source changed during ingest"
     );
-    ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
+    ensure!(
+        !cancel.load(Ordering::Acquire),
+        crate::error::ingest_cancelled()
+    );
     Ok(Verified {
         sha256,
         bytes,
@@ -489,7 +500,10 @@ fn read_all(
     let mut buffer = vec![0; usize::try_from(len)?];
     let mut filled = 0;
     while filled < buffer.len() {
-        ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
+        ensure!(
+            !cancel.load(Ordering::Acquire),
+            crate::error::ingest_cancelled()
+        );
         let end = buffer.len().min(filled + READ_CHUNK);
         let n = input.read(&mut buffer[filled..end])?;
         if n == 0 {
@@ -610,7 +624,10 @@ fn copy_streaming(
     let mut h = Sha256::new();
     let mut bytes = 0;
     loop {
-        ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
+        ensure!(
+            !cancel.load(Ordering::Acquire),
+            crate::error::ingest_cancelled()
+        );
         let n = input.read(&mut buffer)?;
         if n == 0 {
             break;

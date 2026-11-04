@@ -1,6 +1,8 @@
 //! Opt-in import metadata. Applied to registered, verified copies before
 //! their ingest item is done; resumptions repeat this idempotent operation.
-use anyhow::{Result, ensure};
+use crate::IngestError;
+use crate::error::ensure;
+use anyhow::Result;
 use chrono::Datelike;
 use rawtonic_catalog::Library;
 use rawtonic_metadata::{IptcKind, MAX_KEYWORDS, Metadata, iptc_field};
@@ -32,7 +34,7 @@ pub struct MetadataPreset {
 }
 
 impl ImportMetadata {
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<(), IngestError> {
         let supported_iptc = |key: &str| {
             matches!(key, "usageTerms" | "credit")
                 || iptc_field(key).is_some_and(|(_, _, kind)| kind == IptcKind::Contact)

@@ -1,4 +1,6 @@
 //! Verified ingest: streaming reads, bounded memory and no-clobber publication.
+mod error;
+pub use error::IngestError;
 pub mod batch;
 pub mod capture;
 pub mod catalog_export;
@@ -10,7 +12,8 @@ pub mod metadata;
 pub mod queue;
 pub mod transfer;
 
-use anyhow::{Context, Result, bail, ensure};
+use crate::error::{bail, ensure};
+use anyhow::{Context, Result};
 use copy::Barrier;
 use rawtonic_catalog::{Contents, Library};
 use rawtonic_naming::{Context as NamingContext, render};
@@ -137,7 +140,7 @@ pub fn naming_context(
     facts: &SourceFacts,
     sequence: u64,
     sequence_start: u64,
-) -> Result<NamingContext> {
+) -> Result<NamingContext, IngestError> {
     let mut context = NamingContext::new(
         source
             .file_name()
@@ -165,7 +168,11 @@ pub fn naming_context(
 /// it themselves. Without it the copy would not be recognised as a
 /// photograph (the library would list it nowhere). Templates may still place
 /// `{ext}` (any case) themselves.
-pub fn render_name(template: &str, context: &NamingContext, source: &Path) -> Result<String> {
+pub fn render_name(
+    template: &str,
+    context: &NamingContext,
+    source: &Path,
+) -> Result<String, IngestError> {
     let name = render(template, context)?;
     let Some(ext) = source
         .extension()
@@ -198,7 +205,7 @@ pub fn preview_name(
     template: &str,
     sequence: u64,
     sequence_start: u64,
-) -> Result<NamePreview> {
+) -> Result<NamePreview, IngestError> {
     let facts = source_facts(source);
     let context = naming_context(job, source, &facts, sequence, sequence_start)?;
     Ok(NamePreview {
@@ -280,7 +287,7 @@ fn copy_beside_all(
         match copy::copy_verified(source, &paths, cancel, |_| {}, ahead) {
             Ok(mut copy) => {
                 for (k, &i) in missing.iter().enumerate() {
-                    results[i] = Some(copy.publish(k, barrier));
+                    results[i] = Some(copy.publish(k, barrier).map_err(Into::into));
                 }
             }
             // One read for all failed: each target on its own, so a
@@ -289,7 +296,7 @@ fn copy_beside_all(
                 for &i in &missing {
                     results[i] = Some(
                         copy::copy_verified(source, &[targets[i].as_path()], cancel, |_| {}, None)
-                            .and_then(|mut copy| copy.publish(0, barrier)),
+                            .and_then(|mut copy| Ok(copy.publish(0, barrier)?)),
                     );
                 }
             }
@@ -328,8 +335,8 @@ fn companion_target(photo: &Path, companion: &Path) -> Result<PathBuf> {
     Ok(photo.with_extension(extension))
 }
 
-pub fn sha256(path: &Path) -> Result<String> {
-    copy::sha256_of(&mut fs::File::open(path)?)
+pub fn sha256(path: &Path) -> Result<String, IngestError> {
+    Ok(copy::sha256_of(&mut fs::File::open(path)?)?)
 }
 
 /// Copies `source` to `destination`, verified (`copy::copy_verified`),
@@ -341,7 +348,7 @@ pub fn verified_copy(
     destination: &Path,
     cancel: &AtomicBool,
     progress: impl FnMut(u64),
-) -> Result<CopyReceipt> {
+) -> Result<CopyReceipt, IngestError> {
     let mut barrier = Barrier::default();
     let receipt = verified_copy_with(source, destination, cancel, progress, &mut barrier)?;
     barrier.flush()?;
@@ -421,8 +428,14 @@ pub fn choose_destination(
     folder: &Path,
     name: &str,
     policy: CollisionPolicy,
-) -> Result<Option<PathBuf>> {
-    choose_destination_with(folder, name, None, &|_| false, policy)
+) -> Result<Option<PathBuf>, IngestError> {
+    Ok(choose_destination_with(
+        folder,
+        name,
+        None,
+        &|_| false,
+        policy,
+    )?)
 }
 
 /// `choose_destination` for a photograph with a companion (`companion`'s
@@ -566,7 +579,7 @@ pub fn import_one(
     sequence: u64,
     backup: Option<&Path>,
     cancel: &AtomicBool,
-) -> Result<ImportResult> {
+) -> Result<ImportResult, IngestError> {
     import_one_with_start(library, source, template, sequence, 1, backup, cancel)
 }
 
@@ -580,9 +593,9 @@ pub fn import_capture(
     sequence: u64,
     contents: Option<&Contents>,
     cancel: &AtomicBool,
-) -> Result<ImportResult> {
+) -> Result<ImportResult, IngestError> {
     let destination = destination_folder(library, None, &[])?;
-    import_one_into_with(
+    Ok(import_one_into_with(
         library,
         source,
         &destination,
@@ -592,7 +605,7 @@ pub fn import_capture(
         None,
         contents,
         cancel,
-    )
+    )?)
 }
 
 /// Import using an explicit counter and its initial value for `{seq_start}`.
@@ -604,7 +617,7 @@ pub fn import_one_with_start(
     sequence_start: u64,
     backup: Option<&Path>,
     cancel: &AtomicBool,
-) -> Result<ImportResult> {
+) -> Result<ImportResult, IngestError> {
     let destination = destination_folder(library, None, &[])?;
     import_one_into(
         library,
@@ -659,7 +672,7 @@ pub fn destination_folder(
     library: &Library,
     folder: Option<&Path>,
     roots: &[PathBuf],
-) -> Result<Destination> {
+) -> Result<Destination, IngestError> {
     let sort_by_date = folder.is_none() && library.manifest.mode == rawtonic_catalog::Mode::Catalog;
     let folder = match folder {
         None => {
@@ -759,8 +772,8 @@ pub fn import_one_into(
     sequence_start: u64,
     backup: Option<&Path>,
     cancel: &AtomicBool,
-) -> Result<ImportResult> {
-    import_one_into_with(
+) -> Result<ImportResult, IngestError> {
+    Ok(import_one_into_with(
         library,
         source,
         destination,
@@ -770,7 +783,7 @@ pub fn import_one_into(
         backup,
         None,
         cancel,
-    )
+    )?)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1246,16 +1259,17 @@ pub(crate) fn import_pair(
         Some(Plan::There(kept)) => Some(kept.clone()),
         _ => None,
     };
-    let failed =
-        |error: &anyhow::Error, backup: Option<PathBuf>, known: Option<ImportResult>| PairResult {
-            photo: ImportResult {
-                source: source.into(),
-                backup,
-                error: Some(error.to_string()),
-                ..Default::default()
-            },
-            companion: companion_result(None, None, None, false, Some(error.to_string())).or(known),
-        };
+    let failed = |error: &dyn std::fmt::Display,
+                  backup: Option<PathBuf>,
+                  known: Option<ImportResult>| PairResult {
+        photo: ImportResult {
+            source: source.into(),
+            backup,
+            error: Some(error.to_string()),
+            ..Default::default()
+        },
+        companion: companion_result(None, None, None, false, Some(error.to_string())).or(known),
+    };
     let mut copied = match copied {
         Ok(copied) => copied,
         Err(error) => return Ok(failed(&error, kept_backup, known_companion)),
@@ -1475,7 +1489,7 @@ pub fn record_earlier_copy(
     source: &Path,
     copy: &Path,
     contents: Option<&Contents>,
-) -> Result<Option<ImportResult>> {
+) -> Result<Option<ImportResult>, IngestError> {
     let Ok(meta) = fs::symlink_metadata(copy) else {
         return Ok(None);
     };

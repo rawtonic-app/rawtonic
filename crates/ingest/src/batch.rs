@@ -3,6 +3,7 @@
 //! the library already holds, and the copy itself one file after the other,
 //! each reported as soon as it is in the library so the app shows it while
 //! the rest still copy.
+use crate::IngestError;
 use crate::{ImportResult, destination_folder};
 use anyhow::{Context, Result};
 use rawtonic_catalog::Library;
@@ -129,7 +130,7 @@ fn entries_of(entries: fs::ReadDir) -> impl Iterator<Item = std::result::Result<
 /// content (same size and content fingerprint). Cheap: only sources whose
 /// size some photograph of the library has are read (two 64 KB samples).
 /// A hint for the import dialog; the import itself compares SHA-256.
-pub fn known_in_library(library: &Library, sources: &[PathBuf]) -> Result<Vec<bool>> {
+pub fn known_in_library(library: &Library, sources: &[PathBuf]) -> Result<Vec<bool>, IngestError> {
     let keys = library.content_keys()?;
     let sizes: HashSet<u64> = keys.iter().map(|(size, _)| *size).collect();
     Ok(sources
@@ -281,7 +282,7 @@ pub fn import_batch(
     options: &BatchOptions<'_>,
     cancel: &AtomicBool,
     on_file: impl FnMut(FileDone<'_>),
-) -> Result<Vec<ImportResult>> {
+) -> Result<Vec<ImportResult>, IngestError> {
     import_batch_in_turn(
         library,
         sources,
@@ -302,7 +303,7 @@ pub fn import_batch_in_turn(
     cancel: &AtomicBool,
     turn: crate::metadata::WriteTurn<'_>,
     on_file: impl FnMut(FileDone<'_>),
-) -> Result<Vec<ImportResult>> {
+) -> Result<Vec<ImportResult>, IngestError> {
     destination_folder(library, options.folder, options.roots)?;
     let job = crate::queue::create_job(library, sources, options)?;
     crate::queue::run_job_in_turn(library, &job, cancel, turn, on_file)
@@ -362,7 +363,7 @@ pub fn add_batch(
     classify: impl Fn(&Path) -> Medium,
     cancel: &AtomicBool,
     on_file: impl FnMut(FileDone<'_>),
-) -> Result<Vec<ImportResult>> {
+) -> Result<Vec<ImportResult>, IngestError> {
     add_batch_with_metadata(library, sources, pair_raw, classify, cancel, None, on_file)
 }
 
@@ -376,17 +377,17 @@ pub fn add_batch_with_metadata(
     cancel: &AtomicBool,
     metadata: Option<&crate::metadata::ImportMetadata>,
     mut on_file: impl FnMut(FileDone<'_>),
-) -> Result<Vec<ImportResult>> {
+) -> Result<Vec<ImportResult>, IngestError> {
     if let Some(metadata) = metadata {
         metadata.validate()?;
     }
     let _sidecars = crate::capture::SidecarScope::new();
-    anyhow::ensure!(
+    crate::error::ensure!(
         library.manifest.mode == rawtonic_catalog::Mode::Catalog,
         "A session keeps its photographs inside it: copy them into the session"
     );
     if let Some(card) = sources.iter().find(|s| classify(s) == Medium::Card) {
-        anyhow::bail!(
+        crate::error::bail!(
             "{} is on a memory card: copy photographs off the card instead of adding them where they are",
             card.display()
         );
@@ -498,7 +499,7 @@ fn add_one(
         skipped: true,
         ..Default::default()
     };
-    anyhow::ensure!(source.is_file(), "Not a file: {}", source.display());
+    crate::error::ensure!(source.is_file(), "Not a file: {}", source.display());
     if let Some(asset) = library.asset_at(source)? {
         return Ok(skipped(asset));
     }
@@ -549,9 +550,9 @@ fn add_one(
         library.add_files(&[source.to_path_buf()])?
     };
     if let Some((_, error)) = report.failed.pop() {
-        anyhow::bail!(error);
+        crate::error::bail!(error);
     }
-    anyhow::ensure!(
+    crate::error::ensure!(
         report.importing.is_empty(),
         "This photograph belongs to an unfinished import"
     );

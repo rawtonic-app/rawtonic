@@ -260,7 +260,10 @@ fn copy_previews_from(
     let carried = stage.join(".cache").join(preview_proxy::CARRIED_PREVIEWS);
     let mut copied = 0;
     for photo in exported {
-        anyhow::ensure!(!cancel.load(Ordering::Acquire), "Copy cancelled");
+        anyhow::ensure!(
+            !cancel.load(Ordering::Acquire),
+            rawtonic_runtime::Cancelled::new("Copy cancelled")
+        );
         let inside = photo.to.starts_with(stage);
         if preview_proxy::copy_standard(
             &photo.from,

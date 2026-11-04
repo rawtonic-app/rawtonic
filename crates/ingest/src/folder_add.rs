@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::IngestError;
 use anyhow::{Context, Result};
 use rawtonic_catalog::{Library, Mode};
 use serde::Serialize;
@@ -64,15 +65,15 @@ pub fn plan_folder_add(
     accept: impl Fn(&Path) -> bool,
     pair_raw: Option<fn(&Path) -> bool>,
     limit: usize,
-) -> Result<FolderPlan> {
-    anyhow::ensure!(
+) -> Result<FolderPlan, IngestError> {
+    crate::error::ensure!(
         library.manifest.mode == Mode::Catalog,
         "A session keeps its photographs inside it: copy them into the session"
     );
     let folder = folder
         .canonicalize()
         .with_context(|| format!("{} is not there", folder.display()))?;
-    anyhow::ensure!(folder.is_dir(), "{} is not a folder", folder.display());
+    crate::error::ensure!(folder.is_dir(), "{} is not a folder", folder.display());
     let own = library
         .directory
         .canonicalize()
@@ -167,9 +168,9 @@ pub fn plan_folder_add(
         expand_sources_checked(&files, take, limit)
     };
     if let Some(e) = failure.into_inner() {
-        return Err(e);
+        return Err(e.into());
     }
-    anyhow::ensure!(
+    crate::error::ensure!(
         !unreadable.contains(&folder),
         "{} cannot be read",
         folder.display()

@@ -3,7 +3,9 @@
 //! A missing original stops the copy; an edit resource (LUT, profile, mask
 //! image) that is already missing does not, wherever it is referenced: it is
 //! counted in the receipt and its reference kept (`Receipt::missing_resources`).
-use anyhow::{Context, Result, ensure};
+use crate::IngestError;
+use crate::error::ensure;
+use anyhow::{Context, Result};
 use rawtonic_catalog::{Library, portable::ResourceUse};
 use rawtonic_metadata::resources;
 use serde::{Deserialize, Serialize};
@@ -44,13 +46,16 @@ pub struct Progress {
 }
 
 pub(crate) fn check(cancel: &AtomicBool) -> Result<()> {
-    ensure!(!cancel.load(Ordering::Acquire), "Copy cancelled");
+    ensure!(
+        !cancel.load(Ordering::Acquire),
+        crate::error::copy_cancelled()
+    );
     Ok(())
 }
 pub(crate) fn digest(path: &Path, cancel: &AtomicBool) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let digest = rawtonic_fs::sha256_hex_read_while(&mut file, || !cancel.load(Ordering::Acquire))?;
-    digest.ok_or_else(|| anyhow::anyhow!("Copy cancelled"))
+    digest.ok_or_else(|| anyhow::Error::new(crate::error::copy_cancelled()))
 }
 pub(crate) fn walk(root: &Path, out: &mut Vec<PathBuf>, skip_cache: bool) -> Result<()> {
     for entry in fs::read_dir(root)? {
@@ -117,7 +122,7 @@ pub fn verify(
     folder: &Path,
     cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
-) -> Result<Receipt> {
+) -> Result<Receipt, IngestError> {
     let receipt: Receipt = serde_json::from_slice(
         &fs::read(folder.join(RECEIPT)).context("Not a verified Rawtonic backup")?,
     )?;
@@ -178,7 +183,7 @@ pub fn copy_library(
     purpose: &str,
     cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
-) -> Result<Receipt> {
+) -> Result<Receipt, IngestError> {
     ensure!(
         matches!(purpose, "transfer" | "backup" | "restore"),
         "Unknown copy purpose"
@@ -387,7 +392,7 @@ pub fn copy_library(
             },
         );
         if let Some(e) = error {
-            return Err(e);
+            return Err(e.into());
         }
         fs::write(path, serde_json::to_vec(&value)?)?;
     }

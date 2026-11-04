@@ -12,9 +12,11 @@
 //! (verified, no clobber, staged and only put in place before the database
 //! transaction, taken back when it fails) and applies everything in one
 //! transaction.
+use crate::IngestError;
 use crate::catalog_export::folder_names;
+use crate::error::ensure;
 use crate::transfer::{ResourceCopier, check, copy_file};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use rawtonic_catalog::{
     Library, Mode,
     catalog_import::{Changed, Choice, Incoming, Plan, Report, Side, Status},
@@ -40,7 +42,7 @@ pub struct Source {
 }
 
 /// Opens the library at `other` for import into `target` (a catalog).
-pub fn open_source(target: &Library, other: &Path) -> Result<Source> {
+pub fn open_source(target: &Library, other: &Path) -> Result<Source, IngestError> {
     ensure!(
         target.manifest.mode == Mode::Catalog,
         "Import from Catalog brings photographs into a catalog; a session stays self-contained"
@@ -111,7 +113,7 @@ fn incoming(target: &Library, source: &Source) -> Result<(Vec<Incoming>, usize)>
     Ok((kept, left_out))
 }
 
-pub fn review(target: &Library, source: &Source) -> Result<Review> {
+pub fn review(target: &Library, source: &Source) -> Result<Review, IngestError> {
     let (all, left_out) = incoming(target, source)?;
     let count = |status| all.iter().filter(|p| p.status == status).count();
     Ok(Review {
@@ -225,7 +227,7 @@ pub fn import(
     options: &Options,
     cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
-) -> Result<Receipt> {
+) -> Result<Receipt, IngestError> {
     let source = open_source(target, other)?;
     let (photos, left_out) = incoming(target, &source)?;
     let mut receipt = Receipt {
@@ -498,7 +500,7 @@ pub fn import(
         }
         Err(error) => {
             placed.take_back();
-            Err(error)
+            Err(error.into())
         }
     }
 }
@@ -594,7 +596,7 @@ fn copy_originals(
     if let Some(library) = rawtonic_catalog::session_for(&folder.join("_"))
         && library != target.directory
     {
-        anyhow::bail!(
+        crate::error::bail!(
             "{} belongs to {}; choose a folder outside other projects and catalogs",
             folder.display(),
             library.display()
