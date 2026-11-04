@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **AI Denoise no longer reports a failure when you switch photos while it runs**: choosing another photo while Develop was developing the first one with AI Denoise now just cancels that work, without an error message and without the first photo's AI Denoise being marked as failed and skipped. Switching away and back runs it as usual.
+
 - **⌘Z and ⇧⌘Z work right after you choose a value in a drop-down (Develop)**: after changing the Base curve (or any other drop-down or checkbox), the focused control swallowed the shortcut, so Undo worked only from the Edit menu or after clicking elsewhere. Drop-downs and checkboxes now pass ⌘/Ctrl shortcuts on; text fields keep their own undo.
 - **The edited badge stays off after Reset in Develop**: a photo reset in Develop was saved with the initial settings of a new edit, which the Library read as an edit once the app restarted, so the badge came back (and a duplicate-photo suggestion counted it as edited). A recipe that holds only the new-edit defaults now counts as unedited, whichever processing versions it is stamped with; changing any setting (or switching the automatic CA correction off) still counts as an edit. A Reset from the Library was already fine (checked).
 - **A virtual copy opens in Develop as bright as its photo**: a virtual copy of a RAW photo opened in Develop (and in the browser views) without its camera's base look (baseline exposure, the default tone curve and colour, a library camera profile), so it looked darker than the photo it was made from although every slider was the same; on Fujifilm RAWs, whose files can be recorded up to about 4 EV darker than metered, by several stops. Copies now develop exactly like their photo. Thumbnails and exports of copies were already right and are unchanged.
