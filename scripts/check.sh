@@ -126,8 +126,7 @@ if [ "$RUST" = 1 ]; then
   else
     printf 'skip %-45s (no libgphoto2; brew install libgphoto2 / apt install libgphoto2-dev)\n' "rust: tether helper with libgphoto2"
   fi
-  # Windows-only code in the crates without C dependencies (the others need a
-  # MinGW compiler): catches cfg(windows) slips that Linux/macOS never compile.
+  # Windows-only code: catches cfg(windows) slips that Linux/macOS never compile.
   if rustup target list --installed 2>/dev/null | grep -qx x86_64-pc-windows-gnu; then
     run "rust: windows clippy (fs, metadata, tether)" \
       cargo clippy -p rawtonic-fs -p rawtonic-metadata -p rawtonic-tether \
