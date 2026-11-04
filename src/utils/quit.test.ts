@@ -9,7 +9,8 @@ import {
   handleQuitRequest,
   registerQuitFlush
 } from './quit';
-import { Invokes } from '../components/ui/AppProperties';
+import { AppSettings, Invokes } from '../components/ui/AppProperties';
+import { saveSettings } from '../store/useSettingsStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
@@ -39,6 +40,27 @@ it('quits only after every pending save finished', async () => {
   await quitting;
   expect(commands()).toEqual([Invokes.QuitSaving, Invokes.FinishQuit]);
   expect(ask).not.toHaveBeenCalled();
+});
+
+it('quits only after a settings save changed just before quitting is written', async () => {
+  let finishSettings!: () => void;
+  vi.mocked(invoke).mockImplementation((command) =>
+    command === Invokes.SaveSettings
+      ? new Promise((resolve) => {
+          finishSettings = () => resolve(undefined);
+        })
+      : Promise.resolve(true)
+  );
+  const saving = saveSettings({ theme: 'dark' } as unknown as AppSettings);
+  const quitting = handleQuitRequest(vi.fn(), 1);
+  await vi.waitFor(() => expect(commands()).toEqual([Invokes.SaveSettings, Invokes.QuitSaving]));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(commands()).toEqual([Invokes.SaveSettings, Invokes.QuitSaving]);
+  finishSettings();
+  await saving;
+  await quitting;
+  expect(commands()).toEqual([Invokes.SaveSettings, Invokes.QuitSaving, Invokes.FinishQuit]);
+  vi.mocked(invoke).mockImplementation(() => Promise.resolve(true));
 });
 
 it('keeps the app open and lets the user decide when a save failed', async () => {

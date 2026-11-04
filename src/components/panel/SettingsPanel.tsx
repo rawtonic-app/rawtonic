@@ -48,6 +48,7 @@ import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
 import { RotateCcw } from 'lucide-react';
 import { useUIStore } from '../../store/useUIStore';
+import { flushSettingsSaves } from '../../store/useSettingsStore';
 import {
   DEFAULT_PROOF_MARGIN_PERCENT,
   PROOF_MARGIN_PERCENTS,
@@ -482,6 +483,8 @@ export default function SettingsPanel({
       ...appSettings,
       ...processingSettings
     });
+    // A relaunch ends the process without the quit drain.
+    await flushSettingsSaves();
     await relaunch();
   };
 

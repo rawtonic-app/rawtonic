@@ -13,6 +13,7 @@ import {
   photoWritesAndStepsSettled
 } from './photoWrites';
 import { sourceFileName } from '../entities/photo/photoRef';
+import { flushSettingsSaves } from '../store/useSettingsStore';
 
 /** A write that must reach disk before the app quits (a debounced save):
  * resolves with what it could not save, empty when everything is saved. */
@@ -30,6 +31,9 @@ export function registerQuitFlush(flush: QuitFlush): () => void {
     flushes.delete(flush);
   };
 }
+
+// A preference changed just before quitting is still being saved.
+registerQuitFlush(() => flushSettingsSaves());
 
 /** Runs every registered flush; resolves with what could not be saved. */
 export async function flushBeforeQuit(): Promise<string[]> {
