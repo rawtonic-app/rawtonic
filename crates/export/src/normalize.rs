@@ -185,7 +185,9 @@ mod tests {
                     );
                     assert_eq!(
                         result.versions,
-                        source.is_raw.map(|is_raw| RecipeVersions::of(&normalized, is_raw)),
+                        source
+                            .is_raw
+                            .map(|is_raw| RecipeVersions::of(&normalized, is_raw)),
                         "{recipe} {path:?}"
                     );
                 }
