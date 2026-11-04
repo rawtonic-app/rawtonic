@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Condvar, Mutex};
@@ -6,11 +6,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use image::DynamicImage;
 use serde::{Deserialize, Serialize};
 use sysinfo::Disks;
-use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::Notify;
-use tokio::task::JoinHandle;
 
-use crate::ai_processing::AiModels;
 pub use crate::gpu_processing::{
     AnalyticsConfig, AnalyticsJob, GpuImageCache, GpuProcessorSlot, GpuProcessorState,
 };
@@ -391,19 +388,9 @@ pub struct AppState {
     /// Develop view's frames instead of holding up the processor those use
     /// for a whole photo (notes: parity-gaps/G44).
     pub export_gpu_processor: GpuProcessorSlot,
-    pub ai_state: Mutex<Option<AiModels>>,
-    pub ai_init_lock: TokioMutex<()>,
-    /// AI Denoise (ai_denoise.rs) by `aiDenoiseVersion` (index 0: version
-    /// 1), each loaded on first use.
-    pub ai_denoiser:
-        Mutex<[Option<Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>>; 2]>,
-    /// Face models and the open photo's faces (ai_faces.rs), loaded on first use.
-    pub faces: crate::ai_faces::SharedFaceState,
-    pub active_ai_tasks: Mutex<HashMap<String, Arc<AiTaskToken>>>,
     pub export_task_token: Arc<Mutex<Option<Arc<AtomicBool>>>>,
     /// A finished merge waiting for `save_merge` (merges.rs).
     pub merge_result: Arc<Mutex<Option<crate::merges::MergeOutcome>>>,
-    pub indexing_task_handle: Mutex<Option<JoinHandle<()>>>,
     pub lut_cache: Mutex<LutCache>,
     pub initial_file_path: Mutex<Option<String>>,
     pub pending_edit_session: Mutex<Option<ExternalEditSession>>,
@@ -449,14 +436,8 @@ impl Default for AppState {
             gpu_adapter: Mutex::new(None),
             gpu_processor: GpuProcessorSlot::new(None),
             export_gpu_processor: GpuProcessorSlot::background(None),
-            ai_state: Mutex::new(None),
-            ai_init_lock: TokioMutex::new(()),
-            ai_denoiser: Mutex::new([None, None]),
-            faces: Mutex::new(Default::default()),
-            active_ai_tasks: Mutex::new(HashMap::new()),
             export_task_token: Arc::new(Mutex::new(None)),
             merge_result: Arc::new(Mutex::new(None)),
-            indexing_task_handle: Mutex::new(None),
             lut_cache: Mutex::new(Default::default()),
             initial_file_path: Mutex::new(None),
             pending_edit_session: Mutex::new(None),

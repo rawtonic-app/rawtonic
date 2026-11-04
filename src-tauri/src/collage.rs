@@ -139,7 +139,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         .lens?;
         generated |= rawtonic_engine::image_loader::has_generated_areas(&adjustments);
         let (pristine, measures) = crate::export_processing::load_export_base_image(
-            &state,
+            &app_handle.state::<crate::state::ai::AiState>(),
             &source,
             is_raw,
             &adjustments,

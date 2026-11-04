@@ -22,6 +22,8 @@
 //! it (`Lifecycle::keep`), so the next use loads again. AI Denoise is not
 //! managed here (its model is loaded with the photos that use it).
 
+use crate::state::ai::AiState;
+use crate::state::lock::lock_recover;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -29,7 +31,6 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
 use crate::ai_processing::AiModels;
-use crate::app_state::AppState;
 
 /// Models unused this long are dropped.
 pub const IDLE_UNLOAD: Duration = Duration::from_secs(5 * 60);
@@ -70,13 +71,11 @@ pub struct Lifecycle {
     usage: Mutex<Usage>,
 }
 
-/// The app's lifecycle.
-pub static LIFECYCLE: Lifecycle = Lifecycle::new();
-
 /// A computation with a model is running while this lives (no idle unload).
-pub struct Running<'a>(&'a Lifecycle);
+/// Owns its handle, so a computation can take it into a blocking task.
+pub struct Running(Arc<Lifecycle>);
 
-impl Drop for Running<'_> {
+impl Drop for Running {
     fn drop(&mut self) {
         let mut usage = self.0.usage();
         usage.busy = usage.busy.saturating_sub(1);
@@ -152,9 +151,9 @@ impl Lifecycle {
     }
 
     /// Marks a computation with a model as running until the guard drops.
-    pub fn run(&self) -> Running<'_> {
+    pub fn run(self: &Arc<Self>) -> Running {
         self.usage().busy += 1;
-        Running(self)
+        Running(Arc::clone(self))
     }
 
     /// Whether the models have been unused for `idle` and nothing runs.
@@ -219,8 +218,8 @@ fn names(taken: &AiModels) -> Vec<&'static str> {
 }
 
 /// Whether any model `unload` drops is loaded.
-fn models_loaded(state: &AppState) -> bool {
-    let ai = state.ai_state.lock().unwrap_or_else(|e| e.into_inner());
+fn models_loaded(ai_state: &AiState) -> bool {
+    let ai = lock_recover(&ai_state.models);
     let ai_models = ai.as_ref().is_some_and(|ai| {
         ai.subject_model.is_some()
             || ai.sky_model.is_some()
@@ -232,28 +231,19 @@ fn models_loaded(state: &AppState) -> bool {
             || ai.moebius.is_some()
     });
     drop(ai);
-    ai_models
-        || state
-            .faces
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .has_models()
+    ai_models || lock_recover(&ai_state.faces).has_models()
 }
 
 /// Drops the masking models and their caches (see the module), returns
 /// what was dropped.
-pub fn unload(state: &AppState, reason: UnloadReason) -> Vec<&'static str> {
-    LIFECYCLE.unloaded(reason);
+pub fn unload(ai_state: &AiState, reason: UnloadReason) -> Vec<&'static str> {
+    ai_state.lifecycle.unloaded(reason);
     let taken = {
-        let mut ai = state.ai_state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ai = lock_recover(&ai_state.models);
         ai.as_mut().map(|ai| take_unloaded(ai, reason))
     };
     let mut dropped = taken.as_ref().map(names).unwrap_or_default();
-    let faces = state
-        .faces
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .unload();
+    let faces = lock_recover(&ai_state.faces).unload();
     if faces {
         dropped.push("faces");
     }
@@ -268,11 +258,8 @@ pub fn unload(state: &AppState, reason: UnloadReason) -> Vec<&'static str> {
 
 /// Background runs the webview started ahead of a click (`useAiMasking`'s
 /// task ids), stopped on memory pressure and when the Library is shown.
-fn cancel_background_runs(state: &AppState) {
-    let tasks = state
-        .active_ai_tasks
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+fn cancel_background_runs(ai_state: &AiState) {
+    let tasks = lock_recover(&ai_state.tasks);
     for (id, token) in tasks.iter() {
         if is_background_task(id) {
             token.cancel();
@@ -293,12 +280,12 @@ fn is_background_task(id: &str) -> bool {
 
 /// Unloads for `reason`, logs and tells the webview.
 pub fn unload_and_notify(app: &tauri::AppHandle, reason: UnloadReason) -> Vec<&'static str> {
-    let state = app.state::<AppState>();
+    let ai_state = app.state::<AiState>();
     if reason != UnloadReason::Idle {
-        cancel_background_runs(&state);
+        cancel_background_runs(&ai_state);
     }
     let footprint_before = footprint_mb();
-    let dropped = unload(&state, reason);
+    let dropped = unload(&ai_state, reason);
     if dropped.is_empty() && reason == UnloadReason::Idle {
         return dropped;
     }
@@ -347,13 +334,13 @@ pub fn start(app: &tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(IDLE_CHECK).await;
-            if LIFECYCLE.idle_at(Instant::now(), IDLE_UNLOAD) {
-                let state = idle_app.state::<AppState>();
-                if models_loaded(&state) {
+            let ai_state = idle_app.state::<AiState>();
+            if ai_state.lifecycle.idle_at(Instant::now(), IDLE_UNLOAD) {
+                if models_loaded(&ai_state) {
                     unload_and_notify(&idle_app, UnloadReason::Idle);
                 } else {
                     // Used, but nothing loaded since: stop the idle time.
-                    LIFECYCLE.forget_use();
+                    ai_state.lifecycle.forget_use();
                 }
             }
         }
@@ -397,8 +384,8 @@ pub fn release_after_warm_up(
 /// The webview reports masking use (the masking tools opened, a selection
 /// pointed at or clicked): the models stay loaded `IDLE_UNLOAD` from now.
 #[tauri::command]
-pub fn note_ai_mask_use() {
-    LIFECYCLE.touch();
+pub fn note_ai_mask_use(ai_state: tauri::State<'_, AiState>) {
+    ai_state.lifecycle.touch();
 }
 
 #[cfg(test)]
@@ -435,7 +422,7 @@ mod tests {
 
     #[test]
     fn models_unused_for_the_idle_time_are_due() {
-        let lifecycle = Lifecycle::new();
+        let lifecycle = Arc::new(Lifecycle::new());
         let t0 = Instant::now();
         let idle = Duration::from_secs(300);
         // Nothing loaded or used: nothing to unload.
@@ -454,7 +441,7 @@ mod tests {
 
     #[test]
     fn nothing_is_unloaded_for_idleness_while_a_computation_runs() {
-        let lifecycle = Lifecycle::new();
+        let lifecycle = Arc::new(Lifecycle::new());
         let t0 = Instant::now();
         let idle = Duration::from_secs(300);
         lifecycle.touch_at(t0);
@@ -471,7 +458,7 @@ mod tests {
     /// that finishes after a memory-pressure unload is not kept either.
     #[test]
     fn tag_models_loaded_during_a_memory_pressure_unload_are_not_kept() {
-        let lifecycle = Lifecycle::new();
+        let lifecycle = Arc::new(Lifecycle::new());
         let before = lifecycle.pressure_generation();
         lifecycle.unloaded(UnloadReason::Library);
         lifecycle.unloaded(UnloadReason::Idle);
@@ -483,7 +470,7 @@ mod tests {
 
     #[test]
     fn a_load_that_finishes_after_an_unload_is_not_kept() {
-        let lifecycle = Lifecycle::new();
+        let lifecycle = Arc::new(Lifecycle::new());
         let before = lifecycle.generation();
         lifecycle.unloaded(UnloadReason::Library);
         assert!(!lifecycle.keep(before));
@@ -522,7 +509,7 @@ mod tests {
     fn a_computation_keeps_its_model_through_an_unload() {
         // What a run holds (`Arc` clones of the models) stays valid; the
         // state no longer has it, and the next use loads again.
-        let lifecycle = Lifecycle::new();
+        let lifecycle = Arc::new(Lifecycle::new());
         let slot: Mutex<Option<Arc<String>>> = Mutex::new(None);
         let generation = lifecycle.generation();
         let model = Arc::new(String::from("model"));
@@ -556,7 +543,7 @@ mod tests {
 
     #[test]
     fn a_warm_up_keeps_its_model_only_after_masking_use() {
-        let lifecycle = Lifecycle::new();
+        let lifecycle = Arc::new(Lifecycle::new());
         let uses = lifecycle.uses();
         let mut ai = Some(filled_state());
         assert!(release_after_warm_up(&lifecycle, &mut ai, uses, |ai| {
@@ -574,7 +561,7 @@ mod tests {
 
     #[test]
     fn masking_use_during_the_first_warm_up_keeps_both_models() {
-        let lifecycle = Lifecycle::new();
+        let lifecycle = Arc::new(Lifecycle::new());
         // Counted once before Subject and Sky; the user masks during Subject.
         let uses = lifecycle.uses();
         lifecycle.touch();

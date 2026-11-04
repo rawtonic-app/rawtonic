@@ -1,3 +1,5 @@
+use crate::state::ai::AiState;
+use crate::state::lock::lock_recover;
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use image::{DynamicImage, imageops::FilterType};
@@ -242,7 +244,12 @@ pub async fn start_background_indexing(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), CommandError> {
-    if let Some(handle) = state.indexing_task_handle.lock().unwrap().take() {
+    // The AI state is its own (`state::ai`); `state` stays in the
+    // signature the typed-error contract pins (commandErrors.test.ts).
+    let _ = state;
+    let ai_app = app_handle.clone();
+    let ai_state = ai_app.state::<AiState>();
+    if let Some(handle) = lock_recover(&ai_state.indexing_task).take() {
         println!("Cancelling previous indexing task.");
         handle.abort();
     }
@@ -264,14 +271,10 @@ pub async fn start_background_indexing(
     let is_custom = !custom_ai_tags.is_empty();
     let ai_tag_count = settings.ai_tag_count.unwrap_or(10) as usize;
 
-    let tag_models = crate::ai_processing::get_or_init_tag_models(
-        &app_handle,
-        &state.ai_state,
-        &state.ai_init_lock,
-        is_custom,
-    )
-    .await
-    .map_err(CommandError::from)?;
+    let tag_models =
+        crate::ai_processing::get_or_init_tag_models(&app_handle, &ai_state, is_custom)
+            .await
+            .map_err(CommandError::from)?;
     // The tag list and its embeddings, once for the whole folder.
     let (tag_names, tag_embeddings) = match &tag_models.text {
         Some(text) if is_custom => {
@@ -310,11 +313,7 @@ pub async fn start_background_indexing(
                 eprintln!("Failed to read directory '{}': {}", folder_path, e);
                 let _ = app_handle_clone
                     .emit("indexing-error", format!("Failed to read directory: {}", e));
-                *app_handle_clone
-                    .state::<AppState>()
-                    .indexing_task_handle
-                    .lock()
-                    .unwrap() = None;
+                *lock_recover(&app_handle_clone.state::<AiState>().indexing_task) = None;
                 return;
             }
         };
@@ -387,14 +386,10 @@ pub async fn start_background_indexing(
         println!("Background indexing finished for: {}", folder_path);
         let _ = app_handle_clone.emit("indexing-finished", ());
 
-        *app_handle_clone
-            .state::<AppState>()
-            .indexing_task_handle
-            .lock()
-            .unwrap() = None;
+        *lock_recover(&app_handle_clone.state::<AiState>().indexing_task) = None;
     });
 
-    *state.indexing_task_handle.lock().unwrap() = Some(task);
+    *lock_recover(&ai_state.indexing_task) = Some(task);
 
     Ok(())
 }

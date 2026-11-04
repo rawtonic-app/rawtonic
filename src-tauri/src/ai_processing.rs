@@ -1,4 +1,6 @@
 mod relight;
+use crate::state::ai::AiState;
+use crate::state::lock::lock_recover;
 pub use rawtonic_engine::masks::{
     AiDepthMaskParameters, AiForegroundMaskParameters, AiPeopleMaskParameters, AiSkyMaskParameters,
     AiSubjectMaskParameters,
@@ -9,7 +11,7 @@ pub use relight::{
 };
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::Result;
 use image::imageops::{self, FilterType};
@@ -20,7 +22,6 @@ use rayon::prelude::*;
 use tauri::Emitter;
 use tauri::Manager;
 use tokenizers::Tokenizer;
-use tokio::sync::Mutex as TokioMutex;
 
 // The Sky and Subject networks and their masks live in `rawtonic_segment`
 // (the CLI's exports compute the same masks).
@@ -161,13 +162,9 @@ pub struct AiModels {
 /// Puts a freshly loaded model into the state with `store`, unless the
 /// models were unloaded since its load began (`generation`): then its caller
 /// uses it once and the next use loads again (`ai_lifecycle`).
-fn keep_model(
-    ai_state_mutex: &Mutex<Option<AiModels>>,
-    generation: u64,
-    store: impl FnOnce(&mut AiModels),
-) {
-    let mut ai = ai_state_mutex.lock().unwrap();
-    if crate::ai_lifecycle::LIFECYCLE.keep(generation) {
+fn keep_model(ai_state: &AiState, generation: u64, store: impl FnOnce(&mut AiModels)) {
+    let mut ai = lock_recover(&ai_state.models);
+    if ai_state.lifecycle.keep(generation) {
         store(ai.get_or_insert_with(AiModels::default));
     } else {
         log::info!("AI: a model loaded during an unload is not kept");
@@ -671,33 +668,27 @@ pub(crate) async fn download_verified_in(
     Ok(())
 }
 
-/// Serialises loading the sky model, apart from `ai_init_lock`: a Sky click
-/// does not wait for BiRefNet's Core ML load (1-3 s) or SAM's.
-static SKY_INIT_LOCK: TokioMutex<()> = TokioMutex::const_new(());
-
 /// The sky model (UperNet), loaded on its own. With `download` false (a
 /// background request) only an installed model is loaded: `None` when it
 /// is not installed or the runtime is missing.
 pub async fn get_or_init_sky_model(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiModels>>,
+    ai_state: &AiState,
     download: bool,
 ) -> Result<Option<Arc<SkyModel>>> {
     let loaded = || {
-        ai_state_mutex
-            .lock()
-            .unwrap()
+        lock_recover(&ai_state.models)
             .as_ref()
             .and_then(|state| state.sky_model.clone())
     };
     if let Some(model) = loaded() {
         return Ok(Some(model));
     }
-    let _guard = SKY_INIT_LOCK.lock().await;
+    let _guard = ai_state.sky_init_lock.lock().await;
     if let Some(model) = loaded() {
         return Ok(Some(model));
     }
-    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let generation = ai_state.lifecycle.generation();
     let models_dir = get_models_dir(app_handle)?;
     let path = models_dir.join(SKYSEG_FILENAME);
     let start = std::time::Instant::now();
@@ -720,7 +711,7 @@ pub async fn get_or_init_sky_model(
             start.elapsed().as_millis()
         );
         let model = Arc::new(SkyModel::core_ml(model));
-        keep_model(ai_state_mutex, generation, |ai| {
+        keep_model(ai_state, generation, |ai| {
             ai.sky_model = Some(model.clone())
         });
         return Ok(Some(model));
@@ -749,7 +740,7 @@ pub async fn get_or_init_sky_model(
     );
     crate::register_exit_handler();
     let model = Arc::new(model);
-    keep_model(ai_state_mutex, generation, |ai| {
+    keep_model(ai_state, generation, |ai| {
         ai.sky_model = Some(model.clone())
     });
     Ok(Some(model))
@@ -758,25 +749,22 @@ pub async fn get_or_init_sky_model(
 /// Depth Anything V2 for depth masks, downloaded and loaded on first use.
 pub async fn get_or_init_depth_model(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiModels>>,
-    ai_init_lock: &TokioMutex<()>,
+    ai_state: &AiState,
 ) -> Result<Arc<rawtonic_onnx::Model>> {
     ensure_local_runtime()?;
     let loaded = || {
-        ai_state_mutex
-            .lock()
-            .unwrap()
+        lock_recover(&ai_state.models)
             .as_ref()
             .and_then(|state| state.depth_model.clone())
     };
     if let Some(model) = loaded() {
         return Ok(model);
     }
-    let _guard = ai_init_lock.lock().await;
+    let _guard = ai_state.init_lock.lock().await;
     if let Some(model) = loaded() {
         return Ok(model);
     }
-    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let generation = ai_state.lifecycle.generation();
     let models_dir = get_models_dir(app_handle)?;
     download_verified(
         app_handle,
@@ -793,7 +781,7 @@ pub async fn get_or_init_depth_model(
     .await??;
     crate::register_exit_handler();
     let model = Arc::new(model);
-    keep_model(ai_state_mutex, generation, |ai| {
+    keep_model(ai_state, generation, |ai| {
         ai.depth_model = Some(model.clone())
     });
     Ok(model)
@@ -801,14 +789,8 @@ pub async fn get_or_init_depth_model(
 
 /// Loads SAM 2.1 ahead of the first object mask when its files are already
 /// installed (never downloads).
-pub async fn preload_sam_models(
-    app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiModels>>,
-    ai_init_lock: &TokioMutex<()>,
-) -> Result<()> {
-    let already = ai_state_mutex
-        .lock()
-        .unwrap()
+pub async fn preload_sam_models(app_handle: &tauri::AppHandle, ai_state: &AiState) -> Result<()> {
+    let already = lock_recover(&ai_state.models)
         .as_ref()
         .is_some_and(|state| state.sam_models.is_some());
     if already || ensure_local_runtime().is_err() {
@@ -820,7 +802,7 @@ pub async fn preload_sam_models(
     if !installed {
         return Ok(());
     }
-    get_or_init_sam_models(app_handle, ai_state_mutex, ai_init_lock).await?;
+    get_or_init_sam_models(app_handle, ai_state).await?;
     Ok(())
 }
 
@@ -828,25 +810,22 @@ pub async fn preload_sam_models(
 /// first use.
 pub async fn get_or_init_sam_models(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiModels>>,
-    ai_init_lock: &TokioMutex<()>,
+    ai_state: &AiState,
 ) -> Result<Arc<SamModels>> {
     ensure_local_runtime()?;
     let loaded = || {
-        ai_state_mutex
-            .lock()
-            .unwrap()
+        lock_recover(&ai_state.models)
             .as_ref()
             .and_then(|state| state.sam_models.clone())
     };
     if let Some(models) = loaded() {
         return Ok(models);
     }
-    let _guard = ai_init_lock.lock().await;
+    let _guard = ai_state.init_lock.lock().await;
     if let Some(models) = loaded() {
         return Ok(models);
     }
-    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let generation = ai_state.lifecycle.generation();
     let models_dir = get_models_dir(app_handle)?;
     for (file, hash, name) in [
         (ENCODER_FILENAME, ENCODER_SHA256, "SAM Encoder"),
@@ -870,7 +849,7 @@ pub async fn get_or_init_sam_models(
         start.elapsed().as_millis()
     );
     crate::register_exit_handler();
-    keep_model(ai_state_mutex, generation, |ai| {
+    keep_model(ai_state, generation, |ai| {
         ai.sam_models = Some(models.clone())
     });
     Ok(models)
@@ -909,25 +888,22 @@ pub fn mask_model_installed(app_handle: &tauri::AppHandle, sky: bool) -> bool {
 /// is not installed.
 pub async fn get_or_init_subject_model(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiModels>>,
-    ai_init_lock: &TokioMutex<()>,
+    ai_state: &AiState,
     download: bool,
 ) -> Result<Option<Arc<SubjectModel>>> {
     let loaded = || {
-        ai_state_mutex
-            .lock()
-            .unwrap()
+        lock_recover(&ai_state.models)
             .as_ref()
             .and_then(|state| state.subject_model.clone())
     };
     if let Some(model) = loaded() {
         return Ok(Some(model));
     }
-    let _guard = ai_init_lock.lock().await;
+    let _guard = ai_state.init_lock.lock().await;
     if let Some(model) = loaded() {
         return Ok(Some(model));
     }
-    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let generation = ai_state.lifecycle.generation();
     let models_dir = get_models_dir(app_handle)?;
     let start = std::time::Instant::now();
     #[cfg(target_os = "macos")]
@@ -964,7 +940,7 @@ pub async fn get_or_init_subject_model(
     );
     crate::register_exit_handler();
     let model = Arc::new(model);
-    keep_model(ai_state_mutex, generation, |ai| {
+    keep_model(ai_state, generation, |ai| {
         ai.subject_model = Some(model.clone())
     });
     Ok(Some(model))
@@ -1271,15 +1247,12 @@ fn link_into_package(source: &Path, target: &Path, sha: &str) -> Result<bool> {
 /// user's own tags (a 1.1 GB download, only then).
 pub async fn get_or_init_tag_models(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiModels>>,
-    ai_init_lock: &TokioMutex<()>,
+    ai_state: &AiState,
     with_text: bool,
 ) -> Result<Arc<TagModels>> {
     ensure_local_runtime()?;
     let cached = || {
-        ai_state_mutex
-            .lock()
-            .unwrap()
+        lock_recover(&ai_state.models)
             .as_ref()
             .and_then(|state| state.tag_models.clone())
             .filter(|models| !with_text || models.text.is_some())
@@ -1288,11 +1261,11 @@ pub async fn get_or_init_tag_models(
         return Ok(models);
     }
 
-    let _guard = ai_init_lock.lock().await;
+    let _guard = ai_state.init_lock.lock().await;
     if let Some(models) = cached() {
         return Ok(models);
     }
-    let pressure_generation = crate::ai_lifecycle::LIFECYCLE.pressure_generation();
+    let pressure_generation = ai_state.lifecycle.pressure_generation();
 
     let models_dir = get_models_dir(app_handle)?;
     let mut files = vec![
@@ -1351,8 +1324,8 @@ pub async fn get_or_init_tag_models(
     // Dropped only under memory pressure (`ai_lifecycle`): tagging runs in
     // the Library, where the masking models are unloaded. A load that
     // overlapped such an unload is used once and not kept.
-    let mut ai = ai_state_mutex.lock().unwrap();
-    if crate::ai_lifecycle::LIFECYCLE.keep_tag_models(pressure_generation) {
+    let mut ai = lock_recover(&ai_state.models);
+    if ai_state.lifecycle.keep_tag_models(pressure_generation) {
         ai.get_or_insert_with(AiModels::default).tag_models = Some(models.clone());
     } else {
         log::info!("AI: tagging models loaded during a memory-pressure unload are not kept");
@@ -1379,25 +1352,20 @@ pub(crate) fn read_tag_embeddings(bytes: &[u8], tags: usize) -> Result<Vec<f32>>
 
 pub async fn get_or_init_inpaint_model(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiModels>>,
-    ai_init_lock: &TokioMutex<()>,
+    ai_state: &AiState,
 ) -> Result<Arc<rawtonic_onnx::Model>> {
     ensure_local_runtime()?;
-    if let Some(model) = ai_state_mutex
-        .lock()
-        .unwrap()
+    if let Some(model) = lock_recover(&ai_state.models)
         .as_ref()
         .and_then(|state| state.inpaint_model.clone())
     {
         return Ok(model);
     }
 
-    let _guard = ai_init_lock.lock().await;
-    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let _guard = ai_state.init_lock.lock().await;
+    let generation = ai_state.lifecycle.generation();
 
-    if let Some(model) = ai_state_mutex
-        .lock()
-        .unwrap()
+    if let Some(model) = lock_recover(&ai_state.models)
         .as_ref()
         .and_then(|state| state.inpaint_model.clone())
     {
@@ -1422,26 +1390,20 @@ pub async fn get_or_init_inpaint_model(
 
     crate::register_exit_handler();
 
-    keep_model(ai_state_mutex, generation, |ai| {
+    keep_model(ai_state, generation, |ai| {
         ai.inpaint_model = Some(model.clone())
     });
     Ok(model)
 }
 
-/// Serialises loading Moebius, apart from `ai_init_lock`: its first use
-/// downloads about 620 MB, which must not hold up the masking models.
-static MOEBIUS_INIT_LOCK: TokioMutex<()> = TokioMutex::const_new(());
-
 /// Moebius (`moebius`), downloaded on first use.
 pub async fn get_or_init_moebius(
     app_handle: &tauri::AppHandle,
-    ai_state_mutex: &Mutex<Option<AiModels>>,
+    ai_state: &AiState,
     preparing: &(dyn Fn() + Send + Sync),
 ) -> Result<Arc<crate::moebius::Moebius>> {
     let loaded = || {
-        ai_state_mutex
-            .lock()
-            .unwrap()
+        lock_recover(&ai_state.models)
             .as_ref()
             .and_then(|state| state.moebius.clone())
     };
@@ -1449,11 +1411,11 @@ pub async fn get_or_init_moebius(
         return Ok(model);
     }
     preparing();
-    let _guard = MOEBIUS_INIT_LOCK.lock().await;
+    let _guard = ai_state.moebius_init_lock.lock().await;
     if let Some(model) = loaded() {
         return Ok(model);
     }
-    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let generation = ai_state.lifecycle.generation();
     let models_dir = get_models_dir(app_handle)?;
     let start = std::time::Instant::now();
     let model = Arc::new(crate::moebius::load(app_handle, &models_dir, preparing).await?);
@@ -1461,9 +1423,7 @@ pub async fn get_or_init_moebius(
         "AI fill: Moebius loaded in {} ms",
         start.elapsed().as_millis()
     );
-    keep_model(ai_state_mutex, generation, |ai| {
-        ai.moebius = Some(model.clone())
-    });
+    keep_model(ai_state, generation, |ai| ai.moebius = Some(model.clone()));
     Ok(model)
 }
 

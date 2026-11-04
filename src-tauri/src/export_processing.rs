@@ -3,6 +3,8 @@
 //! metadata embedding stay here; the render and encoders live in the crate.
 pub use rawtonic_export::export_processing::*;
 
+use crate::state::ai::AiState;
+use crate::state::lock::lock_recover;
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fs;
@@ -157,7 +159,7 @@ where
 /// denoiser must be loaded beforehand (`ai_denoise::denoiser`), else such a
 /// RAW fails.
 pub(crate) fn load_export_base_image(
-    state: &AppState,
+    ai_state: &AiState,
     source_path: &str,
     is_raw: bool,
     adjustments: &Value,
@@ -166,7 +168,7 @@ pub(crate) fn load_export_base_image(
 ) -> Result<(DynamicImage, Option<crate::image_loader::DecodeMeasures>), String> {
     let ai = rawtonic_engine::image_loader::ai_denoise_settings(adjustments).filter(|_| is_raw);
     let denoise = if let Some(ai) = ai {
-        let denoiser = state.ai_denoiser.lock().unwrap()[crate::ai_denoise::slot(ai.model())]
+        let denoiser = lock_recover(&ai_state.denoisers)[crate::ai_denoise::slot(ai.model())]
             .clone()
             .ok_or_else(|| {
                 format!(
@@ -1516,7 +1518,7 @@ fn export_photo(
                 let _ = app_handle.emit("export-denoising", image_path_str);
             }
             let (image, measures) = load_export_base_image(
-                &state,
+                &app_handle.state::<AiState>(),
                 &source_path_str,
                 is_raw,
                 &js_adjustments,

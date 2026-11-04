@@ -1,3 +1,4 @@
+use crate::state::ai::AiState;
 use std::io::Cursor;
 
 use crate::ipc::CommandError;
@@ -500,7 +501,7 @@ fn removal_fill_params(
 /// `ai-fill-progress` ({taskId, done, total} network runs).
 async fn fill_large_hole(
     app_handle: &tauri::AppHandle,
-    state: &tauri::State<'_, AppState>,
+    ai_state: &AiState,
     source: &DynamicImage,
     mask: &image::GrayImage,
     bounds: (usize, usize, usize, usize),
@@ -528,7 +529,7 @@ async fn fill_large_hole(
             serde_json::json!({ "taskId": task_id, "phase": "preparing", "done": 0, "total": 0 }),
         );
     };
-    let loading = ai_processing::get_or_init_moebius(app_handle, &state.ai_state, &preparing);
+    let loading = ai_processing::get_or_init_moebius(app_handle, ai_state, &preparing);
     let loaded = match &token {
         Some(token) => tokio::select! {
             loaded = loading => loaded,
@@ -651,10 +652,11 @@ pub async fn invoke_generative_replace_with_mask_def(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, CommandError> {
+    let ai_state = tauri::Manager::state::<AiState>(&app_handle);
     let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let _guard = task_id
         .as_ref()
-        .map(|id| crate::app_state::AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+        .map(|id| crate::app_state::AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
@@ -662,8 +664,8 @@ pub async fn invoke_generative_replace_with_mask_def(
     }
 
     // MI-GAN follows the masking models' lifecycle (ai_lifecycle).
-    crate::ai_lifecycle::LIFECYCLE.touch();
-    let _running = crate::ai_lifecycle::LIFECYCLE.run();
+    ai_state.lifecycle.touch();
+    let _running = ai_state.lifecycle.run();
 
     let started = std::time::Instant::now();
     let (source_image, is_raw) =
@@ -731,7 +733,7 @@ pub async fn invoke_generative_replace_with_mask_def(
         if hole_thickness(&mask_bitmap, (min_x, max_x, min_y, max_y)) >= LARGE_HOLE_THICKNESS {
             fill_large_hole(
                 &app_handle,
-                &state,
+                &ai_state,
                 &source_image,
                 &mask_bitmap,
                 (min_x, max_x, min_y, max_y),
@@ -746,13 +748,9 @@ pub async fn invoke_generative_replace_with_mask_def(
     let (patch_rgba, model) = if let Some(filled) = large_fill {
         (filled, fill_model::MOEBIUS)
     } else {
-        let inpaint_model = ai_processing::get_or_init_inpaint_model(
-            &app_handle,
-            &state.ai_state,
-            &state.ai_init_lock,
-        )
-        .await
-        .map_err(CommandError::from)?;
+        let inpaint_model = ai_processing::get_or_init_inpaint_model(&app_handle, &ai_state)
+            .await
+            .map_err(CommandError::from)?;
 
         if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
             return Err(crate::ai_commands::task_cancelled());
