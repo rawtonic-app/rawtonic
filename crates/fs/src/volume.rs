@@ -11,8 +11,10 @@
 //! operations plan moves between volumes with [`VolumeInfo`].
 use anyhow::{Context, Result};
 use serde::Serialize;
+#[cfg(unix)]
+use std::io;
 use std::{
-    fs, io,
+    fs,
     path::{Path, PathBuf},
 };
 
