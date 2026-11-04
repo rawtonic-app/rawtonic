@@ -231,7 +231,12 @@ fn measures_of(facts: Option<&SourceFacts>) -> Option<DecodeMeasures> {
     })
 }
 
-pub use rawtonic_engine::session_layout::session_root;
+/// The library (session or catalog) folder holding `path`, if any
+/// (`LibraryLayout::holding`).
+pub fn session_root(path: &Path) -> Option<PathBuf> {
+    rawtonic_catalog::layout::LibraryLayout::holding(path)
+        .map(rawtonic_catalog::layout::LibraryLayout::into_directory)
+}
 
 /// Where previews of photographs outside sessions live (the app's cache
 /// folder, as Lightroom keeps previews beside its catalog); set at start-up.

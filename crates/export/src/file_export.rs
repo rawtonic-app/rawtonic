@@ -45,6 +45,10 @@ pub struct FileExport<'a> {
     /// The capture time the library corrected for the source (Shift Capture
     /// Time), which its EXIF and file times take over the file's.
     pub capture: Option<crate::exif_processing::CaptureFields>,
+    /// The library folder the source belongs to, in which its recipe's
+    /// camera profile (`profiles/…dcp`) is named; None for a photo of no
+    /// library.
+    pub library: Option<&'a Path>,
 }
 
 /// The capture time an app correction left in the source's `.rrdata` EXIF
@@ -54,7 +58,8 @@ pub struct FileExport<'a> {
 pub fn sidecar_capture(source: &Path) -> Option<crate::exif_processing::CaptureFields> {
     use crate::exif_processing::parse_creation_datetime;
     let sidecar = crate::exif_processing::get_primary_sidecar_path(source);
-    let shown = crate::sidecars::read_sidecar_file(&sidecar).0.exif?;
+    // Only its EXIF map is read: no library resources to resolve.
+    let shown = crate::sidecars::read_sidecar_file(&sidecar, None).0.exif?;
     let bytes = fs::read(source).ok()?;
     let own = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
     let field = |map: &crate::export_processing::ExifMap, key: &str| {
@@ -216,7 +221,8 @@ impl FileExporter {
         )
         .map_err(|e| format!("{}: not exported, {e}", job.source.display()))?;
         let source =
-            prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?;
+            prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?
+                .in_library(job.library.map(Path::to_path_buf));
         if let Some(inputs) = &self.render_inputs {
             inputs.source(&source);
         }

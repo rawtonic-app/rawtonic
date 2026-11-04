@@ -1144,6 +1144,7 @@ pub fn prepare_export_source(
         pristine: pristine_source,
         patched,
         measures,
+        library: None,
     })
 }
 
@@ -1311,9 +1312,18 @@ pub struct ExportSource {
     /// The measures of the decode `pristine` is
     /// (`image_loader::DecodeMeasures`).
     pub measures: Option<DecodeMeasures>,
+    /// The library folder the photo belongs to, whose files its recipe names
+    /// (a camera profile in `profiles/`); None for a photo of no library.
+    pub library: Option<PathBuf>,
 }
 
 impl ExportSource {
+    /// The same source as a photo of the library folder `library`.
+    pub fn in_library(mut self, library: Option<PathBuf>) -> Self {
+        self.library = library;
+        self
+    }
+
     pub fn base(&self) -> &DynamicImage {
         self.patched.as_deref().unwrap_or(&self.pristine)
     }
@@ -1358,7 +1368,8 @@ enum PreparedTarget {
 
 /// The adjustments an export of `js_adjustments` renders, before the output
 /// colour space: the recipe's uniforms with the photo's base look (from the
-/// decode's `measures`), never showing clipping.
+/// decode's `measures`; `library`: the photo's library folder, None outside
+/// any), never showing clipping.
 pub fn export_adjustments(
     path: &str,
     js_adjustments: &Value,
@@ -1366,6 +1377,7 @@ pub fn export_adjustments(
     tonemapper_override: Option<u32>,
     mask_definitions: &[MaskDefinition],
     measures: Option<&DecodeMeasures>,
+    library: Option<&Path>,
 ) -> PreparedAdjustments {
     let mut all_adjustments = get_all_adjustments_with_masks(
         js_adjustments,
@@ -1373,7 +1385,7 @@ pub fn export_adjustments(
         tonemapper_override,
         mask_definitions,
     );
-    crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, path, measures);
+    crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, path, measures, library);
     all_adjustments.global.show_clipping = 0;
     all_adjustments
 }
@@ -1396,6 +1408,7 @@ pub fn prepare_export_render(
         tm_override,
         &mask_definitions,
         source.measures.as_ref(),
+        source.library.as_deref(),
     );
 
     let lut_path = js_adjustments["lutPath"].as_str();

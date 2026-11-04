@@ -176,14 +176,17 @@ fn cache() -> &'static Mutex<HashMap<String, BaseLook>> {
 /// Applies the file's base look to shader adjustments. `measures`: those of
 /// the decode rendered (`image_loader::DecodeMeasures`); without them (a
 /// preview proxy, a fast development) the last full decode's of `path`,
-/// else the facts registered for it.
+/// else the facts registered for it. `library`: the library folder the
+/// photo belongs to (its recipe's camera profile is named in it), None for
+/// a photo of no library.
 pub fn apply_base_look(
     global: &mut GlobalAdjustments,
     path: &str,
     measures: Option<&crate::image_loader::DecodeMeasures>,
+    library: Option<&std::path::Path>,
 ) {
     base_look(path).apply(global);
-    crate::camera_profile::apply(global, path);
+    crate::camera_profile::apply(global, path, library);
     crate::diffraction::apply(global, path);
     let registered = || crate::source_facts::registered(path);
     let (noise_level, image_key) = match measures {
@@ -784,7 +787,7 @@ mod tests {
             image_key: Some([0.1, 0.6, 0.3]),
         };
         let mut global = GlobalAdjustments::default();
-        super::apply_base_look(&mut global, path, Some(&own));
+        super::apply_base_look(&mut global, path, Some(&own), None);
         assert_eq!(
             (
                 global.noise_level,
@@ -796,7 +799,7 @@ mod tests {
         );
         // Without a decode (a preview): the last full decode's.
         let mut global = GlobalAdjustments::default();
-        super::apply_base_look(&mut global, path, None);
+        super::apply_base_look(&mut global, path, None, None);
         assert_eq!(
             (
                 global.noise_level,

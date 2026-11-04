@@ -151,7 +151,8 @@ fn snapshot(recipe: &Value) -> Value {
     inputs.source(&source);
 
     let mask_definitions = mask_definitions_from_json(&js);
-    let mut adjustments = export_adjustments(SOURCE, &js, is_raw, None, &mask_definitions, None);
+    let mut adjustments =
+        export_adjustments(SOURCE, &js, is_raw, None, &mask_definitions, None, None);
     let warped = apply_warp(Cow::Borrowed(source.base()), &js, is_raw).unwrap();
     // The edge-fringe pass of the current versions runs only on the GPU and
     // reads only `fringeVersion`, which the geometry entry records; the

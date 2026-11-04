@@ -42,11 +42,8 @@ pub async fn import_camera_profile(
     use tauri::Manager;
     let app_data = app_handle.path().app_data_dir().ok();
     tauri::async_runtime::spawn_blocking(move || {
-        import(
-            Path::new(&source),
-            Path::new(&image_path),
-            app_data.as_deref(),
-        )
+        let library = crate::photo_library::library_of_str(&image_path);
+        import(Path::new(&source), library.as_deref(), app_data.as_deref())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -59,7 +56,10 @@ pub async fn list_camera_profiles(
 ) -> Result<Vec<ProfileEntry>, String> {
     use tauri::Manager;
     let app_data = app_handle.path().app_data_dir().ok();
-    tauri::async_runtime::spawn_blocking(move || list(Path::new(&image_path), app_data.as_deref()))
-        .await
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let library = crate::photo_library::library_of_str(&image_path);
+        list(library.as_deref(), app_data.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())
 }

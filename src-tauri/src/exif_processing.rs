@@ -21,7 +21,9 @@ pub fn load_sidecar(sidecar_path: &Path) -> ImageMetadata {
 
 /// Physical fallback after the caller has already resolved database authority.
 pub(crate) fn load_sidecar_file(sidecar_path: &Path) -> ImageMetadata {
-    let (meta, healed) = rawtonic_export::sidecars::read_sidecar_file(sidecar_path);
+    let library = crate::photo_library::library_of(sidecar_path);
+    let (meta, healed) =
+        rawtonic_export::sidecars::read_sidecar_file(sidecar_path, library.as_deref());
     if healed && let Ok(json) = serde_json::to_string_pretty(&meta) {
         let _ = crate::session_bridge::write_editor_sidecar(sidecar_path, json);
         log::info!(

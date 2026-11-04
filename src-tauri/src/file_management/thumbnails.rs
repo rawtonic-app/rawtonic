@@ -657,6 +657,7 @@ pub(crate) fn develop_thumbnail(
             &mut gpu_adjustments.global,
             &source_path_str,
             proxy.as_ref().and_then(|proxy| proxy.measures).as_ref(),
+            crate::photo_library::library_of_str(&source_path_str).as_deref(),
         );
         gpu_adjustments.global.detail_scale = total_scale;
         let lut_path = meta.adjustments["lutPath"].as_str();

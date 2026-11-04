@@ -1553,7 +1553,8 @@ fn export_photo(
             keep_detected_selections(image_path_str, &detected);
         }
         let source =
-            prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?;
+            prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?
+                .in_library(crate::photo_library::library_of_str(&source_path_str));
         ensure_export_not_cancelled(cancellation_token)?;
         Ok(source)
     });
@@ -2217,6 +2218,7 @@ fn estimate_sizes(
             &mut all_adjustments.global,
             &source_path_str,
             loaded_image.measures.as_ref(),
+            crate::photo_library::library_of_str(&source_path_str).as_deref(),
         );
         all_adjustments.global.detail_scale = scale;
         all_adjustments.global.show_clipping = 0;
@@ -2387,6 +2389,7 @@ fn estimate_sizes(
             &mut all_adjustments.global,
             &source_path_str,
             None,
+            crate::photo_library::library_of_str(&source_path_str).as_deref(),
         );
         all_adjustments.global.detail_scale = total_scale;
         all_adjustments.global.show_clipping = 0;
