@@ -723,7 +723,7 @@ export default function StudioWorkspace(props: Props) {
       if (
         e.defaultPrevented ||
         document.querySelector('dialog[open],[aria-modal="true"]') ||
-        fieldOwnsKey(e.target, e.code)
+        fieldOwnsKey(e.target, e.code, e.metaKey || e.ctrlKey)
       )
         return;
       const settings = useSettingsStore.getState();

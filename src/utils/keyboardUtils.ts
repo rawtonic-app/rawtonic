@@ -684,16 +684,38 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
 /** The keys a focused slider moves itself with. */
 const RANGE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 
+const TEXT_INPUT_TYPES = new Set([
+  'text',
+  'search',
+  'url',
+  'tel',
+  'email',
+  'password',
+  'number',
+  'date',
+  'datetime-local',
+  'month',
+  'time',
+  'week'
+]);
+
 /**
  * Whether the focused `target` keeps the key `code` for itself. A text
  * field, select or editable text keeps every key; a slider, which keeps the
  * focus after a drag, only the keys that move it, so the shortcuts (M, F,
  * ratings, tool keys, [ ]) work right after a drag as in Lightroom and
- * Capture One.
+ * Capture One. A select or a checkbox-like control has no text to edit, so
+ * ⌘/Ctrl combos (⌘Z undo, ⇧⌘Z redo) pass through to the app: the select
+ * keeps the focus after a choice (Base curve) and would swallow the undo.
  */
-export function fieldOwnsKey(target: EventTarget | null, code: string): boolean {
+export function fieldOwnsKey(target: EventTarget | null, code: string, command = false): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target instanceof HTMLInputElement && target.type === 'range') return RANGE_KEYS.has(code);
+  if (
+    command &&
+    (target.closest('select') || (target instanceof HTMLInputElement && !TEXT_INPUT_TYPES.has(target.type)))
+  )
+    return false;
   return Boolean(target.closest('input,textarea,select,[contenteditable="true"]'));
 }
 

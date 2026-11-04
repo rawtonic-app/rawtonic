@@ -5089,14 +5089,32 @@ pub fn is_image_edited(
         return true;
     }
 
-    let geo = get_geometry_params_from_json(adj);
+    // The defaults the recipe is compared to carry its own versions: a recipe
+    // stamped with the current versions (a Develop Reset saves one: the
+    // initial settings of a new edit) is as unedited as the `{}` a Library
+    // Reset saves, not edited for rendering with other versions than a
+    // recipe without them (`{}` reads as version 1).
+    let defaults = serde_json::Value::Object(
+        adj.as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(key, _)| key.ends_with("Version"))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    );
+
+    let mut geo = get_geometry_params_from_json(adj);
+    // The automatic lateral CA those versions switch on is a default, not an edit.
+    if geo.auto_ca != get_geometry_params_from_json(&defaults).auto_ca {
+        return true;
+    }
+    geo.auto_ca = false;
     if !is_geometry_identity(&geo) {
         return true;
     }
 
     let current_adj = get_all_adjustments_from_json(adj, is_raw, tonemapper_override);
-    let default_adj =
-        get_all_adjustments_from_json(&serde_json::json!({}), is_raw, tonemapper_override);
+    let default_adj = get_all_adjustments_from_json(&defaults, is_raw, tonemapper_override);
 
     bytemuck::bytes_of(&current_adj.uniforms) != bytemuck::bytes_of(&default_adj.uniforms)
 }
@@ -9568,5 +9586,68 @@ mod signed_downscale_tests {
         let clamped = downscale_f32_image(&image, 4, 4).to_rgb32f();
         assert!((signed.get_pixel(1, 1)[0] + 0.2).abs() < 1e-6);
         assert_eq!(clamped.get_pixel(1, 1)[0], 0.0);
+    }
+}
+
+#[cfg(test)]
+mod reset_recipe_edited_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A Reset (Develop or Library) saves `{}` or only the photograph's frame;
+    /// a session read adds the library colour label. None of them is an edit,
+    /// so the Library's edited badge stays off after a restart.
+    #[test]
+    fn a_reset_recipe_is_not_edited_as_saved_or_as_read_from_a_library() {
+        for is_raw in [true, false] {
+            for recipe in [
+                json!({}),
+                json!({"colorLabel": ""}),
+                json!({"colorLabel": "Red"}),
+                json!({"sourceFrameVersion": 0}),
+                json!({"sourceFrameVersion": 3, "colorLabel": ""}),
+                json!({"lensProfileFor": "x", "colorLabel": ""}),
+            ] {
+                assert!(
+                    !is_image_edited(&recipe, is_raw, None),
+                    "{recipe} (raw {is_raw}) must not count as edited"
+                );
+            }
+            assert!(is_image_edited(
+                &json!({"exposure": 0.5, "colorLabel": ""}),
+                is_raw,
+                None
+            ));
+        }
+    }
+
+    /// The recipe a Develop Reset saves (the editor's initial settings, with
+    /// the current versions stamped) is no edit either; a changed setting
+    /// still is, under any versions.
+    #[test]
+    fn a_reset_recipe_stamped_with_versions_is_not_edited() {
+        let stamped = json!({
+            "renderVersion": 11, "toneVersion": 10, "sharpenVersion": 7, "lumaNoiseVersion": 2,
+            "colorNoiseVersion": 11, "defringeVersion": 2, "grainVersion": 3, "clarityVersion": 2,
+            "bwVersion": 2, "autoCaVersion": 3, "sourceFrameVersion": 3, "colorLabel": ""
+        });
+        for is_raw in [true, false] {
+            let mut stamped = stamped.clone();
+            if is_raw {
+                // The initial settings of a new RAW edit.
+                stamped["sharpness"] = json!(40);
+                stamped["colorNoiseReduction"] = json!(25);
+            }
+            assert!(!is_image_edited(&stamped, is_raw, None), "raw {is_raw}");
+            let mut edited = stamped.clone();
+            edited["exposure"] = json!(0.5);
+            assert!(is_image_edited(&edited, is_raw, None), "raw {is_raw}");
+        }
+        // Switching the automatic CA correction off is a change from the new edit.
+        let mut off = stamped.clone();
+        off["autoChromaticAberration"] = json!(false);
+        assert!(is_image_edited(&off, true, None));
+        let old = json!({"renderVersion": 1, "exposure": 0.5});
+        assert!(is_image_edited(&old, true, None));
     }
 }
