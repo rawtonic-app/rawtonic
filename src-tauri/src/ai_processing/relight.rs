@@ -9,25 +9,22 @@ type DepthImage = image::ImageBuffer<image::Luma<u16>, Vec<u16>>;
 
 pub async fn get_or_init_relight_model(
     app: &tauri::AppHandle,
-    state: &Mutex<Option<AiState>>,
-    init: &TokioMutex<()>,
+    ai_state: &AiState,
 ) -> Result<Arc<rawtonic_onnx::Model>> {
     ensure_local_runtime()?;
     let loaded = || {
-        state
-            .lock()
-            .unwrap()
+        lock_recover(&ai_state.models)
             .as_ref()
             .and_then(|s| s.relight_model.clone())
     };
     if let Some(model) = loaded() {
         return Ok(model);
     }
-    let _guard = init.lock().await;
+    let _guard = ai_state.init_lock.lock().await;
     if let Some(model) = loaded() {
         return Ok(model);
     }
-    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let generation = ai_state.lifecycle.generation();
     let dir = get_models_dir(app)?;
     download_verified(app, &dir, FILE, SHA256, "Relight geometry").await?;
     let path = dir.join(FILE);
@@ -37,7 +34,7 @@ pub async fn get_or_init_relight_model(
     .await??;
     crate::register_exit_handler();
     let model = Arc::new(model);
-    keep_model(state, generation, |ai| {
+    keep_model(ai_state, generation, |ai| {
         ai.relight_model = Some(model.clone())
     });
     Ok(model)
@@ -52,25 +49,22 @@ const SUBJECT_SIDE: u32 = 1024;
 
 pub async fn get_or_init_people_normals_model(
     app: &tauri::AppHandle,
-    state: &Mutex<Option<AiState>>,
-    init: &TokioMutex<()>,
+    ai_state: &AiState,
 ) -> Result<Arc<rawtonic_onnx::Model>> {
     ensure_local_runtime()?;
     let loaded = || {
-        state
-            .lock()
-            .unwrap()
+        lock_recover(&ai_state.models)
             .as_ref()
             .and_then(|s| s.people_normals_model.clone())
     };
     if let Some(model) = loaded() {
         return Ok(model);
     }
-    let _guard = init.lock().await;
+    let _guard = ai_state.init_lock.lock().await;
     if let Some(model) = loaded() {
         return Ok(model);
     }
-    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let generation = ai_state.lifecycle.generation();
     let dir = get_models_dir(app)?;
     download_verified(
         app,
@@ -87,7 +81,7 @@ pub async fn get_or_init_people_normals_model(
     .await??;
     crate::register_exit_handler();
     let model = Arc::new(model);
-    keep_model(state, generation, |ai| {
+    keep_model(ai_state, generation, |ai| {
         ai.people_normals_model = Some(model.clone())
     });
     Ok(model)

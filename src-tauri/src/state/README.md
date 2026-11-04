@@ -9,6 +9,7 @@ functions, not through `AppState`.
 | `settings::SettingsStore` | `settings.json`, read + migrated once per run | `settings::current(app)` / `try_current(app)` (cheap `Arc`), `settings::update(app, \|s\| …)` |
 | `develop::DevelopSession` | the caches built from the open photograph (decodes, preview bases, GPU upload, masks, warps, geometry bases, the editor's patches) | `app.state::<DevelopSession>()`, passed on as `&DevelopSession`; dropped only through `invalidate(Scope)` |
 | `thumbnails::ThumbnailState` | the Library's thumbnail queue and its workers' bookkeeping (`ThumbnailManager`), the cancel flag, the progress counter, the thumbnail bases, the restoration slot | `app.state::<ThumbnailState>()`, passed on as `&ThumbnailState`; progress through `reset_progress` / `add_to_total` / `set_queued` / `complete_one` |
+| `ai::AiState` | the AI models and their cached results (`ai_processing::AiModels`), the locks that serialise loading and running them, their lifecycle (use, running computations, unloads), AI Denoise, faces, the running AI tasks and the tagging pass | `app.state::<AiState>()`, passed on as `&AiState` (the model loaders in `ai_processing` take it) |
 
 ## Lock policy
 
@@ -68,4 +69,19 @@ recovers poisoned locks (`lock_recover`), where `clear_image_caches` skipped a p
 by the workers under `queue` (`take_next_thumbnail_path`, which then drops the rest of the queue).
 A worker that skips a photo already in flight emits its progress event while it still holds
 `queue` and `processing_now` (as before the split); no listener takes these locks.
+
+### `AiState`
+
+The tokio locks are held across the awaits of one load or run:
+
+1. a run lock: `sam_encode_lock` (one SAM encode), `subject_lock` / `sky_lock` (one Subject or Sky
+   run, `AutoMask::lock`)
+2. a load lock: `init_lock` (the models that share it), `sky_init_lock`, `moebius_init_lock`; taken
+   only inside the loaders, which take no run lock
+3. `models`, `faces` or `denoisers` (the std locks, each held for one step: a look-up or a store)
+4. `lifecycle`'s usage lock (inside `keep`, under `models` or `faces` when a loaded model is kept)
+
+`tasks` and `indexing_task` are each taken alone. `ai_lifecycle::unload` takes `models`, then
+`faces`, one after the other, and frees the dropped models outside both. A computation's
+`Lifecycle::run` guard owns an `Arc` of the lifecycle, so it can go into a blocking task.
 

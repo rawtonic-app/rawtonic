@@ -9,13 +9,13 @@
 //! `rawtonic` CLI uses too.
 
 use crate::ipc::CommandError;
+use crate::state::ai::AiState;
+use crate::state::lock::lock_recover;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rawtonic_rawdecode::mosaic_denoise::{MosaicDenoise, MosaicDenoiser};
 use tauri::Manager;
-
-use crate::app_state::AppState;
 
 /// Files of the model pack (docs/MODELS.md). On macOS the three Core ML
 /// files are put back together into the package the crate loads.
@@ -88,13 +88,13 @@ pub async fn denoiser(
     app_handle: &tauri::AppHandle,
     model: usize,
 ) -> Result<Arc<dyn MosaicDenoiser>, CommandError> {
+    let ai_state = app_handle.state::<AiState>();
     let slot = slot(model);
-    let state = app_handle.state::<AppState>();
-    if let Some(denoiser) = state.ai_denoiser.lock().unwrap()[slot].clone() {
+    if let Some(denoiser) = lock_recover(&ai_state.denoisers)[slot].clone() {
         return Ok(denoiser);
     }
-    let _guard = state.ai_init_lock.lock().await;
-    if let Some(denoiser) = state.ai_denoiser.lock().unwrap()[slot].clone() {
+    let _guard = ai_state.init_lock.lock().await;
+    if let Some(denoiser) = lock_recover(&ai_state.denoisers)[slot].clone() {
         return Ok(denoiser);
     }
     let models = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
@@ -107,7 +107,7 @@ pub async fn denoiser(
     };
     #[cfg(not(target_os = "macos"))]
     let denoiser: Arc<dyn MosaicDenoiser> = Arc::new(load(app_handle, &models, cache).await?);
-    state.ai_denoiser.lock().unwrap()[slot] = Some(denoiser.clone());
+    lock_recover(&ai_state.denoisers)[slot] = Some(denoiser.clone());
     Ok(denoiser)
 }
 

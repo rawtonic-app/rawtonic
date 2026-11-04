@@ -4,6 +4,8 @@
 //! geometry), the commands of the masks panel's People entry, and the face
 //! data the retouch tool stores in the recipe (`faceRetouch`).
 
+use crate::state::ai::AiState;
+use crate::state::lock::lock_recover;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
@@ -91,15 +93,15 @@ pub(crate) async fn models(
     app_handle: &tauri::AppHandle,
     download: bool,
 ) -> Result<Arc<FaceModels>, CommandError> {
-    let state = app_handle.state::<AppState>();
-    if let Some(models) = state.faces.lock().unwrap().models.clone() {
+    let ai_state = app_handle.state::<AiState>();
+    if let Some(models) = lock_recover(&ai_state.faces).models.clone() {
         return Ok(models);
     }
-    let _guard = state.ai_init_lock.lock().await;
-    if let Some(models) = state.faces.lock().unwrap().models.clone() {
+    let _guard = ai_state.init_lock.lock().await;
+    if let Some(models) = lock_recover(&ai_state.faces).models.clone() {
         return Ok(models);
     }
-    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let generation = ai_state.lifecycle.generation();
     crate::ai_processing::ensure_runtime()?;
     let dir = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
     for (file, sha) in MODEL_FILES {
@@ -124,8 +126,8 @@ pub(crate) async fn models(
         .map_err(|e| e.to_string())?;
     crate::register_exit_handler();
     let models = Arc::new(models);
-    let mut faces = state.faces.lock().unwrap();
-    if crate::ai_lifecycle::LIFECYCLE.keep(generation) {
+    let mut faces = lock_recover(&ai_state.faces);
+    if ai_state.lifecycle.keep(generation) {
         faces.models = Some(models.clone());
     }
     Ok(models)
@@ -135,6 +137,7 @@ pub(crate) async fn models(
 /// first use.
 async fn analysis(
     state: &tauri::State<'_, AppState>,
+    ai_state: &AiState,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
 ) -> Result<(Arc<RgbImage>, Arc<FaceAnalysis>), CommandError> {
@@ -142,7 +145,7 @@ async fn analysis(
     // photo switch meanwhile cannot file one photo's faces under another.
     let loaded = crate::image_loader::original_image(state).await?;
     let key = crate::ai_commands::geometry_key(&loaded, js_adjustments);
-    if let Some(c) = state.faces.lock().unwrap().cached.as_ref()
+    if let Some(c) = lock_recover(&ai_state.faces).cached.as_ref()
         && c.key == key
     {
         return Ok((c.image.clone(), c.analysis.clone()));
@@ -162,7 +165,7 @@ async fn analysis(
     })
     .await
     .map_err(|e| e.to_string())??;
-    state.faces.lock().unwrap().cached = Some(CachedFaces {
+    lock_recover(&ai_state.faces).cached = Some(CachedFaces {
         key,
         image: image.clone(),
         analysis: analysis.clone(),
@@ -184,9 +187,10 @@ pub async fn detect_people(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<Vec<PersonSummary>, CommandError> {
-    crate::ai_lifecycle::LIFECYCLE.touch();
-    let _running = crate::ai_lifecycle::LIFECYCLE.run();
-    let (image, analysis) = analysis(&state, &app_handle, &js_adjustments).await?;
+    let ai_state = app_handle.state::<AiState>();
+    ai_state.lifecycle.touch();
+    let _running = ai_state.lifecycle.run();
+    let (image, analysis) = analysis(&state, &ai_state, &app_handle, &js_adjustments).await?;
     tokio::task::spawn_blocking(move || {
         let (w, h) = (analysis.width as f32, analysis.height as f32);
         analysis
@@ -229,17 +233,18 @@ pub async fn generate_ai_people_mask(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiPeopleMaskParameters, CommandError> {
+    let ai_state = app_handle.state::<AiState>();
     let guard = task_id
         .as_ref()
-        .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+        .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancelled = || guard.as_ref().is_some_and(|g| g.token.is_cancelled());
-    crate::ai_lifecycle::LIFECYCLE.touch();
-    let _running = crate::ai_lifecycle::LIFECYCLE.run();
+    ai_state.lifecycle.touch();
+    let _running = ai_state.lifecycle.run();
     let selected: Vec<Part> = parts.iter().filter_map(|p| Part::from_name(p)).collect();
     if selected.is_empty() {
         return Err("No person parts selected".into());
     }
-    let (image, analysis) = analysis(&state, &app_handle, &js_adjustments).await?;
+    let (image, analysis) = analysis(&state, &ai_state, &app_handle, &js_adjustments).await?;
     if cancelled() {
         return Err(crate::ai_commands::task_cancelled());
     }

@@ -14,6 +14,7 @@
 //! the photographer turned it on (`eye_check`) and with the face models
 //! installed; it never downloads them by itself (PRIVACY.md).
 
+use crate::state::ai::AiState;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -27,7 +28,7 @@ use rawtonic_catalog::Library;
 use rawtonic_catalog::face_eyes::{EyeFace, PhotoEyes};
 use rawtonic_faces::{FaceModels, eyes};
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::session_bridge::with_library;
 
@@ -119,6 +120,7 @@ pub fn read_image(image: &RgbImage, models: &FaceModels) -> anyhow::Result<Vec<E
 /// counting in `counts` how many were read and how many failed (also when
 /// it stops on an error).
 fn run_pass(
+    ai_state: &AiState,
     directory: &Path,
     models: &FaceModels,
     cancel: &AtomicBool,
@@ -156,9 +158,9 @@ fn run_pass(
                 skipped.insert(item.id);
                 continue;
             }
-            crate::ai_lifecycle::LIFECYCLE.touch();
+            ai_state.lifecycle.touch();
             let reading = {
-                let _running = crate::ai_lifecycle::LIFECYCLE.run();
+                let _running = ai_state.lifecycle.run();
                 upright_preview(&item.path)
                     .and_then(|image| read_image(&image, models).map_err(|e| e.to_string()))
             };
@@ -191,7 +193,7 @@ fn run_pass(
 /// Starts the pass for the library at `directory` with `models` in the
 /// background. A pass for another library is stopped; one running for
 /// this library goes on.
-fn start_pass(directory: PathBuf, models: Arc<FaceModels>) {
+fn start_pass(app: tauri::AppHandle, directory: PathBuf, models: Arc<FaceModels>) {
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let Ok(mut running) = PASS.lock() else {
@@ -211,7 +213,8 @@ fn start_pass(directory: PathBuf, models: Arc<FaceModels>) {
             std::thread::sleep(PASS_DELAY);
             let started = Instant::now();
             let mut counts = (0, 0);
-            if let Err(e) = run_pass(&directory, &models, &cancel, &mut counts) {
+            let ai_state = app.state::<AiState>();
+            if let Err(e) = run_pass(&ai_state, &directory, &models, &cancel, &mut counts) {
                 log::warn!("Eye check paused: {e:#}");
             }
             let cancelled = cancel.swap(true, Ordering::AcqRel);
@@ -276,7 +279,7 @@ pub async fn start_eye_check(
         return Ok(());
     }
     let models = crate::ai_faces::models(&app_handle, download).await?;
-    start_pass(PathBuf::from(directory), models);
+    start_pass(app_handle.clone(), PathBuf::from(directory), models);
     Ok(())
 }
 

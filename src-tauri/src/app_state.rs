@@ -1,94 +1,20 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Condvar, Mutex};
 
 use image::DynamicImage;
 use serde::{Deserialize, Serialize};
 use sysinfo::Disks;
-use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::Notify;
-use tokio::task::JoinHandle;
 
-use crate::ai_processing::AiState;
 pub use crate::gpu_processing::{
     AnalyticsConfig, AnalyticsJob, GpuImageCache, GpuProcessorSlot, GpuProcessorState,
 };
 use crate::gpu_processing::{GpuContext, LatestJobSender};
 use crate::launch_request::ExternalEditSession;
 use crate::lut_processing::LutCache;
-
-pub struct AiTaskToken {
-    cancelled: AtomicBool,
-    notify: Notify,
-}
-
-impl AiTaskToken {
-    pub fn new() -> Self {
-        Self {
-            cancelled: AtomicBool::new(false),
-            notify: Notify::new(),
-        }
-    }
-
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::SeqCst);
-        self.notify.notify_waiters();
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
-    }
-
-    pub async fn wait_for_cancel(&self) {
-        let notified = self.notify.notified();
-        if self.is_cancelled() {
-            return;
-        }
-        notified.await;
-    }
-}
-
-impl Default for AiTaskToken {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub struct AiTaskGuard<'a> {
-    active_ai_tasks: &'a Mutex<HashMap<String, Arc<AiTaskToken>>>,
-    task_id: String,
-    pub token: Arc<AiTaskToken>,
-}
-
-impl<'a> AiTaskGuard<'a> {
-    pub fn new(
-        active_ai_tasks: &'a Mutex<HashMap<String, Arc<AiTaskToken>>>,
-        task_id: String,
-    ) -> Self {
-        let token = Arc::new(AiTaskToken::new());
-        active_ai_tasks
-            .lock()
-            .unwrap()
-            .insert(task_id.clone(), Arc::clone(&token));
-        Self {
-            active_ai_tasks,
-            task_id,
-            token,
-        }
-    }
-}
-
-impl<'a> Drop for AiTaskGuard<'a> {
-    fn drop(&mut self) {
-        let mut tasks = self.active_ai_tasks.lock().unwrap();
-        if let Some(existing) = tasks.get(&self.task_id)
-            && Arc::ptr_eq(existing, &self.token)
-        {
-            tasks.remove(&self.task_id);
-        }
-    }
-}
+pub use crate::state::ai::{AiTaskGuard, AiTaskToken};
 
 #[derive(Serialize, Deserialize)]
 pub struct WindowState {
@@ -462,19 +388,9 @@ pub struct AppState {
     /// Develop view's frames instead of holding up the processor those use
     /// for a whole photo (notes: parity-gaps/G44).
     pub export_gpu_processor: GpuProcessorSlot,
-    pub ai_state: Mutex<Option<AiState>>,
-    pub ai_init_lock: TokioMutex<()>,
-    /// AI Denoise (ai_denoise.rs) by `aiDenoiseVersion` (index 0: version
-    /// 1), each loaded on first use.
-    pub ai_denoiser:
-        Mutex<[Option<Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>>; 2]>,
-    /// Face models and the open photo's faces (ai_faces.rs), loaded on first use.
-    pub faces: crate::ai_faces::SharedFaceState,
-    pub active_ai_tasks: Mutex<HashMap<String, Arc<AiTaskToken>>>,
     pub export_task_token: Arc<Mutex<Option<Arc<AtomicBool>>>>,
     /// A finished merge waiting for `save_merge` (merges.rs).
     pub merge_result: Arc<Mutex<Option<crate::merges::MergeOutcome>>>,
-    pub indexing_task_handle: Mutex<Option<JoinHandle<()>>>,
     pub lut_cache: Mutex<LutCache>,
     pub initial_file_path: Mutex<Option<String>>,
     pub pending_edit_session: Mutex<Option<ExternalEditSession>>,
@@ -520,14 +436,8 @@ impl Default for AppState {
             gpu_adapter: Mutex::new(None),
             gpu_processor: GpuProcessorSlot::new(None),
             export_gpu_processor: GpuProcessorSlot::background(None),
-            ai_state: Mutex::new(None),
-            ai_init_lock: TokioMutex::new(()),
-            ai_denoiser: Mutex::new([None, None]),
-            faces: Mutex::new(Default::default()),
-            active_ai_tasks: Mutex::new(HashMap::new()),
             export_task_token: Arc::new(Mutex::new(None)),
             merge_result: Arc::new(Mutex::new(None)),
-            indexing_task_handle: Mutex::new(None),
             lut_cache: Mutex::new(Default::default()),
             initial_file_path: Mutex::new(None),
             pending_edit_session: Mutex::new(None),

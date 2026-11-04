@@ -1,3 +1,5 @@
+use crate::state::ai::AiState;
+use crate::state::lock::lock_recover;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -6,7 +8,6 @@ use base64::Engine as _;
 use image::GrayImage;
 use tauri::Manager;
 
-use crate::ai_lifecycle::LIFECYCLE;
 use crate::ai_processing::{
     AI_MASKS_KEPT, AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
     AiSubjectMaskParameters, CachedDepthMap, CachedMask, ImageEmbeddings, SamModels, SamPrompt,
@@ -20,8 +21,8 @@ use crate::cache_utils::GEOMETRY_KEYS;
 use crate::ipc::{CommandError, ErrorCode};
 
 #[tauri::command]
-pub fn cancel_ai_task(task_id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let tasks = state.active_ai_tasks.lock().unwrap();
+pub fn cancel_ai_task(task_id: String, ai_state: tauri::State<'_, AiState>) -> Result<(), String> {
+    let tasks = lock_recover(&ai_state.tasks);
     if let Some(token) = tasks.get(&task_id) {
         token.cancel();
     }
@@ -67,22 +68,24 @@ pub async fn generate_ai_foreground_mask(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiForegroundMaskParameters, CommandError> {
+    let ai_state = app_handle.state::<AiState>();
     let _guard = task_id
         .as_ref()
-        .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+        .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
         return Err(task_cancelled());
     }
 
-    LIFECYCLE.touch();
+    ai_state.lifecycle.touch();
     let started = std::time::Instant::now();
     // The component's `subjectVersion` (absent: 1, a selection saved before
     // version 2).
     let version = subject_version.unwrap_or(1);
     let mask = subject_mask(
         &state,
+        &ai_state,
         &app_handle,
         &js_adjustments,
         version,
@@ -119,20 +122,28 @@ pub async fn generate_ai_sky_mask(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiSkyMaskParameters, CommandError> {
+    let ai_state = app_handle.state::<AiState>();
     let _guard = task_id
         .as_ref()
-        .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+        .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
         return Err(task_cancelled());
     }
 
-    LIFECYCLE.touch();
+    ai_state.lifecycle.touch();
     let started = std::time::Instant::now();
-    let mask = sky_mask(&state, &app_handle, &js_adjustments, &path, cancel_flag)
-        .await?
-        .ok_or_else(|| "The sky model is not available".to_string())?;
+    let mask = sky_mask(
+        &state,
+        &ai_state,
+        &app_handle,
+        &js_adjustments,
+        &path,
+        cancel_flag,
+    )
+    .await?
+    .ok_or_else(|| "The sky model is not available".to_string())?;
     log::info!(
         "AI sky mask: answered after {} ms",
         started.elapsed().as_millis()
@@ -167,23 +178,24 @@ pub async fn generate_ai_depth_mask(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiDepthMaskParameters, CommandError> {
+    let ai_state = app_handle.state::<AiState>();
     let _guard = task_id
         .as_ref()
-        .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+        .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
         return Err(task_cancelled());
     }
 
-    LIFECYCLE.touch();
-    let _running = LIFECYCLE.run();
+    ai_state.lifecycle.touch();
+    let _running = ai_state.lifecycle.run();
     // Keyed by the photo actually loaded, taken before the model loads: a
     // photo switch meanwhile cannot file one photo's depth under another.
     let loaded = crate::image_loader::original_image(&state).await?;
     ensure_photo(&loaded.path, &path)?;
     let path_hash = geometry_key(&loaded, &js_adjustments);
-    let depth_model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
+    let depth_model = get_or_init_depth_model(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
 
@@ -191,10 +203,7 @@ pub async fn generate_ai_depth_mask(
         return Err(task_cancelled());
     }
 
-    let cached = state
-        .ai_state
-        .lock()
-        .unwrap()
+    let cached = lock_recover(&ai_state.models)
         .as_ref()
         .and_then(|ai| ai.depth_map.clone())
         .filter(|cached| cached.path_hash == path_hash);
@@ -228,10 +237,7 @@ pub async fn generate_ai_depth_mask(
                 original_size: (warped_image.width(), warped_image.height()),
             };
             // The state may be empty: an unload while the model loaded.
-            state
-                .ai_state
-                .lock()
-                .unwrap()
+            lock_recover(&ai_state.models)
                 .get_or_insert_with(Default::default)
                 .depth_map = Some(new_cache.clone());
             new_cache
@@ -310,20 +316,21 @@ pub async fn generate_ai_subject_mask(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiSubjectMaskParameters, CommandError> {
+    let ai_state = app_handle.state::<AiState>();
     let _guard = task_id
         .as_ref()
-        .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+        .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancel_flag = _guard.as_ref().map(|g| &g.token);
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
         return Err(task_cancelled());
     }
 
-    LIFECYCLE.touch();
-    let _running = LIFECYCLE.run();
-    let generation = LIFECYCLE.generation();
+    ai_state.lifecycle.touch();
+    let _running = ai_state.lifecycle.run();
+    let generation = ai_state.lifecycle.generation();
     let started = std::time::Instant::now();
-    let models = get_or_init_sam_models(&app_handle, &state.ai_state, &state.ai_init_lock)
+    let models = get_or_init_sam_models(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
 
@@ -333,6 +340,7 @@ pub async fn generate_ai_subject_mask(
 
     let (embeddings, warped_image, source_is_raw) = sam_embeddings(
         &state,
+        &ai_state,
         &app_handle,
         &models,
         &js_adjustments,
@@ -499,11 +507,6 @@ pub(crate) fn geometry_key(
     hasher.finalize().to_hex().to_string()
 }
 
-/// Serialises SAM encodes: a click that arrives while the photo is being
-/// encoded in the background waits for that encode instead of starting a
-/// second one.
-static SAM_ENCODE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 /// Waits for `lock`; a request cancelled while it waited does not start.
 async fn wait_turn<'a>(
     lock: &'a tokio::sync::Mutex<()>,
@@ -518,12 +521,14 @@ async fn wait_turn<'a>(
 
 /// SAM's embedding of the current photo with its geometry (cached per photo
 /// and geometry), the warped image it was computed from and whether that is
-/// a linear RAW decode. `generation` is `LIFECYCLE.generation()` from the
+/// a linear RAW decode. `generation` is `AiState::lifecycle`'s generation from the
 /// start of the request: an embedding whose request overlapped an unload
 /// is used once, not kept. Cancelling `cancel` stops a queued request and
 /// the encoder's ONNX Runtime run.
+#[allow(clippy::too_many_arguments)]
 async fn sam_embeddings(
     state: &tauri::State<'_, AppState>,
+    ai_state: &AiState,
     app_handle: &tauri::AppHandle,
     models: &Arc<SamModels>,
     js_adjustments: &serde_json::Value,
@@ -531,7 +536,7 @@ async fn sam_embeddings(
     cancel: Option<&Arc<AiTaskToken>>,
     asked: Option<&str>,
 ) -> Result<(ImageEmbeddings, Arc<image::DynamicImage>, bool), CommandError> {
-    let _encode = wait_turn(&SAM_ENCODE_LOCK, cancel).await?;
+    let _encode = wait_turn(&ai_state.sam_encode_lock, cancel).await?;
     // Keyed by the photo actually loaded, not the caller's path: a
     // background encode that outlives a photo switch cannot file the new
     // photo's embedding under the old one. A selection asked for one photo
@@ -543,10 +548,7 @@ async fn sam_embeddings(
     let path_hash = geometry_key(&loaded, js_adjustments);
     let (mask_source, source_is_raw) = (loaded.image, loaded.is_raw);
     let cached = || {
-        state
-            .ai_state
-            .lock()
-            .unwrap()
+        lock_recover(&ai_state.models)
             .as_ref()
             .and_then(|ai| ai.embeddings.clone())
             .filter(|e| e.path_hash == path_hash)
@@ -595,8 +597,8 @@ async fn sam_embeddings(
         .map_err(|e| e.to_string())?;
     embeddings.path_hash = path_hash;
     // An encoding whose request overlapped an unload is used once, not kept.
-    let mut ai = state.ai_state.lock().unwrap();
-    if LIFECYCLE.keep(generation) {
+    let mut ai = lock_recover(&ai_state.models);
+    if ai_state.lifecycle.keep(generation) {
         ai.get_or_insert_with(Default::default).embeddings = Some(embeddings.clone());
     }
     drop(ai);
@@ -612,12 +614,13 @@ pub async fn precompute_ai_subject_mask(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), CommandError> {
-    let _running = LIFECYCLE.run();
-    let generation = LIFECYCLE.generation();
+    let ai_state = app_handle.state::<AiState>();
+    let _running = ai_state.lifecycle.run();
+    let generation = ai_state.lifecycle.generation();
     // `task_id` cancels it (a photo switch, the Library, memory pressure).
     let _guard = task_id
         .as_ref()
-        .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+        .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancelled = || _guard.as_ref().is_some_and(|g| g.token.is_cancelled());
     // `background`: asked for by opening a photo, not by the user: only
     // with a model that is already installed (no download), and while the
@@ -630,20 +633,17 @@ pub async fn precompute_ai_subject_mask(
         if cancelled() {
             return Ok(());
         }
-        crate::ai_processing::preload_sam_models(&app_handle, &state.ai_state, &state.ai_init_lock)
+        crate::ai_processing::preload_sam_models(&app_handle, &ai_state)
             .await
             .map_err(|e| e.to_string())?;
-        let loaded = state
-            .ai_state
-            .lock()
-            .unwrap()
+        let loaded = lock_recover(&ai_state.models)
             .as_ref()
             .is_some_and(|ai| ai.sam_models.is_some());
         if !loaded {
             return Ok(());
         }
     }
-    let models = get_or_init_sam_models(&app_handle, &state.ai_state, &state.ai_init_lock)
+    let models = get_or_init_sam_models(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
     // A request for a photo that is no longer open is dropped.
@@ -658,6 +658,7 @@ pub async fn precompute_ai_subject_mask(
     let cancel = _guard.as_ref().map(|g| &g.token);
     match sam_embeddings(
         &state,
+        &ai_state,
         &app_handle,
         &models,
         &js_adjustments,
@@ -688,13 +689,6 @@ enum AutoMask {
     Sky,
 }
 
-/// Serialises Subject runs: a click on Subject or Background that arrives
-/// while the photo is computed in the background waits for that run
-/// instead of starting a second one.
-static SUBJECT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-/// The same for Sky.
-static SKY_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 impl AutoMask {
     fn name(self) -> &'static str {
         match self {
@@ -703,14 +697,15 @@ impl AutoMask {
         }
     }
 
-    fn lock(self) -> &'static tokio::sync::Mutex<()> {
+    /// Serialises this kind's runs (`AiState::subject_lock`/`sky_lock`).
+    fn lock(self, ai_state: &AiState) -> &tokio::sync::Mutex<()> {
         match self {
-            Self::Subject => &SUBJECT_LOCK,
-            Self::Sky => &SKY_LOCK,
+            Self::Subject => &ai_state.subject_lock,
+            Self::Sky => &ai_state.sky_lock,
         }
     }
 
-    fn cache(self, ai: &mut crate::ai_processing::AiState) -> &mut Vec<CachedMask> {
+    fn cache(self, ai: &mut crate::ai_processing::AiModels) -> &mut Vec<CachedMask> {
         match self {
             Self::Subject => &mut ai.subject_masks,
             Self::Sky => &mut ai.sky_masks,
@@ -718,16 +713,16 @@ impl AutoMask {
     }
 }
 
-fn cached_mask(state: &AppState, kind: AutoMask, key: &str) -> Option<Arc<String>> {
-    let mut ai = state.ai_state.lock().unwrap();
+fn cached_mask(ai_state: &AiState, kind: AutoMask, key: &str) -> Option<Arc<String>> {
+    let mut ai = lock_recover(&ai_state.models);
     kind.cache(ai.as_mut()?)
         .iter()
         .find(|m| m.key == key)
         .map(|m| m.mask_data_base64.clone())
 }
 
-fn store_mask(state: &AppState, kind: AutoMask, key: String, data: Arc<String>) {
-    let mut ai = state.ai_state.lock().unwrap();
+fn store_mask(ai_state: &AiState, kind: AutoMask, key: String, data: Arc<String>) {
+    let mut ai = lock_recover(&ai_state.models);
     let masks = kind.cache(ai.get_or_insert_with(Default::default));
     masks.retain(|m| m.key != key);
     if masks.len() >= AI_MASKS_KEPT {
@@ -763,11 +758,8 @@ impl Network {
 }
 
 /// Whether the network for `kind` is loaded.
-fn model_loaded(state: &AppState, kind: AutoMask) -> bool {
-    state
-        .ai_state
-        .lock()
-        .unwrap()
+fn model_loaded(ai_state: &AiState, kind: AutoMask) -> bool {
+    lock_recover(&ai_state.models)
         .as_ref()
         .is_some_and(|ai| match kind {
             AutoMask::Subject => ai.subject_model.is_some(),
@@ -778,19 +770,17 @@ fn model_loaded(state: &AppState, kind: AutoMask) -> bool {
 /// The loaded network for `kind`; with `download` false only an installed
 /// model (`None` without one).
 async fn network(
-    state: &AppState,
+    ai_state: &AiState,
     app_handle: &tauri::AppHandle,
     kind: AutoMask,
     download: bool,
 ) -> Result<Option<Network>, CommandError> {
     Ok(match kind {
-        AutoMask::Subject => {
-            get_or_init_subject_model(app_handle, &state.ai_state, &state.ai_init_lock, download)
-                .await
-                .map_err(CommandError::from)?
-                .map(Network::Subject)
-        }
-        AutoMask::Sky => get_or_init_sky_model(app_handle, &state.ai_state, download)
+        AutoMask::Subject => get_or_init_subject_model(app_handle, ai_state, download)
+            .await
+            .map_err(CommandError::from)?
+            .map(Network::Subject),
+        AutoMask::Sky => get_or_init_sky_model(app_handle, ai_state, download)
             .await
             .map_err(CommandError::from)?
             .map(Network::Sky),
@@ -804,8 +794,10 @@ async fn network(
 /// model; `None` for background requests, which use an installed model only
 /// (`Ok(None)` without one). Cancelling `cancel` stops a run of ONNX Runtime
 /// at once.
+#[allow(clippy::too_many_arguments)]
 async fn auto_mask(
     state: &tauri::State<'_, AppState>,
+    ai_state: &AiState,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
     kind: AutoMask,
@@ -816,8 +808,8 @@ async fn auto_mask(
     let download = asked.is_some();
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
     // Counts as running from here, so an idle unload waits for the load too.
-    let _running = LIFECYCLE.run();
-    let _run = kind.lock().lock().await;
+    let _running = ai_state.lifecycle.run();
+    let _run = kind.lock(ai_state).lock().await;
     // Keyed by the photo actually loaded, not the caller's path: a run that
     // outlives a photo switch cannot file one photo's mask under another.
     let loaded = crate::image_loader::original_image(state).await?;
@@ -829,7 +821,7 @@ async fn auto_mask(
         // Each Select Subject version is its own mask.
         key.push_str(&format!(":v{subject_version}"));
     }
-    if let Some(mask) = cached_mask(state, kind, &key) {
+    if let Some(mask) = cached_mask(ai_state, kind, &key) {
         return Ok(Some(mask));
     }
     if cancelled() {
@@ -850,13 +842,13 @@ async fn auto_mask(
         .await?;
         Ok::<_, String>((image, start.elapsed().as_millis()))
     };
-    let (network, warped) = if !model_loaded(state, kind)
+    let (network, warped) = if !model_loaded(ai_state, kind)
         && (download || mask_model_installed(app_handle, kind == AutoMask::Sky))
     {
-        let (network, warped) = tokio::join!(network(state, app_handle, kind, download), warp());
+        let (network, warped) = tokio::join!(network(ai_state, app_handle, kind, download), warp());
         (network?, Some(warped?))
     } else {
-        (network(state, app_handle, kind, download).await?, None)
+        (network(ai_state, app_handle, kind, download).await?, None)
     };
     let during_load = if warped.is_some() {
         " (while the model loaded)"
@@ -938,7 +930,7 @@ async fn auto_mask(
         start.elapsed().as_millis()
     );
     let data = Arc::new(data);
-    store_mask(state, kind, key, data.clone());
+    store_mask(ai_state, kind, key, data.clone());
     Ok(Some(data))
 }
 
@@ -960,16 +952,16 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
         warped: &image::DynamicImage,
         linear: bool,
     ) -> Result<String, String> {
+        let ai_state = self.app_handle.state::<AiState>();
         use rawtonic_engine::ai_selections::AutoSelection;
         let kind = match selection {
             AutoSelection::Sky => AutoMask::Sky,
             AutoSelection::Subject => AutoMask::Subject,
         };
-        let state = self.app_handle.state::<AppState>();
-        LIFECYCLE.touch();
-        let _running = LIFECYCLE.run();
-        let _run = kind.lock().blocking_lock();
-        let network = tauri::async_runtime::block_on(network(&state, self.app_handle, kind, false))?
+        ai_state.lifecycle.touch();
+        let _running = ai_state.lifecycle.run();
+        let _run = kind.lock(&ai_state).blocking_lock();
+        let network = tauri::async_runtime::block_on(network(&ai_state, self.app_handle, kind, false))?
             .ok_or_else(|| {
                 format!(
                     "the {} model is not installed (open the photo in Develop once to download it, then export again)",
@@ -995,6 +987,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
 
 async fn subject_mask(
     state: &tauri::State<'_, AppState>,
+    ai_state: &AiState,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
     version: u32,
@@ -1003,6 +996,7 @@ async fn subject_mask(
 ) -> Result<Option<Arc<String>>, CommandError> {
     auto_mask(
         state,
+        ai_state,
         app_handle,
         js_adjustments,
         AutoMask::Subject,
@@ -1015,6 +1009,7 @@ async fn subject_mask(
 
 async fn sky_mask(
     state: &tauri::State<'_, AppState>,
+    ai_state: &AiState,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
     asked: &str,
@@ -1022,6 +1017,7 @@ async fn sky_mask(
 ) -> Result<Option<Arc<String>>, CommandError> {
     auto_mask(
         state,
+        ai_state,
         app_handle,
         js_adjustments,
         AutoMask::Sky,
@@ -1043,11 +1039,12 @@ async fn precompute(
     path: String,
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
+    ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let _guard = task_id
         .as_ref()
-        .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+        .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancel = _guard.as_ref().map(|g| &g.token);
     let current = crate::image_loader::original_image(&state)
         .await
@@ -1070,6 +1067,7 @@ async fn precompute(
     let version = rawtonic_segment::SUBJECT_VERSION;
     match auto_mask(
         &state,
+        &ai_state,
         &app_handle,
         &js_adjustments,
         kind,
@@ -1108,6 +1106,7 @@ pub async fn precompute_ai_foreground_mask(
     path: String,
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
+    ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     precompute(
@@ -1116,6 +1115,7 @@ pub async fn precompute_ai_foreground_mask(
         path,
         task_id,
         state,
+        ai_state,
         app_handle,
     )
     .await
@@ -1128,6 +1128,7 @@ pub async fn precompute_ai_sky_mask(
     path: String,
     task_id: Option<String>,
     state: tauri::State<'_, AppState>,
+    ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     precompute(
@@ -1136,6 +1137,7 @@ pub async fn precompute_ai_sky_mask(
         path,
         task_id,
         state,
+        ai_state,
         app_handle,
     )
     .await
@@ -1157,17 +1159,17 @@ pub async fn precompute_ai_sky_mask(
 /// warm-up and its result is used (notes: reference/birefnet-fp16.md).
 #[tauri::command]
 pub async fn preload_ai_mask_models(
-    state: tauri::State<'_, AppState>,
+    ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     if crate::memory_pressure::under_pressure() {
         log::info!("AI masks: models not loaded ahead, the system is short of memory");
         return Ok(());
     }
-    let _running = LIFECYCLE.run();
+    let _running = ai_state.lifecycle.run();
     let start = std::time::Instant::now();
     for kind in [AutoMask::Subject, AutoMask::Sky] {
-        network(&state, &app_handle, kind, false).await?;
+        network(&ai_state, &app_handle, kind, false).await?;
     }
     log::info!(
         "AI masks: models loaded ahead after {} ms",
@@ -1193,13 +1195,16 @@ pub async fn preload_ai_mask_models(
 #[tauri::command]
 pub async fn warm_up_ai_mask_models(
     task_id: String,
-    state: tauri::State<'_, AppState>,
+    ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    if WARM_UP_FELL_BACK.load(std::sync::atomic::Ordering::Relaxed) {
+    if ai_state
+        .warm_up_fell_back
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
         return Ok(());
     }
-    let guard = AiTaskGuard::new(&state.active_ai_tasks, task_id);
+    let guard = AiTaskGuard::new(&ai_state.tasks, task_id);
     let stop = || {
         if guard.token.is_cancelled() {
             Some("cancelled")
@@ -1216,15 +1221,15 @@ pub async fn warm_up_ai_mask_models(
         .map_err(|e| e.to_string())?;
     // Once for both models: masking use during Subject's warm-up keeps Sky
     // too.
-    let uses = LIFECYCLE.uses();
+    let uses = ai_state.lifecycle.uses();
     for kind in [AutoMask::Subject, AutoMask::Sky] {
         if !crate::ai_processing::core_ml_first_run_pending(&app_handle, kind == AutoMask::Sky) {
             continue;
         }
-        let _running = LIFECYCLE.run();
+        let _running = ai_state.lifecycle.run();
         let outcome = warm_up_model(
             async {
-                network(&state, &app_handle, kind, false)
+                network(&ai_state, &app_handle, kind, false)
                     .await
                     .map_err(String::from)
             },
@@ -1238,10 +1243,13 @@ pub async fn warm_up_ai_mask_models(
                 .map_err(|e| e.to_string())
             },
             |network: &Network| {
-                let mut ai = state.ai_state.lock().unwrap();
-                crate::ai_lifecycle::release_after_warm_up(&LIFECYCLE, &mut ai, uses, |ai| {
-                    release_network(ai, network)
-                });
+                let mut ai = lock_recover(&ai_state.models);
+                crate::ai_lifecycle::release_after_warm_up(
+                    &ai_state.lifecycle,
+                    &mut ai,
+                    uses,
+                    |ai| release_network(ai, network),
+                );
             },
         )
         .await?;
@@ -1260,16 +1268,15 @@ pub async fn warm_up_ai_mask_models(
             // run is recorded, so nothing more is loaded for a warm-up
             // until the app starts again.
             WarmUp::NotRun => {
-                WARM_UP_FELL_BACK.store(true, std::sync::atomic::Ordering::Relaxed);
+                ai_state
+                    .warm_up_fell_back
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 return Ok(());
             }
         }
     }
     Ok(())
 }
-
-/// A warm-up loaded ONNX Runtime instead of Core ML in this launch.
-static WARM_UP_FELL_BACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// What `warm_up_model` did with one model.
 #[derive(Debug, PartialEq)]
@@ -1324,7 +1331,7 @@ where
 }
 
 /// Drops `network` from the state when it is the loaded one.
-fn release_network(ai: &mut crate::ai_processing::AiState, network: &Network) {
+fn release_network(ai: &mut crate::ai_processing::AiModels, network: &Network) {
     match network {
         Network::Subject(model) => {
             if ai
@@ -1348,19 +1355,16 @@ fn release_network(ai: &mut crate::ai_processing::AiState, network: &Network) {
 pub async fn generate_relight_depth(
     js_adjustments: serde_json::Value,
     state: tauri::State<'_, AppState>,
+    ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     // Capture the source before awaiting model initialization.
     let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
-    LIFECYCLE.touch();
-    let running = LIFECYCLE.run();
-    let model = crate::ai_processing::get_or_init_relight_model(
-        &app_handle,
-        &state.ai_state,
-        &state.ai_init_lock,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    ai_state.lifecycle.touch();
+    let running = ai_state.lifecycle.run();
+    let model = crate::ai_processing::get_or_init_relight_model(&app_handle, &ai_state)
+        .await
+        .map_err(|e| e.to_string())?;
     // Facial relief only refines the depth; without the face models (or if
     // they fail on this photo) the scene depth alone still lights it.
     let face_models = crate::ai_faces::models(&app_handle, true)
@@ -1413,33 +1417,25 @@ pub async fn generate_relight_depth(
     // light take the photo's own lighting off them. People normals load only
     // for photos with faces; without these models the scene depth alone
     // still lights the photo.
-    let subject_model = crate::ai_processing::get_or_init_subject_model(
-        &app_handle,
-        &state.ai_state,
-        &state.ai_init_lock,
-        true,
-    )
-    .await
-    .inspect_err(|e| log::warn!("Relight: continuing without the subject model: {e}"))
-    .ok()
-    .flatten();
+    let subject_model =
+        crate::ai_processing::get_or_init_subject_model(&app_handle, &ai_state, true)
+            .await
+            .inspect_err(|e| log::warn!("Relight: continuing without the subject model: {e}"))
+            .ok()
+            .flatten();
     // Faces, or a parse with skin, and a subject to give them normals in:
     // only then is the people-normal model worth loading (449 MB).
     let maybe_people = subject_model.is_some() && (!faces.is_empty() || parse.is_some());
     let people_model = if !maybe_people {
         None
     } else {
-        crate::ai_processing::get_or_init_people_normals_model(
-            &app_handle,
-            &state.ai_state,
-            &state.ai_init_lock,
-        )
-        .await
-        .inspect_err(|e| log::warn!("Relight: continuing without people normals: {e}"))
-        .ok()
+        crate::ai_processing::get_or_init_people_normals_model(&app_handle, &ai_state)
+            .await
+            .inspect_err(|e| log::warn!("Relight: continuing without people normals: {e}"))
+            .ok()
     };
     // The sky: a new light does not reach it.
-    let sky_model = crate::ai_processing::get_or_init_sky_model(&app_handle, &state.ai_state, true)
+    let sky_model = crate::ai_processing::get_or_init_sky_model(&app_handle, &ai_state, true)
         .await
         .inspect_err(|e| log::warn!("Relight: continuing without the sky model: {e}"))
         .ok()
