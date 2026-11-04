@@ -2267,6 +2267,80 @@ mod tests {
         );
     }
 
+    /// A sidecar the typed reader cannot take whole (no `adjustments`, or a
+    /// field of another type, as a hand edit or another program may leave)
+    /// keeps its rating, keywords and recipe through a rating change, a
+    /// colour label and a batch recipe edit: each writes only its own part.
+    #[test]
+    fn writes_keep_what_an_untyped_sidecar_holds() {
+        let temp = tempfile::tempdir().unwrap();
+        let read = |sidecar: &Path| -> Value {
+            serde_json::from_slice(&fs::read(sidecar).unwrap()).unwrap()
+        };
+        let photo = |name: &str, stored: Value| {
+            let source = temp.path().join(name);
+            fs::write(&source, b"synthetic original").unwrap();
+            let sidecar = temp.path().join(format!("{name}.rrdata"));
+            fs::write(&sidecar, stored.to_string()).unwrap();
+            (source.to_string_lossy().into_owned(), sidecar)
+        };
+        let culling = |path: &str, value: CullingValue| {
+            write_culling_sidecar(
+                CullingWrite {
+                    path: path.to_string(),
+                    value,
+                    asset_id: None,
+                    directory: None,
+                },
+                None,
+            )
+            .unwrap();
+        };
+
+        // No `adjustments` (never edited): a colour label keeps rating and keywords.
+        let (path, sidecar) = photo(
+            "no-recipe.jpg",
+            serde_json::json!({"version": 1, "rating": 4, "tags": ["user:a"]}),
+        );
+        culling(&path, CullingValue::Color(Some("red".into())));
+        let written = read(&sidecar);
+        assert_eq!(written["rating"], 4);
+        assert_eq!(written["tags"], serde_json::json!(["user:a", "color:red"]));
+        assert_eq!(written["adjustments"], Value::Null);
+
+        // A field of another type (an EXIF number, a keyword that is no
+        // string): a rating change keeps the recipe and the keywords.
+        let (path, sidecar) = photo(
+            "mistyped.jpg",
+            serde_json::json!({
+                "version": 1, "rating": 4, "tags": ["user:a", 7],
+                "adjustments": {"exposure": 1.5}, "exif": {"ISO": 100, "Make": "Maker"},
+            }),
+        );
+        culling(&path, CullingValue::Rating(2));
+        let written = read(&sidecar);
+        assert_eq!(written["rating"], 2);
+        assert_eq!(written["tags"], serde_json::json!(["user:a"]));
+        assert_eq!(written["adjustments"], serde_json::json!({"exposure": 1.5}));
+        assert_eq!(written["exif"], serde_json::json!({"Make": "Maker"}));
+
+        // A batch recipe edit (paste, preset, Auto: `edit_sidecars`) keeps
+        // rating and keywords.
+        let (path, sidecar) = photo(
+            "batch.jpg",
+            serde_json::json!({"version": 1, "rating": "5", "tags": ["user:b"], "adjustments": {}}),
+        );
+        let failures = edit_sidecars(std::slice::from_ref(&path), None, |_, _, sidecar| {
+            let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+            metadata.adjustments = serde_json::json!({"exposure": 0.5});
+            Ok(metadata)
+        });
+        assert!(failures.is_empty(), "{failures:?}");
+        let written = read(&sidecar);
+        assert_eq!(written["tags"], serde_json::json!(["user:b"]));
+        assert_eq!(written["adjustments"], serde_json::json!({"exposure": 0.5}));
+    }
+
     #[test]
     fn culling_receipt_keeps_implicit_owner_when_no_library_is_selected() {
         use rawtonic_catalog::{Library, Mode};

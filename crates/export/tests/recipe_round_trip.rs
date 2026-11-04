@@ -145,16 +145,26 @@ fn sidecar_fields_a_round_trip_changes_are_pinned() {
     assert_eq!(written["tags"], Value::Null);
     assert!(written.as_object().unwrap().contains_key("tags"));
     assert_eq!(written["adjustments"], json!({"exposure": 1}));
-    // FINDING: a sidecar without `adjustments` (or with a field of the wrong
-    // type) does not parse as `ImageMetadata`; it is read as the default, so
-    // a write without an edit replaces its rating and tags with defaults.
+    // A sidecar without `adjustments` (or with a field of another type) is
+    // read field by field: a write without an edit keeps its rating, tags
+    // and recipe (`sidecars::metadata_fields`).
     let written = round_trip(
         "no-adjustments",
         &json!({"version": 1, "rating": 4, "tags": ["a"]}),
     );
     assert_eq!(
         written,
-        json!({"version": 1, "rating": 0, "tags": null, "adjustments": null})
+        json!({"version": 1, "rating": 4, "tags": ["a"], "adjustments": null})
+    );
+    let written = round_trip(
+        "mistyped",
+        &json!({"version": 1, "rating": 4, "tags": ["a", 1], "adjustments": {"exposure": 1},
+                "exif": {"ISO": 100, "Make": "Maker"}}),
+    );
+    assert_eq!(
+        written,
+        json!({"version": 1, "rating": 4, "tags": ["a"], "adjustments": {"exposure": 1},
+               "exif": {"Make": "Maker"}})
     );
     // Unknown top-level sidecar fields are dropped (serde ignores them).
     // FINDING: so a sidecar written by a newer build loses its new fields.
