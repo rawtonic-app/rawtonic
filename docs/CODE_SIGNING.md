@@ -30,6 +30,10 @@ Changes from anyone else (pull requests) are reviewed by a committer before they
 
 Rawtonic sends nothing on its own except a startup update check: at most once every 24 hours it asks GitHub's public Releases API whether a newer version exists. It is on by default and can be turned off in Preferences → General ("Check for updates at startup"). Everything else that goes online (AI model downloads, maps, problem and crash reports, opt-in usage statistics) happens only when the user asks for it, after showing what is sent. Details: [PRIVACY.md](../PRIVACY.md) and <https://rawtonic.cc/privacy/>.
 
+The installers show this notice before anything is installed (SignPath Foundation's condition that an application with network access says so and how to turn it off): the NSIS installer on a page of its own (`src-tauri/windows/installer-hooks.nsh`), the MSI on its Welcome dialog (`src-tauri/windows/msi-en-US.wxl`). Both name the update check, its interval and the setting, and point to <https://rawtonic.cc/privacy/>. Interactive installs record that in `HKCU\Software\Rawtonic Project\Rawtonic` (`PrivacyNoticeShown`). The portable zip and silent installs have no such page, so the app shows the same text once on its first start (`src-tauri/src/privacy_notice.rs`) and runs no update check before that.
+
+The publisher, in the installers and in the properties of `rawtonic-app.exe` (company name), is **Rawtonic Project** (`bundle.publisher` in `src-tauri/tauri.conf.json`); the signature itself will name SignPath Foundation.
+
 ## Contact
 
 Questions about this policy or a suspected misuse of a signature: hello@rawtonic.cc, or an [issue](https://github.com/rawtonic-app/rawtonic/issues).

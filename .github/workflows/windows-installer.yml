@@ -298,6 +298,35 @@ jobs:
             Get-Content $log.FullName
           }
           "INSTALL_DIR=$dir" >> $env:GITHUB_ENV
+      # The publisher the signing policy names, in the executable's version
+      # resource and wherever the installer records it.
+      - name: Check the publisher metadata
+        run: |
+          $v = (Get-Item "$env:INSTALL_DIR\rawtonic-app.exe").VersionInfo
+          "ProductName=$($v.ProductName) CompanyName=$($v.CompanyName) LegalCopyright=$($v.LegalCopyright) ProductVersion=$($v.ProductVersion)"
+          if ($v.ProductName -ne 'Rawtonic' -or $v.CompanyName -ne 'Rawtonic Project' -or $v.LegalCopyright -notmatch 'Rawtonic contributors' -or -not $v.ProductVersion) {
+            Write-Error 'the version resource of rawtonic-app.exe is wrong'; exit 1
+          }
+          switch ($env:KIND) {
+            'nsis' {
+              $k = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Rawtonic'
+              "Apps & Features: $($k.DisplayName) / $($k.Publisher)"
+              if ($k.Publisher -ne 'Rawtonic Project') { Write-Error 'wrong NSIS publisher'; exit 1 }
+              $loc = (Get-ItemProperty 'HKCU:\Software\Rawtonic Project\Rawtonic').'(default)'
+              if ($loc -ne $env:INSTALL_DIR) { Write-Error "install folder key is '$loc'"; exit 1 }
+            }
+            'msi' {
+              $msi = (Get-ChildItem installer-out\*.msi)[0].FullName
+              $wi = New-Object -ComObject WindowsInstaller.Installer
+              $db = $wi.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $wi, @($msi, 0))
+              $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @("SELECT Value FROM Property WHERE Property='Manufacturer'"))
+              $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
+              $rec = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+              $manufacturer = $rec.GetType().InvokeMember('StringData', 'GetProperty', $null, $rec, @(1))
+              "MSI Manufacturer: $manufacturer"
+              if ($manufacturer -ne 'Rawtonic Project') { Write-Error 'wrong MSI manufacturer'; exit 1 }
+            }
+          }
       # A synthetic gradient, no photograph: the installed app decodes,
       # develops on the GPU and encodes it without a window. The runner's only
       # adapter is WARP, Windows' software DX12, whose shader compiler corrupts
@@ -390,3 +419,120 @@ jobs:
           for ($i = 0; $i -lt 60 -and (Test-Path "$env:INSTALL_DIR\rawtonic-app.exe"); $i++) { Start-Sleep 1 }
           if (Test-Path "$env:INSTALL_DIR\rawtonic-app.exe") { Write-Error 'rawtonic-app.exe still installed'; exit 1 }
           "$env:KIND uninstalled"
+
+  # An installation from the last release, updated by this build the way a user
+  # does it (passive mode runs the replace-and-uninstall path of the reinstall
+  # page): one entry in Apps & Features, the new publisher, the app starts,
+  # a clean uninstall.
+  upgrade:
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: installer-out
+      - name: Download the last release's installer
+        run: |
+          $tag = gh release list -R $env:GITHUB_REPOSITORY --limit 1 --json tagName --jq '.[0].tagName'
+          "last release: $tag"
+          gh release download $tag -R $env:GITHUB_REPOSITORY -p '*_x64-setup.exe' -D old
+          if (-not (Get-ChildItem old\*-setup.exe)) { Write-Error 'the last release has no NSIS installer'; exit 1 }
+      - name: Install the old version, then update over it
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'Rawtonic'
+          $old = (Get-ChildItem old\*-setup.exe)[0].FullName
+          $p = Start-Process $old -ArgumentList '/S' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { Write-Error "old install failed ($($p.ExitCode))"; exit 1 }
+          $oldVersion = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Rawtonic').DisplayVersion
+          "installed $oldVersion; HKCU\Software keys: $((Get-ChildItem HKCU:\Software | Where-Object { $_.PSChildName -match 'rawtonic' }).PSChildName -join ', ')"
+          Get-ChildItem HKCU:\Software | Where-Object { $_.PSChildName -match 'rawtonic' } | ForEach-Object { Get-ChildItem $_.PSPath -Recurse | ForEach-Object { "$($_.Name) = $((Get-ItemProperty $_.PSPath).'(default)')" } }
+          $new = (Get-ChildItem installer-out\*-setup.exe)[0].FullName
+          $p = Start-Process $new -ArgumentList '/P' -PassThru -Wait
+          "update exit $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          for ($i = 0; $i -lt 90 -and -not (Test-Path "$dir\rawtonic-app.exe"); $i++) { Start-Sleep 1 }
+          Start-Sleep 5
+          $entries = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+            Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -eq 'Rawtonic' })
+          "Apps & Features entries named Rawtonic: $($entries.Count)"
+          if ($entries.Count -ne 1) { Write-Error 'expected exactly one Rawtonic entry'; exit 1 }
+          $k = Get-ItemProperty $entries[0].PSPath
+          "now $($k.DisplayVersion), publisher $($k.Publisher)"
+          if ($k.DisplayVersion -eq $oldVersion -or $k.Publisher -ne 'Rawtonic Project') { Write-Error 'the update did not replace the old entry'; exit 1 }
+          $v = (Get-Item "$dir\rawtonic-app.exe").VersionInfo
+          "exe: $($v.ProductName) / $($v.CompanyName) / $($v.ProductVersion)"
+          if ($v.CompanyName -ne 'Rawtonic Project') { Write-Error 'old executable still installed'; exit 1 }
+          $loc = (Get-ItemProperty 'HKCU:\Software\Rawtonic Project\Rawtonic').'(default)'
+          "install folder key: $loc"
+          if ($loc -ne $dir) { Write-Error 'install folder key missing or wrong'; exit 1 }
+          if (Test-Path 'HKCU:\Software\rawtonic\Rawtonic') { Write-Error 'legacy install folder key left behind'; exit 1 }
+          # The updated app starts (it refuses WARP cleanly: exit 1 with its message, or exports).
+          Add-Type -AssemblyName System.Drawing
+          $png = Join-Path $env:RUNNER_TEMP 'g.png'
+          $bmp = New-Object Drawing.Bitmap 400, 300
+          $bmp.Save($png, [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+          $p = Start-Process "$dir\rawtonic-app.exe" -ArgumentList 'export', "`"$png`"", '--output', "`"$env:RUNNER_TEMP\g.jpg`"", '--format', 'jpeg' -RedirectStandardError "$env:RUNNER_TEMP\err.log" -RedirectStandardOutput "$env:RUNNER_TEMP\out.log" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(300000)) { $p.Kill(); Write-Error 'app hung'; exit 1 }
+          "app exit $($p.ExitCode)"
+          if ($p.ExitCode -ne 0 -and -not ((Get-Content "$env:RUNNER_TEMP\err.log" -Raw) -match 'software renderer \(WARP\) is not supported')) { Get-Content "$env:RUNNER_TEMP\err.log"; Write-Error 'the updated app does not run'; exit 1 }
+          "INSTALL_DIR=$dir" >> $env:GITHUB_ENV
+      - name: Uninstall
+        run: |
+          $p = Start-Process "$env:INSTALL_DIR\uninstall.exe" -ArgumentList '/S' -PassThru -Wait
+          for ($i = 0; $i -lt 60 -and (Test-Path "$env:INSTALL_DIR\rawtonic-app.exe"); $i++) { Start-Sleep 1 }
+          if (Test-Path "$env:INSTALL_DIR\rawtonic-app.exe") { Write-Error 'still installed'; exit 1 }
+          if (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Rawtonic') { Write-Error 'Apps & Features entry left behind'; exit 1 }
+          'update from the last release: ok, uninstalled clean'
+
+  # The first page of each installer as the user sees it, captured from the
+  # runner's desktop (an interactive install, killed after the screenshot).
+  installer-pages:
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: installer-out
+      - name: Capture the privacy notice pages
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $shots = Join-Path $env:RUNNER_TEMP 'pages'
+          New-Item -ItemType Directory $shots | Out-Null
+          function Shot($name) {
+            $b = [Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object Drawing.Bitmap $b.Width, $b.Height
+            [Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("$shots\$name.png", [Drawing.Imaging.ImageFormat]::Png)
+          }
+          $setup = (Get-ChildItem installer-out\*-setup.exe)[0].FullName
+          $p = Start-Process $setup -PassThru
+          Start-Sleep 12
+          Shot 'nsis-first-page'
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          Get-Process | Where-Object { $_.Name -match 'Rawtonic.*setup|^Au_' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          $msi = (Get-ChildItem installer-out\*.msi)[0].FullName
+          $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"" -PassThru
+          Start-Sleep 12
+          Shot 'msi-first-dialog'
+          Get-Process msiexec -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-ChildItem $shots
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: windows-installer-pages
+          path: ${{ runner.temp }}/pages/
+          retention-days: 14
+          if-no-files-found: warn

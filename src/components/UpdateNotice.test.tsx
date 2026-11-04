@@ -186,3 +186,20 @@ it('defaults "What\'s new after an update" on and saves the opt-out', () => {
   fireEvent.click(toggle);
   expect(onSettingsChange).toHaveBeenCalledWith({ showWhatsNew: false });
 });
+
+it('shows the privacy notice first and checks for updates only after it was acknowledged', async () => {
+  vi.mocked(invoke).mockImplementation(async (cmd) =>
+    cmd === Invokes.PrivacyNoticePending ? true : cmd === Invokes.CheckUpdates ? release : undefined
+  );
+  render(<UpdateNotice />);
+  await act(async () => {});
+  expect(screen.getByText('updates.privacyNoticeBody')).toBeTruthy();
+  expect(invoke).not.toHaveBeenCalledWith(Invokes.CheckUpdates, expect.anything());
+  fireEvent.click(screen.getByText('updates.privacyNoticeLink'));
+  expect(open).toHaveBeenCalledWith('https://rawtonic.cc/privacy/');
+  fireEvent.click(screen.getByText('updates.privacyNoticeOk'));
+  await act(async () => {});
+  expect(invoke).toHaveBeenCalledWith(Invokes.PrivacyNoticeAcknowledge);
+  expect(invoke).toHaveBeenCalledWith(Invokes.CheckUpdates, { manual: false });
+  expect(screen.getByText('Rawtonic 0.1.0-alpha.4 is available')).toBeTruthy();
+});

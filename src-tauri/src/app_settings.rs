@@ -596,6 +596,9 @@ pub struct AppSettings {
     pub update_prereleases: Option<bool>,
     #[serde(default)]
     pub last_update_check: Option<u64>,
+    /// The first-start privacy notice was shown (`privacy_notice`; backend-owned).
+    #[serde(default)]
+    pub privacy_notice_seen: Option<bool>,
     #[serde(default)]
     pub dismissed_update_version: Option<String>,
     /// The version that ran last; a newer one shows its CHANGELOG section once.
@@ -861,6 +864,7 @@ impl Default for AppSettings {
             check_for_updates: None,
             update_prereleases: None,
             last_update_check: None,
+            privacy_notice_seen: None,
             dismissed_update_version: None,
             last_run_version: None,
             show_whats_new: None,
@@ -1166,6 +1170,7 @@ fn save_settings_snapshot(settings: AppSettings, app_handle: &AppHandle) -> Resu
 /// nor the usage-statistics choice, which only `persist_usage_stats` changes.
 fn take_frontend_snapshot(saved: &mut AppSettings, mut snapshot: AppSettings) {
     snapshot.last_update_check = saved.last_update_check;
+    snapshot.privacy_notice_seen = saved.privacy_notice_seen;
     snapshot.usage_stats = saved.usage_stats;
     *saved = snapshot;
 }
@@ -1204,7 +1209,9 @@ fn reserve_update_check_in(
     now: u64,
 ) -> Result<Option<AppSettings>, String> {
     crate::update_check::core::when_due(
-        settings.check_for_updates.unwrap_or(true),
+        // Nothing automatic goes online before the privacy notice was shown.
+        settings.check_for_updates.unwrap_or(true)
+            && crate::privacy_notice::shown(settings.privacy_notice_seen),
         settings.last_update_check,
         now,
         manual,

@@ -92,6 +92,7 @@ mod red_eye;
 mod scope_analytics;
 mod series_match;
 mod session_bridge;
+mod privacy_notice;
 mod session_folders;
 mod session_move;
 mod snapshots;
@@ -786,6 +787,8 @@ pub fn run() {
             storage::storage_clear,
             storage::storage_apply_limits,
             update_check::check_updates,
+            privacy_notice::privacy_notice_pending,
+            privacy_notice::privacy_notice_acknowledge,
             contribute::contribution_app_info,
             contribute::contribution_available,
             contribute::contribution_prepare,

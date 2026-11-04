@@ -220,6 +220,8 @@ export enum Invokes {
   LoadPresets = 'load_presets',
   LoadBuiltinPresets = 'load_builtin_presets',
   CheckUpdates = 'check_updates',
+  PrivacyNoticePending = 'privacy_notice_pending',
+  PrivacyNoticeAcknowledge = 'privacy_notice_acknowledge',
   ContributionAppInfo = 'contribution_app_info',
   ContributionAvailable = 'contribution_available',
   ContributionDelete = 'contribution_delete',
