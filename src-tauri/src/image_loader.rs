@@ -694,6 +694,13 @@ fn clear_derived_caches(state: &AppState, develop: &DevelopSession) {
 /// replaced.
 const LOAD_CANCELLED: &str = "Load cancelled";
 
+/// The rejection of `publish_loaded_image` (a newer load replaced this one
+/// while it waited for the source lock) as the cancelled develop it is: the
+/// editor reads the code and shows and retries nothing.
+fn publish_cancelled() -> CommandError {
+    CommandError::cancelled(LOAD_CANCELLED)
+}
+
 /// Develops the open photograph again with AI Denoise at `amount` (0 … 100)
 /// of `version` (`aiDenoiseVersion`, None: 1), for the colour noise filter
 /// of its recipe (`multiscale`, see `load_base_image_from_bytes_for`; None:
@@ -850,7 +857,8 @@ pub async fn apply_ai_denoise(
             decode: Some(variant),
             measures,
         },
-    )?;
+    )
+    .map_err(|_| publish_cancelled())?;
     clear_derived_caches(&state, &develop);
     Ok(applied)
 }
@@ -1605,6 +1613,7 @@ async fn open_offline(
 #[cfg(test)]
 mod activation_tests {
     use super::*;
+    use crate::ipc::ErrorCode;
 
     #[test]
     fn a_wait_during_the_offline_preview_activation_keeps_waiting() {
@@ -1685,6 +1694,40 @@ mod activation_tests {
         let active = original.lock().unwrap();
         let active = active.as_ref().unwrap();
         assert_eq!(active.path, "cached.raf");
+        assert!(Arc::ptr_eq(&active.image, &active_pixels));
+    }
+
+    /// `apply_ai_denoise`'s publish step: a newer load that replaced this
+    /// develop while it waited for the source lock leaves the newer source
+    /// in place and rejects as the cancellation it is, so the editor neither
+    /// shows an error nor marks the amount failed.
+    #[test]
+    fn a_superseded_develop_publishes_nothing_and_reports_cancelled() {
+        let original = std::sync::Mutex::new(None);
+        let signal = SourceSignal::default();
+        let loaded = |path: &str| LoadedImage {
+            path: path.to_owned(),
+            image: Arc::new(DynamicImage::new_rgb8(2, 1)),
+            is_raw: true,
+            decode: None,
+            measures: None,
+        };
+        let publish = |generation: &AtomicUsize, expected: usize, path: &str| {
+            publish_loaded_image(&original, &signal, generation, expected, loaded(path))
+                .map_err(|_| publish_cancelled())
+        };
+        let generation = AtomicUsize::new(2);
+        publish(&generation, 2, "opened.raf").unwrap();
+        let active_pixels = original.lock().unwrap().as_ref().unwrap().image.clone();
+        // The develop started as generation 2; a newer load moved on before
+        // it could publish.
+        generation.store(3, Ordering::SeqCst);
+        let error = publish(&generation, 2, "developed.raf").unwrap_err();
+        assert_eq!(error.code, ErrorCode::Cancelled);
+        assert_eq!(error.message, LOAD_CANCELLED);
+        let active = original.lock().unwrap();
+        let active = active.as_ref().unwrap();
+        assert_eq!(active.path, "opened.raf");
         assert!(Arc::ptr_eq(&active.image, &active_pixels));
     }
 

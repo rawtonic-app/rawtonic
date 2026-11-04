@@ -449,6 +449,16 @@ describe('AI Denoise busy note', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
+  it('cancels silently a develop that a newer load superseded', async () => {
+    // The rejection `apply_ai_denoise` gives when publish_loaded_image finds a
+    // newer load: no error, and the amount is not marked as failed.
+    const request = startDenoise().reject;
+    await act(async () => request({ code: 'cancelled', message: 'Load cancelled' }));
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().selectedImage).not.toHaveProperty('aiDenoiseFailed');
+    expect(useEditorStore.getState().aiDenoiseBusy).toBe(false);
+  });
+
   it('keeps the AI bitmaps sent once the source is developed again', async () => {
     const before = new Set(['subject']);
     useEditorStore.setState({ patchesSentToBackend: before });
