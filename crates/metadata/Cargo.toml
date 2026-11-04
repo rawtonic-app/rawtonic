@@ -11,6 +11,7 @@ workspace = true
 rawtonic-fs = { path = "../fs", version = "0.1.0" }
 roxmltree = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

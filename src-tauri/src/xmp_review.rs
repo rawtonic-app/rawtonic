@@ -13,7 +13,7 @@
 
 use crate::session_bridge::with_library;
 use rawtonic_catalog::{Library, SidecarStamps, XmpOffline, XmpProblem, XmpUndo};
-use rawtonic_metadata::XmpConflict;
+use rawtonic_metadata::MetadataError;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -78,7 +78,12 @@ impl XmpReport {
         match result {
             Ok(()) => self.done.push(path),
             Err(e) if e.is::<XmpOffline>() => self.offline.push(path),
-            Err(e) if e.is::<XmpConflict>() => self.conflicts.push(path),
+            Err(e)
+                if e.downcast_ref::<MetadataError>()
+                    .is_some_and(|e| matches!(e, MetadataError::XmpConflict)) =>
+            {
+                self.conflicts.push(path)
+            }
             Err(e) => self.failed.push(XmpFailure {
                 path,
                 reason: format!("{e:#}"),

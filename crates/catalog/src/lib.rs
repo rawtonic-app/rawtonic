@@ -1362,8 +1362,10 @@ impl Library {
         )?;
         if hash.is_none() && path.exists() {
             self.mark_xmp_conflict(asset)?;
-            return Err(anyhow::Error::new(rawtonic_metadata::XmpConflict)
-                .context("Existing XMP has not been adopted; refusing to replace its metadata"));
+            return Err(
+                anyhow::Error::new(rawtonic_metadata::MetadataError::XmpConflict)
+                    .context("Existing XMP has not been adopted; refusing to replace its metadata"),
+            );
         }
         self.write_sidecar(asset, &path, hash.as_deref())
     }

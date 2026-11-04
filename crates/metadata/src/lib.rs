@@ -1,10 +1,12 @@
 //! Atomic sidecar IO. Original image files are never passed to this API.
 pub mod culling;
+mod error;
 pub mod labels;
 pub mod photo_ref;
 pub mod provenance;
 pub mod resources;
 use anyhow::{Context, Result, ensure};
+pub use error::MetadataError;
 use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fs, path::Path};
@@ -184,7 +186,11 @@ pub struct Metadata {
 }
 
 impl Metadata {
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<(), MetadataError> {
+        Ok(self.check()?)
+    }
+
+    fn check(&self) -> Result<()> {
         culling::Rating::try_from(self.rating)?;
         culling::Flag::try_from(self.flag)?;
         ensure!(self.keywords.len() <= MAX_KEYWORDS, "Too many keywords");
@@ -261,7 +267,11 @@ fn managed(namespace: Option<&str>, name: &str) -> bool {
 /// (`xmp:Rating` -1). Other editors
 /// rewriting a sidecar may leave the flag out; reading such a packet back
 /// keeps the library's flag rather than taking the absent one as "unflagged".
-pub fn carries_flag(text: &str) -> Result<bool> {
+pub fn carries_flag(text: &str) -> Result<bool, MetadataError> {
+    Ok(packet_carries_flag(text)?)
+}
+
+fn packet_carries_flag(text: &str) -> Result<bool> {
     ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
     let doc = roxmltree::Document::parse(text)?;
     let flag = |namespace: Option<&str>, name: &str| {
@@ -282,7 +292,11 @@ pub fn carries_flag(text: &str) -> Result<bool> {
     }))
 }
 
-pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
+pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>), MetadataError> {
+    Ok(parse_xmp(text)?)
+}
+
+fn parse_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
     let doc = roxmltree::Document::parse(text)?;
     let mut result = Metadata::default();
@@ -649,6 +663,14 @@ pub fn merge_xmp(
     existing: Option<&str>,
     metadata: &Metadata,
     recipe: Option<&serde_json::Value>,
+) -> Result<String, MetadataError> {
+    Ok(merge_packet(existing, metadata, recipe)?)
+}
+
+fn merge_packet(
+    existing: Option<&str>,
+    metadata: &Metadata,
+    recipe: Option<&serde_json::Value>,
 ) -> Result<String> {
     metadata.validate()?;
     let base = existing.unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF></x:xmpmeta>");
@@ -854,12 +876,20 @@ pub fn merge_xmp(
 /// session. Keywords go to `dc:subject` as single terms, every level of a
 /// hierarchical `A|B|C` keyword included, and hierarchical keywords also to
 /// `lr:hierarchicalSubject`, as Lightroom exports them.
-pub fn export_xmp(metadata: &Metadata, creator_tool: &str) -> Result<String> {
+pub fn export_xmp(metadata: &Metadata, creator_tool: &str) -> Result<String, MetadataError> {
     export_xmp_with_source(metadata, creator_tool, None)
 }
 
 /// `export_xmp` with an IPTC Digital Source Type (`Iptc4xmpExt:DigitalSourceType`).
 pub fn export_xmp_with_source(
+    metadata: &Metadata,
+    creator_tool: &str,
+    digital_source_type: Option<&str>,
+) -> Result<String, MetadataError> {
+    Ok(export_packet(metadata, creator_tool, digital_source_type)?)
+}
+
+fn export_packet(
     metadata: &Metadata,
     creator_tool: &str,
     digital_source_type: Option<&str>,
@@ -959,29 +989,15 @@ pub fn export_xmp_with_source(
     Ok(out)
 }
 
-/// The sidecar changed since the library last wrote or read it (another
-/// application edited, replaced or removed it): `write_xmp` refuses to
-/// replace it until the change is reviewed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct XmpConflict;
-
-impl std::fmt::Display for XmpConflict {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("XMP conflict: external changes must be reviewed")
-    }
-}
-
-impl std::error::Error for XmpConflict {}
-
 /// expected_hash is the DB's last observed digest. Conflicts never overwrite
-/// (`XmpConflict`), and neither is a read-only sidecar replaced: a locked
+/// (`MetadataError::XmpConflict`), and neither is a read-only sidecar replaced: a locked
 /// file stays as it is and the write fails.
 pub fn write_xmp(
     path: &Path,
     metadata: &Metadata,
     recipe: Option<&serde_json::Value>,
     expected_hash: Option<&str>,
-) -> Result<String> {
+) -> Result<String, MetadataError> {
     write_xmp_announced(path, metadata, recipe, expected_hash, |_| Ok(()))
 }
 
@@ -997,7 +1013,7 @@ pub fn write_xmp_announced(
     recipe: Option<&serde_json::Value>,
     expected_hash: Option<&str>,
     announce: impl FnOnce(&str) -> Result<()>,
-) -> Result<String> {
+) -> Result<String, MetadataError> {
     let existing = match fs::read_to_string(path) {
         Ok(s) => Some(s),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -1008,13 +1024,10 @@ pub fn write_xmp_announced(
             .as_ref()
             .is_some_and(|s| rawtonic_fs::sha256_hex(s.as_bytes()) == expected)
     {
-        return Err(XmpConflict.into());
+        return Err(MetadataError::XmpConflict);
     }
-    if existing.is_some() {
-        ensure!(
-            !fs::metadata(path)?.permissions().readonly(),
-            "The XMP sidecar is read-only"
-        );
+    if existing.is_some() && fs::metadata(path)?.permissions().readonly() {
+        return Err(anyhow::anyhow!("The XMP sidecar is read-only").into());
     }
     let merged = merge_xmp(existing.as_deref(), metadata, recipe)?;
     let hash = rawtonic_fs::sha256_hex(merged.as_bytes());
@@ -1033,7 +1046,7 @@ mod tests {
         let hash = write_xmp(&path, &Metadata::default(), None, None).unwrap();
         std::fs::write(&path, "changed elsewhere").unwrap();
         let error = write_xmp(&path, &Metadata::default(), None, Some(&hash)).unwrap_err();
-        assert!(error.is::<XmpConflict>(), "{error}");
+        assert!(matches!(error, MetadataError::XmpConflict), "{error}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "changed elsewhere");
     }
 
