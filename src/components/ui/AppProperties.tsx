@@ -455,6 +455,8 @@ export interface AppSettings {
   checkForUpdates?: boolean;
   /** Backend-owned Unix timestamp in seconds throttling automatic update checks. */
   lastUpdateCheck?: number | null;
+  /** Backend-owned: the first-start privacy notice was shown (Windows copies without an installer page). */
+  privacyNoticeSeen?: boolean | null;
   /** Rawtonic's own presets and styles in the Styles panel and the tools' preset menus (missing: shown). */
   showBuiltinPresets?: boolean;
   favoriteProfiles?: string[];
