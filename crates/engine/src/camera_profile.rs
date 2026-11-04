@@ -582,8 +582,10 @@ pub fn register(name: &str) -> u32 {
     key
 }
 
-/// Where a recipe's profile name points for the photo at `image_path`.
-pub fn resolve(name: &str, image_path: &Path) -> Option<PathBuf> {
+/// Where a recipe's profile name points for a photo of the library folder
+/// `library` (None: the photo belongs to no library): an absolute path as
+/// it is, a relative one inside the library.
+pub fn resolve(name: &str, library: Option<&Path>) -> Option<PathBuf> {
     let path = Path::new(name);
     if path.is_absolute() {
         return Some(path.to_path_buf());
@@ -595,7 +597,7 @@ pub fn resolve(name: &str, image_path: &Path) -> Option<PathBuf> {
     {
         return None;
     }
-    Some(crate::session_layout::library_root(image_path)?.join(path))
+    Some(library?.join(path))
 }
 
 type Prepared = Arc<(Rendering, Vec<[f32; 4]>)>;
@@ -778,8 +780,9 @@ pub const FLAG_OWN_CURVE: f32 = 4.0;
 pub const FLAG_DEFAULT_CURVE: f32 = 5.0;
 
 /// Applies the recipe's camera profile (`global.camera_profile[0]`, from
-/// `register`) for the photo at `image_path`, after the base look.
-pub fn apply(global: &mut GlobalAdjustments, image_path: &str) {
+/// `register`) for the photo at `image_path` of the library folder
+/// `library`, after the base look.
+pub fn apply(global: &mut GlobalAdjustments, image_path: &str, library: Option<&Path>) {
     let key = global.camera_profile[0];
     global.camera_profile = [0; 4];
     let custom_wb = (global.white_balance[0] > 0.5).then_some((
@@ -803,7 +806,7 @@ pub fn apply(global: &mut GlobalAdjustments, image_path: &str) {
                 .cloned()
         })
         .flatten()
-        .and_then(|name| resolve(&name, Path::new(image_path)));
+        .and_then(|name| resolve(&name, library));
     let Some(profile_path) = profile_path else {
         // Kelvin white balance without a profile: the camera's own matrices.
         if let Some(b) = balanced {
@@ -902,8 +905,8 @@ fn entry(value: String, bytes: &[u8], file_name: &str) -> Option<ProfileEntry> {
     })
 }
 
-fn profile_folder(image_path: &Path, app_data: Option<&Path>) -> Option<(PathBuf, bool)> {
-    match crate::session_layout::library_root(image_path) {
+fn profile_folder(library: Option<&Path>, app_data: Option<&Path>) -> Option<(PathBuf, bool)> {
+    match library {
         Some(root) => Some((root.join("profiles"), true)),
         None => Some((app_data?.join("camera_profiles"), false)),
     }
@@ -914,13 +917,13 @@ fn profile_folder(image_path: &Path, app_data: Option<&Path>) -> Option<(PathBuf
 /// returns what the recipe stores.
 pub fn import(
     source: &Path,
-    image_path: &Path,
+    library: Option<&Path>,
     app_data: Option<&Path>,
 ) -> Result<ProfileEntry, String> {
     let bytes = std::fs::read(source).map_err(|e| format!("Cannot read the profile: {e}"))?;
     parse(&bytes)?;
     let (folder, in_session) =
-        profile_folder(image_path, app_data).ok_or("No folder for camera profiles")?;
+        profile_folder(library, app_data).ok_or("No folder for camera profiles")?;
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let file_name = source
         .file_name()
@@ -960,8 +963,8 @@ pub fn import(
 
 /// Profiles available to the photo: those in its session's `profiles/` (or
 /// the app's folder outside sessions).
-pub fn list(image_path: &Path, app_data: Option<&Path>) -> Vec<ProfileEntry> {
-    let Some((folder, in_session)) = profile_folder(image_path, app_data) else {
+pub fn list(library: Option<&Path>, app_data: Option<&Path>) -> Vec<ProfileEntry> {
+    let Some((folder, in_session)) = profile_folder(library, app_data) else {
         return Vec::new();
     };
     let Ok(read) = std::fs::read_dir(&folder) else {
@@ -1310,55 +1313,41 @@ mod tests {
     }
 
     #[test]
-    fn profile_names_resolve_inside_the_session_only() {
-        let dir = std::env::temp_dir().join(format!("rt-profile-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("Capture")).unwrap();
-        std::fs::write(dir.join("session.json"), "{}").unwrap();
-        std::fs::write(dir.join("session.sqlite"), "").unwrap();
-        let image = dir.join("Capture/a.CR3");
+    fn profile_names_resolve_inside_the_library_only() {
+        let library = Path::new("/Jobs/Job");
         assert_eq!(
-            resolve("profiles/x.dcp", &image),
-            Some(dir.join("profiles/x.dcp"))
+            resolve("profiles/x.dcp", Some(library)),
+            Some(library.join("profiles/x.dcp"))
         );
-        assert_eq!(resolve("../x.dcp", &image), None);
+        assert_eq!(resolve("../x.dcp", Some(library)), None);
+        // A photo of no library: only absolute names.
+        assert_eq!(resolve("profiles/x.dcp", None), None);
+        let absolute = std::env::temp_dir().join("x.dcp");
+        assert_eq!(
+            resolve(&absolute.to_string_lossy(), None),
+            Some(absolute.clone())
+        );
         assert_eq!(register(""), 0);
         let key = register("profiles/x.dcp");
         assert!(key != 0 && key == register("profiles/x.dcp"));
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
-    fn session_profiles_follow_photos_the_session_keeps_outside_its_folder() {
+    fn profiles_of_a_library_live_in_it_and_others_in_the_apps_folder() {
         let dir = tempfile::tempdir().unwrap();
-        let session = dir.path().join("Job");
-        std::fs::create_dir_all(session.join("Capture")).unwrap();
-        std::fs::write(session.join("session.json"), "{}").unwrap();
-        std::fs::write(session.join("session.sqlite"), "").unwrap();
-        let drive = dir.path().join("Drive");
-        std::fs::create_dir_all(&drive).unwrap();
-        let photo = drive.join("a.CR3");
-        std::fs::write(&photo, "a").unwrap();
-        crate::session_layout::set_outside_photos(
-            &session,
-            std::collections::HashSet::from([photo.canonicalize().unwrap()]),
-        );
-        // The same name as inside the session, not dropped and not the
-        // app's folder: the edit and its export stay the same.
-        assert_eq!(
-            resolve("profiles/x.dcp", &photo),
-            resolve("profiles/x.dcp", &session.join("Capture/a.CR3"))
-        );
-        assert_eq!(
-            resolve("profiles/x.dcp", &photo),
-            Some(session.join("profiles/x.dcp"))
-        );
+        let library = dir.path().join("Job");
+        let app = dir.path().join("app");
         let source = dir.path().join("My Camera.dcp");
         std::fs::write(&source, tiny_profile()).unwrap();
-        let imported = import(&source, &photo, Some(&dir.path().join("app"))).unwrap();
+        let imported = import(&source, Some(&library), Some(&app)).unwrap();
         assert_eq!(imported.value, "profiles/My Camera.dcp");
-        assert!(session.join("profiles/My Camera.dcp").is_file());
-        assert_eq!(list(&photo, None), vec![imported]);
-        crate::session_layout::set_outside_photos(&session, Default::default());
+        assert!(library.join("profiles/My Camera.dcp").is_file());
+        assert_eq!(list(Some(&library), Some(&app)), vec![imported]);
+        let loose = import(&source, None, Some(&app)).unwrap();
+        let in_app = app.join("camera_profiles/My Camera.dcp");
+        assert_eq!(Path::new(&loose.value), in_app);
+        assert_eq!(list(None, Some(&app)), vec![loose]);
+        assert!(import(&source, None, None).is_err());
     }
 
     fn tiny_profile() -> Vec<u8> {
@@ -1384,27 +1373,25 @@ mod tests {
     fn imported_profiles_live_in_the_session_without_clobbering() {
         let dir = std::env::temp_dir().join(format!("rt-profile-import-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("Capture")).unwrap();
-        std::fs::write(dir.join("session.json"), "{}").unwrap();
-        std::fs::write(dir.join("session.sqlite"), "").unwrap();
-        let image = dir.join("Capture/a.CR3");
+        let image = Some(dir.as_path());
         let source = dir.join("My Camera.dcp");
         std::fs::write(&source, tiny_profile()).unwrap();
-        let first = import(&source, &image, None).unwrap();
+        let first = import(&source, image, None).unwrap();
         assert_eq!(first.value, "profiles/My Camera.dcp");
         // The same file again is reused; a different one gets a new name.
-        assert_eq!(import(&source, &image, None).unwrap().value, first.value);
+        assert_eq!(import(&source, image, None).unwrap().value, first.value);
         let mut other = tiny_profile();
         other.extend_from_slice(b"x");
         std::fs::write(&source, other).unwrap();
         assert_eq!(
-            import(&source, &image, None).unwrap().value,
+            import(&source, image, None).unwrap().value,
             "profiles/My Camera 2.dcp"
         );
-        assert_eq!(list(&image, None).len(), 2);
+        assert_eq!(list(image, None).len(), 2);
         // Not a profile: refused, nothing written.
         std::fs::write(&source, b"nope").unwrap();
-        assert!(import(&source, &image, None).is_err());
-        assert_eq!(list(&image, None).len(), 2);
+        assert!(import(&source, image, None).is_err());
+        assert_eq!(list(image, None).len(), 2);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

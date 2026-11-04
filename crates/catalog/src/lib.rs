@@ -17,6 +17,8 @@ use std::{
 };
 use uuid::Uuid;
 
+use layout::{LibraryLayout, database_name, manifest_name};
+
 pub mod add;
 pub mod capture_time;
 pub mod catalog_import;
@@ -32,6 +34,7 @@ pub mod folders;
 pub mod hot_folder;
 pub mod image_hash;
 pub mod ingest_jobs;
+pub mod layout;
 mod migrations;
 pub mod query;
 pub mod session_folders;
@@ -293,21 +296,6 @@ pub fn fingerprint(path: &Path) -> Result<String, CatalogError> {
     Ok(format!("{:032x}", xxhash_rust::xxh3::xxh3_128(&data)))
 }
 
-fn db_name(mode: Mode) -> &'static str {
-    if mode == Mode::Session {
-        "session.sqlite"
-    } else {
-        "catalog.sqlite"
-    }
-}
-fn manifest_name(mode: Mode) -> &'static str {
-    if mode == Mode::Session {
-        "session.json"
-    } else {
-        "catalog.json"
-    }
-}
-
 impl Library {
     fn visible_assets(&self) -> &'static str {
         if self.manifest.mode == Mode::Session {
@@ -347,9 +335,8 @@ impl Library {
         fs::create_dir_all(directory)?;
         let directory = directory.canonicalize()?;
         ensure!(
-            !directory.join("session.json").exists()
-                && !directory.join("catalog.json").exists()
-                && !directory.join(db_name(mode)).exists(),
+            LibraryLayout::at(&directory).is_none()
+                && !directory.join(database_name(mode)).exists(),
             "A library already exists here; open it instead"
         );
         let manifest = Manifest {
@@ -372,7 +359,7 @@ impl Library {
                 Vec::new()
             },
         };
-        let conn = Connection::open(directory.join(db_name(mode)))?;
+        let conn = Connection::open(directory.join(database_name(mode)))?;
         Self::configure(&conn)?;
         migrations::create(&conn)?;
         conn.execute(
@@ -412,11 +399,9 @@ impl Library {
 
     pub fn open(directory: &Path) -> Result<Self, CatalogError> {
         let directory = directory.canonicalize()?;
-        let manifest_path = if directory.join("session.json").exists() {
-            directory.join("session.json")
-        } else {
-            directory.join("catalog.json")
-        };
+        let manifest_path = LibraryLayout::at(&directory)
+            .context("No Rawtonic session or catalog in this folder")?
+            .manifest();
         let manifest: Manifest = serde_json::from_slice(
             &fs::read(&manifest_path).context("No Rawtonic session or catalog in this folder")?,
         )?;
@@ -426,7 +411,7 @@ impl Library {
             manifest.schema_version
         );
         session_folders::validate_manifest(&manifest)?;
-        let db = directory.join(db_name(manifest.mode));
+        let db = directory.join(database_name(manifest.mode));
         ensure!(
             db.is_file(),
             "Library database is missing; refusing to create an empty replacement"
@@ -2648,10 +2633,8 @@ pub fn library_name(directory: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// Resolve only explicit Rawtonic session manifests; ordinary folders stay standalone.
+/// The library (session or catalog) folder holding `path`, by its manifest
+/// ([`LibraryLayout::holding`]); ordinary folders stay standalone.
 pub fn session_for(path: &Path) -> Option<PathBuf> {
-    path.parent()?
-        .ancestors()
-        .find(|p| p.join("session.json").is_file() || p.join("catalog.json").is_file())
-        .map(Path::to_path_buf)
+    LibraryLayout::holding(path).map(LibraryLayout::into_directory)
 }

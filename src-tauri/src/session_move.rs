@@ -214,8 +214,13 @@ pub async fn move_session(
 /// (absolute: a catalog keeps photos anywhere) follow the move. A closed
 /// catalog cannot follow; it shows them as missing until relinked.
 pub(crate) fn open_catalog_other_than(from: &Path, to: &Path) -> Option<PathBuf> {
-    crate::session_bridge::active_library_directory()
-        .filter(|dir| dir != from && dir != to && dir.join("catalog.json").is_file())
+    crate::session_bridge::active_library_directory().filter(|dir| {
+        dir != from
+            && dir != to
+            && dir
+                .join(rawtonic_catalog::layout::CATALOG_MANIFEST)
+                .is_file()
+    })
 }
 
 /// The session folder's place before and after `op` as it stands now

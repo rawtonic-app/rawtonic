@@ -654,8 +654,11 @@ fn plan_folder_move(
         .flatten()
         .find(|e| {
             e.file_type().is_file()
-                && ["session.json", "catalog.json"]
-                    .contains(&e.file_name().to_string_lossy().as_ref())
+                && [
+                    rawtonic_catalog::layout::SESSION_MANIFEST,
+                    rawtonic_catalog::layout::CATALOG_MANIFEST,
+                ]
+                .contains(&e.file_name().to_string_lossy().as_ref())
         })
     {
         return Err(format!(
@@ -694,7 +697,12 @@ fn plan_folder_move(
 /// The session the folder `folder` (inside it, not the session folder
 /// itself) would leave by moving into `destination`, if any.
 fn folder_leaves_session(folder: &Path, destination: &Path) -> Result<Option<PathBuf>, String> {
-    if !folder.is_dir() || !destination.is_dir() || folder.join("session.json").is_file() {
+    if !folder.is_dir()
+        || !destination.is_dir()
+        || folder
+            .join(rawtonic_catalog::layout::SESSION_MANIFEST)
+            .is_file()
+    {
         return Ok(None);
     }
     let parent = folder
@@ -713,10 +721,10 @@ fn session_above(folder: &Path) -> Result<Option<PathBuf>, String> {
         .map_err(|e| format!("{}: {e}", folder.display()))?;
     Ok(real
         .ancestors()
-        .find(|p| p.join("session.json").is_file())
+        .find(|p| p.join(rawtonic_catalog::layout::SESSION_MANIFEST).is_file())
         .map(Path::to_path_buf)
         // The open session's own folders outside it (G38).
-        .or_else(|| rawtonic_engine::session_layout::outside_folder_owner(&real)))
+        .or_else(|| crate::photo_library::outside_folder_owner(&real)))
 }
 
 #[tauri::command]

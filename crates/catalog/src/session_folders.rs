@@ -12,7 +12,7 @@
 //! the drive is away.
 use crate::CatalogError;
 use crate::error::{bail, ensure};
-use crate::{Library, Manifest, Mode, manifest_name, portable_relative, validate_relative};
+use crate::{Library, Manifest, Mode, layout::manifest_name, portable_relative, validate_relative};
 use anyhow::{Context, Result};
 use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
@@ -395,9 +395,8 @@ impl Library {
             );
             portable_relative(relative)?
         } else {
-            if let Some(other) = real.ancestors().find(|dir| {
-                dir.join("session.json").is_file() || dir.join("catalog.json").is_file()
-            }) {
+            if let Some(other) = crate::layout::LibraryLayout::at_or_above(&real) {
+                let other = other.directory();
                 bail!(
                     "{} belongs to the library {}; choose a folder outside it",
                     real.display(),

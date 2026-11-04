@@ -402,7 +402,8 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
     // A library made before AI facts were indexed (schema 16), opened: its
     // versions are indexed from their recipes, once.
     let index_old = {
-        let db = rusqlite::Connection::open(directory.join("session.sqlite"))?;
+        let db =
+            rusqlite::Connection::open(directory.join(rawtonic_catalog::layout::SESSION_DATABASE))?;
         db.execute_batch(
             "DROP TRIGGER versions_ai_facts_ai; DROP TRIGGER versions_ai_facts_au;
              DROP TRIGGER recipes_ai_facts_au; DROP INDEX versions_ai_facts;

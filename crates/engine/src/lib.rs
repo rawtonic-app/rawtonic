@@ -52,7 +52,6 @@ pub mod region_curve;
 pub mod relight;
 pub mod scopes;
 pub mod series_match;
-pub mod session_layout;
 pub mod source_facts;
 pub mod source_frame;
 pub mod spot_removal;

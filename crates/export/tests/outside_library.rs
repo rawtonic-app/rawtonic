@@ -10,12 +10,10 @@
 //! `scripts/bench/fetch_fixtures.sh`); the lensfun database is the
 //! checkout's `src-tauri/lensfun_db` unless RAWTONIC_LENSFUN_DB names one.
 
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use rawtonic_engine::image_loader::BaseImageOptions;
-use rawtonic_engine::session_layout::set_outside_photos;
 use rawtonic_export::export_processing::ExportSettings;
 use rawtonic_export::file_export::{FileExport, FileExporter};
 
@@ -46,7 +44,12 @@ fn settings() -> ExportSettings {
     .unwrap()
 }
 
-fn export(exporter: &FileExporter, source: &Path, output: &Path) -> Vec<u8> {
+fn export(
+    exporter: &FileExporter,
+    source: &Path,
+    library: Option<&Path>,
+    output: &Path,
+) -> Vec<u8> {
     exporter
         .export(&FileExport {
             source,
@@ -57,6 +60,7 @@ fn export(exporter: &FileExporter, source: &Path, output: &Path) -> Vec<u8> {
             base: BaseImageOptions::default(),
             catalog: None,
             capture: None,
+            library,
         })
         .unwrap();
     fs::read(output).unwrap()
@@ -89,13 +93,11 @@ fn a_session_profile_renders_the_same_on_a_photo_outside_the_session() {
     fs::create_dir(&out).unwrap();
 
     let exporter = FileExporter::new(&lensfun).unwrap();
-    let expected = export(&exporter, &inside, &out.join("inside.tif"));
+    let expected = export(&exporter, &inside, Some(&session), &out.join("inside.tif"));
     // Not the session's photograph: the session's profile is not its own.
-    let foreign = export(&exporter, &outside, &out.join("foreign.tif"));
+    let foreign = export(&exporter, &outside, None, &out.join("foreign.tif"));
     assert_ne!(foreign, expected, "the profile must change the render");
-    set_outside_photos(&session, HashSet::from([outside.canonicalize().unwrap()]));
-    let owned = export(&exporter, &outside, &out.join("owned.tif"));
-    set_outside_photos(&session, HashSet::new());
+    let owned = export(&exporter, &outside, Some(&session), &out.join("owned.tif"));
     assert!(
         owned == expected,
         "outside the session it must render byte-identically"

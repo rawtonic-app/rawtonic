@@ -153,7 +153,8 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
             &mut || {},
         )
         .map_err(|e| format!("{source}: not placed, {e}"))?;
-        let export_source = prepare_export_source(&source, pristine, measures, &adjustments)?;
+        let export_source = prepare_export_source(&source, pristine, measures, &adjustments)?
+            .in_library(crate::photo_library::library_of_str(&source));
         let tonemapper_override = |is_raw| {
             crate::image_processing::resolve_tonemapper_override_from_handle(app_handle, is_raw)
         };

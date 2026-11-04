@@ -1391,6 +1391,7 @@ fn render_probe(
         &mut probe.global,
         &loaded_image.path,
         loaded_image.measures.as_ref(),
+        crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     probe.global.detail_scale = scale;
     match output {
@@ -1806,6 +1807,7 @@ pub(crate) fn process_preview_job(
         &mut final_adjustments.global,
         &loaded_image.path,
         loaded_image.measures.as_ref(),
+        crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     final_adjustments.global.detail_scale = effective_scale;
     let lut_path = adjustments_clone["lutPath"].as_str();
@@ -2971,6 +2973,7 @@ fn develop_split_before(
         &mut all_adjustments.global,
         &loaded_image.path,
         loaded_image.measures.as_ref(),
+        crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     all_adjustments.global.detail_scale = scale;
     // Encoded for the window layer, as display frames are.
@@ -3244,6 +3247,7 @@ pub(crate) async fn generate_uncropped_preview(
             &mut uncropped_adjustments.global,
             &path,
             loaded_image.measures.as_ref(),
+            crate::photo_library::library_of_str(&path).as_deref(),
         );
         uncropped_adjustments.global.detail_scale = scale_for_gpu;
         uncropped_adjustments.global.show_clipping = 0;
@@ -3388,6 +3392,7 @@ pub(crate) async fn generate_preview_for_path(
             &mut all_adjustments.global,
             &source_path_str,
             measures.as_ref(),
+            crate::photo_library::library_of_str(&source_path_str).as_deref(),
         );
         all_adjustments.global.show_clipping = 0;
         let lut_path = js_adjustments["lutPath"].as_str();

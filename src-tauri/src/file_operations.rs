@@ -15,6 +15,7 @@ use crate::file_management::{
     AlbumItem, add_to_album, get_albums_blocking, sync_album_path_changes,
 };
 use crate::formats::is_supported_image_file;
+use rawtonic_catalog::layout::SESSION_MANIFEST;
 use rawtonic_catalog::{Library, session_for};
 #[cfg(any(not(windows), test))]
 use rawtonic_fileops::SystemTrash;
@@ -451,7 +452,7 @@ fn session_trash_target(path: &Path) -> Option<PathBuf> {
     let session = session_for(path).or_else(|| {
         // A folder directly in the session (session_for looks above the parent).
         path.parent()
-            .filter(|p| p.join("session.json").is_file())
+            .filter(|p| p.join(SESSION_MANIFEST).is_file())
             .map(Path::to_path_buf)
     })?;
     let relative = path.strip_prefix(&session).ok()?;
@@ -1030,7 +1031,7 @@ pub(crate) fn forget_purged(op: &Operation) -> Result<(), String> {
     let session = trash
         .parent()
         .filter(|s| {
-            trash.file_name() == Some(SESSION_TRASH.as_ref()) && s.join("session.json").is_file()
+            trash.file_name() == Some(SESSION_TRASH.as_ref()) && s.join(SESSION_MANIFEST).is_file()
         })
         .ok_or_else(|| format!("{} is not a session's Trash", trash.display()))?;
     let lib = Library::open(session).map_err(|e| format!("{e:#}"))?;
@@ -1075,7 +1076,7 @@ fn session_trash_dir(session: &str) -> Result<PathBuf, String> {
     let dir = PathBuf::from(session)
         .canonicalize()
         .map_err(|e| format!("Cannot open the session {session}: {e}"))?;
-    if !dir.join("session.json").is_file() {
+    if !dir.join(SESSION_MANIFEST).is_file() {
         return Err(format!("{} is not a session", dir.display()));
     }
     Ok(dir.join(SESSION_TRASH))

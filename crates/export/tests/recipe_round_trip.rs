@@ -115,7 +115,7 @@ fn a_sidecar_read_and_written_again_keeps_its_recipe() {
             "exif": {"Make": "Maker"},
         });
         std::fs::write(&sidecar, serde_json::to_string_pretty(&stored).unwrap()).unwrap();
-        let (meta, healed) = read_sidecar_file(&sidecar);
+        let (meta, healed) = read_sidecar_file(&sidecar, None);
         assert!(!healed, "{name}");
         let written: Value =
             serde_json::from_str(&serde_json::to_string_pretty(&meta).unwrap()).unwrap();
@@ -133,7 +133,7 @@ fn sidecar_fields_a_round_trip_changes_are_pinned() {
     let round_trip = |name: &str, stored: &Value| -> Value {
         let sidecar = dir.path().join(format!("{name}.ARW.rrdata"));
         std::fs::write(&sidecar, stored.to_string()).unwrap();
-        let (meta, _) = read_sidecar_file(&sidecar);
+        let (meta, _) = read_sidecar_file(&sidecar, None);
         serde_json::from_str(&serde_json::to_string_pretty(&meta).unwrap()).unwrap()
     };
     // FINDING: a sidecar without `tags` is written back with `"tags": null`

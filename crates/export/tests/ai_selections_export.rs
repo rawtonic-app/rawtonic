@@ -82,6 +82,7 @@ fn export(
         base: BaseImageOptions::default(),
         catalog: None,
         capture: None,
+        library: None,
     })?;
     Ok(fs::read(output).unwrap())
 }

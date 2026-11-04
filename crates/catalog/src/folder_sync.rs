@@ -514,9 +514,7 @@ impl Library {
         let mut pending = vec![folder.to_path_buf()];
         while let Some(directory) = pending.pop() {
             cancelled(options.cancel)?;
-            if directory != self.directory
-                && (directory.join("session.json").is_file()
-                    || directory.join("catalog.json").is_file())
+            if directory != self.directory && crate::layout::LibraryLayout::at(&directory).is_some()
             {
                 continue;
             }

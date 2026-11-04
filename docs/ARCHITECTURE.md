@@ -560,7 +560,7 @@ Capture, Selects and Output folders are configurable per session (G38, `crates/c
 session, absolute when outside it (a folder absolute on another system opens as not available); a folder outside that is
 not there fails capture, import, Move to Selects and export (`Library::usable_folder`), never made in its place.
 Photographs in a session's folders outside it are registered like a catalog's (an external root per folder,
-`place_for`), owned by the open session (`session_layout::outside_folder_owner`, used by `culling_library_for` and the
+`place_for`), owned by the open session (`photo_library::outside_folder_owner` in the app, used by `culling_library_for` and the
 file operations' `session_above`); changing a folder moves nothing, "Move contents" runs
 `rawtonic_fileops::plan_move_contents` as journaled operations. A complete library copy (`transfer`) resets folders
 outside to their defaults.

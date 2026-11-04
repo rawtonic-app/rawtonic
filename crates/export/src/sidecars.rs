@@ -78,8 +78,10 @@ pub fn with_original(mut sidecars: Vec<Option<String>>) -> Vec<Option<String>> {
 /// A `.rrdata` sidecar's metadata (defaults when it is missing or not JSON;
 /// a field of another type or a missing one alone takes its default,
 /// `metadata_fields`) and whether over-long EXIF values were shortened,
-/// which the app writes back.
-pub fn read_sidecar_file(sidecar_path: &Path) -> (ImageMetadata, bool) {
+/// which the app writes back. `library`: the library folder the photo
+/// belongs to, against which its recipe's library resources
+/// (`rawtonic-resource:…`) resolve; None for a photo of no library.
+pub fn read_sidecar_file(sidecar_path: &Path, library: Option<&Path>) -> (ImageMetadata, bool) {
     if !sidecar_path.exists() {
         return (ImageMetadata::default(), false);
     }
@@ -89,8 +91,8 @@ pub fn read_sidecar_file(sidecar_path: &Path) -> (ImageMetadata, bool) {
     };
 
     let mut value = serde_json::from_str::<serde_json::Value>(&content).unwrap_or_default();
-    if let Some(root) = rawtonic_engine::session_layout::library_root(sidecar_path) {
-        rawtonic_metadata::resources::resolve(&mut value, &root);
+    if let Some(root) = library {
+        rawtonic_metadata::resources::resolve(&mut value, root);
     }
     let mut meta = <ImageMetadata as serde::Deserialize>::deserialize(&value)
         .unwrap_or_else(|_| metadata_fields(&value));
@@ -298,13 +300,13 @@ mod tests {
             r#"{{"version":1,"rating":3,"adjustments":{{"exposure":1.0}},"exif":{{"Note":"{long}"}}}}"#
         );
         std::fs::write(&sidecar, &json).unwrap();
-        let (meta, healed) = read_sidecar_file(&sidecar);
+        let (meta, healed) = read_sidecar_file(&sidecar, None);
         assert!(healed);
         assert_eq!(meta.rating, 3);
         assert_eq!(meta.adjustments["exposure"], 1.0);
         assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), json);
         assert_eq!(
-            read_sidecar_file(&dir.path().join("missing.rrdata"))
+            read_sidecar_file(&dir.path().join("missing.rrdata"), None)
                 .0
                 .rating,
             0
@@ -314,14 +316,12 @@ mod tests {
     #[test]
     fn copied_catalog_sidecars_resolve_resources_from_their_current_folder() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("catalog.json"), "{}").unwrap();
-        std::fs::write(dir.path().join("catalog.sqlite"), "fixture").unwrap();
         let photos = dir.path().join("Photos");
         std::fs::create_dir(&photos).unwrap();
         let sidecar = photos.join("a.arw.abcdef.rrdata");
         let state = r#"{"version":1,"rating":4,"adjustments":{"lutPath":"rawtonic-resource:resources/look.cube","cameraProfile":"rawtonic-resource:resources/camera.dcp"}}"#;
         std::fs::write(&sidecar, state).unwrap();
-        let (meta, healed) = read_sidecar_file(&sidecar);
+        let (meta, healed) = read_sidecar_file(&sidecar, Some(dir.path()));
         assert!(!healed);
         assert_eq!(meta.rating, 4);
         assert_eq!(
@@ -345,9 +345,6 @@ mod tests {
     fn sidecars_of_photos_a_session_keeps_outside_resolve_its_resources() {
         let dir = tempfile::tempdir().unwrap();
         let session = dir.path().join("Job");
-        std::fs::create_dir_all(&session).unwrap();
-        std::fs::write(session.join("session.json"), "{}").unwrap();
-        std::fs::write(session.join("session.sqlite"), "fixture").unwrap();
         let drive = dir.path().join("Drive");
         std::fs::create_dir(&drive).unwrap();
         let photo = drive.join("a.nef");
@@ -355,12 +352,15 @@ mod tests {
         let sidecar = drive.join("a.nef.rrdata");
         let state = r#"{"version":1,"rating":0,"adjustments":{"lutPath":"rawtonic-resource:resources/look.cube","masks":[{"raster_path":"rawtonic-resource:resources/m.png"}]}}"#;
         std::fs::write(&sidecar, state).unwrap();
-        rawtonic_engine::session_layout::set_outside_photos(
-            &session,
-            std::collections::HashSet::from([photo.canonicalize().unwrap()]),
+        // A photo of no library keeps the names as stored.
+        let (loose, _) = read_sidecar_file(&sidecar, None);
+        assert_eq!(
+            loose.adjustments["lutPath"],
+            "rawtonic-resource:resources/look.cube"
         );
-        let (meta, _) = read_sidecar_file(&sidecar);
-        rawtonic_engine::session_layout::set_outside_photos(&session, Default::default());
+        // The session that keeps it outside its folder resolves them, not
+        // the folder the file is in.
+        let (meta, _) = read_sidecar_file(&sidecar, Some(&session));
         let at = |p: &str| session.join(p).to_string_lossy().into_owned();
         assert_eq!(meta.adjustments["lutPath"], at("resources/look.cube"));
         assert_eq!(

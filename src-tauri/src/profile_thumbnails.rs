@@ -168,6 +168,7 @@ fn render_tiles(
             &mut probe.global,
             &loaded_image.path,
             loaded_image.measures.as_ref(),
+            crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
         );
         probe.global.detail_scale = small_scale;
         let lut = tile["lutPath"]

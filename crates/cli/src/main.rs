@@ -1214,9 +1214,10 @@ fn export(args: ExportArgs) -> Result<()> {
     let mut failed = Vec::new();
     for ((photo, output), recipe) in jobs.iter().zip(recipes) {
         let (source, sidecar) = parse_virtual_path(photo);
+        let library = library_of(&source);
         if let Some(resource) = recipe
             .as_ref()
-            .and_then(|r| unresolved_resource(r, &source))
+            .and_then(|r| unresolved_resource(r, library.as_deref()))
         {
             failed.push(serde_json::json!({"source": photo, "error": format!(
                 "The recipe names the library resource {resource}, but the photo is in no session or catalog"
@@ -1232,6 +1233,7 @@ fn export(args: ExportArgs) -> Result<()> {
             base: rawtonic_engine::image_loader::BaseImageOptions::default(),
             catalog: photo_metadata(photo, &source, &sidecar),
             capture: corrected_capture(&source),
+            library: library.as_deref(),
         });
         match result {
             Ok(()) => written.push(output.clone()),
@@ -1332,9 +1334,10 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
         generated |= recipe
             .as_ref()
             .is_some_and(rawtonic_engine::image_loader::has_generated_areas);
+        let library = library_of(&source);
         if let Some(resource) = recipe
             .as_ref()
-            .and_then(|r| unresolved_resource(r, &source))
+            .and_then(|r| unresolved_resource(r, library.as_deref()))
         {
             failed.push(serde_json::json!({"source": photo, "error": format!(
                 "The recipe names the library resource {resource}, but the photo is in no session or catalog"
@@ -1352,6 +1355,7 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
             base: rawtonic_engine::image_loader::BaseImageOptions::default(),
             catalog: metadata,
             capture: corrected_capture(&source),
+            library: library.as_deref(),
         });
         match result.and_then(|()| std::fs::read(&output).map_err(|e| e.to_string())) {
             Ok(jpeg) => cells.push(Some(CellImage { jpeg })),
@@ -1465,9 +1469,15 @@ fn editor_recipe(sidecar: &std::path::Path) -> serde_json::Value {
     {
         return meta.adjustments;
     }
-    rawtonic_export::sidecars::read_sidecar_file(sidecar)
+    rawtonic_export::sidecars::read_sidecar_file(sidecar, library_of(sidecar).as_deref())
         .0
         .adjustments
+}
+/// The library (session or catalog) folder holding `path`, whose files a
+/// recipe of the photo names.
+fn library_of(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    rawtonic_catalog::layout::LibraryLayout::holding(path)
+        .map(rawtonic_catalog::layout::LibraryLayout::into_directory)
 }
 /// The metadata an export of `photo` embeds, as the app's: its session's
 /// for the source, with a virtual copy's own rating, label and keywords
@@ -1481,7 +1491,8 @@ fn photo_metadata(
     if !rawtonic_metadata::photo_ref::is_copy(photo) {
         return Some(metadata);
     }
-    let copy = rawtonic_export::sidecars::read_sidecar_file(sidecar).0;
+    // Only its rating and keywords are read: no library resources to resolve.
+    let copy = rawtonic_export::sidecars::read_sidecar_file(sidecar, None).0;
     Some(rawtonic_catalog::copy_metadata(
         metadata,
         copy.rating,
@@ -1509,11 +1520,14 @@ fn catalog_metadata(source: &std::path::Path) -> Option<rawtonic_metadata::Metad
 }
 /// A file a recipe names inside a library (a camera profile by its path in
 /// the session, `profiles/…dcp`; a `rawtonic-resource:` LUT, profile or
-/// mask) that cannot be found because `source` belongs to no library:
-/// exporting without it would silently change the photo. Other relative
-/// paths (a LUT beside the recipe) are the caller's own.
-fn unresolved_resource(recipe: &serde_json::Value, source: &std::path::Path) -> Option<String> {
-    if rawtonic_engine::session_layout::library_root(source).is_some() {
+/// mask) that cannot be found because the photo belongs to no library
+/// (`library` None): exporting without it would silently change the photo.
+/// Other relative paths (a LUT beside the recipe) are the caller's own.
+fn unresolved_resource(
+    recipe: &serde_json::Value,
+    library: Option<&std::path::Path>,
+) -> Option<String> {
+    if library.is_some() {
         return None;
     }
     let mut found = None;
@@ -1599,32 +1613,30 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let session = dir.path().join("Job");
         std::fs::create_dir_all(session.join("Capture")).unwrap();
-        std::fs::write(session.join("session.json"), "{}").unwrap();
-        std::fs::write(session.join("session.sqlite"), "").unwrap();
+        // Its manifest makes it a library, also while its database is missing.
+        std::fs::write(
+            session.join(rawtonic_catalog::layout::SESSION_MANIFEST),
+            "{}",
+        )
+        .unwrap();
         let loose = dir.path().join("a.NEF");
         let profile = serde_json::json!({"cameraProfile": "profiles/x.dcp"});
         let lut = serde_json::json!({"lutPath": "rawtonic-resource:resources/l.cube"});
         let absolute = serde_json::json!({"cameraProfile": dir.path().join("x.dcp")});
         // A LUT beside the recipe, as `--adjustments` has always read it.
         let own_lut = serde_json::json!({"lutPath": "look.cube"});
+        let none = library_of(&loose);
+        assert_eq!(none, None);
         assert_eq!(
-            unresolved_resource(&profile, &loose).as_deref(),
+            unresolved_resource(&profile, none.as_deref()).as_deref(),
             Some("profiles/x.dcp")
         );
-        assert!(unresolved_resource(&lut, &loose).is_some());
-        assert_eq!(unresolved_resource(&absolute, &loose), None);
-        assert_eq!(unresolved_resource(&own_lut, &loose), None);
-        assert_eq!(unresolved_resource(&serde_json::json!({}), &loose), None);
-        assert_eq!(
-            unresolved_resource(&profile, &session.join("Capture/a.NEF")),
-            None
-        );
-        // Kept by the session outside its folder: resolved.
-        rawtonic_engine::session_layout::set_outside_photos(
-            &session,
-            std::collections::HashSet::from([loose.clone()]),
-        );
-        assert_eq!(unresolved_resource(&profile, &loose), None);
-        rawtonic_engine::session_layout::set_outside_photos(&session, Default::default());
+        assert!(unresolved_resource(&lut, None).is_some());
+        assert_eq!(unresolved_resource(&absolute, None), None);
+        assert_eq!(unresolved_resource(&own_lut, None), None);
+        assert_eq!(unresolved_resource(&serde_json::json!({}), None), None);
+        let inside = library_of(&session.join("Capture/a.NEF"));
+        assert_eq!(inside.as_deref(), Some(session.as_path()));
+        assert_eq!(unresolved_resource(&profile, inside.as_deref()), None);
     }
 }

@@ -962,6 +962,7 @@ fn develop_rgba(
         &mut adjustments.global,
         input.path,
         input.facts.measures.as_ref(),
+        crate::photo_library::library_of_str(input.path).as_deref(),
     );
     adjustments.global.detail_scale = input.scale;
     adjustments.global.show_clipping = 0;
