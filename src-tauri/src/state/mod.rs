@@ -4,3 +4,4 @@
 pub mod develop;
 pub mod lock;
 pub mod settings;
+pub mod thumbnails;

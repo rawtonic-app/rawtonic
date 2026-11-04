@@ -17,6 +17,9 @@ pub use crate::gpu_processing::{
 use crate::gpu_processing::{GpuContext, LatestJobSender};
 use crate::launch_request::ExternalEditSession;
 use crate::lut_processing::LutCache;
+use crate::state::thumbnails::{
+    ThumbnailGeometryEntry, ThumbnailManager, ThumbnailProgressTracker,
+};
 
 pub struct AiTaskToken {
     cancelled: AtomicBool,
@@ -409,31 +412,6 @@ pub fn preview_job_is_stale(sequence: Option<u64>, newest_processed: Option<u64>
     matches!((sequence, newest_processed), (Some(sequence), Some(newest)) if sequence < newest)
 }
 
-pub struct ThumbnailProgressTracker {
-    pub total: usize,
-    pub completed: usize,
-}
-
-pub struct ThumbnailManager {
-    pub queue: Mutex<VecDeque<String>>,
-    pub cvar: Condvar,
-    pub processing_now: Mutex<HashSet<String>>,
-    pub rotational_disk: AtomicBool,
-    pub io_gate: Mutex<()>,
-}
-
-impl ThumbnailManager {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            queue: Mutex::new(VecDeque::new()),
-            cvar: Condvar::new(),
-            processing_now: Mutex::new(HashSet::new()),
-            rotational_disk: AtomicBool::new(false),
-            io_gate: Mutex::new(()),
-        })
-    }
-}
-
 pub struct PendingMetadata {
     pub virtual_path: String,
     pub image_path: PathBuf,
@@ -456,15 +434,6 @@ impl MetadataManager {
     }
 }
 
-/// A thumbnail's base: recipe hash, image, scale, mask source, and the
-/// photo's size when the base was made from its full decode.
-pub type ThumbnailGeometryEntry = (
-    u64,
-    Arc<DynamicImage>,
-    f32,
-    Option<crate::mask_generation::ParametricMaskSource>,
-    Option<(u32, u32)>,
-);
 pub type TransformedImageCache = (u64, Arc<DynamicImage>, (f32, f32));
 
 pub struct AppState {
