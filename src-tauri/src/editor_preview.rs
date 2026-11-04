@@ -40,6 +40,8 @@ use crate::mask_generation::resolve_warped_image_for_masks;
 use crate::mask_generation::{MaskBitmap, PhotoGeometry, generate_layer_mask};
 use crate::preview_cache;
 use crate::state::develop::{DevelopSession, Scope};
+use crate::state::lock::lock_recover;
+use crate::state::thumbnails::ThumbnailState;
 use base64::Engine as _;
 use base64::engine::general_purpose;
 use image::DynamicImage;
@@ -665,18 +667,12 @@ pub(crate) fn compute_patched_and_warped(
 
 #[tauri::command]
 pub(crate) fn cancel_thumbnail_generation(
-    state: tauri::State<AppState>,
+    thumbnails: tauri::State<ThumbnailState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    state
-        .thumbnail_cancellation_token
-        .store(true, Ordering::SeqCst);
-    state.thumbnail_manager.queue.lock().unwrap().clear();
-
-    let mut tracker = state.thumbnail_progress.lock().unwrap();
-    tracker.total = 0;
-    tracker.completed = 0;
-    drop(tracker);
+    thumbnails.cancelled.store(true, Ordering::SeqCst);
+    lock_recover(&thumbnails.manager.queue).clear();
+    thumbnails.reset_progress();
 
     let _ = app_handle.emit(
         "thumbnail-progress",

@@ -409,31 +409,6 @@ pub fn preview_job_is_stale(sequence: Option<u64>, newest_processed: Option<u64>
     matches!((sequence, newest_processed), (Some(sequence), Some(newest)) if sequence < newest)
 }
 
-pub struct ThumbnailProgressTracker {
-    pub total: usize,
-    pub completed: usize,
-}
-
-pub struct ThumbnailManager {
-    pub queue: Mutex<VecDeque<String>>,
-    pub cvar: Condvar,
-    pub processing_now: Mutex<HashSet<String>>,
-    pub rotational_disk: AtomicBool,
-    pub io_gate: Mutex<()>,
-}
-
-impl ThumbnailManager {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            queue: Mutex::new(VecDeque::new()),
-            cvar: Condvar::new(),
-            processing_now: Mutex::new(HashSet::new()),
-            rotational_disk: AtomicBool::new(false),
-            io_gate: Mutex::new(()),
-        })
-    }
-}
-
 pub struct PendingMetadata {
     pub virtual_path: String,
     pub image_path: PathBuf,
@@ -456,15 +431,6 @@ impl MetadataManager {
     }
 }
 
-/// A thumbnail's base: recipe hash, image, scale, mask source, and the
-/// photo's size when the base was made from its full decode.
-pub type ThumbnailGeometryEntry = (
-    u64,
-    Arc<DynamicImage>,
-    f32,
-    Option<crate::mask_generation::ParametricMaskSource>,
-    Option<(u32, u32)>,
-);
 pub type TransformedImageCache = (u64, Arc<DynamicImage>, (f32, f32));
 
 pub struct AppState {
@@ -512,8 +478,6 @@ pub struct AppState {
     pub lut_cache: Mutex<LutCache>,
     pub initial_file_path: Mutex<Option<String>>,
     pub pending_edit_session: Mutex<Option<ExternalEditSession>>,
-    pub thumbnail_cancellation_token: Arc<AtomicBool>,
-    pub thumbnail_progress: Mutex<ThumbnailProgressTracker>,
     /// The preview worker's next job (preview_slot.rs): a newer request
     /// replaces the waiting one on arrival.
     pub preview_jobs: crate::preview_slot::LatestSlot<PreviewJob>,
@@ -531,10 +495,8 @@ pub struct AppState {
         Mutex<Option<LatestJobSender<crate::scope_analytics::ScopeAnalyticsJob>>>,
     pub scope_proxy: Mutex<Option<crate::scope_analytics::ScopeProxy>>,
     pub scope_gpu_cache: Mutex<Option<GpuImageCache>>,
-    pub thumbnail_geometry_cache: Mutex<HashMap<String, ThumbnailGeometryEntry>>,
     pub load_image_generation: Arc<AtomicUsize>,
     pub preview_generation: AtomicUsize,
-    pub thumbnail_manager: Arc<ThumbnailManager>,
     pub metadata_manager: Arc<MetadataManager>,
     pub disks_cache: Mutex<Option<Disks>>,
     pub disks_cache_refreshing: AtomicBool,
@@ -569,11 +531,6 @@ impl Default for AppState {
             lut_cache: Mutex::new(Default::default()),
             initial_file_path: Mutex::new(None),
             pending_edit_session: Mutex::new(None),
-            thumbnail_cancellation_token: Arc::new(AtomicBool::new(false)),
-            thumbnail_progress: Mutex::new(ThumbnailProgressTracker {
-                total: 0,
-                completed: 0,
-            }),
             preview_jobs: Default::default(),
             live_stroke: Default::default(),
             analytics_worker_tx: Mutex::new(None),
@@ -582,10 +539,8 @@ impl Default for AppState {
             scope_analytics_tx: Mutex::new(None),
             scope_proxy: Mutex::new(None),
             scope_gpu_cache: Mutex::new(None),
-            thumbnail_geometry_cache: Mutex::new(HashMap::new()),
             load_image_generation: Arc::new(AtomicUsize::new(0)),
             preview_generation: AtomicUsize::new(0),
-            thumbnail_manager: ThumbnailManager::new(),
             metadata_manager: MetadataManager::new(),
             disks_cache: Mutex::new(None),
             disks_cache_refreshing: AtomicBool::new(false),

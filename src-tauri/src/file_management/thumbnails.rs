@@ -23,6 +23,8 @@ use crate::mask_generation::ParametricMaskSource;
 use crate::mask_generation::prepare_parametric_mask_source;
 use crate::mask_generation::{MaskBitmap, MaskDefinition};
 use crate::state::develop::DevelopSession;
+use crate::state::lock::lock_recover;
+use crate::state::thumbnails::ThumbnailState;
 use anyhow::Result;
 use image::DynamicImage;
 use image::GenericImageView;
@@ -364,6 +366,7 @@ pub(crate) fn develop_thumbnail(
     {
         let state = app_handle.state::<AppState>();
         let develop = app_handle.state::<DevelopSession>();
+        let thumbnails = app_handle.state::<ThumbnailState>();
         let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
 
         let base_cache_hash = crate::cache_utils::calculate_thumbnail_base_hash(&meta.adjustments);
@@ -386,7 +389,7 @@ pub(crate) fn develop_thumbnail(
             Option<ParametricMaskSource>,
             Option<(u32, u32)>,
         )> = {
-            let cache = state.thumbnail_geometry_cache.lock().unwrap();
+            let cache = lock_recover(&thumbnails.geometry_cache);
             if let Some((cached_hash, img, scale, mask_source, decoded_size)) = cache.get(cache_key)
             {
                 let mut sufficient_resolution = true;
@@ -551,7 +554,7 @@ pub(crate) fn develop_thumbnail(
             } else {
                 None
             };
-            let mut cache = state.thumbnail_geometry_cache.lock().unwrap();
+            let mut cache = lock_recover(&thumbnails.geometry_cache);
             if cache.len() >= 8 {
                 let key_to_remove = cache.keys().next().cloned();
                 if let Some(key) = key_to_remove {
@@ -1104,8 +1107,7 @@ pub(crate) fn take_next_thumbnail_path(
 }
 
 pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
-    let state = app_handle.state::<crate::app_state::AppState>();
-    let manager = state.thumbnail_manager.clone();
+    let manager = app_handle.state::<ThumbnailState>().manager.clone();
     let settings = crate::state::settings::current(&app_handle);
     let thread_count = settings.thumbnail_worker_threads.unwrap_or(4).clamp(1, 16);
 
@@ -1116,22 +1118,23 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
         std::thread::spawn(move || {
             loop {
                 let path_to_process: String = {
-                    let mut queue = manager_clone.queue.lock().unwrap();
+                    let mut queue = lock_recover(&manager_clone.queue);
                     while queue.is_empty() {
-                        queue = manager_clone.cvar.wait(queue).unwrap();
+                        queue = manager_clone
+                            .cvar
+                            .wait(queue)
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                     }
-                    let state = app_clone.state::<crate::app_state::AppState>();
-                    let Some(path) =
-                        take_next_thumbnail_path(&mut queue, &state.thumbnail_cancellation_token)
+                    let thumbnails = app_clone.state::<ThumbnailState>();
+                    let Some(path) = take_next_thumbnail_path(&mut queue, &thumbnails.cancelled)
                     else {
                         // Cancelled: the queue is dropped, the progress is already reset.
                         continue;
                     };
 
-                    let mut processing = manager_clone.processing_now.lock().unwrap();
+                    let mut processing = lock_recover(&manager_clone.processing_now);
                     if processing.contains(&path) {
-                        let state = app_clone.state::<crate::app_state::AppState>();
-                        increment_thumbnail_progress(&state, &app_clone);
+                        increment_thumbnail_progress(&thumbnails, &app_clone);
                         continue;
                     }
                     processing.insert(path.clone());
@@ -1146,7 +1149,7 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
 
                 if let Ok(cache_dir) = get_thumb_cache_dir(&app_clone) {
                     if manager_clone.rotational_disk.load(Ordering::Relaxed) {
-                        let _io_permit = manager_clone.io_gate.lock().unwrap();
+                        let _io_permit = lock_recover(&manager_clone.io_gate);
                         prefetch_source_file(&path_to_process);
                     }
 
@@ -1170,13 +1173,9 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                             is_edited,
                         );
                     }
-                    increment_thumbnail_progress(&state, &app_clone);
+                    increment_thumbnail_progress(&app_clone.state::<ThumbnailState>(), &app_clone);
                 }
-                manager_clone
-                    .processing_now
-                    .lock()
-                    .unwrap()
-                    .remove(&path_to_process);
+                lock_recover(&manager_clone.processing_now).remove(&path_to_process);
             }
         });
     }
@@ -1199,41 +1198,33 @@ pub fn update_thumbnail_queue(
     paths: Vec<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let state = app_handle.state::<crate::app_state::AppState>();
+    let thumbnails = app_handle.state::<ThumbnailState>();
+    let manager = &thumbnails.manager;
 
-    let mut queue = state.thumbnail_manager.queue.lock().unwrap();
+    let mut queue = lock_recover(&manager.queue);
 
     if paths.is_empty() {
         queue.clear();
-        let mut tracker = state.thumbnail_progress.lock().unwrap();
-        tracker.total = 0;
-        tracker.completed = 0;
-        drop(tracker);
+        thumbnails.reset_progress();
 
         let _ = app_handle.emit(
             "thumbnail-progress",
             serde_json::json!({ "current": 0, "total": 0 }),
         );
-        state.thumbnail_manager.cvar.notify_all();
+        manager.cvar.notify_all();
         return Ok(());
     }
 
     // A new generation starts: an earlier cancel must not stop it.
-    state
-        .thumbnail_cancellation_token
-        .store(false, Ordering::SeqCst);
+    thumbnails.cancelled.store(false, Ordering::SeqCst);
 
     // This command receives a viewport snapshot, not an accumulating job list.
     // Do not spend CPU decoding images the user has already scrolled past.
-    let processing = state.thumbnail_manager.processing_now.lock().unwrap();
+    let processing = lock_recover(&manager.processing_now);
     let mut unique_paths = visible_thumbnail_paths(paths, &processing);
     drop(processing);
     queue.clear();
-    if state
-        .thumbnail_manager
-        .rotational_disk
-        .load(Ordering::Relaxed)
-    {
+    if manager.rotational_disk.load(Ordering::Relaxed) {
         unique_paths.sort();
     }
     // Workers pop from the back; preserve visible order and bound oversized input.
@@ -1242,28 +1233,19 @@ pub fn update_thumbnail_queue(
     let queue_len = queue.len();
     drop(queue);
 
-    let mut tracker = state.thumbnail_progress.lock().unwrap();
-    tracker.total = tracker.completed + queue_len;
-
-    let current = tracker.completed;
-    let total = tracker.total;
-    drop(tracker);
+    let (current, total) = thumbnails.set_queued(queue_len);
 
     let _ = app_handle.emit(
         "thumbnail-progress",
         serde_json::json!({ "current": current, "total": total }),
     );
 
-    state.thumbnail_manager.cvar.notify_all();
+    manager.cvar.notify_all();
     Ok(())
 }
 
-pub fn add_to_thumbnail_queue(state: &AppState, count: usize, app_handle: &AppHandle) {
-    let mut tracker = state.thumbnail_progress.lock().unwrap();
-    tracker.total += count;
-    let current = tracker.completed;
-    let total = tracker.total;
-    drop(tracker);
+pub fn add_to_thumbnail_queue(thumbnails: &ThumbnailState, count: usize, app_handle: &AppHandle) {
+    let (current, total) = thumbnails.add_to_total(count);
 
     let _ = app_handle.emit(
         "thumbnail-progress",
@@ -1271,28 +1253,18 @@ pub fn add_to_thumbnail_queue(state: &AppState, count: usize, app_handle: &AppHa
     );
 }
 
-pub fn increment_thumbnail_progress(state: &AppState, app_handle: &AppHandle) {
-    let mut tracker = state.thumbnail_progress.lock().unwrap();
-    tracker.completed += 1;
-    let current = tracker.completed;
-    let total = tracker.total;
-
-    if current >= total {
-        tracker.total = 0;
-        tracker.completed = 0;
-        drop(tracker);
-
+pub fn increment_thumbnail_progress(thumbnails: &ThumbnailState, app_handle: &AppHandle) {
+    if let Some((current, total)) = thumbnails.complete_one() {
+        let _ = app_handle.emit(
+            "thumbnail-progress",
+            serde_json::json!({ "current": current, "total": total }),
+        );
+    } else {
         let _ = app_handle.emit(
             "thumbnail-progress",
             serde_json::json!({ "current": 0, "total": 0 }),
         );
         let _ = app_handle.emit("thumbnail-generation-complete", true);
-    } else {
-        drop(tracker);
-        let _ = app_handle.emit(
-            "thumbnail-progress",
-            serde_json::json!({ "current": current, "total": total }),
-        );
     }
 }
 
@@ -1317,14 +1289,14 @@ pub(crate) fn emit_thumbnail_generated(
 }
 
 // Recovery bypasses the viewport generation queue. Admit it before entering
-// the blocking pool so a cache-miss burst cannot allocate many RAW decodes.
-static RESTORATION_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
-
+// the blocking pool (`ThumbnailState::restoration_slot`) so a cache-miss
+// burst cannot allocate many RAW decodes.
 async fn restoration_job<R: Send + 'static>(
+    slot: Arc<tokio::sync::Semaphore>,
     work: impl FnOnce() -> R + Send + 'static,
 ) -> Result<R, String> {
-    let permit = RESTORATION_SLOT
-        .acquire()
+    let permit = slot
+        .acquire_owned()
         .await
         .map_err(|error| error.to_string())?;
     super::blocking(move || {
@@ -1340,7 +1312,11 @@ pub async fn restore_thumbnail(
     path: String,
     app_handle: AppHandle,
 ) -> Result<(String, String), String> {
-    restoration_job(move || {
+    let slot = app_handle
+        .state::<ThumbnailState>()
+        .restoration_slot
+        .clone();
+    restoration_job(slot, move || {
         let state = app_handle.state::<AppState>();
         let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
         let settings = crate::state::settings::current(&app_handle);
@@ -1458,12 +1434,14 @@ mod source_preview_tests {
         };
         let active = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
+        let slot = crate::state::thumbnails::ThumbnailState::default().restoration_slot;
         let mut jobs = tokio::task::JoinSet::new();
         for index in 0..8 {
             let active = active.clone();
             let peak = peak.clone();
+            let slot = slot.clone();
             jobs.spawn(async move {
-                super::restoration_job(move || {
+                super::restoration_job(slot, move || {
                     let running = active.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(running, Ordering::SeqCst);
                     std::thread::sleep(std::time::Duration::from_millis(20));

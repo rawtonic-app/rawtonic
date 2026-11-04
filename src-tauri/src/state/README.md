@@ -8,6 +8,7 @@ functions, not through `AppState`.
 |---|---|---|
 | `settings::SettingsStore` | `settings.json`, read + migrated once per run | `settings::current(app)` / `try_current(app)` (cheap `Arc`), `settings::update(app, \|s\| …)` |
 | `develop::DevelopSession` | the caches built from the open photograph (decodes, preview bases, GPU upload, masks, warps, geometry bases, the editor's patches) | `app.state::<DevelopSession>()`, passed on as `&DevelopSession`; dropped only through `invalidate(Scope)` |
+| `thumbnails::ThumbnailState` | the Library's thumbnail queue and its workers' bookkeeping (`ThumbnailManager`), the cancel flag, the progress counter, the thumbnail bases, the restoration slot | `app.state::<ThumbnailState>()`, passed on as `&ThumbnailState`; progress through `reset_progress` / `add_to_total` / `set_queued` / `complete_one` |
 
 ## Lock policy
 
@@ -54,3 +55,17 @@ Nested locks in use (earlier one held while the later one is taken):
 Every other access holds one `DevelopSession` lock for one step. The sites outside `state/` keep
 their lock calls (`lock().unwrap()` or recovery) until their context's part of 3.3; `invalidate`
 recovers poisoned locks (`lock_recover`), where `clear_image_caches` skipped a poisoned one.
+
+### `ThumbnailState`
+
+1. `manager.queue` (a worker taking the next photo; `update_thumbnail_queue` replacing it)
+2. `manager.processing_now` (taken under `queue` to skip a photo already in flight)
+3. `progress` (taken under both when a worker skips a photo already in flight, and under `queue`
+   when an empty viewport clears it; each progress method holds it for one step only)
+
+`manager.io_gate` and `geometry_cache` are each taken alone. `cancelled` is an atomic: set by
+`cancel_thumbnail_generation`, cleared when `update_thumbnail_queue` starts a new generation, read
+by the workers under `queue` (`take_next_thumbnail_path`, which then drops the rest of the queue).
+A worker that skips a photo already in flight emits its progress event while it still holds
+`queue` and `processing_now` (as before the split); no listener takes these locks.
+
