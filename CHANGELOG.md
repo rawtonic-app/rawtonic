@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A preference changed right before quitting is kept**: quitting (Quit, closing the window, ⌘Q, macOS log out) and *Save & Relaunch* now wait for the preferences still being saved, up to 10 seconds. One that cannot be written is listed in the quit prompt like unsaved edits, and *Save & Relaunch* then stays open with a message instead of restarting without it.
 - **Cancelling thumbnail generation now stops it**: the cancel button used to leave the queued thumbnails running; the queue is now dropped at the next photo, and a later generation starts normally.
 - **Canon RF 200-800mm with the RF1.4x or RF2x extender named with its real range**: exports' lens specification now says 280-1120 mm f/9-13 or 400-1600 mm f/13-18 instead of the bare lens's 200-800 mm f/6.3-9 (lens data from rawler 0.8.0).
 - **Canon EOS C50 RAW stills open** (camera data from rawler 0.8.0). Not yet tested on a C50 file: if one opens wrongly, please send a problem report.

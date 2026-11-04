@@ -16,6 +16,13 @@ interface SettingsState {
 }
 
 let inFlight: Promise<void> | null = null;
+/** The snapshot of the last save when that save failed; null once a later save succeeded. */
+let unsaved: AppSettings | null = null;
+
+/** What a settings save that could not be written is called in the quit prompt. */
+export const SETTINGS_WRITE_NAME = 'Preferences';
+/** How long quitting waits for the settings saves before it reports them unsaved. */
+export const SETTINGS_FLUSH_TIMEOUT_MS = 10_000;
 
 /**
  * Saves a settings snapshot, after every earlier save has finished (at once
@@ -26,15 +33,53 @@ let inFlight: Promise<void> | null = null;
 export function saveSettings(settings: AppSettings): Promise<void> {
   const send = () => invoke<void>(Invokes.SaveSettings, { settings });
   const save = inFlight ? inFlight.then(send) : Promise.resolve(send());
+  // Saves run one after another, so the last to settle decides what is on disk.
   const settled = save.then(
-    () => undefined,
-    () => undefined
+    () => {
+      unsaved = null;
+    },
+    () => {
+      unsaved = settings;
+    }
   );
   inFlight = settled;
   void settled.then(() => {
     if (inFlight === settled) inFlight = null;
   });
   return save;
+}
+
+async function drainSettingsSaves(): Promise<string[]> {
+  while (inFlight) await inFlight;
+  // The last save failed: write its snapshot once more.
+  if (unsaved) await saveSettings(unsaved).catch(() => undefined);
+  while (inFlight) await inFlight;
+  return unsaved ? [SETTINGS_WRITE_NAME] : [];
+}
+
+/**
+ * Waits for the queued settings saves before quitting or relaunching
+ * (a `QuitFlush`): resolves with `[SETTINGS_WRITE_NAME]` when the newest
+ * settings could not be written, also when the saves did not finish within
+ * `timeoutMs`, else with nothing.
+ */
+export function flushSettingsSaves(timeoutMs = SETTINGS_FLUSH_TIMEOUT_MS): Promise<string[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<string[]>((resolve) => {
+    timer = setTimeout(() => resolve([SETTINGS_WRITE_NAME]), timeoutMs);
+  });
+  return Promise.race([drainSettingsSaves(), expired]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Relaunches once every queued settings save is written (a relaunch ends
+ * the process without the quit drain); a save that could not be written
+ * keeps the app open. Resolves with what could not be saved.
+ */
+export async function relaunchAfterSettingsSaves(relaunch: () => Promise<void>): Promise<string[]> {
+  const failures = await flushSettingsSaves();
+  if (failures.length === 0) await relaunch();
+  return failures;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
