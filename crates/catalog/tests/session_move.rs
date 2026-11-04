@@ -108,8 +108,9 @@ impl World {
     }
 
     fn run(&self, step: Step) -> anyhow::Result<rawtonic_fileops::Operation> {
-        self.journal
-            .execute("moveSession", "Move session S7Job", vec![step], &self.trash)
+        Ok(self
+            .journal
+            .execute("moveSession", "Move session S7Job", vec![step], &self.trash)?)
     }
 }
 

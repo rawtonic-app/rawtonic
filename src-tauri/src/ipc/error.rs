@@ -146,13 +146,29 @@ fn cause_code(cause: &(dyn std::error::Error + 'static)) -> Option<ErrorCode> {
     if cause.is::<rawtonic_onnx::RuntimeError>() {
         return Some(ErrorCode::AiRuntimeUnavailable);
     }
+    if cause.is::<rawtonic_runtime::Cancelled>() {
+        return Some(ErrorCode::Cancelled);
+    }
     if let Some(io) = cause.downcast_ref::<std::io::Error>() {
         return Some(io_code(io.kind()));
     }
     if let Some(error) = cause.downcast_ref::<rawtonic_metadata::MetadataError>() {
         return metadata_code(error);
     }
+    if let Some(error) = cause.downcast_ref::<rawtonic_fileops::FileOpsError>() {
+        return fileops_code(error);
+    }
     None
+}
+
+fn fileops_code(error: &rawtonic_fileops::FileOpsError) -> Option<ErrorCode> {
+    use rawtonic_fileops::FileOpsError as E;
+    match error {
+        E::Cancelled(_) => Some(ErrorCode::Cancelled),
+        E::Io(io) => Some(io_code(io.kind())),
+        E::Sqlite(_) => None,
+        E::Other(cause) => cause.chain().find_map(cause_code),
+    }
 }
 
 fn metadata_code(error: &rawtonic_metadata::MetadataError) -> Option<ErrorCode> {
@@ -181,6 +197,13 @@ impl From<anyhow::Error> for CommandError {
 impl From<rawtonic_metadata::MetadataError> for CommandError {
     fn from(error: rawtonic_metadata::MetadataError) -> Self {
         let code = metadata_code(&error).unwrap_or(ErrorCode::Internal);
+        Self::new(code, error.to_string())
+    }
+}
+
+impl From<rawtonic_fileops::FileOpsError> for CommandError {
+    fn from(error: rawtonic_fileops::FileOpsError) -> Self {
+        let code = fileops_code(&error).unwrap_or(ErrorCode::Internal);
         Self::new(code, error.to_string())
     }
 }
@@ -330,6 +353,31 @@ mod tests {
             CommandError::from(anyhow::Error::from(other)),
             CommandError::new(ErrorCode::NotFound, "Reading")
         );
+    }
+
+    #[test]
+    fn a_stopped_file_operation_is_cancelled_with_its_text_also_inside_context() {
+        use rawtonic_fileops::FileOpsError;
+        let stopped = || rawtonic_runtime::Cancelled::new("Stopped");
+        let error = CommandError::from(FileOpsError::from(stopped()));
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (ErrorCode::Cancelled, "Stopped")
+        );
+        let undone =
+            FileOpsError::from(anyhow::Error::new(stopped()).context("Nothing was undone"));
+        let error = CommandError::chain(anyhow::Error::from(undone));
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (ErrorCode::Cancelled, "Nothing was undone: Stopped")
+        );
+        let io = std::io::Error::new(std::io::ErrorKind::AlreadyExists, "taken");
+        assert_eq!(
+            CommandError::from(FileOpsError::from(io)).code,
+            ErrorCode::AlreadyExists
+        );
+        let sqlite = FileOpsError::from(rusqlite::Error::QueryReturnedNoRows);
+        assert_eq!(CommandError::from(sqlite).code, ErrorCode::Internal);
     }
 
     #[test]

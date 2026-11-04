@@ -17,7 +17,9 @@
 //! published by an exclusive rename, after which the original goes to the
 //! system Trash; its staging copies are the only other files this crate
 //! removes.
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result};
+pub use error::FileOpsError;
+use error::{bail, ensure, stopped};
 use rawtonic_fs::rename_no_clobber;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,7 @@ use std::{
 
 #[cfg(test)]
 mod copy_move_tests;
+mod error;
 mod migrations;
 mod tree;
 mod volume;
@@ -188,7 +191,7 @@ impl Step {
         }
     }
     /// A move: a rename on the same volume, otherwise a copy move.
-    pub fn moving(from: impl Into<PathBuf>, to: impl Into<PathBuf>) -> Result<Self> {
+    pub fn moving(from: impl Into<PathBuf>, to: impl Into<PathBuf>) -> Result<Self, FileOpsError> {
         let (from, to) = (from.into(), to.into());
         Ok(if same_volume(&from, &to)? {
             Self::rename(from, to)
@@ -429,7 +432,7 @@ pub struct Journal {
 }
 
 impl Journal {
-    pub fn open(path: &Path) -> Result<Self> {
+    pub fn open(path: &Path) -> Result<Self, FileOpsError> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -452,7 +455,7 @@ impl Journal {
         label: &str,
         steps: Vec<Step>,
         trash: &dyn SystemTrash,
-    ) -> Result<Operation> {
+    ) -> Result<Operation, FileOpsError> {
         self.execute_with(kind, label, steps, trash, &Unobserved)
     }
 
@@ -465,7 +468,7 @@ impl Journal {
         mut steps: Vec<Step>,
         trash: &dyn SystemTrash,
         observer: &dyn CopyObserver,
-    ) -> Result<Operation> {
+    ) -> Result<Operation, FileOpsError> {
         ensure!(!steps.is_empty(), "Nothing to do");
         for step in &mut steps {
             if let Target::OtherVolume { copy, .. } = &mut step.to {
@@ -503,7 +506,9 @@ impl Journal {
                 .as_deref()
                 .and_then(|n| n.split_once("; could not reverse every step: "))
                 .map(|(_, kept)| format!("Not everything was put back: {kept}"));
-            return Err(error.context(kept.unwrap_or_else(|| "Nothing was changed".into())));
+            return Err(error
+                .context(kept.unwrap_or_else(|| "Nothing was changed".into()))
+                .into());
         }
         if payload.has_copies() {
             self.store_clearing_redo(&id, State::Finishing, &payload)?;
@@ -538,7 +543,7 @@ impl Journal {
             self.stage_copies(id, state, payload, Direction::Forward, observer)?;
             for index in 0..payload.steps.len() {
                 if observer.cancelled() {
-                    bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+                    bail!(stopped());
                 }
                 if matches!(payload.steps[index].to, Target::OtherVolume { .. }) {
                     // A publish can fail after its rename (syncing the
@@ -567,7 +572,7 @@ impl Journal {
             }
             // Stop is honoured until the originals start going to the Trash.
             if observer.cancelled() {
-                bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+                bail!(stopped());
             }
             Ok(())
         })();
@@ -748,7 +753,7 @@ impl Journal {
         }
         // Stop pressed during the last verification still stops the move.
         if observer.cancelled() {
-            bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+            bail!(stopped());
         }
         Ok(())
     }
@@ -873,7 +878,7 @@ impl Journal {
     /// Undoes a finished operation. Refuses, changing nothing, when any file
     /// has moved on since or something now occupies an original location.
     /// An undone operation goes onto the redo stack.
-    pub fn undo(&self, id: &str, trash: &dyn SystemTrash) -> Result<Operation> {
+    pub fn undo(&self, id: &str, trash: &dyn SystemTrash) -> Result<Operation, FileOpsError> {
         self.undo_with(id, trash, &Unobserved)
     }
 
@@ -885,7 +890,7 @@ impl Journal {
         id: &str,
         trash: &dyn SystemTrash,
         observer: &dyn CopyObserver,
-    ) -> Result<Operation> {
+    ) -> Result<Operation, FileOpsError> {
         let op = self.operation(id)?;
         ensure!(
             op.state == State::Done,
@@ -981,7 +986,9 @@ impl Journal {
             }
             payload.note = Some(note);
             self.store(id, State::Done, &payload)?;
-            return Err(error.context(rolled_back("Nothing was undone", &kept)));
+            return Err(error
+                .context(rolled_back("Nothing was undone", &kept))
+                .into());
         }
         let total = payload.steps.len();
         // One more round after the last step: Stop is honoured until the
@@ -989,10 +996,7 @@ impl Journal {
         for undone in 0..=total {
             let step = (undone < total).then(|| payload.steps[total - 1 - undone].clone());
             let reversed = if observer.cancelled() {
-                Err(anyhow::Error::new(io::Error::new(
-                    io::ErrorKind::Interrupted,
-                    "Stopped",
-                )))
+                Err(anyhow::Error::new(stopped()))
             } else if let Some(step) = &step {
                 let index = total - 1 - undone;
                 reverse_for_undo(step, trash, &mut |claim| {
@@ -1036,7 +1040,9 @@ impl Journal {
                 kept.extend(in_place);
                 payload.note = Some(note);
                 self.store(id, State::Done, &payload)?;
-                return Err(error.context(rolled_back("Nothing was undone", &kept)));
+                return Err(error
+                    .context(rolled_back("Nothing was undone", &kept))
+                    .into());
             }
             #[cfg(test)]
             crash::point("reversed");
@@ -1067,7 +1073,7 @@ impl Journal {
     /// Refuses, changing nothing, when the world changed since the undo; a
     /// failing step rolls the applied ones back and the operation stays
     /// undone (and redoable); a crash is rolled back by [`Journal::recover`].
-    pub fn redo(&self, id: &str, trash: &dyn SystemTrash) -> Result<Operation> {
+    pub fn redo(&self, id: &str, trash: &dyn SystemTrash) -> Result<Operation, FileOpsError> {
         self.redo_with(id, trash, &Unobserved)
     }
 
@@ -1077,7 +1083,7 @@ impl Journal {
         id: &str,
         trash: &dyn SystemTrash,
         observer: &dyn CopyObserver,
-    ) -> Result<Operation> {
+    ) -> Result<Operation, FileOpsError> {
         let op = self.operation(id)?;
         ensure!(
             op.state == State::Undone && self.redoable(id)?,
@@ -1140,7 +1146,9 @@ impl Journal {
             let mut kept = keep_published_folders(&mut payload, Direction::Forward);
             kept.extend(keep_in_place(&mut payload, Direction::Forward));
             self.store_keeping_sync(id, State::Undone, &payload)?;
-            return Err(error.context(rolled_back("Nothing was redone", &kept)));
+            return Err(error
+                .context(rolled_back("Nothing was redone", &kept))
+                .into());
         }
         if payload.has_copies() {
             let tx = self.conn.unchecked_transaction()?;
@@ -1164,7 +1172,7 @@ impl Journal {
 
     /// The newest finished operation, the one Undo applies to (none before
     /// the last emptied folder).
-    pub fn last_undoable(&self) -> Result<Option<Operation>> {
+    pub fn last_undoable(&self) -> Result<Option<Operation>, FileOpsError> {
         let id: Option<String> = self
             .conn
             .query_row(
@@ -1182,7 +1190,7 @@ impl Journal {
     /// The operation Redo applies to: the one undone last. (Undo always
     /// takes the newest finished operation and a new operation clears the
     /// stack, so that is the redoable one with the lowest sequence.)
-    pub fn last_redoable(&self) -> Result<Option<Operation>> {
+    pub fn last_redoable(&self) -> Result<Option<Operation>, FileOpsError> {
         let id: Option<String> = self
             .conn
             .query_row(
@@ -1236,7 +1244,12 @@ impl Journal {
     /// syncs its records like any operation's ([`Journal::unsynced`]).
     /// When some files could not be deleted the result stays committed
     /// with a note; the next recovery tries again.
-    pub fn purge(&self, kind: &str, label: &str, plan: &PurgePlan) -> Result<Operation> {
+    pub fn purge(
+        &self,
+        kind: &str,
+        label: &str,
+        plan: &PurgePlan,
+    ) -> Result<Operation, FileOpsError> {
         ensure!(!plan.entries.is_empty(), "The folder is empty");
         let now = plan_purge(&plan.folder).context("Nothing was deleted")?;
         ensure!(
@@ -1283,7 +1296,7 @@ impl Journal {
                     Err(e) => format!("{error:#}; could not reverse every step: {e:#}"),
                 });
                 self.store(&id, State::RolledBack, &payload)?;
-                return Err(error.context("Nothing was deleted"));
+                return Err(error.context("Nothing was deleted").into());
             }
         }
         self.store_clearing_redo(&id, State::PurgeCommitted, &payload)?;
@@ -1314,7 +1327,7 @@ impl Journal {
     /// finishes what was committed (the deletion of a purge, the trashing
     /// of the sources of copies in place) and returns every operation whose
     /// caller records still need to follow it (including those).
-    pub fn recover(&self, trash: &dyn SystemTrash) -> Result<Vec<Operation>> {
+    pub fn recover(&self, trash: &dyn SystemTrash) -> Result<Vec<Operation>, FileOpsError> {
         let ids: Vec<String> = {
             let mut q = self.conn.prepare(
                 "SELECT id FROM operations
@@ -1423,7 +1436,7 @@ impl Journal {
     /// Finished, undone or purged operations the caller's records do not
     /// follow yet (their sync failed or never ran), oldest first: sync them
     /// in order.
-    pub fn unsynced(&self) -> Result<Vec<Operation>> {
+    pub fn unsynced(&self) -> Result<Vec<Operation>, FileOpsError> {
         let ids: Vec<String> = {
             let mut q = self.conn.prepare(
                 "SELECT id FROM operations WHERE synced=0
@@ -1436,19 +1449,22 @@ impl Journal {
     }
 
     /// Stores the caller's data with an operation (kept through undo).
-    pub fn set_context(&self, id: &str, context: serde_json::Value) -> Result<()> {
+    pub fn set_context(&self, id: &str, context: serde_json::Value) -> Result<(), FileOpsError> {
         let mut payload = self.payload(id)?;
         payload.context = Some(context);
         self.conn.execute(
             "UPDATE operations SET payload=? WHERE id=?",
-            params![serde_json::to_string(&payload)?, id],
+            params![
+                serde_json::to_string(&payload).map_err(anyhow::Error::from)?,
+                id
+            ],
         )?;
         Ok(())
     }
 
     /// Records that the caller's own records follow the operation's state.
-    pub fn mark_synced(&self, id: &str) -> Result<()> {
-        self.set_synced(id, true)
+    pub fn mark_synced(&self, id: &str) -> Result<(), FileOpsError> {
+        Ok(self.set_synced(id, true)?)
     }
 
     fn set_synced(&self, id: &str, synced: bool) -> Result<()> {
@@ -1460,7 +1476,7 @@ impl Journal {
     }
 
     /// The newest operations, newest first.
-    pub fn history(&self, limit: usize) -> Result<Vec<Operation>> {
+    pub fn history(&self, limit: usize) -> Result<Vec<Operation>, FileOpsError> {
         let ids: Vec<String> = {
             let mut q = self
                 .conn
@@ -1471,7 +1487,7 @@ impl Journal {
         ids.iter().map(|id| self.operation(id)).collect()
     }
 
-    pub fn operation(&self, id: &str) -> Result<Operation> {
+    pub fn operation(&self, id: &str) -> Result<Operation, FileOpsError> {
         let (kind, label, state, synced, payload, created_at): (
             String,
             String,
@@ -1497,7 +1513,7 @@ impl Journal {
             )
             .optional()?
             .with_context(|| format!("No file operation {id}"))?;
-        let payload: Payload = serde_json::from_str(&payload)?;
+        let payload: Payload = serde_json::from_str(&payload).map_err(anyhow::Error::from)?;
         Ok(Operation {
             id: id.to_string(),
             kind,
@@ -1517,7 +1533,7 @@ impl Journal {
     /// The copies made in place that the operation's rolled-back
     /// directions left and that are still there, each the very file the
     /// move created ([`KeptCopy::is_there`]).
-    pub fn kept_copies(&self, id: &str) -> Result<Vec<KeptCopy>> {
+    pub fn kept_copies(&self, id: &str) -> Result<Vec<KeptCopy>, FileOpsError> {
         Ok(self
             .payload(id)?
             .kept
@@ -1542,7 +1558,7 @@ impl Journal {
         id: &str,
         path: &Path,
         trash: &dyn SystemTrash,
-    ) -> Result<String> {
+    ) -> Result<String, FileOpsError> {
         let mut payload = self.payload(id)?;
         let kept = payload
             .kept
@@ -1578,7 +1594,10 @@ impl Journal {
         payload.kept.retain(|k| k.path != path);
         self.conn.execute(
             "UPDATE operations SET payload=? WHERE id=?",
-            params![serde_json::to_string(&payload)?, id],
+            params![
+                serde_json::to_string(&payload).map_err(anyhow::Error::from)?,
+                id
+            ],
         )?;
         Ok(item)
     }
@@ -1666,7 +1685,7 @@ pub struct PurgePlan {
 /// `from` is taken in `to`, when `to` is inside `from`, or when `from`
 /// holds a link or something that is neither file nor folder: all of it
 /// moves or nothing does. Empty when `from` is empty.
-pub fn plan_move_contents(from: &Path, to: &Path) -> Result<Vec<Vec<Step>>> {
+pub fn plan_move_contents(from: &Path, to: &Path) -> Result<Vec<Vec<Step>>, FileOpsError> {
     let real = |p: &Path| {
         p.canonicalize()
             .with_context(|| format!("{} is not available", p.display()))
@@ -1719,7 +1738,7 @@ pub fn plan_move_contents(from: &Path, to: &Path) -> Result<Vec<Vec<Step>>> {
 /// Lists what [`Journal::purge`] would delete in `folder`. The folder must
 /// be given by its real path (absolute, no `..`, no link in it or on the
 /// way to it) and be a folder, not a link; nothing below it is followed.
-pub fn plan_purge(folder: &Path) -> Result<PurgePlan> {
+pub fn plan_purge(folder: &Path) -> Result<PurgePlan, FileOpsError> {
     ensure!(
         folder.is_absolute(),
         "{} is not an absolute path",
@@ -2192,7 +2211,7 @@ pub struct CopyNeed {
 /// does not support: a source that is neither a regular file nor a folder
 /// (a link), a folder with such an entry in it, and sources or
 /// destinations on network drives.
-pub fn copy_needs(pairs: &[(PathBuf, PathBuf)]) -> Result<Vec<CopyNeed>> {
+pub fn copy_needs(pairs: &[(PathBuf, PathBuf)]) -> Result<Vec<CopyNeed>, FileOpsError> {
     let mut needs: BTreeMap<PathBuf, CopyNeed> = BTreeMap::new();
     for (source, destination) in pairs {
         let meta = fs::symlink_metadata(source)
@@ -2314,7 +2333,7 @@ fn plan_staging(steps: &mut [Step], direction: Direction) -> Result<Vec<PathBuf>
 /// replacing a file and keeping their extended attributes (ADR 0016):
 /// makes a staging folder there, probes an exclusive rename in it (and
 /// keeping an attribute, when a source has some) and removes it again.
-pub fn probe_folder(folder: &Path, sources: &[PathBuf]) -> Result<()> {
+pub fn probe_folder(folder: &Path, sources: &[PathBuf]) -> Result<(), FileOpsError> {
     let dir = folder.join(format!("{MOVE_STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     fs::create_dir(&dir).with_context(|| format!("Cannot write in {}", folder.display()))?;
     let result = publish_mode(&dir).and_then(|mode| {
@@ -2327,9 +2346,8 @@ pub fn probe_folder(folder: &Path, sources: &[PathBuf]) -> Result<()> {
         }
         let pairs: Vec<_> = sources.iter().map(|s| (s.clone(), dir.clone())).collect();
         match first_with_attributes(&pairs)? {
-            Some((file, attributes)) => {
-                xattr::probe(&dir).map_err(|e| xattr::cannot_keep(folder, &file, &attributes, &e))
-            }
+            Some((file, attributes)) => Ok(xattr::probe(&dir)
+                .map_err(|e| xattr::cannot_keep(folder, &file, &attributes, &e))?),
             None => Ok(()),
         }
     });

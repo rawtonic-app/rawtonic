@@ -3,8 +3,10 @@
 //! renames without replacing, how copies are published there, and a copy
 //! that is synced, read back from the drive and compared byte for byte with
 //! its source.
+use crate::FileOpsError;
+use crate::error::{bail, ensure, stopped};
 use crate::xattr;
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result};
 #[cfg(unix)]
 use rawtonic_fs::volume::volume_info;
 use serde::{Deserialize, Serialize};
@@ -34,10 +36,10 @@ const PROBE_B: &str = ".rawtonic-probe-b";
 /// renames exclusively: a rename to a free name succeeds and one onto a
 /// taken name is refused, both without replacing anything. The probe files
 /// are removed again.
-pub fn probe_exclusive_rename(folder: &Path) -> Result<()> {
+pub fn probe_exclusive_rename(folder: &Path) -> Result<(), FileOpsError> {
     let result = probe_rename(folder);
     remove_probe(folder);
-    result.map_err(|e| cannot_publish(folder, &e))
+    Ok(result.map_err(|e| cannot_publish(folder, &e))?)
 }
 
 fn probe_rename(folder: &Path) -> io::Result<()> {
@@ -84,7 +86,7 @@ pub enum Publish {
 /// holds (a second creation of a name is refused). Anything else, such as
 /// a rename that replaced a file, refuses the volume. The probe files are
 /// removed again.
-pub fn publish_mode(folder: &Path) -> Result<Publish> {
+pub fn publish_mode(folder: &Path) -> Result<Publish, FileOpsError> {
     #[cfg(test)]
     if FORCE_IN_PLACE.get() {
         return Ok(Publish::InPlace);
@@ -114,10 +116,10 @@ pub fn publish_mode(folder: &Path) -> Result<Publish> {
         remove_probe(folder);
         return match created {
             Ok(()) => Ok(Publish::InPlace),
-            Err(e) => Err(cannot_publish(folder, &e)),
+            Err(e) => Err(cannot_publish(folder, &e).into()),
         };
     }
-    Err(cannot_publish(folder, &error))
+    Err(cannot_publish(folder, &error).into())
 }
 
 #[cfg(test)]
@@ -311,7 +313,7 @@ pub(crate) fn copy_file_verified(
     let mut buffer = vec![0u8; BLOCK];
     loop {
         if tally.observer.cancelled() {
-            bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+            bail!(stopped());
         }
         let read = input.read(&mut buffer)?;
         if read == 0 {
@@ -437,7 +439,7 @@ pub(crate) fn same_content(
     let (mut x, mut y) = (vec![0u8; BLOCK], vec![0u8; BLOCK]);
     loop {
         if stop.is_some_and(|s| s.cancelled()) {
-            bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+            bail!(stopped());
         }
         let n = read_full(&mut a, &mut x)?;
         let m = read_full(&mut b, &mut y)?;
