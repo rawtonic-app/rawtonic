@@ -209,7 +209,10 @@ fn photograph(i: u32, numbers: &mut Numbers, words: &[String]) -> (String, Captu
 
 /// Median, 95th percentile and maximum of `iterations` runs of `work`, in
 /// milliseconds, and what the last run returned.
-fn time<T>(iterations: u32, mut work: impl FnMut() -> Result<T>) -> Result<(Value, T)> {
+fn time<T, E>(iterations: u32, mut work: impl FnMut() -> Result<T, E>) -> Result<(Value, T)>
+where
+    anyhow::Error: From<E>,
+{
     let mut timings = Vec::new();
     let mut last = None;
     for _ in 0..iterations {

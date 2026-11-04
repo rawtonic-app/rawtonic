@@ -5,8 +5,8 @@
 //! undo step (`utils/appUndo`), handed back to `stacks_restore`. No file or
 //! sidecar is read or written.
 use crate::file_management::parse_virtual_path;
-use rawtonic_catalog::Library;
 use rawtonic_catalog::stacks::{AutoGroup, AutoPlan, AutoStackOptions, Member, StackChange};
+use rawtonic_catalog::{CatalogError, Library};
 use rawtonic_metadata::photo_ref::{self, PhotoRef};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -67,7 +67,7 @@ fn members(paths: &[String]) -> Result<(PathBuf, Library, Vec<Member>), String> 
 
 fn run(
     paths: Vec<String>,
-    command: impl FnOnce(&Library, &[Member]) -> anyhow::Result<StackChange>,
+    command: impl FnOnce(&Library, &[Member]) -> Result<StackChange, CatalogError>,
 ) -> Result<StackResult, String> {
     let (directory, lib, members) = members(&paths)?;
     let change = command(&lib, &members).map_err(|e| e.to_string())?;

@@ -5,8 +5,10 @@
 //! journaled, no-clobber, undoable `rawtonic_fileops` step (a rename on the
 //! same drive, a verified copy with the original trashed afterwards on
 //! another), which the caller runs with the session closed.
+use crate::CatalogError;
+use crate::error::{bail, ensure};
 use crate::{Manifest, Mode, db_name};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result};
 use rusqlite::{Connection, OpenFlags};
 use std::{fs, path::Path, path::PathBuf};
 
@@ -30,7 +32,7 @@ pub struct SessionMove {
 /// already, or when another program (another Rawtonic, the `rawtonic`
 /// command) has the session's database open. Free space is checked by the
 /// move itself (`rawtonic_fileops`), which refuses before copying.
-pub fn plan_session_move(session: &Path, destination: &Path) -> Result<SessionMove> {
+pub fn plan_session_move(session: &Path, destination: &Path) -> Result<SessionMove, CatalogError> {
     let planned = check_session_move(session, destination)?;
     ensure!(
         !in_use_elsewhere(&planned.from)?,
@@ -43,7 +45,7 @@ pub fn plan_session_move(session: &Path, destination: &Path) -> Result<SessionMo
 /// [`plan_session_move`] without asking whether the database is open
 /// elsewhere: for offering the move, while this program may still have it
 /// open itself.
-pub fn check_session_move(session: &Path, destination: &Path) -> Result<SessionMove> {
+pub fn check_session_move(session: &Path, destination: &Path) -> Result<SessionMove, CatalogError> {
     let from = session
         .canonicalize()
         .with_context(|| format!("{} is not available", session.display()))?;
@@ -107,7 +109,7 @@ pub fn check_session_move(session: &Path, destination: &Path) -> Result<SessionM
 /// keeps a shared lock for as long as it is open, so taking the database's
 /// exclusive lock, without waiting, fails exactly then. On success the
 /// probe's close checkpoints the WAL into the database file.
-pub fn in_use_elsewhere(session: &Path) -> Result<bool> {
+pub fn in_use_elsewhere(session: &Path) -> Result<bool, CatalogError> {
     let db = session.join(db_name(Mode::Session));
     ensure!(
         db.is_file(),
@@ -127,6 +129,8 @@ pub fn in_use_elsewhere(session: &Path) -> Result<bool> {
         {
             Ok(true)
         }
-        Err(e) => Err(e).context("The session's database cannot be checked"),
+        Err(e) => Err(anyhow::Error::new(e)
+            .context("The session's database cannot be checked")
+            .into()),
     }
 }

@@ -158,7 +158,22 @@ fn cause_code(cause: &(dyn std::error::Error + 'static)) -> Option<ErrorCode> {
     if let Some(error) = cause.downcast_ref::<rawtonic_fileops::FileOpsError>() {
         return fileops_code(error);
     }
+    if let Some(error) = cause.downcast_ref::<rawtonic_catalog::CatalogError>() {
+        return catalog_code(error);
+    }
     None
+}
+
+fn catalog_code(error: &rawtonic_catalog::CatalogError) -> Option<ErrorCode> {
+    use rawtonic_catalog::CatalogError as E;
+    match error {
+        E::Cancelled(_) => Some(ErrorCode::Cancelled),
+        E::UnknownAlbum => Some(ErrorCode::NotFound),
+        E::XmpOffline | E::Sqlite(_) => None,
+        E::Metadata(error) => metadata_code(error),
+        E::Io(io) => Some(io_code(io.kind())),
+        E::Other(cause) => cause.chain().find_map(cause_code),
+    }
 }
 
 fn fileops_code(error: &rawtonic_fileops::FileOpsError) -> Option<ErrorCode> {
@@ -204,6 +219,13 @@ impl From<rawtonic_metadata::MetadataError> for CommandError {
 impl From<rawtonic_fileops::FileOpsError> for CommandError {
     fn from(error: rawtonic_fileops::FileOpsError) -> Self {
         let code = fileops_code(&error).unwrap_or(ErrorCode::Internal);
+        Self::new(code, error.to_string())
+    }
+}
+
+impl From<rawtonic_catalog::CatalogError> for CommandError {
+    fn from(error: rawtonic_catalog::CatalogError) -> Self {
+        let code = catalog_code(&error).unwrap_or(ErrorCode::Internal);
         Self::new(code, error.to_string())
     }
 }
@@ -378,6 +400,53 @@ mod tests {
         );
         let sqlite = FileOpsError::from(rusqlite::Error::QueryReturnedNoRows);
         assert_eq!(CommandError::from(sqlite).code, ErrorCode::Internal);
+    }
+
+    #[test]
+    fn catalog_errors_keep_their_text_and_map_their_condition() {
+        use rawtonic_catalog::CatalogError;
+        let cases = [
+            (
+                CatalogError::from(rawtonic_runtime::Cancelled::new(
+                    "Synchronization cancelled",
+                )),
+                ErrorCode::Cancelled,
+                "Synchronization cancelled",
+            ),
+            (
+                CatalogError::UnknownAlbum,
+                ErrorCode::NotFound,
+                "Unknown album",
+            ),
+            (
+                CatalogError::XmpOffline,
+                ErrorCode::Internal,
+                "The photograph is offline; its XMP is written when it is back",
+            ),
+            (
+                CatalogError::from(rawtonic_metadata::MetadataError::XmpConflict),
+                ErrorCode::Internal,
+                "XMP conflict: external changes must be reviewed",
+            ),
+            (
+                CatalogError::from(std::io::Error::new(std::io::ErrorKind::NotFound, "gone")),
+                ErrorCode::NotFound,
+                "gone",
+            ),
+        ];
+        for (error, code, message) in cases {
+            let error = CommandError::from(error);
+            assert_eq!((error.code, error.message.as_str()), (code, message));
+        }
+        let stopped = anyhow::Error::new(rawtonic_runtime::Cancelled::new(
+            "Synchronization cancelled",
+        ))
+        .context("Scanning");
+        let error = CommandError::chain(anyhow::Error::from(CatalogError::from(stopped)));
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (ErrorCode::Cancelled, "Scanning: Synchronization cancelled")
+        );
     }
 
     #[test]

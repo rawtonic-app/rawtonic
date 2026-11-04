@@ -10,8 +10,10 @@
 //! Photographs in a session's folders outside it are registered like a
 //! catalog's (an external root per folder), so they keep their edits while
 //! the drive is away.
+use crate::CatalogError;
+use crate::error::{bail, ensure};
 use crate::{Library, Manifest, Mode, manifest_name, portable_relative, validate_relative};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result};
 use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -254,7 +256,7 @@ impl Library {
     /// path, where it would take the work meant for the renamed one. That
     /// holds however the session was written: a session from before
     /// `output_folders` exists may have any Output setting.
-    pub fn usable_folder(&self, role: FolderRole) -> Result<PathBuf> {
+    pub fn usable_folder(&self, role: FolderRole) -> Result<PathBuf, CatalogError> {
         let folder = self.session_folder(role);
         if folder.available {
             return Ok(folder.path);
@@ -358,7 +360,11 @@ impl Library {
     /// registered). Refused: a catalog, the session folder itself or a
     /// folder holding it, a folder the session keeps for its own data, a
     /// folder of another library, and a folder another role already has.
-    pub fn set_session_folder(&mut self, role: FolderRole, folder: &Path) -> Result<SessionFolder> {
+    pub fn set_session_folder(
+        &mut self,
+        role: FolderRole,
+        folder: &Path,
+    ) -> Result<SessionFolder, CatalogError> {
         ensure!(
             self.manifest.mode == Mode::Session,
             "Only a session's folders can be chosen; a catalog keeps its photographs where they are"
@@ -464,7 +470,7 @@ impl Library {
 
     /// Puts every folder outside the session back to its default inside it
     /// (a complete copy of the session holds its photographs itself).
-    pub fn reset_outside_folders(&mut self) -> Result<()> {
+    pub fn reset_outside_folders(&mut self) -> Result<(), CatalogError> {
         let mut manifest = self.manifest.clone();
         for role in FolderRole::ALL {
             if is_absolute_setting(manifest.folder_setting(role)) {
@@ -473,7 +479,7 @@ impl Library {
             }
         }
         manifest.former_folders.clear();
-        self.write_manifest(manifest)
+        Ok(self.write_manifest(manifest)?)
     }
 
     fn write_manifest(&mut self, manifest: Manifest) -> Result<()> {

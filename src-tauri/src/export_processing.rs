@@ -429,7 +429,7 @@ pub(crate) fn pin_photos(
 /// Whether the library `owner` reads what it holds of `source` (its
 /// recipe and metadata) without an error.
 fn library_readable(owner: &Path, source: &Path) -> Result<(), String> {
-    let failed = |e: anyhow::Error| {
+    let failed = |e: rawtonic_catalog::CatalogError| {
         format!(
             "The library {} cannot be read for {}: {e:#}",
             owner.display(),

@@ -8,8 +8,10 @@
 //! their documented capability, as one tool. Rules are compiled to one SQL
 //! query over the catalog (no file is read), so a smart album is always
 //! current: it is evaluated whenever it is shown or counted.
+use crate::CatalogError;
 use crate::Library;
-use anyhow::{Context, Result, bail, ensure};
+use crate::error::{bail, ensure};
+use anyhow::{Context, Result};
 use rawtonic_metadata::culling::Rating;
 use rawtonic_metadata::provenance::{AI_FACTS, RAW_ONLY};
 use rusqlite::{
@@ -207,14 +209,14 @@ impl Rule {
 
     /// The rule as a library keeps it: folders inside `directory` relative
     /// to it, so a session moved while closed keeps its smart albums.
-    pub fn relative_to(&self, directory: &Path) -> Result<Self> {
+    pub fn relative_to(&self, directory: &Path) -> Result<Self, CatalogError> {
         Ok(match self {
             Self::Group { combine, rules } => Self::Group {
                 combine: *combine,
                 rules: rules
                     .iter()
                     .map(|r| r.relative_to(directory))
-                    .collect::<Result<_>>()?,
+                    .collect::<Result<_, CatalogError>>()?,
             },
             Self::Condition {
                 field: Field::Folder,
@@ -257,9 +259,9 @@ impl Rule {
 
     /// Refuses rules that cannot be evaluated (unknown values, wrong
     /// operators for a field, too deep), with what is wrong.
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<(), CatalogError> {
         let mut count = 0;
-        self.check(0, &mut count)
+        Ok(self.check(0, &mut count)?)
     }
 
     fn check(&self, depth: usize, count: &mut usize) -> Result<()> {
@@ -1457,7 +1459,7 @@ impl Library {
 
     /// Whether `rule`, with the smart albums it names, compares image data
     /// (`Field::Duplicate`): its answer needs current image hashes.
-    pub fn rule_compares_images(&self, rule: &Rule) -> Result<bool> {
+    pub fn rule_compares_images(&self, rule: &Rule) -> Result<bool, CatalogError> {
         rule.validate()?;
         let mut compiler = Compiler::new(&self.directory, Some(self));
         compiler.rule(rule)?;
@@ -1478,13 +1480,17 @@ impl Library {
 
     /// Paths of the photographs `rule` matches, by place (root, then path
     /// in it). One query; no file is read.
-    pub fn search(&self, rule: &Rule) -> Result<Vec<PathBuf>> {
+    pub fn search(&self, rule: &Rule) -> Result<Vec<PathBuf>, CatalogError> {
         self.search_for_listing(rule, None)
     }
 
     /// Search with an explicit folder-grid context. A listing inside the
     /// session Trash keeps its catalog metadata available for filters.
-    pub fn search_for_listing(&self, rule: &Rule, listed: Option<&Path>) -> Result<Vec<PathBuf>> {
+    pub fn search_for_listing(
+        &self,
+        rule: &Rule,
+        listed: Option<&Path>,
+    ) -> Result<Vec<PathBuf>, CatalogError> {
         let compiled = self.compile_visible(rule, self.visible_assets_for_listing(listed))?;
         let mut query = self.conn.prepare(&format!(
             "SELECT a.rel_path,r.path,r.external FROM {} WHERE {} ORDER BY a.root_id, a.rel_path",
@@ -1506,8 +1512,8 @@ impl Library {
     }
 
     /// Ids of the photographs `rule` matches, in the order of `search`.
-    pub fn search_ids(&self, rule: &Rule) -> Result<Vec<String>> {
-        self.ids_from_compiled(self.compile(rule)?)
+    pub fn search_ids(&self, rule: &Rule) -> Result<Vec<String>, CatalogError> {
+        Ok(self.ids_from_compiled(self.compile(rule)?)?)
     }
 
     pub(crate) fn registered_search_ids(&self, rule: &Rule) -> Result<Vec<String>> {
@@ -1526,7 +1532,7 @@ impl Library {
     }
 
     /// How many photographs `rule` matches.
-    pub fn search_count(&self, rule: &Rule) -> Result<usize> {
+    pub fn search_count(&self, rule: &Rule) -> Result<usize, CatalogError> {
         let compiled = self.compile(rule)?;
         Ok(self.conn.query_row(
             &format!(
@@ -1548,7 +1554,7 @@ impl Library {
         &self,
         rule: &Rule,
         fields: &[Field],
-    ) -> Result<BTreeMap<Field, Vec<FacetValue>>> {
+    ) -> Result<BTreeMap<Field, Vec<FacetValue>>, CatalogError> {
         self.facets_for_listing(rule, fields, None)
     }
 
@@ -1559,7 +1565,7 @@ impl Library {
         rule: &Rule,
         fields: &[Field],
         listed: Option<&Path>,
-    ) -> Result<BTreeMap<Field, Vec<FacetValue>>> {
+    ) -> Result<BTreeMap<Field, Vec<FacetValue>>, CatalogError> {
         let compiled = self.compile_visible(rule, self.visible_assets_for_listing(listed))?;
         for field in fields {
             ensure!(FACETS.contains(field), "No value list for {field:?}");
@@ -1638,7 +1644,7 @@ impl Library {
 
     /// The AI facts of asset `id`'s versions (its recipe and its virtual
     /// copies'), together, as indexed (`Field::Ai`).
-    pub fn ai_facts(&self, id: &str) -> Result<u32> {
+    pub fn ai_facts(&self, id: &str) -> Result<u32, CatalogError> {
         let mut query = self
             .conn
             .prepare_cached("SELECT ai_facts FROM versions WHERE asset_id=? AND ai_facts != 0")?;

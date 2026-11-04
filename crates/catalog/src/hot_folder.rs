@@ -3,6 +3,7 @@
 //! capture (for Copy from last capture), and the files the hot folder has
 //! taken, so a later run picks up only files that arrived since (while the
 //! app was closed, say) and does not hash the ones taken before again.
+use crate::CatalogError;
 use crate::Library;
 use anyhow::Result;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
@@ -36,7 +37,7 @@ pub struct HotFolderFile {
 
 impl Library {
     /// The hot folder watched for this library, if any.
-    pub fn hot_folder(&self) -> Result<Option<HotFolderConfig>> {
+    pub fn hot_folder(&self) -> Result<Option<HotFolderConfig>, CatalogError> {
         self.conn
             .query_row(
                 "SELECT folder,template,include_subfolders,settings_json,last_capture
@@ -69,7 +70,7 @@ impl Library {
     /// folder; the files an earlier one took are forgotten, so a new start
     /// considers everything in the folder (verified duplicates are still
     /// skipped by the import).
-    pub fn set_hot_folder(&self, config: Option<&HotFolderConfig>) -> Result<()> {
+    pub fn set_hot_folder(&self, config: Option<&HotFolderConfig>) -> Result<(), CatalogError> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM hot_folder_files", [])?;
         tx.execute("DELETE FROM hot_folder", [])?;
@@ -95,7 +96,7 @@ impl Library {
     }
 
     /// Remembers the last capture (Copy from last capture after a restart).
-    pub fn set_hot_folder_last_capture(&self, asset: &str) -> Result<()> {
+    pub fn set_hot_folder_last_capture(&self, asset: &str) -> Result<(), CatalogError> {
         self.conn
             .execute("UPDATE hot_folder SET last_capture=? WHERE id=1", [asset])?;
         Ok(())
@@ -105,7 +106,7 @@ impl Library {
     /// it was started (`set_hot_folder`), across restarts: its captures in
     /// the library now (hot folder import batches since the start; verified
     /// duplicates are not captures). 0 without a hot folder.
-    pub fn hot_folder_imported(&self) -> Result<usize> {
+    pub fn hot_folder_imported(&self) -> Result<usize, CatalogError> {
         let count: i64 = self.conn.query_row(
             "SELECT count(*) FROM asset_imports ai
              JOIN import_batches b ON b.id=ai.batch_id
@@ -118,7 +119,7 @@ impl Library {
     }
 
     /// The files the hot folder took.
-    pub fn hot_folder_files(&self) -> Result<Vec<HotFolderFile>> {
+    pub fn hot_folder_files(&self) -> Result<Vec<HotFolderFile>, CatalogError> {
         let mut statement = self
             .conn
             .prepare("SELECT rel_path,size,mtime_ns FROM hot_folder_files")?;
@@ -136,7 +137,7 @@ impl Library {
 
     /// Records that the hot folder took `file` (imported it or found it a
     /// verified duplicate). Only while a hot folder is set.
-    pub fn record_hot_folder_file(&self, file: &HotFolderFile) -> Result<()> {
+    pub fn record_hot_folder_file(&self, file: &HotFolderFile) -> Result<(), CatalogError> {
         self.conn.execute(
             "INSERT INTO hot_folder_files(rel_path,size,mtime_ns)
              SELECT ?1,?2,?3 WHERE EXISTS(SELECT 1 FROM hot_folder WHERE id=1)
@@ -147,7 +148,7 @@ impl Library {
     }
 
     /// Forgets taken files that are no longer in the watched folder.
-    pub fn forget_hot_folder_files(&self, rel_paths: &[String]) -> Result<()> {
+    pub fn forget_hot_folder_files(&self, rel_paths: &[String]) -> Result<(), CatalogError> {
         if rel_paths.is_empty() {
             return Ok(());
         }

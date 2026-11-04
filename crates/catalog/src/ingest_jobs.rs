@@ -9,8 +9,10 @@
 //! then (and left to it meanwhile: `planned_ingest_copies`). Finished and
 //! cancelled jobs are kept for a while (the newest `KEPT_JOBS`). Nothing
 //! here touches files.
+use crate::CatalogError;
 use crate::Library;
-use anyhow::{Context, Result, bail, ensure};
+use crate::error::{bail, ensure};
+use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
 use serde_json::Value;
@@ -213,7 +215,7 @@ impl Library {
         &self,
         options: &Value,
         items: &[(SourceFile, Option<SourceFile>)],
-    ) -> Result<String> {
+    ) -> Result<String, CatalogError> {
         let id = Uuid::new_v4().to_string();
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         tx.execute(
@@ -251,7 +253,7 @@ impl Library {
         Ok(id)
     }
 
-    pub fn ingest_job(&self, id: &str) -> Result<IngestJob> {
+    pub fn ingest_job(&self, id: &str) -> Result<IngestJob, CatalogError> {
         let (state, payload, created_at): (String, String, String) = self
             .conn
             .query_row(
@@ -318,7 +320,7 @@ impl Library {
     /// Ingest jobs with photographs still to import that were not
     /// cancelled (running ones included: the caller knows which it runs),
     /// oldest first.
-    pub fn unfinished_ingest_jobs(&self) -> Result<Vec<IngestJob>> {
+    pub fn unfinished_ingest_jobs(&self) -> Result<Vec<IngestJob>, CatalogError> {
         let ids: Vec<String> = self
             .conn
             .prepare(
@@ -341,7 +343,7 @@ impl Library {
         destination: Option<&Path>,
         companion_destination: Option<&Path>,
         error: Option<&str>,
-    ) -> Result<()> {
+    ) -> Result<(), CatalogError> {
         let changed = self.conn.execute(
             "UPDATE ingest_items SET state=?,destination=coalesce(?,destination),
              companion_destination=coalesce(?,companion_destination),error=?
@@ -362,7 +364,7 @@ impl Library {
     /// The copies unfinished ingest jobs planned and have not recorded yet:
     /// such a file is left to its job (which records it with its companion)
     /// rather than registered on its own.
-    pub fn planned_ingest_copies(&self) -> Result<HashSet<PathBuf>> {
+    pub fn planned_ingest_copies(&self) -> Result<HashSet<PathBuf>, CatalogError> {
         let mut query = self.conn.prepare(
             "SELECT i.destination,i.companion_destination FROM ingest_items i JOIN tasks t ON t.id=i.job_id
              WHERE t.state IN ('running','interrupted') AND i.state='copying'",
@@ -389,7 +391,7 @@ impl Library {
     /// Marks jobs a run left `Running` or `Interrupted` with nothing left
     /// to import (cut off after its last photograph) as `Done`. For a
     /// caller that knows no job runs. Returns how many.
-    pub fn settle_ingest_jobs(&self) -> Result<usize> {
+    pub fn settle_ingest_jobs(&self) -> Result<usize, CatalogError> {
         Ok(self.conn.execute(
             "UPDATE tasks SET state='done' WHERE kind='ingest' AND state IN ('running','interrupted')
              AND NOT EXISTS(SELECT 1 FROM ingest_items i WHERE i.job_id=tasks.id
@@ -400,7 +402,7 @@ impl Library {
 
     /// `path` as a job stores it: relative to the library when inside it
     /// (a closed session moves as one folder), else absolute.
-    pub fn stored(&self, path: &Path) -> Result<String> {
+    pub fn stored(&self, path: &Path) -> Result<String, CatalogError> {
         // Its folder resolved (the file may not be there yet): a folder
         // given through a link into the library is inside it too.
         let resolved = path
@@ -425,7 +427,7 @@ impl Library {
         }
     }
 
-    pub fn set_ingest_job_state(&self, id: &str, state: JobState) -> Result<()> {
+    pub fn set_ingest_job_state(&self, id: &str, state: JobState) -> Result<(), CatalogError> {
         let changed = self.conn.execute(
             "UPDATE tasks SET state=? WHERE id=? AND kind='ingest'",
             params![state.as_str(), id],

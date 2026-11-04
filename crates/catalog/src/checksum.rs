@@ -5,6 +5,7 @@
 //! missing: it is recorded for the file as registered (same size and
 //! modification time) by verified ingest, which has it anyway, and by a
 //! throttled background pass (`fill_checksums`) over the rest.
+use crate::CatalogError;
 use crate::Library;
 use anyhow::Result;
 use rusqlite::params;
@@ -17,7 +18,7 @@ use std::{
 
 /// The SHA-256 of a file's content, read in 1 MiB chunks; `None` when
 /// `cancel` was set meanwhile.
-pub fn sha256_file(path: &Path, cancel: &AtomicBool) -> Result<Option<String>> {
+pub fn sha256_file(path: &Path, cancel: &AtomicBool) -> Result<Option<String>, CatalogError> {
     let mut file = fs::File::open(path)?;
     Ok(rawtonic_fs::sha256_hex_read_while(&mut file, || {
         !cancel.load(Ordering::Relaxed)
@@ -44,7 +45,7 @@ impl Library {
     /// Records `sha256` as the content hash of asset `id` when its file is
     /// still the one registered (same size and modification time). Returns
     /// whether it was recorded.
-    pub fn record_checksum(&self, id: &str, sha256: &str) -> Result<bool> {
+    pub fn record_checksum(&self, id: &str, sha256: &str) -> Result<bool, CatalogError> {
         let asset = self.asset(id)?;
         let Some((size, mtime)) = stamp(&asset.path) else {
             return Ok(false);
@@ -59,14 +60,14 @@ impl Library {
     }
 
     /// The recorded content hash of asset `id`, if any.
-    pub fn checksum(&self, id: &str) -> Result<Option<String>> {
+    pub fn checksum(&self, id: &str) -> Result<Option<String>, CatalogError> {
         Ok(self
             .conn
             .query_row("SELECT sha256 FROM assets WHERE id=?", [id], |r| r.get(0))?)
     }
 
     /// How many present assets have no content hash yet.
-    pub fn checksum_backlog(&self) -> Result<usize> {
+    pub fn checksum_backlog(&self) -> Result<usize, CatalogError> {
         Ok(self.conn.query_row(
             "SELECT count(*) FROM assets WHERE sha256 IS NULL AND missing=0",
             [],
@@ -87,7 +88,7 @@ impl Library {
         limit: usize,
         pause: Duration,
         cancel: &AtomicBool,
-    ) -> Result<(usize, usize)> {
+    ) -> Result<(usize, usize), CatalogError> {
         let rows: Vec<(i64, String, String, String, bool)> = self
             .conn
             .prepare(
@@ -121,7 +122,7 @@ impl Library {
 
     /// Hashes every present asset without a content hash, at once (tests,
     /// `rawtonic checksums`). Returns how many were recorded.
-    pub fn fill_all_checksums(&self, cancel: &AtomicBool) -> Result<usize> {
+    pub fn fill_all_checksums(&self, cancel: &AtomicBool) -> Result<usize, CatalogError> {
         let mut cursor = 0;
         let mut recorded = 0;
         loop {

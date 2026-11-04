@@ -150,7 +150,10 @@ impl Drop for ResumePasses {
 /// Stops this program's background passes and waits until no connection
 /// holds the session's database at `dir` any more; refuses when one still
 /// does (another program has the session open).
-fn wait_until_free<T>(dir: &Path, check: impl Fn() -> anyhow::Result<T>) -> Result<T, String> {
+fn wait_until_free<T, E: std::fmt::Display>(
+    dir: &Path,
+    check: impl Fn() -> Result<T, E>,
+) -> Result<T, String> {
     crate::folder_sync::stop_checksum_pass();
     crate::library_search::stop_facts_pass();
     crate::face_eyes::stop_eye_check(None);

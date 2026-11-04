@@ -3,8 +3,10 @@
 //! the catalog does not depend on the face models) and the photographer's
 //! own call per face, which wins over the reading everywhere. Nothing here
 //! reads, rejects or removes a photograph.
+use crate::CatalogError;
 use crate::Library;
-use anyhow::{Result, ensure};
+use crate::error::ensure;
+use anyhow::Result;
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -89,7 +91,7 @@ impl Library {
     /// Present photographs whose eyes are not read by reader `version`
     /// with their current fingerprint, newest registered first, at most
     /// `limit`.
-    pub fn eye_backlog(&self, version: u32, limit: usize) -> Result<Vec<EyeWork>> {
+    pub fn eye_backlog(&self, version: u32, limit: usize) -> Result<Vec<EyeWork>, CatalogError> {
         let rows: Vec<(String, String, String, bool, String)> = self
             .conn
             .prepare(
@@ -114,7 +116,7 @@ impl Library {
     }
 
     /// How many photographs `eye_backlog` would give without a limit.
-    pub fn eye_backlog_count(&self, version: u32) -> Result<usize> {
+    pub fn eye_backlog_count(&self, version: u32) -> Result<usize, CatalogError> {
         let n: i64 = self.conn.query_row(
             "SELECT count(*) FROM assets a LEFT JOIN eye_reads e ON e.asset_id=a.id
              WHERE a.missing=0 AND (e.asset_id IS NULL OR e.version<? OR e.fingerprint!=a.fingerprint)",
@@ -135,7 +137,7 @@ impl Library {
         version: u32,
         fingerprint: &str,
         read: Result<&[EyeFace], &str>,
-    ) -> Result<()> {
+    ) -> Result<(), CatalogError> {
         if let Ok(faces) = read {
             for face in faces {
                 ensure!(
@@ -212,7 +214,7 @@ impl Library {
     }
 
     /// The eyes of asset `id` as read by reader `version` (or a newer one).
-    pub fn photo_eyes(&self, id: &str, version: u32) -> Result<PhotoEyes> {
+    pub fn photo_eyes(&self, id: &str, version: u32) -> Result<PhotoEyes, CatalogError> {
         Ok(self
             .photos_eyes(&[id.to_string()], version)?
             .remove(id)
@@ -223,7 +225,11 @@ impl Library {
     }
 
     /// `photo_eyes` of several assets at once (unknown ids left out).
-    pub fn photos_eyes(&self, ids: &[String], version: u32) -> Result<HashMap<String, PhotoEyes>> {
+    pub fn photos_eyes(
+        &self,
+        ids: &[String],
+        version: u32,
+    ) -> Result<HashMap<String, PhotoEyes>, CatalogError> {
         let mut out = HashMap::new();
         let mut read = self.conn.prepare(
             "SELECT e.error FROM eye_reads e JOIN assets a ON a.id=e.asset_id
@@ -277,7 +283,12 @@ impl Library {
 
     /// Sets (or with `None` clears) the photographer's call on face `face`
     /// of asset `id`. Fails for a face the photograph does not have.
-    pub fn set_eye_override(&self, id: &str, face: u32, call: Option<&str>) -> Result<()> {
+    pub fn set_eye_override(
+        &self,
+        id: &str,
+        face: u32,
+        call: Option<&str>,
+    ) -> Result<(), CatalogError> {
         if let Some(call) = call {
             ensure!(OVERRIDES.contains(&call), "Unknown eye call {call}");
         }

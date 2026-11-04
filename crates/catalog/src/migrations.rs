@@ -5,7 +5,8 @@
 //!
 //! Adding a schema: write `migrations/NNNN.sql` (ending with
 //! `PRAGMA user_version=NNNN;`) and add one `Migration` line to `MIGRATIONS`.
-use anyhow::{Result, ensure};
+use crate::error::ensure;
+use anyhow::Result;
 use rusqlite::{Connection, TransactionBehavior};
 
 /// One schema step: from `version - 1` to `version`.

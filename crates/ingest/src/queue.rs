@@ -11,7 +11,7 @@ use crate::{
 };
 use anyhow::Result;
 use rawtonic_catalog::{
-    Library,
+    CatalogError, Library,
     ingest_jobs::{IngestJob, ItemState, JobState, SourceFile, SourceState},
 };
 use serde::{Deserialize, Serialize};
@@ -76,10 +76,10 @@ pub fn create_job(
             )
         })
         .collect();
-    library.create_ingest_job(
+    Ok(library.create_ingest_job(
         &serde_json::to_value(JobOptions::new(library, options)?)?,
         &items,
-    )
+    )?)
 }
 
 /// What an unfinished job holds, for the app to say so.
@@ -211,14 +211,14 @@ pub fn run_job_in_turn(
             continue;
         }
         let record = |planned: &Path, companion: Option<&Path>| {
-            library.set_ingest_item(
+            Ok(library.set_ingest_item(
                 id,
                 item.position,
                 ItemState::Copying,
                 Some(planned),
                 companion,
                 None,
-            )
+            )?)
         };
         let import = ImportOptions {
             destination: &destination,
@@ -382,8 +382,8 @@ fn add_to_album(library: &Library, album: &str, results: &[ImportResult]) -> Res
         return Ok(());
     }
     match library.add_to_collection(album, &assets) {
-        Err(error) if error.to_string() == "Unknown album" => Ok(()),
-        other => other,
+        Err(CatalogError::UnknownAlbum) => Ok(()),
+        other => Ok(other?),
     }
 }
 

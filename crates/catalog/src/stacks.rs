@@ -12,6 +12,7 @@
 //! burst/bracket data where the capture facts hold it (rules below), else by
 //! the gap between capture times; it never takes a photograph that is in a
 //! stack already.
+use crate::CatalogError;
 use crate::Library;
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -460,8 +461,8 @@ impl Library {
     /// already in a stack brings its whole stack along, in its order, at its
     /// place (Lightroom merges stacks so). The new stack is collapsed. Fewer than two members:
     /// nothing changes.
-    pub fn group_stack(&self, members: &[Member]) -> Result<StackChange> {
-        self.stack_command(members, |conn, touched| {
+    pub fn group_stack(&self, members: &[Member]) -> Result<StackChange, CatalogError> {
+        Ok(self.stack_command(members, |conn, touched| {
             let old: HashMap<String, Stack> = read_stacks(conn, touched)?
                 .into_iter()
                 .map(|s| (s.id.clone(), s))
@@ -503,24 +504,24 @@ impl Library {
             };
             write_stack(conn, &stack)?;
             Ok(vec![stack.id])
-        })
+        })?)
     }
 
     /// Unstack: dissolves every stack one of `members` is in.
-    pub fn unstack(&self, members: &[Member]) -> Result<StackChange> {
-        self.stack_command(members, |conn, touched| {
+    pub fn unstack(&self, members: &[Member]) -> Result<StackChange, CatalogError> {
+        Ok(self.stack_command(members, |conn, touched| {
             for id in touched {
                 conn.execute("DELETE FROM stacks WHERE id=?", [id])?;
             }
             Ok(Vec::new())
-        })
+        })?)
     }
 
     /// Remove from Stack: `members` leave their stacks (the next member
     /// becomes the top of a stack whose top left; a stack left with one
     /// member is dissolved).
-    pub fn remove_from_stack(&self, members: &[Member]) -> Result<StackChange> {
-        self.stack_command(members, |conn, _| {
+    pub fn remove_from_stack(&self, members: &[Member]) -> Result<StackChange, CatalogError> {
+        Ok(self.stack_command(members, |conn, _| {
             for member in members {
                 conn.execute(
                     "DELETE FROM stack_members WHERE asset_id=? AND copy=?",
@@ -528,12 +529,12 @@ impl Library {
                 )?;
             }
             Ok(Vec::new())
-        })
+        })?)
     }
 
     /// Move to Top of Stack: `member` becomes its stack's top.
-    pub fn move_to_stack_top(&self, member: &Member) -> Result<StackChange> {
-        self.stack_command(std::slice::from_ref(member), |conn, _| {
+    pub fn move_to_stack_top(&self, member: &Member) -> Result<StackChange, CatalogError> {
+        Ok(self.stack_command(std::slice::from_ref(member), |conn, _| {
             conn.execute(
                 "UPDATE stack_members SET position=(SELECT min(position)-1 FROM stack_members s
                    WHERE s.stack_id=stack_members.stack_id)
@@ -541,7 +542,7 @@ impl Library {
                 params![member.asset_id, member.copy],
             )?;
             Ok(Vec::new())
-        })
+        })?)
     }
 
     /// The position of `member` in its stack, 0 for the top, and how many
@@ -562,7 +563,7 @@ impl Library {
 
     /// Whether Split Stack applies to `member`: it is in an expanded stack
     /// below its top.
-    pub fn can_split_stack(&self, member: &Member) -> Result<bool> {
+    pub fn can_split_stack(&self, member: &Member) -> Result<bool, CatalogError> {
         let Some(stack) = self.stack_of(member)? else {
             return Ok(false);
         };
@@ -576,7 +577,7 @@ impl Library {
 
     /// Whether Move Up in Stack (`up`) or Move Down in Stack applies to
     /// `member`: it has a neighbour on that side.
-    pub fn can_move_in_stack(&self, member: &Member, up: bool) -> Result<bool> {
+    pub fn can_move_in_stack(&self, member: &Member, up: bool) -> Result<bool, CatalogError> {
         Ok(Self::place_in_stack(&self.conn, member)?
             .is_some_and(|(at, len)| if up { at > 0 } else { at + 1 < len }))
     }
@@ -589,7 +590,7 @@ impl Library {
     /// shows it). Returns `ok(false)` and changes nothing when the photograph
     /// is not a member or is the top: then Split Stack applies to nothing
     /// (the active photos of a grid selection name it).
-    pub fn split_stack(&self, member: &Member) -> Result<(StackChange, bool)> {
+    pub fn split_stack(&self, member: &Member) -> Result<(StackChange, bool), CatalogError> {
         let mut done = false;
         let change = self.stack_command(std::slice::from_ref(member), |conn, touched| {
             let Some(id) = touched.first() else {
@@ -629,8 +630,8 @@ impl Library {
     /// Move Up in Stack (`up`) or Move Down in Stack: `member` swaps places
     /// with its neighbour. A top moved down gives the top to the next member
     /// (`position` order, the top first). At either end nothing changes.
-    pub fn move_in_stack(&self, member: &Member, up: bool) -> Result<StackChange> {
-        self.stack_command(std::slice::from_ref(member), |conn, _| {
+    pub fn move_in_stack(&self, member: &Member, up: bool) -> Result<StackChange, CatalogError> {
+        Ok(self.stack_command(std::slice::from_ref(member), |conn, _| {
             let Some(id) = stack_of(conn, member)? else {
                 return Ok(Vec::new());
             };
@@ -648,7 +649,7 @@ impl Library {
             members.swap(at, beside);
             write_stack(conn, &Stack { members, ..stack })?;
             Ok(Vec::new())
-        })
+        })?)
     }
 
     /// Collapses (`Some(true)`), expands (`Some(false)`) or toggles
@@ -657,8 +658,8 @@ impl Library {
         &self,
         members: &[Member],
         collapsed: Option<bool>,
-    ) -> Result<StackChange> {
-        self.stack_command(members, |conn, touched| {
+    ) -> Result<StackChange, CatalogError> {
+        Ok(self.stack_command(members, |conn, touched| {
             for id in touched {
                 match collapsed {
                     Some(value) => conn.execute(
@@ -671,14 +672,14 @@ impl Library {
                 };
             }
             Ok(Vec::new())
-        })
+        })?)
     }
 
     /// Puts the stacks of `change` back as they were (`undo`) or as they
     /// became (redo): the stacks of the other side are removed, those of
     /// this side written again (members since removed from the library
     /// left out, members since stacked elsewhere taken back).
-    pub fn restore_stacks(&self, change: &StackChange, undo: bool) -> Result<()> {
+    pub fn restore_stacks(&self, change: &StackChange, undo: bool) -> Result<(), CatalogError> {
         let (target, other) = if undo {
             (&change.before, &change.after)
         } else {
@@ -703,7 +704,7 @@ impl Library {
         theirs: &Stack,
         common: &[Stack],
         known: &HashSet<String>,
-    ) -> Result<bool> {
+    ) -> Result<bool, CatalogError> {
         Ok(stack_offer(&self.conn, theirs, common, known)?.is_some())
     }
 
@@ -719,7 +720,7 @@ impl Library {
         theirs: &[Stack],
         before: &[Stack],
         known: &HashSet<String>,
-    ) -> Result<Vec<Stack>> {
+    ) -> Result<Vec<Stack>, CatalogError> {
         let mut out: Vec<Stack> = Vec::new();
         for stack in theirs {
             let stack = existing_members(&self.conn, stack)?;
@@ -744,20 +745,20 @@ impl Library {
     }
 
     /// Every stack, its top first.
-    pub fn stacks(&self) -> Result<Vec<Stack>> {
+    pub fn stacks(&self) -> Result<Vec<Stack>, CatalogError> {
         let ids: Vec<String> = self
             .conn
             .prepare("SELECT id FROM stacks ORDER BY rowid")?
             .query_map([], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
-        read_stacks(&self.conn, &ids)
+        Ok(read_stacks(&self.conn, &ids)?)
     }
 
     /// Brings in the stacks of another library (`merge_stack`: under their
     /// own ids, never taking a photograph out of a stack it is in here), in
     /// one transaction. Returns the stacks made or extended, as they were
     /// and are.
-    pub fn import_stacks(&self, stacks: &[Stack]) -> Result<StackChange> {
+    pub fn import_stacks(&self, stacks: &[Stack]) -> Result<StackChange, CatalogError> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let mut change = StackChange::default();
         for stack in stacks {
@@ -773,7 +774,7 @@ impl Library {
 
     /// Every stack with its members' paths (a copy's path is its
     /// photograph's).
-    pub fn listed_stacks(&self) -> Result<Vec<ListedStack>> {
+    pub fn listed_stacks(&self) -> Result<Vec<ListedStack>, CatalogError> {
         let rows: Vec<(String, bool, String, String, String, String, bool)> = self
             .conn
             .prepare(
@@ -816,9 +817,9 @@ impl Library {
     }
 
     /// The stack `member` is in.
-    pub fn stack_of(&self, member: &Member) -> Result<Option<Stack>> {
+    pub fn stack_of(&self, member: &Member) -> Result<Option<Stack>, CatalogError> {
         match stack_of(&self.conn, member)? {
-            Some(id) => read_stack(&self.conn, &id),
+            Some(id) => Ok(read_stack(&self.conn, &id)?),
             None => Ok(None),
         }
     }
@@ -853,7 +854,7 @@ impl Library {
         &self,
         assets: &[String],
         options: AutoStackOptions,
-    ) -> Result<AutoPlan> {
+    ) -> Result<AutoPlan, CatalogError> {
         let ids = serde_json::to_string(assets)?;
         let effective = crate::capture_time::EFFECTIVE;
         let mut frames: Vec<(Frame, String)> = self
@@ -913,7 +914,7 @@ impl Library {
 
     /// Makes the stacks of `groups` (from `auto_stack_plan`), each collapsed,
     /// in one transaction; a photograph stacked meanwhile is left out.
-    pub fn auto_stack(&self, groups: &[AutoGroup]) -> Result<StackChange> {
+    pub fn auto_stack(&self, groups: &[AutoGroup]) -> Result<StackChange, CatalogError> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let mut after = Vec::new();
         for group in groups {

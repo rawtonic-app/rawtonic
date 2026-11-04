@@ -2,6 +2,7 @@
 //! (`Summary::xmp_pending`): which ones, and writing them again on request.
 //! The library's own edits are safe either way; only the sidecar lags.
 
+use crate::CatalogError;
 use crate::Library;
 use anyhow::Result;
 use rusqlite::{OptionalExtension, TransactionBehavior};
@@ -53,7 +54,7 @@ impl Library {
     }
 
     /// The photographs `Summary::xmp_pending` counts.
-    pub fn pending_xmp_paths(&self) -> Result<Vec<PathBuf>> {
+    pub fn pending_xmp_paths(&self) -> Result<Vec<PathBuf>, CatalogError> {
         self.pending_xmp()?
             .into_iter()
             .map(|id| Ok(self.asset(&id)?.path))
@@ -64,14 +65,14 @@ impl Library {
     /// counts, as an edit would (`sync_xmp`): a sidecar changed elsewhere is
     /// never replaced and an offline photograph is not tried. Only sidecars
     /// are written, never the photographs.
-    pub fn write_pending_xmp(&self) -> Result<XmpRetry> {
+    pub fn write_pending_xmp(&self) -> Result<XmpRetry, CatalogError> {
         self.write_pending_xmp_of(None)
     }
 
     /// `write_pending_xmp` for those of `only` still pending (all of them
     /// with None): the open-time write of the XMP a quit or crash left
     /// behind goes in parts, each after the photographs' earlier writes.
-    pub fn write_pending_xmp_of(&self, only: Option<&[PathBuf]>) -> Result<XmpRetry> {
+    pub fn write_pending_xmp_of(&self, only: Option<&[PathBuf]>) -> Result<XmpRetry, CatalogError> {
         let pending = self.pending_xmp()?;
         // A part: its own photographs, looked up directly (not every pending
         // one loaded for each part).
@@ -191,7 +192,7 @@ impl Library {
         &self,
         folder: Option<&Path>,
         seen: &mut SidecarStamps,
-    ) -> Result<XmpCheck> {
+    ) -> Result<XmpCheck, CatalogError> {
         let folder = folder.map(|f| f.canonicalize().unwrap_or_else(|_| f.to_path_buf()));
         let mut query = self.conn.prepare(&format!(
             "SELECT a.id,r.path,r.external,a.rel_path,m.xmp_hash,m.xmp_publishing
@@ -278,7 +279,7 @@ impl Library {
     /// Writes only the catalog, in one transaction: a failure part-way keeps
     /// none of the marks, so the session bar never shows half of what one
     /// check found. Returns how many were marked.
-    pub fn mark_changed_elsewhere(&self, ids: &[String]) -> Result<usize> {
+    pub fn mark_changed_elsewhere(&self, ids: &[String]) -> Result<usize, CatalogError> {
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let mut marked = 0;
         for id in ids {

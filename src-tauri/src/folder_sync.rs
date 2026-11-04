@@ -5,7 +5,7 @@ use crate::ipc::{CommandError, ErrorCode};
 use crate::session_bridge::{after_relink, with_library};
 use rawtonic_catalog::{
     ImportBatchInfo, Library,
-    folder_sync::{Cancelled, SyncAction, SyncApplied, SyncOptions, SyncPlan, SyncProgress},
+    folder_sync::{SyncAction, SyncApplied, SyncOptions, SyncPlan, SyncProgress},
 };
 use std::{
     cell::Cell,
@@ -63,7 +63,7 @@ pub async fn folder_sync_scan(
                 },
             )
             .map_err(|e| {
-                if e.downcast_ref::<Cancelled>().is_some() {
+                if e.is_cancelled() {
                     CommandError::cancelled("cancelled")
                 } else {
                     CommandError::internal(format!("{e:#}"))

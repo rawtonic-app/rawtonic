@@ -118,7 +118,7 @@ fn in_library(
     {
         write_editor_sidecar(sidecar, serde_json::to_vec_pretty(&state)?)?;
     }
-    lib.snapshots(&version)
+    Ok(lib.snapshots(&version)?)
 }
 
 /// The snapshots an editor sidecar file holds (none when it cannot be read).
