@@ -136,6 +136,29 @@ pub struct CopyState {
 pub struct Step {
     pub from: PathBuf,
     pub to: Target,
+    /// The new name a rename of this step took before renaming, on a volume
+    /// without an exclusive rename (`rawtonic_fs::Claim`): journaled before
+    /// the rename goes on, so recovery after a crash removes it while it is
+    /// still that entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim: Option<StepClaim>,
+}
+
+/// A [`rawtonic_fs::Claim`] taken at `to` by a rename of `from`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepClaim {
+    pub from: PathBuf,
+    pub to: PathBuf,
+    pub claim: rawtonic_fs::Claim,
+}
+
+/// Records a claim in the journal before the rename goes on.
+type NoteClaim<'a> = &'a mut dyn FnMut(StepClaim) -> Result<()>;
+
+/// For renames whose claims are not journaled (rollbacks and recovery).
+fn unjournaled(_: StepClaim) -> Result<()> {
+    Ok(())
 }
 
 impl Step {
@@ -143,12 +166,14 @@ impl Step {
         Self {
             from: from.into(),
             to: Target::Path { path: to.into() },
+            claim: None,
         }
     }
     pub fn system_trash(from: impl Into<PathBuf>) -> Self {
         Self {
             from: from.into(),
             to: Target::SystemTrash { item: None },
+            claim: None,
         }
     }
     /// A copy move (ADR 0016), also on one volume.
@@ -159,6 +184,7 @@ impl Step {
                 path: to.into(),
                 copy: Box::default(),
             },
+            claim: None,
         }
     }
     /// A move: a rename on the same volume, otherwise a copy move.
@@ -520,7 +546,17 @@ impl Journal {
                     // so it is safe to reverse either way.
                     applied = index + 1;
                 }
-                apply(&mut payload.steps[index], trash)?;
+                let mut step = payload.steps[index].clone();
+                let result = apply(&mut step, trash, &mut |claim| {
+                    payload.steps[index].claim = Some(claim);
+                    self.store_keeping_sync(id, state, payload)?;
+                    #[cfg(test)]
+                    crash::point("claimed");
+                    Ok(())
+                });
+                step.claim = payload.steps[index].claim.take();
+                payload.steps[index] = step;
+                result?;
                 applied = index + 1;
                 if matches!(payload.steps[index].to, Target::SystemTrash { .. }) {
                     // The only state the file system cannot tell later.
@@ -951,14 +987,21 @@ impl Journal {
         // One more round after the last step: Stop is honoured until the
         // copies left behind start going to the Trash.
         for undone in 0..=total {
-            let step = (undone < total).then(|| &payload.steps[total - 1 - undone]);
+            let step = (undone < total).then(|| payload.steps[total - 1 - undone].clone());
             let reversed = if observer.cancelled() {
                 Err(anyhow::Error::new(io::Error::new(
                     io::ErrorKind::Interrupted,
                     "Stopped",
                 )))
-            } else if let Some(step) = step {
-                reverse_for_undo(step, trash)
+            } else if let Some(step) = &step {
+                let index = total - 1 - undone;
+                reverse_for_undo(step, trash, &mut |claim| {
+                    payload.steps[index].claim = Some(claim);
+                    self.store_keeping_sync(id, State::Undoing, &payload)?;
+                    #[cfg(test)]
+                    crash::point("claimed");
+                    Ok(())
+                })
             } else {
                 break;
             };
@@ -966,7 +1009,10 @@ impl Journal {
                 // Put back what was already undone: the operation stays
                 // done. A copy's publish back may fail after its rename;
                 // taking it back checks the file system, so it is included.
-                let from = if step.is_some_and(|s| matches!(s.to, Target::OtherVolume { .. })) {
+                let from = if step
+                    .as_ref()
+                    .is_some_and(|s| matches!(s.to, Target::OtherVolume { .. }))
+                {
                     total - 1 - undone
                 } else {
                     total - undone
@@ -1222,7 +1268,14 @@ impl Journal {
         };
         self.insert(&id, kind, label, State::Purging, &payload)?;
         for index in 0..payload.steps.len() {
-            if let Err(error) = apply(&mut payload.steps[index], &NoSystemTrash) {
+            let mut step = payload.steps[index].clone();
+            let applied = apply(&mut step, &NoSystemTrash, &mut |claim| {
+                payload.steps[index].claim = Some(claim);
+                self.store_keeping_sync(&id, State::Purging, &payload)
+            });
+            step.claim = payload.steps[index].claim.take();
+            payload.steps[index] = step;
+            if let Err(error) = applied {
                 let reversed = reverse_steps(&payload.steps[..index], &NoSystemTrash);
                 remove_created_dirs(&payload.created_dirs);
                 payload.note = Some(match reversed {
@@ -1298,6 +1351,7 @@ impl Journal {
             }
             payload.note = None;
             let mut problems = Vec::new();
+            release_claims(&mut payload, &mut problems);
             let mut receipt_restore_failed = false;
             if state == State::Undoing && payload.has_copies() {
                 // An undo copying back is rolled back: the move stays done.
@@ -1884,10 +1938,23 @@ fn remove_created_dirs(dirs: &[PathBuf]) {
     }
 }
 
-fn apply(step: &mut Step, trash: &dyn SystemTrash) -> Result<()> {
+/// Renames `from` to `to` without replacing anything, journaling a claim
+/// through `note` first.
+fn rename_noting(from: &Path, to: &Path, note: NoteClaim) -> io::Result<()> {
+    rawtonic_fs::rename_no_clobber_noting(from, to, |claim| {
+        note(StepClaim {
+            from: from.to_path_buf(),
+            to: to.to_path_buf(),
+            claim: *claim,
+        })
+        .map_err(io::Error::other)
+    })
+    .map(drop)
+}
+
+fn apply(step: &mut Step, trash: &dyn SystemTrash, note: NoteClaim) -> Result<()> {
     match &mut step.to {
-        Target::Path { path } => rename_no_clobber(&step.from, path)
-            .map(drop)
+        Target::Path { path } => rename_noting(&step.from, path, note)
             .with_context(|| format!("Cannot move {} to {}", step.from.display(), path.display())),
         Target::SystemTrash { item } => {
             *item =
@@ -1900,17 +1967,15 @@ fn apply(step: &mut Step, trash: &dyn SystemTrash) -> Result<()> {
     }
 }
 
-fn reverse(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
+fn reverse(step: &Step, trash: &dyn SystemTrash, note: NoteClaim) -> Result<()> {
     match &step.to {
-        Target::Path { path } => rename_no_clobber(path, &step.from)
-            .map(drop)
-            .with_context(|| {
-                format!(
-                    "Cannot move {} back to {}",
-                    path.display(),
-                    step.from.display()
-                )
-            }),
+        Target::Path { path } => rename_noting(path, &step.from, note).with_context(|| {
+            format!(
+                "Cannot move {} back to {}",
+                path.display(),
+                step.from.display()
+            )
+        }),
         Target::SystemTrash { item } => {
             let item = item.as_deref().context("Trashed item was not recorded")?;
             if let Some(parent) = step.from.parent() {
@@ -1927,11 +1992,37 @@ fn reverse(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
 fn reverse_steps(steps: &[Step], trash: &dyn SystemTrash) -> Result<()> {
     let mut first_error = None;
     for step in steps.iter().rev() {
-        if let Err(e) = reverse(step, trash) {
+        if let Err(e) = reverse(step, trash, &mut unjournaled) {
             first_error.get_or_insert(e);
         }
     }
     first_error.map_or(Ok(()), Err)
+}
+
+/// Recovery: removes what interrupted renames claimed and left (a second
+/// link, an empty placeholder), while it is still that entry, and says so.
+fn release_claims(payload: &mut Payload, problems: &mut Vec<String>) {
+    for step in &mut payload.steps {
+        let Some(claimed) = step.claim.take() else {
+            continue;
+        };
+        let what = match claimed.claim.kind {
+            rawtonic_fs::ClaimKind::Link => "second link of the file",
+            rawtonic_fs::ClaimKind::Placeholder => "empty placeholder file",
+            rawtonic_fs::ClaimKind::PlaceholderFolder => "empty placeholder folder",
+        };
+        match rawtonic_fs::release_claim(&claimed.from, &claimed.to, &claimed.claim) {
+            Ok(true) => problems.push(format!(
+                "removed the {what} an interrupted rename left at {}",
+                claimed.to.display()
+            )),
+            Ok(false) => {}
+            Err(e) => problems.push(format!(
+                "could not remove the {what} an interrupted rename left at {} ({e})",
+                claimed.to.display()
+            )),
+        }
+    }
 }
 
 /// Recovery: reverses a step only where the file system shows it applied.
@@ -1951,13 +2042,15 @@ fn restore_if_moved(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
         return Ok(());
     }
     match &step.to {
-        Target::Path { path } if exists(path) => reverse(step, trash),
+        Target::Path { path } if exists(path) => reverse(step, trash, &mut unjournaled),
         Target::Path { path } => bail!(
             "neither {} nor {} exists",
             step.from.display(),
             path.display()
         ),
-        Target::SystemTrash { item: Some(item) } if trash.contains(item) => reverse(step, trash),
+        Target::SystemTrash { item: Some(item) } if trash.contains(item) => {
+            reverse(step, trash, &mut unjournaled)
+        }
         Target::SystemTrash { .. } => bail!(
             "{} may be in the system Trash; put it back from there",
             step.from.display()
@@ -2605,10 +2698,10 @@ fn note_unjournaled_in_place(steps: &[Step], direction: Direction, problems: &mu
 
 /// Undo of one step: renames back, puts back from the Trash, publishes a
 /// copy back.
-fn reverse_for_undo(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
+fn reverse_for_undo(step: &Step, trash: &dyn SystemTrash, note: NoteClaim) -> Result<()> {
     match step.to {
         Target::OtherVolume { .. } => publish(step, Direction::Back),
-        _ => reverse(step, trash),
+        _ => reverse(step, trash, note),
     }
 }
 
@@ -2616,7 +2709,7 @@ fn reverse_for_undo(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
 fn reapply_after_undo(step: &mut Step, trash: &dyn SystemTrash) -> Result<()> {
     match step.to {
         Target::OtherVolume { .. } => unpublish(step, Direction::Back),
-        _ => apply(step, trash),
+        _ => apply(step, trash, &mut unjournaled),
     }
 }
 
@@ -2762,6 +2855,104 @@ mod tests {
             panic!("copy target");
         };
         assert_eq!(*copy, CopyState::default());
+    }
+
+    /// A volume without an exclusive rename (and, with `links: false`,
+    /// without hard links): the rename takes the new name first.
+    #[cfg(unix)]
+    fn without_exclusive_rename(links: bool) {
+        use rawtonic_fs::test_hooks as hook;
+        hook::RENAME.set(Some(libc::ENOTSUP));
+        hook::LINK.set((!links).then_some(libc::ENOTSUP));
+    }
+
+    #[cfg(unix)]
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| !n.starts_with("journal.sqlite"))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// A crash after a rename claimed its new name (a second link, or an
+    /// empty placeholder) but before it renamed: recovery removes exactly
+    /// that claim and says so; the photo keeps its old name.
+    #[cfg(unix)]
+    #[test]
+    fn a_crash_after_a_claim_leaves_nothing_behind_after_recovery() {
+        for links in [true, false] {
+            let tmp = tempfile::tempdir().unwrap();
+            let root = tmp.path();
+            let (a, b) = (root.join("DSC0001.ARW"), root.join("Shoot_0001.ARW"));
+            fs::write(&a, "raw").unwrap();
+            let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+            without_exclusive_rename(links);
+            crash::arm_at("claimed");
+            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                journal.execute(
+                    "rename",
+                    "Rename",
+                    vec![Step::rename(&a, &b)],
+                    &NoSystemTrash,
+                )
+            }));
+            assert!(run.is_err() && !crash::disarm(), "crashed at the claim");
+            assert!(b.exists(), "the claim is there after the crash");
+            let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+            journal.recover(&NoSystemTrash).unwrap();
+            let recovered = journal.history(1).unwrap();
+            assert_eq!(recovered[0].state, State::RolledBack);
+            let note = recovered[0].note.clone().unwrap_or_default();
+            assert!(note.contains("interrupted rename left at"), "{note}");
+            assert_eq!(names(root), ["DSC0001.ARW"], "links: {links}");
+            assert_eq!(fs::read(&a).unwrap(), b"raw");
+            // A retry renames.
+            journal
+                .execute(
+                    "rename",
+                    "Rename",
+                    vec![Step::rename(&a, &b)],
+                    &NoSystemTrash,
+                )
+                .unwrap();
+            assert_eq!(names(root), ["Shoot_0001.ARW"]);
+        }
+    }
+
+    /// The same during an undo: recovery removes the claim and finishes the
+    /// undo as it does for any interrupted one.
+    #[cfg(unix)]
+    #[test]
+    fn a_crash_after_an_undos_claim_leaves_nothing_behind_after_recovery() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let (a, b) = (root.join("DSC0001.ARW"), root.join("Shoot_0001.ARW"));
+        fs::write(&a, "raw").unwrap();
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        let op = journal
+            .execute(
+                "rename",
+                "Rename",
+                vec![Step::rename(&a, &b)],
+                &NoSystemTrash,
+            )
+            .unwrap();
+        without_exclusive_rename(false);
+        crash::arm_at("claimed");
+        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            journal.undo(&op.id, &NoSystemTrash)
+        }));
+        assert!(run.is_err() && !crash::disarm(), "crashed at the claim");
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        journal.recover(&NoSystemTrash).unwrap();
+        let recovered = journal.history(1).unwrap();
+        let note = recovered[0].note.clone().unwrap_or_default();
+        assert!(note.contains("empty placeholder file"), "{note}");
+        assert_eq!(names(root), ["DSC0001.ARW"]);
+        assert_eq!(fs::read(&a).unwrap(), b"raw");
     }
 
     fn journal_with(root: &Path, state: State, steps: Vec<Step>) -> (Journal, String) {

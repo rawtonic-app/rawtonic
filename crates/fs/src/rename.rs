@@ -24,8 +24,12 @@
 //! with ENOTSUP.
 //!
 //! A crash inside step 2 or 3 can leave a second hard link of the file, or
-//! an empty placeholder, under the new name (never a lost file); the
-//! journal does not record their identity, so recovery leaves them.
+//! an empty placeholder, under the new name (never a lost file).
+//! [`rename_no_clobber_noting`] tells its caller of the claim (device and
+//! inode) before it goes on, so a journal can record it, and
+//! [`release_claim`] removes it after a crash while it is still exactly that
+//! entry (fileops' recovery does, and says so in the operation's note).
+use serde::{Deserialize, Serialize};
 use std::{fs, io, path::Path};
 
 /// How [`rename_no_clobber`] put the file under its new name.
@@ -42,32 +46,90 @@ pub enum Renamed {
     OverPlaceholder,
 }
 
+/// The new name a rename took before renaming (steps 2 and 3): the second
+/// link of the file, or our empty placeholder. A crash before the rename
+/// finished leaves it behind; a journal that records it can have
+/// [`release_claim`] remove it again, only while it is still this entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Claim {
+    pub kind: ClaimKind,
+    pub dev: u64,
+    pub ino: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClaimKind {
+    /// A hard link of the file under the new name (step 2).
+    Link,
+    /// An empty file created under the new name (step 3).
+    Placeholder,
+    /// An empty folder created under the new name (step 3, a folder).
+    PlaceholderFolder,
+}
+
 /// Renames `from` to `to`, failing with `AlreadyExists` if `to` exists
 /// (except for a case-only rename of the same file); see the module notes
 /// for how, and `Unsupported` where the volume offers no exclusive way.
 /// The caller syncs the folders.
 pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<Renamed> {
+    rename_no_clobber_noting(from, to, |_| Ok(()))
+}
+
+/// [`rename_no_clobber`] that tells `note` of the name it claims (steps 2
+/// and 3) before it goes on, so a journal can record it first. If `note`
+/// fails, the claim is undone and its error returned; nothing is renamed.
+pub fn rename_no_clobber_noting(
+    from: &Path,
+    to: &Path,
+    mut note: impl FnMut(&Claim) -> io::Result<()>,
+) -> io::Result<Renamed> {
     #[cfg(windows)]
     {
         // Windows MoveFileExW handles case-only renames itself. Never select
         // a replacing rename using a case-folded spelling: NTFS directories
         // can be case-sensitive, with two different entries named a.RAF and
         // A.RAF.
+        let _ = &mut note;
         windows::move_exclusive(from, to).map(|()| Renamed::Exclusive)
     }
     #[cfg(unix)]
     {
-        unix::rename_no_clobber(from, to)
+        unix::rename_no_clobber(from, to, &mut note)
     }
     #[cfg(not(any(unix, windows)))]
     {
-        let _ = (from, to);
+        let _ = (from, to, &mut note);
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "this system has no exclusive rename",
         ))
     }
 }
+
+/// Removes what an interrupted [`rename_no_clobber_noting`] left at `to`
+/// under `claim`: only while `from` is still there (the rename did not
+/// happen) and `to` is still exactly the claimed entry — the file's second
+/// link under its own, separately listed name, or our placeholder, still
+/// empty. Returns whether it removed it.
+pub fn release_claim(from: &Path, to: &Path, claim: &Claim) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        unix::release_claim(from, to, claim)
+    }
+    #[cfg(not(unix))]
+    {
+        // Only Unix volumes take a claim.
+        let _ = (from, to, claim);
+        Ok(false)
+    }
+}
+
+/// Tests (also other crates', with the `test-support` feature): forced
+/// answers of the system calls the chain makes.
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use unix::hook as test_hooks;
 
 #[cfg(unix)]
 mod unix {
@@ -76,7 +138,9 @@ mod unix {
     use std::fs::{File, OpenOptions};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
-    pub(super) fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<Renamed> {
+    type Note<'a> = &'a mut dyn FnMut(&Claim) -> io::Result<()>;
+
+    pub(super) fn rename_no_clobber(from: &Path, to: &Path, note: Note) -> io::Result<Renamed> {
         if same_file(from, to) {
             fs::rename(from, to)?;
             return Ok(Renamed::SameFile);
@@ -90,12 +154,99 @@ mod unix {
         // A folder never has hard links.
         if !folder {
             match hard_link(from, to) {
-                Ok(()) => return unlink_old_name(from, to).map(|()| Renamed::Linked),
+                Ok(()) => {
+                    noted(note, ClaimKind::Link, to, || {
+                        if same_file(from, to) {
+                            let _ = fs::remove_file(to);
+                        }
+                    })?;
+                    return unlink_old_name(from, to).map(|()| Renamed::Linked);
+                }
                 Err(e) if !link_unsupported(&e) => return Err(e),
                 Err(_) => {}
             }
         }
-        over_placeholder(from, to, folder).map(|()| Renamed::OverPlaceholder)
+        over_placeholder(from, to, folder, note).map(|()| Renamed::OverPlaceholder)
+    }
+
+    /// Tells `note` of the entry claimed at `to`; if that fails, `undo`
+    /// takes the claim back.
+    fn noted(note: Note, kind: ClaimKind, to: &Path, undo: impl FnOnce()) -> io::Result<()> {
+        let result = fs::symlink_metadata(to).and_then(|meta| {
+            note(&Claim {
+                kind,
+                dev: meta.dev(),
+                ino: meta.ino(),
+            })
+        });
+        if result.is_err() {
+            undo();
+        }
+        result
+    }
+
+    pub(super) fn release_claim(from: &Path, to: &Path, claim: &Claim) -> io::Result<bool> {
+        let (Ok(source), Ok(there)) = (fs::symlink_metadata(from), fs::symlink_metadata(to)) else {
+            return Ok(false);
+        };
+        if there.dev() != claim.dev || there.ino() != claim.ino {
+            return Ok(false);
+        }
+        match claim.kind {
+            ClaimKind::Link => {
+                // Two names of one file, both listed: never the one entry
+                // a case-insensitive volume shows under either spelling.
+                if Id::of(&source) != Id::of(&there)
+                    || there.nlink() < 2
+                    || from == to
+                    || !listed(from)
+                    || !listed(to)
+                {
+                    return Ok(false);
+                }
+                fs::remove_file(to)?;
+            }
+            ClaimKind::Placeholder => {
+                if !there.is_file() || there.len() != 0 {
+                    return Ok(false);
+                }
+                fs::remove_file(to)?;
+            }
+            ClaimKind::PlaceholderFolder => {
+                if !there.is_dir() {
+                    return Ok(false);
+                }
+                // The system removes only an empty folder.
+                match fs::remove_dir(to) {
+                    Ok(()) => {}
+                    Err(e)
+                        if e.raw_os_error()
+                            .is_some_and(|c| c == libc::ENOTEMPTY || c == libc::EEXIST) =>
+                    {
+                        return Ok(false);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    /// Whether `path`'s folder lists an entry spelled exactly as its name.
+    fn listed(path: &Path) -> bool {
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return false;
+        };
+        let parent = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            parent
+        };
+        fs::read_dir(parent).is_ok_and(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_name() == name)
+        })
     }
 
     fn same_file(a: &Path, b: &Path) -> bool {
@@ -123,7 +274,7 @@ mod unix {
     }
 
     fn exclusive_rename(from: &Path, to: &Path) -> io::Result<()> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(code) = hook::take(&hook::RENAME) {
             return Err(io::Error::from_raw_os_error(code));
         }
@@ -160,7 +311,7 @@ mod unix {
     /// A hard link at `to` (refused if the name is taken); a symbolic link
     /// is linked itself, never its target.
     fn hard_link(from: &Path, to: &Path) -> io::Result<()> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(code) = hook::take(&hook::LINK) {
             return Err(io::Error::from_raw_os_error(code));
         }
@@ -179,12 +330,12 @@ mod unix {
     /// link goes again (while it is still the same file), so the file keeps
     /// its old name only.
     fn unlink_old_name(from: &Path, to: &Path) -> io::Result<()> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let removed = match hook::take(&hook::UNLINK) {
             Some(code) => Err(io::Error::from_raw_os_error(code)),
             None => fs::remove_file(from),
         };
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "test-support")))]
         let removed = fs::remove_file(from);
         if let Err(error) = removed {
             if same_file(from, to) {
@@ -213,7 +364,7 @@ mod unix {
 
     /// Claims `to` with an exclusive create, then renames `from` over that
     /// placeholder while it is still ours and empty.
-    fn over_placeholder(from: &Path, to: &Path, folder: bool) -> io::Result<()> {
+    fn over_placeholder(from: &Path, to: &Path, folder: bool, note: Note) -> io::Result<()> {
         let claimed = if folder {
             claim_folder(to)
         } else {
@@ -234,7 +385,13 @@ mod unix {
             }
             Err(e) => return Err(e),
         };
-        #[cfg(test)]
+        let kind = if folder {
+            ClaimKind::PlaceholderFolder
+        } else {
+            ClaimKind::Placeholder
+        };
+        noted(note, kind, to, || remove_placeholder(to, id, folder))?;
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(meddle) = hook::BETWEEN.take() {
             meddle(to);
         }
@@ -272,7 +429,7 @@ mod unix {
     }
 
     fn claim_file(to: &Path) -> io::Result<(Id, Option<File>)> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(code) = hook::take(&hook::CLAIM) {
             return Err(io::Error::from_raw_os_error(code));
         }
@@ -285,7 +442,7 @@ mod unix {
     }
 
     fn claim_folder(to: &Path) -> io::Result<(Id, Option<File>)> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(code) = hook::take(&hook::CLAIM) {
             return Err(io::Error::from_raw_os_error(code));
         }
@@ -313,8 +470,8 @@ mod unix {
 
     /// Tests: forced answers of the system calls, one each, and a meddler
     /// between the placeholder's check and the rename.
-    #[cfg(test)]
-    pub(crate) mod hook {
+    #[cfg(any(test, feature = "test-support"))]
+    pub mod hook {
         use std::cell::Cell;
         use std::path::Path;
         thread_local! {
@@ -734,5 +891,131 @@ mod windows_tests {
         assert!(rename_no_clobber(&source, &destination).is_err());
         assert_eq!(fs::read(&source).unwrap(), b"source");
         assert_eq!(fs::read(&destination).unwrap(), b"occupied");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod claim_tests {
+    use super::unix::hook;
+    use super::*;
+
+    fn volume_without(link: Option<i32>) {
+        hook::RENAME.set(Some(libc::ENOTSUP));
+        hook::LINK.set(link);
+        hook::UNLINK.set(None);
+        hook::CLAIM.set(None);
+        hook::BETWEEN.set(None);
+    }
+
+    fn noted(from: &Path, to: &Path) -> (io::Result<Renamed>, Vec<Claim>) {
+        let mut claims = Vec::new();
+        let result = rename_no_clobber_noting(from, to, |claim| {
+            claims.push(*claim);
+            Ok(())
+        });
+        (result, claims)
+    }
+
+    #[test]
+    fn the_exclusive_rename_claims_nothing_and_the_fallbacks_note_their_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        fs::write(&a, "a").unwrap();
+        hook::RENAME.set(None);
+        assert_eq!(noted(&a, &b).1, []);
+        volume_without(None);
+        let (result, claims) = noted(&b, &a);
+        assert_eq!(result.unwrap(), Renamed::Linked);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].kind, ClaimKind::Link);
+        volume_without(Some(libc::ENOTSUP));
+        let (result, claims) = noted(&a, &b);
+        assert_eq!(result.unwrap(), Renamed::OverPlaceholder);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].kind, ClaimKind::Placeholder);
+        let folder = dir.path().join("stage");
+        fs::create_dir(&folder).unwrap();
+        volume_without(None);
+        let (_, claims) = noted(&folder, &dir.path().join("Job"));
+        assert_eq!(claims[0].kind, ClaimKind::PlaceholderFolder);
+    }
+
+    /// A journal that cannot record the claim stops the rename and takes
+    /// the claim back.
+    #[test]
+    fn a_claim_that_cannot_be_noted_is_taken_back() {
+        for link in [None, Some(libc::ENOTSUP)] {
+            let dir = tempfile::tempdir().unwrap();
+            let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+            fs::write(&a, "a").unwrap();
+            volume_without(link);
+            let error = rename_no_clobber_noting(&a, &b, |_| Err(io::Error::other("journal full")))
+                .unwrap_err();
+            assert_eq!(error.to_string(), "journal full");
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+            assert_eq!(fs::read(&a).unwrap(), b"a");
+        }
+    }
+
+    /// What a crash between the claim and the rename leaves: the noted
+    /// claim is removed, and only while it is still that entry.
+    #[test]
+    fn an_interrupted_claim_is_released_only_while_it_is_still_ours() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        fs::write(&a, "a").unwrap();
+        let claim_of = |kind, path: &Path| {
+            use std::os::unix::fs::MetadataExt;
+            let meta = fs::symlink_metadata(path).unwrap();
+            Claim {
+                kind,
+                dev: meta.dev(),
+                ino: meta.ino(),
+            }
+        };
+        // A crash after the link.
+        fs::hard_link(&a, &b).unwrap();
+        let link = claim_of(ClaimKind::Link, &b);
+        assert!(release_claim(&a, &b, &link).unwrap());
+        assert!(!b.exists() && fs::read(&a).unwrap() == b"a");
+        // After the unlink the link is the file: never removed.
+        fs::hard_link(&a, &b).unwrap();
+        fs::remove_file(&a).unwrap();
+        assert!(!release_claim(&a, &b, &link).unwrap());
+        assert_eq!(fs::read(&b).unwrap(), b"a");
+        fs::rename(&b, &a).unwrap();
+        // A crash after the placeholder.
+        fs::write(&b, "").unwrap();
+        let placeholder = claim_of(ClaimKind::Placeholder, &b);
+        assert!(release_claim(&a, &b, &placeholder).unwrap());
+        assert!(!b.exists());
+        // Written to since, or another file under the name: kept.
+        fs::write(&b, "").unwrap();
+        let placeholder = claim_of(ClaimKind::Placeholder, &b);
+        fs::write(&b, "theirs").unwrap();
+        assert!(!release_claim(&a, &b, &placeholder).unwrap());
+        fs::remove_file(&b).unwrap();
+        fs::write(&b, "").unwrap();
+        let now = claim_of(ClaimKind::Placeholder, &b);
+        let theirs = Claim {
+            ino: now.ino ^ 1,
+            ..now
+        };
+        assert!(!release_claim(&a, &b, &theirs).unwrap());
+        // The rename happened (no file at the old name): nothing to do.
+        let ours = claim_of(ClaimKind::Placeholder, &b);
+        fs::remove_file(&a).unwrap();
+        assert!(!release_claim(&a, &b, &ours).unwrap());
+        assert!(b.exists());
+        // A folder placeholder: removed empty, kept with an entry.
+        let (f, g) = (dir.path().join("stage"), dir.path().join("Job"));
+        fs::create_dir(&f).unwrap();
+        fs::create_dir(&g).unwrap();
+        let folder = claim_of(ClaimKind::PlaceholderFolder, &g);
+        fs::write(g.join("theirs"), "x").unwrap();
+        assert!(!release_claim(&f, &g, &folder).unwrap());
+        fs::remove_file(g.join("theirs")).unwrap();
+        assert!(release_claim(&f, &g, &folder).unwrap());
+        assert!(!g.exists());
     }
 }

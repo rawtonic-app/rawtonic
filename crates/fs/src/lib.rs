@@ -8,7 +8,11 @@ mod rename;
 pub mod staging;
 pub mod temp;
 
-pub use rename::{Renamed, rename_no_clobber};
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use rename::test_hooks;
+pub use rename::{
+    Claim, ClaimKind, Renamed, release_claim, rename_no_clobber, rename_no_clobber_noting,
+};
 
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
