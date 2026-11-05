@@ -982,8 +982,7 @@ fn merge(args: MergeArgs) -> Result<()> {
     )?;
     rawtonic_export::output::write_new_output(&args.output, &bytes)
         .with_context(|| format!("Write {}", args.output.display()))?;
-    let sidecar =
-        rawtonic_metadata::photo_ref::PhotoRef::of_path(&args.output, None).sidecar_path();
+    let sidecar = sidecar_of(&args.output);
     let mut adjustments = rawtonic_merge::initial_adjustments(&reference, lens_applied);
     if args.auto_settings {
         rawtonic_merge::apply_auto_settings(&mut adjustments, &image, &args.output);
@@ -1452,6 +1451,12 @@ fn lensfun_folder(explicit: Option<PathBuf>) -> Result<PathBuf> {
         .context("Lensfun database not found; pass --lensfun-db (the app's lensfun_db folder)")
 }
 
+/// The editor sidecar of an output written at `path` (`<file>.rrdata`),
+/// built from the path itself so a non-UTF-8 file name is kept as it is.
+fn sidecar_of(path: &std::path::Path) -> PathBuf {
+    path.with_file_name(rawtonic_metadata::photo_ref::sidecar_name(path, None))
+}
+
 /// A photo's recipe as the app's export reads it: the session database's
 /// editor state for a primary photo in a session, else its `.rrdata`
 /// sidecar (a virtual copy always reads its sidecar). Read-only.
@@ -1646,5 +1651,25 @@ mod tests {
         let inside = library_of(&session.join("Capture/a.NEF"));
         assert_eq!(inside.as_deref(), Some(session.as_path()));
         assert_eq!(unresolved_resource(&profile, inside.as_deref()), None);
+    }
+
+    /// The sidecar of `merge`'s output is the output's path with
+    /// `.rrdata` pushed onto its file name: a name that is not UTF-8 stays
+    /// byte for byte (a `PhotoRef` would make it lossy).
+    #[cfg(unix)]
+    #[test]
+    fn a_merges_sidecar_keeps_a_non_utf8_output_name() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        use std::path::Path;
+        let output = Path::new("/out").join(OsStr::from_bytes(b"pano\xfe.dng"));
+        let sidecar = sidecar_of(&output);
+        assert_eq!(sidecar.parent(), Some(Path::new("/out")));
+        assert_eq!(sidecar.file_name().unwrap().as_encoded_bytes(), b"pano\xfe.dng.rrdata");
+        // The UTF-8 names are the ones the written-out form gave.
+        assert_eq!(
+            sidecar_of(Path::new("/out/pano.dng")),
+            PathBuf::from("/out/pano.dng.rrdata")
+        );
     }
 }
