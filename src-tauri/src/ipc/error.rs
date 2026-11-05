@@ -80,6 +80,10 @@ impl CommandError {
         Self::new(ErrorCode::Internal, message)
     }
 
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::NotFound, message)
+    }
+
     /// The same error with `key: value` beside code and message (data the
     /// frontend uses, such as the names of the photographs refused).
     pub fn with_detail(mut self, key: &str, value: serde_json::Value) -> Self {
