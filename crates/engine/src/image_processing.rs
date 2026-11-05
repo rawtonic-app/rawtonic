@@ -5149,6 +5149,7 @@ fn get_global_adjustments_from_json(
     // sections are still read from the stored recipe below.
     let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments));
     let tone = &resolved.tone;
+    let color = &resolved.color;
     let visibility = js_adjustments.get("sectionVisibility");
     let is_visible = |section: &str| -> bool {
         visibility
@@ -5306,11 +5307,11 @@ fn get_global_adjustments_from_json(
         whites: tone.whites.get() as f32 / SCALES.whites,
         blacks: tone.blacks.get() as f32 / SCALES.blacks,
 
-        saturation: get_val("color", "saturation", SCALES.saturation, None),
-        temperature: get_val("color", "temperature", SCALES.temperature, None),
-        tint: get_val("color", "tint", SCALES.tint, None),
-        vibrance: get_val("color", "vibrance", SCALES.vibrance, None),
-        hue: get_val("color", "hue", 1.0, None),
+        saturation: color.saturation.get() as f32 / SCALES.saturation,
+        temperature: color.temperature.get() as f32 / SCALES.temperature,
+        tint: color.tint.get() as f32 / SCALES.tint,
+        vibrance: color.vibrance.get() as f32 / SCALES.vibrance,
+        hue: color.hue.get() as f32,
         color_noise_speck: 0.0,
         luma_speck: if versions.luma_noise.removes_specks() {
             1.0

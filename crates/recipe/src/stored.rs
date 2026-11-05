@@ -18,6 +18,9 @@ impl Section {
     pub const BASIC: Self = Self("basic");
     /// Presence and detail (clarity, dehaze, centré, sharpening, …).
     pub const DETAILS: Self = Self("details");
+    pub const COLOR: Self = Self("color");
+    pub const WHITE_BALANCE: Self = Self("whiteBalance");
+    pub const PRESENCE: Self = Self("presence");
 
     /// The section's name in `sectionVisibility`.
     pub const fn name(self) -> &'static str {
