@@ -982,8 +982,8 @@ fn merge(args: MergeArgs) -> Result<()> {
     )?;
     rawtonic_export::output::write_new_output(&args.output, &bytes)
         .with_context(|| format!("Write {}", args.output.display()))?;
-    let mut sidecar = args.output.clone().into_os_string();
-    sidecar.push(".rrdata");
+    let sidecar =
+        rawtonic_metadata::photo_ref::PhotoRef::of_path(&args.output, None).sidecar_path();
     let mut adjustments = rawtonic_merge::initial_adjustments(&reference, lens_applied);
     if args.auto_settings {
         rawtonic_merge::apply_auto_settings(&mut adjustments, &image, &args.output);
@@ -1458,8 +1458,7 @@ fn lensfun_folder(explicit: Option<PathBuf>) -> Result<PathBuf> {
 fn editor_recipe(sidecar: &std::path::Path) -> serde_json::Value {
     use rawtonic_engine::image_processing::ImageMetadata;
     let from_session = || -> Option<serde_json::Value> {
-        let name = sidecar.file_name()?.to_str()?.strip_suffix(".rrdata")?;
-        let source = sidecar.with_file_name(name);
+        let source = rawtonic_metadata::photo_ref::source_path_of_sidecar(sidecar)?;
         if !source.is_file() {
             return None;
         }

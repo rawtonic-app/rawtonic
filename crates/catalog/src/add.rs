@@ -12,6 +12,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use rawtonic_metadata::Metadata;
+use rawtonic_metadata::photo_ref::PhotoRef;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -98,8 +99,7 @@ impl Contents {
     /// unreadable sidecar is an error, so the photograph is not added
     /// without what it holds.
     pub fn read_sidecars(photo: &Path) -> Result<Self, CatalogError> {
-        let name = photo.file_name().context("No filename")?;
-        let editor = photo.with_file_name(format!("{}.rrdata", name.to_string_lossy()));
+        let editor = PhotoRef::of_path(photo, None).sidecar_path();
         if editor.is_file() {
             let bytes =
                 fs::read(&editor).with_context(|| format!("Cannot read {}", editor.display()))?;
@@ -578,8 +578,7 @@ impl Library {
             return Ok(false);
         }
         let photo = self.asset(id)?.path;
-        let name = photo.file_name().context("No filename")?;
-        let sidecar = photo.with_file_name(format!("{}.rrdata", name.to_string_lossy()));
+        let sidecar = PhotoRef::of_path(&photo, None).sidecar_path();
         if !sidecar.is_file() {
             return Ok(false);
         }

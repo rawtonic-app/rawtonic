@@ -8,6 +8,7 @@ use crate::{
     portable_relative,
 };
 use anyhow::Result;
+use rawtonic_metadata::photo_ref::PhotoRef;
 use rusqlite::params;
 use serde_json::Value;
 use std::{
@@ -211,7 +212,7 @@ impl Library {
             if !asset.path.starts_with(&self.directory) || !asset.path.is_file() {
                 continue;
             }
-            let name = asset.path.file_name().unwrap().to_string_lossy();
+            let photo = PhotoRef::of_path(&asset.path, None);
             // A photograph never edited whose metadata is only the file's
             // own (its camera's rating) has nothing of the library's to
             // carry: a sidecar would be adopted on opening as the library's
@@ -222,16 +223,13 @@ impl Library {
                     .is_empty();
             if carries && let Some(mut state) = self.editor_state(&asset.id)? {
                 rawtonic_metadata::resources::localize(&mut state, &self.directory);
-                fs::write(
-                    asset.path.with_file_name(format!("{name}.rrdata")),
-                    serde_json::to_vec(&state)?,
-                )?;
+                fs::write(photo.sidecar_path(), serde_json::to_vec(&state)?)?;
             }
             for copy in self.copies(&asset.id)? {
                 if let Some(mut state) = self.copy_state(&asset.id, &copy)? {
                     rawtonic_metadata::resources::localize(&mut state, &self.directory);
                     fs::write(
-                        asset.path.with_file_name(format!("{name}.{copy}.rrdata")),
+                        photo.with_copy(Some(&copy)).sidecar_path(),
                         serde_json::to_vec(&state)?,
                     )?;
                 }
