@@ -25,6 +25,7 @@
 //! report, along with approximate skin entries, unsupported bounds/clipped
 //! values, unknown/malformed entries and ranges beyond the recipe limits.
 
+use rawtonic_recipe::tone;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -475,33 +476,51 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     // Brightness ÷43.5, Saturation ×0.73, Dehaze ×0.78; Exposure 1:1.
     let signed = |v: f64, up: f64, down: f64| v * if v > 0.0 { up } else { down };
     if let Some(v) = num("Exposure") {
-        put(&mut adjustments, "exposure", v, -5.0, 5.0);
+        put(&mut adjustments, tone::EXPOSURE.name(), v, -5.0, 5.0);
     }
     if let Some(v) = num("Contrast") {
         put(
             &mut adjustments,
-            "contrast",
+            tone::CONTRAST.name(),
             signed(v, 2.25, 0.9),
             -100.0,
             100.0,
         );
     }
     if let Some(v) = num("Brightness") {
-        put(&mut adjustments, "brightness", v / 43.5, -5.0, 5.0);
+        put(
+            &mut adjustments,
+            tone::BRIGHTNESS.name(),
+            v / 43.5,
+            -5.0,
+            5.0,
+        );
     }
     if let Some(v) = num("Saturation") {
         put(&mut adjustments, "saturation", 0.73 * v, -100.0, 100.0);
     }
     let highlights = num("HighlightRecoveryEx").map_or(0.0, |v| signed(v, 0.5, 0.56))
         - 0.56 * num("HighlightRecovery").unwrap_or(0.0);
-    put(&mut adjustments, "highlights", highlights, -100.0, 100.0);
+    put(
+        &mut adjustments,
+        tone::HIGHLIGHTS.name(),
+        highlights,
+        -100.0,
+        100.0,
+    );
     if let Some(v) = num("ShadowRecovery") {
-        put(&mut adjustments, "shadows", 2.5 * v, -100.0, 100.0);
+        put(
+            &mut adjustments,
+            tone::SHADOWS.name(),
+            2.5 * v,
+            -100.0,
+            100.0,
+        );
     }
     if let Some(v) = num("WhiteRecovery") {
         put(
             &mut adjustments,
-            "whites",
+            tone::WHITES.name(),
             signed(v, 0.69, 0.44),
             -100.0,
             100.0,
@@ -510,7 +529,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     if let Some(v) = num("BlackRecovery") {
         put(
             &mut adjustments,
-            "blacks",
+            tone::BLACKS.name(),
             signed(v, 0.65, 0.79),
             -100.0,
             100.0,

@@ -1,3 +1,4 @@
+use rawtonic_recipe::tone;
 use regex::Regex;
 use regex::regex;
 use serde_json::{Map, Value, json};
@@ -429,11 +430,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     let mut curves_map = Map::new();
 
     let mappings = vec![
-        ("Exposure2012", "exposure"),
-        ("Contrast2012", "contrast"),
-        ("Highlights2012", "highlights"),
-        ("Whites2012", "whites"),
-        ("Blacks2012", "blacks"),
+        ("Exposure2012", tone::EXPOSURE.name()),
+        ("Contrast2012", tone::CONTRAST.name()),
+        ("Highlights2012", tone::HIGHLIGHTS.name()),
+        ("Whites2012", tone::WHITES.name()),
+        ("Blacks2012", tone::BLACKS.name()),
         ("Clarity2012", "clarity"),
         ("Dehaze", "dehaze"),
         ("Vibrance", "vibrance"),
@@ -532,7 +533,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     // former x1.5 compensation for a weak lift would now overshoot.
     if let Some(shadows_val) = get_attr_as_f64(&attrs, "Shadows2012") {
         adjustments.insert(
-            "shadows".to_string(),
+            tone::SHADOWS.name().to_string(),
             json!(shadows_val.clamp(-100.0, 100.0)),
         );
     }

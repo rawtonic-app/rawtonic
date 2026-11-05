@@ -10,6 +10,7 @@ default-members = [
     "crates/ingest",
     "crates/fileops",
     "crates/interop",
+    "crates/recipe",
     "crates/runtime",
     "crates/rawdecode",
     "crates/engine",

@@ -18,6 +18,7 @@
 //! Vibrance, vignetting) alone, as Capture One does.
 use crate::image_processing::{AutoAdjustmentResults, downscale_f32_image};
 use image::DynamicImage;
+use rawtonic_recipe::tone;
 
 const ANALYSIS_MAX_DIM: u32 = 1024;
 /// Display EV below white that counts as blown.
@@ -522,12 +523,12 @@ pub fn standard_auto_adjustments(
 /// JSON for the frontend: only the controls this auto sets.
 pub fn standard_auto_to_json(results: &AutoAdjustmentResults) -> serde_json::Value {
     let mut json = serde_json::json!({
-        "exposure": (results.exposure * 100.0).round() / 100.0,
-        "highlights": results.highlights.round(),
-        "whites": results.whites.round(),
-        "shadows": results.shadows.round(),
-        "contrast": results.contrast.round(),
-        "blacks": 0,
+        tone::EXPOSURE.name(): (results.exposure * 100.0).round() / 100.0,
+        tone::HIGHLIGHTS.name(): results.highlights.round(),
+        tone::WHITES.name(): results.whites.round(),
+        tone::SHADOWS.name(): results.shadows.round(),
+        tone::CONTRAST.name(): results.contrast.round(),
+        tone::BLACKS.name(): 0,
         "sectionVisibility": { "basic": true },
     });
     if results.black_point >= 0.5 {
