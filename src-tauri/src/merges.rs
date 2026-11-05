@@ -75,7 +75,6 @@ impl MergeOutcome {
 fn base_options(app_handle: &tauri::AppHandle) -> BaseImageOptions {
     let settings = crate::state::settings::current(app_handle);
     BaseImageOptions::from_preferences(
-        settings.raw_highlight_compression,
         settings.linear_raw_mode.clone(),
         settings.raw_preprocessing_color_nr,
         settings.raw_preprocessing_sharpening,
