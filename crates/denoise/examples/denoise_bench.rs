@@ -95,13 +95,12 @@ fn mosaic(raw: &Path, out: &Path) -> Result<Mosaic> {
     }
     let capture = Arc::new(Capture::default());
     let started = Instant::now();
-    rawtonic_rawdecode::raw_processing::develop_raw_image_with(
+    rawtonic_rawdecode::raw_processing::develop_raw_image(
         &std::fs::read(raw).with_context(|| format!("reading {}", raw.display()))?,
-        false,
-        2.5,
-        "auto".to_string(),
-        None,
-        Some(&MosaicDenoise::new(capture.clone(), 1.0)),
+        &rawtonic_rawdecode::raw_processing::DecodeOptions {
+            denoise: Some(&MosaicDenoise::new(capture.clone(), 1.0)),
+            ..Default::default()
+        },
     )?;
     eprintln!("decoded in {:.1} s", started.elapsed().as_secs_f32());
     let Some((samples, w, h, pattern)) = capture.0.lock().unwrap().take() else {

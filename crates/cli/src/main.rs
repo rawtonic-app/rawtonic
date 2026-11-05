@@ -1009,10 +1009,10 @@ fn decode(path: &std::path::Path, repeats: u32, fast: bool) -> Result<()> {
         let now = Instant::now();
         let image = rawtonic_rawdecode::raw_processing::develop_raw_image(
             &bytes,
-            fast,
-            2.5,
-            "auto".into(),
-            None,
+            &rawtonic_rawdecode::raw_processing::DecodeOptions {
+                fast_demosaic: fast,
+                ..Default::default()
+            },
         )?;
         timings.push(now.elapsed().as_secs_f64() * 1000.0);
         size = (image.width(), image.height());

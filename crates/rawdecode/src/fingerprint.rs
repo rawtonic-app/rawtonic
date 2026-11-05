@@ -329,9 +329,11 @@ fn data_hash(raw_image: &RawImage) -> String {
 }
 
 fn develop_hash(file_bytes: &[u8]) -> anyhow::Result<Developed> {
-    let image =
-        crate::raw_processing::develop_raw_image(file_bytes, false, 2.5, "auto".into(), None)?
-            .into_rgb32f();
+    let image = crate::raw_processing::develop_raw_image(
+        file_bytes,
+        &crate::raw_processing::DecodeOptions::default(),
+    )?
+    .into_rgb32f();
     let mut hash = sha2::Sha256::new();
     let mut sums = [0.0f64; 3];
     for chunk in image.as_raw().chunks(3 << 15) {

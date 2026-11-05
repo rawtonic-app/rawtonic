@@ -5,5 +5,7 @@ pub mod allocator;
 #[cfg(feature = "performance-profiling")]
 pub mod performance;
 
+mod cancel;
+pub use cancel::CancelToken;
 mod cancelled;
 pub use cancelled::Cancelled;

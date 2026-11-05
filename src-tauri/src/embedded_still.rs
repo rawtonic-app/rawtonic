@@ -550,10 +550,7 @@ mod tests {
         dng.extend(&preview);
         let developed = rawtonic_rawdecode::raw_processing::develop_raw_image(
             &dng,
-            false,
-            2.5,
-            "auto".into(),
-            None,
+            &rawtonic_rawdecode::raw_processing::DecodeOptions::default(),
         )
         .unwrap();
         assert_eq!((developed.width(), developed.height()), (48, 64));

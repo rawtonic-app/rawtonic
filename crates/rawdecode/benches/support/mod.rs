@@ -81,9 +81,12 @@ fn synthetic_id(kind: &str) -> String {
 /// A full development as the app's decode does it (CPU demosaic: the
 /// benchmarks never register a GPU), linear RGB.
 pub fn develop(bytes: &[u8]) -> Rgb32FImage {
-    rawtonic_rawdecode::raw_processing::develop_raw_image(bytes, false, 2.5, "auto".into(), None)
-        .expect("decode")
-        .into_rgb32f()
+    rawtonic_rawdecode::raw_processing::develop_raw_image(
+        bytes,
+        &rawtonic_rawdecode::raw_processing::DecodeOptions::default(),
+    )
+    .expect("decode")
+    .into_rgb32f()
 }
 
 /// The photo the develop and export stages run on: the developed fixture,

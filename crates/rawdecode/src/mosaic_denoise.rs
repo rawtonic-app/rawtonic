@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! A hook for denoisers that work on the Bayer mosaic, before demosaicing.
 //!
-//! `develop_raw_image_with` hands the active area to the denoiser as
+//! `develop_raw_image` hands the active area to the denoiser as
 //! black-subtracted, white-normalised samples (1.0 = the sensor's white;
 //! clipped samples can exceed it) and blends the result back by `amount`.
 //! Samples at or above white are kept as recorded. Only 2 × 2 RGB Bayer

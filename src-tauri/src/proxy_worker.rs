@@ -270,13 +270,10 @@ impl PrefetchGate {
         &self,
         wait: impl FnOnce() -> Duration,
         busy: impl FnOnce() -> bool,
-    ) -> Option<(Arc<AtomicUsize>, usize)> {
+    ) -> Option<rawtonic_runtime::CancelToken> {
         let token = self.0.load(Ordering::SeqCst);
-        (wait().is_zero() && !busy()).then(|| (Arc::clone(&self.0), token))
-    }
-
-    fn cancelled(&self, token: usize) -> bool {
-        self.0.load(Ordering::SeqCst) != token
+        (wait().is_zero() && !busy())
+            .then(|| rawtonic_runtime::CancelToken::new(Arc::clone(&self.0), token))
     }
 }
 
@@ -694,9 +691,9 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
         match job {
             Job::Prefetch(path) => {
                 let cancel = start.expect("prefetching only starts when quiet");
-                let token = cancel.1;
+                let token = cancel.clone();
                 pool.install(|| prepare(app_handle, &path, cancel, keep));
-                if worker.prefetch_gate.cancelled(token) {
+                if token.is_cancelled() {
                     // When the cancelled decode gave the cores back (compare
                     // with the pointer session's start).
                     #[cfg(feature = "performance-profiling")]
@@ -744,7 +741,7 @@ fn wanted_size(app_handle: &tauri::AppHandle, viewer_dim: u32) -> u32 {
 fn prepare(
     app_handle: &tauri::AppHandle,
     path: &str,
-    cancel: (Arc<AtomicUsize>, usize),
+    cancel: rawtonic_runtime::CancelToken,
     keep: bool,
 ) {
     let state = app_handle.state::<AppState>();
@@ -801,19 +798,18 @@ fn prepare(
     }
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("preview_proxy_prefetch");
-    let (raised, token) = cancel;
     let Some((image, variant, measures)) = decode(
         app_handle,
         &source,
         &settings,
-        Some((Arc::clone(&raised), token)),
+        Some(cancel.clone()),
         Some(keep),
     ) else {
         return;
     };
     // An edit during the decode's last steps: no downscale and write
     // beside it either (done again later).
-    if raised.load(Ordering::SeqCst) != token {
+    if cancel.is_cancelled() {
         return;
     }
     // Handed over to the open photograph's load, or kept for it: that load
@@ -856,7 +852,7 @@ fn decode(
     app_handle: &tauri::AppHandle,
     source: &Path,
     settings: &crate::app_settings::AppSettings,
-    cancel: Option<(Arc<AtomicUsize>, usize)>,
+    cancel: Option<rawtonic_runtime::CancelToken>,
     prefetch: Option<bool>,
 ) -> Option<(
     Arc<image::DynamicImage>,
@@ -876,9 +872,7 @@ fn decode(
     if let Some((image, _, measures)) = cached {
         return Some((image, variant, measures));
     }
-    let cancelled = cancel
-        .clone()
-        .map(|(raised, value)| move || raised.load(Ordering::SeqCst) != value);
+    let cancelled = cancel.clone().map(|token| move || token.is_cancelled());
     let made = prefetch.and_then(|_| preview_proxy::current_key(source, settings, variant));
     if prefetch == Some(true)
         && let Some(kept) = AHEAD
@@ -994,7 +988,10 @@ fn build(app_handle: &tauri::AppHandle, worker: &Worker, item: &BuildItem) -> Ou
     if !needs_standard && !needs_full {
         return Outcome::Current;
     }
-    let cancel = Some((Arc::clone(&worker.cancel), item.generation));
+    let cancel = Some(rawtonic_runtime::CancelToken::new(
+        Arc::clone(&worker.cancel),
+        item.generation,
+    ));
     let Some((image, variant, measures)) = decode(app_handle, &source, &settings, cancel, None)
     else {
         return if worker.cancel.load(Ordering::SeqCst) != item.generation {
@@ -1287,7 +1284,7 @@ mod tests {
         );
         // Lands after the token was taken, before its activity is seen:
         // the decode starts but is already cancelled.
-        let (_, token) = gate
+        let token = gate
             .start(
                 || {
                     gate.interaction();
@@ -1296,12 +1293,12 @@ mod tests {
                 idle,
             )
             .expect("quiet");
-        assert!(gate.cancelled(token));
+        assert!(token.is_cancelled());
         // Quiet and no frame since: the decode runs.
-        let (_, token) = gate.start(|| Duration::ZERO, idle).expect("quiet");
-        assert!(!gate.cancelled(token));
+        let token = gate.start(|| Duration::ZERO, idle).expect("quiet");
+        assert!(!token.is_cancelled());
         gate.interaction();
-        assert!(gate.cancelled(token));
+        assert!(token.is_cancelled());
     }
 
     #[test]

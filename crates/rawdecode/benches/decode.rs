@@ -21,10 +21,7 @@ fn raw_decode(c: &mut Criterion) {
             b.iter(|| {
                 raw_processing::develop_raw_image(
                     black_box(&bytes),
-                    false,
-                    2.5,
-                    "auto".into(),
-                    None,
+                    &rawtonic_rawdecode::raw_processing::DecodeOptions::default(),
                 )
                 .unwrap()
             })
