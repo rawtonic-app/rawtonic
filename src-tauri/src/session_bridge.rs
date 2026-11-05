@@ -1,5 +1,6 @@
 //! Transitional adapter between the inherited renderer and the portable DB.
 use rawtonic_catalog::{Library, Mode, Summary, session_for};
+use rawtonic_metadata::photo_ref::{SIDECAR_SUFFIX, sidecar_name};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -54,7 +55,10 @@ fn io_error(e: impl std::fmt::Display) -> io::Error {
 /// offline photograph the library still holds); a virtual copy's sidecar
 /// names no registered photograph and stays a plain file.
 fn source_for_sidecar(sidecar: &Path) -> Option<PathBuf> {
-    let name = sidecar.file_name()?.to_str()?.strip_suffix(".rrdata")?;
+    let name = sidecar
+        .file_name()?
+        .to_str()?
+        .strip_suffix(SIDECAR_SUFFIX)?;
     let source = sidecar.with_file_name(name);
     (source.is_file() || crate::formats::is_supported_image_file(name)).then_some(source)
 }
@@ -62,7 +66,10 @@ fn source_for_sidecar(sidecar: &Path) -> Option<PathBuf> {
 /// The photograph and copy id a virtual copy's sidecar
 /// (`<photo>.<copy>.rrdata`) belongs to; None for other sidecars.
 pub(crate) fn copy_for_sidecar(sidecar: &Path) -> Option<(PathBuf, String)> {
-    let name = sidecar.file_name()?.to_str()?.strip_suffix(".rrdata")?;
+    let name = sidecar
+        .file_name()?
+        .to_str()?
+        .strip_suffix(SIDECAR_SUFFIX)?;
     let (source, copy) = name.rsplit_once('.')?;
     (rawtonic_catalog::valid_copy_id(copy) && crate::formats::is_supported_image_file(source))
         .then(|| (sidecar.with_file_name(source), copy.to_string()))
@@ -241,10 +248,7 @@ pub(crate) fn visit_editor_sidecars(
         let paths = pending.clone();
         let mut publish = |canonical: &Path, state: Option<Value>| {
             for source in &aliases[canonical] {
-                let Some(name) = source.file_name() else {
-                    continue;
-                };
-                let sidecar = source.with_file_name(format!("{}.rrdata", name.to_string_lossy()));
+                let sidecar = source.with_file_name(sidecar_name(source, None));
                 visit(source, &sidecar, state.clone());
             }
         };
@@ -1900,12 +1904,7 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
     // its own (an untouched photograph can have edited copies).
     rederive_copies(lib, id);
     let Ok(asset) = lib.asset(id) else { return };
-    let Some(name) = asset.path.file_name() else {
-        return;
-    };
-    let sidecar = asset
-        .path
-        .with_file_name(format!("{}.rrdata", name.to_string_lossy()));
+    let sidecar = asset.path.with_file_name(sidecar_name(&asset.path, None));
     let current: Option<Value> = fs::read(&sidecar)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
@@ -1940,18 +1939,13 @@ fn rederive_copies(lib: &Library, id: &str) {
     let (Ok(asset), Ok(copies)) = (lib.asset(id), lib.copies(id)) else {
         return;
     };
-    let Some(name) = asset
-        .path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-    else {
-        return;
-    };
     for copy in copies {
         let Ok(Some(state)) = lib.copy_state(id, &copy) else {
             continue;
         };
-        let sidecar = asset.path.with_file_name(format!("{name}.{copy}.rrdata"));
+        let sidecar = asset
+            .path
+            .with_file_name(sidecar_name(&asset.path, Some(&copy)));
         let current: Option<Value> = fs::read(&sidecar)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok());
@@ -2039,6 +2033,36 @@ pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The derived sidecars of a photograph and its copies are named from
+    /// the photograph's path: a copy's name produced where the photograph
+    /// is a name that is not UTF-8 (`PhotoRef` would make it lossy) is the
+    /// copy's own, and reading it back names the photograph again.
+    /// (The library itself stores paths as strings.)
+    #[cfg(unix)]
+    #[test]
+    fn derived_sidecars_keep_a_non_utf8_photo_name() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let photo = Path::new("/Capture").join(OsStr::from_bytes(b"Gr\xfcn .ARW"));
+        let copy = photo.with_file_name(sidecar_name(&photo, Some("c0ffee")));
+        assert_eq!(
+            copy.file_name().unwrap().as_encoded_bytes(),
+            b"Gr\xfcn .ARW.c0ffee.rrdata"
+        );
+        assert_eq!(
+            copy_for_sidecar(&copy),
+            None,
+            "a name that is not UTF-8 names no copy"
+        );
+        assert_eq!(copy.parent(), Some(Path::new("/Capture")));
+        // The written-out form names the same files for a UTF-8 name.
+        let plain = Path::new("/Capture/Grün .ARW");
+        assert_eq!(
+            plain.with_file_name(sidecar_name(plain, Some("c0ffee"))),
+            Path::new("/Capture/Grün .ARW.c0ffee.rrdata")
+        );
+    }
 
     #[test]
     fn a_folder_renamed_in_finder_is_followed_with_its_edits_not_duplicated() {

@@ -341,7 +341,10 @@ impl From<&Operation> for OperationSummary {
 /// `<image>.<copy id>.rrdata` → `<image>?vc=<copy id>` (how albums and the
 /// frontend name a virtual copy); `None` for anything else.
 fn album_key(path: &Path) -> Option<String> {
-    let name = path.file_name()?.to_str()?.strip_suffix(".rrdata")?;
+    let name = path
+        .file_name()?
+        .to_str()?
+        .strip_suffix(photo_ref::SIDECAR_SUFFIX)?;
     let (image, id) = name.rsplit_once('.')?;
     if id.is_empty() || !is_supported_image_file(image) {
         return None;

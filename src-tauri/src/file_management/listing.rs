@@ -208,8 +208,9 @@ pub(crate) fn offline_image_files(
     entries
         .into_iter()
         .flat_map(|entry| {
-            let name = entry.path.file_name().unwrap_or_default().to_string_lossy();
-            let sidecar = entry.path.with_file_name(format!("{name}.rrdata"));
+            let sidecar = entry
+                .path
+                .with_file_name(photo_ref::sidecar_name(&entry.path, None));
             let metadata = snapshot
                 .get(&sidecar)
                 .cloned()
@@ -235,7 +236,9 @@ pub(crate) fn offline_image_files(
                 .copies
                 .iter()
                 .map(|copy| {
-                    let sidecar = entry.path.with_file_name(format!("{name}.{copy}.rrdata"));
+                    let sidecar = entry
+                        .path
+                        .with_file_name(photo_ref::sidecar_name(&entry.path, Some(copy)));
                     let metadata = crate::session_bridge::read_editor_sidecar(&sidecar)
                         .and_then(|state| serde_json::from_value::<ImageMetadata>(state).ok())
                         .map(|state| image_file_metadata(&entry.path, state, settings))
@@ -255,15 +258,15 @@ pub(crate) fn offline_image_files(
 /// The virtual copies among listed photographs (`(photograph, copy id,
 /// sidecar)`), which the library then keeps (`adopt_virtual_copies`).
 fn listed_copies<'a>(
-    listed: impl Iterator<Item = (&'a PathBuf, &'a String, &'a Vec<Option<String>>)>,
+    listed: impl Iterator<Item = (&'a PathBuf, &'a Vec<Option<String>>)>,
 ) -> Vec<(PathBuf, String, PathBuf)> {
     listed
-        .flat_map(|(path, file_name, sidecars)| {
+        .flat_map(|(path, sidecars)| {
             sidecars.iter().flatten().map(move |copy| {
                 (
                     path.clone(),
                     copy.clone(),
-                    path.with_file_name(format!("{file_name}.{copy}.rrdata")),
+                    path.with_file_name(photo_ref::sidecar_name(path, Some(copy))),
                 )
             })
         })
@@ -552,18 +555,11 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
             .into_string()
             .unwrap_or_else(|os| os.to_string_lossy().into_owned());
 
-        if file_name.ends_with(".rrdata") {
-            let base = &file_name[..file_name.len() - 7];
-
-            let (source_filename, copy_id) = match photo_ref::sidecar_name_parts(&file_name) {
-                Some((file, copy)) => (file, copy.map(str::to_string)),
-                None => (base, None),
-            };
-
+        if let Some((source_filename, copy_id)) = photo_ref::sidecar_name_parts(&file_name) {
             sidecars_by_filename
                 .entry(source_filename.to_string())
                 .or_default()
-                .push(copy_id);
+                .push(copy_id.map(str::to_string));
         } else if is_supported_image_file(&file_name) {
             images.push((file_name, entry_path));
         }
@@ -586,18 +582,16 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
                 sidecars_by_filename.remove(&file_name).unwrap_or_default(),
             );
             let path_str = path_buf.to_string_lossy().into_owned();
-            (path_str, file_name, path_buf, sidecars)
+            (path_str, path_buf, sidecars)
         })
         .collect();
     crate::session_bridge::adopt_virtual_copies(&listed_copies(
-        tasks
-            .iter()
-            .map(|(_, file_name, path, sidecars)| (path, file_name, sidecars)),
+        tasks.iter().map(|(_, path, sidecars)| (path, sidecars)),
     ));
 
     let mut result_list: Vec<ImageFile> = tasks
         .into_par_iter()
-        .flat_map(|(path_str, file_name, path_buf, sidecars)| {
+        .flat_map(|(path_str, path_buf, sidecars)| {
             let modified = fs::metadata(&path_buf)
                 .ok()
                 .and_then(|m| m.modified().ok())
@@ -610,16 +604,17 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
             let mut file_results = Vec::with_capacity(sidecars.len());
 
             for copy_id_opt in sidecars {
-                let (virtual_path, is_virtual_copy, sidecar_filename) = match copy_id_opt {
+                // Both named from the path: a file name that is not UTF-8
+                // is kept in the sidecar's.
+                let sidecar_path = path_buf
+                    .with_file_name(photo_ref::sidecar_name(&path_buf, copy_id_opt.as_deref()));
+                let (virtual_path, is_virtual_copy) = match &copy_id_opt {
                     Some(id) => (
                         PhotoRef::new(path_str.as_str(), Some(CopyId::new(id.as_str()))).format(),
                         true,
-                        format!("{}.{}.rrdata", file_name, id),
                     ),
-                    None => (path_str.clone(), false, format!("{}.rrdata", file_name)),
+                    None => (path_str.clone(), false),
                 };
-
-                let sidecar_path = path_buf.with_file_name(sidecar_filename);
 
                 let xmp_is_placeholder = enable_xmp_sync
                     && resolve_xmp_path(&path_buf)
@@ -708,23 +703,16 @@ pub fn list_images_recursive(
                 sidecars_by_path.remove(&path_buf).unwrap_or_default(),
             );
             let path_str = path_buf.to_string_lossy().into_owned();
-            let file_name = path_buf
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            (path_str, file_name, path_buf, sidecars)
+            (path_str, path_buf, sidecars)
         })
         .collect();
     crate::session_bridge::adopt_virtual_copies(&listed_copies(
-        tasks
-            .iter()
-            .map(|(_, file_name, path, sidecars)| (path, file_name, sidecars)),
+        tasks.iter().map(|(_, path, sidecars)| (path, sidecars)),
     ));
 
     let mut result_list: Vec<ImageFile> = tasks
         .into_par_iter()
-        .flat_map(|(path_str, file_name, path_buf, sidecars)| {
+        .flat_map(|(path_str, path_buf, sidecars)| {
             let modified = fs::metadata(&path_buf)
                 .ok()
                 .and_then(|m| m.modified().ok())
@@ -737,16 +725,17 @@ pub fn list_images_recursive(
             let mut file_results = Vec::with_capacity(sidecars.len());
 
             for copy_id_opt in sidecars {
-                let (virtual_path, is_virtual_copy, sidecar_filename) = match copy_id_opt {
+                // Both named from the path: a file name that is not UTF-8
+                // is kept in the sidecar's.
+                let sidecar_path = path_buf
+                    .with_file_name(photo_ref::sidecar_name(&path_buf, copy_id_opt.as_deref()));
+                let (virtual_path, is_virtual_copy) = match &copy_id_opt {
                     Some(id) => (
                         PhotoRef::new(path_str.as_str(), Some(CopyId::new(id.as_str()))).format(),
                         true,
-                        format!("{}.{}.rrdata", file_name, id),
                     ),
-                    None => (path_str.clone(), false, format!("{}.rrdata", file_name)),
+                    None => (path_str.clone(), false),
                 };
-
-                let sidecar_path = path_buf.with_file_name(sidecar_filename);
 
                 let xmp_is_placeholder = enable_xmp_sync
                     && resolve_xmp_path(&path_buf)
@@ -826,10 +815,7 @@ mod listing_metadata_tests {
     use rawtonic_catalog::{Library, Mode};
 
     fn write_sidecar(source: &Path, rating: u8) -> PathBuf {
-        let sidecar = source.with_file_name(format!(
-            "{}.rrdata",
-            source.file_name().unwrap().to_string_lossy()
-        ));
+        let sidecar = source.with_file_name(photo_ref::sidecar_name(source, None));
         fs::write(
             &sidecar,
             serde_json::to_vec(&serde_json::json!({
