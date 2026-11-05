@@ -1,7 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { albumSaves, PRESETS_WRITE_NAME, presetSaves } from './libraryFiles';
+import { libraryChanges } from './libraryFiles';
 import { flushBeforeQuit } from '../utils/quit';
+import { registerAppWrites } from '../utils/appWrites';
 import { Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -9,45 +10,48 @@ vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos' }));
 
 const tree = (name: string) => [{ type: 'album', id: name, name, images: [] }];
 
+/** Unregisters the app's queues; quitting runs them as `main.tsx` has. */
+let unregisterAppWrites: () => void = () => undefined;
+
 beforeEach(() => {
   vi.clearAllMocks();
-  albumSaves.reset();
-  presetSaves.reset();
+  libraryChanges.reset();
+  unregisterAppWrites();
+  unregisterAppWrites = registerAppWrites();
 });
 
-// The queue is registered with quitting (utils/quit.ts). This file imports
-// nothing else that touches the quit registry, so the settings' own flush
-// (registered at import) runs here too and resolves at once.
-it('quitting runs the queues’ flushes: a pending save is waited for, a hung one reported', async () => {
-  // `flushBeforeQuit` is what quitting runs (utils/quit.ts). It waits for
-  // the album save queued here, then for the preset save, which never
-  // finishes: that one is reported after its bound, the album save kept.
+// The queue is registered with quitting (utils/quit.ts): quitting runs a
+// `library_flush` after every change sent, and the backend answers with what
+// it could not write.
+it('quitting waits for the album and preset changes through one library flush', async () => {
   const finishAlbums: Array<() => void> = [];
-  vi.mocked(invoke).mockImplementation((command) =>
-    command === Invokes.SaveAlbums
-      ? new Promise((resolve) => finishAlbums.push(() => resolve(undefined)))
-      : new Promise<string[]>(() => undefined)
-  );
-  // The queue reads `invoke` when it sends.
-  albumSaves.reset();
-  presetSaves.reset();
-  void albumSaves.save(tree('Queued before quitting'));
-  void presetSaves.save([{ preset: { id: 'p', name: 'P', adjustments: {} } }]);
+  let flushes = 0;
+  vi.mocked(invoke).mockImplementation(((command: Invokes) => {
+    if (command === Invokes.SaveAlbums)
+      return new Promise<undefined>((resolve) => finishAlbums.push(() => resolve(undefined)));
+    if (command === Invokes.LibraryFlush) {
+      flushes += 1;
+      return Promise.resolve(['Preset list could not be saved: disk full']);
+    }
+    return Promise.resolve(undefined);
+  }) as typeof invoke);
+  void libraryChanges.enqueue(() => invoke(Invokes.SaveAlbums, { tree: tree('Queued before quitting') }));
   vi.useFakeTimers();
   let done: string[] | null = null;
   const quitting = flushBeforeQuit().then((failures) => (done = failures));
   try {
     await vi.advanceTimersByTimeAsync(0);
     // Waiting for the album save, not done yet.
-    expect(invoke).toHaveBeenCalledWith(Invokes.SaveAlbums, { tree: tree('Queued before quitting') });
     expect(finishAlbums).toHaveLength(1);
     expect(done).toBeNull();
     finishAlbums.forEach((resolve) => resolve());
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(0);
   } finally {
     vi.useRealTimers();
   }
   await quitting;
-  expect(done).toEqual([PRESETS_WRITE_NAME]);
-  expect(invoke).toHaveBeenCalledWith(Invokes.SaveAlbums, { tree: tree('Queued before quitting') });
+  expect(done).toEqual(['Preset list could not be saved: disk full']);
+  expect(flushes).toBe(1);
+  const calls = vi.mocked(invoke).mock.calls.map(([command]) => command);
+  expect(calls.indexOf(Invokes.SaveAlbums)).toBeLessThan(calls.indexOf(Invokes.LibraryFlush));
 });

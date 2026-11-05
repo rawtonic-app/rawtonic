@@ -17,7 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-use crate::state::library_files::AlbumsStore;
+use crate::state::library_files::{AlbumsStore, LibraryQueue, next_after_sent, run_change};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -85,24 +85,91 @@ pub async fn get_albums(app_handle: AppHandle) -> Result<Vec<AlbumItem>, String>
     super::blocking(move || get_albums_blocking(app_handle)).await?
 }
 
-/// `save_albums_blocking`, off the main thread.
+/// Replaces the app's album list (sorted as it is saved), in the library's
+/// change order (`ticket`).
 #[tauri::command]
-pub async fn save_albums(tree: Vec<AlbumItem>, app_handle: AppHandle) -> Result<(), String> {
-    super::blocking(move || save_albums_blocking(tree, &app_handle)).await?
+pub async fn save_albums(
+    tree: Vec<AlbumItem>,
+    ticket: Option<u64>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    super::blocking(move || {
+        let queue = app_handle.state::<LibraryQueue>();
+        let ticket = ticket.unwrap_or_else(|| next_after_sent(&queue));
+        run_change(&queue, ticket, "Album list could not be saved", || {
+            save_albums_blocking(tree, &app_handle)
+        })
+    })
+    .await?
 }
 
-/// `add_to_album_blocking`, off the main thread.
+/// Adds photographs to an album, in the library's change order (`ticket`);
+/// the album must still be there.
 #[tauri::command]
 pub async fn add_to_album(
     album_id: String,
     paths: Vec<String>,
+    ticket: Option<u64>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    super::blocking(move || add_to_album_blocking(&album_id, &paths, &app_handle)).await?
+    super::blocking(move || {
+        let queue = app_handle.state::<LibraryQueue>();
+        let ticket = ticket.unwrap_or_else(|| next_after_sent(&queue));
+        run_change(
+            &queue,
+            ticket,
+            "Album or preset change could not be saved",
+            || add_to_album_blocking(&album_id, &paths, &app_handle),
+        )
+    })
+    .await?
 }
 
-/// Replaces the app's album list (sorted as it is saved).
-pub fn save_albums_blocking(tree: Vec<AlbumItem>, app_handle: &AppHandle) -> Result<(), String> {
+/// A change the page makes to the stored album list (the `albums.json`
+/// data), applied by the backend: the page sends the change, not a list it
+/// read earlier, so it cannot drop an album that a file operation added in
+/// the meantime.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AlbumChange {
+    /// Adds photographs to an album (camelCase `albumId`), keeping them out
+    /// twice; nothing is written when it already holds them all.
+    AddToAlbum {
+        album_id: String,
+        paths: Vec<String>,
+    },
+}
+
+/// Applies `change` to the stored album list (one read-modify-write under the
+/// store's lock), in the library's change order (`ticket`), and answers the
+/// list the file now holds.
+#[tauri::command]
+pub async fn library_change(
+    change: AlbumChange,
+    ticket: Option<u64>,
+    app_handle: AppHandle,
+) -> Result<Vec<AlbumItem>, String> {
+    super::blocking(move || {
+        let queue = app_handle.state::<LibraryQueue>();
+        let ticket = ticket.unwrap_or_else(|| next_after_sent(&queue));
+        run_change(&queue, ticket, "Album list could not be saved", || {
+            let store = app_handle.state::<AlbumsStore>();
+            match change {
+                AlbumChange::AddToAlbum { album_id, paths } => {
+                    store.update(&app_handle, |stored| {
+                        add_paths(stored, &album_id, &paths).then_some(())
+                    })?;
+                }
+            }
+            store.get(&app_handle).map(|items| items.as_ref().clone())
+        })
+    })
+    .await?
+}
+
+/// Replaces the app's album list (sorted as it is saved); nothing is
+/// written when it is the list already stored.
+fn save_albums_blocking(tree: Vec<AlbumItem>, app_handle: &AppHandle) -> Result<(), String> {
     app_handle
         .state::<AlbumsStore>()
         .update(app_handle, |stored| {
@@ -116,18 +183,25 @@ pub fn save_albums_blocking(tree: Vec<AlbumItem>, app_handle: &AppHandle) -> Res
 }
 
 /// Adds photographs to an album; nothing is written when it already holds
-/// them all or the album is gone.
-pub fn add_to_album_blocking(
+/// them all.
+pub(crate) fn add_to_album_blocking(
     album_id: &str,
     paths: &[String],
     app_handle: &AppHandle,
 ) -> Result<(), String> {
+    let mut found = false;
     app_handle
         .state::<AlbumsStore>()
         .update(app_handle, |stored| {
-            add_paths(stored, album_id, paths).then_some(())
+            found = add_paths(stored, album_id, paths);
+            found.then_some(())
         })
-        .map(|_| ())
+        .map(|_| ())?;
+    if found {
+        Ok(())
+    } else {
+        Err(format!("Album {album_id} is not there any more"))
+    }
 }
 
 /// Brings the album list in line with a file operation (renames, deletions,
@@ -148,7 +222,7 @@ pub(crate) fn sync_album_path_changes(
         });
 }
 
-fn add_paths(items: &mut [AlbumItem], target_id: &str, paths_to_add: &[String]) -> bool {
+pub(crate) fn add_paths(items: &mut [AlbumItem], target_id: &str, paths_to_add: &[String]) -> bool {
     for item in items.iter_mut() {
         #[allow(clippy::collapsible_match)]
         match item {

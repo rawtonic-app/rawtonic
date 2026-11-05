@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes, type Album, type AlbumGroup, type AlbumItem } from '../ui/AppProperties';
 import { useLibraryStore } from '../../store/useLibraryStore';
-import { albumSaves } from '../../store/libraryFiles';
+import { libraryChanges } from '../../store/libraryFiles';
 import type { SessionAlbum } from './StudioAlbums';
 
 /** The app-wide albums (`albums.json`, outside sessions) as the Albums tool
@@ -121,27 +121,57 @@ export function withMoved(tree: AlbumItem[], id: string, parent: string | null, 
   return next;
 }
 
-/** Applies `change` to the stored albums and saves them. It reads the list
- * first, so an album list not loaded yet (or changed elsewhere, by a file
- * operation or another window) is never overwritten with an older one; the
- * save waits for every earlier one (`albumSaves`), so quick changes reach the
- * file in the order they were made. */
-export async function changeLibraryAlbums(change: (tree: AlbumItem[]) => AlbumItem[] | null) {
-  const stored = (await invoke<AlbumItem[]>(Invokes.GetAlbums)) ?? [];
-  const next = change(stored);
-  if (!next) {
-    useLibraryStore.getState().setLibrary({ albumTree: stored });
-    return stored;
-  }
-  await albumSaves.save(next);
-  let saved = next;
-  try {
-    saved = (await invoke<AlbumItem[]>(Invokes.GetAlbums)) ?? next;
-  } catch (error) {
-    console.error('Albums were saved but could not be read back:', error);
-  }
+/** Applies `change` to the stored album list and saves it as one place in
+ * the library's change order (`libraryChanges`): the read, the change and the
+ * save are one queued call, so they wait for every earlier change and a later
+ * change waits for them - two quick changes both count, the second starting
+ * from the list the first saved (where the read ran before the queue, the
+ * second could read the same list and write the first change away).
+ *
+ * A change this page can make into an `AddToAlbum` is sent as that one
+ * change and applied by the backend under the store's lock, so it also keeps
+ * an unchanged page from dropping an album that file operations added; any
+ * other change is a whole list, built here from the list the backend has.
+ * Resolves with the list the backend wrote, which is shown. */
+export async function changeLibraryAlbums(change: (tree: AlbumItem[]) => AlbumItem[] | null): Promise<AlbumItem[]> {
+  const saved = await libraryChanges.enqueue(async () => {
+    const stored = (await invoke<AlbumItem[]>(Invokes.GetAlbums)) ?? [];
+    const next = change(stored);
+    if (!next) return stored;
+    // Photographs added to an album land in that album as the backend has it
+    // (a whole list would drop an album a file operation added meanwhile);
+    // every other change is the list this page made.
+    const added = addedPhotos(stored, change);
+    return added
+      ? invoke<AlbumItem[]>(Invokes.LibraryChange, { change: { kind: 'addToAlbum', ...added } })
+      : invoke<AlbumItem[]>(Invokes.SaveAlbums, { tree: next });
+  });
   useLibraryStore.getState().setLibrary({ albumTree: saved });
   return saved;
+}
+
+/** Every album's photographs, by id. */
+function albumPhotos(items: AlbumItem[], into = new Map<string, string[]>()): Map<string, string[]> {
+  for (const item of items) {
+    if (item.type === 'album') into.set(item.id, item.images);
+    else albumPhotos(item.children, into);
+  }
+  return into;
+}
+
+/** The photographs `change` adds to albums, per album (`null` when it adds
+ * none), so the one change is sent as `addToAlbum` and applied by the backend
+ * to the album as it is then. */
+function addedPhotos(tree: AlbumItem[], change: (tree: AlbumItem[]) => AlbumItem[] | null) {
+  const next = change(tree);
+  if (!next) return null;
+  const before = albumPhotos(tree);
+  const additions: Array<{ albumId: string; paths: string[] }> = [];
+  for (const [albumId, images] of albumPhotos(next)) {
+    const known = before.get(albumId);
+    if (known && images.length > known.length) additions.push({ albumId, paths: images });
+  }
+  return additions.length === 1 ? additions[0] : null;
 }
 
 export async function loadLibraryAlbums() {

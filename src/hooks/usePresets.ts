@@ -18,7 +18,7 @@ import {
 import { Folder, Invokes, Preset } from '../components/ui/AppProperties';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { presetToSave } from '../utils/settingsClipboard';
-import { onPresetsBeforeFlush, presetSaves } from '../store/libraryFiles';
+import { libraryChanges, onPresetsBeforeFlush, savePresets, setPresetsUnread } from '../store/libraryFiles';
 
 /** The settings a preset takes from `current`: the copyable keys (masks and
  * geometry only when asked), for a tool preset only those that differ from
@@ -115,7 +115,8 @@ type PresetsUpdate = Array<UserPreset> | ((current: Array<UserPreset>) => Array<
 let changedSinceRead = false;
 let readRequest: Promise<void> | null = null;
 /** presets.json has been read: until then nothing is written, so a failed
- * read never lets the list replace the file. */
+ * read never lets the list replace the file (nor overwrite another program's
+ * repaired file until the next start). */
 let fileRead = false;
 
 /** One preset list for every user of `usePresets` (the Develop tool, the
@@ -144,9 +145,10 @@ export const usePresetStore = create<{
  */
 const sendPresets = debounce((presetsToSave: Array<UserPreset>) => {
   // A list changed before the file was read is not written (a failed read
-  // must never let the list replace the file).
+  // must never let the list replace the file). The change is kept, not
+  // dropped: quitting sends this debounce first and asks about it.
   if (!fileRead) return;
-  presetSaves.save(presetsToSave).catch((err) => console.error('Failed to save presets:', err));
+  savePresets(presetsToSave).catch((err) => console.error('Failed to save presets:', err));
 }, 500);
 // Quitting and closing the tool write the list the debounce still holds.
 onPresetsBeforeFlush(() => sendPresets.flush());
@@ -164,6 +166,7 @@ export function loadPresetLibrary(): Promise<void> {
       (loaded) => {
         const read = Array.isArray(loaded) ? loaded : [];
         fileRead = true;
+        setPresetsUnread(false);
         if (!changedSinceRead) {
           usePresetStore.setState({ presets: read, isLoading: false });
           return;
@@ -177,8 +180,12 @@ export function loadPresetLibrary(): Promise<void> {
       },
       (error) => {
         // Read again on the next use; changes stay in the list until then.
+        // Nothing is written over the file that could not be read: those
+        // changes are reported to quitting, Save & Relaunch and the library
+        // switch instead (`unwrittenPresets`), as a failed save is.
         console.error('Failed to load presets:', error);
         readRequest = null;
+        setPresetsUnread(true);
         usePresetStore.setState({ isLoading: false });
       }
     );
@@ -192,6 +199,7 @@ export function resetPresetLibrary() {
   readRequest = null;
   changedSinceRead = false;
   fileRead = false;
+  setPresetsUnread(false);
   usePresetStore.setState({ presets: [], isLoading: true });
 }
 
@@ -675,55 +683,62 @@ export function usePresets(
     });
   }, []);
 
+  // Imports go through the library's queue (`importPresets`): they are
+  // written in the order of the other changes, and quitting waits for one
+  // still reading its files instead of losing it.
+  const importPresets = useCallback(async <T>(command: Invokes, args: Record<string, unknown>): Promise<T> => {
+    setIsLoading(true);
+    try {
+      return await libraryChanges.enqueue(() => invoke<T>(command, args));
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const importPresetsFromFile = useCallback(
     async (filePath: string) => {
-      setIsLoading(true);
       try {
-        const updatedPresetList: Array<UserPreset> = await invoke(Invokes.HandleImportPresetsFromFile, { filePath });
+        const updatedPresetList = await importPresets<Array<UserPreset>>(Invokes.HandleImportPresetsFromFile, {
+          filePath
+        });
         setPresets(updatedPresetList);
+        return updatedPresetList;
       } catch (error) {
         console.error('Failed to import presets from file:', error);
         throw error;
-      } finally {
-        setIsLoading(false);
       }
     },
-    [setPresets]
+    [importPresets, setPresets]
   );
 
   const importLegacyPresetsFromFile = useCallback(
     async (filePath: string) => {
-      setIsLoading(true);
       try {
-        const updatedPresetList: Array<UserPreset> = await invoke(Invokes.HandleImportLegacyPresetsFromFile, {
+        const updatedPresetList = await importPresets<Array<UserPreset>>(Invokes.HandleImportLegacyPresetsFromFile, {
           filePath
         });
         setPresets(updatedPresetList);
+        return updatedPresetList;
       } catch (error) {
         console.error('Failed to import legacy presets from file:', error);
         throw error;
-      } finally {
-        setIsLoading(false);
       }
     },
-    [setPresets]
+    [importPresets, setPresets]
   );
 
   const importPresetsFromFiles = useCallback(
     async (filePaths: Array<string>): Promise<PresetImportResult> => {
-      setIsLoading(true);
       try {
-        const result: PresetImportResult = await invoke(Invokes.HandleImportPresetsFromFiles, { filePaths });
+        const result = await importPresets<PresetImportResult>(Invokes.HandleImportPresetsFromFiles, { filePaths });
         setPresets(result.presets);
         return result;
       } catch (error) {
         console.error('Failed to import presets from files:', error);
         throw error;
-      } finally {
-        setIsLoading(false);
       }
     },
-    [setPresets]
+    [importPresets, setPresets]
   );
 
   const exportPresetsToFile = useCallback(async (presetsToExport: Array<UserPreset>, filePath: string) => {

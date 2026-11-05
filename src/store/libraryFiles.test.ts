@@ -1,105 +1,117 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { ALBUMS_WRITE_NAME, albumSaves, makeSaveQueue, PRESETS_WRITE_NAME, presetSaves } from './libraryFiles';
+import {
+  libraryChanges,
+  PRESETS_UNREAD_NAME,
+  saveAlbums,
+  setPresetsUnread,
+  UNREPORTED_WRITE_NAME
+} from './libraryFiles';
 import { Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos' }));
 
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-const tree = (name: string) => [{ type: 'album', id: name, name, images: [] }];
+const album = (id: string) => ({ type: 'album', id, name: id, images: [] });
+
+/** The backend: `SaveAlbums` answers when the test says so. */
+function backend() {
+  const saves: Array<{ tree: ReturnType<typeof album>[]; answer: (() => void) | null }> = [];
+  const flushes: unknown[][] = [];
+  vi.mocked(invoke).mockImplementation(((command: Invokes, args: Record<string, unknown> = {}) => {
+    if (command === Invokes.SaveAlbums)
+      return new Promise<unknown>((resolve) =>
+        saves.push({ tree: args.tree as ReturnType<typeof album>[], answer: () => resolve(undefined) })
+      );
+    if (command === Invokes.LibraryFlush) {
+      flushes.push([]);
+      return Promise.resolve([]);
+    }
+    return Promise.resolve([]);
+  }) as typeof invoke);
+  return { saves, flushes };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   vi.clearAllMocks();
-  albumSaves.reset();
-  presetSaves.reset();
+  libraryChanges.reset();
+  setPresetsUnread(false);
 });
 
-it('sends a save at once, and the next only after the earlier one finished', async () => {
-  const finish: Array<(value?: unknown) => void> = [];
-  vi.mocked(invoke).mockImplementation(() => new Promise((resolve) => finish.push(resolve)));
-  void albumSaves.save(tree('First'));
-  expect(invoke).toHaveBeenCalledTimes(1);
-  void albumSaves.save(tree('Second'));
-  void albumSaves.save(tree('Third'));
-  await flush();
-  // The later snapshots wait: the backend writes them in this order.
-  expect(invoke).toHaveBeenCalledTimes(1);
-  finish[0]();
-  await flush();
-  expect(invoke).toHaveBeenCalledTimes(2);
-  finish[1]();
-  await flush();
-  finish[2]();
-  await flush();
-  const sent = vi.mocked(invoke).mock.calls.map(([, args]) => (args as { tree: { name: string }[] }).tree[0].name);
-  expect(sent).toEqual(['First', 'Second', 'Third']);
-  expect(vi.mocked(invoke).mock.calls.every(([command]) => command === Invokes.SaveAlbums)).toBe(true);
+it('sends every change one after another: the next waits for the earlier one', async () => {
+  const { saves } = backend();
+  void saveAlbums([album('First')]);
+  void saveAlbums([album('Second')]);
+  await settle();
+  expect(saves.map(({ tree }) => tree[0].id)).toEqual(['First']);
+  saves[0].answer!();
+  await settle();
+  expect(saves.map(({ tree }) => tree[0].id)).toEqual(['First', 'Second']);
 });
 
-it('sends a failed save’s successor anyway, and the last written save decides', async () => {
-  const reject: Array<(reason: unknown) => void> = [];
-  const finish: Array<(value?: unknown) => void> = [];
-  vi.mocked(invoke).mockImplementation(
-    () => new Promise((resolve, rejectFn) => (finish.push(resolve), reject.push(rejectFn)))
-  );
-  const first = albumSaves.save(tree('First'));
-  const second = albumSaves.save(tree('Second'));
-  await flush();
-  reject[0]('disk full');
+it('a change is sent after an earlier one that failed: a failure never drops the next change', async () => {
+  const refuse: Array<() => void> = [];
+  const sent: string[] = [];
+  vi.mocked(invoke).mockImplementation(((command: Invokes, args: Record<string, unknown> = {}) => {
+    if (command !== Invokes.SaveAlbums) return Promise.resolve([]);
+    sent.push((args.tree as ReturnType<typeof album>[])[0].id);
+    if (sent.length === 1) return new Promise((_, reject) => refuse.push(() => reject('disk full')));
+    return Promise.resolve(args.tree);
+  }) as typeof invoke);
+  const first = saveAlbums([album('Failing')]);
+  const second = saveAlbums([album('After')]);
+  await settle();
+  expect(sent).toEqual(['Failing']);
+  refuse[0]();
   await expect(first).rejects.toBe('disk full');
-  await flush();
-  expect(invoke).toHaveBeenCalledTimes(2);
-  finish[1]();
   await second;
-  // The newer save made disk equal to what is wanted: nothing is retried.
-  expect(await albumSaves.flush()).toEqual([]);
-  expect(invoke).toHaveBeenCalledTimes(2);
+  expect(sent).toEqual(['Failing', 'After']);
 });
 
-it('a flush waits for the pending saves and retries a failed one once', async () => {
-  const finish: Array<(value?: unknown) => void> = [];
-  vi.mocked(invoke).mockImplementation(() => new Promise((resolve) => finish.push(resolve)));
-  void albumSaves.save(tree('Late'));
+it('a flush sends the changes made so far, waits for them, then asks the backend', async () => {
+  const { saves, flushes } = backend();
+  void saveAlbums([album('Late')]);
   let flushed: string[] | null = null;
-  const flushing = albumSaves.flush().then((failures) => (flushed = failures));
-  await flush();
-  // Still being written: the quit has not been told everything is saved.
+  const flushing = libraryChanges.flush().then((failures) => (flushed = failures));
+  await settle();
   expect(flushed).toBeNull();
-  finish[0]();
+  saves[0].answer!();
   await flushing;
   expect(flushed).toEqual([]);
-
-  vi.mocked(invoke).mockRejectedValue('disk full');
-  await expect(presetSaves.save([{ preset: { id: 'p', name: 'P', adjustments: {} } }])).rejects.toBe('disk full');
-  expect(await presetSaves.flush()).toEqual([PRESETS_WRITE_NAME]);
-  // Written once more, and still failing: reported, not retried forever.
-  expect(invoke).toHaveBeenCalledTimes(3);
-  expect(await presetSaves.flush()).toEqual([PRESETS_WRITE_NAME]);
-  expect(invoke).toHaveBeenCalledTimes(4);
-  // A retry that succeeds leaves nothing unsaved.
-  vi.mocked(invoke).mockResolvedValue(undefined);
-  expect(await presetSaves.flush()).toEqual([]);
+  expect(flushes).toHaveLength(1);
 });
 
-it('a flush sends what the caller still holds back first', async () => {
-  vi.mocked(invoke).mockResolvedValue(undefined);
-  const beforeFlush = vi.fn();
-  const queue = makeSaveQueue('presets', () => invoke<void>(Invokes.SavePresets, {}), { beforeFlush });
-  await queue.flush();
-  expect(beforeFlush).toHaveBeenCalledTimes(1);
-  queue.reset();
+it('a flush answers with what the backend could not write, and with an unread preset list', async () => {
+  backend();
+  vi.mocked(invoke).mockImplementation(((command: Invokes) =>
+    Promise.resolve(
+      command === Invokes.LibraryFlush ? ['Album list could not be saved: disk full'] : []
+    )) as typeof invoke);
+  expect(await libraryChanges.flush()).toEqual(['Album list could not be saved: disk full']);
+  // A presets.json that could not be read keeps its changes unsaved: every
+  // quit, Save & Relaunch and library switch asks about it.
+  setPresetsUnread(true);
+  vi.mocked(invoke).mockImplementation(((command: Invokes) =>
+    Promise.resolve(command === Invokes.LibraryFlush ? [] : [])) as typeof invoke);
+  expect(await libraryChanges.flush()).toEqual([PRESETS_UNREAD_NAME]);
+  setPresetsUnread(false);
+  expect(await libraryChanges.flush()).toEqual([]);
 });
 
-it('a hung save is reported after the flush’s bound', async () => {
+it('a flush the backend does not answer reports it instead of waiting forever', async () => {
   vi.useFakeTimers();
   try {
-    vi.mocked(invoke).mockImplementation(() => new Promise(() => undefined));
-    void albumSaves.save(tree('Stuck'));
-    const flushing = albumSaves.flush(5_000);
+    vi.mocked(invoke).mockImplementation(((command: Invokes) =>
+      command === Invokes.LibraryFlush ? new Promise(() => undefined) : Promise.resolve([])) as typeof invoke);
+    const flushing = libraryChanges.flush(5_000);
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(await flushing).toEqual([ALBUMS_WRITE_NAME]);
+    expect(await flushing).toEqual([UNREPORTED_WRITE_NAME]);
+    // A backend that cannot be asked at all is reported too, not swallowed.
   } finally {
     vi.useRealTimers();
   }
+  vi.mocked(invoke).mockRejectedValue('IPC closed');
+  expect(await libraryChanges.flush()).toEqual([UNREPORTED_WRITE_NAME]);
 });

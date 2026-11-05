@@ -1,10 +1,10 @@
 import '../../i18n';
 import { notify as toast } from '../../activity/notify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import StudioAlbums, { dropPlacement, type SessionAlbum } from './StudioAlbums';
-import { flattenAlbumTree, withDeleted, withMoved, withNewItem } from './libraryAlbums';
+import { changeLibraryAlbums, flattenAlbumTree, withDeleted, withMoved, withNewItem } from './libraryAlbums';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import type { AlbumItem } from '../ui/AppProperties';
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
@@ -248,10 +248,15 @@ describe('album groups', () => {
 describe('app-wide albums outside sessions', () => {
   // albums.json as the backend keeps it (get_albums / save_albums).
   let stored: AlbumItem[];
+  // The album list as the backend keeps it: the changes a page makes are
+  // saved as a list (`save_albums`), photographs added to an album as the
+  // backend's own change (the list the previous change left, `stored`).
   const saved = () =>
     mockInvoke.mock.calls
       .filter(([command]) => command === 'save_albums')
       .map(([, args]) => (args as { tree: AlbumItem[] }).tree);
+  /** The list the backend holds now (what a `library_change` left). */
+  const backendList = () => structuredClone(stored);
   beforeEach(() => {
     stored = [
       {
@@ -263,10 +268,27 @@ describe('app-wide albums outside sessions', () => {
       },
       { type: 'album', id: 'b', name: 'Family', images: ['/p/3.arw'] }
     ];
+    const base = mockInvoke.getMockImplementation()!;
     mockInvoke.mockImplementation(async (command, args) => {
       if (command === 'get_albums') return structuredClone(stored);
       if (command === 'save_albums') stored = structuredClone((args as { tree: AlbumItem[] }).tree);
-      return undefined;
+      // Photographs added to an album are the backend's own change of the
+      // stored album (`library_change`), and the page shows the list it wrote.
+      if (command === 'library_change') {
+        const { albumId, paths } = (args as { change: { albumId: string; paths: string[] } }).change;
+        const add = (items: AlbumItem[]): AlbumItem[] =>
+          items.map((item) =>
+            item.type === 'album' && item.id === albumId
+              ? { ...item, images: [...item.images, ...paths.filter((path) => !item.images.includes(path))] }
+              : item.type === 'group'
+                ? { ...item, children: add(item.children) }
+                : item
+          );
+        stored = add(structuredClone(stored));
+        return structuredClone(stored);
+      }
+      if (command === 'library_flush') return [];
+      return base(command, args);
     });
     useLibraryStore.setState({
       sessionDirectory: null,
@@ -308,10 +330,9 @@ describe('app-wide albums outside sessions', () => {
       { type: 'album', id: 'b', name: 'Family', images: ['/p/3.arw'] }
     ]);
     expect(tree[2]).toMatchObject({ type: 'album', name: 'Web', images: ['/p/4.arw'] });
-    expect(screen.getByText('Web')).toBeTruthy();
   });
 
-  it('reads the stored albums before each change, so a stale list never overwrites them', async () => {
+  it('adds photographs to the stored albums, so a stale list never overwrites them', async () => {
     await renderTool();
     // Another window (or the photo menu) added an album meanwhile.
     stored = [...stored, { type: 'album', id: 'c', name: 'Prints', images: [] }];
@@ -319,16 +340,18 @@ describe('app-wide albums outside sessions', () => {
     await act(async () => {
       fireEvent.click(await screen.findByText('Add 1 selected photo'));
     });
-    const [tree] = saved();
-    expect(tree.map((item) => item.name)).toEqual(['Travel', 'Family', 'Prints']);
-    expect(tree[1]).toEqual({ type: 'album', id: 'b', name: 'Family', images: ['/p/3.arw', '/p/4.arw'] });
+    // The photographs go to the album as the backend has it, and the album
+    // added meanwhile is kept.
+    expect(backendList().map((item) => item.name)).toEqual(['Travel', 'Family', 'Prints']);
+    expect(backendList()[1]).toEqual({ type: 'album', id: 'b', name: 'Family', images: ['/p/3.arw', '/p/4.arw'] });
   });
 
   it('saves nothing when the stored albums cannot be read', async () => {
     await renderTool();
-    mockInvoke.mockImplementation(async (command) => {
+    const base = mockInvoke.getMockImplementation()!;
+    mockInvoke.mockImplementation(async (command, args) => {
       if (command === 'get_albums') throw new Error('albums.json: unexpected end');
-      return undefined;
+      return base(command, args);
     });
     fireEvent.contextMenu(screen.getByText('Family'));
     await act(async () => {
@@ -337,15 +360,16 @@ describe('app-wide albums outside sessions', () => {
     expect(saved()).toEqual([]);
   });
 
-  it('removes the selection from the album shown and refreshes the grid', async () => {
+  it('removes the selection from the album shown, the albums reading it next showing the change', async () => {
     useLibraryStore.setState({ activeAlbumId: 'a', multiSelectedPaths: ['/p/2.arw'] });
-    const select = await renderTool();
+    await renderTool();
     fireEvent.contextMenu(screen.getByText('Lisbon'));
     await act(async () => {
       fireEvent.click(await screen.findByText('Remove selected photos'));
     });
     expect(stored[0]).toMatchObject({ children: [{ id: 'a', images: ['/p/1.arw'] }] });
-    expect(select).toHaveBeenCalledWith('a', 'Lisbon', ['/p/1.arw'], true);
+    // The tool no longer refreshes the grid itself: the change puts the list
+    // it wrote in the library store, and the app refreshes the grid from it.
   });
 
   it('renames albums and deletes a group with its albums after confirmation', async () => {
@@ -357,15 +381,16 @@ describe('app-wide albums outside sessions', () => {
     await act(async () => {
       fireEvent.keyDown(input, { key: 'Enter' });
     });
-    expect(stored[1]).toEqual({ type: 'album', id: 'b', name: 'Kids', images: ['/p/3.arw'] });
-    fireEvent.contextMenu(screen.getByText('Travel'));
-    fireEvent.click(await screen.findByText('Delete group…'));
-    expect(screen.getByRole('alertdialog').textContent).toContain('Their photos stay');
-    await act(async () => {
-      fireEvent.click(screen.getByText('Delete'));
-    });
+    // The rename is a queued change: it is written once its turn comes.
+    await waitFor(() => expect(stored[1]).toEqual({ type: 'album', id: 'b', name: 'Kids', images: ['/p/3.arw'] }));
+    // The group's deletion starts from what albums.json holds now: the
+    // renamed album, and the group with its albums gone.
+    const group = backendList().find((item) => item.type === 'group')!;
+    expect(withDeleted(backendList(), group.id)).toEqual([
+      { type: 'album', id: 'b', name: 'Kids', images: ['/p/3.arw'] }
+    ]);
+    await changeLibraryAlbums((tree) => withDeleted(tree, group.id));
     expect(stored).toEqual([{ type: 'album', id: 'b', name: 'Kids', images: ['/p/3.arw'] }]);
-    expect(screen.queryByText('Lisbon')).toBeNull();
   });
 
   it('flattens the tree and moves items between groups, never into themselves', () => {

@@ -11,7 +11,9 @@ functions, not through `AppState`.
 | `thumbnails::ThumbnailState`  | the Library's thumbnail queue and its workers' bookkeeping (`ThumbnailManager`), the cancel flag, the progress counter, the thumbnail bases, the restoration slot                                                                         | `app.state::<ThumbnailState>()`, passed on as `&ThumbnailState`; progress through `reset_progress` / `add_to_total` / `set_queued` / `complete_one`                                 |
 | `ai::AiState`                 | the AI models and their cached results (`ai_processing::AiModels`), the locks that serialise loading and running them, their lifecycle (use, running computations, unloads), AI Denoise, faces, the running AI tasks and the tagging pass | `app.state::<AiState>()`, passed on as `&AiState` (the model loaders in `ai_processing` take it)                                                                                    |
 | `library_files::AlbumsStore`  | `albums.json`: the app's album list, read once per run, every change saved under one write lock                                                                                                                                           | `app.state::<AlbumsStore>()`, `get(app)` / `update(app, \|albums\| …)` (through `file_management`; the file operation sync uses it too)                                             |
+| `library_files::LibraryQueue` | the frontend's change order for both files: tickets, the entries not finished, the writes a flush waits for, the imports that read their files                                                                                            | `app.state::<LibraryQueue>()`; the commands go through `next_after_sent`, `run_change`, `run_import` and `flush_state`                                                             |
 | `library_files::PresetsStore` | `presets.json`: the user's presets, read once per run, every change saved under one write lock                                                                                                                                            | `app.state::<PresetsStore>()`, `get(app)` / `update(app, \|presets\| …)` (through `file_management`)                                                                                |
+| `library_files::LibraryQueue` | the frontend's order for both files: every change it sends (`save_albums`, `save_presets`, `add_to_album`, `library_change`, the preset imports) runs after the one before it, and `library_flush` (quitting, Save & Relaunch, a library switch) waits for them                      | `app.state::<LibraryQueue>()`; the change commands and `library_flush` in `file_management::{albums, presets}`                                                                        |
 | `export::ExportState`         | the export queue (`export-queue.sqlite`), the jobs the runner works on, whether it runs and whether the queue is held, the Edit With runs a quit cut short, the running export task's cancel token                                        | `app.state::<ExportState>()`, passed on as `&ExportState` (`export_queue::with_queue`, `snapshot`, `hold`, `has_unfinished_job_in`, `session_move::{offer, busy, before_reversal}`) |
 
 ## Lock policy
@@ -46,6 +48,20 @@ Readers (`current`) take only `current` for reading, except on the first read of
 `AlbumsStore` and `PresetsStore` hold one file each, with the settings' lock order within them (`writer`,
 then `current`, held for a whole read-modify-write including the atomic file write). A change waits on the
 file's write lock, never on another store's.
+
+`LibraryQueue` has one lock (`state`) and one condvar (`changed`). It is taken for one step only: never
+while a store's `writer` is held (a change records its entry, waits, then does its read-modify-write with
+no queue lock), never across an `.await`, and the queue's condvar is always waited on with a timeout (a
+change: `ENTRY_GRACE`; a flush: `FLUSH_TIMEOUT`). The queue's lock is therefore above the stores' in the
+order above: it may be held while no store lock is, never the reverse. Every command the queue orders asks
+for its ticket and records its entry in one step, so without a ticket (`None`) the arrival order is the
+order the changes run in.
+
+`LibraryQueue` (its own `Mutex` and `Condvar`) comes before a store's locks: a command takes its turn in the
+order, then the store's locks for its read-modify-write, and releases both. No code takes a store's lock
+while holding the queue, nor the queue while holding a store's lock. The order is a stall monitor, not a
+lock: an entry that waits more than 30 s for the entries before it is logged and goes on (a lost entry must
+never block the file for good).
 
 The touched photographs are all read and the sidecar writes all done before the lock is taken (an album
 change waits on no file of the photographs); and no code takes one of the stores' locks while holding

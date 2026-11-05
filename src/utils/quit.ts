@@ -13,7 +13,6 @@ import {
   photoWritesAndStepsSettled
 } from './photoWrites';
 import { sourceFileName } from '../entities/photo/photoRef';
-import { flushSettingsSaves } from '../store/useSettingsStore';
 
 /** A write that must reach disk before the app quits (a debounced save):
  * resolves with what it could not save, empty when everything is saved. */
@@ -24,7 +23,9 @@ const flushes = new Set<QuitFlush>();
 const listed = (failures: string[]) =>
   failures.slice(0, 5).join(', ') + (failures.length > 5 ? `, … (${failures.length} in all)` : '');
 
-/** Registers a flush for quitting; returns its unregistration. */
+/** Every queue that must be written before quitting registers here when its
+ * module loads (`utils/quit.ts` itself registers none: this file is imported
+ * by those modules). */
 export function registerQuitFlush(flush: QuitFlush): () => void {
   flushes.add(flush);
   return () => {
@@ -32,12 +33,11 @@ export function registerQuitFlush(flush: QuitFlush): () => void {
   };
 }
 
-// A preference changed just before quitting is still being saved.
-registerQuitFlush(() => flushSettingsSaves());
-
-/** Runs every registered flush; resolves with what could not be saved. */
+/** Runs every registered flush; resolves with what could not be saved. A
+ * flush is run once here even when its own module registers it first (a test
+ * registers the app's queues itself, `appWrites.ts`). */
 export async function flushBeforeQuit(): Promise<string[]> {
-  const results = await Promise.allSettled([...flushes].map((flush) => Promise.resolve().then(flush)));
+  const results = await Promise.allSettled([...new Set(flushes)].map((flush) => Promise.resolve().then(flush)));
   return results.flatMap((result) => (result.status === 'fulfilled' ? result.value : [String(result.reason)]));
 }
 
@@ -49,6 +49,7 @@ const WRITE_NAMES: Record<string, string> = {
   style: 'Style',
   presets: 'Preset list',
   albums: 'Album list',
+  presetsUnread: 'Preset list',
   reset: 'Reset',
   lens: 'Lens correction',
   auto: 'Auto adjustments',

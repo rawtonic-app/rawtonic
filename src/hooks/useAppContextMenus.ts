@@ -50,8 +50,7 @@ import {
 import { notify } from '../activity/notify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { useTranslation } from 'react-i18next';
-import { withPhotosRemoved } from '../components/studio/libraryAlbums';
-import { albumSaves } from '../store/libraryFiles';
+import { changeLibraryAlbums, withPhotosAdded, withPhotosRemoved } from '../components/studio/libraryAlbums';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { canUndo, canRedo, getUndoLabel, getRedoLabel, undo, redo } from '../utils/appUndo';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
@@ -317,13 +316,11 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
             label: item.name,
             icon: ResolvedIcon,
             onClick: () => {
-              invoke(Invokes.AddToAlbum, { albumId: item.id, paths: pathsToAdd })
-                .then(() => {
-                  console.log(`Added image(s) to ${item.name}`);
-                  invoke<AlbumItem[]>(Invokes.GetAlbums).then((res) =>
-                    useLibraryStore.getState().setLibrary({ albumTree: res })
-                  );
-                })
+              // In the library's change order: the backend adds the
+              // photographs to the stored album, so a change made meanwhile
+              // is kept, and quitting waits for it.
+              changeLibraryAlbums((tree) => withPhotosAdded(tree, item.id, pathsToAdd))
+                .then(() => console.log(`Added image(s) to ${item.name}`))
                 .catch((err) => notify.error(t('contextMenus.toasts.failedAddToAlbum', { err })));
             }
           };
@@ -847,32 +844,22 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           return;
         }
         try {
-          // The stored list first, so a change made meanwhile is kept; the
-          // save waits for the earlier ones (`albumSaves`).
-          const stored = (await invoke<AlbumItem[]>(Invokes.GetAlbums)) ?? [];
-          const next = withPhotosRemoved(stored, activeAlbumId, finalSelection);
-          if (next) {
-            await albumSaves.save(next);
-            let sortedTree = next;
-            try {
-              sortedTree = (await invoke<AlbumItem[]>(Invokes.GetAlbums)) ?? next;
-            } catch (error) {
-              console.error('Albums were saved but could not be read back:', error);
+          // One place in the library's change order: the stored list, the
+          // change and the save, so a change made meanwhile is kept.
+          const sortedTree = await changeLibraryAlbums((stored) =>
+            withPhotosRemoved(stored, activeAlbumId, finalSelection)
+          );
+          const find = (nodes: AlbumItem[]): Album | null => {
+            for (const n of nodes) {
+              if (n.id === activeAlbumId) return n.type === 'album' ? (n as Album) : null;
+              const found = n.type === 'group' ? find(n.children) : null;
+              if (found) return found;
             }
-            setLibrary({ albumTree: sortedTree });
-
-            const find = (nodes: AlbumItem[]): Album | null => {
-              for (const n of nodes) {
-                if (n.id === activeAlbumId) return n.type === 'album' ? (n as Album) : null;
-                const found = n.type === 'group' ? find(n.children) : null;
-                if (found) return found;
-              }
-              return null;
-            };
-            const albumObj = find(sortedTree);
-            if (albumObj) {
-              setLibrary({ imageList: imageList.filter((i) => albumObj.images.includes(i.path)) });
-            }
+            return null;
+          };
+          const albumObj = find(sortedTree);
+          if (albumObj) {
+            setLibrary({ imageList: imageList.filter((i) => albumObj.images.includes(i.path)) });
           }
         } catch (e) {
           notify.error(t('contextMenus.toasts.failedRemoveImages', { err: e }));

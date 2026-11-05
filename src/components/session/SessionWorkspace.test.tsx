@@ -60,6 +60,22 @@ const summary: SessionSummary = {
   rated: 0,
   xmp_pending: 0
 };
+/** The backend's answers: the session's, and what the app's own queues hear
+ * (`library_flush` finds nothing to write; the album and preset writes and the
+ * settings' save are written). */
+const backend = (command: string, created: SessionSummary): unknown =>
+  command === 'session_create' || command === 'session_summary'
+    ? created
+    : command === 'session_set_flag'
+      ? []
+      : command === 'session_flags'
+        ? {}
+        : command === 'library_flush'
+          ? []
+          : command === 'list_directory'
+            ? { path: '/jobs/Acme', children: [] }
+            : true;
+
 // The last test's tree too: a menu's hover timer firing after the test
 // environment is gone threw "window is not defined" (flaky check.sh runs).
 afterEach(() => cleanup());
@@ -83,17 +99,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () {
     this.removeAttribute('open');
   };
-  vi.mocked(invoke).mockImplementation(async (command) =>
-    command === 'session_create'
-      ? summary
-      : command === 'session_summary'
-        ? summary
-        : command === 'session_set_flag'
-          ? []
-          : command === 'session_flags'
-            ? {}
-            : { path: '/jobs/Acme', children: [] }
-  );
+  vi.mocked(invoke).mockImplementation(async (command) => backend(command, summary));
 });
 
 describe('Session workspace keyboard flows', () => {
@@ -247,7 +253,11 @@ describe('Session workspace keyboard flows', () => {
   it('surfaces a failed create without navigating or dismissing the entered name', async () => {
     const user = userEvent.setup();
     const navigate = vi.fn(async () => {});
-    vi.mocked(invoke).mockRejectedValue(new Error('A library already exists here'));
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'library_flush') return [];
+      if (command === 'save_settings') return true;
+      throw new Error('A library already exists here');
+    });
     render(<SessionWorkspace onNavigate={navigate} />);
     await user.click(screen.getByRole('button', { name: 'Create a project' }));
     await user.type(screen.getByLabelText('Project name'), 'Acme');
@@ -405,7 +415,9 @@ describe('restoring the last session', () => {
       vi.mocked(invoke).mockImplementation(async (command) =>
         command === 'session_last'
           ? new Promise<SessionSummary>((resolve) => (finish = resolve))
-          : '/Volumes/External/QA/startup-5000'
+          : command === 'library_flush'
+            ? []
+            : '/Volumes/External/QA/startup-5000'
       );
       const navigate = vi.fn(async () => {});
       const restored = restoreLastSession(navigate, vi.fn());
@@ -440,7 +452,9 @@ describe('restoring the last session', () => {
             ? (args as { directory: string }).directory === '/jobs/Beta'
               ? beta
               : summary
-            : base(command, args)
+            : command === 'library_flush'
+              ? []
+              : base(command, args)
     );
     // The last library failed at launch.
     act(() => notify.error('Last library could not open: The drive is away', { toastId: RESTORE_FAILED_NOTICE }));
@@ -459,7 +473,7 @@ describe('restoring the last session', () => {
     vi.useFakeTimers();
     try {
       vi.mocked(toast.info).mockClear();
-      vi.mocked(invoke).mockImplementation(async () => summary);
+      vi.mocked(invoke).mockImplementation(async (command) => (command === 'library_flush' ? [] : summary));
       await act(async () => {
         await restoreLastSession(
           vi.fn(async () => {}),
@@ -753,7 +767,12 @@ it('opens recent libraries through the normal workflow, records success and clea
 
 it('keeps offline recents after a failed open and never records the failed attempt', async () => {
   useSettingsStore.setState({ appSettings: { recentLibraries: ['/offline/Session'] } as AppSettings });
-  vi.mocked(invoke).mockRejectedValue(new Error('Drive is disconnected'));
+  // The library's open fails; the app's own queues still hear their answers.
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === 'library_flush') return [];
+    if (command === 'save_settings') return true;
+    throw new Error('Drive is disconnected');
+  });
   const navigate = vi.fn(async () => {});
   render(<SessionWorkspace onNavigate={navigate} />);
   act(() => {

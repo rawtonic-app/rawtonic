@@ -671,6 +671,7 @@ pub fn run() {
         .manage(state::export::ExportState::default())
         .manage(state::library_files::AlbumsStore::default())
         .manage(state::library_files::PresetsStore::default())
+        .manage(state::library_files::LibraryQueue::default())
         .invoke_handler(tauri::generate_handler![
             window_customizer::set_window_full_screen,
             session_bridge::session_create,
@@ -958,6 +959,10 @@ pub fn run() {
             file_management::get_albums,
             file_management::save_albums,
             file_management::add_to_album,
+            file_management::library_change,
+            file_management::save_presets,
+            file_management::queue_ticket,
+            file_management::library_flush,
             file_management::get_album_images,
             tagging::start_background_indexing,
             tagging::clear_ai_tags,
