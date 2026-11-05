@@ -982,7 +982,7 @@ fn merge(args: MergeArgs) -> Result<()> {
     )?;
     rawtonic_export::output::write_new_output(&args.output, &bytes)
         .with_context(|| format!("Write {}", args.output.display()))?;
-    let sidecar = sidecar_of(&args.output);
+    let sidecar = sidecar_path_of(&args.output);
     let mut adjustments = rawtonic_merge::initial_adjustments(&reference, lens_applied);
     if args.auto_settings {
         rawtonic_merge::apply_auto_settings(&mut adjustments, &image, &args.output);
@@ -1453,7 +1453,7 @@ fn lensfun_folder(explicit: Option<PathBuf>) -> Result<PathBuf> {
 
 /// The editor sidecar of an output written at `path` (`<file>.rrdata`),
 /// built from the path itself so a non-UTF-8 file name is kept as it is.
-fn sidecar_of(path: &std::path::Path) -> PathBuf {
+fn sidecar_path_of(path: &std::path::Path) -> PathBuf {
     path.with_file_name(rawtonic_metadata::photo_ref::sidecar_name(path, None))
 }
 
@@ -1663,12 +1663,15 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
         use std::path::Path;
         let output = Path::new("/out").join(OsStr::from_bytes(b"pano\xfe.dng"));
-        let sidecar = sidecar_of(&output);
+        let sidecar = sidecar_path_of(&output);
         assert_eq!(sidecar.parent(), Some(Path::new("/out")));
-        assert_eq!(sidecar.file_name().unwrap().as_encoded_bytes(), b"pano\xfe.dng.rrdata");
+        assert_eq!(
+            sidecar.file_name().unwrap().as_encoded_bytes(),
+            b"pano\xfe.dng.rrdata"
+        );
         // The UTF-8 names are the ones the written-out form gave.
         assert_eq!(
-            sidecar_of(Path::new("/out/pano.dng")),
+            sidecar_path_of(Path::new("/out/pano.dng")),
             PathBuf::from("/out/pano.dng.rrdata")
         );
     }
