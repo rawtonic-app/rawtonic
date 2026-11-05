@@ -362,16 +362,19 @@ describe('RAW detail defaults', () => {
     expect(initialAdjustmentsFor(false).lumaNoiseVersion).toBe(LUMA_NOISE_VERSION);
     const load = (recipe: object, isRaw = true) =>
       normalizeLoadedAdjustments(recipe as unknown as Adjustments, isRaw).lumaNoiseVersion;
-    // Reduces luminance noise (RAWs at the default 15 without an amount):
-    // the earlier filter, key absent.
-    expect(load({})).toBeUndefined();
+    // A saved edit that reduces luminance noise (RAWs at the default 15
+    // without an amount): the earlier filter, key absent.
+    expect(load({ exposure: 0.5 })).toBeUndefined();
     expect(load({ lumaNoiseReduction: 30 })).toBeUndefined();
     expect(
       load({ lumaNoiseReduction: 0, masks: [{ adjustments: { lumaNoiseReduction: 20 }, subMasks: [] }] })
     ).toBeUndefined();
-    expect('lumaNoiseVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({} as Adjustments, true)))).toBe(
-      false
-    );
+    const saved = normalizeLoadedAdjustments({ exposure: 0.5 } as unknown as Adjustments, true);
+    expect('lumaNoiseVersion' in JSON.parse(JSON.stringify(saved))).toBe(false);
+    // A new recipe (a Library Reset's, also with its frame) is a new edit, as
+    // its export and thumbnail render it (rawtonic_export::normalize).
+    expect(load({})).toBe(LUMA_NOISE_VERSION);
+    expect(load({ sourceFrameVersion: 3 })).toBe(LUMA_NOISE_VERSION);
     // No luminance noise reduction renders the same with either: the current one.
     expect(load({ lumaNoiseReduction: 0 })).toBe(LUMA_NOISE_VERSION);
     expect(load({}, false)).toBe(LUMA_NOISE_VERSION);

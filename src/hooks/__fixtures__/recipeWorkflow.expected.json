@@ -50,6 +50,7 @@
     }
    },
    "colorNoiseReduction": 0,
+   "colorNoiseVersion": 11,
    "colorRanges": [],
    "contrast": 0,
    "crop": null,
@@ -811,6 +812,7 @@
     }
    },
    "colorNoiseReduction": 0,
+   "colorNoiseVersion": 11,
    "colorRanges": [],
    "contrast": 0,
    "crop": null,
@@ -1954,6 +1956,7 @@
     }
    },
    "colorNoiseReduction": 0,
+   "colorNoiseVersion": 11,
    "colorRanges": [],
    "contrast": 0,
    "crop": null,
@@ -3925,6 +3928,7 @@
     }
    },
    "lumaNoiseReduction": 15,
+   "lumaNoiseVersion": 2,
    "lutData": null,
    "lutIntensity": 100,
    "lutIsSceneReferred": false,
@@ -4691,6 +4695,7 @@
     }
    },
    "lumaNoiseReduction": 15,
+   "lumaNoiseVersion": 2,
    "lutData": null,
    "lutIntensity": 100,
    "lutIsSceneReferred": false,
@@ -5842,6 +5847,7 @@
     }
    },
    "lumaNoiseReduction": 15,
+   "lumaNoiseVersion": 2,
    "lutData": null,
    "lutIntensity": 100,
    "lutIsSceneReferred": false,
