@@ -4,6 +4,7 @@
 pub use rawtonic_export::export_processing::*;
 
 use crate::state::ai::AiState;
+use crate::state::export::ExportState;
 use crate::state::lock::lock_recover;
 use std::borrow::Cow;
 use std::collections::BTreeSet;
@@ -882,9 +883,10 @@ pub(crate) async fn export_images_impl(
     completion_tx: Option<tokio::sync::oneshot::Sender<Result<(), usize>>>,
     max_jobs: Option<usize>,
 ) -> Result<(), String> {
-    let cancellation_token = register_export_task(&state.export_task_token)?;
+    let task_token = Arc::clone(&app_handle.state::<ExportState>().task_token);
+    let cancellation_token = register_export_task(&task_token)?;
     let task_guard = ExportTaskGuard::with_app_handle(
-        Arc::clone(&state.export_task_token),
+        Arc::clone(&task_token),
         Arc::clone(&cancellation_token),
         app_handle.clone(),
     );
@@ -1130,43 +1132,39 @@ pub(crate) async fn export_images_impl(
                 .filter_map(|target| target.tracking.as_ref())
                 .map(|t| t.goes_on()),
         );
-        let export_state = app_handle.state::<AppState>();
-        let finalized = finish_export_task(
-            &export_state.export_task_token,
-            &cancellation_token,
-            |cancelled| {
-                if cancelled {
-                    log::info!("Batch export cancelled and worker cleanup completed");
-                    let _ = app_handle.emit("export-cancelled", ());
-                    return;
-                }
-                // The queue panel lists the failures of a paused job.
-                if paused {
-                    let _ = app_handle.emit("export-paused", ());
-                    return;
-                }
+        let exports = app_handle.state::<ExportState>();
+        let finalized = finish_export_task(&exports.task_token, &cancellation_token, |cancelled| {
+            if cancelled {
+                log::info!("Batch export cancelled and worker cleanup completed");
+                let _ = app_handle.emit("export-cancelled", ());
+                return;
+            }
+            // The queue panel lists the failures of a paused job.
+            if paused {
+                let _ = app_handle.emit("export-paused", ());
+                return;
+            }
 
-                for error in &errors {
-                    log::error!("Export error: {}", error);
-                    if total_outputs == 1 {
-                        let _ = app_handle.emit("export-error", error.clone());
-                    }
+            for error in &errors {
+                log::error!("Export error: {}", error);
+                if total_outputs == 1 {
+                    let _ = app_handle.emit("export-error", error.clone());
                 }
+            }
 
-                if error_count > 0 && total_outputs > 1 {
-                    let _ = app_handle.emit(
-                        "export-error",
-                        format!("{error_count} of {total_outputs} exports failed"),
-                    );
-                } else if error_count == 0 {
-                    let _ = app_handle.emit(
+            if error_count > 0 && total_outputs > 1 {
+                let _ = app_handle.emit(
+                    "export-error",
+                    format!("{error_count} of {total_outputs} exports failed"),
+                );
+            } else if error_count == 0 {
+                let _ = app_handle.emit(
                         "batch-export-progress",
                         serde_json::json!({ "current": total_outputs, "total": total_outputs, "path": "" }),
                     );
-                    let _ = app_handle.emit("export-complete", ());
-                }
-            },
-        );
+                let _ = app_handle.emit("export-complete", ());
+            }
+        });
 
         if !finalized {
             log::warn!("Ignoring terminal events from a stale export task");
@@ -2059,14 +2057,14 @@ fn headless_recipes(file: &str) -> Result<Vec<HeadlessRecipe>, String> {
 #[tauri::command]
 pub fn cancel_export(app_handle: tauri::AppHandle) -> Result<(), String> {
     // The queue waits after a cancel until the next export or resume.
-    crate::export_queue::hold();
+    crate::export_queue::hold(&app_handle.state::<ExportState>());
     cancel_running_export(&app_handle)
 }
 
 /// Stops the running export at the next checkpoint (the queue goes on).
 pub(crate) fn cancel_running_export(app_handle: &tauri::AppHandle) -> Result<(), String> {
-    let state = app_handle.state::<AppState>();
-    match request_export_cancellation(&state.export_task_token, || {
+    let exports = app_handle.state::<ExportState>();
+    match request_export_cancellation(&exports.task_token, || {
         let _ = app_handle.emit("export-cancelling", ());
     }) {
         ExportCancellationRequest::Requested => {

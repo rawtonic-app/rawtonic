@@ -10,6 +10,7 @@ functions, not through `AppState`.
 | `develop::DevelopSession` | the caches built from the open photograph (decodes, preview bases, GPU upload, masks, warps, geometry bases, the editor's patches) | `app.state::<DevelopSession>()`, passed on as `&DevelopSession`; dropped only through `invalidate(Scope)` |
 | `thumbnails::ThumbnailState` | the Library's thumbnail queue and its workers' bookkeeping (`ThumbnailManager`), the cancel flag, the progress counter, the thumbnail bases, the restoration slot | `app.state::<ThumbnailState>()`, passed on as `&ThumbnailState`; progress through `reset_progress` / `add_to_total` / `set_queued` / `complete_one` |
 | `ai::AiState` | the AI models and their cached results (`ai_processing::AiModels`), the locks that serialise loading and running them, their lifecycle (use, running computations, unloads), AI Denoise, faces, the running AI tasks and the tagging pass | `app.state::<AiState>()`, passed on as `&AiState` (the model loaders in `ai_processing` take it) |
+| `export::ExportState` | the export queue (`export-queue.sqlite`), the jobs the runner works on, whether it runs and whether the queue is held, the Edit With runs a quit cut short, the running export task's cancel token | `app.state::<ExportState>()`, passed on as `&ExportState` (`export_queue::with_queue`, `snapshot`, `hold`, `has_unfinished_job_in`, `session_move::{offer, busy, before_reversal}`) |
 
 ## Lock policy
 
@@ -84,4 +85,15 @@ The tokio locks are held across the awaits of one load or run:
 `tasks` and `indexing_task` are each taken alone. `ai_lifecycle::unload` takes `models`, then
 `faces`, one after the other, and frees the dropped models outside both. A computation's
 `Lifecycle::run` guard owns an `Arc` of the lifecycle, so it can go into a blocking task.
+
+### `ExportState`
+
+1. `running_jobs` (`with_running`: held while a pause or cancel acts on a running job, so the runner
+   cannot move on meanwhile; the runner sets and clears it around each export task)
+2. `task_token` (a cancel of a job running alone signals the export task under `running_jobs`,
+   `export_processing::cancel_running_export`)
+
+`queue` is taken alone, for one queue call (`with_queue`); never while `running_jobs` is held.
+`interrupted_edits` is taken alone. `runner_active` and `held` are atomics. A pause emits
+`export-job-pausing` under `running_jobs` (as before the split; no listener takes it).
 

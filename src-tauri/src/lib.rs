@@ -668,6 +668,7 @@ pub fn run() {
         .manage(state::develop::DevelopSession::default())
         .manage(state::thumbnails::ThumbnailState::default())
         .manage(state::ai::AiState::default())
+        .manage(state::export::ExportState::default())
         .invoke_handler(tauri::generate_handler![
             window_customizer::set_window_full_screen,
             session_bridge::session_create,

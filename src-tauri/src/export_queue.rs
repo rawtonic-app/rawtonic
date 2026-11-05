@@ -10,6 +10,8 @@ use crate::export_processing::{
     ExportPhotos, ExportSettings, ExportTarget, PinnedPhoto, denoise_models, export_images_impl,
     pin_photos,
 };
+use crate::state::export::ExportState;
+use crate::state::lock::lock_recover;
 use rawtonic_export::queue::{ExportQueue, Item, ItemState, Job, JobState, RunEnd};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -399,12 +401,10 @@ fn settle_now(paused: &AtomicBool, cancelled: &AtomicBool, run: &RunCount) -> Op
 /// Ends a job stopped on its own (see `settle_now`): it leaves the running
 /// jobs and can be resumed while the others of its run go on.
 fn settle(app: &AppHandle, job: &str, paused: &AtomicBool, cancelled: &AtomicBool, run: &RunCount) {
+    let exports = app.state::<ExportState>();
     if let Some(end) = settle_now(paused, cancelled, run) {
-        with_queue(|q| q.finish(job, end));
-        CURRENT
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retain(|running| running.id != job);
+        with_queue(&exports, |q| q.finish(job, end));
+        lock_recover(&exports.running_jobs).retain(|running| running.id != job);
         notify(app);
     }
 }
@@ -429,11 +429,13 @@ impl Tracking {
     }
     /// An admitted photo's attempt begins: its source is read next.
     pub fn began(&self, index: usize) {
-        with_queue(|q| q.item_began(&self.job, index));
+        let exports = self.app.state::<ExportState>();
+        with_queue(&exports, |q| q.item_began(&self.job, index));
         self.report(index, Some(Stage::Loading), None);
     }
     pub fn started(&self, index: usize, output: &Path) {
-        with_queue(|q| q.item_started(&self.job, index, output));
+        let exports = self.app.state::<ExportState>();
+        with_queue(&exports, |q| q.item_started(&self.job, index, output));
         self.report(index, Some(Stage::Rendering), None);
     }
     /// A photo in progress moved on to `stage`.
@@ -441,9 +443,10 @@ impl Tracking {
         self.report(index, Some(stage), fraction);
     }
     pub fn finished(&self, index: usize, result: &Result<(), String>) {
+        let exports = self.app.state::<ExportState>();
         match result {
-            Ok(()) => with_queue(|q| q.item_done(&self.job, index)),
-            Err(e) => with_queue(|q| q.item_failed(&self.job, index, e)),
+            Ok(()) => with_queue(&exports, |q| q.item_done(&self.job, index)),
+            Err(e) => with_queue(&exports, |q| q.item_failed(&self.job, index, e)),
         };
         self.report(index, None, None);
         self.run.release();
@@ -456,7 +459,8 @@ impl Tracking {
         );
     }
     fn report(&self, index: usize, stage: Option<Stage>, fraction: Option<f32>) {
-        if let Some(item) = with_queue(|q| q.item(&self.job, index)) {
+        let exports = self.app.state::<ExportState>();
+        if let Some(item) = with_queue(&exports, |q| q.item(&self.job, index)) {
             let _ = self.app.emit(
                 "export-item-progress",
                 ItemProgress {
@@ -494,18 +498,15 @@ pub fn denoise_progress(
 }
 
 /// A job of the running export and its switches.
-struct RunningJob {
+pub(crate) struct RunningJob {
     id: String,
     paused: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
     run: Arc<RunCount>,
 }
 
-/// The jobs of the running export. The runner sets them before their export
-/// task starts and clears them after it ended, both under this lock, so
-/// while it names a job the active export task is that job's.
+/// The jobs of the running export (`ExportState::running_jobs`).
 type Running = Mutex<Vec<RunningJob>>;
-static CURRENT: Running = Mutex::new(Vec::new());
 
 /// Runs `act` with `job`'s switches and whether it runs alone, if it is
 /// running, holding `running` throughout so the runner cannot move on.
@@ -514,18 +515,17 @@ fn with_running<T>(
     job: &str,
     act: impl FnOnce(&RunningJob, bool) -> T,
 ) -> Option<T> {
-    let current = running.lock().unwrap_or_else(|e| e.into_inner());
+    let current = lock_recover(running);
     let alone = current.len() == 1;
     current.iter().find(|j| j.id == job).map(|j| act(j, alone))
 }
 
-static QUEUE: Mutex<Option<ExportQueue>> = Mutex::new(None);
-static RUNNING: AtomicBool = AtomicBool::new(false);
-static HOLD: AtomicBool = AtomicBool::new(false);
-
 /// Runs `f` on the open queue; logs and returns `None` on errors.
-fn with_queue<T>(f: impl FnOnce(&ExportQueue) -> anyhow::Result<T>) -> Option<T> {
-    let guard = QUEUE.lock().ok()?;
+fn with_queue<T>(
+    exports: &ExportState,
+    f: impl FnOnce(&ExportQueue) -> anyhow::Result<T>,
+) -> Option<T> {
+    let guard = lock_recover(&exports.queue);
     let queue = guard.as_ref()?;
     match f(queue) {
         Ok(value) => Some(value),
@@ -539,6 +539,7 @@ fn with_queue<T>(f: impl FnOnce(&ExportQueue) -> anyhow::Result<T>) -> Option<T>
 /// Opens the queue at start-up and marks jobs a quit or crash cut short as
 /// interrupted (photos already written count as finished).
 pub fn open(app: &AppHandle) {
+    let exports = app.state::<ExportState>();
     let path = match app.path().app_data_dir() {
         Ok(dir) => dir.join("export-queue.sqlite"),
         Err(e) => {
@@ -562,7 +563,7 @@ pub fn open(app: &AppHandle) {
                 Err(e) => log::error!("Export queue recovery failed: {e:#}"),
             }
             match end_interrupted_edits(&queue) {
-                Ok(runs) => *INTERRUPTED_EDITS.lock().unwrap_or_else(|e| e.into_inner()) = runs,
+                Ok(runs) => *lock_recover(&exports.interrupted_edits) = runs,
                 Err(e) => log::error!("Export queue: Edit With jobs not ended: {e:#}"),
             }
             // Exports left waiting do not start by themselves after a
@@ -571,7 +572,7 @@ pub fn open(app: &AppHandle) {
                 .jobs()
                 .is_ok_and(|jobs| jobs.iter().any(|j| j.state == JobState::Queued))
             {
-                hold();
+                exports.set_held(true);
             }
             let staged: Vec<PathBuf> = queue
                 .jobs()
@@ -580,16 +581,11 @@ pub fn open(app: &AppHandle) {
                 .filter_map(|job| proof_staging(&job.request))
                 .collect();
             crate::proof_sheet::prune_staging(app, &staged);
-            if let Ok(mut guard) = QUEUE.lock() {
-                *guard = Some(queue);
-            }
+            *lock_recover(&exports.queue) = Some(queue);
         }
         Err(e) => log::error!("Export queue unavailable: {e:#}"),
     }
 }
-
-/// The Edit With runs the last quit or crash cut short, offered once.
-static INTERRUPTED_EDITS: Mutex<Vec<EditWithRun>> = Mutex::new(Vec::new());
 
 /// At start-up: the Edit With jobs a quit or crash left unfinished
 /// (interrupted, waiting or paused) end as cancelled, never resumed; the
@@ -617,8 +613,8 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<EditWithRun>
 
 /// The Edit With runs the last quit cut short (each handed out once), for
 /// "Try again".
-pub(crate) fn take_interrupted_edits() -> Vec<EditWithRun> {
-    std::mem::take(&mut *INTERRUPTED_EDITS.lock().unwrap_or_else(|e| e.into_inner()))
+pub(crate) fn take_interrupted_edits(exports: &ExportState) -> Vec<EditWithRun> {
+    exports.take_interrupted_edits()
 }
 
 fn label_for(request: &ExportRequest) -> String {
@@ -654,22 +650,26 @@ pub async fn enqueue_all(
     app: &AppHandle,
     requests: Vec<ExportRequest>,
 ) -> Result<Vec<String>, String> {
-    let ids = tauri::async_runtime::spawn_blocking(move || queue_pinned(&QUEUE, requests))
-        .await
-        .map_err(|e| e.to_string())??;
+    let exports_app = app.clone();
+    let ids = tauri::async_runtime::spawn_blocking(move || {
+        queue_pinned(&exports_app.state::<ExportState>().queue, requests)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     started(app);
     Ok(ids)
 }
 
 /// The app's queue, for `queue_inspected` (`started` follows once it
 /// queued).
-pub(crate) fn app_queue() -> &'static Mutex<Option<ExportQueue>> {
-    &QUEUE
+pub(crate) fn app_queue(exports: &ExportState) -> &Mutex<Option<ExportQueue>> {
+    &exports.queue
 }
 
 /// After jobs were queued: the queue starts if it is idle.
 pub(crate) fn started(app: &AppHandle) {
-    HOLD.store(false, Ordering::SeqCst);
+    let exports = app.state::<ExportState>();
+    exports.set_held(false);
     notify(app);
     kick(app);
 }
@@ -692,7 +692,8 @@ fn same_photos(a: &Value, b: &Value) -> bool {
 /// paused job continues in its place. A waiting job held by a cancel just
 /// starts the queue again.
 pub fn resume(app: &AppHandle, job: &str) -> Result<usize, String> {
-    let current = with_queue(|q| q.job(job));
+    let exports = app.state::<ExportState>();
+    let current = with_queue(&exports, |q| q.job(job));
     if current
         .as_ref()
         .is_some_and(|j| edit_with_of(&j.request).is_some())
@@ -705,20 +706,21 @@ pub fn resume(app: &AppHandle, job: &str) -> Result<usize, String> {
     let count = match state {
         Some(JobState::Queued) => 0,
         Some(JobState::Paused) => {
-            with_queue(|q| q.unpause(job)).ok_or("This export cannot be continued.")?;
+            with_queue(&exports, |q| q.unpause(job)).ok_or("This export cannot be continued.")?;
             0
         }
-        _ => with_queue(|q| q.retry(job)).ok_or("This export cannot be resumed.")?,
+        _ => with_queue(&exports, |q| q.retry(job)).ok_or("This export cannot be resumed.")?,
     };
-    HOLD.store(false, Ordering::SeqCst);
+    exports.set_held(false);
     notify(app);
     kick(app);
     Ok(count)
 }
 
 pub fn remove(app: &AppHandle, job: &str) -> Result<(), String> {
-    let staging = with_queue(|q| q.job(job)).and_then(|j| proof_staging(&j.request));
-    with_queue(|q| q.remove(job)).ok_or("This export cannot be removed.")?;
+    let exports = app.state::<ExportState>();
+    let staging = with_queue(&exports, |q| q.job(job)).and_then(|j| proof_staging(&j.request));
+    with_queue(&exports, |q| q.remove(job)).ok_or("This export cannot be removed.")?;
     if let Some(staging) = staging {
         crate::proof_sheet::remove_staging(app, &staging);
     }
@@ -729,13 +731,14 @@ pub fn remove(app: &AppHandle, job: &str) -> Result<(), String> {
 /// Pauses a job: a running one after its photos in progress (the queue
 /// then goes on), a waiting one at once.
 pub fn pause(app: &AppHandle, job: &str) -> Result<(), String> {
+    let exports = app.state::<ExportState>();
     // A paused Edit With render could never be resumed (`resume`), and its
     // Edit With waits for every render: it is cancelled instead.
-    if with_queue(|q| q.job(job)).is_some_and(|j| edit_with_of(&j.request).is_some()) {
+    if with_queue(&exports, |q| q.job(job)).is_some_and(|j| edit_with_of(&j.request).is_some()) {
         return Err("An Edit With render is not paused: cancel it instead.".into());
     }
     // Told under the lock: the job's last queue snapshot cannot come first.
-    let pausing = with_running(&CURRENT, job, |running, _| {
+    let pausing = with_running(&exports.running_jobs, job, |running, _| {
         running.paused.store(true, Ordering::SeqCst);
         let _ = app.emit("export-job-pausing", job);
         (
@@ -749,7 +752,7 @@ pub fn pause(app: &AppHandle, job: &str) -> Result<(), String> {
         settle(app, job, &paused, &cancelled, &run);
         return Ok(());
     }
-    with_queue(|q| q.pause(job)).ok_or("This export cannot be paused.")?;
+    with_queue(&exports, |q| q.pause(job)).ok_or("This export cannot be paused.")?;
     notify(app);
     Ok(())
 }
@@ -759,9 +762,10 @@ pub fn pause(app: &AppHandle, job: &str) -> Result<(), String> {
 /// recipes starts no further photo. A waiting or paused job is cancelled at
 /// once. Its photos that did not export stay for a resume.
 pub fn cancel(app: &AppHandle, job: &str) -> Result<(), String> {
+    let exports = app.state::<ExportState>();
     // Under the lock: the runner cannot move on to another export
     // meanwhile, which the cancel would otherwise stop.
-    let cancelled = with_running(&CURRENT, job, |running, alone| {
+    let cancelled = with_running(&exports.running_jobs, job, |running, alone| {
         // Recorded first: also a run that stops before its first photo
         // ends the job as cancelled.
         running.cancelled.store(true, Ordering::SeqCst);
@@ -782,20 +786,21 @@ pub fn cancel(app: &AppHandle, job: &str) -> Result<(), String> {
         }
         return Ok(());
     }
-    with_queue(|q| q.cancel(job)).ok_or("This export cannot be cancelled.")?;
+    with_queue(&exports, |q| q.cancel(job)).ok_or("This export cannot be cancelled.")?;
     notify(app);
     Ok(())
 }
 
 /// Called by Cancel: the queue waits until the next export or resume.
-pub fn hold() {
-    HOLD.store(true, Ordering::SeqCst);
+pub fn hold(exports: &ExportState) {
+    exports.set_held(true);
 }
 
 /// Hold queue / Start queue: whether waiting jobs start; running ones are
 /// left alone.
 pub fn set_held(app: &AppHandle, held: bool) {
-    HOLD.store(held, Ordering::SeqCst);
+    let exports = app.state::<ExportState>();
+    exports.set_held(held);
     notify(app);
     if !held {
         kick(app);
@@ -806,8 +811,8 @@ pub fn set_held(app: &AppHandle, held: bool) {
 /// into or was submitted from the folder `dir` (a session about to move:
 /// such a job would find its photographs gone). Finished, failed, cancelled
 /// and interrupted jobs do not count.
-pub fn has_unfinished_job_in(dir: &Path) -> bool {
-    unfinished_job_in(&QUEUE, dir)
+pub fn has_unfinished_job_in(exports: &ExportState, dir: &Path) -> bool {
+    unfinished_job_in(&exports.queue, dir)
 }
 
 fn unfinished_job_in(queue: &Mutex<Option<ExportQueue>>, dir: &Path) -> bool {
@@ -847,8 +852,8 @@ fn request_uses(request: &Value, dir: &Path) -> bool {
         .any(|path| Path::new(path).starts_with(dir))
 }
 
-pub fn snapshot() -> Snapshot {
-    let jobs = with_queue(|q| q.jobs()).unwrap_or_default();
+pub fn snapshot(exports: &ExportState) -> Snapshot {
+    let jobs = with_queue(exports, |q| q.jobs()).unwrap_or_default();
     Snapshot {
         edit_with: jobs
             .iter()
@@ -856,42 +861,50 @@ pub fn snapshot() -> Snapshot {
             .map(|job| job.id.clone())
             .collect(),
         jobs,
-        held: HOLD.load(Ordering::SeqCst),
+        held: exports.is_held(),
     }
 }
 
 fn notify(app: &AppHandle) {
-    let _ = app.emit("export-queue-changed", snapshot());
+    let _ = app.emit(
+        "export-queue-changed",
+        snapshot(&app.state::<ExportState>()),
+    );
 }
 
 /// Starts the runner unless it is already working through the queue.
 fn kick(app: &AppHandle) {
-    if RUNNING.swap(true, Ordering::SeqCst) {
+    if app
+        .state::<ExportState>()
+        .runner_active
+        .swap(true, Ordering::SeqCst)
+    {
         return;
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        let exports = app.state::<ExportState>();
         loop {
-            if HOLD.load(Ordering::SeqCst) {
+            if exports.is_held() {
                 break;
             }
-            let Some(jobs) =
-                with_queue(|q| q.start_next_with(|a, b| same_photos(&a.request, &b.request)))
-                    .filter(|jobs| !jobs.is_empty())
-            else {
+            let Some(jobs) = with_queue(&exports, |q| {
+                q.start_next_with(|a, b| same_photos(&a.request, &b.request))
+            })
+            .filter(|jobs| !jobs.is_empty()) else {
                 break;
             };
             run_jobs(&app, &jobs).await;
-            with_queue(|q| q.prune_done(KEEP_DONE));
+            with_queue(&exports, |q| q.prune_done(KEEP_DONE));
             notify(&app);
         }
-        RUNNING.store(false, Ordering::SeqCst);
+        exports.runner_active.store(false, Ordering::SeqCst);
         // An export queued while the runner was finishing.
-        let queued = with_queue(|q| q.jobs())
+        let queued = with_queue(&exports, |q| q.jobs())
             .unwrap_or_default()
             .iter()
             .any(|j| j.state == JobState::Queued);
-        if queued && !HOLD.load(Ordering::SeqCst) {
+        if queued && !exports.is_held() {
             kick(&app);
         }
     });
@@ -899,21 +912,22 @@ fn kick(app: &AppHandle) {
 
 /// Runs queued jobs over the same photos as one export (`same_photos`).
 async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
+    let exports = app.state::<ExportState>();
     let mut targets = Vec::with_capacity(jobs.len());
     let mut trackings: Vec<(&str, Tracking)> = Vec::with_capacity(jobs.len());
     let mut first: Option<ExportRequest> = None;
     let mut sheets: Vec<(String, crate::proof_sheet::ProofJob, PathBuf)> = Vec::new();
     for job in jobs {
-        let items = with_queue(|q| q.items(&job.id)).unwrap_or_default();
+        let items = with_queue(&exports, |q| q.items(&job.id)).unwrap_or_default();
         let request = match runnable(&job.request) {
             Ok(request) => request,
             Err(e) => {
                 log::error!("Export '{}' cannot run: {e}", job.label);
                 // Its entries stay, failed, so it can be exported again.
                 for item in items.iter().filter(|i| i.state != ItemState::Done) {
-                    with_queue(|q| q.item_failed(&job.id, item.index, &e));
+                    with_queue(&exports, |q| q.item_failed(&job.id, item.index, &e));
                 }
-                with_queue(|q| q.finish(&job.id, RunEnd::Completed));
+                with_queue(&exports, |q| q.finish(&job.id, RunEnd::Completed));
                 continue;
             }
         };
@@ -926,9 +940,11 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
                 .map(|mut item| {
                     let rendered = item.state != ItemState::Done
                         && item.output.as_deref().is_some_and(Path::is_file)
-                        && with_queue(|q| q.item_snapshot(&job.id, item.index))
+                        && with_queue(&exports, |q| q.item_snapshot(&job.id, item.index))
                             .is_some_and(|snapshot| snapshot.is_none());
-                    if rendered && with_queue(|q| q.item_done(&job.id, item.index)).is_some() {
+                    if rendered
+                        && with_queue(&exports, |q| q.item_done(&job.id, item.index)).is_some()
+                    {
                         item.state = ItemState::Done;
                     }
                     item
@@ -973,10 +989,14 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         return;
     };
     let job_ids: Vec<String> = trackings.iter().map(|(_, t)| t.job.clone()).collect();
-    let photos = queued_photos(&request, job_ids, |job, index| {
-        with_queue(|q| q.item_snapshot(job, index)).flatten()
+    let photo_app = app.clone();
+    let photos = queued_photos(&request, job_ids, move |job, index| {
+        with_queue(&photo_app.state::<ExportState>(), |q| {
+            q.item_snapshot(job, index)
+        })
+        .flatten()
     });
-    *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = trackings
+    *lock_recover(&exports.running_jobs) = trackings
         .iter()
         .map(|(_, t)| RunningJob {
             id: t.job.clone(),
@@ -1013,13 +1033,13 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         for (label, tracking) in &trackings {
             log::error!("Export '{label}' could not start: {e}");
             for index in tracking.pending.iter() {
-                with_queue(|q| q.item_failed(&tracking.job, *index, &e));
+                with_queue(&exports, |q| q.item_failed(&tracking.job, *index, &e));
             }
         }
     } else {
         let _ = rx.await;
     }
-    CURRENT.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    lock_recover(&exports.running_jobs).clear();
     // Proof sheets whose photos are all rendered are written now, before
     // their jobs end; one not written fails its job (retry writes it).
     for (job, sheet, staging) in sheets {
@@ -1045,7 +1065,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         } else {
             RunEnd::Completed
         };
-        with_queue(|q| q.finish(&tracking.job, end));
+        with_queue(&exports, |q| q.finish(&tracking.job, end));
     }
     // Report only outputs written in this run, including a partially successful
     // run; resumed jobs must not announce their earlier outputs again.
@@ -1053,7 +1073,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         .iter()
         .flat_map(|(_, tracking)| {
             new_outputs(
-                with_queue(|q| q.items(&tracking.job)).unwrap_or_default(),
+                with_queue(&exports, |q| q.items(&tracking.job)).unwrap_or_default(),
                 &tracking.pending,
             )
         })
@@ -1084,7 +1104,8 @@ async fn write_proof_sheet(
     sheet: crate::proof_sheet::ProofJob,
     staging: PathBuf,
 ) {
-    let items = with_queue(|q| q.items(job)).unwrap_or_default();
+    let exports = app.state::<ExportState>();
+    let items = with_queue(&exports, |q| q.items(job)).unwrap_or_default();
     if items.is_empty() || items.iter().any(|item| item.state != ItemState::Done) {
         return;
     }
@@ -1097,13 +1118,15 @@ async fn write_proof_sheet(
     match composed {
         Ok(written) => {
             if let Some(first) = written.first() {
-                with_queue(|q| q.set_outputs(job, first));
+                with_queue(&exports, |q| q.set_outputs(job, first));
             }
             crate::proof_sheet::remove_staging(app, &staging);
         }
         Err(e) => {
             log::error!("Proof sheet not written: {e}");
-            with_queue(|q| q.item_failed(job, last, &format!("{SHEET_NOT_WRITTEN}: {e}")));
+            with_queue(&exports, |q| {
+                q.item_failed(job, last, &format!("{SHEET_NOT_WRITTEN}: {e}"))
+            });
         }
     }
 }
@@ -1117,25 +1140,27 @@ fn new_outputs(items: Vec<Item>, pending: &HashSet<usize>) -> Vec<PathBuf> {
         .collect()
 }
 
-pub fn export_queue_jobs_blocking() -> Snapshot {
-    snapshot()
+pub fn export_queue_jobs_blocking(app: &AppHandle) -> Snapshot {
+    snapshot(&app.state::<ExportState>())
 }
 
 #[tauri::command]
-pub async fn export_queue_jobs() -> Snapshot {
-    tauri::async_runtime::spawn_blocking(export_queue_jobs_blocking)
+pub async fn export_queue_jobs(app: AppHandle) -> Snapshot {
+    tauri::async_runtime::spawn_blocking(move || export_queue_jobs_blocking(&app))
         .await
         .expect("export_queue_jobs task panicked")
 }
 
 /// The photos of a job with their state, output, error and timing.
-pub fn export_queue_items_blocking(job: String) -> Result<Vec<Item>, String> {
-    with_queue(|q| q.items(&job)).ok_or_else(|| "This export is no longer in the queue.".into())
+pub fn export_queue_items_blocking(app: &AppHandle, job: String) -> Result<Vec<Item>, String> {
+    let exports = app.state::<ExportState>();
+    with_queue(&exports, |q| q.items(&job))
+        .ok_or_else(|| "This export is no longer in the queue.".into())
 }
 
 #[tauri::command]
-pub async fn export_queue_items(job: String) -> Result<Vec<Item>, String> {
-    tauri::async_runtime::spawn_blocking(move || export_queue_items_blocking(job))
+pub async fn export_queue_items(job: String, app: AppHandle) -> Result<Vec<Item>, String> {
+    tauri::async_runtime::spawn_blocking(move || export_queue_items_blocking(&app, job))
         .await
         .map_err(|e| e.to_string())?
 }
