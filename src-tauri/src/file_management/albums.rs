@@ -92,7 +92,7 @@ pub async fn save_albums(
     tree: Vec<AlbumItem>,
     ticket: Option<u64>,
     app_handle: AppHandle,
-) -> Result<(), String> {
+) -> Result<Vec<AlbumItem>, String> {
     super::blocking(move || {
         let queue = app_handle.state::<LibraryQueue>();
         let ticket = ticket.unwrap_or_else(|| next_after_sent(&queue));
@@ -130,7 +130,11 @@ pub async fn add_to_album(
 /// read earlier, so it cannot drop an album that a file operation added in
 /// the meantime.
 #[derive(Deserialize, Debug, Clone, PartialEq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum AlbumChange {
     /// Adds photographs to an album (camelCase `albumId`), keeping them out
     /// twice; nothing is written when it already holds them all.
@@ -169,7 +173,10 @@ pub async fn library_change(
 
 /// Replaces the app's album list (sorted as it is saved); nothing is
 /// written when it is the list already stored.
-fn save_albums_blocking(tree: Vec<AlbumItem>, app_handle: &AppHandle) -> Result<(), String> {
+fn save_albums_blocking(
+    tree: Vec<AlbumItem>,
+    app_handle: &AppHandle,
+) -> Result<Vec<AlbumItem>, String> {
     app_handle
         .state::<AlbumsStore>()
         .update(app_handle, |stored| {
@@ -178,8 +185,11 @@ fn save_albums_blocking(tree: Vec<AlbumItem>, app_handle: &AppHandle) -> Result<
             }
             *stored = tree;
             Some(())
-        })
-        .map(|_| ())
+        })?;
+    app_handle
+        .state::<AlbumsStore>()
+        .get(app_handle)
+        .map(|items| items.as_ref().clone())
 }
 
 /// Adds photographs to an album; nothing is written when it already holds

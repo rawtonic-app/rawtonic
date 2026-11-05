@@ -99,9 +99,6 @@ struct QueueState {
     answered: BTreeSet<u64>,
     /// The errors of failed changes, taken by the next flush.
     errors: BTreeMap<u64, String>,
-    /// The next change to start is the flush's own: nothing waits for it
-    /// (`start_write` is where a change takes this).
-    own: bool,
 }
 
 impl Default for QueueState {
@@ -110,12 +107,11 @@ impl Default for QueueState {
             entries: BTreeSet::new(),
             reading: BTreeSet::new(),
             ready: Vec::new(),
-            // Tickets start at 1: 0 is "none" (`library_flush(None)`).
+            // Tickets start at 1; every flush reserves its own boundary.
             next: 1,
             writes: BTreeSet::new(),
             answered: BTreeSet::new(),
             errors: BTreeMap::new(),
-            own: false,
         }
     }
 }
@@ -131,11 +127,12 @@ impl QueueState {
 
     /// A change a flush for `until` still has to wait for: one being
     /// written, or an entry not started that else would be dropped.
-    fn pending_write(&self, until: u64) -> Option<u64> {
+    fn pending_write(&self, until: u64, own_identity: u64) -> Option<u64> {
         let written = self.writes.range(..=until).next().copied();
         let queued = self
             .entries
             .iter()
+            .filter(|(_, identity)| *identity != own_identity)
             .map(|(entry, _)| *entry)
             .filter(|entry| *entry <= until && !self.reading.contains(entry))
             .min();
@@ -219,13 +216,10 @@ impl LibraryQueue {
         self.wake();
     }
 
-    /// Records the write of `ticket` before it starts; the change a flush
-    /// makes itself is not one it waits for.
+    /// Records the write of `ticket` before it starts.
     fn start_write(&self, ticket: u64) {
         let mut state = self.lock();
-        if !std::mem::take(&mut state.own) {
-            state.writes.insert(ticket);
-        }
+        state.writes.insert(ticket);
         drop(state);
         self.wake();
     }
@@ -362,6 +356,18 @@ pub(crate) fn run_import<R, T>(
     written.map(|written| (written, report))
 }
 
+/// Command boundary for `library_flush {}`: reserve a place after every
+/// command received so far, including failures whose calls already settled.
+pub(crate) fn flush_library(
+    queue: &LibraryQueue,
+    ticket: Option<u64>,
+    timeout: Duration,
+    merge: impl FnMut(Vec<PresetItem>) -> Result<Vec<PresetItem>, String>,
+) -> Vec<String> {
+    let until = ticket.unwrap_or_else(|| next_after_sent(queue));
+    flush_state(queue, until, timeout, merge)
+}
+
 /// Waits for the changes up to `until` (at most `timeout`), then answers what
 /// is not written, in ticket order. The imports up to `until` that read their
 /// files but did not get their turn are written after the wait, in their
@@ -376,27 +382,15 @@ pub(crate) fn flush_state(
     mut merge: impl FnMut(Vec<PresetItem>) -> Result<Vec<PresetItem>, String>,
 ) -> Vec<String> {
     let deadline = Instant::now() + timeout;
-    // Recorded after the other entries were found not to hold `own`: its
-    // change is not one this flush waits for.
-    let own_entry = {
-        let entry = queue.record(until, false);
-        queue.lock().own = true;
-        entry
-    };
-    while queue.lock().pending_write(until).is_some() {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            break;
-        }
-        let state = queue.lock();
-        // Every change of the queue notifies; the small timeout only covers a
-        // waiter that was notified for something else.
-        let (state, _) = queue
-            .changed
-            .wait_timeout_while(state, left, |_| Instant::now() < deadline)
-            .unwrap_or_else(|e| e.into_inner());
-        drop(state);
-    }
+    let own_entry = queue.record(until, false);
+    let state = queue.lock();
+    let (state, _) = queue
+        .changed
+        .wait_timeout_while(state, timeout, |state| {
+            state.pending_write(until, own_entry.identity).is_some() && Instant::now() < deadline
+        })
+        .unwrap_or_else(|e| e.into_inner());
+    drop(state);
     let mut failures: Vec<(u64, String)> = Vec::new();
     {
         let mut state = queue.lock();
@@ -410,7 +404,7 @@ pub(crate) fn flush_state(
         }
         // What was not written: a change still running (the flush's own
         // entries are not changes).
-        let unwritten = state.writes.range(..=until).next().is_some();
+        let unwritten = state.pending_write(until, own_entry.identity).is_some();
         let still_reading = state
             .entries
             .iter()
@@ -1058,5 +1052,44 @@ mod tests {
             report.iter().any(|error| error == NOT_WRITTEN),
             "{report:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod flush_regressions {
+    use super::*;
+    use std::{sync::mpsc, thread};
+
+    #[test]
+    fn an_idle_explicit_flush_returns_without_waiting_on_itself() {
+        let queue = LibraryQueue::default();
+        let start = Instant::now();
+        assert!(flush_state(&queue, 1, Duration::from_secs(2), Ok).is_empty());
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn a_flush_wakes_when_the_last_write_finishes() {
+        let queue = LibraryQueue::default();
+        let entry = queue.record(1, false);
+        queue.start_write(1);
+        let (done_tx, done_rx) = mpsc::channel();
+        thread::scope(|s| {
+            s.spawn(|| {
+                let result = flush_state(&queue, 2, Duration::from_secs(3), Ok);
+                done_tx.send(result).unwrap();
+            });
+            while queue.lock().entries.len() < 2 {
+                thread::yield_now();
+            }
+            queue.answered(1);
+            drop(entry);
+            assert!(
+                done_rx
+                    .recv_timeout(Duration::from_secs(1))
+                    .unwrap()
+                    .is_empty()
+            );
+        });
     }
 }

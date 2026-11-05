@@ -12,7 +12,8 @@ use tauri::Manager;
 use tauri::path::BaseDirectory;
 
 use crate::state::library_files::{
-    FLUSH_TIMEOUT, LibraryQueue, PresetsStore, flush_state, next_after_sent, run_change, run_import,
+    FLUSH_TIMEOUT, LibraryQueue, PresetsStore, flush_library, next_after_sent, run_change,
+    run_import,
 };
 use uuid::Uuid;
 
@@ -466,12 +467,9 @@ pub async fn library_flush(
     ticket: Option<u64>,
     app_handle: AppHandle,
 ) -> Result<Vec<String>, String> {
-    let Some(ticket) = ticket else {
-        return Ok(Vec::new());
-    };
     super::blocking(move || {
         let queue = app_handle.state::<LibraryQueue>();
-        Ok(flush_state(&queue, ticket, FLUSH_TIMEOUT, |items| {
+        Ok(flush_library(&queue, ticket, FLUSH_TIMEOUT, |items| {
             merge_into_library(&app_handle, items)
         }))
     })

@@ -1,0 +1,10 @@
+{
+  "save_albums": {"tree": [{"type": "album", "id": "trip", "name": "Trip", "images": ["photo.dng"]}]},
+  "library_change": {"change": {"kind": "addToAlbum", "albumId": "trip", "paths": ["photo.dng"]}},
+  "add_to_album": {"albumId": "trip", "paths": ["photo.dng"]},
+  "save_presets": {"presets": [{"preset": {"id": "soft", "name": "Soft", "adjustments": {"exposure": 1}}}]},
+  "library_flush": {},
+  "handle_import_presets_from_file": {"filePath": "style.json"},
+  "handle_import_legacy_presets_from_file": {"filePath": "style.xmp"},
+  "handle_import_presets_from_files": {"filePaths": ["style.json", "style.xmp"]}
+}

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import StudioAlbums, { dropPlacement, type SessionAlbum } from './StudioAlbums';
-import { changeLibraryAlbums, flattenAlbumTree, withDeleted, withMoved, withNewItem } from './libraryAlbums';
+import { flattenAlbumTree, withDeleted, withMoved, withNewItem } from './libraryAlbums';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import type { AlbumItem } from '../ui/AppProperties';
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
@@ -271,7 +271,10 @@ describe('app-wide albums outside sessions', () => {
     const base = mockInvoke.getMockImplementation()!;
     mockInvoke.mockImplementation(async (command, args) => {
       if (command === 'get_albums') return structuredClone(stored);
-      if (command === 'save_albums') stored = structuredClone((args as { tree: AlbumItem[] }).tree);
+      if (command === 'save_albums') {
+        stored = structuredClone((args as { tree: AlbumItem[] }).tree);
+        return structuredClone(stored);
+      }
       // Photographs added to an album are the backend's own change of the
       // stored album (`library_change`), and the page shows the list it wrote.
       if (command === 'library_change') {
@@ -330,6 +333,7 @@ describe('app-wide albums outside sessions', () => {
       { type: 'album', id: 'b', name: 'Family', images: ['/p/3.arw'] }
     ]);
     expect(tree[2]).toMatchObject({ type: 'album', name: 'Web', images: ['/p/4.arw'] });
+    expect(screen.getByText('Web')).toBeTruthy();
   });
 
   it('adds photographs to the stored albums, so a stale list never overwrites them', async () => {
@@ -360,16 +364,18 @@ describe('app-wide albums outside sessions', () => {
     expect(saved()).toEqual([]);
   });
 
-  it('removes the selection from the album shown, the albums reading it next showing the change', async () => {
+  it('removes the selection from the album shown and refreshes the grid', async () => {
     useLibraryStore.setState({ activeAlbumId: 'a', multiSelectedPaths: ['/p/2.arw'] });
-    await renderTool();
+    const select = await renderTool();
     fireEvent.contextMenu(screen.getByText('Lisbon'));
     await act(async () => {
       fireEvent.click(await screen.findByText('Remove selected photos'));
     });
     expect(stored[0]).toMatchObject({ children: [{ id: 'a', images: ['/p/1.arw'] }] });
-    // The tool no longer refreshes the grid itself: the change puts the list
-    // it wrote in the library store, and the app refreshes the grid from it.
+    expect(select).toHaveBeenCalledWith('a', 'Lisbon', ['/p/1.arw'], true);
+    expect(useLibraryStore.getState().albumTree[0]).toMatchObject({
+      children: [{ id: 'a', images: ['/p/1.arw'] }]
+    });
   });
 
   it('renames albums and deletes a group with its albums after confirmation', async () => {
@@ -383,14 +389,15 @@ describe('app-wide albums outside sessions', () => {
     });
     // The rename is a queued change: it is written once its turn comes.
     await waitFor(() => expect(stored[1]).toEqual({ type: 'album', id: 'b', name: 'Kids', images: ['/p/3.arw'] }));
-    // The group's deletion starts from what albums.json holds now: the
-    // renamed album, and the group with its albums gone.
-    const group = backendList().find((item) => item.type === 'group')!;
-    expect(withDeleted(backendList(), group.id)).toEqual([
-      { type: 'album', id: 'b', name: 'Kids', images: ['/p/3.arw'] }
-    ]);
-    await changeLibraryAlbums((tree) => withDeleted(tree, group.id));
+    expect(screen.getByText('Kids')).toBeTruthy();
+    fireEvent.contextMenu(screen.getByText('Travel'));
+    fireEvent.click(await screen.findByText('Delete group…'));
+    expect(screen.getByRole('alertdialog').textContent).toContain('Their photos stay');
+    await act(async () => {
+      fireEvent.click(screen.getByText('Delete'));
+    });
     expect(stored).toEqual([{ type: 'album', id: 'b', name: 'Kids', images: ['/p/3.arw'] }]);
+    expect(screen.queryByText('Lisbon')).toBeNull();
   });
 
   it('flattens the tree and moves items between groups, never into themselves', () => {
