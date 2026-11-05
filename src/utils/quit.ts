@@ -47,6 +47,8 @@ const WRITE_NAMES: Record<string, string> = {
   paste: 'Pasted settings',
   preset: 'Preset',
   style: 'Style',
+  presets: 'Preset list',
+  albums: 'Album list',
   reset: 'Reset',
   lens: 'Lens correction',
   auto: 'Auto adjustments',

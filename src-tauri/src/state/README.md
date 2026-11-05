@@ -4,13 +4,15 @@
 here, is registered with `.manage(...)` in `lib.rs`, and is reached through its own module's
 functions, not through `AppState`.
 
-| Sub-state | Holds | Access |
-|---|---|---|
-| `settings::SettingsStore` | `settings.json`, read + migrated once per run | `settings::current(app)` / `try_current(app)` (cheap `Arc`), `settings::update(app, \|s\| …)` |
-| `develop::DevelopSession` | the caches built from the open photograph (decodes, preview bases, GPU upload, masks, warps, geometry bases, the editor's patches) | `app.state::<DevelopSession>()`, passed on as `&DevelopSession`; dropped only through `invalidate(Scope)` |
-| `thumbnails::ThumbnailState` | the Library's thumbnail queue and its workers' bookkeeping (`ThumbnailManager`), the cancel flag, the progress counter, the thumbnail bases, the restoration slot | `app.state::<ThumbnailState>()`, passed on as `&ThumbnailState`; progress through `reset_progress` / `add_to_total` / `set_queued` / `complete_one` |
-| `ai::AiState` | the AI models and their cached results (`ai_processing::AiModels`), the locks that serialise loading and running them, their lifecycle (use, running computations, unloads), AI Denoise, faces, the running AI tasks and the tagging pass | `app.state::<AiState>()`, passed on as `&AiState` (the model loaders in `ai_processing` take it) |
-| `export::ExportState` | the export queue (`export-queue.sqlite`), the jobs the runner works on, whether it runs and whether the queue is held, the Edit With runs a quit cut short, the running export task's cancel token | `app.state::<ExportState>()`, passed on as `&ExportState` (`export_queue::with_queue`, `snapshot`, `hold`, `has_unfinished_job_in`, `session_move::{offer, busy, before_reversal}`) |
+| Sub-state                     | Holds                                                                                                                                                                                                                                     | Access                                                                                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `settings::SettingsStore`     | `settings.json`, read + migrated once per run                                                                                                                                                                                             | `settings::current(app)` / `try_current(app)` (cheap `Arc`), `settings::update(app, \|s\| …)`                                                                                       |
+| `develop::DevelopSession`     | the caches built from the open photograph (decodes, preview bases, GPU upload, masks, warps, geometry bases, the editor's patches)                                                                                                        | `app.state::<DevelopSession>()`, passed on as `&DevelopSession`; dropped only through `invalidate(Scope)`                                                                           |
+| `thumbnails::ThumbnailState`  | the Library's thumbnail queue and its workers' bookkeeping (`ThumbnailManager`), the cancel flag, the progress counter, the thumbnail bases, the restoration slot                                                                         | `app.state::<ThumbnailState>()`, passed on as `&ThumbnailState`; progress through `reset_progress` / `add_to_total` / `set_queued` / `complete_one`                                 |
+| `ai::AiState`                 | the AI models and their cached results (`ai_processing::AiModels`), the locks that serialise loading and running them, their lifecycle (use, running computations, unloads), AI Denoise, faces, the running AI tasks and the tagging pass | `app.state::<AiState>()`, passed on as `&AiState` (the model loaders in `ai_processing` take it)                                                                                    |
+| `library_files::AlbumsStore`  | `albums.json`: the app's album list, read once per run, every change saved under one write lock                                                                                                                                           | `app.state::<AlbumsStore>()`, `get(app)` / `update(app, \|albums\| …)` (through `file_management`; the file operation sync uses it too)                                             |
+| `library_files::PresetsStore` | `presets.json`: the user's presets, read once per run, every change saved under one write lock                                                                                                                                            | `app.state::<PresetsStore>()`, `get(app)` / `update(app, \|presets\| …)` (through `file_management`)                                                                                |
+| `export::ExportState`         | the export queue (`export-queue.sqlite`), the jobs the runner works on, whether it runs and whether the queue is held, the Edit With runs a quit cut short, the running export task's cancel token                                        | `app.state::<ExportState>()`, passed on as `&ExportState` (`export_queue::with_queue`, `snapshot`, `hold`, `has_unfinished_job_in`, `session_move::{offer, busy, before_reversal}`) |
 
 ## Lock policy
 
@@ -20,8 +22,8 @@ functions, not through `AppState`.
   `.lock().unwrap()`, no `if let Ok(...) = lock()`; the rest of the adapter is converted in later
   parts of 3.3.
 - Hold a lock for one short step; never across an `.await`, a Tauri call or an event emit.
-- Read-modify-write runs under one lock from read to write (`SettingsStore::update`), so
-  concurrent changes cannot lose one another.
+- Read-modify-write runs under one lock from read to write (`SettingsStore::update`,
+  `AlbumsStore::update`, `PresetsStore::update`), so concurrent changes cannot lose one another.
 
 ## Lock order
 
@@ -32,8 +34,24 @@ the reverse):
 2. `SettingsStore.current` (held only to swap or clone the `Arc`)
 3. `app_settings::UNKEPT_SETTINGS` (inside `persist_settings_file`)
 
+`AlbumsStore` / `PresetsStore` (`state::library_files`) follow the same order within each store:
+`writer`, then `current`. They are never held together with each other or with the settings' locks
+(no path takes a library file's lock while holding the settings' or the other file's).
+
 `save_settings` takes `AppState.decoded_image_cache` only after the store's locks are released.
 Readers (`current`) take only `current` for reading, except on the first read of a run.
+
+### Library files
+
+`AlbumsStore` and `PresetsStore` hold one file each, with the settings' lock order within them (`writer`,
+then `current`, held for a whole read-modify-write including the atomic file write). A change waits on the
+file's write lock, never on another store's.
+
+The touched photographs are all read and the sidecar writes all done before the lock is taken (an album
+change waits on no file of the photographs); and no code takes one of the stores' locks while holding
+another of these: the file operations' album sync and `add_to_album` run on blocking workers, the albums'
+commands hand their store work to a blocking worker and return, and the presets' imports parse the
+imported files before they take the lock. The main thread never waits on a library file's write lock.
 
 ### `DevelopSession`
 
@@ -96,4 +114,3 @@ The tokio locks are held across the awaits of one load or run:
 `queue` is taken alone, for one queue call (`with_queue`); never while `running_jobs` is held.
 `interrupted_edits` is taken alone. `runner_active` and `held` are atomics. A pause emits
 `export-job-pausing` under `running_jobs` (as before the split; no listener takes it).
-

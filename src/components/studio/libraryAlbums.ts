@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes, type Album, type AlbumGroup, type AlbumItem } from '../ui/AppProperties';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { albumSaves } from '../../store/libraryFiles';
 import type { SessionAlbum } from './StudioAlbums';
 
 /** The app-wide albums (`albums.json`, outside sessions) as the Albums tool
@@ -120,9 +121,11 @@ export function withMoved(tree: AlbumItem[], id: string, parent: string | null, 
   return next;
 }
 
-/** Applies `change` to the stored albums and saves them. It reads the file
- * first, so an album list not loaded yet (or changed elsewhere) is never
- * overwritten with an older one. */
+/** Applies `change` to the stored albums and saves them. It reads the list
+ * first, so an album list not loaded yet (or changed elsewhere, by a file
+ * operation or another window) is never overwritten with an older one; the
+ * save waits for every earlier one (`albumSaves`), so quick changes reach the
+ * file in the order they were made. */
 export async function changeLibraryAlbums(change: (tree: AlbumItem[]) => AlbumItem[] | null) {
   const stored = (await invoke<AlbumItem[]>(Invokes.GetAlbums)) ?? [];
   const next = change(stored);
@@ -130,8 +133,13 @@ export async function changeLibraryAlbums(change: (tree: AlbumItem[]) => AlbumIt
     useLibraryStore.getState().setLibrary({ albumTree: stored });
     return stored;
   }
-  await invoke(Invokes.SaveAlbums, { tree: next });
-  const saved = (await invoke<AlbumItem[]>(Invokes.GetAlbums)) ?? next;
+  await albumSaves.save(next);
+  let saved = next;
+  try {
+    saved = (await invoke<AlbumItem[]>(Invokes.GetAlbums)) ?? next;
+  } catch (error) {
+    console.error('Albums were saved but could not be read back:', error);
+  }
   useLibraryStore.getState().setLibrary({ albumTree: saved });
   return saved;
 }

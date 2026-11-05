@@ -4,6 +4,7 @@
 pub mod ai;
 pub mod develop;
 pub mod export;
+pub mod library_files;
 pub mod lock;
 pub mod settings;
 pub mod thumbnails;

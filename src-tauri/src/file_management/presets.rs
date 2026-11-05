@@ -10,9 +10,11 @@ use std::path::Path;
 use tauri::AppHandle;
 use tauri::Manager;
 use tauri::path::BaseDirectory;
+
+use crate::state::library_files::PresetsStore;
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Preset {
     pub id: String,
     pub name: String,
@@ -47,7 +49,7 @@ pub(crate) struct ExportPresetFile<'a> {
     pub(crate) presets: &'a [PresetItem],
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct PresetFolder {
     /// Tool menus create these folders; hide them while empty, unlike user folders.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,7 +59,7 @@ pub struct PresetFolder {
     pub children: Vec<Preset>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum PresetItem {
     Preset(Preset),
@@ -112,13 +114,13 @@ pub(crate) fn get_presets_path(app_handle: &AppHandle) -> Result<std::path::Path
     Ok(presets_dir.join("presets.json"))
 }
 
+/// The user's presets, read from `presets.json` on the first call of the run
+/// (`state::library_files::PresetsStore`).
 pub fn load_presets_blocking(app_handle: AppHandle) -> Result<Vec<PresetItem>, String> {
-    let path = get_presets_path(&app_handle)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
+    app_handle
+        .state::<PresetsStore>()
+        .get(&app_handle)
+        .map(|items| items.as_ref().clone())
 }
 
 #[tauri::command]
@@ -197,11 +199,27 @@ pub async fn load_builtin_presets(app_handle: AppHandle) -> Result<Vec<BuiltinPr
         .map_err(|e| e.to_string())?
 }
 
+/// `save_presets`, off the main thread.
 #[tauri::command]
-pub fn save_presets(presets: Vec<PresetItem>, app_handle: AppHandle) -> Result<(), String> {
-    let path = get_presets_path(&app_handle)?;
-    let json_string = serde_json::to_string_pretty(&presets).map_err(|e| e.to_string())?;
-    rawtonic_fs::atomic_write(&path, json_string).map_err(|e| e.to_string())
+pub async fn save_presets(presets: Vec<PresetItem>, app_handle: AppHandle) -> Result<(), String> {
+    super::blocking(move || save_presets_blocking(presets, &app_handle)).await?
+}
+
+/// Replaces the user's preset list (the file as the frontend keeps it).
+pub fn save_presets_blocking(
+    presets: Vec<PresetItem>,
+    app_handle: &AppHandle,
+) -> Result<(), String> {
+    app_handle
+        .state::<PresetsStore>()
+        .update(app_handle, |stored| {
+            if stored == &presets {
+                return None;
+            }
+            *stored = presets;
+            Some(())
+        })
+        .map(|_| ())
 }
 
 pub(crate) fn preset_file_display_name(file_path: &str) -> String {
@@ -319,54 +337,67 @@ pub(crate) fn merge_imported_items(
     }
 }
 
-pub(crate) fn import_preset_file_into_library(
-    file_path: &str,
-    app_handle: AppHandle,
-) -> Result<Vec<PresetItem>, String> {
-    let imported = parse_preset_file(file_path)?;
-
-    let mut current_presets = load_presets_blocking(app_handle.clone())?;
-    let mut taken_names = collect_top_level_preset_names(&current_presets);
-    merge_imported_items(&mut current_presets, &mut taken_names, imported);
-
-    save_presets(current_presets.clone(), app_handle)?;
-    Ok(current_presets)
-}
-
 #[tauri::command]
-pub fn handle_import_presets_from_file(
+pub async fn handle_import_presets_from_file(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
-    import_preset_file_into_library(&file_path, app_handle)
+    super::blocking(move || {
+        parse_preset_file(&file_path)
+            .and_then(|imported| import_into_library(imported, &app_handle))
+    })
+    .await?
 }
 
 #[tauri::command]
-pub fn handle_import_legacy_presets_from_file(
+pub async fn handle_import_legacy_presets_from_file(
     file_path: String,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
-    import_preset_file_into_library(&file_path, app_handle)
+    super::blocking(move || {
+        parse_preset_file(&file_path)
+            .and_then(|imported| import_into_library(imported, &app_handle))
+    })
+    .await?
+}
+
+/// The file is read first (the slow part), then the library is changed in
+/// one read-modify-write, so a save the frontend sends meanwhile is kept.
+fn import_into_library(
+    imported: Vec<PresetItem>,
+    app_handle: &AppHandle,
+) -> Result<Vec<PresetItem>, String> {
+    app_handle
+        .state::<PresetsStore>()
+        .update(app_handle, |current_presets| {
+            let mut taken_names = collect_top_level_preset_names(current_presets);
+            merge_imported_items(current_presets, &mut taken_names, imported.clone());
+            Some(())
+        })?;
+    load_presets_blocking(app_handle.clone())
 }
 
 #[tauri::command]
-pub fn handle_import_presets_from_files(
+pub async fn handle_import_presets_from_files(
     file_paths: Vec<String>,
     app_handle: AppHandle,
 ) -> Result<PresetImportResult, String> {
-    let mut current_presets = load_presets_blocking(app_handle.clone())?;
-    let mut taken_names = collect_top_level_preset_names(&current_presets);
+    super::blocking(move || import_preset_files(file_paths, &app_handle)).await?
+}
 
+fn import_preset_files(
+    file_paths: Vec<String>,
+    app_handle: &AppHandle,
+) -> Result<PresetImportResult, String> {
     let mut failures: Vec<PresetImportFailure> = Vec::new();
     let mut untranslated: Vec<PresetImportUntranslated> = Vec::new();
-    let mut library_changed = false;
+    let mut imported = Vec::new();
 
     for file_path in &file_paths {
         match parse_preset_file_reporting(file_path) {
-            Ok((imported, report)) => {
+            Ok((items, report)) => {
                 untranslated.extend(report);
-                library_changed |= !imported.is_empty();
-                merge_imported_items(&mut current_presets, &mut taken_names, imported);
+                imported.extend(items);
             }
             Err(error) => failures.push(PresetImportFailure {
                 file_name: preset_file_display_name(file_path),
@@ -375,12 +406,14 @@ pub fn handle_import_presets_from_files(
         }
     }
 
-    if library_changed {
-        save_presets(current_presets.clone(), app_handle)?;
-    }
+    let presets = if imported.is_empty() {
+        load_presets_blocking(app_handle.clone())?
+    } else {
+        import_into_library(imported, app_handle)?
+    };
 
     Ok(PresetImportResult {
-        presets: current_presets,
+        presets,
         failures,
         untranslated,
     })

@@ -14,12 +14,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
-use tauri::AppHandle;
-use tauri::Manager;
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+use crate::state::library_files::AlbumsStore;
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AlbumItem {
     Album {
@@ -36,6 +36,8 @@ pub enum AlbumItem {
     },
 }
 
+/// Where the album list lives (`albums/albums.json` in the app's data
+/// folder), made when it is not there.
 pub(crate) fn get_albums_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
     let data_dir = app_handle
         .path()
@@ -68,160 +70,181 @@ pub fn sort_album_tree(items: &mut [AlbumItem]) {
     }
 }
 
+/// The app's album list, read from `albums.json` on the first call of the
+/// run (`state::library_files::AlbumsStore`); sorted as the file keeps it.
 pub fn get_albums_blocking(app_handle: AppHandle) -> Result<Vec<AlbumItem>, String> {
-    let path = get_albums_path(&app_handle)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let mut items: Vec<AlbumItem> = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-    sort_album_tree(&mut items);
-    Ok(items)
+    app_handle
+        .state::<AlbumsStore>()
+        .get(&app_handle)
+        .map(|items| items.as_ref().clone())
 }
 
+/// `get_albums`, off the main thread.
 #[tauri::command]
 pub async fn get_albums(app_handle: AppHandle) -> Result<Vec<AlbumItem>, String> {
-    tauri::async_runtime::spawn_blocking(move || get_albums_blocking(app_handle))
-        .await
-        .map_err(|e| e.to_string())?
+    super::blocking(move || get_albums_blocking(app_handle)).await?
 }
 
+/// `save_albums_blocking`, off the main thread.
 #[tauri::command]
-pub fn save_albums(mut tree: Vec<AlbumItem>, app_handle: AppHandle) -> Result<(), String> {
-    let path = get_albums_path(&app_handle)?;
-    sort_album_tree(&mut tree);
-    let json_string = serde_json::to_string_pretty(&tree).map_err(|e| e.to_string())?;
-    rawtonic_fs::atomic_write(&path, json_string).map_err(|e| e.to_string())
+pub async fn save_albums(tree: Vec<AlbumItem>, app_handle: AppHandle) -> Result<(), String> {
+    super::blocking(move || save_albums_blocking(tree, &app_handle)).await?
 }
 
+/// `add_to_album_blocking`, off the main thread.
 #[tauri::command]
-pub fn add_to_album(
+pub async fn add_to_album(
     album_id: String,
     paths: Vec<String>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    let mut tree = get_albums_blocking(app_handle.clone())?;
-
-    fn add_recursive(items: &mut [AlbumItem], target_id: &str, paths_to_add: &Vec<String>) -> bool {
-        for item in items.iter_mut() {
-            #[allow(clippy::collapsible_match)]
-            match item {
-                AlbumItem::Album { id, images, .. } if id == target_id => {
-                    for p in paths_to_add {
-                        if !images.contains(p) {
-                            images.push(p.clone());
-                        }
-                    }
-                    return true;
-                }
-                AlbumItem::Group { children, .. } => {
-                    if add_recursive(children, target_id, paths_to_add) {
-                        return true;
-                    }
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-
-    if add_recursive(&mut tree, &album_id, &paths) {
-        save_albums(tree, app_handle)?;
-    }
-    Ok(())
+    super::blocking(move || add_to_album_blocking(&album_id, &paths, &app_handle)).await?
 }
 
+/// Replaces the app's album list (sorted as it is saved).
+pub fn save_albums_blocking(tree: Vec<AlbumItem>, app_handle: &AppHandle) -> Result<(), String> {
+    app_handle
+        .state::<AlbumsStore>()
+        .update(app_handle, |stored| {
+            if stored == &tree {
+                return None;
+            }
+            *stored = tree;
+            Some(())
+        })
+        .map(|_| ())
+}
+
+/// Adds photographs to an album; nothing is written when it already holds
+/// them all or the album is gone.
+pub fn add_to_album_blocking(
+    album_id: &str,
+    paths: &[String],
+    app_handle: &AppHandle,
+) -> Result<(), String> {
+    app_handle
+        .state::<AlbumsStore>()
+        .update(app_handle, |stored| {
+            add_paths(stored, album_id, paths).then_some(())
+        })
+        .map(|_| ())
+}
+
+/// Brings the album list in line with a file operation (renames, deletions,
+/// a folder rename) in one read-modify-write of the store, so an album change
+/// made meanwhile is never written over.
 pub(crate) fn sync_album_path_changes(
     app_handle: &AppHandle,
     renames: Option<&HashMap<String, String>>,
     deletions: Option<&HashSet<String>>,
     folder_rename: Option<(&str, &str)>,
 ) {
-    if let Ok(mut tree) = get_albums_blocking(app_handle.clone()) {
-        let mut changed = false;
+    let _ = app_handle
+        .state::<AlbumsStore>()
+        .update(app_handle, |tree| {
+            let mut changed = false;
+            process_album_paths(tree, renames, deletions, folder_rename, &mut changed);
+            changed.then_some(())
+        });
+}
 
-        fn process_nodes(
-            nodes: &mut [AlbumItem],
-            renames: Option<&HashMap<String, String>>,
-            deletions: Option<&HashSet<String>>,
-            folder_rename: Option<(&str, &str)>,
-            changed: &mut bool,
-        ) {
-            for node in nodes.iter_mut() {
-                match node {
-                    AlbumItem::Album { images, .. } => {
-                        let mut new_images = Vec::new();
-
-                        for img in images.drain(..) {
-                            let mut current_img = img;
-
-                            if let Some((old_folder, new_folder)) = folder_rename {
-                                let img_path = Path::new(&current_img);
-                                let old_path = Path::new(old_folder);
-                                if let Ok(stripped) = img_path.strip_prefix(old_path) {
-                                    let new_img_path = Path::new(new_folder).join(stripped);
-                                    current_img = new_img_path.to_string_lossy().into_owned();
-                                    *changed = true;
-                                }
-                            }
-
-                            if let Some(r) = renames {
-                                if let Some(new_path) = r.get(&current_img) {
-                                    current_img = new_path.clone();
-                                    *changed = true;
-                                } else if photo_ref::is_copy(&current_img)
-                                    && let Some(new_base) =
-                                        r.get(photo_ref::source_of(&current_img))
-                                {
-                                    current_img = PhotoRef::parse(&current_img)
-                                        .with_source(new_base.as_str())
-                                        .format();
-                                    *changed = true;
-                                }
-                            }
-
-                            let mut is_deleted = false;
-                            if let Some(d) = deletions {
-                                if d.contains(&current_img) {
-                                    is_deleted = true;
-                                } else {
-                                    let img_path = Path::new(&current_img);
-                                    for del_path_str in d {
-                                        let del_path = Path::new(del_path_str);
-                                        if img_path.starts_with(del_path) {
-                                            is_deleted = true;
-                                            break;
-                                        }
-
-                                        if photo_ref::is_copy(&current_img)
-                                            && photo_ref::source_of(&current_img) == del_path_str
-                                        {
-                                            is_deleted = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if !is_deleted {
-                                new_images.push(current_img);
-                            } else {
-                                *changed = true;
-                            }
-                        }
-                        *images = new_images;
-                    }
-                    AlbumItem::Group { children, .. } => {
-                        process_nodes(children, renames, deletions, folder_rename, changed);
+fn add_paths(items: &mut [AlbumItem], target_id: &str, paths_to_add: &[String]) -> bool {
+    for item in items.iter_mut() {
+        #[allow(clippy::collapsible_match)]
+        match item {
+            AlbumItem::Album { id, images, .. } if id == target_id => {
+                let before = images.len();
+                for p in paths_to_add {
+                    if !images.contains(p) {
+                        images.push(p.clone());
                     }
                 }
+                return images.len() != before;
             }
+            AlbumItem::Group { children, .. } => {
+                if add_paths(children, target_id, paths_to_add) {
+                    return true;
+                }
+            }
+            _ => {}
         }
+    }
+    false
+}
 
-        process_nodes(&mut tree, renames, deletions, folder_rename, &mut changed);
+fn process_album_paths(
+    nodes: &mut [AlbumItem],
+    renames: Option<&HashMap<String, String>>,
+    deletions: Option<&HashSet<String>>,
+    folder_rename: Option<(&str, &str)>,
+    changed: &mut bool,
+) {
+    for node in nodes.iter_mut() {
+        match node {
+            AlbumItem::Album { images, .. } => {
+                let mut new_images = Vec::new();
 
-        if changed {
-            let _ = save_albums(tree, app_handle.clone());
+                for img in images.drain(..) {
+                    let mut current_img = img;
+
+                    if let Some((old_folder, new_folder)) = folder_rename {
+                        let img_path = Path::new(&current_img);
+                        let old_path = Path::new(old_folder);
+                        if let Ok(stripped) = img_path.strip_prefix(old_path) {
+                            let new_img_path = Path::new(new_folder).join(stripped);
+                            current_img = new_img_path.to_string_lossy().into_owned();
+                            *changed = true;
+                        }
+                    }
+
+                    if let Some(r) = renames {
+                        if let Some(new_path) = r.get(&current_img) {
+                            current_img = new_path.clone();
+                            *changed = true;
+                        } else if photo_ref::is_copy(&current_img)
+                            && let Some(new_base) = r.get(photo_ref::source_of(&current_img))
+                        {
+                            current_img = PhotoRef::parse(&current_img)
+                                .with_source(new_base.as_str())
+                                .format();
+                            *changed = true;
+                        }
+                    }
+
+                    let mut is_deleted = false;
+                    if let Some(d) = deletions {
+                        if d.contains(&current_img) {
+                            is_deleted = true;
+                        } else {
+                            let img_path = Path::new(&current_img);
+                            for del_path_str in d {
+                                let del_path = Path::new(del_path_str);
+                                if img_path.starts_with(del_path) {
+                                    is_deleted = true;
+                                    break;
+                                }
+
+                                if photo_ref::is_copy(&current_img)
+                                    && photo_ref::source_of(&current_img) == del_path_str
+                                {
+                                    is_deleted = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if !is_deleted {
+                        new_images.push(current_img);
+                    } else {
+                        *changed = true;
+                    }
+                }
+                *images = new_images;
+            }
+            AlbumItem::Group { children, .. } => {
+                process_album_paths(children, renames, deletions, folder_rename, changed);
+            }
         }
     }
 }

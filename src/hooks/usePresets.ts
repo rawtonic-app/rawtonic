@@ -18,7 +18,7 @@ import {
 import { Folder, Invokes, Preset } from '../components/ui/AppProperties';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { presetToSave } from '../utils/settingsClipboard';
-import { registerQuitFlush } from '../utils/quit';
+import { onPresetsBeforeFlush, presetSaves } from '../store/libraryFiles';
 
 /** The settings a preset takes from `current`: the copyable keys (masks and
  * geometry only when asked), for a tool preset only those that differ from
@@ -135,22 +135,21 @@ export const usePresetStore = create<{
   setIsLoading: (isLoading) => set({ isLoading })
 }));
 
-/** One debounced write of the shared list for every user of `usePresets`: a
- * second user's own timer could write an older list after a newer one. */
-const savePresetsToBackend = debounce(
-  (presetsToSave: Array<UserPreset>): Promise<string[]> =>
-    (fileRead
-      ? invoke(Invokes.SavePresets, { presets: presetsToSave })
-      : Promise.reject(new Error('presets.json not read'))
-    ).then(
-      () => [],
-      (err) => {
-        console.error('Failed to save presets:', err);
-        return ['Presets'];
-      }
-    ),
-  500
-);
+/**
+ * One debounced write of the shared list for every user of `usePresets`: a
+ * second user's own timer could write an older list after a newer one. The
+ * backend saves the file off the main thread; `presetSaves` sends the saves
+ * in order, and quitting (or closing the tool) sends a change still waiting
+ * here and waits for the queue.
+ */
+const sendPresets = debounce((presetsToSave: Array<UserPreset>) => {
+  // A list changed before the file was read is not written (a failed read
+  // must never let the list replace the file).
+  if (!fileRead) return;
+  presetSaves.save(presetsToSave).catch((err) => console.error('Failed to save presets:', err));
+}, 500);
+// Quitting and closing the tool write the list the debounce still holds.
+onPresetsBeforeFlush(() => sendPresets.flush());
 
 const itemId = (item: UserPreset) => item.preset?.id ?? item.folder?.id;
 
@@ -174,7 +173,7 @@ export function loadPresetLibrary(): Promise<void> {
         const merged = [...read.filter((item) => !ids.has(itemId(item))), ...current];
         changedSinceRead = false;
         usePresetStore.setState({ presets: merged, isLoading: false });
-        savePresetsToBackend(merged);
+        sendPresets(merged);
       },
       (error) => {
         // Read again on the next use; changes stay in the list until then.
@@ -189,7 +188,7 @@ export function loadPresetLibrary(): Promise<void> {
 
 /** For tests: a new run, with nothing read yet. */
 export function resetPresetLibrary() {
-  savePresetsToBackend.cancel();
+  sendPresets.cancel();
   readRequest = null;
   changedSinceRead = false;
   fileRead = false;
@@ -221,14 +220,9 @@ export function usePresets(
   const setPresets = usePresetStore((s) => s.setPresets);
   const setIsLoading = usePresetStore((s) => s.setIsLoading);
 
-  // A pending save is written when the tool closes and before quitting.
-  useEffect(() => {
-    const unregister = registerQuitFlush(async () => (await savePresetsToBackend.flush()) ?? []);
-    return () => {
-      unregister();
-      savePresetsToBackend.flush();
-    };
-  }, []);
+  // A pending save is written when the tool closes (before quitting,
+  // `presetSaves`' flush writes it too).
+  useEffect(() => () => sendPresets.flush(), []);
 
   // Read from disk once: later users share the list, which may hold changes
   // not written yet (a reload would put the older file over them).
@@ -281,7 +275,7 @@ export function usePresets(
     }
 
     setPresets(updatedPresets);
-    savePresetsToBackend(updatedPresets);
+    sendPresets(updatedPresets);
     return newPresetData;
   };
 
@@ -316,7 +310,7 @@ export function usePresets(
       updatedPresets.splice(firstPreset === -1 ? current.length : firstPreset, 0, folder);
     }
     setPresets(updatedPresets);
-    savePresetsToBackend(updatedPresets);
+    sendPresets(updatedPresets);
     return preset;
   };
 
@@ -339,7 +333,7 @@ export function usePresets(
         updatedPresets.splice(firstPresetIndex, 0, newFolder);
       }
 
-      savePresetsToBackend(updatedPresets);
+      sendPresets(updatedPresets);
       return updatedPresets;
     });
   };
@@ -358,7 +352,7 @@ export function usePresets(
       return item;
     });
     setPresets(updatedPresets);
-    savePresetsToBackend(updatedPresets);
+    sendPresets(updatedPresets);
   };
 
   const renameItem = (id: string | null, newName: string) => {
@@ -382,7 +376,7 @@ export function usePresets(
       return item;
     });
     setPresets(updatedPresets);
-    savePresetsToBackend(updatedPresets);
+    sendPresets(updatedPresets);
   };
 
   /** `scoped`: the settings to keep instead, for a preset of one tool's
@@ -475,7 +469,7 @@ export function usePresets(
     });
 
     setPresets(updatedPresets);
-    savePresetsToBackend(updatedPresets);
+    sendPresets(updatedPresets);
     return updatedPreset;
   };
 
@@ -531,7 +525,7 @@ export function usePresets(
       }
 
       setPresets(updatedPresets);
-      savePresetsToBackend(updatedPresets);
+      sendPresets(updatedPresets);
       return newPreset;
     },
     [presets]
@@ -607,7 +601,7 @@ export function usePresets(
       }
 
       setPresets(updatedPresets);
-      savePresetsToBackend(updatedPresets);
+      sendPresets(updatedPresets);
     },
     [presets]
   );
@@ -622,7 +616,7 @@ export function usePresets(
 
       if (activeRootIndex !== -1 && overRootIndex !== -1) {
         const newPresets: Array<UserPreset> = arrayMove(currentPresets, activeRootIndex, overRootIndex);
-        savePresetsToBackend(newPresets);
+        sendPresets(newPresets);
         return newPresets;
       }
 
@@ -644,7 +638,7 @@ export function usePresets(
               }
               return p;
             });
-            savePresetsToBackend(newPresets);
+            sendPresets(newPresets);
             return newPresets;
           }
         }
@@ -676,7 +670,7 @@ export function usePresets(
 
       const sortedPresets = [...folders, ...rootPresets];
 
-      savePresetsToBackend(sortedPresets);
+      sendPresets(sortedPresets);
       return sortedPresets;
     });
   }, []);

@@ -669,6 +669,8 @@ pub fn run() {
         .manage(state::thumbnails::ThumbnailState::default())
         .manage(state::ai::AiState::default())
         .manage(state::export::ExportState::default())
+        .manage(state::library_files::AlbumsStore::default())
+        .manage(state::library_files::PresetsStore::default())
         .invoke_handler(tauri::generate_handler![
             window_customizer::set_window_full_screen,
             session_bridge::session_create,

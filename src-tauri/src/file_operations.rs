@@ -12,7 +12,7 @@
 //! to another drive copies, verifies and then trashes the originals (ADR
 //! 0016); its progress goes to the Library, which can stop it.
 use crate::file_management::{
-    AlbumItem, add_to_album, get_albums_blocking, sync_album_path_changes,
+    AlbumItem, add_to_album_blocking, get_albums_blocking, sync_album_path_changes,
 };
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::layout::SESSION_MANIFEST;
@@ -636,7 +636,8 @@ struct CatalogSyncFailure {
 /// one just run (`current`) and any whose sync failed before (a locked
 /// database), so the catalog catches up in order. A failure leaves the
 /// operation pending for the next operation or start-up; the user hears
-/// about it for `current` only, once.
+/// about it for `current` only, once. Call with nothing that waits for the
+/// main thread held: the album changes take the album list's write lock.
 fn sync_pending(app: &AppHandle, current: Option<&str>) {
     let pending = match with_journal(app, |journal| journal.unsynced()) {
         Ok(pending) => pending,
@@ -819,7 +820,10 @@ fn album_memberships(app: &AppHandle, items: &[String]) -> HashMap<String, Vec<S
 /// could not follow, or must not yet (`follows` false, see
 /// `sync_in_order`), the operation stays unsynced (retried later; every
 /// step is idempotent) and the error is returned. Albums follow at once in
-/// either case, in the order of the operations.
+/// either case, in the order of the operations. It takes the album list's
+/// write lock (`state::library_files`), which every caller must not hold on
+/// the main thread: they all run on blocking workers, as do the albums'
+/// commands and the presets' imports.
 fn sync(app: &AppHandle, op: &Operation, follows: bool) -> Result<(), String> {
     if matches!(op.state, State::PurgeCommitted | State::Purged) {
         // Emptied for good (or committed to be): records, previews and
@@ -887,7 +891,7 @@ fn sync(app: &AppHandle, op: &Operation, follows: bool) -> Result<(), String> {
             .and_then(|a| serde_json::from_value::<HashMap<String, Vec<String>>>(a.clone()).ok())
         {
             for (album, images) in albums {
-                let _ = add_to_album(album, images, app.clone());
+                let _ = add_to_album_blocking(&album, &images, app);
             }
         }
     }
