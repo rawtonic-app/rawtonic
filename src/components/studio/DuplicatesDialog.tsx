@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Invokes } from '../ui/AppProperties';
 import { notify } from '../../activity/notify';
+import { errorMessage } from '../../shared/ipc/errors';
 import { registerAppCommands } from '../../utils/appCommands';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useProcessStore } from '../../store/useProcessStore';
@@ -106,7 +107,7 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
           );
           setPhase({ kind: 'review', groups, finished });
         })
-        .catch((error) => setPhase({ kind: 'failed', error: String(error) }));
+        .catch((error) => setPhase({ kind: 'failed', error: errorMessage(error) }));
     },
     [directory]
   );
@@ -143,7 +144,7 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
         if (ended) finished(ended);
         else setPhase((phase) => (phase.kind === 'reading' ? { ...phase, run: started } : phase));
       })
-      .catch((error) => current && setPhase({ kind: 'failed', error: String(error) }));
+      .catch((error) => current && setPhase({ kind: 'failed', error: errorMessage(error) }));
     return () => {
       current = false;
       for (const stop of stops) void stop.then((unlisten) => unlisten()).catch(() => {});
@@ -209,7 +210,7 @@ function DuplicatesDialog({ directory, trash }: { directory: string | null; tras
       close();
       await trash(marked, { includeAssociated: false });
     } catch (error) {
-      const text = t('duplicates.failed', { error: String(error) });
+      const text = t('duplicates.failed', { error: errorMessage(error) });
       setProblem(text);
       notify.error(text);
       setBusy(false);

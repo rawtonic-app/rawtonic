@@ -10,8 +10,9 @@
 //! "Is duplicate" rule count again); `duplicates_cancel` stops it, keeping
 //! what it recorded.
 use crate::file_management::parse_virtual_path;
+use crate::ipc::CommandError;
 use crate::library_search::{FACTS_RECORDED, announcer};
-use crate::session_bridge::with_library;
+use crate::session_bridge::typed_with_library;
 use rawtonic_catalog::Library;
 use rawtonic_catalog::duplicates::{DuplicateMember, Refusal, suggested_trash};
 use serde::Serialize;
@@ -186,11 +187,9 @@ pub(crate) fn start_pass_if_needed(lib: &Library, rule: &rawtonic_catalog::Rule)
 /// Starts reading the image data of the library's photographs that have no
 /// current hash; returns the pass's number (its events carry it).
 #[tauri::command]
-pub fn duplicates_start(app: tauri::AppHandle, directory: String) -> Result<u64, String> {
-    let directory = Path::new(&directory)
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    start(app, directory)
+pub fn duplicates_start(app: tauri::AppHandle, directory: String) -> Result<u64, CommandError> {
+    let directory = Path::new(&directory).canonicalize()?;
+    Ok(start(app, directory)?)
 }
 
 /// Stops pass `run`; what it recorded is kept.
@@ -221,32 +220,44 @@ pub struct ReviewMember {
 pub async fn duplicates_groups(
     app: tauri::AppHandle,
     directory: String,
-) -> Result<Vec<Vec<ReviewMember>>, String> {
+) -> Result<Vec<Vec<ReviewMember>>, CommandError> {
     let settings = crate::state::settings::current(&app);
-    with_library(directory, false, move |lib| {
-        let groups = lib.duplicate_groups().map_err(|e| e.to_string())?;
-        Ok(groups
-            .into_iter()
-            .map(|group| {
-                let edited: Vec<bool> = group
-                    .iter()
-                    .map(|member| edited(lib, member, &settings))
-                    .collect();
-                let suggested = suggested_trash(&group, &edited);
-                group
-                    .into_iter()
-                    .zip(edited.into_iter().zip(suggested))
-                    .map(|(member, (edited, suggested))| ReviewMember {
-                        member,
-                        edited,
-                        suggested,
-                    })
-                    .collect()
-            })
-            .collect())
-    })
+    typed_with_library(
+        directory,
+        false,
+        move |lib| {
+            let groups = lib.duplicate_groups()?;
+            Ok(groups
+                .into_iter()
+                .map(|group| {
+                    let edited: Vec<bool> = group
+                        .iter()
+                        .map(|member| edited(lib, member, &settings))
+                        .collect();
+                    let suggested = suggested_trash(&group, &edited);
+                    group
+                        .into_iter()
+                        .zip(edited.into_iter().zip(suggested))
+                        .map(|(member, (edited, suggested))| ReviewMember {
+                            member,
+                            edited,
+                            suggested,
+                        })
+                        .collect()
+                })
+                .collect())
+        },
+        CommandError::from,
+    )
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(task_failed)?
+}
+
+/// A blocking worker that ended without an answer (panicked): nothing it
+/// worked on is reported.
+fn task_failed(join: tauri::Error) -> CommandError {
+    // The text these commands always showed for a dead worker.
+    CommandError::internal(join.to_string())
 }
 
 fn edited(
@@ -280,28 +291,100 @@ pub async fn duplicates_confirm(
     directory: String,
     keep: Vec<String>,
     trash: Vec<String>,
-) -> Result<Vec<Refused>, String> {
-    with_library(directory, false, move |lib| {
-        let paths = |paths: &[String]| -> Vec<PathBuf> {
-            paths.iter().map(|p| parse_virtual_path(p).0).collect()
-        };
-        let refused = lib
-            .confirm_duplicates(&paths(&keep), &paths(&trash))
-            .map_err(|e| e.to_string())?;
-        Ok(trash
-            .into_iter()
-            .filter_map(|p| {
-                let source = parse_virtual_path(&p).0;
-                refused
-                    .iter()
-                    .find(|(path, _)| *path == source)
-                    .map(|(_, reason)| Refused {
-                        path: p,
-                        reason: *reason,
-                    })
-            })
-            .collect())
-    })
+) -> Result<Vec<Refused>, CommandError> {
+    typed_with_library(
+        directory,
+        false,
+        move |lib| {
+            let paths = |paths: &[String]| -> Vec<PathBuf> {
+                paths.iter().map(|p| parse_virtual_path(p).0).collect()
+            };
+            let refused = lib.confirm_duplicates(&paths(&keep), &paths(&trash))?;
+            Ok(trash
+                .into_iter()
+                .filter_map(|p| {
+                    let source = parse_virtual_path(&p).0;
+                    refused
+                        .iter()
+                        .find(|(path, _)| *path == source)
+                        .map(|(_, reason)| Refused {
+                            path: p,
+                            reason: *reason,
+                        })
+                })
+                .collect())
+        },
+        CommandError::from,
+    )
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(task_failed)?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ipc::ErrorCode;
+    use rawtonic_catalog::Mode;
+
+    #[tokio::test]
+    async fn a_session_that_closed_is_internal_with_the_text_it_had() {
+        let temp = tempfile::tempdir().unwrap();
+        let job = temp.path().join("Job");
+        Library::create(&job, "Job", Mode::Session).unwrap();
+        std::fs::remove_file(job.join("session.json")).unwrap();
+        let error = typed_with_library(
+            job.to_string_lossy().into_owned(),
+            false,
+            |lib| -> Result<(), CommandError> {
+                lib.duplicate_groups()?;
+                Ok(())
+            },
+            CommandError::from,
+        )
+        .await
+        .map_err(task_failed)
+        .and_then(|groups| groups)
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Internal);
+        assert!(
+            error
+                .message
+                .contains("No Rawtonic session or catalog in this folder"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_library_folder_is_not_found_with_the_text_it_had() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("Gone");
+        let error = typed_with_library(
+            missing.to_string_lossy().into_owned(),
+            false,
+            |lib| -> Result<(), CommandError> {
+                lib.duplicate_groups()?;
+                Ok(())
+            },
+            CommandError::from,
+        )
+        .await
+        .map_err(task_failed)
+        .and_then(|groups| groups)
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::NotFound);
+        assert!(!error.message.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_worker_that_ended_without_an_answer_is_internal() {
+        let joined = tauri::async_runtime::spawn_blocking(|| -> Result<(), CommandError> {
+            panic!("the worker died")
+        })
+        .await
+        .unwrap_err();
+        let error = task_failed(joined);
+        assert_eq!(error.code, ErrorCode::Internal);
+        assert!(!error.message.starts_with("Task failed: "), "{error}");
+        assert!(!error.message.is_empty());
+    }
 }

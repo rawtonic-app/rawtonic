@@ -2,6 +2,7 @@ import i18n from 'i18next';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { notify } from '../activity/notify';
+import { errorMessage } from '../shared/ipc/errors';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -62,7 +63,7 @@ async function run(command: Invokes, args: Record<string, unknown>, paths: strin
     stackAction(result.library, result.change, paths);
     await refreshStacks(result.library);
   } catch (error) {
-    notify.error(i18n.t('stacks.failed', { error: String(error) }));
+    notify.error(i18n.t('stacks.failed', { error: errorMessage(error) }));
   }
 }
 

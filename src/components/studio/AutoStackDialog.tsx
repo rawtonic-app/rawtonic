@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { notify } from '../../activity/notify';
+import { errorMessage } from '../../shared/ipc/errors';
 import { Invokes } from '../ui/AppProperties';
 import { stackAction } from '../../utils/appUndo';
 import { invokeInOrder } from '../../utils/catalogWrites';
@@ -84,7 +85,7 @@ function AutoStackDialog({ paths }: { paths: string[] }) {
       options: { intervalSecs: seconds, useCameraData }
     })
       .then((next) => current && setPlan({ key, plan: next }))
-      .catch((error) => current && setFailure(t('stacks.failed', { error: String(error) })));
+      .catch((error) => current && setFailure(t('stacks.failed', { error: errorMessage(error) })));
     return () => {
       current = false;
     };
@@ -110,7 +111,7 @@ function AutoStackDialog({ paths }: { paths: string[] }) {
       notify.success(t('stacks.auto.done', { count: result.change.after.length }));
       close();
     } catch (error) {
-      setFailure(t('stacks.failed', { error: String(error) }));
+      setFailure(t('stacks.failed', { error: errorMessage(error) }));
       setApplying(false);
     }
   };

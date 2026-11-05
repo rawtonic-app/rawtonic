@@ -25,15 +25,37 @@ const squash = (text: string) =>
     .replace(/\s*,\s*\)/g, ')')
     .trim();
 
-/** Every Tauri command of src-tauri: its arguments and its return type. */
+/** Every Tauri command of src-tauri: its arguments and its return type.
+ * The argument list is read by parenthesis depth, not up to the first `)`:
+ * a command with no return value and no `async` (or `#[allow]` between its
+ * attributes) has a body whose grouping would otherwise pass for the list. */
 function commands(): Map<string, { args: string; returns: string }> {
   const found = new Map<string, { args: string; returns: string }>();
+  const signature =
+    /#\[tauri::command[^\]]*\]\s*(?:#\[[^\]]*\]\s*)*pub(?:\([a-z]+\))?\s+(?:async\s+)?fn\s+(?:<[^>]*>\s*)?([a-z0-9_]+)\s*(?:<[^>]*>)?\(/g;
   for (const file of rustFiles('src-tauri/src')) {
     const source = read(file);
-    for (const [, name, args, returns] of source.matchAll(
-      /#\[tauri::command[^\]]*\]\s*(?:#\[[^\]]*\]\s*)*pub(?:\([a-z]+\))?\s+(?:async\s+)?fn\s+([a-z0-9_]+)\s*(?:<[^>]*>)?\(([\s\S]*?)\)\s*->\s*([\s\S]*?)\s*\{\n/g
-    )) {
-      found.set(name, { args: squash(args.replace(/\/\/[^\n]*/g, '')), returns: squash(returns) });
+    for (const signatureStart of source.matchAll(signature)) {
+      const name = signatureStart[1];
+      const open = signatureStart.index! + signatureStart[0].length;
+      let depth = 1;
+      let at = open;
+      for (; at < source.length && depth > 0; at++) {
+        // A comment's line is not part of the signature.
+        if (source.startsWith('//', at)) {
+          at = source.indexOf('\n', at);
+          continue;
+        }
+        if (source[at] === '(') depth++;
+        else if (source[at] === ')') depth--;
+      }
+      if (depth !== 0) continue;
+      const rest = source.slice(at).match(/^\s*->\s*([^{]*?)\s*\{\n/);
+      if (!rest) continue;
+      found.set(name, {
+        args: squash(source.slice(open, at - 1).replace(/\/\/[^\n]*/g, '')),
+        returns: squash(rest[1])
+      });
     }
   }
   return found;
@@ -49,6 +71,18 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
   apply_adjustments: {
     args: `preview_channel: Option<tauri::ipc::JavaScriptChannelId>, webview: tauri::Webview, js_adjustments: Option<serde_json::Value>, live_stroke: Option<crate::live_stroke::LiveStroke>, is_interactive: bool, target_resolution: Option<u32>, roi: Option<(f32, f32, f32, f32)>, request_analytics: bool, compute_waveform: bool, active_waveform_channel: Option<String>, sequence: Option<u64>, mask_overlay: Option<crate::app_state::MaskOverlayRequest>, crop_edit: Option<bool>, browser_preview_uri: Option<bool>, state: tauri::State<'_, AppState>`,
     ok: `Response`
+  },
+  duplicates_confirm: {
+    args: `directory: String, keep: Vec<String>, trash: Vec<String>`,
+    ok: `Vec<Refused>`
+  },
+  duplicates_groups: {
+    args: `app: tauri::AppHandle, directory: String`,
+    ok: `Vec<Vec<ReviewMember>>`
+  },
+  duplicates_start: {
+    args: `app: tauri::AppHandle, directory: String`,
+    ok: `u64`
   },
   apply_ai_denoise: {
     args: `path: String, amount: f32, version: Option<u8>, multiscale: Option<bool>, dead_pixel_adjacent: Option<bool>, unbiased_black: Option<bool>, border_black: Option<bool>, highlight_ratios: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
@@ -117,6 +151,50 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
   start_background_indexing: {
     args: `folder_path: String, app_handle: AppHandle, state: State<'_, AppState>`,
     ok: `()`
+  },
+  stacks_auto_apply: {
+    args: `library: String, groups: Vec<AutoGroup>`,
+    ok: `StackResult`
+  },
+  stacks_auto_plan: {
+    args: `paths: Vec<String>, options: AutoStackOptions`,
+    ok: `WebAutoPlan`
+  },
+  stacks_group: {
+    args: `paths: Vec<String>`,
+    ok: `StackResult`
+  },
+  stacks_list: {
+    args: `directory: String`,
+    ok: `Vec<WebStack>`
+  },
+  stacks_move: {
+    args: `paths: Vec<String>, up: bool`,
+    ok: `StackResult`
+  },
+  stacks_move_to_top: {
+    args: `path: String`,
+    ok: `StackResult`
+  },
+  stacks_remove: {
+    args: `paths: Vec<String>`,
+    ok: `StackResult`
+  },
+  stacks_restore: {
+    args: `library: String, change: StackChange, undo: bool`,
+    ok: `()`
+  },
+  stacks_set_collapsed: {
+    args: `paths: Vec<String>, collapsed: Option<bool>`,
+    ok: `StackResult`
+  },
+  stacks_split: {
+    args: `paths: Vec<String>`,
+    ok: `SplitResult`
+  },
+  stacks_unstack: {
+    args: `paths: Vec<String>`,
+    ok: `StackResult`
   },
   start_eye_check: {
     args: `directory: String, download: bool, resume: bool, app_handle: tauri::AppHandle`,

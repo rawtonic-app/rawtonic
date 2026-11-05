@@ -1,4 +1,5 @@
 //! Transitional adapter between the inherited renderer and the portable DB.
+use crate::ipc::CommandError;
 use rawtonic_catalog::{Library, Mode, Summary, session_for};
 use rawtonic_metadata::photo_ref::{SIDECAR_SUFFIX, sidecar_name};
 use serde_json::Value;
@@ -1380,20 +1381,41 @@ pub async fn session_set_text_metadata(
     .map_err(|e| e.to_string())?
 }
 
+/// `with_library` returning `E` errors: `String` for the commands not
+/// converted yet, `CommandError` for those that are. The write lock and
+/// the reopened library fail into `E`, so a typed command keeps the code
+/// of its cause (a missing library is `not_found`).
+pub(crate) fn typed_with_library<T: Send + 'static, E: Send + 'static>(
+    directory: String,
+    write: bool,
+    work: impl FnOnce(&Library) -> Result<T, E> + Send + 'static,
+    library_error: fn(rawtonic_catalog::CatalogError) -> E,
+) -> tauri::async_runtime::JoinHandle<Result<T, E>>
+where
+    CommandError: Into<E>,
+    String: Into<E>,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let _lock = if write {
+            let locked = WRITE_LOCK.lock();
+            let held: Result<_, E> = locked.map_err(|e| e.to_string()).map_err(Into::into);
+            Some(held?)
+        } else {
+            None
+        };
+        // Opened as the work's own error type: a text command keeps the text
+        // it always showed, a typed one gets the code of the cause.
+        let lib: Result<Library, E> = Library::open(Path::new(&directory)).map_err(library_error);
+        work(&lib?)
+    })
+}
+
 pub(crate) fn with_library<T: Send + 'static>(
     directory: String,
     write: bool,
     work: impl FnOnce(&Library) -> Result<T, String> + Send + 'static,
 ) -> tauri::async_runtime::JoinHandle<Result<T, String>> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let _lock = if write {
-            Some(WRITE_LOCK.lock().map_err(|e| e.to_string())?)
-        } else {
-            None
-        };
-        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
-        work(&lib)
-    })
+    typed_with_library(directory, write, work, |error| error.to_string())
 }
 
 /// `with_library` for work already on a blocking thread: under the write

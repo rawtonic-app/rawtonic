@@ -99,3 +99,14 @@ it('names intervals from a second to an hour', () => {
   expect(intervalText(90, t)).toBe('1 min 30 s');
   expect(intervalText(3600, t)).toBe('60 minutes');
 });
+
+it('shows the message of a structured backend refusal', async () => {
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === 'stacks_auto_plan') throw { code: 'not_found', message: 'These photos are not in a library' };
+    return [];
+  });
+  useAutoStackDialog.getState().open(paths);
+  render(<AutoStackDialogHost />);
+  await screen.findByText(/These photos are not in a library/);
+  expect(screen.queryByText(/\[object Object\]/)).toBeNull();
+});

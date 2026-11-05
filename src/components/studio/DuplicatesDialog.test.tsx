@@ -253,3 +253,14 @@ it('needs a library', async () => {
   expect(screen.getByText('Open a project or catalog to find duplicates.')).toBeTruthy();
   expect(calls('duplicates_start')).toHaveLength(0);
 });
+
+it('shows the message of a structured backend refusal', async () => {
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === 'duplicates_start') throw { code: 'not_found', message: 'No such file or directory (os error 2)' };
+    return undefined;
+  });
+  render(<DuplicatesDialogHost trash={trash} />);
+  act(() => useDuplicatesDialog.getState().show());
+  await screen.findByText(/No such file or directory \(os error 2\)/);
+  expect(screen.queryByText(/\[object Object\]/)).toBeNull();
+});
