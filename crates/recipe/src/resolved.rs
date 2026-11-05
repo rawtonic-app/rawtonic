@@ -7,7 +7,7 @@ use crate::tone::Tone;
 /// The typed sections of a recipe ready to render, produced only by
 /// [`normalize`] and never saved. Sections not moved here yet are read by
 /// the engine from the stored recipe.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct ResolvedRecipe {
     pub tone: Tone,

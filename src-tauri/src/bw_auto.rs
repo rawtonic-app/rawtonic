@@ -279,7 +279,7 @@ pub async fn auto_gray_mix(
         let mut recipe = js_adjustments;
         let version = crate::image_processing::bw_version(&recipe);
         crate::adjustment_utils::normalize_editor_recipe(&develop, &mut recipe);
-        recipe["blackAndWhite"] = serde_json::Value::Bool(false);
+        recipe[rawtonic_recipe::color::BLACK_AND_WHITE.name()] = serde_json::Value::Bool(false);
         recipe["masks"] = serde_json::json!([]);
         let tone_mapper =
             crate::image_processing::resolve_tonemapper_override_from_handle(&app_handle, is_raw);

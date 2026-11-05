@@ -199,6 +199,21 @@ impl Default for Grading {
 }
 
 impl Grading {
+    pub fn from_recipe(value: rawtonic_recipe::color::Grading) -> Self {
+        let wheels = value.wheels.map(|wheel| Wheel {
+            hue: (wheel.hue as f32).rem_euclid(360.0),
+            saturation: (wheel.saturation as f32).clamp(0.0, 100.0),
+            luminance: (wheel.luminance as f32).clamp(-100.0, 100.0),
+        });
+        Self {
+            shadows: wheels[0],
+            midtones: wheels[1],
+            highlights: wheels[2],
+            global: wheels[3],
+            blending: value.blending.clamp(0.0, 100.0) as f32,
+            balance: value.balance.clamp(-100.0, 100.0) as f32,
+        }
+    }
     pub fn from_json(value: &Value) -> Self {
         if value.is_null() {
             return Self::default();
