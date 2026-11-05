@@ -1079,6 +1079,82 @@ fn a_listed_focal_length_or_aperture_selects_what_it_counts() {
 }
 
 #[test]
+fn the_focal_length_list_counts_whole_millimetres_in_order() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    fs::create_dir_all(&capture).unwrap();
+    // A zoom and a prime at the same focal length are one value (as in
+    // Lightroom's and Capture One's lists): the photograph is listed once.
+    let shots: [(&str, Option<f64>); 12] = [
+        ("zoom24.ARW", Some(24.0)),
+        ("zoom69.ARW", Some(68.7)),
+        ("prime50.ARW", Some(50.0)),
+        ("zoom50.ARW", Some(50.0)),
+        ("prime50jitter.ARW", Some(50.3)),
+        ("zoom49.6.ARW", Some(49.6)),
+        ("prime85.ARW", Some(85.0)),
+        ("zoom105.ARW", Some(105.0)),
+        ("phone4.ARW", Some(4.3)),
+        // No focal length read, and values no lens has: all unknown.
+        ("nofocal.HEIC", None),
+        ("zero.ARW", Some(0.0)),
+        ("negative.ARW", Some(-5.0)),
+    ];
+    for (name, focal) in shots {
+        let path = capture.join(name);
+        fs::write(&path, name.as_bytes()).unwrap();
+        let id = lib.add_asset(&path).unwrap().id;
+        lib.record_facts(
+            &id,
+            &CaptureFacts {
+                focal_length: focal,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    let facets = lib
+        .facets(&Rule::everything(), &[Field::FocalLength])
+        .unwrap();
+    let listed: Vec<(&str, usize)> = facets[&Field::FocalLength]
+        .iter()
+        .map(|v| (v.value.as_str(), v.count))
+        .collect();
+    // Whole millimetres as photographers read them, numbers ascending,
+    // the photographs without one last; each counts what choosing it finds.
+    assert_eq!(
+        listed,
+        [
+            ("4", 1),
+            ("24", 1),
+            ("50", 4),
+            ("69", 1),
+            ("85", 1),
+            ("105", 1),
+            ("", 3)
+        ]
+    );
+    for (value, count) in &listed {
+        let rule = if value.is_empty() {
+            json!({"field":"focalLength","op":"empty","value":null})
+        } else {
+            json!({"field":"focalLength","op":"is","value":value.parse::<f64>().unwrap()})
+        };
+        assert_eq!(found(&lib, rule).len(), *count, "focal length {value:?}");
+    }
+    assert_eq!(
+        found(&lib, json!({"field":"focalLength","op":"is","value":50})),
+        [
+            "prime50.ARW",
+            "prime50jitter.ARW",
+            "zoom49.6.ARW",
+            "zoom50.ARW"
+        ]
+    );
+}
+
+#[test]
 fn details_are_the_searchable_text_without_keywords() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = library(d.path());

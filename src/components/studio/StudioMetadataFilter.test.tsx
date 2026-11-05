@@ -148,6 +148,54 @@ it('chooses a run of values with Shift-click (ISO 800 to 3200), not the photogra
   expect(useLibraryStore.getState().filterCriteria.metadata?.iso).toEqual(['800', '1600', '3200', '6400', '']);
 });
 
+it('lists focal lengths in millimetres with counts in their order, a click choosing one', async () => {
+  // The catalog lists whole millimetres ascending, the photographs without one last.
+  mockInvoke.mockResolvedValue({
+    focalLength: [
+      { value: '24', count: 12 },
+      { value: '50', count: 30 },
+      { value: '105', count: 4 },
+      { value: '', count: 2 }
+    ]
+  });
+  render(<StudioMetadataFilter />);
+  await counted();
+  const column = within(screen.getByRole('group', { name: 'Focal length' }));
+  const labels = () =>
+    column
+      .getAllByRole('button')
+      .slice(1)
+      .map((b) => b.textContent);
+  expect(labels()).toEqual(['24 mm12', '50 mm30', '105 mm4', 'Unknown focal length2']);
+  // Choosing one filters the grid as a camera does; the count is the photographs it finds.
+  fireEvent.click(column.getByText('50 mm'));
+  expect(useLibraryStore.getState().filterCriteria.metadata).toEqual({ focalLength: ['50'] });
+  await counted();
+  // The condition compares the number, not the text.
+  const args = mockInvoke.mock.calls.at(-1)?.[1] as {
+    requests: { field: string; rule: { rules: { field: string; op: string; value: unknown }[] } }[];
+  };
+  const focal = (field: string) =>
+    (args.requests.find((r) => r.field === field)!.rule.rules as { field: string }[]).filter(
+      (r) => r.field === 'focalLength'
+    );
+  // The focal length list leaves out its own choice (its counts say what
+  // choosing another value adds); every other list narrows by it.
+  expect(focal('focalLength')).toEqual([]);
+  expect(focal('camera')).toEqual([{ field: 'focalLength', op: 'is', value: 50 }]);
+  // The photographs without a focal length are chosen as such.
+  fireEvent.click(column.getByText('Unknown focal length'));
+  expect(useLibraryStore.getState().filterCriteria.metadata?.focalLength).toEqual(['50', '']);
+  await counted();
+  // Its own list leaves out its own choice: both values are offered again.
+  const next = (
+    mockInvoke.mock.calls.at(-1)?.[1] as {
+      requests: { field: string; rule: { rules: { field: string }[] } }[];
+    }
+  ).requests.find((r) => r.field === 'focalLength')!.rule;
+  expect(next.rules.filter((r) => r.field === 'focalLength')).toEqual([]);
+});
+
 it('lists capture dates by year, a year chosen in one click, its months on demand', async () => {
   mockInvoke.mockResolvedValue({
     captureDate: [
