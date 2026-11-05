@@ -256,7 +256,8 @@ pub async fn duplicates_groups(
 /// A blocking worker that ended without an answer (panicked): nothing it
 /// worked on is reported.
 fn task_failed(join: tauri::Error) -> CommandError {
-    CommandError::internal(format!("Task failed: {join}"))
+    // The text these commands always showed for a dead worker.
+    CommandError::internal(join.to_string())
 }
 
 fn edited(
@@ -383,6 +384,7 @@ mod tests {
         .unwrap_err();
         let error = task_failed(joined);
         assert_eq!(error.code, ErrorCode::Internal);
-        assert!(error.message.starts_with("Task failed: "), "{error}");
+        assert!(!error.message.starts_with("Task failed: "), "{error}");
+        assert!(!error.message.is_empty());
     }
 }
