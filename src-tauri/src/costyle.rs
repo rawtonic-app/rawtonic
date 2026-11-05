@@ -652,25 +652,25 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     for (key, region, map, index) in [
         (
             "ColorBalance",
-            recipe_color::GRADING_WHEELS[3],
+            recipe_color::GRADING_WHEELS[3].name(),
             &MASTER,
             None,
         ),
         (
             "ColorBalanceShadow",
-            recipe_color::GRADING_WHEELS[0],
+            recipe_color::GRADING_WHEELS[0].name(),
             &SHADOW,
             Some(0),
         ),
         (
             "ColorBalanceMidtone",
-            recipe_color::GRADING_WHEELS[1],
+            recipe_color::GRADING_WHEELS[1].name(),
             &MIDTONE,
             Some(1),
         ),
         (
             "ColorBalanceHighlight",
-            recipe_color::GRADING_WHEELS[2],
+            recipe_color::GRADING_WHEELS[2].name(),
             &HIGHLIGHT,
             Some(2),
         ),
@@ -700,14 +700,14 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
             bw("BwMagenta"),
         );
         let mix = [
-            ("red", r),
-            ("orange", (r + y) / 2.0),
-            ("yellow", y),
-            ("green", g),
-            ("aqua", c),
-            ("blue", b),
-            ("purple", (b + m) / 2.0),
-            ("magenta", m),
+            (recipe_color::GRAY_CHANNELS[0].name(), r),
+            (recipe_color::GRAY_CHANNELS[1].name(), (r + y) / 2.0),
+            (recipe_color::GRAY_CHANNELS[2].name(), y),
+            (recipe_color::GRAY_CHANNELS[3].name(), g),
+            (recipe_color::GRAY_CHANNELS[4].name(), c),
+            (recipe_color::GRAY_CHANNELS[5].name(), b),
+            (recipe_color::GRAY_CHANNELS[6].name(), (b + m) / 2.0),
+            (recipe_color::GRAY_CHANNELS[7].name(), m),
         ];
         if mix.iter().any(|(_, v)| *v != 0.0) {
             let mix: Map<String, Value> = mix
@@ -720,12 +720,12 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
             (
                 "BwDarkHue",
                 "BwDarkSaturation",
-                recipe_color::GRADING_WHEELS[0],
+                recipe_color::GRADING_WHEELS[0].name(),
             ),
             (
                 "BwLightHue",
                 "BwLightSaturation",
-                recipe_color::GRADING_WHEELS[2],
+                recipe_color::GRADING_WHEELS[2].name(),
             ),
         ] {
             let saturation = num(sat).unwrap_or(0.0);

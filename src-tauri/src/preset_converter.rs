@@ -557,14 +557,14 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     white_balance(&attrs, &mut adjustments);
 
     let colors = [
-        ("Red", recipe_color::HSL_CHANNELS[0]),
-        ("Orange", recipe_color::HSL_CHANNELS[1]),
-        ("Yellow", recipe_color::HSL_CHANNELS[2]),
-        ("Green", recipe_color::HSL_CHANNELS[3]),
-        ("Aqua", recipe_color::HSL_CHANNELS[4]),
-        ("Blue", recipe_color::HSL_CHANNELS[5]),
-        ("Purple", recipe_color::HSL_CHANNELS[6]),
-        ("Magenta", recipe_color::HSL_CHANNELS[7]),
+        ("Red", recipe_color::HSL_CHANNELS[0].name()),
+        ("Orange", recipe_color::HSL_CHANNELS[1].name()),
+        ("Yellow", recipe_color::HSL_CHANNELS[2].name()),
+        ("Green", recipe_color::HSL_CHANNELS[3].name()),
+        ("Aqua", recipe_color::HSL_CHANNELS[4].name()),
+        ("Blue", recipe_color::HSL_CHANNELS[5].name()),
+        ("Purple", recipe_color::HSL_CHANNELS[6].name()),
+        ("Magenta", recipe_color::HSL_CHANNELS[7].name()),
     ];
     for (src, dst) in colors {
         let mut color_map = Map::new();
@@ -680,25 +680,25 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     }
     if !shadows_map.is_empty() {
         color_grading_map.insert(
-            recipe_color::GRADING_WHEELS[0].to_string(),
+            recipe_color::GRADING_WHEELS[0].name().to_string(),
             Value::Object(shadows_map),
         );
     }
     if !midtones_map.is_empty() {
         color_grading_map.insert(
-            recipe_color::GRADING_WHEELS[1].to_string(),
+            recipe_color::GRADING_WHEELS[1].name().to_string(),
             Value::Object(midtones_map),
         );
     }
     if !highlights_map.is_empty() {
         color_grading_map.insert(
-            recipe_color::GRADING_WHEELS[2].to_string(),
+            recipe_color::GRADING_WHEELS[2].name().to_string(),
             Value::Object(highlights_map),
         );
     }
     if !global_map.is_empty() {
         color_grading_map.insert(
-            recipe_color::GRADING_WHEELS[3].to_string(),
+            recipe_color::GRADING_WHEELS[3].name().to_string(),
             Value::Object(global_map),
         );
     }

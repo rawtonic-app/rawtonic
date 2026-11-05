@@ -70,8 +70,15 @@ pub struct ColorRanges {
 }
 pub const BW_VERSION: Key<u64> = Key::new("bwVersion", 1, 1);
 pub const GRAY_MIXER: Key<GrayMixer> = Key::new("grayMixer", GrayMixer { channels: [0.0; 8] }, 1);
-pub const GRAY_CHANNELS: [&str; 8] = [
-    "red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta",
+pub const GRAY_CHANNELS: [Key<f64>; 8] = [
+    Key::new("red", 0.0, 1),
+    Key::new("orange", 0.0, 1),
+    Key::new("yellow", 0.0, 1),
+    Key::new("green", 0.0, 1),
+    Key::new("aqua", 0.0, 1),
+    Key::new("blue", 0.0, 1),
+    Key::new("purple", 0.0, 1),
+    Key::new("magenta", 0.0, 1),
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -81,8 +88,12 @@ pub struct GrayMixer {
 impl KeyValue for GrayMixer {
     fn from_json(value: &Value) -> Option<Self> {
         Some(Self {
-            channels: GRAY_CHANNELS
-                .map(|name| value.get(name).and_then(Value::as_f64).unwrap_or(0.0)),
+            channels: GRAY_CHANNELS.map(|key| {
+                value
+                    .get(key.name())
+                    .and_then(Value::as_f64)
+                    .unwrap_or(key.default())
+            }),
         })
     }
     fn to_json(&self) -> Value {
@@ -90,7 +101,7 @@ impl KeyValue for GrayMixer {
             GRAY_CHANNELS
                 .iter()
                 .zip(self.channels)
-                .map(|(name, v)| ((*name).into(), v.into()))
+                .map(|(key, v)| (key.name().into(), v.into()))
                 .collect(),
         )
     }
@@ -124,9 +135,21 @@ pub const CALIBRATION_KEYS: [Key<f64>; 7] = [
 ];
 pub const BLENDING: Key<f64> = Key::new("blending", 50.0, 1);
 pub const BALANCE: Key<f64> = Key::new("balance", 0.0, 1);
-pub const GRADING_WHEELS: [&str; 4] = ["shadows", "midtones", "highlights", "global"];
-pub const HSL_CHANNELS: [&str; 8] = [
-    "reds", "oranges", "yellows", "greens", "aquas", "blues", "purples", "magentas",
+pub const GRADING_WHEELS: [Key<HslChannel>; 4] = [
+    Key::new("shadows", HslChannel::ZERO, 1),
+    Key::new("midtones", HslChannel::ZERO, 1),
+    Key::new("highlights", HslChannel::ZERO, 1),
+    Key::new("global", HslChannel::ZERO, 1),
+];
+pub const HSL_CHANNELS: [Key<HslChannel>; 8] = [
+    Key::new("reds", HslChannel::ZERO, 1),
+    Key::new("oranges", HslChannel::ZERO, 1),
+    Key::new("yellows", HslChannel::ZERO, 1),
+    Key::new("greens", HslChannel::ZERO, 1),
+    Key::new("aquas", HslChannel::ZERO, 1),
+    Key::new("blues", HslChannel::ZERO, 1),
+    Key::new("purples", HslChannel::ZERO, 1),
+    Key::new("magentas", HslChannel::ZERO, 1),
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -142,6 +165,24 @@ impl HslChannel {
         luminance: 0.0,
     };
 }
+impl KeyValue for HslChannel {
+    fn from_json(value: &Value) -> Option<Self> {
+        let read = |key: &Key<f64>| {
+            value
+                .get(key.name())
+                .and_then(Value::as_f64)
+                .unwrap_or(key.default())
+        };
+        Some(Self {
+            hue: read(&HUE),
+            saturation: read(&SATURATION),
+            luminance: read(&LUMINANCE),
+        })
+    }
+    fn to_json(&self) -> Value {
+        serde_json::json!({HUE.name(): self.hue, SATURATION.name(): self.saturation, LUMINANCE.name(): self.luminance})
+    }
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Hsl {
     pub channels: [HslChannel; 8],
@@ -155,7 +196,7 @@ impl KeyValue for Hsl {
     fn from_json(value: &Value) -> Option<Self> {
         let object = value.as_object()?;
         let channels = std::array::from_fn(|i| {
-            let channel = object.get(HSL_CHANNELS[i]).unwrap_or(&Value::Null);
+            let channel = object.get(HSL_CHANNELS[i].name()).unwrap_or(&Value::Null);
             let read = |key: &Key<f64>| {
                 channel
                     .get(key.name())
@@ -172,7 +213,7 @@ impl KeyValue for Hsl {
     }
     fn to_json(&self) -> Value {
         let channels = self.channels.iter().enumerate().map(|(i, channel)| {
-            (HSL_CHANNELS[i].into(), serde_json::json!({HUE.name(): channel.hue, SATURATION.name(): channel.saturation, LUMINANCE.name(): channel.luminance}))
+            (HSL_CHANNELS[i].name().into(), serde_json::json!({HUE.name(): channel.hue, SATURATION.name(): channel.saturation, LUMINANCE.name(): channel.luminance}))
         }).collect();
         Value::Object(channels)
     }
@@ -214,8 +255,8 @@ impl KeyValue for Grading {
                 .unwrap_or(key.default())
         };
         Some(Self {
-            wheels: GRADING_WHEELS.map(|name| {
-                let wheel = value.get(name).unwrap_or(&Value::Null);
+            wheels: GRADING_WHEELS.map(|key| {
+                let wheel = value.get(key.name()).unwrap_or(&Value::Null);
                 HslChannel {
                     hue: read(wheel, &HUE),
                     saturation: read(wheel, &SATURATION),
@@ -229,7 +270,7 @@ impl KeyValue for Grading {
     fn to_json(&self) -> Value {
         let mut map = serde_json::Map::new();
         for (name, wheel) in GRADING_WHEELS.iter().zip(self.wheels) {
-            map.insert((*name).into(), serde_json::json!({HUE.name(): wheel.hue, SATURATION.name(): wheel.saturation, LUMINANCE.name(): wheel.luminance}));
+            map.insert(name.name().into(), serde_json::json!({HUE.name(): wheel.hue, SATURATION.name(): wheel.saturation, LUMINANCE.name(): wheel.luminance}));
         }
         map.insert(BLENDING.name().into(), self.blending.into());
         map.insert(BALANCE.name().into(), self.balance.into());
