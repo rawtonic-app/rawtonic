@@ -1458,6 +1458,12 @@ fn lensfun_folder(explicit: Option<PathBuf>) -> Result<PathBuf> {
 fn editor_recipe(sidecar: &std::path::Path) -> serde_json::Value {
     use rawtonic_engine::image_processing::ImageMetadata;
     let from_session = || -> Option<serde_json::Value> {
+        // Only a primary photo's recipe lives in the session: a virtual
+        // copy's sidecar (`<file>.<copy id>.rrdata`) is always read itself.
+        let name = sidecar.file_name()?.to_str()?;
+        let (_, None) = rawtonic_metadata::photo_ref::sidecar_name_parts(name)? else {
+            return None;
+        };
         let source = rawtonic_metadata::photo_ref::source_path_of_sidecar(sidecar)?;
         if !source.is_file() {
             return None;
