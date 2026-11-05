@@ -90,12 +90,3 @@ impl KeyValue for String {
         Value::String(self.clone())
     }
 }
-
-impl KeyValue for Value {
-    fn from_json(json: &Value) -> Option<Self> {
-        Some(json.clone())
-    }
-    fn to_json(&self) -> Value {
-        self.clone()
-    }
-}

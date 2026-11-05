@@ -13,7 +13,8 @@ pub const WHITE_BALANCE: Key<WhiteBalance> = Key::new("whiteBalance", WhiteBalan
 pub const WB_TEMPERATURE: Key<f64> = Key::new("wbTemperature", 0.0, 1);
 pub const WB_TINT: Key<f64> = Key::new("wbTint", 0.0, 1);
 pub const BLACK_AND_WHITE: Key<bool> = Key::new("blackAndWhite", false, 1);
-pub const COLOR_RANGES: Key<Value> = Key::new("colorRanges", Value::Null, 1);
+pub const COLOR_RANGES: Key<StoredColorRanges> =
+    Key::new("colorRanges", StoredColorRanges(Vec::new()), 1);
 pub const COLOR_RANGE_SHOW: Key<String> = Key::new("colorRangeShow", String::new(), 1);
 pub const RANGE_ID: Key<String> = Key::new("id", String::new(), 1);
 pub const RANGE_KEYS: [Key<f64>; 12] = [
@@ -32,9 +33,32 @@ pub const RANGE_KEYS: [Key<f64>; 12] = [
 ];
 pub const LIGHTNESS_UNIFORMITY: Key<f64> = Key::new("lightnessUniformity", 0.0, 1);
 
+/// An array as saved, retaining unknown fields and ranges beyond the renderer's limit.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StoredColorRanges(Vec<Value>);
+impl KeyValue for StoredColorRanges {
+    fn from_json(value: &Value) -> Option<Self> {
+        Some(Self(value.as_array()?.clone()))
+    }
+    fn to_json(&self) -> Value {
+        Value::Array(self.0.clone())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ColorRange {
-    pub values: [f64; 12],
+    pub hue: f64,
+    pub chroma: f64,
+    pub lightness: f64,
+    pub lightness_range: f64,
+    pub hue_range: f64,
+    pub chroma_range: f64,
+    pub smoothness: f64,
+    pub hue_shift: f64,
+    pub saturation: f64,
+    pub lightness_shift: f64,
+    pub hue_uniformity: f64,
+    pub saturation_uniformity: f64,
     pub lightness_uniformity: f64,
 }
 
@@ -80,8 +104,15 @@ pub const HSL: Key<Hsl> = Key::new(
 );
 pub const LUMINANCE: Key<f64> = Key::new("luminance", 0.0, 1);
 pub const COLOR_GRADING: Key<Grading> = Key::new("colorGrading", Grading::DEFAULT, 1);
-pub const COLOR_CALIBRATION: Key<Calibration> =
-    Key::new("colorCalibration", Calibration { values: [0.0; 7] }, 1);
+pub const COLOR_CALIBRATION: Key<Calibration> = Key::new(
+    "colorCalibration",
+    Calibration {
+        shadows_tint: 0.0,
+        hue: [0.0; 3],
+        saturation: [0.0; 3],
+    },
+    1,
+);
 pub const CALIBRATION_KEYS: [Key<f64>; 7] = [
     Key::new("shadowsTint", 0.0, 1),
     Key::new("redHue", 0.0, 1),
@@ -114,6 +145,11 @@ impl HslChannel {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Hsl {
     pub channels: [HslChannel; 8],
+}
+impl Hsl {
+    pub const MIN: f64 = -100.0;
+    pub const MAX: f64 = 100.0;
+    pub const STEP: f64 = 1.0;
 }
 impl KeyValue for Hsl {
     fn from_json(value: &Value) -> Option<Self> {
@@ -149,6 +185,13 @@ pub struct Grading {
     pub balance: f64,
 }
 impl Grading {
+    pub const HUE_MIN: f64 = 0.0;
+    pub const HUE_MAX: f64 = 359.0;
+    pub const SATURATION_MIN: f64 = 0.0;
+    pub const SATURATION_MAX: f64 = 100.0;
+    pub const LUMINANCE_MIN: f64 = -100.0;
+    pub const LUMINANCE_MAX: f64 = 100.0;
+    pub const STEP: f64 = 1.0;
     const DEFAULT: Self = Self {
         wheels: [HslChannel::ZERO; 4],
         blending: 50.0,
@@ -196,24 +239,43 @@ impl KeyValue for Grading {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Calibration {
-    pub values: [f64; 7],
+    pub shadows_tint: f64,
+    pub hue: [f64; 3],
+    pub saturation: [f64; 3],
+}
+impl Calibration {
+    pub const MIN: f64 = -100.0;
+    pub const MAX: f64 = 100.0;
+    pub const STEP: f64 = 1.0;
 }
 impl KeyValue for Calibration {
     fn from_json(value: &Value) -> Option<Self> {
+        let v = CALIBRATION_KEYS.map(|key| {
+            value
+                .get(key.name())
+                .and_then(Value::as_f64)
+                .unwrap_or(key.default())
+        });
         Some(Self {
-            values: CALIBRATION_KEYS.map(|key| {
-                value
-                    .get(key.name())
-                    .and_then(Value::as_f64)
-                    .unwrap_or(key.default())
-            }),
+            shadows_tint: v[0],
+            hue: [v[1], v[3], v[5]],
+            saturation: [v[2], v[4], v[6]],
         })
     }
     fn to_json(&self) -> Value {
+        let values = [
+            self.shadows_tint,
+            self.hue[0],
+            self.saturation[0],
+            self.hue[1],
+            self.saturation[1],
+            self.hue[2],
+            self.saturation[2],
+        ];
         Value::Object(
             CALIBRATION_KEYS
                 .iter()
-                .zip(self.values)
+                .zip(values)
                 .map(|(key, value)| (key.name().into(), value.into()))
                 .collect(),
         )
@@ -288,6 +350,42 @@ impl Hue {
     }
 }
 
+/// Absolute white-balance temperature (Develop slider: 2,000–50,000 K, step 50).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Kelvin(f64);
+impl Kelvin {
+    pub const MIN: f64 = 2000.0;
+    pub const MAX: f64 = 50_000.0;
+    pub const STEP: f64 = 50.0;
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+    pub fn in_range(self) -> bool {
+        (Self::MIN..=Self::MAX).contains(&self.0)
+    }
+}
+
+/// Absolute white-balance tint (Develop slider: −150–150, step 1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WhiteBalanceTint(f64);
+impl WhiteBalanceTint {
+    pub const MIN: f64 = -150.0;
+    pub const MAX: f64 = 150.0;
+    pub const STEP: f64 = 1.0;
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+    pub fn in_range(self) -> bool {
+        (Self::MIN..=Self::MAX).contains(&self.0)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WhiteBalanceSetting {
+    pub temperature: Kelvin,
+    pub tint: WhiteBalanceTint,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Color {
@@ -297,7 +395,7 @@ pub struct Color {
     pub saturation: Amount,
     pub hue: Hue,
     /// Preset or custom white balance, independent of section visibility.
-    pub white_balance: Option<(f64, f64)>,
+    pub white_balance: Option<WhiteBalanceSetting>,
     pub white_balance_visible: bool,
     pub hsl: Hsl,
     pub grading: Grading,
@@ -324,7 +422,18 @@ impl Color {
                             .unwrap_or(key.default())
                     };
                     color_ranges.ranges[i] = ColorRange {
-                        values: RANGE_KEYS.each_ref().map(read),
+                        hue: read(&RANGE_KEYS[0]),
+                        chroma: read(&RANGE_KEYS[1]),
+                        lightness: read(&RANGE_KEYS[2]),
+                        lightness_range: read(&RANGE_KEYS[3]),
+                        hue_range: read(&RANGE_KEYS[4]),
+                        chroma_range: read(&RANGE_KEYS[5]),
+                        smoothness: read(&RANGE_KEYS[6]),
+                        hue_shift: read(&RANGE_KEYS[7]),
+                        saturation: read(&RANGE_KEYS[8]),
+                        lightness_shift: read(&RANGE_KEYS[9]),
+                        hue_uniformity: read(&RANGE_KEYS[10]),
+                        saturation_uniformity: read(&RANGE_KEYS[11]),
                         lightness_uniformity: read(&LIGHTNESS_UNIFORMITY),
                     };
                     if color_ranges.shown.is_none()
@@ -351,7 +460,11 @@ impl Color {
                 )
             }),
             WhiteBalance::AsShot => None,
-        };
+        }
+        .map(|(temperature, tint)| WhiteBalanceSetting {
+            temperature: Kelvin(temperature),
+            tint: WhiteBalanceTint(tint),
+        });
         let read = |key, section| {
             if stored.section_visible(Section::COLOR) && stored.section_visible(section) {
                 stored.get_or_default(key)
@@ -443,12 +556,25 @@ mod tests {
             "colorCalibration": {"redHue": 160},
             "sectionVisibility": {"colorMixer": false, "colorGrading": false, "calibration": false}});
         let color = Color::resolve(StoredRef::new(&recipe));
-        assert_eq!(color.white_balance, Some((50_000.0, -150.0)));
+        let wb = color.white_balance.unwrap();
+        assert_eq!((wb.temperature.get(), wb.tint.get()), (50_000.0, -150.0));
         assert_eq!(color.hsl, Hsl::default());
         assert_eq!(color.grading.wheels[0].hue, -45.0);
         assert_eq!(color.grading.wheels[0].saturation, 130.0);
         assert_eq!(color.grading.blending, 125.0);
         assert!(!color.grading_visible && !color.calibration_visible);
-        assert_eq!(color.calibration.values[1], 160.0);
+        assert_eq!(color.calibration.hue[0], 160.0);
+    }
+
+    #[test]
+    fn stored_ranges_keep_unknown_fields_and_extra_entries() {
+        let ranges = json!([{"id": "a", "unknown": {"v": null}}, 3, null, {}, {}, {}, {}, {}, {"id": "ninth"}]);
+        let recipe = json!({"colorRanges": ranges});
+        let stored = StoredRef::new(&recipe).get(&COLOR_RANGES).unwrap();
+        assert_eq!(stored.to_json(), ranges);
+        assert_eq!(
+            Color::resolve(StoredRef::new(&recipe)).color_ranges.count,
+            8
+        );
     }
 }

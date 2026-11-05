@@ -25,6 +25,7 @@
 //! report, along with approximate skin entries, unsupported bounds/clipped
 //! values, unknown/malformed entries and ranges beyond the recipe limits.
 
+use rawtonic_recipe::color as recipe_color;
 use rawtonic_recipe::tone;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -154,9 +155,9 @@ fn wheel(map: &WheelMap, region: Option<usize>, (hue, sat, light): (f32, f32, f3
         (light.signum() * k * light.abs().powf(p)).clamp(-100.0, 100.0)
     });
     json!({
-        rawtonic_recipe::color::HUE.name(): rt_hue.round(),
-        rawtonic_recipe::color::SATURATION.name(): saturation.round(),
-        rawtonic_recipe::color::LUMINANCE.name(): luminance.round(),
+        recipe_color::HUE.name(): rt_hue.round(),
+        recipe_color::SATURATION.name(): saturation.round(),
+        recipe_color::LUMINANCE.name(): luminance.round(),
     })
 }
 
@@ -391,42 +392,32 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
             || lightness.abs() > 100.0;
         let mut range = json!({
             "id": Uuid::new_v4().to_string(),
-            rawtonic_recipe::color::HUE.name(): round((hue + 0.5 * (below + above)).rem_euclid(360.0)),
-            rawtonic_recipe::color::RANGE_KEYS[1].name(): CE_CHROMA,
-            rawtonic_recipe::color::RANGE_KEYS[2].name(): 0.5,
-            rawtonic_recipe::color::RANGE_KEYS[4].name(): round((CE_WIDTH_SCALE * 0.5 * (above - below) + CE_WIDTH_OFFSET).clamp(5.0, 90.0)),
-            rawtonic_recipe::color::RANGE_KEYS[5].name(): round((100.0 - CE_CHROMA_FLOOR * (f[11] + 100.0)).clamp(0.0, 100.0)),
-            rawtonic_recipe::color::RANGE_KEYS[3].name(): 100,
-            rawtonic_recipe::color::RANGE_KEYS[6].name(): round((CE_SMOOTH_BASE + CE_SMOOTH_SCALE * f[13]).clamp(0.0, 100.0)),
-            rawtonic_recipe::color::RANGE_KEYS[7].name(): round((2.0 * CE_HUE_SCALE * turn).clamp(-100.0, 100.0)),
-            rawtonic_recipe::color::SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
-            rawtonic_recipe::color::RANGE_KEYS[9].name(): round(lightness.clamp(-100.0, 100.0)),
-            rawtonic_recipe::color::RANGE_KEYS[10].name(): 0,
-            rawtonic_recipe::color::RANGE_KEYS[11].name(): 0,
-            rawtonic_recipe::color::LIGHTNESS_UNIFORMITY.name(): 0,
+            recipe_color::HUE.name(): round((hue + 0.5 * (below + above)).rem_euclid(360.0)),
+            recipe_color::RANGE_KEYS[1].name(): CE_CHROMA,
+            recipe_color::RANGE_KEYS[2].name(): 0.5,
+            recipe_color::RANGE_KEYS[4].name(): round((CE_WIDTH_SCALE * 0.5 * (above - below) + CE_WIDTH_OFFSET).clamp(5.0, 90.0)),
+            recipe_color::RANGE_KEYS[5].name(): round((100.0 - CE_CHROMA_FLOOR * (f[11] + 100.0)).clamp(0.0, 100.0)),
+            recipe_color::RANGE_KEYS[3].name(): 100,
+            recipe_color::RANGE_KEYS[6].name(): round((CE_SMOOTH_BASE + CE_SMOOTH_SCALE * f[13]).clamp(0.0, 100.0)),
+            recipe_color::RANGE_KEYS[7].name(): round((2.0 * CE_HUE_SCALE * turn).clamp(-100.0, 100.0)),
+            recipe_color::SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
+            recipe_color::RANGE_KEYS[9].name(): round(lightness.clamp(-100.0, 100.0)),
+            recipe_color::RANGE_KEYS[10].name(): 0,
+            recipe_color::RANGE_KEYS[11].name(): 0,
+            recipe_color::LIGHTNESS_UNIFORMITY.name(): 0,
         });
         if skin {
             range["kind"] = json!("skin");
             // Unlike an Advanced range, the centre is also the uniformity
             // target: retain the picked colour, not a typical-pixel proxy.
-            range[rawtonic_recipe::color::HUE.name()] = json!(round(picked_h));
-            range[rawtonic_recipe::color::RANGE_KEYS[1].name()] =
-                json!((picked_c * 1e6).round() / 1e6);
-            range[rawtonic_recipe::color::RANGE_KEYS[2].name()] =
-                json!((picked_l * 1e6).round() / 1e6);
+            range[recipe_color::HUE.name()] = json!(round(picked_h));
+            range[recipe_color::RANGE_KEYS[1].name()] = json!((picked_c * 1e6).round() / 1e6);
+            range[recipe_color::RANGE_KEYS[2].name()] = json!((picked_l * 1e6).round() / 1e6);
             for (key, field, scale) in [
+                (recipe_color::RANGE_KEYS[10].name(), 14, SKIN_UNIFORMITY_H),
+                (recipe_color::RANGE_KEYS[11].name(), 16, SKIN_UNIFORMITY_S),
                 (
-                    rawtonic_recipe::color::RANGE_KEYS[10].name(),
-                    14,
-                    SKIN_UNIFORMITY_H,
-                ),
-                (
-                    rawtonic_recipe::color::RANGE_KEYS[11].name(),
-                    16,
-                    SKIN_UNIFORMITY_S,
-                ),
-                (
-                    rawtonic_recipe::color::LIGHTNESS_UNIFORMITY.name(),
+                    recipe_color::LIGHTNESS_UNIFORMITY.name(),
                     17,
                     SKIN_UNIFORMITY_L,
                 ),
@@ -513,7 +504,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     if let Some(v) = num("Saturation") {
         put(
             &mut adjustments,
-            rawtonic_recipe::color::SATURATION.name(),
+            recipe_color::SATURATION.name(),
             0.73 * v,
             -100.0,
             100.0,
@@ -659,15 +650,35 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     // Color Balance → one colour grading.
     let mut grading = Map::new();
     for (key, region, map, index) in [
-        ("ColorBalance", "global", &MASTER, None),
-        ("ColorBalanceShadow", "shadows", &SHADOW, Some(0)),
-        ("ColorBalanceMidtone", "midtones", &MIDTONE, Some(1)),
-        ("ColorBalanceHighlight", "highlights", &HIGHLIGHT, Some(2)),
+        (
+            "ColorBalance",
+            recipe_color::GRADING_WHEELS[3],
+            &MASTER,
+            None,
+        ),
+        (
+            "ColorBalanceShadow",
+            recipe_color::GRADING_WHEELS[0],
+            &SHADOW,
+            Some(0),
+        ),
+        (
+            "ColorBalanceMidtone",
+            recipe_color::GRADING_WHEELS[1],
+            &MIDTONE,
+            Some(1),
+        ),
+        (
+            "ColorBalanceHighlight",
+            recipe_color::GRADING_WHEELS[2],
+            &HIGHLIGHT,
+            Some(2),
+        ),
     ] {
         if let Some(decoded) = s.get(key).and_then(|v| decode_color_balance(v)) {
             let w = wheel(map, index, decoded);
-            if w[rawtonic_recipe::color::SATURATION.name()] != json!(0.0)
-                || w[rawtonic_recipe::color::LUMINANCE.name()] != json!(0.0)
+            if w[recipe_color::SATURATION.name()] != json!(0.0)
+                || w[recipe_color::LUMINANCE.name()] != json!(0.0)
             {
                 grading.insert(region.to_string(), w);
             }
@@ -678,10 +689,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     // and purple between their neighbours); split toning onto the grading's
     // shadow and highlight wheels (hue 1:1, saturation 1:1, unmeasured).
     if num("BwEnabled").is_some_and(|v| v != 0.0) {
-        adjustments.insert(
-            rawtonic_recipe::color::BLACK_AND_WHITE.name().into(),
-            json!(true),
-        );
+        adjustments.insert(recipe_color::BLACK_AND_WHITE.name().into(), json!(true));
         let bw = |key: &str| num(key).unwrap_or(0.0).clamp(-100.0, 100.0);
         let (r, y, g, c, b, m) = (
             bw("BwRed"),
@@ -706,27 +714,32 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
                 .iter()
                 .map(|(k, v)| (k.to_string(), json!(v.round())))
                 .collect();
-            adjustments.insert(
-                rawtonic_recipe::color::GRAY_MIXER.name().into(),
-                Value::Object(mix),
-            );
+            adjustments.insert(recipe_color::GRAY_MIXER.name().into(), Value::Object(mix));
         }
         for (hue, sat, region) in [
-            ("BwDarkHue", "BwDarkSaturation", "shadows"),
-            ("BwLightHue", "BwLightSaturation", "highlights"),
+            (
+                "BwDarkHue",
+                "BwDarkSaturation",
+                recipe_color::GRADING_WHEELS[0],
+            ),
+            (
+                "BwLightHue",
+                "BwLightSaturation",
+                recipe_color::GRADING_WHEELS[2],
+            ),
         ] {
             let saturation = num(sat).unwrap_or(0.0);
             if saturation > 0.0 {
                 let luminance = grading
                     .get(region)
-                    .and_then(|w| w[rawtonic_recipe::color::LUMINANCE.name()].as_f64())
+                    .and_then(|w| w[recipe_color::LUMINANCE.name()].as_f64())
                     .unwrap_or(0.0);
                 grading.insert(
                     region.to_string(),
                     json!({
-                        rawtonic_recipe::color::HUE.name(): num(hue).unwrap_or(0.0).rem_euclid(360.0).round(),
-                        rawtonic_recipe::color::SATURATION.name(): saturation.clamp(0.0, 100.0).round(),
-                        rawtonic_recipe::color::LUMINANCE.name(): luminance,
+                        recipe_color::HUE.name(): num(hue).unwrap_or(0.0).rem_euclid(360.0).round(),
+                        recipe_color::SATURATION.name(): saturation.clamp(0.0, 100.0).round(),
+                        recipe_color::LUMINANCE.name(): luminance,
                     }),
                 );
             }
@@ -734,7 +747,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     }
     if !grading.is_empty() {
         adjustments.insert(
-            rawtonic_recipe::color::COLOR_GRADING.name().into(),
+            recipe_color::COLOR_GRADING.name().into(),
             Value::Object(grading),
         );
     }
@@ -773,7 +786,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
         color_editor_untranslated = untranslated;
         if !ranges.is_empty() {
             adjustments.insert(
-                rawtonic_recipe::color::COLOR_RANGES.name().into(),
+                recipe_color::COLOR_RANGES.name().into(),
                 Value::Array(ranges),
             );
         }

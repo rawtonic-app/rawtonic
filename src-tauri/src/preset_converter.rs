@@ -1,3 +1,4 @@
+use rawtonic_recipe::color as recipe_color;
 use rawtonic_recipe::tone;
 use regex::Regex;
 use regex::regex;
@@ -344,19 +345,19 @@ fn point_color_ranges_from(swatches: &[String], variances: &[String], limit: usi
         let round = |x: f64| (x * 1000.0).round() / 1000.0;
         ranges.push(json!({
             "id": Uuid::new_v4().to_string(),
-            rawtonic_recipe::color::HUE.name(): round(h0),
-            rawtonic_recipe::color::RANGE_KEYS[1].name(): round(c0),
-            rawtonic_recipe::color::RANGE_KEYS[2].name(): round(0.5 * (l_low + l_high)),
-            rawtonic_recipe::color::RANGE_KEYS[4].name(): round(half_width.clamp(5.0, 90.0)),
-            rawtonic_recipe::color::RANGE_KEYS[5].name(): round(chroma_range.clamp(0.0, 100.0)),
-            rawtonic_recipe::color::RANGE_KEYS[3].name(): round(((l_high - l_low) * 50.0 - 2.0).clamp(0.0, 100.0)),
-            rawtonic_recipe::color::RANGE_KEYS[6].name(): 55,
-            rawtonic_recipe::color::RANGE_KEYS[7].name(): round((hue_degrees / 0.5).clamp(-100.0, 100.0)),
-            rawtonic_recipe::color::SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
-            rawtonic_recipe::color::RANGE_KEYS[9].name(): round(lightness_shift.clamp(-100.0, 100.0)),
-            rawtonic_recipe::color::RANGE_KEYS[10].name(): round(uniformity),
-            rawtonic_recipe::color::RANGE_KEYS[11].name(): round(uniformity),
-            rawtonic_recipe::color::LIGHTNESS_UNIFORMITY.name(): round(uniformity),
+            recipe_color::HUE.name(): round(h0),
+            recipe_color::RANGE_KEYS[1].name(): round(c0),
+            recipe_color::RANGE_KEYS[2].name(): round(0.5 * (l_low + l_high)),
+            recipe_color::RANGE_KEYS[4].name(): round(half_width.clamp(5.0, 90.0)),
+            recipe_color::RANGE_KEYS[5].name(): round(chroma_range.clamp(0.0, 100.0)),
+            recipe_color::RANGE_KEYS[3].name(): round(((l_high - l_low) * 50.0 - 2.0).clamp(0.0, 100.0)),
+            recipe_color::RANGE_KEYS[6].name(): 55,
+            recipe_color::RANGE_KEYS[7].name(): round((hue_degrees / 0.5).clamp(-100.0, 100.0)),
+            recipe_color::SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
+            recipe_color::RANGE_KEYS[9].name(): round(lightness_shift.clamp(-100.0, 100.0)),
+            recipe_color::RANGE_KEYS[10].name(): round(uniformity),
+            recipe_color::RANGE_KEYS[11].name(): round(uniformity),
+            recipe_color::LIGHTNESS_UNIFORMITY.name(): round(uniformity),
         }));
     }
     ranges
@@ -390,7 +391,7 @@ fn white_balance(attrs: &HashMap<String, String>, adjustments: &mut Map<String, 
     };
     if let Some(preset) = preset {
         adjustments.insert(
-            rawtonic_recipe::color::WHITE_BALANCE.name().to_string(),
+            recipe_color::WHITE_BALANCE.name().to_string(),
             json!(preset),
         );
         return;
@@ -403,16 +404,13 @@ fn white_balance(attrs: &HashMap<String, String>, adjustments: &mut Map<String, 
     } else {
         "custom"
     };
+    adjustments.insert(recipe_color::WHITE_BALANCE.name().to_string(), json!(mode));
     adjustments.insert(
-        rawtonic_recipe::color::WHITE_BALANCE.name().to_string(),
-        json!(mode),
-    );
-    adjustments.insert(
-        rawtonic_recipe::color::WB_TEMPERATURE.name().to_string(),
+        recipe_color::WB_TEMPERATURE.name().to_string(),
         json!(temperature.clamp(2000.0, 50_000.0)),
     );
     adjustments.insert(
-        rawtonic_recipe::color::WB_TINT.name().to_string(),
+        recipe_color::WB_TINT.name().to_string(),
         json!(tint.unwrap_or(0.0).clamp(-150.0, 150.0)),
     );
 }
@@ -443,8 +441,8 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         ("Blacks2012", tone::BLACKS.name()),
         ("Clarity2012", "clarity"),
         ("Dehaze", "dehaze"),
-        ("Vibrance", rawtonic_recipe::color::VIBRANCE.name()),
-        ("Saturation", rawtonic_recipe::color::SATURATION.name()),
+        ("Vibrance", recipe_color::VIBRANCE.name()),
+        ("Saturation", recipe_color::SATURATION.name()),
         ("Texture", "structure"),
         ("SharpenRadius", "sharpenRadius"),
         ("SharpenDetail", "sharpenDetail"),
@@ -467,10 +465,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         ("GrainAmount", "grainAmount"),
         ("GrainSize", "grainSize"),
         ("GrainFrequency", "grainRoughness"),
-        (
-            "ColorGradeBlending",
-            rawtonic_recipe::color::BLENDING.name(),
-        ),
+        ("ColorGradeBlending", recipe_color::BLENDING.name()),
         ("DefringePurpleAmount", "defringePurpleAmount"),
         ("DefringePurpleHueLo", "defringePurpleHueLo"),
         ("DefringePurpleHueHi", "defringePurpleHueHi"),
@@ -496,7 +491,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             && let Some(num) = parse_num(raw_val.trim_start_matches('+'))
             && let Some(json_val) = num_to_json(num)
         {
-            if rr_key == rawtonic_recipe::color::BLENDING.name() {
+            if rr_key == recipe_color::BLENDING.name() {
                 color_grading_map.insert(rr_key.to_string(), json_val);
             } else {
                 adjustments.insert(rr_key.to_string(), json_val);
@@ -562,14 +557,14 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     white_balance(&attrs, &mut adjustments);
 
     let colors = [
-        ("Red", rawtonic_recipe::color::HSL_CHANNELS[0]),
-        ("Orange", rawtonic_recipe::color::HSL_CHANNELS[1]),
-        ("Yellow", rawtonic_recipe::color::HSL_CHANNELS[2]),
-        ("Green", rawtonic_recipe::color::HSL_CHANNELS[3]),
-        ("Aqua", rawtonic_recipe::color::HSL_CHANNELS[4]),
-        ("Blue", rawtonic_recipe::color::HSL_CHANNELS[5]),
-        ("Purple", rawtonic_recipe::color::HSL_CHANNELS[6]),
-        ("Magenta", rawtonic_recipe::color::HSL_CHANNELS[7]),
+        ("Red", recipe_color::HSL_CHANNELS[0]),
+        ("Orange", recipe_color::HSL_CHANNELS[1]),
+        ("Yellow", recipe_color::HSL_CHANNELS[2]),
+        ("Green", recipe_color::HSL_CHANNELS[3]),
+        ("Aqua", recipe_color::HSL_CHANNELS[4]),
+        ("Blue", recipe_color::HSL_CHANNELS[5]),
+        ("Purple", recipe_color::HSL_CHANNELS[6]),
+        ("Magenta", recipe_color::HSL_CHANNELS[7]),
     ];
     for (src, dst) in colors {
         let mut color_map = Map::new();
@@ -579,38 +574,26 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             && let Some(val_f64) = n.as_f64()
         {
             let adjusted_hue = val_f64 * 0.75;
-            color_map.insert(
-                rawtonic_recipe::color::HUE.name().to_string(),
-                json!(adjusted_hue),
-            );
+            color_map.insert(recipe_color::HUE.name().to_string(), json!(adjusted_hue));
         }
         if let Some(raw) = attrs.get(&format!("SaturationAdjustment{}", src))
             && let Some(num) = parse_num(raw.trim_start_matches('+'))
             && let Some(json_val) = num_to_json(num)
         {
-            color_map.insert(
-                rawtonic_recipe::color::SATURATION.name().to_string(),
-                json_val,
-            );
+            color_map.insert(recipe_color::SATURATION.name().to_string(), json_val);
         }
         if let Some(raw) = attrs.get(&format!("LuminanceAdjustment{}", src))
             && let Some(num) = parse_num(raw.trim_start_matches('+'))
             && let Some(json_val) = num_to_json(num)
         {
-            color_map.insert(
-                rawtonic_recipe::color::LUMINANCE.name().to_string(),
-                json_val,
-            );
+            color_map.insert(recipe_color::LUMINANCE.name().to_string(), json_val);
         }
         if !color_map.is_empty() {
             hsl_map.insert(dst.to_string(), Value::Object(color_map));
         }
     }
     if !hsl_map.is_empty() {
-        adjustments.insert(
-            rawtonic_recipe::color::HSL.name().to_string(),
-            Value::Object(hsl_map),
-        );
+        adjustments.insert(recipe_color::HSL.name().to_string(), Value::Object(hsl_map));
     }
 
     let mut shadows_map = Map::new();
@@ -621,125 +604,101 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        shadows_map.insert(rawtonic_recipe::color::HUE.name().to_string(), json_val);
+        shadows_map.insert(recipe_color::HUE.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("ColorGradeMidtoneHue")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        midtones_map.insert(rawtonic_recipe::color::HUE.name().to_string(), json_val);
+        midtones_map.insert(recipe_color::HUE.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("SplitToningHighlightHue")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        highlights_map.insert(rawtonic_recipe::color::HUE.name().to_string(), json_val);
+        highlights_map.insert(recipe_color::HUE.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("SplitToningShadowSaturation")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        shadows_map.insert(
-            rawtonic_recipe::color::SATURATION.name().to_string(),
-            json_val,
-        );
+        shadows_map.insert(recipe_color::SATURATION.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("ColorGradeMidtoneSat")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        midtones_map.insert(
-            rawtonic_recipe::color::SATURATION.name().to_string(),
-            json_val,
-        );
+        midtones_map.insert(recipe_color::SATURATION.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("SplitToningHighlightSaturation")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        highlights_map.insert(
-            rawtonic_recipe::color::SATURATION.name().to_string(),
-            json_val,
-        );
+        highlights_map.insert(recipe_color::SATURATION.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("ColorGradeShadowLum")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        shadows_map.insert(
-            rawtonic_recipe::color::LUMINANCE.name().to_string(),
-            json_val,
-        );
+        shadows_map.insert(recipe_color::LUMINANCE.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("ColorGradeMidtoneLum")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        midtones_map.insert(
-            rawtonic_recipe::color::LUMINANCE.name().to_string(),
-            json_val,
-        );
+        midtones_map.insert(recipe_color::LUMINANCE.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("ColorGradeHighlightLum")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        highlights_map.insert(
-            rawtonic_recipe::color::LUMINANCE.name().to_string(),
-            json_val,
-        );
+        highlights_map.insert(recipe_color::LUMINANCE.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("ColorGradeGlobalHue")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        global_map.insert(rawtonic_recipe::color::HUE.name().to_string(), json_val);
+        global_map.insert(recipe_color::HUE.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("ColorGradeGlobalSat")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        global_map.insert(
-            rawtonic_recipe::color::SATURATION.name().to_string(),
-            json_val,
-        );
+        global_map.insert(recipe_color::SATURATION.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("ColorGradeGlobalLum")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        global_map.insert(
-            rawtonic_recipe::color::LUMINANCE.name().to_string(),
-            json_val,
-        );
+        global_map.insert(recipe_color::LUMINANCE.name().to_string(), json_val);
     }
     if let Some(raw) = attrs.get("SplitToningBalance")
         && let Some(num) = parse_num(raw)
         && let Some(json_val) = num_to_json(num)
     {
-        color_grading_map.insert(rawtonic_recipe::color::BALANCE.name().to_string(), json_val);
+        color_grading_map.insert(recipe_color::BALANCE.name().to_string(), json_val);
     }
     if !shadows_map.is_empty() {
         color_grading_map.insert(
-            rawtonic_recipe::color::GRADING_WHEELS[0].to_string(),
+            recipe_color::GRADING_WHEELS[0].to_string(),
             Value::Object(shadows_map),
         );
     }
     if !midtones_map.is_empty() {
         color_grading_map.insert(
-            rawtonic_recipe::color::GRADING_WHEELS[1].to_string(),
+            recipe_color::GRADING_WHEELS[1].to_string(),
             Value::Object(midtones_map),
         );
     }
     if !highlights_map.is_empty() {
         color_grading_map.insert(
-            rawtonic_recipe::color::GRADING_WHEELS[2].to_string(),
+            recipe_color::GRADING_WHEELS[2].to_string(),
             Value::Object(highlights_map),
         );
     }
     if !global_map.is_empty() {
         color_grading_map.insert(
-            rawtonic_recipe::color::GRADING_WHEELS[3].to_string(),
+            recipe_color::GRADING_WHEELS[3].to_string(),
             Value::Object(global_map),
         );
     }
@@ -747,16 +706,13 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     // (presets from before colour grading) at blending 100, not at the 50
     // new edits start from (measured, notes: reference/color-grading.md).
     if !color_grading_map.is_empty()
-        && !color_grading_map.contains_key(rawtonic_recipe::color::BLENDING.name())
+        && !color_grading_map.contains_key(recipe_color::BLENDING.name())
     {
-        color_grading_map.insert(
-            rawtonic_recipe::color::BLENDING.name().to_string(),
-            json!(100),
-        );
+        color_grading_map.insert(recipe_color::BLENDING.name().to_string(), json!(100));
     }
     if !color_grading_map.is_empty() {
         adjustments.insert(
-            rawtonic_recipe::color::COLOR_GRADING.name().to_string(),
+            recipe_color::COLOR_GRADING.name().to_string(),
             Value::Object(color_grading_map),
         );
     }
@@ -803,7 +759,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         .is_some_and(|v| v.eq_ignore_ascii_case("true"))
     {
         adjustments.insert(
-            rawtonic_recipe::color::BLACK_AND_WHITE.name().to_string(),
+            recipe_color::BLACK_AND_WHITE.name().to_string(),
             json!(true),
         );
     }
@@ -822,7 +778,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     }
     if !gray_mixer.is_empty() {
         adjustments.insert(
-            rawtonic_recipe::color::GRAY_MIXER.name().to_string(),
+            recipe_color::GRAY_MIXER.name().to_string(),
             Value::Object(gray_mixer),
         );
         // Lightroom's mix values: the response fitted to it.
@@ -856,7 +812,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     let ranges = point_color_ranges(&xmp_one_line);
     if !ranges.is_empty() {
         adjustments.insert(
-            rawtonic_recipe::color::COLOR_RANGES.name().to_string(),
+            recipe_color::COLOR_RANGES.name().to_string(),
             Value::Array(ranges),
         );
     }

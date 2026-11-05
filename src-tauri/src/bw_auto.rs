@@ -16,6 +16,7 @@
 //! and no photo got worse by more than 0.2 (notes:
 //! benchmark-results/bwa-bw-auto-2026-11-03/REPORT.md).
 
+use rawtonic_recipe::color as recipe_color;
 /// A B&W mix response: channel windows and gains as the shader renders
 /// them (`apply_black_and_white`, `apply_black_and_white_v2` in shader.wgsl,
 /// checked by a test). A channel's gain grows with the slider by `*_q`.
@@ -279,7 +280,7 @@ pub async fn auto_gray_mix(
         let mut recipe = js_adjustments;
         let version = crate::image_processing::bw_version(&recipe);
         crate::adjustment_utils::normalize_editor_recipe(&develop, &mut recipe);
-        recipe[rawtonic_recipe::color::BLACK_AND_WHITE.name()] = serde_json::Value::Bool(false);
+        recipe[recipe_color::BLACK_AND_WHITE.name()] = serde_json::Value::Bool(false);
         recipe["masks"] = serde_json::json!([]);
         let tone_mapper =
             crate::image_processing::resolve_tonemapper_override_from_handle(&app_handle, is_raw);

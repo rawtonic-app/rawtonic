@@ -5249,15 +5249,15 @@ fn get_global_adjustments_from_json(
     let classic_calibration = is_visible("color") && (!switches || color.calibration_visible);
     let color_cal_settings = if classic_calibration {
         ColorCalibrationSettings {
-            shadows_tint: color.calibration.values[0] as f32 / SCALES.color_calibration_hue,
-            red_hue: color.calibration.values[1] as f32 / SCALES.color_calibration_hue,
-            red_saturation: color.calibration.values[2] as f32
+            shadows_tint: color.calibration.shadows_tint as f32 / SCALES.color_calibration_hue,
+            red_hue: color.calibration.hue[0] as f32 / SCALES.color_calibration_hue,
+            red_saturation: color.calibration.saturation[0] as f32
                 / SCALES.color_calibration_saturation,
-            green_hue: color.calibration.values[3] as f32 / SCALES.color_calibration_hue,
-            green_saturation: color.calibration.values[4] as f32
+            green_hue: color.calibration.hue[1] as f32 / SCALES.color_calibration_hue,
+            green_saturation: color.calibration.saturation[1] as f32
                 / SCALES.color_calibration_saturation,
-            blue_hue: color.calibration.values[5] as f32 / SCALES.color_calibration_hue,
-            blue_saturation: color.calibration.values[6] as f32
+            blue_hue: color.calibration.hue[2] as f32 / SCALES.color_calibration_hue,
+            blue_saturation: color.calibration.saturation[2] as f32
                 / SCALES.color_calibration_saturation,
             _pad1: 0.0,
         }
@@ -5733,32 +5733,31 @@ impl GlobalAdjustments {
     /// its selection view (`show_clipping` = 2 + index; exports reset it).
     fn apply_color_ranges(&mut self, ranges: &rawtonic_recipe::color::ColorRanges) {
         for (i, range) in ranges.ranges.iter().take(ranges.count).enumerate() {
-            let v = range.values;
-            let chroma = v[1].max(0.0);
-            let chroma_range = v[5].clamp(0.0, 100.0) / 100.0;
-            let lightness_range = v[3].clamp(0.0, 100.0) / 100.0;
+            let chroma = range.chroma.max(0.0);
+            let chroma_range = range.chroma_range.clamp(0.0, 100.0) / 100.0;
+            let lightness_range = range.lightness_range.clamp(0.0, 100.0) / 100.0;
             let packed = [
                 [
-                    v[0].rem_euclid(360.0) as f32,
+                    range.hue.rem_euclid(360.0) as f32,
                     chroma as f32,
-                    v[2].clamp(0.0, 1.0) as f32,
+                    range.lightness.clamp(0.0, 1.0) as f32,
                     (0.02 + lightness_range) as f32,
                 ],
                 [
-                    v[4].clamp(5.0, 90.0) as f32,
+                    range.hue_range.clamp(5.0, 90.0) as f32,
                     (chroma * (1.0 - chroma_range)) as f32,
                     (chroma * (1.0 + 2.0 * chroma_range) + 0.01) as f32,
-                    (0.1 + 0.9 * v[6].clamp(0.0, 100.0) / 100.0) as f32,
+                    (0.1 + 0.9 * range.smoothness.clamp(0.0, 100.0) / 100.0) as f32,
                 ],
                 [
-                    (v[7].clamp(-100.0, 100.0) * 0.5) as f32,
-                    (v[8].clamp(-100.0, 100.0) / 100.0) as f32,
-                    (v[9].clamp(-100.0, 100.0) / 100.0 * 0.2) as f32,
+                    (range.hue_shift.clamp(-100.0, 100.0) * 0.5) as f32,
+                    (range.saturation.clamp(-100.0, 100.0) / 100.0) as f32,
+                    (range.lightness_shift.clamp(-100.0, 100.0) / 100.0 * 0.2) as f32,
                     0.0,
                 ],
                 [
-                    (v[10].clamp(0.0, 100.0) / 100.0) as f32,
-                    (v[11].clamp(0.0, 100.0) / 100.0) as f32,
+                    (range.hue_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
+                    (range.saturation_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
                     (range.lightness_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
                     0.0,
                 ],
@@ -5826,8 +5825,10 @@ pub fn recipe_white_balance(adjustments: &serde_json::Value) -> Option<(f64, f64
     (on > 0.0).then_some((temperature as f64, tint as f64))
 }
 
-fn kelvin_white_balance(preset: Option<(f64, f64)>) -> [f32; 4] {
-    preset.map_or([0.0; 4], |(t, tint)| [1.0, t as f32, tint as f32, 0.0])
+fn kelvin_white_balance(preset: Option<rawtonic_recipe::color::WhiteBalanceSetting>) -> [f32; 4] {
+    preset.map_or([0.0; 4], |wb| {
+        [1.0, wb.temperature.get() as f32, wb.tint.get() as f32, 0.0]
+    })
 }
 
 /// The display's soft proofing (view state, never in recipes): `softProof`
@@ -8150,6 +8151,31 @@ mod editing_tool_tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn resolved_mixer_and_grading_match_previous_parsers() {
+        for nested in [
+            json!(null),
+            json!([]),
+            json!({}),
+            json!({"reds": {"hue": 150.25, "saturation": -250, "luminance": "bad"}, "blues": null, "shadows": {"hue": -721, "saturation": 110, "luminance": -140}, "blending": 120, "balance": -130}),
+        ] {
+            let recipe = json!({"hsl": nested, "colorGrading": nested});
+            let resolved = rawtonic_recipe::normalize(StoredRef::new(&recipe));
+            let old_hsl = parse_hsl_adjustments(&nested);
+            let new_hsl = resolved.color.hsl.channels.map(|channel| HslColor {
+                hue: channel.hue as f32 * SCALES.hsl_hue_multiplier,
+                saturation: channel.saturation as f32 / SCALES.hsl_saturation,
+                luminance: channel.luminance as f32 / SCALES.hsl_luminance,
+                _pad: 0.0,
+            });
+            assert_eq!(bytemuck::bytes_of(&old_hsl), bytemuck::bytes_of(&new_hsl));
+            assert_eq!(
+                crate::color_grading::Grading::from_json(&nested),
+                crate::color_grading::Grading::from_recipe(resolved.color.grading)
+            );
+        }
     }
 
     #[test]

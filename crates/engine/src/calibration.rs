@@ -31,11 +31,11 @@ pub struct Calibration {
 
 impl Calibration {
     pub fn from_recipe(value: rawtonic_recipe::color::Calibration) -> Self {
-        let v = value.values.map(|x| (x as f32).clamp(-100.0, 100.0));
+        let clamp = |x: f64| (x as f32).clamp(-100.0, 100.0);
         Self {
-            shadows_tint: v[0],
-            hue: [v[1], v[3], v[5]],
-            saturation: [v[2], v[4], v[6]],
+            shadows_tint: clamp(value.shadows_tint),
+            hue: value.hue.map(clamp),
+            saturation: value.saturation.map(clamp),
         }
     }
     pub fn from_json(value: &Value) -> Self {
