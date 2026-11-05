@@ -9,7 +9,7 @@ Rawtonic has two halves, still mid-migration (ADR 0001, ADR 0009):
 - **Desktop adapter (`src-tauri`, crate `rawtonic-app`) and React workspace (`src`)**: Tauri commands, `AppState`,
   caches and the UI, built on the attributed RapidRAW renderer.
 
-**Rendering:** native wgpu presents _under_ the transparent webview. **IPC rule:** only renderer commands and small
+**Rendering:** native wgpu presents *under* the transparent webview. **IPC rule:** only renderer commands and small
 thumbnails cross IPC; Develop pixels stay on the GPU. Engine and GPU functions take data, never `AppState`;
 `scripts/check_layering.sh` fails if an engine or core crate reaches Tauri. Architecture decisions are in
 `docs/decisions/`; the bounded contexts, the shared kernel and the typed-recipe target are ADR 0021
@@ -23,59 +23,59 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 
 ### Core crates (`crates/`)
 
-| Crate        | Owns                                                                                                                                                | Depends on                      | Key modules                                      | Tests/hooks              |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------ | ------------------------ |
-| `catalog`    | SQLite schema, sessions/catalogs, recipes, search                                                                                                   | `fs`, `metadata`                | `lib`, `query`, `add`                            | `core:test`              |
-| `fs`         | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection                                                 | none                            | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test`              |
-| `metadata`   | XMP sidecars, provenance, labels, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`                            | `lib`, `provenance`, `labels`, `photo_ref`       | `core:test`              |
-| `fileops`    | journaled rename/move/trash, `purge`                                                                                                                | `fs`                            | `lib`, `volume`, `tree`                          | `core:test`; crash hooks |
-| `naming`     | strict filename templates                                                                                                                           | none                            | `lib`                                            | `core:test`              |
-| `ingest`     | verified no-clobber copy, queue                                                                                                                     | catalog, fs, metadata, naming   | `copy`, `queue`                                  | `core:test`              |
-| `interop`    | other editors' settings → ours                                                                                                                      | `metadata`                      | `lightroom`, `capture_one`                       | `-p rawtonic-interop`    |
-| `tether`     | camera tethering helper (ADR 0012)                                                                                                                  | `fs`                            | `protocol`, `staging`, `client`                  | `--mock` camera          |
-| `contribute` | scrubbing, relay client (ADR 0017)                                                                                                                  | `fs`                            | `scrub`, `payload`, `crash`                      | panic/abort tests        |
-| `merge`      | HDR, panorama, focus stack, DNG                                                                                                                     | `engine`, `rawdecode`, `rawler` | `hdr`, `panorama`, `dng`                         | `examples/`              |
-| `cli`        | `rawtonic` binary, benchmarks                                                                                                                       | most core, engine, AI crates    | `main`, `search_bench`                           | `crates/cli/tests`       |
+| Crate | Owns | Depends on | Key modules | Tests/hooks |
+|---|---|---|---|---|
+| `catalog` | SQLite schema, sessions/catalogs, recipes, search | `fs`, `metadata` | `lib`, `query`, `add` | `core:test` |
+| `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection | none | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test` |
+| `metadata` | XMP sidecars, provenance, labels, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs` | `lib`, `provenance`, `labels`, `photo_ref` | `core:test` |
+| `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
+| `naming` | strict filename templates | none | `lib` | `core:test` |
+| `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
+| `interop` | other editors' settings → ours | `metadata` | `lightroom`, `capture_one` | `-p rawtonic-interop` |
+| `tether` | camera tethering helper (ADR 0012) | `fs` | `protocol`, `staging`, `client` | `--mock` camera |
+| `contribute` | scrubbing, relay client (ADR 0017) | `fs` | `scrub`, `payload`, `crash` | panic/abort tests |
+| `merge` | HDR, panorama, focus stack, DNG | `engine`, `rawdecode`, `rawler` | `hdr`, `panorama`, `dng` | `examples/` |
+| `cli` | `rawtonic` binary, benchmarks | most core, engine, AI crates | `main`, `search_bench` | `crates/cli/tests` |
 
 ### Engine layers (ADR 0009), lowest first
 
-| Crate       | Owns                                         | Depends on                                            | Key modules                  | Tests/hooks     |
-| ----------- | -------------------------------------------- | ----------------------------------------------------- | ---------------------------- | --------------- |
-| `runtime`   | stage timing, allocator release              | none                                                  | `performance`, `allocator`   | none special    |
-| `rawdecode` | RAW bytes → oriented linear RGB              | `rawler`, `runtime`                                   | `raw_processing`, `demosaic` | fixtures        |
-| `recipe`    | stored + resolved develop recipe, typed keys | serde, serde_json only                                | `stored`, `tone`             | `-p recipe`     |
-| `engine`    | develop model, masks, looks, lens            | fs, metadata, rawdecode, recipe, runtime              | `image_processing`           | `-p engine`     |
-| `gpu`       | wgpu pipeline, shaders, display              | engine, fs, rawdecode, runtime                        | `gpu_processing`             | `--ignored` GPU |
-| `export`    | render, encoders, queue                      | engine, fs, gpu, metadata, naming, rawdecode, runtime | `file_export`                | exports         |
+| Crate | Owns | Depends on | Key modules | Tests/hooks |
+|---|---|---|---|---|
+| `runtime` | stage timing, allocator release | none | `performance`, `allocator` | none special |
+| `rawdecode` | RAW bytes → oriented linear RGB | `rawler`, `runtime` | `raw_processing`, `demosaic` | fixtures |
+| `recipe` | stored + resolved develop recipe, typed keys | serde, serde_json only | `stored`, `tone` | `-p recipe` |
+| `engine` | develop model, masks, looks, lens | fs, metadata, rawdecode, recipe, runtime | `image_processing` | `-p engine` |
+| `gpu` | wgpu pipeline, shaders, display | engine, fs, rawdecode, runtime | `gpu_processing` | `--ignored` GPU |
+| `export` | render, encoders, queue | engine, fs, gpu, metadata, naming, rawdecode, runtime | `file_export` | exports |
 
 ### AI crates
 
-| Crate     | Owns                                   | Depends on          | Key modules                  | Tests/hooks           |
-| --------- | -------------------------------------- | ------------------- | ---------------------------- | --------------------- |
-| `onnx`    | every ONNX model load, providers       | none                | `runtime`, `check`, `bench`  | `rawtonic ai-bench`   |
-| `denoise` | AI Denoise on the Bayer mosaic         | `onnx`, `rawdecode` | `coreml`, `tiles`, `noise`   | model pack            |
-| `faces`   | detection, landmarks, parsing, retouch | `onnx`              | `detect`, `parts`, `retouch` | ignored `real_photos` |
-| `segment` | Sky and Subject networks               | `denoise`, `onnx`   | `models`, `focus`            | model pack            |
+| Crate | Owns | Depends on | Key modules | Tests/hooks |
+|---|---|---|---|---|
+| `onnx` | every ONNX model load, providers | none | `runtime`, `check`, `bench` | `rawtonic ai-bench` |
+| `denoise` | AI Denoise on the Bayer mosaic | `onnx`, `rawdecode` | `coreml`, `tiles`, `noise` | model pack |
+| `faces` | detection, landmarks, parsing, retouch | `onnx` | `detect`, `parts`, `retouch` | ignored `real_photos` |
+| `segment` | Sky and Subject networks | `denoise`, `onnx` | `models`, `focus` | model pack |
 
 Workspace `default-members` leave out `src-tauri`, `denoise`, `faces`, `segment`, `onnx` and `third_party/rawler`;
 use `--workspace` or `-p <crate>` for them.
 
 ### Desktop adapter (`src-tauri`)
 
-| Area           | Owns                       | Depends on              | Key modules                             | Tests/hooks       |
-| -------------- | -------------------------- | ----------------------- | --------------------------------------- | ----------------- |
-| `rawtonic-app` | Tauri commands, `AppState` | engine, core, AI crates | `lib`, `app_state`                      | `-p rawtonic-app` |
-| glue modules   | same-named thin modules    | the crate they wrap     | `camera_profile`, `merges`              | `fixture_render`  |
-| inherited      | Tauri-bound code           | `AppState`              | `file_management`, `ai_*`, `inpainting` | per module        |
+| Area | Owns | Depends on | Key modules | Tests/hooks |
+|---|---|---|---|---|
+| `rawtonic-app` | Tauri commands, `AppState` | engine, core, AI crates | `lib`, `app_state` | `-p rawtonic-app` |
+| glue modules | same-named thin modules | the crate they wrap | `camera_profile`, `merges` | `fixture_render` |
+| inherited | Tauri-bound code | `AppState` | `file_management`, `ai_*`, `inpainting` | per module |
 
 ### Frontend (`src`)
 
-| Area                      | Owns                          | Depends on     | Key modules               | Tests/hooks               |
-| ------------------------- | ----------------------------- | -------------- | ------------------------- | ------------------------- |
-| `components/studio`       | Library/Develop workspace     | stores, hooks  | `StudioDevelop`           | vitest (jsdom)            |
-| `panel`, `modals`         | inherited RapidRAW UI, canvas | stores, hooks  | `panel/Editor.tsx`        | vitest                    |
-| `store`, `hooks`, `utils` | zustand stores, IPC hooks     | `Invokes` enum | `useImageLoader`          | `npx vitest run`          |
-| `activity`                | activity centre, `notify`     | `store`        | `bridges.ts`, `notify.ts` | `noToastFailures.test.ts` |
+| Area | Owns | Depends on | Key modules | Tests/hooks |
+|---|---|---|---|---|
+| `components/studio` | Library/Develop workspace | stores, hooks | `StudioDevelop` | vitest (jsdom) |
+| `panel`, `modals` | inherited RapidRAW UI, canvas | stores, hooks | `panel/Editor.tsx` | vitest |
+| `store`, `hooks`, `utils` | zustand stores, IPC hooks | `Invokes` enum | `useImageLoader` | `npx vitest run` |
+| `activity` | activity centre, `notify` | `store` | `bridges.ts`, `notify.ts` | `noToastFailures.test.ts` |
 
 Tauri command names are collected in the `Invokes` enum in `src/components/ui/AppProperties.tsx`.
 
@@ -91,6 +91,7 @@ wgpu presents under the transparent webview. Renderer commands and small thumbna
 stays on GPU.
 
 New Rust workspace crates isolate data and file safety.
+
 
 ### Core crates
 
@@ -109,6 +110,7 @@ New Rust workspace crates isolate data and file safety.
   `tests/migration_fixtures.rs` upgrades a populated catalog of every schema (1–24) and compares it with the recorded
   result (schema, rows, foreign keys, searches). `fileops` keeps its journal's steps in its own `migrations.rs` of the
   same shape.
+
 
 - `query`: the library search and smart albums (ADR 0014; rules over text, keywords, culling, file type, camera, lens,
   exposure, dates, albums, folders, compiled to one SQL query; value lists with counts; schema 17 adds `Field::Ai`
@@ -153,7 +155,7 @@ New Rust workspace crates isolate data and file safety.
   photographs (`retain_only`: their rows cascade, albums left empty and their groups go, as do jobs, the file-operation
   journal, the hot folder and the drive cache), compacted so nothing of the others stays behind (the full-text index
   made again from its rows, then `VACUUM`); asset ids are kept for Import from Catalog; file copying (verified originals
-  into `Photos/<folder>/` with _Include original files_; without, photographs inside the source library's folder, which
+  into `Photos/<folder>/` with *Include original files*; without, photographs inside the source library's folder, which
   belong to it, go edits only — at their place under `Photos/` without their file (`Library::place_without_original`),
   offline in the new catalog; photographs inside another library's folder (`owned_elsewhere` over
   `Library::owner_elsewhere`: their latest edit is there) are refused or left out —, edit resources, a pre-publish hook
@@ -219,6 +221,7 @@ notifications; the catalog builds volume identity from it, file operations plan 
 
 `naming` — strict filename templates.
 
+
 #### `ingest`
 
 `ingest`: streamed verified no-clobber copying.
@@ -241,6 +244,7 @@ and bringing a registered RAW along for a new JPEG beside it so the two pair; th
 `AddFolderDialog` (projects only show the folder, with Copy into this project…) and `UnaddedFolderBanner` for browse
 roots added before.
 
+
 #### `fileops`
 
 `fileops` — journaled, undoable and redoable rename/move/trash (validated plan, no-clobber renames, rollback, crash
@@ -253,11 +257,13 @@ Undo for earlier operations. App glue: `src-tauri/src/file_operations.rs`; renam
 `file_management::rename_plan` (final names, sidecars, XMP owner, companion, conflicts), previewed in the rename dialog
 and run as previewed.
 
+
 #### `cli`
 
 `cli`: desktop-independent session operations and measured benchmarks.
 
 `cli` — the `rawtonic` binary over the above, plus measured benchmarks (`decode` times rawdecode without the app).
+
 
 #### `merge`
 
@@ -275,6 +281,7 @@ glue `src-tauri/src/merges.rs` (`merge_photos`/`save_merge`, one `MergeModal`); 
 `src-tauri/src/collage.rs`. CLI `rawtonic merge {hdr,pano,hdrpano,focus,single} … [--auto-settings]`; synthetic test
 sets and comparisons in `crates/merge/examples/` (notes: reference/merges.md).
 
+
 #### `tether`
 
 `tether` — tethered shooting (ADR 0012): the helper program `rawtonic-tether` (libgphoto2 behind the `gphoto2` feature,
@@ -286,6 +293,7 @@ glue `src-tauri/src/camera_tethering.rs`: starts the helper, ingests its photos 
 with a transfer record written first, `tether-*` events; UI `src/components/session/TetherPanel.tsx`, its guided camera
 test `TetherCameraTest.tsx` (anonymous report: `cameraTest.ts`) and the compatibility list `tetherCameras.json`
 (docs/TETHER_CAMERAS.md). Packaging: `scripts/tether/build_libgphoto2.sh`, `bundle_helper.sh`.
+
 
 #### `contribute`
 
@@ -315,6 +323,7 @@ start; `CameraHelpDialog`; `usageStats.ts`: tools used, from each history step's
 (`useEditorStore.pushHistory`) and a few actions; Preferences `panel/UsageStatsSettings.tsx`). The relay itself:
 `services/relay/` (docs/RELAY.md).
 
+
 ### AI crates
 
 #### `denoise`
@@ -329,6 +338,7 @@ mixed-precision 640 px one; no fallback, so a recipe always renders with its ver
 the app's BiRefNet Subject model on macOS (`ai_processing::SubjectModel`, ONNX fallback; masks computed ahead when the
 masking tools open, `precompute_ai_foreground_mask`) and Moebius, the guide of Remove's large holes
 (`src-tauri/src/moebius.rs`: DDIM sampler, crop and model files; MI-GAN otherwise and away from macOS).
+
 
 #### `faces`
 
@@ -348,6 +358,7 @@ protected areas back) after spot removal. Ignored tests `crates/faces/tests/real
 `protects_painted_areas_of_real_photos` measures the protection brush the same way (measured invariants and open
 preview/performance limits: notes `benchmark-results/fp-protection-2026-10-27/REPORT.md`, G69).
 
+
 #### `segment`
 
 `segment` (the Sky (UperNet) and Subject (BiRefNet) networks on ONNX Runtime or Core ML and their masks, `Models` to
@@ -356,11 +367,13 @@ compute the same masks; Select Subject is `subject_selection` at the component's
 (`select_subject`) is BiRefNet's foreground without separate objects clearly out of focus next to the sharpest
 (`focus.rs`), version 1 and Relight's matte the network's plain output, `run_subject_model`).
 
+
 #### `onnx`
 
 `onnx` — every ONNX model loads through `rawtonic_onnx::Model`: GPU plugin providers (CUDA if installed, WebGPU on
 Windows/Linux) checked once against the CPU, CPU fallback, per-model exceptions, preference `aiGpu` (ADR 0011).
 `rawtonic ai-bench` times and compares providers.
+
 
 ### Engine layers
 
@@ -369,6 +382,7 @@ Engine layers are extracted from the adapter per ADR 0009, dependencies pointing
 
 Engine layers extracted from the adapter (ADR 0009), lowest first: `runtime` (stage timing behind
 `performance-profiling`, allocator release);
+
 
 #### `rawdecode`
 
@@ -379,6 +393,7 @@ blacks of `renderVersion` 8 (`black_bias`), maker-note capture data, camera colo
 `rawdecode` (raw_processing, source_frame (the frame of the RAW each `sourceFrameVersion` develops, ADR 0020),
 camera_crop (the aspect ratio set in the camera where the RAW keeps the whole sensor: Canon AspectInfo, the Exif image
 size), demosaic, gpu_demosaic, DNG opcodes/colour, capture_info, camera colour/exposure tables);
+
 
 #### `recipe`
 
@@ -435,6 +450,7 @@ develop alike, a Reset's recipe), camera_crop (that aspect ratio as the crop of 
 Engine also holds image_loader's decode path (`load_base_image` + `BaseImageOptions`), adjustment_utils and the LUT
 parsers.
 
+
 #### `gpu`
 
 `gpu` (the wgpu pipeline, shaders, readback and native display presentation onto a surface the app creates; GPU
@@ -445,6 +461,7 @@ presentation, `GpuContext::headless`, GPU equivalence tests; `device_start`: the
 Vulkan/DX12 then OpenGL, every failure named; `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by
 adapter, driver and app version, filled ahead by `rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, run by
 the Windows installer's hook `src-tauri/windows/installer-hooks.nsh`));
+
 
 #### `export`
 
@@ -458,6 +475,7 @@ naming), `output::write_new_output`, `file_export::FileExporter`, and `normalize
 stored or editor recipe renderable: bitmaps, offline lens, new-edit crop and versions, camera lens defaults, Lightroom
 orientation, in that order; every render caller in the app and the CLI calls it once).
 
+
 #### Layering check and colour pipeline
 
 `scripts/check_layering.sh` (CI) fails if any of these crates reaches Tauri.
@@ -466,6 +484,7 @@ The actual pipeline is not yet the requested ProPhoto/DCP pipeline. Working valu
 ProPhoto gamut (negative channels beyond sRGB); every output (sRGB, Display P3, Adobe RGB, ProPhoto exports, the Display
 P3 view on macOS) is that one rendering clipped at the end (ADR 0010).
 
+
 ### Where to edit
 
 Where to edit: develop logic → the crate (`crates/engine`, `crates/rawdecode`, `crates/gpu`); a Tauri command or
@@ -473,6 +492,7 @@ Where to edit: develop logic → the crate (`crates/engine`, `crates/rawdecode`,
 use rawtonic_engine::camera_profile::*` + commands; `src-tauri/src/gpu_processing.rs` = window surface, the
 processor/image cache in `AppState`, render wrappers taking `tauri::State`). Engine/GPU functions take data (device,
 caches, images), never `AppState`. Test-only helpers for another crate's tests go behind a `test-support` feature.
+
 
 ### Desktop adapter (`src-tauri`)
 
@@ -546,6 +566,7 @@ removed when the batch returns); one an earlier run left is offered when its lib
 Metadata writes never change the look: `Library::adopt_editor_sidecar` takes an edit that is only in a photo's `.rrdata`
 into the library before `set_metadata`, flags, Use XMP and Keep library.
 
+
 ## Cross-cutting rules
 
 ### Storage
@@ -611,6 +632,7 @@ the watched folder, template, subfolder option and next-capture settings, the la
 relative to the watched folder, size, modification time), so watching resumes when the library opens again and files
 that arrived meanwhile are taken once without hashing the earlier ones again; transferred or restored copies drop it.
 
+
 #### Preferences → Storage
 
 Preferences → Storage (`src-tauri/src/storage.rs`, `storage_fs.rs`) inventories logical file bytes in blocking workers.
@@ -638,11 +660,13 @@ Vanished staging files are skipped while scanning; an undeletable file is kept w
 candidates. Staging files are counted with their owning cache or model directory; there is no separate app scratch tree.
 Decoded-image storage is RAM, shown separately with its existing count limit.
 
+
 ### File safety
 
 Copy into a unique temporary file beside the destination, flush, compare source and destination SHA-256, publish with
 no-clobber atomic persistence. Never overwrite on collision. Source files are opened read-only. Metadata writes are
 atomic. Unsupported destructive operations must fail clearly rather than fall back to deletion.
+
 
 ### Concurrency
 
@@ -669,7 +693,10 @@ commands, the photo write queue); everything else calls `notify` (`src/activity/
 Done. Only `notify` and `AppNotices` use react-toastify (`src/activity/noToastFailures.test.ts`); background failures
 never open a dialog.
 
+
 ### Release gates
 
 Target hardware and fixtures are named in the maintainers' benchmark notes. No budget is green without measured
 evidence. Core tests, UI type checks, production bundle, native compilation and real sample render are separate gates.
+
+
