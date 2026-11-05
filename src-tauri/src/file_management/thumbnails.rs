@@ -183,6 +183,15 @@ pub(crate) fn compute_thumbnail_cache_hash(
                 .as_bytes(),
             );
         }
+        // A new recipe (none, or a Reset's) renders with the tool responses
+        // of the editor's new edit since 2026-11-05 (`normalize`: the
+        // luminance noise reduction's speck removal).
+        if adjustments
+            .as_ref()
+            .is_none_or(rawtonic_engine::image_processing::is_new_recipe)
+        {
+            hasher.update(b"\0new-edit-responses-v1");
+        }
         // Contrast, Shadows, Whites and Blacks keep tones in order since
         // 2026-10-12 (the RAW look's slider gains reversed near black and
         // white). Only thumbnails that use them are rendered again; the
@@ -1994,6 +2003,54 @@ mod thumbnail_queue_tests {
         assert!(!uses_tone_sliders(&serde_json::json!({
             "masks": [{ "adjustments": { "exposure": 1, "contrast": 0 } }]
         })));
+    }
+
+    /// A new RAW recipe's thumbnail (none, or a Reset's) is made again since
+    /// it renders with the new edit's tool responses; a saved edit's stays.
+    #[test]
+    fn raw_thumbnail_cache_renders_new_recipes_again() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("source.ARW");
+        fs::write(&path, b"thumbnail-cache-fixture").unwrap();
+        let path_str = path.to_str().unwrap();
+        let modified = fs::metadata(&path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // The key before 2026-11-05 of a recipe without a lens mode and tone sliders.
+        let previous_hash = |adjustments: &[u8]| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(path_str.as_bytes());
+            hasher.update(&modified.to_le_bytes());
+            hasher.update(adjustments);
+            hasher.update(b"\0embedded-raw-orientation-v1");
+            hasher.update(
+                format!("\0raw-engine-{}", crate::preview_proxy::ENGINE_VERSION).as_bytes(),
+            );
+            hasher.update(
+                format!(
+                    "\0never-edited-defaults-{}-{}",
+                    rawtonic_engine::source_facts::VERSION,
+                    rawtonic_engine::image_processing::RENDER_VERSION
+                )
+                .as_bytes(),
+            );
+            hasher.finalize().to_hex().to_string()
+        };
+        for adjustments in [b"null".as_slice(), b"{}", br#"{"sourceFrameVersion":3}"#] {
+            assert_ne!(
+                compute_thumbnail_cache_hash(path_str, adjustments).unwrap(),
+                previous_hash(adjustments)
+            );
+        }
+        let saved = br#"{"exposure":1}"#.as_slice();
+        assert_eq!(
+            compute_thumbnail_cache_hash(path_str, saved).unwrap(),
+            previous_hash(saved)
+        );
     }
 
     #[test]

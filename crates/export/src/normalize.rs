@@ -3,13 +3,17 @@
 //! export, CLI, multi-view, collage, thumbnails, the editor's previews —
 //! calls [`normalize`] once instead of the defaulting steps one by one.
 //!
-//! The steps and their order are today's, unchanged (the render-input
-//! snapshots and exports stay byte-identical):
+//! The steps and their order are those the callers applied one by one
+//! (the render-input snapshots and exports stayed byte-identical), plus the
+//! new edit's tool responses of step 3 (2026-11-04):
 //! 1. bitmaps the recipe refers to by id restored (`hydrate_adjustments_from_cache`);
 //! 2. lens parameters saved while the photograph could not be read
 //!    resolved (`exif_processing::resolve_unresolved_lens`);
 //! 3. a new recipe started as a new edit: render, sharpening and frame
-//!    versions and the camera's crop (`camera_crop::apply_default`);
+//!    versions and the camera's crop (`camera_crop::apply_default`), and,
+//!    after step 4, the tool responses of the editor's new edit
+//!    (`image_processing::new_edit_responses`), so a never-edited or reset
+//!    photo renders as it does opened in the editor;
 //! 4. the camera's lens correction and the new edit's fringe and lateral
 //!    CA passes for a recipe without a lens mode (`embedded_lens::apply_default`);
 //! 5. the photograph's orientation in Lightroom retouches imported before
@@ -115,6 +119,12 @@ pub fn normalize(
             rawtonic_engine::adjustment_utils::hydrate_adjustments_from_cache(&mut cache, recipe);
         }
     }
+    // A new recipe (none, or a Library Reset's) renders as the editor's
+    // new edit of the photograph: after its defaults (which need it new),
+    // the tool responses a new edit starts with.
+    let new_edit = defaults != Defaults::None
+        && source.path.is_some()
+        && rawtonic_engine::image_processing::is_new_recipe(recipe);
     let lens = match (defaults, source.path) {
         (Defaults::None, _) => Ok(()),
         (Defaults::Render, Some(path)) => crate::exif_processing::prepare_recipe_lens(recipe, path),
@@ -125,11 +135,28 @@ pub fn normalize(
         }
         (_, None) => Err("The camera defaults need the photograph's file.".to_string()),
     };
+    if new_edit {
+        start_new_edit_responses(recipe, source.is_raw.unwrap_or(false));
+    }
     Normalized {
         versions: source
             .is_raw
             .map(|is_raw| RecipeVersions::of(recipe, is_raw)),
         lens,
+    }
+}
+
+/// Step 3's tool responses (`image_processing::new_edit_responses`) on a
+/// recipe that was new before its defaults; the passes the defaults set
+/// (none of these keys) stay.
+fn start_new_edit_responses(recipe: &mut Value, is_raw: bool) {
+    if recipe.is_null() {
+        *recipe = Value::Object(Default::default());
+    }
+    if let Some(map) = recipe.as_object_mut() {
+        for (key, value) in rawtonic_engine::image_processing::new_edit_responses(is_raw) {
+            map.entry(key).or_insert(value);
+        }
     }
 }
 
@@ -145,6 +172,7 @@ mod tests {
             &mut HashMap::new(),
             &mut recipe,
         );
+        let new = rawtonic_engine::image_processing::is_new_recipe(&recipe);
         match defaults {
             Defaults::Render => {
                 let _ = crate::exif_processing::prepare_recipe_lens(&mut recipe, path);
@@ -154,6 +182,9 @@ mod tests {
                 rawtonic_engine::embedded_lens::apply_default(&mut recipe, path);
             }
             Defaults::None => {}
+        }
+        if new && defaults != Defaults::None {
+            start_new_edit_responses(&mut recipe, rawtonic_engine::formats::is_raw_file(path));
         }
         recipe
     }
@@ -193,6 +224,66 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A never-edited or reset RAW (no recipe, `{}`) renders with every
+    /// version the editor's new edit saves (its pinned recipe,
+    /// src/contracts/rustContract.test.ts), so opening it and saving without
+    /// a change keeps its look; the camera's lens versions need its data
+    /// (none offline). A saved recipe keeps the versions it has.
+    #[test]
+    fn a_new_recipe_renders_with_the_versions_of_the_editors_new_edit() {
+        let new_edit: Value = serde_json::from_str(include_str!(
+            "../../engine/tests/fixtures/new-edit-recipe.raw.json"
+        ))
+        .unwrap();
+        let raw = Path::new("/offline/IMG_2.ARW");
+        for given in [Value::Null, json!({}), json!({"sourceFrameVersion": 3})] {
+            for defaults in [Defaults::Render, Defaults::NewEdit] {
+                let mut recipe = given.clone();
+                normalize(
+                    &mut recipe,
+                    &RecipeSource::file(raw),
+                    Bitmaps::None,
+                    defaults,
+                );
+                for (key, value) in new_edit.as_object().unwrap() {
+                    if key.ends_with("Version")
+                        && key != "cameraCaVersion"
+                        && key != "cameraGeometryVersion"
+                    {
+                        assert_eq!(recipe.get(key), Some(value), "{given} {defaults:?} {key}");
+                    }
+                }
+            }
+        }
+        let mut other = json!({});
+        let png = Path::new("/offline/scan.png");
+        normalize(
+            &mut other,
+            &RecipeSource::file(png),
+            Bitmaps::None,
+            Defaults::Render,
+        );
+        assert_eq!(other["lumaNoiseVersion"], new_edit["lumaNoiseVersion"]);
+        assert!(other.get("aiDenoiseVersion").is_none());
+        let mut saved = json!({"exposure": 0.5});
+        normalize(
+            &mut saved,
+            &RecipeSource::file(raw),
+            Bitmaps::None,
+            Defaults::Render,
+        );
+        assert!(saved.get("lumaNoiseVersion").is_none());
+        assert!(saved.get("toneVersion").is_none());
+        let mut open = json!({});
+        normalize(
+            &mut open,
+            &RecipeSource::open_in_editor(),
+            Bitmaps::None,
+            Defaults::None,
+        );
+        assert_eq!(open, json!({}));
     }
 
     #[test]

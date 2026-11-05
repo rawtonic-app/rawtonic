@@ -1652,12 +1652,14 @@ export const withSharpenVersion = <T extends Partial<Adjustments>>(
 };
 
 /** The luminance noise reduction of a saved recipe: its own; else the
- * current one when it reduces no luminance noise (photo or layer), the
+ * current one when it is new (none or a Reset's, as the backend renders it:
+ * `new_edit_responses`) or reduces no luminance noise (photo or layer), the
  * earlier one otherwise (missing key). */
 const loadedLumaNoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined => {
   if (loaded.lumaNoiseVersion !== undefined && loaded.lumaNoiseVersion !== null) {
     return loaded.lumaNoiseVersion;
   }
+  if (isNewRecipe(loaded)) return LUMA_NOISE_VERSION;
   // RAW recipes without an amount reduce at the RAW default (15).
   const amount = loaded.lumaNoiseReduction ?? (isRaw ? RAW_DETAIL_DEFAULTS.lumaNoiseReduction : 0);
   const layerReduces = (loaded.masks ?? []).some(
@@ -1830,7 +1832,8 @@ const loadedClarityVersion = (loaded: Partial<Adjustments>): number => {
  * filter when it sets the colour amount, and the current one when it leaves
  * it to the RAW default (as the backend decides, `color_noise::multiscale`). */
 const loadedColorNoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined =>
-  loaded.colorNoiseVersion ?? (isRaw && loaded.colorNoiseReduction === undefined ? COLOR_NOISE_VERSION : undefined);
+  loaded.colorNoiseVersion ??
+  ((isRaw && loaded.colorNoiseReduction === undefined) || isNewRecipe(loaded) ? COLOR_NOISE_VERSION : undefined);
 
 /** Whether a recipe develops colour noise with the multi-scale filter, as
  * the backend decides (`color_noise::multiscale`); the base image of such a
