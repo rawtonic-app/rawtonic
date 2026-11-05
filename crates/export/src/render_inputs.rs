@@ -101,6 +101,7 @@ impl RenderInputs {
             "decode",
             json!({
                 "is_raw": is_raw,
+                "highlight_compression": base.highlight_compression,
                 "linear_mode": base.linear_mode,
                 "color_nr_amount": base.color_nr_amount,
                 "sharpening_amount": base.sharpening_amount,

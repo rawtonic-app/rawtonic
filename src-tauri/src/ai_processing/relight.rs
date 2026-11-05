@@ -514,6 +514,7 @@ mod tests {
                 &path,
                 false,
                 &rawtonic_engine::image_loader::BaseImageOptions::from_preferences(
+                    None,
                     String::new(),
                     None,
                     None,
