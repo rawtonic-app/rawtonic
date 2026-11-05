@@ -14,6 +14,7 @@
 //! one. The id is not validated here: stored forms hold editor ids (six hex
 //! digits, [`CopyId::is_editor_id`]) and older or test ids alike.
 
+use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -116,16 +117,21 @@ impl PhotoRef {
         Self::new(source, self.copy.clone())
     }
 
+    /// This photo with another copy (`None` = the primary one).
+    pub fn with_copy(&self, copy: Option<&str>) -> Self {
+        Self::new(self.source.clone(), copy.map(CopyId::new))
+    }
+
     /// The editor sidecar of this photo: `<file>.rrdata`, or
     /// `<file>.<copy id>.rrdata` for a virtual copy, next to the source.
     pub fn sidecar_path(&self) -> PathBuf {
-        let source = self.source_path();
-        let file = source.file_name().unwrap_or_default().to_string_lossy();
-        let name = match &self.copy {
-            Some(id) => format!("{file}.{id}.rrdata"),
-            None => format!("{file}.rrdata"),
-        };
-        source.with_file_name(name)
+        self.source_path().with_file_name(self.sidecar_name())
+    }
+
+    /// The editor sidecar's file name (`<file>.rrdata`, or
+    /// `<file>.<copy id>.rrdata` for a virtual copy).
+    pub fn sidecar_name(&self) -> OsString {
+        sidecar_name(self.source_path(), self.copy_id())
     }
 
     /// The stored form (`<source>` or `<source>?vc=<copy id>`).
@@ -153,22 +159,45 @@ pub fn split(text: &str) -> (&str, Option<&str>) {
     }
 }
 
+/// What an editor sidecar's extension is.
+pub const SIDECAR_EXTENSION: &str = "rrdata";
+
+/// What an editor sidecar's file name ends with (the extension and its dot).
+pub const SIDECAR_SUFFIX: &str = ".rrdata";
+
+/// The file name of `source`'s editor sidecar for `copy` (`None` = the
+/// primary photo's): `<file>.rrdata` or `<file>.<copy id>.rrdata`. The one
+/// naming rule beside [`PhotoRef::sidecar_path`]: built like the name, so a
+/// non-UTF-8 file name stays as it is.
+pub fn sidecar_name(source: &Path, copy: Option<&str>) -> OsString {
+    let mut name = source.file_name().unwrap_or_default().to_os_string();
+    if let Some(id) = copy {
+        name.push(".");
+        name.push(id);
+    }
+    name.push(SIDECAR_SUFFIX);
+    name
+}
+
 /// The source file name and copy id of an editor sidecar's file name:
 /// `<file>.rrdata` → `(<file>, None)`, `<file>.<editor id>.rrdata` →
 /// `(<file>, Some(id))`; `None` for a name that is not a sidecar's. A
 /// middle part that is not an editor id belongs to the file name.
 pub fn sidecar_name_parts(name: &str) -> Option<(&str, Option<&str>)> {
-    let base = name.strip_suffix(".rrdata")?;
-    Some(
-        match base
-            .len()
-            .checked_sub(7)
-            .filter(|&dot| base.as_bytes()[dot] == b'.')
-        {
-            Some(dot) if is_editor_id(&base[dot + 1..]) => (&base[..dot], Some(&base[dot + 1..])),
-            _ => (base, None),
-        },
-    )
+    let base = name.strip_suffix(SIDECAR_SUFFIX)?;
+    match base.rsplit_once('.') {
+        Some((file, id)) if is_editor_id(id) => Some((file, Some(id))),
+        _ => Some((base, None)),
+    }
+}
+
+/// The photograph an editor sidecar lies beside: `/p/a.raf.rrdata` →
+/// `/p/a.raf`, `/p/a.raf.0f1e2d.rrdata` → `/p/a.raf`; `None` for a path
+/// that is not an editor sidecar's. The inverse of [`PhotoRef::sidecar_path`]
+/// when the file it names is there.
+pub fn source_path_of_sidecar(sidecar: &Path) -> Option<PathBuf> {
+    let name = sidecar.file_name()?.to_str()?;
+    Some(sidecar.with_file_name(sidecar_name_parts(name)?.0))
 }
 
 /// The source file's path of a stored path.
@@ -248,6 +277,84 @@ mod tests {
             PhotoRef::of_path(&dir.join("a.raf"), None).format(),
             "/p/a.raf"
         );
+    }
+
+    /// The sidecar naming rule replaces the `format!` calls of the call
+    /// sites (`{name}.rrdata`, `{name}.{copy}.rrdata`): the same name, byte
+    /// for byte, for the primary photo, a virtual copy and names that hold
+    /// dots or `?vc=`.
+    #[test]
+    fn sidecar_names_match_the_written_out_form() {
+        let sources = [
+            "/p/a.raf",
+            "/p/a.raf?vc=0f1e2d",
+            "/p/a.b.c.rrdata/name",
+            "/p/a.raf.jpg",
+            "/p/img?vc=abc.raf",
+            "/p/2019.07.14 DSC_1234.ARW",
+            "/p/Grün .nef",
+            "/p/.hidden",
+            "a.raf",
+        ];
+        for source in sources {
+            let path = Path::new(source);
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            for copy in [None, Some("0f1e2d"), Some("1"), Some("")] {
+                let want = match copy {
+                    Some(copy) => format!("{name}.{copy}.rrdata"),
+                    None => format!("{name}.rrdata"),
+                };
+                assert_eq!(sidecar_name(path, copy).to_string_lossy(), want);
+                assert_eq!(
+                    PhotoRef::primary(source).with_copy(copy),
+                    PhotoRef::new(source, copy.map(CopyId::new))
+                );
+                let photo = PhotoRef::new(source, copy.map(CopyId::new));
+                assert_eq!(photo.sidecar_name().to_string_lossy(), want);
+                assert_eq!(photo.sidecar_path(), path.with_file_name(&want));
+                // Same also for a stored form whose copy the parse finds.
+                if let Some(copy) = copy.filter(|_| !source.contains(COPY_MARKER)) {
+                    let stored = format!("{source}{COPY_MARKER}{copy}");
+                    let parsed = PhotoRef::parse(&stored);
+                    assert_eq!(parsed.sidecar_path(), path.with_file_name(&want));
+                    assert_eq!(parsed.format(), stored);
+                }
+            }
+        }
+        // The name a `Path` gives keeps a non-UTF-8 file name as it is.
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let source = Path::new(std::ffi::OsStr::from_bytes(b"/p/a\xff.raf"));
+            let name = sidecar_name(source, None);
+            assert_eq!(name.as_encoded_bytes(), b"a\xff.raf.rrdata");
+        }
+    }
+
+    #[test]
+    fn a_sidecar_names_its_photograph() {
+        let sidecar = |name: &str| Path::new("/p").join(name);
+        assert_eq!(
+            source_path_of_sidecar(&sidecar("a.raf.rrdata")),
+            Some(PathBuf::from("/p/a.raf"))
+        );
+        assert_eq!(
+            source_path_of_sidecar(&sidecar("a.raf.0f1e2d.rrdata")),
+            Some(PathBuf::from("/p/a.raf"))
+        );
+        // Not an editor id's: part of the file name, as everywhere.
+        assert_eq!(
+            source_path_of_sidecar(&sidecar("a.raf.ABCDEF.rrdata")),
+            Some(PathBuf::from("/p/a.raf.ABCDEF"))
+        );
+        assert_eq!(source_path_of_sidecar(&sidecar("a.raf.xmp")), None);
+        // Round trip: a photograph's sidecar names it again.
+        for source in ["/p/a.raf", "/p/a.b.jpg", "/p/Grün .nef"] {
+            assert_eq!(
+                source_path_of_sidecar(&PhotoRef::primary(source).sidecar_path()),
+                Some(PathBuf::from(source))
+            );
+        }
     }
 
     #[test]

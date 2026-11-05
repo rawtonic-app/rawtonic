@@ -7,6 +7,7 @@ use crate::IngestError;
 use crate::error::ensure;
 use anyhow::{Context, Result};
 use rawtonic_catalog::{Library, Mode, layout, portable::ResourceUse};
+use rawtonic_metadata::photo_ref;
 use rawtonic_metadata::resources;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -294,11 +295,8 @@ pub fn copy_library(
             check(cancel)?;
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            let original = if let Some(base) = name.strip_suffix(".rrdata") {
-                base.rsplit_once('.')
-                    .filter(|(_, id)| rawtonic_catalog::valid_copy_id(id))
-                    .map(|(base, _)| base)
-                    .unwrap_or(base)
+            let original = if let Some((photo, _)) = photo_ref::sidecar_name_parts(&name) {
+                photo
             } else if let Some(base) = name.strip_suffix(".rrexif") {
                 base
             } else {
@@ -358,10 +356,10 @@ pub fn copy_library(
         .collect();
     let mut sidecars = Vec::new();
     walk(&stage_root, &mut sidecars, true)?;
-    for path in sidecars
-        .iter()
-        .filter(|p| p.extension().is_some_and(|e| e == "rrdata"))
-    {
+    for path in sidecars.iter().filter(|p| {
+        p.extension()
+            .is_some_and(|e| e == photo_ref::SIDECAR_EXTENSION)
+    }) {
         let mut value: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
         let relative = path.strip_prefix(&stage_root)?;
         let owner = relative

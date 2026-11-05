@@ -1729,10 +1729,9 @@ pub fn embed_export_metadata(
     Ok(())
 }
 
+/// `image_path`'s editor sidecar (the primary photo's).
 pub fn get_primary_sidecar_path(image_path: &Path) -> PathBuf {
-    let mut filename = image_path.file_name().unwrap_or_default().to_os_string();
-    filename.push(".rrdata");
-    image_path.with_file_name(filename)
+    rawtonic_metadata::photo_ref::PhotoRef::of_path(image_path, None).sidecar_path()
 }
 
 pub fn get_rrexif_path(image_path: &Path) -> PathBuf {
