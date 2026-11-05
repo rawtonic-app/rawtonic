@@ -44,10 +44,9 @@ impl From<String> for LinearMode {
 
 /// Optional controls for a RAW development, with the legacy full-development
 /// defaults. Borrowed hooks live only for the duration of the decode.
+#[derive(Default)]
 pub struct DecodeOptions<'a> {
     pub fast_demosaic: bool,
-    /// Retained for callers; the legacy decoder also ignored this value.
-    pub highlight_compression: f32,
     pub linear_mode: LinearMode,
     pub cancel_token: Option<rawtonic_runtime::CancelToken>,
     pub denoise: Option<&'a crate::mosaic_denoise::MosaicDenoise>,
@@ -56,23 +55,6 @@ pub struct DecodeOptions<'a> {
     pub frame_version: u32,
     pub black: crate::black_bias::BlackLevels,
     pub highlights: crate::highlight_reconstruction::HighlightRebuild,
-}
-
-impl Default for DecodeOptions<'_> {
-    fn default() -> Self {
-        Self {
-            fast_demosaic: false,
-            highlight_compression: 2.5,
-            linear_mode: LinearMode::default(),
-            cancel_token: None,
-            denoise: None,
-            draft: None,
-            dead_test: Default::default(),
-            frame_version: 0,
-            black: Default::default(),
-            highlights: Default::default(),
-        }
-    }
 }
 
 /// Receives the draft of a full development (`develop_raw_image`):

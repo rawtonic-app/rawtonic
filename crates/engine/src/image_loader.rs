@@ -385,7 +385,9 @@ pub fn load_base_image_measured(
     cancel_token: Option<rawtonic_runtime::CancelToken>,
 ) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
     let BaseImageOptions {
-        highlight_compression,
+        // Recorded in the render-input snapshot only; the decoder has no
+        // highlight compression parameter.
+        highlight_compression: _,
         linear_mode,
         color_nr_amount,
         sharpening_amount,
@@ -407,7 +409,6 @@ pub fn load_base_image_measured(
                 bytes,
                 &rawtonic_rawdecode::raw_processing::DecodeOptions {
                     fast_demosaic: use_fast_raw_dev,
-                    highlight_compression,
                     linear_mode: linear_mode.into(),
                     cancel_token,
                     denoise: mosaic_denoise.as_ref().filter(|_| !use_fast_raw_dev),
