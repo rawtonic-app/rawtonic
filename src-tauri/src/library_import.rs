@@ -18,6 +18,7 @@ use rawtonic_catalog::{ALBUM, Combine, Field, GROUP, Library, Mode, Op, Rule, SM
 use rawtonic_interop::{
     Develop, Library as Source, NotRead, Photo, Root, SmartRule, SmartRules, SmartValue,
 };
+use rawtonic_metadata::photo_ref;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -803,12 +804,11 @@ fn import_copy(
 ) -> anyhow::Result<(Imported, String)> {
     let known = catalog.copies(asset)?;
     let origin = copy_origin(source_name, photo);
-    let name = photo
-        .path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .ok_or_else(|| anyhow::anyhow!("No file name"))?;
-    let sidecar_of = |id: &str| photo.path.with_file_name(format!("{name}.{id}.rrdata"));
+    let sidecar_of = |id: &str| {
+        photo
+            .path
+            .with_file_name(photo_ref::sidecar_name(&photo.path, Some(id)))
+    };
     let mut id = None;
     for attempt in 0..16 {
         let candidate = copy_id(asset, &origin, attempt);

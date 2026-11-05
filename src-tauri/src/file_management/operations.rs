@@ -3,7 +3,7 @@
 use super::add_to_album;
 use super::parse_virtual_path;
 use crate::image_processing::ImageMetadata;
-use rawtonic_metadata::photo_ref::PhotoRef;
+use rawtonic_metadata::photo_ref::{self, PhotoRef};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -777,9 +777,10 @@ fn clear_all_sidecars_blocking(
         let path = entry.path();
         if path.is_file()
             && let Some(extension) = path.extension()
-            && (extension == "rrdata" || extension == "rrexif")
+            && (extension == photo_ref::SIDECAR_EXTENSION || extension == "rrexif")
         {
-            if extension == "rrdata" && registered_sidecar(path, &mut libraries) {
+            if extension == photo_ref::SIDECAR_EXTENSION && registered_sidecar(path, &mut libraries)
+            {
                 continue;
             }
             match trash.trash(path) {
@@ -810,8 +811,11 @@ fn registered_sidecar(
 ) -> bool {
     let source = match crate::session_bridge::copy_for_sidecar(sidecar) {
         Some((source, _)) => source,
-        None => match sidecar.to_str().and_then(|s| s.strip_suffix(".rrdata")) {
-            Some(source) => PathBuf::from(source),
+        None => match sidecar.file_name().and_then(|n| n.to_str()) {
+            Some(name) => match name.strip_suffix(photo_ref::SIDECAR_SUFFIX) {
+                Some(source) => sidecar.with_file_name(source),
+                None => return false,
+            },
             None => return false,
         },
     };

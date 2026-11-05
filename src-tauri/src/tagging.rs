@@ -22,6 +22,7 @@ use crate::ipc::CommandError;
 use crate::tagging_utils::candidates::TAG_CANDIDATES;
 use crate::tagging_utils::hierarchy::TAG_HIERARCHY;
 use rawtonic_metadata::labels;
+use rawtonic_metadata::photo_ref;
 
 pub const USER_TAG_PREFIX: &str = "user:";
 
@@ -584,24 +585,6 @@ fn tag_failures_unsaved(paths: &[String], error: &str) -> Result<(), SaveFailure
     )
 }
 
-fn rrdata_source_path(rrdata: &Path) -> Option<PathBuf> {
-    let name = rrdata.file_name()?.to_str()?;
-    let base = name.strip_suffix(".rrdata")?;
-
-    let source_filename = if base.len() >= 7 && base.as_bytes()[base.len() - 7] == b'.' {
-        let id = &base[base.len() - 6..];
-        if id.chars().all(|c| c.is_ascii_hexdigit()) {
-            &base[..base.len() - 7]
-        } else {
-            base
-        }
-    } else {
-        base
-    };
-
-    Some(rrdata.with_file_name(source_filename))
-}
-
 fn sync_xmp_for_rrdata(
     rrdata_path: &Path,
     metadata: &ImageMetadata,
@@ -611,7 +594,7 @@ fn sync_xmp_for_rrdata(
     if !enable_xmp_sync {
         return;
     }
-    if let Some(source_path) = rrdata_source_path(rrdata_path) {
+    if let Some(source_path) = photo_ref::source_path_of_sidecar(rrdata_path) {
         file_management::sync_metadata_to_xmp(&source_path, metadata, create_xmp_if_missing);
     }
 }
@@ -667,7 +650,10 @@ fn clear_tags_under(
     let mut updated_count = 0;
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        if !(path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rrdata")) {
+        let sidecar = path
+            .extension()
+            .is_some_and(|e| e == photo_ref::SIDECAR_EXTENSION);
+        if !(path.is_file() && sidecar) {
             continue;
         }
         let _turn = file_management::sidecar_field_edit();

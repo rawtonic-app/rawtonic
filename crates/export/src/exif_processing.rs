@@ -1729,9 +1729,10 @@ pub fn embed_export_metadata(
     Ok(())
 }
 
-/// `image_path`'s editor sidecar (the primary photo's).
+/// `image_path`'s editor sidecar (the primary photo's). Built from the path
+/// itself, so a non-UTF-8 file name is kept as it is.
 pub fn get_primary_sidecar_path(image_path: &Path) -> PathBuf {
-    rawtonic_metadata::photo_ref::PhotoRef::of_path(image_path, None).sidecar_path()
+    image_path.with_file_name(rawtonic_metadata::photo_ref::sidecar_name(image_path, None))
 }
 
 pub fn get_rrexif_path(image_path: &Path) -> PathBuf {
@@ -2164,6 +2165,31 @@ mod tests {
         assert_eq!(with.get("FocalLength").map(String::as_str), Some("50"));
         let equivalent = with.get("FocalLengthIn35mmFilm").unwrap();
         assert!(equivalent.starts_with("80"), "{equivalent}");
+    }
+
+    /// The primary sidecar is the photo's path with `.rrdata` pushed onto
+    /// its file name: a name that is not UTF-8 stays byte for byte (a
+    /// `PhotoRef` would make it lossy), and every UTF-8 name keeps the one
+    /// the written-out form gave.
+    #[cfg(unix)]
+    #[test]
+    fn a_primary_sidecar_keeps_a_non_utf8_name() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        use std::path::Path;
+        let photo = Path::new("/p").join(OsStr::from_bytes(b"Gr\xfcn .raf"));
+        let sidecar = super::get_primary_sidecar_path(&photo);
+        assert_eq!(sidecar.parent(), Some(Path::new("/p")));
+        assert_eq!(
+            sidecar.file_name().unwrap().as_encoded_bytes(),
+            b"Gr\xfcn .raf.rrdata"
+        );
+        for name in ["a.raf", "a.b.c.jpg", "2019.07.14 DSC_1234.ARW", ".hidden"] {
+            assert_eq!(
+                super::get_primary_sidecar_path(Path::new("/p").join(name).as_path()),
+                Path::new("/p").join(format!("{name}.rrdata"))
+            );
+        }
     }
 
     #[test]
