@@ -13,6 +13,13 @@ vi.mock('./useEditorActions', () => ({
   debouncedSave: { flush: vi.fn() },
   debouncedSetHistory: history
 }));
+const bridge = vi.hoisted(() => ({ reload: null as null | ((path: string) => Promise<void>) }));
+vi.mock('../activity/bridges', () => ({
+  registerPhotoReload: (reload: (path: string) => Promise<void>) => {
+    bridge.reload = reload;
+    return () => {};
+  }
+}));
 const scans = new Map<string, (page: unknown) => void>();
 // Every ref starts empty (null), including the boolean and number ones, so the fixture bridges via unknown.
 const refs = () =>
@@ -223,4 +230,25 @@ describe('stepping to a photograph without a preview proxy', () => {
     expect(useEditorStore.getState().stillPreview).toBeNull();
     expect(useEditorStore.getState().holdingNativeFrame).toBe(false);
   });
+});
+
+it('Reload of a photograph whose file was replaced renders the editor without it once, then opens it again', async () => {
+  const seen: Array<string | null> = [];
+  renderHook(() => {
+    useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() });
+    seen.push(useEditorStore((state) => state.selectedImage?.path ?? null));
+  });
+  await act(async () => {
+    useEditorStore.getState().setEditor({
+      selectedImage: { path: '/a.dng', isReady: false, isDecoded: undefined } as never
+    });
+  });
+  seen.length = 0;
+  await act(async () => {
+    await bridge.reload!('/a.dng');
+  });
+  // The loader sees the path change: away from the photograph, then back.
+  expect(seen.indexOf(null)).toBeGreaterThanOrEqual(0);
+  expect(seen.at(-1)).toBe('/a.dng');
+  expect(seen.indexOf('/a.dng', seen.indexOf(null))).toBeGreaterThan(seen.indexOf(null));
 });

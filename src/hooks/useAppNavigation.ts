@@ -15,6 +15,7 @@ import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave, debouncedSetHistory } from './useEditorActions';
 import { loadLibraryImages, markLibraryPublication } from '../utils/libraryListing';
+import { registerPhotoReload } from '../activity/bridges';
 import { noteListedOffline } from '../utils/offline';
 import { noteBackgroundAiError } from '../utils/aiErrors';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
@@ -577,6 +578,25 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       notify.error('Failed to open folder selection dialog.');
     }
   }, [showFolder]);
+
+  // Reload of an open photograph whose file was replaced on disk (the save
+  // was refused): opens it again from its file, dropping what was kept of
+  // the old image; the recipe the refused save kept is applied on opening.
+  useEffect(
+    () =>
+      registerPhotoReload(async (path) => {
+        if (useEditorStore.getState().selectedImage?.path !== path) return;
+        globalImageCache.delete(path);
+        useEditorStore.getState().setEditor({ selectedImage: null });
+        selectedImagePathRef.current = null;
+        // The editor must render without the photograph once: the loader
+        // starts a load when the selected path changes, and a selection
+        // cleared and restored in one batch would change nothing for it.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await handleImageSelect(path);
+      }),
+    [handleImageSelect, selectedImagePathRef]
+  );
 
   return {
     handleGoHome,

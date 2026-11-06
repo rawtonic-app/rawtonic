@@ -267,10 +267,74 @@ pub(crate) fn visit_editor_sidecars(
     }
 }
 
+/// What the open photographs' files were when they were opened (size and
+/// sampled content, `rawtonic_catalog::fingerprint`; the modification time
+/// is left out, so a `touch`, a copy without times or a cloud mount
+/// rounding times changes nothing). A save or export of an open photograph
+/// whose file is another one now would put the edit of the image the user
+/// saw onto an image they did not.
+static OPENED_FILES: std::sync::LazyLock<Mutex<HashMap<PathBuf, String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// What a refused save or export tells the user (the editor offers Reload).
+pub const FILE_REPLACED: &str = "This photo's file was replaced on disk since you opened it. Reload to see the new file with your edit applied.";
+
+/// Records the file at `source` as the one the user sees (on open, on
+/// reload, after our own writes to it). Returns whether it differs from the
+/// one recorded before, so caches of the old image are dropped.
+pub(crate) fn note_file_opened(source: &Path) -> bool {
+    let Ok(now) = rawtonic_catalog::fingerprint(source) else {
+        return false;
+    };
+    let before = OPENED_FILES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(source.to_path_buf(), now.clone());
+    before.is_some_and(|before| before != now)
+}
+
+/// The identity to pin to an export queued now: the file the user opened
+/// when the photograph is open, else the file as it is now. None when it
+/// cannot be read (offline photographs have no file to check).
+pub(crate) fn source_identity(source: &Path) -> Option<String> {
+    let opened = OPENED_FILES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(source)
+        .cloned();
+    opened.or_else(|| rawtonic_catalog::fingerprint(source).ok())
+}
+
+/// Whether the file at `source` is the one `identity` names (an unreadable
+/// file is left to the export's own error).
+pub(crate) fn file_is(source: &Path, identity: &str) -> bool {
+    rawtonic_catalog::fingerprint(source).is_ok_and(|now| now == identity) || !source.is_file()
+}
+
+/// The message when the open photograph at `source` has another file now
+/// than when it was opened; `None` for a photograph not open, a file that
+/// is gone (offline photographs are edited on their preview) or unchanged.
+pub(crate) fn file_replaced_since_open(source: &Path) -> Option<&'static str> {
+    let recorded = OPENED_FILES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(source)
+        .cloned()?;
+    let now = rawtonic_catalog::fingerprint(source).ok()?;
+    (now != recorded).then_some(FILE_REPLACED)
+}
+
 pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
     let _lock = WRITE_LOCK.lock().map_err(io_error)?;
     let path = path.as_ref();
     let bytes = bytes.as_ref();
+    if let Some(source) = copy_for_sidecar(path)
+        .map(|(source, _)| source)
+        .or_else(|| source_for_sidecar(path))
+        && let Some(message) = file_replaced_since_open(&source)
+    {
+        return Err(io::Error::other(message));
+    }
     if let Some((source, copy)) = copy_for_sidecar(path)
         && let Some(dir) = library_for(&source)
     {
@@ -2991,6 +3055,126 @@ mod tests {
         assert!(write_new_output(&output, b"replacement").is_err());
         assert_eq!(fs::read(&output).unwrap(), b"existing original");
         assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    /// Only the file's time changes (`touch`, a copy without times, a cloud
+    /// mount rounding times): the photograph is the same bytes, so saving
+    /// keeps working, the edit stays on its asset and nothing is registered
+    /// again.
+    #[test]
+    fn a_file_whose_only_change_is_its_time_keeps_its_edit_and_asset() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Touch", Mode::Session).unwrap();
+        let source = lib.directory.join("Capture/A.ARW");
+        fs::write(&source, b"touch fixture").unwrap();
+        let sidecar = lib.directory.join("Capture/A.ARW.rrdata");
+        write_editor_sidecar(
+            &sidecar,
+            br#"{"rating":2,"tags":[],"adjustments":{"exposure":1}}"#,
+        )
+        .unwrap();
+        index_folder(&lib).unwrap();
+        let id = lib.asset_at(&source).unwrap().unwrap().id;
+        assert!(!note_file_opened(&source));
+
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3 * 3600);
+        fs::File::options()
+            .write(true)
+            .open(&source)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+
+        write_editor_sidecar(
+            &sidecar,
+            br#"{"rating":4,"tags":[],"adjustments":{"exposure":2}}"#,
+        )
+        .expect("saving after a time-only change");
+        index_folder(&lib).unwrap();
+        assert_eq!(check_files(&lib).unwrap(), 0);
+        let kept = lib.asset_at(&source).unwrap().unwrap();
+        assert_eq!(kept.id, id, "same asset");
+        assert_eq!(
+            lib.assets(None).unwrap().len(),
+            1,
+            "nothing registered again"
+        );
+        let state = read_editor_sidecar(&sidecar).unwrap();
+        assert_eq!(state["adjustments"]["exposure"], 2);
+        assert_eq!(state["rating"], 4);
+    }
+
+    /// An export queued for a photograph is pinned to the file the user saw:
+    /// reopening the replaced photograph later does not make the new file
+    /// pass for it. A snapshot an earlier build kept has no identity.
+    #[test]
+    fn a_queued_export_is_pinned_to_the_file_it_was_queued_for() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("Q.ARW");
+        fs::write(&source, b"queued image A").unwrap();
+        note_file_opened(&source);
+        let identity = source_identity(&source).unwrap();
+        assert!(file_is(&source, &identity));
+
+        fs::write(temp.path().join(".incoming"), b"another image").unwrap();
+        fs::rename(temp.path().join(".incoming"), &source).unwrap();
+        assert!(!file_is(&source, &identity));
+        // Reopened: the open record moves on, the queued job's pin does not.
+        assert!(note_file_opened(&source));
+        assert!(!file_is(&source, &identity));
+        assert_ne!(source_identity(&source).unwrap(), identity);
+
+        let older: crate::export_processing::PinnedPhoto =
+            serde_json::from_str(r#"{"adjustments":{},"metadata":null}"#).unwrap();
+        assert_eq!(older.source_identity, None);
+    }
+
+    /// A sync tool replaces the open photograph's file by another image
+    /// with the same name (atomic rename). Saving an edit made on the old
+    /// image must not be written onto the new file as its edit: the save is
+    /// refused (the user is told), the library keeps the old edit.
+    #[test]
+    fn an_edit_of_a_replaced_file_is_not_saved_onto_the_new_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Replaced", Mode::Session).unwrap();
+        let source = lib.directory.join("Capture/A.ARW");
+        fs::write(&source, b"original image A").unwrap();
+        let sidecar = lib.directory.join("Capture/A.ARW.rrdata");
+        write_editor_sidecar(
+            &sidecar,
+            br#"{"rating":2,"tags":[],"adjustments":{"exposure":1}}"#,
+        )
+        .unwrap();
+        index_folder(&lib).unwrap();
+        assert!(!note_file_opened(&source));
+
+        let incoming = lib.directory.join("Capture/.incoming");
+        fs::write(&incoming, b"a different image entirely, longer").unwrap();
+        fs::rename(&incoming, &source).unwrap();
+
+        let saved = write_editor_sidecar(
+            &sidecar,
+            br#"{"rating":5,"tags":[],"adjustments":{"exposure":3}}"#,
+        );
+        assert!(saved.is_err(), "the edit of image A went onto the new file");
+        let state = read_editor_sidecar(&sidecar).unwrap();
+        assert_eq!(state["adjustments"]["exposure"], 1);
+        assert_eq!(
+            fs::read(&source).unwrap(),
+            b"a different image entirely, longer"
+        );
+
+        // Reload opens the new file: the edit is saved onto it then.
+        assert!(note_file_opened(&source), "the caches of the old image go");
+        write_editor_sidecar(
+            &sidecar,
+            br#"{"rating":5,"tags":[],"adjustments":{"exposure":3}}"#,
+        )
+        .expect("saving after the reload");
+        assert_eq!(
+            read_editor_sidecar(&sidecar).unwrap()["adjustments"]["exposure"],
+            3
+        );
     }
 }
 

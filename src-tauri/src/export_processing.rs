@@ -285,6 +285,12 @@ pub struct PinnedPhoto {
     /// which its EXIF, names and file times take over the file's.
     #[serde(default)]
     pub capture: Option<rawtonic_catalog::capture_time::CaptureTime>,
+    /// The original's file as the user saw it when the export was queued
+    /// (`session_bridge::source_identity`): the export is refused when its
+    /// file is another one by then. None for a job queued by an earlier
+    /// build, which skips the check.
+    #[serde(default)]
+    pub source_identity: Option<String>,
 }
 
 impl PinnedPhoto {
@@ -423,6 +429,7 @@ pub(crate) fn pin_photos(
                     owner: owner.clone(),
                     from_original: Default::default(),
                     capture: crate::session_bridge::capture_override(&source),
+                    source_identity: crate::session_bridge::source_identity(&source),
                 })
             })
         })
@@ -1395,6 +1402,14 @@ fn export_photo(
         Ok(pinned) => pinned,
         Err(e) => return fail_all(e),
     };
+    // The file is another one than the user saw when the export was queued
+    // (a sync tool replaced it): the recipe of the old image is not
+    // exported from the new one. The rest of the queue goes on.
+    if let Some(identity) = &pinned.source_identity
+        && !crate::session_bridge::file_is(&source_path, identity)
+    {
+        return fail_all(crate::session_bridge::FILE_REPLACED.to_string());
+    }
     let mut js_adjustments = std::mem::take(&mut pinned.adjustments);
 
     // A never-edited photo exports with the camera's lens data,

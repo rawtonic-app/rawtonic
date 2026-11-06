@@ -1009,6 +1009,16 @@ pub async fn load_image(
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);
     let source_path_str = source_path.to_string_lossy().to_string();
+    // Another file than the one opened before (replaced on disk): nothing
+    // decoded from the old one may stand for it.
+    if crate::session_bridge::note_file_opened(&source_path) {
+        develop
+            .decoded_image_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        clear_source_caches(&state, &develop, &merges);
+    }
 
     let metadata: ImageMetadata = crate::exif_processing::load_sidecar(&sidecar_path);
 
