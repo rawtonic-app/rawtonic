@@ -1,26 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum GuideOrientation {
-    Vertical,
-    Horizontal,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct GuidePoint {
-    pub x: f64,
-    pub y: f64,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GuideLine {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub orientation: GuideOrientation,
-    pub p1: GuidePoint,
-    pub p2: GuidePoint,
-}
+pub use rawtonic_recipe::geometry::{GuideLine, GuideOrientation, GuidePoint};
 
 #[derive(Debug, Clone)]
 pub struct GuidedResult {
