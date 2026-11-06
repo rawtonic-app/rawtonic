@@ -3,13 +3,14 @@
 # is working on the code. Merges are gated on vulnerabilities only
 # (scripts/check.sh, ci.yml); releases need this full check green (ADR 0005).
 #
-# The `report` job is the weekly dependency report (user request 2026-11-03):
-# npm security (a finding in shipped code fails the run, dev-only findings are
-# listed), available updates for npm, Rust, the vendored rawler and the
-# toolchain, collected by scripts/dependency_report.mjs into one Markdown
-# report. It creates or updates the single open issue titled "Weekly dependency
-# report" and never opens a PR or pushes: every update goes through
-# scripts/ship.sh with its second-model review.
+# The `report` job is the weekly dependency report (user request 2026-11-03).
+# scripts/dependency_report.mjs runs exactly four checks — `npm audit`
+# (--omit=dev fails the run, dev findings are listed), `npm outdated`, a plain
+# `cargo update --dry-run` (the Rust lockfile and its updates) and
+# `rust-toolchain.toml` against the latest stable — and writes one Markdown
+# report of what they answered. It creates or updates the single open issue
+# titled "Weekly dependency report" and never opens a PR or pushes: every
+# update goes through scripts/ship.sh with its second-model review.
 name: Dependency advisories
 on:
   push:
@@ -75,8 +76,9 @@ jobs:
           node scripts/dependency_report.mjs --out dependency-report.md --issue-body previous-issue.md 2>&1 | tee dependency-report.log
           exit "${PIPESTATUS[0]}"
       - name: Create or update the issue
-        # Runs after a failed collect too: a security finding is published
-        # (the failed collect step keeps the job red).
+        # Runs after a failed collect too: a report that names a security
+        # finding or a check that could not run is published (the failed
+        # collect step keeps the job red).
         if: ${{ !cancelled() && steps.collect.outcome != 'skipped' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -86,13 +88,9 @@ jobs:
             echo "no report body was written" >&2
             exit 1
           fi
-          # A run whose inputs failed says so; the previous report stays.
-          # (A security finding in shipped code is a complete report: it is
-          # published, and the failed job is the alarm.)
-          if grep -q '^\*\*Not collected\*\*' dependency-report.md; then
-            echo "the report could not be collected completely; the issue keeps the previous report" >&2
-            exit 1
-          fi
+          # The report is published even when a check failed: it names each
+          # failed check under "Could not check", and the red job (plus the run
+          # comment on the issue) is the alarm.
           # The canonically titled open issue, the oldest if a duplicate exists.
           issue=$(gh issue list --state open --search "\"$ISSUE_TITLE\" in:title" --limit 50 \
             --json number,title --jq '[.[] | select(.title == env.ISSUE_TITLE)] | sort_by(.number) | .[0].number // empty')
