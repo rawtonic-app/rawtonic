@@ -1770,7 +1770,7 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
         out.push("lensProfile");
     }
     if is("HasCrop", "True") {
-        out.push(geometry::CROP.name());
+        out.push("crop");
     }
     if nonzero("PerspectiveUpright") {
         out.push("upright");

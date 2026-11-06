@@ -186,7 +186,8 @@ impl KeyValue for GuidedPerspective {
         })
     }
     fn to_json(&self) -> Value {
-        serde_json::to_value(self).expect("finite JSON guide points")
+        // A non-finite coordinate is written as null, never an error.
+        serde_json::to_value(self).unwrap_or(Value::Null)
     }
 }
 impl TsType for GuidedPerspective {

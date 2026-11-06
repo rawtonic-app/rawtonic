@@ -46,7 +46,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 | `recipe` | stored + resolved develop recipe, typed keys | serde, serde_json only | `stored`, `tone`, `color`, `detail`, `geometry`, `effects`, `lens` | `-p recipe` |
 | `engine` | develop model, masks, looks, lens | fs, metadata, rawdecode, recipe, runtime | `image_processing` | `-p engine` |
 | `gpu` | wgpu pipeline, shaders, display | engine, fs, rawdecode, runtime | `gpu_processing` | `--ignored` GPU |
-| `export` | render, encoders, queue | engine, fs, gpu, metadata, naming, rawdecode, runtime | `file_export` | exports |
+| `export` | render, encoders, queue | engine, fs, gpu, metadata, naming, rawdecode, recipe, runtime | `file_export` | exports |
 
 ### AI crates
 
