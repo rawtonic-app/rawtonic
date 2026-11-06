@@ -301,6 +301,8 @@ pub(crate) fn note_gpu(info: &wgpu::AdapterInfo) {
 /// A clean exit: the next start has no crash to ask about.
 pub(crate) fn clean_exit() {
     crash::exiting();
+    // A quit while the GPU still starts (its first compile) is no GPU crash.
+    crate::gpu_start_guard::clean_exit();
     if let Some(store) = CRASHES.get() {
         store.clean_exit(std::process::id());
     }

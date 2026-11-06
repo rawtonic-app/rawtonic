@@ -14,6 +14,7 @@
 //! crash; a start that finds OpenGL set says so once.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use wgpu::Backends;
@@ -89,9 +90,54 @@ pub(crate) fn check_flag(path: &Path, alive: impl Fn(u32) -> bool) -> FlagCheck 
     })
 }
 
+/// Held while a flag is written and while a clean exit removes it: true
+/// once the app ends cleanly, after which no flag is written again (a
+/// quit during the first compile is not a crash).
+static EXITING: Mutex<bool> = Mutex::new(false);
+/// This run's flag file (set at start-up), removed by a clean exit.
+static FLAG_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+pub(crate) fn set_flag_path(path: PathBuf) {
+    let _ = FLAG_PATH.set(path);
+}
+
+/// A clean exit: this process's flag goes and none is written again.
+pub(crate) fn clean_exit() {
+    if let Some(path) = FLAG_PATH.get() {
+        exit_with(&EXITING, path);
+    }
+}
+
+fn exit_with(gate: &Mutex<bool>, path: &Path) {
+    let mut exiting = gate
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *exiting = true;
+    let ours = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Flag>(&text).ok())
+        .is_some_and(|flag| flag.pid == std::process::id());
+    if ours {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// Writes the flag for the step about to run (atomic: a crash while
-/// writing it leaves the previous step's flag, or none).
+/// writing it leaves the previous step's flag, or none); nothing after a
+/// clean exit began.
 pub(crate) fn write_flag(path: &Path, backends: Backends, stage: &str) {
+    if write_flag_with(&EXITING, path, backends, stage) {
+        crate::contribute::note_gpu_phase(Some(format!("{stage} on {}", names(backends))));
+    }
+}
+
+fn write_flag_with(gate: &Mutex<bool>, path: &Path, backends: Backends, stage: &str) -> bool {
+    let exiting = gate
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *exiting {
+        return false;
+    }
     let flag = Flag {
         pid: std::process::id(),
         backends: names(backends),
@@ -103,7 +149,7 @@ pub(crate) fn write_flag(path: &Path, backends: Backends, stage: &str) {
     if let Ok(bytes) = serde_json::to_vec(&flag) {
         let _ = rawtonic_fs::atomic_write(path, bytes);
     }
-    crate::contribute::note_gpu_phase(Some(format!("{stage} on {}", flag.backends)));
+    true
 }
 
 pub(crate) fn clear_flag(path: &Path) {
@@ -528,6 +574,24 @@ mod tests {
         );
         clear_flag(&flag);
         assert!(!flag.exists());
+    }
+
+    /// A quit while the first processor compiles is a clean exit: the flag
+    /// goes and a step after it writes none, so the next start sees no crash.
+    #[test]
+    fn a_clean_exit_during_the_start_leaves_no_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let flag = dir.path().join(FLAG_FILE);
+        let gate = Mutex::new(false);
+        assert!(write_flag_with(&gate, &flag, Backends::VULKAN, "compile"));
+        exit_with(&gate, &flag);
+        assert!(!flag.exists());
+        assert!(!write_flag_with(&gate, &flag, Backends::VULKAN, "device"));
+        assert_eq!(check_flag(&flag, |_| false), FlagCheck::Clean);
+        // Another process's flag is left alone.
+        std::fs::write(&flag, r#"{"pid":4242,"backends":"gl","stage":"device"}"#).unwrap();
+        exit_with(&Mutex::new(false), &flag);
+        assert!(flag.exists());
     }
 
     #[test]

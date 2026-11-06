@@ -312,6 +312,7 @@ pub fn run() {
             let crash_flag_path = config_dir.join(gpu_start_guard::FLAG_FILE);
 
             app.state::<state::gpu::GpuState>().set_crash_flag_path(crash_flag_path.clone());
+            gpu_start_guard::set_flag_path(crash_flag_path.clone());
 
             // The settings are read and migrated here, once per run (`state::settings`).
             let mut settings: AppSettings = (*crate::state::settings::current(&app_handle)).clone();
