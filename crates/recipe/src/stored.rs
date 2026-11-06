@@ -20,6 +20,7 @@ impl Section {
     pub const DETAILS: Self = Self("details");
     pub const SHARPENING: Self = Self("sharpening");
     pub const NOISE_REDUCTION: Self = Self("noiseReduction");
+    pub const EFFECTS: Self = Self("effects");
     pub const COLOR: Self = Self("color");
     pub const WHITE_BALANCE: Self = Self("whiteBalance");
     pub const PRESENCE: Self = Self("presence");
@@ -54,6 +55,11 @@ impl<'a> StoredRef<'a> {
     /// The value of `key` when the recipe holds it with the key's type.
     pub fn get<T: KeyValue>(self, key: &Key<T>) -> Option<T> {
         self.0.get(key.name()).and_then(T::from_json)
+    }
+
+    /// Borrow a nullable string key without allocating, including large resource payloads.
+    pub fn get_str(self, key: &Key<Option<String>>) -> Option<&'a str> {
+        self.0.get(key.name()).and_then(Value::as_str)
     }
 
     /// The value of `key`, or its default when the recipe does not hold it

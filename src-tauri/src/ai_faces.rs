@@ -6,13 +6,13 @@
 
 use crate::state::ai::AiState;
 use crate::state::lock::lock_recover;
-use rawtonic_recipe::geometry;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
 use base64::{Engine as _, engine::general_purpose};
 use image::{ImageFormat, RgbImage};
 use rawtonic_faces::{FaceAnalysis, FaceModels, Part};
+use rawtonic_recipe::geometry;
 use serde::Serialize;
 use tauri::Manager;
 

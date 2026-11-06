@@ -11,6 +11,7 @@
 //! marked interim (never taken for the developed region). Develop pixels
 //! never cross IPC.
 
+use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -976,7 +977,7 @@ fn develop_rgba(
     adjustments.global.output_space[0] = space.shader_code();
     adjustments.global.output_matrix =
         image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
-    let lut = recipe["lutPath"]
+    let lut = recipe[effects::LUT_PATH.into_name()]
         .as_str()
         .and_then(|p| crate::lut_processing::get_or_load_lut(&luts, p).ok());
     let developed = gpu_processing::process_and_get_dynamic_image_inner(
@@ -2136,7 +2137,10 @@ fn interim_key(key: u64) -> u64 {
 /// or masks that read the warped photograph (they need it at full
 /// resolution, and an interim region would show them otherwise).
 fn interim_region_possible(recipe: &serde_json::Value) -> bool {
-    region_from_rows_possible(recipe) && !recipe["lensBlurEnabled"].as_bool().unwrap_or(false)
+    region_from_rows_possible(recipe)
+        && !recipe[effects::LENS_BLUR_ENABLED.name()]
+            .as_bool()
+            .unwrap_or(false)
 }
 
 /// The region of `path` its cell `area` shows at `zoom`, from the cell's

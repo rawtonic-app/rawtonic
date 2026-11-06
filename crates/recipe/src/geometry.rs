@@ -238,7 +238,7 @@ impl Geometry {
 
 /// Geometry keys in the generated frontend recipe type.
 pub const TS: TsSection = TsSection {
-    name: "Geometry",
+    name: "geometry",
     fields: &[
         TsField::new(CROP, ""),
         TsField::new(ASPECT_RATIO, ""),

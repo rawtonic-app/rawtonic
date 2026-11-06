@@ -26,6 +26,7 @@
 //! values, unknown/malformed entries and ranges beyond the recipe limits.
 
 use rawtonic_recipe::color as recipe_color;
+use rawtonic_recipe::effects;
 use rawtonic_recipe::tone;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -593,7 +594,13 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
         .get("Vignetting")
         .and_then(|v| v.split('|').next()?.trim().parse::<f64>().ok())
     {
-        put(&mut adjustments, "vignetteAmount", 25.0 * v, -100.0, 100.0);
+        put(
+            &mut adjustments,
+            effects::VIGNETTE_AMOUNT.name(),
+            25.0 * v,
+            -100.0,
+            100.0,
+        );
     }
     if let Some(impact) = num("FilmGrainAmount") {
         let kind = num("FilmGrainType").map_or(0, |t| t.round() as i64);
@@ -623,13 +630,19 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
         };
         let (size, strength) = (lo.0 + t * (hi.0 - lo.0), lo.1 + t * (hi.1 - lo.1));
         let v = impact * strength;
-        put(&mut adjustments, "grainAmount", v, 0.0, 100.0);
+        put(
+            &mut adjustments,
+            effects::GRAIN_AMOUNT.name(),
+            v,
+            0.0,
+            100.0,
+        );
         if v > 0.0 {
             // Explicit even at 0, so the photo's own values do not stay.
-            adjustments.insert("grainSize".into(), json!(size.round()));
-            adjustments.insert("grainRoughness".into(), json!(roughness));
+            adjustments.insert(effects::GRAIN_SIZE.name().into(), json!(size.round()));
+            adjustments.insert(effects::GRAIN_ROUGHNESS.name().into(), json!(roughness));
             // Capture One's grain is monochrome.
-            adjustments.insert("grainColor".into(), json!(0));
+            adjustments.insert(effects::GRAIN_COLOR.name().into(), json!(0));
             adjustments.insert(
                 rawtonic_engine::image_processing::GRAIN_VERSION_KEY.into(),
                 json!(rawtonic_engine::image_processing::GRAIN_VERSION),

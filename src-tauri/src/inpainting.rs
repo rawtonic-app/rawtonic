@@ -1,10 +1,10 @@
 use crate::state::ai::AiState;
-use rawtonic_recipe::geometry;
 use std::io::Cursor;
 
 use crate::ipc::CommandError;
 use base64::{Engine as _, engine::general_purpose};
 use image::{DynamicImage, GenericImageView, Rgb, RgbImage, RgbaImage};
+use rawtonic_recipe::geometry;
 use serde_json::Value;
 
 use crate::ai_processing;

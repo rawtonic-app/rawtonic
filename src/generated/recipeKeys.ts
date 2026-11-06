@@ -14,6 +14,12 @@ import type {
 export type WhiteBalanceMode =
   'asShot' | 'daylight' | 'cloudy' | 'shade' | 'tungsten' | 'fluorescent' | 'flash' | 'custom' | 'auto';
 
+export type GrainStructure = 'even' | 'soft' | 'clumped' | 'speckled' | 'gritty';
+
+export type VignetteStyle = 'highlightPriority' | 'colorPriority' | 'paintOverlay';
+
+export type LensBlurShape = 'circle' | 'hexagon' | 'octagon' | 'ring';
+
 /** The global recipe keys of the sections in the recipe crate, each optional as in a saved recipe. */
 export interface RecipeKeys {
   // tone
@@ -51,7 +57,7 @@ export interface RecipeKeys {
   colorGrading?: ColorGradingProps;
   colorCalibration?: ColorCalibration;
 
-  // Detail
+  // detail
   sharpness?: number;
   sharpnessThreshold?: number;
   /** Lightroom's sharpening Radius / Detail / Masking (photo only). */
@@ -88,7 +94,7 @@ export interface RecipeKeys {
   /** Capture One's diffraction correction: sharpening by the f-number and pixel pitch (diffraction.rs), RAW only. */
   diffractionCorrection?: boolean;
 
-  // Geometry
+  // geometry
   crop?: Crop | null;
   aspectRatio?: number | null;
   rotation?: number;
@@ -104,4 +110,43 @@ export interface RecipeKeys {
   transformXOffset?: number;
   transformYOffset?: number;
   guidedPerspective?: GuidedPerspective;
+
+  // effects
+  vignetteAmount?: number;
+  vignetteMidpoint?: number;
+  vignetteRoundness?: number;
+  vignetteFeather?: number;
+  vignetteHighlights?: number;
+  grainAmount?: number;
+  grainSize?: number;
+  grainRoughness?: number;
+  /**
+   * Film grain's colour (grain version 3): 0 one neutral layer like black-and-white film, 100 independent dye layers;
+   * missing = 0.
+   */
+  grainColor?: number;
+  glowAmount?: number;
+  halationAmount?: number;
+  flareAmount?: number;
+  lutIntensity?: number;
+  lutSize?: number;
+  lensBlurAmount?: number;
+  lensBlurDiffusion?: number;
+  lensBlurMinDepth?: number;
+  lensBlurMaxDepth?: number;
+  lensBlurMinFade?: number;
+  lensBlurMaxFade?: number;
+  /** The grain a recipe renders (GRAIN_VERSION); missing = 1. */
+  grainVersion?: number;
+  /** Grain structure; missing = 'even', the original grain (docs/RECIPE_SCHEMA.md). */
+  grainStructure?: GrainStructure;
+  /** Lightroom's post-crop vignette style and Highlights (0–100). */
+  vignetteStyle?: VignetteStyle;
+  lensBlurShape?: LensBlurShape;
+  lensBlurEnabled?: boolean;
+  lutIsSceneReferred?: boolean;
+  lutPath?: string | null;
+  lutName?: string | null;
+  lutData?: string | null;
+  lensBlurDepthMap?: string | null;
 }

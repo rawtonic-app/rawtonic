@@ -37,6 +37,10 @@ impl TsType for String {
     const TS: &'static str = "string";
 }
 
+impl TsType for Option<String> {
+    const TS: &'static str = "string | null";
+}
+
 /// One global key of the TypeScript recipe type.
 #[derive(Clone, Copy, Debug)]
 pub struct TsField {
@@ -83,11 +87,12 @@ pub struct TsSection {
 }
 
 /// Every section in the crate; a new section is one entry here.
-pub const SECTIONS: [&TsSection; 4] = [
+pub const SECTIONS: [&TsSection; 5] = [
     &crate::tone::TS,
     &crate::color::TS,
     &crate::detail::TS,
     &crate::geometry::TS,
+    &crate::effects::TS,
 ];
 
 /// Where [`render`]'s text belongs, relative to the repository root.
@@ -202,7 +207,12 @@ mod tests {
     #[test]
     fn every_slider_key_is_in_the_type_once() {
         let names = names();
-        let sliders = crate::tone::KEYS.iter().chain(crate::color::KEYS.iter());
+        let sliders = crate::tone::KEYS
+            .iter()
+            .chain(crate::color::KEYS.iter())
+            .chain(crate::detail::KEYS.iter())
+            .chain(crate::geometry::KEYS.iter())
+            .chain(crate::effects::KEYS.iter());
         for key in sliders {
             assert_eq!(
                 names.iter().filter(|n| **n == key.name()).count(),

@@ -2,9 +2,10 @@
 //! loader (EXIF cache, Apple RAW, preprocessing settings). Moved here from
 //! `rawtonic_engine::{auto_adjust, spot_removal}` (ADR 0009).
 
+use rawtonic_recipe::geometry;
+
 /// Private evaluation: RAWTONIC_AUTO_SAMPLES lists "name<TAB>path" lines;
 /// writes NAME.json with the auto recipe into RAWTONIC_AUTO_OUT.
-use rawtonic_recipe::geometry;
 #[test]
 #[ignore = "requires private RAW samples"]
 fn private_raw_auto_recipes() {

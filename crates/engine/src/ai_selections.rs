@@ -7,10 +7,10 @@
 //! pixels whether it was opened first or not. The networks run behind
 //! `SelectionDetector` (the app's loaded models, the CLI's model folder).
 
-use rawtonic_recipe::geometry;
 use std::sync::Arc;
 
 use image::DynamicImage;
+use rawtonic_recipe::geometry;
 use serde_json::{Map, Value, json};
 
 use crate::mask_generation::{mask_warp, prepare_shared_warped_mask_image};

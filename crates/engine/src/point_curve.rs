@@ -2,6 +2,7 @@
 //! curves imported with many points). The renderer then reads the global
 //! curves from one sampled table (`curve_table`) instead of the uniform's
 //! first 16 points; recipes whose curves fit stay on the exact evaluator.
+use rawtonic_recipe::effects;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -151,7 +152,7 @@ pub fn curve_input_probe(adjustments: &Value) -> Value {
     for key in [
         "curves",
         "regionCurve",
-        "grainAmount",
+        effects::GRAIN_AMOUNT.name(),
         "showClipping",
         "softProof",
         "softProofWarning",
@@ -160,11 +161,11 @@ pub fn curve_input_probe(adjustments: &Value) -> Value {
         recipe.remove(key);
     }
     if !recipe
-        .get("lutIsSceneReferred")
+        .get(effects::LUT_IS_SCENE_REFERRED.name())
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
-        recipe.remove("lutPath");
+        recipe.remove(effects::LUT_PATH.into_name());
     }
     if let Some(masks) = recipe.get_mut("masks").and_then(Value::as_array_mut) {
         for mask in masks {

@@ -16,6 +16,7 @@ use crate::image_processing::{
 use crate::lut_processing;
 use crate::state::develop::DevelopSession;
 use image::{DynamicImage, GenericImageView};
+use rawtonic_recipe::effects;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -172,7 +173,7 @@ fn render_tiles(
             crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
         );
         probe.global.detail_scale = small_scale;
-        let lut = tile["lutPath"].as_str().and_then(|p| {
+        let lut = tile[effects::LUT_PATH.into_name()].as_str().and_then(|p| {
             lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
                 .ok()
         });

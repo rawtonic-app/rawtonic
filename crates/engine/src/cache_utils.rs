@@ -1,4 +1,5 @@
 use image::DynamicImage;
+use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -85,19 +86,22 @@ pub fn calculate_patched_warped_hash(adjustments: &serde_json::Value) -> u64 {
         .and_then(|s| s.as_bool())
         .unwrap_or(true);
 
-    let blur_enabled = effects_visible && adjustments["lensBlurEnabled"].as_bool().unwrap_or(false);
+    let blur_enabled = effects_visible
+        && adjustments[effects::LENS_BLUR_ENABLED.name()]
+            .as_bool()
+            .unwrap_or(false);
     blur_enabled.hash(&mut hasher);
 
     if blur_enabled {
         let blur_keys = [
-            "lensBlurAmount",
-            "lensBlurDiffusion",
-            "lensBlurShape",
-            "lensBlurMinDepth",
-            "lensBlurMaxDepth",
-            "lensBlurMinFade",
-            "lensBlurMaxFade",
-            "lensBlurDepthMap",
+            effects::LENS_BLUR_AMOUNT.name(),
+            effects::LENS_BLUR_DIFFUSION.name(),
+            effects::LENS_BLUR_SHAPE.name(),
+            effects::LENS_BLUR_MIN_DEPTH.name(),
+            effects::LENS_BLUR_MAX_DEPTH.name(),
+            effects::LENS_BLUR_MIN_FADE.name(),
+            effects::LENS_BLUR_MAX_FADE.name(),
+            effects::LENS_BLUR_DEPTH_MAP.into_name(),
         ];
 
         for key in blur_keys {
@@ -183,31 +187,34 @@ pub fn calculate_transform_hash(adjustments: &serde_json::Value) -> u64 {
         .and_then(|s| s.as_bool())
         .unwrap_or(true);
 
-    let blur_enabled = effects_visible && adjustments["lensBlurEnabled"].as_bool().unwrap_or(false);
+    let blur_enabled = effects_visible
+        && adjustments[effects::LENS_BLUR_ENABLED.name()]
+            .as_bool()
+            .unwrap_or(false);
     blur_enabled.hash(&mut hasher);
     if blur_enabled {
-        if let Some(val) = adjustments.get("lensBlurAmount") {
+        if let Some(val) = adjustments.get(effects::LENS_BLUR_AMOUNT.name()) {
             val.to_string().hash(&mut hasher);
         }
-        if let Some(val) = adjustments.get("lensBlurDiffusion") {
+        if let Some(val) = adjustments.get(effects::LENS_BLUR_DIFFUSION.name()) {
             val.to_string().hash(&mut hasher);
         }
-        if let Some(val) = adjustments.get("lensBlurShape") {
+        if let Some(val) = adjustments.get(effects::LENS_BLUR_SHAPE.name()) {
             val.as_str().unwrap_or("").hash(&mut hasher);
         }
-        if let Some(val) = adjustments.get("lensBlurMinDepth") {
+        if let Some(val) = adjustments.get(effects::LENS_BLUR_MIN_DEPTH.name()) {
             val.to_string().hash(&mut hasher);
         }
-        if let Some(val) = adjustments.get("lensBlurMaxDepth") {
+        if let Some(val) = adjustments.get(effects::LENS_BLUR_MAX_DEPTH.name()) {
             val.to_string().hash(&mut hasher);
         }
-        if let Some(val) = adjustments.get("lensBlurMinFade") {
+        if let Some(val) = adjustments.get(effects::LENS_BLUR_MIN_FADE.name()) {
             val.to_string().hash(&mut hasher);
         }
-        if let Some(val) = adjustments.get("lensBlurMaxFade") {
+        if let Some(val) = adjustments.get(effects::LENS_BLUR_MAX_FADE.name()) {
             val.to_string().hash(&mut hasher);
         }
-        if let Some(val) = adjustments.get("lensBlurDepthMap") {
+        if let Some(val) = adjustments.get(effects::LENS_BLUR_DEPTH_MAP.into_name()) {
             val.as_str().unwrap_or("").len().hash(&mut hasher);
         }
     }

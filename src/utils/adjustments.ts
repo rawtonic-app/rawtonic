@@ -2,7 +2,7 @@ import { normalizeRelight, type RelightLight, type RelightDepth } from './religh
 import { v4 as uuidv4 } from 'uuid';
 import { SubMask, SubMaskMode } from '../components/panel/right/Masks';
 import type { AdjustmentLayout, AppSettings } from '../components/ui/AppProperties';
-import type { RecipeKeys } from '../generated/recipeKeys';
+import type { GrainStructure, RecipeKeys } from '../generated/recipeKeys';
 
 export type { Crop } from 'react-image-crop';
 
@@ -390,7 +390,7 @@ export interface FaceRetouch {
 }
 
 /** Grain structures (shader `grain_structure_noise`, notes: reference/grain.md). */
-export type GrainStructure = 'even' | 'soft' | 'clumped' | 'speckled' | 'gritty';
+export type { GrainStructure } from '../generated/recipeKeys';
 
 /** The structure grain gets when it is turned on in a recipe without one (user decision 2026-10-12). */
 export const NEW_GRAIN_STRUCTURE: GrainStructure = 'clumped';
@@ -519,7 +519,26 @@ type HeldRecipeKey =
   | 'transformScale'
   | 'transformXOffset'
   | 'transformYOffset'
-  | 'guidedPerspective';
+  | 'guidedPerspective'
+  | 'vignetteAmount'
+  | 'vignetteMidpoint'
+  | 'vignetteRoundness'
+  | 'vignetteFeather'
+  | 'grainAmount'
+  | 'grainSize'
+  | 'grainRoughness'
+  | 'glowAmount'
+  | 'halationAmount'
+  | 'flareAmount'
+  | 'lensBlurAmount'
+  | 'lensBlurDiffusion'
+  | 'lensBlurMinDepth'
+  | 'lensBlurMaxDepth'
+  | 'lensBlurMinFade'
+  | 'lensBlurMaxFade'
+  | 'lensBlurShape'
+  | 'lensBlurEnabled'
+  | 'lensBlurDepthMap';
 
 /** The develop recipe as the frontend holds it. The keys of the sections in
  * the recipe crate come from its registry (`src/generated/recipeKeys.ts`);
@@ -550,21 +569,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   pointCurves?: Curves;
   parametricCurve?: ParametricCurve;
   curveMode?: 'point' | 'parametric';
-  flareAmount: number;
-  glowAmount: number;
-  grainAmount: number;
-  grainRoughness: number;
-  grainSize: number;
-  halationAmount: number;
-  lensBlurAmount: number;
-  lensBlurDiffusion: number;
-  lensBlurShape: 'circle' | 'hexagon' | 'octagon' | 'ring';
-  lensBlurDepthMap: string | null;
-  lensBlurEnabled: boolean;
-  lensBlurMaxDepth: number;
-  lensBlurMaxFade: number;
-  lensBlurMinDepth: number;
-  lensBlurMinFade: number;
   /** 'camera': the RAW's own correction data (Fujifilm, Sony, Panasonic, …). */
   lensCorrectionMode: 'auto' | 'manual' | 'camera';
   /** Which cameras' CA data camera mode reads (crates/engine/src/embedded_lens.rs
@@ -730,12 +734,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * never changed once the photo is edited (Reset, paste and presets keep
    * it): a photo keeps the size it was edited in (src/utils/sourceFrame.ts). */
   sourceFrameVersion?: number;
-  lutData?: string | null;
-  lutIntensity?: number;
-  lutName?: string | null;
-  lutPath?: string | null;
-  lutSize?: number;
-  lutIsSceneReferred?: boolean;
   masks: Array<MaskContainer>;
   sectionVisibility: SectionVisibility;
   /** View state, never saved (`NON_COPYABLE_ADJUSTMENT_KEYS`): the
@@ -765,25 +763,11 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * data has one it competes with it; missing = 1 (recipes from before).
    * New RAW edits only. */
   autoCaVersion?: number;
-  vignetteAmount: number;
-  vignetteFeather: number;
-  vignetteMidpoint: number;
-  vignetteRoundness: number;
-  /** Lightroom's post-crop vignette style and Highlights (0–100). */
-  vignetteStyle?: 'highlightPriority' | 'colorPriority' | 'paintOverlay';
-  /** Grain structure; missing = 'even', the original grain (docs/RECIPE_SCHEMA.md). */
-  grainStructure?: GrainStructure;
-  /** The grain a recipe renders (`GRAIN_VERSION`); missing = 1. */
-  grainVersion?: number;
-  /** Film grain's colour (grain version 3): 0 one neutral layer like
-   * black-and-white film, 100 independent dye layers; missing = 0. */
-  grainColor?: number;
   relightLights?: RelightLight[];
   relightDepth?: RelightDepth;
   relightDepthAmount?: number;
   relightSkinReflections?: number;
   relightOriginalLight?: number;
-  vignetteHighlights?: number;
 }
 
 /** What `setAdjustments` accepts: a patch merged into the current adjustments, or an updater. */
