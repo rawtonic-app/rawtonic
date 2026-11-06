@@ -774,12 +774,11 @@ impl CrashStore {
         remove(&self.path(LOST_RUNS));
     }
 
-    /// Deletes the notes of this run and the runs waiting for a Windows
-    /// event (recording was turned off).
+    /// Deletes the notes of this run (recording was turned off, or the run
+    /// exited cleanly).
     fn remove_notes(&self) {
         remove(&self.path(PANIC_NOTE));
         remove(&self.path(SIGNAL_NOTE));
-        remove(&self.path(LOST_RUNS));
     }
 }
 
@@ -824,6 +823,8 @@ pub fn set_recording(store: &CrashStore, on: bool) {
     *noted = false;
     if !on {
         store.remove_notes();
+        // Also the runs waiting for a Windows event: Never keeps nothing.
+        remove(&store.path(LOST_RUNS));
     }
 }
 
