@@ -821,10 +821,19 @@ mod tests {
     /// several stops darker than its photograph (report #22).
     #[test]
     fn a_virtual_copy_develops_with_its_photographs_base_look() {
+        // The adjustments of a normal RAW recipe, not the all-zero default:
+        // the RAW flag, a tone mapper and the diffraction request are set,
+        // so what the base look restores on top of them is exercised.
+        let recipe = serde_json::json!({
+            "toneMapper": "agx",
+            "exposure": 0.3,
+            "diffractionCorrection": true,
+        });
         let look = |path: &str| {
-            let mut global = GlobalAdjustments::default();
+            let mut global =
+                crate::image_processing::get_all_adjustments_from_json(&recipe, true, None).global;
             super::apply_base_look(&mut global, path, None, None);
-            bytemuck::bytes_of(&global).to_vec()
+            global
         };
         let none = look("/nonexistent/copy-test.jpg");
         for photo in [
@@ -833,8 +842,27 @@ mod tests {
             "/nonexistent/copy-test.dng",
         ] {
             crate::noise_level::record(photo, 0.02);
-            assert_ne!(look(photo), none, "{photo}");
-            assert_eq!(look(&format!("{photo}?vc=0f1e2d")), look(photo), "{photo}");
+            crate::source_facts::register(
+                photo,
+                crate::source_facts::SourceFacts {
+                    diffraction_sigma: Some(1.2),
+                    ..Default::default()
+                },
+            );
+            let own = look(photo);
+            assert_ne!(
+                bytemuck::bytes_of(&own),
+                bytemuck::bytes_of(&none),
+                "{photo}"
+            );
+            assert_eq!(own.is_raw_image, 1, "{photo}");
+            assert_ne!(own.tonemapper_mode, 0, "{photo}");
+            assert!(own.sharpen_falloff[1] > 0.0, "{photo}: diffraction radius");
+            assert_eq!(
+                bytemuck::bytes_of(&look(&format!("{photo}?vc=0f1e2d"))),
+                bytemuck::bytes_of(&own),
+                "{photo}"
+            );
         }
     }
 
