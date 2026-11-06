@@ -552,15 +552,19 @@ impl CrashStore {
         // The marker's run's own panic, or one of a later run that panicked
         // before it wrote its marker.
         let (panic, early_panic) = match note {
-            Some(note) if marker.as_ref().is_none_or(|m| m.pid == note.pid) => (Some(note), None),
-            // (Not this run's own: it still runs, so its panic did not end it.)
+            // A later run's, noted before it had a marker: the log and the
+            // marker beside it are an earlier run's. (Not this run's own:
+            // it still runs, so its panic did not end it.)
             Some(note)
                 if note.early
                     && note.pid != run.pid
-                    && marker.as_ref().is_some_and(|m| note.at >= m.started) =>
+                    && marker
+                        .as_ref()
+                        .is_none_or(|m| m.pid != note.pid && note.at >= m.started) =>
             {
                 (None, Some(note))
             }
+            Some(note) if marker.as_ref().is_none_or(|m| m.pid == note.pid) => (Some(note), None),
             _ => (None, None),
         };
         let signal_path = self.path(SIGNAL_NOTE);
@@ -1518,6 +1522,7 @@ mod tests {
     /// lines, which the next run replaces) and a later start finds it.
     #[test]
     fn a_native_crash_published_late_is_found_at_a_later_start() {
+        let _serial = exclusive();
         let (_dir, store) = store();
         let store = store.retrying_native_lookups(true);
         store
@@ -1689,6 +1694,7 @@ mod tests {
     /// is not taken for the marker's run.
     #[test]
     fn an_early_panic_of_a_later_run_is_recorded() {
+        let _serial = exclusive();
         let (_dir, store) = store();
         store
             .start(&run(10, T0), |_| false, || None, &scrubber(), true)
@@ -1761,6 +1767,30 @@ mod tests {
             None
         );
         assert_eq!(store.pending(T0 + 41).len(), 1);
+        // After a clean exit there is no marker: still an early panic, and
+        // the log beside it (the clean run's) is not taken for its own.
+        store.clean_exit(15);
+        write_json(
+            &store.path(PANIC_NOTE),
+            &PanicNote {
+                pid: 16,
+                at: T0 + 50,
+                ..note(true)
+            },
+        )
+        .unwrap();
+        let record = store
+            .start(
+                &run(17, T0 + 51),
+                |_| false,
+                || panic!("the clean run's log is not read"),
+                &scrubber(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(record.message.ends_with("(early in the start)"));
+        assert_eq!(record.log_tail, None);
     }
 
     /// Armed early, the hook notes a panic as early; a store that does not
