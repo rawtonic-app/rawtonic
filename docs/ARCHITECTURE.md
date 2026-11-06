@@ -33,7 +33,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 | `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
 | `interop` | other editors' settings → ours | `metadata` | `lightroom`, `capture_one` | `-p rawtonic-interop` |
 | `tether` | camera tethering helper (ADR 0012) | `fs` | `protocol`, `staging`, `client` | `--mock` camera |
-| `contribute` | scrubbing, relay client (ADR 0017) | `fs` | `scrub`, `payload`, `crash` | panic/abort tests |
+| `contribute` | scrubbing, relay client (ADR 0017) | `fs` | `scrub`, `payload`, `crash`, `native` | panic/abort tests; Windows crash-in-event-log test |
 | `merge` | HDR, panorama, focus stack, DNG | `engine`, `rawdecode`, `rawler` | `hdr`, `panorama`, `dng` | `examples/` |
 | `cli` | `rawtonic` binary, benchmarks | most core, engine, AI crates | `main`, `search_bench` | `crates/cli/tests` |
 
@@ -306,15 +306,20 @@ proof-of-work stamp; the relay URL is fixed at build time: `relay.rawtonic.cc` i
 overrides (empty: none), debug builds and tests have none), `crash` (`CrashStore` in the config folder's
 `crash-reports`: a run marker, the panic hook's note (`note_panic`: message, location and backtrace reduced to file
 names) and an async-signal-safe note of a fatal signal (`arm`, chained to the handlers before it), both written only
-while `set_recording` is on (off after Never); `start` turns notes of a process that is gone into a scrubbed record with
-the previous run's log tail, `clean_exit` removes them, records expire after 30 days; tests run a real panic hook and a
-real `abort()` in a child process), `stats` (`StatsStore` in the config folder's `usage-stats.json`, channel 4: per ISO
+while `set_recording` is on (off after Never); the marker holds the start phase (`note_phase`); `start` turns notes of a
+process that is gone into a scrubbed record with the previous run's log tail, `start_with` also asks `native` how a run
+gone without a note ended, `clean_exit` removes them, records expire after 30 days; tests run a real panic hook and a
+real `abort()` in a child process), `native` (Windows: the "Application Error" entry (event 1000) Windows writes for a
+crashed process, read at the next start for the run's process id and start time: exception code, module file name and
+offset; chosen over an in-process exception filter, which misses fail-fast aborts and runs on a broken stack, and over WER
+local dumps, which need administrator rights and keep the process memory; its Windows-only test crashes a child), `stats` (`StatsStore` in the config folder's `usage-stats.json`, channel 4: per ISO
 week (UTC) the cameras opened once each, the tools from the relay's fixed list used, app/OS/GPU vendor; kept only while
 on, deleted on off; `due` gives the finished weeks the relay still takes, older ones are dropped). App glue
 `src-tauri/src/contribute.rs` (`contribution_available`/`_prepare`/`_send`/`_delete`,
 `problem_report_context`/`_screenshot`,
-`crash_reports_pending`/`crash_report_mark_asked`/`_remove`/`crash_reports_set_enabled`; `start_crash_records` before
-the log is replaced, `clean_exit` on every exit path, `note_gpu` from the GPU set-up; `start_usage_stats` sends the
+`crash_reports_pending`/`crash_report_mark_asked`/`_remove`/`crash_reports_set_enabled`; `start_crash_records` first in
+the setup (before the log is replaced; `startup::install_early_panic_hook` notes panics until the logger's hook),
+`note_phase`/`note_gpu_phase` for the marker, `clean_exit` on every exit path, `note_gpu` from the GPU set-up; `start_usage_stats` sends the
 finished weeks 30 s after a start when statistics are on, `note_camera` from `load_image`,
 `usage_stats_set_enabled`/`_note_tools`/`_preview`), window capture `src-tauri/src/window_capture.rs` (shared with the
 QA channel); UI `src/components/contribute/` (`ReviewSendDialog`, `ReportDialog` with Copy report / Open on GitHub,
@@ -474,7 +479,12 @@ equivalence tests).
 
 `gpu` (gpu_processing: GpuProcessor, shader variants + WGSL in `crates/gpu/src/shaders/`, readback, WgpuDisplay
 presentation, `GpuContext::headless`, GPU equivalence tests; `device_start`: the device with a backend fallback, Windows
-Vulkan/DX12 then OpenGL, every failure named; `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by
+Vulkan/DX12 then OpenGL, every failure named, backends to leave out (`avoid`) and each step announced (`on_step`) for the
+app's start guard `src-tauri/src/gpu_start_guard.rs` (a flag naming backends and step while a device starts and its first
+processor compiles; after a crash the next start leaves those backends out with a notice, the one after retries the
+choice once, a second crash keeps the fallback until Preferences → Processing → Use automatic again; state in the
+config folder's `gpu-start.json`, the processing backend preference is never changed; `RAWTONIC_TEST_CRASH` in
+`qa_crash.rs`, `qa-control` builds only); `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by
 adapter, driver and app version, filled ahead by `rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, run by
 the Windows installer's hook `src-tauri/windows/installer-hooks.nsh`));
 
