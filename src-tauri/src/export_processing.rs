@@ -2,7 +2,6 @@
 //! queue, its Tauri commands and events, sidecar and session access and the
 //! metadata embedding stay here; the render and encoders live in the crate.
 pub use rawtonic_export::export_processing::*;
-use rawtonic_recipe::geometry;
 
 use crate::state::ai::AiState;
 use crate::state::export::ExportState;
@@ -15,6 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, imageops};
+use rawtonic_recipe::geometry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::Emitter;

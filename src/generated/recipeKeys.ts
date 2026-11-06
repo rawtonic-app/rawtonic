@@ -51,7 +51,7 @@ export interface RecipeKeys {
   colorGrading?: ColorGradingProps;
   colorCalibration?: ColorCalibration;
 
-  // Detail
+  // detail
   sharpness?: number;
   sharpnessThreshold?: number;
   /** Lightroom's sharpening Radius / Detail / Masking (photo only). */
@@ -88,7 +88,7 @@ export interface RecipeKeys {
   /** Capture One's diffraction correction: sharpening by the f-number and pixel pitch (diffraction.rs), RAW only. */
   diffractionCorrection?: boolean;
 
-  // Geometry
+  // geometry
   crop?: Crop | null;
   aspectRatio?: number | null;
   rotation?: number;
