@@ -1682,6 +1682,50 @@ mod tests {
         assert_eq!(estimate_v2(&flat), None);
     }
 
+    /// The cache is keyed by the image it measured (size and pixels): an
+    /// estimate taken on a reduced copy is never served to the full-size
+    /// image (an export), and the preview only gets the full-size value
+    /// through `share_estimate`, never the other way round.
+    #[test]
+    fn an_estimate_of_a_reduced_copy_is_never_served_to_the_full_size_image() {
+        let full = scene_sized(1812, 1204, 0.0016, 0.0, -0.0012, 0.0);
+        let reduced = scene_sized(906, 602, 0.0016, 0.0, -0.0012, 0.0);
+        for version in [1, 2] {
+            let on_reduced = estimate_for(&reduced, version, None);
+            let on_full = estimate_for(&full, version, None);
+            let direct = if version == 1 {
+                estimate(&full)
+            } else {
+                estimate_v2(&full)
+            };
+            assert_eq!(bits(on_full), bits(direct), "version {version}");
+            assert_ne!(
+                image_key(&full, version, None),
+                image_key(&reduced, version, None)
+            );
+            // The reduced copy keeps what it measured itself, unless the
+            // full-size one is shared with it (refined estimates only).
+            assert_eq!(
+                bits(shared(&reduced, version, None).flatten()),
+                bits(on_reduced)
+            );
+        }
+        share_estimate(&full, &reduced, 2, None);
+        assert_eq!(
+            bits(shared(&reduced, 2, None).flatten()),
+            bits(estimate_v2(&full))
+        );
+        assert_eq!(
+            bits(shared(&full, 2, None).flatten()),
+            bits(estimate_v2(&full)),
+            "sharing must not change the full-size estimate"
+        );
+        // Version 1 measures each image itself and is never shared.
+        let before = bits(shared(&reduced, 1, None).flatten());
+        share_estimate(&full, &reduced, 1, None);
+        assert_eq!(bits(shared(&reduced, 1, None).flatten()), before);
+    }
+
     #[test]
     fn version_2_refines_at_full_resolution() {
         // 5000 px wide, so the first estimate runs on a copy reduced by two.

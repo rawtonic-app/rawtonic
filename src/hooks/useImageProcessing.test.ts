@@ -459,6 +459,21 @@ describe('AI Denoise busy note', () => {
     expect(useEditorStore.getState().aiDenoiseBusy).toBe(false);
   });
 
+  it('a failed develop frees Develop and the next amount runs, without retrying the failed one', async () => {
+    const request = startDenoise();
+    await act(async () => request.reject({ code: 'failed', message: 'model could not run' }));
+    const state = useEditorStore.getState();
+    expect(state.aiDenoiseBusy).toBe(false);
+    expect(state.selectedImage).toMatchObject({ aiDenoiseFailed: 50, aiDenoiseFailedVersion: 1 });
+    const denoiseCalls = () => vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.ApplyAiDenoise).length;
+    // The failed amount is not asked for again (no loop) ...
+    expect(denoiseCalls()).toBe(1);
+    // ... and another amount is: nothing is left waiting on the failed request.
+    act(() => useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiDenoise: 70 } }));
+    expect(denoiseCalls()).toBe(2);
+    expect(useEditorStore.getState().aiDenoiseBusy).toBe(true);
+  });
+
   it('keeps the AI bitmaps sent once the source is developed again', async () => {
     const before = new Set(['subject']);
     useEditorStore.setState({ patchesSentToBackend: before });

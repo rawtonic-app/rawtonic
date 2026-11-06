@@ -856,6 +856,11 @@ pub struct AppSettings {
     /// turned on by the photographer's first Check Eyes (missing: off).
     #[serde(default)]
     pub eye_check: Option<bool>,
+    /// Keys this release does not know (written by a newer one): kept
+    /// through every save, never sent back by the frontend
+    /// (`take_frontend_snapshot`).
+    #[serde(flatten)]
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for AppSettings {
@@ -976,6 +981,7 @@ impl Default for AppSettings {
             adjustment_layout: AdjustmentLayout::default(),
             workspace: WorkspaceState::default(),
             eye_check: None,
+            unknown: serde_json::Map::new(),
         }
     }
 }
@@ -1025,6 +1031,43 @@ fn may_replace_settings(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Settings of removed features: ignored on read and gone after the next save.
+const REMOVED_KEYS: [&str; 3] = ["aiProvider", "aiConnectorAddress", "comfyuiAddress"];
+
+fn without_legacy_keys(mut settings: AppSettings) -> AppSettings {
+    for key in REMOVED_KEYS {
+        settings.unknown.remove(key);
+    }
+    settings
+}
+
+/// The settings of `content` with every top-level value that does not read
+/// on its own left out (so at its default); None when `content` is not an
+/// object or is unreadable for another reason.
+fn settings_without_unreadable_values(content: &[u8]) -> Option<AppSettings> {
+    let serde_json::Value::Object(mut object) = serde_json::from_slice(content).ok()? else {
+        return None;
+    };
+    let unreadable: Vec<String> = object
+        .iter()
+        .filter(|(key, value)| {
+            let mut single = serde_json::Map::new();
+            single.insert((*key).clone(), (*value).clone());
+            serde_json::from_value::<AppSettings>(serde_json::Value::Object(single)).is_err()
+        })
+        .map(|(key, _)| key.clone())
+        .collect();
+    if unreadable.is_empty() {
+        return None;
+    }
+    for key in unreadable {
+        object.remove(&key);
+    }
+    serde_json::from_value(serde_json::Value::Object(object))
+        .ok()
+        .map(without_legacy_keys)
+}
+
 /// The settings in `path` (defaults when there is none). A file that no longer
 /// parses (a hand edit, a value another version wrote) is kept beside it as
 /// `settings.unreadable-<digest>.json` before the defaults are used and saved
@@ -1044,9 +1087,28 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
         }
     };
     let error = match serde_json::from_slice(&content) {
-        Ok(settings) => return Ok(settings),
+        Ok(settings) => return Ok(without_legacy_keys(settings)),
         Err(error) => error,
     };
+    // One value this release cannot read (another release's shape, a hand
+    // edit) resets only itself: the file is still kept below, and the
+    // other settings stay.
+    if let Some(settings) = settings_without_unreadable_values(&content) {
+        let digest = rawtonic_fs::sha256_hex(&content);
+        let kept = path.with_file_name(format!("settings.unreadable-{}.json", &digest[..16]));
+        let already_kept = fs::read(&kept).is_ok_and(|existing| existing == content);
+        if !already_kept && let Err(e) = crate::session_bridge::write_new_output(&kept, &content) {
+            protect();
+            return Err(format!(
+                "Settings file partly unreadable ({error}) and could not be kept: {e}"
+            ));
+        }
+        log::warn!(
+            "Settings file partly unreadable ({error}); kept as {} and those values reset",
+            kept.display()
+        );
+        return Ok(settings);
+    }
     // Named by its content: loading the same file again finds it kept.
     let digest = rawtonic_fs::sha256_hex(&content);
     let kept = path.with_file_name(format!("settings.unreadable-{}.json", &digest[..16]));
@@ -1172,6 +1234,7 @@ fn take_frontend_snapshot(saved: &mut AppSettings, mut snapshot: AppSettings) {
     snapshot.last_update_check = saved.last_update_check;
     snapshot.privacy_notice_seen = saved.privacy_notice_seen;
     snapshot.usage_stats = saved.usage_stats;
+    snapshot.unknown = std::mem::take(&mut saved.unknown);
     *saved = snapshot;
 }
 
@@ -1378,6 +1441,50 @@ mod tests {
             assert!(!saved.contains(key), "{key} kept: {saved}");
         }
         assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn settings_of_a_newer_release_keep_their_unknown_keys_through_a_save() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{"autoAdvance":true,"someNewerFeature":{"mode":"x","level":3},"anotherNewKey":[1,2]}"#,
+        )
+        .unwrap();
+        let mut settings = read_settings_file(&path).unwrap();
+        assert_eq!(settings.auto_advance, Some(true));
+        // The frontend knows nothing of the newer keys and sends none back.
+        settings.auto_advance = Some(false);
+        write_settings_file(&path, &mut settings).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["autoAdvance"], false);
+        assert_eq!(saved["someNewerFeature"]["level"], 3);
+        assert_eq!(saved["anotherNewKey"], serde_json::json!([1, 2]));
+    }
+
+    #[test]
+    fn one_unreadable_value_resets_only_itself() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        // `rootFolders` has a shape this release does not know (a newer
+        // release's, or a hand edit); the other settings are fine.
+        let content = r#"{"rootFolders":{"v2":["/Photos"]},"autoAdvance":true,"lastRootPath":"/Photos","viewerBackground":"medium"}"#;
+        fs::write(&path, content).unwrap();
+        let settings = read_settings_file(&path).unwrap();
+        assert_eq!(settings.auto_advance, Some(true));
+        assert_eq!(settings.last_root_path.as_deref(), Some("/Photos"));
+        assert_eq!(settings.viewer_background.as_deref(), Some("medium"));
+        assert!(settings.root_folders.is_empty());
+        // The file as it was is still kept aside.
+        let kept: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|p| p != &path)
+            .collect();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!(fs::read_to_string(&kept[0]).unwrap(), content);
     }
 
     #[test]
