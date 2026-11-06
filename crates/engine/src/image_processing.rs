@@ -9582,3 +9582,7 @@ mod geometry_recipe_tests;
 #[cfg(test)]
 #[path = "image_processing_effects_tests.rs"]
 mod effects_uniform_tests;
+
+#[cfg(test)]
+#[path = "image_processing_lens_tests.rs"]
+mod lens_recipe_tests;

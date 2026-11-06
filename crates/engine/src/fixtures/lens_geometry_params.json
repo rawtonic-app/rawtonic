@@ -1,0 +1,297 @@
+{
+ "baseline": "3c010318",
+ "cases": [
+  {
+   "isRaw": true,
+   "name": "lens-camera-full",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 0.8, lens_vignette_amount: 1.2, lens_tca_amount: 1.5, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: -0.043, lens_dist_k2: 0.012, lens_dist_k3: -0.0031, lens_model: 2, lens_table: [1.0, 0.99, NaN, 0.97, NaN], lens_table_end: 1.2, lens_table_radii: [0.0, 0.25, 0.5, 1.0], lens_profile_exact: true, lens_zoom: 1.04, lens_zoom_exact: true, lens_centre: [0.01, -0.02], tca_vr: 1.0004, tca_vb: 0.9996, tca_vr2: 0.0002, tca_vb2: -0.0003, vig_k1: -0.31, vig_k2: 0.12, vig_k3: -0.02, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: false, auto_ca_version: 3, auto_ca_versus_own: false, keep_negative: true, f32_warp: true, gpu_warp: true, srgb_base: false, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "autoCaVersion": 3,
+    "cameraCaVersion": 1,
+    "cameraGeometryVersion": 9,
+    "exposure": 0.4,
+    "lensCorrectionMode": "camera",
+    "lensDistortionAmount": 80,
+    "lensDistortionParams": {
+     "centre_x": 0.01,
+     "centre_y": -0.02,
+     "exact_zoom": true,
+     "future": {
+      "a": 1
+     },
+     "k1": -0.043,
+     "k2": 0.012,
+     "k3": -0.0031,
+     "model": 2,
+     "table": [
+      1.0,
+      0.99,
+      "x",
+      0.97,
+      null
+     ],
+     "table_end": 1.2,
+     "table_radii": [
+      0.0,
+      0.25,
+      0.5,
+      1.0
+     ],
+     "tca_vb": 0.9996,
+     "tca_vb2": -0.0003,
+     "tca_vr": 1.0004,
+     "tca_vr2": 0.0002,
+     "vig_k1": -0.31,
+     "vig_k2": 0.12,
+     "vig_k3": -0.02,
+     "zoom": 1.04
+    },
+    "lensProfileFor": "[\"camera\",1]",
+    "lensTcaAmount": 150,
+    "lensVignetteAmount": 120,
+    "renderVersion": 11,
+    "rotation": 1.5
+   }
+  },
+  {
+   "isRaw": false,
+   "name": "lens-manual-profile",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 1.0, lens_tca_amount: 1.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: 0.03, lens_dist_k2: -0.01, lens_dist_k3: 0.004, lens_model: 1, lens_table: [], lens_table_end: 0.0, lens_table_radii: [], lens_profile_exact: false, lens_zoom: 1.0, lens_zoom_exact: false, lens_centre: [0.0, 0.0], tca_vr: 1.001, tca_vb: 0.999, tca_vr2: 0.0, tca_vb2: 0.0, vig_k1: -0.2, vig_k2: 0.0, vig_k3: 0.0, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: false, auto_ca_version: 1, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: true, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "lensCorrectionMode": "manual",
+    "lensDistortionParams": {
+     "k1": 0.03,
+     "k2": -0.01,
+     "k3": 0.004,
+     "model": 1,
+     "tca_vb": 0.999,
+     "tca_vr": 1.001,
+     "vig_k1": -0.2
+    },
+    "lensMaker": "Canon",
+    "lensModel": "RF 24-70mm"
+   }
+  },
+  {
+   "isRaw": true,
+   "name": "lens-switches-off",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 1.0, lens_tca_amount: 1.0, lens_distortion_enabled: false, lens_tca_enabled: false, lens_vignette_enabled: false, lens_dist_k1: -0.043, lens_dist_k2: 0.012, lens_dist_k3: -0.0031, lens_model: 2, lens_table: [1.0, 0.99, NaN, 0.97, NaN], lens_table_end: 1.2, lens_table_radii: [0.0, 0.25, 0.5, 1.0], lens_profile_exact: false, lens_zoom: 1.04, lens_zoom_exact: true, lens_centre: [0.01, -0.02], tca_vr: 1.0004, tca_vb: 0.9996, tca_vr2: 0.0002, tca_vb2: -0.0003, vig_k1: -0.31, vig_k2: 0.12, vig_k3: -0.02, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: true, auto_ca_version: 2, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: false, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "autoCaVersion": 2,
+    "autoChromaticAberration": true,
+    "lensDistortionEnabled": false,
+    "lensDistortionParams": {
+     "centre_x": 0.01,
+     "centre_y": -0.02,
+     "exact_zoom": true,
+     "future": {
+      "a": 1
+     },
+     "k1": -0.043,
+     "k2": 0.012,
+     "k3": -0.0031,
+     "model": 2,
+     "table": [
+      1.0,
+      0.99,
+      "x",
+      0.97,
+      null
+     ],
+     "table_end": 1.2,
+     "table_radii": [
+      0.0,
+      0.25,
+      0.5,
+      1.0
+     ],
+     "tca_vb": 0.9996,
+     "tca_vb2": -0.0003,
+     "tca_vr": 1.0004,
+     "tca_vr2": 0.0002,
+     "vig_k1": -0.31,
+     "vig_k2": 0.12,
+     "vig_k3": -0.02,
+     "zoom": 1.04
+    },
+    "lensTcaEnabled": false,
+    "lensVignetteEnabled": false
+   }
+  },
+  {
+   "isRaw": true,
+   "name": "lens-out-of-range",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: -0.5, lens_vignette_amount: 9.995, lens_tca_amount: -0.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: 1000000000.0, lens_dist_k2: 0.0, lens_dist_k3: 0.0, lens_model: 1, lens_table: [], lens_table_end: 0.0, lens_table_radii: [], lens_profile_exact: false, lens_zoom: -3.0, lens_zoom_exact: false, lens_centre: [0.5, 0.0], tca_vr: 1.0, tca_vb: 1.0, tca_vr2: 0.0, tca_vb2: 0.0, vig_k1: 0.0, vig_k2: 0.0, vig_k3: 0.0, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: false, auto_ca_version: 1, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: false, manual_vignette_amount: -250.0, manual_vignette_midpoint: 400.0 }",
+   "recipe": {
+    "lensDistortionAmount": -50,
+    "lensDistortionParams": {
+     "centre_x": 0.5,
+     "k1": 1000000000.0,
+     "model": 4294967297,
+     "zoom": -3
+    },
+    "lensManualVignetteAmount": -250,
+    "lensManualVignetteMidpoint": 400,
+    "lensTcaAmount": -0.0,
+    "lensVignetteAmount": 999.5
+   }
+  },
+  {
+   "isRaw": true,
+   "name": "lens-wrong-types",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 1.0, lens_tca_amount: 1.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: 0.0, lens_dist_k2: 0.0, lens_dist_k3: 0.0, lens_model: 0, lens_table: [], lens_table_end: 0.0, lens_table_radii: [1.0, 2.0, NaN], lens_profile_exact: false, lens_zoom: 1.0, lens_zoom_exact: false, lens_centre: [0.0, 0.0], tca_vr: 1.0, tca_vb: 1.0, tca_vr2: 0.0, tca_vb2: 0.0, vig_k1: 0.0, vig_k2: 0.0, vig_k3: 0.0, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: false, auto_ca_version: 1, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: false, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "autoCaVersion": "3",
+    "autoChromaticAberration": "yes",
+    "lensCorrectionMode": 7,
+    "lensDistortionAmount": "80",
+    "lensDistortionEnabled": "false",
+    "lensDistortionParams": {
+     "centre_x": "1",
+     "exact_zoom": "true",
+     "k1": "0.1",
+     "k2": null,
+     "model": "2",
+     "table": "nope",
+     "table_radii": [
+      1,
+      2,
+      "3"
+     ]
+    },
+    "lensManualVignetteAmount": "30",
+    "lensManualVignetteMidpoint": null,
+    "lensTcaAmount": true,
+    "lensTcaEnabled": 0,
+    "lensVignetteAmount": null,
+    "lensVignetteEnabled": null
+   }
+  },
+  {
+   "isRaw": false,
+   "name": "lens-params-array",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 1.0, lens_tca_amount: 1.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: 0.0, lens_dist_k2: 0.0, lens_dist_k3: 0.0, lens_model: 0, lens_table: [], lens_table_end: 0.0, lens_table_radii: [], lens_profile_exact: true, lens_zoom: 1.0, lens_zoom_exact: false, lens_centre: [0.0, 0.0], tca_vr: 1.0, tca_vb: 1.0, tca_vr2: 0.0, tca_vb2: 0.0, vig_k1: 0.0, vig_k2: 0.0, vig_k3: 0.0, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: false, auto_ca_version: 1, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: true, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "lensCorrectionMode": "camera",
+    "lensDistortionParams": [
+     1,
+     2,
+     3
+    ]
+   }
+  },
+  {
+   "isRaw": true,
+   "name": "lens-params-null",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 1.0, lens_tca_amount: 1.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: 0.0, lens_dist_k2: 0.0, lens_dist_k3: 0.0, lens_model: 0, lens_table: [], lens_table_end: 0.0, lens_table_radii: [], lens_profile_exact: false, lens_zoom: 1.0, lens_zoom_exact: false, lens_centre: [0.0, 0.0], tca_vr: 1.0, tca_vb: 1.0, tca_vr2: 0.0, tca_vb2: 0.0, vig_k1: 0.0, vig_k2: 0.0, vig_k3: 0.0, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: true, auto_ca_version: 3, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: false, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "autoCaVersion": 999,
+    "lensCorrectionMode": null,
+    "lensDistortionParams": null,
+    "lensMaker": null,
+    "lensModel": null
+   }
+  },
+  {
+   "isRaw": false,
+   "name": "lens-manual-vignette",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 0.5, lens_tca_amount: 1.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: 0.0, lens_dist_k2: 0.0, lens_dist_k3: 0.0, lens_model: 0, lens_table: [], lens_table_end: 0.0, lens_table_radii: [], lens_profile_exact: false, lens_zoom: 1.0, lens_zoom_exact: false, lens_centre: [0.0, 0.0], tca_vr: 1.0, tca_vb: 1.0, tca_vr2: 0.0, tca_vb2: 0.0, vig_k1: -0.4, vig_k2: 0.1, vig_k3: 0.0, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: false, auto_ca_version: 1, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: true, manual_vignette_amount: 35.0, manual_vignette_midpoint: 20.0 }",
+   "recipe": {
+    "lensDistortionParams": {
+     "vig_k1": -0.4,
+     "vig_k2": 0.1
+    },
+    "lensManualVignetteAmount": 35,
+    "lensManualVignetteMidpoint": 20,
+    "lensVignetteAmount": 50
+   }
+  },
+  {
+   "isRaw": true,
+   "name": "lens-with-geometry-hidden",
+   "paramsDebug": "GeometryParams { distortion: 10.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 1.0, lens_tca_amount: 1.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: -0.043, lens_dist_k2: 0.012, lens_dist_k3: -0.0031, lens_model: 2, lens_table: [1.0, 0.99, NaN, 0.97, NaN], lens_table_end: 1.2, lens_table_radii: [0.0, 0.25, 0.5, 1.0], lens_profile_exact: true, lens_zoom: 1.04, lens_zoom_exact: true, lens_centre: [0.01, -0.02], tca_vr: 1.0004, tca_vb: 0.9996, tca_vr2: 0.0002, tca_vb2: -0.0003, vig_k1: -0.31, vig_k2: 0.12, vig_k3: -0.02, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: false, auto_ca_version: 3, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: false, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "autoCaVersion": 3,
+    "autoChromaticAberration": false,
+    "lensCorrectionMode": "camera",
+    "lensDistortionParams": {
+     "centre_x": 0.01,
+     "centre_y": -0.02,
+     "exact_zoom": true,
+     "future": {
+      "a": 1
+     },
+     "k1": -0.043,
+     "k2": 0.012,
+     "k3": -0.0031,
+     "model": 2,
+     "table": [
+      1.0,
+      0.99,
+      "x",
+      0.97,
+      null
+     ],
+     "table_end": 1.2,
+     "table_radii": [
+      0.0,
+      0.25,
+      0.5,
+      1.0
+     ],
+     "tca_vb": 0.9996,
+     "tca_vb2": -0.0003,
+     "tca_vr": 1.0004,
+     "tca_vr2": 0.0002,
+     "vig_k1": -0.31,
+     "vig_k2": 0.12,
+     "vig_k3": -0.02,
+     "zoom": 1.04
+    },
+    "renderVersion": 1,
+    "sectionVisibility": {
+     "details": false,
+     "geometry": false
+    },
+    "transformDistortion": 10
+   }
+  },
+  {
+   "isRaw": true,
+   "name": "lens-auto-ca-v1-switch-on",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 1.0, lens_tca_amount: 1.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: -0.1, lens_dist_k2: 0.0, lens_dist_k3: 0.0, lens_model: 0, lens_table: [], lens_table_end: 0.0, lens_table_radii: [], lens_profile_exact: false, lens_zoom: 1.0, lens_zoom_exact: false, lens_centre: [0.0, 0.0], tca_vr: 1.0, tca_vb: 1.0, tca_vr2: 0.0, tca_vb2: 0.0, vig_k1: 0.0, vig_k2: 0.0, vig_k3: 0.0, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: true, auto_ca_version: 1, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: false, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "autoChromaticAberration": true,
+    "lensDistortionParams": {
+     "k1": -0.1
+    }
+   }
+  },
+  {
+   "isRaw": true,
+   "name": "lens-auto-ca-v2-own-tca",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 1.0, lens_tca_amount: 1.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: 0.0, lens_dist_k2: 0.0, lens_dist_k3: 0.0, lens_model: 0, lens_table: [], lens_table_end: 0.0, lens_table_radii: [], lens_profile_exact: false, lens_zoom: 1.0, lens_zoom_exact: false, lens_centre: [0.0, 0.0], tca_vr: 1.0004, tca_vb: 0.9997, tca_vr2: 0.0, tca_vb2: 0.0, vig_k1: 0.0, vig_k2: 0.0, vig_k3: 0.0, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: false, auto_ca_version: 2, auto_ca_versus_own: false, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: false, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "autoCaVersion": 2,
+    "lensDistortionParams": {
+     "tca_vb": 0.9997,
+     "tca_vr": 1.0004
+    }
+   }
+  },
+  {
+   "isRaw": true,
+   "name": "lens-auto-ca-v3-competes",
+   "paramsDebug": "GeometryParams { distortion: 0.0, vertical: 0.0, horizontal: 0.0, rotate: 0.0, aspect: 0.0, scale: 100.0, x_offset: 0.0, y_offset: 0.0, lens_distortion_amount: 1.0, lens_vignette_amount: 1.0, lens_tca_amount: 1.0, lens_distortion_enabled: true, lens_tca_enabled: true, lens_vignette_enabled: true, lens_dist_k1: 0.0, lens_dist_k2: 0.0, lens_dist_k3: 0.0, lens_model: 0, lens_table: [], lens_table_end: 0.0, lens_table_radii: [], lens_profile_exact: true, lens_zoom: 1.0, lens_zoom_exact: false, lens_centre: [0.0, 0.0], tca_vr: 1.0004, tca_vb: 0.9997, tca_vr2: 0.0002, tca_vb2: 0.0, vig_k1: 0.0, vig_k2: 0.0, vig_k3: 0.0, guided_lines: [], guided_perspective_enabled: false, guided_fill: false, auto_ca: true, auto_ca_version: 3, auto_ca_versus_own: true, keep_negative: false, f32_warp: false, gpu_warp: false, srgb_base: false, manual_vignette_amount: 0.0, manual_vignette_midpoint: 50.0 }",
+   "recipe": {
+    "autoCaVersion": 3,
+    "lensCorrectionMode": "camera",
+    "lensDistortionParams": {
+     "tca_vb": 0.9997,
+     "tca_vr": 1.0004,
+     "tca_vr2": 0.0002
+    }
+   }
+  }
+ ]
+}
