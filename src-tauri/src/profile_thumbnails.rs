@@ -172,9 +172,10 @@ fn render_tiles(
             crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
         );
         probe.global.detail_scale = small_scale;
-        let lut = tile["lutPath"]
-            .as_str()
-            .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
+        let lut = tile["lutPath"].as_str().and_then(|p| {
+            lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
+                .ok()
+        });
         let image = gpu_processing::process_and_get_dynamic_image_with_preview_shader(
             &context,
             &gpu,

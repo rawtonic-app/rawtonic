@@ -182,7 +182,7 @@ pub fn debug_render_delay() -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::{LatestSlot, Supersedes};
-    use crate::app_state::preview_job_is_stale;
+    use crate::state::preview::preview_job_is_stale;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, Instant};
@@ -195,7 +195,7 @@ mod tests {
 
     impl Supersedes for Job {
         fn supersedes(&self, current: &Self) -> bool {
-            crate::app_state::supersedes(self.sequence, current.sequence)
+            crate::state::preview::supersedes(self.sequence, current.sequence)
         }
     }
 

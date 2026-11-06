@@ -3,7 +3,7 @@
 pub use rawtonic_engine::image_loader::*;
 
 use crate::app_settings::AppSettings;
-use crate::app_state::{AppState, LoadedImage, SourceSignal};
+use crate::app_state::AppState;
 use crate::exif_processing;
 use crate::file_management::{parse_virtual_path, read_file_mapped};
 use crate::formats::is_raw_file;
@@ -12,6 +12,7 @@ use crate::ipc::CommandError;
 use crate::state::develop::{DevelopSession, Scope};
 use crate::state::lock::lock_recover;
 use crate::state::merge::MergeState;
+use crate::state::source::{LoadedImage, SourceSignal, SourceState};
 use anyhow::{Result, anyhow};
 use image::{DynamicImage, GenericImageView};
 use serde_json::Value;
@@ -354,21 +355,21 @@ pub const OFFLINE_NEEDS_ORIGINAL: &str = "This photograph is offline and shown f
 /// the command that needs full resolution. An offline photograph on its
 /// Standard preview gets no decode: `OFFLINE_NEEDS_ORIGINAL` at once (on its
 /// 1:1 preview, that is the source and is returned).
-pub fn wait_for_original_image(state: &AppState) -> Result<LoadedImage, String> {
-    state
+pub fn wait_for_original_image(source: &SourceState) -> Result<LoadedImage, String> {
+    source
         .source_signal
-        .wait_for(DECODE_WAIT, || original_image_settled(state))
-        .unwrap_or_else(|| Err(no_original(state)))
+        .wait_for(DECODE_WAIT, || original_image_settled(source))
+        .unwrap_or_else(|| Err(no_original(source)))
 }
 
 /// `wait_for_original_image` for async commands: waits without holding
 /// the async runtime's worker thread.
-pub async fn original_image(state: &AppState) -> Result<LoadedImage, String> {
-    state
+pub async fn original_image(source: &SourceState) -> Result<LoadedImage, String> {
+    source
         .source_signal
-        .wait_for_async(DECODE_WAIT, || original_image_settled(state))
+        .wait_for_async(DECODE_WAIT, || original_image_settled(source))
         .await
-        .unwrap_or_else(|| Err(no_original(state)))
+        .unwrap_or_else(|| Err(no_original(source)))
 }
 
 const DECODE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -376,18 +377,18 @@ const NO_PHOTOGRAPH: &str = "No photograph is loaded";
 
 /// The answer for `wait_for_original_image` once there is one: the full
 /// decode, or why there will be none; `None` while it is still decoding.
-fn original_image_settled(state: &AppState) -> Option<Result<LoadedImage, String>> {
-    let original = state
+fn original_image_settled(source: &SourceState) -> Option<Result<LoadedImage, String>> {
+    let original = source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let offline = state
+    let offline = source
         .offline_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .is_some();
-    let proxy = state
+    let proxy = source
         .proxy_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -415,8 +416,8 @@ fn settled(
 }
 
 /// Why a wait for the full decode ended without one.
-fn no_original(state: &AppState) -> String {
-    let offline = state
+fn no_original(source: &SourceState) -> String {
+    let offline = source
         .offline_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -481,7 +482,7 @@ pub async fn load_image_proxy(
     if !is_raw_file(&source_path_str) {
         return Ok(None);
     }
-    open_source(&state, &develop, &path);
+    open_source(&state.source, &develop, &path);
     crate::editor_preview::release_still_for(
         &tauri::Manager::state::<crate::state::gpu::GpuState>(&app_handle),
         &path,
@@ -509,6 +510,7 @@ pub async fn load_image_proxy(
         return Ok(None);
     }
     let remembered = state
+        .source
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -524,6 +526,7 @@ pub async fn load_image_proxy(
         .map_err(|e| e.to_string())?;
         proxy.map(|proxy| {
             state
+                .source
                 .proxy_memory
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -535,11 +538,13 @@ pub async fn load_image_proxy(
     };
     // Another photograph was asked for meanwhile, or the decode finished.
     let current = state
+        .source
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
     let decoded = state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -560,15 +565,20 @@ pub async fn load_image_proxy(
     // The preview job renders the proxy, not the previous photograph's
     // decode (`load_image`, which clears it too, may start later).
     if state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .is_some_and(|o| o.path != path)
     {
-        clear_source_caches(&state, &develop, &merges);
+        clear_source_caches(&state.source, &develop, &merges);
     }
-    *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = Some(loaded);
+    *state
+        .source
+        .proxy_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(loaded);
     #[cfg(feature = "performance-profiling")]
     log::info!(
         "[PERF] {}",
@@ -595,7 +605,7 @@ const DECODED_FRAME_WAIT: std::time::Duration = std::time::Duration::from_secs(5
 /// the photograph was left before its frame (`still_open`) or the decode is
 /// gone from memory: the proxy is then written by a later decode of it.
 fn decode_for_proxy(
-    rendered: &crate::app_state::RenderedSource,
+    rendered: &crate::state::source::RenderedSource,
     decode: &std::sync::Weak<DynamicImage>,
     still_open: impl Fn() -> bool,
     timeout: std::time::Duration,
@@ -665,8 +675,12 @@ pub fn decoded_cache_key(
 }
 
 /// Drops the open photograph's source and everything derived from it.
-pub(crate) fn clear_source_caches(state: &AppState, develop: &DevelopSession, merges: &MergeState) {
-    *state
+pub(crate) fn clear_source_caches(
+    source: &SourceState,
+    develop: &DevelopSession,
+    merges: &MergeState,
+) {
+    *source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = None;
@@ -679,8 +693,8 @@ pub(crate) fn clear_source_caches(state: &AppState, develop: &DevelopSession, me
 /// they do not depend on its decode, and the editor sends each just once
 /// per photograph it opens (`patchesSentToBackend`), also when a stored
 /// proxy's frame carried them before `load_image` decodes it.
-pub(crate) fn open_source(state: &AppState, develop: &DevelopSession, path: &str) {
-    let mut current = state
+pub(crate) fn open_source(source: &SourceState, develop: &DevelopSession, path: &str) {
+    let mut current = source
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -747,6 +761,7 @@ pub async fn apply_ai_denoise(
     }
     let stored = stored_decode_variant(&path);
     let open = state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -783,8 +798,12 @@ pub async fn apply_ai_denoise(
     } else {
         0.0
     };
-    let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let tracker = state.load_image_generation.clone();
+    let my_generation = state
+        .source
+        .load_image_generation
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let tracker = state.source.load_image_generation.clone();
     let key = decoded_cache_key(&source, denoise.as_ref(), variant);
     let cached = develop
         .decoded_image_cache
@@ -821,7 +840,7 @@ pub async fn apply_ai_denoise(
             // A newer load or another photograph stopped the decode.
             .map_err(|e| {
                 CommandError::from(e).or_cancelled(
-                    state.load_image_generation.load(Ordering::SeqCst) != my_generation,
+                    state.source.load_image_generation.load(Ordering::SeqCst) != my_generation,
                 )
             })?;
             let image = Arc::new(image);
@@ -834,6 +853,7 @@ pub async fn apply_ai_denoise(
         }
     };
     if *state
+        .source
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -854,9 +874,9 @@ pub async fn apply_ai_denoise(
         .into());
     }
     publish_loaded_image(
-        &state.original_image,
-        &state.source_signal,
-        &state.load_image_generation,
+        &state.source.original_image,
+        &state.source.source_signal,
+        &state.source.load_image_generation,
         my_generation,
         LoadedImage {
             path,
@@ -906,8 +926,9 @@ fn draft_sink(
     Arc::new(rawtonic_rawdecode::raw_processing::DraftSink(Box::new(
         move |image, (full_width, full_height)| {
             let state = app.state::<AppState>();
-            if state.load_image_generation.load(Ordering::SeqCst) != generation
+            if state.source.load_image_generation.load(Ordering::SeqCst) != generation
                 || *state
+                    .source
                     .current_source
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -918,11 +939,15 @@ fn draft_sink(
             let image = Arc::new(image);
             let draft = Arc::downgrade(&image);
             {
-                let mut proxy = state.proxy_image.lock().unwrap_or_else(|e| e.into_inner());
+                let mut proxy = state
+                    .source
+                    .proxy_image
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 if proxy.as_ref().is_some_and(|p| p.path == path) {
                     return;
                 }
-                *proxy = Some(crate::app_state::LoadedProxy {
+                *proxy = Some(crate::state::source::LoadedProxy {
                     path: path.clone(),
                     image,
                     full_width,
@@ -949,7 +974,7 @@ fn draft_sink(
             );
             #[cfg(feature = "performance-profiling")]
             let waited = Instant::now();
-            let _rendered = state.rendered_source.wait(&draft, DRAFT_FRAME_WAIT);
+            let _rendered = state.source.rendered_source.wait(&draft, DRAFT_FRAME_WAIT);
             #[cfg(feature = "performance-profiling")]
             log::info!(
                 "[PERF] {}",
@@ -975,34 +1000,44 @@ pub async fn load_image(
         "[PERF] {}",
         serde_json::json!({"stage": "load_image_received", "epoch_ms": crate::performance::epoch_ms()})
     );
-    let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let generation_tracker = state.load_image_generation.clone();
+    let my_generation = state
+        .source
+        .load_image_generation
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let generation_tracker = state.source.load_image_generation.clone();
     let cancel_token = Some(rawtonic_runtime::CancelToken::new(
         generation_tracker.clone(),
         my_generation,
     ));
-    open_source(&state, &develop, &path);
+    open_source(&state.source, &develop, &path);
     crate::editor_preview::release_still_for(
         &tauri::Manager::state::<crate::state::gpu::GpuState>(&app_handle),
         &path,
     );
     *state
+        .source
         .offline_source
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = None;
     {
         // Another photograph's proxy is of no use any more.
-        let mut proxy = state.proxy_image.lock().unwrap_or_else(|e| e.into_inner());
+        let mut proxy = state
+            .source
+            .proxy_image
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if proxy.as_ref().is_some_and(|p| p.path != path) {
             *proxy = None;
         }
     }
-    state.source_signal.changed();
+    state.source.source_signal.changed();
 
     // The step onto it opened its kept decode already (`open_kept_decode`):
     // that source and what was computed from it stay when the decoded
     // cache answers with the same decode below.
     let opened_already = state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1010,7 +1045,7 @@ pub async fn load_image(
         .filter(|o| o.path == path)
         .map(|o| Arc::clone(&o.image));
     if opened_already.is_none() {
-        clear_source_caches(&state, &develop, &merges);
+        clear_source_caches(&state.source, &develop, &merges);
     }
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);
@@ -1023,7 +1058,7 @@ pub async fn load_image(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clear();
-        clear_source_caches(&state, &develop, &merges);
+        clear_source_caches(&state.source, &develop, &merges);
     }
 
     let metadata: ImageMetadata = crate::exif_processing::load_sidecar(&sidecar_path);
@@ -1067,6 +1102,7 @@ pub async fn load_image(
     // draft from its decode.
     let draft = (is_raw_file(&source_path_str)
         && state
+            .source
             .proxy_image
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1247,7 +1283,7 @@ pub async fn load_image(
         (arc_img, exif_data_loaded, measures)
     };
 
-    if state.load_image_generation.load(Ordering::SeqCst) != my_generation {
+    if state.source.load_image_generation.load(Ordering::SeqCst) != my_generation {
         return Err("Load cancelled".to_string());
     }
     // Another decode than the one opened at the step: what was computed
@@ -1256,7 +1292,7 @@ pub async fn load_image(
         .as_ref()
         .is_some_and(|opened| !Arc::ptr_eq(&pristine_arc, opened))
     {
-        clear_source_caches(&state, &develop, &merges);
+        clear_source_caches(&state.source, &develop, &merges);
     }
 
     let is_raw = is_raw_file(&source_path_str);
@@ -1267,9 +1303,9 @@ pub async fn load_image(
     // decoded-image cache keeps it.
     let proxy_source = Arc::downgrade(&pristine_arc);
     publish_loaded_image(
-        &state.original_image,
-        &state.source_signal,
-        &state.load_image_generation,
+        &state.source.original_image,
+        &state.source.source_signal,
+        &state.source.load_image_generation,
         my_generation,
         LoadedImage {
             path: path.clone(),
@@ -1282,14 +1318,18 @@ pub async fn load_image(
     // The full decode replaces the proxy; keep (or make) the proxy on disk
     // for the next time, at the size the viewer needs (from an undenoised
     // decode only: the proxy stands for the photograph without AI Denoise).
-    *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    state.source_signal.changed();
+    *state
+        .source
+        .proxy_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    state.source.source_signal.changed();
     // Proxies stand for the master recipe's decode variant: a virtual copy
     // developed for another one leaves them as they are.
     if is_raw && denoise.is_none() && variant == stored_decode_variant(&source_path_str) {
         let settings = proxy_settings;
         let size = crate::preview_proxy::standard_size(
-            state.last_preview_dim.load(Ordering::Relaxed),
+            state.preview.last_preview_dim.load(Ordering::Relaxed),
             &settings,
         );
         let source = source_path.clone();
@@ -1305,13 +1345,14 @@ pub async fn load_image(
             let state = app.state::<AppState>();
             let still_open = || {
                 *state
+                    .source
                     .current_source
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     == thumbnail_path
             };
             let Some(proxy_source) = decode_for_proxy(
-                &state.rendered_source,
+                &state.source.rendered_source,
                 &proxy_source,
                 still_open,
                 DECODED_FRAME_WAIT,
@@ -1330,6 +1371,7 @@ pub async fn load_image(
             ) {
                 Ok(proxy) => {
                     app.state::<AppState>()
+                        .source
                         .proxy_memory
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
@@ -1409,12 +1451,14 @@ pub(crate) fn open_kept_decode(
     let now = crate::preview_proxy::current_key(&source_path, settings, variant);
     let (image, measures) = crate::proxy_worker::kept_decode(&key, &now)?;
     let mut original = state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     // Checked under the source lock: a load of a photograph asked for
     // later clears it after this, so this decode cannot replace that one's.
     let asked_for = *state
+        .source
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1441,12 +1485,16 @@ pub(crate) fn open_kept_decode(
     drop(original);
     clear_derived_caches(develop, merges);
     {
-        let mut proxy = state.proxy_image.lock().unwrap_or_else(|e| e.into_inner());
+        let mut proxy = state
+            .source
+            .proxy_image
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if proxy.as_ref().is_some_and(|p| p.path != path) {
             *proxy = None;
         }
     }
-    state.source_signal.changed();
+    state.source.source_signal.changed();
     Some(opened)
 }
 
@@ -1536,17 +1584,22 @@ async fn open_offline(
     if let Some(full) = full {
         let proxy_frame = crate::preview_proxy::variant_of_key(&full.key.decoder).frame;
         let (width, height) = full.image.dimensions();
-        *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *state
+            .source
+            .proxy_image
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         // Marks the source as preview data (exports never reuse it).
         *state
+            .source
             .offline_source
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(path.to_string());
         // Waiters wake when the 1:1 preview is published (or this fails).
         publish_loaded_image(
-            &state.original_image,
-            &state.source_signal,
-            &state.load_image_generation,
+            &state.source.original_image,
+            &state.source.source_signal,
+            &state.source.load_image_generation,
             generation,
             LoadedImage {
                 path: path.to_string(),
@@ -1556,7 +1609,7 @@ async fn open_offline(
                 measures: full.measures,
             },
         )
-        .inspect_err(|_| state.source_signal.changed())?;
+        .inspect_err(|_| state.source.source_signal.changed())?;
         return Ok(Some(LoadImageResult {
             width,
             height,
@@ -1578,6 +1631,7 @@ async fn open_offline(
         }));
     }
     let remembered = state
+        .source
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1594,6 +1648,7 @@ async fn open_offline(
             .map_err(|e| e.to_string())?
             .map(|proxy| {
                 state
+                    .source
                     .proxy_memory
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -1605,16 +1660,21 @@ async fn open_offline(
         return Ok(None);
     };
     let proxy_frame = standard.made_for.map_or(0, |made_for| made_for.frame);
-    if state.load_image_generation.load(Ordering::SeqCst) != generation {
+    if state.source.load_image_generation.load(Ordering::SeqCst) != generation {
         return Err("Load cancelled".to_string());
     }
     let (width, height) = (standard.full_width, standard.full_height);
-    *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = Some(standard);
     *state
+        .source
+        .proxy_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(standard);
+    *state
+        .source
         .offline_source
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = Some(path.to_string());
-    state.source_signal.changed();
+    state.source.source_signal.changed();
     Ok(Some(LoadImageResult {
         width,
         height,
@@ -1950,7 +2010,7 @@ mod activation_tests {
 #[cfg(test)]
 mod decode_for_proxy_tests {
     use super::decode_for_proxy;
-    use crate::app_state::RenderedSource;
+    use crate::state::source::RenderedSource;
     use image::DynamicImage;
     use std::sync::Arc;
     use std::time::Duration;
@@ -1989,19 +2049,19 @@ mod patch_cache_tests {
         let sent =
             |develop: &DevelopSession| develop.patch_cache.lock().unwrap().contains_key("subject");
         // load_image_proxy, then the proxy frame carrying the bitmap.
-        open_source(&state, &develop, "a.ARW");
+        open_source(&state.source, &develop, "a.ARW");
         develop.patch_cache.lock().unwrap().insert(
             "subject".into(),
             serde_json::json!("data:image/png;base64,AA"),
         );
         // What load_image (and apply_ai_denoise) do on arrival.
-        open_source(&state, &develop, "a.ARW");
-        clear_source_caches(&state, &develop, &merges);
+        open_source(&state.source, &develop, "a.ARW");
+        clear_source_caches(&state.source, &develop, &merges);
         assert!(sent(&develop));
         // Another photograph: its masks may share ids (pasted layers).
-        open_source(&state, &develop, "b.ARW");
+        open_source(&state.source, &develop, "b.ARW");
         assert!(!sent(&develop));
-        assert_eq!(*state.current_source.lock().unwrap(), "b.ARW");
+        assert_eq!(*state.source.current_source.lock().unwrap(), "b.ARW");
     }
 }
 
@@ -2035,16 +2095,17 @@ mod develop_cache_scenarios {
         /// what was built from it are dropped, then its decode is taken from
         /// the cache or made, and its preview shown.
         pub fn open(&mut self, path: &str) {
-            open_source(self.state, self.develop, path);
+            open_source(&self.state.source, self.develop, path);
             let other = self
                 .state
+                .source
                 .original_image
                 .lock()
                 .unwrap()
                 .as_ref()
                 .is_some_and(|o| o.path != path);
             if other {
-                clear_source_caches(self.state, self.develop, self.merges);
+                clear_source_caches(&self.state.source, self.develop, self.merges);
             }
             let key = decoded_cache_key(path, None, DecodeVariant::default());
             let cached = self.develop.decoded_image_cache.lock().unwrap().get(&key);
@@ -2062,7 +2123,7 @@ mod develop_cache_scenarios {
                     image
                 }
             };
-            *self.state.original_image.lock().unwrap() = Some(LoadedImage {
+            *self.state.source.original_image.lock().unwrap() = Some(LoadedImage {
                 path: path.to_string(),
                 image,
                 is_raw: true,
@@ -2078,6 +2139,7 @@ mod develop_cache_scenarios {
             let image = Arc::clone(
                 &self
                     .state
+                    .source
                     .original_image
                     .lock()
                     .unwrap()

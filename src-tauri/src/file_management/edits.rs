@@ -109,7 +109,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     save_metadata_blocking(&path, adjustments, &app_handle)?;
     let state = app_handle.state::<AppState>();
 
-    let loaded_image_lock = state.original_image.lock().unwrap();
+    let loaded_image_lock = state.source.original_image.lock().unwrap();
     let preloaded_image_option = if let Some(loaded_image) = loaded_image_lock.as_ref() {
         if loaded_image.path == path {
             Some(loaded_image.image.clone())

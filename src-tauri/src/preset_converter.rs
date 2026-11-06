@@ -1210,7 +1210,7 @@ pub async fn place_lightroom_retouch(
     mut js_adjustments: Value,
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<Option<Value>, String> {
-    let loaded = crate::image_loader::original_image(&state).await?;
+    let loaded = crate::image_loader::original_image(&state.source).await?;
     let (source, _) = crate::file_management::parse_virtual_path(&path);
     if crate::file_management::parse_virtual_path(&loaded.path).0 != source {
         return Ok(None);

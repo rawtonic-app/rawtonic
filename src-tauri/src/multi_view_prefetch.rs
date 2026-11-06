@@ -1095,8 +1095,10 @@ fn standard_needed(
     settings: &crate::app_settings::AppSettings,
 ) -> (bool, u32) {
     let state = app_handle.state::<AppState>();
-    let standard =
-        preview_proxy::standard_size(state.last_preview_dim.load(Ordering::Relaxed), settings);
+    let standard = preview_proxy::standard_size(
+        state.preview.last_preview_dim.load(Ordering::Relaxed),
+        settings,
+    );
     let needed =
         preview_proxy::stored_size(source, settings).is_none_or(|stored| stored < standard);
     (needed, standard)
@@ -1360,7 +1362,7 @@ pub(crate) mod tests {
             .unwrap()
             .extend([held("x.raf", 1, true, 1), held("y.raf", 1, false, 2)]);
         crate::image_loader::clear_source_caches(
-            &state,
+            &state.source,
             &develop,
             &crate::state::merge::MergeState::default(),
         );

@@ -250,6 +250,7 @@ pub async fn auto_gray_mix(
         let develop = app_handle.state::<crate::state::develop::DevelopSession>();
         let gpu = app_handle.state::<crate::state::gpu::GpuState>();
         let Some((source, is_raw, measures)) = state
+            .source
             .original_image
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -298,9 +299,13 @@ pub async fn auto_gray_mix(
         );
         adjustments.global.detail_scale = scale;
         adjustments.global.show_clipping = 0;
-        let lut = recipe["lutPath"]
-            .as_str()
-            .and_then(|p| crate::lut_processing::get_or_load_lut(&state, p).ok());
+        let lut = recipe["lutPath"].as_str().and_then(|p| {
+            crate::lut_processing::get_or_load_lut(
+                &app_handle.state::<crate::state::luts::LutState>(),
+                p,
+            )
+            .ok()
+        });
         let developed = crate::gpu_processing::process_and_get_dynamic_image(
             &context,
             &gpu,

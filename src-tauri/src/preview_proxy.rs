@@ -1464,13 +1464,13 @@ const PROXIES_IN_MEMORY: usize = 6;
 /// filmstrip neighbours), so activating one needs no disk read.
 #[derive(Default)]
 pub struct ProxyMemory {
-    entries: std::collections::VecDeque<crate::app_state::LoadedProxy>,
+    entries: std::collections::VecDeque<crate::state::source::LoadedProxy>,
 }
 
 impl ProxyMemory {
     /// Keeps `proxy` (of the photograph at `path`, a virtual path) in memory.
-    pub fn remember(&mut self, path: &str, proxy: Proxy) -> crate::app_state::LoadedProxy {
-        let loaded = crate::app_state::LoadedProxy {
+    pub fn remember(&mut self, path: &str, proxy: Proxy) -> crate::state::source::LoadedProxy {
+        let loaded = crate::state::source::LoadedProxy {
             path: path.to_string(),
             image: std::sync::Arc::new(proxy.image),
             full_width: proxy.full_width,
@@ -1489,7 +1489,7 @@ impl ProxyMemory {
         &mut self,
         path: &str,
         wanted: DecodeVariant,
-    ) -> Option<crate::app_state::LoadedProxy> {
+    ) -> Option<crate::state::source::LoadedProxy> {
         let at = self
             .entries
             .iter()
@@ -1499,7 +1499,7 @@ impl ProxyMemory {
         Some(entry)
     }
 
-    pub fn insert(&mut self, proxy: crate::app_state::LoadedProxy) {
+    pub fn insert(&mut self, proxy: crate::state::source::LoadedProxy) {
         self.entries.retain(|p| p.path != proxy.path);
         self.entries.push_front(proxy);
         self.entries.truncate(PROXIES_IN_MEMORY);

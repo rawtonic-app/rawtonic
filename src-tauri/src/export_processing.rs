@@ -511,7 +511,6 @@ fn export_masks_for_image(
     output_path_obj: &std::path::Path,
     source_path_str: &str,
     context: &Arc<GpuContext>,
-    state: &tauri::State<AppState>,
     develop: &DevelopSession,
     is_raw: bool,
     app_handle: &tauri::AppHandle,
@@ -561,7 +560,9 @@ fn export_masks_for_image(
         let tm_override = resolve_tonemapper_override_from_handle(app_handle, is_raw);
         let all_adjustments = get_all_adjustments_from_json(js_adjustments, is_raw, tm_override);
         let lut_path = js_adjustments["lutPath"].as_str();
-        let lut = lut_path.and_then(|p| get_or_load_lut(state, p).ok());
+        let lut = lut_path.and_then(|p| {
+            get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+        });
         let unique_hash = calculate_full_job_hash(source_path_str, js_adjustments);
         let extension = output_path_obj
             .extension()
@@ -660,7 +661,6 @@ fn export_adjustments_as_lut(
     js_adjustments: &Value,
     source_path_str: &str,
     context: &Arc<GpuContext>,
-    state: &tauri::State<AppState>,
     develop: &DevelopSession,
     app_handle: &tauri::AppHandle,
     cancellation_token: &AtomicBool,
@@ -690,7 +690,8 @@ fn export_adjustments_as_lut(
     all_adjustments.global.chromatic_aberration_blue_yellow = 0.0;
 
     let lut_path = js_adjustments["lutPath"].as_str();
-    let lut = lut_path.and_then(|p| get_or_load_lut(state, p).ok());
+    let lut = lut_path
+        .and_then(|p| get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok());
     let unique_hash = calculate_full_job_hash(source_path_str, js_adjustments);
 
     let processed_lut = process_and_get_dynamic_image(
@@ -1476,7 +1477,6 @@ fn export_photo(
                 &js_adjustments,
                 &source_path_str,
                 context,
-                &state,
                 &develop,
                 app_handle,
                 cancellation_token,
@@ -1506,12 +1506,14 @@ fn export_photo(
         // only the pristine pixels of this export's actual source
         // (not an offline photograph's 1:1 preview proxy).
         let offline_source = state
+            .source
             .offline_source
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         let cached_source = if is_current_edit {
             state
+                .source
                 .original_image
                 .lock()
                 .unwrap()
@@ -1598,7 +1600,9 @@ fn export_photo(
     };
 
     let tonemapper_override = |is_raw| resolve_tonemapper_override_from_handle(app_handle, is_raw);
-    let load_lut = |path: &str| get_or_load_lut(&state, path).ok();
+    let load_lut = |path: &str| {
+        get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), path).ok()
+    };
     let env = RenderEnv {
         context,
         processor: &gpu.export_processor,
@@ -1740,7 +1744,6 @@ fn export_photo(
                     output_path,
                     &source_path_str,
                     context,
-                    &state,
                     &develop,
                     is_raw,
                     app_handle,
@@ -2164,6 +2167,7 @@ fn estimate_sizes(
         && current_edit_adjustments.is_some()
     {
         let loaded_image = state
+            .source
             .original_image
             .lock()
             .unwrap()
@@ -2254,9 +2258,9 @@ fn estimate_sizes(
         all_adjustments.global.detail_scale = scale;
         all_adjustments.global.show_clipping = 0;
 
-        let lut = adjustments_clone["lutPath"]
-            .as_str()
-            .and_then(|p| get_or_load_lut(&state, p).ok());
+        let lut = adjustments_clone["lutPath"].as_str().and_then(|p| {
+            get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+        });
         let unique_hash =
             calculate_full_job_hash(&loaded_image.path, &adjustments_clone).wrapping_add(1);
 
@@ -2427,9 +2431,9 @@ fn estimate_sizes(
         all_adjustments.global.detail_scale = total_scale;
         all_adjustments.global.show_clipping = 0;
 
-        let lut = js_adjustments["lutPath"]
-            .as_str()
-            .and_then(|p| get_or_load_lut(&state, p).ok());
+        let lut = js_adjustments["lutPath"].as_str().and_then(|p| {
+            get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+        });
         let unique_hash =
             calculate_full_job_hash(&source_path_str, &js_adjustments).wrapping_add(1);
 

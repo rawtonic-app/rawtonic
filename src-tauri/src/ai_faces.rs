@@ -144,7 +144,7 @@ async fn analysis(
 ) -> Result<(Arc<RgbImage>, Arc<FaceAnalysis>), CommandError> {
     // Keyed by the photo actually loaded, taken before the models load: a
     // photo switch meanwhile cannot file one photo's faces under another.
-    let loaded = crate::image_loader::original_image(state).await?;
+    let loaded = crate::image_loader::original_image(&state.source).await?;
     let key = crate::ai_commands::geometry_key(&loaded, js_adjustments);
     if let Some(c) = lock_recover(&ai_state.faces).cached.as_ref()
         && c.key == key
