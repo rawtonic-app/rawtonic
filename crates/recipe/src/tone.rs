@@ -8,6 +8,7 @@
 
 use crate::key::Key;
 use crate::stored::{Section, StoredRef};
+use crate::ts::{TsField, TsSection};
 
 /// Exposure in stops (EV).
 pub const EXPOSURE: Key<f64> = Key::new("exposure", 0.0, 1);
@@ -31,6 +32,25 @@ pub const KEYS: [&Key<f64>; 8] = [
     &BRIGHTNESS,
     &CENTRE,
 ];
+
+/// The section's keys in the frontend's recipe type (`crate::ts`).
+pub const TS: TsSection = TsSection {
+    name: "tone",
+    fields: &[
+        TsField::new(EXPOSURE, "Exposure in stops (EV)."),
+        TsField::new(CONTRAST, ""),
+        TsField::new(HIGHLIGHTS, ""),
+        TsField::new(SHADOWS, ""),
+        TsField::new(WHITES, ""),
+        TsField::new(BLACKS, ""),
+        TsField::new(BRIGHTNESS, ""),
+        TsField::new(
+            CENTRE,
+            "Local contrast around the photograph's centre of interest.",
+        ),
+    ],
+    unions: &[],
+};
 
 macro_rules! slider_value {
     ($(#[$doc:meta])* $name:ident, $min:expr, $max:expr, $step:expr) => {

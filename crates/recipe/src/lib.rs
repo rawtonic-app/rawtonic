@@ -23,6 +23,7 @@ mod key;
 mod resolved;
 mod stored;
 pub mod tone;
+pub mod ts;
 
 pub use key::{Key, KeyValue};
 pub use resolved::{ResolvedRecipe, normalize};

@@ -3,6 +3,7 @@ import { Crop } from 'react-image-crop';
 import { v4 as uuidv4 } from 'uuid';
 import { SubMask, SubMaskMode } from '../components/panel/right/Masks';
 import type { AdjustmentLayout, AppSettings } from '../components/ui/AppProperties';
+import type { RecipeKeys } from '../generated/recipeKeys';
 
 export enum ActiveChannel {
   Blue = 'blue',
@@ -312,8 +313,7 @@ export const INITIAL_REGION_CURVE: RegionCurve = {
   highlightSplit: 75
 };
 
-export type WhiteBalanceMode =
-  'asShot' | 'auto' | 'daylight' | 'cloudy' | 'shade' | 'tungsten' | 'fluorescent' | 'flash' | 'custom';
+export type { WhiteBalanceMode } from '../generated/recipeKeys';
 
 /** Face retouch sliders (Capture One's Retouch Faces), 0–100; Texture
  * −100–100. A face's own values override those for all faces. */
@@ -473,7 +473,30 @@ export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: 
   return grain;
 };
 
-export interface Adjustments {
+/** The generated recipe keys (`RecipeKeys`) every `Adjustments` object holds
+ * (`INITIAL_ADJUSTMENTS` sets them); the others stay optional, as saved. */
+type HeldRecipeKey =
+  | 'exposure'
+  | 'contrast'
+  | 'highlights'
+  | 'shadows'
+  | 'whites'
+  | 'blacks'
+  | 'brightness'
+  | 'centré'
+  | 'temperature'
+  | 'tint'
+  | 'vibrance'
+  | 'saturation'
+  | 'hue'
+  | 'hsl'
+  | 'colorGrading'
+  | 'colorCalibration';
+
+/** The develop recipe as the frontend holds it. The keys of the sections in
+ * the recipe crate come from its registry (`src/generated/recipeKeys.ts`);
+ * the others, and the mask layers' adjustments, are written here. */
+export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<Pick<RecipeKeys, HeldRecipeKey>> {
   [index: string]: unknown;
   aiPatches: Array<AiPatch>;
   /** Spot removal (heal/clone circles), applied in full precision to the
@@ -485,15 +508,10 @@ export interface Adjustments {
   /** Face retouch (Capture One's Retouch Faces), applied after the spots. */
   faceRetouch?: FaceRetouch | null;
   aspectRatio: number | null;
-  /** Black & white conversion (Lightroom's Treatment, Capture One's B&W). */
-  blackAndWhite?: boolean;
-  grayMixer?: GrayMixer;
   /** Capture One's Levels (display values, before the curve). */
   levels?: Levels;
   /** Lightroom's region curve, before the point curve. */
   regionCurve?: RegionCurve;
-  /** Colour editor ranges, applied in order. */
-  colorRanges?: ColorRange[];
   /** Lightroom's Defringe: amounts 0–20, hue ranges 0–100. */
   defringePurpleAmount?: number;
   defringePurpleHueLo?: number;
@@ -511,23 +529,16 @@ export interface Adjustments {
    * effect; 3 = the same on the faster model; missing = 1 (recipes from
    * before it). */
   aiDenoiseVersion?: number;
-  blacks: number;
-  brightness: number;
-  centré: number;
   clarity: number;
   chromaticAberrationBlueYellow: number;
   chromaticAberrationRedCyan: number;
-  colorCalibration: ColorCalibration;
-  colorGrading: ColorGradingProps;
   colorNoiseReduction: number;
-  contrast: number;
   curves: Curves;
   pointCurves?: Curves;
   parametricCurve?: ParametricCurve;
   curveMode?: 'point' | 'parametric';
   crop: Crop | null;
   dehaze: number;
-  exposure: number;
   flipHorizontal: boolean;
   flipVertical: boolean;
   flareAmount: number;
@@ -537,9 +548,6 @@ export interface Adjustments {
   grainSize: number;
   guidedPerspective: GuidedPerspective;
   halationAmount: number;
-  highlights: number;
-  hsl: Hsl;
-  hue: number;
   lensBlurAmount: number;
   lensBlurDiffusion: number;
   lensBlurShape: 'circle' | 'hexagon' | 'octagon' | 'ring';
@@ -733,9 +741,7 @@ export interface Adjustments {
   masks: Array<MaskContainer>;
   orientationSteps: number;
   rotation: number;
-  saturation: number;
   sectionVisibility: SectionVisibility;
-  shadows: number;
   sharpness: number;
   sharpnessThreshold: number;
   // Lightroom's sharpening Radius / Detail / Masking (photo only).
@@ -749,8 +755,6 @@ export interface Adjustments {
    * (utils/clippingWarnings). */
   showClipping: boolean | number;
   structure: number;
-  temperature: number;
-  tint: number;
   // 'standard' is Capture One's base look (new edits); 'basic' the inherited
   // tone mapper that existing edits keep.
   toneMapper: 'agx' | 'basic' | 'standard';
@@ -761,13 +765,6 @@ export interface Adjustments {
    * `profiles/Name.dcp` inside the session, an absolute path outside one;
    * unset = Rawtonic's own colour. */
   cameraProfile?: string;
-  /** Absolute white balance of RAWs (Lightroom's Temp/Tint, camera space):
-   * unset or `asShot` keeps the camera's; a preset or `custom` with
-   * `wbTemperature` (K) and `wbTint`. The relative `temperature`/`tint`
-   * apply on top (JPEGs, layers, older edits). */
-  whiteBalance?: WhiteBalanceMode;
-  wbTemperature?: number;
-  wbTint?: number;
   transformDistortion: number;
   /** Lateral chromatic aberration measured on the photo and corrected
    * (crates/engine/src/lateral_ca.rs): true = on (replacing the lens data's
@@ -789,7 +786,6 @@ export interface Adjustments {
   transformScale: number;
   transformXOffset: number;
   transformYOffset: number;
-  vibrance: number;
   vignetteAmount: number;
   vignetteFeather: number;
   vignetteMidpoint: number;
@@ -809,7 +805,6 @@ export interface Adjustments {
   relightSkinReflections?: number;
   relightOriginalLight?: number;
   vignetteHighlights?: number;
-  whites: number;
 }
 
 /** What `setAdjustments` accepts: a patch merged into the current adjustments, or an updater. */
@@ -903,7 +898,7 @@ export interface Color {
   name: string;
 }
 
-interface ColorGradingProps {
+export interface ColorGradingProps {
   [index: string]: number | HueSatLum;
   balance: number;
   blending: number;
@@ -949,7 +944,7 @@ export interface HueSatLum {
   luminance: number;
 }
 
-interface Hsl {
+export interface Hsl {
   [index: string]: HueSatLum;
   aquas: HueSatLum;
   blues: HueSatLum;
