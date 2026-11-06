@@ -589,6 +589,10 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         globalImageCache.delete(path);
         useEditorStore.getState().setEditor({ selectedImage: null });
         selectedImagePathRef.current = null;
+        // The editor must render without the photograph once: the loader
+        // starts a load when the selected path changes, and a selection
+        // cleared and restored in one batch would change nothing for it.
+        await new Promise((resolve) => setTimeout(resolve, 0));
         await handleImageSelect(path);
       }),
     [handleImageSelect, selectedImagePathRef]
