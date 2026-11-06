@@ -130,7 +130,8 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
     }
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("scope_analytics_render");
-    let context = get_or_init_gpu_context(&state, app_handle)?;
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = get_or_init_gpu_context(&gpu, app_handle)?;
     let proxy = proxy_of(&state, &job.source);
     let (width, height) = proxy.image.dimensions();
     let scale = job.scale * width as f32 / job.source.width().max(1) as f32;
@@ -149,8 +150,8 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
     adjustments.global.detail_scale = scale;
     gpu_processing::render_scope_analytics(
         &context,
-        &state.gpu_processor,
-        &state.scope_gpu_cache,
+        &gpu.processor,
+        &gpu.scope_cache,
         (&proxy.image, proxy.id),
         RenderRequest {
             adjustments,
@@ -164,7 +165,7 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
 }
 
 /// The copy of a preview base the scope render reads, and the id its GPU
-/// upload is kept under (`AppState::scope_gpu_cache`).
+/// upload is kept under (`GpuState::scope_cache`).
 pub(crate) struct ScopeProxy {
     of: Weak<DynamicImage>,
     image: Arc<DynamicImage>,

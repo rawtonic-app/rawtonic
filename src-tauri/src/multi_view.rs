@@ -218,14 +218,6 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
         .clone()
 }
 
-fn context_of(state: &AppState) -> Option<GpuContext> {
-    state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-}
-
 /// Shows `cells` side by side in the viewer with `primary` as the live
 /// photograph; no cells is the single view (every cell texture and prepared
 /// base is released). Returns false when there is no native display (the
@@ -246,8 +238,10 @@ fn show_cells(
     primary: Option<String>,
     cells: Vec<CellPayload>,
 ) -> bool {
-    let state = app_handle.state::<AppState>();
-    let Ok(context) = gpu_processing::get_or_init_gpu_context(&state, app_handle) else {
+    let Ok(context) = gpu_processing::get_or_init_gpu_context(
+        &app_handle.state::<crate::state::gpu::GpuState>(),
+        app_handle,
+    ) else {
         return false;
     };
     let worker = worker(app_handle);
@@ -359,8 +353,8 @@ pub(crate) async fn render_browser_view(
     static GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
     let permit = GATE.acquire().await.map_err(|e| e.to_string())?;
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let state = app_handle.state::<AppState>();
-        let context = gpu_processing::get_or_init_gpu_context(&state, &app_handle)?;
+        let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+        let context = gpu_processing::get_or_init_gpu_context(&gpu, &app_handle)?;
         let worker = worker(&app_handle);
         // At most eight prepared cells; browsing a large session must not
         // retain every decoded preview. Native display keeps its own cells.
@@ -934,6 +928,7 @@ fn develop_rgba(
 ) -> Result<image::RgbaImage, String> {
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let settings = crate::state::settings::current(app_handle);
     let recipe = input.recipe;
     let (width, height) = input.image.dimensions();
@@ -981,7 +976,7 @@ fn develop_rgba(
         .and_then(|p| crate::lut_processing::get_or_load_lut(&state, p).ok());
     let developed = gpu_processing::process_and_get_dynamic_image_inner(
         context,
-        &state.gpu_processor,
+        &gpu.processor,
         &develop.gpu_image_cache,
         RenderSource::Image {
             image: input.image,
@@ -1097,8 +1092,7 @@ fn emit_sizes(app_handle: &tauri::AppHandle, sizes: Vec<CellSize>) {
 
 fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
     let start = Instant::now();
-    let state = app_handle.state::<AppState>();
-    let Some(context) = context_of(&state) else {
+    let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
         return;
     };
     let current = || worker.generation.load(Ordering::SeqCst) == job.generation;
@@ -1368,8 +1362,7 @@ pub(crate) async fn set_multi_view_zoom(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app_handle.state::<AppState>();
-        let Some(context) = context_of(&state) else {
+        let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
             return;
         };
         let shared = zoom.and_then(cell_zoom);
@@ -2251,8 +2244,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
     if !current() {
         return;
     }
-    let state = app_handle.state::<AppState>();
-    let Some(context) = context_of(&state) else {
+    let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
         return;
     };
     let facts = WORKER.get().map(|w| {
@@ -2513,8 +2505,7 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
         LIVE_PENDING.store(false, Ordering::Release);
         return false;
     };
-    let state = app_handle.state::<AppState>();
-    let Some(context) = context_of(&state) else {
+    let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
         return false;
     };
     let (cells, primary) = {

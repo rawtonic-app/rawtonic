@@ -5,7 +5,6 @@
 //! Cancel in the Export dialog stops the running export and holds the queue
 //! until the next export or resume; the queue panel pauses, cancels and
 //! resumes single jobs and follows each photo (`export-item-progress`).
-use crate::app_state::AppState;
 use crate::export_processing::{
     ExportPhotos, ExportSettings, ExportTarget, PinnedPhoto, denoise_models, export_images_impl,
     pin_photos,
@@ -1017,12 +1016,10 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     );
     notify(app);
     let (tx, rx) = tokio::sync::oneshot::channel();
-    let state = app.state::<AppState>();
     let started = export_images_impl(
         request.paths.clone(),
         targets,
         photos,
-        state,
         app.clone(),
         Some(tx),
         None,

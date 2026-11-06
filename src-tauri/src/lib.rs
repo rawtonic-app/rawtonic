@@ -240,9 +240,9 @@ pub fn run() {
                 performance::log_display_refresh(ns_window);
             }
             let tauri::WindowEvent::Resized(size) = event else { return };
-            let state = window.state::<AppState>();
-            let Some(ctx) = state.gpu_context.lock().unwrap().clone() else { return };
-            gpu_processing::resize_display(ctx, size.width, size.height);
+            let gpu = window.state::<state::gpu::GpuState>();
+            let Some(ctx) = gpu.context() else { return };
+            gpu_processing::resize_display(&gpu, ctx, size.width, size.height);
         })
         .setup(move |app| {
             // Before anything reads settings or user content (see the module).
@@ -293,10 +293,7 @@ pub fn run() {
             let config_dir = app_handle.path().app_config_dir().expect("Failed to get config dir");
             let crash_flag_path = config_dir.join(".gpu_init_crash_flag");
 
-            {
-                let state = app.state::<AppState>();
-                *state.gpu_crash_flag_path.lock().unwrap() = Some(crash_flag_path.clone());
-            }
+            app.state::<state::gpu::GpuState>().set_crash_flag_path(crash_flag_path.clone());
 
             // The settings are read and migrated here, once per run (`state::settings`).
             let mut settings: AppSettings = (*crate::state::settings::current(&app_handle)).clone();
@@ -549,7 +546,7 @@ pub fn run() {
                 // The device and processor were started before the window
                 // (`start_early`); presenting needs the window.
                 #[cfg(not(target_os = "linux"))]
-                gpu_processing::attach_display(&app.state::<AppState>(), app.handle());
+                gpu_processing::attach_display(&app.state::<state::gpu::GpuState>(), app.handle());
 
                 if let Ok(config_dir) = app.path().app_config_dir() {
                     let path = config_dir.join("window_state.json");
@@ -672,6 +669,7 @@ pub fn run() {
         .manage(state::startup::StartupState::default())
         .manage(state::library::LibraryState::default())
         .manage(state::merge::MergeState::default())
+        .manage(state::gpu::GpuState::default())
         .manage(state::library_files::AlbumsStore::default())
         .manage(state::library_files::PresetsStore::default())
         .manage(state::library_files::LibraryQueue::default())

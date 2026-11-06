@@ -980,14 +980,9 @@ fn rewarm_mask_source(
 #[tauri::command]
 pub(crate) async fn update_wgpu_transform(
     payload: WgpuTransformPayload,
-    state: tauri::State<'_, AppState>,
+    gpu: tauri::State<'_, crate::state::gpu::GpuState>,
 ) -> Result<(), String> {
-    let context = match state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-    {
+    let context = match gpu.context_lock().as_ref() {
         Some(c) => c.clone(),
         None => return Ok(()),
     };
@@ -1343,7 +1338,8 @@ fn render_probe(
 ) -> Result<Option<image::DynamicImage>, String> {
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
-    let context = get_or_init_gpu_context(&state, app_handle)?;
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = get_or_init_gpu_context(&gpu, app_handle)?;
     normalize_editor_recipe(&develop, &mut recipe);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
     if loaded_image.path != path {
@@ -1412,7 +1408,7 @@ fn render_probe(
         .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
     gpu_processing::process_and_get_dynamic_image_with_preview_shader(
         &context,
-        &state,
+        &gpu,
         &develop,
         &base,
         transform_hash,
@@ -1514,7 +1510,8 @@ pub(crate) fn process_preview_job(
     let fn_start = std::time::Instant::now();
     #[cfg(feature = "performance-profiling")]
     let setup_stage = crate::performance::PerformanceStage::new("preview_setup");
-    let context = get_or_init_gpu_context(&state, app_handle)?;
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = get_or_init_gpu_context(&gpu, app_handle)?;
     normalize_editor_recipe(&develop, &mut adjustments_json);
     let adjustments_clone = adjustments_json;
 
@@ -1875,7 +1872,7 @@ pub(crate) fn process_preview_job(
     let final_processed_image_result =
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
             &context,
-            &state,
+            &gpu,
             &develop,
             &processing_image,
             new_transform_hash,
@@ -2270,10 +2267,9 @@ pub(crate) async fn activate_photo(
     if !formats::is_raw_file(&source_path) {
         return Ok(Activation::None);
     }
-    let Some(viewport) = state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+    let Some(viewport) = app_handle
+        .state::<crate::state::gpu::GpuState>()
+        .context_lock()
         .as_ref()
         .and_then(|c| {
             let display = c.display.lock().unwrap_or_else(|e| e.into_inner());
@@ -2310,7 +2306,7 @@ pub(crate) async fn activate_photo(
         return Ok(Activation::None);
     }
     crate::image_loader::open_source(&state, &develop, &path);
-    release_still_for(&state, &path);
+    release_still_for(&app_handle.state::<crate::state::gpu::GpuState>(), &path);
     // Its decode kept ahead: developed from it at once (not its proxy).
     if let Some(shown) =
         develop_kept_decode(&app_handle, &path, wanted, viewport, adjustments.clone()).await
@@ -2377,7 +2373,13 @@ pub(crate) async fn activate_photo(
     }
     let full_size = (proxy.full_width, proxy.full_height);
     *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = Some(proxy);
-    submit_activation_frame(&state, recipe, full_size, viewport);
+    submit_activation_frame(
+        &state,
+        &app_handle.state::<crate::state::gpu::GpuState>(),
+        recipe,
+        full_size,
+        viewport,
+    );
     #[cfg(feature = "performance-profiling")]
     log::info!(
         "[PERF] {}",
@@ -2418,6 +2420,7 @@ fn activation_recipe(
 /// placement of `viewport`.
 fn submit_activation_frame(
     state: &AppState,
+    gpu: &crate::state::gpu::GpuState,
     recipe: serde_json::Value,
     (full_width, full_height): (u32, u32),
     viewport: [f32; 4],
@@ -2431,11 +2434,7 @@ fn submit_activation_frame(
         _ => (full_width as f32, full_height as f32),
     };
     let rect = gpu_processing::fit_placement(viewport, shown_w, shown_h);
-    if let Some(context) = state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
+    if let Some(context) = gpu.context_lock().as_ref()
         && let Some(display) = context
             .display
             .lock()
@@ -2546,7 +2545,13 @@ async fn develop_kept_decode(
         });
     };
     let recipe = activation_recipe(Some(saved), &source_path, &sidecar_path);
-    submit_activation_frame(&state, recipe, opened.size(), viewport);
+    submit_activation_frame(
+        &state,
+        &app_handle.state::<crate::state::gpu::GpuState>(),
+        recipe,
+        opened.size(),
+        viewport,
+    );
     let (app, opened_path) = (app_handle.clone(), path.to_string());
     tokio::task::spawn_blocking(move || {
         opened.remember(&app.state::<DevelopSession>(), &opened_path);
@@ -2574,13 +2579,7 @@ const UNDER_WAY_WAIT: std::time::Duration = std::time::Duration::from_millis(400
 /// (`embedded_still::kept`), presented natively in the fit placement of
 /// `viewport`; whether it was. Never waits for a decode of it.
 fn present_kept_still(app_handle: &tauri::AppHandle, path: &str, viewport: [f32; 4]) -> bool {
-    let state = app_handle.state::<AppState>();
-    let Some(context) = state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-    else {
+    let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
         return false;
     };
     let (source, _) = parse_virtual_path(path);
@@ -2609,13 +2608,7 @@ async fn show_still(
     viewport: [f32; 4],
     never_edited: bool,
 ) -> Activation {
-    let state = app_handle.state::<AppState>();
-    let Some(context) = state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-    else {
+    let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
         return Activation::None;
     };
     let (source, _) = parse_virtual_path(path);
@@ -2731,12 +2724,8 @@ fn present_still_of(
 /// A photograph is asked for (`current_source` set to `path`): a still of
 /// another one no longer holds back developed frames
 /// (`WgpuDisplay::release_still_for`).
-pub(crate) fn release_still_for(state: &AppState, path: &str) {
-    if let Some(context) = state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
+pub(crate) fn release_still_for(gpu: &crate::state::gpu::GpuState, path: &str) {
+    if let Some(context) = gpu.context_lock().as_ref()
         && let Some(display) = context
             .display
             .lock()
@@ -2831,7 +2820,8 @@ fn render_split_before_blocking(
     if !use_wgpu_renderer {
         return Ok(false);
     }
-    let context = get_or_init_gpu_context(&state, app_handle)?;
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = get_or_init_gpu_context(&gpu, app_handle)?;
     let display_key = |context: &gpu_processing::GpuContext| {
         context
             .display
@@ -2870,6 +2860,7 @@ fn render_split_before_blocking(
     let tm_override = resolve_tonemapper_override(&settings, loaded_image.is_raw);
     let rendered = develop_split_before(
         &state,
+        &gpu,
         &develop,
         &context,
         (&loaded_image, source_scale, full_dims),
@@ -2912,6 +2903,7 @@ fn render_split_before_blocking(
 #[allow(clippy::too_many_arguments)]
 fn develop_split_before(
     state: &AppState,
+    gpu: &crate::state::gpu::GpuState,
     develop: &DevelopSession,
     context: &gpu_processing::GpuContext,
     (loaded_image, source_scale, full_dims): (&LoadedImage, f32, (u32, u32)),
@@ -2987,7 +2979,7 @@ fn develop_split_before(
         .and_then(|p| lut_processing::get_or_load_lut(state, p).ok());
     let rendered = gpu_processing::process_and_get_dynamic_image_with_display_shader(
         context,
-        state,
+        gpu,
         develop,
         &base,
         transform_hash,
@@ -3126,7 +3118,10 @@ pub(crate) async fn generate_uncropped_preview(
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
-    let context = get_or_init_gpu_context(&state, &app_handle)?;
+    let context = get_or_init_gpu_context(
+        &app_handle.state::<crate::state::gpu::GpuState>(),
+        &app_handle,
+    )?;
     let mut adjustments_clone = js_adjustments.clone();
     normalize_editor_recipe(&develop, &mut adjustments_clone);
 
@@ -3135,6 +3130,7 @@ pub(crate) async fn generate_uncropped_preview(
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
         let develop = app_handle.state::<DevelopSession>();
+        let gpu = app_handle.state::<crate::state::gpu::GpuState>();
         let path = loaded_image.path.clone();
         let is_raw = loaded_image.is_raw;
         let visual_hash = calculate_visual_hash(&path, &adjustments_clone);
@@ -3259,7 +3255,7 @@ pub(crate) async fn generate_uncropped_preview(
 
         if let Ok(processed_image) = process_and_get_dynamic_image(
             &context,
-            &state,
+            &gpu,
             &develop,
             &flipped_image,
             full_hash,
@@ -3314,7 +3310,8 @@ pub(crate) async fn generate_preview_for_path(
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
         let develop = app_handle.state::<DevelopSession>();
-        let context = get_or_init_gpu_context(&state, &app_handle)?;
+        let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+        let context = get_or_init_gpu_context(&gpu, &app_handle)?;
         let (source_path, _) = parse_virtual_path(&path);
         let source_path_str = source_path.to_string_lossy().to_string();
         let is_raw = is_raw_file(&source_path_str);
@@ -3402,7 +3399,7 @@ pub(crate) async fn generate_preview_for_path(
 
         let final_image = process_and_get_dynamic_image(
             &context,
-            &state,
+            &gpu,
             &develop,
             transformed_image.as_ref(),
             unique_hash,
@@ -3475,6 +3472,7 @@ mod split_view_tests {
 
         let context = GpuContext::headless().expect("a GPU");
         let state = AppState::default();
+        let gpu = crate::state::gpu::GpuState::default();
         let develop = crate::state::develop::DevelopSession::default();
         let (width, height) = (384, 256);
         let loaded = LoadedImage {
@@ -3496,6 +3494,7 @@ mod split_view_tests {
         let render = |recipe: &serde_json::Value| {
             super::develop_split_before(
                 &state,
+                &gpu,
                 &develop,
                 &context,
                 (&loaded, 1.0, (width, height)),

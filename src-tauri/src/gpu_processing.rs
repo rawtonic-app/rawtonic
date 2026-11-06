@@ -1,5 +1,5 @@
 //! Desktop glue for `rawtonic_gpu::gpu_processing` (ADR 0009): the window
-//! surface, the processor and image cache kept in `AppState`, and the Tauri
+//! surface, the processors and the context kept in `GpuState`, and the Tauri
 //! commands stay here; the pipeline lives in the GPU crate.
 pub use rawtonic_gpu::gpu_processing::*;
 
@@ -10,30 +10,22 @@ use tauri::Manager;
 
 use crate::app_state::AppState;
 use crate::state::develop::DevelopSession;
+use crate::state::gpu::GpuState;
+use crate::state::lock::lock_recover;
 
 /// The processing context, created on first use. It is made without the
 /// window (the device and the first display variant start before the window
 /// exists, `start_early`); `attach_display` adds the window surface.
 pub fn get_or_init_gpu_context(
-    state: &tauri::State<AppState>,
+    gpu: &GpuState,
     app_handle: &tauri::AppHandle,
 ) -> Result<GpuContext, String> {
-    let mut context_lock = match state.gpu_context.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            log::warn!(
-                "GPU context lock was poisoned (previous crash). Wiping state to self-heal."
-            );
-            let mut guard = poisoned.into_inner();
-            *guard = None;
-            guard
-        }
-    };
+    let mut context_lock = gpu.context_slot();
     if let Some(context) = &*context_lock {
         return Ok(context.clone());
     }
-    let (context, instance, adapter) = create_context(state, app_handle, None)?;
-    *state.gpu_adapter.lock().unwrap_or_else(|e| e.into_inner()) = Some((instance, adapter));
+    let (context, instance, adapter) = create_context(gpu, app_handle, None)?;
+    *lock_recover(&gpu.adapter) = Some((instance, adapter));
     *context_lock = Some(context.clone());
     Ok(context)
 }
@@ -48,20 +40,20 @@ pub fn start_early(app_handle: &tauri::AppHandle) {
     let spawned = std::thread::Builder::new()
         .name("gpu-start".into())
         .spawn(move || {
-            let state = app_handle.state::<AppState>();
-            match get_or_init_gpu_context(&state, &app_handle) {
+            let gpu = app_handle.state::<GpuState>();
+            match get_or_init_gpu_context(&gpu, &app_handle) {
                 // A window whose adapter cannot present replaces the context
                 // while it holds the processor slot (`attach_display`): no
                 // processor for the replaced device.
-                Ok(context) => prewarm_gpu_processor_if(&state.gpu_processor, &context, || {
-                    is_current(&state, &context)
+                Ok(context) => prewarm_gpu_processor_if(&gpu.processor, &context, || {
+                    is_current(&gpu, &context)
                 }),
                 Err(error) => {
                     log::error!(
                         "GPU pre-initialization failed (editing and thumbnails may be degraded): {}",
                         error
                     );
-                    record_start_error(&app_handle, error);
+                    record_start_error(&gpu, &app_handle, error);
                     // Nothing to wait for.
                     first_display_variant_settled();
                 }
@@ -72,25 +64,20 @@ pub fn start_early(app_handle: &tauri::AppHandle) {
     }
 }
 
-/// Why the GPU did not start, for the window (`gpu_start_error`): without it
-/// no photo can be developed.
-static START_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-fn record_start_error(app_handle: &tauri::AppHandle, error: String) {
+/// Records why the GPU did not start, for the window (`gpu_start_error`):
+/// without it no photo can be developed.
+fn record_start_error(gpu: &GpuState, app_handle: &tauri::AppHandle, error: String) {
     use tauri::Emitter;
     // Stored first: a window that asks after missing the event finds it.
-    *START_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(error.clone());
+    gpu.set_start_error(error.clone());
     let _ = app_handle.emit("gpu-start-failed", &error);
 }
 
 /// The reason the GPU did not start, if it did not: the window shows it
 /// (it may load after the `gpu-start-failed` event).
 #[tauri::command]
-pub fn gpu_start_error() -> Option<String> {
-    START_ERROR
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+pub fn gpu_start_error(gpu: tauri::State<'_, GpuState>) -> Option<String> {
+    gpu.start_error()
 }
 
 /// Holds optional start-up work (background library passes, model
@@ -104,7 +91,7 @@ pub fn after_first_display_variant() {
 /// where that adapter cannot present to it, a new context from an adapter
 /// that can (the processor of the old one is dropped).
 #[cfg(not(target_os = "linux"))]
-pub fn attach_display(state: &tauri::State<AppState>, app_handle: &tauri::AppHandle) {
+pub fn attach_display(gpu: &GpuState, app_handle: &tauri::AppHandle) {
     let settings = crate::state::settings::current(app_handle);
     if !settings.use_wgpu_renderer.unwrap_or(true) {
         return;
@@ -113,7 +100,7 @@ pub fn attach_display(state: &tauri::State<AppState>, app_handle: &tauri::AppHan
         return;
     };
     // Waits for a context the start thread is creating.
-    let context = match get_or_init_gpu_context(state, app_handle) {
+    let context = match get_or_init_gpu_context(gpu, app_handle) {
         Ok(context) => context,
         Err(error) => {
             log::warn!(
@@ -122,12 +109,7 @@ pub fn attach_display(state: &tauri::State<AppState>, app_handle: &tauri::AppHan
             return;
         }
     };
-    let Some((instance, adapter)) = state
-        .gpu_adapter
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-    else {
+    let Some((instance, adapter)) = lock_recover(&gpu.adapter).clone() else {
         return;
     };
     let surface = match instance.create_surface(window.clone()) {
@@ -148,24 +130,18 @@ pub fn attach_display(state: &tauri::State<AppState>, app_handle: &tauri::AppHan
     }
     log::warn!("The GPU adapter cannot present to the window; choosing one that can.");
     // No render may use the old processor with the new context.
-    let mut processor = state
-        .gpu_processor
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let mut context_lock = state.gpu_context.lock().unwrap_or_else(|e| e.into_inner());
+    let mut processor = gpu.processor.lock().unwrap_or_else(|e| e.into_inner());
+    let mut context_lock = gpu.context_lock();
     *processor = None;
     drop(surface);
-    match create_context(state, app_handle, Some(&window)) {
+    match create_context(gpu, app_handle, Some(&window)) {
         Ok((context, instance, adapter)) => {
-            *state.gpu_adapter.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some((instance, adapter));
+            *lock_recover(&gpu.adapter) = Some((instance, adapter));
             *context_lock = Some(context.clone());
             let app_handle = app_handle.clone();
             std::thread::spawn(move || {
-                let state = app_handle.state::<AppState>();
-                prewarm_gpu_processor_if(&state.gpu_processor, &context, || {
-                    is_current(&state, &context)
-                });
+                let gpu = app_handle.state::<GpuState>();
+                prewarm_gpu_processor_if(&gpu.processor, &context, || is_current(&gpu, &context));
             });
         }
         Err(error) => {
@@ -177,12 +153,8 @@ pub fn attach_display(state: &tauri::State<AppState>, app_handle: &tauri::AppHan
 
 /// Whether `context` is the app's processing context (not one replaced by
 /// `attach_display`).
-fn is_current(state: &AppState, context: &GpuContext) -> bool {
-    state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
+fn is_current(gpu: &GpuState, context: &GpuContext) -> bool {
+    gpu.context()
         .is_some_and(|current| Arc::ptr_eq(&current.device, &context.device))
 }
 
@@ -190,11 +162,11 @@ fn is_current(state: &AppState, context: &GpuContext) -> bool {
 /// `window` when given), with that window's display. The backend falls back
 /// when the device cannot be created (`rawtonic_gpu::device_start`).
 fn create_context(
-    state: &AppState,
+    gpu: &GpuState,
     app_handle: &tauri::AppHandle,
     #[allow(unused_variables)] window: Option<&tauri::WebviewWindow>,
 ) -> Result<(GpuContext, wgpu::Instance, wgpu::Adapter), String> {
-    let flag_path = state.gpu_crash_flag_path.lock().unwrap().clone();
+    let flag_path = gpu.crash_flag_path();
     if let Some(p) = &flag_path {
         if let Some(parent) = p.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -357,23 +329,20 @@ fn configure_display(
     WgpuDisplay::new(device, surface, config)
 }
 
-/// The window's newest size in device pixels (width << 32 | height), for a
-/// resize that waits for the display.
-static WINDOW_SIZE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
 /// Fits the window surface to a window now `width` × `height` device pixels.
 /// While a frame or placement holds the display, the resize waits for it on
 /// a worker (the main thread must not block) and then takes the newest size:
 /// the window's last resize event — the end of a zoom animation — is never
 /// dropped, which left the photograph on a surface of an earlier size.
-pub fn resize_display(context: GpuContext, width: u32, height: u32) {
+pub fn resize_display(gpu: &GpuState, context: GpuContext, width: u32, height: u32) {
     use std::sync::atomic::Ordering;
-    WINDOW_SIZE.store(
+    let window_size = Arc::clone(&gpu.window_size);
+    window_size.store(
         (u64::from(width) << 32) | u64::from(height),
         Ordering::SeqCst,
     );
-    let apply = |display: &mut Option<WgpuDisplay>, context: &GpuContext| {
-        let size = WINDOW_SIZE.load(Ordering::SeqCst);
+    let apply = move |display: &mut Option<WgpuDisplay>, context: &GpuContext| {
+        let size = window_size.load(Ordering::SeqCst);
         let (width, height) = ((size >> 32) as u32, size as u32);
         if let Some(display) = display.as_mut()
             && (display.config.width, display.config.height) != (width.max(1), height.max(1))
@@ -445,7 +414,7 @@ fn prewarm_gpu_processor_if(
 
 pub fn process_and_get_dynamic_image(
     context: &GpuContext,
-    state: &tauri::State<AppState>,
+    gpu: &GpuState,
     develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
@@ -454,7 +423,7 @@ pub fn process_and_get_dynamic_image(
 ) -> Result<DynamicImage, String> {
     process_and_get_dynamic_image_inner(
         context,
-        &state.gpu_processor,
+        &gpu.processor,
         &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
@@ -473,7 +442,7 @@ pub fn process_and_get_dynamic_image(
 /// CPU readback with the display shader variants; see [`ReadbackShader::Display`].
 pub fn process_and_get_dynamic_image_with_display_shader(
     context: &GpuContext,
-    state: &AppState,
+    gpu: &GpuState,
     develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
@@ -482,7 +451,7 @@ pub fn process_and_get_dynamic_image_with_display_shader(
 ) -> Result<DynamicImage, String> {
     process_and_get_dynamic_image_inner(
         context,
-        &state.gpu_processor,
+        &gpu.processor,
         &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
@@ -503,7 +472,7 @@ pub fn process_and_get_dynamic_image_with_display_shader(
 /// For small samples of the shown preview's base, never for exports.
 pub fn process_and_get_dynamic_image_with_preview_shader(
     context: &GpuContext,
-    state: &tauri::State<AppState>,
+    gpu: &GpuState,
     develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
@@ -512,7 +481,7 @@ pub fn process_and_get_dynamic_image_with_preview_shader(
 ) -> Result<DynamicImage, String> {
     process_and_get_dynamic_image_inner(
         context,
-        &state.gpu_processor,
+        &gpu.processor,
         &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
@@ -531,7 +500,7 @@ pub fn process_and_get_dynamic_image_with_preview_shader(
 #[allow(clippy::too_many_arguments)]
 pub fn process_and_get_dynamic_image_with_precision(
     context: &GpuContext,
-    state: &tauri::State<AppState>,
+    gpu: &GpuState,
     develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
@@ -541,7 +510,7 @@ pub fn process_and_get_dynamic_image_with_precision(
 ) -> Result<DynamicImage, String> {
     process_and_get_dynamic_image_inner(
         context,
-        &state.gpu_processor,
+        &gpu.processor,
         &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
@@ -560,7 +529,7 @@ pub fn process_and_get_dynamic_image_with_precision(
 #[allow(clippy::too_many_arguments)]
 pub fn process_and_get_dynamic_image_with_analytics(
     context: &GpuContext,
-    state: &tauri::State<AppState>,
+    gpu: &GpuState,
     develop: &DevelopSession,
     base_image: &DynamicImage,
     transform_hash: u64,
@@ -577,7 +546,7 @@ pub fn process_and_get_dynamic_image_with_analytics(
     };
     process_and_get_dynamic_image_inner(
         context,
-        &state.gpu_processor,
+        &gpu.processor,
         &develop.gpu_image_cache,
         RenderSource::Image {
             image: base_image,
@@ -699,6 +668,7 @@ pub async fn sample_preview_grey_world(
 /// when the photograph, its load or its render changed meanwhile.
 fn sample_current_frame<T>(
     state: &AppState,
+    gpu: &GpuState,
     path: &str,
     sample: impl FnOnce(&GpuProcessor, &Arc<DynamicImage>, usize, usize) -> Result<Option<T>, String>,
 ) -> Result<Option<T>, String> {
@@ -716,8 +686,8 @@ fn sample_current_frame<T>(
         return Ok(None);
     };
     let sampled = {
-        let processor = state
-            .gpu_processor
+        let processor = gpu
+            .processor
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let Some(processor) = processor.as_ref() else {
@@ -748,9 +718,21 @@ pub async fn sample_preview_color(
 ) -> Result<Option<[f64; 3]>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
-        sample_current_frame(&state, &path, |processor, source, load, render| {
-            processor.sample_display_color(&path, source, load, render, normalized_x, normalized_y)
-        })
+        sample_current_frame(
+            &state,
+            &app_handle.state::<GpuState>(),
+            &path,
+            |processor, source, load, render| {
+                processor.sample_display_color(
+                    &path,
+                    source,
+                    load,
+                    render,
+                    normalized_x,
+                    normalized_y,
+                )
+            },
+        )
     })
     .await
     .map_err(|error| format!("Preview color sampling task failed: {error}"))?
@@ -784,9 +766,21 @@ pub async fn sample_preview_patch(
         #[cfg(feature = "performance-profiling")]
         let started = std::time::Instant::now();
         let state = app_handle.state::<AppState>();
-        let patch = sample_current_frame(&state, &path, |processor, source, load, render| {
-            processor.sample_display_patch(&path, source, load, render, normalized_x, normalized_y)
-        })?;
+        let patch = sample_current_frame(
+            &state,
+            &app_handle.state::<GpuState>(),
+            &path,
+            |processor, source, load, render| {
+                processor.sample_display_patch(
+                    &path,
+                    source,
+                    load,
+                    render,
+                    normalized_x,
+                    normalized_y,
+                )
+            },
+        )?;
         #[cfg(feature = "performance-profiling")]
         log::info!(
             "[PERF] {}",

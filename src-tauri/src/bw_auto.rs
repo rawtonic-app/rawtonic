@@ -238,14 +238,17 @@ pub fn auto_mix(pixels: &[[f32; 3]], version: u64) -> Option<[i32; 8]> {
 pub async fn auto_gray_mix(
     path: String,
     js_adjustments: serde_json::Value,
-    state: tauri::State<'_, crate::app_state::AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<Option<[i32; 8]>, String> {
     use tauri::Manager;
-    let context = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle)?;
+    let context = crate::gpu_processing::get_or_init_gpu_context(
+        &app_handle.state::<crate::state::gpu::GpuState>(),
+        &app_handle,
+    )?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<crate::app_state::AppState>();
         let develop = app_handle.state::<crate::state::develop::DevelopSession>();
+        let gpu = app_handle.state::<crate::state::gpu::GpuState>();
         let Some((source, is_raw, measures)) = state
             .original_image
             .lock()
@@ -300,7 +303,7 @@ pub async fn auto_gray_mix(
             .and_then(|p| crate::lut_processing::get_or_load_lut(&state, p).ok());
         let developed = crate::gpu_processing::process_and_get_dynamic_image(
             &context,
-            &state,
+            &gpu,
             &develop,
             &base,
             transform_hash,

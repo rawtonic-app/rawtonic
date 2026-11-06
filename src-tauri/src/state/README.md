@@ -17,6 +17,7 @@ functions, not through `AppState`.
 | `startup::StartupState`       | the first-window handshake, the initial file path and pending external edit session                                                                                                                                                       | `app.state::<StartupState>()`; `frontend_ready` takes `State<StartupState>`                                                                                                         |
 | `library::LibraryState`       | the metadata worker manager and the disk-kind cache used by Library listings                                                                                                                                                              | `app.state::<LibraryState>()` in the listing helpers and startup                                                                                                                    |
 | `merge::MergeState`           | the merge dialog's result, current job and run lock                                                                                                                                                                                       | merge commands take `State<MergeState>`; source invalidation takes `&MergeState`                                                                                                    |
+| `gpu::GpuState`               | the GPU processing context and the instance/adapter it was made from, the display processor and the exports' own processor, the scopes' GPU upload, the device start's crash flag path, why the GPU did not start, the window's newest size                                     | `app.state::<GpuState>()`, passed on as `&GpuState` (`gpu_processing::get_or_init_gpu_context`, `attach_display`, `resize_display`, the `process_and_get_dynamic_image*` wrappers); `context()` for the context if one exists |
 
 ## Lock policy
 
@@ -158,3 +159,18 @@ Save takes the result out before encoding or writing; a failed publish may put i
 under the same lock if its job is still current. Events are emitted outside `result`.
 Source invalidation clears `DevelopSession` first (its locks released), then takes `result`
 alone; it does not change the current job, matching the previous cache invalidation.
+
+### `GpuState`
+
+1. `processor` (a `ProcessorSlot`; `attach_display` holds it while it replaces the context, so no render uses
+   the old processor with the new device)
+2. `context` (`context_slot` for creating the context, `context_lock` for replacing it or using its display
+   under it, `context()` for a clone)
+3. `adapter` (stored under `context` when a context is created or replaced; read alone by `attach_display`)
+4. the context's `display` (`GpuContext::display`; taken under `context` by the sites that place or present
+   on the display, as before the split)
+
+`context` keeps its own poisoning policy: a lock poisoned by a panic during a device start is emptied (the next
+use starts a new device), not recovered with its data (`context_slot`; `context_lock` and `context()` recover).
+`crash_flag_path` is read under `context` while a device starts (`create_context`), for one read.
+`export_processor`, `scope_cache` and `start_error` are each taken alone. `window_size` is an atomic (an `Arc`, so the worker that waits for the display can own it).

@@ -121,7 +121,11 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     };
     drop(loaded_image_lock);
 
-    let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+    let gpu_context = gpu_processing::get_or_init_gpu_context(
+        &app_handle.state::<crate::state::gpu::GpuState>(),
+        &app_handle,
+    )
+    .ok();
     let app_handle_clone = app_handle.clone();
     let path_clone = path.clone();
 
@@ -182,7 +186,6 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
 fn regenerate_thumbnails(app_handle: AppHandle, paths: Vec<String>) {
     tauri::async_runtime::spawn_blocking(move || {
         let settings = crate::state::settings::current(&app_handle);
-        let state = app_handle.state::<AppState>();
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle) {
             Ok(dir) => dir,
             Err(e) => {
@@ -200,7 +203,11 @@ fn regenerate_thumbnails(app_handle: AppHandle, paths: Vec<String>) {
             }
         };
 
-        let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+        let gpu_context = gpu_processing::get_or_init_gpu_context(
+            &app_handle.state::<crate::state::gpu::GpuState>(),
+            &app_handle,
+        )
+        .ok();
 
         paths.par_iter().for_each(|path_str| {
             let result = generate_single_thumbnail_and_cache(
@@ -956,13 +963,16 @@ pub async fn apply_auto_adjustments_to_paths(
         let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
         let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
 
-        let state = app_handle.state::<AppState>();
         let thumb_cache_dir = resolve_thumbnail_cache_dir(&app_handle);
         if let Err(e) = &thumb_cache_dir {
             log::warn!("Unable to initialize thumbnail cache directory: {}", e);
         }
 
-        let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+        let gpu_context = gpu_processing::get_or_init_gpu_context(
+            &app_handle.state::<crate::state::gpu::GpuState>(),
+            &app_handle,
+        )
+        .ok();
 
         paths
             .par_iter()

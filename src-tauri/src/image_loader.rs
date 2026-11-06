@@ -482,7 +482,10 @@ pub async fn load_image_proxy(
         return Ok(None);
     }
     open_source(&state, &develop, &path);
-    crate::editor_preview::release_still_for(&state, &path);
+    crate::editor_preview::release_still_for(
+        &tauri::Manager::state::<crate::state::gpu::GpuState>(&app_handle),
+        &path,
+    );
     let settings = crate::state::settings::current(&app_handle);
     let variant = stored_decode_variant(&path);
     let decoded_key = decoded_cache_key(&source_path_str, None, variant);
@@ -979,7 +982,10 @@ pub async fn load_image(
         my_generation,
     ));
     open_source(&state, &develop, &path);
-    crate::editor_preview::release_still_for(&state, &path);
+    crate::editor_preview::release_still_for(
+        &tauri::Manager::state::<crate::state::gpu::GpuState>(&app_handle),
+        &path,
+    );
     *state
         .offline_source
         .lock()
