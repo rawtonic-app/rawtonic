@@ -797,6 +797,9 @@ impl ExportLanes {
                 let run = Arc::downgrade(&cpus);
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(threads)
+                    // Explicit, not the 2 MiB default: renders on RADV
+                    // overflowed it (`RENDER_STACK_SIZE`, gap G74).
+                    .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
                     .thread_name(move |i| format!("export-{lane}-{i}"))
                     .start_handler(move |_| {
                         lower_thread_priority();

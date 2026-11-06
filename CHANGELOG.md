@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Exports from the app no longer crash on some AMD graphics under Linux**: on Radeon GPUs with the Mesa RADV driver every export from the app ended the app with a stack overflow (the command-line export was not affected). Render and export threads now get a fixed 8 MiB stack on every platform, and the render needs far less of it (about 40 KB down to the graphics driver instead of 2 MB). On Windows the app's and the command line's main thread now get the same 8 MiB instead of Windows' 1 MiB, so a render at start can no longer end the app without a message. Exported files are byte-identical to before.
 - Preferences: a hidden, unused RAW highlight compression preference is no longer stored; it never changed a photo.
 - **Reload on a photo that could not be saved works from any photo**: after the file of an open photo was replaced on disk, the *Reload* button of the "not saved" notice did nothing once you had switched to another photo; it now opens the replaced photo again with your kept edit.
 - **Preferences from a newer version survive, and one unreadable setting no longer resets all**: settings this version does not know are kept when it saves, and a setting it cannot read is reset on its own, with the other preferences intact (the original file is still kept aside).

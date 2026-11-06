@@ -16,6 +16,7 @@ rawtonic-ingest = { path = "../ingest", version = "0.1.0" }
 rawtonic-engine = { path = "../engine", version = "0.1.0" }
 rawtonic-export = { path = "../export", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
+rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rawtonic-denoise = { path = "../denoise", version = "0.1.0" }
 rawtonic-faces = { path = "../faces", version = "0.1.0" }
 rawtonic-segment = { path = "../segment", version = "0.1.0" }

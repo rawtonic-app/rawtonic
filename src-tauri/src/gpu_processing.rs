@@ -39,6 +39,7 @@ pub fn start_early(app_handle: &tauri::AppHandle) {
     let app_handle = app_handle.clone();
     let spawned = std::thread::Builder::new()
         .name("gpu-start".into())
+        .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
         .spawn(move || {
             let gpu = app_handle.state::<GpuState>();
             match get_or_init_gpu_context(&gpu, &app_handle) {
@@ -139,7 +140,7 @@ pub fn attach_display(gpu: &GpuState, app_handle: &tauri::AppHandle) {
             *lock_recover(&gpu.adapter) = Some((instance, adapter));
             *context_lock = Some(context.clone());
             let app_handle = app_handle.clone();
-            std::thread::spawn(move || {
+            rawtonic_runtime::spawn_render_thread("gpu-prewarm", move || {
                 let gpu = app_handle.state::<GpuState>();
                 prewarm_gpu_processor_if(&gpu.processor, &context, || is_current(&gpu, &context));
             });

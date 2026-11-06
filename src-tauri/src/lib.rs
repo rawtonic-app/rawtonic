@@ -147,14 +147,32 @@ pub fn register_exit_handler() {
 #[cfg(not(target_os = "macos"))]
 pub fn register_exit_handler() {}
 
+/// Tauri's async runtime as its default one (Tokio, multi-threaded, all
+/// drivers), but with the render stack on its worker and blocking threads:
+/// commands render previews, masks and exports on them through
+/// `spawn_blocking`, and Tokio's default is 2 MiB (gap G74). Called before
+/// anything uses the async runtime; it lives as long as the process.
+fn use_render_stack_for_async_runtime() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
+        .build()
+        .expect("start the async runtime");
+    tauri::async_runtime::set(runtime.handle().clone());
+    std::mem::forget(runtime);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(feature = "performance-profiling")]
     performance::mark_application_start();
     gpu_processing::mark_process_start();
+    // Thumbnails and other renders run on the global pool and on Tauri's
+    // blocking threads: both get the render stack (gap G74).
     let _ = rayon::ThreadPoolBuilder::new()
-        .stack_size(8 * 1024 * 1024)
+        .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
         .build_global();
+    use_render_stack_for_async_runtime();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let invocation_dir =
@@ -1081,4 +1099,16 @@ pub fn run() {
                 _ => {}
             }
         });
+}
+
+#[cfg(test)]
+mod main_stack_tests {
+    /// The build script's Windows main-thread stack is the render stack.
+    #[test]
+    fn the_main_thread_stack_is_the_render_stack() {
+        assert_eq!(
+            env!("RAWTONIC_MAIN_STACK_SIZE").parse::<usize>().unwrap(),
+            rawtonic_runtime::RENDER_STACK_SIZE
+        );
+    }
 }

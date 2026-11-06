@@ -1150,7 +1150,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
         for _ in 0..PREPARE_THREADS.min(count) {
             let sender = sender.clone();
             let (queue, context) = (&queue, &context);
-            scope.spawn(move || {
+            rawtonic_runtime::spawn_scoped_render_thread(scope, "multi-view-cell", move || {
                 loop {
                     if worker.generation.load(Ordering::SeqCst) != job.generation {
                         return;
@@ -2076,7 +2076,7 @@ fn show_interim_regions(
     let interims = Mutex::new(interims.into_iter());
     std::thread::scope(|scope| {
         for _ in 0..INTERIM_REGION_THREADS.min(count) {
-            scope.spawn(|| {
+            rawtonic_runtime::spawn_scoped_render_thread(scope, "multi-view-region", || {
                 while current() && Instant::now() < until {
                     let Some((path, area, zoom, recipe, key, interim)) =
                         interims.lock().unwrap_or_else(|e| e.into_inner()).next()

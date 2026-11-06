@@ -4568,7 +4568,10 @@ pub struct AllAdjustments {
 /// alive until the last queued render using this preparation has completed.
 #[derive(Debug, Clone, Default)]
 pub struct PreparedAdjustments {
-    pub uniforms: AllAdjustments,
+    /// On the heap: the block is about 250 KB, and every by-value move of
+    /// a render request would otherwise copy it onto the render thread's
+    /// stack (gap G74; `rawtonic_runtime::RENDER_FRAME_BUDGET`).
+    pub uniforms: Box<AllAdjustments>,
     pub relight_surface: Option<std::sync::Arc<crate::relight::DepthSurface>>,
     /// Imported Relight patterns (atlas key in `global.relight_depth[2..]`).
     pub relight_patterns: Option<std::sync::Arc<image::GrayImage>>,
@@ -4600,7 +4603,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
         let [.., low, high] = uniforms.global.relight_depth;
         let relight_patterns = crate::relight::pattern_atlas([low, high]);
         Self {
-            uniforms,
+            uniforms: Box::new(uniforms),
             relight_surface,
             relight_patterns,
             whole_blur_radius: false,
@@ -5096,7 +5099,7 @@ pub fn is_image_edited(
     let current_adj = get_all_adjustments_from_json(adj, is_raw, tonemapper_override);
     let default_adj = get_all_adjustments_from_json(&defaults, is_raw, tonemapper_override);
 
-    bytemuck::bytes_of(&current_adj.uniforms) != bytemuck::bytes_of(&default_adj.uniforms)
+    bytemuck::bytes_of(&*current_adj.uniforms) != bytemuck::bytes_of(&*default_adj.uniforms)
 }
 
 /// Lightroom-style per-tool on/off switches in `sectionVisibility`, finer
@@ -6401,7 +6404,7 @@ pub fn get_all_adjustments_with_masks(
         whole_blur_radius: render.whole_blur_radius(),
         specialized_export: render.specialized_export(),
         curve_table,
-        uniforms: AllAdjustments {
+        uniforms: Box::new(AllAdjustments {
             global,
             mask_adjustments,
             mask_count,
@@ -6411,8 +6414,16 @@ pub fn get_all_adjustments_with_masks(
             render_region: [0; 4],
             detail_cache: [0; 4],
             source_window: [0; 4],
-        },
+        }),
     }
+}
+
+/// A heap copy of `uniforms`, made without a copy on the stack: the block is
+/// about 250 KB, too large for render frames (gap G74).
+pub fn boxed_uniforms(uniforms: &AllAdjustments) -> Box<AllAdjustments> {
+    let mut boxed: Box<AllAdjustments> = bytemuck::allocation::zeroed_box();
+    *boxed = *uniforms;
+    boxed
 }
 
 #[inline(always)]
@@ -9442,6 +9453,22 @@ mod render_version_tests {
         }
     }
 
+    /// Render requests move by value through every render frame: the
+    /// uniform block stays on the heap, so a move copies a pointer, not
+    /// the block (gap G74: six frames of 250-500 KB overflowed RADV's
+    /// export threads). Exact boxed copies keep exports byte-identical.
+    #[test]
+    fn prepared_adjustments_keep_the_uniform_block_off_the_stack() {
+        assert!(std::mem::size_of::<AllAdjustments>() > 64 * 1024);
+        assert!(std::mem::size_of::<PreparedAdjustments>() <= 128);
+        let prepared = get_all_adjustments_from_json(&json!({"exposure": 0.7}), true, None);
+        let copy = boxed_uniforms(&prepared.uniforms);
+        assert_eq!(
+            bytemuck::bytes_of(&*copy),
+            bytemuck::bytes_of(&*prepared.uniforms)
+        );
+    }
+
     /// The Classic look's inherited Color Grading and Calibration, on the
     /// photo and a layer, with both tool switches off.
     fn classic(version: u64, on: bool) -> PreparedAdjustments {
@@ -9495,8 +9522,8 @@ mod render_version_tests {
             bytemuck::bytes_of(&none.mask_adjustments[0])
         );
         assert_eq!(
-            bytemuck::bytes_of(&classic(1, true).uniforms),
-            bytemuck::bytes_of(&classic(2, true).uniforms)
+            bytemuck::bytes_of(&*classic(1, true).uniforms),
+            bytemuck::bytes_of(&*classic(2, true).uniforms)
         );
     }
 

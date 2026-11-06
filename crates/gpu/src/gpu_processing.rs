@@ -9,7 +9,7 @@ use std::num::NonZero;
 
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
-use crate::image_processing::{AllAdjustments, MAX_MASKS, Point};
+use crate::image_processing::{AllAdjustments, MAX_MASKS, Point, boxed_uniforms};
 use crate::lut::Lut;
 use crate::mask_generation::MaskBitmap;
 use crate::scopes::ClippedSides;
@@ -3938,7 +3938,7 @@ pub fn start_latest_job_worker<T: Send + 'static>(
     let pending = Arc::new(Mutex::new(None));
     let worker_pending = Arc::clone(&pending);
     let (wake, receive) = std::sync::mpsc::sync_channel(1);
-    std::thread::spawn(move || {
+    rawtonic_runtime::spawn_render_thread("latest-job", move || {
         while receive.recv().is_ok() {
             let job = worker_pending
                 .lock()
@@ -4563,7 +4563,8 @@ struct DisplayRenderState {
     targets: std::sync::Weak<DisplayTargets>,
     dimensions: (u32, u32),
     bounds: Roi,
-    adjustments: AllAdjustments,
+    /// On the heap, as in `PreparedAdjustments` (gap G74).
+    adjustments: Box<AllAdjustments>,
     /// The global curve table (`PreparedAdjustments::curve_table`): curves
     /// that differ only after their 16th point have equal uniforms.
     curve_table: Option<Arc<Vec<[f32; 4]>>>,
@@ -4578,7 +4579,7 @@ impl DisplayRenderState {
             && self.targets.ptr_eq(&other.targets)
             && self.dimensions == other.dimensions
             && self.bounds == other.bounds
-            && bytemuck::bytes_of(&self.adjustments) == bytemuck::bytes_of(&other.adjustments)
+            && bytemuck::bytes_of(&*self.adjustments) == bytemuck::bytes_of(&*other.adjustments)
             && self.curve_table == other.curve_table
             && match (&self.lut, &other.lut) {
                 (None, None) => true,
@@ -5087,7 +5088,7 @@ impl BackgroundPipeline {
         let result = Arc::clone(&cell);
         let device = device.clone();
         let start = Arc::clone(gate);
-        std::thread::spawn(move || {
+        rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
             start.wait();
             let created = create(&device);
             if let Err(error) = &created {
@@ -5130,7 +5131,7 @@ fn spawn_preview_compile(
 ) {
     let first = features == RAW_DEFAULT_PREVIEW_FEATURES;
     let opens = first.then(|| Arc::clone(start_gate));
-    std::thread::spawn(move || {
+    rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
         if let Some(gate) = gate {
             gate.wait();
         }
@@ -7493,7 +7494,7 @@ impl GpuProcessor {
             let device = Arc::clone(&self.context.device);
             let shader = self.preview_shader.clone();
             let layout = self.preview_layout.clone();
-            std::thread::spawn(move || {
+            rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
                 match create_preview_pipeline(&device, &shader, &layout, features, true, true, true, false)
                 {
                     Ok(pipeline) => {
@@ -7549,7 +7550,7 @@ impl GpuProcessor {
                 let device = Arc::clone(&self.context.device);
                 let shader = self.preview_shader.clone();
                 let layout = self.detail_layout.clone();
-                std::thread::spawn(move || {
+                rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
                     let created = create_compute_pipeline(
                         &device,
                         &wgpu::ComputePipelineDescriptor {
@@ -8200,7 +8201,7 @@ impl GpuProcessor {
                     targets: Arc::downgrade(display_targets.as_ref().unwrap()),
                     dimensions: (width, height),
                     bounds,
-                    adjustments: request.adjustments.uniforms,
+                    adjustments: boxed_uniforms(&request.adjustments.uniforms),
                     curve_table: request.adjustments.curve_table.clone(),
                     lut: request.lut.as_ref().map(Arc::downgrade),
                     pipeline: output_pipeline.clone(),
@@ -8315,14 +8316,17 @@ impl GpuProcessor {
                 &self.no_film_grain
             };
 
-        let adjustments = request.adjustments.uniforms;
+        // Borrowed, and every changed copy below on the heap: the block is
+        // about 250 KB, and each copy on this frame shrank the stack the
+        // driver has below it (gap G74).
+        let adjustments: &AllAdjustments = &request.adjustments.uniforms;
         self.update_camera_profile_tables(&adjustments.global);
         if let Some(table) = &request.adjustments.curve_table {
             self.update_curve_table(table);
         }
         let mut layer_sums_buffer = self.layer_sums_off.clone();
         if display_shader {
-            let mut layers = prepare_layers(&adjustments);
+            let mut layers = prepare_layers(adjustments);
             self.update_curve_luts(&mut layers, adjustments.mask_count as usize);
             layers[0].set_curve_lut(request.adjustments.curve_table.is_some());
             queue.write_buffer(
@@ -8348,11 +8352,11 @@ impl GpuProcessor {
                 // A frame with nothing to render needs no sums.
                 let renders = dirty.as_ref().is_none_or(|regions| !regions.is_empty());
                 let summed = (specialised && renders)
-                    .then(|| summed_layers(&adjustments, &layers))
+                    .then(|| summed_layers(adjustments, &layers))
                     .flatten();
                 let pipeline = summed
                     .as_ref()
-                    .and_then(|_| self.layer_sum_pipeline(preview_features(&adjustments)));
+                    .and_then(|_| self.layer_sum_pipeline(preview_features(adjustments)));
                 let sums = self.layer_sums_buffer(
                     summed,
                     window.width,
@@ -8377,7 +8381,7 @@ impl GpuProcessor {
         let blur_requirements = if force_full_preparation {
             [true; 5]
         } else {
-            required_blurs(&adjustments)
+            required_blurs(adjustments)
         };
         if let Some(flare_source) = flare_source.filter(|_| adjustments.global.flare_amount > 0.0) {
             let mut encoder = device.create_command_encoder(&Default::default());
@@ -8577,8 +8581,8 @@ impl GpuProcessor {
         // luminance (alpha); only Clarity the large blur
         // beyond the tile; its rows there are exact on
         // every render version (older ones read no blur beyond the tile).
-        let reach = clarity_reach(&adjustments, scale);
-        let log_alpha = reach > 0 || shadows_v6_used(&adjustments) || whites_v10_used(&adjustments);
+        let reach = clarity_reach(adjustments, scale);
+        let log_alpha = reach > 0 || shadows_v6_used(adjustments) || whites_v10_used(adjustments);
         // Tone version 6 stores the small blur's mean log luminance against
         // the log luminance of its colour (blur.wgsl, flag bit 2): in deep
         // shadows the absolute value kept only 0.008 EV in 16 bits, which
@@ -8842,7 +8846,7 @@ impl GpuProcessor {
                             detail_bytes
                         }
                         <= BLUR_CACHE_BYTES)
-                    .then(|| self.detail_pipeline_for(sharpen_v7(&adjustments)))
+                    .then(|| self.detail_pipeline_for(sharpen_v7(adjustments)))
                     .flatten();
                 let mut build_detail = false;
                 let detail_view = match (detail_pipeline, tile.detail.take()) {
@@ -9017,7 +9021,7 @@ impl GpuProcessor {
 
                 if build_detail {
                     // The whole tile, so later partial frames find every pixel.
-                    let mut detail_adjustments = adjustments;
+                    let mut detail_adjustments = boxed_uniforms(adjustments);
                     detail_adjustments.tile_offset_x = input_x_start;
                     detail_adjustments.tile_offset_y = input_y_start;
                     detail_adjustments.render_region =
@@ -9027,7 +9031,7 @@ impl GpuProcessor {
                     queue.write_buffer(
                         &self.adjustments_buffer,
                         0,
-                        bytemuck::bytes_of(&detail_adjustments),
+                        bytemuck::bytes_of(&*detail_adjustments),
                     );
                     let mut detail_entries = bind_group_entries.clone();
                     detail_entries.push(wgpu::BindGroupEntry {
@@ -9118,7 +9122,7 @@ impl GpuProcessor {
                     0,
                     bytemuck::cast_slice(&region_data),
                 );
-                let mut tile_adjustments = adjustments;
+                let mut tile_adjustments = boxed_uniforms(adjustments);
                 tile_adjustments.tile_offset_x = input_x_start;
                 tile_adjustments.tile_offset_y = input_y_start;
                 tile_adjustments.render_region = regions[0];
@@ -9127,7 +9131,7 @@ impl GpuProcessor {
                 queue.write_buffer(
                     &self.adjustments_buffer,
                     0,
-                    bytemuck::bytes_of(&tile_adjustments),
+                    bytemuck::bytes_of(&*tile_adjustments),
                 );
                 let mut main_encoder = device.create_command_encoder(&Default::default());
                 {
@@ -9191,13 +9195,13 @@ impl GpuProcessor {
                     };
                     for target in &mut targets {
                         if let Some((pipeline, bind_group, output)) = &target.encode {
-                            let mut encode_adjustments = tile_adjustments;
+                            let mut encode_adjustments = boxed_uniforms(&tile_adjustments);
                             encode_adjustments.global.output_space = output.output_space;
                             encode_adjustments.global.output_matrix = output.output_matrix;
                             queue.write_buffer(
                                 &self.adjustments_buffer,
                                 0,
-                                bytemuck::bytes_of(&encode_adjustments),
+                                bytemuck::bytes_of(&*encode_adjustments),
                             );
                             let mut encoder = device.create_command_encoder(&Default::default());
                             {

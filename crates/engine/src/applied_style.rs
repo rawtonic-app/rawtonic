@@ -393,8 +393,8 @@ mod tests {
             let a = crate::image_processing::get_all_adjustments_from_json(&plain, is_raw, None);
             let b = crate::image_processing::get_all_adjustments_from_json(&styled, is_raw, None);
             assert_eq!(
-                bytemuck::bytes_of(&a.uniforms),
-                bytemuck::bytes_of(&b.uniforms)
+                bytemuck::bytes_of(&*a.uniforms),
+                bytemuck::bytes_of(&*b.uniforms)
             );
             assert_eq!(format!("{a:?}"), format!("{b:?}"));
         }

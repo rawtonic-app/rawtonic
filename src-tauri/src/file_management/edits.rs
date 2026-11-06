@@ -25,7 +25,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::thread;
 use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
@@ -131,7 +130,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
 
     add_to_thumbnail_queue(&app_handle.state::<ThumbnailState>(), 1, &app_handle);
 
-    thread::spawn(move || {
+    rawtonic_runtime::spawn_render_thread("saved-thumbnail", move || {
         let settings = crate::state::settings::current(&app_handle_clone);
 
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle_clone) {
