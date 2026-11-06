@@ -2,7 +2,7 @@ import { act } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { noteWriteError, resetActivityBridges, startActivityBridges } from './bridges';
+import { noteWriteError, registerPhotoReload, resetActivityBridges, startActivityBridges } from './bridges';
 import { resetActivityStore, useActivityStore } from '../store/useActivityStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
@@ -155,6 +155,29 @@ it('gives the write failure the reason a caller learns after the queue settled, 
   // A reason for photographs the queue did not report is its own entry.
   noteWriteError('Failed to set color label: disk full', ['/z.dng']);
   expect(useActivityStore.getState().entries.filter((e) => e.status === 'failure')).toHaveLength(2);
+});
+
+it('offers Reload for a save refused because the open photo\'s file was replaced', async () => {
+  const reload = vi.fn();
+  const unregister = registerPhotoReload(reload);
+  noteWriteError(
+    "Failed to save changes: This photo's file was replaced on disk since you opened it. Reload to see the new file with your edit applied."
+  );
+  await submitPhotoWrite(['/a.dng'], async () => ['/a.dng'], { kind: 'recipe', failedOf: (failed) => failed });
+  await act(async () => {});
+  const failed = useActivityStore.getState().entries.find((e) => e.status === 'failure')!;
+  expect(failed.actions).toHaveLength(1);
+  failed.actions![0].run();
+  expect(reload).toHaveBeenCalledWith('/a.dng');
+  unregister();
+});
+
+it('offers no Reload for other save failures', async () => {
+  registerPhotoReload(vi.fn());
+  noteWriteError('Failed to save changes: disk full');
+  await submitPhotoWrite(['/b.dng'], async () => ['/b.dng'], { kind: 'recipe', failedOf: (failed) => failed });
+  await act(async () => {});
+  expect(useActivityStore.getState().entries.find((e) => e.status === 'failure')!.actions).toBeUndefined();
 });
 
 it('shows AI tasks while they run, with Generative fill progress', async () => {

@@ -144,6 +144,20 @@ const lastFailedKind = new Map<string, string>();
 let lastWriteError: string | null = null;
 const WRITES_ID = 'write:not-saved';
 
+/** Part of the message the backend refuses a save or export with when the
+ * open photograph's file was replaced on disk (`session_bridge::FILE_REPLACED`). */
+export const FILE_REPLACED_MARKER = 'file was replaced on disk';
+let reloadPhoto: ((path: string) => unknown) | null = null;
+
+/** Registers what Reload does for a photograph whose file was replaced:
+ * opens it again (the recipe the refused save kept is applied then). */
+export function registerPhotoReload(reload: (path: string) => unknown): () => void {
+  reloadPhoto = reload;
+  return () => {
+    if (reloadPhoto === reload) reloadPhoto = null;
+  };
+}
+
 /** The reason a failed write gives (the command's own message): for the
  * next failed write, or, with `paths` the write queue already reported, for
  * those photographs at once (a caller that learns why only after the queue
@@ -227,12 +241,20 @@ function showUnsavedWrites(fresh: boolean) {
   if (!shown && !fresh) return;
   const unsaved = [...unsavedWrites.keys()];
   const reasons = [...new Set([...unsavedWrites.values()].flatMap((kinds) => [...kinds.values()]).filter(Boolean))];
+  const replaced = unsaved.filter((path) =>
+    [...unsavedWrites.get(path)!.values()].some((reason) => reason.includes(FILE_REPLACED_MARKER))
+  );
+  const reload = reloadPhoto;
   activity.report('failure', {
     id: WRITES_ID,
     source: 'write',
     title: i18n.t('activity.writes.failed', { count: unsaved.length }),
     detail: [names(unsaved), ...reasons.slice(0, 3)].join('\n'),
-    paths: unsaved
+    paths: unsaved,
+    actions:
+      replaced.length && reload
+        ? [{ label: i18n.t('ui.errorBoundary.reload'), run: () => replaced.forEach((path) => reload(path)) }]
+        : undefined
   });
 }
 

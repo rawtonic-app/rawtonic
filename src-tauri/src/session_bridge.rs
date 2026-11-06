@@ -293,6 +293,24 @@ pub(crate) fn note_file_opened(source: &Path) -> bool {
     before.is_some_and(|before| before != now)
 }
 
+/// The identity to pin to an export queued now: the file the user opened
+/// when the photograph is open, else the file as it is now. None when it
+/// cannot be read (offline photographs have no file to check).
+pub(crate) fn source_identity(source: &Path) -> Option<String> {
+    let opened = OPENED_FILES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(source)
+        .cloned();
+    opened.or_else(|| rawtonic_catalog::fingerprint(source).ok())
+}
+
+/// Whether the file at `source` is the one `identity` names (an unreadable
+/// file is left to the export's own error).
+pub(crate) fn file_is(source: &Path, identity: &str) -> bool {
+    rawtonic_catalog::fingerprint(source).is_ok_and(|now| now == identity) || !source.is_file()
+}
+
 /// The message when the open photograph at `source` has another file now
 /// than when it was opened; `None` for a photograph not open, a file that
 /// is gone (offline photographs are edited on their preview) or unchanged.
@@ -3084,6 +3102,31 @@ mod tests {
         let state = read_editor_sidecar(&sidecar).unwrap();
         assert_eq!(state["adjustments"]["exposure"], 2);
         assert_eq!(state["rating"], 4);
+    }
+
+    /// An export queued for a photograph is pinned to the file the user saw:
+    /// reopening the replaced photograph later does not make the new file
+    /// pass for it. A snapshot an earlier build kept has no identity.
+    #[test]
+    fn a_queued_export_is_pinned_to_the_file_it_was_queued_for() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("Q.ARW");
+        fs::write(&source, b"queued image A").unwrap();
+        note_file_opened(&source);
+        let identity = source_identity(&source).unwrap();
+        assert!(file_is(&source, &identity));
+
+        fs::write(temp.path().join(".incoming"), b"another image").unwrap();
+        fs::rename(temp.path().join(".incoming"), &source).unwrap();
+        assert!(!file_is(&source, &identity));
+        // Reopened: the open record moves on, the queued job's pin does not.
+        assert!(note_file_opened(&source));
+        assert!(!file_is(&source, &identity));
+        assert_ne!(source_identity(&source).unwrap(), identity);
+
+        let older: crate::export_processing::PinnedPhoto =
+            serde_json::from_str(r#"{"adjustments":{},"metadata":null}"#).unwrap();
+        assert_eq!(older.source_identity, None);
     }
 
     /// A sync tool replaces the open photograph's file by another image
