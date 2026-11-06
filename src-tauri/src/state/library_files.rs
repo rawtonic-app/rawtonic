@@ -26,7 +26,8 @@
 //! The queue's lock is never held while a store's write lock is taken.
 //!
 //! An import parses its files before its turn: while it only reads, the
-//! entries after it run (a large import never holds the album saves up). What
+//! entries after it run in the backend (the page sends its changes one at a
+//! time today, so an album change made during an import waits for it). What
 //! it parsed becomes one change with its ticket: after parsing it waits until
 //! every lower entry not reading is done and then writes in their place, so
 //! its position among changes is exact where it matters and the frontend was
