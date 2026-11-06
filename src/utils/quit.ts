@@ -33,11 +33,9 @@ export function registerQuitFlush(flush: QuitFlush): () => void {
   };
 }
 
-/** Runs every registered flush; resolves with what could not be saved. A
- * flush is run once here even when its own module registers it first (a test
- * registers the app's queues itself, `appWrites.ts`). */
+/** Runs every registered flush; resolves with what could not be saved. */
 export async function flushBeforeQuit(): Promise<string[]> {
-  const results = await Promise.allSettled([...new Set(flushes)].map((flush) => Promise.resolve().then(flush)));
+  const results = await Promise.allSettled([...flushes].map((flush) => Promise.resolve().then(flush)));
   return results.flatMap((result) => (result.status === 'fulfilled' ? result.value : [String(result.reason)]));
 }
 

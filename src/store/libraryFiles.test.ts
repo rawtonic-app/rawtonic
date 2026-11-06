@@ -115,3 +115,21 @@ it('a flush the backend does not answer reports it instead of waiting forever', 
   vi.mocked(invoke).mockRejectedValue('IPC closed');
   expect(await libraryChanges.flush()).toEqual([UNREPORTED_WRITE_NAME]);
 });
+
+it('quitting waits for a running preset import and names it when the wait expires', async () => {
+  vi.useFakeTimers();
+  let finish!: () => void;
+  try {
+    vi.mocked(invoke).mockResolvedValue([]);
+    void libraryChanges.enqueue(() => new Promise<void>((resolve) => (finish = resolve)), 'Preset import');
+    const flushing = libraryChanges.flush(10_000);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(invoke).not.toHaveBeenCalledWith(Invokes.LibraryFlush, {});
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await flushing).toEqual(['Preset import']);
+    finish();
+    expect(await libraryChanges.flush()).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
+});

@@ -960,7 +960,6 @@ pub fn run() {
             file_management::save_albums,
             file_management::add_to_album,
             file_management::library_change,
-            file_management::queue_ticket,
             file_management::library_flush,
             file_management::get_album_images,
             tagging::start_background_indexing,

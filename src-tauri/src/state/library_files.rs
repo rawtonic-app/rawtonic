@@ -1,53 +1,18 @@
-//! The app's own library files, `albums.json` and `presets.json`: each is
-//! held by a `JsonFileStore`, read once per run, and every change to it is one
-//! read-modify-write under the store's write lock, persisted with
-//! `rawtonic_fs::atomic_write` (the same file, format and helper as before the
-//! store) before readers see it. `AlbumsStore`, `PresetsStore` and
-//! `LibraryQueue` are the three managed states here.
+//! The app's library files, albums.json and presets.json: one store per file,
+//! read once and changed under one write lock with rawtonic_fs::atomic_write.
+//! An unreadable file is never replaced; the next access retries the read.
 //!
-//! Only this process writes them while the app runs: the GUI is a single
-//! instance (`tauri_plugin_single_instance`), and the headless runs of the
-//! same binary never write albums or presets. Changes come from the
-//! frontend's commands and from the file operations' album sync, all on
-//! blocking workers.
-//!
-//! The store alone cannot keep two frontend changes from losing one another:
-//! the page reads the list (`get_albums`), changes it and could save the whole
-//! snapshot, so two changes made from the same read would each save over the
-//! other. `LibraryQueue` is one order for every write of both files: each
-//! change takes its place the moment its command reaches the backend
-//! (`ticket: Some` when the page numbered it itself, `queue_ticket`; else the
-//! next place on arrival), and every change waits for the ones before it
-//! before doing its read-modify-write, so they are written in the order the
-//! frontend sent them, each on the list the changes before it left behind.
-//! The album commands change the stored album they are given:
-//! `library_change` (`add_to_album`) adds photographs to the album in the
-//! file, so a list the page read earlier cannot drop an album made meanwhile.
-//! The queue's lock is never held while a store's write lock is taken.
-//!
-//! An import parses its files before its turn: while it only reads, the
-//! entries after it run in the backend (the page sends its changes one at a
-//! time today, so an album change made during an import waits for it). What
-//! it parsed becomes one change with its ticket: after parsing it waits until
-//! every lower entry not reading is done and then writes in their place, so
-//! its position among changes is exact where it matters and the frontend was
-//! not kept waiting by the read. `library_flush` is quitting's and Save &
-//! Relaunch's drain: it records a ticket after every change the frontend
-//! sent, waits for the entries below it (at most `FLUSH_TIMEOUT` for the ones
-//! already running), writes what an import read but never got to write, and
-//! answers with what is not written, in ticket order.
-//!
-//! A file that is there but cannot be read stays untouched: every change
-//! fails, as it did when each change read the file itself, and it is read
-//! again on the next access. A file that is not there yet is an empty list;
-//! changes are written over it as before. A hand edit of the file while the
-//! app runs was always overwritten by the next save; it now also stays unseen
-//! until the next start.
+//! LibraryQueue orders the frontend's changes (the page sends one at a time)
+//! and records pending work and the last failure per file. Imports parse and
+//! merge in their one change. A flush waits only for real changes received
+//! before it, at most ten seconds, and reports failures and unfinished work.
+//! The queue lock and a store's locks are never held together. File operations
+//! update albums directly under AlbumsStore's write lock; album commands send
+//! individual edits so those updates survive.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock};
 use std::time::{Duration, Instant};
 
@@ -56,101 +21,25 @@ use tauri::AppHandle;
 use crate::file_management::{AlbumItem, PresetItem, sort_album_tree};
 use crate::state::lock::{lock_recover, read_recover, write_recover};
 
-/// How long quitting and Save & Relaunch wait for the frontend's writes
-/// before they report the ones not written (`library_flush`).
 pub(crate) const FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How long an entry waits for the entries before it (a flush is on its way;
-/// nothing waits forever).
-const ENTRY_GRACE: Duration = Duration::from_secs(30);
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum LibraryFile {
+    Albums,
+    Presets,
+}
 
-const NOT_WRITTEN: &str = "Album or preset change was not written in time";
-const IMPORT_STILL_READING: &str = "Preset import still running (its presets are not written yet)";
-const IMPORT_NOT_SAVED: &str = "Preset import could not be saved";
-
-/// Hands out entry identities; entries are only recorded while the process
-/// runs, so the order they were recorded in never repeats.
-static NEXT_IDENTITY: AtomicU64 = AtomicU64::new(0);
-
-/// One order for every write of the library files, as the frontend has one
-/// queue of its saves (`src/store/libraryFiles.ts`). Managed by tauri
-/// (`lib.rs`) and reached by the commands as `app.state::<LibraryQueue>()`.
 #[derive(Default)]
 pub struct LibraryQueue {
     state: Mutex<QueueState>,
-    /// Signalled when an entry finishes or a write is recorded.
     changed: Condvar,
 }
 
+#[derive(Default)]
 struct QueueState {
-    /// The entries not finished yet, in ticket order; the identity keeps two
-    /// entries of one ticket apart.
-    entries: BTreeSet<(u64, u64)>,
-    /// The tickets of entries that only read their files for now: the
-    /// entries after them run meanwhile.
-    reading: BTreeSet<u64>,
-    /// The imports that read their files, until their change is written: a
-    /// flush writes the ones that did not get their turn.
-    ready: Vec<Arc<Ready>>,
-    /// The next ticket handed out (`queue_ticket`).
     next: u64,
-    /// The changes not written or failed yet: what a flush waits for.
-    writes: BTreeSet<u64>,
-    /// The changes written (or failed) once: what a flush reports.
-    answered: BTreeSet<u64>,
-    /// The errors of failed changes, taken by the next flush.
-    errors: BTreeMap<u64, String>,
-}
-
-impl Default for QueueState {
-    fn default() -> Self {
-        Self {
-            entries: BTreeSet::new(),
-            reading: BTreeSet::new(),
-            ready: Vec::new(),
-            // Tickets start at 1; every flush reserves its own boundary.
-            next: 1,
-            writes: BTreeSet::new(),
-            answered: BTreeSet::new(),
-            errors: BTreeMap::new(),
-        }
-    }
-}
-
-impl QueueState {
-    /// Whether an entry before `ticket` is still unfinished. An entry that
-    /// only reads does not block: nothing it does can be written over.
-    fn blocked(&self, ticket: u64) -> bool {
-        self.entries
-            .iter()
-            .any(|(entry, _)| *entry < ticket && !self.reading.contains(entry))
-    }
-
-    /// A change a flush for `until` still has to wait for: one being
-    /// written, or an entry not started that else would be dropped.
-    fn pending_write(&self, until: u64, own_identity: u64) -> Option<u64> {
-        let written = self.writes.range(..=until).next().copied();
-        let queued = self
-            .entries
-            .iter()
-            .filter(|(_, identity)| *identity != own_identity)
-            .map(|(entry, _)| *entry)
-            .filter(|entry| *entry <= until && !self.reading.contains(entry))
-            .min();
-        match (written, queued) {
-            (Some(written), Some(queued)) => Some(written.min(queued)),
-            (written, queued) => written.or(queued),
-        }
-    }
-
-    /// The imports that read their files but never wrote them.
-    fn unwritten(&self, until: u64) -> Vec<Arc<Ready>> {
-        self.ready
-            .iter()
-            .filter(|ready| ready.ticket <= until && !ready.written.load(Ordering::SeqCst))
-            .cloned()
-            .collect()
-    }
+    pending: BTreeMap<u64, String>,
+    failures: BTreeMap<LibraryFile, (u64, String)>,
 }
 
 impl LibraryQueue {
@@ -158,307 +47,119 @@ impl LibraryQueue {
         lock_recover(&self.state)
     }
 
-    fn wake(&self) {
-        self.changed.notify_all();
-    }
-
-    /// Hands out the ticket of a change the frontend is about to send.
-    fn ticket(&self) -> u64 {
+    fn record(&self, file: LibraryFile, describe: &str) -> Change<'_> {
         let mut state = self.lock();
-        let ticket = state.next;
+        let id = state.next;
         state.next += 1;
-        ticket
-    }
-
-    /// Records entry `ticket` before its change starts; `reading`: it only
-    /// reads its files for now.
-    fn record(&self, ticket: u64, reading: bool) -> Entry<'_> {
-        let identity = NEXT_IDENTITY.fetch_add(1, Ordering::SeqCst);
-        {
-            let mut state = self.lock();
-            state.next = state.next.max(ticket.saturating_add(1));
-            state.entries.insert((ticket, identity));
-            if reading {
-                state.reading.insert(ticket);
-            }
-            drop(state);
-        }
-        self.wake();
-        Entry {
+        state.pending.insert(id, describe.to_owned());
+        Change {
             queue: self,
-            ticket,
-            identity,
+            id,
+            file,
+            finished: false,
         }
     }
+}
 
-    /// Waits until every entry before `ticket` is finished, at most
-    /// `ENTRY_GRACE` (then warns: a flush was due after it and did not come).
-    fn wait_before(&self, ticket: u64) {
-        let until = Instant::now() + ENTRY_GRACE;
-        let mut state = self.lock();
-        while state.blocked(ticket) {
-            let left = until.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                log::warn!("A library write waited {ENTRY_GRACE:?} for earlier writes; going on");
-                return;
-            }
+/// Holds a real pending change until it finishes, including unwinding. A hung
+/// predecessor keeps later changes ordered; it cannot hold up a quit flush
+/// beyond its deadline.
+struct Change<'q> {
+    queue: &'q LibraryQueue,
+    id: u64,
+    file: LibraryFile,
+    finished: bool,
+}
+
+impl Change<'_> {
+    fn wait(&self) {
+        let mut state = self.queue.lock();
+        while state.pending.range(..self.id).next().is_some() {
             state = self
+                .queue
                 .changed
-                .wait_timeout(state, left)
-                .map(|(state, _)| state)
-                .unwrap_or_else(|e| e.into_inner().0);
+                .wait(state)
+                .unwrap_or_else(|e| e.into_inner());
         }
     }
 
-    /// The entry `ticket` stops only reading: the entries after it wait for
-    /// its change from now on.
-    fn stop_reading(&self, ticket: u64) {
-        self.lock().reading.remove(&ticket);
-        self.wake();
-    }
-
-    /// Records the write of `ticket` before it starts.
-    fn start_write(&self, ticket: u64) {
-        let mut state = self.lock();
-        state.writes.insert(ticket);
+    fn finish(&mut self, error: Option<String>) {
+        let mut state = self.queue.lock();
+        let describe = state
+            .pending
+            .remove(&self.id)
+            .expect("pending library change");
+        if let Some(error) = error {
+            state
+                .failures
+                .insert(self.file, (self.id, format!("{describe}: {error}")));
+        } else {
+            state.failures.remove(&self.file);
+        }
+        self.finished = true;
         drop(state);
-        self.wake();
-    }
-
-    /// The change of `ticket` is written.
-    fn answered(&self, ticket: u64) {
-        let mut state = self.lock();
-        state.writes.remove(&ticket);
-        state.answered.insert(ticket);
-        drop(state);
-        self.wake();
-    }
-
-    /// The change of `ticket` failed: its error goes to the next flush.
-    fn failed(&self, ticket: u64, error: String) {
-        let mut state = self.lock();
-        state.writes.remove(&ticket);
-        state.answered.insert(ticket);
-        state.errors.insert(ticket, error);
-        drop(state);
-        self.wake();
+        self.queue.changed.notify_all();
     }
 }
 
-/// A ticket for a command the frontend did not send one with: it comes after
-/// every change sent so far.
-pub(crate) fn next_after_sent(queue: &LibraryQueue) -> u64 {
-    queue.ticket()
+impl Drop for Change<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.finish(Some("change did not finish".into()));
+        }
+    }
 }
 
-/// Runs change `ticket` in ticket order and records its outcome for the next
-/// flush; `describe` names what could not be saved in the error a flush
-/// reports (the command gets its own error unchanged).
+/// One ordered change and its outcome. A later success clears an older
+/// failure of the same file, without hiding the other file's failure.
 pub(crate) fn run_change<T>(
     queue: &LibraryQueue,
-    ticket: u64,
+    file: LibraryFile,
     describe: &str,
     work: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    let entry = queue.record(ticket, false);
-    queue.wait_before(ticket);
-    queue.start_write(ticket);
+    let mut change = queue.record(file, describe);
+    change.wait();
     let result = work();
-    match &result {
-        Ok(_) => queue.answered(ticket),
-        Err(e) => queue.failed(ticket, format!("{describe}: {e}")),
-    }
-    drop(entry);
+    change.finish(result.as_ref().err().cloned());
     result
 }
 
-/// A change's place in the order, until dropped: dropping it frees the
-/// entries after it, also when its change panicked or returned early.
-struct Entry<'q> {
-    queue: &'q LibraryQueue,
-    /// Told to `run_import` for the import's `Ready`.
-    ticket: u64,
-    identity: u64,
-}
-
-impl Drop for Entry<'_> {
-    fn drop(&mut self) {
-        let mut state = self.queue.lock();
-        state.entries.remove(&(self.ticket, self.identity));
-        state.reading.remove(&self.ticket);
-        drop(state);
-        self.queue.wake();
-    }
-}
-
-/// What an import parsed, until its change is written.
-struct Ready {
-    /// The import's ticket.
-    ticket: u64,
-    /// The entry that read the files (`bring_back` takes it off the queue).
-    identity: u64,
-    /// Taken by whoever writes it: the import's change or a flush.
-    items: Mutex<Option<Vec<PresetItem>>>,
-    /// Written by either of them (its change is then answered).
-    written: AtomicBool,
-}
-
-/// Runs a preset import in ticket order: `read` parses the files (the slow
-/// part, while the entries after the import run) and says what to merge,
-/// `merge` then adds it to the presets in one change. A failed read has
-/// nothing to write; its error is told to the next flush.
-pub(crate) fn run_import<R, T>(
-    queue: &LibraryQueue,
-    ticket: u64,
-    read: impl FnOnce() -> Result<(Vec<PresetItem>, R), String>,
-    merge: impl FnOnce(Vec<PresetItem>) -> Result<T, String>,
-) -> Result<(T, R), String> {
-    let entry = queue.record(ticket, true);
-    let (items, report) = match read() {
-        Ok(parsed) => parsed,
-        Err(e) => {
-            queue.failed(ticket, format!("Preset import could not be read: {e}"));
-            return Err(e);
-        }
-    };
-    let ready = Arc::new(Ready {
-        ticket,
-        identity: entry.identity,
-        items: Mutex::new(Some(items)),
-        written: AtomicBool::new(false),
-    });
-    queue.lock().ready.push(ready.clone());
-    queue.wake();
-    // The import's exact turn: every lower entry that is not only reading is
-    // done, and from here the entries after it wait for its change.
-    queue.wait_before(ticket);
-    queue.stop_reading(ticket);
-    // A flush that ran out of its wait may write it meanwhile: it takes the
-    // items first, so one of the two writes them.
-    let written = match lock_recover(&ready.items).take() {
-        Some(items) => {
-            queue.start_write(ticket);
-            let written = merge(items);
-            match &written {
-                Ok(_) => queue.answered(ticket),
-                Err(e) => queue.failed(ticket, format!("{IMPORT_NOT_SAVED}: {e}")),
-            }
-            written
-        }
-        // The flush wrote them: the library holds them already.
-        None => merge(Vec::new()),
-    };
-    ready.written.store(true, Ordering::SeqCst);
-    queue
-        .lock()
-        .ready
-        .retain(|other| !Arc::ptr_eq(other, &ready));
-    drop(entry);
-    written.map(|written| (written, report))
-}
-
-/// Command boundary for `library_flush {}`: reserve a place after every
-/// command received so far, including failures whose calls already settled.
-pub(crate) fn flush_library(
-    queue: &LibraryQueue,
-    ticket: Option<u64>,
-    timeout: Duration,
-    merge: impl FnMut(Vec<PresetItem>) -> Result<Vec<PresetItem>, String>,
-) -> Vec<String> {
-    let until = ticket.unwrap_or_else(|| next_after_sent(queue));
-    flush_state(queue, until, timeout, merge)
-}
-
-/// Waits for the changes up to `until` (at most `timeout`), then answers what
-/// is not written, in ticket order. The imports up to `until` that read their
-/// files but did not get their turn are written after the wait, in their
-/// place (`merge`).
-///
-/// Nothing is waited for forever: a change that hangs makes the flush report
-/// it (the frontend's quit gives up at `FLUSH_TIMEOUT` too).
-pub(crate) fn flush_state(
-    queue: &LibraryQueue,
-    until: u64,
-    timeout: Duration,
-    mut merge: impl FnMut(Vec<PresetItem>) -> Result<Vec<PresetItem>, String>,
-) -> Vec<String> {
+/// Snapshot the received changes, wait for those still pending, then report
+/// the failures once. A flush has no entry and cannot wait on itself or on
+/// another flush. Timed-out work stays queued and can finish normally later.
+pub(crate) fn flush_library(queue: &LibraryQueue, timeout: Duration) -> Vec<String> {
     let deadline = Instant::now() + timeout;
-    let own_entry = queue.record(until, false);
-    let state = queue.lock();
-    let (state, _) = queue
-        .changed
-        .wait_timeout_while(state, timeout, |state| {
-            state.pending_write(until, own_entry.identity).is_some() && Instant::now() < deadline
-        })
-        .unwrap_or_else(|e| e.into_inner());
-    drop(state);
-    let mut failures: Vec<(u64, String)> = Vec::new();
-    {
-        let mut state = queue.lock();
-        // The answers (and their errors) up to `until`, told once.
-        let told: Vec<u64> = state.answered.range(..=until).copied().collect();
-        for ticket in told {
-            state.answered.remove(&ticket);
-            if let Some(error) = state.errors.remove(&ticket) {
-                failures.push((ticket, error));
-            }
-        }
-        // What was not written: a change still running (the flush's own
-        // entries are not changes).
-        let unwritten = state.pending_write(until, own_entry.identity).is_some();
-        let still_reading = state
-            .entries
-            .iter()
-            .any(|(entry, _)| *entry <= until && state.reading.contains(entry));
-        if still_reading {
-            failures.push((until, IMPORT_STILL_READING.to_string()));
-        }
-        if unwritten {
-            failures.push((until, NOT_WRITTEN.to_string()));
-        }
-    };
-    drop(own_entry);
-    failures.extend(bring_back(queue, until, &mut merge));
-    failures.sort_by_key(|(ticket, _)| *ticket);
-    failures.into_iter().map(|(_, error)| error).collect()
-}
-
-/// Writes the imports up to `until` that read their files but whose change
-/// the flush did not see written: it was still waiting for lower entries, or
-/// its wait ran out. The import itself then finds its items gone and reports
-/// them written. Best effort: an import whose change took its items to write
-/// them is left to itself.
-fn bring_back(
-    queue: &LibraryQueue,
-    until: u64,
-    merge: &mut impl FnMut(Vec<PresetItem>) -> Result<Vec<PresetItem>, String>,
-) -> Vec<(u64, String)> {
-    let mut failures = Vec::new();
-    loop {
-        let Some(ready) = queue.lock().unwritten(until).pop() else {
+    let mut state = queue.lock();
+    let until = state.next;
+    while state.pending.range(..until).next().is_some() {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
             break;
-        };
-        // Written meanwhile by its own change: it is not written twice.
-        let Some(items) = lock_recover(&ready.items).take() else {
-            continue;
-        };
-        queue.record(ready.ticket, false);
-        queue.start_write(ready.ticket);
-        match merge(items) {
-            Ok(_) => queue.answered(ready.ticket),
-            Err(e) => {
-                let error = format!("{IMPORT_NOT_SAVED}: {e}");
-                queue.failed(ready.ticket, error.clone());
-                failures.push((ready.ticket, error));
-            }
         }
-        let mut state = queue.lock();
-        state.entries.remove(&(ready.ticket, ready.identity));
-        state.ready.retain(|other| !Arc::ptr_eq(other, &ready));
-        drop(state);
-        queue.wake();
+        state = queue
+            .changed
+            .wait_timeout(state, left)
+            .map(|(state, _)| state)
+            .unwrap_or_else(|e| e.into_inner().0);
     }
-    failures
+    let mut failures = Vec::new();
+    state.failures.retain(|_, (id, error)| {
+        if *id < until {
+            failures.push((*id, error.clone()));
+            false
+        } else {
+            true
+        }
+    });
+    failures.extend(
+        state
+            .pending
+            .range(..until)
+            .map(|(id, describe)| (*id, format!("{describe} (still running; not written yet)"))),
+    );
+    failures.sort_by_key(|(id, _)| *id);
+    failures.into_iter().map(|(_, error)| error).collect()
 }
 
 struct JsonFileStore<T> {
@@ -619,8 +320,7 @@ mod tests {
     use super::*;
     use serde::de::DeserializeOwned;
     use std::path::Path;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::mpsc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
     fn at(path: &Path) -> impl FnOnce() -> Result<PathBuf, String> + '_ {
@@ -892,199 +592,252 @@ mod tests {
         assert!(text.starts_with("[\n  {"));
     }
 
-    // The queue itself: the order, an import's reading, failures, the flush.
-
-    fn record_order(order: &Arc<Mutex<Vec<u64>>>, ticket: u64) {
-        order.lock().unwrap().push(ticket);
-    }
-
     #[test]
-    fn changes_run_in_ticket_order_even_when_the_later_one_starts_first() {
-        let queue = LibraryQueue::default();
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let (first_running_tx, first_running_rx) = mpsc::channel::<()>();
-        let (let_first_finish_tx, let_first_finish_rx) = mpsc::channel::<()>();
-        let let_first_finish_rx = Arc::new(Mutex::new(let_first_finish_rx));
+    fn album_edits_wait_for_a_file_operations_member_update() {
+        use crate::file_management::{AlbumChange, apply_album_change};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("albums.json");
+        fs::write(&path, serde_json::to_string(&albums(&["Shared"])).unwrap()).unwrap();
+        let store = JsonFileStore::<AlbumItem>::new();
+        let (updating_tx, updating_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
         thread::scope(|s| {
             s.spawn(|| {
-                run_change(&queue, 1, "Album or preset change", || {
-                    first_running_tx.send(()).unwrap();
-                    let_first_finish_rx.lock().unwrap().recv().unwrap();
-                    record_order(&order, 1);
-                    Ok(())
-                })
-                .unwrap();
+                store
+                    .update(at(&path), read_albums, &sort, |tree| {
+                        let AlbumItem::Album { images, .. } = &mut tree[0] else {
+                            unreachable!()
+                        };
+                        *images = vec!["renamed.dng".into()];
+                        updating_tx.send(()).unwrap();
+                        lock_recover(&release_rx).recv().unwrap();
+                        Some(())
+                    })
+                    .unwrap()
             });
-            first_running_rx.recv().unwrap();
+            updating_rx.recv().unwrap();
             s.spawn(|| {
-                // Recorded while change 1 runs: it waits for it.
-                run_change(&queue, 2, "Album or preset change", || {
-                    record_order(&order, 2);
-                    Ok(())
-                })
-                .unwrap();
+                store
+                    .update(at(&path), read_albums, &sort, |tree| {
+                        assert!(
+                            apply_album_change(
+                                tree,
+                                &AlbumChange::Rename {
+                                    id: "shared".into(),
+                                    name: "Renamed album".into()
+                                }
+                            )
+                            .unwrap()
+                        );
+                        Some(())
+                    })
+                    .unwrap()
             });
-            while queue.lock().entries.len() < 2 {
-                thread::yield_now();
-            }
-            let_first_finish_tx.send(()).unwrap();
+            release_tx.send(()).unwrap();
         });
-        assert_eq!(*order.lock().unwrap(), [1, 2]);
-    }
-
-    /// Every command asks for its ticket when it arrives (`ticket:
-    /// None`): the arrival order is the ticket order.
-    #[test]
-    fn changes_without_a_ticket_run_in_the_order_they_arrive() {
-        let queue = LibraryQueue::default();
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let (first_running_tx, first_running_rx) = mpsc::channel::<()>();
-        let (let_first_finish_tx, let_first_finish_rx) = mpsc::channel::<()>();
-        let let_first_finish_rx = Arc::new(Mutex::new(let_first_finish_rx));
-        thread::scope(|s| {
-            s.spawn(|| {
-                let ticket = next_after_sent(&queue);
-                run_change(&queue, ticket, "Album or preset change", || {
-                    first_running_tx.send(()).unwrap();
-                    let_first_finish_rx.lock().unwrap().recv().unwrap();
-                    record_order(&order, 1);
-                    Ok(())
-                })
-                .unwrap();
-            });
-            first_running_rx.recv().unwrap();
-            // The second change arrives while the first still runs.
-            let ticket = next_after_sent(&queue);
-            let (second, q) = (Arc::clone(&order), &queue);
-            s.spawn(move || {
-                run_change(q, ticket, "Album or preset change", || {
-                    record_order(&second, 2);
-                    Ok(())
-                })
-                .unwrap();
-            });
-            while queue.lock().entries.len() < 2 {
-                thread::yield_now();
-            }
-            let_first_finish_tx.send(()).unwrap();
-        });
-        assert_eq!(*order.lock().unwrap(), [1, 2]);
+        let tree = read::<AlbumItem>(&path);
+        assert!(matches!(&tree[0], AlbumItem::Album { name, images, .. }
+            if name == "Renamed album" && images == &["renamed.dng"]));
     }
 
     #[test]
-    fn a_flush_reports_a_failed_change_once() {
-        let queue = LibraryQueue::default();
-        assert!(
-            run_change(&queue, 1, "Album list could not be saved", || {
-                Err::<(), String>("disk full".to_string())
-            })
-            .is_err()
-        );
-        let merge = |items: Vec<PresetItem>| Ok(items);
-        assert_eq!(
-            flush_state(&queue, 1, Duration::from_millis(10), merge),
-            ["Album list could not be saved: disk full"]
-        );
-        assert!(
-            flush_state(&queue, 1, Duration::from_millis(10), merge).is_empty(),
-            "an error is told once"
-        );
-    }
-
-    #[test]
-    fn an_import_that_reads_does_not_block_a_later_change_which_is_written_first() {
-        let queue = LibraryQueue::default();
-        let written = Arc::new(Mutex::new(Vec::new()));
-        let (reading_tx, reading_rx) = mpsc::channel::<()>();
-        let (read_done_tx, read_done_rx) = mpsc::channel::<()>();
-        let read_done_rx = Arc::new(Mutex::new(read_done_rx));
-        let order = written.clone();
-        thread::scope(|s| {
-            s.spawn(|| {
-                let read = || {
-                    reading_tx.send(()).unwrap();
-                    read_done_rx.lock().unwrap().recv().unwrap();
-                    Ok((presets(&["imported"]), ()))
-                };
-                run_import(&queue, 1, read, |items| {
-                    record_order(&order, 1);
-                    Ok(items.len())
-                })
-                .unwrap();
-            });
-            reading_rx.recv().unwrap();
-            // The import is reading: the later change runs meanwhile.
-            run_change(&queue, 2, "Preset list could not be saved", || {
-                record_order(&written, 2);
-                Ok(())
-            })
-            .unwrap();
-            read_done_tx.send(()).unwrap();
-        });
-        assert_eq!(
-            *written.lock().unwrap(),
-            [2, 1],
-            "the import writes after change 2"
-        );
-        let merge = |items: Vec<PresetItem>| Ok(items);
-        assert!(flush_state(&queue, 2, Duration::from_millis(10), merge).is_empty());
-    }
-
-    #[test]
-    fn a_flush_waiting_on_a_hung_change_reports_it_not_written() {
-        let queue = LibraryQueue::default();
-        let (running_tx, running_rx) = mpsc::channel::<()>();
-        let (finish_tx, finish_rx) = mpsc::channel::<()>();
-        let finish_rx = Arc::new(Mutex::new(finish_rx));
-        let report = thread::scope(|s| {
-            s.spawn(|| {
-                let _ = run_change(&queue, 2, "Album or preset change", || {
-                    running_tx.send(()).unwrap();
-                    let _ = finish_rx.lock().unwrap().recv();
-                    Ok(())
-                });
-            });
-            running_rx.recv().unwrap();
-            let report = flush_state(&queue, 3, Duration::from_millis(20), Ok);
-            let _ = finish_tx.send(());
-            report
-        });
-        assert!(
-            report.iter().any(|error| error == NOT_WRITTEN),
-            "{report:?}"
-        );
+    fn an_unreadable_presets_file_is_never_replaced_by_a_save_or_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("presets.json");
+        let original = b"{broken preset file";
+        fs::write(&path, original).unwrap();
+        let store = JsonFileStore::<PresetItem>::new();
+        for _ in 0..2 {
+            assert!(
+                store
+                    .update(at(&path), read_presets, &|_| (), |tree| {
+                        tree.extend(presets(&["new"]));
+                        Some(())
+                    })
+                    .is_err()
+            );
+            assert_eq!(fs::read(&path).unwrap(), original);
+        }
     }
 }
 
 #[cfg(test)]
-mod flush_regressions {
+mod queue_tests {
     use super::*;
     use std::{sync::mpsc, thread};
 
+    const ALBUMS: &str = "Album list could not be saved";
+    const PRESETS: &str = "Preset list could not be saved";
+
     #[test]
-    fn an_idle_explicit_flush_returns_without_waiting_on_itself() {
+    fn changes_run_in_received_order() {
+        let queue = LibraryQueue::default();
+        let order = Mutex::new(Vec::new());
+        let (started_tx, started_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let finish_rx = Mutex::new(finish_rx);
+        thread::scope(|s| {
+            s.spawn(|| {
+                run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+                    started_tx.send(()).unwrap();
+                    lock_recover(&finish_rx).recv().unwrap();
+                    lock_recover(&order).push(1);
+                    Ok(())
+                })
+                .unwrap()
+            });
+            started_rx.recv().unwrap();
+            s.spawn(|| {
+                run_change(&queue, LibraryFile::Presets, PRESETS, || {
+                    lock_recover(&order).push(2);
+                    Ok(())
+                })
+                .unwrap()
+            });
+            while queue.lock().pending.len() < 2 {
+                thread::yield_now();
+            }
+            assert!(lock_recover(&order).is_empty());
+            finish_tx.send(()).unwrap();
+        });
+        assert_eq!(*lock_recover(&order), [1, 2]);
+    }
+
+    #[test]
+    fn a_later_success_clears_only_the_older_failure_of_the_same_file() {
+        let queue = LibraryQueue::default();
+        let _ = run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+            Err::<(), _>("album failure".into())
+        });
+        let _ = run_change(&queue, LibraryFile::Presets, PRESETS, || {
+            Err::<(), _>("preset failure".into())
+        });
+        run_change(&queue, LibraryFile::Presets, PRESETS, || Ok(())).unwrap();
+        assert_eq!(
+            flush_library(&queue, Duration::from_millis(30)),
+            ["Album list could not be saved: album failure"]
+        );
+        assert!(flush_library(&queue, Duration::from_millis(30)).is_empty());
+    }
+
+    #[test]
+    fn only_the_latest_failure_per_file_is_reported_in_change_order() {
+        let queue = LibraryQueue::default();
+        let _ = run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+            Err::<(), _>("old".into())
+        });
+        let _ = run_change(&queue, LibraryFile::Presets, PRESETS, || {
+            Err::<(), _>("presets".into())
+        });
+        let _ = run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+            Err::<(), _>("new".into())
+        });
+        assert_eq!(
+            flush_library(&queue, Duration::ZERO),
+            [
+                "Preset list could not be saved: presets",
+                "Album list could not be saved: new"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_flush_waits_for_a_running_import_to_finish_reading_and_merging() {
+        let queue = LibraryQueue::default();
+        let (started_tx, started_rx) = mpsc::channel();
+        let started_rx = Mutex::new(started_rx);
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let finish_rx = Mutex::new(finish_rx);
+        let merged = Mutex::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                lock_recover(&started_rx).recv().unwrap();
+                let failures = flush_library(&queue, Duration::from_millis(200));
+                finish_tx.send(()).unwrap();
+                assert!(failures.is_empty(), "{failures:?}");
+                assert!(*lock_recover(&merged));
+            });
+            run_change(&queue, LibraryFile::Presets, "Preset import", || {
+                started_tx.send(()).unwrap();
+                assert!(
+                    lock_recover(&finish_rx)
+                        .recv_timeout(Duration::from_millis(40))
+                        .is_err(),
+                    "flush returned while the import was still reading"
+                );
+                *lock_recover(&merged) = true;
+                Ok(())
+            })
+            .unwrap();
+        });
+    }
+
+    #[test]
+    fn an_import_after_a_timeout_still_finishes_once_and_keeps_its_turn() {
+        let queue = LibraryQueue::default();
+        let order = Mutex::new(Vec::new());
+        let (started_tx, started_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let finish_rx = Mutex::new(finish_rx);
+        thread::scope(|s| {
+            s.spawn(|| {
+                run_change(&queue, LibraryFile::Presets, "Preset import", || {
+                    started_tx.send(()).unwrap();
+                    lock_recover(&finish_rx).recv().unwrap();
+                    lock_recover(&order).push("import");
+                    Ok(())
+                })
+                .unwrap()
+            });
+            started_rx.recv().unwrap();
+            s.spawn(|| {
+                run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+                    lock_recover(&order).push("album");
+                    Ok(())
+                })
+                .unwrap()
+            });
+            while queue.lock().pending.len() < 2 {
+                thread::yield_now();
+            }
+            let report = flush_library(&queue, Duration::from_millis(20));
+            assert_eq!(
+                report,
+                [
+                    "Preset import (still running; not written yet)",
+                    "Album list could not be saved (still running; not written yet)"
+                ]
+            );
+            assert!(lock_recover(&order).is_empty());
+            finish_tx.send(()).unwrap();
+        });
+        assert_eq!(*lock_recover(&order), ["import", "album"]);
+        assert!(flush_library(&queue, Duration::ZERO).is_empty());
+    }
+
+    #[test]
+    fn an_idle_flush_returns_without_waiting_on_itself() {
         let queue = LibraryQueue::default();
         let start = Instant::now();
-        assert!(flush_state(&queue, 1, Duration::from_secs(2), Ok).is_empty());
+        assert!(flush_library(&queue, Duration::from_secs(2)).is_empty());
         assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(queue.lock().pending.is_empty());
     }
 
     #[test]
     fn a_flush_wakes_when_the_last_write_finishes() {
         let queue = LibraryQueue::default();
-        let entry = queue.record(1, false);
-        queue.start_write(1);
+        let mut change = queue.record(LibraryFile::Albums, ALBUMS);
         let (done_tx, done_rx) = mpsc::channel();
         thread::scope(|s| {
             s.spawn(|| {
-                let result = flush_state(&queue, 2, Duration::from_secs(3), Ok);
-                done_tx.send(result).unwrap();
+                done_tx
+                    .send(flush_library(&queue, Duration::from_secs(3)))
+                    .unwrap();
             });
-            while queue.lock().entries.len() < 2 {
-                thread::yield_now();
-            }
-            queue.answered(1);
-            drop(entry);
+            assert!(done_rx.recv_timeout(Duration::from_millis(20)).is_err());
+            change.finish(None);
             assert!(
                 done_rx
                     .recv_timeout(Duration::from_secs(1))
@@ -1092,5 +845,25 @@ mod flush_regressions {
                     .is_empty()
             );
         });
+    }
+
+    #[test]
+    fn an_unwinding_change_reports_failure_and_does_not_leave_pending_work() {
+        let queue = LibraryQueue::default();
+        assert!(
+            std::panic::catch_unwind(|| run_change(
+                &queue,
+                LibraryFile::Albums,
+                ALBUMS,
+                || -> Result<(), String> { panic!("worker panic") }
+            ))
+            .is_err()
+        );
+        assert_eq!(
+            flush_library(&queue, Duration::ZERO),
+            ["Album list could not be saved: change did not finish"]
+        );
+        run_change(&queue, LibraryFile::Albums, ALBUMS, || Ok(())).unwrap();
+        assert!(flush_library(&queue, Duration::ZERO).is_empty());
     }
 }

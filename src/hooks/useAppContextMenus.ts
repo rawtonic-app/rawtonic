@@ -50,7 +50,7 @@ import {
 import { notify } from '../activity/notify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { useTranslation } from 'react-i18next';
-import { changeLibraryAlbums, withPhotosAdded, withPhotosRemoved } from '../components/studio/libraryAlbums';
+import { changeLibraryAlbums } from '../components/studio/libraryAlbums';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { canUndo, canRedo, getUndoLabel, getRedoLabel, undo, redo } from '../utils/appUndo';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
@@ -319,7 +319,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               // In the library's change order: the backend adds the
               // photographs to the stored album, so a change made meanwhile
               // is kept, and quitting waits for it.
-              changeLibraryAlbums((tree) => withPhotosAdded(tree, item.id, pathsToAdd))
+              changeLibraryAlbums({ kind: 'addToAlbum', albumId: item.id, paths: pathsToAdd })
                 .then(() => console.log(`Added image(s) to ${item.name}`))
                 .catch((err) => notify.error(t('contextMenus.toasts.failedAddToAlbum', { err })));
             }
@@ -846,9 +846,11 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         try {
           // One place in the library's change order: the stored list, the
           // change and the save, so a change made meanwhile is kept.
-          const sortedTree = await changeLibraryAlbums((stored) =>
-            withPhotosRemoved(stored, activeAlbumId, finalSelection)
-          );
+          const sortedTree = await changeLibraryAlbums({
+            kind: 'removePhotos',
+            albumId: activeAlbumId,
+            paths: finalSelection
+          });
           const find = (nodes: AlbumItem[]): Album | null => {
             for (const n of nodes) {
               if (n.id === activeAlbumId) return n.type === 'album' ? (n as Album) : null;
