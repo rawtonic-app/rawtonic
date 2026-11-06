@@ -19,6 +19,7 @@
 
 pub mod color;
 pub mod detail;
+pub mod geometry;
 mod key;
 mod resolved;
 mod stored;

@@ -84,13 +84,7 @@ impl Default for ImageMetadata {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct Crop {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
+pub use rawtonic_recipe::geometry::Crop;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GeometryParams {
