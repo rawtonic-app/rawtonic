@@ -15,10 +15,12 @@
 //! its long side, and `s = ±|amount/100|^P` (× `NEGATIVE` when darkening).
 //! Residual 0.037 EV rms; fitted on one scene, 0.04–0.055 EV on the other.
 
+use rawtonic_recipe::lens;
+
 /// The recipe key of the amount (−100…+100).
-pub const AMOUNT_KEY: &str = "lensManualVignetteAmount";
+pub const AMOUNT_KEY: &str = lens::MANUAL_VIGNETTE_AMOUNT.name();
 /// The recipe key of the midpoint (0…100, default 50).
-pub const MIDPOINT_KEY: &str = "lensManualVignetteMidpoint";
+pub const MIDPOINT_KEY: &str = lens::MANUAL_VIGNETTE_MIDPOINT.name();
 
 const C0: f32 = 0.540;
 const C1: f32 = -1.409;

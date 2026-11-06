@@ -1,6 +1,7 @@
 use rawtonic_recipe::color as recipe_color;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::lens;
 use rawtonic_recipe::tone;
 use regex::Regex;
 use regex::regex;
@@ -828,7 +829,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     // Lightroom's Remove Chromatic Aberration: Rawtonic's measured one.
     if let Some(v) = attrs.get("AutoLateralCA") {
         adjustments.insert(
-            "autoChromaticAberration".to_string(),
+            lens::AUTO_CHROMATIC_ABERRATION.name().to_string(),
             json!(v.trim() == "1"),
         );
     }
@@ -1769,7 +1770,7 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
         out.push("lensProfile");
     }
     if is("HasCrop", "True") {
-        out.push(geometry::CROP.name());
+        out.push("crop");
     }
     if nonzero("PerspectiveUpright") {
         out.push("upright");

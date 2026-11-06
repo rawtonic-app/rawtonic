@@ -20,6 +20,7 @@ use rawtonic_interop::{
 };
 use rawtonic_metadata::photo_ref;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::lens;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -589,7 +590,7 @@ fn lightroom_lens(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
     let Some(map) = adjustments.as_object_mut() else {
         return;
     };
-    if map.contains_key("lensCorrectionMode") {
+    if map.contains_key(lens::CORRECTION_MODE.name()) {
         return;
     }
     let on = attrs
@@ -604,8 +605,8 @@ fn lightroom_lens(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
                 .map_or(100.0, |v| v.clamp(0.0, 200.0))
         };
         for (key, lr) in [
-            ("lensDistortionAmount", "LensProfileDistortionScale"),
-            ("lensVignetteAmount", "LensProfileVignettingScale"),
+            (lens::DISTORTION_AMOUNT.name(), "LensProfileDistortionScale"),
+            (lens::VIGNETTE_AMOUNT.name(), "LensProfileVignettingScale"),
         ] {
             let value = amount(lr);
             if value != 100.0 {
@@ -617,19 +618,19 @@ fn lightroom_lens(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
     let mut default = json!({});
     rawtonic_engine::embedded_lens::apply_default(&mut default, path);
     if on {
-        if default.get("lensCorrectionMode").is_none()
+        if default.get(lens::CORRECTION_MODE.name()).is_none()
             && let Some((maker, model, params)) =
                 rawtonic_engine::embedded_lens::lensfun_for_photo(path)
             && let Ok(params) = serde_json::to_value(params)
         {
-            map.insert("lensCorrectionMode".into(), json!("auto"));
-            map.insert("lensMaker".into(), json!(maker));
-            map.insert("lensModel".into(), json!(model));
-            map.insert("lensDistortionParams".into(), params);
+            map.insert(lens::CORRECTION_MODE.name().into(), json!("auto"));
+            map.insert(lens::MAKER.name().into(), json!(maker));
+            map.insert(lens::MODEL.name().into(), json!(model));
+            map.insert(lens::DISTORTION_PARAMS.name().into(), params);
         }
         return;
     }
-    match default["lensCorrectionMode"].as_str() {
+    match default[lens::CORRECTION_MODE.name()].as_str() {
         Some(rawtonic_engine::embedded_lens::CAMERA_MODE) => {
             if let Some(default) = default.as_object() {
                 for (key, value) in default {
@@ -638,11 +639,11 @@ fn lightroom_lens(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
                     }
                 }
             }
-            map.insert("lensVignetteEnabled".into(), json!(false));
+            map.insert(lens::VIGNETTE_ENABLED.name().into(), json!(false));
         }
         Some(_) => {
-            map.insert("lensCorrectionMode".into(), json!("manual"));
-            map.insert("lensDistortionParams".into(), Value::Null);
+            map.insert(lens::CORRECTION_MODE.name().into(), json!("manual"));
+            map.insert(lens::DISTORTION_PARAMS.name().into(), Value::Null);
         }
         None => {}
     }

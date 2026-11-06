@@ -9,6 +9,7 @@ pub mod hdr_panorama;
 pub mod panorama;
 pub mod planes;
 
+use rawtonic_recipe::lens;
 use std::path::Path;
 
 /// The develop settings a merged DNG starts with. Lens corrections are
@@ -18,7 +19,7 @@ use std::path::Path;
 pub fn initial_adjustments(reference: &Path, lens_applied: bool) -> serde_json::Value {
     let mut adjustments = serde_json::json!({});
     if lens_applied {
-        adjustments["lensCorrectionMode"] = serde_json::json!("manual");
+        adjustments[lens::CORRECTION_MODE.name()] = serde_json::json!("manual");
     } else {
         rawtonic_engine::embedded_lens::apply_default(&mut adjustments, reference);
     }

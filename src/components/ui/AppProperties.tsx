@@ -772,7 +772,7 @@ export interface LoadImageResult {
   /** AI Denoise amount the source was developed with (0 … 100). */
   ai_denoise: number;
   /** Its `aiDenoiseVersion` (1 when off). */
-  ai_denoise_version?: number;
+  ai_denoise_version: number;
   /** Why the recipe's AI Denoise could not be applied. */
   ai_denoise_error?: string | null;
   /** The RAW is offline; the photograph opened on its 1:1 or Standard preview. */

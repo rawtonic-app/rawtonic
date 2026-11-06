@@ -1477,6 +1477,7 @@ mod tests {
         let mut settings = read_settings_file(&path).unwrap();
         assert_eq!(settings.auto_advance, Some(true));
         // The frontend knows nothing of the newer keys and sends none back.
+        settings.unknown.clear();
         settings.auto_advance = Some(false);
         write_settings_file(&path, &mut settings).unwrap();
         let saved: serde_json::Value =

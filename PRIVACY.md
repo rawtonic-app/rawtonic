@@ -125,14 +125,14 @@ filed until you submit it there with your own GitHub account.
   program and that run's process) and keeps the exception code and the file
   name and offset of the module where it happened (no folders). Windows
   writes that entry a few seconds after the crash, so when the next start
-  does not find it yet, Rawtonic keeps the run's start time, process number,
-  start step and those last log lines (with personal data removed) in
-  `crash-reports/unresolved.json` and looks again at the following starts,
-  at most five times and for at most three days; then they are deleted. A
+  does not find it yet, Rawtonic keeps that run's start time, process
+  number, start step, version and graphics card in
+  `crash-reports/lost-runs.json` and looks again at the following starts, at
+  most three times and for at most seven days; then they are deleted. A
   quit forced from outside or a power loss leaves no record. An error early
   in the start, before Rawtonic has read its settings, is noted in the same
-  folder when it exists from an earlier start (not after "Never"). At the next start
-  Rawtonic asks once per crash whether to send it. "Not now" keeps the record
+  folder when it exists from an earlier start (not after "Never"). At the
+  next start Rawtonic asks once per crash whether to send it. "Not now" keeps the record
   (you can still send it from "Report a problem"), "Never" deletes all
   records and stops recording at once (Preferences → General turns it back
   on).

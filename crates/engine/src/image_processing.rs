@@ -285,12 +285,12 @@ impl Default for GeometryParams {
 
 pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> GeometryParams {
     let render = RenderVersion::of(adjustments);
-    let lens_params = adjustments
-        .get("lensDistortionParams")
-        .and_then(|v| v.as_object());
-
-    let geometry = rawtonic_recipe::normalize(StoredRef::new(adjustments), false).geometry;
+    let resolved = rawtonic_recipe::normalize(StoredRef::new(adjustments), false);
+    let geometry = resolved.geometry;
+    let lens = resolved.lens;
     let guided_fill = geometry.guided.fill();
+    let profile = &lens.profile;
+    let knots = |knots: &[f64]| knots.iter().map(|&v| v as f32).collect::<Vec<f32>>();
 
     let mut params = GeometryParams {
         distortion: geometry.distortion.get() as f32,
@@ -302,84 +302,31 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         x_offset: geometry.x_offset.get() as f32,
         y_offset: geometry.y_offset.get() as f32,
 
-        lens_distortion_amount: adjustments["lensDistortionAmount"]
-            .as_f64()
-            .unwrap_or(100.0) as f32
-            / 100.0,
-        lens_vignette_amount: adjustments["lensVignetteAmount"].as_f64().unwrap_or(100.0) as f32
-            / 100.0,
-        lens_tca_amount: adjustments["lensTcaAmount"].as_f64().unwrap_or(100.0) as f32 / 100.0,
-        lens_distortion_enabled: adjustments["lensDistortionEnabled"]
-            .as_bool()
-            .unwrap_or(true),
-        lens_tca_enabled: adjustments["lensTcaEnabled"].as_bool().unwrap_or(true),
-        lens_vignette_enabled: adjustments["lensVignetteEnabled"].as_bool().unwrap_or(true),
+        lens_distortion_amount: lens.distortion_amount.get() as f32 / 100.0,
+        lens_vignette_amount: lens.vignette_amount.get() as f32 / 100.0,
+        lens_tca_amount: lens.tca_amount.get() as f32 / 100.0,
+        lens_distortion_enabled: lens.distortion_enabled,
+        lens_tca_enabled: lens.tca_enabled,
+        lens_vignette_enabled: lens.vignette_enabled,
 
-        lens_dist_k1: lens_params
-            .and_then(|p| p.get("k1").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_dist_k2: lens_params
-            .and_then(|p| p.get("k2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_dist_k3: lens_params
-            .and_then(|p| p.get("k3").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_model: lens_params
-            .and_then(|p| p.get("model").and_then(|m| m.as_u64()))
-            .unwrap_or(0) as u32,
-        lens_table: lens_params
-            .and_then(|p| p.get("table").and_then(|t| t.as_array()))
-            .map(|t| {
-                t.iter()
-                    .map(|v| v.as_f64().unwrap_or(f64::NAN) as f32)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        lens_table_end: lens_params
-            .and_then(|p| p.get("table_end").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_table_radii: lens_params
-            .and_then(|p| p.get("table_radii").and_then(|t| t.as_array()))
-            .map(|t| {
-                t.iter()
-                    .map(|v| v.as_f64().unwrap_or(f64::NAN) as f32)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        lens_profile_exact: adjustments["lensCorrectionMode"].as_str() == Some("camera"),
-        lens_zoom: lens_params
-            .and_then(|p| p.get("zoom").and_then(|k| k.as_f64()))
-            .unwrap_or(1.0) as f32,
-        lens_zoom_exact: lens_params
-            .and_then(|p| p.get("exact_zoom").and_then(|k| k.as_bool()))
-            .unwrap_or(false),
-        lens_centre: ["centre_x", "centre_y"].map(|key| {
-            lens_params
-                .and_then(|p| p.get(key).and_then(|k| k.as_f64()))
-                .filter(|v| v.is_finite())
-                .unwrap_or(0.0) as f32
-        }),
-        tca_vr: lens_params
-            .and_then(|p| p.get("tca_vr").and_then(|k| k.as_f64()))
-            .unwrap_or(1.0) as f32,
-        tca_vb: lens_params
-            .and_then(|p| p.get("tca_vb").and_then(|k| k.as_f64()))
-            .unwrap_or(1.0) as f32,
-        tca_vr2: lens_params
-            .and_then(|p| p.get("tca_vr2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        tca_vb2: lens_params
-            .and_then(|p| p.get("tca_vb2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        vig_k1: lens_params
-            .and_then(|p| p.get("vig_k1").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        vig_k2: lens_params
-            .and_then(|p| p.get("vig_k2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        vig_k3: lens_params
-            .and_then(|p| p.get("vig_k3").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
+        lens_dist_k1: profile.k1 as f32,
+        lens_dist_k2: profile.k2 as f32,
+        lens_dist_k3: profile.k3 as f32,
+        lens_model: profile.model as u32,
+        lens_table: knots(&profile.table),
+        lens_table_end: profile.table_end as f32,
+        lens_table_radii: knots(&profile.table_radii),
+        lens_profile_exact: lens.mode.is_camera(),
+        lens_zoom: profile.zoom as f32,
+        lens_zoom_exact: profile.exact_zoom,
+        lens_centre: profile.centre.map(|v| v as f32),
+        tca_vr: profile.tca_vr as f32,
+        tca_vb: profile.tca_vb as f32,
+        tca_vr2: profile.tca_vr2 as f32,
+        tca_vb2: profile.tca_vb2 as f32,
+        vig_k1: profile.vig_k1 as f32,
+        vig_k2: profile.vig_k2 as f32,
+        vig_k3: profile.vig_k3 as f32,
         guided_lines: geometry.guided.lines,
         guided_perspective_enabled: geometry.guided.enabled,
         guided_fill,
@@ -390,12 +337,8 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         f32_warp: render.f32_warp(),
         gpu_warp: render.gpu_warp(),
         srgb_base: false,
-        manual_vignette_amount: adjustments[crate::manual_vignette::AMOUNT_KEY]
-            .as_f64()
-            .unwrap_or(0.0) as f32,
-        manual_vignette_midpoint: adjustments[crate::manual_vignette::MIDPOINT_KEY]
-            .as_f64()
-            .unwrap_or(50.0) as f32,
+        manual_vignette_amount: lens.manual_vignette_amount.get() as f32,
+        manual_vignette_midpoint: lens.manual_vignette_midpoint.get() as f32,
     };
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
@@ -9582,3 +9525,7 @@ mod geometry_recipe_tests;
 #[cfg(test)]
 #[path = "image_processing_effects_tests.rs"]
 mod effects_uniform_tests;
+
+#[cfg(test)]
+#[path = "image_processing_lens_tests.rs"]
+mod lens_recipe_tests;

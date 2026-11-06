@@ -211,9 +211,7 @@ static GPU: OnceLock<Gpu> = OnceLock::new();
 /// panic and signal hooks. Not for headless runs.
 pub(crate) fn start_crash_records(app: &AppHandle, keep: bool) -> Option<CrashRecord> {
     let dir = app.path().app_config_dir().ok()?.join("crash-reports");
-    // Windows publishes a crash's Application log entry a little after the
-    // process ended: a start too soon after it looks again later.
-    let store = CrashStore::new(dir).retrying_native_lookups(cfg!(windows));
+    let store = CrashStore::new(dir);
     let run = ThisRun {
         pid: std::process::id(),
         app: app_info(app),

@@ -2,6 +2,7 @@
 //! stays here, the line detection and Upright logic live in the engine crate.
 pub use rawtonic_engine::upright::*;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::lens;
 
 /// Guide lines for the currently loaded photo: detected on its lens-corrected
 /// image (only lens settings of `adjustments`), in the photo's pixel
@@ -39,17 +40,17 @@ fn upright_guides(
     // Only the lens correction: lines are drawn on the lens-corrected photo.
     let mut lens_only = serde_json::json!({});
     for key in [
-        "lensCorrectionMode",
-        "lensDistortionParams",
-        "lensDistortionAmount",
-        "lensDistortionEnabled",
+        lens::CORRECTION_MODE.name(),
+        lens::DISTORTION_PARAMS.name(),
+        lens::DISTORTION_AMOUNT.name(),
+        lens::DISTORTION_ENABLED.name(),
     ] {
         if let Some(value) = adjustments.get(key) {
             lens_only[key] = value.clone();
         }
     }
     let (gray, sw, sh) = if lens_only
-        .get("lensDistortionParams")
+        .get(lens::DISTORTION_PARAMS.name())
         .is_some_and(|p| !p.is_null())
     {
         let (_, sw, sh) = analysis_image(image, 1400);
