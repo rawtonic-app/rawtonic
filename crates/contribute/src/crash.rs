@@ -771,12 +771,15 @@ impl CrashStore {
         for record in self.pending(0) {
             self.remove(&record.id);
         }
+        remove(&self.path(LOST_RUNS));
     }
 
-    /// Deletes the notes of this run (recording was turned off).
+    /// Deletes the notes of this run and the runs waiting for a Windows
+    /// event (recording was turned off).
     fn remove_notes(&self) {
         remove(&self.path(PANIC_NOTE));
         remove(&self.path(SIGNAL_NOTE));
+        remove(&self.path(LOST_RUNS));
     }
 }
 
@@ -1509,6 +1512,25 @@ mod tests {
             )
             .unwrap();
         assert!(!store.path(LOST_RUNS).exists());
+
+        // Turning crash reports off in Preferences deletes them at once.
+        store
+            .start(&run(70, T0 + 300), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        store
+            .start_with(
+                &run(71, T0 + 310),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert!(store.path(LOST_RUNS).exists());
+        set_recording(&store, false);
+        assert!(!store.path(LOST_RUNS).exists());
+        set_recording(&store, true);
     }
 
     /// A fatal signal's record names the phase the start was in.
