@@ -491,7 +491,19 @@ type HeldRecipeKey =
   | 'hue'
   | 'hsl'
   | 'colorGrading'
-  | 'colorCalibration';
+  | 'colorCalibration'
+  | 'sharpness'
+  | 'sharpnessThreshold'
+  | 'sharpenRadius'
+  | 'sharpenDetail'
+  | 'sharpenMasking'
+  | 'lumaNoiseReduction'
+  | 'colorNoiseReduction'
+  | 'clarity'
+  | 'dehaze'
+  | 'structure'
+  | 'chromaticAberrationRedCyan'
+  | 'chromaticAberrationBlueYellow';
 
 /** The develop recipe as the frontend holds it. The keys of the sections in
  * the recipe crate come from its registry (`src/generated/recipeKeys.ts`);
@@ -512,16 +524,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   levels?: Levels;
   /** Lightroom's region curve, before the point curve. */
   regionCurve?: RegionCurve;
-  /** Lightroom's Defringe: amounts 0–20, hue ranges 0–100. */
-  defringePurpleAmount?: number;
-  defringePurpleHueLo?: number;
-  defringePurpleHueHi?: number;
-  defringeGreenAmount?: number;
-  defringeGreenHueLo?: number;
-  defringeGreenHueHi?: number;
-  /** Capture One's Moiré: amount and pattern size, 0–100. */
-  moireAmount?: number;
-  moirePattern?: number;
   /** AI Denoise of the RAW mosaic, 0 … 100 (applied when the photo is developed). */
   aiDenoise?: number;
   /** How AI Denoise reads its amount (crates/engine/src/image_loader.rs
@@ -529,16 +531,11 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * effect; 3 = the same on the faster model; missing = 1 (recipes from
    * before it). */
   aiDenoiseVersion?: number;
-  clarity: number;
-  chromaticAberrationBlueYellow: number;
-  chromaticAberrationRedCyan: number;
-  colorNoiseReduction: number;
   curves: Curves;
   pointCurves?: Curves;
   parametricCurve?: ParametricCurve;
   curveMode?: 'point' | 'parametric';
   crop: Crop | null;
-  dehaze: number;
   flipHorizontal: boolean;
   flipVertical: boolean;
   flareAmount: number;
@@ -586,9 +583,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   lensManualVignetteAmount?: number;
   /** Its midpoint, 0…100 (missing = 50): lower reaches further in. */
   lensManualVignetteMidpoint?: number;
-  /** Capture One's diffraction correction: sharpening by the f-number and
-   * pixel pitch (diffraction.rs), RAW only. */
-  diffractionCorrection?: boolean;
   /** diffraction.rs VERSION, written when the correction is switched on;
    * missing = 1 (crop factors without the bodies the 2026-10-18 database
    * update added). */
@@ -621,13 +615,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * the parameters while it matches the recipe's lens choice. */
   lensProfileFor?: string | null;
   lensModel: string | null;
-  lumaNoiseReduction: number;
-  /** Lightroom's noise reduction refinements (0–100): luminance Detail
-   * (default 50) and Contrast (0), colour Detail (50) and Smoothness (50). */
-  lumaNoiseDetail?: number;
-  lumaNoiseContrast?: number;
-  colorNoiseDetail?: number;
-  colorNoiseSmoothness?: number;
   /** Colour noise reduction filter: 11 = version 10's filter built and
    * measured on the GPU (crates/engine/src/color_noise.rs
    * `Tuning::gpu_pyramid`; faster exports, previews and exports alike);
@@ -742,19 +729,10 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   orientationSteps: number;
   rotation: number;
   sectionVisibility: SectionVisibility;
-  sharpness: number;
-  sharpnessThreshold: number;
-  // Lightroom's sharpening Radius / Detail / Masking (photo only).
-  sharpenRadius: number;
-  sharpenDetail: number;
-  sharpenMasking: number;
-  /** Capture One's Sharpness Falloff (0–100): more sharpening towards the corners. */
-  sharpnessFalloff?: number;
   /** View state, never saved (`NON_COPYABLE_ADJUSTMENT_KEYS`): the
    * renderer's clipping warnings, `showClippingValue`
    * (utils/clippingWarnings). */
   showClipping: boolean | number;
-  structure: number;
   // 'standard' is Capture One's base look (new edits); 'basic' the inherited
   // tone mapper that existing edits keep.
   toneMapper: 'agx' | 'basic' | 'standard';
