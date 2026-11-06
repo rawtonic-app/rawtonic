@@ -11,7 +11,6 @@ import type {
   Crop,
   Curves,
   FaceRetouch,
-  GrainStructure,
   GrayMixer,
   GuidedPerspective,
   Hsl,
@@ -21,9 +20,13 @@ import type {
   RedEye,
   RegionCurve,
   SectionVisibility,
-  Spot,
-  WhiteBalanceMode
+  Spot
 } from './adjustments';
+
+type GrainStructure = 'even' | 'soft' | 'clumped' | 'speckled' | 'gritty';
+
+type WhiteBalanceMode =
+  'asShot' | 'auto' | 'daylight' | 'cloudy' | 'shade' | 'tungsten' | 'fluorescent' | 'flash' | 'custom';
 
 interface OldAdjustments {
   [index: string]: unknown;

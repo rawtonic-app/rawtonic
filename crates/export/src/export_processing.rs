@@ -1,4 +1,5 @@
 use rawtonic_engine::image_loader::DecodeMeasures;
+use rawtonic_recipe::effects;
 use std::borrow::Cow;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -1411,7 +1412,7 @@ pub fn prepare_export_render(
         source.library.as_deref(),
     );
 
-    let lut_path = js_adjustments["lutPath"].as_str();
+    let lut_path = js_adjustments[effects::LUT_PATH.into_name()].as_str();
     let lut = lut_path.and_then(|p| (env.load_lut)(p));
 
     let unique_hash = calculate_full_job_hash(path, js_adjustments);

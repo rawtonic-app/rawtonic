@@ -52,6 +52,7 @@ use mozjpeg_rs::Encoder;
 use mozjpeg_rs::Preset;
 use rawtonic_engine::formats;
 use rawtonic_engine::scopes;
+use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
 #[cfg(not(target_os = "linux"))]
 use rgb::FromSlice;
@@ -210,7 +211,11 @@ pub(crate) fn reduced_preview_scale(
     preview_dim: u32,
 ) -> Option<f32> {
     let has_patches = crate::image_loader::retouch_needs_full_resolution(adjustments);
-    if has_patches || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false) {
+    if has_patches
+        || adjustments[effects::LENS_BLUR_ENABLED.name()]
+            .as_bool()
+            .unwrap_or(false)
+    {
         return None;
     }
     let crop: Option<image_processing::Crop> =
@@ -1191,7 +1196,9 @@ fn preview_base(
         // retouched and blurred at its own resolution.
         let (full_width, full_height) = full_dims;
         let needs_full = crate::image_loader::has_base_retouch(adjustments)
-            || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false);
+            || adjustments[effects::LENS_BLUR_ENABLED.name()]
+                .as_bool()
+                .unwrap_or(false);
         if needs_full && !offline {
             return Err("The photograph is still loading".to_string());
         }
@@ -1416,7 +1423,7 @@ fn render_probe(
             probe.global.output_space[3] = image_processing::LEVELS_INPUT_PROBE;
         }
     }
-    let lut = recipe["lutPath"].as_str().and_then(|p| {
+    let lut = recipe[effects::LUT_PATH.into_name()].as_str().and_then(|p| {
         lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
     });
     gpu_processing::process_and_get_dynamic_image_with_preview_shader(
@@ -1826,7 +1833,7 @@ pub(crate) fn process_preview_job(
         crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     final_adjustments.global.detail_scale = effective_scale;
-    let lut_path = adjustments_clone["lutPath"].as_str();
+    let lut_path = adjustments_clone[effects::LUT_PATH.into_name()].as_str();
     let lut = lut_path.and_then(|p| {
         lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
     });
@@ -3017,7 +3024,7 @@ fn develop_split_before(
     all_adjustments.global.output_space[0] = space.shader_code();
     all_adjustments.global.output_matrix =
         image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
-    let lut = adjustments["lutPath"]
+    let lut = adjustments[effects::LUT_PATH.into_name()]
         .as_str()
         .and_then(|p| lut_processing::get_or_load_lut(luts, p).ok());
     let rendered = gpu_processing::process_and_get_dynamic_image_with_display_shader(
@@ -3300,7 +3307,7 @@ pub(crate) async fn generate_uncropped_preview(
         );
         uncropped_adjustments.global.detail_scale = scale_for_gpu;
         uncropped_adjustments.global.show_clipping = 0;
-        let lut_path = adjustments_clone["lutPath"].as_str();
+        let lut_path = adjustments_clone[effects::LUT_PATH.into_name()].as_str();
         let lut = lut_path.and_then(|p| {
             lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
                 .ok()
@@ -3448,7 +3455,7 @@ pub(crate) async fn generate_preview_for_path(
             crate::photo_library::library_of_str(&source_path_str).as_deref(),
         );
         all_adjustments.global.show_clipping = 0;
-        let lut_path = js_adjustments["lutPath"].as_str();
+        let lut_path = js_adjustments[effects::LUT_PATH.into_name()].as_str();
         let lut = lut_path.and_then(|p| lut_processing::get_or_load_lut(&luts, p).ok());
         let unique_hash = calculate_full_job_hash(&source_path_str, &js_adjustments);
 

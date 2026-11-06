@@ -5595,6 +5595,7 @@ dependencies = [
  "rawtonic-metadata",
  "rawtonic-naming",
  "rawtonic-rawdecode",
+ "rawtonic-recipe",
  "rawtonic-runtime",
  "rawtonic-segment",
  "rayon",
@@ -5741,6 +5742,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "rawtonic-fs",
+ "rawtonic-recipe",
  "roxmltree",
  "serde",
  "serde_json",

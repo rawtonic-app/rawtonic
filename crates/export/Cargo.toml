@@ -18,6 +18,7 @@ performance-profiling = [
 workspace = true
 
 [dependencies]
+rawtonic-recipe = { path = "../recipe", version = "0.1.0" }
 rawtonic-engine = { path = "../engine", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
 rawtonic-gpu = { path = "../gpu", version = "0.1.0" }

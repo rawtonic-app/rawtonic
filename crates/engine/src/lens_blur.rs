@@ -1,5 +1,6 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use image::{DynamicImage, GenericImageView, Rgb32FImage};
+use rawtonic_recipe::{Section, StoredRef, effects};
 use rayon::prelude::*;
 use std::borrow::Cow;
 
@@ -15,18 +16,14 @@ struct BokehTap {
 /// Whether [`apply_lens_blur`] may change an image: the blur is on and
 /// visible, has a depth map and an amount.
 pub fn may_apply(adjustments: &serde_json::Value) -> bool {
-    let effects_visible = adjustments
-        .get("sectionVisibility")
-        .and_then(|v| v.get("effects"))
-        .and_then(|s| s.as_bool())
-        .unwrap_or(true);
-    adjustments["lensBlurEnabled"].as_bool().unwrap_or(false)
-        && effects_visible
-        && !adjustments["lensBlurDepthMap"]
-            .as_str()
+    let stored = StoredRef::new(adjustments);
+    stored.get_or_default(&effects::LENS_BLUR_ENABLED)
+        && stored.section_visible(Section::EFFECTS)
+        && !stored
+            .get_str(&effects::LENS_BLUR_DEPTH_MAP)
             .unwrap_or("")
             .is_empty()
-        && adjustments["lensBlurAmount"].as_f64().unwrap_or(50.0) as f32 > 0.0
+        && stored.get_or_default(&effects::LENS_BLUR_AMOUNT) as f32 > 0.0
 }
 
 pub fn apply_lens_blur<'a>(
@@ -36,8 +33,10 @@ pub fn apply_lens_blur<'a>(
     if !may_apply(adjustments) {
         return image;
     }
-    let depth_b64 = adjustments["lensBlurDepthMap"].as_str().unwrap_or("");
-    let amount = adjustments["lensBlurAmount"].as_f64().unwrap_or(50.0) as f32;
+    let resolved = rawtonic_recipe::normalize(StoredRef::new(adjustments), false);
+    let effects = &resolved.effects;
+    let depth_b64 = effects.lens_blur_depth_map.unwrap_or("");
+    let amount = effects.lens_blur_amount.get() as f32;
 
     let b64_data = match depth_b64.find(',') {
         Some(idx) => &depth_b64[idx + 1..],
@@ -65,13 +64,12 @@ pub fn apply_lens_blur<'a>(
         return image;
     }
 
-    let shape = adjustments["lensBlurShape"].as_str().unwrap_or("circle");
-    let min_depth = adjustments["lensBlurMinDepth"].as_f64().unwrap_or(20.0) as f32 / 100.0;
-    let max_depth = adjustments["lensBlurMaxDepth"].as_f64().unwrap_or(100.0) as f32 / 100.0;
-    let min_fade = adjustments["lensBlurMinFade"].as_f64().unwrap_or(15.0) as f32 / 100.0;
-    let max_fade = adjustments["lensBlurMaxFade"].as_f64().unwrap_or(15.0) as f32 / 100.0;
-    let diffusion =
-        (adjustments["lensBlurDiffusion"].as_f64().unwrap_or(0.0) as f32 / 100.0).clamp(0.0, 1.0);
+    let shape = effects.lens_blur_shape.name();
+    let min_depth = effects.lens_blur_min_depth.get() as f32 / 100.0;
+    let max_depth = effects.lens_blur_max_depth.get() as f32 / 100.0;
+    let min_fade = effects.lens_blur_min_fade.get() as f32 / 100.0;
+    let max_fade = effects.lens_blur_max_fade.get() as f32 / 100.0;
+    let diffusion = (effects.lens_blur_diffusion.get() as f32 / 100.0).clamp(0.0, 1.0);
 
     let start = std::time::Instant::now();
     let src = image.as_ref().to_rgb32f();
@@ -1036,3 +1034,7 @@ fn dof_depth_to_f32(depth: &image::GrayImage, dw: usize, dh: usize) -> Vec<f32> 
         });
     out
 }
+
+#[cfg(test)]
+#[path = "lens_blur_effects_tests.rs"]
+mod effects_tests;

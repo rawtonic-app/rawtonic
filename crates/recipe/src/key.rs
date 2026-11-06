@@ -90,3 +90,24 @@ impl KeyValue for String {
         Value::String(self.clone())
     }
 }
+
+impl KeyValue for u64 {
+    fn from_json(json: &Value) -> Option<Self> {
+        json.as_u64()
+    }
+    fn to_json(&self) -> Value {
+        Value::from(*self)
+    }
+}
+impl KeyValue for Option<String> {
+    fn from_json(json: &Value) -> Option<Self> {
+        if json.is_null() {
+            Some(None)
+        } else {
+            json.as_str().map(|s| Some(s.to_owned()))
+        }
+    }
+    fn to_json(&self) -> Value {
+        self.as_deref().map(Value::from).unwrap_or(Value::Null)
+    }
+}
