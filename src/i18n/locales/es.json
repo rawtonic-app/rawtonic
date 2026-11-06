@@ -964,6 +964,21 @@
     "gpuStartFailed": "Rawtonic no pudo iniciar el procesador gráfico, así que no se pueden revelar ni exportar fotos. Actualiza el controlador gráfico y reinicia Rawtonic. Detalles: {{details}}",
     "operationFailed": "No se ha podido completar la operación."
   },
+  "gpuBackend": {
+    "fellBack": "Rawtonic se cerró la última vez al iniciar el procesador gráfico con {{crashed}}. Por ahora usa {{used}} y volverá a probar {{crashed}} en el próximo inicio.",
+    "fellBackUnknown": "Rawtonic se cerró la última vez al iniciar el procesador gráfico. Ahora usa {{used}}.",
+    "inUse": "En uso: {{backend}} ({{adapter}})",
+    "inUseNone": "En uso: no se inició ningún procesador gráfico",
+    "kept": "{{crashed}} volvió a fallar al iniciar el procesador gráfico, así que Rawtonic sigue usando {{used}}. Preferencias → Procesamiento → Volver a la elección automática lo prueba una vez más.",
+    "leftOut": "{{crashed}} falló al iniciar Rawtonic el {{date}}. {{avoided}} se omite hasta el próximo inicio, que lo volverá a probar.",
+    "leftOutKept": "{{crashed}} falló al iniciar Rawtonic el {{date}}, también al volver a probarlo. {{avoided}} se omite hasta que vuelvas a la elección automática.",
+    "none": "ningún procesador gráfico",
+    "openGl": "El procesamiento usa OpenGL, según Preferencias → Procesamiento. Versiones anteriores de Rawtonic cambiaban a OpenGL por su cuenta tras un fallo gráfico al iniciar; se recomienda «Auto».",
+    "openPreferences": "Abrir Preferencias",
+    "unknownBackend": "El backend gráfico",
+    "useAutomatic": "Volver a la elección automática",
+    "useAutomaticFailed": "No se pudo guardar el cambio."
+  },
   "library": {
     "filters": {
       "rating": {

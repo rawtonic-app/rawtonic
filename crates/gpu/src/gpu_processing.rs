@@ -101,7 +101,7 @@ impl GpuContext {
             device,
             queue,
             ..
-        } = crate::device_start::start_device(|_| None)?;
+        } = crate::device_start::start_device(|_| None, wgpu::Backends::empty(), |_| {})?;
         let info = adapter.get_info();
         log_adapter(&info);
         let limits = adapter.limits();

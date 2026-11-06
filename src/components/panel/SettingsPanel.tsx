@@ -41,6 +41,7 @@ import StorageSettings from './StorageSettings';
 import PrefSegments from './PrefSegments';
 import UpdateSettings from './UpdateSettings';
 import CrashReportSettings from './CrashReportSettings';
+import GpuBackendState from './GpuBackendState';
 import UsageStatsSettings from './UsageStatsSettings';
 import TetheringSettings from './TetheringSettings';
 import DevelopToolsSide from '../studio/DevelopToolsSide';
@@ -1498,6 +1499,9 @@ export default function SettingsPanel({
                               : 'auto'
                           }
                           triggerClassName="bg-bg-primary"
+                        />
+                        <GpuBackendState
+                          onUseAutomatic={() => handleProcessingSettingChange('processingBackend', 'auto')}
                         />
                       </SettingItem>
 

@@ -917,6 +917,21 @@
     "gpuStartFailed": "Rawtonic konnte den Grafikprozessor nicht starten, daher lassen sich Fotos weder entwickeln noch exportieren. Aktualisiere den Grafiktreiber und starte Rawtonic neu. Details: {{details}}",
     "operationFailed": "Der Vorgang konnte nicht abgeschlossen werden."
   },
+  "gpuBackend": {
+    "fellBack": "Rawtonic wurde beim letzten Mal beim Starten des Grafikprozessors mit {{crashed}} beendet. Es verwendet vorerst {{used}} und versucht {{crashed}} beim nächsten Start erneut.",
+    "fellBackUnknown": "Rawtonic wurde beim letzten Mal beim Starten des Grafikprozessors beendet. Es verwendet jetzt {{used}}.",
+    "inUse": "Verwendet: {{backend}} ({{adapter}})",
+    "inUseNone": "Verwendet: kein Grafikprozessor gestartet",
+    "kept": "{{crashed}} ist beim Starten des Grafikprozessors erneut abgestürzt, deshalb verwendet Rawtonic weiterhin {{used}}. Einstellungen → Verarbeitung → Wieder automatisch wählen versucht es noch einmal.",
+    "leftOut": "{{crashed}} ist beim Start von Rawtonic am {{date}} abgestürzt. {{avoided}} wird bis zum nächsten Start ausgelassen, der es erneut versucht.",
+    "leftOutKept": "{{crashed}} ist beim Start von Rawtonic am {{date}} abgestürzt, auch beim erneuten Versuch. {{avoided}} wird ausgelassen, bis du wieder automatisch wählen lässt.",
+    "none": "keinen Grafikprozessor",
+    "openGl": "Die Verarbeitung verwendet OpenGL, wie unter Einstellungen → Verarbeitung festgelegt. Frühere Versionen von Rawtonic haben nach einem Grafikabsturz beim Start selbst auf OpenGL umgestellt; „Auto“ wird empfohlen.",
+    "openPreferences": "Einstellungen öffnen",
+    "unknownBackend": "Das Grafik-Backend",
+    "useAutomatic": "Wieder automatisch wählen",
+    "useAutomaticFailed": "Die Änderung konnte nicht gespeichert werden."
+  },
   "library": {
     "filters": {
       "rating": {
