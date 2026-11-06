@@ -9,6 +9,7 @@ description = "Rawtonic photo merges (HDR, panorama, focus stack) on scene-linea
 workspace = true
 
 [dependencies]
+rawtonic-recipe = { path = "../recipe", version = "0.1.0" }
 rawtonic-engine = { path = "../engine", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
 rawler = { workspace = true }

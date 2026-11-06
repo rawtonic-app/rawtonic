@@ -3,6 +3,7 @@
 //! (`LensLookup`) and before an export of a recipe saved while its photo
 //! could not be read (`resolve_unresolved`). Data in: the photo's EXIF is
 //! passed by the caller.
+use rawtonic_recipe::lens;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
@@ -23,7 +24,7 @@ pub enum LensLookup<'a> {
 }
 
 /// What a recipe's lens parameters were resolved for (`lens_profile_stamp`).
-pub const LENS_PROFILE_FOR: &str = "lensProfileFor";
+pub const LENS_PROFILE_FOR: &str = lens::PROFILE_FOR.into_name();
 /// `lensProfileFor` of a recipe whose lens could not be resolved yet.
 pub const LENS_UNRESOLVED: &str = "unresolved";
 
@@ -41,11 +42,11 @@ pub fn lens_profile_stamp(recipe: &Value) -> String {
             .unwrap_or(Value::Null)
     };
     let mode = recipe
-        .get("lensCorrectionMode")
+        .get(lens::CORRECTION_MODE.name())
         .and_then(Value::as_str)
         .unwrap_or("manual");
     let params = recipe
-        .get("lensDistortionParams")
+        .get(lens::DISTORTION_PARAMS.name())
         .filter(|p| !p.is_null())
         .map(|p| {
             serde_json::from_value::<crate::lens_correction::LensDistortionParams>(p.clone())
@@ -66,7 +67,12 @@ pub fn lens_profile_stamp(recipe: &Value) -> String {
         }
         stamp
     } else {
-        serde_json::json!([mode, field("lensMaker"), field("lensModel"), params])
+        serde_json::json!([
+            mode,
+            field(lens::MAKER.name()),
+            field(lens::MODEL.name()),
+            params
+        ])
     };
     stamp.to_string()
 }
@@ -159,7 +165,7 @@ fn resolve_lens_choice(
 ) -> bool {
     if let Some(map) = adjustments.as_object_mut() {
         let mode = map
-            .get("lensCorrectionMode")
+            .get(lens::CORRECTION_MODE.name())
             .and_then(|v| v.as_str())
             .unwrap_or("manual");
 
@@ -179,12 +185,12 @@ fn resolve_lens_choice(
             match crate::embedded_lens::params_for_recipe(source, &recipe) {
                 Some(params) => {
                     map.insert(
-                        "lensDistortionParams".to_string(),
+                        lens::DISTORTION_PARAMS.name().to_string(),
                         serde_json::to_value(params).unwrap_or_default(),
                     );
                 }
                 None => {
-                    map.remove("lensDistortionParams");
+                    map.remove(lens::DISTORTION_PARAMS.name());
                 }
             }
             return true;
@@ -208,22 +214,22 @@ fn resolve_lens_choice(
                         )
                     {
                         map.insert(
-                            "lensMaker".to_string(),
+                            lens::MAKER.name().to_string(),
                             serde_json::to_value(&detected_maker).unwrap(),
                         );
                         map.insert(
-                            "lensModel".to_string(),
+                            lens::MODEL.name().to_string(),
                             serde_json::to_value(&detected_model).unwrap(),
                         );
                     } else {
-                        map.remove("lensMaker");
-                        map.remove("lensModel");
+                        map.remove(lens::MAKER.name());
+                        map.remove(lens::MODEL.name());
                     }
                 }
             } else if readable(source) {
                 // A file that opens without EXIF: nothing to detect, for good.
-                map.remove("lensMaker");
-                map.remove("lensModel");
+                map.remove(lens::MAKER.name());
+                map.remove(lens::MODEL.name());
             } else {
                 // Nothing to detect from yet (offline, no cached EXIF): not
                 // a lookup that found nothing; tried again later.
@@ -233,8 +239,8 @@ fn resolve_lens_choice(
 
         {
             let has_valid_lens = match (
-                map.get("lensMaker").and_then(|v| v.as_str()),
-                map.get("lensModel").and_then(|v| v.as_str()),
+                map.get(lens::MAKER.name()).and_then(|v| v.as_str()),
+                map.get(lens::MODEL.name()).and_then(|v| v.as_str()),
             ) {
                 (Some(maker), Some(model)) if !maker.is_empty() && !model.is_empty() => {
                     // A photo that cannot be opened (offline, no access) has
@@ -247,7 +253,7 @@ fn resolve_lens_choice(
                     if let Some(params) = lens_params_for_shot(db, maker, model, exif_data.as_ref())
                     {
                         map.insert(
-                            "lensDistortionParams".to_string(),
+                            lens::DISTORTION_PARAMS.name().to_string(),
                             serde_json::to_value(params).unwrap(),
                         );
                         true
@@ -259,21 +265,21 @@ fn resolve_lens_choice(
             };
 
             if !has_valid_lens {
-                map.remove("lensDistortionParams");
+                map.remove(lens::DISTORTION_PARAMS.name());
             }
             // A lens named as before a database rename (a saved edit, a
             // preset, copied settings) resolves to the renamed entry
             // (`find_lens_by_display_name`) and takes its current name.
             if has_valid_lens
                 && let (Some(maker), Some(model)) = (
-                    map.get("lensMaker").and_then(|v| v.as_str()),
-                    map.get("lensModel").and_then(|v| v.as_str()),
+                    map.get(lens::MAKER.name()).and_then(|v| v.as_str()),
+                    map.get(lens::MODEL.name()).and_then(|v| v.as_str()),
                 )
                 && let Some((current, _)) =
                     crate::lens_correction::find_lens_by_display_name(db, maker, model)
                 && current != model
             {
-                map.insert("lensModel".to_string(), serde_json::json!(current));
+                map.insert(lens::MODEL.name().to_string(), serde_json::json!(current));
             }
         }
         return true;

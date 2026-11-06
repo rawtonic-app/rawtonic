@@ -7,11 +7,11 @@
 //! small frame (`MaskFrame::fitting`) a few times the thumbnail's size, so
 //! edges stay smooth without rasterizing the full-resolution mask.
 
-use rawtonic_recipe::geometry;
 use std::sync::Mutex;
 
 use base64::{Engine as _, engine::general_purpose};
 use image::GrayImage;
+use rawtonic_recipe::geometry;
 use rayon::prelude::*;
 use serde_json::Value;
 

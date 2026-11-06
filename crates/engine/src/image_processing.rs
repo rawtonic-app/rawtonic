@@ -5,6 +5,7 @@ use glam::{Mat3, Vec2, Vec3};
 use image::{DynamicImage, GenericImageView, Rgb32FImage};
 use imageproc::geometric_transformations::Projection;
 use nalgebra::{Matrix3 as NaMatrix3, Vector3 as NaVector3};
+use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
 use rawtonic_recipe::{StoredRef, tone};
 use rayon::prelude::*;
@@ -284,12 +285,12 @@ impl Default for GeometryParams {
 
 pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> GeometryParams {
     let render = RenderVersion::of(adjustments);
-    let lens_params = adjustments
-        .get("lensDistortionParams")
-        .and_then(|v| v.as_object());
-
-    let geometry = rawtonic_recipe::normalize(StoredRef::new(adjustments), false).geometry;
+    let resolved = rawtonic_recipe::normalize(StoredRef::new(adjustments), false);
+    let geometry = resolved.geometry;
+    let lens = resolved.lens;
     let guided_fill = geometry.guided.fill();
+    let profile = &lens.profile;
+    let knots = |knots: &[f64]| knots.iter().map(|&v| v as f32).collect::<Vec<f32>>();
 
     let mut params = GeometryParams {
         distortion: geometry.distortion.get() as f32,
@@ -301,84 +302,31 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         x_offset: geometry.x_offset.get() as f32,
         y_offset: geometry.y_offset.get() as f32,
 
-        lens_distortion_amount: adjustments["lensDistortionAmount"]
-            .as_f64()
-            .unwrap_or(100.0) as f32
-            / 100.0,
-        lens_vignette_amount: adjustments["lensVignetteAmount"].as_f64().unwrap_or(100.0) as f32
-            / 100.0,
-        lens_tca_amount: adjustments["lensTcaAmount"].as_f64().unwrap_or(100.0) as f32 / 100.0,
-        lens_distortion_enabled: adjustments["lensDistortionEnabled"]
-            .as_bool()
-            .unwrap_or(true),
-        lens_tca_enabled: adjustments["lensTcaEnabled"].as_bool().unwrap_or(true),
-        lens_vignette_enabled: adjustments["lensVignetteEnabled"].as_bool().unwrap_or(true),
+        lens_distortion_amount: lens.distortion_amount.get() as f32 / 100.0,
+        lens_vignette_amount: lens.vignette_amount.get() as f32 / 100.0,
+        lens_tca_amount: lens.tca_amount.get() as f32 / 100.0,
+        lens_distortion_enabled: lens.distortion_enabled,
+        lens_tca_enabled: lens.tca_enabled,
+        lens_vignette_enabled: lens.vignette_enabled,
 
-        lens_dist_k1: lens_params
-            .and_then(|p| p.get("k1").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_dist_k2: lens_params
-            .and_then(|p| p.get("k2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_dist_k3: lens_params
-            .and_then(|p| p.get("k3").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_model: lens_params
-            .and_then(|p| p.get("model").and_then(|m| m.as_u64()))
-            .unwrap_or(0) as u32,
-        lens_table: lens_params
-            .and_then(|p| p.get("table").and_then(|t| t.as_array()))
-            .map(|t| {
-                t.iter()
-                    .map(|v| v.as_f64().unwrap_or(f64::NAN) as f32)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        lens_table_end: lens_params
-            .and_then(|p| p.get("table_end").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_table_radii: lens_params
-            .and_then(|p| p.get("table_radii").and_then(|t| t.as_array()))
-            .map(|t| {
-                t.iter()
-                    .map(|v| v.as_f64().unwrap_or(f64::NAN) as f32)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        lens_profile_exact: adjustments["lensCorrectionMode"].as_str() == Some("camera"),
-        lens_zoom: lens_params
-            .and_then(|p| p.get("zoom").and_then(|k| k.as_f64()))
-            .unwrap_or(1.0) as f32,
-        lens_zoom_exact: lens_params
-            .and_then(|p| p.get("exact_zoom").and_then(|k| k.as_bool()))
-            .unwrap_or(false),
-        lens_centre: ["centre_x", "centre_y"].map(|key| {
-            lens_params
-                .and_then(|p| p.get(key).and_then(|k| k.as_f64()))
-                .filter(|v| v.is_finite())
-                .unwrap_or(0.0) as f32
-        }),
-        tca_vr: lens_params
-            .and_then(|p| p.get("tca_vr").and_then(|k| k.as_f64()))
-            .unwrap_or(1.0) as f32,
-        tca_vb: lens_params
-            .and_then(|p| p.get("tca_vb").and_then(|k| k.as_f64()))
-            .unwrap_or(1.0) as f32,
-        tca_vr2: lens_params
-            .and_then(|p| p.get("tca_vr2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        tca_vb2: lens_params
-            .and_then(|p| p.get("tca_vb2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        vig_k1: lens_params
-            .and_then(|p| p.get("vig_k1").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        vig_k2: lens_params
-            .and_then(|p| p.get("vig_k2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        vig_k3: lens_params
-            .and_then(|p| p.get("vig_k3").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
+        lens_dist_k1: profile.k1 as f32,
+        lens_dist_k2: profile.k2 as f32,
+        lens_dist_k3: profile.k3 as f32,
+        lens_model: profile.model as u32,
+        lens_table: knots(&profile.table),
+        lens_table_end: profile.table_end as f32,
+        lens_table_radii: knots(&profile.table_radii),
+        lens_profile_exact: lens.mode.is_camera(),
+        lens_zoom: profile.zoom as f32,
+        lens_zoom_exact: profile.exact_zoom,
+        lens_centre: profile.centre.map(|v| v as f32),
+        tca_vr: profile.tca_vr as f32,
+        tca_vb: profile.tca_vb as f32,
+        tca_vr2: profile.tca_vr2 as f32,
+        tca_vb2: profile.tca_vb2 as f32,
+        vig_k1: profile.vig_k1 as f32,
+        vig_k2: profile.vig_k2 as f32,
+        vig_k3: profile.vig_k3 as f32,
         guided_lines: geometry.guided.lines,
         guided_perspective_enabled: geometry.guided.enabled,
         guided_fill,
@@ -389,12 +337,8 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         f32_warp: render.f32_warp(),
         gpu_warp: render.gpu_warp(),
         srgb_base: false,
-        manual_vignette_amount: adjustments[crate::manual_vignette::AMOUNT_KEY]
-            .as_f64()
-            .unwrap_or(0.0) as f32,
-        manual_vignette_midpoint: adjustments[crate::manual_vignette::MIDPOINT_KEY]
-            .as_f64()
-            .unwrap_or(50.0) as f32,
+        manual_vignette_amount: lens.manual_vignette_amount.get() as f32,
+        manual_vignette_midpoint: lens.manual_vignette_midpoint.get() as f32,
     };
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
@@ -3758,7 +3702,12 @@ pub fn plan_transformed_region_with(
     rect: [u32; 4],
     measures: Option<RegionMeasures>,
 ) -> Option<RegionPlan> {
-    if width == 0 || height == 0 || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false) {
+    if width == 0
+        || height == 0
+        || adjustments[effects::LENS_BLUR_ENABLED.name()]
+            .as_bool()
+            .unwrap_or(false)
+    {
         return None;
     }
     let params = get_geometry_params_from_json(adjustments);
@@ -4249,7 +4198,7 @@ pub struct GlobalAdjustments {
     pub show_clipping: u32,
     pub is_raw_image: u32,
     /// Grain structure (recipe key `grainStructure`, see
-    /// `grain_structure_index`); 0 = Even, the original grain.
+    /// `rawtonic_recipe::effects::GrainStructure`); 0 = Even, the original grain.
     pub grain_structure: u32,
 
     pub has_lut: u32,
@@ -5127,11 +5076,12 @@ fn get_global_adjustments_from_json(
     tonemapper_override: Option<u32>,
 ) -> GlobalAdjustments {
     let versions = RecipeVersions::of(js_adjustments, is_raw);
-    // Tone, colour and detail resolve from the same recipe as these uniforms.
+    // Tone, colour, detail and effects resolve from the same recipe as these uniforms.
     let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments), is_raw);
     let tone = &resolved.tone;
     let color = &resolved.color;
     let detail = &resolved.detail;
+    let effects = &resolved.effects;
     let visibility = js_adjustments.get("sectionVisibility");
     let is_visible = |section: &str| -> bool {
         visibility
@@ -5140,22 +5090,7 @@ fn get_global_adjustments_from_json(
             .unwrap_or(true)
     };
 
-    // Other sections retain their existing visibility reads until they migrate.
     let tool_on = |key: &str| tool_switch(key).is_none_or(&is_visible);
-    let get_val = |section: &str, key: &str, scale: f32, default: Option<f64>| -> f32 {
-        if is_visible(section) && tool_on(key) {
-            js_adjustments[key]
-                .as_f64()
-                .unwrap_or(default.unwrap_or(0.0)) as f32
-                / scale
-        } else {
-            if let Some(d) = default {
-                d as f32 / scale
-            } else {
-                0.0
-            }
-        }
-    };
 
     let default_curve = serde_json::json!([{"x": 0.0, "y": 0.0}, {"x": 255.0, "y": 255.0}]);
     let curves_obj = js_adjustments.get("curves").cloned().unwrap_or_default();
@@ -5234,29 +5169,6 @@ fn get_global_adjustments_from_json(
     let tone_mapper = js_adjustments["toneMapper"].as_str().unwrap_or("standard");
     let (pipe_to_rendering, rendering_to_pipe) = calculate_agx_matrices();
 
-    let (has_lut, lut_intensity, lut_is_scene_referred) = if is_visible("effects") {
-        (
-            if js_adjustments["lutPath"].is_string() {
-                1
-            } else {
-                0
-            },
-            // Up to 200 %, as a creative profile's Amount
-            // (lut::apply_amount above 100 %).
-            (js_adjustments["lutIntensity"].as_f64().unwrap_or(100.0) as f32 / 100.0).min(2.0),
-            if js_adjustments["lutIsSceneReferred"]
-                .as_bool()
-                .unwrap_or(false)
-            {
-                1
-            } else {
-                0
-            },
-        )
-    } else {
-        (0, 1.0, 0)
-    };
-
     let mut global = GlobalAdjustments {
         exposure: tone.exposure.get() as f32 / SCALES.exposure,
         brightness: tone.brightness.get() as f32 / SCALES.brightness,
@@ -5293,33 +5205,13 @@ fn get_global_adjustments_from_json(
         dehaze: detail.dehaze.get() as f32 / SCALES.dehaze,
         structure: detail.structure.get() as f32 / SCALES.structure,
         centré: tone.centre.get() as f32 / SCALES.centré,
-        vignette_amount: get_val("effects", "vignetteAmount", SCALES.vignette_amount, None),
-        vignette_midpoint: get_val(
-            "effects",
-            "vignetteMidpoint",
-            SCALES.vignette_midpoint,
-            Some(50.0),
-        ),
-        vignette_roundness: get_val(
-            "effects",
-            "vignetteRoundness",
-            SCALES.vignette_roundness,
-            Some(0.0),
-        ),
-        vignette_feather: get_val(
-            "effects",
-            "vignetteFeather",
-            SCALES.vignette_feather,
-            Some(50.0),
-        ),
-        grain_amount: get_val("effects", "grainAmount", SCALES.grain_amount, None),
-        grain_size: get_val("effects", "grainSize", SCALES.grain_size, Some(25.0)),
-        grain_roughness: get_val(
-            "effects",
-            "grainRoughness",
-            SCALES.grain_roughness,
-            Some(50.0),
-        ),
+        vignette_amount: effects.vignette_amount.get() as f32 / SCALES.vignette_amount,
+        vignette_midpoint: effects.vignette_midpoint.get() as f32 / SCALES.vignette_midpoint,
+        vignette_roundness: effects.vignette_roundness.get() as f32 / SCALES.vignette_roundness,
+        vignette_feather: effects.vignette_feather.get() as f32 / SCALES.vignette_feather,
+        grain_amount: effects.grain_amount.get() as f32 / SCALES.grain_amount,
+        grain_size: effects.grain_size.get() as f32 / SCALES.grain_size,
+        grain_roughness: effects.grain_roughness.get() as f32 / SCALES.grain_roughness,
 
         chromatic_aberration_red_cyan: detail.chromatic_aberration_red_cyan.get() as f32
             / SCALES.chromatic_aberration,
@@ -5327,13 +5219,13 @@ fn get_global_adjustments_from_json(
             / SCALES.chromatic_aberration,
         show_clipping: show_clipping_value(&js_adjustments["showClipping"]),
         is_raw_image: if is_raw { 1 } else { 0 },
-        grain_structure: grain_structure_index(js_adjustments["grainStructure"].as_str()),
+        grain_structure: effects.grain_structure.uniform(),
 
-        has_lut,
-        lut_intensity,
+        has_lut: u32::from(effects.visible && effects.lut_path.is_some()),
+        lut_intensity: (effects.lut_intensity.get() as f32 / 100.0).min(2.0),
 
         tonemapper_mode: tonemapper_override.unwrap_or_else(|| tonemapper_mode_of(tone_mapper)),
-        lut_is_scene_referred,
+        lut_is_scene_referred: u32::from(effects.lut_is_scene_referred),
         image_key: 0.0,
         image_key_low: 0.0,
         tone_version: versions.tone.uniform(),
@@ -5406,9 +5298,9 @@ fn get_global_adjustments_from_json(
         sharpen_detail_offset: (detail.sharpen_detail.get() as f32).clamp(0.0, 100.0) - 25.0,
         sharpen_masking: (detail.sharpen_masking.get() as f32).clamp(0.0, 100.0),
 
-        glow_amount: get_val("effects", "glowAmount", SCALES.glow, None),
-        halation_amount: get_val("effects", "halationAmount", SCALES.halation, None),
-        flare_amount: get_val("effects", "flareAmount", SCALES.flares, None),
+        glow_amount: effects.glow_amount.get() as f32 / SCALES.glow,
+        halation_amount: effects.halation_amount.get() as f32 / SCALES.halation,
+        flare_amount: effects.flare_amount.get() as f32 / SCALES.flares,
         sharpness_threshold: detail.sharpness_threshold.get() as f32 / SCALES.sharpness_threshold,
         profile_curve: [[0.0; 4]; 16],
         grading_lut: [[0.0; 4]; GRADING_LUT_SIZE],
@@ -5432,24 +5324,12 @@ fn get_global_adjustments_from_json(
         calibration_matrix: GpuMat3::default(),
         calibration_tint: [0.0; 4],
         calibration_active: [0; 4],
-        vignette_style: if is_visible("effects") {
-            [
-                match js_adjustments["vignetteStyle"].as_str() {
-                    Some("colorPriority") => 1,
-                    Some("paintOverlay") => 2,
-                    _ => 0,
-                },
-                (js_adjustments["vignetteHighlights"]
-                    .as_f64()
-                    .unwrap_or(0.0)
-                    .clamp(0.0, 100.0)
-                    * 10.0) as u32,
-                0,
-                0,
-            ]
-        } else {
-            [0; 4]
-        },
+        vignette_style: [
+            effects.vignette_style.uniform(),
+            (effects.vignette_highlights.get().clamp(0.0, 100.0) * 10.0) as u32,
+            0,
+            0,
+        ],
         calibration_luma: [0.0; 4],
         sharpen_falloff: [
             (detail.sharpness_falloff.get() / 100.0).clamp(0.0, 1.0) as f32,
@@ -5497,8 +5377,7 @@ fn get_global_adjustments_from_json(
         clarity_version: versions.clarity.uniform(),
         image_key_median: 0.0,
         gamut_mapping: u32::from(versions.render.gamut_mapping()),
-        grain_color: (js_adjustments["grainColor"].as_f64().unwrap_or(0.0) / 100.0).clamp(0.0, 1.0)
-            as f32,
+        grain_color: (effects.grain_color.get() / 100.0).clamp(0.0, 1.0) as f32,
         capture_gain: u32::from(versions.render.capture_gain()),
         scene_black: u32::from(versions.render.scene_black()),
         relight_surface: [
@@ -6204,9 +6083,9 @@ fn get_mask_adjustments_from_json(
         dehaze: get_val("details", "dehaze", SCALES.dehaze),
         structure: get_val("details", "structure", SCALES.structure),
 
-        glow_amount: get_val("effects", "glowAmount", SCALES.glow),
-        halation_amount: get_val("effects", "halationAmount", SCALES.halation),
-        flare_amount: get_val("effects", "flareAmount", SCALES.flares),
+        glow_amount: get_val("effects", effects::GLOW_AMOUNT.name(), SCALES.glow),
+        halation_amount: get_val("effects", effects::HALATION_AMOUNT.name(), SCALES.halation),
+        flare_amount: get_val("effects", effects::FLARE_AMOUNT.name(), SCALES.flares),
         sharpness_threshold: get_val("details", "sharpnessThreshold", SCALES.sharpness_threshold),
 
         hue: get_val("color", "hue", 1.0),
@@ -7211,7 +7090,7 @@ pub fn auto_results_to_json(results: &AutoAdjustmentResults) -> serde_json::Valu
         tone::HIGHLIGHTS.name(): results.highlights,
         tone::SHADOWS.name(): results.shadows,
         rawtonic_recipe::color::VIBRANCE.name(): results.vibrancy,
-        "vignetteAmount": results.vignette_amount,
+        effects::VIGNETTE_AMOUNT.name(): results.vignette_amount,
         rawtonic_recipe::detail::CLARITY.name(): results.clarity,
         tone::CENTRE.name(): results.centre,
 
@@ -7227,7 +7106,7 @@ pub fn auto_results_to_json(results: &AutoAdjustmentResults) -> serde_json::Valu
 }
 
 /// The recipe key naming the grain a recipe was made with.
-pub const GRAIN_VERSION_KEY: &str = "grainVersion";
+pub const GRAIN_VERSION_KEY: &str = effects::GRAIN_VERSION.name();
 /// The newest grain: 2 (2026-10-23) is version 1's gradient noise, structures,
 /// strength and tone masks with an integer hash on an exactly computed
 /// lattice, so the grain pattern is the same on every GPU (version 1's float
@@ -7263,19 +7142,6 @@ pub const CLARITY_VERSION: u64 = 2;
 /// renderer knows.
 pub fn clarity_version(adjustments: &serde_json::Value) -> u64 {
     crate::recipe_versions::ClarityVersion::of(adjustments).get()
-}
-
-/// Recipe `grainStructure` names as the shader's grain structure. Missing
-/// and unknown names use Even, the original grain, so older recipes render
-/// unchanged.
-pub fn grain_structure_index(name: Option<&str>) -> u32 {
-    match name {
-        Some("soft") => 1,
-        Some("clumped") => 2,
-        Some("speckled") => 3,
-        Some("gritty") => 4,
-        _ => 0,
-    }
 }
 
 /// The recipe key naming which tone-slider response it was made with.
@@ -9682,3 +9548,11 @@ mod uniform_snapshot_tests;
 #[cfg(test)]
 #[path = "image_processing_geometry_tests.rs"]
 mod geometry_recipe_tests;
+
+#[cfg(test)]
+#[path = "image_processing_effects_tests.rs"]
+mod effects_uniform_tests;
+
+#[cfg(test)]
+#[path = "image_processing_lens_tests.rs"]
+mod lens_recipe_tests;

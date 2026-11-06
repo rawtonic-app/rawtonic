@@ -2,7 +2,6 @@
 //! queue, its Tauri commands and events, sidecar and session access and the
 //! metadata embedding stay here; the render and encoders live in the crate.
 pub use rawtonic_export::export_processing::*;
-use rawtonic_recipe::geometry;
 
 use crate::state::ai::AiState;
 use crate::state::export::ExportState;
@@ -15,6 +14,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, imageops};
+use rawtonic_recipe::effects;
+use rawtonic_recipe::geometry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::Emitter;
@@ -559,7 +560,7 @@ fn export_masks_for_image(
     if !mask_bitmaps.is_empty() {
         let tm_override = resolve_tonemapper_override_from_handle(app_handle, is_raw);
         let all_adjustments = get_all_adjustments_from_json(js_adjustments, is_raw, tm_override);
-        let lut_path = js_adjustments["lutPath"].as_str();
+        let lut_path = js_adjustments[effects::LUT_PATH.into_name()].as_str();
         let lut = lut_path.and_then(|p| {
             get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
         });
@@ -689,7 +690,7 @@ fn export_adjustments_as_lut(
     all_adjustments.global.chromatic_aberration_red_cyan = 0.0;
     all_adjustments.global.chromatic_aberration_blue_yellow = 0.0;
 
-    let lut_path = js_adjustments["lutPath"].as_str();
+    let lut_path = js_adjustments[effects::LUT_PATH.into_name()].as_str();
     let lut = lut_path
         .and_then(|p| get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok());
     let unique_hash = calculate_full_job_hash(source_path_str, js_adjustments);
@@ -2261,9 +2262,11 @@ fn estimate_sizes(
         all_adjustments.global.detail_scale = scale;
         all_adjustments.global.show_clipping = 0;
 
-        let lut = adjustments_clone["lutPath"].as_str().and_then(|p| {
-            get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
-        });
+        let lut = adjustments_clone[effects::LUT_PATH.into_name()]
+            .as_str()
+            .and_then(|p| {
+                get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+            });
         let unique_hash =
             calculate_full_job_hash(&loaded_image.path, &adjustments_clone).wrapping_add(1);
 
@@ -2434,9 +2437,11 @@ fn estimate_sizes(
         all_adjustments.global.detail_scale = total_scale;
         all_adjustments.global.show_clipping = 0;
 
-        let lut = js_adjustments["lutPath"].as_str().and_then(|p| {
-            get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
-        });
+        let lut = js_adjustments[effects::LUT_PATH.into_name()]
+            .as_str()
+            .and_then(|p| {
+                get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+            });
         let unique_hash =
             calculate_full_job_hash(&source_path_str, &js_adjustments).wrapping_add(1);
 

@@ -25,6 +25,7 @@
 //! sets them, but they are not recorded. The renderer never reads the key;
 //! recipes without it are unchanged.
 
+use rawtonic_recipe::lens;
 use serde_json::{Map, Value};
 
 /// The recipe key.
@@ -37,12 +38,12 @@ pub const APPLIED_STYLE: &str = "appliedStyle";
 /// its record leaves them out, so taking it back or replacing it leaves them
 /// as they are (`PHOTO_OWN_KEYS` in src/utils/appliedStyle.ts, checked there).
 pub const PHOTO_OWN_KEYS: [&str; 9] = [
-    "lensCorrectionMode",
-    "lensMaker",
-    "lensModel",
-    "cameraCaVersion",
-    "cameraGeometryVersion",
-    "lensDistortionParams",
+    lens::CORRECTION_MODE.into_name(),
+    lens::MAKER.into_name(),
+    lens::MODEL.into_name(),
+    lens::CAMERA_CA_VERSION.name(),
+    lens::CAMERA_GEOMETRY_VERSION.name(),
+    lens::DISTORTION_PARAMS.into_name(),
     crate::lens_recipe::LENS_PROFILE_FOR,
     "masks",
     "relightLights",

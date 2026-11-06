@@ -74,6 +74,17 @@ pub(crate) fn flush_logs() {
     }
 }
 
+/// The panic hook until the logger's (`setup_logging`) replaces it: a panic
+/// before the log exists goes to stderr and, once the crash records are
+/// armed, leaves a note for the next start's crash report.
+pub(crate) fn install_early_panic_hook() {
+    let default = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        rawtonic_contribute::crash::note_panic(info);
+        default(info);
+    }));
+}
+
 /// Logs to `file_name` in the app's log folder (replaced on each start).
 pub(crate) fn setup_logging(app_handle: &tauri::AppHandle, file_name: &str) {
     let log_dir = match app_handle.path().app_log_dir() {
@@ -326,6 +337,9 @@ pub(crate) fn frontend_ready(
     let is_first_run = !state
         .window_setup_complete
         .swap(true, std::sync::atomic::Ordering::Relaxed);
+    if is_first_run {
+        crate::contribute::note_phase("running");
+    }
 
     {
         #[cfg(any(windows, target_os = "linux"))]
@@ -416,34 +430,9 @@ pub(crate) fn apply_processing_backend(backend: Option<&str>) {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub(crate) enum GpuCrashCheck {
-    Clean,
-    /// The flag belongs to a process that is still running (a concurrent
-    /// launch or headless export), not to a crashed one.
-    InProgressElsewhere,
-    Crashed {
-        fall_back_to_gl: bool,
-    },
-}
-
 /// wgpu's OpenGL backend is not compiled in on Apple platforms (it would
 /// need ANGLE), so falling back to it there leaves no GPU at all.
 pub(crate) const GL_BACKEND_COMPILED: bool = !cfg!(any(target_os = "macos", target_os = "ios"));
-
-/// Reads the GPU-initialisation flag left by an earlier run.
-pub(crate) fn gpu_crash_check(flag: &std::path::Path, backend: Option<&str>) -> GpuCrashCheck {
-    let Ok(contents) = std::fs::read_to_string(flag) else {
-        return GpuCrashCheck::Clean;
-    };
-    let owner = contents.trim().parse::<u32>().ok();
-    if owner.is_some_and(|pid| pid != std::process::id() && process_alive(pid)) {
-        return GpuCrashCheck::InProgressElsewhere;
-    }
-    GpuCrashCheck::Crashed {
-        fall_back_to_gl: GL_BACKEND_COMPILED && backend != Some("gl"),
-    }
-}
 
 pub(crate) fn process_alive(pid: u32) -> bool {
     #[cfg(unix)]
@@ -585,7 +574,8 @@ mod window_scale_tests {
 
 #[cfg(test)]
 mod gpu_crash_flag_tests {
-    use super::{GL_BACKEND_COMPILED, GpuCrashCheck, gpu_crash_check, process_alive};
+    use super::process_alive;
+    use crate::gpu_start_guard::{FlagCheck, StartCrash, check_flag};
 
     #[test]
     fn gpu_flag_child_waits_for_stdin() {
@@ -608,7 +598,7 @@ mod gpu_crash_flag_tests {
         let dir = std::env::temp_dir().join(format!("rawtonic-gpu-flag-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let flag = dir.join(".gpu_init_crash_flag");
-        assert_eq!(gpu_crash_check(&flag, None), GpuCrashCheck::Clean);
+        assert_eq!(check_flag(&flag, process_alive), FlagCheck::Clean);
         // Keep an actual child alive until stdin closes: Windows has no
         // launchd/init PID 1, and a short-lived --list child could exit before
         // the liveness query. The guard also reaps it if an assertion fails.
@@ -627,27 +617,33 @@ mod gpu_crash_flag_tests {
         );
         let pid = child.0.id();
         assert!(process_alive(pid));
-        std::fs::write(&flag, pid.to_string()).unwrap();
+        std::fs::write(
+            &flag,
+            format!(r#"{{"pid":{pid},"backends":"vulkan","stage":"device"}}"#),
+        )
+        .unwrap();
         assert_eq!(
-            gpu_crash_check(&flag, None),
-            GpuCrashCheck::InProgressElsewhere
+            check_flag(&flag, process_alive),
+            FlagCheck::InProgressElsewhere
         );
         drop(child.0.stdin.take());
         child.0.wait().unwrap();
         assert!(!process_alive(pid));
         assert_eq!(
-            gpu_crash_check(&flag, None),
-            GpuCrashCheck::Crashed {
-                fall_back_to_gl: GL_BACKEND_COMPILED,
-            }
+            check_flag(&flag, process_alive),
+            FlagCheck::Crashed(StartCrash {
+                backends: wgpu::Backends::VULKAN,
+                stage: "device".into()
+            })
         );
-        // A legacy flag or a dead owner is a crash; OpenGL only where built.
+        // A legacy flag is a crash whose backends are not known.
         std::fs::write(&flag, "initializing_gpu").unwrap();
         assert_eq!(
-            gpu_crash_check(&flag, Some("auto")),
-            GpuCrashCheck::Crashed {
-                fall_back_to_gl: GL_BACKEND_COMPILED
-            }
+            check_flag(&flag, process_alive),
+            FlagCheck::Crashed(StartCrash {
+                backends: wgpu::Backends::empty(),
+                stage: "unknown".into()
+            })
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }

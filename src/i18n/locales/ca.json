@@ -964,6 +964,21 @@
     "gpuStartFailed": "Rawtonic no ha pogut iniciar el processador gràfic, de manera que no es poden revelar ni exportar fotos. Actualitza el controlador gràfic i reinicia Rawtonic. Detalls: {{details}}",
     "operationFailed": "No s’ha pogut completar l’operació."
   },
+  "gpuBackend": {
+    "fellBack": "L'última vegada, Rawtonic es va tancar en iniciar el processador gràfic amb {{crashed}}. De moment fa servir {{used}} i tornarà a provar {{crashed}} en el proper inici.",
+    "fellBackUnknown": "L'última vegada, Rawtonic es va tancar en iniciar el processador gràfic. Ara fa servir {{used}}.",
+    "inUse": "En ús: {{backend}} ({{adapter}})",
+    "inUseNone": "En ús: no s'ha iniciat cap processador gràfic",
+    "kept": "{{crashed}} ha tornat a fallar en iniciar el processador gràfic, així que Rawtonic continua fent servir {{used}}. Preferències → Processament → Tornar a l'elecció automàtica ho prova un cop més.",
+    "leftOut": "{{crashed}} va fallar en iniciar Rawtonic el {{date}}. {{avoided}} es deixa de banda fins al proper inici, que el tornarà a provar.",
+    "leftOutKept": "{{crashed}} va fallar en iniciar Rawtonic el {{date}}, també en tornar-ho a provar. {{avoided}} es deixa de banda fins que tornis a l'elecció automàtica.",
+    "none": "cap processador gràfic",
+    "openGl": "El processament fa servir OpenGL, tal com s'ha definit a Preferències → Processament. Versions anteriors de Rawtonic canviaven soles a OpenGL després d'una fallada gràfica en iniciar; es recomana «Auto».",
+    "openPreferences": "Obrir Preferències",
+    "unknownBackend": "El motor gràfic",
+    "useAutomatic": "Tornar a l'elecció automàtica",
+    "useAutomaticFailed": "No s'ha pogut desar el canvi."
+  },
   "library": {
     "filters": {
       "rating": {

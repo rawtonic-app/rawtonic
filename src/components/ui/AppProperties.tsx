@@ -165,6 +165,8 @@ export enum Invokes {
   GetFolderTree = 'get_folder_tree',
   GetFolderChildren = 'get_folder_children',
   GetGpuStartError = 'gpu_start_error',
+  GpuBackendStatus = 'gpu_backend_status',
+  GpuBackendUseAutomatic = 'gpu_backend_use_automatic',
   GetLogFilePath = 'get_log_file_path',
   GetPinnedFolderTrees = 'get_pinned_folder_trees',
   GetSupportedFileTypes = 'get_supported_file_types',
@@ -770,7 +772,7 @@ export interface LoadImageResult {
   /** AI Denoise amount the source was developed with (0 … 100). */
   ai_denoise: number;
   /** Its `aiDenoiseVersion` (1 when off). */
-  ai_denoise_version?: number;
+  ai_denoise_version: number;
   /** Why the recipe's AI Denoise could not be applied. */
   ai_denoise_error?: string | null;
   /** The RAW is offline; the photograph opened on its 1:1 or Standard preview. */

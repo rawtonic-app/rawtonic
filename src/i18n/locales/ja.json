@@ -906,6 +906,21 @@
     "gpuStartFailed": "Rawtonic はグラフィックプロセッサを起動できなかったため、写真の現像も書き出しもできません。グラフィックドライバを更新して Rawtonic を再起動してください。詳細: {{details}}",
     "operationFailed": "操作を完了できませんでした。"
   },
+  "gpuBackend": {
+    "fellBack": "前回、Rawtonic は {{crashed}} でグラフィックプロセッサを起動中に終了しました。当面は {{used}} を使用し、次回の起動時に {{crashed}} をもう一度試します。",
+    "fellBackUnknown": "前回、Rawtonic はグラフィックプロセッサの起動中に終了しました。現在は {{used}} を使用しています。",
+    "inUse": "使用中: {{backend}}（{{adapter}}）",
+    "inUseNone": "使用中: グラフィックプロセッサは起動していません",
+    "kept": "{{crashed}} がグラフィックプロセッサの起動中に再びクラッシュしたため、Rawtonic は引き続き {{used}} を使用します。環境設定 → 画像処理 →「自動選択に戻す」でもう一度試せます。",
+    "leftOut": "{{date}} の Rawtonic 起動時に {{crashed}} がクラッシュしました。{{avoided}} は次回の起動まで使用せず、次回もう一度試します。",
+    "leftOutKept": "{{date}} の Rawtonic 起動時に {{crashed}} がクラッシュし、再試行でもクラッシュしました。自動選択に戻すまで {{avoided}} は使用しません。",
+    "none": "グラフィックプロセッサなし",
+    "openGl": "環境設定 → 画像処理の設定どおり、処理には OpenGL を使用しています。以前のバージョンの Rawtonic は、起動時のグラフィッククラッシュの後に自動で OpenGL に切り替えていました。「自動」をお勧めします。",
+    "openPreferences": "環境設定を開く",
+    "unknownBackend": "グラフィックバックエンド",
+    "useAutomatic": "自動選択に戻す",
+    "useAutomaticFailed": "変更を保存できませんでした。"
+  },
   "library": {
     "filters": {
       "rating": {

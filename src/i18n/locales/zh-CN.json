@@ -906,6 +906,21 @@
     "gpuStartFailed": "Rawtonic 无法启动图形处理器，因此无法冲洗或导出照片。请更新显卡驱动并重新启动 Rawtonic。详细信息：{{details}}",
     "operationFailed": "无法完成操作。"
   },
+  "gpuBackend": {
+    "fellBack": "上次 Rawtonic 在使用 {{crashed}} 启动图形处理器时关闭。暂时使用 {{used}}，下次启动时会再次尝试 {{crashed}}。",
+    "fellBackUnknown": "上次 Rawtonic 在启动图形处理器时关闭。现在使用 {{used}}。",
+    "inUse": "正在使用：{{backend}}（{{adapter}}）",
+    "inUseNone": "正在使用：未启动图形处理器",
+    "kept": "{{crashed}} 在启动图形处理器时再次崩溃，因此 Rawtonic 继续使用 {{used}}。偏好设置 → 处理 → 重新自动选择 会再试一次。",
+    "leftOut": "{{crashed}} 在 {{date}} 启动 Rawtonic 时崩溃。在下次启动前不使用 {{avoided}}，下次启动会再次尝试。",
+    "leftOutKept": "{{crashed}} 在 {{date}} 启动 Rawtonic 时崩溃，重试时也崩溃了。在你重新选择自动之前不使用 {{avoided}}。",
+    "none": "无图形处理器",
+    "openGl": "按照偏好设置 → 处理中的设置，处理使用 OpenGL。早期版本的 Rawtonic 会在启动时图形崩溃后自行切换到 OpenGL；建议使用“自动”。",
+    "openPreferences": "打开偏好设置",
+    "unknownBackend": "图形后端",
+    "useAutomatic": "重新自动选择",
+    "useAutomaticFailed": "无法保存更改。"
+  },
   "library": {
     "filters": {
       "rating": {

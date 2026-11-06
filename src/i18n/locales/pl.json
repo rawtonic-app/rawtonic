@@ -1011,6 +1011,21 @@
     "gpuStartFailed": "Rawtonic nie mógł uruchomić procesora graficznego, więc nie można wywoływać ani eksportować zdjęć. Zaktualizuj sterownik karty graficznej i uruchom Rawtonic ponownie. Szczegóły: {{details}}",
     "operationFailed": "Nie udało się ukończyć operacji."
   },
+  "gpuBackend": {
+    "fellBack": "Ostatnio Rawtonic zamknął się podczas uruchamiania procesora graficznego z {{crashed}}. Na razie używa {{used}} i przy następnym uruchomieniu znów spróbuje {{crashed}}.",
+    "fellBackUnknown": "Ostatnio Rawtonic zamknął się podczas uruchamiania procesora graficznego. Teraz używa {{used}}.",
+    "inUse": "W użyciu: {{backend}} ({{adapter}})",
+    "inUseNone": "W użyciu: nie uruchomiono procesora graficznego",
+    "kept": "{{crashed}} ponownie uległ awarii przy uruchamianiu procesora graficznego, więc Rawtonic nadal używa {{used}}. Preferencje → Przetwarzanie → Znów wybieraj automatycznie spróbuje jeszcze raz.",
+    "leftOut": "{{crashed}} uległ awarii przy uruchamianiu Rawtonic {{date}}. {{avoided}} jest pomijany do następnego uruchomienia, które spróbuje go ponownie.",
+    "leftOutKept": "{{crashed}} uległ awarii przy uruchamianiu Rawtonic {{date}}, także przy ponownej próbie. {{avoided}} jest pomijany, dopóki nie wybierzesz znów wyboru automatycznego.",
+    "none": "żadnego procesora graficznego",
+    "openGl": "Przetwarzanie używa OpenGL, zgodnie z ustawieniem w Preferencje → Przetwarzanie. Wcześniejsze wersje Rawtonic same przełączały się na OpenGL po awarii grafiki przy uruchamianiu; zalecane jest „Auto”.",
+    "openPreferences": "Otwórz Preferencje",
+    "unknownBackend": "Backend graficzny",
+    "useAutomatic": "Znów wybieraj automatycznie",
+    "useAutomaticFailed": "Nie udało się zapisać zmiany."
+  },
   "library": {
     "filters": {
       "rating": {

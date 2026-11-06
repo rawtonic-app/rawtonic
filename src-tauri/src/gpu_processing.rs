@@ -46,9 +46,25 @@ pub fn start_early(app_handle: &tauri::AppHandle) {
                 // A window whose adapter cannot present replaces the context
                 // while it holds the processor slot (`attach_display`): no
                 // processor for the replaced device.
-                Ok(context) => prewarm_gpu_processor_if(&gpu.processor, &context, || {
-                    is_current(&gpu, &context)
-                }),
+                Ok(context) => {
+                    // The first processor's compile is part of the start: a
+                    // driver that crashes compiling it is left out next time.
+                    let flag = gpu.crash_flag_path();
+                    let backend = lock_recover(&gpu.adapter)
+                        .as_ref()
+                        .map(|(_, adapter)| wgpu::Backends::from(adapter.get_info().backend));
+                    if let (Some(flag), Some(backend)) = (&flag, backend) {
+                        crate::gpu_start_guard::write_flag(flag, backend, "compile");
+                        #[cfg(feature = "qa-control")]
+                        crate::qa_crash::at("gpu-compile");
+                    }
+                    prewarm_gpu_processor_if(&gpu.processor, &context, || is_current(&gpu, &context));
+                    // Up to the first display variant (at most 30 s).
+                    after_first_display_variant();
+                    if let Some(flag) = &flag {
+                        crate::gpu_start_guard::clear_flag(flag);
+                    }
+                }
                 Err(error) => {
                     log::error!(
                         "GPU pre-initialization failed (editing and thumbnails may be degraded): {}",
@@ -79,6 +95,84 @@ fn record_start_error(gpu: &GpuState, app_handle: &tauri::AppHandle, error: Stri
 #[tauri::command]
 pub fn gpu_start_error(gpu: tauri::State<'_, GpuState>) -> Option<String> {
     gpu.start_error()
+}
+
+/// The processing backend as the window shows it: the one in use, and
+/// what the start guard left out after a crash (`gpu_start_guard`).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuBackendStatus {
+    /// The backend the GPU runs on ("vulkan"), once it started.
+    in_use: Option<String>,
+    adapter: Option<String>,
+    /// "clean", "fellBack", "retrying" or "kept".
+    step: crate::gpu_start_guard::Step,
+    /// Left out after a crash (comma list), and the newest crash.
+    avoided: String,
+    crashed: String,
+    crashed_on: Option<String>,
+    /// What this start tells about it, once.
+    notice: Option<crate::gpu_start_guard::Notice>,
+}
+
+fn gpu_backend_status_blocking(app_handle: &tauri::AppHandle) -> Result<GpuBackendStatus, String> {
+    let gpu = app_handle.state::<GpuState>();
+    // Waits (at most 20 s) for the start thread's device or its failure;
+    // never starts one itself.
+    let waited = std::time::Instant::now();
+    while gpu.context().is_none()
+        && gpu.start_error().is_none()
+        && waited.elapsed() < std::time::Duration::from_secs(20)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let info = lock_recover(&gpu.adapter)
+        .as_ref()
+        .map(|(_, adapter)| adapter.get_info());
+    let config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?;
+    let state =
+        crate::gpu_start_guard::read_state(&crate::gpu_start_guard::state_path(&config_dir));
+    Ok(GpuBackendStatus {
+        in_use: info.as_ref().map(|info| info.backend.to_str().to_string()),
+        adapter: info.map(|info| info.name),
+        step: state.step,
+        avoided: state.avoid,
+        crashed: state.crashed,
+        crashed_on: state.crashed_on,
+        notice: gpu.start_notice(),
+    })
+}
+
+#[tauri::command]
+pub async fn gpu_backend_status(app_handle: tauri::AppHandle) -> Result<GpuBackendStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || gpu_backend_status_blocking(&app_handle))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// "Use automatic again": nothing is left out from the next start on (the
+/// window sets the preference to Auto and offers the relaunch).
+#[tauri::command]
+pub async fn gpu_backend_use_automatic(app_handle: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let config_dir = app_handle
+            .path()
+            .app_config_dir()
+            .map_err(|e| e.to_string())?;
+        let path = crate::gpu_start_guard::state_path(&config_dir);
+        let state = crate::gpu_start_guard::GuardState {
+            gl_checked: true,
+            ..Default::default()
+        };
+        crate::gpu_start_guard::write_state(&path, &state)?;
+        log::info!("GPU backends left out after a crash: cleared (Use automatic again).");
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Holds optional start-up work (background library passes, model
@@ -167,30 +261,40 @@ fn create_context(
     app_handle: &tauri::AppHandle,
     #[allow(unused_variables)] window: Option<&tauri::WebviewWindow>,
 ) -> Result<(GpuContext, wgpu::Instance, wgpu::Adapter), String> {
+    // The flag names each step and its backends with this process's id: a
+    // crash leaves it for the next start (`gpu_start_guard`), and another
+    // process starting meanwhile does not take it for one.
     let flag_path = gpu.crash_flag_path();
-    if let Some(p) = &flag_path {
-        if let Some(parent) = p.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        // The owner's process id: another process starting meanwhile must
-        // not take an initialisation in progress for a crash.
-        let _ = std::fs::write(p, std::process::id().to_string());
-    }
     let remove_flag = || {
         if let Some(p) = &flag_path {
-            let _ = std::fs::remove_file(p);
+            crate::gpu_start_guard::clear_flag(p);
         }
     };
+    let on_step = |step: rawtonic_gpu::device_start::StartStep| {
+        use rawtonic_gpu::device_start::StartStep;
+        let Some(p) = &flag_path else { return };
+        let (backends, stage) = match step {
+            StartStep::Adapter(backends) => (backends, "adapter"),
+            StartStep::Device(backend) => (wgpu::Backends::from(backend), "device"),
+        };
+        crate::gpu_start_guard::write_flag(p, backends, stage);
+        #[cfg(feature = "qa-control")]
+        crate::qa_crash::at(&format!("gpu-{stage}"));
+    };
 
-    let started = rawtonic_gpu::device_start::start_device(|instance| {
-        #[cfg(not(target_os = "linux"))]
-        if let Some(window) = window {
-            return instance.create_surface(window.clone()).ok();
-        }
-        #[cfg(target_os = "linux")]
-        let _ = instance;
-        None
-    })
+    let started = rawtonic_gpu::device_start::start_device(
+        |instance| {
+            #[cfg(not(target_os = "linux"))]
+            if let Some(window) = window {
+                return instance.create_surface(window.clone()).ok();
+            }
+            #[cfg(target_os = "linux")]
+            let _ = instance;
+            None
+        },
+        gpu.avoid_backends(),
+        on_step,
+    )
     .inspect_err(|_| remove_flag())?;
     let rawtonic_gpu::device_start::StartedDevice {
         instance,

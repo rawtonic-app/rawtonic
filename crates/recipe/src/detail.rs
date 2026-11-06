@@ -237,7 +237,7 @@ impl Detail {
 
 /// Detail keys in the generated frontend recipe type.
 pub const TS: TsSection = TsSection {
-    name: "Detail",
+    name: "detail",
     fields: &[
         TsField::new(SHARPNESS, ""),
         TsField::new(SHARPNESS_THRESHOLD, ""),

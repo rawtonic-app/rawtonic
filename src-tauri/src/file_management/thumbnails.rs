@@ -28,7 +28,9 @@ use anyhow::Result;
 use image::DynamicImage;
 use image::GenericImageView;
 use image::codecs::jpeg::JpegEncoder;
+use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::lens;
 use rawtonic_recipe::tone;
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
@@ -172,7 +174,7 @@ pub(crate) fn compute_thumbnail_cache_hash(
         // (`embedded_lens::apply_default`: lens profile, render version).
         if adjustments
             .as_ref()
-            .is_none_or(|adjustments| adjustments.get("lensCorrectionMode").is_none())
+            .is_none_or(|adjustments| adjustments.get(lens::CORRECTION_MODE.name()).is_none())
         {
             hasher.update(
                 format!(
@@ -685,7 +687,7 @@ pub(crate) fn develop_thumbnail(
             crate::photo_library::library_of_str(&source_path_str).as_deref(),
         );
         gpu_adjustments.global.detail_scale = total_scale;
-        let lut_path = meta.adjustments["lutPath"].as_str();
+        let lut_path = meta.adjustments[effects::LUT_PATH.into_name()].as_str();
         let lut = lut_path.and_then(|p| crate::lut_processing::get_or_load_lut(&luts, p).ok());
 
         let mut hasher = DefaultHasher::new();

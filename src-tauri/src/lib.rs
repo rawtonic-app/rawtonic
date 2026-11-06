@@ -52,6 +52,7 @@ mod file_management;
 mod file_operations;
 mod folder_sync;
 mod gpu_processing;
+mod gpu_start_guard;
 mod gpu_warmup;
 mod guided_perspective;
 mod hot_folder;
@@ -90,6 +91,8 @@ mod proof_sheet;
 mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
+#[cfg(feature = "qa-control")]
+mod qa_crash;
 mod red_eye;
 mod scope_analytics;
 mod series_match;
@@ -167,6 +170,9 @@ pub fn run() {
     #[cfg(feature = "performance-profiling")]
     performance::mark_application_start();
     gpu_processing::mark_process_start();
+    // Until the logger's hook replaces it: a panic before the log exists
+    // still leaves a note for the next start's crash report.
+    startup::install_early_panic_hook();
     // Thumbnails and other renders run on the global pool and on Tauri's
     // blocking threads: both get the render stack (gap G74).
     let _ = rayon::ThreadPoolBuilder::new()
@@ -269,6 +275,18 @@ pub fn run() {
                 gpu_warmup::start(app.handle());
                 return Ok(());
             }
+            // First, before the log is replaced and before anything that may
+            // fail: a crash of the previous run keeps its last lines, and a
+            // panic from here on leaves a note (ADR 0017).
+            let crash_record = if is_headless {
+                None
+            } else {
+                let keep = crate::state::settings::current(app.handle()).crash_reports.unwrap_or(true);
+                contribute::start_crash_records(app.handle(), keep)
+            };
+            contribute::note_phase("setup");
+            #[cfg(feature = "qa-control")]
+            qa_crash::at("setup");
             let startup_state = app.state::<state::startup::StartupState>();
 
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
@@ -309,9 +327,10 @@ pub fn run() {
             }
 
             let config_dir = app_handle.path().app_config_dir().expect("Failed to get config dir");
-            let crash_flag_path = config_dir.join(".gpu_init_crash_flag");
+            let crash_flag_path = config_dir.join(gpu_start_guard::FLAG_FILE);
 
             app.state::<state::gpu::GpuState>().set_crash_flag_path(crash_flag_path.clone());
+            gpu_start_guard::set_flag_path(crash_flag_path.clone());
 
             // The settings are read and migrated here, once per run (`state::settings`).
             let mut settings: AppSettings = (*crate::state::settings::current(&app_handle)).clone();
@@ -322,34 +341,22 @@ pub fn run() {
                 state::lock::lock_recover(&develop.decoded_image_cache).set_capacity(cache_size);
             }
 
-            match startup::gpu_crash_check(&crash_flag_path, settings.processing_backend.as_deref()) {
-                startup::GpuCrashCheck::Clean => {}
-                startup::GpuCrashCheck::InProgressElsewhere => log::info!(
-                    "Another Rawtonic process is initialising the GPU; not treated as a crash."
-                ),
-                startup::GpuCrashCheck::Crashed { fall_back_to_gl } => {
-                    let _ = std::fs::remove_file(&crash_flag_path);
-                    if fall_back_to_gl {
-                        log::warn!(
-                            "GPU Driver crash detected on last run! Falling back to OpenGL backend."
-                        );
-                        settings.processing_backend = Some("gl".to_string());
-                        let _ = crate::state::settings::update(&app_handle, |saved| {
-                            saved.processing_backend = Some("gl".to_string());
-                            Ok(())
-                        });
-                    } else {
-                        log::warn!(
-                            "GPU initialisation did not finish on the last run; OpenGL is not available in this build, keeping the backend."
-                        );
-                    }
-                }
-            }
+            // A crash while the GPU started last time: those backends are
+            // left out of this start and the window says so; the processing
+            // backend preference itself is never changed (`gpu_start_guard`).
+            let (guard, mut startup_messages) = gpu_start_guard::at_start(
+                &config_dir,
+                settings.processing_backend.as_deref(),
+                startup::GL_BACKEND_COMPILED,
+                &rawtonic_contribute::crash::utc_date(rawtonic_contribute::crash::now_secs()),
+                startup::process_alive,
+            );
+            app.state::<state::gpu::GpuState>().set_start_guard(guard.avoid, guard.notice);
             // Earlier builds switched to OpenGL after a supposed crash (also
             // when two processes started together); without OpenGL in the
             // build that left no GPU at all. Undo it.
             if !startup::GL_BACKEND_COMPILED && settings.processing_backend.as_deref() == Some("gl") {
-                log::warn!("Processing backend 'gl' is not available in this build; using auto.");
+                startup_messages.push("Processing backend 'gl' is not available in this build; using auto.".into());
                 settings.processing_backend = Some("auto".to_string());
                 let _ = crate::state::settings::update(&app_handle, |saved| {
                     saved.processing_backend = Some("auto".to_string());
@@ -425,14 +432,11 @@ pub fn run() {
                 }
             }
 
-            // Before the log is replaced: a crash of the previous run keeps
-            // its last lines (ADR 0017, crash report on the next start).
-            let crash_record = if is_headless {
-                None
-            } else {
-                contribute::start_crash_records(&app_handle, settings.crash_reports.unwrap_or(true))
-            };
             startup::setup_logging(&app_handle, "app.log");
+            // What the start decided before the logger existed.
+            for message in &startup_messages {
+                log::warn!("{message}");
+            }
             if !is_headless {
                 // Before the window and its webview: a cold start's first
                 // Develop frame waits for the display variant this compiles.
@@ -554,6 +558,7 @@ pub fn run() {
                     .visible(false);
             }
 
+            contribute::note_phase("window");
             let window = window_builder.build().expect("Failed to build window");
             #[cfg(all(feature = "performance-profiling", target_os = "macos"))]
             if let Ok(ns_window) = window.ns_window() {
@@ -764,6 +769,8 @@ pub fn run() {
             editor_preview::generate_uncropped_preview,
             startup::get_log_file_path,
             gpu_processing::gpu_start_error,
+            gpu_processing::gpu_backend_status,
+            gpu_processing::gpu_backend_use_automatic,
             startup::frontend_log,
             collage::save_collage,
             proof_sheet::proof_sheet_preview,

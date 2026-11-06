@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import cases from '../../crates/engine/src/applied_style_cases.json';
 import rustSource from '../../crates/engine/src/applied_style.rs?raw';
+import { rustRecipeKeys } from '../contracts/recipeKeys.testSupport';
 import {
   APPLIED_STYLE,
   PHOTO_OWN_KEYS,
@@ -118,9 +119,8 @@ describe('applied style', () => {
       rustSource.indexOf('pub const PHOTO_OWN_KEYS'),
       rustSource.indexOf('];', rustSource.indexOf('pub const PHOTO_OWN_KEYS'))
     );
-    expect([...list.matchAll(/"(\w+)"/g)].map((m) => m[1])).toEqual(
-      PHOTO_OWN_KEYS.filter((key) => key !== 'lensProfileFor')
-    );
+    const keys = list.slice(list.indexOf('= [') + 3).replace('crate::lens_recipe::LENS_PROFILE_FOR', '');
+    expect(rustRecipeKeys(keys)).toEqual(PHOTO_OWN_KEYS.filter((key) => key !== 'lensProfileFor'));
     expect(list).toContain('LENS_PROFILE_FOR');
   });
 

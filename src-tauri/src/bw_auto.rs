@@ -17,6 +17,7 @@
 //! benchmark-results/bwa-bw-auto-2026-11-03/REPORT.md).
 
 use rawtonic_recipe::color as recipe_color;
+use rawtonic_recipe::effects;
 
 /// A B&W mix response: channel windows and gains as the shader renders
 /// them (`apply_black_and_white`, `apply_black_and_white_v2` in shader.wgsl,
@@ -299,13 +300,15 @@ pub async fn auto_gray_mix(
         );
         adjustments.global.detail_scale = scale;
         adjustments.global.show_clipping = 0;
-        let lut = recipe["lutPath"].as_str().and_then(|p| {
-            crate::lut_processing::get_or_load_lut(
-                &app_handle.state::<crate::state::luts::LutState>(),
-                p,
-            )
-            .ok()
-        });
+        let lut = recipe[effects::LUT_PATH.into_name()]
+            .as_str()
+            .and_then(|p| {
+                crate::lut_processing::get_or_load_lut(
+                    &app_handle.state::<crate::state::luts::LutState>(),
+                    p,
+                )
+                .ok()
+            });
         let developed = crate::gpu_processing::process_and_get_dynamic_image(
             &context,
             &gpu,

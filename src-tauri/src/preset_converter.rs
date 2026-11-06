@@ -1,5 +1,7 @@
 use rawtonic_recipe::color as recipe_color;
+use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::lens;
 use rawtonic_recipe::tone;
 use regex::Regex;
 use regex::regex;
@@ -489,13 +491,19 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             "ChromaticAberrationBlueYellow",
             rawtonic_recipe::detail::CHROMATIC_ABERRATION_BLUE_YELLOW.name(),
         ),
-        ("PostCropVignetteAmount", "vignetteAmount"),
-        ("PostCropVignetteMidpoint", "vignetteMidpoint"),
-        ("PostCropVignetteFeather", "vignetteFeather"),
-        ("PostCropVignetteRoundness", "vignetteRoundness"),
-        ("GrainAmount", "grainAmount"),
-        ("GrainSize", "grainSize"),
-        ("GrainFrequency", "grainRoughness"),
+        ("PostCropVignetteAmount", effects::VIGNETTE_AMOUNT.name()),
+        (
+            "PostCropVignetteMidpoint",
+            effects::VIGNETTE_MIDPOINT.name(),
+        ),
+        ("PostCropVignetteFeather", effects::VIGNETTE_FEATHER.name()),
+        (
+            "PostCropVignetteRoundness",
+            effects::VIGNETTE_ROUNDNESS.name(),
+        ),
+        ("GrainAmount", effects::GRAIN_AMOUNT.name()),
+        ("GrainSize", effects::GRAIN_SIZE.name()),
+        ("GrainFrequency", effects::GRAIN_ROUGHNESS.name()),
         ("ColorGradeBlending", recipe_color::BLENDING.name()),
         (
             "DefringePurpleAmount",
@@ -577,11 +585,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     // Size and Roughness 1:1 — film grain's scales were calibrated on
     // Lightroom's (notes: reference/grain.md "Imports").
     if adjustments
-        .get("grainAmount")
+        .get(effects::GRAIN_AMOUNT.name())
         .and_then(Value::as_f64)
         .is_some_and(|amount| amount > 0.0)
     {
-        adjustments.insert("grainColor".to_string(), json!(0));
+        adjustments.insert(effects::GRAIN_COLOR.name().to_string(), json!(0));
         adjustments.insert(
             rawtonic_engine::image_processing::GRAIN_VERSION_KEY.to_string(),
             json!(rawtonic_engine::image_processing::GRAIN_VERSION),
@@ -780,11 +788,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             3 => "paintOverlay",
             _ => "highlightPriority",
         };
-        adjustments.insert("vignetteStyle".to_string(), json!(name));
+        adjustments.insert(effects::VIGNETTE_STYLE.name().to_string(), json!(name));
     }
     if let Some(value) = get_attr_as_f64(&attrs, "PostCropVignetteHighlightContrast") {
         adjustments.insert(
-            "vignetteHighlights".to_string(),
+            effects::VIGNETTE_HIGHLIGHTS.name().to_string(),
             json!(value.clamp(0.0, 100.0)),
         );
     }
@@ -821,7 +829,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     // Lightroom's Remove Chromatic Aberration: Rawtonic's measured one.
     if let Some(v) = attrs.get("AutoLateralCA") {
         adjustments.insert(
-            "autoChromaticAberration".to_string(),
+            lens::AUTO_CHROMATIC_ABERRATION.name().to_string(),
             json!(v.trim() == "1"),
         );
     }
@@ -1762,7 +1770,7 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
         out.push("lensProfile");
     }
     if is("HasCrop", "True") {
-        out.push(geometry::CROP.name());
+        out.push("crop");
     }
     if nonzero("PerspectiveUpright") {
         out.push("upright");

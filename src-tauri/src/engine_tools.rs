@@ -2,9 +2,11 @@
 //! loader (EXIF cache, Apple RAW, preprocessing settings). Moved here from
 //! `rawtonic_engine::{auto_adjust, spot_removal}` (ADR 0009).
 
+use rawtonic_recipe::geometry;
+use rawtonic_recipe::lens;
+
 /// Private evaluation: RAWTONIC_AUTO_SAMPLES lists "name<TAB>path" lines;
 /// writes NAME.json with the auto recipe into RAWTONIC_AUTO_OUT.
-use rawtonic_recipe::geometry;
 #[test]
 #[ignore = "requires private RAW samples"]
 fn private_raw_auto_recipes() {
@@ -219,7 +221,7 @@ fn write_upright_recipes() {
         let mut lens = serde_json::json!({});
         rawtonic_engine::embedded_lens::apply_default(&mut lens, std::path::Path::new(path));
         let (gray, sw, sh) = if lens
-            .get("lensDistortionParams")
+            .get(lens::DISTORTION_PARAMS.name())
             .is_some_and(|p| !p.is_null())
         {
             let (_, sw, sh) = analysis_image(&image, 1400);

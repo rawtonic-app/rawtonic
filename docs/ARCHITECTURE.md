@@ -27,13 +27,13 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `catalog` | SQLite schema, sessions/catalogs, recipes, search | `fs`, `metadata` | `lib`, `query`, `add` | `core:test` |
 | `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection | none | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test` |
-| `metadata` | XMP sidecars, provenance, labels, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs` | `lib`, `provenance`, `labels`, `photo_ref` | `core:test` |
+| `metadata` | XMP sidecars, provenance, labels, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `recipe` | `lib`, `provenance`, `labels`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | none | `lib` | `core:test` |
 | `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
 | `interop` | other editors' settings → ours | `metadata` | `lightroom`, `capture_one` | `-p rawtonic-interop` |
 | `tether` | camera tethering helper (ADR 0012) | `fs` | `protocol`, `staging`, `client` | `--mock` camera |
-| `contribute` | scrubbing, relay client (ADR 0017) | `fs` | `scrub`, `payload`, `crash` | panic/abort tests |
+| `contribute` | scrubbing, relay client (ADR 0017) | `fs` | `scrub`, `payload`, `crash`, `native` | panic/abort tests; Windows crash-in-event-log test |
 | `merge` | HDR, panorama, focus stack, DNG | `engine`, `rawdecode`, `rawler` | `hdr`, `panorama`, `dng` | `examples/` |
 | `cli` | `rawtonic` binary, benchmarks | most core, engine, AI crates | `main`, `search_bench` | `crates/cli/tests` |
 
@@ -43,10 +43,10 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `runtime` | stage timing, allocator release | none | `performance`, `allocator` | none special |
 | `rawdecode` | RAW bytes → oriented linear RGB | `rawler`, `runtime` | `raw_processing`, `demosaic` | fixtures |
-| `recipe` | stored + resolved develop recipe, typed keys | serde, serde_json only | `stored`, `tone` | `-p recipe` |
+| `recipe` | stored + resolved develop recipe, typed keys | serde, serde_json only | `stored`, `tone`, `color`, `detail`, `geometry`, `effects`, `lens` | `-p recipe` |
 | `engine` | develop model, masks, looks, lens | fs, metadata, rawdecode, recipe, runtime | `image_processing` | `-p engine` |
 | `gpu` | wgpu pipeline, shaders, display | engine, fs, rawdecode, runtime | `gpu_processing` | `--ignored` GPU |
-| `export` | render, encoders, queue | engine, fs, gpu, metadata, naming, rawdecode, runtime | `file_export` | exports |
+| `export` | render, encoders, queue | engine, fs, gpu, metadata, naming, rawdecode, recipe, runtime | `file_export` | exports |
 
 ### AI crates
 
@@ -306,15 +306,20 @@ proof-of-work stamp; the relay URL is fixed at build time: `relay.rawtonic.cc` i
 overrides (empty: none), debug builds and tests have none), `crash` (`CrashStore` in the config folder's
 `crash-reports`: a run marker, the panic hook's note (`note_panic`: message, location and backtrace reduced to file
 names) and an async-signal-safe note of a fatal signal (`arm`, chained to the handlers before it), both written only
-while `set_recording` is on (off after Never); `start` turns notes of a process that is gone into a scrubbed record with
-the previous run's log tail, `clean_exit` removes them, records expire after 30 days; tests run a real panic hook and a
-real `abort()` in a child process), `stats` (`StatsStore` in the config folder's `usage-stats.json`, channel 4: per ISO
+while `set_recording` is on (off after Never); the marker holds the start phase (`note_phase`); `start` turns notes of a
+process that is gone into a scrubbed record with the previous run's log tail, `start_with` also asks `native` how a run
+gone without a note ended, `clean_exit` removes them, records expire after 30 days; tests run a real panic hook and a
+real `abort()` in a child process), `native` (Windows: the "Application Error" entry (event 1000) Windows writes for a
+crashed process, read at the next start for the run's process id and start time: exception code, module file name and
+offset; chosen over an in-process exception filter, which misses fail-fast aborts and runs on a broken stack, and over WER
+local dumps, which need administrator rights and keep the process memory; its Windows-only test crashes a child), `stats` (`StatsStore` in the config folder's `usage-stats.json`, channel 4: per ISO
 week (UTC) the cameras opened once each, the tools from the relay's fixed list used, app/OS/GPU vendor; kept only while
 on, deleted on off; `due` gives the finished weeks the relay still takes, older ones are dropped). App glue
 `src-tauri/src/contribute.rs` (`contribution_available`/`_prepare`/`_send`/`_delete`,
 `problem_report_context`/`_screenshot`,
-`crash_reports_pending`/`crash_report_mark_asked`/`_remove`/`crash_reports_set_enabled`; `start_crash_records` before
-the log is replaced, `clean_exit` on every exit path, `note_gpu` from the GPU set-up; `start_usage_stats` sends the
+`crash_reports_pending`/`crash_report_mark_asked`/`_remove`/`crash_reports_set_enabled`; `start_crash_records` first in
+the setup (before the log is replaced; `startup::install_early_panic_hook` notes panics until the logger's hook),
+`note_phase`/`note_gpu_phase` for the marker, `clean_exit` on every exit path, `note_gpu` from the GPU set-up; `start_usage_stats` sends the
 finished weeks 30 s after a start when statistics are on, `note_camera` from `load_image`,
 `usage_stats_set_enabled`/`_note_tools`/`_preview`), window capture `src-tauri/src/window_capture.rs` (shared with the
 QA channel); UI `src/components/contribute/` (`ReviewSendDialog`, `ReportDialog` with Copy report / Open on GitHub,
@@ -398,31 +403,39 @@ size), demosaic, gpu_demosaic, DNG opcodes/colour, capture_info, camera colour/e
 #### `recipe`
 
 `recipe` (plan 2.2, ADR 0021) holds the develop recipe in two representations. `StoredRecipe` (owned) and
-`StoredRef` (borrowed) are the JSON value exactly as saved — key presence, explicit `null`s, unknown and nested
-fields — read and written only through typed keys (`Key<T> { name, default, since_version }`, one registry per
-section module); nothing is filled in on load or save. `ResolvedRecipe` holds the typed sections as they render
-(value objects such as `tone::Ev` and `tone::Amount`, which carry the Develop slider ranges but do not clamp),
-produced only by `rawtonic_recipe::normalize` from a stored recipe and never saved. Sections move in one per PR;
-moved so far: tone (exposure, contrast, highlights, shadows, whites, blacks, brightness, centré), colour (white
-balance, presence, mixer, grading, calibration, black-and-white and colour ranges), and detail (sharpening, noise
-reduction and refinements, clarity/dehaze/structure, manual CA, defringe, moiré and diffraction request), and
-geometry (crop/aspect ratio, straighten, orientation, flips and perspective/transform).
-`image_processing::get_global_adjustments_from_json` reads them from `ResolvedRecipe::tone`,
-`ResolvedRecipe::color` and `ResolvedRecipe::detail`. The geometry warp and spatial preparation read
-`ResolvedRecipe::geometry`; geometry has no visibility gate, and its value objects retain stored numbers until the
-existing casts and rendering conversions. `normalize(stored, is_raw)` applies RAW capture defaults to missing
-detail amounts; hidden amounts become neutral, sharpening parameters keep their defaults, and noise refinements
-remain stored. Detail value objects do not clamp; the renderer retains its existing conversions. Absolute white
-balance keeps the renderer's existing clamp; colour sliders otherwise retain their stored values until the existing
-rendering conversions. The crate is below the engine and depends on serde and serde_json only
-(`scripts/check_layering.sh`). The `*Version` keys stay in `engine::recipe_versions` for now (their newest versions
-and `is_new_recipe` live with the engine's tools). The frontend's types of these keys are generated from the
-registry (plan 2.3): each section lists its keys with their TypeScript type and doc (`tone::TS`, `color::TS`,
-`detail::TS`, `geometry::TS`, one entry per section in `ts::SECTIONS`), and `cargo run -p rawtonic-recipe --example
-ts_type` writes `src/generated/recipeKeys.ts` (checked in; `scripts/check.sh` fails when it is stale). Every
-generated key is optional, as in a saved recipe; `Adjustments` in `src/utils/adjustments.ts` marks those its
-objects always hold. Nested value types (`Hsl`, `ColorRange`, …) and the mask layers' adjustments stay written in
-`adjustments.ts`.
+`StoredRef` (borrowed) are the JSON value exactly as saved — key presence, explicit `null`s, unknown and
+nested fields — read and written only through typed keys (`Key<T> { name, default, since_version }`, one
+registry per section module); nothing is filled in on load or save. `ResolvedRecipe` holds the typed sections
+as they render (value objects such as `tone::Ev` and `tone::Amount`, which carry the Develop slider ranges but
+do not clamp), produced only by `rawtonic_recipe::normalize` from a stored recipe and never saved. Sections
+move in one per PR; moved so far: tone (exposure, contrast, highlights, shadows, whites, blacks, brightness,
+centré), colour (white balance, presence, mixer, grading, calibration, black-and-white and colour ranges),
+detail (sharpening, noise reduction and refinements, clarity/dehaze/structure, manual CA, defringe, moiré and
+diffraction request), geometry (crop/aspect ratio, straighten, orientation, flips and perspective/transform),
+effects (post-crop vignette, grain, LUT references/amount, glow/halation/flares and depth-based lens
+blur), and lens (correction mode, profile parameters, amounts and switches, manual lens vignetting, the automatic
+lateral CA switch, `lensProfileFor` and the lens version key names). `image_processing::get_global_adjustments_from_json` reads them from `ResolvedRecipe::tone`,
+`ResolvedRecipe::color`, `ResolvedRecipe::detail`, `ResolvedRecipe::effects` and (the warp's lens parameters) `ResolvedRecipe::lens`, which like geometry has no visibility gate. The geometry warp and spatial
+preparation read `ResolvedRecipe::geometry`; geometry has no visibility gate, and its value objects retain
+stored numbers until the existing casts and rendering conversions. `normalize(stored, is_raw)` applies RAW
+capture defaults to missing detail amounts; hidden amounts become neutral, sharpening parameters keep their
+defaults, and noise refinements remain stored. Detail value objects do not clamp; the renderer retains its
+existing conversions. Absolute white balance keeps the renderer's existing clamp; colour sliders otherwise
+retain their stored values until the existing rendering conversions. The crate is below the engine and depends
+on serde and serde_json only (`scripts/check_layering.sh`). Effects amounts keep their existing visibility
+rules: hidden effects use defaults, grain structure/colour remain stored, and lens blur's stage retains its
+own visibility/enable gate. LUT and depth-map strings are borrowed from the stored recipe, so `ResolvedRecipe`
+carries its lifetime and normalization never clones those payloads. Lens blur's missing amount/fades remain
+50/15, distinct from the frontend's initial 40/20. The resource visitor in `metadata` and LUT loading in
+`export` also depend on `recipe` for the shared key names. The version types stay in `engine::recipe_versions`
+for now (their newest versions and `is_new_recipe` live with the engine's tools); the grain version key is in
+the effects registry. The frontend's types of these keys are generated from the registry (plan 2.3): each
+section lists its keys with their TypeScript type and doc (`tone::TS`, `color::TS`, `detail::TS`,
+`geometry::TS`, `effects::TS`, `lens::TS`, one entry per section in `ts::SECTIONS`), and `cargo run -p rawtonic-recipe
+--example ts_type` writes `src/generated/recipeKeys.ts` (checked in; `scripts/check.sh` fails when it is
+stale). Every generated key is optional, as in a saved recipe; `Adjustments` in `src/utils/adjustments.ts`
+marks those its objects always hold. Nested value types (`Hsl`, `ColorRange`, …) and the mask layers'
+adjustments stay written in `adjustments.ts`.
 
 #### `engine`
 
@@ -474,7 +487,12 @@ equivalence tests).
 
 `gpu` (gpu_processing: GpuProcessor, shader variants + WGSL in `crates/gpu/src/shaders/`, readback, WgpuDisplay
 presentation, `GpuContext::headless`, GPU equivalence tests; `device_start`: the device with a backend fallback, Windows
-Vulkan/DX12 then OpenGL, every failure named; `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by
+Vulkan/DX12 then OpenGL, every failure named, backends to leave out (`avoid`) and each step announced (`on_step`) for the
+app's start guard `src-tauri/src/gpu_start_guard.rs` (a flag naming backends and step while a device starts and its first
+processor compiles; after a crash the next start leaves those backends out with a notice, the one after retries the
+choice once, a second crash keeps the fallback until Preferences → Processing → Use automatic again; state in the
+config folder's `gpu-start.json`, the processing backend preference is never changed; `RAWTONIC_TEST_CRASH` in
+`qa_crash.rs`, `qa-control` builds only); `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by
 adapter, driver and app version, filled ahead by `rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, run by
 the Windows installer's hook `src-tauri/windows/installer-hooks.nsh`));
 

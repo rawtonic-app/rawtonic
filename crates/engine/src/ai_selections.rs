@@ -7,10 +7,10 @@
 //! pixels whether it was opened first or not. The networks run behind
 //! `SelectionDetector` (the app's loaded models, the CLI's model folder).
 
-use rawtonic_recipe::geometry;
 use std::sync::Arc;
 
 use image::DynamicImage;
+use rawtonic_recipe::geometry;
 use serde_json::{Map, Value, json};
 
 use crate::mask_generation::{mask_warp, prepare_shared_warped_mask_image};
@@ -231,7 +231,7 @@ pub fn detect_missing(
 /// geometry is still the one the selection was computed in. Returns
 /// whether anything changed.
 pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
-    let geometry = mask_warp(stored);
+    let warp = mask_warp(stored);
     let frame = |a: &Value| {
         [
             a[geometry::ROTATION.name()].as_f64().unwrap_or(0.0) as f32 as f64,
@@ -254,7 +254,7 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
             p[geometry::FLIP_VERTICAL.name()].as_bool().unwrap_or(false) as u8 as f64,
             p[geometry::ORIENTATION_STEPS.name()].as_u64().unwrap_or(0) as f64,
         ];
-        if p["warp"] != geometry || computed_frame != stored_frame {
+        if p["warp"] != warp || computed_frame != stored_frame {
             continue;
         }
         let Some(layers) = stored.get_mut("masks").and_then(Value::as_array_mut) else {

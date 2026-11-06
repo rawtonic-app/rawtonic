@@ -41,6 +41,7 @@ import StorageSettings from './StorageSettings';
 import PrefSegments from './PrefSegments';
 import UpdateSettings from './UpdateSettings';
 import CrashReportSettings from './CrashReportSettings';
+import GpuBackendState from './GpuBackendState';
 import UsageStatsSettings from './UsageStatsSettings';
 import TetheringSettings from './TetheringSettings';
 import DevelopToolsSide from '../studio/DevelopToolsSide';
@@ -476,7 +477,10 @@ export default function SettingsPanel({
   };
 
   const handleSaveAndRelaunch = async () => {
-    await onSettingsChange({
+    // Queued, not awaited: the relaunch drain below waits for this save within
+    // its own bound, so a write that hangs shows the failure message instead
+    // of leaving the button spinning for ever.
+    void onSettingsChange({
       ...appSettings,
       ...processingSettings
     });
@@ -1498,6 +1502,9 @@ export default function SettingsPanel({
                               : 'auto'
                           }
                           triggerClassName="bg-bg-primary"
+                        />
+                        <GpuBackendState
+                          onUseAutomatic={() => handleProcessingSettingChange('processingBackend', 'auto')}
                         />
                       </SettingItem>
 

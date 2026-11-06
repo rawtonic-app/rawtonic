@@ -126,10 +126,9 @@ pub(crate) async fn merge_photos(
         return Err("Select at least two photos to merge.".to_string());
     }
     let sources: Vec<PathBuf> = paths.iter().map(|p| parse_virtual_path(p).0).collect();
-    let slot = state.result.clone();
     state.current_job.store(job, Ordering::SeqCst);
     // An older result is no longer wanted: free its memory now.
-    *lock_recover(&slot) = None;
+    *lock_recover(&state.result) = None;
     let _running = match state.running.try_lock() {
         Ok(guard) => guard,
         Err(_) => {

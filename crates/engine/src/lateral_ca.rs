@@ -20,6 +20,7 @@
 //! nothing.
 
 use image::Rgb32FImage;
+use rawtonic_recipe::lens;
 use rayon::prelude::*;
 
 /// Long edge of the copy the estimate works on. A radial scale is the same
@@ -57,7 +58,7 @@ use crate::recipe_versions::AutoCaVersion;
 
 /// The recipe key naming the estimate a recipe's automatic lateral CA
 /// correction uses.
-pub const VERSION_KEY: &str = "autoCaVersion";
+pub const VERSION_KEY: &str = lens::AUTO_CA_VERSION.name();
 /// The newest estimate: 3 (2026-10-17), the default for new RAW edits.
 /// Version 2 (`estimate_v2`, 2026-10-17) is refined at full resolution and
 /// applied only when it is trustworthy, by default only where the lens
@@ -68,7 +69,7 @@ pub const VERSION_KEY: &str = "autoCaVersion";
 /// and only when `autoChromaticAberration` is on.
 pub const VERSION: u64 = 3;
 /// The key of the Remove chromatic aberration switch.
-pub const SWITCH_KEY: &str = "autoChromaticAberration";
+pub const SWITCH_KEY: &str = lens::AUTO_CHROMATIC_ABERRATION.name();
 
 /// The recipe's estimate version: `autoCaVersion`, 1 when missing, never
 /// newer than this renderer knows.

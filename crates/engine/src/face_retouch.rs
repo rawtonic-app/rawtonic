@@ -27,11 +27,12 @@
 //!
 //! Scales follow the face: the eye distance in base pixels.
 
-use rawtonic_recipe::geometry;
+use rawtonic_recipe::lens;
 use std::io::Cursor;
 
 use base64::{Engine as _, engine::general_purpose};
 use image::{GrayImage, Rgb32FImage};
+use rawtonic_recipe::geometry;
 use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
@@ -179,14 +180,14 @@ pub struct FaceRetouch {
 /// Geometry keys (cache_utils) that correct colour, not where a pixel is:
 /// vignetting, lateral CA and edge fringes.
 const COLOUR_ONLY_KEYS: [&str; 9] = [
-    "lensVignetteAmount",
-    "lensVignetteEnabled",
-    "lensManualVignetteAmount",
-    "lensManualVignetteMidpoint",
-    "lensTcaAmount",
-    "lensTcaEnabled",
-    "autoChromaticAberration",
-    "autoCaVersion",
+    lens::VIGNETTE_AMOUNT.name(),
+    lens::VIGNETTE_ENABLED.name(),
+    lens::MANUAL_VIGNETTE_AMOUNT.name(),
+    lens::MANUAL_VIGNETTE_MIDPOINT.name(),
+    lens::TCA_AMOUNT.name(),
+    lens::TCA_ENABLED.name(),
+    lens::AUTO_CHROMATIC_ABERRATION.name(),
+    lens::AUTO_CA_VERSION.name(),
     "fringeVersion",
 ];
 
@@ -211,7 +212,7 @@ fn first_frame_key(adjustments: &Value) -> String {
     keys_json(adjustments, crate::cache_utils::GEOMETRY_KEYS.iter())
 }
 
-fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str>) -> String {
+fn keys_json<'a>(adjustments: &Value, extra: impl Iterator<Item = &'a &'a str>) -> String {
     let mut keys: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
     for key in [
         geometry::ORIENTATION_STEPS.name(),
@@ -220,7 +221,7 @@ fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str
         geometry::ROTATION.name(),
     ]
     .into_iter()
-    .chain(geometry.copied())
+    .chain(extra.copied())
     {
         if let Some(v) = adjustments.get(key).filter(|v| !v.is_null()) {
             keys.insert(key, v);

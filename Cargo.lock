@@ -5506,6 +5506,7 @@ dependencies = [
  "sha2 0.11.0",
  "tempfile",
  "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5596,6 +5597,7 @@ dependencies = [
  "rawtonic-metadata",
  "rawtonic-naming",
  "rawtonic-rawdecode",
+ "rawtonic-recipe",
  "rawtonic-runtime",
  "rawtonic-segment",
  "rayon",
@@ -5730,6 +5732,7 @@ dependencies = [
  "rawler",
  "rawtonic-engine",
  "rawtonic-rawdecode",
+ "rawtonic-recipe",
  "rayon",
  "serde",
  "serde_json",
@@ -5742,6 +5745,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "rawtonic-fs",
+ "rawtonic-recipe",
  "roxmltree",
  "serde",
  "serde_json",

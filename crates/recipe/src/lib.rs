@@ -19,8 +19,10 @@
 
 pub mod color;
 pub mod detail;
+pub mod effects;
 pub mod geometry;
 mod key;
+pub mod lens;
 mod resolved;
 mod stored;
 pub mod tone;

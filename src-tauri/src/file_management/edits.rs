@@ -20,6 +20,7 @@ use image::DynamicImage;
 use rawtonic_metadata::culling::Rating;
 use rawtonic_metadata::labels::EDITOR_TAG_PREFIX;
 use rawtonic_metadata::photo_ref::PhotoRef;
+use rawtonic_recipe::lens;
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -694,9 +695,9 @@ fn pasted_lens_data(
         source,
     );
     let keys = [
-        "lensMaker",
-        "lensModel",
-        "lensDistortionParams",
+        lens::MAKER.name(),
+        lens::MODEL.name(),
+        lens::DISTORTION_PARAMS.name(),
         rawtonic_engine::lens_recipe::LENS_PROFILE_FOR,
     ];
     keys.iter()
@@ -785,10 +786,22 @@ pub async fn apply_auto_lens_correction_to_paths(
                 );
 
                 if let Some(obj) = existing_metadata.adjustments.as_object_mut() {
-                    obj.insert("lensCorrectionMode".to_string(), serde_json::json!("auto"));
-                    obj.insert("lensDistortionEnabled".to_string(), serde_json::json!(true));
-                    obj.insert("lensTcaEnabled".to_string(), serde_json::json!(true));
-                    obj.insert("lensVignetteEnabled".to_string(), serde_json::json!(true));
+                    obj.insert(
+                        lens::CORRECTION_MODE.name().to_string(),
+                        serde_json::json!("auto"),
+                    );
+                    obj.insert(
+                        lens::DISTORTION_ENABLED.name().to_string(),
+                        serde_json::json!(true),
+                    );
+                    obj.insert(
+                        lens::TCA_ENABLED.name().to_string(),
+                        serde_json::json!(true),
+                    );
+                    obj.insert(
+                        lens::VIGNETTE_ENABLED.name().to_string(),
+                        serde_json::json!(true),
+                    );
                 }
 
                 // Detected again on the user's request: from the current database.

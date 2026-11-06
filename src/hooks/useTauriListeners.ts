@@ -30,6 +30,7 @@ import { PhotoBatch, batchPhotoSettled, photoBatches, unsettledPhotos } from '..
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave } from './useEditorActions';
 import { sourceOf } from '../entities/photo/photoRef';
+import { gpuBackendStatus, showGpuBackendNotice } from '../components/panel/gpuBackend';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -823,6 +824,13 @@ export function useTauriListeners({
       .then(() => invoke<string | null>(Invokes.GetGpuStartError))
       .then((error) => {
         if (isEffectActive && typeof error === 'string' && error) showGpuStartError(error);
+      })
+      .catch(() => {});
+    // A backend left out after a crash at an earlier start is said, with
+    // the one used instead (it answers once the GPU started or failed).
+    gpuBackendStatus()
+      .then((status) => {
+        if (isEffectActive) showGpuBackendNotice(status);
       })
       .catch(() => {});
 

@@ -14,7 +14,7 @@ use rawtonic_contribute::scrub::Scrubber;
 use rawtonic_contribute::stats::{Sent, StatsStore};
 use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::{LazyLock, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
 
 static SCRUBBER: LazyLock<Scrubber> = LazyLock::new(Scrubber::for_this_machine);
@@ -219,11 +219,24 @@ pub(crate) fn start_crash_records(app: &AppHandle, keep: bool) -> Option<CrashRe
     };
     let previous_log =
         || log_path(app).and_then(|path| crash::read_log_end(&path, crash::LOG_READ_BYTES));
+    // A run gone without a note: Windows' Application log may name the
+    // native crash that ended it (`rawtonic_contribute::native`).
+    let exe_name = std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            exe.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default();
+    let native = |ended: rawtonic_contribute::crash::EndedRun| {
+        rawtonic_contribute::native::find_crash(&exe_name, ended.pid, ended.started)
+    };
     let record = store
-        .start(
+        .start_with(
             &run,
             crate::startup::process_alive,
             previous_log,
+            native,
             &SCRUBBER,
             keep,
         )
@@ -238,6 +251,37 @@ pub(crate) fn start_crash_records(app: &AppHandle, keep: bool) -> Option<CrashRe
     crash::set_recording(&store, keep);
     let _ = CRASHES.set(store);
     record
+}
+
+/// The start phase of the main thread and of the GPU start, as this run's
+/// marker holds them (a crash record names where the start was).
+static PHASE: Mutex<(&str, Option<String>)> = Mutex::new(("setup", None));
+
+fn write_phase(phase: &(&str, Option<String>)) {
+    let Some(store) = CRASHES.get() else { return };
+    let text = match &phase.1 {
+        Some(gpu) => format!("{}; GPU {gpu}", phase.0),
+        None => phase.0.to_string(),
+    };
+    let _ = store.note_phase(std::process::id(), &text);
+}
+
+/// The main thread's start phase ("setup", "window", "running").
+pub(crate) fn note_phase(main: &'static str) {
+    let mut phase = PHASE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    phase.0 = main;
+    write_phase(&phase);
+}
+
+/// The GPU start's step ("device on vulkan"), or none once it is done.
+pub(crate) fn note_gpu_phase(gpu: Option<String>) {
+    let mut phase = PHASE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    phase.1 = gpu;
+    write_phase(&phase);
 }
 
 /// The graphics adapter, once known: for reports and this run's marker.
@@ -257,6 +301,8 @@ pub(crate) fn note_gpu(info: &wgpu::AdapterInfo) {
 /// A clean exit: the next start has no crash to ask about.
 pub(crate) fn clean_exit() {
     crash::exiting();
+    // A quit while the GPU still starts (its first compile) is no GPU crash.
+    crate::gpu_start_guard::clean_exit();
     if let Some(store) = CRASHES.get() {
         store.clean_exit(std::process::id());
     }

@@ -15,6 +15,10 @@
 //! crash instead of a message. Notes:
 //! parity-gaps/G57-dependency-and-distribution-qualification.md (WW).
 //!
+//! Backends an earlier start crashed on are left out (`avoid`, the app's
+//! start guard); `on_step` hears each step before it runs, so the next
+//! start knows which backend a crash inside it belongs to.
+//!
 //! `RAWTONIC_GPU_FAIL_BACKENDS=vulkan` (a comma list as `WGPU_BACKEND`)
 //! makes device creation fail on those backends, to test the fallback on a
 //! machine where they work.
@@ -137,18 +141,38 @@ pub struct StartedDevice {
     pub queue: wgpu::Queue,
 }
 
+/// A step of a device start, heard before it runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartStep {
+    /// Picking an adapter among these backends.
+    Adapter(wgpu::Backends),
+    /// Creating the device on this backend.
+    Device(wgpu::Backend),
+}
+
 pub fn start_device(
     surface_for: impl Fn(&wgpu::Instance) -> Option<wgpu::Surface<'static>>,
+    avoid: wgpu::Backends,
+    on_step: impl Fn(StartStep),
 ) -> Result<StartedDevice, String> {
     let failing = std::env::var("RAWTONIC_GPU_FAIL_BACKENDS")
         .map(|list| wgpu::Backends::from_comma_list(&list))
         .unwrap_or(wgpu::Backends::empty());
     // wgpu's no-op backend never yields an adapter unless asked for.
-    let available = wgpu::Instance::enabled_backend_features() - wgpu::Backends::NOOP;
+    let compiled = wgpu::Instance::enabled_backend_features() - wgpu::Backends::NOOP;
+    let available = compiled - avoid;
+    if available.is_empty() {
+        return Err(format!(
+            "No graphics backend is left to try: {} crashed while starting at an earlier start \
+             (Preferences → Processing → Use automatic again tries them again)",
+            names(compiled & avoid)
+        ));
+    }
     let tiers = backend_tiers(wgpu::Backends::from_env(), available);
     let ((instance, adapter, surface), (device, queue)) = start_with_fallback(
         &tiers,
         |backends| {
+            on_step(StartStep::Adapter(backends));
             let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
             descriptor.backends = backends;
             let instance = wgpu::Instance::new(descriptor);
@@ -168,6 +192,7 @@ pub fn start_device(
             if let Some(reason) = unsupported_adapter(&adapter.get_info()) {
                 return Err(reason.into());
             }
+            on_step(StartStep::Device(adapter.get_info().backend));
             if failing.contains(adapter.get_info().backend.into()) {
                 return Err("failed on purpose (RAWTONIC_GPU_FAIL_BACKENDS)".into());
             }
