@@ -2259,9 +2259,11 @@ fn estimate_sizes(
         all_adjustments.global.detail_scale = scale;
         all_adjustments.global.show_clipping = 0;
 
-        let lut = adjustments_clone[effects::LUT_PATH.into_name()].as_str().and_then(|p| {
-            get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
-        });
+        let lut = adjustments_clone[effects::LUT_PATH.into_name()]
+            .as_str()
+            .and_then(|p| {
+                get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+            });
         let unique_hash =
             calculate_full_job_hash(&loaded_image.path, &adjustments_clone).wrapping_add(1);
 
@@ -2432,9 +2434,11 @@ fn estimate_sizes(
         all_adjustments.global.detail_scale = total_scale;
         all_adjustments.global.show_clipping = 0;
 
-        let lut = js_adjustments[effects::LUT_PATH.into_name()].as_str().and_then(|p| {
-            get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
-        });
+        let lut = js_adjustments[effects::LUT_PATH.into_name()]
+            .as_str()
+            .and_then(|p| {
+                get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+            });
         let unique_hash =
             calculate_full_job_hash(&source_path_str, &js_adjustments).wrapping_add(1);
 

@@ -1423,9 +1423,12 @@ fn render_probe(
             probe.global.output_space[3] = image_processing::LEVELS_INPUT_PROBE;
         }
     }
-    let lut = recipe[effects::LUT_PATH.into_name()].as_str().and_then(|p| {
-        lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
-    });
+    let lut = recipe[effects::LUT_PATH.into_name()]
+        .as_str()
+        .and_then(|p| {
+            lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
+                .ok()
+        });
     gpu_processing::process_and_get_dynamic_image_with_preview_shader(
         &context,
         &gpu,

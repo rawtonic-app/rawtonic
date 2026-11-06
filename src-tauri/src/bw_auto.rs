@@ -300,13 +300,15 @@ pub async fn auto_gray_mix(
         );
         adjustments.global.detail_scale = scale;
         adjustments.global.show_clipping = 0;
-        let lut = recipe[effects::LUT_PATH.into_name()].as_str().and_then(|p| {
-            crate::lut_processing::get_or_load_lut(
-                &app_handle.state::<crate::state::luts::LutState>(),
-                p,
-            )
-            .ok()
-        });
+        let lut = recipe[effects::LUT_PATH.into_name()]
+            .as_str()
+            .and_then(|p| {
+                crate::lut_processing::get_or_load_lut(
+                    &app_handle.state::<crate::state::luts::LutState>(),
+                    p,
+                )
+                .ok()
+            });
         let developed = crate::gpu_processing::process_and_get_dynamic_image(
             &context,
             &gpu,
