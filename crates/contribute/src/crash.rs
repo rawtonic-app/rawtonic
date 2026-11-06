@@ -573,6 +573,10 @@ impl CrashStore {
             }
             let mut still = Vec::new();
             for mut earlier in std::mem::take(&mut carried) {
+                // Past its days it is dropped unlooked (no new record from it).
+                if run.now.saturating_sub(earlier.started) > LOST_RUN_MAX_AGE_SECS {
+                    continue;
+                }
                 let found = if hit.is_none() {
                     native(EndedRun {
                         pid: earlier.pid,
@@ -1496,6 +1500,7 @@ mod tests {
     /// quit that never gets an event stops being looked for.
     #[test]
     fn a_native_crash_published_after_the_next_start_is_found_later() {
+        let _serial = exclusive();
         let (_dir, store) = store();
         store
             .start(&run(30, T0), |_| false, || None, &scrubber(), true)
@@ -1615,6 +1620,39 @@ mod tests {
         set_recording(&store, false);
         assert!(!store.path(LOST_RUNS).exists());
         set_recording(&store, true);
+
+        // Past its seven days a waiting run is not looked up any more, even
+        // when its event would be found now: no new record.
+        store
+            .start(&run(80, T0 + 400), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        store
+            .start_with(
+                &run(81, T0 + 410),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        store.clean_exit(81);
+        assert!(store.path(LOST_RUNS).exists());
+        let late = store
+            .start_with(
+                &run(82, T0 + 400 + LOST_RUN_MAX_AGE_SECS + 1),
+                |_| false,
+                || None,
+                |ended| {
+                    assert_ne!(ended.pid, 80, "looked up past its days");
+                    None
+                },
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(late, None);
+        assert!(!store.path(LOST_RUNS).exists());
     }
 
     /// A panic before the run marked itself (early in the start) is
