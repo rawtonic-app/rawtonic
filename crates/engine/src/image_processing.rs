@@ -9670,3 +9670,7 @@ mod reset_recipe_edited_tests {
         assert!(is_image_edited(&old, true, None));
     }
 }
+
+#[cfg(test)]
+#[path = "image_processing_uniform_tests.rs"]
+mod uniform_snapshot_tests;
