@@ -102,6 +102,7 @@ mod session_move;
 mod snapshots;
 mod spot_removal;
 mod stacks;
+mod start_failure;
 mod startup;
 mod state;
 mod storage;
@@ -163,6 +164,22 @@ pub fn run() {
         .build_global();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // A panic that ends the start (before the window's page is ready) says
+    // so in a message box on Windows instead of closing without a word.
+    let headless = start_failure::looks_headless(&args);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| start(args)));
+    if let Err(payload) = outcome {
+        if !headless && !start_failure::started() {
+            start_failure::tell_start_failed(
+                &start_failure::short_reason(payload.as_ref()),
+                rawtonic_contribute::crash::panic_noted(),
+            );
+        }
+        std::panic::resume_unwind(payload);
+    }
+}
+
+fn start(args: Vec<String>) {
     let invocation_dir =
         launch_request::invocation_dir(|name| std::env::var_os(name), std::env::current_dir().ok());
     // The working directory itself stays: an AppImage's WebKit finds its
@@ -173,6 +190,23 @@ pub fn run() {
         std::process::exit(2);
     }
     let is_headless = launch_req.is_headless();
+    let context = tauri::generate_context!();
+    if !is_headless {
+        // Before any webview: without the runtime Tauri's own box says only
+        // "Error", and the failed window would count as a crash.
+        #[cfg(windows)]
+        if start_failure::webview2_missing() {
+            start_failure::tell_webview2_missing();
+            std::process::exit(1);
+        }
+        // A panic from here until the setup arms the crash records is
+        // noted too (only where Tauri's folders are the default ones).
+        if context.config().app.app_directories_override.is_none() {
+            contribute::arm_early(&context.config().identifier);
+        }
+        #[cfg(feature = "qa-control")]
+        qa_crash::at("start");
+    }
 
     let mut builder = tauri::Builder::default();
 
@@ -1012,7 +1046,7 @@ pub fn run() {
             guided_perspective::calculate_guided_perspective,
             guided_perspective::calculate_manual_transform,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(#[allow(unused_variables)] |app_handle, event| {
             match event {

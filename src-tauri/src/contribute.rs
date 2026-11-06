@@ -211,7 +211,9 @@ static GPU: OnceLock<Gpu> = OnceLock::new();
 /// panic and signal hooks. Not for headless runs.
 pub(crate) fn start_crash_records(app: &AppHandle, keep: bool) -> Option<CrashRecord> {
     let dir = app.path().app_config_dir().ok()?.join("crash-reports");
-    let store = CrashStore::new(dir);
+    // Windows publishes a crash's Application log entry a little after the
+    // process ended: a start too soon after it looks again later.
+    let store = CrashStore::new(dir).retrying_native_lookups(cfg!(windows));
     let run = ThisRun {
         pid: std::process::id(),
         app: app_info(app),
@@ -251,6 +253,31 @@ pub(crate) fn start_crash_records(app: &AppHandle, keep: bool) -> Option<CrashRe
     crash::set_recording(&store, keep);
     let _ = CRASHES.set(store);
     record
+}
+
+/// Before the app exists (a panic while it is built or set up): notes a
+/// panic in the crash store an earlier start made, under the app's config
+/// folder for `identifier` (where Tauri puts it without a folder override),
+/// unless the settings say Never. Returns whether it armed.
+pub(crate) fn arm_early(identifier: &str) -> bool {
+    let (Some(config), Some(data)) = (dirs::config_dir(), dirs::data_dir()) else {
+        return false;
+    };
+    let settings = std::fs::read(data.join(identifier).join("settings.json")).unwrap_or_default();
+    if crash_reports_off(&settings) {
+        return false;
+    }
+    crash::arm_early(&CrashStore::new(
+        config.join(identifier).join("crash-reports"),
+    ))
+}
+
+/// Whether a settings file says Never to crash reports (`crashReports`).
+fn crash_reports_off(settings_json: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(settings_json)
+        .ok()
+        .and_then(|settings| settings.get("crashReports")?.as_bool())
+        == Some(false)
 }
 
 /// The start phase of the main thread and of the GPU start, as this run's
@@ -560,4 +587,20 @@ pub async fn usage_stats_preview(app_handle: AppHandle) -> UsageStatsPreview {
     tauri::async_runtime::spawn_blocking(move || usage_stats_preview_blocking(app_handle))
         .await
         .expect("usage_stats_preview task panicked")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::crash_reports_off;
+
+    #[test]
+    fn only_an_explicit_never_turns_early_crash_notes_off() {
+        assert!(crash_reports_off(
+            br#"{"crashReports": false, "theme": "dark"}"#
+        ));
+        assert!(!crash_reports_off(br#"{"crashReports": true}"#));
+        assert!(!crash_reports_off(br#"{"theme": "dark"}"#));
+        assert!(!crash_reports_off(b""));
+        assert!(!crash_reports_off(b"not json"));
+    }
 }

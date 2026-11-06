@@ -32,6 +32,17 @@ const MARKER: &str = "running.json";
 const PANIC_NOTE: &str = "panic.json";
 const SIGNAL_NOTE: &str = "signal.txt";
 const RECORD_PREFIX: &str = "crash-";
+/// Runs that ended without a note whose native crash was not found yet.
+const UNRESOLVED: &str = "unresolved.json";
+/// Starts that look an unresolved run up, the first included: Windows
+/// publishes a crash's "Application Error" entry some seconds after the
+/// process ended, so a start right after a crash can come too early.
+pub const UNRESOLVED_LOOKUPS: u32 = 5;
+/// Days an unresolved run is looked up at most (a forced quit or a power
+/// loss never gets an entry).
+pub const UNRESOLVED_DAYS: u64 = 3;
+/// Unresolved runs kept at most (the newest).
+const UNRESOLVED_MAX: usize = 5;
 
 /// The `app` block every payload carries (ADR 0017).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,6 +171,23 @@ fn phase_words(phase: Option<&str>) -> String {
     }
 }
 
+/// A native crash's message and location for a record.
+fn native_words(
+    crash: &crate::native::NativeCrash,
+    phase: Option<&str>,
+) -> (String, String, Option<String>) {
+    (
+        format!(
+            "Rawtonic was ended by {} in {}{} (no Rust panic was recorded; Windows reported the fault).",
+            crash.what(),
+            crash.place(),
+            phase_words(phase)
+        ),
+        crash.place(),
+        None,
+    )
+}
+
 /// The first panic of a run, reduced as the hook writes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PanicNote {
@@ -169,6 +197,29 @@ struct PanicNote {
     location: String,
     #[serde(default)]
     backtrace: Option<String>,
+    /// Written before this run had its marker (a panic early in the start,
+    /// [`arm_early`]): the marker on disk is an earlier run's.
+    #[serde(default)]
+    early: bool,
+}
+
+/// A run that ended without a clean exit or a note and whose native crash
+/// was not found yet: later starts look again ([`UNRESOLVED_LOOKUPS`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Unresolved {
+    pid: u32,
+    started: u64,
+    app: AppInfo,
+    #[serde(default)]
+    gpu: Option<Gpu>,
+    #[serde(default)]
+    phase: Option<String>,
+    /// That run's last log lines, scrubbed (the next run replaces its log).
+    #[serde(default)]
+    log_tail: Option<String>,
+    /// When it was first seen unresolved (Unix seconds).
+    seen: u64,
+    lookups: u32,
 }
 
 /// One crash, as it is kept until it is sent, refused or 30 days old.
@@ -425,11 +476,23 @@ pub struct ThisRun {
 #[derive(Debug, Clone)]
 pub struct CrashStore {
     dir: PathBuf,
+    retry_native: bool,
 }
 
 impl CrashStore {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            retry_native: false,
+        }
+    }
+
+    /// A run whose native crash is not found at the next start is looked
+    /// up again at later ones (where the lookup can find crashes that are
+    /// published late: Windows' Application log).
+    pub fn retrying_native_lookups(mut self, on: bool) -> Self {
+        self.retry_native = on;
+        self
     }
 
     pub fn dir(&self) -> &Path {
@@ -464,12 +527,16 @@ impl CrashStore {
 
     /// [`Self::start`], where `native` finds how a run that left its marker
     /// but no note ended (Windows' Application log, `native::find_crash`).
+    /// A panic noted before its run had a marker ([`arm_early`]) becomes a
+    /// record of its own; with [`Self::retrying_native_lookups`] a run
+    /// whose crash is not found yet is looked up again at later starts.
+    /// Returns the newest record made.
     pub fn start_with(
         &self,
         run: &ThisRun,
         alive: impl Fn(u32) -> bool,
         previous_log: impl FnOnce() -> Option<String>,
-        native: impl FnOnce(EndedRun) -> Option<crate::native::NativeCrash>,
+        mut native: impl FnMut(EndedRun) -> Option<crate::native::NativeCrash>,
         scrubber: &Scrubber,
         keep: bool,
     ) -> std::io::Result<Option<CrashRecord>> {
@@ -481,8 +548,16 @@ impl CrashStore {
         {
             return Ok(None);
         }
-        let panic: Option<PanicNote> = read_json(&self.path(PANIC_NOTE));
-        let panic = panic.filter(|note| marker.as_ref().is_none_or(|m| m.pid == note.pid));
+        let note: Option<PanicNote> = read_json(&self.path(PANIC_NOTE));
+        // The marker's run's own panic, or one of a later run that panicked
+        // before it wrote its marker.
+        let (panic, early_panic) = match note {
+            Some(note) if marker.as_ref().is_none_or(|m| m.pid == note.pid) => (Some(note), None),
+            Some(note) if note.early && marker.as_ref().is_some_and(|m| note.at >= m.started) => {
+                (None, Some(note))
+            }
+            _ => (None, None),
+        };
         let signal_path = self.path(SIGNAL_NOTE);
         let signal = std::fs::read_to_string(&signal_path)
             .ok()
@@ -495,28 +570,44 @@ impl CrashStore {
                     .map_or(run.now, |d| d.as_secs());
                 (signal, at)
             });
-        // A run that is gone without a clean exit or a note.
-        let native = match &marker {
-            Some(m) if keep && m.pid != run.pid && panic.is_none() && signal.is_none() => {
-                native(EndedRun {
-                    pid: m.pid,
-                    started: m.started,
-                })
-            }
-            _ => None,
+        let mut unresolved: Vec<Unresolved> = if keep && self.retry_native {
+            read_json(&self.path(UNRESOLVED)).unwrap_or_default()
+        } else {
+            Vec::new()
         };
+        let mut previous_log = Some(previous_log);
+        let mut log_tail = || {
+            previous_log
+                .take()
+                .and_then(|read| read())
+                .and_then(|log| log_tail(&log, scrubber))
+        };
+        let mut records = Vec::new();
+
+        // A run that is gone without a clean exit or a note.
+        let ended = marker
+            .as_ref()
+            .filter(|m| keep && m.pid != run.pid && panic.is_none() && signal.is_none());
+        let native_crash = ended.and_then(|m| {
+            native(EndedRun {
+                pid: m.pid,
+                started: m.started,
+            })
+        });
         let phase = marker.as_ref().and_then(|m| m.phase.as_deref());
 
-        let mut record = None;
-        if keep && (panic.is_some() || signal.is_some() || native.is_some()) {
+        if keep && (panic.is_some() || signal.is_some() || native_crash.is_some()) {
             // A native crash's time is not known: its run's start is.
             let at = panic
                 .as_ref()
                 .map(|p| p.at)
                 .or(signal.map(|(_, at)| at))
-                .or(native.as_ref().and(marker.as_ref()).map(|m| m.started))
+                .or(native_crash
+                    .as_ref()
+                    .and(marker.as_ref())
+                    .map(|m| m.started))
                 .unwrap_or(run.now);
-            let (message, location, backtrace) = match (&panic, signal, &native) {
+            let (message, location, backtrace) = match (&panic, signal, &native_crash) {
                 (Some(p), _, _) => (p.message.clone(), p.location.clone(), p.backtrace.clone()),
                 (None, Some((signal, _)), _) => (
                     format!(
@@ -527,37 +618,79 @@ impl CrashStore {
                     "native code".to_string(),
                     None,
                 ),
-                (None, None, Some(crash)) => (
-                    format!(
-                        "Rawtonic was ended by {} in {}{} (no Rust panic was recorded; Windows reported the fault).",
-                        crash.what(),
-                        crash.place(),
-                        phase_words(phase)
-                    ),
-                    crash.place(),
-                    None,
-                ),
+                (None, None, Some(crash)) => native_words(crash, phase),
                 (None, None, None) => unreachable!("checked above"),
             };
-            let new = CrashRecord {
-                id: format!("{}-{:016x}", run.now, random_suffix()),
-                crashed_on: utc_date(at),
-                created: run.now,
-                app: marker
-                    .as_ref()
-                    .map_or_else(|| run.app.clone(), |m| m.app.clone()),
-                gpu: marker.as_ref().and_then(|m| m.gpu.clone()),
-                message: cap_chars(&scrubber.scrub(&message), MESSAGE_CAP),
-                location: cap_chars(&scrubber.scrub(&location), LOCATION_CAP),
-                backtrace: backtrace
-                    .map(|b| keep_start(&scrubber.scrub(&b), DIAGNOSTICS_CAP).to_string()),
-                log_tail: previous_log().and_then(|log| log_tail(&log, scrubber)),
-                asked: false,
-            };
-            if let Some(path) = self.record_path(&new.id) {
-                write_json(&path, &new)?;
-                record = Some(new);
+            let app = marker
+                .as_ref()
+                .map_or_else(|| run.app.clone(), |m| m.app.clone());
+            let gpu = marker.as_ref().and_then(|m| m.gpu.clone());
+            let tail = log_tail();
+            records.extend(self.write_record(
+                run, at, app, gpu, &message, &location, backtrace, tail, scrubber,
+            )?);
+        } else if let Some(m) = ended
+            && self.retry_native
+        {
+            // Not found (yet): Windows may publish the entry after this start.
+            unresolved.retain(|u| u.pid != m.pid || u.started != m.started);
+            unresolved.push(Unresolved {
+                pid: m.pid,
+                started: m.started,
+                app: m.app.clone(),
+                gpu: m.gpu.clone(),
+                phase: m.phase.clone(),
+                log_tail: log_tail(),
+                seen: run.now,
+                lookups: 0,
+            });
+        }
+
+        // Earlier runs not found yet: looked up again.
+        let mut still = Vec::new();
+        for mut u in unresolved {
+            // A run seen just now was looked up above.
+            if u.lookups > 0
+                && let Some(crash) = native(EndedRun {
+                    pid: u.pid,
+                    started: u.started,
+                })
+            {
+                let (message, location, backtrace) = native_words(&crash, u.phase.as_deref());
+                records.extend(self.write_record(
+                    run, u.started, u.app, u.gpu, &message, &location, backtrace, u.log_tail,
+                    scrubber,
+                )?);
+                continue;
             }
+            u.lookups += 1;
+            if u.lookups < UNRESOLVED_LOOKUPS
+                && run.now.saturating_sub(u.seen) <= UNRESOLVED_DAYS * 86_400
+            {
+                still.push(u);
+            }
+        }
+        if still.len() > UNRESOLVED_MAX {
+            still.drain(..still.len() - UNRESOLVED_MAX);
+        }
+        if still.is_empty() {
+            remove(&self.path(UNRESOLVED));
+        } else {
+            write_json(&self.path(UNRESOLVED), &still)?;
+        }
+
+        if keep && let Some(p) = early_panic {
+            records.extend(self.write_record(
+                run,
+                p.at,
+                run.app.clone(),
+                None,
+                &format!("{} (early in the start)", p.message),
+                &p.location,
+                p.backtrace,
+                None,
+                scrubber,
+            )?);
         }
         remove(&self.path(PANIC_NOTE));
         remove(&signal_path);
@@ -571,7 +704,44 @@ impl CrashStore {
                 phase: None,
             },
         )?;
-        Ok(record)
+        // The previous run's own record comes first (the start logs it).
+        Ok(records.into_iter().next())
+    }
+
+    /// Writes one scrubbed record; none when its id cannot name a file.
+    #[allow(clippy::too_many_arguments)]
+    fn write_record(
+        &self,
+        run: &ThisRun,
+        at: u64,
+        app: AppInfo,
+        gpu: Option<Gpu>,
+        message: &str,
+        location: &str,
+        backtrace: Option<String>,
+        log_tail: Option<String>,
+        scrubber: &Scrubber,
+    ) -> std::io::Result<Option<CrashRecord>> {
+        let new = CrashRecord {
+            id: format!("{}-{:016x}", run.now, random_suffix()),
+            crashed_on: utc_date(at),
+            created: run.now,
+            app,
+            gpu,
+            message: cap_chars(&scrubber.scrub(message), MESSAGE_CAP),
+            location: cap_chars(&scrubber.scrub(location), LOCATION_CAP),
+            backtrace: backtrace
+                .map(|b| keep_start(&scrubber.scrub(&b), DIAGNOSTICS_CAP).to_string()),
+            log_tail,
+            asked: false,
+        };
+        match self.record_path(&new.id) {
+            Some(path) => {
+                write_json(&path, &new)?;
+                Ok(Some(new))
+            }
+            None => Ok(None),
+        }
     }
 
     /// Notes the phase of the start this run is in, in its marker: a crash
@@ -668,7 +838,7 @@ impl CrashStore {
         }
     }
 
-    /// Deletes the notes of this run (recording was turned off).
+    /// Deletes the notes of this run.
     fn remove_notes(&self) {
         remove(&self.path(PANIC_NOTE));
         remove(&self.path(SIGNAL_NOTE));
@@ -682,6 +852,8 @@ impl CrashStore {
 static ARMED: Mutex<Option<PathBuf>> = Mutex::new(None);
 static EXITING: AtomicBool = AtomicBool::new(false);
 static RECORDING: AtomicBool = AtomicBool::new(false);
+/// Armed by [`arm_early`]: this run has no marker yet.
+static EARLY: AtomicBool = AtomicBool::new(false);
 /// Held while the panic note is decided and written and while recording is
 /// switched: a note being written when Never is chosen is either deleted
 /// with the others or not written at all. Holds whether this recording
@@ -716,6 +888,8 @@ pub fn set_recording(store: &CrashStore, on: bool) {
     *noted = false;
     if !on {
         store.remove_notes();
+        // Earlier runs still looked up hold log lines too.
+        remove(&store.path(UNRESOLVED));
     }
 }
 
@@ -724,8 +898,37 @@ pub fn arm(store: &CrashStore) {
     if let Ok(mut armed) = ARMED.lock() {
         *armed = Some(store.dir.clone());
     }
+    EARLY.store(false, Ordering::SeqCst);
     #[cfg(unix)]
     signals::install(&store.path(SIGNAL_NOTE));
+}
+
+/// Before the start reads its settings and marks its run: a panic from here
+/// until [`arm`] is noted in `store` as an early one, which the next start
+/// records although the marker beside it is an earlier run's. Only for a
+/// store that already exists (an earlier start made it), so a first start
+/// leaves the app's folders as it found them; the caller leaves it out when
+/// the user chose Never. Returns whether it armed.
+pub fn arm_early(store: &CrashStore) -> bool {
+    if !store.dir.is_dir() {
+        return false;
+    }
+    let mut noted = NOTE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Ok(mut armed) = ARMED.lock() {
+        *armed = Some(store.dir.clone());
+    }
+    EARLY.store(true, Ordering::SeqCst);
+    RECORDING.store(true, Ordering::SeqCst);
+    *noted = false;
+    true
+}
+
+/// Whether this run noted a panic (for telling the user the next start
+/// offers a report).
+pub fn panic_noted() -> bool {
+    RECORDING.load(Ordering::SeqCst) && NOTE_LOCK.try_lock().map(|noted| *noted).unwrap_or(false)
 }
 
 /// The app is ending cleanly: a fatal signal from here on (a library's
@@ -768,6 +971,7 @@ pub fn note_panic(info: &std::panic::PanicHookInfo<'_>) {
         message: cap_chars(message.trim(), MESSAGE_CAP),
         location,
         backtrace,
+        early: EARLY.load(Ordering::SeqCst),
     };
     // Decided and written under the lock, after the slow capture above.
     let Some(mut noted) = note_lock() else {
@@ -1110,6 +1314,7 @@ mod tests {
                 message: "failed to open /Users/anna/Pictures/a.CR3 on studio".into(),
                 location: "decode.rs:12:5".into(),
                 backtrace: Some("0: rawdecode::open (decode.rs:12:5)".into()),
+                early: false,
             },
         )
         .unwrap();
@@ -1293,6 +1498,268 @@ mod tests {
             .unwrap();
         assert_eq!(never, None);
         assert!(!looked.get());
+    }
+
+    fn crash_in(module: &str) -> crate::native::NativeCrash {
+        crate::native::NativeCrash {
+            code: 0xC000_0005,
+            module: Some(module.into()),
+            offset: Some(0x10),
+        }
+    }
+
+    /// Windows publishes a crash's entry seconds after the process ended:
+    /// a start that comes too early keeps the ended run (with its log
+    /// lines, which the next run replaces) and a later start finds it.
+    #[test]
+    fn a_native_crash_published_late_is_found_at_a_later_start() {
+        let (_dir, store) = store();
+        let store = store.retrying_native_lookups(true);
+        store
+            .start(&run(10, T0), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        store.note_phase(10, "window").unwrap();
+        let too_early = store
+            .start_with(
+                &run(11, T0 + 3),
+                |_| false,
+                || Some("opening /Users/anna/a.NEF\n".into()),
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(too_early, None);
+        assert!(store.path(UNRESOLVED).exists());
+        // Run 11 ends cleanly; the start after it finds run 10's entry and
+        // looks nothing up for run 11.
+        store.clean_exit(11);
+        assert!(store.path(UNRESOLVED).exists());
+        let mut asked = Vec::new();
+        let record = store
+            .start_with(
+                &run(12, T0 + 60),
+                |_| false,
+                || panic!("run 11's log is not run 10's"),
+                |ended| {
+                    asked.push(ended.pid);
+                    (ended.pid == 10).then(|| crash_in("amdvlk64.dll"))
+                },
+                &scrubber(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(asked, vec![10]);
+        assert_eq!(record.location, "amdvlk64.dll+0x10");
+        assert!(
+            record.message.contains("(start phase: window)"),
+            "{}",
+            record.message
+        );
+        assert_eq!(record.crashed_on, utc_date(T0));
+        assert_eq!(record.log_tail.as_deref(), Some("opening <path>.NEF"));
+        assert!(!store.path(UNRESOLVED).exists());
+        assert_eq!(store.pending(T0 + 60), vec![record]);
+    }
+
+    /// A run never found (a forced quit, a power loss) is looked up at
+    /// most [`UNRESOLVED_LOOKUPS`] times; Never and turning recording off
+    /// delete what is kept; without retries nothing is kept.
+    #[test]
+    fn unresolved_runs_are_looked_up_a_few_times_only() {
+        let _serial = exclusive();
+        let (_dir, store) = store();
+        let store = store.retrying_native_lookups(true);
+        store
+            .start(&run(10, T0), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        let mut lookups = 0;
+        for start in 0..8u32 {
+            store
+                .start_with(
+                    &run(11 + start, T0 + 10 + u64::from(start)),
+                    |_| false,
+                    || None,
+                    |ended| {
+                        if ended.pid == 10 {
+                            lookups += 1;
+                        }
+                        None
+                    },
+                    &scrubber(),
+                    true,
+                )
+                .unwrap();
+            store.clean_exit(11 + start);
+        }
+        assert_eq!(lookups, UNRESOLVED_LOOKUPS);
+        assert!(!store.path(UNRESOLVED).exists());
+
+        // Older than UNRESOLVED_DAYS: dropped without another lookup.
+        store
+            .start(&run(30, T0), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        store
+            .start_with(
+                &run(31, T0 + 1),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        store.clean_exit(31);
+        store
+            .start_with(
+                &run(32, T0 + UNRESOLVED_DAYS * DAY + 2),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert!(!store.path(UNRESOLVED).exists());
+
+        // Never deletes it, and so does turning recording off.
+        store
+            .start_with(
+                &run(33, T0 + 5 * DAY),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert!(store.path(UNRESOLVED).exists());
+        store
+            .start_with(
+                &run(34, T0 + 5 * DAY),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                false,
+            )
+            .unwrap();
+        assert!(!store.path(UNRESOLVED).exists());
+        store
+            .start_with(
+                &run(35, T0 + 5 * DAY),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert!(store.path(UNRESOLVED).exists());
+        set_recording(&store, false);
+        assert!(!store.path(UNRESOLVED).exists());
+
+        // Without retries (macOS, Linux) nothing is kept.
+        let (_other, plain) = self::store();
+        plain
+            .start(&run(40, T0), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        plain
+            .start_with(
+                &run(41, T0 + 1),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert!(!plain.path(UNRESOLVED).exists());
+    }
+
+    /// A panic before the run marked itself (early in the start) is
+    /// recorded at the next start beside the marker of an earlier run,
+    /// whose own end is still looked up; a later note that is not early
+    /// is not taken for the marker's run.
+    #[test]
+    fn an_early_panic_of_a_later_run_is_recorded() {
+        let (_dir, store) = store();
+        store
+            .start(&run(10, T0), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        let note = |early: bool| PanicNote {
+            pid: 11,
+            at: T0 + 5,
+            message: "error while building tauri application: no event loop".into(),
+            location: "lib.rs:1016:10".into(),
+            backtrace: None,
+            early,
+        };
+        write_json(&store.path(PANIC_NOTE), &note(true)).unwrap();
+        let mut asked = Vec::new();
+        let record = store
+            .start_with(
+                &run(12, T0 + 9),
+                |_| false,
+                || None,
+                |ended| {
+                    asked.push(ended.pid);
+                    None
+                },
+                &scrubber(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(asked, vec![10]);
+        assert_eq!(
+            record.message,
+            "error while building tauri application: no event loop (early in the start)"
+        );
+        assert_eq!(record.location, "lib.rs:1016:10");
+        assert_eq!(record.crashed_on, utc_date(T0 + 5));
+        assert!(!store.path(PANIC_NOTE).exists());
+
+        // Not early: another run's note beside this marker is dropped.
+        write_json(&store.path(PANIC_NOTE), &note(false)).unwrap();
+        assert_eq!(
+            store
+                .start(&run(13, T0 + 20), |_| false, || None, &scrubber(), true)
+                .unwrap(),
+            None
+        );
+        // Early, but older than the marker's run: not this marker's either.
+        write_json(&store.path(PANIC_NOTE), &note(true)).unwrap();
+        assert_eq!(
+            store
+                .start(&run(14, T0 + 30), |_| false, || None, &scrubber(), true)
+                .unwrap(),
+            None
+        );
+        assert_eq!(store.pending(T0 + 30).len(), 1);
+    }
+
+    /// Armed early, the hook notes a panic as early; a store that does not
+    /// exist yet (a first start) is not armed and not created.
+    #[test]
+    fn an_early_armed_hook_notes_early_panics() {
+        let _serial = exclusive();
+        let (_dir, store) = store();
+        assert!(!arm_early(&store));
+        assert!(!store.dir().exists());
+        std::fs::create_dir_all(store.dir()).unwrap();
+        assert!(arm_early(&store));
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(note_panic));
+        let _ = std::panic::catch_unwind(|| panic!("before setup"));
+        std::panic::set_hook(previous);
+        let note: PanicNote = read_json(&store.path(PANIC_NOTE)).unwrap();
+        assert!(note.early);
+        assert_eq!(note.message, "before setup");
+        // Armed normally, notes are the run's own again.
+        arm(&store);
+        set_recording(&store, false);
     }
 
     /// A fatal signal's record names the phase the start was in.

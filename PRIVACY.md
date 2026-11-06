@@ -49,6 +49,12 @@ Rawtonic otherwise goes online only when you ask it to:
   GPS position from openstreetmap.org, which then learns that position and
   your IP address. Nothing is loaded until you click.
 - **Links** in the app open in your browser.
+- **WebView2 runtime missing (Windows).** If Microsoft's WebView2 runtime is
+  not installed (the portable zip does not set it up; the installers do),
+  Rawtonic says so in a message box before it opens a window. Only if you
+  choose "Yes" there, your browser opens Microsoft's WebView2 page
+  (developer.microsoft.com), which then sees your IP address; Rawtonic
+  itself downloads nothing.
 
 Tethered shooting talks to the camera over its USB cable only; Rawtonic's
 copy of the camera library is built without its network (Wi-Fi/PTP-IP)
@@ -117,8 +123,15 @@ filed until you submit it there with your own GitHub account.
   next start reads Windows' own entry for that crash of Rawtonic from the
   Windows Application log (only "Application Error" entries for Rawtonic's
   program and that run's process) and keeps the exception code and the file
-  name and offset of the module where it happened (no folders). A quit
-  forced from outside or a power loss leaves no record. At the next start
+  name and offset of the module where it happened (no folders). Windows
+  writes that entry a few seconds after the crash, so when the next start
+  does not find it yet, Rawtonic keeps the run's start time, process number,
+  start step and those last log lines (with personal data removed) in
+  `crash-reports/unresolved.json` and looks again at the following starts,
+  at most five times and for at most three days; then they are deleted. A
+  quit forced from outside or a power loss leaves no record. An error early
+  in the start, before Rawtonic has read its settings, is noted in the same
+  folder when it exists from an earlier start (not after "Never"). At the next start
   Rawtonic asks once per crash whether to send it. "Not now" keeps the record
   (you can still send it from "Report a problem"), "Never" deletes all
   records and stops recording at once (Preferences → General turns it back

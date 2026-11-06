@@ -5352,6 +5352,7 @@ dependencies = [
  "blake3",
  "bytemuck",
  "chrono",
+ "dirs",
  "fern",
  "flate2",
  "futures",
