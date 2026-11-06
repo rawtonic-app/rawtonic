@@ -439,24 +439,54 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         ("Highlights2012", tone::HIGHLIGHTS.name()),
         ("Whites2012", tone::WHITES.name()),
         ("Blacks2012", tone::BLACKS.name()),
-        ("Clarity2012", "clarity"),
-        ("Dehaze", "dehaze"),
+        ("Clarity2012", rawtonic_recipe::detail::CLARITY.name()),
+        ("Dehaze", rawtonic_recipe::detail::DEHAZE.name()),
         ("Vibrance", recipe_color::VIBRANCE.name()),
         ("Saturation", recipe_color::SATURATION.name()),
-        ("Texture", "structure"),
-        ("SharpenRadius", "sharpenRadius"),
-        ("SharpenDetail", "sharpenDetail"),
-        ("SharpenEdgeMasking", "sharpenMasking"),
-        ("LuminanceSmoothing", "lumaNoiseReduction"),
-        ("LuminanceNoiseReductionDetail", "lumaNoiseDetail"),
-        ("LuminanceNoiseReductionContrast", "lumaNoiseContrast"),
-        ("ColorNoiseReduction", "colorNoiseReduction"),
-        ("ColorNoiseReductionDetail", "colorNoiseDetail"),
-        ("ColorNoiseReductionSmoothness", "colorNoiseSmoothness"),
-        ("ChromaticAberrationRedCyan", "chromaticAberrationRedCyan"),
+        ("Texture", rawtonic_recipe::detail::STRUCTURE.name()),
+        (
+            "SharpenRadius",
+            rawtonic_recipe::detail::SHARPEN_RADIUS.name(),
+        ),
+        (
+            "SharpenDetail",
+            rawtonic_recipe::detail::SHARPEN_DETAIL.name(),
+        ),
+        (
+            "SharpenEdgeMasking",
+            rawtonic_recipe::detail::SHARPEN_MASKING.name(),
+        ),
+        (
+            "LuminanceSmoothing",
+            rawtonic_recipe::detail::LUMA_NOISE_REDUCTION.name(),
+        ),
+        (
+            "LuminanceNoiseReductionDetail",
+            rawtonic_recipe::detail::LUMA_NOISE_DETAIL.name(),
+        ),
+        (
+            "LuminanceNoiseReductionContrast",
+            rawtonic_recipe::detail::LUMA_NOISE_CONTRAST.name(),
+        ),
+        (
+            "ColorNoiseReduction",
+            rawtonic_recipe::detail::COLOR_NOISE_REDUCTION.name(),
+        ),
+        (
+            "ColorNoiseReductionDetail",
+            rawtonic_recipe::detail::COLOR_NOISE_DETAIL.name(),
+        ),
+        (
+            "ColorNoiseReductionSmoothness",
+            rawtonic_recipe::detail::COLOR_NOISE_SMOOTHNESS.name(),
+        ),
+        (
+            "ChromaticAberrationRedCyan",
+            rawtonic_recipe::detail::CHROMATIC_ABERRATION_RED_CYAN.name(),
+        ),
         (
             "ChromaticAberrationBlueYellow",
-            "chromaticAberrationBlueYellow",
+            rawtonic_recipe::detail::CHROMATIC_ABERRATION_BLUE_YELLOW.name(),
         ),
         ("PostCropVignetteAmount", "vignetteAmount"),
         ("PostCropVignetteMidpoint", "vignetteMidpoint"),
@@ -466,12 +496,30 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         ("GrainSize", "grainSize"),
         ("GrainFrequency", "grainRoughness"),
         ("ColorGradeBlending", recipe_color::BLENDING.name()),
-        ("DefringePurpleAmount", "defringePurpleAmount"),
-        ("DefringePurpleHueLo", "defringePurpleHueLo"),
-        ("DefringePurpleHueHi", "defringePurpleHueHi"),
-        ("DefringeGreenAmount", "defringeGreenAmount"),
-        ("DefringeGreenHueLo", "defringeGreenHueLo"),
-        ("DefringeGreenHueHi", "defringeGreenHueHi"),
+        (
+            "DefringePurpleAmount",
+            rawtonic_recipe::detail::DEFRINGE_PURPLE_AMOUNT.name(),
+        ),
+        (
+            "DefringePurpleHueLo",
+            rawtonic_recipe::detail::DEFRINGE_PURPLE_HUE_LO.name(),
+        ),
+        (
+            "DefringePurpleHueHi",
+            rawtonic_recipe::detail::DEFRINGE_PURPLE_HUE_HI.name(),
+        ),
+        (
+            "DefringeGreenAmount",
+            rawtonic_recipe::detail::DEFRINGE_GREEN_AMOUNT.name(),
+        ),
+        (
+            "DefringeGreenHueLo",
+            rawtonic_recipe::detail::DEFRINGE_GREEN_HUE_LO.name(),
+        ),
+        (
+            "DefringeGreenHueHi",
+            rawtonic_recipe::detail::DEFRINGE_GREEN_HUE_HI.name(),
+        ),
         // Same scale and response as Camera Raw (notes:
         // reference/manual-distortion.md).
         ("LensManualDistortionAmount", "transformDistortion"),
@@ -549,7 +597,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     // Lightroom's 40 into 27).
     if let Some(sharpness_val) = get_attr_as_f64(&attrs, "Sharpness") {
         adjustments.insert(
-            "sharpness".to_string(),
+            rawtonic_recipe::detail::SHARPNESS.name().to_string(),
             json!(sharpness_val.clamp(0.0, 150.0)),
         );
     }
@@ -856,10 +904,10 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         });
     if layer_sharpens
         || [
-            "sharpness",
-            "sharpenRadius",
-            "sharpenDetail",
-            "sharpenMasking",
+            rawtonic_recipe::detail::SHARPNESS.name(),
+            rawtonic_recipe::detail::SHARPEN_RADIUS.name(),
+            rawtonic_recipe::detail::SHARPEN_DETAIL.name(),
+            rawtonic_recipe::detail::SHARPEN_MASKING.name(),
         ]
         .iter()
         .any(|key| adjustments.contains_key(*key))

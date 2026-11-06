@@ -555,7 +555,13 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
         );
     }
     if let Some(v) = num("DehazeAmount") {
-        put(&mut adjustments, "dehaze", 0.78 * v, -100.0, 100.0);
+        put(
+            &mut adjustments,
+            rawtonic_recipe::detail::DEHAZE.name(),
+            0.78 * v,
+            -100.0,
+            100.0,
+        );
     }
     // Clarity and Structure change local contrast, which these lightness
     // shifts do not see; their ratios come from the band contrast measured
@@ -565,7 +571,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     if let Some(v) = num("Clarity") {
         put(
             &mut adjustments,
-            "clarity",
+            rawtonic_recipe::detail::CLARITY.name(),
             signed(v, 0.5, 0.4),
             -100.0,
             100.0,
@@ -574,7 +580,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     if let Some(v) = num("ClarityStructure") {
         put(
             &mut adjustments,
-            "structure",
+            rawtonic_recipe::detail::STRUCTURE.name(),
             signed(v, 1.5, 1.0),
             -100.0,
             100.0,
@@ -632,28 +638,46 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     }
     if let Some(v) = num("UsmAmount") {
         adjustments.insert(
-            "sharpness".into(),
+            rawtonic_recipe::detail::SHARPNESS.name().into(),
             json!((v / 4.0).clamp(0.0, 150.0).round()),
         );
         if let Some(r) = num("UsmRadius") {
-            put(&mut adjustments, "sharpenRadius", r, 0.5, 3.0);
+            put(
+                &mut adjustments,
+                rawtonic_recipe::detail::SHARPEN_RADIUS.name(),
+                r,
+                0.5,
+                3.0,
+            );
         }
     }
     if let Some(m) = s.get("Moire").and_then(|v| numbers(v, ';'))
         && m.len() == 2
         && m[0] > 0.0
     {
-        put(&mut adjustments, "moireAmount", m[0], 0.0, 100.0);
         put(
             &mut adjustments,
-            "moirePattern",
+            rawtonic_recipe::detail::MOIRE_AMOUNT.name(),
+            m[0],
+            0.0,
+            100.0,
+        );
+        put(
+            &mut adjustments,
+            rawtonic_recipe::detail::MOIRE_PATTERN.name(),
             (m[1] - 1.0) / 19.0 * 100.0,
             0.0,
             100.0,
         );
     }
     if let Some(v) = num("PurpleFringingAmount") {
-        put(&mut adjustments, "defringePurpleAmount", v / 5.0, 0.0, 20.0);
+        put(
+            &mut adjustments,
+            rawtonic_recipe::detail::DEFRINGE_PURPLE_AMOUNT.name(),
+            v / 5.0,
+            0.0,
+            20.0,
+        );
     }
     // Color Balance → one colour grading.
     let mut grading = Map::new();

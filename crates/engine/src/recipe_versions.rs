@@ -246,7 +246,11 @@ impl ColorNoiseVersion {
                 .and_then(Value::as_u64)
             {
                 Some(version) => version.clamp(1, crate::color_noise::VERSION),
-                None if is_raw && recipe.get("colorNoiseReduction").is_none() => {
+                None if is_raw
+                    && recipe
+                        .get(rawtonic_recipe::detail::COLOR_NOISE_REDUCTION.name())
+                        .is_none() =>
+                {
                     crate::color_noise::VERSION
                 }
                 None => 1,

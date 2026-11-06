@@ -1,6 +1,7 @@
 //! The recipe as it renders.
 
 use crate::color::Color;
+use crate::detail::Detail;
 use crate::stored::StoredRef;
 use crate::tone::Tone;
 
@@ -12,14 +13,17 @@ use crate::tone::Tone;
 pub struct ResolvedRecipe {
     pub tone: Tone,
     pub color: Color,
+    pub detail: Detail,
 }
 
 /// Resolves a stored recipe: every value of a moved section as it renders
 /// (stored, defaulted, switched off). The camera and file defaults
-/// (`rawtonic_export::normalize`) complete the stored recipe before.
-pub fn normalize(stored: StoredRef<'_>) -> ResolvedRecipe {
+/// (`rawtonic_export::normalize`) complete the stored recipe before. `is_raw`
+/// supplies the capture defaults for detail amounts absent from the recipe.
+pub fn normalize(stored: StoredRef<'_>, is_raw: bool) -> ResolvedRecipe {
     ResolvedRecipe {
         tone: Tone::resolve(stored),
         color: Color::resolve(stored),
+        detail: Detail::resolve(stored, is_raw),
     }
 }
