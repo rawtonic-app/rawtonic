@@ -688,6 +688,12 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * the layers' Defringe; 1 or missing on recipes that used Defringe before
    * it = every colour in range near an edge loses chroma. Photo-wide. */
   defringeVersion?: number;
+  /** B&W mix response (crates/engine/src/image_processing.rs
+   * `BW_VERSION`): 2 = each channel lowers more strongly the further it is
+   * pulled, windows and gains fitted to Camera Raw on 15 photographs; the
+   * conversion at 0 is version 1's. 1 or missing on recipes that converted
+   * to black and white before it. */
+  bwVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
    * `SHARPEN_VERSION`): 7 = 6 with Masking reading the neighbourhood as it shows on RAW photos (the photo's noise
    * taken out, bright flat noise no longer kept as texture; renders as 6 without Masking and on non-RAW photos);
