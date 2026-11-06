@@ -291,6 +291,11 @@ pub const TS: TsSection = TsSection {
     unions: &[MODES],
 };
 
+/// Resolve only this section for a stage that does not consume other sections.
+pub fn resolve(stored: StoredRef<'_>) -> Lens {
+    Lens::resolve(stored)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

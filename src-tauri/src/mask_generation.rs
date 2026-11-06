@@ -1,6 +1,7 @@
 //! Desktop glue for `rawtonic_engine::mask_generation` (ADR 0009): the Tauri commands
 //! and app-state access stay here, the logic lives in the engine crate.
 pub use rawtonic_engine::mask_generation::*;
+use rawtonic_recipe::masks;
 
 use image::DynamicImage;
 use serde_json::Value;
@@ -116,7 +117,10 @@ fn generate_mask_overlay_bytes(
         crate::adjustment_utils::normalize_editor_recipe(&develop, adj);
     }
 
-    if let Some(sub_masks) = mask_def.get_mut("subMasks").and_then(|v| v.as_array_mut()) {
+    if let Some(sub_masks) = mask_def
+        .get_mut(masks::SUB_MASKS.name())
+        .and_then(|v| v.as_array_mut())
+    {
         let mut cache = develop.patch_cache.lock().unwrap();
         crate::adjustment_utils::hydrate_sub_masks(sub_masks, &mut cache);
     }
@@ -226,7 +230,7 @@ fn mask_thumbnails(
     let (layer_size, component_size) = (clamp(layer_size), clamp(component_size));
     crate::adjustment_utils::normalize_editor_recipe(develop, &mut adjustments);
     let masks: Vec<MaskDefinition> = adjustments
-        .get("masks")
+        .get(masks::MASKS.name())
         .and_then(|m| serde_json::from_value(m.clone()).ok())
         .unwrap_or_default();
 

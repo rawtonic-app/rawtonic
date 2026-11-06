@@ -1,5 +1,6 @@
 use rawtonic_engine::image_loader::DecodeMeasures;
 use rawtonic_recipe::effects;
+use rawtonic_recipe::masks;
 use std::borrow::Cow;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -1231,7 +1232,7 @@ pub fn main_export_adjustments<'a>(
     }
     let mut adjustments = js_adjustments.clone();
     if let Some(obj) = adjustments.as_object_mut() {
-        obj.insert("masks".to_string(), serde_json::json!([]));
+        obj.insert(masks::MASKS.name().to_string(), serde_json::json!([]));
     }
     Cow::Owned(adjustments)
 }

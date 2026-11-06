@@ -13,6 +13,7 @@
 
 use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::masks;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -861,7 +862,7 @@ fn prepare(
             )?;
             let masks: Vec<MaskDefinition> = todo
                 .recipe
-                .get("masks")
+                .get(masks::MASKS.name())
                 .and_then(|m| serde_json::from_value(m.clone()).ok())
                 .unwrap_or_default();
             let mask_source = if masks.iter().any(MaskDefinition::requires_warped_image) {
@@ -939,7 +940,7 @@ fn develop_rgba(
     let recipe = input.recipe;
     let (width, height) = input.image.dimensions();
     let masks: Vec<MaskDefinition> = recipe
-        .get("masks")
+        .get(masks::MASKS.name())
         .and_then(|m| serde_json::from_value(m.clone()).ok())
         .unwrap_or_default();
     let geometry = PhotoGeometry::from_adjustments(recipe).with_photo_size(
@@ -1617,7 +1618,7 @@ fn prepare_region(
     let image = Arc::new(base.image.crop_imm(x, y, w, h));
     drop(base.image);
     let masks: Vec<MaskDefinition> = recipe
-        .get("masks")
+        .get(masks::MASKS.name())
         .and_then(|m| serde_json::from_value(m.clone()).ok())
         .unwrap_or_default();
     let mask_source = masks
@@ -1672,7 +1673,7 @@ fn region_from_rows_possible(recipe: &serde_json::Value) -> bool {
         return false;
     }
     let masks: Vec<MaskDefinition> = recipe
-        .get("masks")
+        .get(masks::MASKS.name())
         .and_then(|m| serde_json::from_value(m.clone()).ok())
         .unwrap_or_default();
     !masks.iter().any(MaskDefinition::requires_warped_image)

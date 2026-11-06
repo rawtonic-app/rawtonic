@@ -2,6 +2,7 @@
 //! queue, its Tauri commands and events, sidecar and session access and the
 //! metadata embedding stay here; the render and encoders live in the crate.
 pub use rawtonic_export::export_processing::*;
+use rawtonic_recipe::masks;
 
 use crate::state::ai::AiState;
 use crate::state::export::ExportState;
@@ -525,7 +526,7 @@ fn export_masks_for_image(
     ensure_export_not_cancelled(cancellation_token)?;
     let (img_w, img_h) = transformed_image.dimensions();
     let mask_definitions: Vec<MaskDefinition> = js_adjustments
-        .get("masks")
+        .get(masks::MASKS.name())
         .and_then(|m| serde_json::from_value(m.clone()).ok())
         .unwrap_or_default();
 
@@ -2210,7 +2211,7 @@ fn estimate_sizes(
 
         let (img_w, img_h) = preview_image.dimensions();
         let mask_definitions: Vec<MaskDefinition> = adjustments_clone
-            .get("masks")
+            .get(masks::MASKS.name())
             .and_then(|m| serde_json::from_value(m.clone()).ok())
             .unwrap_or_default();
 
@@ -2381,7 +2382,7 @@ fn estimate_sizes(
         let total_scale = gpu_scale * raw_scale_factor;
 
         let mask_definitions: Vec<MaskDefinition> = js_adjustments
-            .get("masks")
+            .get(masks::MASKS.name())
             .and_then(|m| serde_json::from_value(m.clone()).ok())
             .unwrap_or_default();
         let scaled_crop_offset = (

@@ -54,6 +54,7 @@ use rawtonic_engine::formats;
 use rawtonic_engine::scopes;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::masks;
 #[cfg(not(target_os = "linux"))]
 use rgb::FromSlice;
 #[cfg(not(target_os = "linux"))]
@@ -3265,7 +3266,7 @@ pub(crate) async fn generate_uncropped_preview(
         let (preview_width, preview_height) = flipped_image.dimensions();
 
         let mask_definitions: Vec<MaskDefinition> = adjustments_clone
-            .get("masks")
+            .get(masks::MASKS.name())
             .and_then(|m| serde_json::from_value(m.clone()).ok())
             .unwrap_or_default();
 
@@ -3421,7 +3422,7 @@ pub(crate) async fn generate_preview_for_path(
             apply_all_transformations(base_image, &js_adjustments, is_raw)?;
         let (img_w, img_h) = transformed_image.dimensions();
         let mask_definitions: Vec<MaskDefinition> = js_adjustments
-            .get("masks")
+            .get(masks::MASKS.name())
             .and_then(|m| serde_json::from_value(m.clone()).ok())
             .unwrap_or_default();
 

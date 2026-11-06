@@ -6,10 +6,16 @@ import type {
   ColorGradingProps,
   ColorRange,
   Crop,
+  Curves,
   GrayMixer,
   GuidedPerspective,
   Hsl,
-  LensDistortionParams
+  LensDistortionParams,
+  MaskAdjustments,
+  MaskContainer,
+  ParametricCurve,
+  SectionVisibility,
+  SubMask
 } from '../utils/adjustments';
 
 export type WhiteBalanceMode =
@@ -205,4 +211,63 @@ export interface RecipeKeys {
    * it competes with it; missing = 1 (recipes from before). New RAW edits only.
    */
   autoCaVersion?: number;
+
+  // masks
+  masks?: MaskContainer[];
+}
+
+/** Mask-local fields, typed by the same keys as the photo; all optional as saved. */
+export interface MaskLocalKeys {
+  id?: string;
+  sectionVisibility?: SectionVisibility;
+  defringe?: number;
+  moireAmount?: number;
+  moirePattern?: number;
+  exposure?: number;
+  brightness?: number;
+  contrast?: number;
+  highlights?: number;
+  shadows?: number;
+  whites?: number;
+  blacks?: number;
+  temperature?: number;
+  tint?: number;
+  vibrance?: number;
+  saturation?: number;
+  hue?: number;
+  sharpness?: number;
+  sharpnessThreshold?: number;
+  lumaNoiseReduction?: number;
+  colorNoiseReduction?: number;
+  clarity?: number;
+  dehaze?: number;
+  structure?: number;
+  glowAmount?: number;
+  halationAmount?: number;
+  flareAmount?: number;
+  colorGrading?: ColorGradingProps;
+  hsl?: Hsl;
+  colorRanges?: ColorRange[];
+  curves?: Curves;
+  pointCurves?: Curves;
+  parametricCurve?: ParametricCurve;
+  curveMode?: 'point' | 'parametric';
+}
+
+/** Mask container fields; all optional as saved. */
+export interface MaskContainerKeys {
+  id?: string;
+  name?: string;
+  visible?: boolean;
+  invert?: boolean;
+  opacity?: number;
+  /**
+   * 2: 16-bit masks; 3: also Refine edge on both sides of a thin mask; 4: also AI masks grown and feathered around the
+   * crop; absent: 8 bits.
+   */
+  maskVersion?: number;
+  /** Refine edge radius in pixels of the full photo (maskVersion 2+). */
+  refineEdge?: number;
+  adjustments?: MaskAdjustments;
+  subMasks?: SubMask[];
 }

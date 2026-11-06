@@ -1,6 +1,7 @@
 //! Non-generative projected lighting in scene-linear RGB. Coordinates are
 //! normalized to the developed photograph; no original pixels are changed.
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::masks;
 use serde_json::Value;
 #[path = "relight_source.rs"]
 pub mod source;
@@ -60,9 +61,11 @@ fn mask_slot(recipe: &Value, light: &Value) -> Option<u32> {
         return Some(0);
     };
     let mut index = 0;
-    for mask in recipe["masks"].as_array().into_iter().flatten() {
+    for mask in recipe[masks::MASKS.name()].as_array().into_iter().flatten() {
         let produces = mask["visible"].as_bool() == Some(true)
-            && mask["subMasks"].as_array().is_some_and(|s| !s.is_empty());
+            && mask[masks::SUB_MASKS.name()]
+                .as_array()
+                .is_some_and(|s| !s.is_empty());
         if mask["id"].as_str() == Some(id) {
             return (produces && index < crate::image_processing::MAX_MASKS)
                 .then_some(index as u32 + 1);

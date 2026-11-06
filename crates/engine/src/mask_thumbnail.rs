@@ -7,6 +7,7 @@
 //! small frame (`MaskFrame::fitting`) a few times the thumbnail's size, so
 //! edges stay smooth without rasterizing the full-resolution mask.
 
+use rawtonic_recipe::masks;
 use std::sync::Mutex;
 
 use base64::{Engine as _, engine::general_purpose};
@@ -248,9 +249,12 @@ impl ThumbnailSources<'_> {
 fn has_pixels(def: &MaskDefinition) -> bool {
     def.sub_masks.iter().filter(|sub| sub.visible).all(|sub| {
         !sub.mask_type.starts_with("ai-")
-            || ["maskDataBase64", "mask_data_base64"]
-                .iter()
-                .any(|key| sub.parameters[*key].is_string())
+            || [
+                masks::MASK_DATA_BASE64.into_name(),
+                masks::MASK_DATA_BASE64_LEGACY.name(),
+            ]
+            .iter()
+            .any(|key| sub.parameters[*key].is_string())
     })
 }
 

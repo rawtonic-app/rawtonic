@@ -33,8 +33,7 @@ pub fn apply_lens_blur<'a>(
     if !may_apply(adjustments) {
         return image;
     }
-    let resolved = rawtonic_recipe::normalize(StoredRef::new(adjustments), false);
-    let effects = &resolved.effects;
+    let effects = effects::resolve(StoredRef::new(adjustments));
     let depth_b64 = effects.lens_blur_depth_map.unwrap_or("");
     let amount = effects.lens_blur_amount.get() as f32;
 

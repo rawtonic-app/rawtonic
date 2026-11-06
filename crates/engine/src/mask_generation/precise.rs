@@ -4,6 +4,7 @@
 //! notes: reference/local-masks-baseline.md "WP5".
 
 use super::*;
+use rawtonic_recipe::masks;
 
 /// AI mask types whose grow and feather version 2 applies itself; a depth
 /// range keeps its own blur and the 8-bit steps.
@@ -187,8 +188,8 @@ fn sub_mask_coverage(
             None => bitmap(sub).map(|mask| bytes_to_coverage(&mask)),
             Some(amounts) => {
                 let mut parameters = sub.parameters.clone();
-                parameters["grow"] = Value::from(0.0);
-                parameters["feather"] = Value::from(0.0);
+                parameters[masks::GROW.name()] = Value::from(0.0);
+                parameters[masks::FEATHER.name()] = Value::from(0.0);
                 let plain = SubMask {
                     parameters,
                     ..sub.clone()

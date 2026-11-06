@@ -8,7 +8,8 @@
 //! saved recipe may lack any key; the frontend's `Adjustments` marks the
 //! ones its own objects always hold. Nested value types (`Hsl`,
 //! `ColorRange`, …) are named here and stay defined in
-//! `src/utils/adjustments.ts`, where the mask layers use them too.
+//! `src/utils/adjustments.ts`. Mask-local and container fields are generated
+//! from the mask registry too, reusing the earlier sections' keys.
 
 use crate::key::Key;
 use std::fmt::Write as _;
@@ -65,6 +66,20 @@ impl TsField {
         }
     }
 
+    /// JSON-valued fields whose existing frontend structure remains named.
+    pub const fn json(
+        key: Key<serde_json::Value>,
+        ts: &'static str,
+        import: Option<&'static str>,
+    ) -> Self {
+        Self {
+            name: key.into_name(),
+            ts,
+            import,
+            doc: "",
+        }
+    }
+
     pub const fn name(&self) -> &'static str {
         self.name
     }
@@ -87,13 +102,14 @@ pub struct TsSection {
 }
 
 /// Every section in the crate; a new section is one entry here.
-pub const SECTIONS: [&TsSection; 6] = [
+pub const SECTIONS: [&TsSection; 7] = [
     &crate::tone::TS,
     &crate::color::TS,
     &crate::detail::TS,
     &crate::geometry::TS,
     &crate::effects::TS,
     &crate::lens::TS,
+    &crate::masks::TS,
 ];
 
 /// Where [`render`]'s text belongs, relative to the repository root.
@@ -112,6 +128,8 @@ pub fn render() -> String {
     let mut imports: Vec<&str> = SECTIONS
         .iter()
         .flat_map(|s| s.fields)
+        .chain(crate::masks::LOCAL_TS.iter())
+        .chain(crate::masks::CONTAINER_TS.iter())
         .filter_map(|f| f.import)
         .collect();
     imports.sort_unstable();
@@ -163,6 +181,26 @@ pub fn render() -> String {
         }
     }
     out.push_str("}\n");
+    for (name, comment, fields) in [
+        (
+            "MaskLocalKeys",
+            "Mask-local fields, typed by the same keys as the photo; all optional as saved.",
+            crate::masks::LOCAL_TS,
+        ),
+        (
+            "MaskContainerKeys",
+            "Mask container fields; all optional as saved.",
+            crate::masks::CONTAINER_TS,
+        ),
+    ] {
+        let _ = writeln!(out, "\n/** {comment} */\nexport interface {name} {{");
+        for field in fields {
+            doc(&mut out, "  ", field.doc);
+            let _ = writeln!(out, "  {}?: {};", field.name, field.ts);
+        }
+        out.push_str("}\n");
+    }
+
     out
 }
 

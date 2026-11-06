@@ -4,6 +4,7 @@
 //! The render and export read these predicates (`rawtonic_engine` re-exports
 //! them), and the library indexes them (`ai_facts`, catalog schema 17), so
 //! what the Library finds is what an export marks.
+use rawtonic_recipe::masks;
 use serde_json::Value;
 
 /// Mask component types the AI detects on each photograph: Subject, Sky,
@@ -24,35 +25,38 @@ pub const DETECT_PENDING: &str = "detectPending";
 
 /// Whether a component's parameters carry a bitmap.
 pub fn has_bitmap(parameters: &Value) -> bool {
-    ["maskDataBase64", "mask_data_base64"]
-        .iter()
-        .any(|key| parameters.get(key).is_some_and(|v| !v.is_null()))
+    [
+        masks::MASK_DATA_BASE64.into_name(),
+        masks::MASK_DATA_BASE64_LEGACY.name(),
+    ]
+    .iter()
+    .any(|key| parameters.get(key).is_some_and(|v| !v.is_null()))
 }
 
 /// Whether a component's parameters leave nothing to detect: a People
 /// selection without parts (renders nothing on any photograph).
 pub fn nothing_to_detect(parameters: &Value) -> bool {
     parameters
-        .get("parts")
+        .get(masks::PARTS.name())
         .and_then(Value::as_array)
         .is_some_and(Vec::is_empty)
 }
 
 fn shown(value: &Value) -> bool {
-    value.get("visible").and_then(Value::as_bool) != Some(false)
+    value.get(masks::VISIBLE.name()).and_then(Value::as_bool) != Some(false)
 }
 
 /// The shown components of shown mask layers.
 fn shown_components(adjustments: &Value) -> impl Iterator<Item = (&Value, &Value)> {
     adjustments
-        .get("masks")
+        .get(masks::MASKS.name())
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter(|layer| shown(layer))
         .flat_map(|layer| {
             layer
-                .get("subMasks")
+                .get(masks::SUB_MASKS.name())
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
@@ -82,15 +86,15 @@ pub fn pending_detections(adjustments: &Value) -> Vec<PendingDetection> {
     };
     shown_components(adjustments)
         .filter(|(_, sub)| {
-            sub.get("parameters").is_some_and(|p| {
+            sub.get(masks::PARAMETERS.name()).is_some_and(|p| {
                 p.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true)
                     && !has_bitmap(p)
                     && !nothing_to_detect(p)
             })
         })
         .map(|(layer, sub)| PendingDetection {
-            layer: text(layer, "name"),
-            kind: text(sub, "type"),
+            layer: text(layer, masks::NAME.name()),
+            kind: text(sub, masks::TYPE.name()),
         })
         .collect()
 }
@@ -98,7 +102,7 @@ pub fn pending_detections(adjustments: &Value) -> Vec<PendingDetection> {
 /// The recipe's AI Denoise amount (`aiDenoise`, 0 … 100) as 0 … 1; zero
 /// when the Detail section or its Noise reduction tool is switched off.
 pub fn ai_denoise_amount(adjustments: &Value) -> f32 {
-    let visibility = &adjustments["sectionVisibility"];
+    let visibility = &adjustments[masks::SECTION_VISIBILITY.name()];
     let off = |key: &str| visibility[key].as_bool() == Some(false);
     if off("details") || off("noiseReduction") {
         return 0.0;
@@ -118,12 +122,12 @@ const HAND_MADE_PATCH_TYPES: [&str; 4] = ["clone", "heal", "liquify", "retouch"]
 /// (Fill edges' patch-based completion).
 fn model_patch(patch: &Value) -> bool {
     let hand_made = patch
-        .get("subMasks")
+        .get(masks::SUB_MASKS.name())
         .and_then(Value::as_array)
         .is_some_and(|subs| {
             !subs.is_empty()
                 && subs.iter().all(|sub| {
-                    sub.get("type")
+                    sub.get(masks::TYPE.name())
                         .and_then(Value::as_str)
                         .is_some_and(|t| HAND_MADE_PATCH_TYPES.contains(&t))
                 })
@@ -276,7 +280,7 @@ pub fn ai_facts(adjustments: &Value) -> u32 {
         };
     }
     if shown_components(adjustments).any(|(_, sub)| {
-        sub.get("type")
+        sub.get(masks::TYPE.name())
             .and_then(Value::as_str)
             .is_some_and(|t| DETECTED_TYPES.contains(&t))
     }) {
@@ -308,9 +312,9 @@ pub fn ai_facts_of_text(text: &str) -> u32 {
     let Ok(value) = serde_json::from_str::<Value>(text) else {
         return 0;
     };
-    let adjustments = match value.get("adjustments") {
+    let adjustments = match value.get(masks::ADJUSTMENTS.name()) {
         Some(adjustments) if adjustments.is_object() => adjustments,
-        _ => &value["editor_state"]["adjustments"],
+        _ => &value["editor_state"][masks::ADJUSTMENTS.name()],
     };
     ai_facts(adjustments)
 }

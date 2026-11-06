@@ -18,6 +18,7 @@
 
 use rawtonic_recipe::color as recipe_color;
 use rawtonic_recipe::effects;
+use rawtonic_recipe::masks;
 
 /// A B&W mix response: channel windows and gains as the shader renders
 /// them (`apply_black_and_white`, `apply_black_and_white_v2` in shader.wgsl,
@@ -287,7 +288,7 @@ pub async fn auto_gray_mix(
         let version = crate::image_processing::bw_version(&recipe);
         crate::adjustment_utils::normalize_editor_recipe(&develop, &mut recipe);
         recipe[recipe_color::BLACK_AND_WHITE.name()] = serde_json::Value::Bool(false);
-        recipe["masks"] = serde_json::json!([]);
+        recipe[masks::MASKS.name()] = serde_json::json!([]);
         let tone_mapper =
             crate::image_processing::resolve_tonemapper_override_from_handle(&app_handle, is_raw);
         let mut adjustments =

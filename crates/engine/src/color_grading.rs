@@ -19,6 +19,7 @@
 //!   global 1. x is the lightness after Balance, a logit shift.
 //! - Luminance acts like a tone curve per region: lifting is limited by the
 //!   headroom to white, lowering by the distance to black.
+use rawtonic_recipe::color;
 use serde_json::Value;
 
 pub const GRADING_LUT_SIZE: usize = 32;
@@ -162,9 +163,9 @@ impl Wheel {
     fn from_json(value: &Value) -> Self {
         let get = |key: &str| value[key].as_f64().unwrap_or(0.0) as f32;
         Self {
-            hue: get("hue").rem_euclid(360.0),
-            saturation: get("saturation").clamp(0.0, 100.0),
-            luminance: get("luminance").clamp(-100.0, 100.0),
+            hue: get(color::HUE.name()).rem_euclid(360.0),
+            saturation: get(color::SATURATION.name()).clamp(0.0, 100.0),
+            luminance: get(color::LUMINANCE.name()).clamp(-100.0, 100.0),
         }
     }
 
@@ -219,12 +220,15 @@ impl Grading {
             return Self::default();
         }
         Self {
-            shadows: Wheel::from_json(&value["shadows"]),
-            midtones: Wheel::from_json(&value["midtones"]),
-            highlights: Wheel::from_json(&value["highlights"]),
-            global: Wheel::from_json(&value["global"]),
-            blending: value["blending"].as_f64().unwrap_or(50.0).clamp(0.0, 100.0) as f32,
-            balance: value["balance"]
+            shadows: Wheel::from_json(&value[color::GRADING_WHEELS[0].name()]),
+            midtones: Wheel::from_json(&value[color::GRADING_WHEELS[1].name()]),
+            highlights: Wheel::from_json(&value[color::GRADING_WHEELS[2].name()]),
+            global: Wheel::from_json(&value[color::GRADING_WHEELS[3].name()]),
+            blending: value[color::BLENDING.name()]
+                .as_f64()
+                .unwrap_or(50.0)
+                .clamp(0.0, 100.0) as f32,
+            balance: value[color::BALANCE.name()]
                 .as_f64()
                 .unwrap_or(0.0)
                 .clamp(-100.0, 100.0) as f32,

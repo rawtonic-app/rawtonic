@@ -61,6 +61,28 @@ pub struct ColorRange {
     pub lightness_uniformity: f64,
 }
 
+impl ColorRange {
+    /// Shared photo/layer read; clipping and f32 packing stay in the engine.
+    pub(crate) fn resolve(stored: StoredRef<'_>) -> Self {
+        let read = |key: &Key<f64>| stored.get_or_default(key);
+        Self {
+            hue: read(&RANGE_HUE),
+            chroma: read(&RANGE_CHROMA),
+            lightness: read(&RANGE_LIGHTNESS),
+            lightness_range: read(&RANGE_LIGHTNESS_RANGE),
+            hue_range: read(&RANGE_HUE_RANGE),
+            chroma_range: read(&RANGE_CHROMA_RANGE),
+            smoothness: read(&RANGE_SMOOTHNESS),
+            hue_shift: read(&RANGE_HUE_SHIFT),
+            saturation: read(&RANGE_SATURATION),
+            lightness_shift: read(&RANGE_LIGHTNESS_SHIFT),
+            hue_uniformity: read(&RANGE_HUE_UNIFORMITY),
+            saturation_uniformity: read(&RANGE_SATURATION_UNIFORMITY),
+            lightness_uniformity: read(&RANGE_LIGHTNESS_UNIFORMITY),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ColorRanges {
     pub ranges: [ColorRange; 8],
@@ -511,27 +533,7 @@ impl Color {
             let shown = root.get(COLOR_RANGE_SHOW.name()).and_then(Value::as_str);
             if let Some(ranges) = root.get(COLOR_RANGES.name()).and_then(Value::as_array) {
                 for (i, range) in ranges.iter().take(8).enumerate() {
-                    let read = |key: &Key<f64>| {
-                        range
-                            .get(key.name())
-                            .and_then(Value::as_f64)
-                            .unwrap_or(key.default())
-                    };
-                    color_ranges.ranges[i] = ColorRange {
-                        hue: read(&RANGE_HUE),
-                        chroma: read(&RANGE_CHROMA),
-                        lightness: read(&RANGE_LIGHTNESS),
-                        lightness_range: read(&RANGE_LIGHTNESS_RANGE),
-                        hue_range: read(&RANGE_HUE_RANGE),
-                        chroma_range: read(&RANGE_CHROMA_RANGE),
-                        smoothness: read(&RANGE_SMOOTHNESS),
-                        hue_shift: read(&RANGE_HUE_SHIFT),
-                        saturation: read(&RANGE_SATURATION),
-                        lightness_shift: read(&RANGE_LIGHTNESS_SHIFT),
-                        hue_uniformity: read(&RANGE_HUE_UNIFORMITY),
-                        saturation_uniformity: read(&RANGE_SATURATION_UNIFORMITY),
-                        lightness_uniformity: read(&RANGE_LIGHTNESS_UNIFORMITY),
-                    };
+                    color_ranges.ranges[i] = ColorRange::resolve(StoredRef::new(range));
                     if color_ranges.shown.is_none()
                         && shown.is_some()
                         && range.get(RANGE_ID.name()).and_then(Value::as_str) == shown
@@ -600,6 +602,11 @@ impl Color {
             color_ranges,
         }
     }
+}
+
+/// Resolve only this section for a stage that does not consume other sections.
+pub fn resolve(stored: StoredRef<'_>) -> Color {
+    Color::resolve(stored)
 }
 
 #[cfg(test)]
