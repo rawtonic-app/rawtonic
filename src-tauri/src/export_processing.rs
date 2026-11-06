@@ -517,6 +517,7 @@ fn export_masks_for_image(
     pinned: &PinnedPhoto,
     cancellation_token: &AtomicBool,
 ) -> Result<(), String> {
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     ensure_export_not_cancelled(cancellation_token)?;
     let (transformed_image, unscaled_crop_offset) =
         apply_all_transformations(Cow::Borrowed(base_image), js_adjustments, is_raw)?;
@@ -574,7 +575,7 @@ fn export_masks_for_image(
 
             let processed = process_and_get_dynamic_image_with_precision(
                 context,
-                state,
+                &gpu,
                 develop,
                 transformed_image.as_ref(),
                 unique_hash,
@@ -663,6 +664,7 @@ fn export_adjustments_as_lut(
     app_handle: &tauri::AppHandle,
     cancellation_token: &AtomicBool,
 ) -> Result<Vec<u8>, String> {
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     ensure_export_not_cancelled(cancellation_token)?;
     let lut_size = 33;
     let identity_image = generate_identity_lut_image(lut_size);
@@ -692,7 +694,7 @@ fn export_adjustments_as_lut(
 
     let processed_lut = process_and_get_dynamic_image(
         context,
-        state,
+        &gpu,
         develop,
         &identity_image,
         unique_hash,
@@ -730,8 +732,12 @@ const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
 pub(crate) fn release_processor_under_pressure(app_handle: &tauri::AppHandle) {
     let app_handle = app_handle.clone();
     crate::memory_pressure::watch(Arc::new(move |_| {
-        let state = app_handle.state::<AppState>();
-        if state.export_gpu_processor.take_if_idle().is_some() {
+        if app_handle
+            .state::<crate::state::gpu::GpuState>()
+            .export_processor
+            .take_if_idle()
+            .is_some()
+        {
             log::info!("Memory pressure: released the exports' GPU processor");
         }
     }));
@@ -885,7 +891,6 @@ pub(crate) async fn export_images_impl(
     paths: Vec<String>,
     targets: Vec<ExportTarget>,
     photos: ExportPhotos,
-    state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
     completion_tx: Option<tokio::sync::oneshot::Sender<Result<(), usize>>>,
     max_jobs: Option<usize>,
@@ -905,7 +910,10 @@ pub(crate) async fn export_images_impl(
 
     #[cfg(feature = "performance-profiling")]
     let context_stage = crate::performance::PerformanceStage::new("export_gpu_context");
-    let context = match get_or_init_gpu_context(&state, &app_handle) {
+    let context = match get_or_init_gpu_context(
+        &app_handle.state::<crate::state::gpu::GpuState>(),
+        &app_handle,
+    ) {
         Ok(context) => context,
         Err(_) if cancellation_token.load(Ordering::SeqCst) => return Ok(()),
         Err(error) => return Err(error),
@@ -923,8 +931,8 @@ pub(crate) async fn export_images_impl(
         tokio::task::spawn_blocking(move || {
             crate::gpu_processing::prewarm_gpu_processor(
                 &app_handle
-                    .state::<crate::app_state::AppState>()
-                    .export_gpu_processor,
+                    .state::<crate::state::gpu::GpuState>()
+                    .export_processor,
                 &context,
             );
         })
@@ -1114,7 +1122,9 @@ pub(crate) async fn export_images_impl(
         }
 
         if release_after_run(
-            &app_handle.state::<AppState>().export_gpu_processor,
+            &app_handle
+                .state::<crate::state::gpu::GpuState>()
+                .export_processor,
             prewarm,
             crate::memory_pressure::under_pressure,
         )
@@ -1387,6 +1397,7 @@ fn export_photo(
     }
 
     let state = app_handle.state::<AppState>();
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let develop = app_handle.state::<DevelopSession>();
     let image_path_str = item.image_path_str;
     let (source_path, _) = parse_virtual_path(image_path_str);
@@ -1589,7 +1600,7 @@ fn export_photo(
     let load_lut = |path: &str| get_or_load_lut(&state, path).ok();
     let env = RenderEnv {
         context,
-        processor: &state.export_gpu_processor,
+        processor: &gpu.export_processor,
         image_cache: &develop.gpu_image_cache,
         tonemapper_override: &tonemapper_override,
         load_lut: &load_lut,
@@ -1899,7 +1910,6 @@ pub async fn run_headless_export(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     println!("Starting headless export...");
-    let state = app_handle.state::<crate::app_state::AppState>();
 
     let source_path = std::path::Path::new(&session.source);
     if !source_path.exists() {
@@ -2035,7 +2045,6 @@ pub async fn run_headless_export(
         paths,
         targets,
         photos,
-        state.clone(),
         app_handle.clone(),
         Some(tx),
         session.max_jobs,
@@ -2143,7 +2152,9 @@ fn estimate_sizes(
     let (source_path, sidecar_path) = parse_virtual_path(first_path);
     let source_path_str = source_path.to_string_lossy().to_string();
 
-    let context = get_or_init_gpu_context(&state, &app_handle)?;
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+
+    let context = get_or_init_gpu_context(&gpu, &app_handle)?;
     let is_current_edit = is_open_edit(first_path, current_edit_path.as_deref());
     let is_raw = is_raw_file(&source_path_str);
     let settings = crate::state::settings::current(&app_handle);
@@ -2250,7 +2261,7 @@ fn estimate_sizes(
 
         let processed_preview = process_and_get_dynamic_image_with_precision(
             &context,
-            &state,
+            &gpu,
             &develop,
             &preview_image,
             unique_hash,
@@ -2423,7 +2434,7 @@ fn estimate_sizes(
 
         let processed_preview = process_and_get_dynamic_image_with_precision(
             &context,
-            &state,
+            &gpu,
             &develop,
             &preview_base,
             unique_hash,

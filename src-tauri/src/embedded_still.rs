@@ -19,7 +19,6 @@ use image::{DynamicImage, RgbaImage};
 use rawtonic_engine::output_color_space::OutputColorSpace;
 use tauri::Manager;
 
-use crate::app_state::AppState;
 use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
 use crate::gpu_processing;
@@ -377,11 +376,9 @@ pub(crate) fn prepare_embedded_stills(paths: Vec<String>, app_handle: tauri::App
     let generation = PREPARING.fetch_add(1, Ordering::SeqCst) + 1;
     let paths: Vec<String> = paths.into_iter().take(PREPARED_AHEAD).collect();
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app_handle.state::<AppState>();
-        let target = state
-            .gpu_context
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        let target = app_handle
+            .state::<crate::state::gpu::GpuState>()
+            .context_lock()
             .as_ref()
             .and_then(|context| {
                 let display = context.display.lock().unwrap_or_else(|e| e.into_inner());

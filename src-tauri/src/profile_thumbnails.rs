@@ -114,7 +114,8 @@ fn render_tiles(
     let _stage = crate::performance::PerformanceStage::new("profile_thumbnails");
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
-    let context = get_or_init_gpu_context(&state, app_handle)?;
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = get_or_init_gpu_context(&gpu, app_handle)?;
     normalize_editor_recipe(&develop, &mut recipe);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
     if loaded_image.path != path {
@@ -176,7 +177,7 @@ fn render_tiles(
             .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
         let image = gpu_processing::process_and_get_dynamic_image_with_preview_shader(
             &context,
-            &state,
+            &gpu,
             &develop,
             &small,
             small_hash,

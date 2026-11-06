@@ -100,7 +100,8 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
     }
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
-    let context = get_or_init_gpu_context(&state, app_handle)?;
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = get_or_init_gpu_context(&gpu, app_handle)?;
     let settings = crate::state::settings::current(app_handle);
     let tiff = spec.format == "tiff";
     let extension = if tiff { "tiff" } else { "jpg" };
@@ -166,7 +167,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         let load_lut = |path: &str| crate::lut_processing::get_or_load_lut(&state, path).ok();
         let env = RenderEnv {
             context: &context,
-            processor: &state.gpu_processor,
+            processor: &gpu.processor,
             image_cache: &develop.gpu_image_cache,
             tonemapper_override: &tonemapper_override,
             load_lut: &load_lut,

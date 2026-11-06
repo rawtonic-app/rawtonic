@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -6,10 +5,8 @@ use image::DynamicImage;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
-pub use crate::gpu_processing::{
-    AnalyticsConfig, AnalyticsJob, GpuImageCache, GpuProcessorSlot, GpuProcessorState,
-};
-use crate::gpu_processing::{GpuContext, LatestJobSender};
+use crate::gpu_processing::LatestJobSender;
+pub use crate::gpu_processing::{AnalyticsConfig, AnalyticsJob, GpuProcessorState};
 use crate::lut_processing::LutCache;
 pub use crate::state::ai::{AiTaskGuard, AiTaskToken};
 
@@ -335,7 +332,6 @@ pub fn preview_job_is_stale(sequence: Option<u64>, newest_processed: Option<u64>
 pub type TransformedImageCache = (u64, Arc<DynamicImage>, (f32, f32));
 
 pub struct AppState {
-    pub gpu_crash_flag_path: Mutex<Option<PathBuf>>,
     pub original_image: Mutex<Option<LoadedImage>>,
     pub proxy_image: Mutex<Option<LoadedProxy>>,
     pub proxy_memory: Mutex<crate::preview_proxy::ProxyMemory>,
@@ -352,16 +348,6 @@ pub struct AppState {
     pub current_source: Mutex<String>,
     /// Long edge of the viewer's last full preview, for the proxy size.
     pub last_preview_dim: std::sync::atomic::AtomicU32,
-    pub gpu_context: Mutex<Option<GpuContext>>,
-    /// The instance and adapter `gpu_context` was made from: the window's
-    /// surface is attached to it after the window exists
-    /// (`gpu_processing::attach_display`).
-    pub gpu_adapter: Mutex<Option<(wgpu::Instance, wgpu::Adapter)>>,
-    pub gpu_processor: GpuProcessorSlot,
-    /// Exports' own processor: their renders pause between tiles for the
-    /// Develop view's frames instead of holding up the processor those use
-    /// for a whole photo (notes: parity-gaps/G44).
-    pub export_gpu_processor: GpuProcessorSlot,
     pub lut_cache: Mutex<LutCache>,
     /// The preview worker's next job (preview_slot.rs): a newer request
     /// replaces the waiting one on arrival.
@@ -375,11 +361,11 @@ pub struct AppState {
     pub analytics_generation: AtomicU64,
     pub full_frame_analytics_generation: AtomicU64,
     /// The zoomed drag's scope renders of the whole frame (scope_analytics.rs),
-    /// the small copy of the preview base they read and its GPU upload.
+    /// and the small copy of the preview base they read (its GPU upload is
+    /// `GpuState::scope_cache`).
     pub scope_analytics_tx:
         Mutex<Option<LatestJobSender<crate::scope_analytics::ScopeAnalyticsJob>>>,
     pub scope_proxy: Mutex<Option<crate::scope_analytics::ScopeProxy>>,
-    pub scope_gpu_cache: Mutex<Option<GpuImageCache>>,
     pub load_image_generation: Arc<AtomicUsize>,
     pub preview_generation: AtomicUsize,
 }
@@ -388,7 +374,6 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            gpu_crash_flag_path: Mutex::new(None),
             original_image: Mutex::new(None),
             proxy_image: Mutex::new(None),
             proxy_memory: Mutex::new(Default::default()),
@@ -397,10 +382,6 @@ impl Default for AppState {
             rendered_source: Default::default(),
             current_source: Mutex::new(String::new()),
             last_preview_dim: std::sync::atomic::AtomicU32::new(0),
-            gpu_context: Mutex::new(None),
-            gpu_adapter: Mutex::new(None),
-            gpu_processor: GpuProcessorSlot::new(None),
-            export_gpu_processor: GpuProcessorSlot::background(None),
             lut_cache: Mutex::new(Default::default()),
             preview_jobs: Default::default(),
             live_stroke: Default::default(),
@@ -409,7 +390,6 @@ impl Default for AppState {
             full_frame_analytics_generation: AtomicU64::new(0),
             scope_analytics_tx: Mutex::new(None),
             scope_proxy: Mutex::new(None),
-            scope_gpu_cache: Mutex::new(None),
             load_image_generation: Arc::new(AtomicUsize::new(0)),
             preview_generation: AtomicUsize::new(0),
         }

@@ -319,6 +319,7 @@ pub(crate) fn develop_thumbnail(
     preloaded_image: Option<&DynamicImage>,
     app_handle: &AppHandle,
 ) -> anyhow::Result<DynamicImage> {
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let (source_path, _) = parse_virtual_path(path_str);
     let source_path_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path_str);
@@ -687,7 +688,7 @@ pub(crate) fn develop_thumbnail(
         if let Ok(processed_image) =
             gpu_processing::process_and_get_dynamic_image_with_display_shader(
                 context,
-                &state,
+                &gpu,
                 &develop,
                 cropped_preview.as_ref(),
                 unique_hash,
@@ -1082,8 +1083,11 @@ pub(crate) fn generate_single_thumbnail_and_cache(
 /// Makes `path`'s thumbnails again after its preview proxy was written (the
 /// thumbnail is then developed from it) and tells the frontend.
 pub fn refresh_thumbnail(app_handle: &AppHandle, path: &str) {
-    let state = app_handle.state::<crate::app_state::AppState>();
-    let gpu_context = crate::gpu_processing::get_or_init_gpu_context(&state, app_handle).ok();
+    let gpu_context = crate::gpu_processing::get_or_init_gpu_context(
+        &app_handle.state::<crate::state::gpu::GpuState>(),
+        app_handle,
+    )
+    .ok();
     let settings = crate::state::settings::current(app_handle);
     let Ok(cache_dir) = get_thumb_cache_dir(app_handle) else {
         return;
@@ -1156,9 +1160,11 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                     path
                 };
 
-                let state = app_clone.state::<crate::app_state::AppState>();
-                let gpu_context =
-                    crate::gpu_processing::get_or_init_gpu_context(&state, &app_clone).ok();
+                let gpu_context = crate::gpu_processing::get_or_init_gpu_context(
+                    &app_clone.state::<crate::state::gpu::GpuState>(),
+                    &app_clone,
+                )
+                .ok();
 
                 let current_settings = crate::state::settings::current(&app_clone);
 
@@ -1332,8 +1338,11 @@ pub async fn restore_thumbnail(
         .restoration_slot
         .clone();
     restoration_job(slot, move || {
-        let state = app_handle.state::<AppState>();
-        let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+        let gpu = crate::gpu_processing::get_or_init_gpu_context(
+            &app_handle.state::<crate::state::gpu::GpuState>(),
+            &app_handle,
+        )
+        .ok();
         let settings = crate::state::settings::current(&app_handle);
         let directory = get_thumb_cache_dir(&app_handle)?;
         generate_single_thumbnail_and_cache(

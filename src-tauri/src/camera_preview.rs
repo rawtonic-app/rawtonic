@@ -19,12 +19,7 @@ pub(crate) async fn show_camera_preview(
     app_handle: tauri::AppHandle,
 ) -> Result<bool, String> {
     let state = app_handle.state::<AppState>();
-    let Some(context) = state
-        .gpu_context
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-    else {
+    let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
         return Ok(false);
     };
     let Some(area) = context
@@ -74,13 +69,7 @@ pub(crate) async fn show_camera_preview(
 #[tauri::command]
 pub(crate) async fn hide_camera_preview(app_handle: tauri::AppHandle) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        let state = app_handle.state::<AppState>();
-        let Some(context) = state
-            .gpu_context
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-        else {
+        let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
             return;
         };
         if let Some(display) = context

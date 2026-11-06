@@ -230,8 +230,11 @@ pub async fn snapshot_thumbnail(
     app_handle: tauri::AppHandle,
 ) -> Result<tauri::ipc::Response, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>> {
-        let state = app_handle.state::<crate::app_state::AppState>();
-        let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+        let gpu = crate::gpu_processing::get_or_init_gpu_context(
+            &app_handle.state::<crate::state::gpu::GpuState>(),
+            &app_handle,
+        )
+        .ok();
         let (source, _) = parse_virtual_path(&path);
         // Snapshots of one decode variant share a decoded base.
         let variant = crate::image_loader::decode_variant(&adjustments, &source.to_string_lossy());

@@ -497,13 +497,13 @@ P3 view on macOS) is that one rendering clipped at the end (ADR 0010).
 Where to edit: develop logic → the crate (`crates/engine`, `crates/rawdecode`, `crates/gpu`); a Tauri command or
 `AppState` access for it → the same-named thin module in `src-tauri/src` (e.g. `src-tauri/src/camera_profile.rs` = `pub
 use rawtonic_engine::camera_profile::*` + commands; `src-tauri/src/gpu_processing.rs` = window surface, the
-processor/image cache in `AppState`, render wrappers taking `tauri::State`). Engine/GPU functions take data (device,
+context and processors in `state::gpu::GpuState`, render wrappers taking `&GpuState`). Engine/GPU functions take data (device,
 caches, images), never `AppState`. Test-only helpers for another crate's tests go behind a `test-support` feature.
 
 
 ### Desktop adapter (`src-tauri`)
 
-Still in the adapter: the window surface and the processor/cache slots in `AppState`, the export queue's runner
+Still in the adapter: the window surface and the processor/cache slots in `state::gpu::GpuState`, the export queue's runner
 (`export_queue`: one job at a time, per-job pause/cancel, `export-item-progress` stage events incl. AI Denoise tiles
 through `MosaicDenoise::with_progress`, read by the studio's queue panel `StudioExportQueue`; a job carries each photo's
 recipe and embedded metadata, read once at submission through the library it was submitted from
@@ -523,6 +523,9 @@ engine/export crates; still inherited and Tauri-bound: file_management, ai_*, in
 `state::develop::DevelopSession` owns the caches built from the open photograph (decodes, preview bases and their
 GPU upload, masks, warps, geometry bases, the editor's patches); they are dropped only through
 `DevelopSession::invalidate(Scope)` (`OtherPhoto`, `Source`, `Decoder`, `DecodedCache`, `PreviewUpload`).
+`state::gpu::GpuState` holds the GPU's handles: the processing context (created on first use by
+`gpu_processing::get_or_init_gpu_context`, or early by `start_early`) and its adapter, the display and export
+processors, the scopes' upload, the device start's crash flag, the start error and the window's newest size.
 `state::library_files::{AlbumsStore, PresetsStore}` own `albums.json` and `presets.json`: each file is read once per
 run and every change (save, add to album, import, a file operation's rename or delete) is one read-modify-write
 under the store's write lock, written with the same atomic helper and format as before. The commands run on blocking

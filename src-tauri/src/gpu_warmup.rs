@@ -26,8 +26,6 @@ use std::time::{Duration, Instant};
 
 use tauri::Manager;
 
-use crate::app_state::AppState;
-
 pub const ARG: &str = "--warm-gpu-cache";
 
 /// Longer than every start pipeline takes on a cold NVIDIA driver cache in
@@ -87,8 +85,8 @@ pub fn start(app_handle: &tauri::AppHandle) {
 }
 
 fn warm(app_handle: &tauri::AppHandle, started: Instant) -> Result<String, String> {
-    let state = app_handle.state::<AppState>();
-    let context = crate::gpu_processing::get_or_init_gpu_context(&state, app_handle)?;
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = crate::gpu_processing::get_or_init_gpu_context(&gpu, app_handle)?;
     if !context
         .device
         .features()
@@ -96,12 +94,9 @@ fn warm(app_handle: &tauri::AppHandle, started: Instant) -> Result<String, Strin
     {
         return Ok("nothing to do, the backend keeps no pipeline cache".into());
     }
-    crate::gpu_processing::prewarm_gpu_processor(&state.gpu_processor, &context);
+    crate::gpu_processing::prewarm_gpu_processor(&gpu.processor, &context);
     {
-        let processor = state
-            .gpu_processor
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let processor = gpu.processor.lock().unwrap_or_else(|e| e.into_inner());
         let processor = &processor
             .as_ref()
             .ok_or("the GPU processor could not be created")?
