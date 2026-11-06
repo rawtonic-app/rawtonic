@@ -3,7 +3,8 @@
 //! (task WSF), only in QA builds (`qa-control`; never in release bundles):
 //! `RAWTONIC_TEST_CRASH=<kind>@<point>` ends the app at that point of its
 //! start. Kinds: `access-violation`, `stack-overflow`, `abort`, `panic`.
-//! Points: `setup` (before the log exists), `gpu-adapter`, `gpu-device`,
+//! Points: `start` (before Tauri builds the app, the crash records armed
+//! early), `setup` (before the log exists), `gpu-adapter`, `gpu-device`,
 //! `gpu-compile` (the GPU start's steps, its flag written).
 
 /// Crashes here when `RAWTONIC_TEST_CRASH` names this point.

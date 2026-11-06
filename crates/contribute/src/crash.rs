@@ -195,6 +195,10 @@ struct PanicNote {
     location: String,
     #[serde(default)]
     backtrace: Option<String>,
+    /// Written before this run had its marker (a panic early in the start,
+    /// [`arm_early`]): the marker on disk is an earlier run's.
+    #[serde(default)]
+    early: bool,
 }
 
 /// One crash, as it is kept until it is sent, refused or 30 days old.
@@ -507,8 +511,24 @@ impl CrashStore {
         {
             return Ok(None);
         }
-        let panic: Option<PanicNote> = read_json(&self.path(PANIC_NOTE));
-        let panic = panic.filter(|note| marker.as_ref().is_none_or(|m| m.pid == note.pid));
+        let note: Option<PanicNote> = read_json(&self.path(PANIC_NOTE));
+        // This run's own note (another thread panicked before the start
+        // read it; the run goes on) is no crash.
+        let note = note.filter(|note| note.pid != run.pid);
+        let (panic, early_panic) = match note {
+            // A later run's, noted before it had a marker: the log and the
+            // marker beside it are an earlier run's.
+            Some(note)
+                if note.early
+                    && marker
+                        .as_ref()
+                        .is_none_or(|m| m.pid != note.pid && note.at >= m.started) =>
+            {
+                (None, Some(note))
+            }
+            Some(note) if marker.as_ref().is_none_or(|m| m.pid == note.pid) => (Some(note), None),
+            _ => (None, None),
+        };
         let signal_path = self.path(SIGNAL_NOTE);
         let signal = std::fs::read_to_string(&signal_path)
             .ok()
@@ -553,6 +573,10 @@ impl CrashStore {
             }
             let mut still = Vec::new();
             for mut earlier in std::mem::take(&mut carried) {
+                // Past its days it is dropped unlooked (no new record from it).
+                if run.now.saturating_sub(earlier.started) > LOST_RUN_MAX_AGE_SECS {
+                    continue;
+                }
                 let found = if hit.is_none() {
                     native(EndedRun {
                         pid: earlier.pid,
@@ -657,6 +681,31 @@ impl CrashStore {
             if let Some(path) = self.record_path(&new.id) {
                 write_json(&path, &new)?;
                 record = Some(new);
+            }
+        }
+        // A panic early in a later run's start: a record of its own, without
+        // the log beside it (an earlier run's).
+        if keep && let Some(p) = early_panic {
+            let new = CrashRecord {
+                id: format!("{}-{:016x}", run.now, random_suffix()),
+                crashed_on: utc_date(p.at),
+                created: run.now,
+                app: run.app.clone(),
+                gpu: None,
+                message: cap_chars(
+                    &scrubber.scrub(&format!("{} (early in the start)", p.message)),
+                    MESSAGE_CAP,
+                ),
+                location: cap_chars(&scrubber.scrub(&p.location), LOCATION_CAP),
+                backtrace: p
+                    .backtrace
+                    .map(|b| keep_start(&scrubber.scrub(&b), DIAGNOSTICS_CAP).to_string()),
+                log_tail: None,
+                asked: false,
+            };
+            if let Some(path) = self.record_path(&new.id) {
+                write_json(&path, &new)?;
+                record = record.or(Some(new));
             }
         }
         remove(&self.path(PANIC_NOTE));
@@ -789,6 +838,10 @@ impl CrashStore {
 static ARMED: Mutex<Option<PathBuf>> = Mutex::new(None);
 static EXITING: AtomicBool = AtomicBool::new(false);
 static RECORDING: AtomicBool = AtomicBool::new(false);
+/// Armed by [`arm_early`]: this run has no marker yet.
+static EARLY: AtomicBool = AtomicBool::new(false);
+/// This run's panic note was written ([`panic_noted`]).
+static NOTE_WRITTEN: AtomicBool = AtomicBool::new(false);
 /// Held while the panic note is decided and written and while recording is
 /// switched: a note being written when Never is chosen is either deleted
 /// with the others or not written at all. Holds whether this recording
@@ -821,6 +874,7 @@ pub fn set_recording(store: &CrashStore, on: bool) {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     RECORDING.store(on, Ordering::SeqCst);
     *noted = false;
+    NOTE_WRITTEN.store(false, Ordering::SeqCst);
     if !on {
         store.remove_notes();
         // Also the runs waiting for a Windows event: Never keeps nothing.
@@ -833,8 +887,37 @@ pub fn arm(store: &CrashStore) {
     if let Ok(mut armed) = ARMED.lock() {
         *armed = Some(store.dir.clone());
     }
+    EARLY.store(false, Ordering::SeqCst);
     #[cfg(unix)]
     signals::install(&store.path(SIGNAL_NOTE));
+}
+
+/// Before the start reads its settings and marks its run: a panic from here
+/// until [`arm`] is noted in `store` as an early one, which the next start
+/// records although the marker beside it is an earlier run's. Only for a
+/// store that already exists (an earlier start made it), so a first start
+/// leaves the app's folders as it found them; the caller leaves it out when
+/// the user chose Never. Returns whether it armed.
+pub fn arm_early(store: &CrashStore) -> bool {
+    if !store.dir.is_dir() {
+        return false;
+    }
+    let mut noted = NOTE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Ok(mut armed) = ARMED.lock() {
+        *armed = Some(store.dir.clone());
+    }
+    EARLY.store(true, Ordering::SeqCst);
+    RECORDING.store(true, Ordering::SeqCst);
+    *noted = false;
+    true
+}
+
+/// Whether this run noted a panic (for telling the user the next start
+/// offers a report).
+pub fn panic_noted() -> bool {
+    RECORDING.load(Ordering::SeqCst) && NOTE_WRITTEN.load(Ordering::SeqCst)
 }
 
 /// The app is ending cleanly: a fatal signal from here on (a library's
@@ -877,6 +960,7 @@ pub fn note_panic(info: &std::panic::PanicHookInfo<'_>) {
         message: cap_chars(message.trim(), MESSAGE_CAP),
         location,
         backtrace,
+        early: EARLY.load(Ordering::SeqCst),
     };
     // Decided and written under the lock, after the slow capture above.
     let Some(mut noted) = note_lock() else {
@@ -886,7 +970,9 @@ pub fn note_panic(info: &std::panic::PanicHookInfo<'_>) {
         return;
     }
     *noted = true;
-    let _ = write_json(&dir.join(PANIC_NOTE), &note);
+    if write_json(&dir.join(PANIC_NOTE), &note).is_ok() {
+        NOTE_WRITTEN.store(true, Ordering::SeqCst);
+    }
 }
 
 /// Writes the signal note from a signal handler (async-signal-safe: no
@@ -1219,6 +1305,7 @@ mod tests {
                 message: "failed to open /Users/anna/Pictures/a.CR3 on studio".into(),
                 location: "decode.rs:12:5".into(),
                 backtrace: Some("0: rawdecode::open (decode.rs:12:5)".into()),
+                early: false,
             },
         )
         .unwrap();
@@ -1413,6 +1500,7 @@ mod tests {
     /// quit that never gets an event stops being looked for.
     #[test]
     fn a_native_crash_published_after_the_next_start_is_found_later() {
+        let _serial = exclusive();
         let (_dir, store) = store();
         store
             .start(&run(30, T0), |_| false, || None, &scrubber(), true)
@@ -1532,6 +1620,206 @@ mod tests {
         set_recording(&store, false);
         assert!(!store.path(LOST_RUNS).exists());
         set_recording(&store, true);
+
+        // Past its seven days a waiting run is not looked up any more, even
+        // when its event would be found now: no new record.
+        store
+            .start(&run(80, T0 + 400), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        store
+            .start_with(
+                &run(81, T0 + 410),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        store.clean_exit(81);
+        assert!(store.path(LOST_RUNS).exists());
+        let late = store
+            .start_with(
+                &run(82, T0 + 400 + LOST_RUN_MAX_AGE_SECS + 1),
+                |_| false,
+                || None,
+                |ended| {
+                    assert_ne!(ended.pid, 80, "looked up past its days");
+                    None
+                },
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(late, None);
+        assert!(!store.path(LOST_RUNS).exists());
+    }
+
+    /// A panic before the run marked itself (early in the start) is
+    /// recorded at the next start beside the marker of an earlier run,
+    /// whose own end is still looked up; a later note that is not early
+    /// is not taken for the marker's run.
+    #[test]
+    fn an_early_panic_of_a_later_run_is_recorded() {
+        let _serial = exclusive();
+        let (_dir, store) = store();
+        store
+            .start(&run(10, T0), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        let note = |early: bool| PanicNote {
+            pid: 11,
+            at: T0 + 5,
+            message: "error while building tauri application: no event loop".into(),
+            location: "lib.rs:1016:10".into(),
+            backtrace: None,
+            early,
+        };
+        write_json(&store.path(PANIC_NOTE), &note(true)).unwrap();
+        let mut asked = Vec::new();
+        let record = store
+            .start_with(
+                &run(12, T0 + 9),
+                |_| false,
+                || None,
+                |ended| {
+                    asked.push(ended.pid);
+                    None
+                },
+                &scrubber(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(asked, vec![10]);
+        assert_eq!(
+            record.message,
+            "error while building tauri application: no event loop (early in the start)"
+        );
+        assert_eq!(record.location, "lib.rs:1016:10");
+        assert_eq!(record.crashed_on, utc_date(T0 + 5));
+        assert!(!store.path(PANIC_NOTE).exists());
+
+        // Not early: another run's note beside this marker is dropped.
+        write_json(&store.path(PANIC_NOTE), &note(false)).unwrap();
+        assert_eq!(
+            store
+                .start(&run(13, T0 + 20), |_| false, || None, &scrubber(), true)
+                .unwrap(),
+            None
+        );
+        // Early, but older than the marker's run: not this marker's either.
+        write_json(&store.path(PANIC_NOTE), &note(true)).unwrap();
+        assert_eq!(
+            store
+                .start(&run(14, T0 + 30), |_| false, || None, &scrubber(), true)
+                .unwrap(),
+            None
+        );
+        assert_eq!(store.pending(T0 + 30).len(), 1);
+        // This run's own early note (another thread panicked, the run goes
+        // on) is no crash of an earlier run.
+        write_json(
+            &store.path(PANIC_NOTE),
+            &PanicNote {
+                pid: 15,
+                at: T0 + 40,
+                ..note(true)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .start(&run(15, T0 + 41), |_| false, || None, &scrubber(), true)
+                .unwrap(),
+            None
+        );
+        assert_eq!(store.pending(T0 + 41).len(), 1);
+        // After a clean exit there is no marker: still an early panic, and
+        // the log beside it (the clean run's) is not taken for its own.
+        store.clean_exit(15);
+        write_json(
+            &store.path(PANIC_NOTE),
+            &PanicNote {
+                pid: 16,
+                at: T0 + 50,
+                ..note(true)
+            },
+        )
+        .unwrap();
+        let record = store
+            .start(
+                &run(17, T0 + 51),
+                |_| false,
+                || panic!("the clean run's log is not read"),
+                &scrubber(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(record.message.ends_with("(early in the start)"));
+        assert_eq!(record.log_tail, None);
+        // With no marker either, this run's own note (early or not) is no
+        // crash and its log is not read.
+        store.clean_exit(17);
+        for early in [true, false] {
+            write_json(
+                &store.path(PANIC_NOTE),
+                &PanicNote {
+                    pid: 18,
+                    at: T0 + 60,
+                    ..note(early)
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                store
+                    .start(
+                        &run(18, T0 + 61),
+                        |_| false,
+                        || panic!("not read"),
+                        &scrubber(),
+                        true
+                    )
+                    .unwrap(),
+                None
+            );
+            store.clean_exit(18);
+        }
+    }
+
+    /// Armed early, the hook notes a panic as early; a store that does not
+    /// exist yet (a first start) is not armed and not created.
+    #[test]
+    fn an_early_armed_hook_notes_early_panics() {
+        let _serial = exclusive();
+        let (_dir, store) = store();
+        assert!(!arm_early(&store));
+        assert!(!store.dir().exists());
+        std::fs::create_dir_all(store.dir()).unwrap();
+        assert!(arm_early(&store));
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(note_panic));
+        let _ = std::panic::catch_unwind(|| panic!("before setup"));
+        std::panic::set_hook(previous);
+        let note: PanicNote = read_json(&store.path(PANIC_NOTE)).unwrap();
+        assert!(note.early);
+        assert_eq!(note.message, "before setup");
+        assert!(panic_noted());
+        // Armed normally, notes are the run's own again.
+        arm(&store);
+        set_recording(&store, false);
+        assert!(!panic_noted());
+        // A note that cannot be written is not reported as kept.
+        std::fs::remove_dir_all(store.dir()).unwrap();
+        std::fs::write(store.dir(), "a file where the folder was").unwrap();
+        arm(&store);
+        set_recording(&store, true);
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(note_panic));
+        let _ = std::panic::catch_unwind(|| panic!("unwritable"));
+        std::panic::set_hook(previous);
+        assert!(!panic_noted());
+        set_recording(&store, false);
     }
 
     /// A fatal signal's record names the phase the start was in.
