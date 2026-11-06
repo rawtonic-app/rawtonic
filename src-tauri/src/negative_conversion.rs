@@ -202,7 +202,7 @@ pub async fn preview_negative_conversion(
             cached_img.clone()
         } else {
             let image_to_downscale = {
-                let original_lock = state.original_image.lock().unwrap();
+                let original_lock = state.source.original_image.lock().unwrap();
                 if let Some(loaded) = original_lock.as_ref() {
                     if loaded.path == source_path_str {
                         loaded.image.clone().as_ref().clone()

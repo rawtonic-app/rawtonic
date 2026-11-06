@@ -49,6 +49,7 @@ pub(crate) async fn show_camera_preview(
     // (`release_still_for`) either came first or takes this cover away.
     if !asked_for(
         &state
+            .source
             .current_source
             .lock()
             .unwrap_or_else(|e| e.into_inner()),

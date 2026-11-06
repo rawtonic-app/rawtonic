@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
 
-use crate::app_state::AppState;
+use crate::state::luts::LutState;
 
 pub use rawtonic_engine::lut::Lut;
 
@@ -473,8 +473,8 @@ impl LutCache {
     }
 }
 
-pub fn get_or_load_lut(state: &AppState, path: &str) -> Result<Arc<Lut>, String> {
-    state.lut_cache.lock().unwrap().get_or_load(path)
+pub fn get_or_load_lut(luts: &LutState, path: &str) -> Result<Arc<Lut>, String> {
+    luts.cache().get_or_load(path)
 }
 
 pub fn list_luts_blocking(app_handle: AppHandle) -> Result<Vec<LutEntry>, String> {
@@ -598,13 +598,13 @@ fn user_lut_file(luts_dir: &Path, path: &Path) -> Result<PathBuf, String> {
 
 pub fn load_and_parse_lut_blocking(
     path: String,
-    state: &AppState,
+    luts: &LutState,
 ) -> Result<LutParseResult, String> {
     let read = stamp(&path);
     let lut = parse_lut_file(&path).map_err(|e| e.to_string())?;
     let lut_size = lut.size;
 
-    state.lut_cache.lock().unwrap().insert(path, read, lut);
+    luts.cache().insert(path, read, lut);
 
     Ok(LutParseResult { size: lut_size })
 }
@@ -615,8 +615,7 @@ pub async fn load_and_parse_lut(
     app_handle: AppHandle,
 ) -> Result<LutParseResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app_handle.state::<AppState>();
-        load_and_parse_lut_blocking(path, &state)
+        load_and_parse_lut_blocking(path, &app_handle.state::<LutState>())
     })
     .await
     .map_err(|e| e.to_string())?

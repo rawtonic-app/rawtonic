@@ -661,6 +661,7 @@ pub fn run() {
             Ok(())
         })
         .manage(AppState::default())
+        .manage(state::luts::LutState::default())
         .manage(state::settings::SettingsStore::default())
         .manage(state::develop::DevelopSession::default())
         .manage(state::thumbnails::ThumbnailState::default())

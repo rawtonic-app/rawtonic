@@ -5,9 +5,6 @@ use crate::adjustment_utils::apply_all_transformations;
 use crate::adjustment_utils::normalize_editor_recipe;
 use crate::app_state::AnalyticsJob;
 use crate::app_state::AppState;
-use crate::app_state::CachedPreview;
-use crate::app_state::LoadedImage;
-use crate::app_state::PreviewJob;
 use crate::cache_utils::calculate_full_job_hash;
 use crate::cache_utils::calculate_geometry_hash;
 use crate::cache_utils::calculate_transform_hash;
@@ -39,8 +36,11 @@ use crate::mask_generation::prepare_parametric_mask_source;
 use crate::mask_generation::resolve_warped_image_for_masks;
 use crate::mask_generation::{MaskBitmap, PhotoGeometry, generate_layer_mask};
 use crate::preview_cache;
+use crate::state::develop::CachedPreview;
 use crate::state::develop::{DevelopSession, Scope};
 use crate::state::lock::lock_recover;
+use crate::state::preview::PreviewJob;
+use crate::state::source::LoadedImage;
 use crate::state::thumbnails::ThumbnailState;
 use base64::Engine as _;
 use base64::engine::general_purpose;
@@ -269,7 +269,7 @@ pub(crate) fn prepare_base_ahead(
     source: &str,
     full: &Arc<DynamicImage>,
 ) {
-    let preview_dim = state.last_preview_dim.load(Ordering::Relaxed);
+    let preview_dim = state.preview.last_preview_dim.load(Ordering::Relaxed);
     if preview_dim == 0 {
         return;
     }
@@ -738,6 +738,7 @@ fn full_warped_image(
         // Keep this guard until the cache lookup so a source switch cannot route
         // an old job through the new editor image's cache.
         let original = state
+            .source
             .original_image
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -768,6 +769,7 @@ fn full_warped_image(
         )?;
 
         let original = state
+            .source
             .original_image
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -922,6 +924,7 @@ fn prewarm_now(app_handle: &tauri::AppHandle, path: &str, recipe: &serde_json::V
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
     let Some(loaded) = state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -958,6 +961,7 @@ fn rewarm_mask_source(
         .as_deref()
         == Some(loaded.path.as_str());
     let editor_photo = state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1069,6 +1073,7 @@ fn render_failed(error: impl std::fmt::Display) -> CommandError {
 /// pixels per full-resolution pixel and the full-resolution size.
 pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32, u32)), String> {
     let full_source = state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1080,11 +1085,13 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
         }
         None => {
             let current = state
+                .source
                 .current_source
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clone();
             let proxy = state
+                .source
                 .proxy_image
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -1125,6 +1132,7 @@ pub(crate) fn source_size(
 
 fn is_offline(state: &AppState, loaded_image: &LoadedImage) -> bool {
     state
+        .source
         .offline_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1408,9 +1416,9 @@ fn render_probe(
             probe.global.output_space[3] = image_processing::LEVELS_INPUT_PROBE;
         }
     }
-    let lut = recipe["lutPath"]
-        .as_str()
-        .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
+    let lut = recipe["lutPath"].as_str().and_then(|p| {
+        lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+    });
     gpu_processing::process_and_get_dynamic_image_with_preview_shader(
         &context,
         &gpu,
@@ -1524,7 +1532,7 @@ pub(crate) fn process_preview_job(
     let display_identity = gpu_processing::DisplayFrameIdentity {
         path: loaded_image.path.clone(),
         source: Arc::downgrade(&loaded_image.image),
-        load_generation: state.load_image_generation.load(Ordering::SeqCst),
+        load_generation: state.source.load_image_generation.load(Ordering::SeqCst),
         render_generation,
     };
 
@@ -1539,7 +1547,10 @@ pub(crate) fn process_preview_job(
     );
     if roi.is_none() && !is_interactive {
         // The fit view's size decides the size of new preview proxies.
-        state.last_preview_dim.store(preview_dim, Ordering::Relaxed);
+        state
+            .preview
+            .last_preview_dim
+            .store(preview_dim, Ordering::Relaxed);
     }
     #[cfg(not(target_os = "linux"))]
     let use_wgpu_renderer = settings.use_wgpu_renderer.unwrap_or(true);
@@ -1816,7 +1827,9 @@ pub(crate) fn process_preview_job(
     );
     final_adjustments.global.detail_scale = effective_scale;
     let lut_path = adjustments_clone["lutPath"].as_str();
-    let lut = lut_path.and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
+    let lut = lut_path.and_then(|p| {
+        lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+    });
 
     // A zoomed drag's frame covers only the visible region: the whole
     // frame's analytics come from a scope render beside it (scope_analytics.rs).
@@ -1829,27 +1842,34 @@ pub(crate) fn process_preview_job(
     };
 
     let analytics_config = if request_analytics {
-        state.analytics_worker_tx.lock().unwrap().clone().map(|tx| {
-            let generation = crate::scope_analytics::next_generation(&state);
-            if wants_analytics {
-                state
-                    .full_frame_analytics_generation
-                    .fetch_max(generation, Ordering::SeqCst);
-            }
-            crate::app_state::AnalyticsConfig {
-                path: loaded_image.path.clone(),
-                compute_waveform,
-                active_waveform_channel: channel_filter,
-                sender: tx,
-                generation,
-            }
-        })
+        state
+            .preview
+            .analytics_worker_tx
+            .lock()
+            .unwrap()
+            .clone()
+            .map(|tx| {
+                let generation = crate::scope_analytics::next_generation(&state.preview);
+                if wants_analytics {
+                    state
+                        .preview
+                        .full_frame_analytics_generation
+                        .fetch_max(generation, Ordering::SeqCst);
+                }
+                crate::app_state::AnalyticsConfig {
+                    path: loaded_image.path.clone(),
+                    compute_waveform,
+                    active_waveform_channel: channel_filter,
+                    sender: tx,
+                    generation,
+                }
+            })
     } else {
         None
     };
     let (analytics_config, scope_analytics) = if region_frame {
         let scope_job = analytics_config.and_then(|analytics| {
-            crate::scope_analytics::sender(&state).map(|sender| {
+            crate::scope_analytics::sender(&state.preview).map(|sender| {
                 (
                     sender,
                     crate::scope_analytics::ScopeAnalyticsJob {
@@ -1904,7 +1924,7 @@ pub(crate) fn process_preview_job(
             return Err(render_failed(error));
         }
     };
-    state.rendered_source.mark(&loaded_image.image);
+    state.source.rendered_source.mark(&loaded_image.image);
     if let Some((sender, mut job)) = scope_analytics {
         job.recipe = adjustments_clone;
         job.masks = mask_definitions;
@@ -2074,13 +2094,13 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
             );
         }
     });
-    *state.analytics_worker_tx.lock().unwrap() = Some(sender);
+    *state.preview.analytics_worker_tx.lock().unwrap() = Some(sender);
 }
 
 pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
     // Named for thread lists and profiles.
     let spawned = std::thread::Builder::new().name("preview-worker".into()).spawn(move || {
-        let jobs = &app_handle.state::<AppState>().inner().preview_jobs;
+        let jobs = &app_handle.state::<AppState>().inner().preview.preview_jobs;
         let mut newest_sequence = None;
         let mut waiting: Option<PreviewJob> = None;
         let mut live = crate::preview_slot::LiveCells::default();
@@ -2093,7 +2113,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 None => live.next_job(jobs, crate::multi_view::live_pending, &live_step),
             };
             // Dropping the responder rejects the superseded invoke.
-            if crate::app_state::preview_job_is_stale(job.sequence, newest_sequence) {
+            if crate::state::preview::preview_job_is_stale(job.sequence, newest_sequence) {
                 #[cfg(feature = "performance-profiling")]
                 log::info!(
                     "[PERF] {}",
@@ -2117,7 +2137,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 job.sequence,
                 // Rendered from the full decode (else a proxy or draft).
                 state
-                    .original_image
+                    .source.original_image
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .is_some(),
@@ -2310,7 +2330,7 @@ pub(crate) async fn activate_photo(
         );
         return Ok(Activation::None);
     }
-    crate::image_loader::open_source(&state, &develop, &path);
+    crate::image_loader::open_source(&state.source, &develop, &path);
     release_still_for(&app_handle.state::<crate::state::gpu::GpuState>(), &path);
     // Its decode kept ahead: developed from it at once (not its proxy).
     if let Some(shown) =
@@ -2319,6 +2339,7 @@ pub(crate) async fn activate_photo(
         return Ok(shown);
     }
     let remembered = state
+        .source
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -2350,6 +2371,7 @@ pub(crate) async fn activate_photo(
                 return Ok(show_still(&app_handle, &path, viewport, never_edited).await);
             };
             state
+                .source
                 .proxy_memory
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -2358,6 +2380,7 @@ pub(crate) async fn activate_photo(
     };
     // Asked for another photograph meanwhile.
     if *state
+        .source
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -2369,6 +2392,7 @@ pub(crate) async fn activate_photo(
     // The preview job renders the proxy, not the previous photograph's decode.
     {
         let mut original = state
+            .source
             .original_image
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -2377,7 +2401,11 @@ pub(crate) async fn activate_photo(
         }
     }
     let full_size = (proxy.full_width, proxy.full_height);
-    *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = Some(proxy);
+    *state
+        .source
+        .proxy_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(proxy);
     submit_activation_frame(
         &state,
         &app_handle.state::<crate::state::gpu::GpuState>(),
@@ -2455,13 +2483,17 @@ fn submit_activation_frame(
             crop_rotation: 0.0,
         });
     }
-    let preview_dim = match state.last_preview_dim.load(Ordering::Relaxed) {
+    let preview_dim = match state.preview.last_preview_dim.load(Ordering::Relaxed) {
         0 => None,
         dim => Some(dim),
     };
     let (tx, rx) = tokio::sync::oneshot::channel();
-    state.preview_jobs.submit(PreviewJob {
-        generation: state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1,
+    state.preview.preview_jobs.submit(PreviewJob {
+        generation: state
+            .preview
+            .preview_generation
+            .fetch_add(1, Ordering::SeqCst)
+            + 1,
         sequence: None,
         adjustments: recipe,
         is_interactive: false,
@@ -2710,7 +2742,7 @@ fn present_still_of(
     let rect = gpu_processing::fit_placement(viewport, still.shown.0 as f32, still.shown.1 as f32);
     let shown = present_if_current(
         &context.display,
-        &state.current_source,
+        &state.source.current_source,
         path,
         viewport,
         replace_still,
@@ -2842,7 +2874,7 @@ fn render_split_before_blocking(
         return Ok(false);
     };
     normalize_editor_recipe(&develop, &mut adjustments);
-    let load_generation = state.load_image_generation.load(Ordering::SeqCst);
+    let load_generation = state.source.load_image_generation.load(Ordering::SeqCst);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
     if loaded_image.path != path {
         return Ok(false);
@@ -2869,6 +2901,7 @@ fn render_split_before_blocking(
     let rendered = develop_split_before(
         &state,
         &gpu,
+        &app_handle.state::<crate::state::luts::LutState>(),
         &develop,
         &context,
         (&loaded_image, source_scale, full_dims),
@@ -2879,7 +2912,8 @@ fn render_split_before_blocking(
     )?;
 
     // Another photograph or decode meanwhile: this before is not wanted.
-    let still_current = state.load_image_generation.load(Ordering::SeqCst) == load_generation
+    let still_current = state.source.load_image_generation.load(Ordering::SeqCst)
+        == load_generation
         && preview_source(&state).is_ok_and(|(now, _, _)| {
             now.path == path && Arc::ptr_eq(&now.image, &loaded_image.image)
         });
@@ -2912,6 +2946,7 @@ fn render_split_before_blocking(
 fn develop_split_before(
     state: &AppState,
     gpu: &crate::state::gpu::GpuState,
+    luts: &crate::state::luts::LutState,
     develop: &DevelopSession,
     context: &gpu_processing::GpuContext,
     (loaded_image, source_scale, full_dims): (&LoadedImage, f32, (u32, u32)),
@@ -2984,7 +3019,7 @@ fn develop_split_before(
         image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
     let lut = adjustments["lutPath"]
         .as_str()
-        .and_then(|p| lut_processing::get_or_load_lut(state, p).ok());
+        .and_then(|p| lut_processing::get_or_load_lut(luts, p).ok());
     let rendered = gpu_processing::process_and_get_dynamic_image_with_display_shader(
         context,
         gpu,
@@ -3034,6 +3069,7 @@ pub(crate) async fn apply_adjustments(
     );
     // A live brush frame may carry only the points its stroke gained.
     let mut js_adjustments = state
+        .preview
         .live_stroke
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -3045,8 +3081,12 @@ pub(crate) async fn apply_adjustments(
         .map_err(|e| CommandError::new(ErrorCode::MaskParametersMissing, e))?;
     let (tx, rx) = tokio::sync::oneshot::channel();
 
-    let kept = state.preview_jobs.submit(PreviewJob {
-        generation: state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1,
+    let kept = state.preview.preview_jobs.submit(PreviewJob {
+        generation: state
+            .preview
+            .preview_generation
+            .fetch_add(1, Ordering::SeqCst)
+            + 1,
         sequence,
         adjustments: js_adjustments,
         is_interactive,
@@ -3133,7 +3173,7 @@ pub(crate) async fn generate_uncropped_preview(
     let mut adjustments_clone = js_adjustments.clone();
     normalize_editor_recipe(&develop, &mut adjustments_clone);
 
-    let loaded_image = crate::image_loader::original_image(&state).await?;
+    let loaded_image = crate::image_loader::original_image(&state.source).await?;
 
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
@@ -3261,7 +3301,10 @@ pub(crate) async fn generate_uncropped_preview(
         uncropped_adjustments.global.detail_scale = scale_for_gpu;
         uncropped_adjustments.global.show_clipping = 0;
         let lut_path = adjustments_clone["lutPath"].as_str();
-        let lut = lut_path.and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
+        let lut = lut_path.and_then(|p| {
+            lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
+                .ok()
+        });
 
         let full_hash = calculate_full_job_hash(&path, &adjustments_clone);
 
@@ -3301,7 +3344,7 @@ pub(crate) async fn generate_uncropped_preview(
 pub fn get_original_image(
     state: &tauri::State<AppState>,
 ) -> Result<(std::sync::Arc<image::DynamicImage>, bool), String> {
-    let loaded_image = crate::image_loader::wait_for_original_image(state)?;
+    let loaded_image = crate::image_loader::wait_for_original_image(&state.source)?;
     Ok((loaded_image.image, loaded_image.is_raw))
 }
 
@@ -3309,7 +3352,7 @@ pub fn get_original_image(
 pub async fn original_source(
     state: &AppState,
 ) -> Result<(std::sync::Arc<image::DynamicImage>, bool), String> {
-    let loaded_image = crate::image_loader::original_image(state).await?;
+    let loaded_image = crate::image_loader::original_image(&state.source).await?;
     Ok((loaded_image.image, loaded_image.is_raw))
 }
 
@@ -3320,7 +3363,7 @@ pub(crate) async fn generate_preview_for_path(
     app_handle: tauri::AppHandle,
 ) -> Result<Response, String> {
     tokio::task::spawn_blocking(move || {
-        let state = app_handle.state::<AppState>();
+        let luts = app_handle.state::<crate::state::luts::LutState>();
         let develop = app_handle.state::<DevelopSession>();
         let gpu = app_handle.state::<crate::state::gpu::GpuState>();
         let context = get_or_init_gpu_context(&gpu, &app_handle)?;
@@ -3406,7 +3449,7 @@ pub(crate) async fn generate_preview_for_path(
         );
         all_adjustments.global.show_clipping = 0;
         let lut_path = js_adjustments["lutPath"].as_str();
-        let lut = lut_path.and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
+        let lut = lut_path.and_then(|p| lut_processing::get_or_load_lut(&luts, p).ok());
         let unique_hash = calculate_full_job_hash(&source_path_str, &js_adjustments);
 
         let final_image = process_and_get_dynamic_image(
@@ -3477,8 +3520,9 @@ mod split_view_tests {
     #[test]
     #[ignore = "needs a GPU"]
     fn the_split_before_shows_a_snapshots_local_adjustments() {
-        use crate::app_state::{AppState, LoadedImage};
+        use crate::app_state::AppState;
         use crate::gpu_processing::GpuContext;
+        use crate::state::source::LoadedImage;
         use image::{DynamicImage, Rgb32FImage};
         use std::sync::Arc;
 
@@ -3507,6 +3551,7 @@ mod split_view_tests {
             super::develop_split_before(
                 &state,
                 &gpu,
+                &crate::state::luts::LutState::default(),
                 &develop,
                 &context,
                 (&loaded, 1.0, (width, height)),

@@ -665,6 +665,7 @@ fn load_source(
     // (`preview_proxy::stands_for`); a cell of another one decodes.
     let proxy_fits = !is_raw || crate::preview_proxy::stands_for(&source_path, recipe);
     if let Some(proxy) = state
+        .source
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -930,7 +931,7 @@ fn develop_rgba(
     context: &GpuContext,
     input: DevelopInput,
 ) -> Result<image::RgbaImage, String> {
-    let state = app_handle.state::<AppState>();
+    let luts = app_handle.state::<crate::state::luts::LutState>();
     let develop = app_handle.state::<DevelopSession>();
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let settings = crate::state::settings::current(app_handle);
@@ -977,7 +978,7 @@ fn develop_rgba(
         image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
     let lut = recipe["lutPath"]
         .as_str()
-        .and_then(|p| crate::lut_processing::get_or_load_lut(&state, p).ok());
+        .and_then(|p| crate::lut_processing::get_or_load_lut(&luts, p).ok());
     let developed = gpu_processing::process_and_get_dynamic_image_inner(
         context,
         &gpu.processor,
@@ -2471,7 +2472,7 @@ pub(crate) fn set_multi_view_live(
     if set_live(patch) {
         // The preview worker may be waiting for the primary's next frame,
         // which a typed value never asks for.
-        state.preview_jobs.wake();
+        state.preview.preview_jobs.wake();
     }
 }
 

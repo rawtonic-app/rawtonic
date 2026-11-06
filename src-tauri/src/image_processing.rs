@@ -43,28 +43,31 @@ pub async fn calculate_auto_adjustments(
     base_curve: Option<String>,
     render_version: Option<u64>,
 ) -> Result<serde_json::Value, String> {
-    let (original_image, path, is_raw) = match crate::image_loader::original_image(&state).await {
-        Ok(loaded) => (loaded.image, loaded.path, loaded.is_raw),
-        // An offline photograph on its Standard preview: Auto reads the
-        // tones of the whole photograph, which the preview holds as well.
-        Err(error) => {
-            let proxy = state
-                .proxy_image
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone()
-                .filter(|proxy| {
-                    state
-                        .offline_source
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .as_deref()
-                        == Some(proxy.path.as_str())
-                })
-                .ok_or(error)?;
-            (proxy.image, proxy.path, proxy.is_raw)
-        }
-    };
+    let (original_image, path, is_raw) =
+        match crate::image_loader::original_image(&state.source).await {
+            Ok(loaded) => (loaded.image, loaded.path, loaded.is_raw),
+            // An offline photograph on its Standard preview: Auto reads the
+            // tones of the whole photograph, which the preview holds as well.
+            Err(error) => {
+                let proxy = state
+                    .source
+                    .proxy_image
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
+                    .filter(|proxy| {
+                        state
+                            .source
+                            .offline_source
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .as_deref()
+                            == Some(proxy.path.as_str())
+                    })
+                    .ok_or(error)?;
+                (proxy.image, proxy.path, proxy.is_raw)
+            }
+        };
     let source_path = crate::file_management::parse_virtual_path(&path)
         .0
         .to_string_lossy()

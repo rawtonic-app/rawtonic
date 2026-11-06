@@ -200,7 +200,7 @@ pub async fn find_dust(
     state: tauri::State<'_, crate::app_state::AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<FoundDust, String> {
-    let loaded = crate::image_loader::original_image(&state).await?;
+    let loaded = crate::image_loader::original_image(&state.source).await?;
     let (source, is_raw, path) = (loaded.image, loaded.is_raw, loaded.path);
     let key = {
         use std::hash::{Hash, Hasher};
@@ -374,7 +374,7 @@ pub async fn sync_dust_spots(
     state: tauri::State<'_, crate::app_state::AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<DustSync, String> {
-    let loaded = crate::image_loader::original_image(&state).await?;
+    let loaded = crate::image_loader::original_image(&state.source).await?;
     // The spots' photo must still be the one loaded: its size and
     // orientation place them (a sync queued behind other writes may start
     // after the user went on to another photo).

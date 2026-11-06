@@ -60,7 +60,7 @@ pub async fn calculate_auto_straighten(
 ) -> Result<Option<AutoStraightenResult>, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<crate::app_state::AppState>();
-        let loaded = crate::image_loader::wait_for_original_image(&state)?;
+        let loaded = crate::image_loader::wait_for_original_image(&state.source)?;
         if loaded.path != path {
             return Err(CommandError::new(ErrorCode::Stale, ANOTHER_PHOTO));
         }

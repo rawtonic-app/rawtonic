@@ -23,7 +23,9 @@ pub async fn calculate_upright(
         other => return Err(format!("Unknown upright mode {other}")),
     };
     let state = app_handle.state::<crate::app_state::AppState>();
-    let image = crate::image_loader::original_image(&state).await?.image;
+    let image = crate::image_loader::original_image(&state.source)
+        .await?
+        .image;
     tauri::async_runtime::spawn_blocking(move || upright_guides(&image, mode, &adjustments))
         .await
         .map_err(|e| format!("Upright failed: {e}"))

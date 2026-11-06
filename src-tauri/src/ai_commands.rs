@@ -192,7 +192,7 @@ pub async fn generate_ai_depth_mask(
     let _running = ai_state.lifecycle.run();
     // Keyed by the photo actually loaded, taken before the model loads: a
     // photo switch meanwhile cannot file one photo's depth under another.
-    let loaded = crate::image_loader::original_image(&state).await?;
+    let loaded = crate::image_loader::original_image(&state.source).await?;
     ensure_photo(&loaded.path, &path)?;
     let path_hash = geometry_key(&loaded, &js_adjustments);
     let depth_model = get_or_init_depth_model(&app_handle, &ai_state)
@@ -490,7 +490,7 @@ pub async fn generate_ai_subject_mask(
 /// move pixels): what is computed for one is not used for another, nor for
 /// the photo developed again (`LoadedImage::source_generation`).
 pub(crate) fn geometry_key(
-    loaded: &crate::app_state::LoadedImage,
+    loaded: &crate::state::source::LoadedImage,
     js_adjustments: &serde_json::Value,
 ) -> String {
     let mut hasher = blake3::Hasher::new();
@@ -541,7 +541,7 @@ async fn sam_embeddings(
     // background encode that outlives a photo switch cannot file the new
     // photo's embedding under the old one. A selection asked for one photo
     // is never made on another (`PHOTO_CHANGED`).
-    let loaded = crate::image_loader::original_image(state).await?;
+    let loaded = crate::image_loader::original_image(&state.source).await?;
     if let Some(asked) = asked {
         ensure_photo(&loaded.path, asked)?;
     }
@@ -647,7 +647,7 @@ pub async fn precompute_ai_subject_mask(
         .await
         .map_err(CommandError::from)?;
     // A request for a photo that is no longer open is dropped.
-    let current = crate::image_loader::original_image(&state)
+    let current = crate::image_loader::original_image(&state.source)
         .await
         .ok()
         .map(|l| l.path);
@@ -812,7 +812,7 @@ async fn auto_mask(
     let _run = kind.lock(ai_state).lock().await;
     // Keyed by the photo actually loaded, not the caller's path: a run that
     // outlives a photo switch cannot file one photo's mask under another.
-    let loaded = crate::image_loader::original_image(state).await?;
+    let loaded = crate::image_loader::original_image(&state.source).await?;
     if let Some(asked) = asked {
         ensure_photo(&loaded.path, asked)?;
     }
@@ -1046,7 +1046,7 @@ async fn precompute(
         .as_ref()
         .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancel = _guard.as_ref().map(|g| &g.token);
-    let current = crate::image_loader::original_image(&state)
+    let current = crate::image_loader::original_image(&state.source)
         .await
         .ok()
         .map(|l| l.path);
@@ -1673,13 +1673,14 @@ mod tests {
 
     #[test]
     fn geometry_key_follows_the_development_and_geometry_only() {
-        let loaded = |path: &str, image: &Arc<image::DynamicImage>| crate::app_state::LoadedImage {
-            path: path.into(),
-            image: image.clone(),
-            is_raw: true,
-            decode: None,
-            measures: None,
-        };
+        let loaded =
+            |path: &str, image: &Arc<image::DynamicImage>| crate::state::source::LoadedImage {
+                path: path.into(),
+                image: image.clone(),
+                is_raw: true,
+                decode: None,
+                measures: None,
+            };
         let pixels = || Arc::new(image::DynamicImage::new_rgb8(2, 1));
         let decode = pixels();
         let x = loaded("x.raf", &decode);

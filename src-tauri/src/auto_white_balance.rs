@@ -60,6 +60,7 @@ pub async fn auto_white_balance_for(
         let state = app_handle.state::<crate::app_state::AppState>();
         let develop = app_handle.state::<DevelopSession>();
         let Some(source) = state
+            .source
             .original_image
             .lock()
             .unwrap_or_else(|e| e.into_inner())

@@ -3,7 +3,6 @@
 //! size its cell needs, places it on the collage canvas (rounded corners
 //! antialiased) and writes a JPEG or 16-bit TIFF with its colour profile,
 //! never over an existing file.
-use crate::app_state::AppState;
 use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
 use crate::gpu_processing::get_or_init_gpu_context;
@@ -98,7 +97,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
     {
         return Err("The collage is too large.".to_string());
     }
-    let state = app_handle.state::<AppState>();
+    let luts = app_handle.state::<crate::state::luts::LutState>();
     let develop = app_handle.state::<DevelopSession>();
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let context = get_or_init_gpu_context(&gpu, app_handle)?;
@@ -164,7 +163,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         let tonemapper_override = |is_raw| {
             crate::image_processing::resolve_tonemapper_override_from_handle(app_handle, is_raw)
         };
-        let load_lut = |path: &str| crate::lut_processing::get_or_load_lut(&state, path).ok();
+        let load_lut = |path: &str| crate::lut_processing::get_or_load_lut(&luts, path).ok();
         let env = RenderEnv {
             context: &context,
             processor: &gpu.processor,

@@ -361,6 +361,7 @@ pub async fn storage_clear(
         SIZES.lock().unwrap_or_else(|e| e.into_inner()).clear();
         if !full_only && matches!(category, Category::Previews | Category::Session) {
             *app.state::<AppState>()
+                .source
                 .proxy_memory
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = Default::default();

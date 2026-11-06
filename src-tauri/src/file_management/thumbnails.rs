@@ -5,7 +5,6 @@ use super::is_cloud_placeholder;
 use super::parse_virtual_path;
 use super::read_file_mapped;
 use crate::AppSettings;
-use crate::app_state::AppState;
 use crate::formats::is_raw_file;
 use crate::gpu_processing;
 use crate::image_loader;
@@ -380,7 +379,7 @@ pub(crate) fn develop_thumbnail(
     if let (Some(context), Some(meta)) = (gpu_context, metadata)
         && !meta.adjustments.is_null()
     {
-        let state = app_handle.state::<AppState>();
+        let luts = app_handle.state::<crate::state::luts::LutState>();
         let develop = app_handle.state::<DevelopSession>();
         let thumbnails = app_handle.state::<ThumbnailState>();
         let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
@@ -687,7 +686,7 @@ pub(crate) fn develop_thumbnail(
         );
         gpu_adjustments.global.detail_scale = total_scale;
         let lut_path = meta.adjustments["lutPath"].as_str();
-        let lut = lut_path.and_then(|p| state.lut_cache.lock().unwrap().get_or_load(p).ok());
+        let lut = lut_path.and_then(|p| crate::lut_processing::get_or_load_lut(&luts, p).ok());
 
         let mut hasher = DefaultHasher::new();
         cache_key.hash(&mut hasher);

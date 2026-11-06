@@ -731,7 +731,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
 fn wanted_size(app_handle: &tauri::AppHandle, viewer_dim: u32) -> u32 {
     let state = app_handle.state::<AppState>();
     let settings = crate::state::settings::current(app_handle);
-    let dim = state.last_preview_dim.load(Ordering::Relaxed);
+    let dim = state.preview.last_preview_dim.load(Ordering::Relaxed);
     preview_proxy::standard_size(if dim > 0 { dim } else { viewer_dim }, &settings)
 }
 
@@ -747,6 +747,7 @@ fn prepare(
     let state = app_handle.state::<AppState>();
     // The open photograph's own decode writes its proxy.
     if *state
+        .source
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -772,6 +773,7 @@ fn prepare(
             return;
         }
         let in_memory = state
+            .source
             .proxy_memory
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -779,6 +781,7 @@ fn prepare(
             .is_some();
         if !in_memory && let Some(proxy) = preview_proxy::read(&source, &settings) {
             state
+                .source
                 .proxy_memory
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -817,6 +820,7 @@ fn prepare(
     // starts now instead of after this write (~0.4 s for a 36 MP RAW on a
     // six-core PC, which made every step wait for a decode started late).
     if *state
+        .source
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -830,6 +834,7 @@ fn prepare(
         Ok(proxy) => {
             drop(image);
             state
+                .source
                 .proxy_memory
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -1131,6 +1136,7 @@ pub async fn discard_previews(
             removed += preview_proxy::discard_source(Path::new(&source), kinds(full_only));
             if !full_only {
                 state
+                    .source
                     .proxy_memory
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())

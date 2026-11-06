@@ -610,6 +610,7 @@ fn current_preview_base(
 ) -> Option<(Arc<DynamicImage>, bool)> {
     let (source, is_raw) = {
         let original = state
+            .source
             .original_image
             .lock()
             .unwrap_or_else(|error| error.into_inner());
@@ -673,9 +674,10 @@ fn sample_current_frame<T>(
     sample: impl FnOnce(&GpuProcessor, &Arc<DynamicImage>, usize, usize) -> Result<Option<T>, String>,
 ) -> Result<Option<T>, String> {
     use std::sync::atomic::Ordering;
-    let load = state.load_image_generation.load(Ordering::SeqCst);
-    let render = state.preview_generation.load(Ordering::SeqCst);
+    let load = state.source.load_image_generation.load(Ordering::SeqCst);
+    let render = state.preview.preview_generation.load(Ordering::SeqCst);
     let source = state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -695,12 +697,13 @@ fn sample_current_frame<T>(
         };
         sample(&processor.processor, &source, load, render)?
     };
-    if load != state.load_image_generation.load(Ordering::SeqCst)
-        || render != state.preview_generation.load(Ordering::SeqCst)
+    if load != state.source.load_image_generation.load(Ordering::SeqCst)
+        || render != state.preview.preview_generation.load(Ordering::SeqCst)
     {
         return Ok(None);
     }
     let still_current = state
+        .source
         .original_image
         .lock()
         .unwrap_or_else(|error| error.into_inner())

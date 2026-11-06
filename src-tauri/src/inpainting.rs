@@ -31,7 +31,7 @@ fn prepare_source_image(
     }
 
     let is_raw = {
-        let guard = state.original_image.lock().unwrap();
+        let guard = state.source.original_image.lock().unwrap();
         guard.as_ref().map(|img| img.is_raw).unwrap_or(false)
     };
 
