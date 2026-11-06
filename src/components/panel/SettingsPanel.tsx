@@ -477,7 +477,10 @@ export default function SettingsPanel({
   };
 
   const handleSaveAndRelaunch = async () => {
-    await onSettingsChange({
+    // Queued, not awaited: the relaunch drain below waits for this save within
+    // its own bound, so a write that hangs shows the failure message instead
+    // of leaving the button spinning for ever.
+    void onSettingsChange({
       ...appSettings,
       ...processingSettings
     });

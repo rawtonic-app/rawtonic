@@ -23,6 +23,14 @@ use crate::state::lock::{lock_recover, read_recover, write_recover};
 
 const ENTRY_GRACE: Duration = Duration::from_secs(30);
 
+/// What a change that waited the whole grace for an earlier one reports.
+fn timeout_error(grace: Duration) -> String {
+    format!(
+        "Timed out after {} seconds waiting for an earlier album or preset change; this change was not saved",
+        grace.as_secs()
+    )
+}
+
 pub(crate) const FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -59,7 +67,8 @@ pub struct LibraryQueue {
 struct QueueState {
     next: u64,
     pending: BTreeMap<u64, String>,
-    failures: BTreeMap<LibraryFile, (u64, String)>,
+    /// The latest failure per file: its change id and kind and the text.
+    failures: BTreeMap<LibraryFile, (u64, LibraryChange, String)>,
 }
 
 impl LibraryQueue {
@@ -92,13 +101,13 @@ struct Change<'q> {
 }
 
 impl Change<'_> {
-    fn wait(&self) -> Result<(), String> {
-        let deadline = Instant::now() + ENTRY_GRACE;
+    fn wait(&self, grace: Duration) -> Result<(), String> {
+        let deadline = Instant::now() + grace;
         let mut state = self.queue.lock();
         while state.pending.range(..self.id).next().is_some() {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                return Err("Timed out after 30 seconds waiting for an earlier album or preset change; this change was not saved".into());
+                return Err(timeout_error(grace));
             }
             state = self
                 .queue
@@ -122,13 +131,20 @@ impl Change<'_> {
         if state
             .failures
             .get(&file)
-            .is_none_or(|(id, _)| *id < self.id)
+            .is_none_or(|(id, _, _)| *id < self.id)
         {
             if let Some(error) = error {
                 state
                     .failures
-                    .insert(file, (self.id, format!("{describe}: {error}")));
-            } else if self.kind == LibraryChange::PresetSave {
+                    .insert(file, (self.id, self.kind, format!("{describe}: {error}")));
+            } else if self.kind == LibraryChange::PresetSave
+                && state
+                    .failures
+                    .get(&file)
+                    .is_some_and(|(_, kind, _)| *kind == LibraryChange::PresetSave)
+            {
+                // The whole list it saved holds the edits of an earlier failed
+                // save, but not the presets of a failed import.
                 state.failures.remove(&file);
             }
         }
@@ -154,8 +170,19 @@ pub(crate) fn run_change<T>(
     describe: &str,
     work: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
+    run_change_within(queue, kind, describe, ENTRY_GRACE, work)
+}
+
+/// [`run_change`] with its own wait for earlier changes (tests shorten it).
+fn run_change_within<T>(
+    queue: &LibraryQueue,
+    kind: LibraryChange,
+    describe: &str,
+    grace: Duration,
+    work: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
     let mut change = queue.record(kind, describe);
-    let result = change.wait().and_then(|()| work());
+    let result = change.wait(grace).and_then(|()| work());
     change.finish(result.as_ref().err().cloned());
     result
 }
@@ -179,7 +206,7 @@ pub(crate) fn flush_library(queue: &LibraryQueue, timeout: Duration) -> Vec<Stri
             .unwrap_or_else(|e| e.into_inner().0);
     }
     let mut failures = Vec::new();
-    state.failures.retain(|_, (id, error)| {
+    state.failures.retain(|_, (id, _, error)| {
         if *id < until {
             failures.push((*id, error.clone()));
             false
@@ -707,6 +734,9 @@ mod queue_tests {
 
     #[test]
     fn a_waiting_change_times_out_without_running_its_work() {
+        // The production grace is 30 seconds (`ENTRY_GRACE`); the test waits a
+        // fraction of a second.
+        let grace = Duration::from_millis(200);
         let queue = LibraryQueue::default();
         let mut predecessor = queue.record(LibraryChange::PresetImport, "Preset import");
         let (done_tx, done_rx) = mpsc::channel();
@@ -714,35 +744,63 @@ mod queue_tests {
         let timed_out = thread::scope(|s| {
             s.spawn(|| {
                 done_tx
-                    .send(run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || {
-                        ran.store(true, std::sync::atomic::Ordering::Relaxed);
-                        Ok(())
-                    }))
+                    .send(run_change_within(
+                        &queue,
+                        LibraryChange::AlbumEdit,
+                        ALBUMS,
+                        grace,
+                        || {
+                            ran.store(true, std::sync::atomic::Ordering::Relaxed);
+                            Ok(())
+                        },
+                    ))
                     .unwrap();
             });
-            // The production entry grace is 30 seconds. Always release the
-            // predecessor so this regression also terminates on the old code.
-            let result = done_rx.recv_timeout(Duration::from_secs(31));
+            // Always release the predecessor so this regression also
+            // terminates on the old code.
+            let result = done_rx.recv_timeout(Duration::from_secs(10));
             let pending = queue.lock().pending.len();
             predecessor.finish(None);
             (result, pending)
         });
-        let expected: serde_json::Value =
-            serde_json::from_str(include_str!("../../../src/contracts/libraryFiles.json")).unwrap();
         assert_eq!(
-            serde_json::to_value(timed_out.0.unwrap().unwrap_err()).unwrap(),
-            expected["errors"]["wait_timeout"]
+            timed_out.0.unwrap().unwrap_err(),
+            timeout_error(grace),
+            "the waiting change fails with the grace it waited"
         );
         assert_eq!(timed_out.1, 1, "only the predecessor stays pending");
         assert!(!ran.load(std::sync::atomic::Ordering::Relaxed));
         assert_eq!(
             flush_library(&queue, Duration::ZERO),
-            [format!(
-                "{ALBUMS}: Timed out after 30 seconds waiting for an earlier album or preset change; this change was not saved"
-            )]
+            [format!("{ALBUMS}: {}", timeout_error(grace))]
         );
         run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || Ok(())).unwrap();
         assert!(flush_library(&queue, Duration::ZERO).is_empty());
+    }
+
+    #[test]
+    fn the_production_grace_is_what_the_frontend_contract_says() {
+        let expected: serde_json::Value =
+            serde_json::from_str(include_str!("../../../src/contracts/libraryFiles.json")).unwrap();
+        assert_eq!(
+            serde_json::to_value(timeout_error(ENTRY_GRACE)).unwrap(),
+            expected["errors"]["wait_timeout"]
+        );
+    }
+
+    #[test]
+    fn a_preset_save_keeps_the_failure_of_a_preset_import() {
+        // The whole list a save writes comes from the frontend and does not
+        // hold the presets whose import failed.
+        let queue = LibraryQueue::default();
+        let _ = run_change(&queue, LibraryChange::PresetImport, PRESETS, || {
+            Err::<(), _>("disk full".into())
+        });
+        run_change(&queue, LibraryChange::PresetSave, PRESETS, || Ok(())).unwrap();
+        assert_eq!(
+            flush_library(&queue, Duration::ZERO),
+            [format!("{PRESETS}: disk full")]
+        );
     }
 
     #[test]
