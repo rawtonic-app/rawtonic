@@ -1,4 +1,4 @@
-//! Library listing workers and the disk-kind cache used by thumbnails.
+//! Library listing workers and the disk-kind cache used by Library listings.
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;

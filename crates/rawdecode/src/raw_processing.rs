@@ -8,11 +8,6 @@ use rawler::{
     rawsource::RawSource,
 };
 use rayon::prelude::*;
-#[cfg(test)]
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
 
 /// How to interpret linear RAW colour channels. Unknown external strings retain
 /// the historical automatic behaviour.
@@ -2474,6 +2469,10 @@ mod canon_300d_tests {
 mod draft_tests {
     use super::*;
     use std::sync::Mutex;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     /// Local camera fixtures only; never check photographs into the repo.
     #[test]
@@ -2601,6 +2600,7 @@ mod draft_tests {
 #[cfg(test)]
 mod decode_options_tests {
     use super::*;
+    use std::sync::{Arc, atomic::AtomicUsize};
 
     #[test]
     fn linear_modes_keep_existing_strings_and_unknown_fallback() {

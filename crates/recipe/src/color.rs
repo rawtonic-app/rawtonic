@@ -31,21 +31,6 @@ pub const RANGE_LIGHTNESS_SHIFT: Key<f64> = Key::new("lightnessShift", 0.0, 1);
 pub const RANGE_HUE_UNIFORMITY: Key<f64> = Key::new("hueUniformity", 0.0, 1);
 pub const RANGE_SATURATION_UNIFORMITY: Key<f64> = Key::new("saturationUniformity", 0.0, 1);
 pub const RANGE_LIGHTNESS_UNIFORMITY: Key<f64> = Key::new("lightnessUniformity", 0.0, 1);
-pub const RANGE_KEYS: [Key<f64>; 13] = [
-    RANGE_HUE,
-    RANGE_CHROMA,
-    RANGE_LIGHTNESS,
-    RANGE_LIGHTNESS_RANGE,
-    RANGE_HUE_RANGE,
-    RANGE_CHROMA_RANGE,
-    RANGE_SMOOTHNESS,
-    RANGE_HUE_SHIFT,
-    RANGE_SATURATION,
-    RANGE_LIGHTNESS_SHIFT,
-    RANGE_HUE_UNIFORMITY,
-    RANGE_SATURATION_UNIFORMITY,
-    RANGE_LIGHTNESS_UNIFORMITY,
-];
 
 /// An array as saved, retaining unknown fields and ranges beyond the renderer's limit.
 #[derive(Clone, Debug, Default, PartialEq)]

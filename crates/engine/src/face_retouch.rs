@@ -212,7 +212,7 @@ fn first_frame_key(adjustments: &Value) -> String {
     keys_json(adjustments, crate::cache_utils::GEOMETRY_KEYS.iter())
 }
 
-fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str>) -> String {
+fn keys_json<'a>(adjustments: &Value, extra: impl Iterator<Item = &'a &'a str>) -> String {
     let mut keys: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
     for key in [
         geometry::ORIENTATION_STEPS.name(),
@@ -221,7 +221,7 @@ fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str
         geometry::ROTATION.name(),
     ]
     .into_iter()
-    .chain(geometry.copied())
+    .chain(extra.copied())
     {
         if let Some(v) = adjustments.get(key).filter(|v| !v.is_null()) {
             keys.insert(key, v);
