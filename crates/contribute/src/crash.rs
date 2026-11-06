@@ -553,7 +553,12 @@ impl CrashStore {
         // before it wrote its marker.
         let (panic, early_panic) = match note {
             Some(note) if marker.as_ref().is_none_or(|m| m.pid == note.pid) => (Some(note), None),
-            Some(note) if note.early && marker.as_ref().is_some_and(|m| note.at >= m.started) => {
+            // (Not this run's own: it still runs, so its panic did not end it.)
+            Some(note)
+                if note.early
+                    && note.pid != run.pid
+                    && marker.as_ref().is_some_and(|m| note.at >= m.started) =>
+            {
                 (None, Some(note))
             }
             _ => (None, None),
@@ -1738,6 +1743,24 @@ mod tests {
             None
         );
         assert_eq!(store.pending(T0 + 30).len(), 1);
+        // This run's own early note (another thread panicked, the run goes
+        // on) is no crash of an earlier run.
+        write_json(
+            &store.path(PANIC_NOTE),
+            &PanicNote {
+                pid: 15,
+                at: T0 + 40,
+                ..note(true)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .start(&run(15, T0 + 41), |_| false, || None, &scrubber(), true)
+                .unwrap(),
+            None
+        );
+        assert_eq!(store.pending(T0 + 41).len(), 1);
     }
 
     /// Armed early, the hook notes a panic as early; a store that does not
