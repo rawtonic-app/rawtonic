@@ -43,7 +43,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `runtime` | stage timing, allocator release | none | `performance`, `allocator` | none special |
 | `rawdecode` | RAW bytes → oriented linear RGB | `rawler`, `runtime` | `raw_processing`, `demosaic` | fixtures |
-| `recipe` | stored + resolved develop recipe, typed keys | serde, serde_json only | `stored`, `tone`, `color`, `detail`, `geometry`, `effects` | `-p recipe` |
+| `recipe` | stored + resolved develop recipe, typed keys | serde, serde_json only | `stored`, `tone`, `color`, `detail`, `geometry`, `effects`, `lens` | `-p recipe` |
 | `engine` | develop model, masks, looks, lens | fs, metadata, rawdecode, recipe, runtime | `image_processing` | `-p engine` |
 | `gpu` | wgpu pipeline, shaders, display | engine, fs, rawdecode, runtime | `gpu_processing` | `--ignored` GPU |
 | `export` | render, encoders, queue | engine, fs, gpu, metadata, naming, rawdecode, runtime | `file_export` | exports |
@@ -412,9 +412,10 @@ move in one per PR; moved so far: tone (exposure, contrast, highlights, shadows,
 centré), colour (white balance, presence, mixer, grading, calibration, black-and-white and colour ranges),
 detail (sharpening, noise reduction and refinements, clarity/dehaze/structure, manual CA, defringe, moiré and
 diffraction request), geometry (crop/aspect ratio, straighten, orientation, flips and perspective/transform),
-and effects (post-crop vignette, grain, LUT references/amount, glow/halation/flares and depth-based lens
-blur). `image_processing::get_global_adjustments_from_json` reads them from `ResolvedRecipe::tone`,
-`ResolvedRecipe::color`, `ResolvedRecipe::detail` and `ResolvedRecipe::effects`. The geometry warp and spatial
+effects (post-crop vignette, grain, LUT references/amount, glow/halation/flares and depth-based lens
+blur), and lens (correction mode, profile parameters, amounts and switches, manual lens vignetting, the automatic
+lateral CA switch, `lensProfileFor` and the lens version key names). `image_processing::get_global_adjustments_from_json` reads them from `ResolvedRecipe::tone`,
+`ResolvedRecipe::color`, `ResolvedRecipe::detail`, `ResolvedRecipe::effects` and (the warp's lens parameters) `ResolvedRecipe::lens`, which like geometry has no visibility gate. The geometry warp and spatial
 preparation read `ResolvedRecipe::geometry`; geometry has no visibility gate, and its value objects retain
 stored numbers until the existing casts and rendering conversions. `normalize(stored, is_raw)` applies RAW
 capture defaults to missing detail amounts; hidden amounts become neutral, sharpening parameters keep their
@@ -430,7 +431,7 @@ carries its lifetime and normalization never clones those payloads. Lens blur's 
 for now (their newest versions and `is_new_recipe` live with the engine's tools); the grain version key is in
 the effects registry. The frontend's types of these keys are generated from the registry (plan 2.3): each
 section lists its keys with their TypeScript type and doc (`tone::TS`, `color::TS`, `detail::TS`,
-`geometry::TS`, `effects::TS`, one entry per section in `ts::SECTIONS`), and `cargo run -p rawtonic-recipe
+`geometry::TS`, `effects::TS`, `lens::TS`, one entry per section in `ts::SECTIONS`), and `cargo run -p rawtonic-recipe
 --example ts_type` writes `src/generated/recipeKeys.ts` (checked in; `scripts/check.sh` fails when it is
 stale). Every generated key is optional, as in a saved recipe; `Adjustments` in `src/utils/adjustments.ts`
 marks those its objects always hold. Nested value types (`Hsl`, `ColorRange`, …) and the mask layers'

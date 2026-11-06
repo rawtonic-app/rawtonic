@@ -20,6 +20,7 @@ use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Contents, HotFolderConfig, ImportKind, Library};
 use rawtonic_ingest::hot_folder::{DEFAULT_SETTLE, HotFolder};
 use rawtonic_metadata::culling::Rating;
+use rawtonic_recipe::lens;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -190,9 +191,9 @@ fn for_new_capture(mut adjustments: Value) -> Value {
         });
     }
     if let Some(map) = adjustments.as_object_mut()
-        && map.contains_key("lensCorrectionMode")
+        && map.contains_key(lens::CORRECTION_MODE.name())
     {
-        map.remove("lensDistortionParams");
+        map.remove(lens::DISTORTION_PARAMS.name());
         map.insert(
             rawtonic_engine::lens_recipe::LENS_PROFILE_FOR.to_string(),
             json!(rawtonic_engine::lens_recipe::LENS_UNRESOLVED),

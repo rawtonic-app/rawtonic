@@ -5731,6 +5731,7 @@ dependencies = [
  "rawler",
  "rawtonic-engine",
  "rawtonic-rawdecode",
+ "rawtonic-recipe",
  "rayon",
  "serde",
  "serde_json",

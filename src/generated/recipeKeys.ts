@@ -8,7 +8,8 @@ import type {
   Crop,
   GrayMixer,
   GuidedPerspective,
-  Hsl
+  Hsl,
+  LensDistortionParams
 } from '../utils/adjustments';
 
 export type WhiteBalanceMode =
@@ -19,6 +20,9 @@ export type GrainStructure = 'even' | 'soft' | 'clumped' | 'speckled' | 'gritty'
 export type VignetteStyle = 'highlightPriority' | 'colorPriority' | 'paintOverlay';
 
 export type LensBlurShape = 'circle' | 'hexagon' | 'octagon' | 'ring';
+
+/** 'camera': the RAW's own correction data (Fujifilm, Sony, Panasonic, …). */
+export type LensCorrectionMode = 'auto' | 'manual' | 'camera';
 
 /** The global recipe keys of the sections in the recipe crate, each optional as in a saved recipe. */
 export interface RecipeKeys {
@@ -149,4 +153,56 @@ export interface RecipeKeys {
   lutName?: string | null;
   lutData?: string | null;
   lensBlurDepthMap?: string | null;
+
+  // lens
+  lensCorrectionMode?: LensCorrectionMode;
+  /**
+   * Which cameras' CA data camera mode reads (crates/engine/src/embedded_lens.rs `CA_VERSION`): 1 = also Panasonic's;
+   * missing = Fujifilm and Sony only (recipes from before it, so saving them again keeps their parameters).
+   */
+  cameraCaVersion?: number;
+  /**
+   * How camera mode reads the camera data's geometry (embedded_lens.rs `GEOMETRY_VERSION`): 1 = Sony's distortion as
+   * Camera Raw reads it; 2 = also Nikon Z framed as the camera frames it; 3 = also Canon's CTMD distortion; 4 = also
+   * Samsung's distortion; 5 = also Panasonic's and Fujifilm's framing as the cameras frame it; 6 = also Sony's knot
+   * table warped as it is (lens model 2); 7 = also Fujifilm's (lens model 3); 8 = also Nikon Z corrected about the
+   * shot's own optical centre (`centre_x`, `centre_y`); 9 = also Fujifilm's distortion knots on the whole sensor in a
+   * crop mode (Sports Finder); 10 = also on normal frames where Fujifilm's knots reach past the frame's corner; missing
+   * = as before (saving such recipes again keeps their parameters).
+   */
+  cameraGeometryVersion?: number;
+  lensDistortionAmount?: number;
+  lensVignetteAmount?: number;
+  lensTcaAmount?: number;
+  lensDistortionEnabled?: boolean;
+  lensTcaEnabled?: boolean;
+  lensVignetteEnabled?: boolean;
+  /**
+   * Manual lens vignetting (manual_vignette.rs): a radial exposure gain of the uncropped frame, −100…+100 (positive
+   * brightens the corners); missing = none. Lightroom's Lens Vignetting.
+   */
+  lensManualVignetteAmount?: number;
+  /** Its midpoint, 0…100 (missing = 50): lower reaches further in. */
+  lensManualVignetteMidpoint?: number;
+  lensDistortionParams?: LensDistortionParams | null;
+  lensMaker?: string | null;
+  /**
+   * The lens choice `lensDistortionParams` were resolved for; written by the backend's save (edits.rs, LensLookup) and
+   * never copied: a save keeps the parameters while it matches the recipe's lens choice.
+   */
+  lensProfileFor?: string | null;
+  lensModel?: string | null;
+  /**
+   * Lateral chromatic aberration measured on the photo and corrected (crates/engine/src/lateral_ca.rs): true = on
+   * (replacing the lens data's own CA correction), false = off; missing = off before `autoCaVersion` 2, from it on
+   * wherever the lens correction has no CA data of its own, from 3 also where it has (replacing them only where it
+   * measures clearly better).
+   */
+  autoChromaticAberration?: boolean;
+  /**
+   * The automatic lateral CA estimate (lateral_ca.rs `VERSION`): 2 = refined at full resolution, applied only when
+   * trustworthy, on by default where the lens data has no CA correction; 3 = the same, and where the lens data has one
+   * it competes with it; missing = 1 (recipes from before). New RAW edits only.
+   */
+  autoCaVersion?: number;
 }

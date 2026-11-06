@@ -1,6 +1,7 @@
 use image::DynamicImage;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::lens;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -15,21 +16,21 @@ pub const GEOMETRY_KEYS: &[&str] = &[
     geometry::TRANSFORM_SCALE.name(),
     geometry::TRANSFORM_X_OFFSET.name(),
     geometry::TRANSFORM_Y_OFFSET.name(),
-    "lensDistortionAmount",
-    "lensVignetteAmount",
-    "lensManualVignetteAmount",
-    "lensManualVignetteMidpoint",
-    "lensTcaAmount",
-    "lensDistortionParams",
-    "lensCorrectionMode",
-    "lensMaker",
-    "lensModel",
-    "lensDistortionEnabled",
-    "lensTcaEnabled",
-    "autoChromaticAberration",
-    "autoCaVersion",
+    lens::DISTORTION_AMOUNT.name(),
+    lens::VIGNETTE_AMOUNT.name(),
+    lens::MANUAL_VIGNETTE_AMOUNT.name(),
+    lens::MANUAL_VIGNETTE_MIDPOINT.name(),
+    lens::TCA_AMOUNT.name(),
+    lens::DISTORTION_PARAMS.into_name(),
+    lens::CORRECTION_MODE.into_name(),
+    lens::MAKER.into_name(),
+    lens::MODEL.into_name(),
+    lens::DISTORTION_ENABLED.name(),
+    lens::TCA_ENABLED.name(),
+    lens::AUTO_CHROMATIC_ABERRATION.name(),
+    lens::AUTO_CA_VERSION.name(),
     "fringeVersion",
-    "lensVignetteEnabled",
+    lens::VIGNETTE_ENABLED.name(),
     geometry::GUIDED_PERSPECTIVE.into_name(),
 ];
 

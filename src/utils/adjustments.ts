@@ -538,7 +538,41 @@ type HeldRecipeKey =
   | 'lensBlurMaxFade'
   | 'lensBlurShape'
   | 'lensBlurEnabled'
-  | 'lensBlurDepthMap';
+  | 'lensBlurDepthMap'
+  | 'lensCorrectionMode'
+  | 'lensDistortionAmount'
+  | 'lensVignetteAmount'
+  | 'lensTcaAmount'
+  | 'lensDistortionEnabled'
+  | 'lensTcaEnabled'
+  | 'lensVignetteEnabled'
+  | 'lensDistortionParams'
+  | 'lensMaker'
+  | 'lensModel';
+
+/** The lens profile numbers of a recipe (`lensDistortionParams`, crates/recipe/src/lens.rs). */
+export interface LensDistortionParams {
+  k1: number;
+  k2: number;
+  k3: number;
+  model: number;
+  tca_vr: number;
+  tca_vb: number;
+  vig_k1: number;
+  vig_k2: number;
+  vig_k3: number;
+  /** Lens model 2: the distortion factor at uniform knots from the
+   * centre to `table_end` (lens_correction.rs `RadialTable`). */
+  table?: number[];
+  table_end?: number;
+  /** Lens model 3: the radii of `table`'s knots, linear in r² between
+   * them (lens_correction.rs `RadialTable::knots`). */
+  table_radii?: number[];
+  /** The distortion's centre, offset from the frame's centre relative to
+   * its half diagonal (Nikon Z's per-shot optical centre). */
+  centre_x?: number;
+  centre_y?: number;
+}
 
 /** The develop recipe as the frontend holds it. The keys of the sections in
  * the recipe crate come from its registry (`src/generated/recipeKeys.ts`);
@@ -569,67 +603,10 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   pointCurves?: Curves;
   parametricCurve?: ParametricCurve;
   curveMode?: 'point' | 'parametric';
-  /** 'camera': the RAW's own correction data (Fujifilm, Sony, Panasonic, …). */
-  lensCorrectionMode: 'auto' | 'manual' | 'camera';
-  /** Which cameras' CA data camera mode reads (crates/engine/src/embedded_lens.rs
-   * `CA_VERSION`): 1 = also Panasonic's; missing = Fujifilm and Sony only
-   * (recipes from before it, so saving them again keeps their parameters). */
-  cameraCaVersion?: number;
-  /** How camera mode reads the camera data's geometry (embedded_lens.rs
-   * `GEOMETRY_VERSION`): 1 = Sony's distortion as Camera Raw reads it;
-   * 2 = also Nikon Z framed as the camera frames it; 3 = also Canon's CTMD
-   * distortion; 4 = also Samsung's distortion; 5 = also
-   * Panasonic's and Fujifilm's framing as the cameras frame it; 6 = also
-   * Sony's knot table warped as it is (lens model 2); 7 = also
-   * Fujifilm's (lens model 3); 8 = also Nikon Z corrected about the
-   * shot's own optical centre (`centre_x`, `centre_y`); 9 = also
-   * Fujifilm's distortion knots on the whole sensor in a crop mode (Sports Finder); 10 = also
-   * on normal frames where Fujifilm's knots reach past the frame's corner; missing = as before (saving such recipes again keeps their parameters). */
-  cameraGeometryVersion?: number;
-  lensDistortionAmount: number;
-  lensVignetteAmount: number;
-  lensTcaAmount: number;
-  lensDistortionEnabled: boolean;
-  lensTcaEnabled: boolean;
-  lensVignetteEnabled: boolean;
-  /** Manual lens vignetting (manual_vignette.rs): a radial exposure gain of
-   * the uncropped frame, −100…+100 (positive brightens the corners);
-   * missing = none. Lightroom's Lens Vignetting. */
-  lensManualVignetteAmount?: number;
-  /** Its midpoint, 0…100 (missing = 50): lower reaches further in. */
-  lensManualVignetteMidpoint?: number;
   /** diffraction.rs VERSION, written when the correction is switched on;
    * missing = 1 (crop factors without the bodies the 2026-10-18 database
    * update added). */
   diffractionVersion?: number;
-  lensDistortionParams: {
-    k1: number;
-    k2: number;
-    k3: number;
-    model: number;
-    tca_vr: number;
-    tca_vb: number;
-    vig_k1: number;
-    vig_k2: number;
-    vig_k3: number;
-    /** Lens model 2: the distortion factor at uniform knots from the
-     * centre to `table_end` (lens_correction.rs `RadialTable`). */
-    table?: number[];
-    table_end?: number;
-    /** Lens model 3: the radii of `table`'s knots, linear in r² between
-     * them (lens_correction.rs `RadialTable::knots`). */
-    table_radii?: number[];
-    /** The distortion's centre, offset from the frame's centre relative to
-     * its half diagonal (Nikon Z's per-shot optical centre). */
-    centre_x?: number;
-    centre_y?: number;
-  } | null;
-  lensMaker: string | null;
-  /** The lens choice `lensDistortionParams` were resolved for; written by
-   * the backend's save (edits.rs, LensLookup) and never copied: a save keeps
-   * the parameters while it matches the recipe's lens choice. */
-  lensProfileFor?: string | null;
-  lensModel: string | null;
   /** Colour noise reduction filter: 11 = version 10's filter built and
    * measured on the GPU (crates/engine/src/color_noise.rs
    * `Tuning::gpu_pyramid`; faster exports, previews and exports alike);
@@ -750,19 +727,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * `profiles/Name.dcp` inside the session, an absolute path outside one;
    * unset = Rawtonic's own colour. */
   cameraProfile?: string;
-  /** Lateral chromatic aberration measured on the photo and corrected
-   * (crates/engine/src/lateral_ca.rs): true = on (replacing the lens data's
-   * own CA correction), false = off; missing = off before `autoCaVersion` 2,
-   * from it on wherever the lens correction has no CA data of its own, from
-   * 3 also where it has (replacing them only where it measures clearly
-   * better). */
-  autoChromaticAberration?: boolean;
-  /** The automatic lateral CA estimate (lateral_ca.rs `VERSION`): 2 = refined
-   * at full resolution, applied only when trustworthy, on by default where
-   * the lens data has no CA correction; 3 = the same, and where the lens
-   * data has one it competes with it; missing = 1 (recipes from before).
-   * New RAW edits only. */
-  autoCaVersion?: number;
   relightLights?: RelightLight[];
   relightDepth?: RelightDepth;
   relightDepthAmount?: number;
