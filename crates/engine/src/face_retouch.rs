@@ -27,6 +27,7 @@
 //!
 //! Scales follow the face: the eye distance in base pixels.
 
+use rawtonic_recipe::lens;
 use std::io::Cursor;
 
 use base64::{Engine as _, engine::general_purpose};
@@ -179,14 +180,14 @@ pub struct FaceRetouch {
 /// Geometry keys (cache_utils) that correct colour, not where a pixel is:
 /// vignetting, lateral CA and edge fringes.
 const COLOUR_ONLY_KEYS: [&str; 9] = [
-    "lensVignetteAmount",
-    "lensVignetteEnabled",
-    "lensManualVignetteAmount",
-    "lensManualVignetteMidpoint",
-    "lensTcaAmount",
-    "lensTcaEnabled",
-    "autoChromaticAberration",
-    "autoCaVersion",
+    lens::VIGNETTE_AMOUNT.name(),
+    lens::VIGNETTE_ENABLED.name(),
+    lens::MANUAL_VIGNETTE_AMOUNT.name(),
+    lens::MANUAL_VIGNETTE_MIDPOINT.name(),
+    lens::TCA_AMOUNT.name(),
+    lens::TCA_ENABLED.name(),
+    lens::AUTO_CHROMATIC_ABERRATION.name(),
+    lens::AUTO_CA_VERSION.name(),
     "fringeVersion",
 ];
 

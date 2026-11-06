@@ -87,12 +87,13 @@ pub struct TsSection {
 }
 
 /// Every section in the crate; a new section is one entry here.
-pub const SECTIONS: [&TsSection; 5] = [
+pub const SECTIONS: [&TsSection; 6] = [
     &crate::tone::TS,
     &crate::color::TS,
     &crate::detail::TS,
     &crate::geometry::TS,
     &crate::effects::TS,
+    &crate::lens::TS,
 ];
 
 /// Where [`render`]'s text belongs, relative to the repository root.

@@ -4,6 +4,7 @@ use crate::color::Color;
 use crate::detail::Detail;
 use crate::effects::Effects;
 use crate::geometry::Geometry;
+use crate::lens::Lens;
 use crate::stored::StoredRef;
 use crate::tone::Tone;
 
@@ -18,6 +19,7 @@ pub struct ResolvedRecipe<'a> {
     pub detail: Detail,
     pub geometry: Geometry,
     pub effects: Effects<'a>,
+    pub lens: Lens,
 }
 
 /// Resolves a stored recipe: every value of a moved section as it renders
@@ -31,5 +33,6 @@ pub fn normalize(stored: StoredRef<'_>, is_raw: bool) -> ResolvedRecipe<'_> {
         detail: Detail::resolve(stored, is_raw),
         geometry: Geometry::resolve(stored),
         effects: Effects::resolve(stored),
+        lens: Lens::resolve(stored),
     }
 }

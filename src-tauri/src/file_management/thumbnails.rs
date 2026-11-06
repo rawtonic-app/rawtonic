@@ -30,6 +30,7 @@ use image::GenericImageView;
 use image::codecs::jpeg::JpegEncoder;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::lens;
 use rawtonic_recipe::tone;
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
@@ -173,7 +174,7 @@ pub(crate) fn compute_thumbnail_cache_hash(
         // (`embedded_lens::apply_default`: lens profile, render version).
         if adjustments
             .as_ref()
-            .is_none_or(|adjustments| adjustments.get("lensCorrectionMode").is_none())
+            .is_none_or(|adjustments| adjustments.get(lens::CORRECTION_MODE.name()).is_none())
         {
             hasher.update(
                 format!(

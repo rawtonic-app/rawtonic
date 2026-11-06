@@ -14,6 +14,7 @@
 //! Fujifilm vignetting: brightness in percent of the centre at the same knots
 //! (not yet checked against a flat field). Lateral chromatic aberration:
 //! Fujifilm, Sony and (since `cameraCaVersion` 1) Panasonic.
+use rawtonic_recipe::lens;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
@@ -1205,7 +1206,7 @@ fn read_u32_be<R: Read + Seek>(reader: &mut R, at: u64) -> Option<u32> {
 
 /// The recipe key naming which of the cameras' CA data a camera-mode recipe
 /// was made with.
-pub const CA_VERSION_KEY: &str = "cameraCaVersion";
+pub const CA_VERSION_KEY: &str = lens::CAMERA_CA_VERSION.name();
 /// The newest: 1 (2026-10-17) adds Panasonic's (RW2 tag 0x011b). Recipes
 /// without the key were made with Fujifilm's and Sony's only; saving them
 /// again fills in the same parameters as before.
@@ -1218,7 +1219,7 @@ pub fn ca_version_of(adjustments: &serde_json::Value) -> u64 {
 
 /// The recipe key naming how a camera-mode recipe's camera data were read
 /// as geometry (knot positions, framing).
-pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
+pub const GEOMETRY_VERSION_KEY: &str = lens::CAMERA_GEOMETRY_VERSION.name();
 /// The newest: 1 (2026-10-26) reads Sony's distortion as Camera Raw does
 /// (`sony_lens`); 2 (2026-10-26) frames Nikon Z data as the camera does
 /// (`nikon_curve`); 3 (2026-10-26) reads Canon's distortion and the radius
@@ -1951,7 +1952,7 @@ pub fn params_for_version(
 /// (`current_geometry_version`).
 pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     if !(adjustments.is_null() || adjustments.is_object())
-        || adjustments.get("lensCorrectionMode").is_some()
+        || adjustments.get(lens::CORRECTION_MODE.name()).is_some()
     {
         return;
     }
@@ -1973,8 +1974,9 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
         if adjustments.is_null() {
             *adjustments = serde_json::json!({});
         }
-        adjustments["lensCorrectionMode"] = serde_json::json!(CAMERA_MODE);
-        adjustments["lensDistortionParams"] = serde_json::to_value(params).unwrap_or_default();
+        adjustments[lens::CORRECTION_MODE.name()] = serde_json::json!(CAMERA_MODE);
+        adjustments[lens::DISTORTION_PARAMS.name()] =
+            serde_json::to_value(params).unwrap_or_default();
         adjustments[CA_VERSION_KEY] = serde_json::json!(CA_VERSION);
         if geometry > 0 {
             adjustments[GEOMETRY_VERSION_KEY] = serde_json::json!(geometry);
@@ -1987,10 +1989,10 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     if adjustments.is_null() {
         *adjustments = serde_json::json!({});
     }
-    adjustments["lensCorrectionMode"] = serde_json::json!("auto");
-    adjustments["lensMaker"] = serde_json::json!(maker);
-    adjustments["lensModel"] = serde_json::json!(model);
-    adjustments["lensDistortionParams"] = serde_json::to_value(params).unwrap_or_default();
+    adjustments[lens::CORRECTION_MODE.name()] = serde_json::json!("auto");
+    adjustments[lens::MAKER.name()] = serde_json::json!(maker);
+    adjustments[lens::MODEL.name()] = serde_json::json!(model);
+    adjustments[lens::DISTORTION_PARAMS.name()] = serde_json::to_value(params).unwrap_or_default();
 }
 
 /// One 4-byte box of an ISO base media file (CR3): (type, body start, end).
