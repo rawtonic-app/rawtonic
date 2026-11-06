@@ -145,6 +145,13 @@ if [ "$RUST" = 1 ]; then
   fi
   if [ "$QUICK" = 0 ]; then run "rust: tests" rust_tests; fi
 fi
+# The frontend's recipe type is generated from the recipe crate's key
+# registry (crates/recipe/src/ts.rs); fails when src/generated/recipeKeys.ts
+# is stale.
+if [ "$FRONTEND" = 1 ] || [ "$RUST" = 1 ]; then
+  run "recipe: generated TS recipe type is current" \
+    cargo run --quiet --locked -p rawtonic-recipe --example ts_type -- --check
+fi
 if [ "$RELAY" = 1 ]; then
   run "relay: install" relay_install
   run "relay: typecheck" npm --prefix services/relay run -s typecheck

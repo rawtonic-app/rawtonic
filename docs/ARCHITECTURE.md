@@ -408,7 +408,12 @@ black-and-white and colour ranges). `image_processing::get_global_adjustments_fr
 `ResolvedRecipe::tone` and `ResolvedRecipe::color`. Absolute white balance keeps the renderer's existing clamp;
 colour sliders otherwise retain their stored values until the existing rendering conversions. The crate is below the engine and depends on serde and serde_json only
 (`scripts/check_layering.sh`). The `*Version` keys stay in `engine::recipe_versions` for now (their newest versions and
-`is_new_recipe` live with the engine's tools).
+`is_new_recipe` live with the engine's tools). The frontend's types of these keys are generated from the registry
+(plan 2.3): each section lists its keys with their TypeScript type and doc (`tone::TS`, `color::TS`, one entry per
+section in `ts::SECTIONS`), and `cargo run -p rawtonic-recipe --example ts_type` writes `src/generated/recipeKeys.ts`
+(checked in; `scripts/check.sh` fails when it is stale). Every generated key is optional, as in a saved recipe;
+`Adjustments` in `src/utils/adjustments.ts` marks those its objects always hold. Nested value types (`Hsl`, `ColorRange`,
+…) and the mask layers' adjustments stay written in `adjustments.ts`.
 
 #### `engine`
 

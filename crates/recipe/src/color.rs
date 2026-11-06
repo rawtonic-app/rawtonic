@@ -1,6 +1,7 @@
 //! Colour slider values, kept as stored without clamping.
 
 use crate::tone::Amount;
+use crate::ts::{TsField, TsSection, TsType, TsUnion};
 use crate::{Key, KeyValue, Section, StoredRef};
 use serde_json::Value;
 
@@ -337,40 +338,112 @@ pub enum WhiteBalance {
     Auto,
 }
 
+impl WhiteBalance {
+    /// Every value, in the order of [`WhiteBalance::NAMES`].
+    pub const ALL: [Self; 9] = [
+        Self::AsShot,
+        Self::Daylight,
+        Self::Cloudy,
+        Self::Shade,
+        Self::Tungsten,
+        Self::Fluorescent,
+        Self::Flash,
+        Self::Custom,
+        Self::Auto,
+    ];
+    /// Each value's name in the saved JSON.
+    pub const NAMES: [&'static str; 9] = [
+        "asShot",
+        "daylight",
+        "cloudy",
+        "shade",
+        "tungsten",
+        "fluorescent",
+        "flash",
+        "custom",
+        "auto",
+    ];
+}
+
 impl KeyValue for WhiteBalance {
     fn from_json(value: &Value) -> Option<Self> {
-        match value.as_str()? {
-            "asShot" => Some(Self::AsShot),
-            "daylight" => Some(Self::Daylight),
-            "cloudy" => Some(Self::Cloudy),
-            "shade" => Some(Self::Shade),
-            "tungsten" => Some(Self::Tungsten),
-            "fluorescent" => Some(Self::Fluorescent),
-            "flash" => Some(Self::Flash),
-            "custom" => Some(Self::Custom),
-            "auto" => Some(Self::Auto),
-            _ => None,
-        }
+        let name = value.as_str()?;
+        let i = Self::NAMES.iter().position(|n| *n == name)?;
+        Some(Self::ALL[i])
     }
     fn to_json(&self) -> Value {
-        Value::String(
-            match self {
-                Self::AsShot => "asShot",
-                Self::Daylight => "daylight",
-                Self::Cloudy => "cloudy",
-                Self::Shade => "shade",
-                Self::Tungsten => "tungsten",
-                Self::Fluorescent => "fluorescent",
-                Self::Flash => "flash",
-                Self::Custom => "custom",
-                Self::Auto => "auto",
-            }
-            .into(),
-        )
+        Value::String(Self::NAMES[*self as usize].into())
     }
 }
 
 pub const KEYS: [&Key<f64>; 5] = [&TEMPERATURE, &TINT, &VIBRANCE, &SATURATION, &HUE];
+
+/// The section's keys in the frontend's recipe type (`crate::ts`).
+/// `colorRangeShow` is left out: the view state the Develop view adds to
+/// each render, never part of the edited recipe.
+pub const TS: TsSection = TsSection {
+    name: "colour",
+    fields: &[
+        TsField::new(TEMPERATURE, ""),
+        TsField::new(TINT, ""),
+        TsField::new(VIBRANCE, ""),
+        TsField::new(SATURATION, ""),
+        TsField::new(HUE, ""),
+        TsField::new(
+            WHITE_BALANCE,
+            "Absolute white balance of RAWs (Lightroom's Temp/Tint, camera space): unset or `asShot` keeps \
+             the camera's; a preset or `custom` with `wbTemperature` (K) and `wbTint`. The relative \
+             `temperature`/`tint` apply on top (JPEGs, layers, older edits).",
+        ),
+        TsField::new(WB_TEMPERATURE, ""),
+        TsField::new(WB_TINT, ""),
+        TsField::new(
+            BLACK_AND_WHITE,
+            "Black & white conversion (Lightroom's Treatment, Capture One's B&W).",
+        ),
+        TsField::new(GRAY_MIXER, ""),
+        TsField::new(
+            BW_VERSION,
+            "B&W mix response (crates/engine/src/image_processing.rs `BW_VERSION`): 2 = each channel \
+             lowers more strongly the further it is pulled, windows and gains fitted to Camera Raw on 15 \
+             photographs; the conversion at 0 is version 1's. 1 or missing on recipes that converted to \
+             black and white before it.",
+        ),
+        TsField::new(COLOR_RANGES, "Colour editor ranges, applied in order."),
+        TsField::new(HSL, ""),
+        TsField::new(COLOR_GRADING, ""),
+        TsField::new(COLOR_CALIBRATION, ""),
+    ],
+    unions: &[TsUnion {
+        name: WhiteBalance::TS,
+        doc: "",
+        values: &WhiteBalance::NAMES,
+    }],
+};
+
+impl TsType for WhiteBalance {
+    const TS: &'static str = "WhiteBalanceMode";
+}
+impl TsType for StoredColorRanges {
+    const TS: &'static str = "ColorRange[]";
+    const IMPORT: Option<&'static str> = Some("ColorRange");
+}
+impl TsType for GrayMixer {
+    const TS: &'static str = "GrayMixer";
+    const IMPORT: Option<&'static str> = Some("GrayMixer");
+}
+impl TsType for Hsl {
+    const TS: &'static str = "Hsl";
+    const IMPORT: Option<&'static str> = Some("Hsl");
+}
+impl TsType for Grading {
+    const TS: &'static str = "ColorGradingProps";
+    const IMPORT: Option<&'static str> = Some("ColorGradingProps");
+}
+impl TsType for Calibration {
+    const TS: &'static str = "ColorCalibration";
+    const IMPORT: Option<&'static str> = Some("ColorCalibration");
+}
 
 /// Hue angle in degrees, as stored.
 #[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
