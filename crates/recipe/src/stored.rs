@@ -18,6 +18,8 @@ impl Section {
     pub const BASIC: Self = Self("basic");
     /// Presence and detail (clarity, dehaze, centré, sharpening, …).
     pub const DETAILS: Self = Self("details");
+    pub const SHARPENING: Self = Self("sharpening");
+    pub const NOISE_REDUCTION: Self = Self("noiseReduction");
     pub const COLOR: Self = Self("color");
     pub const WHITE_BALANCE: Self = Self("whiteBalance");
     pub const PRESENCE: Self = Self("presence");

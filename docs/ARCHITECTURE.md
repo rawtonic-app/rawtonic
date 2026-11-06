@@ -403,9 +403,13 @@ written only through typed keys (`Key<T> { name, default, since_version }`, one 
 filled in on load or save. `ResolvedRecipe` holds the typed sections as they render (value objects such as `tone::Ev`
 and `tone::Amount`, which carry the Develop slider ranges but do not clamp), produced only by `rawtonic_recipe::normalize`
 from a stored recipe and never saved. Sections move in one per PR; moved so far: tone (exposure, contrast, highlights,
-shadows, whites, blacks, brightness, centré) and colour (white balance, presence, mixer, grading, calibration,
-black-and-white and colour ranges). `image_processing::get_global_adjustments_from_json` reads them from
-`ResolvedRecipe::tone` and `ResolvedRecipe::color`. Absolute white balance keeps the renderer's existing clamp;
+shadows, whites, blacks, brightness, centré), colour (white balance, presence, mixer, grading, calibration,
+black-and-white and colour ranges), and detail (sharpening, noise reduction and refinements,
+clarity/dehaze/structure, manual CA, defringe, moiré and diffraction request). `image_processing::get_global_adjustments_from_json` reads them from
+`ResolvedRecipe::tone`, `ResolvedRecipe::color` and `ResolvedRecipe::detail`.
+`normalize(stored, is_raw)` applies RAW capture defaults to missing detail amounts; hidden
+amounts become neutral, sharpening parameters keep their defaults, and noise refinements
+remain stored. Detail value objects do not clamp; the renderer retains its existing conversions. Absolute white balance keeps the renderer's existing clamp;
 colour sliders otherwise retain their stored values until the existing rendering conversions. The crate is below the engine and depends on serde and serde_json only
 (`scripts/check_layering.sh`). The `*Version` keys stay in `engine::recipe_versions` for now (their newest versions and
 `is_new_recipe` live with the engine's tools).

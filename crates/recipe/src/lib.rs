@@ -18,6 +18,7 @@
 //! keys of a section not moved yet are still read by the engine itself.
 
 pub mod color;
+pub mod detail;
 mod key;
 mod resolved;
 mod stored;

@@ -39,15 +39,14 @@ pub const VERSION_KEY: &str = "diffractionVersion";
 
 /// The shader flag for a recipe that asks for the correction: its version
 /// (`apply` reads it back).
-pub fn requested_flag(adjustments: &serde_json::Value) -> f32 {
-    if adjustments["diffractionCorrection"].as_bool() != Some(true) {
+pub(crate) fn requested_flag(
+    enabled: bool,
+    version: crate::recipe_versions::DiffractionVersion,
+) -> f32 {
+    if !enabled {
         return 0.0;
     }
-    if crate::recipe_versions::DiffractionVersion::of(adjustments).whole_database() {
-        2.0
-    } else {
-        1.0
-    }
+    if version.whole_database() { 2.0 } else { 1.0 }
 }
 
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
@@ -193,7 +192,11 @@ mod tests {
 
     #[test]
     fn the_shader_flag_carries_the_recipes_version() {
-        let flag = |recipe: serde_json::Value| requested_flag(&recipe);
+        let flag = |recipe: serde_json::Value| {
+            crate::image_processing::get_all_adjustments_from_json(&recipe, true, None)
+                .global
+                .sharpen_falloff[2]
+        };
         assert_eq!(flag(serde_json::json!({})), 0.0);
         assert_eq!(flag(serde_json::json!({"diffractionVersion": 2})), 0.0);
         assert_eq!(

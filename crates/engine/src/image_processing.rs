@@ -4678,16 +4678,9 @@ struct AdjustmentScales {
     flares: f32,
 }
 
-/// Import defaults for RAW files (frontend `RAW_DETAIL_DEFAULTS`):
-/// Lightroom's sharpening and colour noise reduction, and a light luminance
-/// noise reduction: Camera Raw and Capture One render visibly cleaner at
-/// their defaults (Camera Raw's Luminance 0 has 0.5–0.8 of Rawtonic's
-/// unfiltered noise at ISO 6400–12800); 15 brings Rawtonic's absolute noise
-/// near Camera Raw's and below Capture One's default on an ISO 200 GFX file
-/// (notes: reference/detail.md).
-pub const RAW_DEFAULT_SHARPNESS: f64 = 40.0;
-pub const RAW_DEFAULT_COLOR_NOISE_REDUCTION: f64 = 25.0;
-pub const RAW_DEFAULT_LUMA_NOISE_REDUCTION: f64 = 15.0;
+pub use rawtonic_recipe::detail::{
+    RAW_DEFAULT_COLOR_NOISE_REDUCTION, RAW_DEFAULT_LUMA_NOISE_REDUCTION, RAW_DEFAULT_SHARPNESS,
+};
 
 const SCALES: AdjustmentScales = AdjustmentScales {
     exposure: 0.8,
@@ -5133,17 +5126,17 @@ pub fn is_image_edited(
 /// than the inherited sections (which stay as master switches). A recipe
 /// without the key keeps the tool on.
 fn tool_switch(key: &str) -> Option<&'static str> {
+    if let Some(section) = rawtonic_recipe::detail::tool_switch(key) {
+        return Some(section.name());
+    }
     match key {
         "temperature" | "tint" => Some("whiteBalance"),
-        "clarity" | "dehaze" | "structure" | "vibrance" | "saturation" => Some("presence"),
+        "vibrance" | "saturation" => Some("presence"),
         "hsl" => Some("colorMixer"),
         "colorGrading" => Some("colorGrading"),
         "levels" => Some("levels"),
         "colorCalibration" => Some("calibration"),
         "colorRanges" => Some("colorEditor"),
-        "sharpness" | "sharpnessThreshold" | "sharpenRadius" | "sharpenDetail"
-        | "sharpenMasking" => Some("sharpening"),
-        "lumaNoiseReduction" | "colorNoiseReduction" => Some("noiseReduction"),
         _ => None,
     }
 }
@@ -5154,11 +5147,11 @@ fn get_global_adjustments_from_json(
     tonemapper_override: Option<u32>,
 ) -> GlobalAdjustments {
     let versions = RecipeVersions::of(js_adjustments, is_raw);
-    // The tone section, resolved by the recipe crate (plan 2.2); the other
-    // sections are still read from the stored recipe below.
-    let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments));
+    // Tone, colour and detail resolve from the same recipe as these uniforms.
+    let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments), is_raw);
     let tone = &resolved.tone;
     let color = &resolved.color;
+    let detail = &resolved.detail;
     let visibility = js_adjustments.get("sectionVisibility");
     let is_visible = |section: &str| -> bool {
         visibility
@@ -5167,17 +5160,8 @@ fn get_global_adjustments_from_json(
             .unwrap_or(true)
     };
 
-    // New RAW photos get Lightroom's capture defaults (Sharpening 40,
-    // Color noise reduction 25; notes: reference/detail.md) when the recipe
-    // has no value; saved edits store their values and keep them.
+    // Other sections retain their existing visibility reads until they migrate.
     let tool_on = |key: &str| tool_switch(key).is_none_or(&is_visible);
-    let raw_detail_default = |key: &str, raw_default: f64, scale: f32| -> f32 {
-        if !is_visible("details") || !tool_on(key) {
-            return 0.0;
-        }
-        let fallback = if is_raw { raw_default } else { 0.0 };
-        js_adjustments[key].as_f64().unwrap_or(fallback) as f32 / scale
-    };
     let get_val = |section: &str, key: &str, scale: f32, default: Option<f64>| -> f32 {
         if is_visible(section) && tool_on(key) {
             js_adjustments[key]
@@ -5319,21 +5303,15 @@ fn get_global_adjustments_from_json(
             0
         },
 
-        sharpness: raw_detail_default("sharpness", RAW_DEFAULT_SHARPNESS, SCALES.sharpness),
-        luma_noise_reduction: raw_detail_default(
-            "lumaNoiseReduction",
-            RAW_DEFAULT_LUMA_NOISE_REDUCTION,
-            SCALES.luma_noise_reduction,
-        ),
-        color_noise_reduction: raw_detail_default(
-            "colorNoiseReduction",
-            RAW_DEFAULT_COLOR_NOISE_REDUCTION,
-            SCALES.color_noise_reduction,
-        ),
+        sharpness: detail.sharpness.get() as f32 / SCALES.sharpness,
+        luma_noise_reduction: detail.luma_noise_reduction.get() as f32
+            / SCALES.luma_noise_reduction,
+        color_noise_reduction: detail.color_noise_reduction.get() as f32
+            / SCALES.color_noise_reduction,
 
-        clarity: get_val("details", "clarity", SCALES.clarity, None),
-        dehaze: get_val("details", "dehaze", SCALES.dehaze, None),
-        structure: get_val("details", "structure", SCALES.structure, None),
+        clarity: detail.clarity.get() as f32 / SCALES.clarity,
+        dehaze: detail.dehaze.get() as f32 / SCALES.dehaze,
+        structure: detail.structure.get() as f32 / SCALES.structure,
         centré: tone.centre.get() as f32 / SCALES.centré,
         vignette_amount: get_val("effects", "vignetteAmount", SCALES.vignette_amount, None),
         vignette_midpoint: get_val(
@@ -5363,18 +5341,10 @@ fn get_global_adjustments_from_json(
             Some(50.0),
         ),
 
-        chromatic_aberration_red_cyan: get_val(
-            "details",
-            "chromaticAberrationRedCyan",
-            SCALES.chromatic_aberration,
-            None,
-        ),
-        chromatic_aberration_blue_yellow: get_val(
-            "details",
-            "chromaticAberrationBlueYellow",
-            SCALES.chromatic_aberration,
-            None,
-        ),
+        chromatic_aberration_red_cyan: detail.chromatic_aberration_red_cyan.get() as f32
+            / SCALES.chromatic_aberration,
+        chromatic_aberration_blue_yellow: detail.chromatic_aberration_blue_yellow.get() as f32
+            / SCALES.chromatic_aberration,
         show_clipping: show_clipping_value(&js_adjustments["showClipping"]),
         is_raw_image: if is_raw { 1 } else { 0 },
         grain_structure: grain_structure_index(js_adjustments["grainStructure"].as_str()),
@@ -5452,22 +5422,14 @@ fn get_global_adjustments_from_json(
         green_curve_count: green_points.len().min(16) as u32,
         blue_curve_count: blue_points.len().min(16) as u32,
         detail_scale: 0.0,
-        sharpen_radius_offset: get_val("details", "sharpenRadius", 1.0, Some(1.0)).clamp(0.5, 3.0)
-            - 1.0,
-        sharpen_detail_offset: get_val("details", "sharpenDetail", 1.0, Some(25.0))
-            .clamp(0.0, 100.0)
-            - 25.0,
-        sharpen_masking: get_val("details", "sharpenMasking", 1.0, Some(0.0)).clamp(0.0, 100.0),
+        sharpen_radius_offset: (detail.sharpen_radius.get() as f32).clamp(0.5, 3.0) - 1.0,
+        sharpen_detail_offset: (detail.sharpen_detail.get() as f32).clamp(0.0, 100.0) - 25.0,
+        sharpen_masking: (detail.sharpen_masking.get() as f32).clamp(0.0, 100.0),
 
         glow_amount: get_val("effects", "glowAmount", SCALES.glow, None),
         halation_amount: get_val("effects", "halationAmount", SCALES.halation, None),
         flare_amount: get_val("effects", "flareAmount", SCALES.flares, None),
-        sharpness_threshold: get_val(
-            "details",
-            "sharpnessThreshold",
-            SCALES.sharpness_threshold,
-            Some(15.0),
-        ),
+        sharpness_threshold: detail.sharpness_threshold.get() as f32 / SCALES.sharpness_threshold,
         profile_curve: [[0.0; 4]; 16],
         grading_lut: [[0.0; 4]; GRADING_LUT_SIZE],
         bw_mix: std::array::from_fn(|i| {
@@ -5478,8 +5440,8 @@ fn get_global_adjustments_from_json(
         levels: [[0.0, 1.0, 1.0, 0.0]; 4],
         levels_white: [1.0; 4],
         levels_active: [0; 4],
-        defringe: if is_visible("details") {
-            defringe_settings(js_adjustments)
+        defringe: if detail.visible {
+            defringe_settings(detail, versions.defringe)
         } else {
             [[0.0, 0.0, 0.0, versions.defringe.get() as f32], [0.0; 4]]
         },
@@ -5510,16 +5472,11 @@ fn get_global_adjustments_from_json(
         },
         calibration_luma: [0.0; 4],
         sharpen_falloff: [
-            if is_visible("details") && tool_on("sharpness") {
-                (js_adjustments["sharpnessFalloff"].as_f64().unwrap_or(0.0) / 100.0).clamp(0.0, 1.0)
-                    as f32
-            } else {
-                0.0
-            },
+            (detail.sharpness_falloff.get() / 100.0).clamp(0.0, 1.0) as f32,
             0.0,
             // Diffraction correction requested (its version); diffraction.rs
             // fills y/z.
-            crate::diffraction::requested_flag(js_adjustments),
+            crate::diffraction::requested_flag(detail.diffraction_correction, versions.diffraction),
             versions.sharpen.get() as f32,
         ],
         camera_profile: [
@@ -5531,8 +5488,8 @@ fn get_global_adjustments_from_json(
         camera_profile_matrix: GpuMat3::default(),
         camera_profile_hue_sat: [0; 4],
         camera_profile_look: [0; 4],
-        moire: if is_visible("details") {
-            moire_settings(js_adjustments)
+        moire: if detail.visible {
+            resolved_moire_settings(detail.moire_amount.get(), detail.moire_pattern.get())
         } else {
             [0.0; 4]
         },
@@ -5541,7 +5498,7 @@ fn get_global_adjustments_from_json(
         } else {
             [0.0; 4]
         },
-        noise_detail: noise_detail(js_adjustments),
+        noise_detail: noise_detail(detail),
         output_space: soft_proof(js_adjustments),
         output_matrix: GpuMat3::default(),
         proof_matrix: proof_matrices(js_adjustments).0,
@@ -5820,7 +5777,7 @@ fn pack_color_ranges(ranges: &serde_json::Value, limit: usize) -> Vec<[[f32; 4];
 /// The recipe's white balance as temperature and tint when it sets one
 /// (custom, Auto or a preset); `None` keeps the camera's (As Shot).
 pub fn recipe_white_balance(adjustments: &serde_json::Value) -> Option<(f64, f64)> {
-    let color = rawtonic_recipe::normalize(StoredRef::new(adjustments)).color;
+    let color = rawtonic_recipe::normalize(StoredRef::new(adjustments), false).color;
     let [on, temperature, tint, _] = kelvin_white_balance(color.white_balance);
     (on > 0.0).then_some((temperature as f64, tint as f64))
 }
@@ -5862,16 +5819,14 @@ fn proof_matrices(adjustments: &serde_json::Value) -> (GpuMat3, GpuMat3) {
     }
 }
 
-fn noise_detail(adjustments: &serde_json::Value) -> [f32; 4] {
-    let get = |key: &str, default: f64| {
-        (adjustments[key].as_f64().unwrap_or(default) / 100.0).clamp(0.0, 1.0) as f32
-    };
+fn noise_detail(detail: &rawtonic_recipe::detail::Detail) -> [f32; 4] {
     [
-        get("lumaNoiseDetail", 50.0),
-        get("lumaNoiseContrast", 0.0),
-        get("colorNoiseDetail", 50.0),
-        get("colorNoiseSmoothness", 50.0),
+        detail.luma_noise_detail.get(),
+        detail.luma_noise_contrast.get(),
+        detail.color_noise_detail.get(),
+        detail.color_noise_smoothness.get(),
     ]
+    .map(|v| (v / 100.0).clamp(0.0, 1.0) as f32)
 }
 
 /// Moiré `moireAmount` (0–100) and `moirePattern` (0–100, the size of the
@@ -5879,11 +5834,15 @@ fn noise_detail(adjustments: &serde_json::Value) -> [f32; 4] {
 /// original pixels).
 fn moire_settings(adjustments: &serde_json::Value) -> [f32; 4] {
     let get = |key: &str, default: f64| adjustments[key].as_f64().unwrap_or(default);
-    let amount = (get("moireAmount", 0.0) / 100.0).clamp(0.0, 1.0) as f32;
+    resolved_moire_settings(get("moireAmount", 0.0), get("moirePattern", 30.0))
+}
+
+fn resolved_moire_settings(amount: f64, pattern: f64) -> [f32; 4] {
+    let amount = (amount / 100.0).clamp(0.0, 1.0) as f32;
     if amount <= 0.0 {
         return [0.0; 4];
     }
-    let step = 1.0 + 7.0 * (get("moirePattern", 30.0) / 100.0).clamp(0.0, 1.0) as f32;
+    let step = 1.0 + 7.0 * (pattern / 100.0).clamp(0.0, 1.0) as f32;
     [amount, step, 0.0, 0.0]
 }
 
@@ -5893,10 +5852,12 @@ fn moire_settings(adjustments: &serde_json::Value) -> [f32; 4] {
 /// (notes: reference/defringe.md): purple hue 0–100 spans Oklab 225° to 415°
 /// (blue-violet over magenta to orange-red), green 0–100 spans 60° to 250°
 /// (yellow over green to blue), 1.9° per step.
-fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
-    let get = |key: &str, default: f64| adjustments[key].as_f64().unwrap_or(default);
-    let purple = (get("defringePurpleAmount", 0.0) / 20.0).clamp(0.0, 1.0) as f32;
-    let green = (get("defringeGreenAmount", 0.0) / 20.0).clamp(0.0, 1.0) as f32;
+fn defringe_settings(
+    detail: &rawtonic_recipe::detail::Detail,
+    version: DefringeVersion,
+) -> [[f32; 4]; 2] {
+    let purple = (detail.defringe_purple_amount.get() / 20.0).clamp(0.0, 1.0) as f32;
+    let green = (detail.defringe_green_amount.get() / 20.0).clamp(0.0, 1.0) as f32;
     let range = |lo: f64, hi: f64, start: f64, span: f64| {
         let (lo, hi) = (lo.clamp(0.0, 100.0), hi.clamp(0.0, 100.0));
         let a = start + span * lo.min(hi) / 100.0;
@@ -5904,18 +5865,18 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
         (a.min(b) as f32, a.max(b) as f32)
     };
     let (p_lo, p_hi) = range(
-        get("defringePurpleHueLo", 30.0),
-        get("defringePurpleHueHi", 70.0),
+        detail.defringe_purple_hue_lo.get(),
+        detail.defringe_purple_hue_hi.get(),
         225.0,
         190.0,
     );
     let (g_lo, g_hi) = range(
-        get("defringeGreenHueLo", 40.0),
-        get("defringeGreenHueHi", 60.0),
+        detail.defringe_green_hue_lo.get(),
+        detail.defringe_green_hue_hi.get(),
         60.0,
         190.0,
     );
-    let version = DefringeVersion::of(adjustments).get() as f32;
+    let version = version.get() as f32;
     [[purple, p_lo, p_hi, version], [green, g_lo, g_hi, 0.0]]
 }
 
@@ -7263,10 +7224,10 @@ pub fn auto_results_to_json(results: &AutoAdjustmentResults) -> serde_json::Valu
         tone::SHADOWS.name(): results.shadows,
         rawtonic_recipe::color::VIBRANCE.name(): results.vibrancy,
         "vignetteAmount": results.vignette_amount,
-        "clarity": results.clarity,
+        rawtonic_recipe::detail::CLARITY.name(): results.clarity,
         tone::CENTRE.name(): results.centre,
 
-        "dehaze": results.dehaze,
+        rawtonic_recipe::detail::DEHAZE.name(): results.dehaze,
         "sectionVisibility": {
             "basic": true,
             "color": true,
@@ -8162,7 +8123,7 @@ mod editing_tool_tests {
             json!({"reds": {"hue": 150.25, "saturation": -250, "luminance": "bad"}, "blues": null, "shadows": {"hue": -721, "saturation": 110, "luminance": -140}, "blending": 120, "balance": -130}),
         ] {
             let recipe = json!({"hsl": nested, "colorGrading": nested});
-            let resolved = rawtonic_recipe::normalize(StoredRef::new(&recipe));
+            let resolved = rawtonic_recipe::normalize(StoredRef::new(&recipe), true);
             let old_hsl = parse_hsl_adjustments(&nested);
             let new_hsl = get_global_adjustments_from_json(&recipe, true, None).hsl;
             assert_eq!(bytemuck::bytes_of(&old_hsl), bytemuck::bytes_of(&new_hsl));
