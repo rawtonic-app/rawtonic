@@ -157,7 +157,7 @@ it('gives the write failure the reason a caller learns after the queue settled, 
   expect(useActivityStore.getState().entries.filter((e) => e.status === 'failure')).toHaveLength(2);
 });
 
-it('offers Reload for a save refused because the open photo\'s file was replaced', async () => {
+it("offers Reload for a save refused because the open photo's file was replaced", async () => {
   const reload = vi.fn();
   const unregister = registerPhotoReload(reload);
   noteWriteError(
