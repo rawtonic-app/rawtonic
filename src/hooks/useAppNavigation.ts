@@ -579,20 +579,24 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     }
   }, [showFolder]);
 
-  // Reload of an open photograph whose file was replaced on disk (the save
-  // was refused): opens it again from its file, dropping what was kept of
-  // the old image; the recipe the refused save kept is applied on opening.
+  // Reload of a photograph whose file was replaced on disk (the save was
+  // refused): opens it again from its file, dropping what was kept of the old
+  // image; the recipe the refused save kept is applied on opening. It works
+  // from any photograph, library or Develop: the notice stays under Needs
+  // attention after the user moved on, and the kept edit is the one thing
+  // that must not be lost, so the action takes the user back to that photo.
   useEffect(
     () =>
       registerPhotoReload(async (path) => {
-        if (useEditorStore.getState().selectedImage?.path !== path) return;
         globalImageCache.delete(path);
-        useEditorStore.getState().setEditor({ selectedImage: null });
-        selectedImagePathRef.current = null;
-        // The editor must render without the photograph once: the loader
-        // starts a load when the selected path changes, and a selection
-        // cleared and restored in one batch would change nothing for it.
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (useEditorStore.getState().selectedImage?.path === path) {
+          useEditorStore.getState().setEditor({ selectedImage: null });
+          selectedImagePathRef.current = null;
+          // The editor must render without the photograph once: the loader
+          // starts a load when the selected path changes, and a selection
+          // cleared and restored in one batch would change nothing for it.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
         await handleImageSelect(path);
       }),
     [handleImageSelect, selectedImagePathRef]

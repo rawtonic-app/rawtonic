@@ -252,3 +252,24 @@ it('Reload of a photograph whose file was replaced renders the editor without it
   expect(seen.at(-1)).toBe('/a.dng');
   expect(seen.indexOf('/a.dng', seen.indexOf(null))).toBeGreaterThan(seen.indexOf(null));
 });
+
+it('Reload of a replaced photograph opens it even after the user switched to another photograph', async () => {
+  renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+  await act(async () => {
+    useEditorStore.getState().setEditor({
+      selectedImage: { path: '/b.dng', isReady: false, isDecoded: undefined } as never
+    });
+  });
+  await act(async () => {
+    await bridge.reload!('/a.dng');
+  });
+  expect(useEditorStore.getState().selectedImage?.path).toBe('/a.dng');
+});
+
+it('Reload with no photograph open opens the replaced photograph', async () => {
+  renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+  await act(async () => {
+    await bridge.reload!('/a.dng');
+  });
+  expect(useEditorStore.getState().selectedImage?.path).toBe('/a.dng');
+});
