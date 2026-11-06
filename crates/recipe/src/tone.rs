@@ -61,6 +61,8 @@ macro_rules! slider_value {
     };
 }
 
+pub(crate) use slider_value;
+
 slider_value!(
     /// Exposure in stops: −5 … +5 EV in steps of 0.01.
     Ev,

@@ -4678,10 +4678,6 @@ struct AdjustmentScales {
     flares: f32,
 }
 
-pub use rawtonic_recipe::detail::{
-    RAW_DEFAULT_COLOR_NOISE_REDUCTION, RAW_DEFAULT_LUMA_NOISE_REDUCTION, RAW_DEFAULT_SHARPNESS,
-};
-
 const SCALES: AdjustmentScales = AdjustmentScales {
     exposure: 0.8,
     brightness: 0.8,
