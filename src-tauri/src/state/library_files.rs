@@ -3,7 +3,7 @@
 //! An unreadable file is never replaced; the next access retries the read.
 //!
 //! LibraryQueue orders the frontend's changes (the page sends one at a time)
-//! and records pending work and the last failure per file. Imports parse and
+//! and records pending work and the last failure per kind of change. Imports parse and
 //! merge in their one change. A flush waits only for real changes received
 //! before it, at most ten seconds, and reports failures and unfinished work.
 //! The queue lock and a store's locks are never held together. File operations
@@ -33,28 +33,15 @@ fn timeout_error(grace: Duration) -> String {
 
 pub(crate) const FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Only a whole-list preset save contains the edits of a failed save of the
+/// same kind; an album edit or a preset import cannot repair an earlier failed
+/// edit, and a save never holds the presets of a failed import. A failure is
+/// therefore kept per kind of change.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum LibraryFile {
-    Albums,
-    Presets,
-}
-
-/// Only a whole-list preset save contains the edits of a failed save.
-/// An album edit or a preset import cannot repair an earlier failed edit.
-#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryChange {
     AlbumEdit,
     PresetSave,
     PresetImport,
-}
-
-impl LibraryChange {
-    fn file(self) -> LibraryFile {
-        match self {
-            Self::AlbumEdit => LibraryFile::Albums,
-            Self::PresetSave | Self::PresetImport => LibraryFile::Presets,
-        }
-    }
 }
 
 #[derive(Default)]
@@ -67,8 +54,8 @@ pub struct LibraryQueue {
 struct QueueState {
     next: u64,
     pending: BTreeMap<u64, String>,
-    /// The latest failure per file: its change id and kind and the text.
-    failures: BTreeMap<LibraryFile, (u64, LibraryChange, String)>,
+    /// The latest failure per kind of change: its change id and the text.
+    failures: BTreeMap<LibraryChange, (u64, String)>,
 }
 
 impl LibraryQueue {
@@ -125,27 +112,21 @@ impl Change<'_> {
             .pending
             .remove(&self.id)
             .expect("pending library change");
-        let file = self.kind.file();
         // A waiter can time out before its predecessor finishes. An older
         // outcome must not clear or replace that newer failure.
         if state
             .failures
-            .get(&file)
-            .is_none_or(|(id, _, _)| *id < self.id)
+            .get(&self.kind)
+            .is_none_or(|(id, _)| *id < self.id)
         {
             if let Some(error) = error {
                 state
                     .failures
-                    .insert(file, (self.id, self.kind, format!("{describe}: {error}")));
-            } else if self.kind == LibraryChange::PresetSave
-                && state
-                    .failures
-                    .get(&file)
-                    .is_some_and(|(_, kind, _)| *kind == LibraryChange::PresetSave)
-            {
+                    .insert(self.kind, (self.id, format!("{describe}: {error}")));
+            } else if self.kind == LibraryChange::PresetSave {
                 // The whole list it saved holds the edits of an earlier failed
-                // save, but not the presets of a failed import.
-                state.failures.remove(&file);
+                // save.
+                state.failures.remove(&self.kind);
             }
         }
         self.finished = true;
@@ -163,7 +144,8 @@ impl Drop for Change<'_> {
 }
 
 /// One ordered change and its outcome. Only a whole-list preset save clears
-/// its file's older failure; other failures remain until a flush reports them.
+/// the older failed preset save; other failures remain until a flush reports
+/// them.
 pub(crate) fn run_change<T>(
     queue: &LibraryQueue,
     kind: LibraryChange,
@@ -206,7 +188,7 @@ pub(crate) fn flush_library(queue: &LibraryQueue, timeout: Duration) -> Vec<Stri
             .unwrap_or_else(|e| e.into_inner().0);
     }
     let mut failures = Vec::new();
-    state.failures.retain(|_, (id, _, error)| {
+    state.failures.retain(|_, (id, error)| {
         if *id < until {
             failures.push((*id, error.clone()));
             false
@@ -776,6 +758,23 @@ mod queue_tests {
         );
         run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || Ok(())).unwrap();
         assert!(flush_library(&queue, Duration::ZERO).is_empty());
+    }
+
+    #[test]
+    fn a_failed_save_does_not_hide_the_failure_of_an_import() {
+        // Import while the disk is full, rename while it is still full, free
+        // space, rename again: the imported presets are still missing.
+        let queue = LibraryQueue::default();
+        let fail = |kind| {
+            let _ = run_change(&queue, kind, PRESETS, || Err::<(), _>("disk full".into()));
+        };
+        fail(LibraryChange::PresetImport);
+        fail(LibraryChange::PresetSave);
+        run_change(&queue, LibraryChange::PresetSave, PRESETS, || Ok(())).unwrap();
+        assert_eq!(
+            flush_library(&queue, Duration::ZERO),
+            [format!("{PRESETS}: disk full")]
+        );
     }
 
     #[test]
