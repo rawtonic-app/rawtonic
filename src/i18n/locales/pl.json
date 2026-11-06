@@ -2725,8 +2725,6 @@
         "enableAppleRaw9": "Używaj Apple RAW 9 dla plików RAW",
         "enablePreprocessingNonRaws": "Włącz dla innych niż RAW",
         "enableTonemapperOverride": "Włącz nadpisywanie mapowania tonów",
-        "highlightRecovery": "Odzyskiwanie świateł w RAW",
-        "highlightRecoveryDesc": "Decyduje o tym, ile detali zostanie odzyskanych z obciętych świateł w plikach RAW. Wyższe wartości odzyskują więcej, ale mogą wprowadzać fioletowe artefakty.",
         "linearOptions": {
           "auto": "Auto",
           "gamma": "Zastosuj gammę",

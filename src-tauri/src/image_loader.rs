@@ -215,7 +215,6 @@ pub fn stored_decode_variant(path: &str) -> DecodeVariant {
 /// recipe asks for `variant` (`BaseImageOptions::for_variant`).
 pub fn base_options(settings: &AppSettings, variant: DecodeVariant) -> BaseImageOptions {
     BaseImageOptions::from_preferences(
-        settings.raw_highlight_compression,
         settings.linear_raw_mode.clone(),
         settings.raw_preprocessing_color_nr,
         settings.raw_preprocessing_sharpening,
@@ -1839,7 +1838,6 @@ mod activation_tests {
         );
         let settings = AppSettings::default();
         let today = BaseImageOptions::from_preferences(
-            settings.raw_highlight_compression,
             settings.linear_raw_mode.clone(),
             settings.raw_preprocessing_color_nr,
             settings.raw_preprocessing_sharpening,

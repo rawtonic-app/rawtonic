@@ -2363,8 +2363,6 @@
         "enableAppleRaw9": "對 RAW 檔案使用 Apple RAW 9",
         "enablePreprocessingNonRaws": "對非 RAW 影像啟用",
         "enableTonemapperOverride": "啟用色調映射覆蓋",
-        "highlightRecovery": "RAW 亮部恢復",
-        "highlightRecoveryDesc": "控制從 RAW 檔案的裁剪亮部中恢復細節的程度。較高的值可恢復更多細節，但可能引入紫色偽影。",
         "linearOptions": {
           "auto": "自動",
           "gamma": "應用 Gamma",

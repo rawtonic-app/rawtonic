@@ -2590,8 +2590,6 @@
         "enableAppleRaw9": "Utilitza Apple RAW 9 per als fitxers RAW",
         "enablePreprocessingNonRaws": "Activar per a No-RAW",
         "enableTonemapperOverride": "Activar la sobreescriptura del mapejador de tons",
-        "highlightRecovery": "Recuperació de llums altes RAW",
-        "highlightRecoveryDesc": "Controla la quantitat de detalls que es recuperen de les llums altes retallades als fitxers RAW. Valors més alts recuperen més detalls però poden introduir artefactes de color porpra.",
         "linearOptions": {
           "auto": "Auto",
           "gamma": "Aplicar Gamma",

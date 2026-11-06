@@ -523,7 +523,6 @@ export interface AppSettings {
   thumbnailSize?: ThumbnailSize;
   thumbnailAspectRatio?: ThumbnailAspectRatio;
   uiVisibility?: UiVisibility;
-  rawHighlightCompression?: number;
   processingBackend?: string;
   aiGpu?: boolean;
   linuxGpuOptimization?: boolean;

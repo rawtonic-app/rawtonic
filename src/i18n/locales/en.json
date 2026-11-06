@@ -2454,8 +2454,6 @@
         "enableAppleRaw9": "Use Apple RAW 9 for RAW files",
         "enablePreprocessingNonRaws": "Enable for Non-RAWs",
         "enableTonemapperOverride": "Enable Tonemapper Override",
-        "highlightRecovery": "RAW Highlight Recovery",
-        "highlightRecoveryDesc": "Controls how much detail is recovered from clipped highlights in RAW files. Higher values recover more detail but can introduce purple artefacts.",
         "linearOptions": {
           "auto": "Auto",
           "gamma": "Apply Gamma",

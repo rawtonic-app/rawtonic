@@ -408,8 +408,7 @@ pub fn current_key(
 /// highlight rebuild (`HighlightRebuild::Ratios`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     let key = format!(
-        "hl={:?};linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?};cnrms={}",
-        settings.raw_highlight_compression.unwrap_or(2.5),
+        "linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?};cnrms={}",
         settings.linear_raw_mode,
         settings.raw_preprocessing_color_nr.unwrap_or(0.5),
         settings.raw_preprocessing_sharpening.unwrap_or(0.35),
@@ -769,7 +768,14 @@ fn parse_header(bytes: &[u8]) -> Option<(Header, usize)> {
         return None;
     }
     let header_len = read_u32(bytes, &mut at)? as usize;
-    let header: Header = serde_json::from_slice(bytes.get(at..at + header_len)?).ok()?;
+    let mut header: Header = serde_json::from_slice(bytes.get(at..at + header_len)?).ok()?;
+    // Older proxies included an inert preference in their decoder key. It
+    // never changed pixels; keep those previews usable, including offline.
+    if let Some(legacy) = header.key.decoder.strip_prefix("hl=")
+        && let Some((_, decoder)) = legacy.split_once(';')
+    {
+        header.key.decoder = decoder.to_owned();
+    }
     Some((header, at + header_len))
 }
 
@@ -2201,6 +2207,29 @@ mod tests {
     }
 
     #[test]
+    fn proxies_with_the_old_inert_decoder_key_stay_usable_offline() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        for amount in ["2.5", "10.0"] {
+            write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+            write_full(&photo, &gradient(80, 60), &settings, NEW_EDIT, None).unwrap();
+            for kind in [ProxyKind::Standard, ProxyKind::Full] {
+                edit_header(&proxy_path_of(&photo, kind).unwrap(), |header| {
+                    header.key.decoder = format!("hl={amount};{}", header.key.decoder);
+                });
+            }
+            assert!(read(&photo, &settings).is_some());
+            assert!(has_full(&photo, &settings));
+            let away = dir.path().join("elsewhere.NEF");
+            fs::rename(&photo, &away).unwrap();
+            assert!(read(&photo, &settings).is_some());
+            assert!(has_full(&photo, &settings));
+            fs::rename(&away, &photo).unwrap();
+        }
+    }
+
+    #[test]
     fn an_offline_photograph_opens_on_its_proxies() {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
@@ -2215,7 +2244,7 @@ mod tests {
         assert!(has_full(&photo, &settings));
         // Made with other decoder settings: not the photograph as it is shown.
         let other = AppSettings {
-            raw_highlight_compression: Some(1.0),
+            raw_preprocessing_color_nr: Some(0.75),
             ..AppSettings::default()
         };
         assert!(read(&photo, &other).is_none());
