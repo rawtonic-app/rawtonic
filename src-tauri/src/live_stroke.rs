@@ -6,6 +6,7 @@
 //! A frame's IPC payload then stays small however long the stroke is and
 //! however many layers the photo has.
 
+use rawtonic_recipe::masks;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -94,11 +95,11 @@ impl LiveStrokeRecipe {
 /// The points of the stroke's line: the last line of its component.
 fn stroke_points<'a>(adjustments: &'a Value, stroke: &LiveStroke) -> Option<&'a Vec<Value>> {
     adjustments
-        .get("masks")?
+        .get(masks::MASKS.name())?
         .as_array()?
         .iter()
         .find(|mask| mask.get("id").and_then(Value::as_str) == Some(&stroke.mask_id))?
-        .get("subMasks")?
+        .get(masks::SUB_MASKS.name())?
         .as_array()?
         .iter()
         .find(|sub| sub.get("id").and_then(Value::as_str) == Some(&stroke.sub_mask_id))?
@@ -115,11 +116,11 @@ fn stroke_points_mut<'a>(
     stroke: &LiveStroke,
 ) -> Option<&'a mut Vec<Value>> {
     adjustments
-        .get_mut("masks")?
+        .get_mut(masks::MASKS.name())?
         .as_array_mut()?
         .iter_mut()
         .find(|mask| mask.get("id").and_then(Value::as_str) == Some(&stroke.mask_id))?
-        .get_mut("subMasks")?
+        .get_mut(masks::SUB_MASKS.name())?
         .as_array_mut()?
         .iter_mut()
         .find(|sub| sub.get("id").and_then(Value::as_str) == Some(&stroke.sub_mask_id))?

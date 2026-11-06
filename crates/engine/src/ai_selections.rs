@@ -7,6 +7,7 @@
 //! pixels whether it was opened first or not. The networks run behind
 //! `SelectionDetector` (the app's loaded models, the CLI's model folder).
 
+use rawtonic_recipe::masks;
 use std::sync::Arc;
 
 use image::DynamicImage;
@@ -78,7 +79,7 @@ pub struct Detected {
 }
 
 fn shown(value: &Value) -> bool {
-    value.get("visible").and_then(Value::as_bool) != Some(false)
+    value.get(masks::VISIBLE.name()).and_then(Value::as_bool) != Some(false)
 }
 
 /// The shown Sky and Subject components of shown layers without their
@@ -86,22 +87,25 @@ fn shown(value: &Value) -> bool {
 /// layers would apply nowhere.
 pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
     let mut found = Vec::new();
-    let Some(layers) = adjustments.get("masks").and_then(Value::as_array) else {
+    let Some(layers) = adjustments
+        .get(masks::MASKS.name())
+        .and_then(Value::as_array)
+    else {
         return found;
     };
     for (l, layer) in layers.iter().enumerate().filter(|(_, l)| shown(l)) {
-        let Some(subs) = layer.get("subMasks").and_then(Value::as_array) else {
+        let Some(subs) = layer.get(masks::SUB_MASKS.name()).and_then(Value::as_array) else {
             continue;
         };
         for (s, sub) in subs.iter().enumerate().filter(|(_, s)| shown(s)) {
             let Some(selection) = sub
-                .get("type")
+                .get(masks::TYPE.name())
                 .and_then(Value::as_str)
                 .and_then(AutoSelection::of)
             else {
                 continue;
             };
-            let parameters = sub.get("parameters").unwrap_or(&Value::Null);
+            let parameters = sub.get(masks::PARAMETERS.name()).unwrap_or(&Value::Null);
             if !has_bitmap(parameters) && !nothing_to_detect(parameters) {
                 found.push((l, s, selection));
             }
@@ -112,7 +116,7 @@ pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
 
 /// What the export says about an undetected selection: its layer's name.
 pub fn undetected_message(adjustments: &Value, layer: usize, selection: AutoSelection) -> String {
-    let name = adjustments["masks"][layer]["name"]
+    let name = adjustments[masks::MASKS.name()][layer][masks::NAME.name()]
         .as_str()
         .filter(|n| !n.is_empty())
         .unwrap_or("a layer");
@@ -127,7 +131,7 @@ pub fn undetected_message(adjustments: &Value, layer: usize, selection: AutoSele
 pub fn detected_parameters(own: &Value, adjustments: &Value, data_url: String) -> Value {
     let mut parameters = match own.as_object() {
         Some(own) if !own.is_empty() => own.clone(),
-        _ => json!({"maskDataBase64": null, "grow": 0, "feather": 0})
+        _ => json!({masks::MASK_DATA_BASE64.into_name(): null, masks::GROW.name(): 0, masks::FEATHER.name(): 0})
             .as_object()
             .cloned()
             .unwrap_or_default(),
@@ -196,9 +200,9 @@ pub fn detect_missing(
     let mut masks: Map<String, Value> = Map::new();
     let mut detected = Vec::new();
     for &(l, s, selection) in &wanted {
-        let sub = &adjustments["masks"][l]["subMasks"][s];
+        let sub = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s];
         let version = match selection {
-            AutoSelection::Subject => subject_version(&sub["parameters"]),
+            AutoSelection::Subject => subject_version(&sub[masks::PARAMETERS.name()]),
             AutoSelection::Sky => 1,
         };
         let key = format!("{} {version}", selection.name());
@@ -210,17 +214,21 @@ pub fn detect_missing(
         }
         let data = masks[&key].as_str().unwrap_or_default().to_string();
         detected.push(Detected {
-            layer_id: adjustments["masks"][l]["id"]
+            layer_id: adjustments[masks::MASKS.name()][l][masks::ID.name()]
                 .as_str()
                 .unwrap_or_default()
                 .to_string(),
-            component_id: sub["id"].as_str().unwrap_or_default().to_string(),
+            component_id: sub[masks::ID.name()]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
             selection,
-            parameters: detected_parameters(&sub["parameters"], adjustments, data),
+            parameters: detected_parameters(&sub[masks::PARAMETERS.name()], adjustments, data),
         });
     }
     for (&(l, s, _), found) in wanted.iter().zip(&detected) {
-        adjustments["masks"][l]["subMasks"][s]["parameters"] = found.parameters.clone();
+        adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s][masks::PARAMETERS.name()] =
+            found.parameters.clone();
     }
     Ok(detected)
 }
@@ -254,40 +262,47 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
             p[geometry::FLIP_VERTICAL.name()].as_bool().unwrap_or(false) as u8 as f64,
             p[geometry::ORIENTATION_STEPS.name()].as_u64().unwrap_or(0) as f64,
         ];
-        if p["warp"] != warp || computed_frame != stored_frame {
+        if p[masks::WARP.name()] != warp || computed_frame != stored_frame {
             continue;
         }
-        let Some(layers) = stored.get_mut("masks").and_then(Value::as_array_mut) else {
+        let Some(layers) = stored
+            .get_mut(masks::MASKS.name())
+            .and_then(Value::as_array_mut)
+        else {
             return changed;
         };
         let Some(sub) = layers
             .iter_mut()
-            .filter(|layer| layer["id"].as_str() == Some(found.layer_id.as_str()))
-            .filter_map(|layer| layer.get_mut("subMasks").and_then(Value::as_array_mut))
+            .filter(|layer| layer[masks::ID.name()].as_str() == Some(found.layer_id.as_str()))
+            .filter_map(|layer| {
+                layer
+                    .get_mut(masks::SUB_MASKS.name())
+                    .and_then(Value::as_array_mut)
+            })
             .flatten()
-            .find(|sub| sub["id"].as_str() == Some(found.component_id.as_str()))
+            .find(|sub| sub[masks::ID.name()].as_str() == Some(found.component_id.as_str()))
         else {
             continue;
         };
-        if sub["type"].as_str().and_then(AutoSelection::of) != Some(found.selection)
-            || has_bitmap(&sub["parameters"])
+        if sub[masks::TYPE.name()].as_str().and_then(AutoSelection::of) != Some(found.selection)
+            || has_bitmap(&sub[masks::PARAMETERS.name()])
         {
             continue;
         }
         // The component's own settings now (Grow, Feather changed since).
-        let own = sub["parameters"].clone();
+        let own = sub[masks::PARAMETERS.name()].clone();
         let mut merged = detected_parameters(&own, &Value::Null, String::new());
         for key in [
-            "maskDataBase64",
+            masks::MASK_DATA_BASE64.into_name(),
             geometry::ROTATION.name(),
             geometry::FLIP_HORIZONTAL.name(),
             geometry::FLIP_VERTICAL.name(),
             geometry::ORIENTATION_STEPS.name(),
-            "warp",
+            masks::WARP.name(),
         ] {
             merged[key] = p[key].clone();
         }
-        sub["parameters"] = merged;
+        sub[masks::PARAMETERS.name()] = merged;
         changed = true;
     }
     changed

@@ -2,6 +2,7 @@ use image::DynamicImage;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
 use rawtonic_recipe::lens;
+use rawtonic_recipe::masks;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -283,7 +284,7 @@ pub fn calculate_transform_hash(adjustments: &serde_json::Value) -> u64 {
                 data_len.hash(&mut hasher);
             }
 
-            if let Some(sub_masks_val) = patch.get("subMasks") {
+            if let Some(sub_masks_val) = patch.get(masks::SUB_MASKS.name()) {
                 sub_masks_val.to_string().hash(&mut hasher);
             }
 

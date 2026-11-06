@@ -111,3 +111,12 @@ impl KeyValue for Option<String> {
         self.as_deref().map(Value::from).unwrap_or(Value::Null)
     }
 }
+
+impl KeyValue for Value {
+    fn from_json(value: &Value) -> Option<Self> {
+        Some(value.clone())
+    }
+    fn to_json(&self) -> Value {
+        self.clone()
+    }
+}

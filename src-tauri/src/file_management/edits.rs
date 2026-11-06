@@ -21,6 +21,7 @@ use rawtonic_metadata::culling::Rating;
 use rawtonic_metadata::labels::EDITOR_TAG_PREFIX;
 use rawtonic_metadata::photo_ref::PhotoRef;
 use rawtonic_recipe::lens;
+use rawtonic_recipe::masks;
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -611,14 +612,14 @@ fn pasted_into(
                 continue;
             }
             let v = match paste {
-                Some(from) if k == "masks" => rawtonic_engine::masks::paste_layers(
-                    new_map.get("masks").unwrap_or(&Value::Null),
+                Some(from) if k == masks::MASKS.name() => rawtonic_engine::masks::paste_layers(
+                    new_map.get(masks::MASKS.name()).unwrap_or(&Value::Null),
                     v,
                     same_photograph(&from.source, path),
                     from.replace_layers,
                     &mut || uuid::Uuid::new_v4().to_string(),
                 ),
-                None if k == "masks" => {
+                None if k == masks::MASKS.name() => {
                     let mut layers = v.clone();
                     rawtonic_engine::masks::prepare_layers_for_photo(&mut layers, &mut || {
                         uuid::Uuid::new_v4().to_string()
@@ -635,7 +636,9 @@ fn pasted_into(
         }
     }
     let layers = |adjustments: &Value| {
-        rawtonic_engine::masks::rendered_layers(adjustments.get("masks").unwrap_or(&Value::Null))
+        rawtonic_engine::masks::rendered_layers(
+            adjustments.get(masks::MASKS.name()).unwrap_or(&Value::Null),
+        )
     };
     let (before, after) = (layers(&previous), layers(&new_adjustments));
     let limit = rawtonic_engine::image_processing::MAX_MASKS;

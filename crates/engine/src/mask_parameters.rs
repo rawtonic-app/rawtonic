@@ -12,6 +12,7 @@
 //! eviction) fails the request with [`MISSING_PARAMETERS`]; the editor then
 //! sends the full parameters again.
 
+use rawtonic_recipe::masks;
 use std::collections::VecDeque;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -91,21 +92,27 @@ fn reference(parameters: &Value) -> Option<&str> {
 /// Stores the parameters a request names with a token and checks that
 /// every reference is known. Only brush components of `masks` take part.
 pub fn hydrate(adjustments: &mut Value) -> Result<(), String> {
-    let Some(masks) = adjustments.get_mut("masks").and_then(Value::as_array_mut) else {
+    let Some(masks) = adjustments
+        .get_mut(masks::MASKS.name())
+        .and_then(Value::as_array_mut)
+    else {
         return Ok(());
     };
     let mut missing = Vec::new();
     for sub in masks
         .iter_mut()
-        .filter_map(|mask| mask.get_mut("subMasks").and_then(Value::as_array_mut))
+        .filter_map(|mask| {
+            mask.get_mut(masks::SUB_MASKS.name())
+                .and_then(Value::as_array_mut)
+        })
         .flatten()
         .filter_map(Value::as_object_mut)
     {
         let token = sub.remove(TOKEN_KEY);
-        if sub.get("type").and_then(Value::as_str) != Some("brush") {
+        if sub.get(masks::TYPE.name()).and_then(Value::as_str) != Some("brush") {
             continue;
         }
-        let Some(parameters) = sub.get("parameters") else {
+        let Some(parameters) = sub.get(masks::PARAMETERS.name()) else {
             continue;
         };
         if let Some(token) = reference(parameters) {

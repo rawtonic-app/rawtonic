@@ -1,6 +1,6 @@
 //! Portable recipe resources. Only file-valued fields are rewritten; captions
 //! and other user text are never interpreted as paths.
-use rawtonic_recipe::effects;
+use rawtonic_recipe::resources;
 use serde_json::Value;
 use std::path::{Component, Path};
 
@@ -10,9 +10,7 @@ pub fn visit(value: &mut Value, f: &mut impl FnMut(&mut String)) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                if key == effects::LUT_PATH.name()
-                    || matches!(key.as_str(), "cameraProfile" | "raster_path")
-                {
+                if resources::is_file_key(key) {
                     if let Value::String(path) = child {
                         f(path);
                     }

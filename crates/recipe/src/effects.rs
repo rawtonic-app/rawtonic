@@ -38,7 +38,7 @@ pub const VIGNETTE_STYLE: Key<VignetteStyle> =
 pub const LENS_BLUR_SHAPE: Key<LensBlurShape> = Key::new("lensBlurShape", LensBlurShape::Circle, 1);
 pub const LENS_BLUR_ENABLED: Key<bool> = Key::new("lensBlurEnabled", false, 1);
 pub const LUT_IS_SCENE_REFERRED: Key<bool> = Key::new("lutIsSceneReferred", false, 1);
-pub const LUT_PATH: Key<Option<String>> = Key::new("lutPath", None, 1);
+pub use crate::resources::LUT_PATH;
 pub const LUT_NAME: Key<Option<String>> = Key::new("lutName", None, 1);
 pub const LUT_DATA: Key<Option<String>> = Key::new("lutData", None, 1);
 pub const LENS_BLUR_DEPTH_MAP: Key<Option<String>> = Key::new("lensBlurDepthMap", None, 1);
@@ -241,7 +241,6 @@ pub struct Effects<'a> {
     pub lens_blur_max_fade: Percent,
     pub vignette_style: VignetteStyle,
     pub grain_structure: GrainStructure,
-    pub grain_version: u64,
     pub lut_path: Option<&'a str>,
     pub lut_name: Option<&'a str>,
     pub lut_data: Option<&'a str>,
@@ -289,7 +288,6 @@ impl<'a> Effects<'a> {
                 VIGNETTE_STYLE.default()
             },
             grain_structure: stored.get_or_default(&GRAIN_STRUCTURE),
-            grain_version: stored.get_or_default(&GRAIN_VERSION),
             lut_path: stored.get_str(&LUT_PATH),
             lut_name: stored.get_str(&LUT_NAME),
             lut_data: stored.get_str(&LUT_DATA),
@@ -365,6 +363,11 @@ pub const TS: TsSection = TsSection {
         },
     ],
 };
+
+/// Resolve just the effects needed by a CPU stage, without reading other sections.
+pub fn resolve(stored: StoredRef<'_>) -> Effects<'_> {
+    Effects::resolve(stored)
+}
 
 #[cfg(test)]
 mod tests {
@@ -575,7 +578,7 @@ mod tests {
                     recipe["lensBlurEnabled"].as_bool().unwrap_or(false)
                 );
                 assert_eq!(
-                    effects.grain_version,
+                    StoredRef::new(&recipe).get_or_default(&GRAIN_VERSION),
                     recipe["grainVersion"].as_u64().unwrap_or(1)
                 );
             }

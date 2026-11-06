@@ -20,6 +20,7 @@ pub struct ResolvedRecipe<'a> {
     pub geometry: Geometry,
     pub effects: Effects<'a>,
     pub lens: Lens,
+    pub masks: crate::masks::Masks<'a>,
 }
 
 /// Resolves a stored recipe: every value of a moved section as it renders
@@ -34,5 +35,6 @@ pub fn normalize(stored: StoredRef<'_>, is_raw: bool) -> ResolvedRecipe<'_> {
         geometry: Geometry::resolve(stored),
         effects: Effects::resolve(stored),
         lens: Lens::resolve(stored),
+        masks: crate::masks::Masks::resolve(stored),
     }
 }
