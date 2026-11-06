@@ -2529,9 +2529,14 @@ async fn develop_kept_decode(
         }
         true
     };
-    let Some(opened) =
-        crate::image_loader::open_kept_decode(&state, &develop, path, variant, &settings)
-    else {
+    let Some(opened) = crate::image_loader::open_kept_decode(
+        &state,
+        &develop,
+        &app_handle.state::<crate::state::merge::MergeState>(),
+        path,
+        variant,
+        &settings,
+    ) else {
         // Let go meanwhile, or another photograph was asked for: its load
         // decodes it; a still shown stays until that frame.
         return Some(if still {

@@ -4,9 +4,10 @@ use super::read_file_mapped;
 use super::resolve_xmp_path;
 use super::sync_metadata_from_xmp;
 use crate::AppSettings;
-use crate::app_state::PendingMetadata;
 use crate::formats::is_supported_image_file;
 use crate::image_processing::ImageMetadata;
+use crate::state::library::{LibraryState, PendingMetadata};
+use crate::state::lock::lock_recover;
 use crate::state::thumbnails::ThumbnailState;
 use rawtonic_metadata::photo_ref::{self, CopyId, PhotoRef};
 use rayon::prelude::*;
@@ -105,16 +106,16 @@ pub(crate) fn enqueue_metadata(
     image_path: PathBuf,
     sidecar_path: PathBuf,
 ) {
-    let state = app_handle.state::<crate::app_state::AppState>();
+    let state = app_handle.state::<LibraryState>();
     let manager = &state.metadata_manager;
 
-    let mut pending = manager.pending.lock().unwrap();
+    let mut pending = lock_recover(&manager.pending);
     if !pending.insert(sidecar_path.clone()) {
         return;
     }
     drop(pending);
 
-    manager.queue.lock().unwrap().push_back(PendingMetadata {
+    lock_recover(&manager.queue).push_back(PendingMetadata {
         virtual_path,
         image_path,
         sidecar_path,
@@ -125,7 +126,7 @@ pub(crate) fn enqueue_metadata(
 pub(crate) const METADATA_WORKER_THREADS: usize = 4;
 
 pub fn start_metadata_workers(app_handle: tauri::AppHandle) {
-    let state = app_handle.state::<crate::app_state::AppState>();
+    let state = app_handle.state::<LibraryState>();
     let manager = state.metadata_manager.clone();
 
     for _ in 0..METADATA_WORKER_THREADS {
@@ -135,9 +136,12 @@ pub fn start_metadata_workers(app_handle: tauri::AppHandle) {
         std::thread::spawn(move || {
             loop {
                 let item = {
-                    let mut queue = manager_clone.queue.lock().unwrap();
+                    let mut queue = lock_recover(&manager_clone.queue);
                     while queue.is_empty() {
-                        queue = manager_clone.cvar.wait(queue).unwrap();
+                        queue = manager_clone
+                            .cvar
+                            .wait(queue)
+                            .unwrap_or_else(|e| e.into_inner());
                     }
                     queue.pop_front().unwrap()
                 };
@@ -160,11 +164,7 @@ pub fn start_metadata_workers(app_handle: tauri::AppHandle) {
                     &metadata.tags,
                 );
 
-                manager_clone
-                    .pending
-                    .lock()
-                    .unwrap()
-                    .remove(&item.sidecar_path);
+                lock_recover(&manager_clone.pending).remove(&item.sidecar_path);
             }
         });
     }
@@ -495,13 +495,13 @@ pub(crate) fn match_disk_kind(disks: &Disks, canonical: &Path) -> Option<bool> {
 }
 
 pub(crate) fn update_rotational_disk_flag(path: &str, app_handle: &AppHandle) {
-    let state = app_handle.state::<crate::app_state::AppState>();
+    let state = app_handle.state::<LibraryState>();
     let Ok(canonical) = Path::new(path).canonicalize() else {
         return;
     };
 
     let cached_match = {
-        let cache = state.disks_cache.lock().unwrap();
+        let cache = lock_recover(&state.disks_cache);
         cache
             .as_ref()
             .and_then(|disks| match_disk_kind(disks, &canonical))
@@ -520,8 +520,8 @@ pub(crate) fn update_rotational_disk_flag(path: &str, app_handle: &AppHandle) {
                 let refresh_app_handle = app_handle.clone();
                 thread::spawn(move || {
                     let disks = Disks::new_with_refreshed_list();
-                    let state = refresh_app_handle.state::<crate::app_state::AppState>();
-                    *state.disks_cache.lock().unwrap() = Some(disks);
+                    let state = refresh_app_handle.state::<LibraryState>();
+                    *lock_recover(&state.disks_cache) = Some(disks);
                     state.disks_cache_refreshing.store(false, Ordering::Relaxed);
                 });
             }

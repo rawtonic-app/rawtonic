@@ -1,16 +1,17 @@
 //! Photo merges (HDR, panorama, focus stack). The merges
 //! live in rawtonic-merge; this module runs them for the merge dialog and
 //! writes the result as a linear DNG beside the reference photo.
-use crate::app_state::AppState;
 use crate::file_management::parse_virtual_path;
+use crate::state::lock::lock_recover;
+use crate::state::merge::MergeState;
 use base64::Engine as _;
 use base64::engine::general_purpose;
 use rawtonic_engine::image_loader::BaseImageOptions;
 use rawtonic_merge::dng::{DngMeta, encode_linear_dng};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use tauri::Emitter;
+use std::sync::atomic::Ordering;
+use tauri::{Emitter, Manager};
 
 /// A merge waiting in memory for `save_merge`.
 pub struct MergeOutcome {
@@ -28,18 +29,6 @@ pub struct MergeOutcome {
     outline: Option<(Vec<bool>, rawtonic_merge::panorama::PanoramaConfig)>,
     /// The dialog's job id of the run that made it (`merge_photos`).
     job: u64,
-}
-
-/// The merge job the dialog waits for: the id of the last run started, 0
-/// once the dialog closed. Results and events of other runs are stale: the
-/// result is dropped, the dialog ignores their events.
-static CURRENT_JOB: AtomicU64 = AtomicU64::new(0);
-/// One merge computes at a time: each holds all its frames in memory, and
-/// the merges cannot be interrupted, so a new run waits for an older one.
-static RUNNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-fn is_current(job: u64) -> bool {
-    CURRENT_JOB.load(Ordering::SeqCst) == job
 }
 
 impl MergeOutcome {
@@ -132,33 +121,34 @@ pub(crate) async fn merge_photos(
     options: serde_json::Value,
     job: u64,
     app_handle: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
+    state: tauri::State<'_, MergeState>,
 ) -> Result<(), String> {
     if paths.len() < 2 {
         return Err("Select at least two photos to merge.".to_string());
     }
     let sources: Vec<PathBuf> = paths.iter().map(|p| parse_virtual_path(p).0).collect();
-    let slot = state.merge_result.clone();
-    CURRENT_JOB.store(job, Ordering::SeqCst);
+    let slot = state.result.clone();
+    state.current_job.store(job, Ordering::SeqCst);
     // An older result is no longer wanted: free its memory now.
-    *slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    let _running = match RUNNING.try_lock() {
+    *lock_recover(&slot) = None;
+    let _running = match state.running.try_lock() {
         Ok(guard) => guard,
         Err(_) => {
             let _ = app_handle.emit(
                 "merge-progress",
                 serde_json::json!({ "job": job, "message": "Waiting for the previous merge" }),
             );
-            RUNNING.lock().await
+            state.running.lock().await
         }
     };
-    if !is_current(job) {
+    if !state.is_current(job) {
         // Superseded or closed while waiting.
         return Ok(());
     }
     let base = base_options(&app_handle);
     let task = tokio::task::spawn_blocking(move || {
-        let result = run_merge(&sources, &kind, &options, &base, &slot, job, &app_handle);
+        let state = app_handle.state::<MergeState>();
+        let result = run_merge(&sources, &kind, &options, &base, &state, job, &app_handle);
         if let Err(e) = &result {
             let _ = app_handle.emit("merge-error", serde_json::json!({ "job": job, "error": e }));
         }
@@ -173,9 +163,10 @@ pub(crate) async fn merge_photos(
 /// The merge dialog closed: drops `job`'s result (or, still computing, makes
 /// it stale), unless a newer run took over.
 #[tauri::command]
-pub(crate) fn discard_merge(job: u64, state: tauri::State<'_, AppState>) {
-    let mut slot = state.merge_result.lock().unwrap_or_else(|e| e.into_inner());
-    if CURRENT_JOB
+pub(crate) fn discard_merge(job: u64, state: tauri::State<'_, MergeState>) {
+    let mut slot = lock_recover(&state.result);
+    if state
+        .current_job
         .compare_exchange(job, 0, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
         || slot.as_ref().is_some_and(|outcome| outcome.job == job)
@@ -189,7 +180,7 @@ fn run_merge(
     kind: &str,
     options: &serde_json::Value,
     base: &BaseImageOptions,
-    slot: &std::sync::Arc<std::sync::Mutex<Option<MergeOutcome>>>,
+    state: &MergeState,
     job: u64,
     app_handle: &tauri::AppHandle,
 ) -> Result<(), String> {
@@ -319,8 +310,8 @@ fn run_merge(
         let (preview, size) = outcome.preview(1600);
         let base64 = png_data_url(&image::DynamicImage::ImageRgb8(preview))?;
         {
-            let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
-            if !is_current(job) {
+            let mut slot = lock_recover(&state.result);
+            if !state.is_current(job) {
                 // Nobody waits for this result any more.
                 return Ok(());
             }
@@ -347,13 +338,13 @@ fn run_merge(
 pub(crate) async fn refinish_merge(
     options: serde_json::Value,
     job: u64,
-    state: tauri::State<'_, AppState>,
+    state: tauri::State<'_, MergeState>,
 ) -> Result<serde_json::Value, String> {
     let config: rawtonic_merge::panorama::PanoramaConfig =
         serde_json::from_value(options).map_err(|e| e.to_string())?;
-    let slot = state.merge_result.clone();
+    let slot = state.result.clone();
     tokio::task::spawn_blocking(move || {
-        let mut guard = slot.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = lock_recover(&slot);
         let outcome = guard
             .as_mut()
             .filter(|outcome| outcome.job == job)
@@ -399,10 +390,10 @@ pub(crate) async fn save_merge(
     auto_settings: Option<bool>,
     fill_edges: Option<bool>,
     job: u64,
-    state: tauri::State<'_, AppState>,
+    state: tauri::State<'_, MergeState>,
 ) -> Result<String, String> {
     let outcome = {
-        let mut slot = state.merge_result.lock().unwrap_or_else(|e| e.into_inner());
+        let mut slot = lock_recover(&state.result);
         match slot.take() {
             Some(outcome) if outcome.job == job => outcome,
             other => {
@@ -411,7 +402,8 @@ pub(crate) async fn save_merge(
             }
         }
     };
-    let slot = state.merge_result.clone();
+    let slot = state.result.clone();
+    let current_job = state.current_job.clone();
     tokio::task::spawn_blocking(move || -> Result<String, String> {
         let (finished, covered) = outcome.finished();
         let fill_patches = match &covered {
@@ -463,8 +455,8 @@ pub(crate) async fn save_merge(
                 Err(e) => {
                     // Keep the merge for another attempt (unless a newer
                     // one took its place).
-                    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
-                    if slot.is_none() && is_current(outcome.job) {
+                    let mut slot = lock_recover(&slot);
+                    if slot.is_none() && current_job.load(Ordering::SeqCst) == outcome.job {
                         *slot = Some(outcome);
                     }
                     return Err(format!("Failed to save the merge: {e}"));

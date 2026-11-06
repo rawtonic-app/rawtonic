@@ -251,18 +251,18 @@ pub fn run() {
                 gpu_warmup::start(app.handle());
                 return Ok(());
             }
-            let state = app.state::<AppState>();
+            let startup_state = app.state::<state::startup::StartupState>();
 
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
             {
                 match launch_req.clone() {
                     LaunchRequest::EditSession(session) => {
                         log::info!("Initial launch with external edit session for: {}", session.source);
-                        *state.pending_edit_session.lock().unwrap() = Some(session);
+                        *state::lock::lock_recover(&startup_state.pending_edit_session) = Some(session);
                     }
                     LaunchRequest::OpenFile(path) => {
                         log::info!("Initial open: Storing path {} for later.", path);
-                        *state.initial_file_path.lock().unwrap() = Some(path);
+                        *state::lock::lock_recover(&startup_state.initial_file_path) = Some(path);
                     }
                     _ => {}
                 }
@@ -285,8 +285,8 @@ pub fn run() {
                 let disks_app_handle = app_handle.clone();
                 std::thread::spawn(move || {
                     let disks = sysinfo::Disks::new_with_refreshed_list();
-                    let state = disks_app_handle.state::<AppState>();
-                    *state.disks_cache.lock().unwrap() = Some(disks);
+                    let state = disks_app_handle.state::<state::library::LibraryState>();
+                    *state::lock::lock_recover(&state.disks_cache) = Some(disks);
                 });
             }
 
@@ -669,6 +669,9 @@ pub fn run() {
         .manage(state::thumbnails::ThumbnailState::default())
         .manage(state::ai::AiState::default())
         .manage(state::export::ExportState::default())
+        .manage(state::startup::StartupState::default())
+        .manage(state::library::LibraryState::default())
+        .manage(state::merge::MergeState::default())
         .manage(state::library_files::AlbumsStore::default())
         .manage(state::library_files::PresetsStore::default())
         .manage(state::library_files::LibraryQueue::default())
@@ -1014,9 +1017,9 @@ pub fn run() {
 				        && let Ok(path) = url.to_file_path()
 				        && let Some(path_str) = path.to_str()
 				    {
-				        let state = app_handle.state::<AppState>();
+				        let startup_state = app_handle.state::<state::startup::StartupState>();
 
-				        if state
+				        if startup_state
 				            .window_setup_complete
 				            .load(std::sync::atomic::Ordering::Relaxed)
 				        {
@@ -1033,7 +1036,7 @@ pub fn run() {
 				                LaunchRequest::OpenFile(path_str.to_string()),
 				            );
 				        } else {
-				            *state.initial_file_path.lock().unwrap() =
+				            *state::lock::lock_recover(&startup_state.initial_file_path) =
 				                Some(path_str.to_string());
 
 				            log::info!(
