@@ -1,6 +1,7 @@
 //! Desktop glue for `rawtonic_engine::upright` (ADR 0009): the Tauri command
 //! stays here, the line detection and Upright logic live in the engine crate.
 pub use rawtonic_engine::upright::*;
+use rawtonic_recipe::geometry;
 
 /// Guide lines for the currently loaded photo: detected on its lens-corrected
 /// image (only lens settings of `adjustments`), in the photo's pixel
@@ -61,7 +62,11 @@ fn upright_guides(
     };
     let segments = detect_segments(&gray, sw, sh, (sw as f64).hypot(sh as f64) * 0.02);
     // Guided lines are stored in 0–1 coordinates of the photo.
-    let portrait_on_sensor = adjustments["orientationSteps"].as_u64().unwrap_or(0) % 2 == 1;
+    let portrait_on_sensor = adjustments[geometry::ORIENTATION_STEPS.name()]
+        .as_u64()
+        .unwrap_or(0)
+        % 2
+        == 1;
     upright_lines(&segments, sw as f64, sh as f64, mode, portrait_on_sensor).map(|mut result| {
         for line in &mut result.lines {
             for p in [&mut line.p1, &mut line.p2] {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { rustRecipeKeys } from '../../contracts/recipeKeys.testSupport';
 import cacheUtils from '../../../crates/engine/src/cache_utils.rs?raw';
 import faceRetouch from '../../../crates/engine/src/face_retouch.rs?raw';
 import { FACE_FRAME_KEYS, blemishThreshold, faceRetouchGeometry, removedBlemishes } from './StudioFaceRetouch';
@@ -7,7 +8,7 @@ import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
 const rustList = (source: string, start: RegExp) => {
   const body = source.slice(source.search(start));
   const list = body.slice(body.indexOf('[') + 1, body.indexOf(']'));
-  return [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  return rustRecipeKeys(list);
 };
 
 describe('face retouch frame', () => {
@@ -18,9 +19,7 @@ describe('face retouch frame', () => {
     expect(colourOnly).toContain('fringeVersion');
     const engine = [
       ...rustList(faceRetouch, /for key in \[/),
-      ...[...(cacheUtils.match(/GEOMETRY_KEYS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/"([^"]+)"/g)].map(
-        (match) => match[1]
-      )
+      ...rustRecipeKeys(cacheUtils.match(/GEOMETRY_KEYS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? '')
     ].filter((key) => !colourOnly.includes(key));
     expect([...FACE_FRAME_KEYS].sort()).toEqual(engine.sort());
   });

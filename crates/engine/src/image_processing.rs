@@ -5,6 +5,7 @@ use glam::{Mat3, Vec2, Vec3};
 use image::{DynamicImage, GenericImageView, Rgb32FImage};
 use imageproc::geometric_transformations::Projection;
 use nalgebra::{Matrix3 as NaMatrix3, Vector3 as NaVector3};
+use rawtonic_recipe::geometry;
 use rawtonic_recipe::{StoredRef, tone};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -84,13 +85,7 @@ impl Default for ImageMetadata {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct Crop {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
+pub use rawtonic_recipe::geometry::Crop;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GeometryParams {
@@ -293,25 +288,18 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         .get("lensDistortionParams")
         .and_then(|v| v.as_object());
 
-    let guided = adjustments.get("guidedPerspective");
-    let guided_perspective_enabled = guided
-        .and_then(|g| g.get("enabled"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let guided_lines: Vec<GuideLine> = guided
-        .and_then(|g| g.get("lines"))
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
+    let geometry = rawtonic_recipe::normalize(StoredRef::new(adjustments), false).geometry;
+    let guided_fill = geometry.guided.fill();
 
     let mut params = GeometryParams {
-        distortion: adjustments["transformDistortion"].as_f64().unwrap_or(0.0) as f32,
-        vertical: adjustments["transformVertical"].as_f64().unwrap_or(0.0) as f32,
-        horizontal: adjustments["transformHorizontal"].as_f64().unwrap_or(0.0) as f32,
-        rotate: adjustments["transformRotate"].as_f64().unwrap_or(0.0) as f32,
-        aspect: adjustments["transformAspect"].as_f64().unwrap_or(0.0) as f32,
-        scale: adjustments["transformScale"].as_f64().unwrap_or(100.0) as f32,
-        x_offset: adjustments["transformXOffset"].as_f64().unwrap_or(0.0) as f32,
-        y_offset: adjustments["transformYOffset"].as_f64().unwrap_or(0.0) as f32,
+        distortion: geometry.distortion.get() as f32,
+        vertical: geometry.vertical.get() as f32,
+        horizontal: geometry.horizontal.get() as f32,
+        rotate: geometry.rotate.get() as f32,
+        aspect: geometry.aspect.get() as f32,
+        scale: geometry.scale.get() as f32,
+        x_offset: geometry.x_offset.get() as f32,
+        y_offset: geometry.y_offset.get() as f32,
 
         lens_distortion_amount: adjustments["lensDistortionAmount"]
             .as_f64()
@@ -391,17 +379,9 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         vig_k3: lens_params
             .and_then(|p| p.get("vig_k3").and_then(|k| k.as_f64()))
             .unwrap_or(0.0) as f32,
-        guided_lines,
-        guided_perspective_enabled,
-        // Lightroom's "Constrain crop", stored as `autoCrop` (missing = on).
-        guided_fill: guided
-            .and_then(|g| g.get("upright"))
-            .and_then(|v| v.as_str())
-            .is_some_and(|mode| mode != "off")
-            && guided
-                .and_then(|g| g.get("autoCrop"))
-                .and_then(|v| v.as_bool())
-                != Some(false),
+        guided_lines: geometry.guided.lines,
+        guided_perspective_enabled: geometry.guided.enabled,
+        guided_fill,
         auto_ca: false,
         auto_ca_version: AutoCaVersion::of(adjustments).get(),
         auto_ca_versus_own: false,
@@ -2818,7 +2798,7 @@ pub fn inverse_transform_mask(
     adjustments: &serde_json::Value,
 ) -> image::GrayImage {
     let rotation_degrees = adjustments
-        .get("rotation")
+        .get(geometry::ROTATION.name())
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0) as f32;
     let mask_dyn = image::DynamicImage::ImageLuma8(mask);
@@ -2830,17 +2810,17 @@ pub fn inverse_transform_mask(
     };
 
     let flip_h = adjustments
-        .get("flipHorizontal")
+        .get(geometry::FLIP_HORIZONTAL.name())
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let flip_v = adjustments
-        .get("flipVertical")
+        .get(geometry::FLIP_VERTICAL.name())
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let flipped = apply_flip(unrotated_fine, flip_h, flip_v).into_owned();
 
     let steps = adjustments
-        .get("orientationSteps")
+        .get(geometry::ORIENTATION_STEPS.name())
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u8;
     let inverse_steps = (4 - (steps % 4)) % 4;
@@ -2859,7 +2839,7 @@ pub fn inverse_transform_point(
     adjustments: &serde_json::Value,
 ) -> (f64, f64) {
     let rotation_degrees = adjustments
-        .get("rotation")
+        .get(geometry::ROTATION.name())
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
     if rotation_degrees.abs() > 1e-5 {
@@ -2876,11 +2856,11 @@ pub fn inverse_transform_point(
     }
 
     let flip_h = adjustments
-        .get("flipHorizontal")
+        .get(geometry::FLIP_HORIZONTAL.name())
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let flip_v = adjustments
-        .get("flipVertical")
+        .get(geometry::FLIP_VERTICAL.name())
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     if flip_h {
@@ -2891,7 +2871,7 @@ pub fn inverse_transform_point(
     }
 
     let steps = adjustments
-        .get("orientationSteps")
+        .get(geometry::ORIENTATION_STEPS.name())
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u8;
     let inverse_steps = (4 - (steps % 4)) % 4;
@@ -3714,11 +3694,12 @@ struct SpatialSteps {
 
 impl SpatialSteps {
     fn of(adjustments: &Value) -> Self {
-        let orientation_steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
-        let rotation_degrees = adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
-        let flip_horizontal = adjustments["flipHorizontal"].as_bool().unwrap_or(false);
-        let flip_vertical = adjustments["flipVertical"].as_bool().unwrap_or(false);
-        let crop_data: Option<Crop> = serde_json::from_value(adjustments["crop"].clone()).ok();
+        let geometry = rawtonic_recipe::normalize(StoredRef::new(adjustments), false).geometry;
+        let orientation_steps = geometry.orientation_steps.get() as u8;
+        let rotation_degrees = geometry.rotation.get() as f32;
+        let flip_horizontal = geometry.flip_horizontal;
+        let flip_vertical = geometry.flip_vertical;
+        let crop_data = geometry.crop;
         let crop = serde_json::to_value(crop_data).unwrap_or(Value::Null);
         let reorients = matches!(orientation_steps, 1..=3) || flip_horizontal || flip_vertical;
         Self {
@@ -4678,10 +4659,6 @@ struct AdjustmentScales {
     flares: f32,
 }
 
-pub use rawtonic_recipe::detail::{
-    RAW_DEFAULT_COLOR_NOISE_REDUCTION, RAW_DEFAULT_LUMA_NOISE_REDUCTION, RAW_DEFAULT_SHARPNESS,
-};
-
 const SCALES: AdjustmentScales = AdjustmentScales {
     exposure: 0.8,
     brightness: 0.8,
@@ -5052,7 +5029,7 @@ pub fn is_image_edited(
         return true;
     }
 
-    if let Some(crop_val) = adj.get("crop")
+    if let Some(crop_val) = adj.get(geometry::CROP.name())
         && !crop_val.is_null()
         && let Ok(crop) = serde_json::from_value::<Crop>(crop_val.clone())
         && (crop.x.abs() > 0.1 || crop.y.abs() > 0.1)
@@ -5061,7 +5038,7 @@ pub fn is_image_edited(
     }
 
     if adj
-        .get("orientationSteps")
+        .get(geometry::ORIENTATION_STEPS.name())
         .and_then(|v| v.as_u64())
         .unwrap_or(0)
         != 0
@@ -5069,7 +5046,7 @@ pub fn is_image_edited(
         return true;
     }
     if adj
-        .get("rotation")
+        .get(geometry::ROTATION.name())
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0)
         .abs()
@@ -5078,14 +5055,14 @@ pub fn is_image_edited(
         return true;
     }
     if adj
-        .get("flipHorizontal")
+        .get(geometry::FLIP_HORIZONTAL.name())
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
     {
         return true;
     }
     if adj
-        .get("flipVertical")
+        .get(geometry::FLIP_VERTICAL.name())
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
     {
@@ -9670,3 +9647,11 @@ mod reset_recipe_edited_tests {
         assert!(is_image_edited(&old, true, None));
     }
 }
+
+#[cfg(test)]
+#[path = "image_processing_uniform_tests.rs"]
+mod uniform_snapshot_tests;
+
+#[cfg(test)]
+#[path = "image_processing_geometry_tests.rs"]
+mod geometry_recipe_tests;

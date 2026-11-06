@@ -2,18 +2,20 @@
 
 use crate::color::Color;
 use crate::detail::Detail;
+use crate::geometry::Geometry;
 use crate::stored::StoredRef;
 use crate::tone::Tone;
 
 /// The typed sections of a recipe ready to render, produced only by
 /// [`normalize`] and never saved. Sections not moved here yet are read by
 /// the engine from the stored recipe.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct ResolvedRecipe {
     pub tone: Tone,
     pub color: Color,
     pub detail: Detail,
+    pub geometry: Geometry,
 }
 
 /// Resolves a stored recipe: every value of a moved section as it renders
@@ -25,5 +27,6 @@ pub fn normalize(stored: StoredRef<'_>, is_raw: bool) -> ResolvedRecipe {
         tone: Tone::resolve(stored),
         color: Color::resolve(stored),
         detail: Detail::resolve(stored, is_raw),
+        geometry: Geometry::resolve(stored),
     }
 }

@@ -4,6 +4,7 @@
 
 /// Private evaluation: RAWTONIC_AUTO_SAMPLES lists "name<TAB>path" lines;
 /// writes NAME.json with the auto recipe into RAWTONIC_AUTO_OUT.
+use rawtonic_recipe::geometry;
 #[test]
 #[ignore = "requires private RAW samples"]
 fn private_raw_auto_recipes() {
@@ -249,7 +250,7 @@ fn write_upright_recipes() {
                 }
             }
             println!("{path}\t{name}\tapplied {}", result.applied);
-            let recipe = serde_json::json!({"guidedPerspective": {"enabled": true,
+            let recipe = serde_json::json!({geometry::GUIDED_PERSPECTIVE.name(): {"enabled": true,
                 "lines": result.lines, "autoCrop": false, "upright": name}});
             std::fs::write(out.join(format!("{n}_{name}.json")), recipe.to_string()).unwrap();
         }

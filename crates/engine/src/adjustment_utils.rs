@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::image_processing::{
-    Crop, IntoCowImage, apply_coarse_rotation, apply_crop, apply_flip, apply_geometry_warp,
+    IntoCowImage, apply_coarse_rotation, apply_crop, apply_flip, apply_geometry_warp,
     apply_rotation, fused_spatial_transform,
 };
 
@@ -177,12 +177,15 @@ struct SpatialSteps {
 
 impl SpatialSteps {
     fn of(adjustments: &serde_json::Value) -> Self {
-        let crop_data: Option<Crop> = serde_json::from_value(adjustments["crop"].clone()).ok();
+        let geometry =
+            rawtonic_recipe::normalize(rawtonic_recipe::StoredRef::new(adjustments), false)
+                .geometry;
+        let crop_data = geometry.crop;
         Self {
-            orientation_steps: adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8,
-            rotation_degrees: adjustments["rotation"].as_f64().unwrap_or(0.0) as f32,
-            flip_horizontal: adjustments["flipHorizontal"].as_bool().unwrap_or(false),
-            flip_vertical: adjustments["flipVertical"].as_bool().unwrap_or(false),
+            orientation_steps: geometry.orientation_steps.get() as u8,
+            rotation_degrees: geometry.rotation.get() as f32,
+            flip_horizontal: geometry.flip_horizontal,
+            flip_vertical: geometry.flip_vertical,
             crop_json: serde_json::to_value(crop_data).unwrap_or(serde_json::Value::Null),
             unscaled_crop_offset: crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32)),
         }

@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+rawtonic-recipe = { path = "../recipe", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 walkdir = { workspace = true }
 rawtonic-catalog = { path = "../catalog", version = "0.1.0" }

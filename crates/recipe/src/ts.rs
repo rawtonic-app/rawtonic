@@ -52,10 +52,7 @@ impl TsField {
     /// reference to a key constant whose default owns memory (a `Vec`)
     /// cannot be taken in a constant.
     pub const fn new<T: TsType>(key: Key<T>, doc: &'static str) -> Self {
-        let name = key.name();
-        // A constant's default allocates nothing (`Vec::new()`), so there is
-        // nothing to drop.
-        std::mem::forget(key);
+        let name = key.into_name();
         Self {
             name,
             ts: T::TS,
@@ -86,7 +83,12 @@ pub struct TsSection {
 }
 
 /// Every section in the crate; a new section is one entry here.
-pub const SECTIONS: [&TsSection; 2] = [&crate::tone::TS, &crate::color::TS];
+pub const SECTIONS: [&TsSection; 4] = [
+    &crate::tone::TS,
+    &crate::color::TS,
+    &crate::detail::TS,
+    &crate::geometry::TS,
+];
 
 /// Where [`render`]'s text belongs, relative to the repository root.
 pub const PATH: &str = "src/generated/recipeKeys.ts";
@@ -109,11 +111,20 @@ pub fn render() -> String {
     imports.sort_unstable();
     imports.dedup();
     if !imports.is_empty() {
-        let _ = writeln!(
-            out,
+        let line = format!(
             "import type {{ {} }} from '../utils/adjustments';",
             imports.join(", ")
         );
+        if line.len() <= WIDTH {
+            let _ = writeln!(out, "{line}");
+        } else {
+            out.push_str("import type {\n");
+            for (i, name) in imports.iter().enumerate() {
+                let comma = if i + 1 < imports.len() { "," } else { "" };
+                let _ = writeln!(out, "  {name}{comma}");
+            }
+            out.push_str("} from '../utils/adjustments';\n");
+        }
     }
     for union in SECTIONS.iter().flat_map(|s| s.unions) {
         out.push('\n');

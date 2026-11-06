@@ -6,6 +6,7 @@
 
 use crate::state::ai::AiState;
 use crate::state::lock::lock_recover;
+use rawtonic_recipe::geometry;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
@@ -300,7 +301,7 @@ pub async fn analyze_face_retouch(
             get_cached_full_warped_image(&state, &develop, &source, is_raw, &js_adjustments)?;
         // The mask frame: the spatial transforms without the crop.
         let mut uncropped = js_adjustments.clone();
-        uncropped["crop"] = serde_json::Value::Null;
+        uncropped[geometry::CROP.name()] = serde_json::Value::Null;
         let (framed, _) =
             crate::adjustment_utils::apply_spatial_transformations(warped.as_ref(), &uncropped);
         let image = rawtonic_faces::recipe::display_rgb8(&framed, is_raw);
@@ -446,7 +447,7 @@ pub async fn apply_face_retouch_to_paths(
                     &recipe,
                 )?;
                 let mut uncropped = recipe.clone();
-                uncropped["crop"] = serde_json::Value::Null;
+                uncropped[geometry::CROP.name()] = serde_json::Value::Null;
                 let (framed, _) = crate::adjustment_utils::apply_spatial_transformations(
                     warped.as_ref(),
                     &uncropped,

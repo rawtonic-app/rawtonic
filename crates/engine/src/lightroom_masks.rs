@@ -18,6 +18,7 @@
 //! imported again. Select Subject and Select Sky need a model and keep
 //! waiting for the open photo.
 
+use rawtonic_recipe::geometry;
 use serde_json::{Value, json};
 
 use crate::lightroom_retouch::{ORIENTATION, PENDING, orient_direction, orient_point};
@@ -104,8 +105,8 @@ pub fn placed_parameters(
     // placed shapes record the photo's own frame (`mask_generation`'s
     // `ShapeFrame`), so they are drawn on the same spot of the photo however
     // it is turned, flipped or straightened.
-    let frame = json!({"width": width, "height": height, "rotation": 0.0,
-        "flipHorizontal": false, "flipVertical": false, "orientationSteps": 0});
+    let frame = json!({"width": width, "height": height, geometry::ROTATION.name(): 0.0,
+        geometry::FLIP_HORIZONTAL.name(): false, geometry::FLIP_VERTICAL.name(): false, geometry::ORIENTATION_STEPS.name(): 0});
     Some(match kind {
         "linear" => {
             let (zx, zy) = pixel(n("zeroX"), n("zeroY"));

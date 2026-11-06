@@ -4,7 +4,8 @@
 //! from response 2 (100 for response 1); noise refinements are 0–100.
 //! The renderer keeps its existing clamps and f32 conversion order.
 
-use crate::tone::Amount;
+use crate::tone::{Amount, slider_value};
+use crate::ts::{TsField, TsSection};
 use crate::{Key, Section, StoredRef};
 
 /// Import defaults for RAW files (frontend `RAW_DETAIL_DEFAULTS`):
@@ -94,44 +95,44 @@ pub fn tool_switch(key: &str) -> Option<Section> {
     if [LUMA_NOISE_REDUCTION.name(), COLOR_NOISE_REDUCTION.name()].contains(&key) {
         return Some(Section::NOISE_REDUCTION);
     }
-    if [
-        CHROMATIC_ABERRATION_RED_CYAN.name(),
-        CHROMATIC_ABERRATION_BLUE_YELLOW.name(),
-        MOIRE_AMOUNT.name(),
-        MOIRE_PATTERN.name(),
-    ]
-    .contains(&key)
-    {
-        return Some(Section::DETAILS);
-    }
     None
 }
 
-macro_rules! slider_value {
-    ($name:ident, $min:expr, $max:expr, $step:expr) => {
-        #[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
-        pub struct $name(f64);
-        impl $name {
-            pub const MIN: f64 = $min;
-            pub const MAX: f64 = $max;
-            pub const STEP: f64 = $step;
-            pub const fn new(value: f64) -> Self {
-                Self(value)
-            }
-            pub const fn get(self) -> f64 {
-                self.0
-            }
-            pub fn in_range(self) -> bool {
-                (Self::MIN..=Self::MAX).contains(&self.0)
-            }
-        }
-    };
-}
-slider_value!(Sharpness, 0.0, 150.0, 1.0);
-slider_value!(Threshold, 0.0, 80.0, 1.0);
-slider_value!(Radius, 0.5, 3.0, 0.1);
-slider_value!(Percent, 0.0, 100.0, 1.0);
-slider_value!(DefringeAmount, 0.0, 20.0, 1.0);
+slider_value!(
+    /// Sharpening amount: 0–150, step 1 (response 1 uses 0–100).
+    Sharpness,
+    0.0,
+    150.0,
+    1.0
+);
+slider_value!(
+    /// Sharpening threshold: 0–80, step 1.
+    Threshold,
+    0.0,
+    80.0,
+    1.0
+);
+slider_value!(
+    /// Sharpening radius in pixels: 0.5–3, step 0.1.
+    Radius,
+    0.5,
+    3.0,
+    0.1
+);
+slider_value!(
+    /// A detail percentage: 0–100, step 1.
+    Percent,
+    0.0,
+    100.0,
+    1.0
+);
+slider_value!(
+    /// Defringe amount: 0–20, step 1.
+    DefringeAmount,
+    0.0,
+    20.0,
+    1.0
+);
 
 /// Amounts and presence values are neutral when hidden. Sharpening parameters
 /// keep their defaults when hidden. Noise refinements and defringe retain the
@@ -185,6 +186,13 @@ impl Detail {
                 }
             })
         };
+        let visible_read = |key: &Key<f64>| {
+            if visible {
+                stored.get_or_default(key)
+            } else {
+                key.default()
+            }
+        };
         Self {
             visible,
             diffraction_correction: stored.get_or_default(&DIFFRACTION_CORRECTION),
@@ -209,10 +217,11 @@ impl Detail {
             clarity: Amount::new(read(&CLARITY, None)),
             dehaze: Amount::new(read(&DEHAZE, None)),
             structure: Amount::new(read(&STRUCTURE, None)),
-            chromatic_aberration_red_cyan: Amount::new(read(&CHROMATIC_ABERRATION_RED_CYAN, None)),
-            chromatic_aberration_blue_yellow: Amount::new(read(
+            chromatic_aberration_red_cyan: Amount::new(visible_read(
+                &CHROMATIC_ABERRATION_RED_CYAN,
+            )),
+            chromatic_aberration_blue_yellow: Amount::new(visible_read(
                 &CHROMATIC_ABERRATION_BLUE_YELLOW,
-                None,
             )),
             defringe_purple_amount: DefringeAmount::new(read(&DEFRINGE_PURPLE_AMOUNT, None)),
             defringe_purple_hue_lo: Percent::new(read(&DEFRINGE_PURPLE_HUE_LO, None)),
@@ -220,11 +229,63 @@ impl Detail {
             defringe_green_amount: DefringeAmount::new(read(&DEFRINGE_GREEN_AMOUNT, None)),
             defringe_green_hue_lo: Percent::new(read(&DEFRINGE_GREEN_HUE_LO, None)),
             defringe_green_hue_hi: Percent::new(read(&DEFRINGE_GREEN_HUE_HI, None)),
-            moire_amount: Percent::new(read(&MOIRE_AMOUNT, None)),
-            moire_pattern: Percent::new(read(&MOIRE_PATTERN, None)),
+            moire_amount: Percent::new(visible_read(&MOIRE_AMOUNT)),
+            moire_pattern: Percent::new(visible_read(&MOIRE_PATTERN)),
         }
     }
 }
+
+/// Detail keys in the generated frontend recipe type.
+pub const TS: TsSection = TsSection {
+    name: "Detail",
+    fields: &[
+        TsField::new(SHARPNESS, ""),
+        TsField::new(SHARPNESS_THRESHOLD, ""),
+        TsField::new(
+            SHARPEN_RADIUS,
+            "Lightroom's sharpening Radius / Detail / Masking (photo only).",
+        ),
+        TsField::new(SHARPEN_DETAIL, ""),
+        TsField::new(SHARPEN_MASKING, ""),
+        TsField::new(
+            SHARPNESS_FALLOFF,
+            "Capture One's Sharpness Falloff (0–100): more sharpening towards the corners.",
+        ),
+        TsField::new(LUMA_NOISE_REDUCTION, ""),
+        TsField::new(COLOR_NOISE_REDUCTION, ""),
+        TsField::new(
+            LUMA_NOISE_DETAIL,
+            "Lightroom's noise reduction refinements (0–100): luminance Detail (default 50) and Contrast (0), colour Detail (50) and Smoothness (50).",
+        ),
+        TsField::new(LUMA_NOISE_CONTRAST, ""),
+        TsField::new(COLOR_NOISE_DETAIL, ""),
+        TsField::new(COLOR_NOISE_SMOOTHNESS, ""),
+        TsField::new(CLARITY, ""),
+        TsField::new(DEHAZE, ""),
+        TsField::new(STRUCTURE, ""),
+        TsField::new(CHROMATIC_ABERRATION_RED_CYAN, ""),
+        TsField::new(CHROMATIC_ABERRATION_BLUE_YELLOW, ""),
+        TsField::new(
+            DEFRINGE_PURPLE_AMOUNT,
+            "Lightroom's Defringe: amounts 0–20, hue ranges 0–100.",
+        ),
+        TsField::new(DEFRINGE_PURPLE_HUE_LO, ""),
+        TsField::new(DEFRINGE_PURPLE_HUE_HI, ""),
+        TsField::new(DEFRINGE_GREEN_AMOUNT, ""),
+        TsField::new(DEFRINGE_GREEN_HUE_LO, ""),
+        TsField::new(DEFRINGE_GREEN_HUE_HI, ""),
+        TsField::new(
+            MOIRE_AMOUNT,
+            "Capture One's Moiré: amount and pattern size, 0–100.",
+        ),
+        TsField::new(MOIRE_PATTERN, ""),
+        TsField::new(
+            DIFFRACTION_CORRECTION,
+            "Capture One's diffraction correction: sharpening by the f-number and pixel pitch (diffraction.rs), RAW only.",
+        ),
+    ],
+    unions: &[],
+};
 
 #[cfg(test)]
 mod tests {
@@ -272,397 +333,193 @@ mod tests {
         })
     }
     #[test]
-    fn sharpness_matches_old_read() {
-        for recipe in edge_recipes("sharpness") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.sharpness.get(),
-                    old_read(
-                        &recipe,
-                        "sharpness",
-                        0.0,
-                        Some("sharpening"),
-                        Some(40.0),
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn sharpness_threshold_matches_old_read() {
-        for recipe in edge_recipes("sharpnessThreshold") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.sharpness_threshold.get(),
-                    old_read(
-                        &recipe,
-                        "sharpnessThreshold",
-                        15.0,
-                        Some("sharpening"),
-                        None,
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn sharpen_radius_matches_old_read() {
-        for recipe in edge_recipes("sharpenRadius") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.sharpen_radius.get(),
-                    old_read(
-                        &recipe,
-                        "sharpenRadius",
-                        1.0,
-                        Some("sharpening"),
-                        None,
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn sharpen_detail_matches_old_read() {
-        for recipe in edge_recipes("sharpenDetail") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.sharpen_detail.get(),
-                    old_read(
-                        &recipe,
-                        "sharpenDetail",
-                        25.0,
-                        Some("sharpening"),
-                        None,
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn sharpen_masking_matches_old_read() {
-        for recipe in edge_recipes("sharpenMasking") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.sharpen_masking.get(),
-                    old_read(
-                        &recipe,
-                        "sharpenMasking",
-                        0.0,
-                        Some("sharpening"),
-                        None,
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn sharpness_falloff_matches_old_read() {
-        for recipe in edge_recipes("sharpnessFalloff") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.sharpness_falloff.get(),
-                    old_read(
-                        &recipe,
-                        "sharpnessFalloff",
-                        0.0,
-                        Some("sharpening"),
-                        None,
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn luma_noise_reduction_matches_old_read() {
-        for recipe in edge_recipes("lumaNoiseReduction") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.luma_noise_reduction.get(),
-                    old_read(
-                        &recipe,
-                        "lumaNoiseReduction",
-                        0.0,
-                        Some("noiseReduction"),
-                        Some(15.0),
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn color_noise_reduction_matches_old_read() {
-        for recipe in edge_recipes("colorNoiseReduction") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.color_noise_reduction.get(),
-                    old_read(
-                        &recipe,
-                        "colorNoiseReduction",
-                        0.0,
-                        Some("noiseReduction"),
-                        Some(25.0),
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn luma_noise_detail_matches_old_read() {
-        for recipe in edge_recipes("lumaNoiseDetail") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.luma_noise_detail.get(),
-                    old_read(&recipe, "lumaNoiseDetail", 50.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn luma_noise_contrast_matches_old_read() {
-        for recipe in edge_recipes("lumaNoiseContrast") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.luma_noise_contrast.get(),
-                    old_read(&recipe, "lumaNoiseContrast", 0.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn color_noise_detail_matches_old_read() {
-        for recipe in edge_recipes("colorNoiseDetail") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.color_noise_detail.get(),
-                    old_read(&recipe, "colorNoiseDetail", 50.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn color_noise_smoothness_matches_old_read() {
-        for recipe in edge_recipes("colorNoiseSmoothness") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.color_noise_smoothness.get(),
-                    old_read(&recipe, "colorNoiseSmoothness", 50.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn clarity_matches_old_read() {
-        for recipe in edge_recipes("clarity") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.clarity.get(),
-                    old_read(&recipe, "clarity", 0.0, Some("presence"), None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn dehaze_matches_old_read() {
-        for recipe in edge_recipes("dehaze") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.dehaze.get(),
-                    old_read(&recipe, "dehaze", 0.0, Some("presence"), None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn structure_matches_old_read() {
-        for recipe in edge_recipes("structure") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.structure.get(),
-                    old_read(&recipe, "structure", 0.0, Some("presence"), None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn chromatic_aberration_red_cyan_matches_old_read() {
-        for recipe in edge_recipes("chromaticAberrationRedCyan") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.chromatic_aberration_red_cyan.get(),
-                    old_read(
-                        &recipe,
-                        "chromaticAberrationRedCyan",
-                        0.0,
-                        Some("details"),
-                        None,
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn chromatic_aberration_blue_yellow_matches_old_read() {
-        for recipe in edge_recipes("chromaticAberrationBlueYellow") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.chromatic_aberration_blue_yellow.get(),
-                    old_read(
-                        &recipe,
-                        "chromaticAberrationBlueYellow",
-                        0.0,
-                        Some("details"),
-                        None,
-                        is_raw
-                    ),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn defringe_purple_amount_matches_old_read() {
-        for recipe in edge_recipes("defringePurpleAmount") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.defringe_purple_amount.get(),
-                    old_read(&recipe, "defringePurpleAmount", 0.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn defringe_purple_hue_lo_matches_old_read() {
-        for recipe in edge_recipes("defringePurpleHueLo") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.defringe_purple_hue_lo.get(),
-                    old_read(&recipe, "defringePurpleHueLo", 30.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn defringe_purple_hue_hi_matches_old_read() {
-        for recipe in edge_recipes("defringePurpleHueHi") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.defringe_purple_hue_hi.get(),
-                    old_read(&recipe, "defringePurpleHueHi", 70.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn defringe_green_amount_matches_old_read() {
-        for recipe in edge_recipes("defringeGreenAmount") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.defringe_green_amount.get(),
-                    old_read(&recipe, "defringeGreenAmount", 0.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn defringe_green_hue_lo_matches_old_read() {
-        for recipe in edge_recipes("defringeGreenHueLo") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.defringe_green_hue_lo.get(),
-                    old_read(&recipe, "defringeGreenHueLo", 40.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn defringe_green_hue_hi_matches_old_read() {
-        for recipe in edge_recipes("defringeGreenHueHi") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.defringe_green_hue_hi.get(),
-                    old_read(&recipe, "defringeGreenHueHi", 60.0, None, None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn moire_amount_matches_old_read() {
-        for recipe in edge_recipes("moireAmount") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.moire_amount.get(),
-                    old_read(&recipe, "moireAmount", 0.0, Some("details"), None, is_raw),
-                    "{recipe}"
-                );
-            }
-        }
-    }
-    #[test]
-    fn moire_pattern_matches_old_read() {
-        for recipe in edge_recipes("moirePattern") {
-            for is_raw in [false, true] {
-                let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
-                assert_eq!(
-                    resolved.detail.moire_pattern.get(),
-                    old_read(&recipe, "moirePattern", 30.0, Some("details"), None, is_raw),
-                    "{recipe}"
-                );
+    fn detail_fields_match_old_reads() {
+        for (key, default, tool, raw, value) in [
+            (
+                "sharpness",
+                0.0,
+                Some("sharpening"),
+                Some(40.0),
+                (|d: &Detail| d.sharpness.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "sharpnessThreshold",
+                15.0,
+                Some("sharpening"),
+                None,
+                (|d: &Detail| d.sharpness_threshold.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "sharpenRadius",
+                1.0,
+                Some("sharpening"),
+                None,
+                (|d: &Detail| d.sharpen_radius.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "sharpenDetail",
+                25.0,
+                Some("sharpening"),
+                None,
+                (|d: &Detail| d.sharpen_detail.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "sharpenMasking",
+                0.0,
+                Some("sharpening"),
+                None,
+                (|d: &Detail| d.sharpen_masking.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "sharpnessFalloff",
+                0.0,
+                Some("sharpening"),
+                None,
+                (|d: &Detail| d.sharpness_falloff.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "lumaNoiseReduction",
+                0.0,
+                Some("noiseReduction"),
+                Some(15.0),
+                (|d: &Detail| d.luma_noise_reduction.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "colorNoiseReduction",
+                0.0,
+                Some("noiseReduction"),
+                Some(25.0),
+                (|d: &Detail| d.color_noise_reduction.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "lumaNoiseDetail",
+                50.0,
+                None,
+                None,
+                (|d: &Detail| d.luma_noise_detail.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "lumaNoiseContrast",
+                0.0,
+                None,
+                None,
+                (|d: &Detail| d.luma_noise_contrast.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "colorNoiseDetail",
+                50.0,
+                None,
+                None,
+                (|d: &Detail| d.color_noise_detail.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "colorNoiseSmoothness",
+                50.0,
+                None,
+                None,
+                (|d: &Detail| d.color_noise_smoothness.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "clarity",
+                0.0,
+                Some("presence"),
+                None,
+                (|d: &Detail| d.clarity.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "dehaze",
+                0.0,
+                Some("presence"),
+                None,
+                (|d: &Detail| d.dehaze.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "structure",
+                0.0,
+                Some("presence"),
+                None,
+                (|d: &Detail| d.structure.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "chromaticAberrationRedCyan",
+                0.0,
+                Some("details"),
+                None,
+                (|d: &Detail| d.chromatic_aberration_red_cyan.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "chromaticAberrationBlueYellow",
+                0.0,
+                Some("details"),
+                None,
+                (|d: &Detail| d.chromatic_aberration_blue_yellow.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "defringePurpleAmount",
+                0.0,
+                None,
+                None,
+                (|d: &Detail| d.defringe_purple_amount.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "defringePurpleHueLo",
+                30.0,
+                None,
+                None,
+                (|d: &Detail| d.defringe_purple_hue_lo.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "defringePurpleHueHi",
+                70.0,
+                None,
+                None,
+                (|d: &Detail| d.defringe_purple_hue_hi.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "defringeGreenAmount",
+                0.0,
+                None,
+                None,
+                (|d: &Detail| d.defringe_green_amount.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "defringeGreenHueLo",
+                40.0,
+                None,
+                None,
+                (|d: &Detail| d.defringe_green_hue_lo.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "defringeGreenHueHi",
+                60.0,
+                None,
+                None,
+                (|d: &Detail| d.defringe_green_hue_hi.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "moireAmount",
+                0.0,
+                Some("details"),
+                None,
+                (|d: &Detail| d.moire_amount.get()) as fn(&Detail) -> f64,
+            ),
+            (
+                "moirePattern",
+                30.0,
+                Some("details"),
+                None,
+                (|d: &Detail| d.moire_pattern.get()) as fn(&Detail) -> f64,
+            ),
+        ] {
+            for recipe in edge_recipes(key) {
+                for is_raw in [false, true] {
+                    let resolved = crate::normalize(StoredRef::new(&recipe), is_raw);
+                    assert_eq!(
+                        value(&resolved.detail),
+                        old_read(&recipe, key, default, tool, raw, is_raw),
+                        "{key}: {recipe}"
+                    );
+                }
             }
         }
     }

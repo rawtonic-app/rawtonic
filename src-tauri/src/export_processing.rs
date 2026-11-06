@@ -2,6 +2,7 @@
 //! queue, its Tauri commands and events, sidecar and session access and the
 //! metadata embedding stay here; the render and encoders live in the crate.
 pub use rawtonic_export::export_processing::*;
+use rawtonic_recipe::geometry;
 
 use crate::state::ai::AiState;
 use crate::state::export::ExportState;
@@ -2342,7 +2343,7 @@ fn estimate_sizes(
             1.0
         };
 
-        if let Some(crop_val) = js_adjustments.get_mut("crop")
+        if let Some(crop_val) = js_adjustments.get_mut(geometry::CROP.name())
             && let Ok(c) = serde_json::from_value::<Crop>(crop_val.clone())
         {
             *crop_val = serde_json::to_value(Crop {

@@ -5479,6 +5479,7 @@ dependencies = [
  "rawtonic-metadata",
  "rawtonic-onnx",
  "rawtonic-rawdecode",
+ "rawtonic-recipe",
  "rawtonic-segment",
  "rusqlite",
  "serde",

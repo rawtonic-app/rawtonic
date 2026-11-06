@@ -60,6 +60,15 @@ impl<T> Key<T> {
         self.name
     }
 
+    /// The name of a registry constant, consuming its allocation-free default.
+    /// Unlike borrowing a temporary key, this also works in const expressions
+    /// when its default has a destructor (an empty Vec or String).
+    pub const fn into_name(self) -> &'static str {
+        let name = self.name;
+        std::mem::forget(self);
+        name
+    }
+
     /// The first version of the section's version key that reads the key.
     pub const fn since_version(&self) -> u64 {
         self.since_version
