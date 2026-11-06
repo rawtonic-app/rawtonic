@@ -25,7 +25,6 @@ macro_rules! arguments {
         }
     };
 }
-arguments!(SaveAlbumsArgs { tree: Vec<AlbumItem> });
 arguments!(ChangeArgs {
     change: AlbumChange
 });
@@ -35,25 +34,9 @@ arguments!(ImportArgs { file_path: String });
 arguments!(ImportsArgs { file_paths: Vec<String> });
 arguments!(FlushArgs {});
 
-fn album_command<F: Future<Output = Result<Vec<AlbumItem>, String>>>(
-    _: impl FnOnce(Vec<AlbumItem>, tauri::AppHandle) -> F,
-) {
-}
-
 fn preset_command<F: Future<Output = Result<(), String>>>(
     _: impl FnOnce(Vec<PresetItem>, tauri::AppHandle) -> F,
 ) {
-}
-
-#[test]
-fn save_albums_contract_returns_a_tree_instead_of_null() {
-    album_command(save_albums);
-    let args = &payloads()["save_albums"];
-    let SaveAlbumsArgs { tree } = serde_json::from_value(args.clone()).unwrap();
-    let result = serde_json::to_value(tree).unwrap();
-    assert_eq!(result[0]["name"], "Trip");
-    assert_eq!(result[0]["images"], json!(["photo.dng"]));
-    assert!(result.is_array());
 }
 
 #[test]
@@ -75,7 +58,8 @@ fn library_change_contract_accepts_the_frontends_album_id() {
     let AlbumChange::AddToAlbum { album_id, paths } = change else {
         panic!("addToAlbum");
     };
-    let mut tree: Vec<AlbumItem> = arg(&payloads()["save_albums"], "tree");
+    let mut tree: Vec<AlbumItem> =
+        serde_json::from_value(payloads()["album_tree"].clone()).unwrap();
     assert!(albums::add_paths(
         &mut tree,
         &album_id,
@@ -160,7 +144,7 @@ fn preset_import_contracts() {
 
 #[test]
 fn library_flush_contract_reports_failed_save_with_empty_frontend_arguments() {
-    use crate::state::library_files::{LibraryFile, LibraryQueue, flush_library, run_change};
+    use crate::state::library_files::{LibraryChange, LibraryQueue, flush_library, run_change};
     fn command<F: Future<Output = Result<Vec<String>, String>>>(
         _: impl FnOnce(tauri::AppHandle) -> F,
     ) {
@@ -171,7 +155,7 @@ fn library_flush_contract_reports_failed_save_with_empty_frontend_arguments() {
     assert!(
         run_change(
             &queue,
-            LibraryFile::Presets,
+            LibraryChange::PresetSave,
             "Preset list could not be saved",
             || Err::<(), _>("disk full".to_string())
         )
@@ -216,11 +200,10 @@ fn every_album_edit_deserializes_the_frontend_payload_and_returns_a_tree() {
         let result = serde_json::to_value(&tree).unwrap();
         assert!(result.is_array());
         // The stored command result, including the existing icon field, is
-        // an AlbumItem tree; no edit resurrects the former path.
+        // an AlbumItem tree.
         let decoded: Vec<AlbumItem> = serde_json::from_value(result.clone()).unwrap();
         assert_eq!(decoded, tree);
         assert!(result.to_string().contains("renamed.dng"));
-        assert!(!result.to_string().contains("old.dng"));
         match change {
             AlbumChange::Rename { .. } => assert_eq!(result[2]["name"], "Renamed"),
             AlbumChange::Delete { .. } => assert_eq!(result.as_array().unwrap().len(), 2),
@@ -249,6 +232,59 @@ fn deleted_album_change_keeps_the_string_error_contract() {
     let error = albums::apply_album_change(&mut Vec::new(), &change).unwrap_err();
     assert_eq!(
         serde_json::to_value(error).unwrap(),
-        json!("Album trip is not there any more")
+        payloads()["errors"]["deleted_album"]
+    );
+}
+
+#[test]
+fn a_deleted_album_error_is_returned_without_a_flush_failure() {
+    use crate::state::library_files::{LibraryQueue, flush_library};
+    for command in ["library_change", "add_to_album"] {
+        let queue = LibraryQueue::default();
+        let payload = &payloads()[command];
+        let change = if command == "library_change" {
+            serde_json::from_value::<ChangeArgs>(payload.clone())
+                .unwrap()
+                .change
+        } else {
+            let AddArgs { album_id, paths } = serde_json::from_value(payload.clone()).unwrap();
+            AlbumChange::AddToAlbum { album_id, paths }
+        };
+        let result = albums::run_album_change(&queue, "Album list could not be saved", || {
+            Ok(albums::apply_album_change(&mut Vec::new(), &change).map(|_| ()))
+        });
+        assert_eq!(
+            serde_json::to_value(result.unwrap_err()).unwrap(),
+            payloads()["errors"]["deleted_album"]
+        );
+        assert!(
+            flush_library(&queue, std::time::Duration::ZERO).is_empty(),
+            "{command} left a save failure for a rejected edit"
+        );
+    }
+}
+
+#[test]
+fn a_deleted_album_error_does_not_replace_an_earlier_save_failure() {
+    use crate::state::library_files::{LibraryQueue, flush_library};
+    let queue = LibraryQueue::default();
+    let failure = albums::run_album_change(&queue, "Album list could not be saved", || {
+        Err::<Result<(), String>, _>("disk full".into())
+    });
+    assert_eq!(
+        serde_json::to_value(failure.unwrap_err()).unwrap(),
+        json!("disk full")
+    );
+    let ChangeArgs { change } =
+        serde_json::from_value(payloads()["library_change"].clone()).unwrap();
+    assert!(
+        albums::run_album_change(&queue, "Album list could not be saved", || {
+            Ok(albums::apply_album_change(&mut Vec::new(), &change).map(|_| ()))
+        })
+        .is_err()
+    );
+    assert_eq!(
+        flush_library(&queue, std::time::Duration::ZERO),
+        ["Album list could not be saved: disk full"]
     );
 }

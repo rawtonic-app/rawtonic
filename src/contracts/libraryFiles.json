@@ -1,5 +1,6 @@
 {
-  "save_albums": {"tree": [{"type": "album", "id": "trip", "name": "Trip", "images": ["photo.dng"]}]},
+  "album_tree": [{"type": "album", "id": "trip", "name": "Trip", "images": ["photo.dng"]}],
+  "errors": {"deleted_album": "Album trip is not there any more", "wait_timeout": "Timed out after 30 seconds waiting for an earlier album or preset change; this change was not saved"},
   "library_change": {"change": {"kind": "addToAlbum", "albumId": "trip", "paths": ["photo.dng"]}},
   "add_to_album": {"albumId": "trip", "paths": ["photo.dng"]},
   "save_presets": {"presets": [{"preset": {"id": "soft", "name": "Soft", "adjustments": {"exposure": 1}}}]},

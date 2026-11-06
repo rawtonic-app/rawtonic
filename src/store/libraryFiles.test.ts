@@ -1,27 +1,22 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import {
-  libraryChanges,
-  PRESETS_UNREAD_NAME,
-  saveAlbums,
-  setPresetsUnread,
-  UNREPORTED_WRITE_NAME
-} from './libraryFiles';
+import { libraryChanges, PRESETS_UNREAD_NAME, setPresetsUnread, UNREPORTED_WRITE_NAME } from './libraryFiles';
 import { Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos' }));
 
-const album = (id: string) => ({ type: 'album', id, name: id, images: [] });
+const editAlbum = (name: string) =>
+  libraryChanges.enqueue(() => invoke(Invokes.LibraryChange, { change: { kind: 'rename', id: 'a', name } }));
 
-/** The backend: `SaveAlbums` answers when the test says so. */
+/** The backend: `LibraryChange` answers when the test says so. */
 function backend() {
-  const saves: Array<{ tree: ReturnType<typeof album>[]; answer: (() => void) | null }> = [];
+  const saves: Array<{ name: string; answer: (() => void) | null }> = [];
   const flushes: unknown[][] = [];
   vi.mocked(invoke).mockImplementation(((command: Invokes, args: Record<string, unknown> = {}) => {
-    if (command === Invokes.SaveAlbums)
+    if (command === Invokes.LibraryChange)
       return new Promise<unknown>((resolve) =>
-        saves.push({ tree: args.tree as ReturnType<typeof album>[], answer: () => resolve(undefined) })
+        saves.push({ name: (args.change as { name: string }).name, answer: () => resolve(undefined) })
       );
     if (command === Invokes.LibraryFlush) {
       flushes.push([]);
@@ -42,26 +37,26 @@ beforeEach(() => {
 
 it('sends every change one after another: the next waits for the earlier one', async () => {
   const { saves } = backend();
-  void saveAlbums([album('First')]);
-  void saveAlbums([album('Second')]);
+  void editAlbum('First');
+  void editAlbum('Second');
   await settle();
-  expect(saves.map(({ tree }) => tree[0].id)).toEqual(['First']);
+  expect(saves.map(({ name }) => name)).toEqual(['First']);
   saves[0].answer!();
   await settle();
-  expect(saves.map(({ tree }) => tree[0].id)).toEqual(['First', 'Second']);
+  expect(saves.map(({ name }) => name)).toEqual(['First', 'Second']);
 });
 
 it('a change is sent after an earlier one that failed: a failure never drops the next change', async () => {
   const refuse: Array<() => void> = [];
   const sent: string[] = [];
   vi.mocked(invoke).mockImplementation(((command: Invokes, args: Record<string, unknown> = {}) => {
-    if (command !== Invokes.SaveAlbums) return Promise.resolve([]);
-    sent.push((args.tree as ReturnType<typeof album>[])[0].id);
+    if (command !== Invokes.LibraryChange) return Promise.resolve([]);
+    sent.push((args.change as { name: string }).name);
     if (sent.length === 1) return new Promise((_, reject) => refuse.push(() => reject('disk full')));
-    return Promise.resolve(args.tree);
+    return Promise.resolve([]);
   }) as typeof invoke);
-  const first = saveAlbums([album('Failing')]);
-  const second = saveAlbums([album('After')]);
+  const first = editAlbum('Failing');
+  const second = editAlbum('After');
   await settle();
   expect(sent).toEqual(['Failing']);
   refuse[0]();
@@ -72,7 +67,7 @@ it('a change is sent after an earlier one that failed: a failure never drops the
 
 it('a flush sends the changes made so far, waits for them, then asks the backend', async () => {
   const { saves, flushes } = backend();
-  void saveAlbums([album('Late')]);
+  void editAlbum('Late');
   let flushed: string[] | null = null;
   const flushing = libraryChanges.flush().then((failures) => (flushed = failures));
   await settle();

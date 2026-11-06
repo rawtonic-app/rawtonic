@@ -21,12 +21,32 @@ use tauri::AppHandle;
 use crate::file_management::{AlbumItem, PresetItem, sort_album_tree};
 use crate::state::lock::{lock_recover, read_recover, write_recover};
 
+const ENTRY_GRACE: Duration = Duration::from_secs(30);
+
 pub(crate) const FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum LibraryFile {
+enum LibraryFile {
     Albums,
     Presets,
+}
+
+/// Only a whole-list preset save contains the edits of a failed save.
+/// An album edit or a preset import cannot repair an earlier failed edit.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryChange {
+    AlbumEdit,
+    PresetSave,
+    PresetImport,
+}
+
+impl LibraryChange {
+    fn file(self) -> LibraryFile {
+        match self {
+            Self::AlbumEdit => LibraryFile::Albums,
+            Self::PresetSave | Self::PresetImport => LibraryFile::Presets,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -47,7 +67,7 @@ impl LibraryQueue {
         lock_recover(&self.state)
     }
 
-    fn record(&self, file: LibraryFile, describe: &str) -> Change<'_> {
+    fn record(&self, kind: LibraryChange, describe: &str) -> Change<'_> {
         let mut state = self.lock();
         let id = state.next;
         state.next += 1;
@@ -55,32 +75,39 @@ impl LibraryQueue {
         Change {
             queue: self,
             id,
-            file,
+            kind,
             finished: false,
         }
     }
 }
 
 /// Holds a real pending change until it finishes, including unwinding. A hung
-/// predecessor keeps later changes ordered; it cannot hold up a quit flush
-/// beyond its deadline.
+/// predecessor keeps its turn; later changes fail after ENTRY_GRACE rather
+/// than wait forever or run out of order. Quit flushes have their own deadline.
 struct Change<'q> {
     queue: &'q LibraryQueue,
     id: u64,
-    file: LibraryFile,
+    kind: LibraryChange,
     finished: bool,
 }
 
 impl Change<'_> {
-    fn wait(&self) {
+    fn wait(&self) -> Result<(), String> {
+        let deadline = Instant::now() + ENTRY_GRACE;
         let mut state = self.queue.lock();
         while state.pending.range(..self.id).next().is_some() {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err("Timed out after 30 seconds waiting for an earlier album or preset change; this change was not saved".into());
+            }
             state = self
                 .queue
                 .changed
-                .wait(state)
-                .unwrap_or_else(|e| e.into_inner());
+                .wait_timeout(state, left)
+                .map(|(state, _)| state)
+                .unwrap_or_else(|e| e.into_inner().0);
         }
+        Ok(())
     }
 
     fn finish(&mut self, error: Option<String>) {
@@ -89,12 +116,21 @@ impl Change<'_> {
             .pending
             .remove(&self.id)
             .expect("pending library change");
-        if let Some(error) = error {
-            state
-                .failures
-                .insert(self.file, (self.id, format!("{describe}: {error}")));
-        } else {
-            state.failures.remove(&self.file);
+        let file = self.kind.file();
+        // A waiter can time out before its predecessor finishes. An older
+        // outcome must not clear or replace that newer failure.
+        if state
+            .failures
+            .get(&file)
+            .is_none_or(|(id, _)| *id < self.id)
+        {
+            if let Some(error) = error {
+                state
+                    .failures
+                    .insert(file, (self.id, format!("{describe}: {error}")));
+            } else if self.kind == LibraryChange::PresetSave {
+                state.failures.remove(&file);
+            }
         }
         self.finished = true;
         drop(state);
@@ -110,17 +146,16 @@ impl Drop for Change<'_> {
     }
 }
 
-/// One ordered change and its outcome. A later success clears an older
-/// failure of the same file, without hiding the other file's failure.
+/// One ordered change and its outcome. Only a whole-list preset save clears
+/// its file's older failure; other failures remain until a flush reports them.
 pub(crate) fn run_change<T>(
     queue: &LibraryQueue,
-    file: LibraryFile,
+    kind: LibraryChange,
     describe: &str,
     work: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    let mut change = queue.record(file, describe);
-    change.wait();
-    let result = work();
+    let mut change = queue.record(kind, describe);
+    let result = change.wait().and_then(|()| work());
     change.finish(result.as_ref().err().cloned());
     result
 }
@@ -593,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn album_edits_wait_for_a_file_operations_member_update() {
+    fn the_store_writer_lock_serializes_album_updates() {
         use crate::file_management::{AlbumChange, apply_album_change};
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("albums.json");
@@ -671,6 +706,96 @@ mod queue_tests {
     const PRESETS: &str = "Preset list could not be saved";
 
     #[test]
+    fn a_waiting_change_times_out_without_running_its_work() {
+        let queue = LibraryQueue::default();
+        let mut predecessor = queue.record(LibraryChange::PresetImport, "Preset import");
+        let (done_tx, done_rx) = mpsc::channel();
+        let ran = std::sync::atomic::AtomicBool::new(false);
+        let timed_out = thread::scope(|s| {
+            s.spawn(|| {
+                done_tx
+                    .send(run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || {
+                        ran.store(true, std::sync::atomic::Ordering::Relaxed);
+                        Ok(())
+                    }))
+                    .unwrap();
+            });
+            // The production entry grace is 30 seconds. Always release the
+            // predecessor so this regression also terminates on the old code.
+            let result = done_rx.recv_timeout(Duration::from_secs(31));
+            let pending = queue.lock().pending.len();
+            predecessor.finish(None);
+            (result, pending)
+        });
+        let expected: serde_json::Value =
+            serde_json::from_str(include_str!("../../../src/contracts/libraryFiles.json")).unwrap();
+        assert_eq!(
+            serde_json::to_value(timed_out.0.unwrap().unwrap_err()).unwrap(),
+            expected["errors"]["wait_timeout"]
+        );
+        assert_eq!(timed_out.1, 1, "only the predecessor stays pending");
+        assert!(!ran.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(
+            flush_library(&queue, Duration::ZERO),
+            [format!(
+                "{ALBUMS}: Timed out after 30 seconds waiting for an earlier album or preset change; this change was not saved"
+            )]
+        );
+        run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || Ok(())).unwrap();
+        assert!(flush_library(&queue, Duration::ZERO).is_empty());
+    }
+
+    #[test]
+    fn a_successful_album_edit_keeps_an_earlier_failed_edit_until_flush() {
+        let queue = LibraryQueue::default();
+        let _ = run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || {
+            Err::<(), _>("disk full".into())
+        });
+        run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || Ok(())).unwrap();
+        assert_eq!(
+            flush_library(&queue, Duration::ZERO),
+            ["Album list could not be saved: disk full"]
+        );
+        assert!(flush_library(&queue, Duration::ZERO).is_empty());
+    }
+
+    #[test]
+    fn a_preset_import_keeps_a_failed_save_until_a_whole_list_save() {
+        let queue = LibraryQueue::default();
+        let _ = run_change(&queue, LibraryChange::PresetSave, PRESETS, || {
+            Err::<(), _>("disk full".into())
+        });
+        run_change(&queue, LibraryChange::PresetImport, "Preset import", || {
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            flush_library(&queue, Duration::ZERO),
+            ["Preset list could not be saved: disk full"]
+        );
+        let _ = run_change(&queue, LibraryChange::PresetSave, PRESETS, || {
+            Err::<(), _>("disk full again".into())
+        });
+        run_change(&queue, LibraryChange::PresetSave, PRESETS, || Ok(())).unwrap();
+        assert!(flush_library(&queue, Duration::ZERO).is_empty());
+    }
+
+    #[test]
+    fn an_older_preset_save_cannot_clear_or_replace_a_newer_wait_failure() {
+        for earlier_error in [None, Some("earlier disk error".to_string())] {
+            let queue = LibraryQueue::default();
+            let mut earlier = queue.record(LibraryChange::PresetSave, PRESETS);
+            let mut later = queue.record(LibraryChange::PresetSave, PRESETS);
+            later.finish(Some("waiting timed out".into()));
+            earlier.finish(earlier_error);
+            assert_eq!(
+                flush_library(&queue, Duration::ZERO),
+                ["Preset list could not be saved: waiting timed out"]
+            );
+        }
+    }
+
+    #[test]
     fn changes_run_in_received_order() {
         let queue = LibraryQueue::default();
         let order = Mutex::new(Vec::new());
@@ -679,7 +804,7 @@ mod queue_tests {
         let finish_rx = Mutex::new(finish_rx);
         thread::scope(|s| {
             s.spawn(|| {
-                run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+                run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || {
                     started_tx.send(()).unwrap();
                     lock_recover(&finish_rx).recv().unwrap();
                     lock_recover(&order).push(1);
@@ -689,7 +814,7 @@ mod queue_tests {
             });
             started_rx.recv().unwrap();
             s.spawn(|| {
-                run_change(&queue, LibraryFile::Presets, PRESETS, || {
+                run_change(&queue, LibraryChange::PresetSave, PRESETS, || {
                     lock_recover(&order).push(2);
                     Ok(())
                 })
@@ -707,13 +832,13 @@ mod queue_tests {
     #[test]
     fn a_later_success_clears_only_the_older_failure_of_the_same_file() {
         let queue = LibraryQueue::default();
-        let _ = run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+        let _ = run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || {
             Err::<(), _>("album failure".into())
         });
-        let _ = run_change(&queue, LibraryFile::Presets, PRESETS, || {
+        let _ = run_change(&queue, LibraryChange::PresetSave, PRESETS, || {
             Err::<(), _>("preset failure".into())
         });
-        run_change(&queue, LibraryFile::Presets, PRESETS, || Ok(())).unwrap();
+        run_change(&queue, LibraryChange::PresetSave, PRESETS, || Ok(())).unwrap();
         assert_eq!(
             flush_library(&queue, Duration::from_millis(30)),
             ["Album list could not be saved: album failure"]
@@ -724,13 +849,13 @@ mod queue_tests {
     #[test]
     fn only_the_latest_failure_per_file_is_reported_in_change_order() {
         let queue = LibraryQueue::default();
-        let _ = run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+        let _ = run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || {
             Err::<(), _>("old".into())
         });
-        let _ = run_change(&queue, LibraryFile::Presets, PRESETS, || {
+        let _ = run_change(&queue, LibraryChange::PresetSave, PRESETS, || {
             Err::<(), _>("presets".into())
         });
-        let _ = run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+        let _ = run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || {
             Err::<(), _>("new".into())
         });
         assert_eq!(
@@ -758,7 +883,7 @@ mod queue_tests {
                 assert!(failures.is_empty(), "{failures:?}");
                 assert!(*lock_recover(&merged));
             });
-            run_change(&queue, LibraryFile::Presets, "Preset import", || {
+            run_change(&queue, LibraryChange::PresetImport, "Preset import", || {
                 started_tx.send(()).unwrap();
                 assert!(
                     lock_recover(&finish_rx)
@@ -782,7 +907,7 @@ mod queue_tests {
         let finish_rx = Mutex::new(finish_rx);
         thread::scope(|s| {
             s.spawn(|| {
-                run_change(&queue, LibraryFile::Presets, "Preset import", || {
+                run_change(&queue, LibraryChange::PresetImport, "Preset import", || {
                     started_tx.send(()).unwrap();
                     lock_recover(&finish_rx).recv().unwrap();
                     lock_recover(&order).push("import");
@@ -792,7 +917,7 @@ mod queue_tests {
             });
             started_rx.recv().unwrap();
             s.spawn(|| {
-                run_change(&queue, LibraryFile::Albums, ALBUMS, || {
+                run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || {
                     lock_recover(&order).push("album");
                     Ok(())
                 })
@@ -828,7 +953,7 @@ mod queue_tests {
     #[test]
     fn a_flush_wakes_when_the_last_write_finishes() {
         let queue = LibraryQueue::default();
-        let mut change = queue.record(LibraryFile::Albums, ALBUMS);
+        let mut change = queue.record(LibraryChange::AlbumEdit, ALBUMS);
         let (done_tx, done_rx) = mpsc::channel();
         thread::scope(|s| {
             s.spawn(|| {
@@ -853,7 +978,7 @@ mod queue_tests {
         assert!(
             std::panic::catch_unwind(|| run_change(
                 &queue,
-                LibraryFile::Albums,
+                LibraryChange::AlbumEdit,
                 ALBUMS,
                 || -> Result<(), String> { panic!("worker panic") }
             ))
@@ -863,7 +988,7 @@ mod queue_tests {
             flush_library(&queue, Duration::ZERO),
             ["Album list could not be saved: change did not finish"]
         );
-        run_change(&queue, LibraryFile::Albums, ALBUMS, || Ok(())).unwrap();
+        run_change(&queue, LibraryChange::AlbumEdit, ALBUMS, || Ok(())).unwrap();
         assert!(flush_library(&queue, Duration::ZERO).is_empty());
     }
 }

@@ -354,7 +354,6 @@ export enum Invokes {
   UpdateExifFields = 'update_exif_fields',
   FileSize = 'file_size',
   GetAlbums = 'get_albums',
-  SaveAlbums = 'save_albums',
   AddToAlbum = 'add_to_album',
   GetAlbumImages = 'get_album_images',
   TetherAutofocus = 'tether_autofocus',
