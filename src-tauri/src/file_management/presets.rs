@@ -12,7 +12,7 @@ use tauri::Manager;
 use tauri::path::BaseDirectory;
 
 use crate::state::library_files::{
-    FLUSH_TIMEOUT, LibraryFile, LibraryQueue, PresetsStore, flush_library, run_change,
+    FLUSH_TIMEOUT, LibraryChange, LibraryQueue, PresetsStore, flush_library, run_change,
 };
 use uuid::Uuid;
 
@@ -208,7 +208,7 @@ pub async fn save_presets(presets: Vec<PresetItem>, app_handle: AppHandle) -> Re
         let queue = app_handle.state::<LibraryQueue>();
         run_change(
             &queue,
-            LibraryFile::Presets,
+            LibraryChange::PresetSave,
             "Preset list could not be saved",
             || save_presets_blocking(presets, &app_handle),
         )
@@ -372,7 +372,7 @@ fn import_files(
     let queue = app_handle.state::<LibraryQueue>();
     run_change(
         &queue,
-        LibraryFile::Presets,
+        LibraryChange::PresetImport,
         "Preset import could not be saved",
         || {
             let mut failures = Vec::new();

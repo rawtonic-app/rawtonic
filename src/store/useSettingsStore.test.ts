@@ -1,13 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { flushSettingsSaves, relaunchAfterSettingsSaves, saveSettings, SETTINGS_WRITE_NAME } from './useSettingsStore';
-import {
-  libraryChanges,
-  PRESETS_UNREAD_NAME,
-  saveAlbums,
-  setPresetsUnread,
-  UNREPORTED_WRITE_NAME
-} from './libraryFiles';
+import { libraryChanges, PRESETS_UNREAD_NAME, setPresetsUnread, UNREPORTED_WRITE_NAME } from './libraryFiles';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -117,12 +111,14 @@ it('Save and Relaunch waits for an album save and keeps the app open when it can
   let flushAnswer: string[] = [];
   vi.mocked(invoke).mockImplementation(((command: Invokes) => {
     if (command === Invokes.SaveSettings) return Promise.resolve(undefined);
-    if (command === Invokes.SaveAlbums) return new Promise<undefined>((resolve) => (finishAlbum = resolve));
+    if (command === Invokes.LibraryChange) return new Promise<undefined>((resolve) => (finishAlbum = resolve));
     if (command === Invokes.LibraryFlush) return Promise.resolve(flushAnswer);
     return Promise.resolve(undefined);
   }) as typeof invoke);
   // The album change is being written when Save & Relaunch is clicked.
-  void saveAlbums([{ type: 'album', id: 'a', name: 'A', images: [] }]).catch(() => undefined);
+  void libraryChanges
+    .enqueue(() => invoke(Invokes.LibraryChange, { change: { kind: 'rename', id: 'a', name: 'A' } }))
+    .catch(() => undefined);
   const relaunch = vi.fn(() => Promise.resolve());
   let flushed: string[] | null = null;
   const relaunching = relaunchAfterSettingsSaves(relaunch).then((failures) => (flushed = failures));
@@ -148,6 +144,24 @@ it('Save and Relaunch keeps the app open while preset changes cannot be written 
   setPresetsUnread(true);
   expect(await relaunchAfterSettingsSaves(relaunch)).toEqual([PRESETS_UNREAD_NAME]);
   expect(relaunch).not.toHaveBeenCalled();
+});
+
+it('Save and Relaunch proceeds after an edit rejected because its target album was deleted', async () => {
+  const error = 'Album gone is not there any more';
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === Invokes.LibraryChange) throw error;
+    return [];
+  });
+  await expect(
+    libraryChanges.enqueue(() =>
+      invoke(Invokes.LibraryChange, {
+        change: { kind: 'addToAlbum', albumId: 'gone', paths: ['photo.dng'] }
+      })
+    )
+  ).rejects.toBe(error);
+  const relaunch = vi.fn(() => Promise.resolve());
+  expect(await relaunchAfterSettingsSaves(relaunch)).toEqual([]);
+  expect(relaunch).toHaveBeenCalledExactlyOnceWith();
 });
 
 it('quitting waits for a hung settings save only so long, then reports it', async () => {

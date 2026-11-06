@@ -247,7 +247,7 @@ describe('album groups', () => {
 });
 
 describe('app-wide albums outside sessions', () => {
-  // albums.json as the backend keeps it (get_albums / save_albums).
+  // albums.json as the backend keeps it (get_albums / library_change).
   let stored: AlbumItem[];
   let writes: AlbumItem[][];
   const saved = () => writes;
@@ -268,10 +268,6 @@ describe('app-wide albums outside sessions', () => {
     const base = mockInvoke.getMockImplementation()!;
     mockInvoke.mockImplementation(async (command, args) => {
       if (command === 'get_albums') return structuredClone(stored);
-      if (command === 'save_albums') {
-        stored = structuredClone((args as { tree: AlbumItem[] }).tree);
-        return structuredClone(stored);
-      }
       if (command === 'library_change') {
         stored = applyMockAlbumChange(stored, (args as { change: AlbumChange }).change);
         writes.push(structuredClone(stored));

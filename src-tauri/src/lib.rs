@@ -957,7 +957,6 @@ pub fn run() {
             file_management::restore_culling,
             file_management::create_virtual_copy,
             file_management::get_albums,
-            file_management::save_albums,
             file_management::add_to_album,
             file_management::library_change,
             file_management::library_flush,

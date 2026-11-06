@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import payloads from './libraryFiles.json';
-import { libraryChanges, saveAlbums, savePresets } from '../store/libraryFiles';
+import { libraryChanges, savePresets } from '../store/libraryFiles';
 import { changeLibraryAlbums, type AlbumChange } from '../components/studio/libraryAlbums';
 import type { AlbumItem } from '../components/ui/AppProperties';
 
@@ -16,7 +16,6 @@ vi.mock('../store/useLibraryStore', () => ({ useLibraryStore: { getState: () => 
 const read = (path: string): string => readFileSync(path, 'utf8') as string;
 const squash = (s: string) => s.replace(/\s+/g, ' ').replace(/,\s*$/, '').trim();
 const signatures = {
-  save_albums: ['tree: Vec<AlbumItem>, app_handle: AppHandle', 'Vec<AlbumItem>'],
   library_change: ['change: AlbumChange, app_handle: AppHandle', 'Vec<AlbumItem>'],
   add_to_album: ['album_id: String, paths: Vec<String>, app_handle: AppHandle', '()'],
   save_presets: ['presets: Vec<PresetItem>, app_handle: AppHandle', '()'],
@@ -51,24 +50,20 @@ it('read commands keep their no-argument contracts', () => {
 beforeEach(() => {
   libraryChanges.reset();
   vi.mocked(invoke).mockReset();
-  vi.mocked(invoke).mockImplementation(async (command, args) =>
-    command === 'save_albums' ? (args as { tree: AlbumItem[] }).tree : []
-  );
+  vi.mocked(invoke).mockResolvedValue([]);
 });
 
 it('the frontend sends the shared save and empty flush payloads', async () => {
-  await saveAlbums(payloads.save_albums.tree);
   await savePresets(payloads.save_presets.presets);
   await libraryChanges.flush();
   expect(vi.mocked(invoke).mock.calls).toEqual([
-    ['save_albums', payloads.save_albums],
     ['save_presets', payloads.save_presets],
     ['library_flush', payloads.library_flush]
   ]);
 });
 
 it('the Albums tool sends the shared nested albumId payload', async () => {
-  const tree = [{ ...payloads.save_albums.tree[0], images: [] }] as AlbumItem[];
+  const tree = [{ ...payloads.album_tree[0], images: [] }] as AlbumItem[];
   vi.mocked(invoke).mockImplementation(async () => tree);
   await changeLibraryAlbums(payloads.library_change.change as AlbumChange);
   expect(invoke).toHaveBeenCalledWith('library_change', payloads.library_change);
@@ -90,4 +85,24 @@ it('preset import calls keep their camelCase payload and read the pinned result 
 it.each(payloads.album_changes)('the Albums tool sends the shared $change.kind payload', async (payload) => {
   await changeLibraryAlbums(payload.change as AlbumChange);
   expect(invoke).toHaveBeenCalledExactlyOnceWith('library_change', payload);
+});
+
+it('whole-tree album replacement is no longer exposed', () => {
+  expect(sources).not.toMatch(/pub async fn save_albums\(/);
+  expect(sources).not.toContain('fn save_albums_blocking(');
+  expect(read('src-tauri/src/lib.rs')).not.toContain('file_management::save_albums');
+  expect(read('src/components/ui/AppProperties.tsx')).not.toContain("SaveAlbums = 'save_albums'");
+  expect(read('src/store/libraryFiles.ts')).not.toContain('export const saveAlbums');
+});
+
+it('deleted-album and wait-timeout errors remain strings and the frontend can flush after rejection', async () => {
+  for (const error of Object.values(payloads.errors)) {
+    libraryChanges.reset();
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'library_change') throw error;
+      return [];
+    });
+    await expect(changeLibraryAlbums(payloads.library_change.change as AlbumChange)).rejects.toBe(error);
+    expect(await libraryChanges.flush()).toEqual([]);
+  }
 });
