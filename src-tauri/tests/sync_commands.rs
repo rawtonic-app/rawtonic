@@ -156,10 +156,6 @@ const SYNC_COMMANDS: &[(&str, &str)] = &[
         "in-memory state behind a short lock; no I/O",
     ),
     (
-        "queue_ticket",
-        "in-memory state behind a short lock; no I/O",
-    ),
-    (
         "quit_saving",
         "main-thread-only API: menu, window, quit or webview",
     ),

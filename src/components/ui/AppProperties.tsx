@@ -314,7 +314,6 @@ export enum Invokes {
   SessionSetSmartAlbumRules = 'session_set_smart_album_rules',
   SessionSetTextMetadata = 'session_set_text_metadata',
   SavePresets = 'save_presets',
-  QueueTicket = 'queue_ticket',
   LibraryFlush = 'library_flush',
   LibraryChange = 'library_change',
   SaveSettings = 'save_settings',

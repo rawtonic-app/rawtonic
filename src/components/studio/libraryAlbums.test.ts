@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { changeLibraryAlbums } from './libraryAlbums';
+import { changeLibraryAlbums, type AlbumChange } from './libraryAlbums';
+import { applyMockAlbumChange } from './libraryAlbums.testSupport';
 import { Invokes } from '../ui/AppProperties';
 import { libraryChanges } from '../../store/libraryFiles';
 import type { AlbumItem } from '../ui/AppProperties';
@@ -25,12 +26,7 @@ function backend(start: AlbumItem[]) {
     await new Promise((resolve) => setTimeout(resolve, 5));
     if (command === Invokes.SaveAlbums) stored = structuredClone(args.tree as AlbumItem[]);
     if (command === Invokes.LibraryChange) {
-      const change = args.change as { kind: string; albumId: string; paths: string[] };
-      stored = stored.map((item) =>
-        item.type === 'album' && item.id === change.albumId
-          ? { ...item, images: [...item.images, ...change.paths.filter((path) => !item.images.includes(path))] }
-          : item
-      );
+      stored = applyMockAlbumChange(stored, args.change as AlbumChange);
     }
     return structuredClone(stored);
   }) as typeof invoke);
@@ -50,7 +46,7 @@ it('two rapid additions both survive: the second starts from the list the first 
   // Round 1 (2d84b4f5): both read the stored list before the first save entered
   // its queue, and the second snapshot wrote the first addition away.
   const { stored } = backend([album('Existing')]);
-  const add = (id: string) => changeLibraryAlbums((tree) => [...tree, album(id)]);
+  const add = (id: string) => changeLibraryAlbums({ kind: 'create', item: album(id), parent: null });
   const [first, second] = await Promise.all([add('First'), add('Second')]);
   const ids = () => stored().map((item) => item.id);
   expect(ids()).toEqual(['Existing', 'First', 'Second']);
@@ -60,10 +56,7 @@ it('two rapid additions both survive: the second starts from the list the first 
 
 it('two rapid additions to an album from a menu both survive', async () => {
   const { stored } = backend([album('Trip', ['a.dng'])]);
-  const add = (path: string) =>
-    changeLibraryAlbums((tree) =>
-      tree.map((item) => (item.type === 'album' ? { ...item, images: [...item.images, path] } : item))
-    );
+  const add = (path: string) => changeLibraryAlbums({ kind: 'addToAlbum', albumId: 'Trip', paths: [path] });
   await Promise.all([add('b.dng'), add('c.dng')]);
   expect((stored()[0] as { images: string[] }).images).toEqual(['a.dng', 'b.dng', 'c.dng']);
 });
@@ -72,14 +65,51 @@ it('a photograph added to an album lands in it as the backend has it, keeping an
   // A file operation adds `New` to the backend's list while this page's
   // addition to `Trip` is on its way.
   const { stored, addAlbum } = backend([album('Trip', ['a.dng'])]);
-  const added = changeLibraryAlbums((tree) =>
-    tree.map((item) =>
-      item.type === 'album' && item.id === 'Trip' ? { ...item, images: [...item.images, 'b.dng'] } : item
-    )
-  );
+  const added = changeLibraryAlbums({ kind: 'addToAlbum', albumId: 'Trip', paths: ['b.dng'] });
   addAlbum(album('New'));
   await added;
   expect(stored().map((item) => item.id)).toEqual(['Trip', 'New']);
   expect((stored()[0] as { images: string[] }).images).toEqual(['a.dng', 'b.dng']);
   expect(vi.mocked(invoke).mock.calls.some(([command]) => command === Invokes.LibraryChange)).toBe(true);
+});
+
+it('adding one photo never sends a photo trashed after the old list was read', async () => {
+  let stored: AlbumItem[] = [album('Trip', ['trashed.dng'])];
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === Invokes.GetAlbums) {
+      const old = structuredClone(stored);
+      stored = [album('Trip')]; // The file operation finishes after this read.
+      return old;
+    }
+    if (command === Invokes.LibraryChange) {
+      const { paths } = (args as { change: { paths: string[] } }).change;
+      expect(paths).toEqual(['new.dng']);
+      stored = [album('Trip', paths)];
+    }
+    return stored;
+  });
+  await changeLibraryAlbums({ kind: 'addToAlbum', albumId: 'Trip', paths: ['trashed.dng', 'new.dng'] });
+  expect(stored).toEqual([album('Trip', ['new.dng'])]);
+});
+
+it.each<AlbumChange>([
+  { kind: 'rename', id: 'Trip', name: 'Renamed' },
+  { kind: 'delete', id: 'Other' },
+  { kind: 'move', id: 'Trip', parent: 'group', index: 0 },
+  { kind: 'removePhotos', albumId: 'Trip', paths: ['remove.dng'] }
+])('$kind sends a backend change instead of overwriting a file operation', async (change) => {
+  const current: AlbumItem[] = [
+    album('Trip', ['renamed.dng', 'remove.dng']),
+    album('Other'),
+    { type: 'group', id: 'group', name: 'Group', children: [] }
+  ];
+  let result: AlbumItem[] = [];
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === Invokes.LibraryChange)
+      result = applyMockAlbumChange(current, (args as { change: AlbumChange }).change);
+    return result;
+  });
+  await changeLibraryAlbums(change);
+  expect(invoke).toHaveBeenCalledExactlyOnceWith(Invokes.LibraryChange, { change });
+  expect(JSON.stringify(result)).toContain('renamed.dng');
 });

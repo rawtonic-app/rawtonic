@@ -131,6 +131,7 @@ export const usePresetStore = create<{
   isLoading: true,
   setPresets: (update) => {
     changedSinceRead = true;
+    setPresetsUnread(!fileRead);
     set((state) => ({ presets: typeof update === 'function' ? update(state.presets) : update }));
   },
   setIsLoading: (isLoading) => set({ isLoading })
@@ -185,7 +186,7 @@ export function loadPresetLibrary(): Promise<void> {
         // switch instead (`unwrittenPresets`), as a failed save is.
         console.error('Failed to load presets:', error);
         readRequest = null;
-        setPresetsUnread(true);
+        setPresetsUnread(changedSinceRead);
         usePresetStore.setState({ isLoading: false });
       }
     );
@@ -689,7 +690,7 @@ export function usePresets(
   const importPresets = useCallback(async <T>(command: Invokes, args: Record<string, unknown>): Promise<T> => {
     setIsLoading(true);
     try {
-      return await libraryChanges.enqueue(() => invoke<T>(command, args));
+      return await libraryChanges.enqueue(() => invoke<T>(command, args), 'Preset import');
     } finally {
       setIsLoading(false);
     }

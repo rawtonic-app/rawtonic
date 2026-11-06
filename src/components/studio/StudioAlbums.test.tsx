@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import StudioAlbums, { dropPlacement, type SessionAlbum } from './StudioAlbums';
-import { flattenAlbumTree, withDeleted, withMoved, withNewItem } from './libraryAlbums';
+import { flattenAlbumTree, type AlbumChange } from './libraryAlbums';
+import { applyMockAlbumChange, withDeleted, withMoved, withNewItem } from './libraryAlbums.testSupport';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import type { AlbumItem } from '../ui/AppProperties';
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
@@ -248,16 +249,12 @@ describe('album groups', () => {
 describe('app-wide albums outside sessions', () => {
   // albums.json as the backend keeps it (get_albums / save_albums).
   let stored: AlbumItem[];
-  // The album list as the backend keeps it: the changes a page makes are
-  // saved as a list (`save_albums`), photographs added to an album as the
-  // backend's own change (the list the previous change left, `stored`).
-  const saved = () =>
-    mockInvoke.mock.calls
-      .filter(([command]) => command === 'save_albums')
-      .map(([, args]) => (args as { tree: AlbumItem[] }).tree);
+  let writes: AlbumItem[][];
+  const saved = () => writes;
   /** The list the backend holds now (what a `library_change` left). */
   const backendList = () => structuredClone(stored);
   beforeEach(() => {
+    writes = [];
     stored = [
       {
         type: 'group',
@@ -275,19 +272,9 @@ describe('app-wide albums outside sessions', () => {
         stored = structuredClone((args as { tree: AlbumItem[] }).tree);
         return structuredClone(stored);
       }
-      // Photographs added to an album are the backend's own change of the
-      // stored album (`library_change`), and the page shows the list it wrote.
       if (command === 'library_change') {
-        const { albumId, paths } = (args as { change: { albumId: string; paths: string[] } }).change;
-        const add = (items: AlbumItem[]): AlbumItem[] =>
-          items.map((item) =>
-            item.type === 'album' && item.id === albumId
-              ? { ...item, images: [...item.images, ...paths.filter((path) => !item.images.includes(path))] }
-              : item.type === 'group'
-                ? { ...item, children: add(item.children) }
-                : item
-          );
-        stored = add(structuredClone(stored));
+        stored = applyMockAlbumChange(stored, (args as { change: AlbumChange }).change);
+        writes.push(structuredClone(stored));
         return structuredClone(stored);
       }
       if (command === 'library_flush') return [];
@@ -354,7 +341,7 @@ describe('app-wide albums outside sessions', () => {
     await renderTool();
     const base = mockInvoke.getMockImplementation()!;
     mockInvoke.mockImplementation(async (command, args) => {
-      if (command === 'get_albums') throw new Error('albums.json: unexpected end');
+      if (command === 'library_change') throw 'albums.json: unexpected end';
       return base(command, args);
     });
     fireEvent.contextMenu(screen.getByText('Family'));
@@ -362,6 +349,17 @@ describe('app-wide albums outside sessions', () => {
       fireEvent.click(await screen.findByText('Add 1 selected photo'));
     });
     expect(saved()).toEqual([]);
+  });
+
+  it('shows the backend error when adding to an album deleted after its menu opened', async () => {
+    await renderTool();
+    fireEvent.contextMenu(screen.getByText('Family'));
+    stored = stored.filter((item) => item.id !== 'b');
+    await act(async () => {
+      fireEvent.click(await screen.findByText('Add 1 selected photo'));
+    });
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Album b is not there any more'));
+    expect(stored.some((item) => item.id === 'b')).toBe(false);
   });
 
   it('removes the selection from the album shown and refreshes the grid', async () => {

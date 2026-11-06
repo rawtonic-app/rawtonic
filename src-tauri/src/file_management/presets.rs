@@ -12,8 +12,7 @@ use tauri::Manager;
 use tauri::path::BaseDirectory;
 
 use crate::state::library_files::{
-    FLUSH_TIMEOUT, LibraryQueue, PresetsStore, flush_library, next_after_sent, run_change,
-    run_import,
+    FLUSH_TIMEOUT, LibraryFile, LibraryQueue, PresetsStore, flush_library, run_change,
 };
 use uuid::Uuid;
 
@@ -202,20 +201,17 @@ pub async fn load_builtin_presets(app_handle: AppHandle) -> Result<Vec<BuiltinPr
         .map_err(|e| e.to_string())?
 }
 
-/// `save_presets`, in the library's change order (`ticket`; without one, in
-/// the order the command arrived).
+/// Saves presets in the library's change order.
 #[tauri::command]
-pub async fn save_presets(
-    presets: Vec<PresetItem>,
-    ticket: Option<u64>,
-    app_handle: AppHandle,
-) -> Result<(), String> {
+pub async fn save_presets(presets: Vec<PresetItem>, app_handle: AppHandle) -> Result<(), String> {
     super::blocking(move || {
         let queue = app_handle.state::<LibraryQueue>();
-        let ticket = ticket_of(&app_handle, ticket);
-        run_change(&queue, ticket, "Preset list could not be saved", || {
-            save_presets_blocking(presets, &app_handle)
-        })
+        run_change(
+            &queue,
+            LibraryFile::Presets,
+            "Preset list could not be saved",
+            || save_presets_blocking(presets, &app_handle),
+        )
     })
     .await?
 }
@@ -350,8 +346,7 @@ pub(crate) fn merge_imported_items(
 
 /// Adds what an import parsed to the presets in one read-modify-write and
 /// returns the stored list: the change of an import in the library's order
-/// (`LibraryQueue`), and what `library_flush` writes when the import's own
-/// change did not get its turn before quitting.
+/// (`LibraryQueue`); quitting waits for the whole import.
 pub(crate) fn merge_into_library(
     app_handle: &AppHandle,
     imported: Vec<PresetItem>,
@@ -369,59 +364,49 @@ pub(crate) fn merge_into_library(
     load_presets_blocking(app_handle.clone())
 }
 
-/// The imports' part in the library's order (`run_import`): the files must be
-/// read with `ticket` asked for first.
+/// Parse and merge in one ordered change; a quit flush waits for both.
 fn import_files(
     app_handle: &AppHandle,
-    ticket: u64,
     file_paths: Vec<String>,
 ) -> Result<PresetImportResult, String> {
     let queue = app_handle.state::<LibraryQueue>();
-    let read = || {
-        let mut failures: Vec<PresetImportFailure> = Vec::new();
-        let mut untranslated: Vec<PresetImportUntranslated> = Vec::new();
-        let mut imported = Vec::new();
-        for file_path in &file_paths {
-            match parse_preset_file_reporting(file_path) {
-                Ok((items, report)) => {
-                    untranslated.extend(report);
-                    imported.extend(items);
+    run_change(
+        &queue,
+        LibraryFile::Presets,
+        "Preset import could not be saved",
+        || {
+            let mut failures = Vec::new();
+            let mut untranslated = Vec::new();
+            let mut imported = Vec::new();
+            for file_path in &file_paths {
+                match parse_preset_file_reporting(file_path) {
+                    Ok((items, report)) => {
+                        untranslated.extend(report);
+                        imported.extend(items);
+                    }
+                    Err(error) => failures.push(PresetImportFailure {
+                        file_name: preset_file_display_name(file_path),
+                        error,
+                    }),
                 }
-                Err(error) => failures.push(PresetImportFailure {
-                    file_name: preset_file_display_name(file_path),
-                    error,
-                }),
             }
-        }
-        Ok((imported, (failures, untranslated)))
-    };
-    run_import(&queue, ticket, read, |imported| {
-        merge_into_library(app_handle, imported)
-    })
-    .map(|(presets, (failures, untranslated))| PresetImportResult {
-        presets,
-        failures,
-        untranslated,
-    })
-}
-
-/// The ticket of a command the frontend did not send one with (an older
-/// page): it comes last, after every change sent.
-fn ticket_of(app_handle: &AppHandle, ticket: Option<u64>) -> u64 {
-    ticket.unwrap_or_else(|| next_after_sent(&app_handle.state::<LibraryQueue>()))
+            let presets = merge_into_library(app_handle, imported)?;
+            Ok(PresetImportResult {
+                presets,
+                failures,
+                untranslated,
+            })
+        },
+    )
 }
 
 #[tauri::command]
 pub async fn handle_import_presets_from_file(
     file_path: String,
-    ticket: Option<u64>,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
-    super::blocking(move || {
-        import_files(&app_handle, ticket_of(&app_handle, ticket), vec![file_path])
-            .map(|result| result.presets)
-    })
-    .await?
+    super::blocking(move || import_files(&app_handle, vec![file_path]).map(|result| result.presets))
+        .await?
 }
 
 /// The legacy formats are parsed by the same `parse_preset_file_reporting`
@@ -429,49 +414,30 @@ pub async fn handle_import_presets_from_file(
 #[tauri::command]
 pub async fn handle_import_legacy_presets_from_file(
     file_path: String,
-    ticket: Option<u64>,
     app_handle: AppHandle,
 ) -> Result<Vec<PresetItem>, String> {
-    super::blocking(move || {
-        import_files(&app_handle, ticket_of(&app_handle, ticket), vec![file_path])
-            .map(|result| result.presets)
-    })
-    .await?
+    super::blocking(move || import_files(&app_handle, vec![file_path]).map(|result| result.presets))
+        .await?
 }
 
 /// Parses every file, then merges ALL the presets that parsed in one change.
 #[tauri::command]
 pub async fn handle_import_presets_from_files(
     file_paths: Vec<String>,
-    ticket: Option<u64>,
     app_handle: AppHandle,
 ) -> Result<PresetImportResult, String> {
-    super::blocking(move || import_files(&app_handle, ticket_of(&app_handle, ticket), file_paths))
-        .await?
+    super::blocking(move || import_files(&app_handle, file_paths)).await?
 }
 
-/// Asked before a change when the page numbers its changes itself: the next
-/// ticket of the order (a change without one gets it on arrival anyway).
+/// Waits up to ten seconds for real pending changes, then lists failed or
+/// unfinished changes. Imports still parsing their files are pending too.
 #[tauri::command]
-pub fn queue_ticket(app_handle: AppHandle) -> u64 {
-    next_after_sent(&app_handle.state::<LibraryQueue>())
-}
-
-/// The commands the frontend sends when quitting or Save & Relaunch: waits
-/// for the changes sent before `ticket`, writes what an import read without
-/// getting its turn, and answers what is not written (`flush_state`). It sits
-/// here because this is where the presets' merge into the library lives; the
-/// queue's order itself is `state::library_files`.
-#[tauri::command]
-pub async fn library_flush(
-    ticket: Option<u64>,
-    app_handle: AppHandle,
-) -> Result<Vec<String>, String> {
+pub async fn library_flush(app_handle: AppHandle) -> Result<Vec<String>, String> {
     super::blocking(move || {
-        let queue = app_handle.state::<LibraryQueue>();
-        Ok(flush_library(&queue, ticket, FLUSH_TIMEOUT, |items| {
-            merge_into_library(&app_handle, items)
-        }))
+        Ok(flush_library(
+            &app_handle.state::<LibraryQueue>(),
+            FLUSH_TIMEOUT,
+        ))
     })
     .await?
 }

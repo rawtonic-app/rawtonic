@@ -6,5 +6,13 @@
   "library_flush": {},
   "handle_import_presets_from_file": {"filePath": "style.json"},
   "handle_import_legacy_presets_from_file": {"filePath": "style.xmp"},
-  "handle_import_presets_from_files": {"filePaths": ["style.json", "style.xmp"]}
+  "handle_import_presets_from_files": {"filePaths": ["style.json", "style.xmp"]},
+  "album_changes": [
+    {"change": {"kind": "rename", "id": "trip", "name": "Renamed"}},
+    {"change": {"kind": "delete", "id": "other"}},
+    {"change": {"kind": "move", "id": "trip", "parent": "group", "index": 0}},
+    {"change": {"kind": "removePhotos", "albumId": "trip", "paths": ["remove.dng"]}},
+    {"change": {"kind": "create", "parent": "group", "item": {"type": "album", "id": "new", "name": "New", "images": ["photo.dng"]}}},
+    {"change": {"kind": "create", "parent": null, "item": {"type": "group", "id": "nested", "name": "Nested", "children": []}}}
+  ]
 }

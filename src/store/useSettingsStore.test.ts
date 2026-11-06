@@ -1,7 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { flushSettingsSaves, relaunchAfterSettingsSaves, saveSettings, SETTINGS_WRITE_NAME } from './useSettingsStore';
-import { libraryChanges, PRESETS_UNREAD_NAME, saveAlbums, setPresetsUnread } from './libraryFiles';
+import {
+  libraryChanges,
+  PRESETS_UNREAD_NAME,
+  saveAlbums,
+  setPresetsUnread,
+  UNREPORTED_WRITE_NAME
+} from './libraryFiles';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -98,11 +104,10 @@ it('Save and Relaunch keeps the app open when the settings cannot be written', a
   // The album and preset queue is asked too; it could not be asked here, so
   // it is reported as well and the app stays open.
   const failed = await relaunchAfterSettingsSaves(relaunch);
-  expect(failed[0]).toBe(SETTINGS_WRITE_NAME);
+  expect(failed).toEqual([SETTINGS_WRITE_NAME, UNREPORTED_WRITE_NAME]);
   expect(relaunch).not.toHaveBeenCalled();
   // Once the disk takes it again, the retry writes it and the app relaunches.
-  vi.mocked(invoke).mockImplementation(((command: Invokes) =>
-    Promise.resolve(command === Invokes.QueueTicket ? 1 : [])) as typeof invoke);
+  vi.mocked(invoke).mockResolvedValue([]);
   expect(await relaunchAfterSettingsSaves(relaunch)).toEqual([]);
   expect(relaunch).toHaveBeenCalledTimes(1);
 });
@@ -110,9 +115,8 @@ it('Save and Relaunch keeps the app open when the settings cannot be written', a
 it('Save and Relaunch waits for an album save and keeps the app open when it cannot be written', async () => {
   let finishAlbum!: (value: undefined) => void;
   let flushAnswer: string[] = [];
-  vi.mocked(invoke).mockImplementation(((command: Invokes, args: Record<string, unknown> = {}) => {
+  vi.mocked(invoke).mockImplementation(((command: Invokes) => {
     if (command === Invokes.SaveSettings) return Promise.resolve(undefined);
-    if (command === Invokes.QueueTicket) return Promise.resolve(Number(args.ticket ?? 0) + 1);
     if (command === Invokes.SaveAlbums) return new Promise<undefined>((resolve) => (finishAlbum = resolve));
     if (command === Invokes.LibraryFlush) return Promise.resolve(flushAnswer);
     return Promise.resolve(undefined);
@@ -139,8 +143,7 @@ it('Save and Relaunch waits for an album save and keeps the app open when it can
 });
 
 it('Save and Relaunch keeps the app open while preset changes cannot be written (unread presets.json)', async () => {
-  vi.mocked(invoke).mockImplementation(((command: Invokes) =>
-    Promise.resolve(command === Invokes.QueueTicket ? 1 : [])) as typeof invoke);
+  vi.mocked(invoke).mockResolvedValue([]);
   const relaunch = vi.fn(() => Promise.resolve());
   setPresetsUnread(true);
   expect(await relaunchAfterSettingsSaves(relaunch)).toEqual([PRESETS_UNREAD_NAME]);

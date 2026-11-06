@@ -40,9 +40,12 @@ export function makeLibraryQueue({
 }: { beforeFlush?: () => void; flushBackend?: boolean } = {}) {
   /** The change sent last; the next one is sent when it settled. */
   let inFlight: Promise<unknown> | null = null;
+  const pending = new Map<symbol, string>();
 
   /** Sends a change once the earlier one settled (failed or not). */
-  const enqueue = <T>(send: () => Promise<T>): Promise<T> => {
+  const enqueue = <T>(send: () => Promise<T>, name = UNREPORTED_WRITE_NAME): Promise<T> => {
+    const entry = Symbol();
+    pending.set(entry, name);
     const sent = inFlight ? inFlight.then(send, send) : send();
     const settled = sent.then(
       () => undefined,
@@ -50,6 +53,7 @@ export function makeLibraryQueue({
     );
     inFlight = settled;
     void settled.then(() => {
+      pending.delete(entry);
       if (inFlight === settled) inFlight = null;
     });
     return sent;
@@ -75,7 +79,10 @@ export function makeLibraryQueue({
     });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expired = new Promise<string[]>((resolve) => {
-      timer = setTimeout(() => resolve([UNREPORTED_WRITE_NAME]), timeoutMs);
+      timer = setTimeout(
+        () => resolve(pending.size ? [...new Set(pending.values())] : [UNREPORTED_WRITE_NAME]),
+        timeoutMs
+      );
     });
     const clear = () => clearTimeout(timer);
     void drain.then(clear, clear);
@@ -85,6 +92,7 @@ export function makeLibraryQueue({
   /** For tests: a new run, nothing queued. */
   const reset = () => {
     inFlight = null;
+    pending.clear();
   };
   return { enqueue, flush, reset };
 }

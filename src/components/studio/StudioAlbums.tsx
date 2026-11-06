@@ -38,18 +38,7 @@ import {
 } from '../../utils/catalogWrites';
 import type { Group, Rule } from '../../utils/librarySearch';
 import { asGroup, useSmartAlbumEditor } from './SmartAlbumEditor';
-import {
-  changeLibraryAlbums,
-  findAlbumItem,
-  flattenAlbumTree,
-  loadLibraryAlbums,
-  withDeleted,
-  withMoved,
-  withNewItem,
-  withPhotosAdded,
-  withPhotosRemoved,
-  withRenamed
-} from './libraryAlbums';
+import { changeLibraryAlbums, findAlbumItem, flattenAlbumTree, loadLibraryAlbums } from './libraryAlbums';
 
 export interface SessionAlbum {
   id: string;
@@ -165,15 +154,20 @@ function sessionStore(directory: string): AlbumStore {
 }
 
 const libraryStore: AlbumStore = {
-  add: (id, paths) => changeLibraryAlbums((tree) => withPhotosAdded(tree, id, paths)),
-  remove: (id, paths) => changeLibraryAlbums((tree) => withPhotosRemoved(tree, id, paths)),
-  rename: (id, name) => changeLibraryAlbums((tree) => withRenamed(tree, id, name)),
-  create: (item) =>
-    changeLibraryAlbums((tree) =>
-      withNewItem(tree, { ...item, paths: item.kind === 'album' ? item.paths : [], id: crypto.randomUUID() })
-    ),
-  delete: (id) => changeLibraryAlbums((tree) => withDeleted(tree, id)),
-  move: (id, { parent, index }) => changeLibraryAlbums((tree) => withMoved(tree, id, parent, index))
+  add: (albumId, paths) => changeLibraryAlbums({ kind: 'addToAlbum', albumId, paths }),
+  remove: (albumId, paths) => changeLibraryAlbums({ kind: 'removePhotos', albumId, paths }),
+  rename: (id, name) => changeLibraryAlbums({ kind: 'rename', id, name }),
+  create: ({ kind, name, parent, paths }) =>
+    changeLibraryAlbums({
+      kind: 'create',
+      parent,
+      item:
+        kind === 'album'
+          ? { type: 'album', id: crypto.randomUUID(), name, images: [...new Set(paths)] }
+          : { type: 'group', id: crypto.randomUUID(), name, children: [] }
+    }),
+  delete: (id) => changeLibraryAlbums({ kind: 'delete', id }),
+  move: (id, { parent, index }) => changeLibraryAlbums({ kind: 'move', id, parent, index })
 };
 
 /** Capture One's albums and groups / Lightroom's collections and sets: named
