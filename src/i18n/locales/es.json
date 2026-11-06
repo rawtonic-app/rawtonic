@@ -2590,8 +2590,6 @@
         "enableAppleRaw9": "Usar Apple RAW 9 para archivos RAW",
         "enablePreprocessingNonRaws": "Activar para no RAW",
         "enableTonemapperOverride": "Activar anulación del mapeador de tonos",
-        "highlightRecovery": "Recuperación de altas luces RAW",
-        "highlightRecoveryDesc": "Controla cuánto detalle se recupera de las luces recortadas en los archivos RAW. Valores más altos recuperan más detalle pero pueden introducir artefactos morados.",
         "linearOptions": {
           "auto": "Auto",
           "gamma": "Aplicar Gamma",

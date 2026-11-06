@@ -2454,8 +2454,6 @@
         "enableAppleRaw9": "Apple RAW 9 für RAW-Dateien verwenden",
         "enablePreprocessingNonRaws": "Für Nicht-RAWs aktivieren",
         "enableTonemapperOverride": "Tonemapper-Override aktivieren",
-        "highlightRecovery": "RAW-Lichterwiederherstellung",
-        "highlightRecoveryDesc": "Steuert, wie viele Details aus beschnittenen Lichtern wiederhergestellt werden. Höhere Werte stellen mehr her, können aber rosa Artefakte einführen.",
         "linearOptions": {
           "auto": "Auto",
           "gamma": "Gamma anwenden",

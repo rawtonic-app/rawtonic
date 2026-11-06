@@ -577,12 +577,10 @@ fn develop_internal(
     // Normalisation, DNG lens opcodes and gain table maps: the same for
     // the draft and the full development.
     let finish = |mut developed_intermediate: Intermediate| -> Result<DynamicImage> {
-        let safe_highlight_compression = 1000.0;
-
         // Fast (draft) decodes keep values above white too: rebuilt highlights
         // must react to Exposure and Highlights the same way in the draft as in
         // the full decode.
-        let clamp_limit = safe_highlight_compression;
+        let clamp_limit = 1000.0;
         let low = -clamp_limit;
 
         check_cancel()?;

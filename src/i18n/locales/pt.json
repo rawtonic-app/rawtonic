@@ -2590,8 +2590,6 @@
         "enableAppleRaw9": "Usar Apple RAW 9 para ficheiros RAW",
         "enablePreprocessingNonRaws": "Ativar para Não-RAWs",
         "enableTonemapperOverride": "Ativar Substituição de Mapeador de Tons",
-        "highlightRecovery": "Recuperação de Realces RAW",
-        "highlightRecoveryDesc": "Controla a quantidade de detalhes recuperados de realces estourados em arquivos RAW. Valores mais altos recuperam mais detalhes, mas podem introduzir artefatos roxos.",
         "linearOptions": {
           "auto": "Auto",
           "gamma": "Aplicar Gama",

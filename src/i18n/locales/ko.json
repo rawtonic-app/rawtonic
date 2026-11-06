@@ -2363,8 +2363,6 @@
         "enableAppleRaw9": "RAW 파일에 Apple RAW 9 사용",
         "enablePreprocessingNonRaws": "RAW가 아닌 이미지에 활성화",
         "enableTonemapperOverride": "톤매퍼 재정의 활성화",
-        "highlightRecovery": "RAW 하이라이트 복구",
-        "highlightRecoveryDesc": "RAW 파일에서 클리핑된 하이라이트로부터 얼마나 많은 디테일을 복구할지 제어합니다. 값이 높을수록 더 많은 디테일을 복구하지만 보라색 아티팩트가 생길 수 있습니다.",
         "linearOptions": {
           "auto": "자동",
           "gamma": "감마 적용",

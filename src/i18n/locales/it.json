@@ -2590,8 +2590,6 @@
         "enableAppleRaw9": "Usa Apple RAW 9 per i file RAW",
         "enablePreprocessingNonRaws": "Abilita per Non-RAW",
         "enableTonemapperOverride": "Abilita Sovrascrittura Tonemapper",
-        "highlightRecovery": "Recupero Luci RAW",
-        "highlightRecoveryDesc": "Controlla quanti dettagli vengono recuperati dalle luci bruciate nei file RAW. Valori più alti recuperano più dettagli ma possono introdurre artefatti viola.",
         "linearOptions": {
           "auto": "Auto",
           "gamma": "Applica Gamma",

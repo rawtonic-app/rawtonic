@@ -715,8 +715,6 @@ pub struct AppSettings {
     #[serde(default)]
     pub copy_paste_settings: CopyPasteSettings,
     #[serde(default)]
-    pub raw_highlight_compression: Option<f32>,
-    #[serde(default)]
     pub processing_backend: Option<String>,
     #[serde(default)]
     pub linux_gpu_optimization: Option<bool>,
@@ -917,7 +915,6 @@ impl Default for AppSettings {
             thumbnail_aspect_ratio: Some("contain".to_string()),
             open_tree_sections: default_open_tree_sections(),
             copy_paste_settings: CopyPasteSettings::default(),
-            raw_highlight_compression: Some(2.5),
             processing_backend: Some("auto".to_string()),
             linux_gpu_optimization: Some(false),
             ai_gpu: None,
@@ -1032,7 +1029,12 @@ fn may_replace_settings(path: &Path) -> Result<(), String> {
 }
 
 /// Settings of removed features: ignored on read and gone after the next save.
-const REMOVED_KEYS: [&str; 3] = ["aiProvider", "aiConnectorAddress", "comfyuiAddress"];
+const REMOVED_KEYS: [&str; 4] = [
+    "aiProvider",
+    "aiConnectorAddress",
+    "comfyuiAddress",
+    "rawHighlightCompression",
+];
 
 fn without_legacy_keys(mut settings: AppSettings) -> AppSettings {
     for key in REMOVED_KEYS {
@@ -1300,6 +1302,26 @@ fn reserve_update_check_when(
 mod tests {
     use super::*;
     use crate::state::settings::SettingsStore;
+
+    #[test]
+    fn removed_raw_highlight_compression_is_ignored_and_not_saved() {
+        for value in ["2.5", "10.0", "null"] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("settings.json");
+            fs::write(
+                &path,
+                format!(r#"{{"rawHighlightCompression":{value},"rawPreprocessingColorNr":0.75}}"#),
+            )
+            .unwrap();
+            let mut settings = read_settings_file(&path).unwrap();
+            assert_eq!(settings.raw_preprocessing_color_nr, Some(0.75));
+            write_settings_file(&path, &mut settings).unwrap();
+            let saved: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            assert!(saved.get("rawHighlightCompression").is_none());
+            assert_eq!(saved["rawPreprocessingColorNr"], 0.75);
+        }
+    }
 
     // Each helper uses a fresh store, as a new launch would: these tests are
     // about what reaches the file. The store within one run: `state::settings`.

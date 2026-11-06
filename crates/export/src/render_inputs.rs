@@ -95,13 +95,14 @@ impl RenderInputs {
         ))
     }
 
-    /// The options the source was decoded with.
+    /// The options the source was decoded with. (The retired highlight
+    /// compression value is no longer part of the entry, so snapshots taken
+    /// before its removal differ in `decode` and in `snapshot_hash`.)
     pub fn decode(&self, is_raw: bool, base: &BaseImageOptions, ai: Option<AiDenoiseSettings>) {
         self.set(
             "decode",
             json!({
                 "is_raw": is_raw,
-                "highlight_compression": base.highlight_compression,
                 "linear_mode": base.linear_mode,
                 "color_nr_amount": base.color_nr_amount,
                 "sharpening_amount": base.sharpening_amount,

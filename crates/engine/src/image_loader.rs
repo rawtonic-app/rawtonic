@@ -139,7 +139,6 @@ impl AiDenoiseSettings {
 /// preprocessing settings (the app reads them from its preferences).
 #[derive(Clone, Debug)]
 pub struct BaseImageOptions {
-    pub highlight_compression: f32,
     pub linear_mode: String,
     pub color_nr_amount: f32,
     pub sharpening_amount: f32,
@@ -247,13 +246,11 @@ impl BaseImageOptions {
     /// From the preference values (unset ones take their defaults); the
     /// colour noise slider maps to the filter amount here.
     pub fn from_preferences(
-        raw_highlight_compression: Option<f32>,
         linear_raw_mode: String,
         raw_preprocessing_color_nr: Option<f32>,
         raw_preprocessing_sharpening: Option<f32>,
         apply_preprocessing_to_non_raws: Option<bool>,
     ) -> Self {
-        let highlight_compression = raw_highlight_compression.unwrap_or(2.5);
         let linear_mode = linear_raw_mode;
         let color_nr_setting = raw_preprocessing_color_nr.unwrap_or(0.5);
         let color_nr_amount = if color_nr_setting <= 0.0 {
@@ -265,7 +262,6 @@ impl BaseImageOptions {
         let sharpening_amount = raw_preprocessing_sharpening.unwrap_or(0.35);
         let apply_to_non_raws = apply_preprocessing_to_non_raws.unwrap_or(false);
         Self {
-            highlight_compression,
             linear_mode,
             color_nr_amount,
             sharpening_amount,
@@ -312,13 +308,7 @@ impl BaseImageOptions {
 impl Default for BaseImageOptions {
     /// The app's default preferences.
     fn default() -> Self {
-        Self::from_preferences(
-            Some(2.5),
-            "auto".to_string(),
-            Some(0.5),
-            Some(0.35),
-            Some(false),
-        )
+        Self::from_preferences("auto".to_string(), Some(0.5), Some(0.35), Some(false))
     }
 }
 
@@ -386,9 +376,6 @@ pub fn load_base_image_measured(
     cancel_token: Option<rawtonic_runtime::CancelToken>,
 ) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
     let BaseImageOptions {
-        // Recorded in the render-input snapshot only; the decoder has no
-        // highlight compression parameter.
-        highlight_compression: _,
         linear_mode,
         color_nr_amount,
         sharpening_amount,
@@ -2067,13 +2054,7 @@ mod color_noise_option_tests {
     use serde_json::{Value, json};
 
     fn preferences() -> BaseImageOptions {
-        BaseImageOptions::from_preferences(
-            Some(2.5),
-            "auto".to_string(),
-            Some(0.5),
-            Some(0.35),
-            Some(false),
-        )
+        BaseImageOptions::from_preferences("auto".to_string(), Some(0.5), Some(0.35), Some(false))
     }
 
     #[test]
@@ -2083,8 +2064,6 @@ mod color_noise_option_tests {
         let multiscale = preferences().for_color_noise(true);
         assert_eq!(multiscale.color_nr_amount, 0.0);
         assert_eq!(multiscale.sharpening_amount, today.sharpening_amount);
-        let highlights = today.highlight_compression;
-        assert_eq!(multiscale.highlight_compression, highlights);
         let old = preferences().for_color_noise(false);
         assert_eq!(old.color_nr_amount, today.color_nr_amount);
         assert_eq!(old.sharpening_amount, today.sharpening_amount);

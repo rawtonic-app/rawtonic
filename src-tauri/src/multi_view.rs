@@ -2786,7 +2786,7 @@ mod tests {
         }));
         let settings = crate::app_settings::AppSettings::default();
         let other = crate::app_settings::AppSettings {
-            raw_highlight_compression: Some(1.0),
+            raw_preprocessing_color_nr: Some(0.75),
             ..Default::default()
         };
         let current = |settings: &crate::app_settings::AppSettings| {

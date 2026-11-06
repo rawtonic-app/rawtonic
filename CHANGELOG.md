@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preferences: a hidden, unused RAW highlight compression preference is no longer stored; it never changed a photo.
 - **Reload on a photo that could not be saved works from any photo**: after the file of an open photo was replaced on disk, the *Reload* button of the "not saved" notice did nothing once you had switched to another photo; it now opens the replaced photo again with your kept edit.
 - **Preferences from a newer version survive, and one unreadable setting no longer resets all**: settings this version does not know are kept when it saves, and a setting it cannot read is reset on its own, with the other preferences intact (the original file is still kept aside).
 - **An edit is no longer saved onto a different image when a sync tool replaces the open photo's file.** If another program replaces the file of the photograph open in Develop with another image of the same name, saving the edit and exporting the photo (also an export queued before the file changed) are refused with "This photo's file was replaced on disk since you opened it. Reload to see the new file with your edit applied." instead of writing the edit of the old image onto the new one; your edit stays in the session and a Reload action on the "not saved" notice opens the photo again with your edit applied, which also drops the old image's cached decode. A file whose only change is its time (`touch`, a copy without times, a cloud mount rounding times) is the same photograph as before and saves as usual (checked, covered by a test).

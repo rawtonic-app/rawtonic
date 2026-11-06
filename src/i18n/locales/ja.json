@@ -2363,8 +2363,6 @@
         "enableAppleRaw9": "RAWファイルにApple RAW 9を使用する",
         "enablePreprocessingNonRaws": "RAW以外の画像にも適用",
         "enableTonemapperOverride": "トーンマッパーの上書きを有効化",
-        "highlightRecovery": "RAWハイライト再現",
-        "highlightRecoveryDesc": "RAWファイルで白とびしたハイライトから再現する情報のレベルを設定します。値を高くするとディテールが戻りますが、紫色のアーティファクトが発生する場合があります。",
         "linearOptions": {
           "auto": "自動",
           "gamma": "ガンマを適用",

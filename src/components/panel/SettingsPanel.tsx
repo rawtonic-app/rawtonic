@@ -106,7 +106,6 @@ interface ProcessingSettings {
   editorPreviewResolution: number;
   smallThumbnailResolution: number;
   mediumThumbnailResolution: number;
-  rawHighlightCompression: number;
   processingBackend: string;
   linuxGpuOptimization: boolean;
   aiGpu: boolean;
@@ -306,7 +305,6 @@ export default function SettingsPanel({
     editorPreviewResolution: appSettings?.editorPreviewResolution || 1920,
     smallThumbnailResolution: appSettings?.smallThumbnailResolution || 480,
     mediumThumbnailResolution: appSettings?.mediumThumbnailResolution || 1280,
-    rawHighlightCompression: appSettings?.rawHighlightCompression ?? 2.5,
     processingBackend: appSettings?.processingBackend || 'auto',
     linuxGpuOptimization: appSettings?.linuxGpuOptimization ?? false,
     aiGpu: appSettings?.aiGpu ?? true,
@@ -416,7 +414,6 @@ export default function SettingsPanel({
       editorPreviewResolution: appSettings?.editorPreviewResolution || 1920,
       smallThumbnailResolution: appSettings?.smallThumbnailResolution || 480,
       mediumThumbnailResolution: appSettings?.mediumThumbnailResolution || 1280,
-      rawHighlightCompression: appSettings?.rawHighlightCompression ?? 2.5,
       processingBackend: appSettings?.processingBackend || 'auto',
       linuxGpuOptimization: appSettings?.linuxGpuOptimization ?? false,
       aiGpu: appSettings?.aiGpu ?? true,
@@ -468,7 +465,6 @@ export default function SettingsPanel({
     } else {
       await onSettingsChange({ ...appSettings, [key]: value });
       if (
-        key === 'rawHighlightCompression' ||
         key === 'rawPreprocessingColorNr' ||
         key === 'rawPreprocessingSharpening' ||
         key === 'applyPreprocessingToNonRaws' ||
@@ -1561,26 +1557,6 @@ export default function SettingsPanel({
                       {t('settings.processing.preprocessing.title')}
                     </Text>
                     <div className="space-y-8">
-                      {/* turn off highlights clipping setting for now - needs clean cleanup across other files.
-                      <SettingItem
-                        label={t('settings.processing.preprocessing.highlightRecovery')}
-                        description={t('settings.processing.preprocessing.highlightRecoveryDesc')}
-                      >
-                        <Slider
-                          label={t('settings.tagging.amount')}
-                          min={1}
-                          max={10}
-                          step={0.1}
-                          value={processingSettings.rawHighlightCompression}
-                          defaultValue={2.5}
-                          onChange={(e: any) =>
-                            handleProcessingSettingChange('rawHighlightCompression', parseFloat(e.target.value))
-                          }
-                          fillOrigin="min"
-                        />
-                      </SettingItem>
-                      */}
-
                       <SettingItem
                         label={t('settings.processing.preprocessing.colorNr')}
                         description={t('settings.processing.preprocessing.colorNrDesc')}
