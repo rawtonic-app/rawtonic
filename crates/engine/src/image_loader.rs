@@ -11,6 +11,7 @@ use rawler::Orientation;
 pub use rawtonic_rawdecode::black_bias::BlackLevels;
 pub use rawtonic_rawdecode::highlight_reconstruction::HighlightRebuild;
 pub use rawtonic_rawdecode::hot_pixels::DeadTest;
+use rawtonic_recipe::geometry;
 use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
@@ -1194,7 +1195,7 @@ fn composite_ai_patches_at(
                 };
 
                 let orientation_steps = current_adjustments
-                    .get("orientationSteps")
+                    .get(geometry::ORIENTATION_STEPS.name())
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u8;
                 let (trans_w, trans_h) = if orientation_steps % 2 == 1 {

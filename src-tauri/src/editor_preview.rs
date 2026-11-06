@@ -52,6 +52,7 @@ use mozjpeg_rs::Encoder;
 use mozjpeg_rs::Preset;
 use rawtonic_engine::formats;
 use rawtonic_engine::scopes;
+use rawtonic_recipe::geometry;
 #[cfg(not(target_os = "linux"))]
 use rgb::FromSlice;
 #[cfg(not(target_os = "linux"))]
@@ -115,12 +116,12 @@ pub struct WgpuTransformPayload {
 /// keeps them from the edit (`originalPreviewAdjustments` in
 /// src/utils/beforeAfter.ts), so both sides show the same framing.
 const SPLIT_FRAMING_KEYS: &[&str] = &[
-    "crop",
-    "rotation",
-    "flipHorizontal",
-    "flipVertical",
-    "orientationSteps",
-    "aspectRatio",
+    geometry::CROP.name(),
+    geometry::ROTATION.name(),
+    geometry::FLIP_HORIZONTAL.name(),
+    geometry::FLIP_VERTICAL.name(),
+    geometry::ORIENTATION_STEPS.name(),
+    geometry::ASPECT_RATIO.name(),
     "sourceFrameVersion",
 ];
 
@@ -213,7 +214,7 @@ pub(crate) fn reduced_preview_scale(
         return None;
     }
     let crop: Option<image_processing::Crop> =
-        serde_json::from_value(adjustments["crop"].clone()).ok();
+        serde_json::from_value(adjustments[geometry::CROP.name()].clone()).ok();
     let longest = match crop {
         Some(c) if c.width > 0.0 && c.height > 0.0 => c.width.max(c.height) as f32,
         _ => full_width.max(full_height) as f32,
@@ -417,7 +418,10 @@ fn build_reduced_preview_base(
     // The actual scale after rounding to whole pixels.
     let scale = reduced.width() as f32 / full_width as f32;
     let mut scaled = adjustments.clone();
-    if let Some(crop) = scaled.get_mut("crop").filter(|c| c.is_object()) {
+    if let Some(crop) = scaled
+        .get_mut(geometry::CROP.name())
+        .filter(|c| c.is_object())
+    {
         for key in ["x", "y", "width", "height"] {
             if let Some(value) = crop[key].as_f64() {
                 crop[key] = serde_json::json!(value * scale as f64);
@@ -454,9 +458,10 @@ fn build_reduced_preview_base(
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
     let (transformed, _) = crate::adjustment_utils::apply_spatial_transformations(blurred, &scaled);
     let transformed = transformed.into_owned();
-    let unscaled_crop_offset =
-        serde_json::from_value::<image_processing::Crop>(adjustments["crop"].clone())
-            .map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
+    let unscaled_crop_offset = serde_json::from_value::<image_processing::Crop>(
+        adjustments[geometry::CROP.name()].clone(),
+    )
+    .map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
     let reduced_width = transformed.width().max(1);
     let image = shared_preview_at_resolution(&Arc::new(transformed), preview_dim);
     Ok(preview_cache::PreviewBase {
@@ -2423,8 +2428,11 @@ fn submit_activation_frame(
     viewport: [f32; 4],
 ) {
     // Shown size: the crop, else the photograph turned by its orientation.
-    let crop: Option<image_processing::Crop> = serde_json::from_value(recipe["crop"].clone()).ok();
-    let steps = recipe["orientationSteps"].as_u64().unwrap_or(0);
+    let crop: Option<image_processing::Crop> =
+        serde_json::from_value(recipe[geometry::CROP.name()].clone()).ok();
+    let steps = recipe[geometry::ORIENTATION_STEPS.name()]
+        .as_u64()
+        .unwrap_or(0);
     let (shown_w, shown_h) = match crop {
         Some(c) if c.width > 0.0 && c.height > 0.0 => (c.width as f32, c.height as f32),
         _ if steps % 2 == 1 => (full_height as f32, full_width as f32),
@@ -3194,13 +3202,17 @@ pub(crate) async fn generate_uncropped_preview(
             scale_for_gpu,
         )?
         .into_owned();
-        let orientation_steps = adjustments_clone["orientationSteps"].as_u64().unwrap_or(0) as u8;
+        let orientation_steps = adjustments_clone[geometry::ORIENTATION_STEPS.name()]
+            .as_u64()
+            .unwrap_or(0) as u8;
         let flipped_image = apply_flip(
             apply_coarse_rotation(Cow::Owned(warped_image), orientation_steps),
-            adjustments_clone["flipHorizontal"]
+            adjustments_clone[geometry::FLIP_HORIZONTAL.name()]
                 .as_bool()
                 .unwrap_or(false),
-            adjustments_clone["flipVertical"].as_bool().unwrap_or(false),
+            adjustments_clone[geometry::FLIP_VERTICAL.name()]
+                .as_bool()
+                .unwrap_or(false),
         )
         .into_owned();
 

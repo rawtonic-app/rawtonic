@@ -11,6 +11,7 @@
 //! marked interim (never taken for the developed region). Develop pixels
 //! never cross IPC.
 
+use rawtonic_recipe::geometry;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -420,8 +421,11 @@ pub(crate) async fn render_browser_view(
 /// The size a photograph is shown at: its crop, else the whole frame turned
 /// by its orientation (as `activate_photo` places it).
 fn shown_size(recipe: &serde_json::Value, facts: Facts) -> (f32, f32) {
-    let crop: Option<image_processing::Crop> = serde_json::from_value(recipe["crop"].clone()).ok();
-    let steps = recipe["orientationSteps"].as_u64().unwrap_or(0);
+    let crop: Option<image_processing::Crop> =
+        serde_json::from_value(recipe[geometry::CROP.name()].clone()).ok();
+    let steps = recipe[geometry::ORIENTATION_STEPS.name()]
+        .as_u64()
+        .unwrap_or(0);
     match crop {
         Some(c) if c.width > 0.0 && c.height > 0.0 => (c.width as f32, c.height as f32),
         _ if steps % 2 == 1 => (facts.full_height as f32, facts.full_width as f32),
@@ -1831,7 +1835,7 @@ fn region_base(
 ) -> RegionBase {
     let [rx, ry, rw, rh] = plan.rect;
     let unscaled_crop_offset =
-        serde_json::from_value::<image_processing::Crop>(recipe["crop"].clone())
+        serde_json::from_value::<image_processing::Crop>(recipe[geometry::CROP.name()].clone())
             .map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
     RegionBase {
         preparation_key: crate::preview_cache::preparation_key(recipe),

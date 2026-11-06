@@ -7,6 +7,7 @@
 //! pixels whether it was opened first or not. The networks run behind
 //! `SelectionDetector` (the app's loaded models, the CLI's model folder).
 
+use rawtonic_recipe::geometry;
 use std::sync::Arc;
 
 use image::DynamicImage;
@@ -133,11 +134,23 @@ pub fn detected_parameters(own: &Value, adjustments: &Value, data_url: String) -
     };
     let result = AiSkyMaskParameters {
         mask_data_base64: Some(data_url),
-        rotation: Some(adjustments["rotation"].as_f64().unwrap_or(0.0) as f32),
-        flip_horizontal: Some(adjustments["flipHorizontal"].as_bool().unwrap_or(false)),
-        flip_vertical: Some(adjustments["flipVertical"].as_bool().unwrap_or(false)),
+        rotation: Some(
+            adjustments[geometry::ROTATION.name()]
+                .as_f64()
+                .unwrap_or(0.0) as f32,
+        ),
+        flip_horizontal: Some(
+            adjustments[geometry::FLIP_HORIZONTAL.name()]
+                .as_bool()
+                .unwrap_or(false),
+        ),
+        flip_vertical: Some(
+            adjustments[geometry::FLIP_VERTICAL.name()]
+                .as_bool()
+                .unwrap_or(false),
+        ),
         orientation_steps: Some(
-            adjustments["orientationSteps"]
+            adjustments[geometry::ORIENTATION_STEPS.name()]
                 .as_u64()
                 .map_or(0, |v| v.min(u8::MAX as u64) as u8),
         ),
@@ -221,10 +234,12 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
     let geometry = mask_warp(stored);
     let frame = |a: &Value| {
         [
-            a["rotation"].as_f64().unwrap_or(0.0) as f32 as f64,
-            a["flipHorizontal"].as_bool().unwrap_or(false) as u8 as f64,
-            a["flipVertical"].as_bool().unwrap_or(false) as u8 as f64,
-            a["orientationSteps"].as_u64().unwrap_or(0) as f64,
+            a[geometry::ROTATION.name()].as_f64().unwrap_or(0.0) as f32 as f64,
+            a[geometry::FLIP_HORIZONTAL.name()]
+                .as_bool()
+                .unwrap_or(false) as u8 as f64,
+            a[geometry::FLIP_VERTICAL.name()].as_bool().unwrap_or(false) as u8 as f64,
+            a[geometry::ORIENTATION_STEPS.name()].as_u64().unwrap_or(0) as f64,
         ]
     };
     let stored_frame = frame(stored);
@@ -232,10 +247,12 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
     for found in detected {
         let p = &found.parameters;
         let computed_frame = [
-            p["rotation"].as_f64().unwrap_or(0.0),
-            p["flipHorizontal"].as_bool().unwrap_or(false) as u8 as f64,
-            p["flipVertical"].as_bool().unwrap_or(false) as u8 as f64,
-            p["orientationSteps"].as_u64().unwrap_or(0) as f64,
+            p[geometry::ROTATION.name()].as_f64().unwrap_or(0.0),
+            p[geometry::FLIP_HORIZONTAL.name()]
+                .as_bool()
+                .unwrap_or(false) as u8 as f64,
+            p[geometry::FLIP_VERTICAL.name()].as_bool().unwrap_or(false) as u8 as f64,
+            p[geometry::ORIENTATION_STEPS.name()].as_u64().unwrap_or(0) as f64,
         ];
         if p["warp"] != geometry || computed_frame != stored_frame {
             continue;
@@ -262,10 +279,10 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
         let mut merged = detected_parameters(&own, &Value::Null, String::new());
         for key in [
             "maskDataBase64",
-            "rotation",
-            "flipHorizontal",
-            "flipVertical",
-            "orientationSteps",
+            geometry::ROTATION.name(),
+            geometry::FLIP_HORIZONTAL.name(),
+            geometry::FLIP_VERTICAL.name(),
+            geometry::ORIENTATION_STEPS.name(),
             "warp",
         ] {
             merged[key] = p[key].clone();

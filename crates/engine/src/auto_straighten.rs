@@ -5,6 +5,7 @@
 //! negative. Measured against Lightroom's crop Auto and Camera Raw's Upright
 //! Level on held-out photographs, thresholds set against a separate tuning
 //! half: docs/testing/auto-straighten.md (results and the remaining gaps).
+use rawtonic_recipe::geometry;
 use std::f64::consts::PI;
 
 use crate::upright::{Segment, vanishing_point, wrap_half_turn};
@@ -267,9 +268,16 @@ impl FrameValidity {
         let params = crate::image_processing::get_geometry_params_from_json(adjustments);
         let warped =
             crate::image_processing::geometry_valid_pixels(&params, source_width, source_height);
-        let steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) % 4;
-        let flip_h = adjustments["flipHorizontal"].as_bool().unwrap_or(false);
-        let flip_v = adjustments["flipVertical"].as_bool().unwrap_or(false);
+        let steps = adjustments[geometry::ORIENTATION_STEPS.name()]
+            .as_u64()
+            .unwrap_or(0)
+            % 4;
+        let flip_h = adjustments[geometry::FLIP_HORIZONTAL.name()]
+            .as_bool()
+            .unwrap_or(false);
+        let flip_v = adjustments[geometry::FLIP_VERTICAL.name()]
+            .as_bool()
+            .unwrap_or(false);
         let (sw, sh) = (source_width as i64, source_height as i64);
         let (w, h) = if steps % 2 == 1 { (sh, sw) } else { (sw, sh) };
         // Photo at (x, y) of the oriented, flipped frame (image crate's
@@ -502,10 +510,16 @@ pub fn level_rotation(
         ((h as f64 * scale).round() as u32).max(1),
     );
     let proxy = crate::image_processing::thumbnail(image, pw, ph);
-    let steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
+    let steps = adjustments[geometry::ORIENTATION_STEPS.name()]
+        .as_u64()
+        .unwrap_or(0) as u8;
     let (flip_h, flip_v) = (
-        adjustments["flipHorizontal"].as_bool().unwrap_or(false),
-        adjustments["flipVertical"].as_bool().unwrap_or(false),
+        adjustments[geometry::FLIP_HORIZONTAL.name()]
+            .as_bool()
+            .unwrap_or(false),
+        adjustments[geometry::FLIP_VERTICAL.name()]
+            .as_bool()
+            .unwrap_or(false),
     );
     // The lines do not move with the shading's encoding (`is_raw`).
     let developed = apply_flip(
@@ -579,37 +593,40 @@ pub fn straighten_recipe(
     let tilt = level_rotation(analysed, adjustments)?;
     let rotation = -tilt.tilt.to_degrees();
     let rotation = (rotation * 100.0).round() / 100.0;
-    let previous = adjustments["rotation"].as_f64().unwrap_or(0.0);
+    let previous = adjustments[geometry::ROTATION.name()]
+        .as_f64()
+        .unwrap_or(0.0);
     let frame = FrameValidity::new(adjustments, source_width, source_height, rotation);
     let (w, h) = (frame.width as f64, frame.height as f64);
-    let start =
-        serde_json::from_value::<crate::image_processing::Crop>(adjustments["crop"].clone())
-            .ok()
-            .filter(|c| c.width > 0.0 && c.height > 0.0)
-            .map(|c| CropRect {
-                x: c.x,
-                y: c.y,
-                width: c.width,
-                height: c.height,
-            })
-            .unwrap_or_else(|| {
-                // The whole frame, or the largest centred crop of the chosen ratio.
-                let ratio = adjustments["aspectRatio"]
-                    .as_f64()
-                    .filter(|r| *r > 0.0)
-                    .unwrap_or(w / h);
-                let (cw, ch) = if w / h > ratio {
-                    (h * ratio, h)
-                } else {
-                    (w, w / ratio)
-                };
-                CropRect {
-                    x: (w - cw) / 2.0,
-                    y: (h - ch) / 2.0,
-                    width: cw,
-                    height: ch,
-                }
-            });
+    let start = serde_json::from_value::<crate::image_processing::Crop>(
+        adjustments[geometry::CROP.name()].clone(),
+    )
+    .ok()
+    .filter(|c| c.width > 0.0 && c.height > 0.0)
+    .map(|c| CropRect {
+        x: c.x,
+        y: c.y,
+        width: c.width,
+        height: c.height,
+    })
+    .unwrap_or_else(|| {
+        // The whole frame, or the largest centred crop of the chosen ratio.
+        let ratio = adjustments[geometry::ASPECT_RATIO.name()]
+            .as_f64()
+            .filter(|r| *r > 0.0)
+            .unwrap_or(w / h);
+        let (cw, ch) = if w / h > ratio {
+            (h * ratio, h)
+        } else {
+            (w, w / ratio)
+        };
+        CropRect {
+            x: (w - cw) / 2.0,
+            y: (h - ch) / 2.0,
+            width: cw,
+            height: ch,
+        }
+    });
     let crop = reframe_crop(&frame, start, rotation - previous)?;
     Some(Straightened {
         rotation,

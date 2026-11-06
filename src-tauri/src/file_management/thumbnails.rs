@@ -29,6 +29,7 @@ use anyhow::Result;
 use image::DynamicImage;
 use image::GenericImageView;
 use image::codecs::jpeg::JpegEncoder;
+use rawtonic_recipe::geometry;
 use rawtonic_recipe::tone;
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
@@ -385,7 +386,8 @@ pub(crate) fn develop_thumbnail(
 
         let base_cache_hash = crate::cache_utils::calculate_thumbnail_base_hash(&meta.adjustments);
 
-        let crop_data: Option<Crop> = serde_json::from_value(meta.adjustments["crop"].clone()).ok();
+        let crop_data: Option<Crop> =
+            serde_json::from_value(meta.adjustments[geometry::CROP.name()].clone()).ok();
 
         let mask_definitions: Vec<MaskDefinition> = meta
             .adjustments
@@ -507,8 +509,9 @@ pub(crate) fn develop_thumbnail(
 
             let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, &meta.adjustments);
 
-            let orientation_steps =
-                meta.adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
+            let orientation_steps = meta.adjustments[geometry::ORIENTATION_STEPS.name()]
+                .as_u64()
+                .unwrap_or(0) as u8;
             let coarse_rotated_image = apply_coarse_rotation(blurred_image, orientation_steps);
 
             let (full_w, full_h) = coarse_rotated_image.dimensions();
@@ -591,11 +594,15 @@ pub(crate) fn develop_thumbnail(
             (base_arc, total_scale, mask_source, decoded_size)
         };
 
-        let rotation_degrees = meta.adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
-        let flip_horizontal = meta.adjustments["flipHorizontal"]
+        let rotation_degrees = meta.adjustments[geometry::ROTATION.name()]
+            .as_f64()
+            .unwrap_or(0.0) as f32;
+        let flip_horizontal = meta.adjustments[geometry::FLIP_HORIZONTAL.name()]
             .as_bool()
             .unwrap_or(false);
-        let flip_vertical = meta.adjustments["flipVertical"].as_bool().unwrap_or(false);
+        let flip_vertical = meta.adjustments[geometry::FLIP_VERTICAL.name()]
+            .as_bool()
+            .unwrap_or(false);
 
         let flipped_image = apply_flip(
             Cow::Borrowed(&*processing_base_arc),
@@ -626,12 +633,16 @@ pub(crate) fn develop_thumbnail(
 
         // The photo's own size, from the oriented base at its scale.
         let (base_w, base_h) = processing_base_arc.dimensions();
-        let (base_w, base_h) =
-            if meta.adjustments["orientationSteps"].as_u64().unwrap_or(0) % 2 == 1 {
-                (base_h, base_w)
-            } else {
-                (base_w, base_h)
-            };
+        let (base_w, base_h) = if meta.adjustments[geometry::ORIENTATION_STEPS.name()]
+            .as_u64()
+            .unwrap_or(0)
+            % 2
+            == 1
+        {
+            (base_h, base_w)
+        } else {
+            (base_w, base_h)
+        };
         let mask_geometry =
             crate::mask_generation::PhotoGeometry::from_adjustments(&meta.adjustments);
         let mask_geometry = match decoded_size {
@@ -750,7 +761,9 @@ pub(crate) fn develop_thumbnail(
         final_image = cut_to_camera_crop(final_image, &recipe, &source_path_str);
     }
 
-    let fallback_orientation_steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
+    let fallback_orientation_steps = adjustments[geometry::ORIENTATION_STEPS.name()]
+        .as_u64()
+        .unwrap_or(0) as u8;
     Ok(apply_coarse_rotation(Cow::Owned(final_image), fallback_orientation_steps).into_owned())
 }
 

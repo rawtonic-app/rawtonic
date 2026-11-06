@@ -16,6 +16,7 @@
 //! inherited heal/clone patches were baked as 8-bit JPEG.
 
 use image::{DynamicImage, Rgb32FImage};
+use rawtonic_recipe::geometry;
 use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
@@ -89,10 +90,10 @@ pub fn spots(adjustments: &Value) -> Vec<Spot> {
 pub fn scaled_spots_recipe(adjustments: &Value, scale: f64) -> Value {
     let mut recipe = serde_json::json!({});
     for key in [
-        "orientationSteps",
-        "rotation",
-        "flipHorizontal",
-        "flipVertical",
+        geometry::ORIENTATION_STEPS.name(),
+        geometry::ROTATION.name(),
+        geometry::FLIP_HORIZONTAL.name(),
+        geometry::FLIP_VERTICAL.name(),
     ] {
         if let Some(value) = adjustments.get(key) {
             recipe[key] = value.clone();
@@ -134,7 +135,9 @@ pub fn has_spots(adjustments: &Value) -> bool {
 
 /// Mask-frame dimensions of a base image (orientation steps swap them).
 pub(crate) fn mask_frame(adjustments: &Value, width: u32, height: u32) -> (f64, f64) {
-    let steps = adjustments["orientationSteps"].as_u64().unwrap_or(0);
+    let steps = adjustments[geometry::ORIENTATION_STEPS.name()]
+        .as_u64()
+        .unwrap_or(0);
     if steps % 2 == 1 {
         (height as f64, width as f64)
     } else {

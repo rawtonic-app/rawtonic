@@ -19,6 +19,7 @@ use rawtonic_interop::{
     Develop, Library as Source, NotRead, Photo, Root, SmartRule, SmartRules, SmartValue,
 };
 use rawtonic_metadata::photo_ref;
+use rawtonic_recipe::geometry;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -689,9 +690,12 @@ fn lightroom_crop(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
     let (Some(placed), Some(map)) = (placed, adjustments.as_object_mut()) else {
         return false;
     };
-    map.insert("crop".into(), placed.crop);
-    map.insert("rotation".into(), json!(placed.rotation));
-    map.insert("aspectRatio".into(), json!(placed.aspect_ratio));
+    map.insert(geometry::CROP.name().into(), placed.crop);
+    map.insert(geometry::ROTATION.name().into(), json!(placed.rotation));
+    map.insert(
+        geometry::ASPECT_RATIO.name().into(),
+        json!(placed.aspect_ratio),
+    );
     placed.clipped
 }
 

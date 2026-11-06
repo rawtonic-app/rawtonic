@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { rustRecipeKeys } from '../contracts/recipeKeys.testSupport';
 import { INITIAL_ADJUSTMENTS } from './adjustments';
 import {
   BEFORE_FRAMING_KEYS,
@@ -19,12 +20,13 @@ import {
 import editorPreview from '../../src-tauri/src/editor_preview.rs?raw';
 import cacheUtils from '../../crates/engine/src/cache_utils.rs?raw';
 
-/** The string literals of a Rust `const NAME: &[&str] = &[ … ];`. */
+/** The stored names of a Rust `const NAME: &[&str] = &[ … ];`. */
 function rustKeys(source: string, name: string): string[] {
-  const start = source.indexOf(`const ${name}: &[&str] = &[`);
+  const declaration = `const ${name}: &[&str] = &[`;
+  const start = source.indexOf(declaration);
   expect(start, name).toBeGreaterThanOrEqual(0);
-  const body = source.slice(start, source.indexOf('];', start));
-  return [...body.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  const body = source.slice(start + declaration.length, source.indexOf('];', start));
+  return rustRecipeKeys(body);
 }
 
 describe('before/after', () => {

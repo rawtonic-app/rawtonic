@@ -1,5 +1,6 @@
 //! Non-generative projected lighting in scene-linear RGB. Coordinates are
 //! normalized to the developed photograph; no original pixels are changed.
+use rawtonic_recipe::geometry;
 use serde_json::Value;
 #[path = "relight_source.rs"]
 pub mod source;
@@ -307,19 +308,25 @@ static DEPTHS: OnceLock<Mutex<VecDeque<DepthEntry>>> = OnceLock::new();
 pub fn geometry(recipe: &Value) -> Value {
     let mut map = serde_json::Map::new();
     for key in crate::cache_utils::GEOMETRY_KEYS.iter().copied().chain([
-        "orientationSteps",
-        "flipHorizontal",
-        "flipVertical",
+        geometry::ORIENTATION_STEPS.name(),
+        geometry::FLIP_HORIZONTAL.name(),
+        geometry::FLIP_VERTICAL.name(),
     ]) {
         map.insert(key.into(), recipe[key].clone());
     }
     // Depth is analyzed in the displayed (straightened and cropped) frame.
     // Keep legacy identity-frame maps valid, but reject them after a crop.
-    if !recipe["crop"].is_null() {
-        map.insert("crop".into(), recipe["crop"].clone());
+    if !recipe[geometry::CROP.name()].is_null() {
+        map.insert(
+            geometry::CROP.name().into(),
+            recipe[geometry::CROP.name()].clone(),
+        );
     }
-    if recipe["rotation"].as_f64().unwrap_or(0.) != 0. {
-        map.insert("rotation".into(), recipe["rotation"].clone());
+    if recipe[geometry::ROTATION.name()].as_f64().unwrap_or(0.) != 0. {
+        map.insert(
+            geometry::ROTATION.name().into(),
+            recipe[geometry::ROTATION.name()].clone(),
+        );
     }
     Value::Object(map)
 }

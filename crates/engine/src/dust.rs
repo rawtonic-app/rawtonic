@@ -33,6 +33,7 @@
 //! are not dust.
 
 use image::DynamicImage;
+use rawtonic_recipe::geometry;
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -916,7 +917,7 @@ pub struct FoundSpot {
 pub fn placed(analysis: &DustAnalysis, sensitivity: f64, adjustments: &Value) -> Vec<FoundSpot> {
     let frame = crate::spot_removal::mask_frame(adjustments, analysis.width, analysis.height);
     let crop = crate::image_processing::crop_rect(
-        &adjustments["crop"],
+        &adjustments[geometry::CROP.name()],
         frame.0.round() as u32,
         frame.1.round() as u32,
     )

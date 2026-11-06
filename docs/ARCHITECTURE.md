@@ -397,29 +397,32 @@ size), demosaic, gpu_demosaic, DNG opcodes/colour, capture_info, camera colour/e
 
 #### `recipe`
 
-`recipe` (plan 2.2, ADR 0021) holds the develop recipe in two representations. `StoredRecipe` (owned) and `StoredRef`
-(borrowed) are the JSON value exactly as saved — key presence, explicit `null`s, unknown and nested fields — read and
-written only through typed keys (`Key<T> { name, default, since_version }`, one registry per section module); nothing is
-filled in on load or save. `ResolvedRecipe` holds the typed sections as they render (value objects such as `tone::Ev`
-and `tone::Amount`, which carry the Develop slider ranges but do not clamp), produced only by `rawtonic_recipe::normalize`
-from a stored recipe and never saved. Sections move in one per PR; moved so far: tone (exposure, contrast, highlights,
-shadows, whites, blacks, brightness, centré), colour (white balance, presence, mixer, grading, calibration,
-black-and-white and colour ranges), and detail (sharpening, noise reduction and refinements,
-clarity/dehaze/structure, manual CA, defringe, moiré and diffraction request).
+`recipe` (plan 2.2, ADR 0021) holds the develop recipe in two representations. `StoredRecipe` (owned) and
+`StoredRef` (borrowed) are the JSON value exactly as saved — key presence, explicit `null`s, unknown and nested
+fields — read and written only through typed keys (`Key<T> { name, default, since_version }`, one registry per
+section module); nothing is filled in on load or save. `ResolvedRecipe` holds the typed sections as they render
+(value objects such as `tone::Ev` and `tone::Amount`, which carry the Develop slider ranges but do not clamp),
+produced only by `rawtonic_recipe::normalize` from a stored recipe and never saved. Sections move in one per PR;
+moved so far: tone (exposure, contrast, highlights, shadows, whites, blacks, brightness, centré), colour (white
+balance, presence, mixer, grading, calibration, black-and-white and colour ranges), and detail (sharpening, noise
+reduction and refinements, clarity/dehaze/structure, manual CA, defringe, moiré and diffraction request), and
+geometry (crop/aspect ratio, straighten, orientation, flips and perspective/transform).
 `image_processing::get_global_adjustments_from_json` reads them from `ResolvedRecipe::tone`,
-`ResolvedRecipe::color` and `ResolvedRecipe::detail`. `normalize(stored, is_raw)` applies RAW capture defaults to
-missing detail amounts; hidden amounts become neutral, sharpening parameters keep their defaults, and noise
-refinements remain stored. Detail value objects do not clamp; the renderer retains its existing conversions.
-Absolute white balance keeps the renderer's existing clamp; colour sliders otherwise retain their stored values
-until the existing rendering conversions. The crate is below the engine and depends on serde and serde_json only
+`ResolvedRecipe::color` and `ResolvedRecipe::detail`. The geometry warp and spatial preparation read
+`ResolvedRecipe::geometry`; geometry has no visibility gate, and its value objects retain stored numbers until the
+existing casts and rendering conversions. `normalize(stored, is_raw)` applies RAW capture defaults to missing
+detail amounts; hidden amounts become neutral, sharpening parameters keep their defaults, and noise refinements
+remain stored. Detail value objects do not clamp; the renderer retains its existing conversions. Absolute white
+balance keeps the renderer's existing clamp; colour sliders otherwise retain their stored values until the existing
+rendering conversions. The crate is below the engine and depends on serde and serde_json only
 (`scripts/check_layering.sh`). The `*Version` keys stay in `engine::recipe_versions` for now (their newest versions
-and `is_new_recipe` live with the engine's tools).
-The frontend's types of these keys are generated from the registry (plan 2.3): each section lists its keys with
-their TypeScript type and doc (`tone::TS`, `color::TS`, one entry per section in `ts::SECTIONS`), and `cargo run -p
-rawtonic-recipe --example ts_type` writes `src/generated/recipeKeys.ts` (checked in; `scripts/check.sh` fails when
-it is stale). Every generated key is optional, as in a saved recipe; `Adjustments` in `src/utils/adjustments.ts`
-marks those its objects always hold. Nested value types (`Hsl`, `ColorRange`, …) and the mask layers' adjustments
-stay written in `adjustments.ts`.
+and `is_new_recipe` live with the engine's tools). The frontend's types of these keys are generated from the
+registry (plan 2.3): each section lists its keys with their TypeScript type and doc (`tone::TS`, `color::TS`,
+`detail::TS`, `geometry::TS`, one entry per section in `ts::SECTIONS`), and `cargo run -p rawtonic-recipe --example
+ts_type` writes `src/generated/recipeKeys.ts` (checked in; `scripts/check.sh` fails when it is stale). Every
+generated key is optional, as in a saved recipe; `Adjustments` in `src/utils/adjustments.ts` marks those its
+objects always hold. Nested value types (`Hsl`, `ColorRange`, …) and the mask layers' adjustments stay written in
+`adjustments.ts`.
 
 #### `engine`
 
