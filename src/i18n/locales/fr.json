@@ -964,6 +964,21 @@
     "gpuStartFailed": "Rawtonic n'a pas pu démarrer le processeur graphique : les photos ne peuvent être ni développées ni exportées. Mettez à jour le pilote graphique et redémarrez Rawtonic. Détails : {{details}}",
     "operationFailed": "L’opération n’a pas pu être terminée."
   },
+  "gpuBackend": {
+    "fellBack": "Rawtonic s'est fermé la dernière fois en démarrant le processeur graphique avec {{crashed}}. Il utilise {{used}} pour l'instant et réessaiera {{crashed}} au prochain démarrage.",
+    "fellBackUnknown": "Rawtonic s'est fermé la dernière fois en démarrant le processeur graphique. Il utilise maintenant {{used}}.",
+    "inUse": "Utilisé : {{backend}} ({{adapter}})",
+    "inUseNone": "Utilisé : aucun processeur graphique démarré",
+    "kept": "{{crashed}} a de nouveau planté au démarrage du processeur graphique ; Rawtonic continue donc d'utiliser {{used}}. Préférences → Traitement → Revenir au choix automatique le réessaie une fois.",
+    "leftOut": "{{crashed}} a planté au démarrage de Rawtonic le {{date}}. {{avoided}} est laissé de côté jusqu'au prochain démarrage, qui le réessaiera.",
+    "leftOutKept": "{{crashed}} a planté au démarrage de Rawtonic le {{date}}, y compris lors du nouvel essai. {{avoided}} est laissé de côté jusqu'à ce que vous reveniez au choix automatique.",
+    "none": "aucun processeur graphique",
+    "openGl": "Le traitement utilise OpenGL, comme réglé dans Préférences → Traitement. Des versions antérieures de Rawtonic passaient d'elles-mêmes à OpenGL après un plantage graphique au démarrage ; « Auto » est recommandé.",
+    "openPreferences": "Ouvrir les Préférences",
+    "unknownBackend": "Le moteur graphique",
+    "useAutomatic": "Revenir au choix automatique",
+    "useAutomaticFailed": "La modification n'a pas pu être enregistrée."
+  },
   "library": {
     "filters": {
       "rating": {

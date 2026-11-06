@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Crash records for the crash report on the next start (ADR 0017,
-//! channel 2). A running app keeps a marker; a Rust panic and a fatal
-//! signal each leave a small note beside it. A clean exit removes all
-//! three. The next start turns notes left by a process that is gone into
+//! channel 2). A running app keeps a marker (with the phase of its start it
+//! is in); a Rust panic and a fatal signal each leave a small note beside
+//! it, and a native crash on Windows is found in Windows' Application log
+//! (`native`). A clean exit removes all three. The next start turns notes
+//! left by a process that is gone into
 //! one crash record of allowlisted fields — version, OS, GPU, the panic's
 //! message and location, backtrace frames reduced to function and file
 //! names, the previous run's last log lines, scrubbed — and asks once
@@ -136,6 +138,26 @@ struct RunMarker {
     app: AppInfo,
     #[serde(default)]
     gpu: Option<Gpu>,
+    /// The phase of the start the run was in ([`CrashStore::note_phase`]).
+    #[serde(default)]
+    phase: Option<String>,
+}
+
+/// The run a marker was left by, for finding how it ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EndedRun {
+    pub pid: u32,
+    /// When its marker was written (Unix seconds).
+    pub started: u64,
+}
+
+/// " (start phase: window; GPU device on vulkan)", " after its start".
+fn phase_words(phase: Option<&str>) -> String {
+    match phase {
+        None => String::new(),
+        Some("running") => " after its start".to_string(),
+        Some(phase) => format!(" (start phase: {phase})"),
+    }
 }
 
 /// The first panic of a run, reduced as the hook writes it.
@@ -437,6 +459,20 @@ impl CrashStore {
         scrubber: &Scrubber,
         keep: bool,
     ) -> std::io::Result<Option<CrashRecord>> {
+        self.start_with(run, alive, previous_log, |_| None, scrubber, keep)
+    }
+
+    /// [`Self::start`], where `native` finds how a run that left its marker
+    /// but no note ended (Windows' Application log, `native::find_crash`).
+    pub fn start_with(
+        &self,
+        run: &ThisRun,
+        alive: impl Fn(u32) -> bool,
+        previous_log: impl FnOnce() -> Option<String>,
+        native: impl FnOnce(EndedRun) -> Option<crate::native::NativeCrash>,
+        scrubber: &Scrubber,
+        keep: bool,
+    ) -> std::io::Result<Option<CrashRecord>> {
         std::fs::create_dir_all(&self.dir)?;
         let marker: Option<RunMarker> = read_json(&self.path(MARKER));
         if let Some(marker) = &marker
@@ -459,25 +495,49 @@ impl CrashStore {
                     .map_or(run.now, |d| d.as_secs());
                 (signal, at)
             });
+        // A run that is gone without a clean exit or a note.
+        let native = match &marker {
+            Some(m) if keep && m.pid != run.pid && panic.is_none() && signal.is_none() => {
+                native(EndedRun {
+                    pid: m.pid,
+                    started: m.started,
+                })
+            }
+            _ => None,
+        };
+        let phase = marker.as_ref().and_then(|m| m.phase.as_deref());
 
         let mut record = None;
-        if keep && (panic.is_some() || signal.is_some()) {
+        if keep && (panic.is_some() || signal.is_some() || native.is_some()) {
+            // A native crash's time is not known: its run's start is.
             let at = panic
                 .as_ref()
                 .map(|p| p.at)
                 .or(signal.map(|(_, at)| at))
+                .or(native.as_ref().and(marker.as_ref()).map(|m| m.started))
                 .unwrap_or(run.now);
-            let (message, location, backtrace) = match (&panic, signal) {
-                (Some(p), _) => (p.message.clone(), p.location.clone(), p.backtrace.clone()),
-                (None, Some((signal, _))) => (
+            let (message, location, backtrace) = match (&panic, signal, &native) {
+                (Some(p), _, _) => (p.message.clone(), p.location.clone(), p.backtrace.clone()),
+                (None, Some((signal, _)), _) => (
                     format!(
-                        "Rawtonic was ended by {} (no Rust panic was recorded; the fault was in native code such as a system library or graphics driver).",
-                        signal_name(signal)
+                        "Rawtonic was ended by {}{} (no Rust panic was recorded; the fault was in native code such as a system library or graphics driver).",
+                        signal_name(signal),
+                        phase_words(phase)
                     ),
                     "native code".to_string(),
                     None,
                 ),
-                (None, None) => unreachable!("checked above"),
+                (None, None, Some(crash)) => (
+                    format!(
+                        "Rawtonic was ended by {} in {}{} (no Rust panic was recorded; Windows reported the fault).",
+                        crash.what(),
+                        crash.place(),
+                        phase_words(phase)
+                    ),
+                    crash.place(),
+                    None,
+                ),
+                (None, None, None) => unreachable!("checked above"),
             };
             let new = CrashRecord {
                 id: format!("{}-{:016x}", run.now, random_suffix()),
@@ -508,9 +568,23 @@ impl CrashStore {
                 started: run.now,
                 app: run.app.clone(),
                 gpu: None,
+                phase: None,
             },
         )?;
         Ok(record)
+    }
+
+    /// Notes the phase of the start this run is in, in its marker: a crash
+    /// record says where the start was when it ended.
+    pub fn note_phase(&self, pid: u32, phase: &str) -> std::io::Result<()> {
+        let path = self.path(MARKER);
+        match read_json::<RunMarker>(&path) {
+            Some(mut marker) if marker.pid == pid => {
+                marker.phase = Some(phase.to_string());
+                write_json(&path, &marker)
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Adds the GPU to this run's marker once it is known.
@@ -1120,6 +1194,125 @@ mod tests {
         // Ids name files: nothing else is touched.
         store.remove("../running");
         assert!(store.path(MARKER).exists());
+    }
+
+    /// A run that left its marker but no note: the native crash found for
+    /// it (Windows' Application log) becomes a record naming the fault and
+    /// the start phase; without one, nothing is recorded (a forced quit).
+    #[test]
+    fn a_native_crash_found_for_a_vanished_run_is_recorded_with_its_phase() {
+        let (_dir, store) = store();
+        store
+            .start(&run(10, T0), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        store.note_phase(10, "gpu-device").unwrap();
+        // Another process's marker is not changed.
+        store.note_phase(99, "running").unwrap();
+        let mut asked = None;
+        let record = store
+            .start_with(
+                &run(11, T0 + 50),
+                |_| false,
+                || Some("last line\n".into()),
+                |ended| {
+                    asked = Some(ended);
+                    Some(crate::native::NativeCrash {
+                        code: 0xC000_0005,
+                        module: Some("nvoglv64.dll".into()),
+                        offset: Some(0x12e940),
+                    })
+                },
+                &scrubber(),
+                true,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            asked,
+            Some(EndedRun {
+                pid: 10,
+                started: T0
+            })
+        );
+        assert_eq!(record.location, "nvoglv64.dll+0x12e940");
+        assert!(
+            record.message.contains("access violation (0xC0000005)"),
+            "{}",
+            record.message
+        );
+        assert!(
+            record.message.contains("(start phase: gpu-device)"),
+            "{}",
+            record.message
+        );
+        assert_eq!(record.crashed_on, utc_date(T0));
+        assert_eq!(record.log_tail.as_deref(), Some("last line"));
+
+        // Run 11 vanished too, but nothing was found: no record. A clean
+        // previous exit, or Never, does not look.
+        let none = store
+            .start_with(
+                &run(12, T0 + 90),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(none, None);
+        store.clean_exit(12);
+        let looked = std::cell::Cell::new(false);
+        let clean = store
+            .start_with(
+                &run(13, T0 + 99),
+                |_| false,
+                || None,
+                |_| {
+                    looked.set(true);
+                    None
+                },
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(clean, None);
+        assert!(!looked.get());
+        let never = store
+            .start_with(
+                &run(14, T0 + 120),
+                |_| false,
+                || None,
+                |_| {
+                    looked.set(true);
+                    None
+                },
+                &scrubber(),
+                false,
+            )
+            .unwrap();
+        assert_eq!(never, None);
+        assert!(!looked.get());
+    }
+
+    /// A fatal signal's record names the phase the start was in.
+    #[test]
+    fn a_fatal_signal_names_the_start_phase() {
+        let (_dir, store) = store();
+        store
+            .start(&run(20, T0), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        store.note_phase(20, "gpu-start").unwrap();
+        std::fs::write(store.path(SIGNAL_NOTE), "6").unwrap();
+        let record = store
+            .start(&run(21, T0 + 5), |_| false, || None, &scrubber(), true)
+            .unwrap()
+            .unwrap();
+        assert!(
+            record.message.contains("SIGABRT (start phase: gpu-start)"),
+            "{}",
+            record.message
+        );
     }
 
     /// The panic hook writes the first panic of the run as a note that

@@ -33,6 +33,10 @@ pub struct GpuState {
     pub scope_cache: Mutex<Option<GpuImageCache>>,
     /// Why the GPU did not start, for the window (`gpu_start_error`).
     pub(crate) start_error: Mutex<Option<String>>,
+    /// Backends left out of device starts after a crash, and what this
+    /// start tells about it (`gpu_start_guard`); set once at start-up.
+    pub(crate) avoid_backends: Mutex<wgpu::Backends>,
+    pub(crate) start_notice: Mutex<Option<crate::gpu_start_guard::Notice>>,
     /// The window's newest size in device pixels (width << 32 | height), for
     /// a resize that waits for the display (`gpu_processing::resize_display`;
     /// an `Arc` so the waiting worker can own it).
@@ -49,6 +53,8 @@ impl Default for GpuState {
             crash_flag_path: Mutex::new(None),
             scope_cache: Mutex::new(None),
             start_error: Mutex::new(None),
+            avoid_backends: Mutex::new(wgpu::Backends::empty()),
+            start_notice: Mutex::new(None),
             window_size: Arc::new(AtomicU64::new(0)),
         }
     }
@@ -93,6 +99,23 @@ impl GpuState {
 
     pub(crate) fn crash_flag_path(&self) -> Option<PathBuf> {
         lock_recover(&self.crash_flag_path).clone()
+    }
+
+    pub(crate) fn avoid_backends(&self) -> wgpu::Backends {
+        *lock_recover(&self.avoid_backends)
+    }
+
+    pub(crate) fn set_start_guard(
+        &self,
+        avoid: wgpu::Backends,
+        notice: Option<crate::gpu_start_guard::Notice>,
+    ) {
+        *lock_recover(&self.avoid_backends) = avoid;
+        *lock_recover(&self.start_notice) = notice;
+    }
+
+    pub(crate) fn start_notice(&self) -> Option<crate::gpu_start_guard::Notice> {
+        lock_recover(&self.start_notice).clone()
     }
 
     pub(crate) fn set_start_error(&self, error: String) {

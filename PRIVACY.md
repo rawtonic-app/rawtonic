@@ -109,8 +109,15 @@ filed until you submit it there with your own GitHub account.
   version, operating system, graphics card, the error message and the place
   in the source code where it happened (the message can be corrected before
   sending), the names of the functions that were
-  running with their source file names (no folders), and the last 200 lines
-  of the log of that run, with the same removal of personal data. A quit
+  running with their source file names (no folders), the step of the start
+  Rawtonic was in (such as "window" or "GPU device on vulkan"), and the last
+  200 lines of the log of that run, with the same removal of personal data.
+  On Windows, when Rawtonic ended without such an error (an access violation,
+  a stack overflow or an abort in native code, often a graphics driver), the
+  next start reads Windows' own entry for that crash of Rawtonic from the
+  Windows Application log (only "Application Error" entries for Rawtonic's
+  program and that run's process) and keeps the exception code and the file
+  name and offset of the module where it happened (no folders). A quit
   forced from outside or a power loss leaves no record. At the next start
   Rawtonic asks once per crash whether to send it. "Not now" keeps the record
   (you can still send it from "Report a problem"), "Never" deletes all
