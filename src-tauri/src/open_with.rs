@@ -899,7 +899,14 @@ fn watched() -> &'static Mutex<Watched> {
 fn refresh_identity(render: &Path, library: &Path) {
     let result = crate::session_bridge::with_library_blocking(library, |lib| {
         match lib.asset_at(render).map_err(|e| e.to_string())? {
-            Some(asset) => lib.file_saved(&asset.id).map_err(|e| e.to_string()),
+            Some(asset) => {
+                let saved = lib.file_saved(&asset.id).map_err(|e| e.to_string());
+                // Our own write: the open photograph's file is this one now.
+                if crate::session_bridge::file_replaced_since_open(render).is_some() {
+                    crate::session_bridge::note_file_opened(render);
+                }
+                saved
+            }
             None => Ok(()),
         }
     });

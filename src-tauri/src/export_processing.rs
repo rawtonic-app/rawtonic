@@ -1389,6 +1389,14 @@ fn export_photo(
     }
 
     let is_current_edit = is_open_edit(image_path_str, open_path);
+    // The open photograph's file is another one than the user opened (a
+    // sync tool replaced it): the edit made on the old image is not exported
+    // from the new one; the editor offers Reload.
+    if is_current_edit
+        && let Some(message) = crate::session_bridge::file_replaced_since_open(&source_path)
+    {
+        return fail_all(message.to_string());
+    }
     // Only what the export was submitted with (`pin_photos`): no recipe or
     // metadata is read from a library now.
     let mut pinned = match pinned {
