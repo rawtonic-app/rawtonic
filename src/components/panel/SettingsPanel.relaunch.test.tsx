@@ -56,3 +56,23 @@ it('Save & Relaunch keeps the app open, says why and offers the button again whe
   await user.click(screen.getByRole('button', { name: i18n.t('settings.processing.saveRelaunch') }));
   await vi.waitFor(() => expect(relaunch).toHaveBeenCalledTimes(1));
 });
+
+it('Save & Relaunch reports a settings write that never finishes instead of waiting for it', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    vi.mocked(invoke).mockImplementation((command) =>
+      command === Invokes.SaveSettings ? new Promise(() => undefined) : Promise.resolve([])
+    );
+    useSettingsStore.setState({ appSettings: { useWgpuRenderer: true } as AppSettings });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<Wired />);
+    await user.click(screen.getByRole('button', { name: i18n.t('settings.categories.processing') }));
+    await user.click(screen.getByLabelText(i18n.t('settings.processing.wgpuLabel')));
+    await user.click(screen.getByRole('button', { name: i18n.t('settings.processing.saveRelaunch') }));
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect((await screen.findByRole('alert')).textContent).toBe(i18n.t('settings.processing.saveRelaunchFailed'));
+    expect(relaunch).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
