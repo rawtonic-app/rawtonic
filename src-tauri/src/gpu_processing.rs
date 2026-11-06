@@ -116,10 +116,14 @@ pub struct GpuBackendStatus {
 
 fn gpu_backend_status_blocking(app_handle: &tauri::AppHandle) -> Result<GpuBackendStatus, String> {
     let gpu = app_handle.state::<GpuState>();
-    // Waits for the device the start thread is creating; a start that
-    // failed is not repeated here.
-    if gpu.start_error().is_none() {
-        let _ = get_or_init_gpu_context(&gpu, app_handle);
+    // Waits (at most 20 s) for the start thread's device or its failure;
+    // never starts one itself.
+    let waited = std::time::Instant::now();
+    while gpu.context().is_none()
+        && gpu.start_error().is_none()
+        && waited.elapsed() < std::time::Duration::from_secs(20)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     let info = lock_recover(&gpu.adapter)
         .as_ref()
