@@ -24,7 +24,6 @@ function backend(start: AlbumItem[]) {
       return tree;
     }
     await new Promise((resolve) => setTimeout(resolve, 5));
-    if (command === Invokes.SaveAlbums) stored = structuredClone(args.tree as AlbumItem[]);
     if (command === Invokes.LibraryChange) {
       stored = applyMockAlbumChange(stored, args.change as AlbumChange);
     }

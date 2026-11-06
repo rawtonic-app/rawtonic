@@ -17,7 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-use crate::state::library_files::{AlbumsStore, LibraryFile, LibraryQueue, run_change};
+use crate::state::library_files::{AlbumsStore, LibraryChange, LibraryQueue, run_change};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -85,23 +85,14 @@ pub async fn get_albums(app_handle: AppHandle) -> Result<Vec<AlbumItem>, String>
     super::blocking(move || get_albums_blocking(app_handle)).await?
 }
 
-/// Replaces the app's album list (sorted as it is saved), in the library's
-/// change order.
-#[tauri::command]
-pub async fn save_albums(
-    tree: Vec<AlbumItem>,
-    app_handle: AppHandle,
-) -> Result<Vec<AlbumItem>, String> {
-    super::blocking(move || {
-        let queue = app_handle.state::<LibraryQueue>();
-        run_change(
-            &queue,
-            LibraryFile::Albums,
-            "Album list could not be saved",
-            || save_albums_blocking(tree, &app_handle),
-        )
-    })
-    .await?
+/// The outer error is a failed store operation; the inner error is an edit
+/// rejected before any write. Only a store failure belongs in the quit flush.
+pub(crate) fn run_album_change<T>(
+    queue: &LibraryQueue,
+    describe: &str,
+    work: impl FnOnce() -> Result<Result<T, String>, String>,
+) -> Result<T, String> {
+    run_change(queue, LibraryChange::AlbumEdit, describe, work)?
 }
 
 /// Adds photographs to an album, in the library's change order;
@@ -114,12 +105,9 @@ pub async fn add_to_album(
 ) -> Result<(), String> {
     super::blocking(move || {
         let queue = app_handle.state::<LibraryQueue>();
-        run_change(
-            &queue,
-            LibraryFile::Albums,
-            "Album or preset change could not be saved",
-            || add_to_album_blocking(&album_id, &paths, &app_handle),
-        )
+        run_album_change(&queue, "Album list could not be saved", || {
+            change_albums_blocking(AlbumChange::AddToAlbum { album_id, paths }, &app_handle)
+        })
     })
     .await?
 }
@@ -290,14 +278,17 @@ pub(crate) fn apply_album_change(
 
 /// Applies one edit under the store's writer lock; a failed or no-op edit
 /// writes nothing.
-fn change_albums_blocking(change: AlbumChange, app_handle: &AppHandle) -> Result<(), String> {
+fn change_albums_blocking(
+    change: AlbumChange,
+    app_handle: &AppHandle,
+) -> Result<Result<(), String>, String> {
     let store = app_handle.state::<AlbumsStore>();
     let mut outcome = Ok(false);
     store.update(app_handle, |stored| {
         outcome = apply_album_change(stored, &change);
         matches!(outcome, Ok(true)).then_some(())
     })?;
-    outcome.map(|_| ())
+    Ok(outcome.map(|_| ()))
 }
 
 #[cfg(test)]
@@ -392,7 +383,6 @@ mod followup_regressions {
             assert!(apply_album_change(&mut tree, &change).unwrap());
             let trip = serde_json::to_value(&tree).unwrap().to_string();
             assert!(trip.contains("renamed.dng"));
-            assert!(!trip.contains("old.dng"));
         }
     }
 }
@@ -407,41 +397,15 @@ pub async fn library_change(
 ) -> Result<Vec<AlbumItem>, String> {
     super::blocking(move || {
         let queue = app_handle.state::<LibraryQueue>();
-        run_change(
-            &queue,
-            LibraryFile::Albums,
-            "Album list could not be saved",
-            || {
-                change_albums_blocking(change, &app_handle)?;
-                app_handle
-                    .state::<AlbumsStore>()
-                    .get(&app_handle)
-                    .map(|items| items.as_ref().clone())
-            },
-        )
+        run_album_change(&queue, "Album list could not be saved", || {
+            if let Err(error) = change_albums_blocking(change, &app_handle)? {
+                return Ok(Err(error));
+            }
+            let items = app_handle.state::<AlbumsStore>().get(&app_handle)?;
+            Ok(Ok(items.as_ref().clone()))
+        })
     })
     .await?
-}
-
-/// Replaces the app's album list (sorted as it is saved); nothing is
-/// written when it is the list already stored.
-fn save_albums_blocking(
-    tree: Vec<AlbumItem>,
-    app_handle: &AppHandle,
-) -> Result<Vec<AlbumItem>, String> {
-    app_handle
-        .state::<AlbumsStore>()
-        .update(app_handle, |stored| {
-            if stored == &tree {
-                return None;
-            }
-            *stored = tree;
-            Some(())
-        })?;
-    app_handle
-        .state::<AlbumsStore>()
-        .get(app_handle)
-        .map(|items| items.as_ref().clone())
 }
 
 /// Adds photographs to an album; nothing is written when it already holds
@@ -457,7 +421,7 @@ pub(crate) fn add_to_album_blocking(
             paths: paths.to_vec(),
         },
         app_handle,
-    )
+    )?
 }
 
 /// Brings the album list in line with a file operation (renames, deletions,

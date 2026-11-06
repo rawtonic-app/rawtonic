@@ -8,7 +8,7 @@ import { Invokes } from '../components/ui/AppProperties';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos' }));
 
-const tree = (name: string) => [{ type: 'album', id: name, name, images: [] }];
+const rename = (name: string) => ({ kind: 'rename', id: 'a', name });
 
 /** Unregisters the app's queues; quitting runs them as `main.tsx` has. */
 let unregisterAppWrites: () => void = () => undefined;
@@ -27,7 +27,7 @@ it('quitting waits for the album and preset changes through one library flush', 
   const finishAlbums: Array<() => void> = [];
   let flushes = 0;
   vi.mocked(invoke).mockImplementation(((command: Invokes) => {
-    if (command === Invokes.SaveAlbums)
+    if (command === Invokes.LibraryChange)
       return new Promise<undefined>((resolve) => finishAlbums.push(() => resolve(undefined)));
     if (command === Invokes.LibraryFlush) {
       flushes += 1;
@@ -35,7 +35,7 @@ it('quitting waits for the album and preset changes through one library flush', 
     }
     return Promise.resolve(undefined);
   }) as typeof invoke);
-  void libraryChanges.enqueue(() => invoke(Invokes.SaveAlbums, { tree: tree('Queued before quitting') }));
+  void libraryChanges.enqueue(() => invoke(Invokes.LibraryChange, { change: rename('Queued before quitting') }));
   vi.useFakeTimers();
   let done: string[] | null = null;
   const quitting = flushBeforeQuit().then((failures) => (done = failures));
@@ -53,5 +53,5 @@ it('quitting waits for the album and preset changes through one library flush', 
   expect(done).toEqual(['Preset list could not be saved: disk full']);
   expect(flushes).toBe(1);
   const calls = vi.mocked(invoke).mock.calls.map(([command]) => command);
-  expect(calls.indexOf(Invokes.SaveAlbums)).toBeLessThan(calls.indexOf(Invokes.LibraryFlush));
+  expect(calls.indexOf(Invokes.LibraryChange)).toBeLessThan(calls.indexOf(Invokes.LibraryFlush));
 });

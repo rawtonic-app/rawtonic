@@ -52,11 +52,15 @@ then `current`, held for a whole read-modify-write including the atomic file wri
 file's write lock, never on another store's.
 
 `LibraryQueue` has one mutex and one condvar. A command records its pending change and waits for
-its predecessors, then releases the queue lock before taking a store's locks. It records the outcome
-only after releasing the store's locks. A flush waits up to `FLUSH_TIMEOUT` (10 s) for the real pending
+its predecessors for up to `ENTRY_GRACE` (30 s), then releases the queue lock before taking a
+store's locks. The condvar is always waited on with a timeout. A timed-out change returns an error
+without running its work; the predecessor keeps its turn. It records the outcome only after
+releasing the store's locks. A flush waits up to `FLUSH_TIMEOUT` (10 s) for the real pending
 changes received before it, including imports still parsing files; a flush never becomes pending work
-itself. Failures are kept per file until reported, and a later success of that file clears its older
-failure. Imports parse and merge in their one ordered change; the frontend sends one command at a time.
+itself. Failures are kept per file until reported; only a successful whole-list preset save clears
+its file's older failure. Album edits and preset imports cannot repair an earlier failed edit.
+An edit rejected because its target album is gone returns an error to its caller without recording
+a save failure. Imports parse and merge in their one ordered change; the frontend sends one command at a time.
 
 The touched photographs are all read and the sidecar writes all done before the lock is taken (an album
 change waits on no file of the photographs); and no code takes one of the stores' locks while holding

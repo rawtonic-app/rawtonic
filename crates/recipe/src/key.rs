@@ -35,15 +35,6 @@ impl KeyValue for bool {
     }
 }
 
-impl KeyValue for u64 {
-    fn from_json(json: &Value) -> Option<Self> {
-        json.as_u64()
-    }
-    fn to_json(&self) -> Value {
-        (*self).into()
-    }
-}
-
 /// One key of the recipe: its name in the saved JSON, the value it means
 /// when absent (or of another type), and the version of its section's
 /// version key (`toneVersion` for [`crate::tone`], …) from which the

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { Invokes, type AlbumItem } from '../components/ui/AppProperties';
+import { Invokes } from '../components/ui/AppProperties';
 
 /** How long quitting, Save & Relaunch and a library switch wait for the
  * backend to write what they sent before they report it unsaved. */
@@ -106,10 +106,6 @@ export type LibraryQueue = ReturnType<typeof makeLibraryQueue>;
  * `beforeFlush` sends the preset list a debounce still holds back (see
  * `usePresets`). */
 export const libraryChanges = makeLibraryQueue({ beforeFlush: () => pendingPresets?.() });
-
-/** Saves the album list (`albums.json`), in order. */
-export const saveAlbums = (tree: unknown) =>
-  libraryChanges.enqueue(() => invoke<AlbumItem[]>(Invokes.SaveAlbums, { tree }));
 
 /** Saves the user's presets (`presets.json`), in order. */
 export const savePresets = (presets: unknown) =>

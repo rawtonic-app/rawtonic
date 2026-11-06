@@ -6163,7 +6163,7 @@ pub fn defringe_version(adjustments: &serde_json::Value) -> u64 {
 }
 
 /// The recipe key naming the B&W mix response a recipe was made with.
-pub const BW_VERSION_KEY: &str = rawtonic_recipe::color::BW_VERSION.name();
+pub const BW_VERSION_KEY: &str = "bwVersion";
 /// The newest B&W mix response: 2 (2026-11-03) lowers more strongly the
 /// further a slider is pulled, as Lightroom's and Capture One's mixes do
 /// (−100 darkens about 2.3 times as much as −50, against 1.8 times in
@@ -8164,12 +8164,7 @@ mod editing_tool_tests {
             let recipe = json!({"hsl": nested, "colorGrading": nested});
             let resolved = rawtonic_recipe::normalize(StoredRef::new(&recipe));
             let old_hsl = parse_hsl_adjustments(&nested);
-            let new_hsl = resolved.color.hsl.channels.map(|channel| HslColor {
-                hue: channel.hue as f32 * SCALES.hsl_hue_multiplier,
-                saturation: channel.saturation as f32 / SCALES.hsl_saturation,
-                luminance: channel.luminance as f32 / SCALES.hsl_luminance,
-                _pad: 0.0,
-            });
+            let new_hsl = get_global_adjustments_from_json(&recipe, true, None).hsl;
             assert_eq!(bytemuck::bytes_of(&old_hsl), bytemuck::bytes_of(&new_hsl));
             assert_eq!(
                 crate::color_grading::Grading::from_json(&nested),

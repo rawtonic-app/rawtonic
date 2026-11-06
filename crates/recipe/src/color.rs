@@ -18,21 +18,34 @@ pub const COLOR_RANGES: Key<StoredColorRanges> =
     Key::new("colorRanges", StoredColorRanges(Vec::new()), 1);
 pub const COLOR_RANGE_SHOW: Key<String> = Key::new("colorRangeShow", String::new(), 1);
 pub const RANGE_ID: Key<String> = Key::new("id", String::new(), 1);
-pub const RANGE_KEYS: [Key<f64>; 12] = [
-    Key::new("hue", 0.0, 1),
-    Key::new("chroma", 0.0, 1),
-    Key::new("lightness", 0.5, 1),
-    Key::new("lightnessRange", 100.0, 1),
-    Key::new("hueRange", 25.0, 1),
-    Key::new("chromaRange", 70.0, 1),
-    Key::new("smoothness", 50.0, 1),
-    Key::new("hueShift", 0.0, 1),
-    Key::new("saturation", 0.0, 1),
-    Key::new("lightnessShift", 0.0, 1),
-    Key::new("hueUniformity", 0.0, 1),
-    Key::new("saturationUniformity", 0.0, 1),
+pub const RANGE_HUE: Key<f64> = Key::new("hue", 0.0, 1);
+pub const RANGE_CHROMA: Key<f64> = Key::new("chroma", 0.0, 1);
+pub const RANGE_LIGHTNESS: Key<f64> = Key::new("lightness", 0.5, 1);
+pub const RANGE_LIGHTNESS_RANGE: Key<f64> = Key::new("lightnessRange", 100.0, 1);
+pub const RANGE_HUE_RANGE: Key<f64> = Key::new("hueRange", 25.0, 1);
+pub const RANGE_CHROMA_RANGE: Key<f64> = Key::new("chromaRange", 70.0, 1);
+pub const RANGE_SMOOTHNESS: Key<f64> = Key::new("smoothness", 50.0, 1);
+pub const RANGE_HUE_SHIFT: Key<f64> = Key::new("hueShift", 0.0, 1);
+pub const RANGE_SATURATION: Key<f64> = Key::new("saturation", 0.0, 1);
+pub const RANGE_LIGHTNESS_SHIFT: Key<f64> = Key::new("lightnessShift", 0.0, 1);
+pub const RANGE_HUE_UNIFORMITY: Key<f64> = Key::new("hueUniformity", 0.0, 1);
+pub const RANGE_SATURATION_UNIFORMITY: Key<f64> = Key::new("saturationUniformity", 0.0, 1);
+pub const RANGE_LIGHTNESS_UNIFORMITY: Key<f64> = Key::new("lightnessUniformity", 0.0, 1);
+pub const RANGE_KEYS: [Key<f64>; 13] = [
+    RANGE_HUE,
+    RANGE_CHROMA,
+    RANGE_LIGHTNESS,
+    RANGE_LIGHTNESS_RANGE,
+    RANGE_HUE_RANGE,
+    RANGE_CHROMA_RANGE,
+    RANGE_SMOOTHNESS,
+    RANGE_HUE_SHIFT,
+    RANGE_SATURATION,
+    RANGE_LIGHTNESS_SHIFT,
+    RANGE_HUE_UNIFORMITY,
+    RANGE_SATURATION_UNIFORMITY,
+    RANGE_LIGHTNESS_UNIFORMITY,
 ];
-pub const LIGHTNESS_UNIFORMITY: Key<f64> = Key::new("lightnessUniformity", 0.0, 1);
 
 /// An array as saved, retaining unknown fields and ranges beyond the renderer's limit.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -69,7 +82,6 @@ pub struct ColorRanges {
     pub count: usize,
     pub shown: Option<usize>,
 }
-pub const BW_VERSION: Key<u64> = Key::new("bwVersion", 1, 1);
 pub const GRAY_MIXER: Key<GrayMixer> = Key::new("grayMixer", GrayMixer { channels: [0.0; 8] }, 1);
 pub const GRAY_CHANNELS: [Key<f64>; 8] = [
     Key::new("red", 0.0, 1),
@@ -198,24 +210,17 @@ impl KeyValue for Hsl {
         let object = value.as_object()?;
         let channels = std::array::from_fn(|i| {
             let channel = object.get(HSL_CHANNELS[i].name()).unwrap_or(&Value::Null);
-            let read = |key: &Key<f64>| {
-                channel
-                    .get(key.name())
-                    .and_then(Value::as_f64)
-                    .unwrap_or(key.default())
-            };
-            HslChannel {
-                hue: read(&HUE),
-                saturation: read(&SATURATION),
-                luminance: read(&LUMINANCE),
-            }
+            HslChannel::from_json(channel).unwrap_or_default()
         });
         Some(Self { channels })
     }
     fn to_json(&self) -> Value {
-        let channels = self.channels.iter().enumerate().map(|(i, channel)| {
-            (HSL_CHANNELS[i].name().into(), serde_json::json!({HUE.name(): channel.hue, SATURATION.name(): channel.saturation, LUMINANCE.name(): channel.luminance}))
-        }).collect();
+        let channels = self
+            .channels
+            .iter()
+            .enumerate()
+            .map(|(i, channel)| (HSL_CHANNELS[i].name().into(), channel.to_json()))
+            .collect();
         Value::Object(channels)
     }
 }
@@ -258,11 +263,7 @@ impl KeyValue for Grading {
         Some(Self {
             wheels: GRADING_WHEELS.map(|key| {
                 let wheel = value.get(key.name()).unwrap_or(&Value::Null);
-                HslChannel {
-                    hue: read(wheel, &HUE),
-                    saturation: read(wheel, &SATURATION),
-                    luminance: read(wheel, &LUMINANCE),
-                }
+                HslChannel::from_json(wheel).unwrap_or_default()
             }),
             blending: read(value, &BLENDING),
             balance: read(value, &BALANCE),
@@ -271,7 +272,7 @@ impl KeyValue for Grading {
     fn to_json(&self) -> Value {
         let mut map = serde_json::Map::new();
         for (name, wheel) in GRADING_WHEELS.iter().zip(self.wheels) {
-            map.insert(name.name().into(), serde_json::json!({HUE.name(): wheel.hue, SATURATION.name(): wheel.saturation, LUMINANCE.name(): wheel.luminance}));
+            map.insert(name.name().into(), wheel.to_json());
         }
         map.insert(BLENDING.name().into(), self.blending.into());
         map.insert(BALANCE.name().into(), self.balance.into());
@@ -500,6 +501,9 @@ pub struct WhiteBalanceSetting {
     pub tint: WhiteBalanceTint,
 }
 
+/// Resolved sliders, HSL and colour ranges are already neutral when hidden.
+/// Grading, calibration, gray mixer and white balance retain their stored values;
+/// consumers must apply their `*_visible` flags (or `black_and_white` for the mixer).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Color {
@@ -536,19 +540,19 @@ impl Color {
                             .unwrap_or(key.default())
                     };
                     color_ranges.ranges[i] = ColorRange {
-                        hue: read(&RANGE_KEYS[0]),
-                        chroma: read(&RANGE_KEYS[1]),
-                        lightness: read(&RANGE_KEYS[2]),
-                        lightness_range: read(&RANGE_KEYS[3]),
-                        hue_range: read(&RANGE_KEYS[4]),
-                        chroma_range: read(&RANGE_KEYS[5]),
-                        smoothness: read(&RANGE_KEYS[6]),
-                        hue_shift: read(&RANGE_KEYS[7]),
-                        saturation: read(&RANGE_KEYS[8]),
-                        lightness_shift: read(&RANGE_KEYS[9]),
-                        hue_uniformity: read(&RANGE_KEYS[10]),
-                        saturation_uniformity: read(&RANGE_KEYS[11]),
-                        lightness_uniformity: read(&LIGHTNESS_UNIFORMITY),
+                        hue: read(&RANGE_HUE),
+                        chroma: read(&RANGE_CHROMA),
+                        lightness: read(&RANGE_LIGHTNESS),
+                        lightness_range: read(&RANGE_LIGHTNESS_RANGE),
+                        hue_range: read(&RANGE_HUE_RANGE),
+                        chroma_range: read(&RANGE_CHROMA_RANGE),
+                        smoothness: read(&RANGE_SMOOTHNESS),
+                        hue_shift: read(&RANGE_HUE_SHIFT),
+                        saturation: read(&RANGE_SATURATION),
+                        lightness_shift: read(&RANGE_LIGHTNESS_SHIFT),
+                        hue_uniformity: read(&RANGE_HUE_UNIFORMITY),
+                        saturation_uniformity: read(&RANGE_SATURATION_UNIFORMITY),
+                        lightness_uniformity: read(&RANGE_LIGHTNESS_UNIFORMITY),
                     };
                     if color_ranges.shown.is_none()
                         && shown.is_some()
