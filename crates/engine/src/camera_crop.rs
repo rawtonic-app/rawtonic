@@ -10,10 +10,10 @@
 //! into the recipe, a Reset starts from it again; an edited recipe keeps
 //! its own crop (none included), so its exports stay byte-identical.
 
-use rawtonic_recipe::geometry;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
+use rawtonic_recipe::geometry;
 use serde_json::Value;
 
 pub use rawtonic_rawdecode::camera_crop::CameraCrop;

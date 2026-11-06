@@ -5,8 +5,9 @@
 //! negative. Measured against Lightroom's crop Auto and Camera Raw's Upright
 //! Level on held-out photographs, thresholds set against a separate tuning
 //! half: docs/testing/auto-straighten.md (results and the remaining gaps).
-use rawtonic_recipe::geometry;
 use std::f64::consts::PI;
+
+use rawtonic_recipe::geometry;
 
 use crate::upright::{Segment, vanishing_point, wrap_half_turn};
 

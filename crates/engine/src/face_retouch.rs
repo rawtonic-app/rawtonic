@@ -27,11 +27,11 @@
 //!
 //! Scales follow the face: the eye distance in base pixels.
 
-use rawtonic_recipe::geometry;
 use std::io::Cursor;
 
 use base64::{Engine as _, engine::general_purpose};
 use image::{GrayImage, Rgb32FImage};
+use rawtonic_recipe::geometry;
 use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
