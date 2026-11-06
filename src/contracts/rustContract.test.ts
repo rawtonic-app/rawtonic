@@ -44,8 +44,11 @@ describe('settings', () => {
     const rust = read('src-tauri/src/app_settings.rs');
     const start = rust.indexOf('pub struct AppSettings {');
     const body = rust.slice(start, rust.indexOf('\n}', start));
-    expect(body).not.toMatch(/#\[serde\((rename|alias|flatten)\b/);
-    const rustFields = new Set([...body.matchAll(/^\s+pub ([a-z0-9_]+):/gm)].map(([, name]) => camel(name)));
+    // The one flatten is the bag of keys a newer release wrote, kept through
+    // a save (`unknown`); it is not a setting the frontend knows.
+    const typed = body.replace(/#\[serde\(flatten\)\]\s+pub unknown:[^\n]*\n?/, '');
+    expect(typed).not.toMatch(/#\[serde\((rename|alias|flatten)\b/);
+    const rustFields = new Set([...typed.matchAll(/^\s+pub ([a-z0-9_]+):/gm)].map(([, name]) => camel(name)));
     const ts = read('src/components/ui/AppProperties.tsx');
     const tsStart = ts.indexOf('export interface AppSettings {');
     const tsBody = ts.slice(tsStart, ts.indexOf('\n}', tsStart));
