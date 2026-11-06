@@ -4768,6 +4768,15 @@ fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8] {
     hsl_array
 }
 
+fn resolved_color_grade_settings(wheel: rawtonic_recipe::color::HslChannel) -> ColorGradeSettings {
+    ColorGradeSettings {
+        hue: wheel.hue as f32,
+        saturation: wheel.saturation as f32 / SCALES.color_grading_saturation,
+        luminance: wheel.luminance as f32 / SCALES.color_grading_luminance,
+        _pad: 0.0,
+    }
+}
+
 fn parse_color_grade_settings(js_cg: &serde_json::Value) -> ColorGradeSettings {
     if js_cg.is_null() {
         return ColorGradeSettings::default();
@@ -5149,6 +5158,7 @@ fn get_global_adjustments_from_json(
     // sections are still read from the stored recipe below.
     let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments));
     let tone = &resolved.tone;
+    let color = &resolved.color;
     let visibility = js_adjustments.get("sectionVisibility");
     let is_visible = |section: &str| -> bool {
         visibility
@@ -5232,36 +5242,22 @@ fn get_global_adjustments_from_json(
         Vec::new()
     };
 
-    let cg_obj = js_adjustments
-        .get("colorGrading")
-        .cloned()
-        .unwrap_or_default();
-
-    let cal_obj = js_adjustments
-        .get("colorCalibration")
-        .cloned()
-        .unwrap_or_default();
-
     // The Classic and AgX looks' inherited grading and calibration follow
     // their tool switches from `renderVersion` 2 (the other looks always did).
     let switches = versions.render.look_tool_switches();
-    let classic_grading = is_visible("color") && (!switches || tool_on("colorGrading"));
-    let classic_calibration = is_visible("color") && (!switches || tool_on("colorCalibration"));
+    let classic_grading = is_visible("color") && (!switches || color.grading_visible);
+    let classic_calibration = is_visible("color") && (!switches || color.calibration_visible);
     let color_cal_settings = if classic_calibration {
         ColorCalibrationSettings {
-            shadows_tint: cal_obj["shadowsTint"].as_f64().unwrap_or(0.0) as f32
-                / SCALES.color_calibration_hue,
-            red_hue: cal_obj["redHue"].as_f64().unwrap_or(0.0) as f32
-                / SCALES.color_calibration_hue,
-            red_saturation: cal_obj["redSaturation"].as_f64().unwrap_or(0.0) as f32
+            shadows_tint: color.calibration.shadows_tint as f32 / SCALES.color_calibration_hue,
+            red_hue: color.calibration.hue[0] as f32 / SCALES.color_calibration_hue,
+            red_saturation: color.calibration.saturation[0] as f32
                 / SCALES.color_calibration_saturation,
-            green_hue: cal_obj["greenHue"].as_f64().unwrap_or(0.0) as f32
-                / SCALES.color_calibration_hue,
-            green_saturation: cal_obj["greenSaturation"].as_f64().unwrap_or(0.0) as f32
+            green_hue: color.calibration.hue[1] as f32 / SCALES.color_calibration_hue,
+            green_saturation: color.calibration.saturation[1] as f32
                 / SCALES.color_calibration_saturation,
-            blue_hue: cal_obj["blueHue"].as_f64().unwrap_or(0.0) as f32
-                / SCALES.color_calibration_hue,
-            blue_saturation: cal_obj["blueSaturation"].as_f64().unwrap_or(0.0) as f32
+            blue_hue: color.calibration.hue[2] as f32 / SCALES.color_calibration_hue,
+            blue_saturation: color.calibration.saturation[2] as f32
                 / SCALES.color_calibration_saturation,
             _pad1: 0.0,
         }
@@ -5306,11 +5302,11 @@ fn get_global_adjustments_from_json(
         whites: tone.whites.get() as f32 / SCALES.whites,
         blacks: tone.blacks.get() as f32 / SCALES.blacks,
 
-        saturation: get_val("color", "saturation", SCALES.saturation, None),
-        temperature: get_val("color", "temperature", SCALES.temperature, None),
-        tint: get_val("color", "tint", SCALES.tint, None),
-        vibrance: get_val("color", "vibrance", SCALES.vibrance, None),
-        hue: get_val("color", "hue", 1.0, None),
+        saturation: color.saturation.get() as f32 / SCALES.saturation,
+        temperature: color.temperature.get() as f32 / SCALES.temperature,
+        tint: color.tint.get() as f32 / SCALES.tint,
+        vibrance: color.vibrance.get() as f32 / SCALES.vibrance,
+        hue: color.hue.get() as f32,
         color_noise_speck: 0.0,
         luma_speck: if versions.luma_noise.removes_specks() {
             1.0
@@ -5403,39 +5399,37 @@ fn get_global_adjustments_from_json(
         color_noise_guide: 0.0,
         color_noise_guide_k2: 0.0,
         color_grading_shadows: if classic_grading {
-            parse_color_grade_settings(&cg_obj["shadows"])
+            resolved_color_grade_settings(color.grading.wheels[0])
         } else {
             ColorGradeSettings::default()
         },
         color_grading_midtones: if classic_grading {
-            parse_color_grade_settings(&cg_obj["midtones"])
+            resolved_color_grade_settings(color.grading.wheels[1])
         } else {
             ColorGradeSettings::default()
         },
         color_grading_highlights: if classic_grading {
-            parse_color_grade_settings(&cg_obj["highlights"])
+            resolved_color_grade_settings(color.grading.wheels[2])
         } else {
             ColorGradeSettings::default()
         },
         color_grading_global: if classic_grading {
-            parse_color_grade_settings(&cg_obj["global"])
+            resolved_color_grade_settings(color.grading.wheels[3])
         } else {
             ColorGradeSettings::default()
         },
         color_grading_blending: if classic_grading {
-            cg_obj["blending"].as_f64().unwrap_or(50.0) as f32 / SCALES.color_grading_blending
+            color.grading.blending as f32 / SCALES.color_grading_blending
         } else {
             0.5
         },
         color_grading_balance: if classic_grading {
-            cg_obj["balance"].as_f64().unwrap_or(0.0) as f32 / SCALES.color_grading_balance
+            color.grading.balance as f32 / SCALES.color_grading_balance
         } else {
             0.0
         },
         grading_active: 0,
-        bw_enabled: if is_visible("color")
-            && js_adjustments["blackAndWhite"].as_bool().unwrap_or(false)
-        {
+        bw_enabled: if color.black_and_white {
             versions.bw.get() as u32
         } else {
             0
@@ -5443,11 +5437,12 @@ fn get_global_adjustments_from_json(
 
         color_calibration: color_cal_settings,
 
-        hsl: if is_visible("color") && tool_on("hsl") {
-            parse_hsl_adjustments(&js_adjustments.get("hsl").cloned().unwrap_or_default())
-        } else {
-            [HslColor::default(); 8]
-        },
+        hsl: color.hsl.channels.map(|channel| HslColor {
+            hue: channel.hue as f32 * SCALES.hsl_hue_multiplier,
+            saturation: channel.saturation as f32 / SCALES.hsl_saturation,
+            luminance: channel.luminance as f32 / SCALES.hsl_luminance,
+            _pad: 0.0,
+        }),
         luma_curve: convert_points_to_aligned(luma_points.clone()),
         red_curve: convert_points_to_aligned(red_points.clone()),
         green_curve: convert_points_to_aligned(green_points.clone()),
@@ -5475,7 +5470,11 @@ fn get_global_adjustments_from_json(
         ),
         profile_curve: [[0.0; 4]; 16],
         grading_lut: [[0.0; 4]; GRADING_LUT_SIZE],
-        bw_mix: gray_mixer(&js_adjustments["grayMixer"]),
+        bw_mix: std::array::from_fn(|i| {
+            std::array::from_fn(|j| {
+                (color.gray_mixer.channels[i * 4 + j] / 100.0).clamp(-1.0, 1.0) as f32
+            })
+        }),
         levels: [[0.0, 1.0, 1.0, 0.0]; 4],
         levels_white: [1.0; 4],
         levels_active: [0; 4],
@@ -5537,8 +5536,8 @@ fn get_global_adjustments_from_json(
         } else {
             [0.0; 4]
         },
-        white_balance: if is_visible("color") && is_visible("whiteBalance") {
-            kelvin_white_balance(js_adjustments)
+        white_balance: if color.white_balance_visible {
+            kelvin_white_balance(color.white_balance)
         } else {
             [0.0; 4]
         },
@@ -5605,8 +5604,8 @@ fn get_global_adjustments_from_json(
     if modern_grading(global.tonemapper_mode) && is_visible("color") {
         // The Standard and Camera Raw looks use Camera Raw's calibration.
         global.color_calibration = ColorCalibrationSettings::default();
-        let calibration = crate::calibration::Calibration::from_json(&cal_obj);
-        if tool_on("colorCalibration") && !calibration.is_neutral() {
+        let calibration = crate::calibration::Calibration::from_recipe(color.calibration);
+        if color.calibration_visible && !calibration.is_neutral() {
             global.calibration_matrix = mat3_to_gpu_mat3(calibration.matrix());
             let [strength, sigma, power] = crate::calibration::SHADOW_TINT;
             global.calibration_tint = [calibration.shadows_tint / 100.0, strength, sigma, power];
@@ -5624,19 +5623,17 @@ fn get_global_adjustments_from_json(
             global.region_curve_active[0] = 1;
         }
     }
-    if is_visible("color") && tool_on("colorRanges") {
-        global.apply_color_ranges(js_adjustments);
-    }
+    global.apply_color_ranges(&color.color_ranges);
     if is_visible("curves") && tool_on("levels") {
         global.apply_levels(&js_adjustments["levels"]);
     }
     if modern_grading(global.tonemapper_mode) && is_visible("color") {
-        let off = serde_json::Value::Null;
-        global.apply_grading(if tool_on("colorGrading") {
-            &cg_obj
+        let grading = if color.grading_visible {
+            crate::color_grading::Grading::from_recipe(color.grading)
         } else {
-            &off
-        });
+            crate::color_grading::Grading::default()
+        };
+        global.apply_grading(grading);
     }
     global
 }
@@ -5650,8 +5647,7 @@ fn modern_grading(tonemapper_mode: u32) -> bool {
 macro_rules! impl_apply_grading {
     ($t:ty) => {
         impl $t {
-            fn apply_grading(&mut self, color_grading: &serde_json::Value) {
-                let grading = crate::color_grading::Grading::from_json(color_grading);
+            fn apply_grading(&mut self, grading: crate::color_grading::Grading) {
                 self.color_grading_shadows = ColorGradeSettings::default();
                 self.color_grading_midtones = ColorGradeSettings::default();
                 self.color_grading_highlights = ColorGradeSettings::default();
@@ -5735,20 +5731,43 @@ impl GlobalAdjustments {
     /// The colour editor's ranges (`colorRanges`, at most eight) and, when
     /// `colorRangeShow` names one of them and no clipping warning is on,
     /// its selection view (`show_clipping` = 2 + index; exports reset it).
-    fn apply_color_ranges(&mut self, adjustments: &serde_json::Value) {
-        let ranges = pack_color_ranges(&adjustments["colorRanges"], 8);
-        let show = adjustments["colorRangeShow"].as_str();
-        for (i, range) in ranges.iter().enumerate() {
-            self.color_ranges[i * 4..i * 4 + 4].copy_from_slice(range);
-            if self.show_clipping == 0
-                && show.is_some()
-                && adjustments["colorRanges"][i]["id"].as_str() == show
-            {
+    fn apply_color_ranges(&mut self, ranges: &rawtonic_recipe::color::ColorRanges) {
+        for (i, range) in ranges.ranges.iter().take(ranges.count).enumerate() {
+            let chroma = range.chroma.max(0.0);
+            let chroma_range = range.chroma_range.clamp(0.0, 100.0) / 100.0;
+            let lightness_range = range.lightness_range.clamp(0.0, 100.0) / 100.0;
+            let packed = [
+                [
+                    range.hue.rem_euclid(360.0) as f32,
+                    chroma as f32,
+                    range.lightness.clamp(0.0, 1.0) as f32,
+                    (0.02 + lightness_range) as f32,
+                ],
+                [
+                    range.hue_range.clamp(5.0, 90.0) as f32,
+                    (chroma * (1.0 - chroma_range)) as f32,
+                    (chroma * (1.0 + 2.0 * chroma_range) + 0.01) as f32,
+                    (0.1 + 0.9 * range.smoothness.clamp(0.0, 100.0) / 100.0) as f32,
+                ],
+                [
+                    (range.hue_shift.clamp(-100.0, 100.0) * 0.5) as f32,
+                    (range.saturation.clamp(-100.0, 100.0) / 100.0) as f32,
+                    (range.lightness_shift.clamp(-100.0, 100.0) / 100.0 * 0.2) as f32,
+                    0.0,
+                ],
+                [
+                    (range.hue_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
+                    (range.saturation_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
+                    (range.lightness_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
+                    0.0,
+                ],
+            ];
+            self.color_ranges[i * 4..i * 4 + 4].copy_from_slice(&packed);
+            if self.show_clipping == 0 && ranges.shown == Some(i) {
                 self.show_clipping = 2 + i as u32;
             }
         }
-        debug_assert!(ranges.len() <= COLOR_RANGES_LIMIT);
-        self.color_range_count[0] = ranges.len() as u32;
+        self.color_range_count[0] = ranges.count as u32;
     }
 }
 
@@ -5801,34 +5820,15 @@ fn pack_color_ranges(ranges: &serde_json::Value, limit: usize) -> Vec<[[f32; 4];
 /// The recipe's white balance as temperature and tint when it sets one
 /// (custom, Auto or a preset); `None` keeps the camera's (As Shot).
 pub fn recipe_white_balance(adjustments: &serde_json::Value) -> Option<(f64, f64)> {
-    let [on, temperature, tint, _] = kelvin_white_balance(adjustments);
+    let color = rawtonic_recipe::normalize(StoredRef::new(adjustments)).color;
+    let [on, temperature, tint, _] = kelvin_white_balance(color.white_balance);
     (on > 0.0).then_some((temperature as f64, tint as f64))
 }
 
-/// The recipe's white balance in Kelvin: `whiteBalance` "custom" with
-/// `wbTemperature` / `wbTint`, or one of Lightroom's presets; "asShot" (or
-/// none) keeps the camera's.
-fn kelvin_white_balance(adjustments: &serde_json::Value) -> [f32; 4] {
-    let preset = match adjustments["whiteBalance"].as_str() {
-        Some("daylight") => Some((5500.0, 10.0)),
-        Some("cloudy") => Some((6500.0, 10.0)),
-        Some("shade") => Some((7500.0, 10.0)),
-        Some("tungsten") => Some((2850.0, 0.0)),
-        Some("fluorescent") => Some((3800.0, 21.0)),
-        Some("flash") => Some((5500.0, 0.0)),
-        // Auto stores the balance it found when chosen.
-        Some("custom" | "auto") => adjustments["wbTemperature"].as_f64().map(|t| {
-            (
-                t.clamp(2000.0, 50_000.0),
-                adjustments["wbTint"]
-                    .as_f64()
-                    .unwrap_or(0.0)
-                    .clamp(-150.0, 150.0),
-            )
-        }),
-        _ => None,
-    };
-    preset.map_or([0.0; 4], |(t, tint)| [1.0, t as f32, tint as f32, 0.0])
+fn kelvin_white_balance(preset: Option<rawtonic_recipe::color::WhiteBalanceSetting>) -> [f32; 4] {
+    preset.map_or([0.0; 4], |wb| {
+        [1.0, wb.temperature.get() as f32, wb.tint.get() as f32, 0.0]
+    })
 }
 
 /// The display's soft proofing (view state, never in recipes): `softProof`
@@ -6163,7 +6163,7 @@ pub fn defringe_version(adjustments: &serde_json::Value) -> u64 {
 }
 
 /// The recipe key naming the B&W mix response a recipe was made with.
-pub const BW_VERSION_KEY: &str = "bwVersion";
+pub const BW_VERSION_KEY: &str = rawtonic_recipe::color::BW_VERSION.name();
 /// The newest B&W mix response: 2 (2026-11-03) lowers more strongly the
 /// further a slider is pulled, as Lightroom's and Capture One's mixes do
 /// (−100 darkens about 2.3 times as much as −50, against 1.8 times in
@@ -6178,20 +6178,6 @@ pub const BW_VERSION: u64 = 2;
 /// renderer knows.
 pub fn bw_version(adjustments: &serde_json::Value) -> u64 {
     crate::recipe_versions::BwVersion::of(adjustments).get()
-}
-
-/// Lightroom's B&W mix (`grayMixer`, −100…100 per channel) as slider / 100
-/// in channel order red, orange, yellow, green, aqua, blue, purple, magenta.
-fn gray_mixer(mixer: &serde_json::Value) -> [[f32; 4]; 2] {
-    const CHANNELS: [&str; 8] = [
-        "red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta",
-    ];
-    let mut mix = [[0.0; 4]; 2];
-    for (i, channel) in CHANNELS.iter().enumerate() {
-        mix[i / 4][i % 4] =
-            (mixer[channel].as_f64().unwrap_or(0.0) / 100.0).clamp(-1.0, 1.0) as f32;
-    }
-    mix
 }
 
 fn get_mask_adjustments_from_json(
@@ -6359,11 +6345,13 @@ fn get_mask_adjustments_from_json(
     }
     if modern_grading(tonemapper_mode) && is_visible("color") {
         let off = serde_json::Value::Null;
-        mask.apply_grading(if tool_on("colorGrading") {
-            &cg_obj
-        } else {
-            &off
-        });
+        mask.apply_grading(crate::color_grading::Grading::from_json(
+            if tool_on("colorGrading") {
+                &cg_obj
+            } else {
+                &off
+            },
+        ));
     }
     mask
 }
@@ -7273,7 +7261,7 @@ pub fn auto_results_to_json(results: &AutoAdjustmentResults) -> serde_json::Valu
         tone::CONTRAST.name(): results.contrast,
         tone::HIGHLIGHTS.name(): results.highlights,
         tone::SHADOWS.name(): results.shadows,
-        "vibrance": results.vibrancy,
+        rawtonic_recipe::color::VIBRANCE.name(): results.vibrancy,
         "vignetteAmount": results.vignette_amount,
         "clarity": results.clarity,
         tone::CENTRE.name(): results.centre,
@@ -8163,6 +8151,48 @@ mod editing_tool_tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn resolved_mixer_and_grading_match_previous_parsers() {
+        for nested in [
+            json!(null),
+            json!([]),
+            json!({}),
+            json!({"reds": {"hue": 150.25, "saturation": -250, "luminance": "bad"}, "blues": null, "shadows": {"hue": -721, "saturation": 110, "luminance": -140}, "blending": 120, "balance": -130}),
+        ] {
+            let recipe = json!({"hsl": nested, "colorGrading": nested});
+            let resolved = rawtonic_recipe::normalize(StoredRef::new(&recipe));
+            let old_hsl = parse_hsl_adjustments(&nested);
+            let new_hsl = resolved.color.hsl.channels.map(|channel| HslColor {
+                hue: channel.hue as f32 * SCALES.hsl_hue_multiplier,
+                saturation: channel.saturation as f32 / SCALES.hsl_saturation,
+                luminance: channel.luminance as f32 / SCALES.hsl_luminance,
+                _pad: 0.0,
+            });
+            assert_eq!(bytemuck::bytes_of(&old_hsl), bytemuck::bytes_of(&new_hsl));
+            assert_eq!(
+                crate::color_grading::Grading::from_json(&nested),
+                crate::color_grading::Grading::from_recipe(resolved.color.grading)
+            );
+        }
+    }
+
+    #[test]
+    fn resolved_ranges_match_previous_packing() {
+        for value in [
+            json!(null),
+            json!([]),
+            json!([{}, null, {"id": "a", "hue": -31.5, "chroma": -1, "chromaRange": 130, "hueRange": 0, "lightness": 5, "smoothness": -1, "hueShift": 200, "saturation": -150, "lightnessShift": 33, "hueUniformity": 123, "saturationUniformity": 42, "lightnessUniformity": 17}]),
+        ] {
+            let recipe = json!({"colorRanges": value, "colorRangeShow": "a"});
+            let old = pack_color_ranges(&recipe["colorRanges"], 8);
+            let actual = get_global_adjustments_from_json(&recipe, true, None);
+            assert_eq!(actual.color_range_count[0] as usize, old.len());
+            for (i, range) in old.iter().enumerate() {
+                assert_eq!(&actual.color_ranges[i * 4..i * 4 + 4], range);
+            }
+        }
     }
 
     #[test]

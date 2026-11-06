@@ -17,6 +17,7 @@
 //! (`scripts/check_layering.sh`). Sections move here one at a time; the
 //! keys of a section not moved yet are still read by the engine itself.
 
+pub mod color;
 mod key;
 mod resolved;
 mod stored;

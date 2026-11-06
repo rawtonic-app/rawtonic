@@ -18,6 +18,13 @@ impl Section {
     pub const BASIC: Self = Self("basic");
     /// Presence and detail (clarity, dehaze, centré, sharpening, …).
     pub const DETAILS: Self = Self("details");
+    pub const COLOR: Self = Self("color");
+    pub const WHITE_BALANCE: Self = Self("whiteBalance");
+    pub const PRESENCE: Self = Self("presence");
+    pub const COLOR_MIXER: Self = Self("colorMixer");
+    pub const COLOR_GRADING: Self = Self("colorGrading");
+    pub const CALIBRATION: Self = Self("calibration");
+    pub const COLOR_EDITOR: Self = Self("colorEditor");
 
     /// The section's name in `sectionVisibility`.
     pub const fn name(self) -> &'static str {
@@ -43,13 +50,13 @@ impl<'a> StoredRef<'a> {
     }
 
     /// The value of `key` when the recipe holds it with the key's type.
-    pub fn get<T: KeyValue + Copy>(self, key: &Key<T>) -> Option<T> {
+    pub fn get<T: KeyValue>(self, key: &Key<T>) -> Option<T> {
         self.0.get(key.name()).and_then(T::from_json)
     }
 
     /// The value of `key`, or its default when the recipe does not hold it
     /// (or holds another type).
-    pub fn get_or_default<T: KeyValue + Copy>(self, key: &Key<T>) -> T {
+    pub fn get_or_default<T: KeyValue + Clone>(self, key: &Key<T>) -> T {
         self.get(key).unwrap_or(key.default())
     }
 
@@ -88,25 +95,25 @@ impl StoredRecipe {
     }
 
     /// See [`StoredRef::get`].
-    pub fn get<T: KeyValue + Copy>(&self, key: &Key<T>) -> Option<T> {
+    pub fn get<T: KeyValue>(&self, key: &Key<T>) -> Option<T> {
         self.view().get(key)
     }
 
     /// See [`StoredRef::get_or_default`].
-    pub fn get_or_default<T: KeyValue + Copy>(&self, key: &Key<T>) -> T {
+    pub fn get_or_default<T: KeyValue + Clone>(&self, key: &Key<T>) -> T {
         self.view().get_or_default(key)
     }
 
     /// Stores `value` under `key`, leaving every other key as it is. A
     /// recipe that is not an object (`null`: never edited) becomes one.
-    pub fn set<T: KeyValue + Copy>(&mut self, key: &Key<T>, value: T) {
+    pub fn set<T: KeyValue>(&mut self, key: &Key<T>, value: T) {
         self.object()
             .insert(key.name().to_string(), value.to_json());
     }
 
     /// Removes `key` (the recipe then means its default), returning what
     /// it held.
-    pub fn remove<T: KeyValue + Copy>(&mut self, key: &Key<T>) -> Option<Value> {
+    pub fn remove<T: KeyValue>(&mut self, key: &Key<T>) -> Option<Value> {
         self.0.as_object_mut()?.remove(key.name())
     }
 

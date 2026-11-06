@@ -35,6 +35,15 @@ impl KeyValue for bool {
     }
 }
 
+impl KeyValue for u64 {
+    fn from_json(json: &Value) -> Option<Self> {
+        json.as_u64()
+    }
+    fn to_json(&self) -> Value {
+        (*self).into()
+    }
+}
+
 /// One key of the recipe: its name in the saved JSON, the value it means
 /// when absent (or of another type), and the version of its section's
 /// version key (`toneVersion` for [`crate::tone`], …) from which the
@@ -46,7 +55,7 @@ pub struct Key<T> {
     since_version: u64,
 }
 
-impl<T: Copy> Key<T> {
+impl<T> Key<T> {
     pub const fn new(name: &'static str, default: T, since_version: u64) -> Self {
         Self {
             name,
@@ -60,13 +69,24 @@ impl<T: Copy> Key<T> {
         self.name
     }
 
-    /// What the key means when the recipe does not hold it.
-    pub const fn default(&self) -> T {
-        self.default
-    }
-
     /// The first version of the section's version key that reads the key.
     pub const fn since_version(&self) -> u64 {
         self.since_version
+    }
+}
+
+impl<T: Clone> Key<T> {
+    /// What the key means when the recipe does not hold it.
+    pub fn default(&self) -> T {
+        self.default.clone()
+    }
+}
+
+impl KeyValue for String {
+    fn from_json(json: &Value) -> Option<Self> {
+        json.as_str().map(str::to_owned)
+    }
+    fn to_json(&self) -> Value {
+        Value::String(self.clone())
     }
 }

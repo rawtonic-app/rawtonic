@@ -30,17 +30,17 @@ pub struct Calibration {
 }
 
 impl Calibration {
-    pub fn from_json(value: &Value) -> Self {
-        let get = |key: &str| (value[key].as_f64().unwrap_or(0.0) as f32).clamp(-100.0, 100.0);
+    pub fn from_recipe(value: rawtonic_recipe::color::Calibration) -> Self {
+        let clamp = |x: f64| (x as f32).clamp(-100.0, 100.0);
         Self {
-            hue: [get("redHue"), get("greenHue"), get("blueHue")],
-            saturation: [
-                get("redSaturation"),
-                get("greenSaturation"),
-                get("blueSaturation"),
-            ],
-            shadows_tint: get("shadowsTint"),
+            shadows_tint: clamp(value.shadows_tint),
+            hue: value.hue.map(clamp),
+            saturation: value.saturation.map(clamp),
         }
+    }
+    pub fn from_json(value: &Value) -> Self {
+        use rawtonic_recipe::KeyValue;
+        Self::from_recipe(rawtonic_recipe::color::Calibration::from_json(value).unwrap_or_default())
     }
 
     pub fn is_neutral(&self) -> bool {

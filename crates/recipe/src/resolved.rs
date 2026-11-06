@@ -1,5 +1,6 @@
 //! The recipe as it renders.
 
+use crate::color::Color;
 use crate::stored::StoredRef;
 use crate::tone::Tone;
 
@@ -10,6 +11,7 @@ use crate::tone::Tone;
 #[non_exhaustive]
 pub struct ResolvedRecipe {
     pub tone: Tone,
+    pub color: Color,
 }
 
 /// Resolves a stored recipe: every value of a moved section as it renders
@@ -18,5 +20,6 @@ pub struct ResolvedRecipe {
 pub fn normalize(stored: StoredRef<'_>) -> ResolvedRecipe {
     ResolvedRecipe {
         tone: Tone::resolve(stored),
+        color: Color::resolve(stored),
     }
 }
