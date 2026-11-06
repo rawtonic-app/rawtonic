@@ -12,30 +12,6 @@ use std::path::Path;
 /// (command, why it may run on the main thread)
 const SYNC_COMMANDS: &[(&str, &str)] = &[
     (
-        "add_to_album",
-        "read-modify-write against the frontend's own saves: stays ordered with them on the main thread; moving it off needs a library-level lock (follow-up)",
-    ),
-    (
-        "save_albums",
-        "read-modify-write against the frontend's own saves: stays ordered with them on the main thread; moving it off needs a library-level lock (follow-up)",
-    ),
-    (
-        "save_presets",
-        "read-modify-write against the frontend's own saves: stays ordered with them on the main thread; moving it off needs a library-level lock (follow-up)",
-    ),
-    (
-        "handle_import_presets_from_files",
-        "read-modify-write of the whole preset library, ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
-    ),
-    (
-        "handle_import_legacy_presets_from_file",
-        "read-modify-write of the whole preset library, ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
-    ),
-    (
-        "handle_import_presets_from_file",
-        "read-modify-write of the whole preset library, ordered with the frontend's preset saves on the main thread; moving it off needs a library-level lock (follow-up)",
-    ),
-    (
         "app_menu_text_action",
         "main-thread-only API: menu, window, quit or webview",
     ),
@@ -177,6 +153,10 @@ const SYNC_COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "preview_build_progress",
+        "in-memory state behind a short lock; no I/O",
+    ),
+    (
+        "queue_ticket",
         "in-memory state behind a short lock; no I/O",
     ),
     (

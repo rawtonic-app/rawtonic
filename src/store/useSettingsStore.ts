@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { platform } from '@tauri-apps/plugin-os';
 import { AppSettings, SupportedTypes, Invokes } from '../components/ui/AppProperties';
+import { libraryChanges } from './libraryFiles';
 
 interface SettingsState {
   appSettings: AppSettings | null;
@@ -23,6 +24,8 @@ let unsaved: AppSettings | null = null;
 export const SETTINGS_WRITE_NAME = 'Preferences';
 /** How long quitting waits for the settings saves before it reports them unsaved. */
 export const SETTINGS_FLUSH_TIMEOUT_MS = 10_000;
+/** How long Save & Relaunch waits for the album and preset changes. */
+export const RELAUNCH_FLUSH_TIMEOUT_MS = 10_000;
 
 /**
  * Saves a settings snapshot, after every earlier save has finished (at once
@@ -72,12 +75,19 @@ export function flushSettingsSaves(timeoutMs = SETTINGS_FLUSH_TIMEOUT_MS): Promi
 }
 
 /**
- * Relaunches once every queued settings save is written (a relaunch ends
- * the process without the quit drain); a save that could not be written
- * keeps the app open. Resolves with what could not be saved.
+ * Relaunches once every queued settings save and every album and preset
+ * change is written (a relaunch ends the process without the quit drain;
+ * `libraryChanges` also sends a preset list a debounce still holds). One that
+ * could not be written keeps the app open with the message, as for a failed
+ * settings save (`#596`); so does one that is still running when the wait
+ * ends. Resolves with what could not be saved, nothing when the app restarted.
  */
 export async function relaunchAfterSettingsSaves(relaunch: () => Promise<void>): Promise<string[]> {
-  const failures = await flushSettingsSaves();
+  // Settings first: saving the processing settings is what needs the
+  // restart. The two write their own files.
+  const settings = await flushSettingsSaves();
+  const library = await libraryChanges.flush(RELAUNCH_FLUSH_TIMEOUT_MS);
+  const failures = [...settings, ...library];
   if (failures.length === 0) await relaunch();
   return failures;
 }

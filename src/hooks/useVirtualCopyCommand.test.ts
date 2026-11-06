@@ -14,7 +14,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 const { flush } = vi.hoisted(() => ({ flush: vi.fn(async () => [] as string[]) }));
-vi.mock('../utils/quit', () => ({ flushBeforeQuit: flush }));
+vi.mock('../utils/quit', () => ({ flushBeforeQuit: flush, registerQuitFlush: vi.fn(() => vi.fn()) }));
 
 afterEach(() => vi.mocked(invoke).mockClear());
 

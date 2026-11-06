@@ -10,9 +10,14 @@ use std::path::Path;
 use tauri::AppHandle;
 use tauri::Manager;
 use tauri::path::BaseDirectory;
+
+use crate::state::library_files::{
+    FLUSH_TIMEOUT, LibraryQueue, PresetsStore, flush_library, next_after_sent, run_change,
+    run_import,
+};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Preset {
     pub id: String,
     pub name: String,
@@ -47,7 +52,7 @@ pub(crate) struct ExportPresetFile<'a> {
     pub(crate) presets: &'a [PresetItem],
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct PresetFolder {
     /// Tool menus create these folders; hide them while empty, unlike user folders.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,7 +62,7 @@ pub struct PresetFolder {
     pub children: Vec<Preset>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum PresetItem {
     Preset(Preset),
@@ -112,13 +117,13 @@ pub(crate) fn get_presets_path(app_handle: &AppHandle) -> Result<std::path::Path
     Ok(presets_dir.join("presets.json"))
 }
 
+/// The user's presets, read from `presets.json` on the first call of the run
+/// (`state::library_files::PresetsStore`).
 pub fn load_presets_blocking(app_handle: AppHandle) -> Result<Vec<PresetItem>, String> {
-    let path = get_presets_path(&app_handle)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
+    app_handle
+        .state::<PresetsStore>()
+        .get(&app_handle)
+        .map(|items| items.as_ref().clone())
 }
 
 #[tauri::command]
@@ -197,11 +202,39 @@ pub async fn load_builtin_presets(app_handle: AppHandle) -> Result<Vec<BuiltinPr
         .map_err(|e| e.to_string())?
 }
 
+/// `save_presets`, in the library's change order (`ticket`; without one, in
+/// the order the command arrived).
 #[tauri::command]
-pub fn save_presets(presets: Vec<PresetItem>, app_handle: AppHandle) -> Result<(), String> {
-    let path = get_presets_path(&app_handle)?;
-    let json_string = serde_json::to_string_pretty(&presets).map_err(|e| e.to_string())?;
-    rawtonic_fs::atomic_write(&path, json_string).map_err(|e| e.to_string())
+pub async fn save_presets(
+    presets: Vec<PresetItem>,
+    ticket: Option<u64>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    super::blocking(move || {
+        let queue = app_handle.state::<LibraryQueue>();
+        let ticket = ticket_of(&app_handle, ticket);
+        run_change(&queue, ticket, "Preset list could not be saved", || {
+            save_presets_blocking(presets, &app_handle)
+        })
+    })
+    .await?
+}
+
+/// Replaces the user's preset list (the file as the frontend keeps it).
+pub fn save_presets_blocking(
+    presets: Vec<PresetItem>,
+    app_handle: &AppHandle,
+) -> Result<(), String> {
+    app_handle
+        .state::<PresetsStore>()
+        .update(app_handle, |stored| {
+            if stored == &presets {
+                return None;
+            }
+            *stored = presets;
+            Some(())
+        })
+        .map(|_| ())
 }
 
 pub(crate) fn preset_file_display_name(file_path: &str) -> String {
@@ -219,10 +252,6 @@ pub(crate) fn collect_top_level_preset_names(items: &[PresetItem]) -> HashSet<St
             PresetItem::Folder(f) => f.name.clone(),
         })
         .collect()
-}
-
-pub(crate) fn parse_preset_file(file_path: &str) -> Result<Vec<PresetItem>, String> {
-    parse_preset_file_reporting(file_path).map(|(items, _)| items)
 }
 
 /// Parses a preset file and, for Lightroom presets and Capture One styles,
@@ -319,71 +348,132 @@ pub(crate) fn merge_imported_items(
     }
 }
 
-pub(crate) fn import_preset_file_into_library(
-    file_path: &str,
-    app_handle: AppHandle,
+/// Adds what an import parsed to the presets in one read-modify-write and
+/// returns the stored list: the change of an import in the library's order
+/// (`LibraryQueue`), and what `library_flush` writes when the import's own
+/// change did not get its turn before quitting.
+pub(crate) fn merge_into_library(
+    app_handle: &AppHandle,
+    imported: Vec<PresetItem>,
 ) -> Result<Vec<PresetItem>, String> {
-    let imported = parse_preset_file(file_path)?;
-
-    let mut current_presets = load_presets_blocking(app_handle.clone())?;
-    let mut taken_names = collect_top_level_preset_names(&current_presets);
-    merge_imported_items(&mut current_presets, &mut taken_names, imported);
-
-    save_presets(current_presets.clone(), app_handle)?;
-    Ok(current_presets)
+    if imported.is_empty() {
+        return load_presets_blocking(app_handle.clone());
+    }
+    app_handle
+        .state::<PresetsStore>()
+        .update(app_handle, |current_presets| {
+            let mut taken_names = collect_top_level_preset_names(current_presets);
+            merge_imported_items(current_presets, &mut taken_names, imported.clone());
+            Some(())
+        })?;
+    load_presets_blocking(app_handle.clone())
 }
 
-#[tauri::command]
-pub fn handle_import_presets_from_file(
-    file_path: String,
-    app_handle: AppHandle,
-) -> Result<Vec<PresetItem>, String> {
-    import_preset_file_into_library(&file_path, app_handle)
-}
-
-#[tauri::command]
-pub fn handle_import_legacy_presets_from_file(
-    file_path: String,
-    app_handle: AppHandle,
-) -> Result<Vec<PresetItem>, String> {
-    import_preset_file_into_library(&file_path, app_handle)
-}
-
-#[tauri::command]
-pub fn handle_import_presets_from_files(
+/// The imports' part in the library's order (`run_import`): the files must be
+/// read with `ticket` asked for first.
+fn import_files(
+    app_handle: &AppHandle,
+    ticket: u64,
     file_paths: Vec<String>,
-    app_handle: AppHandle,
 ) -> Result<PresetImportResult, String> {
-    let mut current_presets = load_presets_blocking(app_handle.clone())?;
-    let mut taken_names = collect_top_level_preset_names(&current_presets);
-
-    let mut failures: Vec<PresetImportFailure> = Vec::new();
-    let mut untranslated: Vec<PresetImportUntranslated> = Vec::new();
-    let mut library_changed = false;
-
-    for file_path in &file_paths {
-        match parse_preset_file_reporting(file_path) {
-            Ok((imported, report)) => {
-                untranslated.extend(report);
-                library_changed |= !imported.is_empty();
-                merge_imported_items(&mut current_presets, &mut taken_names, imported);
+    let queue = app_handle.state::<LibraryQueue>();
+    let read = || {
+        let mut failures: Vec<PresetImportFailure> = Vec::new();
+        let mut untranslated: Vec<PresetImportUntranslated> = Vec::new();
+        let mut imported = Vec::new();
+        for file_path in &file_paths {
+            match parse_preset_file_reporting(file_path) {
+                Ok((items, report)) => {
+                    untranslated.extend(report);
+                    imported.extend(items);
+                }
+                Err(error) => failures.push(PresetImportFailure {
+                    file_name: preset_file_display_name(file_path),
+                    error,
+                }),
             }
-            Err(error) => failures.push(PresetImportFailure {
-                file_name: preset_file_display_name(file_path),
-                error,
-            }),
         }
-    }
-
-    if library_changed {
-        save_presets(current_presets.clone(), app_handle)?;
-    }
-
-    Ok(PresetImportResult {
-        presets: current_presets,
+        Ok((imported, (failures, untranslated)))
+    };
+    run_import(&queue, ticket, read, |imported| {
+        merge_into_library(app_handle, imported)
+    })
+    .map(|(presets, (failures, untranslated))| PresetImportResult {
+        presets,
         failures,
         untranslated,
     })
+}
+
+/// The ticket of a command the frontend did not send one with (an older
+/// page): it comes last, after every change sent.
+fn ticket_of(app_handle: &AppHandle, ticket: Option<u64>) -> u64 {
+    ticket.unwrap_or_else(|| next_after_sent(&app_handle.state::<LibraryQueue>()))
+}
+
+#[tauri::command]
+pub async fn handle_import_presets_from_file(
+    file_path: String,
+    ticket: Option<u64>,
+    app_handle: AppHandle,
+) -> Result<Vec<PresetItem>, String> {
+    super::blocking(move || {
+        import_files(&app_handle, ticket_of(&app_handle, ticket), vec![file_path])
+            .map(|result| result.presets)
+    })
+    .await?
+}
+
+/// The legacy formats are parsed by the same `parse_preset_file_reporting`
+/// (by the file's extension): the same import, in the same order.
+#[tauri::command]
+pub async fn handle_import_legacy_presets_from_file(
+    file_path: String,
+    ticket: Option<u64>,
+    app_handle: AppHandle,
+) -> Result<Vec<PresetItem>, String> {
+    super::blocking(move || {
+        import_files(&app_handle, ticket_of(&app_handle, ticket), vec![file_path])
+            .map(|result| result.presets)
+    })
+    .await?
+}
+
+/// Parses every file, then merges ALL the presets that parsed in one change.
+#[tauri::command]
+pub async fn handle_import_presets_from_files(
+    file_paths: Vec<String>,
+    ticket: Option<u64>,
+    app_handle: AppHandle,
+) -> Result<PresetImportResult, String> {
+    super::blocking(move || import_files(&app_handle, ticket_of(&app_handle, ticket), file_paths))
+        .await?
+}
+
+/// Asked before a change when the page numbers its changes itself: the next
+/// ticket of the order (a change without one gets it on arrival anyway).
+#[tauri::command]
+pub fn queue_ticket(app_handle: AppHandle) -> u64 {
+    next_after_sent(&app_handle.state::<LibraryQueue>())
+}
+
+/// The commands the frontend sends when quitting or Save & Relaunch: waits
+/// for the changes sent before `ticket`, writes what an import read without
+/// getting its turn, and answers what is not written (`flush_state`). It sits
+/// here because this is where the presets' merge into the library lives; the
+/// queue's order itself is `state::library_files`.
+#[tauri::command]
+pub async fn library_flush(
+    ticket: Option<u64>,
+    app_handle: AppHandle,
+) -> Result<Vec<String>, String> {
+    super::blocking(move || {
+        let queue = app_handle.state::<LibraryQueue>();
+        Ok(flush_library(&queue, ticket, FLUSH_TIMEOUT, |items| {
+            merge_into_library(&app_handle, items)
+        }))
+    })
+    .await?
 }
 
 pub fn handle_export_presets_to_file_blocking(

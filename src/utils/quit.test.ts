@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useUIStore } from '../store/useUIStore';
 import { invoke } from '@tauri-apps/api/core';
@@ -11,17 +11,45 @@ import {
 } from './quit';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { saveSettings } from '../store/useSettingsStore';
+import { registerAppWrites } from './appWrites';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 
 const unregister: Array<() => void> = [];
 const register = (flush: () => Promise<string[]>) => unregister.push(registerQuitFlush(flush));
-const commands = () => vi.mocked(invoke).mock.calls.map(([command]) => command);
+/** The quit's own commands (`quit_saving`, its outcome); the app's write
+ * queues also hear `library_flush` on every quit, which a test's own save
+ * answer would otherwise stand in for. */
+const commands = () =>
+  vi
+    .mocked(invoke)
+    .mock.calls.map(([command]) => command)
+    .filter((command) => command !== Invokes.LibraryFlush);
+
+/** What the app's own write queues hear from the backend while these tests
+ * drive quits: every change is written (nothing fails), and each quit's
+ * flush finds nothing left to write. `flush` answers for `LibraryFlush`. */
+const backendFlushes: unknown[] = [];
+const backend = (command: Invokes): Promise<unknown> => {
+  if (command === Invokes.LibraryFlush) {
+    backendFlushes.push(command);
+    return Promise.resolve([]);
+  }
+  return Promise.resolve(true);
+};
+
+beforeAll(() => {
+  unregister.push(registerAppWrites());
+  vi.mocked(invoke).mockImplementation(((command: Invokes) => backend(command)) as typeof invoke);
+});
 
 afterEach(() => {
   unregister.splice(0).forEach((done) => done());
   vi.clearAllMocks();
+  backendFlushes.splice(0);
+  // The app's queues are still registered: they get the backend's answers.
+  vi.mocked(invoke).mockImplementation(((command: Invokes) => backend(command)) as typeof invoke);
 });
 
 it('quits only after every pending save finished', async () => {
@@ -35,7 +63,7 @@ it('quits only after every pending save finished', async () => {
   const ask = vi.fn();
   const quitting = handleQuitRequest(ask, 1);
   await vi.waitFor(() => expect(finishSave).toBeTypeOf('function'));
-  expect(commands()).toEqual([Invokes.QuitSaving]);
+  expect(commands().filter((command) => command !== Invokes.SaveSettings)).toEqual([Invokes.QuitSaving]);
   finishSave([]);
   await quitting;
   expect(commands()).toEqual([Invokes.QuitSaving, Invokes.FinishQuit]);
@@ -43,24 +71,29 @@ it('quits only after every pending save finished', async () => {
 });
 
 it('quits only after a settings save changed just before quitting is written', async () => {
-  let finishSettings!: () => void;
-  vi.mocked(invoke).mockImplementation((command) =>
-    command === Invokes.SaveSettings
-      ? new Promise((resolve) => {
-          finishSettings = () => resolve(undefined);
-        })
-      : Promise.resolve(true)
-  );
-  const saving = saveSettings({ theme: 'dark' } as unknown as AppSettings);
-  const quitting = handleQuitRequest(vi.fn(), 1);
-  await vi.waitFor(() => expect(commands()).toEqual([Invokes.SaveSettings, Invokes.QuitSaving]));
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(commands()).toEqual([Invokes.SaveSettings, Invokes.QuitSaving]);
-  finishSettings();
-  await saving;
+  // The save made just before the quit is still not written: the quit's
+  // settings flush waits for it before the quit may end.
+  let finishSave!: () => void;
+  vi.mocked(invoke).mockImplementation(((command: Invokes) =>
+    command === Invokes.LibraryFlush
+      ? Promise.resolve([])
+      : command === Invokes.SaveSettings
+        ? new Promise<undefined>((resolve) => {
+            finishSave = () => resolve(undefined);
+          })
+        : Promise.resolve(true)) as typeof invoke);
+  void saveSettings({ theme: 'dark' } as unknown as AppSettings).catch(() => undefined);
+  await vi.waitFor(() => expect(finishSave).toBeTypeOf('function'));
+  const ask = vi.fn();
+  const quitting = handleQuitRequest(ask, 1);
+  // The quit waits for the save still running (every quit runs the settings
+  // queue's flush, which waits for it): it has not ended while it runs.
+  await vi.waitFor(() => expect(commands()[0]).toBe(Invokes.SaveSettings));
+  expect(commands()).not.toContain(Invokes.FinishQuit);
+  finishSave();
   await quitting;
+  expect(ask).not.toHaveBeenCalled();
   expect(commands()).toEqual([Invokes.SaveSettings, Invokes.QuitSaving, Invokes.FinishQuit]);
-  vi.mocked(invoke).mockImplementation(() => Promise.resolve(true));
 });
 
 it('keeps the app open and lets the user decide when a save failed', async () => {
@@ -142,7 +175,7 @@ it('tells the backend it is still saving each time a queued photo write settles'
   });
   const quitting = handleQuitRequest(vi.fn(), 1);
   await Promise.resolve();
-  expect(commands()).toEqual([Invokes.QuitSaving]);
+  expect(commands().filter((command) => command !== Invokes.SaveSettings)).toEqual([Invokes.QuitSaving]);
   finishBatch();
   await batch;
   await quitting;
@@ -220,7 +253,7 @@ it('does not drain or quit when the native acknowledgement rejects an expired re
   vi.mocked(invoke).mockResolvedValueOnce(false);
   await handleQuitRequest(vi.fn(), 50);
   expect(flush).not.toHaveBeenCalled();
-  expect(commands()).toEqual([Invokes.QuitSaving]);
+  expect(commands().filter((command) => command !== Invokes.SaveSettings)).toEqual([Invokes.QuitSaving]);
 });
 
 it('cancels a dismissed confirmation, but closing after confirmation does not cancel the chosen quit', () => {

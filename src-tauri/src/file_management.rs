@@ -41,3 +41,6 @@ pub(crate) async fn blocking<R: Send + 'static>(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod library_contract_tests;

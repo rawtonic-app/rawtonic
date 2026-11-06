@@ -515,8 +515,12 @@ engine/export crates; still inherited and Tauri-bound: file_management, ai_*, in
 (`current` / `try_current`; changes through `update`, one read-modify-write under one lock).
 `state::develop::DevelopSession` owns the caches built from the open photograph (decodes, preview bases and their
 GPU upload, masks, warps, geometry bases, the editor's patches); they are dropped only through
-`DevelopSession::invalidate(Scope)` (`OtherPhoto`, `Source`, `Decoder`, `DecodedCache`, `PreviewUpload`). Its `README.md` has the
-lock policy (`state::lock::lock_recover`) and the lock order.
+`DevelopSession::invalidate(Scope)` (`OtherPhoto`, `Source`, `Decoder`, `DecodedCache`, `PreviewUpload`).
+`state::library_files::{AlbumsStore, PresetsStore}` own `albums.json` and `presets.json`: each file is read once per
+run and every change (save, add to album, import, a file operation's rename or delete) is one read-modify-write
+under the store's write lock, written with the same atomic helper and format as before. The commands run on blocking
+workers; the frontend sends its saves in order (`src/store/libraryFiles.ts`) and quitting waits for them. Its
+`README.md` has the lock policy (`state::lock::lock_recover`) and the lock order.
 
 ADR 0009 moves AI/tether only when a consumer outside the app needs them, by its move-don't-rewrite method and
 byte-identical-export gate.
