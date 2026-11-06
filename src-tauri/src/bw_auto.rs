@@ -17,6 +17,7 @@
 //! benchmark-results/bwa-bw-auto-2026-11-03/REPORT.md).
 
 use rawtonic_recipe::color as recipe_color;
+
 /// A B&W mix response: channel windows and gains as the shader renders
 /// them (`apply_black_and_white`, `apply_black_and_white_v2` in shader.wgsl,
 /// checked by a test). A channel's gain grows with the slider by `*_q`.

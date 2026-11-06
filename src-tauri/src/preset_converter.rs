@@ -345,19 +345,19 @@ fn point_color_ranges_from(swatches: &[String], variances: &[String], limit: usi
         let round = |x: f64| (x * 1000.0).round() / 1000.0;
         ranges.push(json!({
             "id": Uuid::new_v4().to_string(),
-            recipe_color::HUE.name(): round(h0),
-            recipe_color::RANGE_KEYS[1].name(): round(c0),
-            recipe_color::RANGE_KEYS[2].name(): round(0.5 * (l_low + l_high)),
-            recipe_color::RANGE_KEYS[4].name(): round(half_width.clamp(5.0, 90.0)),
-            recipe_color::RANGE_KEYS[5].name(): round(chroma_range.clamp(0.0, 100.0)),
-            recipe_color::RANGE_KEYS[3].name(): round(((l_high - l_low) * 50.0 - 2.0).clamp(0.0, 100.0)),
-            recipe_color::RANGE_KEYS[6].name(): 55,
-            recipe_color::RANGE_KEYS[7].name(): round((hue_degrees / 0.5).clamp(-100.0, 100.0)),
-            recipe_color::SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
-            recipe_color::RANGE_KEYS[9].name(): round(lightness_shift.clamp(-100.0, 100.0)),
-            recipe_color::RANGE_KEYS[10].name(): round(uniformity),
-            recipe_color::RANGE_KEYS[11].name(): round(uniformity),
-            recipe_color::LIGHTNESS_UNIFORMITY.name(): round(uniformity),
+            recipe_color::RANGE_HUE.name(): round(h0),
+            recipe_color::RANGE_CHROMA.name(): round(c0),
+            recipe_color::RANGE_LIGHTNESS.name(): round(0.5 * (l_low + l_high)),
+            recipe_color::RANGE_HUE_RANGE.name(): round(half_width.clamp(5.0, 90.0)),
+            recipe_color::RANGE_CHROMA_RANGE.name(): round(chroma_range.clamp(0.0, 100.0)),
+            recipe_color::RANGE_LIGHTNESS_RANGE.name(): round(((l_high - l_low) * 50.0 - 2.0).clamp(0.0, 100.0)),
+            recipe_color::RANGE_SMOOTHNESS.name(): 55,
+            recipe_color::RANGE_HUE_SHIFT.name(): round((hue_degrees / 0.5).clamp(-100.0, 100.0)),
+            recipe_color::RANGE_SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
+            recipe_color::RANGE_LIGHTNESS_SHIFT.name(): round(lightness_shift.clamp(-100.0, 100.0)),
+            recipe_color::RANGE_HUE_UNIFORMITY.name(): round(uniformity),
+            recipe_color::RANGE_SATURATION_UNIFORMITY.name(): round(uniformity),
+            recipe_color::RANGE_LIGHTNESS_UNIFORMITY.name(): round(uniformity),
         }));
     }
     ranges
@@ -2620,6 +2620,13 @@ mod tests {
         let adjustments = convert_xmp_to_preset(xmp).unwrap().adjustments;
         let ranges = adjustments["colorRanges"].as_array().unwrap();
         assert_eq!(ranges.len(), 1);
+        // Pin every imported field; only the generated identifier varies.
+        let mut pinned = ranges[0].clone();
+        pinned.as_object_mut().unwrap().remove("id");
+        assert_eq!(
+            pinned,
+            json!({"chroma":0.095,"chromaRange":67.484,"hue":52.186,"hueRange":38.27,"hueShift":15.294,"hueUniformity":0.0,"lightness":0.551,"lightnessRange":24.938,"lightnessShift":5.455,"lightnessUniformity":0.0,"saturation":-13.428,"saturationUniformity":0.0,"smoothness":55})
+        );
         let range = &ranges[0];
         let hue = range["hue"].as_f64().unwrap();
         assert!((30.0..90.0).contains(&hue), "orange: {hue}");

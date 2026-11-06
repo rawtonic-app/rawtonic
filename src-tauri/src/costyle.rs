@@ -392,32 +392,40 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
             || lightness.abs() > 100.0;
         let mut range = json!({
             "id": Uuid::new_v4().to_string(),
-            recipe_color::HUE.name(): round((hue + 0.5 * (below + above)).rem_euclid(360.0)),
-            recipe_color::RANGE_KEYS[1].name(): CE_CHROMA,
-            recipe_color::RANGE_KEYS[2].name(): 0.5,
-            recipe_color::RANGE_KEYS[4].name(): round((CE_WIDTH_SCALE * 0.5 * (above - below) + CE_WIDTH_OFFSET).clamp(5.0, 90.0)),
-            recipe_color::RANGE_KEYS[5].name(): round((100.0 - CE_CHROMA_FLOOR * (f[11] + 100.0)).clamp(0.0, 100.0)),
-            recipe_color::RANGE_KEYS[3].name(): 100,
-            recipe_color::RANGE_KEYS[6].name(): round((CE_SMOOTH_BASE + CE_SMOOTH_SCALE * f[13]).clamp(0.0, 100.0)),
-            recipe_color::RANGE_KEYS[7].name(): round((2.0 * CE_HUE_SCALE * turn).clamp(-100.0, 100.0)),
-            recipe_color::SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
-            recipe_color::RANGE_KEYS[9].name(): round(lightness.clamp(-100.0, 100.0)),
-            recipe_color::RANGE_KEYS[10].name(): 0,
-            recipe_color::RANGE_KEYS[11].name(): 0,
-            recipe_color::LIGHTNESS_UNIFORMITY.name(): 0,
+            recipe_color::RANGE_HUE.name(): round((hue + 0.5 * (below + above)).rem_euclid(360.0)),
+            recipe_color::RANGE_CHROMA.name(): CE_CHROMA,
+            recipe_color::RANGE_LIGHTNESS.name(): 0.5,
+            recipe_color::RANGE_HUE_RANGE.name(): round((CE_WIDTH_SCALE * 0.5 * (above - below) + CE_WIDTH_OFFSET).clamp(5.0, 90.0)),
+            recipe_color::RANGE_CHROMA_RANGE.name(): round((100.0 - CE_CHROMA_FLOOR * (f[11] + 100.0)).clamp(0.0, 100.0)),
+            recipe_color::RANGE_LIGHTNESS_RANGE.name(): 100,
+            recipe_color::RANGE_SMOOTHNESS.name(): round((CE_SMOOTH_BASE + CE_SMOOTH_SCALE * f[13]).clamp(0.0, 100.0)),
+            recipe_color::RANGE_HUE_SHIFT.name(): round((2.0 * CE_HUE_SCALE * turn).clamp(-100.0, 100.0)),
+            recipe_color::RANGE_SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
+            recipe_color::RANGE_LIGHTNESS_SHIFT.name(): round(lightness.clamp(-100.0, 100.0)),
+            recipe_color::RANGE_HUE_UNIFORMITY.name(): 0,
+            recipe_color::RANGE_SATURATION_UNIFORMITY.name(): 0,
+            recipe_color::RANGE_LIGHTNESS_UNIFORMITY.name(): 0,
         });
         if skin {
             range["kind"] = json!("skin");
             // Unlike an Advanced range, the centre is also the uniformity
             // target: retain the picked colour, not a typical-pixel proxy.
-            range[recipe_color::HUE.name()] = json!(round(picked_h));
-            range[recipe_color::RANGE_KEYS[1].name()] = json!((picked_c * 1e6).round() / 1e6);
-            range[recipe_color::RANGE_KEYS[2].name()] = json!((picked_l * 1e6).round() / 1e6);
+            range[recipe_color::RANGE_HUE.name()] = json!(round(picked_h));
+            range[recipe_color::RANGE_CHROMA.name()] = json!((picked_c * 1e6).round() / 1e6);
+            range[recipe_color::RANGE_LIGHTNESS.name()] = json!((picked_l * 1e6).round() / 1e6);
             for (key, field, scale) in [
-                (recipe_color::RANGE_KEYS[10].name(), 14, SKIN_UNIFORMITY_H),
-                (recipe_color::RANGE_KEYS[11].name(), 16, SKIN_UNIFORMITY_S),
                 (
-                    recipe_color::LIGHTNESS_UNIFORMITY.name(),
+                    recipe_color::RANGE_HUE_UNIFORMITY.name(),
+                    14,
+                    SKIN_UNIFORMITY_H,
+                ),
+                (
+                    recipe_color::RANGE_SATURATION_UNIFORMITY.name(),
+                    16,
+                    SKIN_UNIFORMITY_S,
+                ),
+                (
+                    recipe_color::RANGE_LIGHTNESS_UNIFORMITY.name(),
                     17,
                     SKIN_UNIFORMITY_L,
                 ),
@@ -1098,6 +1106,13 @@ mod tests {
              0,1,1,0,30,0,255,0,0,-30,30,-100,100,15,0,0,0,0",
         );
         assert!(untranslated);
+        // Pin every imported field; only the generated identifier varies.
+        let mut pinned = ranges[0].clone();
+        pinned.as_object_mut().unwrap().remove("id");
+        assert_eq!(
+            pinned,
+            json!({"chroma":0.12,"chromaRange":100.0,"hue":28.246,"hueRange":45.658,"hueShift":18.439,"hueUniformity":0,"lightness":0.5,"lightnessRange":100,"lightnessShift":49.95,"lightnessUniformity":0,"saturation":-57.55,"saturationUniformity":0,"smoothness":45.835})
+        );
         assert_eq!(ranges.len(), 1);
         // The same numbers as the fitting script (notes: scripts/reference/
         // c1_color_editor/fit.py).
