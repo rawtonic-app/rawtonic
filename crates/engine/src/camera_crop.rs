@@ -10,6 +10,7 @@
 //! into the recipe, a Reset starts from it again; an edited recipe keeps
 //! its own crop (none included), so its exports stay byte-identical.
 
+use rawtonic_recipe::geometry;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -152,8 +153,8 @@ fn start_new_edit(adjustments: &mut Value, crops: &[Option<CameraCrop>]) {
     };
     if let Some(map) = adjustments.as_object_mut() {
         let (crop, aspect) = recipe_values(crop);
-        map.insert("crop".to_string(), crop);
-        map.insert("aspectRatio".to_string(), aspect);
+        map.insert(geometry::CROP.name().to_string(), crop);
+        map.insert(geometry::ASPECT_RATIO.name().to_string(), aspect);
     }
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { rustRecipeKeys } from '../contracts/recipeKeys.testSupport';
 import { INITIAL_ADJUSTMENTS } from './adjustments';
 import cacheUtils from '../../crates/engine/src/cache_utils.rs?raw';
 import { GEOMETRY_KEYS } from './geometryKeys';
@@ -10,9 +11,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
 
 describe('geometry keys', () => {
   it('are the engine’s GEOMETRY_KEYS', () => {
-    const engine = [
-      ...(cacheUtils.match(/GEOMETRY_KEYS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/"([^"]+)"/g)
-    ].map((match) => match[1]);
+    const engine = rustRecipeKeys(cacheUtils.match(/GEOMETRY_KEYS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? '');
     expect(engine.length).toBeGreaterThan(20);
     expect([...GEOMETRY_KEYS]).toEqual(engine);
   });

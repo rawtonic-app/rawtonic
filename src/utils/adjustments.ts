@@ -1,9 +1,10 @@
 import { normalizeRelight, type RelightLight, type RelightDepth } from './relight';
-import { Crop } from 'react-image-crop';
 import { v4 as uuidv4 } from 'uuid';
 import { SubMask, SubMaskMode } from '../components/panel/right/Masks';
 import type { AdjustmentLayout, AppSettings } from '../components/ui/AppProperties';
 import type { RecipeKeys } from '../generated/recipeKeys';
+
+export type { Crop } from 'react-image-crop';
 
 export enum ActiveChannel {
   Blue = 'blue',
@@ -503,7 +504,22 @@ type HeldRecipeKey =
   | 'dehaze'
   | 'structure'
   | 'chromaticAberrationRedCyan'
-  | 'chromaticAberrationBlueYellow';
+  | 'chromaticAberrationBlueYellow'
+  | 'crop'
+  | 'aspectRatio'
+  | 'rotation'
+  | 'orientationSteps'
+  | 'flipHorizontal'
+  | 'flipVertical'
+  | 'transformDistortion'
+  | 'transformVertical'
+  | 'transformHorizontal'
+  | 'transformRotate'
+  | 'transformAspect'
+  | 'transformScale'
+  | 'transformXOffset'
+  | 'transformYOffset'
+  | 'guidedPerspective';
 
 /** The develop recipe as the frontend holds it. The keys of the sections in
  * the recipe crate come from its registry (`src/generated/recipeKeys.ts`);
@@ -519,7 +535,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   redEyes?: Array<RedEye>;
   /** Face retouch (Capture One's Retouch Faces), applied after the spots. */
   faceRetouch?: FaceRetouch | null;
-  aspectRatio: number | null;
   /** Capture One's Levels (display values, before the curve). */
   levels?: Levels;
   /** Lightroom's region curve, before the point curve. */
@@ -535,15 +550,11 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   pointCurves?: Curves;
   parametricCurve?: ParametricCurve;
   curveMode?: 'point' | 'parametric';
-  crop: Crop | null;
-  flipHorizontal: boolean;
-  flipVertical: boolean;
   flareAmount: number;
   glowAmount: number;
   grainAmount: number;
   grainRoughness: number;
   grainSize: number;
-  guidedPerspective: GuidedPerspective;
   halationAmount: number;
   lensBlurAmount: number;
   lensBlurDiffusion: number;
@@ -726,8 +737,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   lutSize?: number;
   lutIsSceneReferred?: boolean;
   masks: Array<MaskContainer>;
-  orientationSteps: number;
-  rotation: number;
   sectionVisibility: SectionVisibility;
   /** View state, never saved (`NON_COPYABLE_ADJUSTMENT_KEYS`): the
    * renderer's clipping warnings, `showClippingValue`
@@ -743,7 +752,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * `profiles/Name.dcp` inside the session, an absolute path outside one;
    * unset = Rawtonic's own colour. */
   cameraProfile?: string;
-  transformDistortion: number;
   /** Lateral chromatic aberration measured on the photo and corrected
    * (crates/engine/src/lateral_ca.rs): true = on (replacing the lens data's
    * own CA correction), false = off; missing = off before `autoCaVersion` 2,
@@ -757,13 +765,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * data has one it competes with it; missing = 1 (recipes from before).
    * New RAW edits only. */
   autoCaVersion?: number;
-  transformVertical: number;
-  transformHorizontal: number;
-  transformRotate: number;
-  transformAspect: number;
-  transformScale: number;
-  transformXOffset: number;
-  transformYOffset: number;
   vignetteAmount: number;
   vignetteFeather: number;
   vignetteMidpoint: number;

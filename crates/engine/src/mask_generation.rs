@@ -4,6 +4,7 @@ use crate::masks::{
 };
 use base64::{Engine as _, engine::general_purpose};
 use image::{DynamicImage, GenericImageView, GrayImage, Luma, Rgba};
+use rawtonic_recipe::geometry;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,10 +49,19 @@ pub struct SourceGeometry {
 impl SourceGeometry {
     pub fn from_adjustments(adjustments: &Value) -> Self {
         Self {
-            rotation: adjustments["rotation"].as_f64().unwrap_or(0.0) as f32,
-            flip_horizontal: adjustments["flipHorizontal"].as_bool().unwrap_or(false),
-            flip_vertical: adjustments["flipVertical"].as_bool().unwrap_or(false),
-            orientation_steps: (adjustments["orientationSteps"].as_u64().unwrap_or(0) % 4) as u8,
+            rotation: adjustments[geometry::ROTATION.name()]
+                .as_f64()
+                .unwrap_or(0.0) as f32,
+            flip_horizontal: adjustments[geometry::FLIP_HORIZONTAL.name()]
+                .as_bool()
+                .unwrap_or(false),
+            flip_vertical: adjustments[geometry::FLIP_VERTICAL.name()]
+                .as_bool()
+                .unwrap_or(false),
+            orientation_steps: (adjustments[geometry::ORIENTATION_STEPS.name()]
+                .as_u64()
+                .unwrap_or(0)
+                % 4) as u8,
         }
     }
 
@@ -352,10 +362,10 @@ const FRAMED_STROKES: [&str; 6] = ["brush", "flow", "clone", "heal", "liquify", 
 /// resolution, before orientation) when known.
 pub fn shape_frame(adjustments: &Value, size: Option<(f64, f64)>) -> Value {
     let mut frame = serde_json::json!({
-        "rotation": adjustments["rotation"].as_f64().unwrap_or(0.0),
-        "flipHorizontal": adjustments["flipHorizontal"] == true,
-        "flipVertical": adjustments["flipVertical"] == true,
-        "orientationSteps": adjustments["orientationSteps"].as_i64().unwrap_or(0).rem_euclid(4),
+        geometry::ROTATION.name(): adjustments[geometry::ROTATION.name()].as_f64().unwrap_or(0.0),
+        geometry::FLIP_HORIZONTAL.name(): adjustments[geometry::FLIP_HORIZONTAL.name()] == true,
+        geometry::FLIP_VERTICAL.name(): adjustments[geometry::FLIP_VERTICAL.name()] == true,
+        geometry::ORIENTATION_STEPS.name(): adjustments[geometry::ORIENTATION_STEPS.name()].as_i64().unwrap_or(0).rem_euclid(4),
     });
     if let Some((width, height)) =
         size.filter(|(w, h)| w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0)

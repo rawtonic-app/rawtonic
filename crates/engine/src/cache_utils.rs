@@ -1,18 +1,19 @@
 use image::DynamicImage;
+use rawtonic_recipe::geometry;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 pub const GEOMETRY_KEYS: &[&str] = &[
-    "transformDistortion",
-    "transformVertical",
-    "transformHorizontal",
-    "transformRotate",
-    "transformAspect",
-    "transformScale",
-    "transformXOffset",
-    "transformYOffset",
+    geometry::TRANSFORM_DISTORTION.name(),
+    geometry::TRANSFORM_VERTICAL.name(),
+    geometry::TRANSFORM_HORIZONTAL.name(),
+    geometry::TRANSFORM_ROTATE.name(),
+    geometry::TRANSFORM_ASPECT.name(),
+    geometry::TRANSFORM_SCALE.name(),
+    geometry::TRANSFORM_X_OFFSET.name(),
+    geometry::TRANSFORM_Y_OFFSET.name(),
     "lensDistortionAmount",
     "lensVignetteAmount",
     "lensManualVignetteAmount",
@@ -28,7 +29,7 @@ pub const GEOMETRY_KEYS: &[&str] = &[
     "autoCaVersion",
     "fringeVersion",
     "lensVignetteEnabled",
-    "guidedPerspective",
+    geometry::GUIDED_PERSPECTIVE.into_name(),
 ];
 
 pub fn calculate_geometry_hash(adjustments: &serde_json::Value) -> u64 {
@@ -115,7 +116,7 @@ pub fn calculate_thumbnail_base_hash(adjustments: &serde_json::Value) -> u64 {
 
     calculate_patched_warped_hash(adjustments).hash(&mut hasher);
 
-    adjustments["orientationSteps"]
+    adjustments[geometry::ORIENTATION_STEPS.name()]
         .as_u64()
         .unwrap_or(0)
         .hash(&mut hasher);
@@ -135,11 +136,14 @@ pub fn calculate_visual_hash(path: &str, adjustments: &serde_json::Value) -> u64
     if let Some(obj) = adjustments.as_object() {
         for (key, value) in obj {
             let geometry = GEOMETRY_KEYS.contains(&key.as_str())
-                || matches!(
-                    key.as_str(),
-                    "rotation" | "orientationSteps" | "flipHorizontal" | "flipVertical"
-                );
-            if key == "crop" || (geometry && !placed) {
+                || [
+                    geometry::ROTATION.name(),
+                    geometry::ORIENTATION_STEPS.name(),
+                    geometry::FLIP_HORIZONTAL.name(),
+                    geometry::FLIP_VERTICAL.name(),
+                ]
+                .contains(&key.as_str());
+            if key == geometry::CROP.name() || (geometry && !placed) {
                 continue;
             }
             key.hash(&mut hasher);
@@ -153,16 +157,24 @@ pub fn calculate_visual_hash(path: &str, adjustments: &serde_json::Value) -> u64
 pub fn calculate_transform_hash(adjustments: &serde_json::Value) -> u64 {
     let mut hasher = DefaultHasher::new();
 
-    let orientation_steps = adjustments["orientationSteps"].as_u64().unwrap_or(0);
+    let orientation_steps = adjustments[geometry::ORIENTATION_STEPS.name()]
+        .as_u64()
+        .unwrap_or(0);
     orientation_steps.hash(&mut hasher);
 
-    let rotation = adjustments["rotation"].as_f64().unwrap_or(0.0);
+    let rotation = adjustments[geometry::ROTATION.name()]
+        .as_f64()
+        .unwrap_or(0.0);
     (rotation.to_bits()).hash(&mut hasher);
 
-    let flip_h = adjustments["flipHorizontal"].as_bool().unwrap_or(false);
+    let flip_h = adjustments[geometry::FLIP_HORIZONTAL.name()]
+        .as_bool()
+        .unwrap_or(false);
     flip_h.hash(&mut hasher);
 
-    let flip_v = adjustments["flipVertical"].as_bool().unwrap_or(false);
+    let flip_v = adjustments[geometry::FLIP_VERTICAL.name()]
+        .as_bool()
+        .unwrap_or(false);
     flip_v.hash(&mut hasher);
 
     let effects_visible = adjustments
@@ -200,7 +212,7 @@ pub fn calculate_transform_hash(adjustments: &serde_json::Value) -> u64 {
         }
     }
 
-    if let Some(crop_val) = adjustments.get("crop")
+    if let Some(crop_val) = adjustments.get(geometry::CROP.name())
         && !crop_val.is_null()
     {
         crop_val.to_string().hash(&mut hasher);

@@ -1,5 +1,6 @@
 // The app's allocator, so exports free memory as the app does (the export
 // crate returns freed pages through it, `allocator::release_freed_memory`).
+use rawtonic_recipe::geometry;
 #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -408,7 +409,7 @@ fn with_face_retouch(
     )
     .map_err(anyhow::Error::msg)?;
     let mut uncropped = recipe.clone();
-    uncropped["crop"] = serde_json::Value::Null;
+    uncropped[geometry::CROP.name()] = serde_json::Value::Null;
     let (framed, _) = rawtonic_engine::adjustment_utils::apply_spatial_transformations(
         warped.as_ref(),
         &uncropped,

@@ -1,4 +1,5 @@
 //! Mask layer definitions as stored in a recipe; `mask_generation` rasterises them.
+use rawtonic_recipe::geometry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -252,10 +253,10 @@ const DETECTION_RESULT_KEYS: [&str; 8] = [
     "maskDataBase64",
     "mask_data_base64",
     DETECT_PENDING,
-    "rotation",
-    "flipHorizontal",
-    "flipVertical",
-    "orientationSteps",
+    geometry::ROTATION.name(),
+    geometry::FLIP_HORIZONTAL.name(),
+    geometry::FLIP_VERTICAL.name(),
+    geometry::ORIENTATION_STEPS.name(),
     "warp",
 ];
 

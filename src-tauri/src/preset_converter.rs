@@ -1,4 +1,5 @@
 use rawtonic_recipe::color as recipe_color;
+use rawtonic_recipe::geometry;
 use rawtonic_recipe::tone;
 use regex::Regex;
 use regex::regex;
@@ -522,16 +523,22 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         ),
         // Same scale and response as Camera Raw (notes:
         // reference/manual-distortion.md).
-        ("LensManualDistortionAmount", "transformDistortion"),
+        (
+            "LensManualDistortionAmount",
+            geometry::TRANSFORM_DISTORTION.name(),
+        ),
         // The manual Transform sliders, measured to Camera Raw's model
         // (notes: reference/transform.md).
-        ("PerspectiveVertical", "transformVertical"),
-        ("PerspectiveHorizontal", "transformHorizontal"),
-        ("PerspectiveRotate", "transformRotate"),
-        ("PerspectiveAspect", "transformAspect"),
-        ("PerspectiveScale", "transformScale"),
-        ("PerspectiveX", "transformXOffset"),
-        ("PerspectiveY", "transformYOffset"),
+        ("PerspectiveVertical", geometry::TRANSFORM_VERTICAL.name()),
+        (
+            "PerspectiveHorizontal",
+            geometry::TRANSFORM_HORIZONTAL.name(),
+        ),
+        ("PerspectiveRotate", geometry::TRANSFORM_ROTATE.name()),
+        ("PerspectiveAspect", geometry::TRANSFORM_ASPECT.name()),
+        ("PerspectiveScale", geometry::TRANSFORM_SCALE.name()),
+        ("PerspectiveX", geometry::TRANSFORM_X_OFFSET.name()),
+        ("PerspectiveY", geometry::TRANSFORM_Y_OFFSET.name()),
     ];
 
     for (xmp_key, rr_key) in mappings {
@@ -1755,7 +1762,7 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
         out.push("lensProfile");
     }
     if is("HasCrop", "True") {
-        out.push("crop");
+        out.push(geometry::CROP.name());
     }
     if nonzero("PerspectiveUpright") {
         out.push("upright");

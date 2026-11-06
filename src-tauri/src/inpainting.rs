@@ -1,4 +1,5 @@
 use crate::state::ai::AiState;
+use rawtonic_recipe::geometry;
 use std::io::Cursor;
 
 use crate::ipc::CommandError;
@@ -674,7 +675,7 @@ pub async fn invoke_generative_replace_with_mask_def(
     let (img_w, img_h) = source_image.dimensions();
 
     let orientation_steps = current_adjustments
-        .get("orientationSteps")
+        .get(geometry::ORIENTATION_STEPS.name())
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u8;
     let (trans_w, trans_h) = if orientation_steps % 2 == 1 {

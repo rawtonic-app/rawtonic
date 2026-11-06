@@ -27,6 +27,7 @@
 //!
 //! Scales follow the face: the eye distance in base pixels.
 
+use rawtonic_recipe::geometry;
 use std::io::Cursor;
 
 use base64::{Engine as _, engine::general_purpose};
@@ -213,15 +214,15 @@ fn first_frame_key(adjustments: &Value) -> String {
 fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str>) -> String {
     let mut keys: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
     for key in [
-        "orientationSteps",
-        "flipHorizontal",
-        "flipVertical",
-        "rotation",
+        geometry::ORIENTATION_STEPS.name(),
+        geometry::FLIP_HORIZONTAL.name(),
+        geometry::FLIP_VERTICAL.name(),
+        geometry::ROTATION.name(),
     ]
-    .iter()
-    .chain(geometry)
+    .into_iter()
+    .chain(geometry.copied())
     {
-        if let Some(v) = adjustments.get(*key).filter(|v| !v.is_null()) {
+        if let Some(v) = adjustments.get(key).filter(|v| !v.is_null()) {
             keys.insert(key, v);
         }
     }

@@ -235,6 +235,58 @@ impl Detail {
     }
 }
 
+/// Detail keys in the generated frontend recipe type.
+pub const TS: TsSection = TsSection {
+    name: "Detail",
+    fields: &[
+        TsField::new(SHARPNESS, ""),
+        TsField::new(SHARPNESS_THRESHOLD, ""),
+        TsField::new(
+            SHARPEN_RADIUS,
+            "Lightroom's sharpening Radius / Detail / Masking (photo only).",
+        ),
+        TsField::new(SHARPEN_DETAIL, ""),
+        TsField::new(SHARPEN_MASKING, ""),
+        TsField::new(
+            SHARPNESS_FALLOFF,
+            "Capture One's Sharpness Falloff (0–100): more sharpening towards the corners.",
+        ),
+        TsField::new(LUMA_NOISE_REDUCTION, ""),
+        TsField::new(COLOR_NOISE_REDUCTION, ""),
+        TsField::new(
+            LUMA_NOISE_DETAIL,
+            "Lightroom's noise reduction refinements (0–100): luminance Detail (default 50) and Contrast (0), colour Detail (50) and Smoothness (50).",
+        ),
+        TsField::new(LUMA_NOISE_CONTRAST, ""),
+        TsField::new(COLOR_NOISE_DETAIL, ""),
+        TsField::new(COLOR_NOISE_SMOOTHNESS, ""),
+        TsField::new(CLARITY, ""),
+        TsField::new(DEHAZE, ""),
+        TsField::new(STRUCTURE, ""),
+        TsField::new(CHROMATIC_ABERRATION_RED_CYAN, ""),
+        TsField::new(CHROMATIC_ABERRATION_BLUE_YELLOW, ""),
+        TsField::new(
+            DEFRINGE_PURPLE_AMOUNT,
+            "Lightroom's Defringe: amounts 0–20, hue ranges 0–100.",
+        ),
+        TsField::new(DEFRINGE_PURPLE_HUE_LO, ""),
+        TsField::new(DEFRINGE_PURPLE_HUE_HI, ""),
+        TsField::new(DEFRINGE_GREEN_AMOUNT, ""),
+        TsField::new(DEFRINGE_GREEN_HUE_LO, ""),
+        TsField::new(DEFRINGE_GREEN_HUE_HI, ""),
+        TsField::new(
+            MOIRE_AMOUNT,
+            "Capture One's Moiré: amount and pattern size, 0–100.",
+        ),
+        TsField::new(MOIRE_PATTERN, ""),
+        TsField::new(
+            DIFFRACTION_CORRECTION,
+            "Capture One's diffraction correction: sharpening by the f-number and pixel pitch (diffraction.rs), RAW only.",
+        ),
+    ],
+    unions: &[],
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,55 +556,3 @@ mod tests {
         }
     }
 }
-
-/// Detail keys in the generated frontend recipe type.
-pub const TS: TsSection = TsSection {
-    name: "Detail",
-    fields: &[
-        TsField::new(SHARPNESS, ""),
-        TsField::new(SHARPNESS_THRESHOLD, ""),
-        TsField::new(
-            SHARPEN_RADIUS,
-            "Lightroom's sharpening Radius / Detail / Masking (photo only).",
-        ),
-        TsField::new(SHARPEN_DETAIL, ""),
-        TsField::new(SHARPEN_MASKING, ""),
-        TsField::new(
-            SHARPNESS_FALLOFF,
-            "Capture One's Sharpness Falloff (0–100): more sharpening towards the corners.",
-        ),
-        TsField::new(LUMA_NOISE_REDUCTION, ""),
-        TsField::new(COLOR_NOISE_REDUCTION, ""),
-        TsField::new(
-            LUMA_NOISE_DETAIL,
-            "Lightroom's noise reduction refinements (0–100): luminance Detail (default 50) and Contrast (0), colour Detail (50) and Smoothness (50).",
-        ),
-        TsField::new(LUMA_NOISE_CONTRAST, ""),
-        TsField::new(COLOR_NOISE_DETAIL, ""),
-        TsField::new(COLOR_NOISE_SMOOTHNESS, ""),
-        TsField::new(CLARITY, ""),
-        TsField::new(DEHAZE, ""),
-        TsField::new(STRUCTURE, ""),
-        TsField::new(CHROMATIC_ABERRATION_RED_CYAN, ""),
-        TsField::new(CHROMATIC_ABERRATION_BLUE_YELLOW, ""),
-        TsField::new(
-            DEFRINGE_PURPLE_AMOUNT,
-            "Lightroom's Defringe: amounts 0–20, hue ranges 0–100.",
-        ),
-        TsField::new(DEFRINGE_PURPLE_HUE_LO, ""),
-        TsField::new(DEFRINGE_PURPLE_HUE_HI, ""),
-        TsField::new(DEFRINGE_GREEN_AMOUNT, ""),
-        TsField::new(DEFRINGE_GREEN_HUE_LO, ""),
-        TsField::new(DEFRINGE_GREEN_HUE_HI, ""),
-        TsField::new(
-            MOIRE_AMOUNT,
-            "Capture One's Moiré: amount and pattern size, 0–100.",
-        ),
-        TsField::new(MOIRE_PATTERN, ""),
-        TsField::new(
-            DIFFRACTION_CORRECTION,
-            "Capture One's diffraction correction: sharpening by the f-number and pixel pitch (diffraction.rs), RAW only.",
-        ),
-    ],
-    unions: &[],
-};

@@ -7,6 +7,7 @@
 //! small frame (`MaskFrame::fitting`) a few times the thumbnail's size, so
 //! edges stay smooth without rasterizing the full-resolution mask.
 
+use rawtonic_recipe::geometry;
 use std::sync::Mutex;
 
 use base64::{Engine as _, engine::general_purpose};
@@ -44,7 +45,10 @@ impl MaskFrame {
     /// for a photo of `full_dims` full-resolution pixels, scaled so that its
     /// longer side is `longest` pixels (never above full resolution).
     pub fn fitting(adjustments: &Value, full_dims: (u32, u32), longest: u32) -> Option<Self> {
-        let steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) % 4;
+        let steps = adjustments[geometry::ORIENTATION_STEPS.name()]
+            .as_u64()
+            .unwrap_or(0)
+            % 4;
         let (oriented_w, oriented_h) = if steps % 2 == 1 {
             (full_dims.1, full_dims.0)
         } else {
@@ -53,10 +57,11 @@ impl MaskFrame {
         if oriented_w == 0 || oriented_h == 0 || longest == 0 {
             return None;
         }
-        let (frame_w, frame_h) = crop_rect(&adjustments["crop"], oriented_w, oriented_h)
-            .map_or((oriented_w, oriented_h), |(_, _, w, h)| (w, h));
+        let (frame_w, frame_h) =
+            crop_rect(&adjustments[geometry::CROP.name()], oriented_w, oriented_h)
+                .map_or((oriented_w, oriented_h), |(_, _, w, h)| (w, h));
         // The preview's crop offset: the crop's unrounded origin.
-        let origin = serde_json::from_value::<Crop>(adjustments["crop"].clone())
+        let origin = serde_json::from_value::<Crop>(adjustments[geometry::CROP.name()].clone())
             .map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
         let scale = (longest as f32 / frame_w.max(frame_h) as f32).min(1.0);
         Some(Self {

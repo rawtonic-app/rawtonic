@@ -1,7 +1,15 @@
 // Generated from the recipe crate's key registry (crates/recipe/src/ts.rs) by
 // `cargo run -p rawtonic-recipe --example ts_type`; do not edit. scripts/check.sh
 // fails when this file is stale.
-import type { ColorCalibration, ColorGradingProps, ColorRange, GrayMixer, Hsl } from '../utils/adjustments';
+import type {
+  ColorCalibration,
+  ColorGradingProps,
+  ColorRange,
+  Crop,
+  GrayMixer,
+  GuidedPerspective,
+  Hsl
+} from '../utils/adjustments';
 
 export type WhiteBalanceMode =
   'asShot' | 'daylight' | 'cloudy' | 'shade' | 'tungsten' | 'fluorescent' | 'flash' | 'custom' | 'auto';
@@ -79,4 +87,21 @@ export interface RecipeKeys {
   moirePattern?: number;
   /** Capture One's diffraction correction: sharpening by the f-number and pixel pitch (diffraction.rs), RAW only. */
   diffractionCorrection?: boolean;
+
+  // Geometry
+  crop?: Crop | null;
+  aspectRatio?: number | null;
+  rotation?: number;
+  orientationSteps?: number;
+  flipHorizontal?: boolean;
+  flipVertical?: boolean;
+  transformDistortion?: number;
+  transformVertical?: number;
+  transformHorizontal?: number;
+  transformRotate?: number;
+  transformAspect?: number;
+  transformScale?: number;
+  transformXOffset?: number;
+  transformYOffset?: number;
+  guidedPerspective?: GuidedPerspective;
 }
