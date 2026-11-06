@@ -1029,7 +1029,12 @@ fn may_replace_settings(path: &Path) -> Result<(), String> {
 }
 
 /// Settings of removed features: ignored on read and gone after the next save.
-const REMOVED_KEYS: [&str; 3] = ["aiProvider", "aiConnectorAddress", "comfyuiAddress"];
+const REMOVED_KEYS: [&str; 4] = [
+    "aiProvider",
+    "aiConnectorAddress",
+    "comfyuiAddress",
+    "rawHighlightCompression",
+];
 
 fn without_legacy_keys(mut settings: AppSettings) -> AppSettings {
     for key in REMOVED_KEYS {
@@ -1300,18 +1305,19 @@ mod tests {
 
     #[test]
     fn removed_raw_highlight_compression_is_ignored_and_not_saved() {
-        for value in [
-            serde_json::json!(2.5),
-            serde_json::json!(10.0),
-            serde_json::Value::Null,
-        ] {
-            let loaded: AppSettings = serde_json::from_value(serde_json::json!({
-                "rawHighlightCompression": value,
-                "rawPreprocessingColorNr": 0.75,
-            }))
+        for value in ["2.5", "10.0", "null"] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("settings.json");
+            fs::write(
+                &path,
+                format!(r#"{{"rawHighlightCompression":{value},"rawPreprocessingColorNr":0.75}}"#),
+            )
             .unwrap();
-            assert_eq!(loaded.raw_preprocessing_color_nr, Some(0.75));
-            let saved = serde_json::to_value(&loaded).unwrap();
+            let mut settings = read_settings_file(&path).unwrap();
+            assert_eq!(settings.raw_preprocessing_color_nr, Some(0.75));
+            write_settings_file(&path, &mut settings).unwrap();
+            let saved: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
             assert!(saved.get("rawHighlightCompression").is_none());
             assert_eq!(saved["rawPreprocessingColorNr"], 0.75);
         }
