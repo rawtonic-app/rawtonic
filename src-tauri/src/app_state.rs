@@ -1,18 +1,15 @@
-use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::{Arc, Condvar, Mutex};
 
 use image::DynamicImage;
 use serde::{Deserialize, Serialize};
-use sysinfo::Disks;
 use tokio::sync::Notify;
 
 pub use crate::gpu_processing::{
     AnalyticsConfig, AnalyticsJob, GpuImageCache, GpuProcessorSlot, GpuProcessorState,
 };
 use crate::gpu_processing::{GpuContext, LatestJobSender};
-use crate::launch_request::ExternalEditSession;
 use crate::lut_processing::LutCache;
 pub use crate::state::ai::{AiTaskGuard, AiTaskToken};
 
@@ -335,32 +332,9 @@ pub fn preview_job_is_stale(sequence: Option<u64>, newest_processed: Option<u64>
     matches!((sequence, newest_processed), (Some(sequence), Some(newest)) if sequence < newest)
 }
 
-pub struct PendingMetadata {
-    pub virtual_path: String,
-    pub image_path: PathBuf,
-    pub sidecar_path: PathBuf,
-}
-
-pub struct MetadataManager {
-    pub queue: Mutex<VecDeque<PendingMetadata>>,
-    pub cvar: Condvar,
-    pub pending: Mutex<HashSet<PathBuf>>,
-}
-
-impl MetadataManager {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            queue: Mutex::new(VecDeque::new()),
-            cvar: Condvar::new(),
-            pending: Mutex::new(HashSet::new()),
-        })
-    }
-}
-
 pub type TransformedImageCache = (u64, Arc<DynamicImage>, (f32, f32));
 
 pub struct AppState {
-    pub window_setup_complete: AtomicBool,
     pub gpu_crash_flag_path: Mutex<Option<PathBuf>>,
     pub original_image: Mutex<Option<LoadedImage>>,
     pub proxy_image: Mutex<Option<LoadedProxy>>,
@@ -388,11 +362,7 @@ pub struct AppState {
     /// Develop view's frames instead of holding up the processor those use
     /// for a whole photo (notes: parity-gaps/G44).
     pub export_gpu_processor: GpuProcessorSlot,
-    /// A finished merge waiting for `save_merge` (merges.rs).
-    pub merge_result: Arc<Mutex<Option<crate::merges::MergeOutcome>>>,
     pub lut_cache: Mutex<LutCache>,
-    pub initial_file_path: Mutex<Option<String>>,
-    pub pending_edit_session: Mutex<Option<ExternalEditSession>>,
     /// The preview worker's next job (preview_slot.rs): a newer request
     /// replaces the waiting one on arrival.
     pub preview_jobs: crate::preview_slot::LatestSlot<PreviewJob>,
@@ -412,16 +382,12 @@ pub struct AppState {
     pub scope_gpu_cache: Mutex<Option<GpuImageCache>>,
     pub load_image_generation: Arc<AtomicUsize>,
     pub preview_generation: AtomicUsize,
-    pub metadata_manager: Arc<MetadataManager>,
-    pub disks_cache: Mutex<Option<Disks>>,
-    pub disks_cache_refreshing: AtomicBool,
 }
 
 /// The state the app starts with: no photograph, empty caches.
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            window_setup_complete: AtomicBool::new(false),
             gpu_crash_flag_path: Mutex::new(None),
             original_image: Mutex::new(None),
             proxy_image: Mutex::new(None),
@@ -435,10 +401,7 @@ impl Default for AppState {
             gpu_adapter: Mutex::new(None),
             gpu_processor: GpuProcessorSlot::new(None),
             export_gpu_processor: GpuProcessorSlot::background(None),
-            merge_result: Arc::new(Mutex::new(None)),
             lut_cache: Mutex::new(Default::default()),
-            initial_file_path: Mutex::new(None),
-            pending_edit_session: Mutex::new(None),
             preview_jobs: Default::default(),
             live_stroke: Default::default(),
             analytics_worker_tx: Mutex::new(None),
@@ -449,9 +412,6 @@ impl Default for AppState {
             scope_gpu_cache: Mutex::new(None),
             load_image_generation: Arc::new(AtomicUsize::new(0)),
             preview_generation: AtomicUsize::new(0),
-            metadata_manager: MetadataManager::new(),
-            disks_cache: Mutex::new(None),
-            disks_cache_refreshing: AtomicBool::new(false),
         }
     }
 }

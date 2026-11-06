@@ -4,16 +4,19 @@
 here, is registered with `.manage(...)` in `lib.rs`, and is reached through its own module's
 functions, not through `AppState`.
 
-| Sub-state | Holds | Access |
-|---|---|---|
-| `settings::SettingsStore` | `settings.json`, read + migrated once per run | `settings::current(app)` / `try_current(app)` (cheap `Arc`), `settings::update(app, \|s\| …)` |
-| `develop::DevelopSession` | the caches built from the open photograph (decodes, preview bases, GPU upload, masks, warps, geometry bases, the editor's patches) | `app.state::<DevelopSession>()`, passed on as `&DevelopSession`; dropped only through `invalidate(Scope)` |
-| `thumbnails::ThumbnailState` | the Library's thumbnail queue and its workers' bookkeeping (`ThumbnailManager`), the cancel flag, the progress counter, the thumbnail bases, the restoration slot | `app.state::<ThumbnailState>()`, passed on as `&ThumbnailState`; progress through `reset_progress` / `add_to_total` / `set_queued` / `complete_one` |
-| `ai::AiState` | the AI models and their cached results (`ai_processing::AiModels`), the locks that serialise loading and running them, their lifecycle (use, running computations, unloads), AI Denoise, faces, the running AI tasks and the tagging pass | `app.state::<AiState>()`, passed on as `&AiState` (the model loaders in `ai_processing` take it) |
-| `library_files::AlbumsStore` | `albums.json`: the app's album list, read once per run, every change saved under one write lock | `app.state::<AlbumsStore>()`, `get(app)` / `update(app, \|albums\| …)` (through `file_management`; the file operation sync uses it too) |
-| `library_files::PresetsStore` | `presets.json`: the user's presets, read once per run, every change saved under one write lock | `app.state::<PresetsStore>()`, `get(app)` / `update(app, \|presets\| …)` (through `file_management`) |
-| `library_files::LibraryQueue` | ordered album/preset changes, pending work and the last failed change per file | `app.state::<LibraryQueue>()`; `run_change` and `flush_library` |
-| `export::ExportState` | the export queue (`export-queue.sqlite`), the jobs the runner works on, whether it runs and whether the queue is held, the Edit With runs a quit cut short, the running export task's cancel token | `app.state::<ExportState>()`, passed on as `&ExportState` (`export_queue::with_queue`, `snapshot`, `hold`, `has_unfinished_job_in`, `session_move::{offer, busy, before_reversal}`) |
+| Sub-state                     | Holds                                                                                                                                                                                                                                     | Access                                                                                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `settings::SettingsStore`     | `settings.json`, read + migrated once per run                                                                                                                                                                                             | `settings::current(app)` / `try_current(app)` (cheap `Arc`), `settings::update(app, \|s\| …)`                                                                                       |
+| `develop::DevelopSession`     | the caches built from the open photograph (decodes, preview bases, GPU upload, masks, warps, geometry bases, the editor's patches)                                                                                                        | `app.state::<DevelopSession>()`, passed on as `&DevelopSession`; dropped only through `invalidate(Scope)`                                                                           |
+| `thumbnails::ThumbnailState`  | the Library's thumbnail queue and its workers' bookkeeping (`ThumbnailManager`), the cancel flag, the progress counter, the thumbnail bases, the restoration slot                                                                         | `app.state::<ThumbnailState>()`, passed on as `&ThumbnailState`; progress through `reset_progress` / `add_to_total` / `set_queued` / `complete_one`                                 |
+| `ai::AiState`                 | the AI models and their cached results (`ai_processing::AiModels`), the locks that serialise loading and running them, their lifecycle (use, running computations, unloads), AI Denoise, faces, the running AI tasks and the tagging pass | `app.state::<AiState>()`, passed on as `&AiState` (the model loaders in `ai_processing` take it)                                                                                    |
+| `library_files::AlbumsStore`  | `albums.json`: the app's album list, read once per run, every change saved under one write lock                                                                                                                                           | `app.state::<AlbumsStore>()`, `get(app)` / `update(app, \|albums\| …)` (through `file_management`; the file operation sync uses it too)                                             |
+| `library_files::PresetsStore` | `presets.json`: the user's presets, read once per run, every change saved under one write lock                                                                                                                                            | `app.state::<PresetsStore>()`, `get(app)` / `update(app, \|presets\| …)` (through `file_management`)                                                                                |
+| `library_files::LibraryQueue` | ordered album/preset changes, pending work and the last failed change per file                                                                                                                                                            | `app.state::<LibraryQueue>()`; `run_change` and `flush_library`                                                                                                                     |
+| `export::ExportState`         | the export queue (`export-queue.sqlite`), the jobs the runner works on, whether it runs and whether the queue is held, the Edit With runs a quit cut short, the running export task's cancel token                                        | `app.state::<ExportState>()`, passed on as `&ExportState` (`export_queue::with_queue`, `snapshot`, `hold`, `has_unfinished_job_in`, `session_move::{offer, busy, before_reversal}`) |
+| `startup::StartupState`       | the first-window handshake, the initial file path and pending external edit session                                                                                                                                                       | `app.state::<StartupState>()`; `frontend_ready` takes `State<StartupState>`                                                                                                         |
+| `library::LibraryState`       | the metadata worker manager and the disk-kind cache used by Library listings                                                                                                                                                              | `app.state::<LibraryState>()` in the listing helpers and startup                                                                                                                    |
+| `merge::MergeState`           | the merge dialog's result, current job and run lock                                                                                                                                                                                       | merge commands take `State<MergeState>`; source invalidation takes `&MergeState`                                                                                                    |
 
 ## Lock policy
 
@@ -122,3 +125,32 @@ The tokio locks are held across the awaits of one load or run:
 `queue` is taken alone, for one queue call (`with_queue`); never while `running_jobs` is held.
 `interrupted_edits` is taken alone. `runner_active` and `held` are atomics. A pause emits
 `export-job-pausing` under `running_jobs` (as before the split; no listener takes it).
+
+### `StartupState`
+
+`initial_file_path` and `pending_edit_session` are each taken alone, for a store or a take.
+`window_setup_complete` is atomic. No startup lock is held during window calls or an event emit.
+
+### `LibraryState`
+
+The metadata manager's `pending` (deduplication) and `queue` locks are taken separately, never
+nested: enqueue records the pending sidecar, releases `pending`, then appends to `queue`; a
+worker pops under `queue`, releases it, reads the metadata and emits its event, then removes
+from `pending`. The queue's condvar wait recovers a poisoned guard too.
+
+`disks_cache` is taken alone for a lookup or replacement, and released before accessing
+`ThumbnailState` or querying disks. `disks_cache_refreshing` is atomic. None of these locks
+is held together with a settings or library-file store's lock.
+
+### `MergeState`
+
+1. `running` (tokio mutex, held across one merge's blocking computation and its await)
+2. `result` (std mutex; publishing the result takes it while `running` is held)
+
+A new merge clears `result` and releases it before waiting for `running`; no path takes
+`running` while holding `result`. `current_job` is atomic. Refinish holds `result` while it
+updates the outline and computes its preview on a blocking worker, as before the split.
+Save takes the result out before encoding or writing; a failed publish may put it back
+under the same lock if its job is still current. Events are emitted outside `result`.
+Source invalidation clears `DevelopSession` first (its locks released), then takes `result`
+alone; it does not change the current job, matching the previous cache invalidation.

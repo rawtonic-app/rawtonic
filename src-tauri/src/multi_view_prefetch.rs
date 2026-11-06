@@ -1359,7 +1359,11 @@ pub(crate) mod tests {
         HELD.lock()
             .unwrap()
             .extend([held("x.raf", 1, true, 1), held("y.raf", 1, false, 2)]);
-        crate::image_loader::clear_source_caches(&state, &develop);
+        crate::image_loader::clear_source_caches(
+            &state,
+            &develop,
+            &crate::state::merge::MergeState::default(),
+        );
         assert_eq!(HELD.lock().unwrap().len(), 2);
         develop.invalidate(crate::state::develop::Scope::Decoder);
         assert_eq!(HELD.lock().unwrap().len(), 0);

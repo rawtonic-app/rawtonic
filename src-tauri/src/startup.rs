@@ -1,8 +1,9 @@
 //! Start-up services: logging, window placement, the frontend-ready handshake
 //! and the GPU crash check. Moved out of `lib.rs`.
-use crate::app_state::AppState;
 use crate::app_state::WindowState;
 use crate::launch_request::LaunchPayload;
+use crate::state::lock::lock_recover;
+use crate::state::startup::StartupState;
 use std::fs;
 use std::io::Write;
 use std::panic;
@@ -320,7 +321,7 @@ pub(crate) fn linux_restored_window_size(
 pub(crate) fn frontend_ready(
     app_handle: tauri::AppHandle,
     window: tauri::Window,
-    state: tauri::State<AppState>,
+    state: tauri::State<StartupState>,
 ) -> Result<LaunchPayload, String> {
     let is_first_run = !state
         .window_setup_complete
@@ -385,8 +386,8 @@ pub(crate) fn frontend_ready(
         }
     }
 
-    let open_with_file = state.initial_file_path.lock().unwrap().take();
-    let edit_session = state.pending_edit_session.lock().unwrap().take();
+    let open_with_file = lock_recover(&state.initial_file_path).take();
+    let edit_session = lock_recover(&state.pending_edit_session).take();
     if let Some(path) = &open_with_file {
         log::info!("Frontend is ready, returning initial path: {}", path);
     }

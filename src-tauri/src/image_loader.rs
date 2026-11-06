@@ -10,6 +10,8 @@ use crate::formats::is_raw_file;
 use crate::image_processing::ImageMetadata;
 use crate::ipc::CommandError;
 use crate::state::develop::{DevelopSession, Scope};
+use crate::state::lock::lock_recover;
+use crate::state::merge::MergeState;
 use anyhow::{Result, anyhow};
 use image::{DynamicImage, GenericImageView};
 use serde_json::Value;
@@ -471,6 +473,7 @@ pub async fn load_image_proxy(
     app_handle: tauri::AppHandle,
 ) -> Result<Option<ProxyInfo>, String> {
     let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
+    let merges = tauri::Manager::state::<MergeState>(&app_handle);
     #[cfg(feature = "performance-profiling")]
     let performance_start = Instant::now();
     let (source_path, _) = parse_virtual_path(&path);
@@ -560,7 +563,7 @@ pub async fn load_image_proxy(
         .as_ref()
         .is_some_and(|o| o.path != path)
     {
-        clear_source_caches(&state, &develop);
+        clear_source_caches(&state, &develop, &merges);
     }
     *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = Some(loaded);
     #[cfg(feature = "performance-profiling")]
@@ -659,12 +662,12 @@ pub fn decoded_cache_key(
 }
 
 /// Drops the open photograph's source and everything derived from it.
-pub(crate) fn clear_source_caches(state: &AppState, develop: &DevelopSession) {
+pub(crate) fn clear_source_caches(state: &AppState, develop: &DevelopSession, merges: &MergeState) {
     *state
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = None;
-    clear_derived_caches(state, develop);
+    clear_derived_caches(develop, merges);
 }
 
 /// Makes `path` the open photograph (`current_source`). The bitmaps the
@@ -686,9 +689,9 @@ pub(crate) fn open_source(state: &AppState, develop: &DevelopSession, path: &str
 
 /// Drops what was computed from the open photograph's source (previews,
 /// warps, masks, tool results) and a merge result waiting to be saved.
-fn clear_derived_caches(state: &AppState, develop: &DevelopSession) {
+fn clear_derived_caches(develop: &DevelopSession, merges: &MergeState) {
     develop.invalidate(Scope::Source);
-    *state.merge_result.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *lock_recover(&merges.result) = None;
 }
 
 /// The error of a load or develop a newer one (or another photograph)
@@ -733,6 +736,7 @@ pub async fn apply_ai_denoise(
 ) -> Result<f32, CommandError> {
     // Not a command argument (`src/contracts/commandErrors.test.ts` pins them).
     let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
+    let merges = tauri::Manager::state::<MergeState>(&app_handle);
     let (source_path, _) = parse_virtual_path(&path);
     let source = source_path.to_string_lossy().to_string();
     if !is_raw_file(&source) {
@@ -860,7 +864,7 @@ pub async fn apply_ai_denoise(
         },
     )
     .map_err(|_| publish_cancelled())?;
-    clear_derived_caches(&state, &develop);
+    clear_derived_caches(&develop, &merges);
     Ok(applied)
 }
 
@@ -960,6 +964,7 @@ pub async fn load_image(
     app_handle: tauri::AppHandle,
 ) -> Result<LoadImageResult, String> {
     let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
+    let merges = tauri::Manager::state::<MergeState>(&app_handle);
     #[cfg(feature = "performance-profiling")]
     let performance_start = Instant::now();
     #[cfg(feature = "performance-profiling")]
@@ -999,7 +1004,7 @@ pub async fn load_image(
         .filter(|o| o.path == path)
         .map(|o| Arc::clone(&o.image));
     if opened_already.is_none() {
-        clear_source_caches(&state, &develop);
+        clear_source_caches(&state, &develop, &merges);
     }
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);
@@ -1235,7 +1240,7 @@ pub async fn load_image(
         .as_ref()
         .is_some_and(|opened| !Arc::ptr_eq(&pristine_arc, opened))
     {
-        clear_source_caches(&state, &develop);
+        clear_source_caches(&state, &develop, &merges);
     }
 
     let is_raw = is_raw_file(&source_path_str);
@@ -1377,6 +1382,7 @@ pub async fn load_image(
 pub(crate) fn open_kept_decode(
     state: &AppState,
     develop: &DevelopSession,
+    merges: &MergeState,
     path: &str,
     variant: DecodeVariant,
     settings: &AppSettings,
@@ -1417,7 +1423,7 @@ pub(crate) fn open_kept_decode(
         measures,
     });
     drop(original);
-    clear_derived_caches(state, develop);
+    clear_derived_caches(develop, merges);
     {
         let mut proxy = state.proxy_image.lock().unwrap_or_else(|e| e.into_inner());
         if proxy.as_ref().is_some_and(|p| p.path != path) {
@@ -1963,6 +1969,7 @@ mod patch_cache_tests {
     fn bitmaps_sent_with_the_proxy_frame_outlive_the_decode() {
         let state = AppState::default();
         let develop = DevelopSession::default();
+        let merges = MergeState::default();
         let sent =
             |develop: &DevelopSession| develop.patch_cache.lock().unwrap().contains_key("subject");
         // load_image_proxy, then the proxy frame carrying the bitmap.
@@ -1973,7 +1980,7 @@ mod patch_cache_tests {
         );
         // What load_image (and apply_ai_denoise) do on arrival.
         open_source(&state, &develop, "a.ARW");
-        clear_source_caches(&state, &develop);
+        clear_source_caches(&state, &develop, &merges);
         assert!(sent(&develop));
         // Another photograph: its masks may share ids (pasted layers).
         open_source(&state, &develop, "b.ARW");
@@ -2003,6 +2010,7 @@ mod develop_cache_scenarios {
     pub(crate) struct Editor<'a> {
         pub state: &'a AppState,
         pub develop: &'a DevelopSession,
+        pub merges: &'a MergeState,
         pub counts: Counts,
     }
 
@@ -2020,7 +2028,7 @@ mod develop_cache_scenarios {
                 .as_ref()
                 .is_some_and(|o| o.path != path);
             if other {
-                clear_source_caches(self.state, self.develop);
+                clear_source_caches(self.state, self.develop, self.merges);
             }
             let key = decoded_cache_key(path, None, DecodeVariant::default());
             let cached = self.develop.decoded_image_cache.lock().unwrap().get(&key);
@@ -2082,10 +2090,12 @@ mod develop_cache_scenarios {
     fn decodes_and_preview_bases_per_develop_event() {
         let state = AppState::default();
         let develop = DevelopSession::default();
+        let merges = MergeState::default();
         develop.decoded_image_cache.lock().unwrap().set_capacity(5);
         let mut editor = Editor {
             state: &state,
             develop: &develop,
+            merges: &merges,
             counts: Counts::default(),
         };
         editor.open("a.ARW");
