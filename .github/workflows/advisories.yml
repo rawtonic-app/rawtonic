@@ -75,6 +75,9 @@ jobs:
           node scripts/dependency_report.mjs --out dependency-report.md --issue-body previous-issue.md 2>&1 | tee dependency-report.log
           exit "${PIPESTATUS[0]}"
       - name: Create or update the issue
+        # Runs after a failed collect too: a security finding is published
+        # (the failed collect step keeps the job red).
+        if: ${{ !cancelled() && steps.collect.outcome != 'skipped' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_TITLE: Weekly dependency report
