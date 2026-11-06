@@ -141,12 +141,13 @@ struct RunMarker {
     /// The phase of the start the run was in ([`CrashStore::note_phase`]).
     #[serde(default)]
     phase: Option<String>,
-    /// Earlier runs that vanished without a note and for which Windows had
-    /// not yet published its Application Error event when they were looked
-    /// up; looked up again at the next starts, a few times.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    unresolved: Vec<LostRun>,
 }
+
+/// Earlier runs that vanished without a note and for which Windows had not
+/// yet published its Application Error event when they were looked up; looked
+/// up again at the next starts, a few times. Kept in a file of their own: the
+/// next run's normal exit removes its marker, not this.
+const LOST_RUNS: &str = "lost-runs.json";
 
 /// A vanished run whose native crash was not found (yet).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,7 +159,7 @@ struct LostRun {
     gpu: Option<Gpu>,
     #[serde(default)]
     phase: Option<String>,
-    /// Lookups that found nothing.
+    /// Lookups that found nothing, the first included.
     tries: u8,
 }
 
@@ -523,11 +524,11 @@ impl CrashStore {
         // A run that is gone without a clean exit or a note, and the earlier
         // ones whose event Windows had not published yet. A lookup that finds
         // nothing keeps the run for the next start.
-        let mut carried: Vec<LostRun> = marker
-            .as_ref()
-            .filter(|_| keep)
-            .map(|m| m.unresolved.clone())
-            .unwrap_or_default();
+        let mut carried: Vec<LostRun> = if keep {
+            read_json(&self.path(LOST_RUNS)).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let mut lost: Option<LostRun> = None;
         let mut hit: Option<(crate::native::NativeCrash, RunMarker, bool)> = None;
         if keep && panic.is_none() && signal.is_none() {
@@ -544,7 +545,8 @@ impl CrashStore {
                             app: m.app.clone(),
                             gpu: m.gpu.clone(),
                             phase: m.phase.clone(),
-                            tries: 0,
+                            // This lookup is the first.
+                            tries: 1,
                         });
                     }
                 }
@@ -569,7 +571,6 @@ impl CrashStore {
                                 app: earlier.app,
                                 gpu: earlier.gpu,
                                 phase: earlier.phase,
-                                unresolved: Vec::new(),
                             },
                             false,
                         ));
@@ -668,9 +669,13 @@ impl CrashStore {
                 app: run.app.clone(),
                 gpu: None,
                 phase: None,
-                unresolved,
             },
         )?;
+        if unresolved.is_empty() {
+            remove(&self.path(LOST_RUNS));
+        } else {
+            write_json(&self.path(LOST_RUNS), &unresolved)?;
+        }
         Ok(record)
     }
 
@@ -1362,14 +1367,14 @@ mod tests {
             .unwrap();
         assert_eq!(none, None);
         store.clean_exit(12);
-        let looked = std::cell::Cell::new(false);
+        let asked = std::cell::RefCell::new(Vec::new());
         let clean = store
             .start_with(
                 &run(13, T0 + 99),
                 |_| false,
                 || None,
-                |_| {
-                    looked.set(true);
+                |ended| {
+                    asked.borrow_mut().push(ended.pid);
                     None
                 },
                 &scrubber(),
@@ -1377,7 +1382,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(clean, None);
-        assert!(!looked.get());
+        // Run 12 left cleanly and is not looked for; run 11, whose event was
+        // not there, is looked up again.
+        assert_eq!(*asked.borrow(), [11]);
+        let looked = std::cell::Cell::new(false);
         let never = store
             .start_with(
                 &run(14, T0 + 120),
@@ -1397,7 +1405,8 @@ mod tests {
 
     /// Windows may publish a crash's Application Error event after the next
     /// start has already looked: the run is looked up again at later starts
-    /// (a few times), and a forced quit that never gets an event ends.
+    /// (a few times) even when the runs between exit normally, and a forced
+    /// quit that never gets an event stops being looked for.
     #[test]
     fn a_native_crash_published_after_the_next_start_is_found_later() {
         let (_dir, store) = store();
@@ -1405,7 +1414,7 @@ mod tests {
             .start(&run(30, T0), |_| false, || None, &scrubber(), true)
             .unwrap();
         store.note_phase(30, "gpu-device").unwrap();
-        // Start 31: nothing published yet.
+        // Start 31: nothing published yet. It then works and quits normally.
         let none = store
             .start_with(
                 &run(31, T0 + 20),
@@ -1417,7 +1426,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(none, None);
-        // Start 32 looks for run 31 and, again, run 30; now run 30's event exists.
+        store.clean_exit(31);
+        // Start 32 looks for run 30 again, and now its event exists.
         let mut asked = Vec::new();
         let record = store
             .start_with(
@@ -1437,7 +1447,7 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(asked, [31, 30]);
+        assert_eq!(asked, [30]);
         assert_eq!(record.location, "nvoglv64.dll+0x10");
         assert!(
             record.message.contains("(start phase: gpu-device)"),
@@ -1446,12 +1456,18 @@ mod tests {
         );
         assert_eq!(record.crashed_on, utc_date(T0));
         assert_eq!(record.log_tail, None, "run 31's log is not run 30's");
-        // Run 31 is still looked for; after three empty lookups it is dropped.
-        for (i, pid) in [33u32, 34, 35, 36].into_iter().enumerate() {
+        store.clean_exit(32);
+
+        // A run that never gets an event (a forced quit) is looked for three
+        // times, then dropped.
+        store
+            .start(&run(50, T0 + 100), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        for (i, pid) in [51u32, 52, 53, 54].into_iter().enumerate() {
             let mut asked = Vec::new();
             store
                 .start_with(
-                    &run(pid, T0 + 100 + i as u64),
+                    &run(pid, T0 + 110 + i as u64),
                     |_| false,
                     || None,
                     |ended| {
@@ -1462,12 +1478,29 @@ mod tests {
                     true,
                 )
                 .unwrap();
-            assert!(asked.contains(&31) == (i < 3), "start {pid}: {asked:?}");
+            store.clean_exit(pid);
+            assert_eq!(asked.contains(&50), i < 3, "start {pid}: {asked:?}");
         }
-        // Never (keep = false) forgets them.
+        assert!(!store.path(LOST_RUNS).exists());
+
+        // Never (keep = false) forgets what was waiting.
+        store
+            .start(&run(60, T0 + 200), |_| false, || None, &scrubber(), true)
+            .unwrap();
         store
             .start_with(
-                &run(40, T0 + 200),
+                &run(61, T0 + 210),
+                |_| false,
+                || None,
+                |_| None,
+                &scrubber(),
+                true,
+            )
+            .unwrap();
+        assert!(store.path(LOST_RUNS).exists());
+        store
+            .start_with(
+                &run(62, T0 + 220),
                 |_| false,
                 || None,
                 |_| None,
@@ -1475,8 +1508,7 @@ mod tests {
                 false,
             )
             .unwrap();
-        let marker: RunMarker = read_json(&store.path(MARKER)).unwrap();
-        assert!(marker.unresolved.is_empty());
+        assert!(!store.path(LOST_RUNS).exists());
     }
 
     /// A fatal signal's record names the phase the start was in.
