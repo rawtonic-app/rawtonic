@@ -86,7 +86,7 @@ pub struct TsSection {
 }
 
 /// Every section in the crate; a new section is one entry here.
-pub const SECTIONS: [&TsSection; 2] = [&crate::tone::TS, &crate::color::TS];
+pub const SECTIONS: [&TsSection; 3] = [&crate::tone::TS, &crate::color::TS, &crate::detail::TS];
 
 /// Where [`render`]'s text belongs, relative to the repository root.
 pub const PATH: &str = "src/generated/recipeKeys.ts";
