@@ -942,6 +942,7 @@ fn render(
         path,
         src,
         recipe,
+        &rawtonic_engine::recipe_versions::RecipeVersions::of(recipe, true),
         &env,
         true,
         "eval",

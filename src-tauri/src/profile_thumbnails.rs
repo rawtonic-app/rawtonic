@@ -165,6 +165,7 @@ fn render_tiles(
             loaded_image.is_raw,
             tm_override,
             &mask_definitions,
+            &rawtonic_engine::recipe_versions::RecipeVersions::of(&tile, loaded_image.is_raw),
         );
         crate::baseline_exposure::apply_base_look(
             &mut probe.global,

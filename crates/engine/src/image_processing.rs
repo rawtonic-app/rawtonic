@@ -5063,7 +5063,14 @@ fn get_global_adjustments_from_json(
     tonemapper_override: Option<u32>,
 ) -> GlobalAdjustments {
     let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments), is_raw);
-    get_global_adjustments_resolved(js_adjustments, is_raw, tonemapper_override, &resolved)
+    let versions = RecipeVersions::of(js_adjustments, is_raw);
+    get_global_adjustments_resolved(
+        js_adjustments,
+        is_raw,
+        tonemapper_override,
+        &resolved,
+        &versions,
+    )
 }
 
 fn get_global_adjustments_resolved(
@@ -5071,8 +5078,8 @@ fn get_global_adjustments_resolved(
     is_raw: bool,
     tonemapper_override: Option<u32>,
     resolved: &rawtonic_recipe::ResolvedRecipe<'_>,
+    versions: &RecipeVersions,
 ) -> GlobalAdjustments {
-    let versions = RecipeVersions::of(js_adjustments, is_raw);
     // Tone, colour, detail and effects resolve from the same recipe as these uniforms.
     let tone = &resolved.tone;
     let color = &resolved.color;
@@ -6156,28 +6163,34 @@ pub fn get_all_adjustments_from_json(
     is_raw: bool,
     tonemapper_override: Option<u32>,
 ) -> PreparedAdjustments {
-    let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments), is_raw);
-    let global =
-        get_global_adjustments_resolved(js_adjustments, is_raw, tonemapper_override, &resolved);
+    let stored = StoredRef::new(js_adjustments);
+    let versions = RecipeVersions::of(js_adjustments, is_raw);
+    let global = get_global_adjustments_resolved(
+        js_adjustments,
+        is_raw,
+        tonemapper_override,
+        &rawtonic_recipe::normalize(stored, is_raw),
+        &versions,
+    );
     get_all_adjustments_with_locals(
         js_adjustments,
         global,
-        resolved
-            .masks
+        versions.render,
+        masks::resolve(stored)
             .layers
-            .into_iter()
+            .iter()
             .filter(|mask| mask.produces_bitmap())
             .take(MAX_MASKS)
-            .map(|mask| mask.adjustments),
+            .map(|mask| mask.adjustments()),
     )
 }
 
 /// The layers of an adjustments JSON (`masks`), none if any is malformed.
-/// Read through the normalized containers. Only the owned rasterization input
-/// copies stroke arrays/payloads; normalization itself borrows them.
+/// Read through the resolved containers alone (not their local adjustments
+/// or the photo's sections). Only the owned rasterization input copies
+/// stroke arrays/payloads; resolving itself borrows them.
 pub fn mask_definitions_from_json(js_adjustments: &serde_json::Value) -> Vec<MaskDefinition> {
-    rawtonic_recipe::normalize(StoredRef::new(js_adjustments), false)
-        .masks
+    masks::resolve(StoredRef::new(js_adjustments))
         .layers
         .iter()
         .map(|m| MaskDefinition {
@@ -6208,19 +6221,32 @@ pub fn mask_definitions_from_json(js_adjustments: &serde_json::Value) -> Vec<Mas
 
 /// [`get_all_adjustments_from_json`] with the layers already read by
 /// [`mask_definitions_from_json`] (a preview reads them once for the masks
-/// and the adjustments).
+/// and the adjustments) and the recipe's `versions`, read once by the caller
+/// (`rawtonic_export::normalize`, or `RecipeVersions::of` for the editor's
+/// own recipes). Neither the mask stack nor the versions are read again.
 pub fn get_all_adjustments_with_masks(
     js_adjustments: &serde_json::Value,
     is_raw: bool,
     tonemapper_override: Option<u32>,
     mask_definitions: &[MaskDefinition],
+    versions: &RecipeVersions,
 ) -> PreparedAdjustments {
-    let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments), is_raw);
-    let global =
-        get_global_adjustments_resolved(js_adjustments, is_raw, tonemapper_override, &resolved);
+    debug_assert_eq!(
+        *versions,
+        RecipeVersions::of(js_adjustments, is_raw),
+        "the versions passed are this recipe's"
+    );
+    let global = get_global_adjustments_resolved(
+        js_adjustments,
+        is_raw,
+        tonemapper_override,
+        &rawtonic_recipe::normalize(StoredRef::new(js_adjustments), is_raw),
+        versions,
+    );
     get_all_adjustments_with_locals(
         js_adjustments,
         global,
+        versions.render,
         mask_definitions
             .iter()
             .filter(|mask| mask.produces_bitmap())
@@ -6232,6 +6258,7 @@ pub fn get_all_adjustments_with_masks(
 fn get_all_adjustments_with_locals<'a>(
     js_adjustments: &Value,
     mut global: GlobalAdjustments,
+    render: RenderVersion,
     local_adjustments: impl Iterator<Item = rawtonic_recipe::masks::LocalAdjustments<'a>>,
 ) -> PreparedAdjustments {
     let (depth_key, relight_surface) = crate::relight::prepare_depth(js_adjustments);
@@ -6253,7 +6280,6 @@ fn get_all_adjustments_with_locals<'a>(
     if curve_table.is_some() {
         global.region_curve_active[1] = 1;
     }
-    let render = RenderVersion::of(js_adjustments);
     let mut mask_adjustments = [MaskAdjustments::default(); MAX_MASKS];
     let mut mask_count = 0;
 

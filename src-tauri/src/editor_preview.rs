@@ -1406,6 +1406,7 @@ fn render_probe(
         loaded_image.is_raw,
         tm_override,
         &mask_definitions,
+        &rawtonic_engine::recipe_versions::RecipeVersions::of(&recipe, loaded_image.is_raw),
     );
     crate::baseline_exposure::apply_base_look(
         &mut probe.global,
@@ -1828,8 +1829,13 @@ pub(crate) fn process_preview_job(
 
     let is_raw = loaded_image.is_raw;
     let tm_override = resolve_tonemapper_override_from_handle(app_handle, is_raw);
-    let mut final_adjustments =
-        get_all_adjustments_with_masks(&adjustments_clone, is_raw, tm_override, &mask_definitions);
+    let mut final_adjustments = get_all_adjustments_with_masks(
+        &adjustments_clone,
+        is_raw,
+        tm_override,
+        &mask_definitions,
+        &rawtonic_engine::recipe_versions::RecipeVersions::of(&adjustments_clone, is_raw),
+    );
     crate::baseline_exposure::apply_base_look(
         &mut final_adjustments.global,
         &loaded_image.path,
@@ -3014,8 +3020,13 @@ fn develop_split_before(
     )?;
 
     let is_raw = loaded_image.is_raw;
-    let mut all_adjustments =
-        get_all_adjustments_with_masks(adjustments, is_raw, tm_override, &mask_definitions);
+    let mut all_adjustments = get_all_adjustments_with_masks(
+        adjustments,
+        is_raw,
+        tm_override,
+        &mask_definitions,
+        &rawtonic_engine::recipe_versions::RecipeVersions::of(adjustments, is_raw),
+    );
     crate::baseline_exposure::apply_base_look(
         &mut all_adjustments.global,
         &loaded_image.path,

@@ -16027,6 +16027,7 @@ fn many_layer_frame_probe() {
                     true,
                     Some(1),
                     &definitions,
+                    &rawtonic_engine::recipe_versions::RecipeVersions::of(&adjustments, true),
                 );
                 let adjust_ms = t.elapsed().as_secs_f64() * 1000.0;
                 let t = Instant::now();

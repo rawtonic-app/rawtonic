@@ -8,9 +8,10 @@ use crate::lens::Lens;
 use crate::stored::StoredRef;
 use crate::tone::Tone;
 
-/// The typed sections of a recipe ready to render, produced only by
-/// [`normalize`] and never saved. Sections not moved here yet are read by
-/// the engine from the stored recipe.
+/// The typed photo-wide sections of a recipe ready to render, produced only
+/// by [`normalize`] and never saved. The mask stack is not part of it: the
+/// stages that read it resolve it themselves ([`crate::masks::resolve`]),
+/// so the others do not pay for it.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct ResolvedRecipe<'a> {
@@ -20,7 +21,6 @@ pub struct ResolvedRecipe<'a> {
     pub geometry: Geometry,
     pub effects: Effects<'a>,
     pub lens: Lens,
-    pub masks: crate::masks::Masks<'a>,
 }
 
 /// Resolves a stored recipe: every value of a moved section as it renders
@@ -35,6 +35,5 @@ pub fn normalize(stored: StoredRef<'_>, is_raw: bool) -> ResolvedRecipe<'_> {
         geometry: Geometry::resolve(stored),
         effects: Effects::resolve(stored),
         lens: Lens::resolve(stored),
-        masks: crate::masks::Masks::resolve(stored),
     }
 }

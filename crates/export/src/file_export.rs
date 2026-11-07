@@ -171,13 +171,14 @@ impl FileExporter {
         let source_path_str = job.source.to_string_lossy().to_string();
 
         let mut js_adjustments = job.recipe.clone().unwrap_or(Value::Null);
-        crate::normalize::normalize(
+        let normalized = crate::normalize::normalize(
             &mut js_adjustments,
             &crate::normalize::RecipeSource::file(job.source),
             crate::normalize::Bitmaps::Own,
             crate::normalize::Defaults::Render,
-        )
-        .lens?;
+        );
+        let versions = normalized.file_versions();
+        normalized.lens?;
         let is_raw = is_raw_file(&source_path_str);
 
         // The recipe's colour noise filter decides the decode-time chroma
@@ -257,6 +258,7 @@ impl FileExporter {
             &source_path_str,
             source,
             &js_adjustments,
+            &versions,
             &job.settings,
             &env,
             is_raw,
