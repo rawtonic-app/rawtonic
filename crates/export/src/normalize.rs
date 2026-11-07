@@ -88,13 +88,24 @@ pub enum Defaults {
 /// A recipe ready to render: the recipe itself is completed in place.
 #[derive(Debug)]
 pub struct Normalized {
-    /// Its versions, read once; None for [`RecipeSource::open_in_editor`],
-    /// whose RAW-ness (the colour noise default) is not known here.
+    /// Its versions, read once and passed on to the adjustment builders
+    /// (`get_all_adjustments_with_masks`); None for
+    /// [`RecipeSource::open_in_editor`], whose RAW-ness (the colour noise
+    /// default) is not known here.
     pub versions: Option<RecipeVersions>,
     /// Step 2's outcome: an error when a lens saved offline could not be
     /// resolved (the other steps ran all the same). Callers that write
     /// images refuse to render without it, previews and estimates go on.
     pub lens: Result<(), String>,
+}
+
+impl Normalized {
+    /// The versions of a recipe normalized for [`RecipeSource::file`], which
+    /// always knows whether its photograph is a RAW.
+    pub fn file_versions(&self) -> RecipeVersions {
+        self.versions
+            .expect("RecipeSource::file knows whether the photograph is a RAW")
+    }
 }
 
 /// Completes `recipe` for rendering `source` (see the module): `bitmaps`

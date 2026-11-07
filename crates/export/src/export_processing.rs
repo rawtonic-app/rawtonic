@@ -1,4 +1,5 @@
 use rawtonic_engine::image_loader::DecodeMeasures;
+use rawtonic_engine::recipe_versions::RecipeVersions;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::masks;
 use std::borrow::Cow;
@@ -1186,13 +1187,15 @@ pub fn save_export_image(
 }
 
 /// Renders the main export file of a photo and saves it. With separate mask
-/// files the main file is rendered without its mask layers. `cancelled`
-/// runs between the render and the write.
+/// files the main file is rendered without its mask layers. `versions`:
+/// the recipe's, as `normalize` read them. `cancelled` runs between the
+/// render and the write.
 #[allow(clippy::too_many_arguments)]
 pub fn render_and_save(
     source_path_str: &str,
     source: ExportSource,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     export_settings: &ExportSettings,
     env: &RenderEnv,
     is_raw: bool,
@@ -1205,6 +1208,7 @@ pub fn render_and_save(
         source_path_str,
         source,
         &main_export_adjustments(js_adjustments, export_settings),
+        versions,
         env,
         is_raw,
     )?;
@@ -1336,13 +1340,14 @@ pub fn process_image_for_export_pipeline(
     path: &str,
     source: ExportSource,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     env: &RenderEnv,
     is_raw: bool,
     debug_tag: &str,
     output_precision: RenderOutputPrecision,
     color_space: OutputColorSpace,
 ) -> Result<DynamicImage, String> {
-    let prepared = prepare_export_render(path, source, js_adjustments, env, is_raw)?;
+    let prepared = prepare_export_render(path, source, js_adjustments, versions, env, is_raw)?;
     render_prepared_export(&prepared, env, debug_tag, output_precision, color_space)
 }
 
@@ -1371,10 +1376,12 @@ enum PreparedTarget {
 /// The adjustments an export of `js_adjustments` renders, before the output
 /// colour space: the recipe's uniforms with the photo's base look (from the
 /// decode's `measures`; `library`: the photo's library folder, None outside
-/// any), never showing clipping.
+/// any; `versions`: the recipe's), never showing clipping.
+#[allow(clippy::too_many_arguments)]
 pub fn export_adjustments(
     path: &str,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     is_raw: bool,
     tonemapper_override: Option<u32>,
     mask_definitions: &[MaskDefinition],
@@ -1386,17 +1393,20 @@ pub fn export_adjustments(
         is_raw,
         tonemapper_override,
         mask_definitions,
+        versions,
     );
     crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, path, measures, library);
     all_adjustments.global.show_clipping = 0;
     all_adjustments
 }
 
-/// Prepares `source` with `js_adjustments` for [`render_prepared_export`].
+/// Prepares `source` with `js_adjustments` (whose `versions` the caller read
+/// once, with `normalize`) for [`render_prepared_export`].
 pub fn prepare_export_render(
     path: &str,
     source: ExportSource,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     env: &RenderEnv,
     is_raw: bool,
 ) -> Result<PreparedExport, String> {
@@ -1406,6 +1416,7 @@ pub fn prepare_export_render(
     let all_adjustments = export_adjustments(
         path,
         js_adjustments,
+        versions,
         is_raw,
         tm_override,
         &mask_definitions,
@@ -1983,6 +1994,7 @@ pub fn process_image_for_export(
     path: &str,
     source: ExportSource,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     export_settings: &ExportSettings,
     env: &RenderEnv,
     is_raw: bool,
@@ -1992,6 +2004,7 @@ pub fn process_image_for_export(
         path,
         source,
         js_adjustments,
+        versions,
         env,
         is_raw,
         "process_image_for_export",

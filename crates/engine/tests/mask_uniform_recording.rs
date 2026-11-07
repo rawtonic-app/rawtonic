@@ -12,8 +12,9 @@
 //! every recorded case exactly (proven against the recording when it was
 //! compacted, notes: plans/arch-cleanup-list-2026-11-06.md row 68).
 use rawtonic_engine::image_processing::{
-    get_all_adjustments_from_json, mask_definitions_from_json,
+    get_all_adjustments_from_json, get_all_adjustments_with_masks, mask_definitions_from_json,
 };
+use rawtonic_engine::recipe_versions::RecipeVersions;
 use serde_json::Value;
 use std::fmt::Write as _;
 
@@ -154,10 +155,27 @@ fn mask_adjustments_and_containers_match_recorded_main() {
             "{} differs from main {}",
             case["name"], fixture["baseline"]
         );
+        let definitions = mask_definitions_from_json(&case["recipe"]);
         assert_eq!(
-            serde_json::to_value(mask_definitions_from_json(&case["recipe"])).unwrap(),
+            serde_json::to_value(&definitions).unwrap(),
             case["definitions"],
             "{} containers differ",
+            case["name"]
+        );
+        // The previews' and exports' path: the layers and versions read once
+        // by the caller give the same uniforms.
+        let is_raw = case["isRaw"].as_bool().unwrap();
+        let with_masks = get_all_adjustments_with_masks(
+            &case["recipe"],
+            is_raw,
+            None,
+            &definitions,
+            &RecipeVersions::of(&case["recipe"], is_raw),
+        );
+        assert_eq!(
+            bytemuck::bytes_of(&with_masks.uniforms),
+            bytemuck::bytes_of(&prepared.uniforms),
+            "{}",
             case["name"]
         );
     }

@@ -1429,14 +1429,14 @@ fn export_photo(
 
     // A never-edited photo exports with the camera's lens data,
     // as Develop shows it (profile corrections on by default).
-    if let Err(e) = rawtonic_export::normalize::normalize(
+    let normalized = rawtonic_export::normalize::normalize(
         &mut js_adjustments,
         &rawtonic_export::normalize::RecipeSource::file(&source_path),
         rawtonic_export::normalize::Bitmaps::Shared(&develop.patch_cache),
         rawtonic_export::normalize::Defaults::Render,
-    )
-    .lens
-    {
+    );
+    let versions = normalized.file_versions();
+    if let Err(e) = normalized.lens {
         return fail_all(e);
     }
     let is_raw = is_raw_file(&source_path_str);
@@ -1626,6 +1626,7 @@ fn export_photo(
                 &source_path_str,
                 source.clone(),
                 &main_export_adjustments(&js_adjustments, &targets[target].export_settings),
+                &versions,
                 &env,
                 is_raw,
             ));

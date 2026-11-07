@@ -130,13 +130,14 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         let mut adjustments = cell.adjustments.clone();
         // A written image: never with a lens correction that could not be
         // resolved (as the single-photo export).
-        rawtonic_export::normalize::normalize(
+        let normalized = rawtonic_export::normalize::normalize(
             &mut adjustments,
             &rawtonic_export::normalize::RecipeSource::file(&source_path),
             rawtonic_export::normalize::Bitmaps::Shared(&develop.patch_cache),
             rawtonic_export::normalize::Defaults::Render,
-        )
-        .lens?;
+        );
+        let versions = normalized.file_versions();
+        normalized.lens?;
         generated |= rawtonic_engine::image_loader::has_generated_areas(&adjustments);
         let (pristine, measures) = crate::export_processing::load_export_base_image(
             &app_handle.state::<crate::state::ai::AiState>(),
@@ -176,6 +177,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
             &source,
             export_source,
             &adjustments,
+            &versions,
             &export_settings,
             &env,
             is_raw,

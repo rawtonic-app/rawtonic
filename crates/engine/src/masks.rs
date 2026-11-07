@@ -53,7 +53,7 @@ pub struct MaskDefinition {
 
 impl MaskDefinition {
     pub fn produces_bitmap(&self) -> bool {
-        self.visible && !self.sub_masks.is_empty()
+        rawtonic_recipe::masks::produces_bitmap(self.visible, self.sub_masks.len())
     }
 
     /// The mask is computed at 16 bits (`maskVersion` 2).

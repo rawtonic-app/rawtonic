@@ -111,8 +111,10 @@ pub struct SubMaskRef<'a> {
     pub parameters: &'a Value,
 }
 
-/// A validated mask layer, with its nested adjustments resolved independently
-/// of the photo's defaults and visibility.
+/// A validated mask layer. Its nested adjustments are resolved on demand
+/// ([`Mask::adjustments`]), independently of the photo's defaults and
+/// visibility, so a caller that reads only the containers does not resolve
+/// them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mask<'a> {
     pub id: &'a str,
@@ -123,16 +125,26 @@ pub struct Mask<'a> {
     pub sub_masks: Vec<SubMaskRef<'a>>,
     pub mask_version: Option<u32>,
     pub refine_edge: Option<f32>,
-    pub adjustments: LocalAdjustments<'a>,
     stored_adjustments: &'a Value,
 }
 
-impl Mask<'_> {
+/// Whether a layer renders a bitmap: shown, with at least one component.
+/// The one rule for resolved layers ([`Mask::produces_bitmap`]) and the
+/// engine's rasterization inputs.
+pub fn produces_bitmap(visible: bool, sub_mask_count: usize) -> bool {
+    visible && sub_mask_count > 0
+}
+
+impl<'a> Mask<'a> {
     pub fn produces_bitmap(&self) -> bool {
-        self.visible && !self.sub_masks.is_empty()
+        produces_bitmap(self.visible, self.sub_masks.len())
+    }
+    /// The layer's local adjustments as they render ([`resolve_local`]).
+    pub fn adjustments(&self) -> LocalAdjustments<'a> {
+        resolve_local(StoredRef::new(self.stored_adjustments))
     }
     /// The nested stored adjustments, unchanged (owned only by the rasterization adapter).
-    pub fn stored_adjustments(&self) -> &Value {
+    pub fn stored_adjustments(&self) -> &'a Value {
         self.stored_adjustments
     }
 }
@@ -208,10 +220,15 @@ impl<'a> Masks<'a> {
             sub_masks,
             mask_version: optional_serde(s, &MASK_VERSION)?,
             refine_edge: optional_serde(s, &REFINE_EDGE)?,
-            adjustments: resolve_local(StoredRef::new(stored_adjustments)),
             stored_adjustments,
         })
     }
+}
+
+/// Resolve only the mask containers (their local adjustments on demand), for
+/// a stage that does not consume the photo's other sections.
+pub fn resolve(stored: StoredRef<'_>) -> Masks<'_> {
+    Masks::resolve(stored)
 }
 
 /// Mask-local values use the same keys/codecs as their photo counterparts,
@@ -487,7 +504,7 @@ pub const CONTAINER_TS: &[TsField] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{StoredRecipe, normalize};
+    use crate::StoredRecipe;
     use serde_json::json;
 
     fn recipe() -> Value {
@@ -584,28 +601,22 @@ mod tests {
     }
 
     #[test]
-    fn normalize_borrows_payloads_and_does_not_change_saved_masks() {
+    fn resolve_borrows_payloads_and_does_not_change_saved_masks() {
         let original = json!({"masks":[{"id":"layer","name":"A","visible":true,"invert":true,"opacity":35,
             "adjustments":{"sharpnessThreshold":null,"exposure":-5.5,"curves":{"future":[null]},"future":123},
             "futureLayer":{"unknown":null},"subMasks":[{"id":"sky","type":"future","visible":false,"invert":true,
                 "mode":"intersect","opacity":21,"parameters":{"maskDataBase64":"unchanged-payload","future":[null]}}]}],"futureRoot":true});
         let stored = StoredRecipe::from_value(original.clone());
-        let resolved = normalize(stored.view(), true);
+        let masks = resolve(stored.view());
         assert!(std::ptr::eq(
-            resolved.masks.layers[0].sub_masks[0].parameters,
+            masks.layers[0].sub_masks[0].parameters,
             &stored.view().as_value()["masks"][0]["subMasks"][0]["parameters"]
         ));
         assert!(std::ptr::eq(
-            resolved.masks.layers[0].adjustments.curves,
+            masks.layers[0].adjustments().curves,
             &stored.view().as_value()["masks"][0]["adjustments"]["curves"]
         ));
-        assert_eq!(
-            resolved.masks.layers[0]
-                .adjustments
-                .sharpness_threshold
-                .get(),
-            0.0
-        );
+        assert_eq!(masks.layers[0].adjustments().sharpness_threshold.get(), 0.0);
         assert_eq!(stored.into_value(), original);
     }
 
@@ -617,7 +628,7 @@ mod tests {
         assert_eq!(stored.get(&MASKS), Some(masks));
         let mut stored = StoredRecipe::from_value(json!({"masks":null,"future":42}));
         let before = stored.clone();
-        let _ = normalize(stored.view(), false);
+        let _ = resolve(stored.view());
         assert_eq!(stored, before);
         assert_eq!(stored.remove(&MASKS), Some(Value::Null));
         assert_eq!(stored.into_value(), json!({"future":42}));
