@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -23,15 +23,13 @@ export function waveformY(percent: number): number {
   return 255.5 - (percent / 100) * 255;
 }
 
-/** The RGBA bytes of one scope image, or null when it was not computed. */
-export function scopePixels(waveform: WaveformData | null, mode: ScopeMode): Uint8ClampedArray<ArrayBuffer> | null {
+/** One scope image as a data URL (a PNG, `encode_scope_png` in scopes.rs),
+ * or null when it was not computed. The `<img>` decodes it off the main
+ * thread: unpacking raw RGBA here delayed the live preview during drags. */
+export function scopeImage(waveform: WaveformData | null, mode: ScopeMode): string | null {
   const encoded = waveform?.[mode];
   if (!encoded || waveform.width !== SIZE || waveform.height !== SIZE) return null;
-  const binary = atob(encoded);
-  if (binary.length !== SIZE * SIZE * 4) return null;
-  const bytes = new Uint8ClampedArray(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
+  return `data:image/png;base64,${encoded}`;
 }
 
 function WaveformGraticule({ parade }: { parade: boolean }) {
@@ -93,15 +91,7 @@ export default memo(function StudioScopes() {
   const waveform = useEditorStore((s) => s.waveform);
   const mode = scopeMode(useEditorStore((s) => s.activeWaveformChannel));
   const setEditor = useEditorStore((s) => s.setEditor);
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const pixels = useMemo(() => scopePixels(waveform, mode), [waveform, mode]);
-
-  useEffect(() => {
-    const context = canvas.current?.getContext('2d');
-    if (!context) return;
-    context.clearRect(0, 0, SIZE, SIZE);
-    if (pixels) context.putImageData(new ImageData(pixels, SIZE, SIZE), 0, 0);
-  }, [pixels]);
+  const image = scopeImage(waveform, mode);
 
   const choose = (next: ScopeMode) => {
     setEditor({ activeWaveformChannel: next });
@@ -140,12 +130,15 @@ export default memo(function StudioScopes() {
         </span>
       </div>
       <div className={`studio-scope-plot${vectorscope ? ' is-vectorscope' : ''}`}>
-        <canvas ref={canvas} width={SIZE} height={SIZE} aria-hidden="true" />
+        {/* Keyed by mode: a switch never shows the last mode's image while
+            the new one decodes; within a mode the old image stays until the
+            next is decoded. */}
+        {image && <img key={mode} src={image} alt="" decoding="async" draggable={false} aria-hidden="true" />}
         <svg
           viewBox={`0 0 ${SIZE} ${SIZE}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={pixels ? labels[mode][1] : t('studio.scopes.empty')}
+          aria-label={image ? labels[mode][1] : t('studio.scopes.empty')}
         >
           {vectorscope ? (
             <VectorscopeGraticule waveform={waveform} />
