@@ -538,8 +538,8 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | option-ext | 0.2.0 | MPL-2.0 |
 | ordered-float | 5.5.0 | MIT |
 | ordered-stream | 0.2.0 | MIT OR Apache-2.0 |
-| ort | 2.0.0-rc.12 | MIT OR Apache-2.0 |
-| ort-sys | 2.0.0-rc.12 | MIT OR Apache-2.0 |
+| ort | 2.0.0-rc.15 | MIT OR Apache-2.0 |
+| ort-sys | 2.0.0-rc.15 | MIT OR Apache-2.0 |
 | os_info | 3.15.0 | MIT |
 | os_pipe | 1.2.3 | MIT |
 | page_size | 0.6.0 | MIT/Apache-2.0 |

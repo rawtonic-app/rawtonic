@@ -35,7 +35,7 @@ mod check;
 mod runtime;
 
 pub use runtime::{
-    RUNTIME_UNAVAILABLE, RuntimeError, RuntimeErrorKind, ensure_runtime, library_path,
+    RUNTIME_UNAVAILABLE, RuntimeError, RuntimeErrorKind, ensure_runtime, environment, library_path,
 };
 
 /// Where a model runs.
@@ -340,7 +340,7 @@ pub struct Device {
     pub identity: String,
     pub library: PathBuf,
     ep_device: EpDevice,
-    environment: Arc<ort::environment::Environment>,
+    environment: &'static ort::environment::Environment,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -412,8 +412,7 @@ pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Arc<Device>> {
 fn register(provider: Provider, library: &Path) -> Result<Device> {
     ensure_runtime()?;
     let api = ort::api();
-    let env = ort::environment::Environment::current()
-        .context("creating the ONNX Runtime environment")?;
+    let env = runtime::environment()?;
     let name = CString::new(provider.ep_name())?;
     let path = ort_path(library);
     unsafe {
@@ -581,7 +580,7 @@ fn ort_path(path: &Path) -> Vec<c_char> {
 /// Creates a session for `path` (a `kind` model) on `device` (`None` = the
 /// CPU).
 pub(crate) fn session(path: &Path, kind: ModelKind, device: Option<&Device>) -> Result<Session> {
-    let mut builder = Session::builder()?;
+    let mut builder = Session::builder(runtime::environment()?)?;
     // No CPU memory arena: it keeps a session's largest intermediate
     // tensors (SAM's encoder about 1 GB, Relight's models about 1 GB more)
     // for as long as the model stays loaded; without it they are freed
