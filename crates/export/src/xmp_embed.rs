@@ -469,11 +469,9 @@ mod tests {
                 before.as_bytes()
             );
             // exiftool, when installed, reads the merged result.
-            if let Ok(dir) =
-                std::env::var("CARGO_TARGET_TMPDIR").or_else(|_| std::env::var("TMPDIR"))
             {
-                let path = std::path::Path::new(&dir)
-                    .join(format!("xmp-ext-{generated}-{}.jpg", std::process::id()));
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join(format!("xmp-ext-{generated}.jpg"));
                 std::fs::write(&path, &jpeg).unwrap();
                 if let Ok(out) = std::process::Command::new("exiftool")
                     .args([
@@ -491,7 +489,6 @@ mod tests {
                     assert_eq!(json[0]["Creator"], "Jane Doe");
                     assert_eq!(json[0]["Rating"], 4);
                 }
-                std::fs::remove_file(&path).ok();
             }
         }
     }
