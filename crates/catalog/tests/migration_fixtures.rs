@@ -814,6 +814,29 @@ fn fill(conn: &Connection, version: usize) {
             ],
         );
     }
+    // Content search (schema 25): photograph 3 read, photograph 9 not
+    // readable.
+    put(
+        conn,
+        "content_embeddings",
+        &[
+            ("asset_id", t(&asset_id(3))),
+            ("model", t("d6e4f91fd3779a52")),
+            ("fingerprint", t("xxh3:0000000000005cf3")),
+            ("scale", r(0.0625)),
+            ("vector", Sql::Blob((0..768).map(|n| (n % 7) as u8).collect())),
+        ],
+    );
+    put(
+        conn,
+        "content_embeddings",
+        &[
+            ("asset_id", t(&asset_id(9))),
+            ("model", t("d6e4f91fd3779a52")),
+            ("fingerprint", t("xxh3:000000000001166b")),
+            ("error", t("unreadable")),
+        ],
+    );
     // A stack of photograph 1, its copy and photograph 2 (schema 22).
     put(conn, "stacks", &[("id", t("stack-1")), ("collapsed", i(1))]);
     for (photo, copy, position) in [(1, "", 0), (1, "a1b2c3", 1), (2, "", 2)] {

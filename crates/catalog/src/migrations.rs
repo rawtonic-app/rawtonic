@@ -83,6 +83,7 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         include_str!("../migrations/0023.sql"),
     ),
     Migration::sql(24, include_str!("../migrations/0024.sql")),
+    Migration::sql(25, include_str!("../migrations/0025.sql")),
 ];
 
 /// The newest schema: the last migration's.

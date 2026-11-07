@@ -1,4 +1,4 @@
-# user_version 24
+# user_version 25
 # schema
 'index' | 'asset_imports_batch' | 'asset_imports' | 'CREATE INDEX asset_imports_batch ON asset_imports(batch_id)'
 'index' | 'asset_keywords_keyword' | 'asset_keywords' | 'CREATE INDEX asset_keywords_keyword ON asset_keywords(keyword)'
@@ -16,6 +16,7 @@
 'index' | 'sqlite_autoindex_capture_overrides_1' | 'capture_overrides' | NULL
 'index' | 'sqlite_autoindex_collection_assets_1' | 'collection_assets' | NULL
 'index' | 'sqlite_autoindex_collections_1' | 'collections' | NULL
+'index' | 'sqlite_autoindex_content_embeddings_1' | 'content_embeddings' | NULL
 'index' | 'sqlite_autoindex_export_recipes_1' | 'export_recipes' | NULL
 'index' | 'sqlite_autoindex_eye_reads_1' | 'eye_reads' | NULL
 'index' | 'sqlite_autoindex_face_eyes_1' | 'face_eyes' | NULL
@@ -82,6 +83,15 @@
  rules TEXT,
  CHECK((kind = ''smart'') = (rules IS NOT NULL))
 )'
+'table' | 'content_embeddings' | 'content_embeddings' | 'CREATE TABLE content_embeddings(
+ asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+ model TEXT NOT NULL,
+ fingerprint TEXT NOT NULL,
+ scale REAL,
+ vector BLOB,
+ error TEXT,
+ CHECK((vector IS NULL) = (error IS NOT NULL)),
+ CHECK(vector IS NULL OR (length(vector)=768 AND scale IS NOT NULL)))'
 'table' | 'export_recipes' | 'export_recipes' | 'CREATE TABLE export_recipes(id TEXT PRIMARY KEY, name TEXT NOT NULL, recipe_json TEXT NOT NULL)'
 'table' | 'eye_reads' | 'eye_reads' | 'CREATE TABLE eye_reads(
  asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
@@ -356,6 +366,7 @@ END'
 # table face_eyes (0 rows): asset_id, face, x, y, w, h, state, ear, accessories, override_state
 # table stacks (0 rows): id, collapsed
 # table stack_members (0 rows): stack_id, asset_id, copy, position
+# table content_embeddings (0 rows): asset_id, model, fingerprint, scale, vector, error
 # foreign_key_check
 # searches
 text contains 0123: ["00000000-0000-4000-8000-000000000001"]
