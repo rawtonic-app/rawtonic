@@ -182,10 +182,6 @@ pub fn after_first_display_variant() {
     wait_for_first_display_variant(std::time::Duration::from_secs(30));
 }
 
-/// Presents onto the main window: its surface on the context's adapter, or,
-/// where that adapter cannot present to it, a new context from an adapter
-/// that can (the processor of the old one is dropped).
-#[cfg(not(target_os = "linux"))]
 /// A sharpening view asked for while its variant compiled showed the photo:
 /// the editor renders it again once the variant is ready (every preview
 /// path, native display or readback).
@@ -197,6 +193,10 @@ pub fn notify_sharpen_view_ready(app_handle: &tauri::AppHandle) {
     });
 }
 
+/// Presents onto the main window: its surface on the context's adapter, or,
+/// where that adapter cannot present to it, a new context from an adapter
+/// that can (the processor of the old one is dropped).
+#[cfg(not(target_os = "linux"))]
 pub fn attach_display(gpu: &GpuState, app_handle: &tauri::AppHandle) {
     let settings = crate::state::settings::current(app_handle);
     if !settings.use_wgpu_renderer.unwrap_or(true) {
