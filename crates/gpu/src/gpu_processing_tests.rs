@@ -9481,12 +9481,10 @@ fn camera_raw_white_tail_keeps_the_top_evs_graded() {
             }
             // In order (within two codes: the f16 ramp's steps differ by
             // channel, so the tint wobbles as with version 10).
-            for c in 0..3 {
+            for (c, (&now, &left)) in after[x].iter().zip(&after[x - 1]).enumerate() {
                 assert!(
-                    u32::from(after[x][c]) + 2 >= u32::from(after[x - 1][c]),
-                    "exposure {exposure}: channel {c} falls at column {x}: {} → {}",
-                    after[x - 1][c],
-                    after[x][c]
+                    u32::from(now) + 2 >= u32::from(left),
+                    "exposure {exposure}: channel {c} falls at column {x}: {left} → {now}"
                 );
             }
         }
