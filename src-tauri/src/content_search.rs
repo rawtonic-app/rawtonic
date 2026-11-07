@@ -208,12 +208,10 @@ fn run_pass(
                 continue;
             }
             let path = item.path.to_string_lossy();
-            // A cloud file not on this computer is read only from a thumbnail
-            // already made: the pass never downloads an original.
-            let offline = !item.path.is_file()
-                || (crate::file_management::is_cloud_placeholder(&item.path)
-                    && crate::file_management::cached_medium_thumbnail(app, &path).is_none());
-            if offline {
+            // A cloud file not on this computer is left unread (nothing of it
+            // is touched, not even its sidecar): the pass never makes the
+            // system download a file. It is read once it is local.
+            if !item.path.is_file() || crate::file_management::is_cloud_placeholder(&item.path) {
                 skipped.insert(item.id);
                 continue;
             }

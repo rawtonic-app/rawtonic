@@ -115,3 +115,26 @@ it('asks again when the list changes (a rename) and while the pass indexes', asy
   await act(async () => vi.advanceTimersByTimeAsync(CONTENT_DELAY_MS));
   expect(calls(Invokes.ContentSearchRank)).toHaveLength(3);
 });
+
+it('ranks during the first index although no ranking could be made before', async () => {
+  localStorage.setItem('rawtonic.search.mode:/Job', 'content');
+  let installed = false;
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === Invokes.ContentSearchRank) {
+      if (!installed) throw { code: 'models_missing', message: 'not installed' };
+      return answer;
+    }
+    return undefined;
+  });
+  renderHook(() => useContentSearch());
+  type('a dog');
+  await act(async () => vi.advanceTimersByTimeAsync(CONTENT_DELAY_MS));
+  expect(useLibraryStore.getState().contentRanking).toBeNull();
+  installed = true;
+  await act(async () => vi.advanceTimersByTimeAsync(CONTENT_PROGRESS_RERANK_MS));
+  act(() =>
+    handlers.get('content-index-progress')!({ payload: { directory: '/Job', indexed: 1, failed: 0, total: 3 } })
+  );
+  await act(async () => vi.advanceTimersByTimeAsync(CONTENT_DELAY_MS));
+  expect(useLibraryStore.getState().contentRanking?.ranks.size).toBe(2);
+});

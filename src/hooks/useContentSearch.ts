@@ -31,6 +31,10 @@ const RESTART_DELAY_MS = 2000;
 /** How often the open library is asked for photographs not indexed yet. */
 export const CONTENT_BACKLOG_MS = 30_000;
 
+/** The text Content mode ranks for ('' in Text mode or with an empty box). */
+const contentQuery = (s: { searchMode: SearchMode; searchCriteria: { text: string } }) =>
+  s.searchMode === 'content' ? s.searchCriteria.text.trim() : '';
+
 /** Reads the model and index state of the open library into the store. */
 export async function refreshContentStatus(directory: string) {
   const status = await contentSearchStatus(directory);
@@ -128,7 +132,7 @@ export function useContentSearch() {
       const now = Date.now();
       if (
         e.payload.directory === useLibraryStore.getState().sessionDirectory &&
-        useLibraryStore.getState().contentRanking &&
+        contentQuery(useLibraryStore.getState()) &&
         now - lastRerank.current >= CONTENT_PROGRESS_RERANK_MS
       ) {
         lastRerank.current = now;
@@ -152,7 +156,7 @@ export function useContentSearch() {
   // Content mode with text: the library ranked for it. Only the newest
   // request publishes; a failed one shows the view in its own order and
   // says why (without the model the switch offers the download instead).
-  const query = mode === 'content' ? text.trim() : '';
+  const query = contentQuery({ searchMode: mode, searchCriteria: { text } });
   useEffect(() => {
     if (!directory || !query) {
       if (useLibraryStore.getState().contentRanking) useLibraryStore.getState().setLibrary({ contentRanking: null });
