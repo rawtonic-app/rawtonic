@@ -211,7 +211,7 @@ fn run_pass(
             // A cloud file not on this computer is left unread (nothing of it
             // is touched, not even its sidecar): the pass never makes the
             // system download a file. It is read once it is local.
-            if !item.path.is_file() || crate::file_management::is_cloud_placeholder(&item.path) {
+            if !readable_here(&item.path, crate::file_management::is_cloud_placeholder) {
                 skipped.insert(item.id);
                 continue;
             }
@@ -251,6 +251,16 @@ fn run_pass(
         );
     }
     Ok(status)
+}
+
+/// Whether the pass may read the photograph at `path` now: it is there,
+/// and neither it nor its sidecar is a cloud file not on this computer
+/// (`cloud_only`). Reading either would make the system download it; the
+/// thumbnail's cache key reads the sidecar.
+fn readable_here(path: &Path, cloud_only: impl Fn(&Path) -> bool) -> bool {
+    let source = path.to_string_lossy();
+    let (_, sidecar) = crate::file_management::parse_virtual_path(&source);
+    path.is_file() && !cloud_only(path) && !(sidecar.exists() && cloud_only(&sidecar))
 }
 
 /// Starts the pass for the library at `directory` in the background. A
@@ -675,6 +685,19 @@ mod tests {
         // 1.5 GB with the vision model, 1.2 GB when auto tags installed it.
         assert_eq!(bytes, 1_535_588_149);
         assert_eq!(bytes - FILES[0].2, 1_163_804_427);
+    }
+
+    #[test]
+    fn cloud_only_photographs_and_sidecars_are_left_unread() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = dir.path().join("A.ARW");
+        std::fs::write(&photo, b"raw").unwrap();
+        let (_, sidecar) = crate::file_management::parse_virtual_path(&photo.to_string_lossy());
+        std::fs::write(&sidecar, b"{}").unwrap();
+        assert!(readable_here(&photo, |_| false));
+        assert!(!readable_here(&photo, |p| p == photo.as_path()));
+        assert!(!readable_here(&photo, |p| p == sidecar.as_path()));
+        assert!(!readable_here(&dir.path().join("gone.ARW"), |_| false));
     }
 
     #[test]
