@@ -2916,6 +2916,8 @@
     "adjustment": {
       "scrubHint": "Arraste para ajustar · clique duplo para redefinir",
       "trackHint": "Arraste para ajustar; afaste o ponteiro do controle para passos mais finos · Alt (⌥): um décimo · clique duplo para redefinir",
+      "trackHintSharpenGrey": "Arraste para ajustar; afaste o ponteiro do controle para passos mais finos · Alt (⌥) ao arrastar: mostra a foto em cinza · clique duplo para redefinir",
+      "trackHintSharpenMask": "Arraste para ajustar; afaste o ponteiro do controle para passos mais finos · Alt (⌥) ao arrastar: mostra o que é nitidificado (branco) · clique duplo para redefinir",
       "value": "{{name}}: valor",
       "valueWithUnit": "{{name}}: valor ({{unit}})"
     },

@@ -2916,6 +2916,8 @@
     "adjustment": {
       "scrubHint": "Faites glisser pour régler · double-clic pour réinitialiser",
       "trackHint": "Faites glisser pour régler ; éloignez le pointeur du curseur pour des pas plus fins · Alt (⌥) : un dixième · double-clic pour réinitialiser",
+      "trackHintSharpenGrey": "Faites glisser pour régler ; éloignez le pointeur du curseur pour des pas plus fins · Alt (⌥) pendant le glissement : montre la photo en gris · double-clic pour réinitialiser",
+      "trackHintSharpenMask": "Faites glisser pour régler ; éloignez le pointeur du curseur pour des pas plus fins · Alt (⌥) pendant le glissement : montre ce qui est accentué (blanc) · double-clic pour réinitialiser",
       "value": "{{name}} – valeur",
       "valueWithUnit": "{{name}} – valeur ({{unit}})"
     },

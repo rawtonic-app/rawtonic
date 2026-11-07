@@ -2675,6 +2675,8 @@
     "adjustment": {
       "scrubHint": "拖动以调整 · 双击重置",
       "trackHint": "拖动以调整；将指针移离滑块可更精细调整 · Alt (⌥)：十分之一 · 双击重置",
+      "trackHintSharpenGrey": "拖动以调整；将指针移离滑块可更精细调整 · 拖动时按住 Alt (⌥)：以灰度显示照片 · 双击重置",
+      "trackHintSharpenMask": "拖动以调整；将指针移离滑块可更精细调整 · 拖动时按住 Alt (⌥)：显示被锐化的部分（白色） · 双击重置",
       "value": "{{name}}值",
       "valueWithUnit": "{{name}}值（{{unit}}）"
     },

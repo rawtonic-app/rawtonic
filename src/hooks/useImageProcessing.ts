@@ -43,13 +43,14 @@ import {
   type LiveStroke,
   type LiveStrokeArgs
 } from '../utils/liveMaskRender';
-import { registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/sliderDraft';
+import { draftFor, registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/sliderDraft';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { interactivePreview } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
 import { needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
+import type { SharpenView } from '../utils/sharpenView';
 import { acknowledgeParameters, forgetParameterReferences, withParameterReferences } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
 import { viewerShown } from '../utils/viewerMode';
@@ -523,6 +524,26 @@ export function useImageProcessing(
       }),
     [previewQueue, currentResRef]
   );
+  // The sharpening view follows Option during a drag (utils/sharpenView):
+  // its frame renders at once, with the drag's latest values, also while
+  // the slider holds still.
+  useEffect(
+    () =>
+      useEditorStore.subscribe((state, previous) => {
+        if (state.sharpenView === previous.sharpenView) return;
+        const image = state.selectedImage;
+        const targetRes = currentResRef.current;
+        if (!canRenderSource(image) || !targetRes) return;
+        previewQueue.submit({
+          path: image.path,
+          adjustments: draftFor(image.path) ?? state.previewOverride ?? state.adjustments,
+          dragging: state.isSliderDragging,
+          targetRes,
+          live: nativeDisplayRef.current
+        });
+      }),
+    [previewQueue, currentResRef]
+  );
   useEffect(
     () =>
       useRelightStore.subscribe((relight, previous) => {
@@ -903,6 +924,8 @@ export function withViewStates(adjustments: Adjustments): Adjustments {
     payload.softProofWarning = view.softProofWarning;
   }
   payload.colorRangeShow = view.colorRangeShow;
+  // The sharpening view while Option drags a Sharpening slider (utils/sharpenView).
+  if (view.sharpenView) (payload as Adjustments & { sharpenView?: SharpenView }).sharpenView = view.sharpenView;
   // Layer solo shows one layer (or component) without changing the recipe.
   if (view.layerSolo && Array.isArray(payload.masks)) payload.masks = applyLayerSolo(payload.masks, view.layerSolo);
   // Relight's solo view shows one light without changing the recipe.

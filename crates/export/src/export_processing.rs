@@ -3361,3 +3361,31 @@ mod avif_export_tests {
         assert!(high < 1.5 * low.max(0.3), "parity classes differ: {mean:?}");
     }
 }
+
+#[cfg(test)]
+mod view_state_tests {
+    use super::*;
+
+    #[test]
+    fn exports_never_carry_the_sharpening_view() {
+        // An editor payload with the sharpening view (`withViewStates`) renders
+        // the export's uniforms of the recipe without it, byte for byte.
+        let recipe =
+            serde_json::json!({"sharpness": 80, "sharpenMasking": 50, "sharpenVersion": 7});
+        let uniforms = |payload: &Value| {
+            let versions = RecipeVersions::of(payload, true);
+            let prepared =
+                export_adjustments("a.dng", payload, &versions, true, None, &[], None, None);
+            bytemuck::bytes_of(&*prepared.uniforms).to_vec()
+        };
+        let plain = uniforms(&recipe);
+        for view in ["mask", "grey"] {
+            let mut payload = recipe.clone();
+            payload["sharpenView"] = serde_json::json!(view);
+            assert!(
+                uniforms(&payload) == plain,
+                "the {view} view reached an export"
+            );
+        }
+    }
+}
