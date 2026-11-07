@@ -18325,7 +18325,9 @@ fn zoomed_drag_marks_match_the_release(context: &GpuContext, recipe: &serde_json
         assert!(red < 1000.0, "one red pixel never clips");
     }
     let (hot, red) = (hot * 1.25, red * 1.25);
-    let cases: [(&str, Vec<((u32, u32), [f32; 3])>); 5] = [
+    // Each case: its name and its pixels (position, colour).
+    type Spots = Vec<((u32, u32), [f32; 3])>;
+    let cases: [(&str, Spots); 5] = [
         (
             "a red highlight alone",
             vec![((1000, 600), [red, 0.12, 0.11])],
