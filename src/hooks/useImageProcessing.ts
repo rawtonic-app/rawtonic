@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import { notify } from '../activity/notify';
@@ -527,23 +528,33 @@ export function useImageProcessing(
   // The sharpening view follows Option during a drag (utils/sharpenView):
   // its frame renders at once, with the drag's latest values, also while
   // the slider holds still.
-  useEffect(
-    () =>
-      useEditorStore.subscribe((state, previous) => {
-        if (state.sharpenView === previous.sharpenView) return;
-        const image = state.selectedImage;
-        const targetRes = currentResRef.current;
-        if (!canRenderSource(image) || !targetRes) return;
-        previewQueue.submit({
-          path: image.path,
-          adjustments: draftFor(image.path) ?? state.previewOverride ?? state.adjustments,
-          dragging: state.isSliderDragging,
-          targetRes,
-          live: nativeDisplayRef.current
-        });
-      }),
-    [previewQueue, currentResRef]
-  );
+  // Its variant compiles on first use: the frame meanwhile shows the photo,
+  // so the view renders again once the variant is ready.
+  useEffect(() => {
+    const renderView = () => {
+      const state = useEditorStore.getState();
+      const image = state.selectedImage;
+      const targetRes = currentResRef.current;
+      if (!canRenderSource(image) || !targetRes) return;
+      previewQueue.submit({
+        path: image.path,
+        adjustments: draftFor(image.path) ?? state.previewOverride ?? state.adjustments,
+        dragging: state.isSliderDragging,
+        targetRes,
+        live: nativeDisplayRef.current
+      });
+    };
+    const unsubscribe = useEditorStore.subscribe((state, previous) => {
+      if (state.sharpenView !== previous.sharpenView) renderView();
+    });
+    const unlisten = listen('sharpen-view-ready', () => {
+      if (useEditorStore.getState().sharpenView) renderView();
+    });
+    return () => {
+      unsubscribe();
+      void unlisten.then((stop) => stop());
+    };
+  }, [previewQueue, currentResRef]);
   useEffect(
     () =>
       useRelightStore.subscribe((relight, previous) => {

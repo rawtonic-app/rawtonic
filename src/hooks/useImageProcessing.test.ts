@@ -16,6 +16,7 @@ import { flushSliderDraft, renderDraft } from '../utils/sliderDraft';
 import { forgetLiveStroke } from '../utils/liveMaskRender';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock('./useEditorActions', () => ({ debouncedSave: vi.fn(), registerScheduledRecipe: vi.fn(() => () => {}) }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 vi.mock('../utils/liveMaskRender', async (actual) => {

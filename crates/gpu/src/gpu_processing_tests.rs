@@ -2171,9 +2171,6 @@ fn sharpening_view_shows_the_applied_mask_and_leaves_other_renders_alone() {
     let started = Instant::now();
     while processor.detail_pipeline_for(true).is_none()
         || processor.mask_view_detail_pipeline().is_none()
-        || processor
-            .sharpen_view_pipeline(sharpen_view_features(features))
-            .is_none()
     {
         assert!(
             started.elapsed().as_secs() < 120,
@@ -2221,6 +2218,40 @@ fn sharpening_view_shows_the_applied_mask_and_leaves_other_renders_alone() {
         )
         .unwrap()
     };
+    // Until the view's own variant is compiled the frame shows the photo,
+    // with the photo's detail stage: no mask marks read as colours, and
+    // nothing cached under the mask view's key.
+    assert!(
+        processor.sharpen_view_pipelines[sharpen_view_features(features)]
+            .get()
+            .is_none()
+    );
+    let photo = display(adjustments(recipe(50.0, None)));
+    assert_eq!(
+        display(adjustments(recipe(50.0, Some("mask")))),
+        photo,
+        "a mask view frame before its variant is ready shows the photo"
+    );
+    assert!(
+        !processor
+            .blur_cache
+            .lock()
+            .unwrap()
+            .tiles
+            .iter()
+            .any(|tile| tile.detail.as_ref().is_some_and(|(key, _)| key.0[101] == 1)),
+        "no mask detail cached for a frame that showed the photo"
+    );
+    while processor
+        .sharpen_view_pipeline(sharpen_view_features(features))
+        .is_none()
+    {
+        assert!(
+            started.elapsed().as_secs() < 120,
+            "the view variant did not compile"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     let mask = display(masked);
     assert!(
         processor

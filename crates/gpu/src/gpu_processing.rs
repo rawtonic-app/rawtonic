@@ -7587,6 +7587,23 @@ impl GpuProcessor {
         None
     }
 
+    /// Whether this frame can show the sharpening view (starts compiling its
+    /// variant if not).
+    fn sharpen_view_ready(&self, adjustments: &AllAdjustments) -> bool {
+        #[cfg(test)]
+        if self
+            .force_general_display
+            .load(std::sync::atomic::Ordering::Relaxed)
+            || self
+                .force_fallback_variant
+                .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return false;
+        }
+        self.sharpen_view_pipeline(sharpen_view_features(preview_features(adjustments)))
+            .is_some()
+    }
+
     /// The display variant with the sharpening view, or `None` while it
     /// compiles off the render worker (the frame shows the photo until then)
     /// or if it failed.
@@ -7608,6 +7625,9 @@ impl GpuProcessor {
                             "Sharpening view variant {features} compiled in {:.2} s",
                             started.elapsed().as_secs_f64()
                         );
+                        if let Some(ready) = SHARPEN_VIEW_READY.get() {
+                            ready();
+                        }
                     }
                     Err(error) => {
                         log::error!("Sharpening view variant {features} unavailable: {error}")
@@ -8160,6 +8180,17 @@ impl GpuProcessor {
             .load(std::sync::atomic::Ordering::Relaxed);
         #[cfg(not(test))]
         let force_general_pipeline = false;
+        // The sharpening view only with its own display variant: until that
+        // is compiled (or on any other path) the frame shows the photo, and
+        // the detail pass and its cache key must not produce the mask marks.
+        if is_sharpen_view(request.adjustments.uniforms.global.show_clipping)
+            && !(display_shader
+                && !force_full_preparation
+                && !force_general_pipeline
+                && self.sharpen_view_ready(&request.adjustments.uniforms))
+        {
+            request.adjustments.uniforms.global.show_clipping = 0;
+        }
         if output_precision == RenderOutputPrecision::SixteenBit && output_to_display {
             return Err(
                 "High-precision GPU output is only supported for CPU-readback renders.".to_string(),
@@ -10048,6 +10079,16 @@ fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
             caller_id,
             "apply_adjustments" | "sample_curve_input" | SCOPE_ANALYTICS_CALLER
         )
+}
+
+/// Called once a sharpening-view variant is compiled: frames asked for
+/// before it showed the photo, so the caller renders the view again.
+static SHARPEN_VIEW_READY: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+/// Set what runs when a sharpening-view variant becomes ready (once per process).
+pub fn on_sharpen_view_ready(callback: impl Fn() + Send + Sync + 'static) {
+    let _ = SHARPEN_VIEW_READY.set(Box::new(callback));
 }
 
 /// A processor for `slot`: one for exports only on a background-only slot.

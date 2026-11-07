@@ -191,6 +191,13 @@ pub fn attach_display(gpu: &GpuState, app_handle: &tauri::AppHandle) {
     if !settings.use_wgpu_renderer.unwrap_or(true) {
         return;
     }
+    // A sharpening view asked for while its variant compiled showed the
+    // photo: the editor renders it again once the variant is ready.
+    let ready_handle = app_handle.clone();
+    rawtonic_gpu::gpu_processing::on_sharpen_view_ready(move || {
+        use tauri::Emitter;
+        let _ = ready_handle.emit("sharpen-view-ready", ());
+    });
     let Some(window) = app_handle.get_webview_window("main") else {
         return;
     };
