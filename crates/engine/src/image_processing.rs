@@ -4326,7 +4326,7 @@ pub struct GlobalAdjustments {
     /// x: Capture One's Sharpness Falloff (0–1): extra sharpening towards
     /// the corners, up to twice the amount there. y, z: diffraction
     /// correction radius (original pixels) and amount (diffraction.rs).
-    /// w: the recipe's sharpening response (`sharpenVersion`, 1 to 7).
+    /// w: the recipe's sharpening response (`sharpenVersion`, 1 to 8).
     pub sharpen_falloff: [f32; 4],
     /// Camera profile (camera_profile.rs). Before the base look: x = key of
     /// the recipe's `cameraProfile`. After it: x = 1 when applied, y = key
@@ -5702,7 +5702,13 @@ fn defringe_settings(
 
 /// The recipe key naming the sharpening response a recipe was made with.
 pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
-/// The newest response: 7 (2026-11-03) is 6 with Masking reading the
+/// The newest response: 8 (2026-11-07) is 7 with a noise gate on RAW
+/// photos at every Masking value: what stands no more than the photo's
+/// measured noise level out of its 1 px neighbourhood is not sharpened, so
+/// flat areas keep less sharpened noise without Masking (notes:
+/// reference/detail.md "Sharpening response 8"); on non-RAW photos, and on
+/// RAWs without a measured noise level, it renders as 7.
+/// 7 (2026-11-03) is 6 with Masking reading the
 /// neighbourhood as it shows on RAW photos: the photo's measured noise is
 /// taken out of the spread and the rest weighted by the slope of its tone
 /// curve, so bright flat noise (skies, walls) no longer passes as texture
@@ -5741,7 +5747,7 @@ pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
 /// at Amount 40 with Radius, Detail and Masking at their defaults it renders
 /// as 1. Photo-wide: layers' sharpening amounts follow it. Recipes without
 /// the key keep version 1.
-pub const SHARPEN_VERSION: u64 = 7;
+pub const SHARPEN_VERSION: u64 = 8;
 
 /// The recipe's sharpening response, 1 when missing, never newer than this
 /// renderer knows.
@@ -7900,6 +7906,7 @@ mod editing_tool_tests {
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 5})), 5.0);
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 6})), 6.0);
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 7})), 7.0);
+        assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 8})), 8.0);
         assert_eq!(
             version(json!({"sharpenVersion": 9})),
             SHARPEN_VERSION as f32
