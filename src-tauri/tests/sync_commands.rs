@@ -184,6 +184,10 @@ const SYNC_COMMANDS: &[(&str, &str)] = &[
         "spawns the file manager or a background job and returns at once",
     ),
     (
+        "stop_content_index",
+        "sets a cancel flag or wakes a worker; no I/O",
+    ),
+    (
         "stop_eye_check",
         "sets a cancel flag or wakes a worker; no I/O",
     ),
