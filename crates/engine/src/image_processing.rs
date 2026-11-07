@@ -7194,10 +7194,17 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// 10 (2026-11-03) lowers Whites at an edge-aware local base level and
 /// passes the pixel's offset from it through, so bright areas keep their
 /// texture as in Capture One (notes: G02,
-/// benchmark-results/whb-whites-ring-2026-11-03).
+/// benchmark-results/whb-whites-ring-2026-11-03);
+/// 11 (2026-11-07) gives the RAW look's white a tail: above ramped 1.4 the
+/// highlight roll-off approaches white as a power of the level instead of
+/// reaching it at ≈ 2.03 and clipping, and bright near-neutral colours
+/// converge on white above that level, so the RAW's top EVs keep their
+/// gradation (a negative scan pushed +2.5 EV rendered them as flat tones);
+/// levels below 1.4 render as with 10 (notes: G02,
+/// benchmark-results/r23b-white-rolloff-2026-11-07).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 10;
+pub const TONE_VERSION: u64 = 11;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.

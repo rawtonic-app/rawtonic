@@ -648,7 +648,9 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * lifted); 9 = and lowered Blacks sets a black point on the display
    * lightness (the darks keep their texture, tones above L* 30 stay);
    * 10 = and lowered Whites keeps the bright areas' texture (gain at an
-   * edge-aware local base level); 1 or missing on
+   * edge-aware local base level); 11 = and the RAW look's brightest tones
+   * approach white gradually instead of clipping to it (the RAW's top EVs
+   * keep their gradation); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1270,7 +1272,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 10;
+export const TONE_VERSION = 11;
 
 /** The response a recipe without `toneVersion` takes when nothing in it
  * renders differently: 5, the last that leaves Whites, Blacks and Clarity
