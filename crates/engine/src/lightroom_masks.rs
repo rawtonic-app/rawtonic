@@ -109,8 +109,14 @@ pub fn placed_parameters(
     // placed shapes record the photo's own frame (`mask_generation`'s
     // `ShapeFrame`), so they are drawn on the same spot of the photo however
     // it is turned, flipped or straightened.
-    let frame = json!({masks::WIDTH.name(): width, masks::HEIGHT.name(): height, geometry::ROTATION.name(): 0.0,
-        geometry::FLIP_HORIZONTAL.name(): false, geometry::FLIP_VERTICAL.name(): false, geometry::ORIENTATION_STEPS.name(): 0});
+    let frame = json!({
+        masks::WIDTH.name(): width,
+        masks::HEIGHT.name(): height,
+        geometry::ROTATION.name(): 0.0,
+        geometry::FLIP_HORIZONTAL.name(): false,
+        geometry::FLIP_VERTICAL.name(): false,
+        geometry::ORIENTATION_STEPS.name(): 0,
+    });
     Some(match kind {
         "linear" => {
             let (zx, zy) = pixel(n("zeroX"), n("zeroY"));
@@ -122,9 +128,14 @@ pub fn placed_parameters(
             }
             let (mx, my) = ((zx + fx) / 2.0, (zy + fy) / 2.0);
             let (lx, ly) = (-dy / 2.0, dx / 2.0);
-            json!({masks::START_X.name(): round(mx - lx), masks::START_Y.name(): round(my - ly),
-                masks::END_X.name(): round(mx + lx), masks::END_Y.name(): round(my + ly), masks::RANGE.name(): round(length / 2.0),
-                masks::FRAME.name(): frame})
+            json!({
+                masks::START_X.name(): round(mx - lx),
+                masks::START_Y.name(): round(my - ly),
+                masks::END_X.name(): round(mx + lx),
+                masks::END_Y.name(): round(my + ly),
+                masks::RANGE.name(): round(length / 2.0),
+                masks::FRAME.name(): frame,
+            })
         }
         "radial" => {
             // Top/Left and Bottom/Right are opposite corners of the
@@ -142,7 +153,8 @@ pub fn placed_parameters(
                 masks::RADIUS_X.name(): round((dx * ux + dy * uy).abs() / 2.0),
                 masks::RADIUS_Y.name(): round((-dx * uy + dy * ux).abs() / 2.0),
                 "rotation": round(uy.atan2(ux).to_degrees()),
-                masks::FEATHER.name(): (g[masks::FEATHER.name()].as_f64().unwrap_or(50.0) / 100.0).clamp(0.0, 1.0),
+                masks::FEATHER.name():
+                    (g[masks::FEATHER.name()].as_f64().unwrap_or(50.0) / 100.0).clamp(0.0, 1.0),
                 masks::FRAME.name(): frame,
             })
         }
@@ -171,9 +183,14 @@ pub fn placed_parameters(
                             masks::BRUSH_SIZE.name(): round(2.0 * radius),
                             masks::POINTS.name(): points,
                             masks::FEATHER.name(): 0.5,
-                            masks::FLOW.name(): round(dab_coverage(stroke[masks::FLOW.name()].as_f64().unwrap_or(1.0)) * 100.0),
-                            masks::LR_CENTER_WEIGHT.name(): stroke["centerWeight"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0),
-                            masks::AUTO_MASK.name(): stroke[masks::AUTO_MASK.name()].as_bool().unwrap_or(false),
+                            masks::FLOW.name(): round(
+                                dab_coverage(stroke[masks::FLOW.name()].as_f64().unwrap_or(1.0))
+                                    * 100.0,
+                            ),
+                            masks::LR_CENTER_WEIGHT.name():
+                                stroke["centerWeight"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0),
+                            masks::AUTO_MASK.name():
+                                stroke[masks::AUTO_MASK.name()].as_bool().unwrap_or(false),
                             masks::FRAME.name(): frame,
                         })
                     })
@@ -220,8 +237,10 @@ pub fn placed_parameters(
                 s[k].as_f64().unwrap_or(0.0) + s[size].as_f64().unwrap_or(0.0) / 2.0
             };
             json!({
-                masks::TARGET_X.name(): round(center(&first, masks::X.name(), masks::WIDTH.name())),
-                masks::TARGET_Y.name(): round(center(&first, masks::Y.name(), masks::HEIGHT.name())),
+                masks::TARGET_X.name():
+                    round(center(&first, masks::X.name(), masks::WIDTH.name())),
+                masks::TARGET_Y.name():
+                    round(center(&first, masks::Y.name(), masks::HEIGHT.name())),
                 masks::SAMPLES.name(): samples,
                 masks::REFINE.name(): g[masks::REFINE.name()].as_f64().unwrap_or(50.0),
                 masks::FEATHER.name(): 0.0,
