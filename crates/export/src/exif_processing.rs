@@ -1733,7 +1733,7 @@ fn fit_exif_to_jpeg_segment(exif: &Metadata) -> Result<Metadata, String> {
             )
         })
         .collect();
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates.sort_by_key(|c| std::cmp::Reverse(c.0));
     let mut fitted = Metadata::clone(exif);
     for (bytes, tag, group) in candidates {
         if current <= JPEG_EXIF_MAX {
