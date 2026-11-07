@@ -383,7 +383,8 @@ fn local_fields_match_the_old_reader_at_edges() {
 fn nested_local_fields_match_the_old_reader_at_edges() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/mask_adjustments.json")).unwrap();
-    let full = fixture["cases"][0]["recipe"]["masks"][0]["adjustments"].clone();
+    // The full local block every recorded all-types layer uses.
+    let full = fixture["localAdjustments"]["shared"].clone();
     for section in [
         "basic",
         "color",
