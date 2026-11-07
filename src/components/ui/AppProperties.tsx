@@ -140,6 +140,11 @@ export enum Invokes {
   GenerateAiSkyMask = 'generate_ai_sky_mask',
   GenerateAiPeopleMask = 'generate_ai_people_mask',
   DetectPeople = 'detect_people',
+  StartContentIndex = 'start_content_index',
+  StopContentIndex = 'stop_content_index',
+  ContentSearchStatus = 'content_search_status',
+  ContentSearchDownload = 'content_search_download',
+  ContentSearchRank = 'content_search_rank',
   StartEyeCheck = 'start_eye_check',
   StopEyeCheck = 'stop_eye_check',
   PhotoEyes = 'photo_eyes',
@@ -508,6 +513,10 @@ export interface AppSettings {
   /** Read every face's eyes in the background for culling (turned on by
    * the first Check Eyes; `face_eyes`). */
   eyeCheck?: boolean;
+  /** Index what the open library's photographs show for the search box's
+   * Content mode (turned on by the search model's download;
+   * `content_search`). */
+  contentSearch?: boolean;
   aiTagCount?: number;
   customAiTags?: string[];
   filterCriteria?: FilterCriteria;

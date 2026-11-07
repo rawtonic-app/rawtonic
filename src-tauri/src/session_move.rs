@@ -158,6 +158,7 @@ fn wait_until_free<T, E: std::fmt::Display>(
     crate::folder_sync::stop_checksum_pass();
     crate::library_search::stop_facts_pass();
     crate::face_eyes::stop_eye_check(None);
+    crate::content_search::stop_content_index(None);
     let started = Instant::now();
     loop {
         match check() {

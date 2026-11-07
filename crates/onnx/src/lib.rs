@@ -120,9 +120,9 @@ pub enum ModelKind {
     Relight,
     /// Surface normals of people for Relight (DAViD Base).
     PeopleNormals,
-    /// SigLIP 2 image encoder (automatic tags).
+    /// SigLIP 2 image encoder (automatic tags, content search).
     TagVision,
-    /// SigLIP 2 text encoder (the user's own tags).
+    /// SigLIP 2 text encoder (the user's own tags, content search).
     TagText,
     /// MI-GAN object removal.
     Inpaint,
@@ -580,7 +580,25 @@ fn ort_path(path: &Path) -> Vec<c_char> {
 /// Creates a session for `path` (a `kind` model) on `device` (`None` = the
 /// CPU).
 pub(crate) fn session(path: &Path, kind: ModelKind, device: Option<&Device>) -> Result<Session> {
+    session_with(path, kind, device, None)
+}
+
+/// `session` with at most `threads` threads inside each operator (`None`:
+/// ONNX Runtime's default, one per core) that sleep instead of spinning
+/// between operators: for background work beside the photographer's.
+fn session_with(
+    path: &Path,
+    kind: ModelKind,
+    device: Option<&Device>,
+    threads: Option<usize>,
+) -> Result<Session> {
     let mut builder = Session::builder(runtime::environment()?)?;
+    if let Some(threads) = threads {
+        builder = builder
+            .with_intra_threads(threads.max(1))
+            .and_then(|b| b.with_config_entry("session.intra_op.allow_spinning", "0"))
+            .map_err(|e| anyhow!("session options: {e}"))?;
+    }
     // No CPU memory arena: it keeps a session's largest intermediate
     // tensors (SAM's encoder about 1 GB, Relight's models about 1 GB more)
     // for as long as the model stays loaded; without it they are freed
@@ -645,6 +663,32 @@ impl Model {
             &candidates(kind, &settings, forced_provider()),
             &settings.plugin_dirs,
         )
+    }
+
+    /// Loads `path` on the CPU with at most `threads` threads per operator,
+    /// which sleep between operators (`session_with`): a model that runs in
+    /// the background beside the photographer's work. Its threads take the
+    /// calling thread's priority (macOS QoS), so load it on the thread
+    /// that runs it.
+    pub fn load_cpu_threads(path: &Path, kind: ModelKind, threads: usize) -> Result<Self> {
+        ensure_runtime()?;
+        let started = Instant::now();
+        let session = session_with(path, kind, None, Some(threads))
+            .map_err(|e| e.context(format!("loading {} on CPU", path.display())))?;
+        log::info!(
+            "AI {}: loaded on CPU ({threads} threads) in {} ms",
+            kind.name(),
+            started.elapsed().as_millis()
+        );
+        Ok(Self {
+            kind,
+            path: path.to_path_buf(),
+            state: Mutex::new(Loaded {
+                session,
+                provider: Provider::Cpu,
+                runs: 0,
+            }),
+        })
     }
 
     /// `load` for a file of the model pack, the model known by its name.

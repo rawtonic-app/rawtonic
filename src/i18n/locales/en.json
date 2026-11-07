@@ -22,6 +22,11 @@
     "cancel": "Cancel",
     "clearDone": "Clear",
     "close": "Close activity",
+    "contentSearch": {
+      "done": "Indexed {{indexed}} of {{total}} photos for content search",
+      "running": "Indexing photos for content search",
+      "stopped": "Content search indexing stopped at {{indexed}} of {{total}}"
+    },
     "copied": "Copied",
     "copyDetails": "Copy details",
     "dismiss": "Dismiss: {{title}}",
@@ -2872,6 +2877,23 @@
         "title": "Drag for hue and saturation · Shift fine · Alt keeps the hue · double-click resets",
         "valueText": "Hue {{hue}}°, saturation {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "Content",
+      "contentTitle": "Sort the photos shown by what they show",
+      "download": "Download search model ({{size}})",
+      "downloadFailed": "The search model could not be downloaded: {{error}}",
+      "downloadTitle": "Content search runs on this computer. The model is downloaded once, then nothing leaves it.",
+      "indexed": "Indexed {{indexed}} of {{total}}",
+      "modeLabel": "Search by",
+      "notIndexed_one": "{{count}} photo not indexed yet, listed last",
+      "notIndexed_other": "{{count}} photos not indexed yet, listed last",
+      "placeholder": "Describe what the photo shows",
+      "searchFailed": "Content search failed: {{error}}",
+      "sortedByMatch": "Sorted by match",
+      "sortedByMatchTitle": "Best matches first; this is an order, not a filter: every photo stays in the view",
+      "text": "Text",
+      "textTitle": "Find words in names, keywords, captions and other metadata"
     },
     "copySettings": {
       "all": "All",

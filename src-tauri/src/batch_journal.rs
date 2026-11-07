@@ -145,8 +145,25 @@ fn now_ms() -> u64 {
 #[must_use]
 pub struct Recorded(PathBuf);
 
+/// Batches of several photographs being written now (`Recorded` alive).
+static RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Whether a batch write of several photographs is running: background
+/// passes wait for it (`content_search`).
+pub(crate) fn running() -> bool {
+    RUNNING.load(Ordering::Acquire) > 0
+}
+
+impl Recorded {
+    fn new(file: PathBuf) -> Self {
+        RUNNING.fetch_add(1, Ordering::AcqRel);
+        Self(file)
+    }
+}
+
 impl Drop for Recorded {
     fn drop(&mut self) {
+        RUNNING.fetch_sub(1, Ordering::AcqRel);
         if let Err(error) = std::fs::remove_file(&self.0)
             && error.kind() != std::io::ErrorKind::NotFound
         {
@@ -223,7 +240,7 @@ pub(crate) fn begin_in(
     };
     let file = dir.join(format!("{id}.json"));
     rawtonic_fs::atomic_write(&file, serde_json::to_vec(&job)?)?;
-    Ok(Recorded(file))
+    Ok(Recorded::new(file))
 }
 
 /// The jobs earlier runs left for `library` (None: those started with no

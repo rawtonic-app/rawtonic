@@ -25,6 +25,11 @@
     "cancel": "Cancel·la",
     "clearDone": "Esborra",
     "close": "Tanca l’activitat",
+    "contentSearch": {
+      "done": "{{indexed}} de {{total}} fotos indexades per a la cerca per contingut",
+      "running": "Indexant fotos per a la cerca per contingut",
+      "stopped": "Indexació per a la cerca per contingut aturada a {{indexed}} de {{total}}"
+    },
     "copied": "Copiat",
     "copyDetails": "Copia els detalls",
     "dismiss": "Descarta: {{title}}",
@@ -3022,6 +3027,24 @@
         "title": "Arrossega per al to i la saturació · Maj: fi · Alt manté el to · doble clic restableix",
         "valueText": "To {{hue}}°, saturació {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "Contingut",
+      "contentTitle": "Ordena les fotos mostrades segons el que mostren",
+      "download": "Baixa el model de cerca ({{size}})",
+      "downloadFailed": "No s’ha pogut baixar el model de cerca: {{error}}",
+      "downloadTitle": "La cerca per contingut funciona en aquest ordinador. El model es baixa una vegada i després no en surt res.",
+      "indexed": "{{indexed}} de {{total}} indexades",
+      "modeLabel": "Cerca per",
+      "notIndexed_one": "{{count}} foto encara sense indexar, al final",
+      "notIndexed_many": "{{count}} fotos encara sense indexar, al final",
+      "notIndexed_other": "{{count}} fotos encara sense indexar, al final",
+      "placeholder": "Descriu el que mostra la foto",
+      "searchFailed": "La cerca per contingut ha fallat: {{error}}",
+      "sortedByMatch": "Ordenat per coincidència",
+      "sortedByMatchTitle": "Primer les millors coincidències; és un ordre, no un filtre: totes les fotos continuen a la vista",
+      "text": "Text",
+      "textTitle": "Troba paraules en noms, paraules clau, peus de foto i altres metadades"
     },
     "copySettings": {
       "all": "Tot",

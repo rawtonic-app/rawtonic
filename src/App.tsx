@@ -67,6 +67,7 @@ import { useAppContextMenus } from './hooks/useAppContextMenus';
 import { useSortedLibrary } from './hooks/useSortedLibrary';
 import { useStackCommands } from './utils/stacks';
 import { useCatalogSearch } from './hooks/useCatalogSearch';
+import { useContentSearch } from './hooks/useContentSearch';
 import { useEyeCheck } from './hooks/useEyeCheck';
 import { useAppNavigation } from './hooks/useAppNavigation';
 import { useExternalEditSession } from './hooks/useExternalEditSession';
@@ -228,6 +229,7 @@ function App() {
   } = useLibraryActions(handleImageSelect);
 
   useCatalogSearch();
+  useContentSearch();
   useEyeCheck();
   useStackCommands();
   const { displayList: sortedImageList, flagCounts, stackMarks } = useSortedLibrary();

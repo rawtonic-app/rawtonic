@@ -199,6 +199,14 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
   start_eye_check: {
     args: `directory: String, download: bool, resume: bool, app_handle: tauri::AppHandle`,
     ok: `()`
+  },
+  content_search_download: {
+    args: `directory: String, app_handle: tauri::AppHandle`,
+    ok: `()`
+  },
+  content_search_rank: {
+    args: `directory: String, query: String, listed: Option<String>, app_handle: tauri::AppHandle`,
+    ok: `ContentRanking`
   }
 };
 

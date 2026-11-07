@@ -166,6 +166,13 @@ pub fn embed_custom_tags(
         .iter()
         .map(|t| format!("{TAG_PROMPT}{}", t.to_lowercase()))
         .collect();
+    embed_texts(text, prompts)
+}
+
+/// SigLIP 2 text embeddings of `prompts` as given, one row of
+/// `SIGLIP_EMBED_DIM` per prompt (unit length).
+pub fn embed_texts(text: &crate::ai_processing::TextEncoder, prompts: Vec<String>) -> Result<Vec<f32>> {
+    let count = prompts.len();
     let encodings = text
         .tokenizer
         .encode_batch(prompts, true)
@@ -175,7 +182,7 @@ pub fn embed_custom_tags(
         .iter()
         .flat_map(|e| e.get_ids().iter().map(|&i| i as i64))
         .collect();
-    let ids = Array::from_shape_vec((tags.len(), len), ids)?;
+    let ids = Array::from_shape_vec((count, len), ids)?;
     text.session.run(|session| {
         let outputs = session.run(ort::inputs![Tensor::from_array(ids.clone())?])?;
         let embeds: Vec<f32> = outputs[0]
@@ -188,20 +195,12 @@ pub fn embed_custom_tags(
     })
 }
 
-/// Tags for `image` among `tags`, whose embeddings are `tag_embeddings`
-/// (`SIGLIP_EMBED_DIM` per tag). Built-in tags also get colour tags and
-/// their parents in the hierarchy.
-pub fn generate_tags(
-    image: &DynamicImage,
-    vision: &rawtonic_onnx::Model,
-    tags: &[String],
-    tag_embeddings: &[f32],
-    is_custom: bool,
-    max_tags: usize,
-) -> Result<Vec<String>> {
-    let dim = crate::ai_processing::SIGLIP_EMBED_DIM;
+/// The SigLIP 2 image embedding of `image` (`SIGLIP_EMBED_DIM` values, unit
+/// length), as automatic tags and content search read it: the photo
+/// squashed to 224 × 224.
+pub fn image_embedding(image: &DynamicImage, vision: &rawtonic_onnx::Model) -> Result<Vec<f32>> {
     let input = preprocess_siglip_image(image);
-    let image_embedding: Vec<f32> = vision.run(|session| {
+    vision.run(|session| {
         let outputs = session.run(ort::inputs![Tensor::from_array(input.clone())?])?;
         let embedding: Vec<f32> = outputs[0]
             .try_extract_array::<f32>()?
@@ -210,10 +209,24 @@ pub fn generate_tags(
             .collect();
         rawtonic_onnx::ensure_finite(&embedding)?;
         Ok(embedding)
-    })?;
+    })
+}
+
+/// Tags for `image` among `tags`, whose embeddings are `tag_embeddings`
+/// (`SIGLIP_EMBED_DIM` per tag), from its embedding `image_embedding`.
+/// Built-in tags also get colour tags and their parents in the hierarchy.
+pub fn generate_tags(
+    image: &DynamicImage,
+    image_embedding: &[f32],
+    tags: &[String],
+    tag_embeddings: &[f32],
+    is_custom: bool,
+    max_tags: usize,
+) -> Result<Vec<String>> {
+    let dim = crate::ai_processing::SIGLIP_EMBED_DIM;
     let scores: Vec<f32> = tag_embeddings
         .chunks_exact(dim)
-        .map(|row| tag_score(row.iter().zip(&image_embedding).map(|(a, b)| a * b).sum()))
+        .map(|row| tag_score(row.iter().zip(image_embedding).map(|(a, b)| a * b).sum()))
         .collect();
     let initial_tags = select_tags(&scores, tags, max_tags);
 
@@ -351,14 +364,26 @@ pub async fn start_background_indexing(
                     gpu_context.as_ref(),
                 ) {
                     Ok(image) => {
-                        if let Ok(ai_tags) = generate_tags(
-                            &image,
-                            &tag_models.vision,
-                            &tag_set.0,
-                            &tag_set.1,
-                            is_custom,
-                            ai_tag_count,
-                        ) {
+                        let embedding = image_embedding(&image, &tag_models.vision);
+                        if let Ok(embedding) = &embedding {
+                            // One vision pass for both: content search
+                            // keeps this photograph's embedding.
+                            crate::content_search::share_embedding(
+                                &app_handle_inner,
+                                &path_str,
+                                embedding,
+                            );
+                        }
+                        if let Ok(ai_tags) = embedding.and_then(|embedding| {
+                            generate_tags(
+                                &image,
+                                &embedding,
+                                &tag_set.0,
+                                &tag_set.1,
+                                is_custom,
+                                ai_tag_count,
+                            )
+                        }) {
                             println!("Found AI tags for {}: {:?}", path_str, ai_tags);
                             if let Err(e) = store_ai_tags(&sidecar_path, ai_tags) {
                                 eprintln!("Could not save AI tags for {}: {}", path_str, e);
@@ -942,7 +967,8 @@ mod tests {
         let tags: Vec<String> = TAG_CANDIDATES.iter().map(|s| s.to_string()).collect();
         for path in std::env::var("AI_FILES").unwrap().split(';') {
             let image = image::open(path).unwrap();
-            let found = generate_tags(&image, &vision, &tags, &embeddings, true, 10).unwrap();
+            let embedding = image_embedding(&image, &vision).unwrap();
+            let found = generate_tags(&image, &embedding, &tags, &embeddings, true, 10).unwrap();
             println!("{path}\t{}", found.join(", "));
         }
     }

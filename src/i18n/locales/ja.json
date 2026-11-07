@@ -19,6 +19,11 @@
     "cancel": "キャンセル",
     "clearDone": "消去",
     "close": "アクティビティを閉じる",
+    "contentSearch": {
+      "done": "内容検索用に {{total}} 枚中 {{indexed}} 枚を解析しました",
+      "running": "内容検索のために写真を解析中",
+      "stopped": "内容検索の解析を {{total}} 枚中 {{indexed}} 枚で停止しました"
+    },
     "copied": "コピーしました",
     "copyDetails": "詳細をコピー",
     "dismiss": "閉じる: {{title}}",
@@ -2781,6 +2786,22 @@
         "title": "ドラッグで色相と彩度 · Shift で微調整 · Alt で色相を固定 · ダブルクリックでリセット",
         "valueText": "色相 {{hue}}°、彩度 {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "内容",
+      "contentTitle": "表示中の写真を写っている内容で並べ替え",
+      "download": "検索モデルをダウンロード（{{size}}）",
+      "downloadFailed": "検索モデルをダウンロードできませんでした: {{error}}",
+      "downloadTitle": "内容検索はこのコンピューター上で動作します。モデルは一度だけダウンロードされ、その後は何も外部に送られません。",
+      "indexed": "{{total}} 枚中 {{indexed}} 枚を解析済み",
+      "modeLabel": "検索対象",
+      "notIndexed_other": "未解析の写真 {{count}} 枚は末尾に表示",
+      "placeholder": "写真に写っているものを入力",
+      "searchFailed": "内容検索に失敗しました: {{error}}",
+      "sortedByMatch": "一致度順",
+      "sortedByMatchTitle": "一致度の高い順。並べ替えであり絞り込みではないため、すべての写真が表示されたままです",
+      "text": "テキスト",
+      "textTitle": "名前、キーワード、キャプション、その他のメタデータ内の語句を検索"
     },
     "copySettings": {
       "all": "すべて",

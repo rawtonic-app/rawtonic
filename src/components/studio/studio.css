@@ -2209,13 +2209,69 @@
   border-bottom: 1px solid var(--studio-line);
   flex-shrink: 0;
 }
+/* The search box with its Text / Content switch and, in Content mode, the
+   model's download or the index's state (G37). */
+.studio-search-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+}
+.studio-search-mode {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid #3c3e42;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.studio-search-mode button {
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #8d9198;
+  background: #222325;
+}
+.studio-search-mode button + button {
+  border-left: 1px solid #3c3e42;
+}
+/* On: filled and bright; off: the box's own dark, dimmed text. */
+.studio-search-mode button[aria-pressed='true'] {
+  color: #eef0f2;
+  background: #4a5563;
+}
+.studio-search-mode button[aria-pressed='false']:hover {
+  color: #c7cbd0;
+}
+.studio-search-detail,
+.studio-sorted-by-match {
+  font-size: 11px;
+  color: #a9adb3;
+  white-space: nowrap;
+}
+.studio-search-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.studio-search-download {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  font-size: 11px;
+  border: 1px solid #7f9bb3;
+  border-radius: 4px;
+  color: #dfe6ee;
+  white-space: nowrap;
+}
+.studio-search-download:disabled {
+  opacity: 0.6;
+}
 .studio-search {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: 0 1 220px;
   min-width: 70px;
-  margin-right: auto;
   padding: 0 8px;
   border-radius: 4px;
   background: #222325;

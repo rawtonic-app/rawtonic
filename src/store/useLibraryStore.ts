@@ -13,6 +13,7 @@ import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import type { FolderTree } from '../utils/folderTree';
 import type { CatalogFoldersView } from '../utils/catalogFolders';
 import { sourceOf } from '../entities/photo/photoRef';
+import type { ContentSearchStatus, SearchMode } from '../utils/contentSearch';
 
 export interface NavHistoryItem {
   type: 'folder' | 'album';
@@ -73,6 +74,15 @@ interface LibraryState {
    * catalog holds; others (files it does not register) are matched by
    * name and tags in the grid. */
   catalogKnown: Set<string> | null;
+  /** What the search box searches (remembered per library,
+   * `utils/contentSearch`). */
+  searchMode: SearchMode;
+  /** Content mode with text: each indexed photograph's place for it (path
+   * without a virtual copy's suffix → 0 for the best match); the view is
+   * sorted by it, photographs without a place last. Null otherwise. */
+  contentRanking: { query: string; ranks: Map<string, number> } | null;
+  /** The search model and the open library's index (null: not asked yet). */
+  contentStatus: ContentSearchStatus | null;
 
   // UI State specific to the Library View
   isTreeLoading: boolean;
@@ -120,6 +130,9 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   searchCriteria: { tags: [], text: '', mode: 'OR' },
   catalogMatches: null,
   catalogKnown: null,
+  searchMode: 'text',
+  contentRanking: null,
+  contentStatus: null,
 
   isTreeLoading: false,
   isViewLoading: false,
@@ -172,3 +185,8 @@ export const isRawPhoto = (path: string): boolean => {
   const extension = sourceOf(path).split('.').pop()?.toLowerCase() ?? '';
   return (useSettingsStore.getState().supportedTypes?.raw ?? []).some((raw) => raw.toLowerCase() === extension);
 };
+
+/** The search box's text as a filter: none in Content mode, where it sorts
+ * the view instead (`contentRanking`). */
+export const searchTextFilter = (s: Pick<LibraryState, 'searchMode' | 'searchCriteria'>): string =>
+  s.searchMode === 'content' ? '' : s.searchCriteria.text;
