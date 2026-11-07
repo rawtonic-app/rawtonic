@@ -9411,7 +9411,12 @@ fn camera_raw_white_tail_keeps_the_top_evs_graded() {
         .flat_map(|_| 0..width)
         .flat_map(|x| {
             let v = (2.0f32).powf(low_ev + x as f32 / per_ev);
-            [f16::from_f32(v), f16::from_f32(v * 0.9), f16::from_f32(v), f16::ONE]
+            [
+                f16::from_f32(v),
+                f16::from_f32(v * 0.9),
+                f16::from_f32(v),
+                f16::ONE,
+            ]
         })
         .collect();
     let view = context
@@ -9442,7 +9447,9 @@ fn camera_raw_white_tail_keeps_the_top_evs_graded() {
     for exposure in [0.0, 2.5] {
         let render = |version: u64| {
             let recipe = json!({ "exposure": exposure, "toneVersion": version });
-            render_raw_look(&processor, &view, (width, height), &recipe, (3, 2.0))[row..row + width as usize].to_vec()
+            render_raw_look(&processor, &view, (width, height), &recipe, (3, 2.0))
+                [row..row + width as usize]
+                .to_vec()
         };
         let (before, after) = (render(10), render(11));
         // Version 10 clipped the largest channel at its white (just below
@@ -9454,7 +9461,10 @@ fn camera_raw_white_tail_keeps_the_top_evs_graded() {
             .find(|&x| before[x][0] >= top)
             .expect("version 10 reaches its white on the ramp");
         let ev_later = clip + per_ev as usize;
-        assert!(ev_later < columns.end, "exposure {exposure}: clip at column {clip}");
+        assert!(
+            ev_later < columns.end,
+            "exposure {exposure}: clip at column {clip}"
+        );
         assert!(
             before[ev_later][1].abs_diff(before[clip][1]) <= 4,
             "exposure {exposure}: version 10 green {} → {}",
@@ -9464,7 +9474,10 @@ fn camera_raw_white_tail_keeps_the_top_evs_graded() {
         for x in columns.clone() {
             // Below the tail every code is version 10's.
             if before[x].iter().all(|&c| c < 62_000) {
-                assert_eq!(after[x], before[x], "exposure {exposure}: column {x} changed below the tail");
+                assert_eq!(
+                    after[x], before[x],
+                    "exposure {exposure}: column {x} changed below the tail"
+                );
             }
             // In order (within two codes: the f16 ramp's steps differ by
             // channel, so the tint wobbles as with version 10).
@@ -9485,7 +9498,10 @@ fn camera_raw_white_tail_keeps_the_top_evs_graded() {
             after[clip][1],
             after[ev_later][1]
         );
-        assert!(after[clip][0] < u16::MAX, "exposure {exposure}: red clipped at the old clip");
+        assert!(
+            after[clip][0] < u16::MAX,
+            "exposure {exposure}: red clipped at the old clip"
+        );
     }
 }
 
