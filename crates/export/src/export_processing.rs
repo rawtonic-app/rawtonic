@@ -3304,3 +3304,55 @@ mod render_group_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod avif_export_tests {
+    use super::*;
+
+    /// RAWmakase 0.4.11 fixed 10/12-bit 4:2:0 AVIF showing every other pixel
+    /// in the wrong colour on ARM. Our AVIF export is 8-bit 4:4:4 (ravif);
+    /// this guards that its pixels decode to the exported ones with the same
+    /// error on every pixel parity, also on fine saturated detail.
+    #[test]
+    fn avif_export_decodes_without_alternate_pixel_errors() {
+        let (w, h) = (64u32, 48u32);
+        let source = image::RgbImage::from_fn(w, h, |x, y| {
+            if (16..48).contains(&x) && (12..36).contains(&y) {
+                if (x + y) % 2 == 0 {
+                    image::Rgb([240, 240, 12])
+                } else {
+                    image::Rgb([12, 76, 150])
+                }
+            } else {
+                image::Rgb([(x * 4) as u8, (y * 5) as u8, 128])
+            }
+        });
+        let image = DynamicImage::ImageRgb8(source.clone());
+        let bytes = encode_image_to_bytes(
+            &image,
+            "avif",
+            100,
+            TiffBitDepth::Sixteen,
+            OutputColorSpace::Srgb,
+            None,
+        )
+        .unwrap();
+        let decoded = rawtonic_engine::avif::decode(&bytes).unwrap();
+        assert_eq!(decoded.image.width(), w);
+        let decoded = rawtonic_engine::avif::to_working_space(decoded).to_rgb32f();
+        let (mut sum, mut count) = ([0f64; 4], [0f64; 4]);
+        for (x, y, p) in source.enumerate_pixels() {
+            let q = decoded.get_pixel(x, y);
+            let error: f32 = (0..3).map(|c| (f32::from(p[c]) - q[c] * 255.0).abs()).sum();
+            let class = ((x & 1) + 2 * (y & 1)) as usize;
+            sum[class] += f64::from(error) / 3.0;
+            count[class] += 1.0;
+        }
+        let mean: Vec<f64> = (0..4).map(|c| sum[c] / count[c]).collect();
+        let (low, high) = mean
+            .iter()
+            .fold((f64::MAX, 0f64), |(l, h), &v| (l.min(v), h.max(v)));
+        assert!(high < 3.0, "mean error per parity class {mean:?}");
+        assert!(high < 1.5 * low.max(0.3), "parity classes differ: {mean:?}");
+    }
+}
