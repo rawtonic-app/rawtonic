@@ -153,9 +153,8 @@ fn main() {
 
     // (file in the model pack, name in resources/, SHA-256). Windows and
     // Linux get ONNX Runtime 1.30.0 and its WebGPU plugin 0.4.0 (GPU AI,
-    // docs/decisions/0011-gpu-ai.md; plugins need 1.24.4 or later); Apple
-    // silicon uses 1.30.0 too (Core ML stays the fast path), Intel macOS
-    // 1.23.2 (1.30 has no Intel build).
+    // docs/decisions/0011-gpu-ai.md; plugins need 1.24.4 or later); macOS
+    // uses 1.23.2 (Core ML is its fast path; 1.30 has no Intel build).
     // All are Microsoft's release files, unchanged (docs/MODELS.md).
     let files: &[(&str, &str, &str)] = match (target_os.as_str(), target_arch.as_str()) {
         ("windows", "x86_64") => &[
@@ -212,9 +211,9 @@ fn main() {
             "8c9c78de65ea3786f987c0d980e9c1b13a3a5fbc6b3e2965ba05b450e6e4c054",
         )],
         ("macos", "aarch64") => &[(
-            "libonnxruntime-1.30.0-macos-aarch64.dylib",
+            "libonnxruntime-1.23.2-macos-aarch64.dylib",
             "libonnxruntime.dylib",
-            "bcc9110f9d638a119de2db7afb3ba9a1da8085f0cb3401e1c48ae1caf450b6fa",
+            "d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299",
         )],
         ("android", "aarch64") => &[(
             "libonnxruntime-android-arm64-v8a.so",
@@ -266,7 +265,7 @@ fn main() {
             // (docs/MODELS.md); scripts/models/install_models.sh --runtime
             // also puts them here.
             let base_url =
-                "https://github.com/rawtonic-app/models/releases/download/pack-2026-11-07/";
+                "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-27b/";
             let download_url = format!("{}{}", base_url, download_filename);
             println!("cargo:warning=URL: {}", download_url);
 
