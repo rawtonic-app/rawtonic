@@ -18172,7 +18172,11 @@ fn recipe_masks(
 
 /// The clipping the release frame (the whole of `frame`) finds with `recipe`
 /// and its masks.
-fn release_clipping(context: &GpuContext, frame: &DynamicImage, recipe: &serde_json::Value) -> ClippedSides {
+fn release_clipping(
+    context: &GpuContext,
+    frame: &DynamicImage,
+    recipe: &serde_json::Value,
+) -> ClippedSides {
     let (sender, receive) = analytics_receiver();
     let masks = recipe_masks(recipe, frame.dimensions(), frame.width());
     process_and_get_dynamic_image_inner(
@@ -18252,7 +18256,11 @@ fn zoomed_drag_clipping(
         let job = receive
             .recv_timeout(std::time::Duration::from_secs(10))
             .expect("the scope render sends analytics");
-        assert_eq!(job.image.dimensions(), (w, h), "the scopes count the averaged copy");
+        assert_eq!(
+            job.image.dimensions(),
+            (w, h),
+            "the scopes count the averaged copy"
+        );
         job.clipped
     };
     let averaged = scope(ClippedSides::default());
@@ -18318,8 +18326,14 @@ fn zoomed_drag_marks_match_the_release(context: &GpuContext, recipe: &serde_json
     }
     let (hot, red) = (hot * 1.25, red * 1.25);
     let cases: [(&str, Vec<((u32, u32), [f32; 3])>); 5] = [
-        ("a red highlight alone", vec![((1000, 600), [red, 0.12, 0.11])]),
-        ("a red shadow alone", vec![((1024, 700), [-0.05, 0.12, 0.11])]),
+        (
+            "a red highlight alone",
+            vec![((1000, 600), [red, 0.12, 0.11])],
+        ),
+        (
+            "a red shadow alone",
+            vec![((1024, 700), [-0.05, 0.12, 0.11])],
+        ),
         (
             "isolated highlights, one red only",
             vec![
@@ -18345,10 +18359,19 @@ fn zoomed_drag_marks_match_the_release(context: &GpuContext, recipe: &serde_json
     for (name, spots) in cases {
         let frame = frame_with(&spots);
         let release = release_clipping(context, &frame, recipe);
-        assert!(release.highlights || release.shadows, "{name} ({recipe}): the release marks {release:?}");
+        assert!(
+            release.highlights || release.shadows,
+            "{name} ({recipe}): the release marks {release:?}"
+        );
         let (averaged, drag) = zoomed_drag_clipping(context, &frame, recipe);
-        assert_ne!(averaged, release, "{name} ({recipe}): the averaged copy alone hides them");
-        assert_eq!(drag, release, "{name} ({recipe}): the drag's marks are the release's");
+        assert_ne!(
+            averaged, release,
+            "{name} ({recipe}): the averaged copy alone hides them"
+        );
+        assert_eq!(
+            drag, release,
+            "{name} ({recipe}): the drag's marks are the release's"
+        );
     }
     // Nothing clipped: no mark during the drag either.
     let frame = frame_with(&[]);
@@ -18382,7 +18405,11 @@ fn a_zoomed_drags_clipping_marks_follow_the_vignette_as_the_release() {
         }
         value *= 1.25;
     }
-    assert_eq!(seen, (true, true), "both below and above the clipping point");
+    assert_eq!(
+        seen,
+        (true, true),
+        "both below and above the clipping point"
+    );
 }
 
 #[test]
@@ -18409,10 +18436,18 @@ fn a_zoomed_drags_clipping_marks_follow_the_masks_as_the_release() {
         assert!(value < 1000.0, "one pixel never clips");
     }
     let value = value * 1.25;
-    for (spot, clips) in [((1024, 683 + 340), true), ((1024, 683 + 250), false), ((1024, 683), false)] {
+    for (spot, clips) in [
+        ((1024, 683 + 340), true),
+        ((1024, 683 + 250), false),
+        ((1024, 683), false),
+    ] {
         let frame = frame_with(spot, value);
         let release = release_clipping(&context, &frame, &recipe);
         assert_eq!(release.highlights, clips, "release at {spot:?}");
-        assert_eq!(zoomed_drag_clipping(&context, &frame, &recipe).1, release, "drag at {spot:?}");
+        assert_eq!(
+            zoomed_drag_clipping(&context, &frame, &recipe).1,
+            release,
+            "drag at {spot:?}"
+        );
     }
 }

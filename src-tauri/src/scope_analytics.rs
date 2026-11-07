@@ -93,7 +93,8 @@ fn size_within(width: u32, height: u32, edge: u32) -> (u32, u32) {
     if long <= edge {
         return (width, height);
     }
-    let fit = |side: u32| ((side as u64 * edge as u64 + long as u64 / 2) / long as u64).max(1) as u32;
+    let fit =
+        |side: u32| ((side as u64 * edge as u64 + long as u64 / 2) / long as u64).max(1) as u32;
     (fit(width), fit(height))
 }
 

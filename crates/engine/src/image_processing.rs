@@ -9560,7 +9560,12 @@ mod signed_downscale_tests {
         let image = DynamicImage::ImageRgb32F(base);
         let averaged = downscale_f32_image_signed(&image, 16, 12);
         assert_eq!(averaged.dimensions(), (16, 12));
-        assert!(averaged.to_rgb32f().pixels().all(|p| p[0] < 5.0 && p[0] > 0.0));
+        assert!(
+            averaged
+                .to_rgb32f()
+                .pixels()
+                .all(|p| p[0] < 5.0 && p[0] > 0.0)
+        );
         let (bright, dark) = block_extreme_pixels(&image, 16, 12);
         assert_eq!(bright.dimensions(), (16, 12));
         assert_eq!(dark.dimensions(), (16, 12));
