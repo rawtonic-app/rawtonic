@@ -20,7 +20,7 @@ use serde_json::{Map, Value, json};
 
 use crate::export_processing::ExportSource;
 use crate::gpu_processing::RenderOutputPrecision;
-use crate::image_processing::PreparedAdjustments;
+use crate::image_processing::{AllAdjustments, PreparedAdjustments};
 use crate::lut::Lut;
 use crate::mask_generation::MaskBitmap;
 use crate::output_color_space::OutputColorSpace;
@@ -199,7 +199,7 @@ impl RenderInputs {
         precision: RenderOutputPrecision,
         color_space: OutputColorSpace,
     ) {
-        let uniforms = &adjustments.uniforms;
+        let uniforms: &AllAdjustments = &adjustments.uniforms;
         let masks: Vec<String> = uniforms
             .mask_adjustments
             .iter()

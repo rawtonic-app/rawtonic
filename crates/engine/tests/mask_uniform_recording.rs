@@ -173,8 +173,8 @@ fn mask_adjustments_and_containers_match_recorded_main() {
             &RecipeVersions::of(&case["recipe"], is_raw),
         );
         assert_eq!(
-            bytemuck::bytes_of(&with_masks.uniforms),
-            bytemuck::bytes_of(&prepared.uniforms),
+            bytemuck::bytes_of(&*with_masks.uniforms),
+            bytemuck::bytes_of(&*prepared.uniforms),
             "{}",
             case["name"]
         );

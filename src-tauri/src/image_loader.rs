@@ -1334,7 +1334,7 @@ pub async fn load_image(
         let source = source_path.clone();
         let app = app_handle.clone();
         let thumbnail_path = path.clone();
-        std::thread::spawn(move || {
+        rawtonic_runtime::spawn_render_thread("draft-proxy", move || {
             if crate::preview_proxy::proxy_path(&source).is_none()
                 || crate::preview_proxy::stored_size(&source, &settings).is_some_and(|s| s >= size)
             {

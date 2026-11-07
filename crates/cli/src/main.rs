@@ -1582,11 +1582,12 @@ fn unresolved_resource(
 /// them.
 static ONNX_RUNTIME_USED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Stack of the thread that runs the command. The export render keeps
-/// several large frames on the stack at once (well over 1 MiB in release
-/// builds), more than Windows gives the main thread (1 MiB); this is the
-/// main-thread default of Linux and macOS and the app's worker stack.
-const COMMAND_STACK_SIZE: usize = 8 * 1024 * 1024;
+/// Stack of the thread that runs the command: the render stack of the
+/// app's export and preview threads (`RENDER_STACK_SIZE`). Before 2026-11-06
+/// the app's export lanes had Rust's 2 MiB default and overflowed it on AMD's
+/// Linux driver while the CLI, on this thread, never did (gap G74). Windows
+/// gives the main thread only 1 MiB, so the command never runs on it.
+const COMMAND_STACK_SIZE: usize = rawtonic_runtime::RENDER_STACK_SIZE;
 
 fn main() {
     let result = std::thread::Builder::new()
@@ -1621,6 +1622,15 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The build script's Windows main-thread stack is the render stack.
+    #[test]
+    fn the_main_thread_stack_is_the_render_stack() {
+        assert_eq!(
+            env!("RAWTONIC_MAIN_STACK_SIZE").parse::<usize>().unwrap(),
+            rawtonic_runtime::RENDER_STACK_SIZE
+        );
+    }
 
     #[test]
     fn library_resources_of_photos_outside_any_library_are_named_not_dropped() {

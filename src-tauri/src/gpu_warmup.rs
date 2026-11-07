@@ -57,6 +57,7 @@ pub fn start(app_handle: &tauri::AppHandle) {
     let app_handle = app_handle.clone();
     let spawned = std::thread::Builder::new()
         .name("gpu-warmup".into())
+        .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
         .spawn(move || {
             let code = match warm(&app_handle, started) {
                 Ok(outcome) => {
