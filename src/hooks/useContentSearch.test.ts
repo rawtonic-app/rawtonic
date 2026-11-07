@@ -2,13 +2,19 @@ import '../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
-import { CONTENT_DELAY_MS, useContentSearch } from './useContentSearch';
+import { CONTENT_DELAY_MS, CONTENT_PROGRESS_RERANK_MS, useContentSearch } from './useContentSearch';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type AppSettings, type ImageFile } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
+const { handlers } = vi.hoisted(() => ({ handlers: new Map<string, (e: { payload: unknown }) => void>() }));
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn((event: string, handler: (e: { payload: unknown }) => void) => {
+    handlers.set(event, handler);
+    return Promise.resolve(() => {});
+  })
+}));
 const { toast } = vi.hoisted(() => ({ toast: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock('../activity/notify', () => ({ notify: toast }));
 const mockInvoke = vi.mocked(invoke);
@@ -87,4 +93,25 @@ it('does not index while the setting is off', () => {
   useSettingsStore.setState({ appSettings: {} as AppSettings });
   renderHook(() => useContentSearch());
   expect(calls(Invokes.StartContentIndex)).toHaveLength(0);
+});
+
+it('asks again when the list changes (a rename) and while the pass indexes', async () => {
+  localStorage.setItem('rawtonic.search.mode:/Job', 'content');
+  renderHook(() => useContentSearch());
+  type('a dog');
+  await act(async () => vi.advanceTimersByTimeAsync(CONTENT_DELAY_MS));
+  expect(calls(Invokes.ContentSearchRank)).toHaveLength(1);
+  // A rename gives a new list with the new path: ranked again.
+  act(() => useLibraryStore.setState({ imageList: [{ path: '/Job/Capture/Renamed.ARW' } as ImageFile] }));
+  await act(async () => vi.advanceTimersByTimeAsync(CONTENT_DELAY_MS));
+  expect(calls(Invokes.ContentSearchRank)).toHaveLength(2);
+  // Progress of the pass: at most one new ranking per interval.
+  const progress = handlers.get('content-index-progress')!;
+  const step = (indexed: number) =>
+    act(() => progress({ payload: { directory: '/Job', indexed, failed: 0, total: 3 } }));
+  await act(async () => vi.advanceTimersByTimeAsync(CONTENT_PROGRESS_RERANK_MS));
+  step(2);
+  step(3);
+  await act(async () => vi.advanceTimersByTimeAsync(CONTENT_DELAY_MS));
+  expect(calls(Invokes.ContentSearchRank)).toHaveLength(3);
 });

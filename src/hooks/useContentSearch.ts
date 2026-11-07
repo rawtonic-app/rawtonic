@@ -24,6 +24,8 @@ import {
 /** How long typing pauses before the text model is asked (it takes ~10–20
  * ms a query, the first one loads it). */
 export const CONTENT_DELAY_MS = 250;
+/** How often a shown ranking is asked again while the pass indexes. */
+export const CONTENT_PROGRESS_RERANK_MS = 10_000;
 /** How long list changes settle before the pass is asked to start again. */
 const RESTART_DELAY_MS = 2000;
 /** How often the open library is asked for photographs not indexed yet. */
@@ -107,9 +109,11 @@ export function useContentSearch() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageList]);
 
-  // The index's progress reaches the status ("Indexed N of M"); a pass
-  // that finished ranks the shown text again with what it read.
-  const [finished, setFinished] = useState(0);
+  // The index's progress reaches the status ("Indexed N of M"); a shown
+  // ranking is asked again with what the pass read, at most every
+  // CONTENT_PROGRESS_RERANK_MS while it runs and once when it ends.
+  const [indexed, setIndexed] = useState(0);
+  const lastRerank = useRef(0);
   useEffect(() => {
     if (!directory) return;
     let gone = false;
@@ -119,12 +123,23 @@ export function useContentSearch() {
       if (library !== sessionDirectory || !contentStatus) return;
       setLibrary({ contentStatus: { ...contentStatus, indexed, failed, total, running } });
     };
-    listen<ContentIndexProgress>(CONTENT_INDEX_PROGRESS, (e) => update(e.payload, true))
+    listen<ContentIndexProgress>(CONTENT_INDEX_PROGRESS, (e) => {
+      update(e.payload, true);
+      const now = Date.now();
+      if (
+        e.payload.directory === useLibraryStore.getState().sessionDirectory &&
+        useLibraryStore.getState().contentRanking &&
+        now - lastRerank.current >= CONTENT_PROGRESS_RERANK_MS
+      ) {
+        lastRerank.current = now;
+        setIndexed((n) => n + 1);
+      }
+    })
       .then((stop) => (gone ? stop() : stops.push(stop)))
       .catch(() => {});
     listen<ContentIndexProgress>(CONTENT_INDEX_DONE, (e) => {
       update(e.payload, false);
-      if (e.payload.directory === useLibraryStore.getState().sessionDirectory) setFinished((n) => n + 1);
+      if (e.payload.directory === useLibraryStore.getState().sessionDirectory) setIndexed((n) => n + 1);
     })
       .then((stop) => (gone ? stop() : stops.push(stop)))
       .catch(() => {});
@@ -177,7 +192,8 @@ export function useContentSearch() {
       cancelled = true;
       clearTimeout(timer);
     };
-    // The folder or album shown is read when asked: the ranking covers the
-    // whole library, so another view sorts by the same answer.
-  }, [directory, query, finished]);
+    // The ranking covers the whole library, so another folder or album sorts
+    // by the same answer; a new list (a rename or move changes paths, an
+    // import adds photographs) is asked about again.
+  }, [directory, query, indexed, imageList]);
 }

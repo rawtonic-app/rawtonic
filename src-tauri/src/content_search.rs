@@ -207,11 +207,16 @@ fn run_pass(
             if lib.has_content(&item.id, MODEL_ID)? {
                 continue;
             }
-            if !item.path.is_file() {
+            let path = item.path.to_string_lossy();
+            // A cloud file not on this computer is read only from a thumbnail
+            // already made: the pass never downloads an original.
+            let offline = !item.path.is_file()
+                || (crate::file_management::is_cloud_placeholder(&item.path)
+                    && crate::file_management::cached_medium_thumbnail(app, &path).is_none());
+            if offline {
                 skipped.insert(item.id);
                 continue;
             }
-            let path = item.path.to_string_lossy();
             let embedding = crate::file_management::get_cached_or_generate_thumbnail_image(
                 &path,
                 app,
