@@ -376,6 +376,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE4_FEATURE != 0 && expected & RELIGHT_RANGE3_FEATURE == 0 {
             continue;
         }
+        // Response 8 renders Masking itself.
+        if expected & SHARPEN_V7_FEATURE != 0 && expected & SHARPEN_V8_FEATURE != 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -417,7 +421,14 @@ fn preview_features_preserve_global_and_local_effects() {
             profile["sharpenMasking"] = json!(50);
             profile["sharpenVersion"] = json!(7);
         }
+        if expected & SHARPEN_V8_FEATURE != 0 {
+            profile["sharpenVersion"] = json!(8);
+        }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        if expected & SHARPEN_V8_FEATURE != 0 {
+            // Response 8 needs a measured noise level.
+            adjustments.global.noise_level = 0.01;
+        }
         assert_eq!(preview_features(&adjustments), expected, "{profile}");
         if expected & 8 != 0 {
             // Stale entries beyond mask_count must not affect the current image.
@@ -429,7 +440,8 @@ fn preview_features_preserve_global_and_local_effects() {
                         | RELIGHT_RANGE2_FEATURE
                         | RELIGHT_RANGE3_FEATURE
                         | RELIGHT_RANGE4_FEATURE
-                        | SHARPEN_V7_FEATURE)
+                        | SHARPEN_V7_FEATURE
+                        | SHARPEN_V8_FEATURE)
             );
             continue;
         }
