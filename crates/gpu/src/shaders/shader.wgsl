@@ -48,6 +48,21 @@ override LAYER_SUMS: bool = false;
 // pipelines for recipes that use it, so other recipes' exports keep their
 // bits (gpu_processing.rs `SHARPEN_V7_FEATURE`).
 override SHARPEN_V7: bool = false;
+// The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
+// compiled only into display pipelines made for it (gpu_processing.rs
+// `sharpen_view_pipeline`); exports and other frames never have it, so their
+// code is unchanged. `show_clipping` says what it shows: SHARPEN_VIEW_MASK
+// the Masking mask (white = sharpened), SHARPEN_VIEW_GREY the photo in grey.
+override SHARPEN_VIEW: bool = false;
+const SHARPEN_VIEW_MASK: u32 = 0x40000004u;
+const SHARPEN_VIEW_GREY: u32 = 0x40000008u;
+// In the mask view the sharpening returns its Masking factor m (0–1) as
+// SHARPEN_VIEW_MARK - m, below any colour, and `main` reads it from there.
+const SHARPEN_VIEW_MARK: f32 = -4.0;
+
+fn sharpen_view_mark(mask: f32) -> vec3<f32> {
+    return vec3<f32>(SHARPEN_VIEW_MARK - clamp(mask, 0.0, 1.0));
+}
 
 struct CurveSegment {
     endpoints: vec4<f32>,
@@ -4053,6 +4068,9 @@ fn apply_sharpen_extended(
         let spread = sqrt(max(blur_sq / blur_w - mean * mean, 0.0));
         let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE;
         gate *= smoothstep(0.5 * t_mask, 1.5 * t_mask, spread);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(smoothstep(0.5 * t_mask, 1.5 * t_mask, spread));
+        }
     }
     if (detail > 0.0) {
         let mean_e = blur_sum / blur_w;
@@ -4202,6 +4220,9 @@ fn apply_sharpen_v2(
     if (masking > 0.0) {
         let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE;
         gate *= smoothstep(0.5 * t_mask, 1.5 * t_mask, spread);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(smoothstep(0.5 * t_mask, 1.5 * t_mask, spread));
+        }
     }
     if (detail > 0.0) {
         let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
@@ -4383,6 +4404,9 @@ fn apply_sharpen_v4(
         let mask_spread = sqrt(max(m_sq / m_w - m_mean * m_mean, 0.0));
         let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE * SHARPEN_V4_MASK_SCALE;
         gate *= smoothstep(0.0, 1.5 * t_mask, mask_spread);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(smoothstep(0.0, 1.5 * t_mask, mask_spread));
+        }
     }
     if (detail > 0.0) {
         let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
@@ -4555,6 +4579,9 @@ fn apply_sharpen_v5(
         let q = mask_spread / max(SHARPEN_V5_MASK_HALF * t_mask, 1e-6);
         let q3 = q * q * q;
         gate *= q3 / (1.0 + q3);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(q3 / (1.0 + q3));
+        }
     }
     if (detail > 0.0) {
         let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
@@ -4761,6 +4788,9 @@ fn apply_sharpen_v7(
         let q = shown / max(SHARPEN_V7_MASK_HALF * t_mask, 1e-6);
         let q3 = q * q * q;
         gate *= q3 / (1.0 + q3);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(q3 / (1.0 + q3));
+        }
     }
     if (detail > 0.0) {
         let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
@@ -8140,6 +8170,9 @@ fn detail_stage(
         }
         let unsharpened = rgb;
         rgb = apply_sharpen(rgb, sharpness_blurred, tonal_blurred, absolute_coord_i, amount, sharp_thresh, is_raw);
+        if (SHARPEN_VIEW && rgb.x <= SHARPEN_VIEW_MARK + 0.5) {
+            return rgb;
+        }
         if (adjustments.global.sharpen_falloff.w >= 6.0 && is_raw == 0u && amount > 0.8) {
             rgb = sharpen_v6_reach(unsharpened, rgb, amount);
         }
@@ -8455,6 +8488,14 @@ fn main(
             t_luma_nr, t_color_nr, t_sharpness, t_sharp_thresh, scale, is_raw,
             vec2<f32>(min(t_moire, 1.0), t_moire_step)
         );
+    }
+
+    // The mask view: the Masking factor the sharpening marked (1 where it
+    // did not mask); the photo goes on unsharpened for the histogram.
+    var sharpen_view_mask = 1.0;
+    if (SHARPEN_VIEW && locally_contrasted_rgb.x <= SHARPEN_VIEW_MARK + 0.5) {
+        sharpen_view_mask = SHARPEN_VIEW_MARK - locally_contrasted_rgb.x;
+        locally_contrasted_rgb = initial_linear_rgb;
     }
 
     if (adjustments.global.defringe[0].x > 0.0 || adjustments.global.defringe[1].x > 0.0 || t_defringe > 0.0) {
@@ -8827,6 +8868,14 @@ fn main(
     if (range_view >= 0.0) {
         let grey = vec3<f32>(get_luma(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0))));
         final_rgb = mix(grey * 0.6 + 0.2, final_rgb, range_view);
+    }
+
+    // The sharpening view replaces the photo; the histogram keeps the
+    // photo's colours (`marked` below).
+    if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+        final_rgb = vec3<f32>(sharpen_view_mask);
+    } else if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_GREY) {
+        final_rgb = vec3<f32>(get_luma(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0))));
     }
 
     if (DEFER_OUTPUT) {

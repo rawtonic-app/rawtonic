@@ -182,6 +182,17 @@ pub fn after_first_display_variant() {
     wait_for_first_display_variant(std::time::Duration::from_secs(30));
 }
 
+/// A sharpening view asked for while its variant compiled showed the photo:
+/// the editor renders it again once the variant is ready (every preview
+/// path, native display or readback).
+pub fn notify_sharpen_view_ready(app_handle: &tauri::AppHandle) {
+    let app_handle = app_handle.clone();
+    rawtonic_gpu::gpu_processing::on_sharpen_view_ready(move || {
+        use tauri::Emitter;
+        let _ = app_handle.emit("sharpen-view-ready", ());
+    });
+}
+
 /// Presents onto the main window: its surface on the context's adapter, or,
 /// where that adapter cannot present to it, a new context from an adapter
 /// that can (the processor of the old one is dropped).

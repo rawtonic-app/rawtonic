@@ -2122,6 +2122,236 @@ fn cached_detail_of_sharpening_7_matches_inline_detail_and_follows_the_tone_curv
 }
 
 #[test]
+#[ignore = "requires a native GPU; the sharpening view shows the mask response 7 applies"]
+fn sharpening_view_shows_the_applied_mask_and_leaves_other_renders_alone() {
+    // Left half: a bright flat area with noise; right half: mid-grey texture
+    // (a 6 px pattern, ±20 %) with the same noise (as
+    // `sharpen_version_7_masks_bright_flat_noise`).
+    let (width, height) = (128u32, 128u32);
+    let noise_level = 0.02f32;
+    let pixels: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let (x, y) = (i % width, i / width);
+            let hash = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663))
+                .wrapping_mul(2_654_435_761);
+            let noise = (hash >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0;
+            let phase = |c: u32| (c as f32 * std::f32::consts::TAU / 6.0).sin();
+            let base = if x < width / 2 {
+                0.85f32
+            } else {
+                0.4 * (1.0 + 0.2 * phase(x) * phase(y))
+            };
+            let p = base.sqrt() + noise * noise_level * 3f32.sqrt();
+            let v = f16::from_f32(p * p);
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &pixels);
+    let adjustments = |profile: serde_json::Value| {
+        let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        adjustments.global.noise_level = noise_level;
+        adjustments
+    };
+    let recipe = |masking: f64, view: Option<&str>| {
+        let mut recipe = json!({"sharpness": 80, "sharpenMasking": masking, "sharpenVersion": 7,
+            "lumaNoiseReduction": 0, "colorNoiseReduction": 0});
+        if let Some(view) = view {
+            recipe["sharpenView"] = json!(view);
+        }
+        recipe
+    };
+    let masked = adjustments(recipe(50.0, Some("mask")));
+    assert_eq!(masked.global.show_clipping, SHARPEN_VIEW_MASK);
+    let features = preview_features(&masked);
+    // The frames below run with the detail cache's passes ready: the mask
+    // view's cache holds the Masking factor, and the frames without the view
+    // that follow one with it (same sliders) must not read it as colours.
+    let started = Instant::now();
+    while processor.detail_pipeline_for(true).is_none()
+        || processor.mask_view_detail_pipeline().is_none()
+    {
+        assert!(
+            started.elapsed().as_secs() < 120,
+            "pipelines did not compile"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    prepare_preview_pipeline(&processor, features);
+    prepare_preview_pipeline(
+        &processor,
+        preview_features(&adjustments(recipe(0.0, None))),
+    );
+    prepare_preview_pipeline(
+        &processor,
+        preview_features(&adjustments(json!({"sharpness": 0}))),
+    );
+    let display = |adjustments: crate::image_processing::PreparedAdjustments| {
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                true,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        *processor.display_render_state.lock().unwrap() = None;
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_working_texture(),
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    // Until the view's own variant is compiled the frame shows the photo,
+    // with the photo's detail stage: no mask marks read as colours, and
+    // nothing cached under the mask view's key.
+    assert!(
+        processor.sharpen_view_pipelines[sharpen_view_features(features)]
+            .get()
+            .is_none()
+    );
+    let photo = display(adjustments(recipe(50.0, None)));
+    assert_eq!(
+        display(adjustments(recipe(50.0, Some("mask")))),
+        photo,
+        "a mask view frame before its variant is ready shows the photo"
+    );
+    assert!(
+        !processor
+            .blur_cache
+            .lock()
+            .unwrap()
+            .tiles
+            .iter()
+            .any(|tile| tile.detail.as_ref().is_some_and(|(key, _)| key.0[101] == 1)),
+        "no mask detail cached for a frame that showed the photo"
+    );
+    while processor
+        .sharpen_view_pipeline(sharpen_view_features(features))
+        .is_none()
+    {
+        assert!(
+            started.elapsed().as_secs() < 120,
+            "the view variant did not compile"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let mask = display(masked);
+    assert!(
+        processor
+            .blur_cache
+            .lock()
+            .unwrap()
+            .tiles
+            .iter()
+            .any(|tile| tile.detail.as_ref().is_some_and(|(key, _)| key.0[101] == 1)),
+        "the mask view's frame cached its detail stage"
+    );
+    let unmasked = display(adjustments(recipe(0.0, None)));
+    let unsharpened = display(adjustments(json!({"sharpness": 0, "lumaNoiseReduction": 0,
+        "colorNoiseReduction": 0})));
+    let inner = || {
+        (8..height - 8)
+            .flat_map(move |y| (8..width - 8).map(move |x| ((y * width + x) * 4) as usize))
+    };
+    // Black and white: one grey per pixel.
+    assert!(inner().all(|i| mask[i] == mask[i + 1] && mask[i] == mask[i + 2]));
+    let mean = |left: bool| {
+        let values: Vec<f64> = inner()
+            .filter(|&i| ((i / 4) as u32 % width < width / 2) == left)
+            .map(|i| mask[i] as f64)
+            .collect();
+        values.iter().sum::<f64>() / values.len() as f64
+    };
+    let (flat, texture) = (mean(true), mean(false));
+    assert!(
+        flat < 30.0 && texture > 3.0 * flat,
+        "mask: flat noise {flat}, texture {texture}"
+    );
+    // It is the factor the sharpening applies: where the mask is black the
+    // sharpened frame is the unsharpened one, where it is white the
+    // unmasked sharpening (one code for the factor's last bits).
+    let (mut black, mut white) = (0, 0);
+    for masking in [50.0, 10.0] {
+        let mask = display(adjustments(recipe(masking, Some("mask"))));
+        let sharpened = display(adjustments(recipe(masking, None)));
+        for i in inner() {
+            let close = |a: &[u8], b: &[u8]| (0..3).all(|c| a[i + c].abs_diff(b[i + c]) <= 1);
+            if mask[i] == 0 {
+                black += 1;
+                assert!(
+                    close(&sharpened, &unsharpened),
+                    "Masking {masking}: pixel {} masked but sharpened",
+                    i / 4
+                );
+            } else if mask[i] == 255 {
+                white += 1;
+                assert!(
+                    close(&sharpened, &unmasked),
+                    "Masking {masking}: pixel {} kept but not fully sharpened",
+                    i / 4
+                );
+            }
+        }
+    }
+    assert!(black > 100 && white > 100, "black {black}, white {white}");
+    // Masking 0: all white.
+    let all = display(adjustments(recipe(0.0, Some("mask"))));
+    // (The display dither takes white down by up to one code.)
+    assert!(inner().all(|i| all[i] >= 254), "Masking 0 masks nothing");
+    // The grey view: the photo in grey (one grey per pixel, not flat).
+    let grey = display(adjustments(recipe(50.0, Some("grey"))));
+    assert!(inner().all(|i| grey[i] == grey[i + 1] && grey[i] == grey[i + 2]));
+    assert!(inner().any(|i| grey[i] != grey[inner().next().unwrap()]));
+    // Other renders never show it: a CPU readback for an export renders the
+    // recipe as without the view, bit for bit.
+    let export = |adjustments: crate::image_processing::PreparedAdjustments| {
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    for view in ["mask", "grey"] {
+        assert!(
+            export(adjustments(recipe(50.0, Some(view))))
+                == export(adjustments(recipe(50.0, None))),
+            "the {view} view reached an export render"
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; compares sharpening responses 6 and 7"]
 fn sharpen_version_7_masks_bright_flat_noise() {
     // Left half: a bright flat area with noise (σ 0.02 in square-root

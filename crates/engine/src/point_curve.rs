@@ -167,6 +167,7 @@ pub fn curve_input_probe(adjustments: &Value) -> Value {
         "softProof",
         "softProofWarning",
         "colorRangeShow",
+        "sharpenView",
     ] {
         recipe.remove(key);
     }

@@ -9,7 +9,9 @@ use std::num::NonZero;
 
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
-use crate::image_processing::{AllAdjustments, MAX_MASKS, Point, boxed_uniforms};
+use crate::image_processing::{
+    AllAdjustments, MAX_MASKS, Point, SHARPEN_VIEW_MASK, boxed_uniforms, is_sharpen_view,
+};
 use crate::lut::Lut;
 use crate::mask_generation::MaskBitmap;
 use crate::scopes::ClippedSides;
@@ -3765,9 +3767,10 @@ pub struct GpuProcessor {
     detail_bgl: wgpu::BindGroupLayout,
     detail_layout: wgpu::PipelineLayout,
     /// Compiled off the render worker on first use; `None` if it failed.
-    /// Without and with response 7's Masking (`SHARPEN_V7`).
-    detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 2],
-    detail_compilation: [std::sync::OnceLock<()>; 2],
+    /// Without and with response 7's Masking (`SHARPEN_V7`), and for the
+    /// sharpening's mask view (`SHARPEN_VIEW`, with response 7's code).
+    detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 3],
+    detail_compilation: [std::sync::OnceLock<()>; 3],
     preview_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
     preview_compilation: VariantTable<std::sync::OnceLock<()>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
@@ -3775,6 +3778,11 @@ pub struct GpuProcessor {
     /// Display variants that read the layer sums (`LAYER_SUMS`), by features.
     layer_sum_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
     layer_sum_compilation: VariantTable<std::sync::OnceLock<()>>,
+    /// Display variants with the sharpening view (`create_sharpen_view_pipeline`),
+    /// by features, compiled off the render worker on first use.
+    sharpen_view_pipelines:
+        Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
+    sharpen_view_compilation: VariantTable<std::sync::OnceLock<()>>,
     preview_shader: wgpu::ShaderModule,
     preview_layout: wgpu::PipelineLayout,
     /// `None` records a variant that failed validation; exports use the general pipeline.
@@ -4646,16 +4654,18 @@ struct BlurTile {
 /// scale of the sharpening radius, the chromatic aberration correction and
 /// the photo's base tone curve.
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct DetailKey([u32; 101]);
+struct DetailKey([u32; 102]);
 
 impl DetailKey {
     fn of(global: &crate::image_processing::GlobalAdjustments) -> Self {
-        let mut key = [0u32; 101];
+        let mut key = [0u32; 102];
+        // The mask view's cache holds the Masking factor, not colours.
+        key[101] = u32::from(global.show_clipping == SHARPEN_VIEW_MASK);
         // Masking of sharpening response 7 reads the photo's base tone curve
         // (shader.wgsl `sharpen_v7_tone_weight`): its baseline exposure and
         // the profile's curve.
         key[36] = global.baseline_exposure.to_bits();
-        for (slot, value) in key[37..]
+        for (slot, value) in key[37..101]
             .iter_mut()
             .zip(global.profile_curve.iter().flatten())
         {
@@ -5340,6 +5350,48 @@ fn create_preview_pipeline(
 ) -> Result<wgpu::ComputePipeline, String> {
     // The variant in the label tells the slow-compile log lines apart.
     let label = format!("Specialized image processing {features}");
+    let constants = variant_constants(
+        features,
+        direct_curves,
+        prepared_layers,
+        layer_sums,
+        deferred,
+    );
+    create_variant_pipeline(device, shader_module, pipeline_layout, &label, &constants)
+}
+
+/// The variant that shows the sharpening view for a frame of `features`:
+/// with the sharpening and response 7's Masking always in (idle, they change
+/// no pixel), so a drag that starts or ends either keeps its variant instead
+/// of waiting for another compile.
+fn sharpen_view_features(features: usize) -> usize {
+    features | 1 | SHARPEN_V7_FEATURE
+}
+
+/// The display variant `features` with the sharpening view compiled in
+/// (shader `SHARPEN_VIEW`): only frames that show the view use it, so no
+/// other frame's or export's code changes.
+fn create_sharpen_view_pipeline(
+    device: &wgpu::Device,
+    shader_module: &wgpu::ShaderModule,
+    pipeline_layout: &wgpu::PipelineLayout,
+    features: usize,
+) -> Result<wgpu::ComputePipeline, String> {
+    let label = format!("Sharpening view {features}");
+    let mut constants = variant_constants(features, true, true, false, false);
+    constants.push(("SHARPEN_VIEW", 1.0));
+    create_variant_pipeline(device, shader_module, pipeline_layout, &label, &constants)
+}
+
+/// The pipeline constants of display variant `features`
+/// (`create_preview_pipeline`).
+fn variant_constants(
+    features: usize,
+    direct_curves: bool,
+    prepared_layers: bool,
+    layer_sums: bool,
+    deferred: bool,
+) -> Vec<(&'static str, f64)> {
     let mut constants = vec![
         ("DIRECT_CURVES", u8::from(direct_curves) as f64),
         ("PREPARED_LAYERS", u8::from(prepared_layers) as f64),
@@ -5360,15 +5412,25 @@ fn create_preview_pipeline(
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
     }
+    constants
+}
+
+fn create_variant_pipeline(
+    device: &wgpu::Device,
+    shader_module: &wgpu::ShaderModule,
+    pipeline_layout: &wgpu::PipelineLayout,
+    label: &str,
+    constants: &[(&str, f64)],
+) -> Result<wgpu::ComputePipeline, String> {
     create_compute_pipeline(
         device,
         &wgpu::ComputePipelineDescriptor {
-            label: Some(&label),
+            label: Some(label),
             layout: Some(pipeline_layout),
             module: shader_module,
             entry_point: Some("main"),
             compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &constants,
+                constants,
                 ..Default::default()
             },
             cache: None,
@@ -6339,6 +6401,8 @@ impl GpuProcessor {
             preview_failed,
             layer_sum_pipelines: Arc::from(variant_table()),
             layer_sum_compilation: variant_table(),
+            sharpen_view_pipelines: Arc::from(variant_table()),
+            sharpen_view_compilation: variant_table(),
             preview_shader: shader_module,
             preview_layout: pipeline_layout,
             export_pipelines: variant_table(),
@@ -7402,6 +7466,14 @@ impl GpuProcessor {
             .load(std::sync::atomic::Ordering::Relaxed);
         #[cfg(not(test))]
         let general_display = false;
+        // The sharpening view while Option drags a Sharpening slider: its own
+        // variant; until that is compiled the frame shows the photo.
+        if !general_display
+            && is_sharpen_view(adjustments.global.show_clipping)
+            && let Some(pipeline) = self.sharpen_view_pipeline(sharpen_view_features(features))
+        {
+            return Ok(pipeline);
+        }
         // Even the all-enabled variant uses direct curve reads for display.
         // Until this variant is compiled, the all-enabled one (a superset,
         // compiled from processor creation) renders the frame; the general
@@ -7515,6 +7587,57 @@ impl GpuProcessor {
         None
     }
 
+    /// Whether this frame can show the sharpening view (starts compiling its
+    /// variant if not).
+    fn sharpen_view_ready(&self, adjustments: &AllAdjustments) -> bool {
+        #[cfg(test)]
+        if self
+            .force_general_display
+            .load(std::sync::atomic::Ordering::Relaxed)
+            || self
+                .force_fallback_variant
+                .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return false;
+        }
+        self.sharpen_view_pipeline(sharpen_view_features(preview_features(adjustments)))
+            .is_some()
+    }
+
+    /// The display variant with the sharpening view, or `None` while it
+    /// compiles off the render worker (the frame shows the photo until then)
+    /// or if it failed.
+    fn sharpen_view_pipeline(&self, features: usize) -> Option<&wgpu::ComputePipeline> {
+        if let Some(pipeline) = self.sharpen_view_pipelines[features].get() {
+            return Some(pipeline);
+        }
+        self.sharpen_view_compilation[features].get_or_init(|| {
+            let pipelines = Arc::clone(&self.sharpen_view_pipelines);
+            let device = Arc::clone(&self.context.device);
+            let shader = self.preview_shader.clone();
+            let layout = self.preview_layout.clone();
+            rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
+                let started = std::time::Instant::now();
+                match create_sharpen_view_pipeline(&device, &shader, &layout, features) {
+                    Ok(pipeline) => {
+                        let _ = pipelines[features].set(pipeline);
+                        log::info!(
+                            "Sharpening view variant {features} compiled in {:.2} s",
+                            started.elapsed().as_secs_f64()
+                        );
+                        if let Some(ready) = SHARPEN_VIEW_READY.get() {
+                            ready();
+                        }
+                    }
+                    Err(error) => {
+                        log::error!("Sharpening view variant {features} unavailable: {error}")
+                    }
+                }
+            });
+        });
+        None
+    }
+
     /// Compile a display variant off the render worker (once).
     fn compile_preview_variant(&self, features: usize) {
         self.compile_preview_variant_gated(features, None);
@@ -7549,7 +7672,20 @@ impl GpuProcessor {
 
     /// `detail_pipeline` with response 7's Masking compiled in or not.
     fn detail_pipeline_for(&self, sharpen_v7: bool) -> Option<&wgpu::ComputePipeline> {
-        let slot = usize::from(sharpen_v7);
+        self.detail_pipeline_slot(usize::from(sharpen_v7))
+    }
+
+    /// The detail cache's pass for the mask view: the sharpening stores its
+    /// Masking factor in the cache (shader `SHARPEN_VIEW_MARK`), which the
+    /// frame's view variant reads (`DetailKey` keeps the two caches apart).
+    fn mask_view_detail_pipeline(&self) -> Option<&wgpu::ComputePipeline> {
+        self.detail_pipeline_slot(2)
+    }
+
+    /// Slot 0 plain, 1 with response 7's Masking, 2 the mask view.
+    fn detail_pipeline_slot(&self, slot: usize) -> Option<&wgpu::ComputePipeline> {
+        let sharpen_v7 = slot >= 1;
+        let mask_view = slot == 2;
         if self.detail_pipeline[slot].get().is_none() {
             self.detail_compilation[slot].get_or_init(|| {
                 let pipeline = Arc::clone(&self.detail_pipeline[slot]);
@@ -7565,7 +7701,10 @@ impl GpuProcessor {
                             module: &shader,
                             entry_point: Some("detail_main"),
                             compilation_options: wgpu::PipelineCompilationOptions {
-                                constants: &[("SHARPEN_V7", if sharpen_v7 { 1.0 } else { 0.0 })],
+                                constants: &[
+                                    ("SHARPEN_V7", if sharpen_v7 { 1.0 } else { 0.0 }),
+                                    ("SHARPEN_VIEW", if mask_view { 1.0 } else { 0.0 }),
+                                ],
                                 ..Default::default()
                             },
                             cache: None,
@@ -8041,6 +8180,17 @@ impl GpuProcessor {
             .load(std::sync::atomic::Ordering::Relaxed);
         #[cfg(not(test))]
         let force_general_pipeline = false;
+        // The sharpening view only with its own display variant: until that
+        // is compiled (or on any other path) the frame shows the photo, and
+        // the detail pass and its cache key must not produce the mask marks.
+        if is_sharpen_view(request.adjustments.uniforms.global.show_clipping)
+            && !(display_shader
+                && !force_full_preparation
+                && !force_general_pipeline
+                && self.sharpen_view_ready(&request.adjustments.uniforms))
+        {
+            request.adjustments.uniforms.global.show_clipping = 0;
+        }
         if output_precision == RenderOutputPrecision::SixteenBit && output_to_display {
             return Err(
                 "High-precision GPU output is only supported for CPU-readback renders.".to_string(),
@@ -8354,7 +8504,9 @@ impl GpuProcessor {
                     && display_shader
                     && !force_full_preparation
                     && !force_general_pipeline
-                    && !test_override;
+                    && !test_override
+                    // The sharpening view's variant reads the layers one by one.
+                    && !is_sharpen_view(adjustments.global.show_clipping);
                 // A frame with nothing to render needs no sums.
                 let renders = dirty.as_ref().is_none_or(|regions| !regions.is_empty());
                 let summed = (specialised && renders)
@@ -8852,7 +9004,13 @@ impl GpuProcessor {
                             detail_bytes
                         }
                         <= BLUR_CACHE_BYTES)
-                    .then(|| self.detail_pipeline_for(sharpen_v7(adjustments)))
+                    .then(|| {
+                        if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
+                            self.mask_view_detail_pipeline()
+                        } else {
+                            self.detail_pipeline_for(sharpen_v7(adjustments))
+                        }
+                    })
                     .flatten();
                 let mut build_detail = false;
                 let detail_view = match (detail_pipeline, tile.detail.take()) {
@@ -9921,6 +10079,16 @@ fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
             caller_id,
             "apply_adjustments" | "sample_curve_input" | SCOPE_ANALYTICS_CALLER
         )
+}
+
+/// Called once a sharpening-view variant is compiled: frames asked for
+/// before it showed the photo, so the caller renders the view again.
+static SHARPEN_VIEW_READY: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+/// Set what runs when a sharpening-view variant becomes ready (once per process).
+pub fn on_sharpen_view_ready(callback: impl Fn() + Send + Sync + 'static) {
+    let _ = SHARPEN_VIEW_READY.set(Box::new(callback));
 }
 
 /// A processor for `slot`: one for exports only on a background-only slot.
