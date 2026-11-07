@@ -596,8 +596,9 @@ fn session_with(
     if let Some(threads) = threads {
         builder = builder
             .with_intra_threads(threads.max(1))
-            .and_then(|b| b.with_config_entry("session.intra_op.allow_spinning", "0"))
-            .map_err(|e| anyhow!("session options: {e}"))?;
+            .map_err(|e| anyhow!("session threads: {e}"))?
+            .with_config_entry("session.intra_op.allow_spinning", "0")
+            .map_err(|e| anyhow!("session spinning: {e}"))?;
     }
     // No CPU memory arena: it keeps a session's largest intermediate
     // tensors (SAM's encoder about 1 GB, Relight's models about 1 GB more)

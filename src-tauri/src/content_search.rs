@@ -277,7 +277,7 @@ fn start_pass(app: tauri::AppHandle, directory: PathBuf) {
                 Err(e) => {
                     log::warn!("Content search index paused: {e:#}");
                     Library::open(&directory)
-                        .and_then(|lib| Ok(lib.content_status(MODEL_ID)?))
+                        .and_then(|lib| lib.content_status(MODEL_ID))
                         .unwrap_or_default()
                 }
             };

@@ -50,7 +50,9 @@ pub fn quantize(values: &[f32]) -> Result<(Vec<u8>, f32), CatalogError> {
         "The embedding has values that are not finite"
     );
     let largest = values.iter().fold(0f32, |m, v| m.max(v.abs()));
-    ensure!(largest > 0.0, "The embedding is all zero");
+    if largest.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        crate::error::bail!("The embedding is all zero");
+    }
     let scale = largest / 127.0;
     let bytes = values
         .iter()
