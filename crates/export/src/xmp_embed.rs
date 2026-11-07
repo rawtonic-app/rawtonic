@@ -6,18 +6,47 @@
 const JPEG_XMP_HEADER: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 const PNG_XMP_KEYWORD: &[u8] = b"XML:com.adobe.xmp";
 
+/// Largest standard XMP packet in the main APP1 segment (XMP specification,
+/// part 3, "Storage in JPEG"); more goes to extension segments.
+const JPEG_XMP_MAIN_MAX: usize = 65_502;
+const JPEG_XMP_EXT_HEADER: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
+/// Extension segment: header, 32-byte GUID, full length, offset, then data.
+const JPEG_XMP_EXT_PREFIX: usize = JPEG_XMP_EXT_HEADER.len() + 32 + 4 + 4;
+const JPEG_XMP_EXT_CHUNK: usize = 65_533 - JPEG_XMP_EXT_PREFIX;
+const XMP_NOTE: &str = "http://ns.adobe.com/xmp/note/";
+
+fn app1(payload_parts: &[&[u8]]) -> Vec<u8> {
+    let payload: usize = payload_parts.iter().map(|p| p.len()).sum();
+    let mut out = Vec::with_capacity(payload + 4);
+    out.extend_from_slice(&[0xff, 0xe1]);
+    out.extend_from_slice(&((payload + 2) as u16).to_be_bytes());
+    for part in payload_parts {
+        out.extend_from_slice(part);
+    }
+    out
+}
+
 /// Inserts the packet as an APP1 segment after the leading APP0/APP1
-/// segments (JFIF, EXIF), replacing an XMP segment that is already there.
+/// segments (JFIF, EXIF), replacing XMP segments that are already there. A
+/// packet over one segment is split as the XMP specification (part 3)
+/// describes: the standard XMP stays in the main packet, which gets
+/// `xmpNote:HasExtendedXMP`, and the remaining properties go to
+/// `http://ns.adobe.com/xmp/extension/` segments behind it. Which properties
+/// stay in the main packet: see [`split_xmp`].
 pub fn jpeg_insert_xmp(jpeg: &mut Vec<u8>, packet: &[u8]) -> Result<(), String> {
     if jpeg.get(0..2) != Some(&[0xff, 0xd8]) {
         return Err("not a JPEG file".to_string());
     }
-    let length = u16::try_from(2 + JPEG_XMP_HEADER.len() + packet.len())
-        .map_err(|_| "XMP packet exceeds one JPEG segment".to_string())?;
+    let (main, extended) = if packet.len() <= JPEG_XMP_MAIN_MAX {
+        (packet.to_vec(), None)
+    } else {
+        let (main, guid, extended) = split_xmp(packet)?;
+        (main, Some((guid, extended)))
+    };
 
     let mut at = 2;
     let mut insert_at = 2;
-    let mut replace: Option<std::ops::Range<usize>> = None;
+    let mut replace: Vec<std::ops::Range<usize>> = Vec::new();
     while let Some(&[0xff, marker]) = jpeg.get(at..at + 2) {
         if !(0xe0..=0xef).contains(&marker) {
             break;
@@ -30,29 +59,165 @@ pub fn jpeg_insert_xmp(jpeg: &mut Vec<u8>, packet: &[u8]) -> Result<(), String> 
         if end > jpeg.len() || size < 2 {
             return Err("JPEG segment is truncated".to_string());
         }
-        if marker == 0xe1 && jpeg[at + 4..end].starts_with(JPEG_XMP_HEADER) {
-            replace = Some(at..end);
-        }
-        if (marker == 0xe0 || marker == 0xe1) && insert_at == at {
+        if marker == 0xe1
+            && (jpeg[at + 4..end].starts_with(JPEG_XMP_HEADER)
+                || jpeg[at + 4..end].starts_with(JPEG_XMP_EXT_HEADER))
+        {
+            replace.push(at..end);
+        } else if (marker == 0xe0 || marker == 0xe1) && insert_at == at {
             insert_at = end;
         }
         at = end;
     }
 
-    let mut segment = Vec::with_capacity(length as usize + 2);
-    segment.extend_from_slice(&[0xff, 0xe1]);
-    segment.extend_from_slice(&length.to_be_bytes());
-    segment.extend_from_slice(JPEG_XMP_HEADER);
-    segment.extend_from_slice(packet);
-    match replace {
-        Some(range) => {
-            jpeg.splice(range, segment);
-        }
-        None => {
-            jpeg.splice(insert_at..insert_at, segment);
+    let mut segments = app1(&[JPEG_XMP_HEADER, &main]);
+    if let Some((guid, extended)) = &extended {
+        let total = (extended.len() as u32).to_be_bytes();
+        for (index, chunk) in extended.chunks(JPEG_XMP_EXT_CHUNK).enumerate() {
+            let offset = ((index * JPEG_XMP_EXT_CHUNK) as u32).to_be_bytes();
+            segments.extend(app1(&[
+                JPEG_XMP_EXT_HEADER,
+                guid.as_bytes(),
+                &total,
+                &offset,
+                chunk,
+            ]));
         }
     }
+    // Existing XMP segments sit in the leading run; the new ones go where the
+    // first old one was, else after JFIF/EXIF.
+    let place = replace.first().map_or(insert_at, |r| r.start);
+    for range in replace.into_iter().rev() {
+        jpeg.drain(range);
+    }
+    jpeg.splice(place..place, segments);
     Ok(())
+}
+
+/// Splits a packet over one segment into the main packet (with
+/// `xmpNote:HasExtendedXMP`), the GUID (upper-case MD5 of the extended part)
+/// and the extended part (a full `x:xmpmeta` without `xpacket` wrapper).
+///
+/// What stays in the main packet, as a photo professional meets it first:
+/// every attribute of the description (creating tool, Digital Source Type
+/// marking of AI patches, rating, label) always; then the properties in this
+/// order while they fit: rights, creator, other (IPTC) fields, title,
+/// keywords, hierarchical keywords, caption, the rest. A property that does
+/// not fit goes to the extension and later, smaller ones may still stay.
+fn split_xmp(packet: &[u8]) -> Result<(Vec<u8>, String, Vec<u8>), String> {
+    const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+    const DC: &str = "http://purl.org/dc/elements/1.1/";
+    const LR: &str = "http://ns.adobe.com/lightroom/1.0/";
+    let too_big = || "XMP packet exceeds one JPEG segment and cannot be split".to_string();
+    let text = std::str::from_utf8(packet).map_err(|_| too_big())?;
+    let doc = roxmltree::Document::parse(text).map_err(|_| too_big())?;
+    let mut descriptions = doc
+        .descendants()
+        .filter(|n| n.has_tag_name((RDF, "Description")));
+    let description = descriptions.next().ok_or_else(too_big)?;
+    if descriptions.next().is_some() {
+        return Err(too_big());
+    }
+    let children: Vec<_> = description.children().filter(|n| n.is_element()).collect();
+    let rank = |n: &roxmltree::Node| match (n.tag_name().namespace(), n.tag_name().name()) {
+        (Some(DC), "rights") => 0,
+        (Some(DC), "creator") => 1,
+        (Some(DC), "title") => 3,
+        (Some(DC), "subject") => 4,
+        (Some(LR), "hierarchicalSubject") => 5,
+        (Some(DC), "description") => 6,
+        (Some(DC | LR), _) => 7,
+        _ => 2,
+    };
+
+    // The start tag ends at the first '>' outside quotes.
+    let start = description.range().start;
+    let mut quote = None;
+    let mut tag_end = None;
+    for (i, c) in text[start..].char_indices() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(q), c) if c == q => quote = None,
+            (None, '>') => {
+                tag_end = Some(start + i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let tag_end = tag_end.ok_or_else(too_big)?;
+    let note_prefix = description
+        .namespaces()
+        .find(|ns| ns.uri() == XMP_NOTE)
+        .and_then(|ns| ns.name().map(str::to_string));
+    let (prefix, declaration) = match note_prefix {
+        Some(prefix) => (prefix, String::new()),
+        None => {
+            if description.lookup_namespace_uri(Some("xmpNote")).is_some() {
+                return Err(too_big());
+            }
+            (
+                "xmpNote".to_string(),
+                format!(" xmlns:xmpNote=\"{XMP_NOTE}\""),
+            )
+        }
+    };
+    let attribute = format!(
+        "{declaration} {prefix}:HasExtendedXMP=\"{}\"",
+        "0".repeat(32)
+    );
+
+    let removed: usize = children.iter().map(|c| c.range().len()).sum();
+    let mut size = text.len() - removed + attribute.len();
+    let mut order: Vec<usize> = (0..children.len()).collect();
+    order.sort_by_key(|&i| rank(&children[i]));
+    let mut moved = vec![true; children.len()];
+    for i in order {
+        let len = children[i].range().len();
+        if size + len <= JPEG_XMP_MAIN_MAX {
+            size += len;
+            moved[i] = false;
+        }
+    }
+    if moved.iter().all(|m| !m) || size > JPEG_XMP_MAIN_MAX {
+        return Err(too_big());
+    }
+
+    let mut extended_children = String::new();
+    let mut cuts: Vec<std::ops::Range<usize>> = Vec::new();
+    for (child, moved) in children.iter().zip(&moved) {
+        if *moved {
+            extended_children.push_str(&text[child.range()]);
+            cuts.push(child.range());
+        }
+    }
+    let mut namespaces = String::new();
+    for ns in description.namespaces() {
+        let uri = ns.uri().replace('&', "&amp;").replace('"', "&quot;");
+        match ns.name() {
+            Some(name) => namespaces.push_str(&format!(" xmlns:{name}=\"{uri}\"")),
+            None => namespaces.push_str(&format!(" xmlns=\"{uri}\"")),
+        }
+    }
+    let extended = format!(
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"{RDF}\"><rdf:Description rdf:about=\"\"{namespaces}>{extended_children}</rdf:Description></rdf:RDF></x:xmpmeta>"
+    )
+    .into_bytes();
+    let guid = {
+        use md5::{Digest, Md5};
+        Md5::digest(&extended)
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<String>()
+    };
+
+    let attribute = attribute.replace(&"0".repeat(32), &guid);
+    let mut main = text.to_string();
+    for range in cuts.into_iter().rev() {
+        main.replace_range(range, "");
+    }
+    main.insert_str(tag_end, &attribute);
+    Ok((main.into_bytes(), guid, extended))
 }
 
 /// Inserts the packet as an uncompressed `iTXt` chunk before the image data,
@@ -200,6 +365,147 @@ mod tests {
             image::load_from_memory(&jpeg).unwrap().as_bytes(),
             before.as_bytes()
         );
+    }
+
+    /// Spec-level reader (XMP part 3): main packet + reassembled extension.
+    fn read_jpeg_xmp(jpeg: &[u8]) -> (String, Option<String>) {
+        let mut main = None;
+        let mut guid = String::new();
+        let mut ext: Vec<u8> = Vec::new();
+        let mut seen = 0usize;
+        for (marker, at) in jpeg_markers(jpeg) {
+            let size = u16::from_be_bytes([jpeg[at + 2], jpeg[at + 3]]) as usize;
+            let body = &jpeg[at + 4..at + 2 + size];
+            if marker != 0xe1 {
+                continue;
+            }
+            if let Some(packet) = body.strip_prefix(JPEG_XMP_HEADER) {
+                assert!(packet.len() <= JPEG_XMP_MAIN_MAX);
+                main = Some(String::from_utf8(packet.to_vec()).unwrap());
+            } else if let Some(rest) = body.strip_prefix(JPEG_XMP_EXT_HEADER) {
+                guid = String::from_utf8(rest[..32].to_vec()).unwrap();
+                let total = u32::from_be_bytes(rest[32..36].try_into().unwrap()) as usize;
+                let offset = u32::from_be_bytes(rest[36..40].try_into().unwrap()) as usize;
+                if ext.is_empty() {
+                    ext = vec![0; total];
+                }
+                assert_eq!(offset, seen, "chunks in order");
+                ext[offset..offset + rest.len() - 40].copy_from_slice(&rest[40..]);
+                seen += rest.len() - 40;
+            }
+        }
+        let main = main.unwrap();
+        if ext.is_empty() {
+            assert!(!main.contains("HasExtendedXMP"));
+            return (main, None);
+        }
+        assert_eq!(seen, ext.len(), "extension complete");
+        use md5::{Digest, Md5};
+        let hash: String = Md5::digest(&ext)
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect();
+        assert_eq!(hash, guid);
+        assert!(main.contains(&format!("xmpNote:HasExtendedXMP=\"{guid}\"")));
+        (main, Some(String::from_utf8(ext).unwrap()))
+    }
+
+    fn big_packet(generated: bool) -> (String, usize) {
+        let metadata = rawtonic_metadata::Metadata {
+            rating: 4,
+            label: "Red".into(),
+            title: "A title".into(),
+            description: "A caption".into(),
+            creator: "Jane Doe".into(),
+            copyright: "(c) Jane Doe".into(),
+            keywords: (0..6000)
+                .map(|i| format!("keyword number {i:05} with a long tail"))
+                .collect(),
+            ..Default::default()
+        };
+        let source = generated.then_some(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI);
+        let packet =
+            rawtonic_metadata::export_xmp_with_source(&metadata, "Rawtonic test", source).unwrap();
+        assert!(packet.len() > 2 * JPEG_XMP_MAIN_MAX);
+        (packet, metadata.keywords.len())
+    }
+
+    #[test]
+    fn jpeg_keeps_xmp_larger_than_one_segment_complete() {
+        for generated in [false, true] {
+            let (packet, keywords) = big_packet(generated);
+            let (mut jpeg, _) = encoded(ImageFormat::Jpeg);
+            let before = image::load_from_memory(&jpeg).unwrap();
+            jpeg_insert_xmp(&mut jpeg, packet.as_bytes()).unwrap();
+            jpeg_insert_xmp(&mut jpeg, packet.as_bytes()).unwrap(); // replaces, never duplicates
+            let (main, ext) = read_jpeg_xmp(&jpeg);
+            let ext = ext.expect("extension segments");
+            let main_doc = roxmltree::Document::parse(&main).unwrap();
+            let ext_doc = roxmltree::Document::parse(&ext).unwrap();
+            // Always in the main packet: tool, rating, label, rights, creator, marking.
+            for needle in [
+                "xmp:Rating=\"4\"",
+                "xmp:Label=\"Red\"",
+                "Rawtonic test",
+                "(c) Jane Doe",
+                "Jane Doe",
+            ] {
+                assert!(main.contains(needle), "{needle}");
+            }
+            assert_eq!(main.contains("DigitalSourceType"), generated);
+            // Every keyword is in exactly one of the two parts.
+            let subjects = |doc: &roxmltree::Document| {
+                doc.descendants()
+                    .filter(|n| {
+                        n.has_tag_name("li") && n.parent().is_some_and(|p| p.has_tag_name("Bag"))
+                    })
+                    .count()
+            };
+            assert_eq!(subjects(&main_doc) + subjects(&ext_doc), keywords);
+            assert!(ext.contains("keyword number 05999"));
+            // Still a valid JPEG with unchanged pixels.
+            assert_eq!(
+                image::load_from_memory(&jpeg).unwrap().as_bytes(),
+                before.as_bytes()
+            );
+            // exiftool, when installed, reads the merged result.
+            if let Ok(dir) =
+                std::env::var("CARGO_TARGET_TMPDIR").or_else(|_| std::env::var("TMPDIR"))
+            {
+                let path = std::path::Path::new(&dir)
+                    .join(format!("xmp-ext-{generated}-{}.jpg", std::process::id()));
+                std::fs::write(&path, &jpeg).unwrap();
+                if let Ok(out) = std::process::Command::new("exiftool")
+                    .args([
+                        "-j",
+                        "-m",
+                        "-XMP-dc:Subject",
+                        "-XMP-dc:Creator",
+                        "-XMP-xmp:Rating",
+                    ])
+                    .arg(&path)
+                    .output()
+                {
+                    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+                    assert_eq!(json[0]["Subject"].as_array().map_or(0, Vec::len), keywords);
+                    assert_eq!(json[0]["Creator"], "Jane Doe");
+                    assert_eq!(json[0]["Rating"], 4);
+                }
+                std::fs::remove_file(&path).ok();
+            }
+        }
+    }
+
+    #[test]
+    fn jpeg_with_small_xmp_stays_a_single_main_segment() {
+        let (mut jpeg, _) = encoded(ImageFormat::Jpeg);
+        let plain = jpeg.clone();
+        jpeg_insert_xmp(&mut jpeg, PACKET).unwrap();
+        assert_eq!(
+            jpeg.len(),
+            plain.len() + 4 + JPEG_XMP_HEADER.len() + PACKET.len()
+        );
+        assert!(read_jpeg_xmp(&jpeg).1.is_none());
     }
 
     #[test]

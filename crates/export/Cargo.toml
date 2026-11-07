@@ -31,6 +31,8 @@ kamadak-exif = { workspace = true }
 little_exif = { workspace = true }
 chrono = { workspace = true }
 crc32fast = "1.5"
+md-5 = "0.11"
+roxmltree = { workspace = true }
 blake3 = { workspace = true }
 bytemuck = { workspace = true }
 filetime = "0.2"
