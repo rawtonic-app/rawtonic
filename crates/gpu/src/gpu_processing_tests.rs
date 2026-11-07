@@ -11114,6 +11114,56 @@ fn tone_version_10_whites_drag_render_time() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; the white tail of tone version 11 against version 10: GPU time of a preview render per Exposure drag step"]
+fn tone_version_11_white_tail_drag_render_time() {
+    // As `tone_version_10_whites_drag_render_time`, with Exposure stepped up
+    // on a textured ramp to 3 EV past white (most pixels in the tail).
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let ramp = -9.0 + 12.0 * x as f32 / (width - 1) as f32;
+            let texture = 0.4 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos());
+            (2.0f32).powf(ramp + texture)
+        })
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 10 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "exposure": 0.25 * step as f64, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 10) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            10 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; lowered Highlights of tone version 7 against version 6 on a night key: GPU time of a preview render per drag step"]
 fn tone_version_7_highlights_drag_render_time() {
     // As `tone_version_6_shadows_drag_render_time`, with Highlights stepped
