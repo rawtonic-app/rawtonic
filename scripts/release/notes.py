@@ -5,7 +5,7 @@
         --prev-body PREV_NOTES.md --sums SHA256SUMS.txt > notes.md
 
 The text that changes per release comes from CHANGELOG.md's `## V — DATE`
-section (its intro, Highlights, Changes to existing edits, Known gaps/limits);
+section (its intro, Highlights, Fixes, Changes to existing edits, Known gaps/limits);
 the text that stays (warning, Install, the camera libraries' source, Feedback)
 from the previous release's notes with the version swapped. The SHA-256 list
 comes from SHA256SUMS.txt. The result is a draft: read it before publishing.
@@ -130,6 +130,8 @@ def notes(version, prev, changelog, prev_body, sums):
         install,
         f"## What's new since {short(prev)}\n\n{highlights}",
     ]
+    if sub.get("Fixes"):
+        out.append(f"## Fixes\n\n{sub['Fixes']}")
     if sub.get("Changes to existing edits"):
         out.append(f"## Changes to existing edits\n\n{sub['Changes to existing edits']}")
     limits = sub.get("Known gaps") or sub.get("Known limits")
