@@ -1461,14 +1461,47 @@ const CR_ROLLOFF_LIMIT: f32 = 1.02;
 // than from scaling with the largest channel's roll-off.
 const CR_ROLLOFF_CONVERGE: f32 = 0.5;
 
+// toneVersion 11's white tail (notes: benchmark-results/
+// r23b-white-rolloff-2026-11-07): the roll-off's exponential reached white
+// at ramped ≈ 2.03 and clipped there, so the RAW's top ~1 EV (2.5 EV more
+// at Exposure +2.5) rendered flat white. From CR_TAIL_START the distance to
+// white instead falls as a power of the level (about −2 EV of distance per
+// EV of scene light, CR_TAIL_POWER), continuous in value and slope, and
+// never reaches white: levels below CR_TAIL_START render as before.
+const CR_TAIL_START: f32 = 1.4;
+const CR_TAIL_POWER: f32 = 2.0;
+
+fn cr_white_tail() -> bool {
+    return adjustments.global.tone_version > 10.5;
+}
+
+// The level where the version-10 roll-off reaches white and clips.
+fn cr_rolloff_white_level() -> f32 {
+    let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
+    return CR_ROLLOFF_KNEE + span * log(span / (CR_ROLLOFF_LIMIT - 1.0));
+}
+
+// The roll-off above the knee and its slope (d out / d in).
+fn cr_rolloff_slope(x: f32) -> vec2<f32> {
+    let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
+    if (!cr_white_tail() || x <= CR_TAIL_START) {
+        let falloff = exp(-(x - CR_ROLLOFF_KNEE) / span);
+        return vec2<f32>(CR_ROLLOFF_KNEE + span * (1.0 - falloff), falloff);
+    }
+    let slope = exp(-(CR_TAIL_START - CR_ROLLOFF_KNEE) / span);
+    let room = 1.0 - (CR_ROLLOFF_KNEE + span * (1.0 - slope));
+    let u = 1.0 + slope * (x - CR_TAIL_START) / (room * CR_TAIL_POWER);
+    let falloff = pow(u, -CR_TAIL_POWER);
+    return vec2<f32>(1.0 - room * falloff, slope * falloff / u);
+}
+
 // The neutral look's highlight roll-off of the largest channel (ramped
 // linear).
 fn cr_rolloff(x: f32) -> f32 {
     if (x <= CR_ROLLOFF_KNEE) {
         return x;
     }
-    let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
-    return CR_ROLLOFF_KNEE + span * (1.0 - exp(-(x - CR_ROLLOFF_KNEE) / span));
+    return cr_rolloff_slope(x).x;
 }
 
 // Position on the tone grid: index and fraction.
@@ -1545,10 +1578,9 @@ fn camera_raw_level_slope_black(luma: f32, black: f32) -> vec2<f32> {
         }
     }
     if (adjustments.global.profile_curve[15].w > 1.5 && x > CR_ROLLOFF_KNEE) {
-        let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
-        let falloff = exp(-(x - CR_ROLLOFF_KNEE) / span);
-        dx *= falloff;
-        x = CR_ROLLOFF_KNEE + span * (1.0 - falloff);
+        let rolled = cr_rolloff_slope(x);
+        dx *= rolled.y;
+        x = rolled.x;
     }
     let flag = adjustments.global.profile_curve[15].w;
     // 1: the file's own curve; 3: an own curve with neutral colour.
@@ -6516,6 +6548,17 @@ fn camera_raw_tonemap(scene: vec3<f32>) -> vec3<f32> {
         let scaled = camera_raw_curve(lo * cr_rolloff(hi) / hi);
         let converged = hi_t * lo_t / max(camera_raw_curve(hi), 1e-6);
         lo_t = mix(scaled, converged, CR_ROLLOFF_CONVERGE);
+        // toneVersion 11: above the level where version 10 clipped, the
+        // smallest channel follows the largest towards white as the tail
+        // closes in on it, so bright near-neutral colours keep their
+        // gradation instead of holding a fixed tint (which rendered the
+        // RAW's top EVs as one flat tone).
+        let white_level = cr_rolloff_white_level();
+        if (cr_white_tail() && hi > white_level) {
+            let room = 1.0 - cr_rolloff(white_level);
+            let closed = clamp(1.0 - (1.0 - cr_rolloff(hi)) / room, 0.0, 1.0);
+            lo_t = mix(lo_t, hi_t, closed);
+        }
     }
     var toned = vec3<f32>(hi_t);
     if (hi > lo) {

@@ -9243,6 +9243,17 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
     }
     recipes.push(json!({ "shadows": 100, "blacks": 100, "exposure": 1.5 }));
     with_newer_tone_versions(&mut recipes);
+    // Tone version 11 changes the look's white for every recipe; the ramp
+    // reaches 3 EV past it.
+    let eleventh: Vec<serde_json::Value> = recipes
+        .iter()
+        .map(|recipe| {
+            let mut recipe = recipe.clone();
+            recipe["toneVersion"] = json!(11);
+            recipe
+        })
+        .collect();
+    recipes.extend(eleventh);
     // Away from the image borders (the blur clamps there). Over up to 24
     // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
     // 16-bit codes, whichever is more: Shadows and Blacks read the f16
@@ -9384,6 +9395,98 @@ fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
         }
     }
     recipes.extend(versioned);
+}
+
+#[test]
+#[ignore = "requires a native GPU; Camera Raw look's white tail (toneVersion 11) on a tinted ramp past white"]
+fn camera_raw_white_tail_keeps_the_top_evs_graded() {
+    let context = context();
+    let (width, height) = (1024u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Scene luminance from 2^-1 to 2^5, evenly in EV, with a slight magenta
+    // tint (green the smallest channel) as on a camera scan of a negative.
+    let (low_ev, span_ev) = (-1.0f32, 6.0f32);
+    let per_ev = (width - 1) as f32 / span_ev;
+    let data: Vec<f16> = (0..height)
+        .flat_map(|_| 0..width)
+        .flat_map(|x| {
+            let v = (2.0f32).powf(low_ev + x as f32 / per_ev);
+            [f16::from_f32(v), f16::from_f32(v * 0.9), f16::from_f32(v), f16::ONE]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Tinted ramp"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let row = (height / 2 * width) as usize;
+    // Away from the image borders (the blurs clamp there).
+    let columns = 16..(width as usize - 16);
+    for exposure in [0.0, 2.5] {
+        let render = |version: u64| {
+            let recipe = json!({ "exposure": exposure, "toneVersion": version });
+            render_raw_look(&processor, &view, (width, height), &recipe, (3, 2.0))[row..row + width as usize].to_vec()
+        };
+        let (before, after) = (render(10), render(11));
+        // Version 10 clipped the largest channel at its white (just below
+        // code 65535 after the colour look) and held green at one tint from
+        // there on.
+        let top = before[columns.end - 1][0];
+        let clip = columns
+            .clone()
+            .find(|&x| before[x][0] >= top)
+            .expect("version 10 reaches its white on the ramp");
+        let ev_later = clip + per_ev as usize;
+        assert!(ev_later < columns.end, "exposure {exposure}: clip at column {clip}");
+        assert!(
+            before[ev_later][1].abs_diff(before[clip][1]) <= 4,
+            "exposure {exposure}: version 10 green {} → {}",
+            before[clip][1],
+            before[ev_later][1]
+        );
+        for x in columns.clone() {
+            // Below the tail every code is version 10's.
+            if before[x].iter().all(|&c| c < 62_000) {
+                assert_eq!(after[x], before[x], "exposure {exposure}: column {x} changed below the tail");
+            }
+            // In order (within two codes: the f16 ramp's steps differ by
+            // channel, so the tint wobbles as with version 10).
+            for c in 0..3 {
+                assert!(
+                    u32::from(after[x][c]) + 2 >= u32::from(after[x - 1][c]),
+                    "exposure {exposure}: channel {c} falls at column {x}: {} → {}",
+                    after[x - 1][c],
+                    after[x][c]
+                );
+            }
+        }
+        // The EV above version 10's clip keeps its gradation: green still
+        // rises towards white, and the largest channel has not reached it.
+        assert!(
+            u32::from(after[ev_later][1]) >= u32::from(after[clip][1]) + 50,
+            "exposure {exposure}: green {} → {} over the EV above the old clip",
+            after[clip][1],
+            after[ev_later][1]
+        );
+        assert!(after[clip][0] < u16::MAX, "exposure {exposure}: red clipped at the old clip");
+    }
 }
 
 /// An opaque grey `Rgba16Float` texture of scene luminances, row by row.
