@@ -3065,6 +3065,8 @@
     "adjustment": {
       "scrubHint": "Przeciągnij, aby dostosować · dwuklik resetuje",
       "trackHint": "Przeciągnij, aby dostosować; odsuń wskaźnik od suwaka, by uzyskać drobniejsze kroki · Alt (⌥): jedna dziesiąta · dwuklik resetuje",
+      "trackHintSharpenGrey": "Przeciągnij, aby dostosować; odsuń wskaźnik od suwaka, by uzyskać drobniejsze kroki · Alt (⌥) podczas przeciągania: pokazuje zdjęcie w szarości · dwuklik resetuje",
+      "trackHintSharpenMask": "Przeciągnij, aby dostosować; odsuń wskaźnik od suwaka, by uzyskać drobniejsze kroki · Alt (⌥) podczas przeciągania: pokazuje, co jest wyostrzane (biel) · dwuklik resetuje",
       "value": "{{name}} – wartość",
       "valueWithUnit": "{{name}} – wartość ({{unit}})"
     },

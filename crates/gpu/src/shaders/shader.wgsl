@@ -48,6 +48,21 @@ override LAYER_SUMS: bool = false;
 // pipelines for recipes that use it, so other recipes' exports keep their
 // bits (gpu_processing.rs `SHARPEN_V7_FEATURE`).
 override SHARPEN_V7: bool = false;
+// The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
+// compiled only into display pipelines made for it (gpu_processing.rs
+// `sharpen_view_pipeline`); exports and other frames never have it, so their
+// code is unchanged. `show_clipping` says what it shows: SHARPEN_VIEW_MASK
+// the Masking mask (white = sharpened), SHARPEN_VIEW_GREY the photo in grey.
+override SHARPEN_VIEW: bool = false;
+const SHARPEN_VIEW_MASK: u32 = 0x40000004u;
+const SHARPEN_VIEW_GREY: u32 = 0x40000008u;
+// In the mask view the sharpening returns its Masking factor m (0–1) as
+// SHARPEN_VIEW_MARK - m, below any colour, and `main` reads it from there.
+const SHARPEN_VIEW_MARK: f32 = -4.0;
+
+fn sharpen_view_mark(mask: f32) -> vec3<f32> {
+    return vec3<f32>(SHARPEN_VIEW_MARK - clamp(mask, 0.0, 1.0));
+}
 
 struct CurveSegment {
     endpoints: vec4<f32>,
@@ -1461,14 +1476,47 @@ const CR_ROLLOFF_LIMIT: f32 = 1.02;
 // than from scaling with the largest channel's roll-off.
 const CR_ROLLOFF_CONVERGE: f32 = 0.5;
 
+// toneVersion 11's white tail (notes: benchmark-results/
+// r23b-white-rolloff-2026-11-07): the roll-off's exponential reached white
+// at ramped ≈ 2.03 and clipped there, so the RAW's top ~1 EV (2.5 EV more
+// at Exposure +2.5) rendered flat white. From CR_TAIL_START the distance to
+// white instead falls as a power of the level (about −2 EV of distance per
+// EV of scene light, CR_TAIL_POWER), continuous in value and slope, and
+// never reaches white: levels below CR_TAIL_START render as before.
+const CR_TAIL_START: f32 = 1.4;
+const CR_TAIL_POWER: f32 = 2.0;
+
+fn cr_white_tail() -> bool {
+    return adjustments.global.tone_version > 10.5;
+}
+
+// The level where the version-10 roll-off reaches white and clips.
+fn cr_rolloff_white_level() -> f32 {
+    let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
+    return CR_ROLLOFF_KNEE + span * log(span / (CR_ROLLOFF_LIMIT - 1.0));
+}
+
+// The roll-off above the knee and its slope (d out / d in).
+fn cr_rolloff_slope(x: f32) -> vec2<f32> {
+    let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
+    if (!cr_white_tail() || x <= CR_TAIL_START) {
+        let falloff = exp(-(x - CR_ROLLOFF_KNEE) / span);
+        return vec2<f32>(CR_ROLLOFF_KNEE + span * (1.0 - falloff), falloff);
+    }
+    let slope = exp(-(CR_TAIL_START - CR_ROLLOFF_KNEE) / span);
+    let room = 1.0 - (CR_ROLLOFF_KNEE + span * (1.0 - slope));
+    let u = 1.0 + slope * (x - CR_TAIL_START) / (room * CR_TAIL_POWER);
+    let falloff = pow(u, -CR_TAIL_POWER);
+    return vec2<f32>(1.0 - room * falloff, slope * falloff / u);
+}
+
 // The neutral look's highlight roll-off of the largest channel (ramped
 // linear).
 fn cr_rolloff(x: f32) -> f32 {
     if (x <= CR_ROLLOFF_KNEE) {
         return x;
     }
-    let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
-    return CR_ROLLOFF_KNEE + span * (1.0 - exp(-(x - CR_ROLLOFF_KNEE) / span));
+    return cr_rolloff_slope(x).x;
 }
 
 // Position on the tone grid: index and fraction.
@@ -1545,10 +1593,9 @@ fn camera_raw_level_slope_black(luma: f32, black: f32) -> vec2<f32> {
         }
     }
     if (adjustments.global.profile_curve[15].w > 1.5 && x > CR_ROLLOFF_KNEE) {
-        let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
-        let falloff = exp(-(x - CR_ROLLOFF_KNEE) / span);
-        dx *= falloff;
-        x = CR_ROLLOFF_KNEE + span * (1.0 - falloff);
+        let rolled = cr_rolloff_slope(x);
+        dx *= rolled.y;
+        x = rolled.x;
     }
     let flag = adjustments.global.profile_curve[15].w;
     // 1: the file's own curve; 3: an own curve with neutral colour.
@@ -2304,6 +2351,178 @@ fn shadows_v6_texture(tonal_level: f32, wide_level: f32, gain: f32, exposure_gai
     let offset = log2(max(tonal_level, 0.0001) / wide_level);
     let texture = sign(offset) * clamp(abs(offset) - SH_V6_FLOOR, 0.0, SH_V6_SPAN);
     return exp2(texture * (ratio - 1.0));
+}
+
+// Tone versions 1–5: the tonal adjustments exactly as before tone version 6
+// (PR #565), in their own function. Sharing one function with the newer
+// versions changed old recipes' exports by one 16-bit code on Metal (fast
+// math recompiles the whole function), so new behaviour goes into
+// `apply_tonal_adjustments` and this one stays as it is.
+fn apply_tonal_adjustments_v5(
+    color: vec3<f32>,
+    blurred_color_input_space: vec3<f32>,
+    is_raw: u32,
+    con: f32,
+    sh: f32,
+    wh: f32,
+    bl: f32,
+    exposure_gain: f32
+) -> vec3<f32> {
+    var rgb = color;
+
+    var blurred_linear: vec3<f32>;
+    if (is_raw == 1u) {
+        blurred_linear = blurred_color_input_space;
+    } else {
+        blurred_linear = srgb_to_linear(blurred_color_input_space);
+    }
+
+    if (wh != 0.0 && base_look_is_camera_raw()) {
+        // Renderer value is slider / 30.
+        let amount = clamp(wh * 0.3, -1.0, 1.0);
+        let negative = any(rgb < vec3<f32>(0.0));
+        let floored = max(rgb, vec3<f32>(0.0));
+        var whitened = cr_whites(select(rgb, floored, negative), amount);
+        if (negative) {
+            whitened = carry_scene(rgb, floored, whitened);
+        }
+        let luma_before = max(get_luma(max(rgb, vec3<f32>(0.0))), 1e-6);
+        let ratio = max(get_luma(max(whitened, vec3<f32>(0.0))), 0.0) / luma_before;
+        rgb = whitened;
+        blurred_linear *= ratio;
+    } else if (wh != 0.0) {
+        // Whites moves the upper tones, as Capture One's and Lightroom's White
+        // sliders do (it used to scale every tone like a white-point gain).
+        // Raising reaches further down than lowering, as in both references.
+        var w = wh / WHITES_SCALE;
+        if (base_look_is_standard()) {
+            w *= select(STANDARD_WHITES_LOWER, STANDARD_WHITES_RAISE, w > 0.0);
+        }
+        let t = clamp(pow(max(get_luma(max(rgb, vec3<f32>(0.0))), 0.0), 0.4545), 0.0, 1.0);
+        let gain = select(WHITES_LOWER, WHITES_RAISE, w > 0.0);
+        let reach = select(WHITES_REACH_LOWER, WHITES_REACH_RAISE, w > 0.0);
+        // The result is (t · (1 + k · t^reach))^2.2, which turns down where
+        // 1 + k · (1 + reach) · t^reach < 0: Whites below about −75 under
+        // Standard darkened the tones from −0.37 EV up to white (−100: 0.09
+        // scene EV, the brightest grey lower than one 0.37 EV darker). From
+        // that level on the gain stays the level's, so brighter stays
+        // brighter; tones below it are unchanged.
+        let k = gain * w;
+        var t_gain = t;
+        if (k * (1.0 + reach) < -1.0) {
+            t_gain = min(t, pow(-1.0 / (k * (1.0 + reach)), 1.0 / reach));
+        }
+        let ratio = pow(max(1.0 + k * pow(t_gain, reach), 0.05), 2.2);
+        rgb *= ratio;
+        blurred_linear *= ratio;
+    }
+
+    let pixel_luma = get_luma(max(rgb, vec3<f32>(0.0)));
+    let blurred_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
+
+    let safe_pixel_luma = max(pixel_luma, 0.0001);
+    let safe_blurred_luma = max(blurred_luma, 0.0001);
+
+    if ((sh != 0.0 || bl != 0.0) && base_look_is_camera_raw()) {
+        // Lightroom's measured response by display level, applied as a
+        // gain from the blurred (exposed) luminance so detail is kept.
+        // Where the blur differs from the pixel by no more than its 16-bit
+        // float storage rounds (≤ 0.05 %), the pixel's own luminance is
+        // used: near the black point the black subtraction magnified that
+        // rounding into ±3-code wobble on smooth gradients (Blacks −40 fell
+        // 0.013 EV at display −6.6 EV). Detail keeps the blurred level.
+        let level_ratio = safe_blurred_luma / safe_pixel_luma;
+        let level_snap = smoothstep(0.001, 0.004, abs(log(level_ratio)));
+        let level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
+        let gain = camera_raw_shadows_blacks_gain(level_luma * exposure_gain, sh, bl);
+        rgb *= gain;
+    } else if (sh != 0.0 || bl != 0.0) {
+        let t_pixel = pow(safe_pixel_luma, 0.4545);
+        let t_blurred = pow(safe_blurred_luma, 0.4545);
+
+        let shadow_gain = select(SHADOWS_LOWER, SHADOWS_RAISE, sh > 0.0);
+        let shadow_lift = sh * shadow_gain * t_pixel * pow(max(1.0 - t_pixel, 0.0), 4.5);
+        let black_lift = bl * t_pixel * pow(max(1.0 - t_pixel, 0.0), 12.0);
+        let lift_amount = max(shadow_lift + black_lift, 0.0);
+
+        let t_pixel_curved = max(t_pixel + shadow_lift + black_lift, 0.0);
+
+        let shadow_pivot = 0.2;
+        let stretch_factor = 1.0 + (lift_amount * 1.3);
+        let contrasted_t = shadow_pivot + (t_pixel_curved - shadow_pivot) * stretch_factor;
+
+        let final_t = max(mix(t_pixel_curved, contrasted_t, 0.85), 0.0);
+        let curved_luma = pow(final_t, 2.2);
+
+        let luma_ratio = curved_luma / safe_pixel_luma;
+        rgb *= luma_ratio;
+
+        let detail = t_pixel / max(t_blurred, 0.0001);
+        let safe_detail = clamp(detail, 0.8, 1.25);
+
+        let noise_protection = smoothstep(0.0, 0.1, t_blurred);
+
+        let detail_amp = 1.0 + (lift_amount * 1.2 * noise_protection);
+
+        let enhanced_detail = pow(safe_detail, detail_amp);
+        let detail_correction = enhanced_detail / safe_detail;
+
+        let linear_correction = pow(detail_correction, 2.2);
+        rgb *= linear_correction;
+
+        if (luma_ratio > 1.0) {
+            let recovered_luma = get_luma(rgb);
+            let boost_amount = clamp((luma_ratio - 1.0) * 0.15, 0.0, 0.4);
+            rgb = mix(rgb, vec3<f32>(recovered_luma), boost_amount);
+        }
+    }
+
+    if (con != 0.0 && base_look_is_camera_raw()) {
+        // Renderer value is slider / 100. Per channel alone over-shoots
+        // Lightroom's saturation change (×1.76 against ×1.49 at +100), so
+        // it is mixed with the same luminance change applied neutrally.
+        let safe = max(rgb, vec3<f32>(0.0));
+        let per_channel = cr_contrast(safe, clamp(con, -1.0, 1.0));
+        let neutral = safe * (get_luma(per_channel) / max(get_luma(safe), 1e-6));
+        let contrasted = mix(neutral, per_channel, CR_CONTRAST_CHANNEL_MIX);
+        if (any(rgb < vec3<f32>(0.0))) {
+            rgb = carry_scene(rgb, safe, contrasted);
+        } else {
+            rgb = contrasted;
+        }
+    } else if (con != 0.0) {
+        let safe_rgb = max(rgb, vec3<f32>(0.0));
+        let g = 2.2;
+        let perceptual = pow(safe_rgb, vec3<f32>(1.0 / g));
+        let clamped_perceptual = clamp(perceptual, vec3<f32>(0.0), vec3<f32>(1.0));
+        // Half the inherited slope: ±100 now matches Lightroom's ±100
+        // (the inherited ±50 did); notes: reference/tone-controls.md.
+        var strength = pow(2.0, con * 0.625);
+        if (base_look_is_standard() && con > 0.0) {
+            strength = pow(2.0, con * 0.625 * STANDARD_CONTRAST_RAISE);
+        }
+        var curved_perceptual: vec3<f32>;
+        if (base_look_is_standard()) {
+            let pivot = STANDARD_CONTRAST_PIVOT;
+            let condition = clamped_perceptual < vec3<f32>(pivot);
+            let high_part = 1.0 - (1.0 - pivot) * pow((1.0 - clamped_perceptual) / (1.0 - pivot), vec3<f32>(strength));
+            let low_part = pivot * pow(clamped_perceptual / pivot, vec3<f32>(strength));
+            curved_perceptual = select(high_part, low_part, condition);
+        } else {
+            let condition = clamped_perceptual < vec3<f32>(0.5);
+            let high_part = 1.0 - 0.5 * pow(2.0 * (1.0 - clamped_perceptual), vec3<f32>(strength));
+            let low_part = 0.5 * pow(2.0 * clamped_perceptual, vec3<f32>(strength));
+            curved_perceptual = select(high_part, low_part, condition);
+        }
+        let contrast_adjusted_rgb = pow(curved_perceptual, vec3<f32>(g));
+        let mix_factor = smoothstep(vec3<f32>(1.0), vec3<f32>(1.01), safe_rgb);
+        if (any(rgb < vec3<f32>(0.0))) {
+            rgb = carry_scene(rgb, safe_rgb, mix(contrast_adjusted_rgb, safe_rgb, mix_factor));
+        } else {
+            rgb = mix(contrast_adjusted_rgb, rgb, mix_factor);
+        }
+    }
+    return rgb;
 }
 
 fn apply_tonal_adjustments(
@@ -4021,6 +4240,9 @@ fn apply_sharpen_extended(
         let spread = sqrt(max(blur_sq / blur_w - mean * mean, 0.0));
         let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE;
         gate *= smoothstep(0.5 * t_mask, 1.5 * t_mask, spread);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(smoothstep(0.5 * t_mask, 1.5 * t_mask, spread));
+        }
     }
     if (detail > 0.0) {
         let mean_e = blur_sum / blur_w;
@@ -4170,6 +4392,9 @@ fn apply_sharpen_v2(
     if (masking > 0.0) {
         let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE;
         gate *= smoothstep(0.5 * t_mask, 1.5 * t_mask, spread);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(smoothstep(0.5 * t_mask, 1.5 * t_mask, spread));
+        }
     }
     if (detail > 0.0) {
         let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
@@ -4351,6 +4576,9 @@ fn apply_sharpen_v4(
         let mask_spread = sqrt(max(m_sq / m_w - m_mean * m_mean, 0.0));
         let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE * SHARPEN_V4_MASK_SCALE;
         gate *= smoothstep(0.0, 1.5 * t_mask, mask_spread);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(smoothstep(0.0, 1.5 * t_mask, mask_spread));
+        }
     }
     if (detail > 0.0) {
         let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
@@ -4523,6 +4751,9 @@ fn apply_sharpen_v5(
         let q = mask_spread / max(SHARPEN_V5_MASK_HALF * t_mask, 1e-6);
         let q3 = q * q * q;
         gate *= q3 / (1.0 + q3);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(q3 / (1.0 + q3));
+        }
     }
     if (detail > 0.0) {
         let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
@@ -4729,6 +4960,9 @@ fn apply_sharpen_v7(
         let q = shown / max(SHARPEN_V7_MASK_HALF * t_mask, 1e-6);
         let q3 = q * q * q;
         gate *= q3 / (1.0 + q3);
+        if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+            return sharpen_view_mark(q3 / (1.0 + q3));
+        }
     }
     if (detail > 0.0) {
         let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
@@ -6516,6 +6750,17 @@ fn camera_raw_tonemap(scene: vec3<f32>) -> vec3<f32> {
         let scaled = camera_raw_curve(lo * cr_rolloff(hi) / hi);
         let converged = hi_t * lo_t / max(camera_raw_curve(hi), 1e-6);
         lo_t = mix(scaled, converged, CR_ROLLOFF_CONVERGE);
+        // toneVersion 11: above the level where version 10 clipped, the
+        // smallest channel follows the largest towards white as the tail
+        // closes in on it, so bright near-neutral colours keep their
+        // gradation instead of holding a fixed tint (which rendered the
+        // RAW's top EVs as one flat tone).
+        let white_level = cr_rolloff_white_level();
+        if (cr_white_tail() && hi > white_level) {
+            let room = 1.0 - cr_rolloff(white_level);
+            let closed = clamp(1.0 - (1.0 - cr_rolloff(hi)) / room, 0.0, 1.0);
+            lo_t = mix(lo_t, hi_t, closed);
+        }
     }
     var toned = vec3<f32>(hi_t);
     if (hi > lo) {
@@ -7060,7 +7305,11 @@ fn apply_glow_bloom(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    if (adjustments.global.tone_version < 5.5) {
+        blurred_linear = apply_tonal_adjustments_v5(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    } else {
+        blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    }
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -7936,7 +8185,11 @@ fn apply_halation(
 
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
-    blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    if (adjustments.global.tone_version < 5.5) {
+        blurred_linear = apply_tonal_adjustments_v5(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    } else {
+        blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+    }
 
     let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
 
@@ -8097,6 +8350,9 @@ fn detail_stage(
         }
         let unsharpened = rgb;
         rgb = apply_sharpen(rgb, sharpness_blurred, tonal_blurred, absolute_coord_i, amount, sharp_thresh, is_raw);
+        if (SHARPEN_VIEW && rgb.x <= SHARPEN_VIEW_MARK + 0.5) {
+            return rgb;
+        }
         if (adjustments.global.sharpen_falloff.w >= 6.0 && is_raw == 0u && amount > 0.8) {
             rgb = sharpen_v6_reach(unsharpened, rgb, amount);
         }
@@ -8414,6 +8670,14 @@ fn main(
         );
     }
 
+    // The mask view: the Masking factor the sharpening marked (1 where it
+    // did not mask); the photo goes on unsharpened for the histogram.
+    var sharpen_view_mask = 1.0;
+    if (SHARPEN_VIEW && locally_contrasted_rgb.x <= SHARPEN_VIEW_MARK + 0.5) {
+        sharpen_view_mask = SHARPEN_VIEW_MARK - locally_contrasted_rgb.x;
+        locally_contrasted_rgb = initial_linear_rgb;
+    }
+
     if (adjustments.global.defringe[0].x > 0.0 || adjustments.global.defringe[1].x > 0.0 || t_defringe > 0.0) {
         locally_contrasted_rgb = apply_defringe(locally_contrasted_rgb, absolute_coord_i, t_defringe);
     }
@@ -8481,7 +8745,11 @@ fn main(
         if (t_whites < 0.0 && adjustments.global.tone_version > 9.5 && base_look_is_camera_raw()) {
             whites_offset = whites_v10_offset(vec2<i32>(id.xy), initial_linear_rgb, scale);
         }
-        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+        if (adjustments.global.tone_version < 5.5) {
+            composite_rgb_linear = apply_tonal_adjustments_v5(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+        } else {
+            composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+        }
     }
     if (ENABLE_HIGHLIGHTS) {
         composite_rgb_linear = apply_highlights_adjustment(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
@@ -8784,6 +9052,14 @@ fn main(
     if (range_view >= 0.0) {
         let grey = vec3<f32>(get_luma(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0))));
         final_rgb = mix(grey * 0.6 + 0.2, final_rgb, range_view);
+    }
+
+    // The sharpening view replaces the photo; the histogram keeps the
+    // photo's colours (`marked` below).
+    if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_MASK) {
+        final_rgb = vec3<f32>(sharpen_view_mask);
+    } else if (SHARPEN_VIEW && adjustments.global.show_clipping == SHARPEN_VIEW_GREY) {
+        final_rgb = vec3<f32>(get_luma(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0))));
     }
 
     if (DEFER_OUTPUT) {

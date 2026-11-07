@@ -4273,7 +4273,8 @@ pub struct GlobalAdjustments {
     /// The clipping warnings the shader marks red (highlights) and blue
     /// (shadows); see `show_clipping_value`. Also carries the colour
     /// editor's range view (`2 + index`), which `color_range_view_index`
-    /// tells apart from the side flags.
+    /// tells apart from the side flags, and the sharpening view
+    /// (`SHARPEN_VIEW_MASK`, `SHARPEN_VIEW_GREY`; `view_value`).
     pub show_clipping: u32,
     pub is_raw_image: u32,
     /// Grain structure (recipe key `grainStructure`, see
@@ -5304,7 +5305,7 @@ fn get_global_adjustments_resolved(
             / SCALES.chromatic_aberration,
         chromatic_aberration_blue_yellow: detail.chromatic_aberration_blue_yellow.get() as f32
             / SCALES.chromatic_aberration,
-        show_clipping: show_clipping_value(&js_adjustments["showClipping"]),
+        show_clipping: view_value(js_adjustments),
         is_raw_image: if is_raw { 1 } else { 0 },
         grain_structure: effects.grain_structure.uniform(),
 
@@ -5615,6 +5616,30 @@ pub fn show_clipping_value(value: &serde_json::Value) -> u32 {
         return flags as u32;
     }
     u32::from(value.as_bool().unwrap_or(false))
+}
+
+/// The sharpening view's values of `show_clipping` (shader.wgsl
+/// `SHARPEN_VIEW_MASK` / `SHARPEN_VIEW_GREY`): the Masking mask (white =
+/// sharpened) or the photo in grey, shown while a Sharpening slider is
+/// dragged with Option (`src/utils/sharpenView.ts`). Above any range index
+/// and apart from the clipping side flags.
+pub const SHARPEN_VIEW_MASK: u32 = 0x4000_0004;
+pub const SHARPEN_VIEW_GREY: u32 = 0x4000_0008;
+
+/// The view the display shows (`show_clipping`): the payload's
+/// `sharpenView` (`"mask"` or `"grey"`, view only, never in a recipe) before
+/// the clipping warnings (`showClipping`), which the sharpening view hides.
+pub fn view_value(js_adjustments: &serde_json::Value) -> u32 {
+    match js_adjustments["sharpenView"].as_str() {
+        Some("mask") => SHARPEN_VIEW_MASK,
+        Some("grey") => SHARPEN_VIEW_GREY,
+        _ => show_clipping_value(&js_adjustments["showClipping"]),
+    }
+}
+
+/// Whether `show_clipping` asks for the sharpening view.
+pub fn is_sharpen_view(show_clipping: u32) -> bool {
+    matches!(show_clipping, SHARPEN_VIEW_MASK | SHARPEN_VIEW_GREY)
 }
 
 /// The index of the colour range whose selection view `show_clipping` shows,
@@ -7272,10 +7297,17 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// 10 (2026-11-03) lowers Whites at an edge-aware local base level and
 /// passes the pixel's offset from it through, so bright areas keep their
 /// texture as in Capture One (notes: G02,
-/// benchmark-results/whb-whites-ring-2026-11-03).
+/// benchmark-results/whb-whites-ring-2026-11-03);
+/// 11 (2026-11-07) gives the RAW look's white a tail: above ramped 1.4 the
+/// highlight roll-off approaches white as a power of the level instead of
+/// reaching it at ≈ 2.03 and clipping, and bright near-neutral colours
+/// converge on white above that level, so the RAW's top EVs keep their
+/// gradation (a negative scan pushed +2.5 EV rendered them as flat tones);
+/// levels below 1.4 render as with 10 (notes: G02,
+/// benchmark-results/r23b-white-rolloff-2026-11-07).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 10;
+pub const TONE_VERSION: u64 = 11;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -8152,6 +8184,38 @@ mod editing_tool_tests {
             get_global_adjustments_from_json(&ranges, true, None).show_clipping,
             SHOW_CLIPPING_SHADOWS
         );
+    }
+
+    #[test]
+    fn sharpening_view_is_read_from_the_editor_payload() {
+        let view = |payload: serde_json::Value| {
+            get_global_adjustments_from_json(&payload, true, None).show_clipping
+        };
+        // The exact payloads `withViewStates` sends (its test compares them
+        // with this fixture: src/hooks/useImageProcessing.test.ts).
+        let sent: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/sharpen-view-payloads.json"))
+                .unwrap();
+        assert_eq!(view(sent["mask"].clone()), SHARPEN_VIEW_MASK);
+        assert_eq!(view(sent["grey"].clone()), SHARPEN_VIEW_GREY);
+        assert_eq!(view(json!({"sharpenView": "mask"})), SHARPEN_VIEW_MASK);
+        assert_eq!(view(json!({"sharpenView": "grey"})), SHARPEN_VIEW_GREY);
+        // It hides the clipping warnings and the colour-range view while it shows.
+        assert_eq!(
+            view(json!({"sharpenView": "mask", "showClipping": true,
+                "colorRanges": [{"id": "r1"}], "colorRangeShow": "r1"})),
+            SHARPEN_VIEW_MASK
+        );
+        // Absent, null or unknown: the clipping warnings as before.
+        assert_eq!(view(json!({"showClipping": true})), 1);
+        assert_eq!(view(json!({"sharpenView": null, "showClipping": true})), 1);
+        assert_eq!(view(json!({"sharpenView": "other"})), 0);
+        for value in [SHARPEN_VIEW_MASK, SHARPEN_VIEW_GREY] {
+            assert!(is_sharpen_view(value));
+            assert_eq!(color_range_view_index(value), None);
+            assert!(value != SHOW_CLIPPING_HIGHLIGHTS && value != SHOW_CLIPPING_SHADOWS);
+        }
+        assert!(!is_sharpen_view(0) && !is_sharpen_view(1) && !is_sharpen_view(2));
     }
 
     #[test]

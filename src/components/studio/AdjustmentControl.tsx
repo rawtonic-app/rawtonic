@@ -21,6 +21,11 @@ export interface AdjustmentControlProps {
     fromTrack(position: number): number;
   };
   disabled?: boolean;
+  /** Option (Alt) held during a drag shows a view of this control's effect
+   * (the sharpening view, utils/sharpenView): called with true when it
+   * should show and false when it ends (Option let go, or the drag). Option
+   * then keeps the drag's speed instead of slowing it to a tenth. */
+  optionView?: { onChange(shown: boolean): void; hint: string };
   onChange(value: number): void;
   onInteraction?(active: boolean): void;
 }
@@ -69,6 +74,7 @@ export default memo(function AdjustmentControl({
   track,
   scale,
   disabled = false,
+  optionView,
   onChange,
   onInteraction
 }: AdjustmentControlProps) {
@@ -88,6 +94,17 @@ export default memo(function AdjustmentControl({
   callback.current = onChange;
   const interactionCallback = useRef(onInteraction);
   interactionCallback.current = onInteraction;
+  const optionViewCallback = useRef(optionView?.onChange);
+  optionViewCallback.current = optionView?.onChange;
+  // Whether the Option view shows (only while a drag is active).
+  const viewShown = useRef(false);
+  const showView = (shown: boolean) => {
+    if (viewShown.current === shown || !optionViewCallback.current) return;
+    viewShown.current = shown;
+    optionViewCallback.current(shown);
+  };
+  // Option slows a drag to a tenth, except where it shows a view.
+  const slowsDrag = (altKey: boolean) => altKey && !optionView;
   const scrub = useRef<{ x: number; value: number } | null>(null);
   // A drag on the track: from the thumb without a jump, a pixel worth the
   // track's own movement (a tenth with Option, less away from the track).
@@ -111,8 +128,28 @@ export default memo(function AdjustmentControl({
       lastSent.current = value;
     }
   }, [value, step]);
+  // Option pressed or let go while the drag holds still.
+  useEffect(() => {
+    if (!dragging || !optionView) return;
+    const key = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Alt') return;
+      event.preventDefault();
+      showView(event.type === 'keydown');
+    };
+    const hide = () => showView(false);
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('keyup', key, true);
+    window.addEventListener('blur', hide);
+    return () => {
+      window.removeEventListener('keydown', key, true);
+      window.removeEventListener('keyup', key, true);
+      window.removeEventListener('blur', hide);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- showView reads refs only
+  }, [dragging, !!optionView]);
   useEffect(
     () => () => {
+      if (viewShown.current) optionViewCallback.current?.(false);
       if (frame.current !== null) cancelAnimationFrame(frame.current);
       if (active.current) {
         if (lastSent.current !== pending.current) callback.current(pending.current);
@@ -148,6 +185,8 @@ export default memo(function AdjustmentControl({
     onInteraction?.(true);
   };
   const end = () => {
+    // The view ends first: the drag's last frame shows the photo.
+    showView(false);
     flush();
     active.current = false;
     scrub.current = null;
@@ -180,6 +219,7 @@ export default memo(function AdjustmentControl({
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     begin();
+    showView(e.altKey);
     scrub.current = { x: e.clientX, value: local };
   };
   const commitText = () => {
@@ -210,14 +250,15 @@ export default memo(function AdjustmentControl({
         title={t('studio.adjustment.scrubHint')}
         onPointerDown={scrubStart}
         onPointerMove={(e) => {
-          if (scrub.current)
-            update(
-              fromTrack(
-                toTrack(scrub.current.value) +
-                  (e.clientX - scrub.current.x) * trackStep * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1)
-              ),
-              e.altKey ? step / 10 : step
-            );
+          if (!scrub.current) return;
+          showView(e.altKey);
+          update(
+            fromTrack(
+              toTrack(scrub.current.value) +
+                (e.clientX - scrub.current.x) * trackStep * (e.shiftKey ? 10 : slowsDrag(e.altKey) ? 0.1 : 1)
+            ),
+            slowsDrag(e.altKey) ? step / 10 : step
+          );
         }}
         onPointerUp={end}
         onPointerCancel={end}
@@ -251,6 +292,7 @@ export default memo(function AdjustmentControl({
             // pointer is part of the drag (one history step), not a step of
             // its own before it.
             begin();
+            showView(e.altKey);
             // pending, not local: focusing the track just committed a typed value
             // whose state has not rendered yet.
             let start = toTrack(pending.current);
@@ -272,8 +314,9 @@ export default memo(function AdjustmentControl({
         }}
         onPointerMove={(e) => {
           if (!fine.current) return;
+          showView(e.altKey);
           const drag = fine.current;
-          const factor = e.altKey ? 0.1 : dragPrecision(Math.abs(e.clientY - drag.centreY));
+          const factor = slowsDrag(e.altKey) ? 0.1 : dragPrecision(Math.abs(e.clientY - drag.centreY));
           // Each move adds its own distance at the precision of the moment:
           // moving away from the track never makes the value jump.
           drag.value = Math.max(
@@ -291,7 +334,7 @@ export default memo(function AdjustmentControl({
         onKeyDown={keys}
         onDoubleClick={reset}
         aria-label={ariaLabel ?? label}
-        title={t('studio.adjustment.trackHint')}
+        title={optionView?.hint ?? t('studio.adjustment.trackHint')}
       />
       <input
         className="adjustment-value"

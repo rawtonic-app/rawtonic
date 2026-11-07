@@ -2122,6 +2122,236 @@ fn cached_detail_of_sharpening_7_matches_inline_detail_and_follows_the_tone_curv
 }
 
 #[test]
+#[ignore = "requires a native GPU; the sharpening view shows the mask response 7 applies"]
+fn sharpening_view_shows_the_applied_mask_and_leaves_other_renders_alone() {
+    // Left half: a bright flat area with noise; right half: mid-grey texture
+    // (a 6 px pattern, ±20 %) with the same noise (as
+    // `sharpen_version_7_masks_bright_flat_noise`).
+    let (width, height) = (128u32, 128u32);
+    let noise_level = 0.02f32;
+    let pixels: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let (x, y) = (i % width, i / width);
+            let hash = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663))
+                .wrapping_mul(2_654_435_761);
+            let noise = (hash >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0;
+            let phase = |c: u32| (c as f32 * std::f32::consts::TAU / 6.0).sin();
+            let base = if x < width / 2 {
+                0.85f32
+            } else {
+                0.4 * (1.0 + 0.2 * phase(x) * phase(y))
+            };
+            let p = base.sqrt() + noise * noise_level * 3f32.sqrt();
+            let v = f16::from_f32(p * p);
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &pixels);
+    let adjustments = |profile: serde_json::Value| {
+        let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        adjustments.global.noise_level = noise_level;
+        adjustments
+    };
+    let recipe = |masking: f64, view: Option<&str>| {
+        let mut recipe = json!({"sharpness": 80, "sharpenMasking": masking, "sharpenVersion": 7,
+            "lumaNoiseReduction": 0, "colorNoiseReduction": 0});
+        if let Some(view) = view {
+            recipe["sharpenView"] = json!(view);
+        }
+        recipe
+    };
+    let masked = adjustments(recipe(50.0, Some("mask")));
+    assert_eq!(masked.global.show_clipping, SHARPEN_VIEW_MASK);
+    let features = preview_features(&masked);
+    // The frames below run with the detail cache's passes ready: the mask
+    // view's cache holds the Masking factor, and the frames without the view
+    // that follow one with it (same sliders) must not read it as colours.
+    let started = Instant::now();
+    while processor.detail_pipeline_for(true).is_none()
+        || processor.mask_view_detail_pipeline().is_none()
+    {
+        assert!(
+            started.elapsed().as_secs() < 120,
+            "pipelines did not compile"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    prepare_preview_pipeline(&processor, features);
+    prepare_preview_pipeline(
+        &processor,
+        preview_features(&adjustments(recipe(0.0, None))),
+    );
+    prepare_preview_pipeline(
+        &processor,
+        preview_features(&adjustments(json!({"sharpness": 0}))),
+    );
+    let display = |adjustments: crate::image_processing::PreparedAdjustments| {
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                true,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        *processor.display_render_state.lock().unwrap() = None;
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_working_texture(),
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    // Until the view's own variant is compiled the frame shows the photo,
+    // with the photo's detail stage: no mask marks read as colours, and
+    // nothing cached under the mask view's key.
+    assert!(
+        processor.sharpen_view_pipelines[sharpen_view_features(features)]
+            .get()
+            .is_none()
+    );
+    let photo = display(adjustments(recipe(50.0, None)));
+    assert_eq!(
+        display(adjustments(recipe(50.0, Some("mask")))),
+        photo,
+        "a mask view frame before its variant is ready shows the photo"
+    );
+    assert!(
+        !processor
+            .blur_cache
+            .lock()
+            .unwrap()
+            .tiles
+            .iter()
+            .any(|tile| tile.detail.as_ref().is_some_and(|(key, _)| key.0[101] == 1)),
+        "no mask detail cached for a frame that showed the photo"
+    );
+    while processor
+        .sharpen_view_pipeline(sharpen_view_features(features))
+        .is_none()
+    {
+        assert!(
+            started.elapsed().as_secs() < 120,
+            "the view variant did not compile"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let mask = display(masked);
+    assert!(
+        processor
+            .blur_cache
+            .lock()
+            .unwrap()
+            .tiles
+            .iter()
+            .any(|tile| tile.detail.as_ref().is_some_and(|(key, _)| key.0[101] == 1)),
+        "the mask view's frame cached its detail stage"
+    );
+    let unmasked = display(adjustments(recipe(0.0, None)));
+    let unsharpened = display(adjustments(json!({"sharpness": 0, "lumaNoiseReduction": 0,
+        "colorNoiseReduction": 0})));
+    let inner = || {
+        (8..height - 8)
+            .flat_map(move |y| (8..width - 8).map(move |x| ((y * width + x) * 4) as usize))
+    };
+    // Black and white: one grey per pixel.
+    assert!(inner().all(|i| mask[i] == mask[i + 1] && mask[i] == mask[i + 2]));
+    let mean = |left: bool| {
+        let values: Vec<f64> = inner()
+            .filter(|&i| ((i / 4) as u32 % width < width / 2) == left)
+            .map(|i| mask[i] as f64)
+            .collect();
+        values.iter().sum::<f64>() / values.len() as f64
+    };
+    let (flat, texture) = (mean(true), mean(false));
+    assert!(
+        flat < 30.0 && texture > 3.0 * flat,
+        "mask: flat noise {flat}, texture {texture}"
+    );
+    // It is the factor the sharpening applies: where the mask is black the
+    // sharpened frame is the unsharpened one, where it is white the
+    // unmasked sharpening (one code for the factor's last bits).
+    let (mut black, mut white) = (0, 0);
+    for masking in [50.0, 10.0] {
+        let mask = display(adjustments(recipe(masking, Some("mask"))));
+        let sharpened = display(adjustments(recipe(masking, None)));
+        for i in inner() {
+            let close = |a: &[u8], b: &[u8]| (0..3).all(|c| a[i + c].abs_diff(b[i + c]) <= 1);
+            if mask[i] == 0 {
+                black += 1;
+                assert!(
+                    close(&sharpened, &unsharpened),
+                    "Masking {masking}: pixel {} masked but sharpened",
+                    i / 4
+                );
+            } else if mask[i] == 255 {
+                white += 1;
+                assert!(
+                    close(&sharpened, &unmasked),
+                    "Masking {masking}: pixel {} kept but not fully sharpened",
+                    i / 4
+                );
+            }
+        }
+    }
+    assert!(black > 100 && white > 100, "black {black}, white {white}");
+    // Masking 0: all white.
+    let all = display(adjustments(recipe(0.0, Some("mask"))));
+    // (The display dither takes white down by up to one code.)
+    assert!(inner().all(|i| all[i] >= 254), "Masking 0 masks nothing");
+    // The grey view: the photo in grey (one grey per pixel, not flat).
+    let grey = display(adjustments(recipe(50.0, Some("grey"))));
+    assert!(inner().all(|i| grey[i] == grey[i + 1] && grey[i] == grey[i + 2]));
+    assert!(inner().any(|i| grey[i] != grey[inner().next().unwrap()]));
+    // Other renders never show it: a CPU readback for an export renders the
+    // recipe as without the view, bit for bit.
+    let export = |adjustments: crate::image_processing::PreparedAdjustments| {
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    for view in ["mask", "grey"] {
+        assert!(
+            export(adjustments(recipe(50.0, Some(view))))
+                == export(adjustments(recipe(50.0, None))),
+            "the {view} view reached an export render"
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; compares sharpening responses 6 and 7"]
 fn sharpen_version_7_masks_bright_flat_noise() {
     // Left half: a bright flat area with noise (σ 0.02 in square-root
@@ -9243,6 +9473,17 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
     }
     recipes.push(json!({ "shadows": 100, "blacks": 100, "exposure": 1.5 }));
     with_newer_tone_versions(&mut recipes);
+    // Tone version 11 changes the look's white for every recipe; the ramp
+    // reaches 3 EV past it.
+    let eleventh: Vec<serde_json::Value> = recipes
+        .iter()
+        .map(|recipe| {
+            let mut recipe = recipe.clone();
+            recipe["toneVersion"] = json!(11);
+            recipe
+        })
+        .collect();
+    recipes.extend(eleventh);
     // Away from the image borders (the blur clamps there). Over up to 24
     // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
     // 16-bit codes, whichever is more: Shadows and Blacks read the f16
@@ -9384,6 +9625,112 @@ fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
         }
     }
     recipes.extend(versioned);
+}
+
+#[test]
+#[ignore = "requires a native GPU; Camera Raw look's white tail (toneVersion 11) on a tinted ramp past white"]
+fn camera_raw_white_tail_keeps_the_top_evs_graded() {
+    let context = context();
+    let (width, height) = (1024u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Scene luminance from 2^-1 to 2^5, evenly in EV, with a slight magenta
+    // tint (green the smallest channel) as on a camera scan of a negative.
+    let (low_ev, span_ev) = (-1.0f32, 6.0f32);
+    let per_ev = (width - 1) as f32 / span_ev;
+    let data: Vec<f16> = (0..height)
+        .flat_map(|_| 0..width)
+        .flat_map(|x| {
+            let v = (2.0f32).powf(low_ev + x as f32 / per_ev);
+            [
+                f16::from_f32(v),
+                f16::from_f32(v * 0.9),
+                f16::from_f32(v),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Tinted ramp"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let row = (height / 2 * width) as usize;
+    // Away from the image borders (the blurs clamp there).
+    let columns = 16..(width as usize - 16);
+    for exposure in [0.0, 2.5] {
+        let render = |version: u64| {
+            let recipe = json!({ "exposure": exposure, "toneVersion": version });
+            render_raw_look(&processor, &view, (width, height), &recipe, (3, 2.0))
+                [row..row + width as usize]
+                .to_vec()
+        };
+        let (before, after) = (render(10), render(11));
+        // Version 10 clipped the largest channel at its white (just below
+        // code 65535 after the colour look) and held green at one tint from
+        // there on.
+        let top = before[columns.end - 1][0];
+        let clip = columns
+            .clone()
+            .find(|&x| before[x][0] >= top)
+            .expect("version 10 reaches its white on the ramp");
+        let ev_later = clip + per_ev as usize;
+        assert!(
+            ev_later < columns.end,
+            "exposure {exposure}: clip at column {clip}"
+        );
+        assert!(
+            before[ev_later][1].abs_diff(before[clip][1]) <= 4,
+            "exposure {exposure}: version 10 green {} → {}",
+            before[clip][1],
+            before[ev_later][1]
+        );
+        for x in columns.clone() {
+            // Below the tail every code is version 10's.
+            if before[x].iter().all(|&c| c < 62_000) {
+                assert_eq!(
+                    after[x], before[x],
+                    "exposure {exposure}: column {x} changed below the tail"
+                );
+            }
+            // In order (within two codes: the f16 ramp's steps differ by
+            // channel, so the tint wobbles as with version 10).
+            for (c, (&now, &left)) in after[x].iter().zip(&after[x - 1]).enumerate() {
+                assert!(
+                    u32::from(now) + 2 >= u32::from(left),
+                    "exposure {exposure}: channel {c} falls at column {x}: {left} → {now}"
+                );
+            }
+        }
+        // The EV above version 10's clip keeps its gradation: green still
+        // rises towards white, and the largest channel has not reached it.
+        assert!(
+            u32::from(after[ev_later][1]) >= u32::from(after[clip][1]) + 50,
+            "exposure {exposure}: green {} → {} over the EV above the old clip",
+            after[clip][1],
+            after[ev_later][1]
+        );
+        assert!(
+            after[clip][0] < u16::MAX,
+            "exposure {exposure}: red clipped at the old clip"
+        );
+    }
 }
 
 /// An opaque grey `Rgba16Float` texture of scene luminances, row by row.
@@ -11003,6 +11350,56 @@ fn tone_version_10_whites_drag_render_time() {
         eprintln!(
             "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
             9 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; the white tail of tone version 11 against version 10: GPU time of a preview render per Exposure drag step"]
+fn tone_version_11_white_tail_drag_render_time() {
+    // As `tone_version_10_whites_drag_render_time`, with Exposure stepped up
+    // on a textured ramp to 3 EV past white (most pixels in the tail).
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let ramp = -9.0 + 12.0 * x as f32 / (width - 1) as f32;
+            let texture = 0.4 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos());
+            (2.0f32).powf(ramp + texture)
+        })
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 10 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "exposure": 0.25 * step as f64, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 10) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            10 + k,
             t[t.len() / 2],
             t[t.len() * 9 / 10],
             t.len()
@@ -18464,4 +18861,44 @@ fn a_zoomed_drags_clipping_marks_follow_the_masks_as_the_release() {
             "drag at {spot:?}"
         );
     }
+}
+
+/// FNV-1a 64 of `text` (a pin that needs no hashing crate).
+fn fnv1a64(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// Tone versions 1–5 render through `apply_tonal_adjustments_v5`, the tonal
+/// adjustments exactly as they were before tone version 6 (main 94452542).
+/// Metal compiles the shader with fast math: #565 added version 6 to the
+/// shared function behind a runtime check, and saved recipes with Shadows,
+/// Whites or Blacks then exported up to one 16-bit code apart from alpha.11.1
+/// (REL12 identity check, 2026-11-07). A new tone behaviour goes into
+/// `apply_tonal_adjustments`, never into this function.
+#[test]
+fn tone_versions_up_to_5_keep_their_own_function() {
+    let shader = include_str!("shaders/shader.wgsl");
+    let start = shader
+        .find("fn apply_tonal_adjustments_v5(")
+        .expect("apply_tonal_adjustments_v5 exists");
+    let end = start + shader[start..].find("\n}\n").expect("function end") + 3;
+    let function = &shader[start..end];
+    assert_eq!(
+        (function.len(), fnv1a64(function)),
+        (7714, 0xc136_83ca_1f9e_b4a7),
+        "apply_tonal_adjustments_v5 must stay byte-identical to main 94452542's apply_tonal_adjustments"
+    );
+    // Every caller sends tone versions 1–5 to it.
+    let calls = shader.matches("apply_tonal_adjustments_v5(").count() - 1;
+    let routed = shader
+        .matches("if (adjustments.global.tone_version < 5.5) {\n")
+        .count();
+    let newer = shader.matches("apply_tonal_adjustments(").count() - 1;
+    assert_eq!(
+        (calls, routed, newer),
+        (3, 3, 3),
+        "each of the three call sites chooses by tone version"
+    );
 }

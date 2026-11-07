@@ -89,6 +89,72 @@ describe('professional adjustment control', () => {
     fireEvent.pointerUp(slider, { pointerId: 2 });
     expect(change).toHaveBeenLastCalledWith(0.2);
   });
+  it('shows its Option view while Option is held during a drag, at full speed', () => {
+    const shown = vi.fn();
+    const change = vi.fn();
+    render(
+      <AdjustmentControl
+        label="Masking"
+        value={0}
+        min={0}
+        max={100}
+        optionView={{ onChange: shown, hint: 'hint' }}
+        onChange={change}
+      />
+    );
+    const slider = screen.getByRole('slider', { name: 'Masking' }) as HTMLInputElement;
+    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(box);
+    slider.setPointerCapture = vi.fn();
+    expect(slider.title).toBe('hint');
+    // Pressed with Option: the view shows; the drag keeps the track's speed.
+    fireEvent.pointerDown(slider, { button: 0, clientX: 4.5, clientY: 10, altKey: true, pointerId: 4 });
+    expect(shown.mock.calls).toEqual([[true]]);
+    fireEvent.pointerMove(slider, { clientX: 24.5, clientY: 10, altKey: true, pointerId: 4 });
+    expect(change).toHaveBeenLastCalledWith(20);
+    // Option let go while the slider holds still: the view ends, the drag goes on.
+    fireEvent.keyUp(window, { key: 'Alt' });
+    expect(shown.mock.calls).toEqual([[true], [false]]);
+    fireEvent.pointerMove(slider, { clientX: 34.5, clientY: 10, pointerId: 4 });
+    // Pressed again mid-drag: it shows again; releasing the slider ends it.
+    fireEvent.keyDown(window, { key: 'Alt' });
+    expect(shown).toHaveBeenLastCalledWith(true);
+    fireEvent.pointerUp(slider, { pointerId: 4 });
+    expect(change).toHaveBeenLastCalledWith(30);
+    expect(shown.mock.calls).toEqual([[true], [false], [true], [false]]);
+    // Option after the drag shows nothing.
+    fireEvent.keyDown(window, { key: 'Alt' });
+    expect(shown).toHaveBeenCalledTimes(4);
+  });
+  it('shows no Option view on a drag without Option or on a control without one', () => {
+    const shown = vi.fn();
+    render(
+      <AdjustmentControl
+        label="Amount"
+        value={0}
+        min={0}
+        max={100}
+        optionView={{ onChange: shown, hint: 'h' }}
+        onChange={vi.fn()}
+      />
+    );
+    const slider = screen.getByRole('slider', { name: 'Amount' }) as HTMLInputElement;
+    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(box);
+    slider.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(slider, { button: 0, clientX: 4.5, clientY: 10, pointerId: 5 });
+    fireEvent.pointerMove(slider, { clientX: 14.5, clientY: 10, pointerId: 5 });
+    fireEvent.pointerUp(slider, { pointerId: 5 });
+    expect(shown).not.toHaveBeenCalled();
+    // The label scrub shows it too, with Option.
+    const label = screen.getByText('Amount');
+    label.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(label, { button: 0, clientX: 0, altKey: true, pointerId: 6 });
+    expect(shown).toHaveBeenLastCalledWith(true);
+    fireEvent.pointerUp(label, { pointerId: 6 });
+    expect(shown).toHaveBeenLastCalledWith(false);
+    // Exposure has no view: Option keeps slowing its drag (above).
+    const { slider: exposureSlider } = exposure();
+    expect(exposureSlider.title).not.toBe('h');
+  });
   it('starts an Option-drag from the value just typed, not the old one', () => {
     const change = vi.fn();
     render(<AdjustmentControl label="Exposure" value={0} min={-5} max={5} step={0.01} onChange={change} />);

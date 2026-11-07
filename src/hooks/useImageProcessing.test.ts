@@ -1,7 +1,8 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { nextAnalyticsTime, useImageProcessing } from './useImageProcessing';
+import { nextAnalyticsTime, useImageProcessing, withViewStates } from './useImageProcessing';
+import sharpenViewPayloads from '../../crates/engine/tests/fixtures/sharpen-view-payloads.json';
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -15,6 +16,7 @@ import { flushSliderDraft, renderDraft } from '../utils/sliderDraft';
 import { forgetLiveStroke } from '../utils/liveMaskRender';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock('./useEditorActions', () => ({ debouncedSave: vi.fn(), registerScheduledRecipe: vi.fn(() => () => {}) }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 vi.mock('../utils/liveMaskRender', async (actual) => {
@@ -618,5 +620,22 @@ describe('nextAnalyticsTime', () => {
     expect(nextAnalyticsTime(1000, 1117)).toBe(1100);
     expect(nextAnalyticsTime(1000, 1500)).toBe(1500);
     expect(nextAnalyticsTime(0, 5000)).toBe(5000);
+  });
+});
+
+describe('sharpening view payload', () => {
+  afterEach(() => useEditorStore.getState().setEditor({ sharpenView: null }));
+  it('sends the view as the engine reads it (crates/engine view_value) and nothing without it', () => {
+    for (const view of ['mask', 'grey'] as const) {
+      useEditorStore.getState().setEditor({ sharpenView: view, clipHighlights: false, clipShadows: false });
+      const payload = withViewStates(INITIAL_ADJUSTMENTS) as unknown as Record<string, unknown>;
+      expect({ sharpenView: payload.sharpenView, showClipping: payload.showClipping }).toEqual(
+        sharpenViewPayloads[view]
+      );
+    }
+    useEditorStore.getState().setEditor({ sharpenView: null });
+    expect('sharpenView' in withViewStates(INITIAL_ADJUSTMENTS)).toBe(false);
+    // The recipe itself never carries it.
+    expect('sharpenView' in useEditorStore.getState().adjustments).toBe(false);
   });
 });
