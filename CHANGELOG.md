@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.12 — 2026-11-08
+
 **Apple silicon now needs macOS 14 Sonoma or later.** Rawtonic for Apple silicon (M1 and later) is built for macOS 14 and later; the AI tools run on ONNX Runtime 1.30.0 there, which needs it. Intel Macs keep macOS 13 and ONNX Runtime 1.23.2. On an Apple silicon Mac with macOS 13, keep alpha.11.1 until you update macOS.
 
 The twelfth alpha. Highlights, Shadows, Whites and Blacks keep the texture of the tones they move, Sharpening Masking keeps noise out of skies and walls and Option-drag shows what Sharpening does, the black & white mix and its Auto reach as far as Lightroom's, and the brightest tones of a RAW roll off to white instead of clipping, all for new edits. The Library can search photos by what they show, on your computer, and makes proof sheets for clients as PDF or JPEG. The scopes stay live while you drag zoomed in, exports run faster while the app is open, and Windows gets an MSI and a portable zip next to the installer, with crash reports for crashes in native code. Saved edits export as in alpha.11.1 (see *Changes to existing edits*).
