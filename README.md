@@ -49,9 +49,9 @@ Rawtonic runs on **macOS** (Apple Silicon; Intel experimental), **Linux** (x86-6
 
 ### macOS
 
-Download `Rawtonic_<version>_aarch64.dmg` for Apple Silicon (M1 and later), macOS 13 or later. Open it and drag **Rawtonic** to **Applications**. The app is signed with an Apple Developer ID and notarized by Apple, so it opens with a double-click.
+Download `Rawtonic_<version>_aarch64.dmg` for Apple Silicon (M1 and later), macOS 14 Sonoma or later. Open it and drag **Rawtonic** to **Applications**. The app is signed with an Apple Developer ID and notarized by Apple, so it opens with a double-click.
 
-For Intel Macs there is an experimental `Rawtonic_<version>_x86_64.dmg`. So far it has run only under Rosetta 2 on Apple Silicon, not on an Intel Mac; please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
+For Intel Macs (macOS 13 or later) there is an experimental `Rawtonic_<version>_x86_64.dmg`. So far it has run only under Rosetta 2 on Apple Silicon, not on an Intel Mac; please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
 
 ### Linux
 

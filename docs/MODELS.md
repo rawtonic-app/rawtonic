@@ -38,7 +38,8 @@ weights tensor by tensor.
 | `relight_geometry_da3_base.onnx` | Relight relative scene geometry and camera | DA3 **Base**, rights holder `depth-anything/DA3-BASE` revision `f4a6c9b3c95e41c82048423d3493a81ec3fa810e`; source `ByteDance-Seed/Depth-Anything-3` at `3d835ec1a5802d64a8b8b15f817a1ab54809bfe4`. Exported by `scripts/models/export_relight.py`. | Apache-2.0 | Self-host |
 | `relight_people_normals_david_base.onnx` | Relight surface normals of people | Microsoft's DAViD Base normal model (`normal-model-vitb16_384.onnx`, github.com/microsoft/DAViD at `20a3eb6`, README "Model License": "DAViD models and runtime code are licensed under the MIT License"), unchanged; trained on Microsoft's synthetic SynthHuman (CDLA-2.0). | MIT | In the pack since 2026-10-15 |
 | `depth_anything_v2_vits.onnx` | Depth masks | Byte-identical to fabio-sim/Depth-Anything-ONNX v2.0.0, the export of Depth Anything V2 **Small**. | Apache-2.0 (Small only; Base/Large/Giant are CC BY-NC 4.0) | Keep, self-host |
-| ONNX Runtime 1.23.2 (macOS arm64 / x86_64) | Runtime for macOS AI tools | Unchanged Microsoft release libraries, SHA-256 pinned; fixes the shutdown crash reproduced on 1.22.0. | MIT + 1.23.2 third-party notices | Keep, self-host |
+| ONNX Runtime 1.30.0 (macOS arm64) | Runtime for macOS AI tools on Apple silicon (pack 2026-11-07) | Unchanged Microsoft release library (`onnxruntime-osx-arm64-1.30.0.tgz`, archive SHA-256 `6ebb5062…7012`), file SHA-256 `bcc9110f…b6fa`; same outputs as 1.23.2 on all 16 bench models (ADR 0011). | MIT + 1.30.0 third-party notices | Keep, self-host |
+| ONNX Runtime 1.23.2 (macOS x86_64; macOS arm64 before 2026-11-07) | Runtime for macOS AI tools on Intel Macs and in earlier app versions | Unchanged Microsoft release libraries, SHA-256 pinned; fixes the shutdown crash reproduced on 1.22.0. | MIT + 1.23.2 third-party notices | Keep, self-host |
 | ONNX Runtime 1.22.0 (six desktop libraries) | Legacy runtime (macOS before 2026-10-13; Windows and Linux before 2026-10-10) | Byte-identical to Microsoft's v1.22.0 release archives (all six platforms). | MIT + third-party notices | Keep, self-host |
 | ONNX Runtime 1.30.0 (`libonnxruntime-1.30.0-linux-{x86_64,aarch64}.so`, `onnxruntime-1.30.0-windows-{x86_64,aarch64}.dll`) | Runtime on Windows and Linux (plugin providers need 1.24.4+) | Byte-identical to the libraries in Microsoft's v1.30.0 release archives. | MIT + third-party notices (`onnxruntime-1.30.0-ThirdPartyNotices.txt`) | Built 2026-10-10, in the pack |
 | WebGPU plugin execution provider 0.4.0 (`…providers_webgpu-0.4.0-{linux,windows}-{x86_64,aarch64}`) | GPU for every model on Windows (Direct3D 12) and Linux (Vulkan), bundled beside the runtime | The library inside Microsoft's `onnxruntime-ep-webgpu` 0.4.0 wheels on PyPI (built from ONNX Runtime 1.30.0), unchanged; the Windows wheel's DirectX Shader Compiler DLLs are left out (Microsoft Software License Terms). | MIT; contains Dawn (BSD-3-Clause); notices as ONNX Runtime 1.30.0 | Built 2026-10-10, in the pack |
@@ -826,7 +827,7 @@ other load). Two builds produced the same encoder bytes.
 
 ## Hosting
 
-The pack is the release `pack-2026-10-27b` of
+The pack is the release `pack-2026-11-07` of
 [github.com/rawtonic-app/models](https://github.com/rawtonic-app/models)
 (README, `models.json`, `licenses/`), public together with Rawtonic. The app
 downloads `MODEL_PACK_URL/<file>`
@@ -843,12 +844,8 @@ A new pack is a new release (new tag): build it with
 commit. `build_model_pack.py --previous DIR` carries an earlier pack's
 files (downloaded with `gh release download`) over unchanged, checked
 against its `models.json`, and builds only what it lacks; that keeps the
-files older builds load. `pack-2026-11-07` is `pack-2026-10-27b` plus
-ONNX Runtime 1.30.0 for Apple silicon (`libonnxruntime-1.30.0-macos-aarch64.dylib`,
-SHA-256 `bcc9110f9d638a119de2db7afb3ba9a1da8085f0cb3401e1c48ae1caf450b6fa`, from Microsoft's
-`onnxruntime-osx-arm64-1.30.0.tgz`, archive SHA-256 `6ebb5062a934537c352937821f9fe9718e7de1a2db1122a93dd363ffd53a7012`);
-the app does not use it yet (it needs macOS 14, the app supports 13; see ADR 0011), so the app and
-`install_models.sh` still use `pack-2026-10-27b`. `pack-2026-10-27b` is `pack-2026-10-27` plus
+files older builds load. `pack-2026-11-07` is `pack-2026-10-27b` plus ONNX Runtime 1.30.0
+for Apple silicon (built that way). `pack-2026-10-27b` is `pack-2026-10-27` plus
 Moebius and the SDXL VAE fp16-fix as ONNX models for Windows and Linux
 (built that way). `pack-2026-10-27` is `pack-2026-10-18` plus
 Moebius and the SDXL VAE fp16-fix as Core ML programs and the Moebius
