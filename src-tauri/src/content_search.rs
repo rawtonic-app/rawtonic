@@ -58,7 +58,11 @@ const FILES: [(&str, &str, u64); 4] = [
     (SIGLIP_VISION_FILENAME, SIGLIP_VISION_SHA256, 371_783_722),
     (TEXT_FILENAME, TEXT_SHA256, 226_315),
     (TEXT_DATA_FILENAME, TEXT_DATA_SHA256, 1_129_214_976),
-    (SIGLIP_TOKENIZER_FILENAME, SIGLIP_TOKENIZER_SHA256, 34_363_136),
+    (
+        SIGLIP_TOKENIZER_FILENAME,
+        SIGLIP_TOKENIZER_SHA256,
+        34_363_136,
+    ),
 ];
 /// What the downloads list calls it.
 const DOWNLOAD_NAME: &str = "Search model";
@@ -216,7 +220,9 @@ fn run_pass(
             .and_then(|image| crate::tagging::image_embedding(&image, &vision))
             .map_err(|e| format!("{e:#}"));
             match &embedding {
-                Ok(values) => lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Ok(values))?,
+                Ok(values) => {
+                    lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Ok(values))?
+                }
                 Err(error) => {
                     log::warn!("Content search could not read {path}: {error}");
                     lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Err(error))?;
@@ -650,7 +656,10 @@ mod tests {
     #[test]
     fn queries_are_read_in_lower_case() {
         assert_eq!(query_text("  A Heron "), "a heron");
-        assert_eq!(query_text("Hochzeit in der KIRCHE"), "hochzeit in der kirche");
+        assert_eq!(
+            query_text("Hochzeit in der KIRCHE"),
+            "hochzeit in der kirche"
+        );
         assert_eq!(query_text("   "), "");
     }
 
@@ -721,9 +730,11 @@ mod measurement {
     #[ignore = "tool: needs CONTENT_MODELS, CONTENT_THUMBS, CONTENT_OUT and ORT_DYLIB_PATH"]
     fn measures_content_search() {
         let env = |name| std::env::var_os(name).map(PathBuf::from);
-        let (Some(models), Some(thumbs), Some(out)) =
-            (env("CONTENT_MODELS"), env("CONTENT_THUMBS"), env("CONTENT_OUT"))
-        else {
+        let (Some(models), Some(thumbs), Some(out)) = (
+            env("CONTENT_MODELS"),
+            env("CONTENT_THUMBS"),
+            env("CONTENT_OUT"),
+        ) else {
             eprintln!("SKIP: CONTENT_MODELS, CONTENT_THUMBS and CONTENT_OUT are needed");
             return;
         };
@@ -839,10 +850,26 @@ mod measurement {
         let load_ms = t.elapsed().as_secs_f64() * 1e3;
         let loaded = footprint_mb();
         let queries = [
-            "a dog", "a white car", "a bride", "a church", "a speaker on stage", "a kitchen",
-            "a drone view", "a pottery wheel", "a heron", "Hochzeit", "a group photo",
-            "a man in a suit", "a staircase", "a cake", "flowers", "a swimming pool",
-            "red car at night", "a child", "Luftaufnahme", "a sunset",
+            "a dog",
+            "a white car",
+            "a bride",
+            "a church",
+            "a speaker on stage",
+            "a kitchen",
+            "a drone view",
+            "a pottery wheel",
+            "a heron",
+            "Hochzeit",
+            "a group photo",
+            "a man in a suit",
+            "a staircase",
+            "a cake",
+            "flowers",
+            "a swimming pool",
+            "red car at night",
+            "a child",
+            "Luftaufnahme",
+            "a sunset",
         ];
         let (mut text_ms, mut rank_ms, mut total_ms) = (Vec::new(), Vec::new(), Vec::new());
         let big = Library::open(&scratch.path().join("Big")).unwrap();
@@ -1025,7 +1052,10 @@ mod contract_tests {
             running: true,
             index,
         };
-        assert_eq!(serde_json::to_value(status).unwrap(), payloads()["status_result"]);
+        assert_eq!(
+            serde_json::to_value(status).unwrap(),
+            payloads()["status_result"]
+        );
         let ranking = ContentRanking {
             paths: vec![
                 "/Shoots/Job/Capture/B.ARW".into(),
@@ -1037,7 +1067,10 @@ mod contract_tests {
                 total: 3,
             },
         };
-        assert_eq!(serde_json::to_value(ranking).unwrap(), payloads()["rank_result"]);
+        assert_eq!(
+            serde_json::to_value(ranking).unwrap(),
+            payloads()["rank_result"]
+        );
         let directory = Path::new("/Shoots/Job");
         let progress = Progress {
             directory,
@@ -1048,7 +1081,10 @@ mod contract_tests {
             },
             cancelled: None,
         };
-        assert_eq!(serde_json::to_value(progress).unwrap(), payloads()["progress_event"]);
+        assert_eq!(
+            serde_json::to_value(progress).unwrap(),
+            payloads()["progress_event"]
+        );
         let done = Progress {
             directory,
             status: ContentStatus {
@@ -1058,9 +1094,11 @@ mod contract_tests {
             },
             cancelled: Some(false),
         };
-        assert_eq!(serde_json::to_value(done).unwrap(), payloads()["done_event"]);
+        assert_eq!(
+            serde_json::to_value(done).unwrap(),
+            payloads()["done_event"]
+        );
         assert_eq!(json!(PROGRESS), json!("content-index-progress"));
         assert_eq!(json!(DONE), json!("content-index-done"));
     }
 }
-

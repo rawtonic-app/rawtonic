@@ -73,8 +73,7 @@ pub fn score(bytes: &[u8], scale: f32, query: &[f32]) -> f32 {
 
 /// Rows the pass still has to (re)read: none for the photograph, another
 /// model's, or one made of the file as it was before.
-const STALE: &str =
-    "(c.asset_id IS NULL OR c.model!=?1 OR c.fingerprint!=a.fingerprint)";
+const STALE: &str = "(c.asset_id IS NULL OR c.model!=?1 OR c.fingerprint!=a.fingerprint)";
 
 impl Library {
     /// Present photographs `model` has no current embedding of, newest
@@ -223,7 +222,9 @@ mod tests {
 
     #[test]
     fn quantized_embeddings_keep_their_direction() {
-        let values: Vec<f32> = (0..DIM).map(|i| ((i * 37 % 101) as f32 - 50.0) / 900.0).collect();
+        let values: Vec<f32> = (0..DIM)
+            .map(|i| ((i * 37 % 101) as f32 - 50.0) / 900.0)
+            .collect();
         let norm = values.iter().map(|v| v * v).sum::<f32>().sqrt();
         let unit: Vec<f32> = values.iter().map(|v| v / norm).collect();
         let (bytes, scale) = quantize(&unit).unwrap();

@@ -92,7 +92,11 @@ fn another_model_or_a_changed_file_is_read_again() {
     // A new model: nothing it made yet, everything to read, no ranking.
     assert_eq!(lib.content_backlog_count("vision-b").unwrap(), 2);
     assert_eq!(lib.content_status("vision-b").unwrap().indexed, 0);
-    assert!(lib.content_ranking("vision-b", &along(1)).unwrap().is_empty());
+    assert!(
+        lib.content_ranking("vision-b", &along(1))
+            .unwrap()
+            .is_empty()
+    );
     // A file changed since it was read: read again, not ranked meanwhile.
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute(
@@ -115,7 +119,8 @@ fn another_model_or_a_changed_file_is_read_again() {
     // A removed photograph takes its row along; a recording for it after
     // that is ignored.
     db.execute_batch("PRAGMA foreign_keys=ON").unwrap();
-    db.execute("DELETE FROM assets WHERE id=?", [&ids[1]]).unwrap();
+    db.execute("DELETE FROM assets WHERE id=?", [&ids[1]])
+        .unwrap();
     let rows: i64 = db
         .query_row("SELECT count(*) FROM content_embeddings", [], |r| r.get(0))
         .unwrap();
@@ -132,13 +137,17 @@ fn another_model_or_a_changed_file_is_read_again() {
 fn a_bad_embedding_is_refused() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = library(d.path(), &["a.jpg"]);
-    let fingerprint = lib.content_backlog(MODEL, 1).unwrap()[0].fingerprint.clone();
-    assert!(lib
-        .record_content(&ids[0], MODEL, &fingerprint, Ok(&[0.5; 10]))
-        .is_err());
-    assert!(lib
-        .record_content(&ids[0], MODEL, &fingerprint, Ok(&vec![0.0; DIM]))
-        .is_err());
+    let fingerprint = lib.content_backlog(MODEL, 1).unwrap()[0]
+        .fingerprint
+        .clone();
+    assert!(
+        lib.record_content(&ids[0], MODEL, &fingerprint, Ok(&[0.5; 10]))
+            .is_err()
+    );
+    assert!(
+        lib.record_content(&ids[0], MODEL, &fingerprint, Ok(&vec![0.0; DIM]))
+            .is_err()
+    );
     assert_eq!(lib.content_backlog_count(MODEL).unwrap(), 1);
 }
 
@@ -149,14 +158,18 @@ fn a_bad_embedding_is_refused() {
 fn an_older_library_gets_the_index() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = library(d.path(), &["a.jpg"]);
-    let fingerprint = lib.content_backlog(MODEL, 1).unwrap()[0].fingerprint.clone();
+    let fingerprint = lib.content_backlog(MODEL, 1).unwrap()[0]
+        .fingerprint
+        .clone();
     lib.record_content(&ids[0], MODEL, &fingerprint, Ok(&along(0)))
         .unwrap();
     drop(lib);
     let db_path = d.path().join("Job/session.sqlite");
     let db = rusqlite::Connection::open(&db_path).unwrap();
     db.execute_batch(include_str!("undo_0025.sql")).unwrap();
-    let version: u32 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    let version: u32 = db
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(version, 24);
     drop(db);
     let lib = Library::open(&d.path().join("Job")).unwrap();

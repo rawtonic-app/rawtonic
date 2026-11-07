@@ -824,7 +824,10 @@ fn fill(conn: &Connection, version: usize) {
             ("model", t("d6e4f91fd3779a52")),
             ("fingerprint", t("xxh3:0000000000005cf3")),
             ("scale", r(0.0625)),
-            ("vector", Sql::Blob((0..768).map(|n| (n % 7) as u8).collect())),
+            (
+                "vector",
+                Sql::Blob((0..768).map(|n| (n % 7) as u8).collect()),
+            ),
         ],
     );
     put(

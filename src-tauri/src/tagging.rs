@@ -171,7 +171,10 @@ pub fn embed_custom_tags(
 
 /// SigLIP 2 text embeddings of `prompts` as given, one row of
 /// `SIGLIP_EMBED_DIM` per prompt (unit length).
-pub fn embed_texts(text: &crate::ai_processing::TextEncoder, prompts: Vec<String>) -> Result<Vec<f32>> {
+pub fn embed_texts(
+    text: &crate::ai_processing::TextEncoder,
+    prompts: Vec<String>,
+) -> Result<Vec<f32>> {
     let count = prompts.len();
     let encodings = text
         .tokenizer
