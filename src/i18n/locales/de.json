@@ -2766,6 +2766,8 @@
     "adjustment": {
       "scrubHint": "Ziehen zum Anpassen · Doppelklick zum Zurücksetzen",
       "trackHint": "Ziehen zum Anpassen; für feinere Schritte den Zeiger vom Regler weg bewegen · Alt (⌥): ein Zehntel · Doppelklick zum Zurücksetzen",
+      "trackHintSharpenGrey": "Ziehen zum Anpassen; für feinere Schritte den Zeiger vom Regler weg bewegen · Alt (⌥) beim Ziehen halten: zeigt das Foto in Grau · Doppelklick zum Zurücksetzen",
+      "trackHintSharpenMask": "Ziehen zum Anpassen; für feinere Schritte den Zeiger vom Regler weg bewegen · Alt (⌥) beim Ziehen halten: zeigt, was geschärft wird (weiß) · Doppelklick zum Zurücksetzen",
       "value": "{{name}} – Wert",
       "valueWithUnit": "{{name}} – Wert ({{unit}})"
     },

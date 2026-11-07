@@ -2766,6 +2766,8 @@
     "adjustment": {
       "scrubHint": "Drag to adjust · double-click to reset",
       "trackHint": "Drag to adjust; move the pointer away from the slider for finer steps · Alt (⌥): a tenth · double-click to reset",
+      "trackHintSharpenGrey": "Drag to adjust; move the pointer away from the slider for finer steps · hold Alt (⌥) while dragging to see the photo in grey · double-click to reset",
+      "trackHintSharpenMask": "Drag to adjust; move the pointer away from the slider for finer steps · hold Alt (⌥) while dragging to see what is sharpened (white) · double-click to reset",
       "value": "{{name}} value",
       "valueWithUnit": "{{name}} value ({{unit}})"
     },

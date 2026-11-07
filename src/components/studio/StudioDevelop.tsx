@@ -20,6 +20,7 @@ import {
   ScanFace
 } from 'lucide-react';
 import { debouncedSetHistory, panelsShowReady, useEditorStore } from '../../store/useEditorStore';
+import { sharpenViewFor } from '../../utils/sharpenView';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
@@ -890,6 +891,25 @@ export default function StudioDevelop() {
     }
     return onChange;
   };
+  // Option while dragging a Sharpening slider shows the sharpening view
+  // (utils/sharpenView); one object per slider and hint, so the memoized
+  // controls keep it between renders.
+  const optionViews = useRef(new Map<string, { onChange(shown: boolean): void; hint: string }>());
+  const optionViewOf = (key: string) => {
+    const view = layer ? null : sharpenViewFor(key);
+    if (!view) return undefined;
+    const hint = t(
+      view === 'mask' ? 'studio.adjustment.trackHintSharpenMask' : 'studio.adjustment.trackHintSharpenGrey'
+    );
+    const cached = optionViews.current.get(key);
+    if (cached?.hint === hint) return cached;
+    const next = {
+      hint,
+      onChange: (shown: boolean) => useEditorStore.getState().setEditor({ sharpenView: shown ? view : null })
+    };
+    optionViews.current.set(key, next);
+    return next;
+  };
   // Layers start neutral; the photo itself starts from the RAW defaults.
   const defaults = layer ? INITIAL_ADJUSTMENTS : initialAdjustmentsFor(!!selectedImage?.isRaw);
   const reset = (keys: string[]) =>
@@ -912,6 +932,7 @@ export default function StudioDevelop() {
       defaultValue={(defaults[key] ?? 0) as number}
       disabled={!panelsReady}
       track={track}
+      optionView={optionViewOf(key)}
       onChange={changeOf(key)}
       onInteraction={onInteraction}
     />

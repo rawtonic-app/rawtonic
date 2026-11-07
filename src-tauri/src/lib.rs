@@ -306,6 +306,7 @@ fn start(args: Vec<String>) {
         .setup(move |app| {
             // Before anything reads settings or user content (see the module).
             let carried_over = identity_migration::carry_over(app.handle());
+            gpu_processing::notify_sharpen_view_ready(app.handle());
             if matches!(launch_req, LaunchRequest::WarmGpuCache) {
                 gpu_warmup::start(app.handle());
                 return Ok(());
