@@ -2381,18 +2381,24 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
     std::thread::scope(|scope| {
         for _ in 0..READY_REGION_THREADS.min(ready_count) {
             let sender = sender.clone();
-            scope.spawn(move || work(ready, sender));
+            rawtonic_runtime::spawn_scoped_render_thread(scope, "multi-view-region", move || {
+                work(ready, sender)
+            });
         }
         // The decodes once the interim regions are shown (within
         // INTERIM_TIME).
         let heavy_sender = sender.clone();
         let interim_context = &context;
-        scope.spawn(move || {
+        rawtonic_runtime::spawn_scoped_render_thread(scope, "multi-view-region", move || {
             show_interim_regions(app_handle, interim_context, current_ref, interims);
             std::thread::scope(|decodes| {
                 for _ in 0..region_threads() {
                     let sender = heavy_sender.clone();
-                    decodes.spawn(move || work(heavy, sender));
+                    rawtonic_runtime::spawn_scoped_render_thread(
+                        decodes,
+                        "multi-view-region",
+                        move || work(heavy, sender),
+                    );
                 }
             });
         });
@@ -2722,6 +2728,22 @@ fn live_region(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_workers_use_the_explicit_render_stack() {
+        // All scoped workers here may reach the GPU, including zoom/pan
+        // regions. Require the shared stack helper rather than a default
+        // scoped spawn; keep the coordinator on it too so there is no exception.
+        let source = include_str!("multi_view.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(source.contains("spawn_scoped_render_thread"));
+        assert!(
+            !source.contains(".spawn("),
+            "multi-view workers must use spawn_scoped_render_thread"
+        );
+    }
 
     /// The tests of the shared measures store run one at a time.
     static MEASURES_TESTS: Mutex<()> = Mutex::new(());
