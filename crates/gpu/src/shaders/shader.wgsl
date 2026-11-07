@@ -4811,11 +4811,15 @@ fn apply_sharpen_v7(
 // response 8"): response 7 with a noise gate on RAW photos, at every
 // Masking value. Without Masking response 7 sharpened flat noise as much as
 // texture (1.05 × Camera Raw's flat-area noise at matched detail, Capture
-// One 0.87 ×); the gate leaves out what is no more than the photo's
-// measured noise (`noise_level`) in a 1 px neighbourhood.
-const SHARPEN_V8_GATE_SIGMA: f32 = 1.0;
+// One 0.87 ×); the gate leaves out what stands no more than the photo's
+// measured noise (`noise_level`) out of the sharpening kernel's
+// neighbourhood: 0.88 × at matched fine detail (14 frames; 0.84 on the 7
+// tuning frames it was fitted on, half at 1, 1.5 or 2 noise spreads, floor
+// 0 or 1; 0.90 on the 7 hold-outs), edges at least as sharp, halos at most
+// Camera Raw's. A 1 px Gaussian of its own over 5 × 5 pixels cost 1–1.7 ms
+// per preview frame; the kernel's spread costs nothing extra.
 const SHARPEN_V8_NOISE_FLOOR: f32 = 1.0;
-const SHARPEN_V8_GATE_HALF: f32 = 1.0;
+const SHARPEN_V8_GATE_HALF: f32 = 1.5;
 
 // A copy of response 7's function with the noise gate (shared code compiles
 // differently, see responses 4 and 5).
@@ -4861,6 +4865,7 @@ fn apply_sharpen_v8(
     var blur_sum = 0.0;
     var blur_sq = 0.0;
     var blur_w = 0.0;
+    var blur_w2 = 0.0;
     var wide_sum = 0.0;
     var wide_w = 0.0;
     // Masking's neighbourhood: every pixel of the loop below, and beyond
@@ -4869,12 +4874,6 @@ fn apply_sharpen_v8(
     var m_sum = 0.0;
     var m_sq = 0.0;
     var m_w = 0.0;
-    // The noise gate's neighbourhood: a 1 px Gaussian (detail-scaled)
-    // within the loop below.
-    let noise_sigma = max(SHARPEN_V8_GATE_SIGMA * detail_scale, 0.5);
-    var n_sum = 0.0;
-    var n_sq = 0.0;
-    var n_w = 0.0;
     for (var sy = -reach; sy <= reach; sy = sy + 1) {
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
             let w = exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma));
@@ -4883,15 +4882,12 @@ fn apply_sharpen_v8(
             blur_sum += p * w;
             blur_sq += p * p * w;
             blur_w += w;
+            blur_w2 += w * w;
             if (tilt != 0.0) {
                 let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
                 wide_sum += p * w2;
                 wide_w += w2;
             }
-            let wn = exp(-f32(sx * sx + sy * sy) / (2.0 * noise_sigma * noise_sigma));
-            n_sum += p * wn;
-            n_sq += p * p * wn;
-            n_w += wn;
             if (masking > 0.0) {
                 let wm = exp(-f32(sx * sx + sy * sy) / (2.0 * mask_sigma * mask_sigma));
                 m_sum += p * wm;
@@ -4922,16 +4918,19 @@ fn apply_sharpen_v8(
     let t_gate = max(threshold * SHARPEN_THRESHOLD_SCALE, 1e-4) / kernel_ratio;
     var gate = smoothstep(t_gate * 0.2, t_gate, abs(d));
     // Response 8: spread at the photo's noise level is noise, not detail.
-    // The spread over the 1 px neighbourhood, less the noise's own share,
-    // over the noise level: q³ / (1 + q³) with q = 1 at
-    // SHARPEN_V8_GATE_HALF noise levels. Ratios of the same encoding, so
-    // the tone curve does not enter.
+    // The spread over the sharpening kernel less the noise's own share, as
+    // it shows after the photo's tone curve (`sharpen_v7_tone_weight`, so
+    // bright flat areas, whose noise the curve's shoulder compresses, are
+    // not read as detail), over the noise's spread: q³ / (1 + q³), half at
+    // SHARPEN_V8_GATE_HALF.
     let noise = adjustments.global.noise_level * min(detail_scale, 1.0);
     if (noise > 0.0) {
-        let n_mean = n_sum / n_w;
-        let n_var = max(n_sq / n_w - n_mean * n_mean, 0.0);
-        let above = sqrt(max(n_var - SHARPEN_V8_NOISE_FLOOR * noise * noise, 0.0));
-        let qn = above / (SHARPEN_V8_GATE_HALF * noise);
+        // The spread over the sharpening kernel (as `spread` below) against
+        // the spread white noise of the photo's level has over it.
+        let n_var = max(blur_sq / blur_w - mean * mean, 0.0);
+        let kernel_noise = noise * sqrt(max(1.0 - blur_w2 / (blur_w * blur_w), 1e-3));
+        let above = sqrt(max(n_var - SHARPEN_V8_NOISE_FLOOR * kernel_noise * kernel_noise, 0.0));
+        let qn = above * sharpen_v7_tone_weight(mean) / (SHARPEN_V8_GATE_HALF * kernel_noise);
         let qn3 = qn * qn * qn;
         gate *= qn3 / (1.0 + qn3);
     }

@@ -7851,8 +7851,8 @@ impl GpuProcessor {
         let level = relight_range_level(adjustments);
         let sharpen = sharpen_level(adjustments);
         let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-        match self.range2_pipelines[output.index()][sharpen][level]
-            [usize::from(long)][usize::from(profile)][usize::from(edge)]
+        match self.range2_pipelines[output.index()][sharpen][level][usize::from(long)]
+            [usize::from(profile)][usize::from(edge)]
         .get_or_init(|| {
             self.compile_general(
                 "Compute Pipeline (relight range 2, sharpening 7)",

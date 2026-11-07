@@ -5704,8 +5704,8 @@ fn defringe_settings(
 pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
 /// The newest response: 8 (2026-11-07) is 7 with a noise gate on RAW
 /// photos at every Masking value: what stands no more than the photo's
-/// measured noise level out of its 1 px neighbourhood is not sharpened, so
-/// flat areas keep less sharpened noise without Masking (notes:
+/// measured noise level out of the sharpening kernel's neighbourhood is not
+/// sharpened, so even areas keep less sharpened noise without Masking (notes:
 /// reference/detail.md "Sharpening response 8"); on non-RAW photos, and on
 /// RAWs without a measured noise level, it renders as 7.
 /// 7 (2026-11-03) is 6 with Masking reading the
@@ -9545,7 +9545,7 @@ mod reset_recipe_edited_tests {
     #[test]
     fn a_reset_recipe_stamped_with_versions_is_not_edited() {
         let stamped = json!({
-            "renderVersion": 11, "toneVersion": 10, "sharpenVersion": 7, "lumaNoiseVersion": 2,
+            "renderVersion": 11, "toneVersion": 10, "sharpenVersion": 8, "lumaNoiseVersion": 2,
             "colorNoiseVersion": 11, "defringeVersion": 2, "grainVersion": 3, "clarityVersion": 2,
             "bwVersion": 2, "autoCaVersion": 3, "sourceFrameVersion": 3, "colorLabel": ""
         });
