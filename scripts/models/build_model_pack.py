@@ -359,6 +359,9 @@ ORT130 = [
     (ORT130_BASE + "onnxruntime-linux-aarch64-1.30.0.tgz", "e16a27a8ed330bbc698df7330b0cf56e722f354e3bcc92118682c74ef3c3e3da",
      "onnxruntime-linux-aarch64-1.30.0/lib/libonnxruntime.so.1.30.0",
      "libonnxruntime-1.30.0-linux-aarch64.so", "64e903a43a041240fd6bcffe0ac6d4fea47ef87bf24b9d097801bd00a9612a4b"),
+    (ORT130_BASE + "onnxruntime-osx-arm64-1.30.0.tgz", "6ebb5062a934537c352937821f9fe9718e7de1a2db1122a93dd363ffd53a7012",
+     "./onnxruntime-osx-arm64-1.30.0/lib/libonnxruntime.1.30.0.dylib",
+     "libonnxruntime-1.30.0-macos-aarch64.dylib", "bcc9110f9d638a119de2db7afb3ba9a1da8085f0cb3401e1c48ae1caf450b6fa"),
     (ORT130_BASE + "onnxruntime-win-x64-1.30.0.zip", "c6ba983baf5681af108599675d2a89c2d145512d02de28aed0bff177cd0ba949",
      "onnxruntime-win-x64-1.30.0/lib/onnxruntime.dll",
      "onnxruntime-1.30.0-windows-x86_64.dll", "7e39e2bdbba836d98071ef28620735ba36a47c554cf794585269aecc50fab0da"),
@@ -398,7 +401,7 @@ CUDA = [
      "onnxruntime_providers_cuda-0.2.0-cuda13-windows-x86_64.dll", "ecbd0f4a75c172a63b93bf93cb4484b24aa7d488c99b957f55b86a77f195225f"),
 ]
 ORT130_ENTRY = {
-    "used_by": "Runtime for all models on Windows and Linux (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1)",
+    "used_by": "Runtime for all models on Windows, Linux and Apple silicon Macs (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1)",
     "source": "ONNX Runtime 1.30.0 release (github.com/microsoft/onnxruntime)",
     "license": "MIT",
     "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.30.0-ThirdPartyNotices.txt"],

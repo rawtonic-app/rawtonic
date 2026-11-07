@@ -49,7 +49,7 @@ nalgebra = "0.35.0"
 ndarray = "0.17"
 objc2 = "0.6"
 objc2-foundation = "0.3.2"
-ort = { version = "=2.0.0-rc.12", default-features = false }
+ort = { version = "=2.0.0-rc.15", default-features = false }
 png = "0.18.1"
 pollster = "1.0"
 proptest = "1"

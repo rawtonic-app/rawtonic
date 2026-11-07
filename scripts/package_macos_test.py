@@ -24,6 +24,17 @@ def security_output(*identities):
 
 
 class PackagingTests(unittest.TestCase):
+    def test_apple_silicon_floor_matches_its_onnx_runtime(self):
+        # The arm64 1.30.0 library has minos 14.0; Intel keeps 1.23.2 and macOS 13.
+        build = (packaging.REPO / "src-tauri/build.rs").read_text()
+        for arch, minimum in packaging.MINIMUM_MACOS.items():
+            cpu = "aarch64" if arch == "aarch64" else "x86_64"
+            runtime = build.split(f'("macos", "{cpu}")')[1].split('"libonnxruntime-')[1].split("-macos")[0]
+            self.assertEqual((arch, runtime, minimum),
+                             (arch, "1.30.0", "14.0") if arch == "aarch64" else (arch, "1.23.2", "13.0"))
+        base = json.loads((packaging.REPO / "src-tauri/tauri.macos.conf.json").read_text())
+        self.assertEqual(base["bundle"]["macOS"]["minimumSystemVersion"], packaging.MINIMUM_MACOS["x86_64"])
+
     def test_default_keeps_existing_commands(self):
         with patch.object(packaging, "run") as run, patch.object(packaging, "finish") as finish:
             packaging.package({})
@@ -31,7 +42,8 @@ class PackagingTests(unittest.TestCase):
             ["cargo", "deny", "check", "advisories"],
             [str(packaging.REPO / "scripts/tether/bundle_helper.sh")],
             ["tauri", "build", "--bundles", "app,dmg", "--config",
-             str(packaging.REPO / "target/tether-bundle/tauri.tether.conf.json")],
+             str(packaging.REPO / "target/tether-bundle/tauri.tether.conf.json"),
+             "--config", str(packaging.REPO / "target/tether-bundle/tauri.floor.conf.json")],
         ])
         self.assertEqual(run.call_args.kwargs["env"], {"CI": "true"})
         app = finish.call_args.args[0]
@@ -45,7 +57,8 @@ class PackagingTests(unittest.TestCase):
                          {"RAWTONIC_TARGET": "x86_64-apple-darwin"})
         self.assertEqual(run.call_args.args[0], [
             "tauri", "build", "--target", "x86_64-apple-darwin", "--bundles", "app,dmg",
-            "--config", str(target / "tether-bundle/tauri.tether.conf.json")])
+            "--config", str(target / "tether-bundle/tauri.tether.conf.json"),
+            "--config", str(target / "tether-bundle/tauri.floor.conf.json")])
         app, arch, built, dmg = finish.call_args.args
         self.assertEqual((app, arch), (target / "release/bundle/macos/Rawtonic.app", "x86_64"))
         self.assertTrue(built.name.endswith("_x64.dmg"))
@@ -69,7 +82,7 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(staged(), f"{target}/tether-bundle")
             with patch.object(packaging, "run") as run, patch.object(packaging, "finish"):
                 packaging.package({"CARGO_TARGET_DIR": target}, "x86_64")
-            self.assertEqual(run.call_args.args[0][-1],
+            self.assertEqual(run.call_args.args[0][-3],
                              f"{Path(target).resolve()}/x86_64-apple-darwin/tether-bundle/tauri.tether.conf.json")
 
     def test_architecture_check_refuses_a_bundle_with_the_other_architecture(self):

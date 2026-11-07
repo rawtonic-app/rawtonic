@@ -198,6 +198,19 @@ pub fn ensure_runtime() -> Result<(), RuntimeError> {
     })
 }
 
+/// The process's ONNX Runtime environment, created when the library loads
+/// and never released (the library is never unloaded either).
+static ENVIRONMENT: std::sync::OnceLock<ort::environment::Environment> = std::sync::OnceLock::new();
+
+/// The ONNX Runtime environment every session and provider uses, after
+/// `ensure_runtime`.
+pub fn environment() -> Result<&'static ort::environment::Environment, RuntimeError> {
+    ensure_runtime()?;
+    ENVIRONMENT
+        .get()
+        .ok_or_else(|| RuntimeError::unusable("ONNX Runtime environment missing".to_string()))
+}
+
 static MISSING_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Opens `path` and checks it is a usable ONNX Runtime (the API version
@@ -210,15 +223,19 @@ pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
         )));
     }
     let version = check_library(path)?;
-    // `ort` loads this file from now on (its environment is created on
-    // first use, as before).
-    ort::init_from(path).map_err(|error| {
+    // `ort` loads this file from now on; its one environment is created
+    // here and kept for the life of the process (`environment`).
+    let builder = ort::init_from(path).map_err(|error| {
         RuntimeError::unusable(format!("ONNX Runtime at {shown} could not start: {error}"))
     })?;
-    match std::panic::catch_unwind(|| {
-        ort::api();
-    }) {
-        Ok(()) => Ok(version),
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || builder.build())) {
+        Ok(Ok(env)) => {
+            let _ = ENVIRONMENT.set(env);
+            Ok(version)
+        }
+        Ok(Err(error)) => Err(RuntimeError::unusable(format!(
+            "ONNX Runtime {version} at {shown} could not start: {error}"
+        ))),
         Err(panic) => Err(RuntimeError::unusable(format!(
             "ONNX Runtime {version} at {shown} could not start: {}",
             panic_message(panic.as_ref())

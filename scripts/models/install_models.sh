@@ -18,7 +18,7 @@
 set -eu
 
 REPO=rawtonic-app/models
-TAG=pack-2026-10-27b
+TAG=pack-2026-11-07
 RUNTIME=0
 CUDA=0
 while [ $# -gt 0 ]; do
@@ -37,10 +37,10 @@ case "$(uname -s)" in
   *) echo "unsupported system: $(uname -s)" >&2; exit 1 ;;
 esac
 # Runtime files: "pack name:name in resources" (Windows and Linux: ONNX
-# Runtime 1.30.0 and the WebGPU plugin; macOS: 1.23.2).
+# Runtime 1.30.0 and the WebGPU plugin; Apple silicon: 1.30.0; Intel macOS: 1.23.2).
 CUDA_LIB=
 case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64) LIBS="libonnxruntime-1.23.2-macos-aarch64.dylib:libonnxruntime.dylib" ;;
+  Darwin-arm64) LIBS="libonnxruntime-1.30.0-macos-aarch64.dylib:libonnxruntime.dylib" ;;
   Darwin-x86_64) LIBS="libonnxruntime-1.23.2-macos-x86_64.dylib:libonnxruntime.dylib" ;;
   Linux-x86_64)
     LIBS="libonnxruntime-1.30.0-linux-x86_64.so:libonnxruntime.so libonnxruntime_providers_webgpu-0.4.0-linux-x86_64.so:libonnxruntime_providers_webgpu.so"

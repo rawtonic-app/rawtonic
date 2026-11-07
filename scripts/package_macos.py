@@ -25,6 +25,11 @@ APPLE_ID = ("APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID")
 # Rust architecture -> (Mach-O CPU type, Tauri's DMG suffix, our DMG suffix).
 ARCHES = {"aarch64": (0x0100000C, "aarch64", "aarch64"),
           "x86_64": (0x01000007, "x64", "x86_64")}
+# Minimum macOS per architecture. Apple silicon needs 14: Microsoft's
+# ONNX Runtime 1.30.0 arm64 library (minos 14.0) is its AI runtime. Intel
+# keeps 13 with ONNX Runtime 1.23.2 (src-tauri/build.rs;
+# scripts/package_macos_test.py pins the two together).
+MINIMUM_MACOS = {"aarch64": "14.0", "x86_64": "13.0"}
 MACHO = (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf",
          b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
          b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca")
@@ -211,15 +216,18 @@ def package(env, arch=None):
     tether = tether_dir / "tauri.tether.conf.json"
     run(["cargo", "deny", "check", "advisories"], env=env)
     run([str(REPO / "scripts/tether/bundle_helper.sh")], env=helper_env)
+    floor = tether_dir / "tauri.floor.conf.json"
+    floor.parent.mkdir(parents=True, exist_ok=True)
+    floor.write_text(json.dumps({"bundle": {"macOS": {"minimumSystemVersion": MINIMUM_MACOS[arch]}}}) + "\n")
     build_env = {**env, "CI": "true"}
     if not signed:
-        run(["tauri", "build", *cross, "--bundles", "app,dmg", "--config", str(tether)],
+        run(["tauri", "build", *cross, "--bundles", "app,dmg", "--config", str(tether), "--config", str(floor)],
             env=build_env)
         finish(bundle / "macos/Rawtonic.app", arch, built_dmg, dmg)
         return
 
     # Build first so the optional ONNX download and generated licenses exist.
-    run(["tauri", "build", *cross, "--no-bundle", "--config", str(tether)], env=build_env)
+    run(["tauri", "build", *cross, "--no-bundle", "--config", str(tether), "--config", str(floor)], env=build_env)
     with tempfile.TemporaryDirectory(prefix="rawtonic-signing-") as temporary:
         keychain = None
         try:
@@ -230,6 +238,7 @@ def package(env, arch=None):
             signing = json.loads(overlay.read_text())["bundle"]
             config["bundle"]["resources"] = signing["resources"]
             config["bundle"]["macOS"].update(signing["macOS"])
+            config["bundle"]["macOS"]["minimumSystemVersion"] = MINIMUM_MACOS[arch]
             overlay.write_text(json.dumps(config) + "\n")
             # Tauri imports APPLE_CERTIFICATE into its own temporary keychain
             # to sign frameworks, helper, main executable, app and DMG. It also

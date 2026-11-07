@@ -162,15 +162,12 @@ fn main() -> Result<()> {
     let threads = env("BENCH_THREADS");
     let started = Instant::now();
     let backend = match threads {
-        Some(n) if provider == Provider::Cpu => {
-            rawtonic_onnx::ensure_runtime()?;
-            Onnx::Session(Mutex::new(
-                ort::session::Session::builder()?
-                    .with_intra_threads(n)
-                    .map_err(|e| anyhow::anyhow!("{e}"))?
-                    .commit_from_file(&model)?,
-            ))
-        }
+        Some(n) if provider == Provider::Cpu => Onnx::Session(Mutex::new(
+            ort::session::Session::builder(rawtonic_onnx::environment()?)?
+                .with_intra_threads(n)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .commit_from_file(&model)?,
+        )),
         _ => Onnx::Model(Model::load_on(
             &model,
             ModelKind::Denoise,
