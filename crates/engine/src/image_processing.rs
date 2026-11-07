@@ -461,19 +461,28 @@ pub fn downscale_f32_image_signed(image: &DynamicImage, nwidth: u32, nheight: u3
     downscale_f32(image, nwidth, nheight, false)
 }
 
-/// Two `nwidth` x `nheight` copies of `image` at the geometry of its
-/// averaged copy (each output pixel stands for one block of the frame):
-/// per block the pixel whose brightest channel is highest, and the pixel
-/// whose darkest channel is lowest (signed). Real pixels of the frame, not
-/// per-channel extremes that mix colours no pixel has: rendered with the
-/// frame's recipe they clip only where a pixel of the frame does, and a
-/// one-pixel clipped highlight or shadow the averaging hides still clips
-/// (the zoomed drag's clipping marks, src-tauri scope_analytics.rs).
-pub fn block_extreme_pixels(
-    image: &DynamicImage,
-    nwidth: u32,
-    nheight: u32,
-) -> (DynamicImage, DynamicImage) {
+/// Two `nwidth` x `nheight` copies of a frame, each pixel standing for one
+/// block of it ([`block_extreme_pixels`]), and where each copy pixel was
+/// taken from (row-major pixel index into the frame), so that whatever
+/// depends on a pixel's position (a layer mask) can be read there.
+pub struct BlockExtremes {
+    /// Per block the pixel whose brightest channel is highest.
+    pub brightest: DynamicImage,
+    pub brightest_at: Vec<u32>,
+    /// Per block the pixel whose darkest channel is lowest (signed).
+    pub darkest: DynamicImage,
+    pub darkest_at: Vec<u32>,
+}
+
+/// Per block of an `nwidth` x `nheight` grid over `image`, the pixel whose
+/// brightest channel is highest and the pixel whose darkest channel is
+/// lowest. Real pixels of the frame, not per-channel extremes that mix
+/// colours no pixel has: rendered with the frame's recipe (and the frame's
+/// masks read at their positions) a one-pixel clipped highlight or shadow
+/// the averaging hides still clips (the zoomed drag's clipping marks,
+/// src-tauri scope_analytics.rs). One pixel per block and side: when two
+/// pixels of a block clip in different channels, the copy keeps one of them.
+pub fn block_extreme_pixels(image: &DynamicImage, nwidth: u32, nheight: u32) -> BlockExtremes {
     let (width, height) = image.dimensions();
     let (nw, nh) = (
         nwidth.clamp(1, width.max(1)) as usize,
@@ -488,43 +497,46 @@ pub fn block_extreme_pixels(
     };
     let src: &[f32] = img.as_raw();
     let (w, h) = (width as usize, height as usize);
-    let mut brightest = vec![0.0f32; nw * nh * 3];
-    let mut darkest = vec![0.0f32; nw * nh * 3];
-    brightest
-        .par_chunks_exact_mut(nw * 3)
-        .zip(darkest.par_chunks_exact_mut(nw * 3))
-        .enumerate()
-        .for_each(|(y_out, (bright_row, dark_row))| {
+    // Per block: (brightest pixel, its index, darkest pixel, its index).
+    type Block = ([f32; 3], u32, [f32; 3], u32);
+    let blocks: Vec<Block> = (0..nw * nh)
+        .into_par_iter()
+        .map(|block| {
+            let (x_out, y_out) = (block % nw, block / nw);
+            let (x0, x1) = (x_out * w / nw, (x_out + 1) * w / nw);
             let (y0, y1) = (y_out * h / nh, (y_out + 1) * h / nh);
-            let bright_row = bright_row.as_chunks_mut::<3>().0;
-            let dark_row = dark_row.as_chunks_mut::<3>().0;
-            for x_out in 0..nw {
-                let (x0, x1) = (x_out * w / nw, (x_out + 1) * w / nw);
-                let (mut high, mut low) = ([f32::NAN; 3], [f32::NAN; 3]);
-                let (mut high_key, mut low_key) = (f32::NEG_INFINITY, f32::INFINITY);
-                for y in y0..y1 {
-                    let line = &src[(y * w + x0) * 3..(y * w + x1) * 3];
-                    for &pixel in line.as_chunks::<3>().0 {
-                        let top = pixel[0].max(pixel[1]).max(pixel[2]);
-                        if top > high_key || high[0].is_nan() {
-                            (high_key, high) = (top, pixel);
-                        }
-                        let bottom = pixel[0].min(pixel[1]).min(pixel[2]);
-                        if bottom < low_key || low[0].is_nan() {
-                            (low_key, low) = (bottom, pixel);
-                        }
+            let first = y0 * w + x0;
+            let mut high = (src[first * 3..first * 3 + 3].try_into().unwrap(), first);
+            let mut low = high;
+            let (mut high_key, mut low_key) = (f32::NEG_INFINITY, f32::INFINITY);
+            for y in y0..y1 {
+                let line = &src[(y * w + x0) * 3..(y * w + x1) * 3];
+                for (dx, &pixel) in line.as_chunks::<3>().0.iter().enumerate() {
+                    let top = pixel[0].max(pixel[1]).max(pixel[2]);
+                    if top > high_key {
+                        (high_key, high) = (top, (pixel, y * w + x0 + dx));
+                    }
+                    let bottom = pixel[0].min(pixel[1]).min(pixel[2]);
+                    if bottom < low_key {
+                        (low_key, low) = (bottom, (pixel, y * w + x0 + dx));
                     }
                 }
-                bright_row[x_out] = high;
-                dark_row[x_out] = low;
             }
-        });
-    let copy = |pixels| {
+            (high.0, high.1 as u32, low.0, low.1 as u32)
+        })
+        .collect();
+    let copy = |pixel: fn(&Block) -> [f32; 3]| {
+        let pixels = blocks.iter().flat_map(pixel).collect();
         DynamicImage::ImageRgb32F(
             Rgb32FImage::from_raw(nw as u32, nh as u32, pixels).expect("buffer size mismatch"),
         )
     };
-    (copy(brightest), copy(darkest))
+    BlockExtremes {
+        brightest: copy(|b| b.0),
+        brightest_at: blocks.iter().map(|b| b.1).collect(),
+        darkest: copy(|b| b.2),
+        darkest_at: blocks.iter().map(|b| b.3).collect(),
+    }
 }
 
 fn downscale_f32(image: &DynamicImage, nwidth: u32, nheight: u32, clamp: bool) -> DynamicImage {
@@ -9566,13 +9578,16 @@ mod signed_downscale_tests {
                 .pixels()
                 .all(|p| p[0] < 5.0 && p[0] > 0.0)
         );
-        let (bright, dark) = block_extreme_pixels(&image, 16, 12);
-        assert_eq!(bright.dimensions(), (16, 12));
-        assert_eq!(dark.dimensions(), (16, 12));
-        let (bright, dark) = (bright.to_rgb32f(), dark.to_rgb32f());
-        // Pixel (33, 17) lies in block (8, 4) of 4 x 4 pixels.
+        let extremes = block_extreme_pixels(&image, 16, 12);
+        assert_eq!(extremes.brightest.dimensions(), (16, 12));
+        assert_eq!(extremes.darkest.dimensions(), (16, 12));
+        let (bright, dark) = (extremes.brightest.to_rgb32f(), extremes.darkest.to_rgb32f());
+        // Pixel (33, 17) lies in block (8, 4) of 4 x 4 pixels, and the copy
+        // says where it came from.
         assert_eq!(bright.get_pixel(8, 4).0, [40.0, 30.0, 20.0]);
+        assert_eq!(extremes.brightest_at[4 * 16 + 8], 17 * 64 + 33);
         assert_eq!(dark.get_pixel(12, 10).0, [-0.3, 0.2, 0.1]);
+        assert_eq!(extremes.darkest_at[10 * 16 + 12], 40 * 64 + 50);
         assert_eq!(bright.get_pixel(0, 0).0, [0.5, 0.4, 0.3]);
         // Every pixel of every copy is a pixel of the frame.
         let frame = image.to_rgb32f();
@@ -9587,9 +9602,11 @@ mod signed_downscale_tests {
         let mut base = Rgb32FImage::from_pixel(7, 5, image::Rgb([0.5; 3]));
         base.put_pixel(6, 4, image::Rgb([9.0; 3]));
         base.put_pixel(0, 0, image::Rgb([-1.0; 3]));
-        let (bright, dark) = block_extreme_pixels(&DynamicImage::ImageRgb32F(base), 3, 2);
-        assert_eq!(bright.to_rgb32f().get_pixel(2, 1).0, [9.0; 3]);
-        assert_eq!(dark.to_rgb32f().get_pixel(0, 0).0, [-1.0; 3]);
+        let extremes = block_extreme_pixels(&DynamicImage::ImageRgb32F(base), 3, 2);
+        assert_eq!(extremes.brightest.to_rgb32f().get_pixel(2, 1).0, [9.0; 3]);
+        assert_eq!(extremes.brightest_at[5], 4 * 7 + 6);
+        assert_eq!(extremes.darkest.to_rgb32f().get_pixel(0, 0).0, [-1.0; 3]);
+        assert_eq!(extremes.darkest_at[0], 0);
     }
 
     #[test]

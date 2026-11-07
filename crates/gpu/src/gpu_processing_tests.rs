@@ -18219,23 +18219,28 @@ fn zoomed_drag_clipping(
     let (w, h) = proxy.dimensions();
     // The block-extreme copies' size in the app (long edge 256).
     let (ew, eh) = (256, (256 * frame.height()).div_ceil(frame.width()));
-    let (bright, dark) = crate::image_processing::block_extreme_pixels(frame, ew, eh);
+    let copies = crate::image_processing::block_extreme_pixels(frame, ew, eh);
     let processor = ProcessorSlot::new(None);
+    // The averaged copy's masks are drawn at its size; the extreme copies
+    // read the frame's masks where each of their pixels came from.
     let proxy_masks = recipe_masks(recipe, (w, h), frame.width());
-    let extremes_masks = recipe_masks(recipe, (ew, eh), frame.width());
+    let frame_masks = recipe_masks(recipe, frame.dimensions(), frame.width());
+    let gathered = |at: &[u32]| -> Vec<Arc<MaskBitmap>> {
+        frame_masks
+            .iter()
+            .map(|mask| Arc::new(mask.gather(ew, eh, at)))
+            .collect()
+    };
+    let (bright_masks, dark_masks) = (gathered(&copies.brightest_at), gathered(&copies.darkest_at));
     // Each copy's pixels per frame pixel and masks, as the app's scope
     // render sets them.
-    let request = |copy_width: u32| RenderRequest {
+    let request = |copy_width: u32, masks| RenderRequest {
         adjustments: {
             let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(2));
             adjustments.global.detail_scale *= copy_width as f32 / frame.width() as f32;
             adjustments
         },
-        mask_bitmaps: if copy_width == w {
-            &proxy_masks
-        } else {
-            &extremes_masks
-        },
+        mask_bitmaps: masks,
         lut: None,
         roi: None,
     };
@@ -18248,7 +18253,7 @@ fn zoomed_drag_clipping(
             &processor,
             &Mutex::new(None),
             (&proxy, 1),
-            request(w),
+            request(w, &proxy_masks),
             config,
             false,
         )
@@ -18265,13 +18270,16 @@ fn zoomed_drag_clipping(
     };
     let averaged = scope(ClippedSides::default());
     let mut extremes = ClippedSides::default();
-    for (id, copy) in [(2, &bright), (3, &dark)] {
+    for (id, copy, masks) in [
+        (2, &copies.brightest, &bright_masks),
+        (3, &copies.darkest, &dark_masks),
+    ] {
         let marks = render_scope_clip_marks(
             context,
             &processor,
             &Mutex::new(None),
             (copy, id),
-            request(ew),
+            request(ew, masks),
             false,
         )
         .unwrap();
@@ -18438,10 +18446,14 @@ fn a_zoomed_drags_clipping_marks_follow_the_masks_as_the_release() {
         assert!(value < 1000.0, "one pixel never clips");
     }
     let value = value * 1.25;
+    // Also 3 pixels either side of the left edge (x = 724), in blocks that
+    // straddle it (8 x 8 pixels at the copies' size).
     for (spot, clips) in [
         ((1024, 683 + 340), true),
         ((1024, 683 + 250), false),
         ((1024, 683), false),
+        ((727, 683), false),
+        ((721, 683), true),
     ] {
         let frame = frame_with(spot, value);
         let release = release_clipping(&context, &frame, &recipe);

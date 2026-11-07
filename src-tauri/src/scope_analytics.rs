@@ -10,17 +10,24 @@
 //! The copy is an average (a pixel of it stands for a block of about 12 x 12
 //! pixels of a 26 MP frame), so a clipped highlight or shadow smaller than a
 //! block would average below the clipping marks until the release. The
-//! drag's marks therefore come from two more copies of the whole frame
-//! (`block_extreme_pixels`, long edge [`SCOPE_EXTREMES_EDGE`]): per block the
-//! pixel whose brightest channel is highest and the one whose darkest
-//! channel is lowest, real pixels of the release frame's input, rendered
-//! with the frame's recipe and its masks drawn at their size, the same
-//! geometry as the averaged copy's (`render_scope_clip_marks`), before the
-//! averaged copy, whose analytics then carry their marks too. The histogram and the scopes count the
+//! drag's marks therefore also come from two copies of the release frame's
+//! input (`block_extreme_pixels`, long edge [`SCOPE_EXTREMES_EDGE`]): per
+//! block the pixel whose brightest channel is highest and the one whose
+//! darkest channel is lowest, real pixels, rendered with the frame's recipe
+//! and the frame's layer masks read where each pixel came from
+//! (`render_scope_clip_marks`), before the averaged copy, whose analytics
+//! then carry their marks too. The histogram and the scopes count the
 //! averaged copy alone; like the histograms of other editors, which read a
-//! reduced preview, they are a sample. A colour change between pixels of
-//! one block (a white balance drag) can make another pixel than the
-//! brightest clip first; the release's marks are exact.
+//! reduced preview, they are a sample.
+//!
+//! The marks are the release frame's for a clipped pixel that is its
+//! block's brightest (or darkest) one. Not covered, until the release: a
+//! second pixel of the same block clipping in another channel (the
+//! triangle's colour), a colour step that makes another pixel of a block
+//! clip first (a white balance or a colour-range adjustment), and the
+//! effects that read a pixel's neighbours or position other than masks
+//! (sharpening, clarity, vignette, grain: they see the block's place and
+//! its neighbouring blocks' pixels).
 //!
 //! Why a separate small render instead of a low-resolution pass inside the
 //! frame: the frame's reply does not wait for it (the scope render runs on
@@ -40,7 +47,9 @@ use crate::mask_generation::MaskDefinition;
 use crate::state::develop::DevelopSession;
 use crate::state::preview::PreviewState;
 use crate::state::source::LoadedImage;
-use rawtonic_engine::image_processing::{block_extreme_pixels, downscale_f32_image_signed};
+use rawtonic_engine::image_processing::{
+    BlockExtremes, block_extreme_pixels, downscale_f32_image_signed,
+};
 
 /// Long edge of the scope render's copy of the frame's input: 512 pixels
 /// hold about 175 000 of a 3:2 photo, some 680 per waveform column of 256
@@ -182,22 +191,34 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
     let mut adjustments = job.adjustments;
     let mut analytics = job.analytics;
     if let Some(extremes) = &proxy.extremes {
-        let (width, height) = extremes[0].dimensions();
-        let scale = job.scale * width as f32 / job.source.width().max(1) as f32;
-        let mask_bitmaps = crate::editor_preview::preview_mask_bitmaps(
+        let (width, height) = extremes.brightest.dimensions();
+        // The layers' masks as the release frame draws them (at the preview
+        // base's size: the mask cache's entries of that frame), read where
+        // each copy pixel came from, so that a mask's edge falls between
+        // pixels as in the release frame, not between blocks.
+        let frame_masks = crate::editor_preview::preview_mask_bitmaps(
             &state,
             &develop,
             &job.recipe,
             &job.masks,
             (loaded_image, *source_scale, *full_dims),
-            (width, height),
-            scale,
+            job.source.dimensions(),
+            job.scale,
             job.unscaled_crop_offset,
         )?;
-        adjustments.global.detail_scale = scale;
-        for (copy, cache) in extremes.iter().zip(&gpu.scope_extremes_cache) {
+        adjustments.global.detail_scale =
+            job.scale * width as f32 / job.source.width().max(1) as f32;
+        let copies = [
+            (&extremes.brightest, &extremes.brightest_at),
+            (&extremes.darkest, &extremes.darkest_at),
+        ];
+        for ((copy, at), cache) in copies.into_iter().zip(&gpu.scope_extremes_cache) {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("scope_clip_marks_render");
+            let mask_bitmaps: Vec<_> = frame_masks
+                .iter()
+                .map(|mask| Arc::new(mask.gather(width, height, at)))
+                .collect();
             let marks = gpu_processing::render_scope_clip_marks(
                 &context,
                 &gpu.processor,
@@ -242,7 +263,7 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
 pub(crate) struct ScopeProxy {
     of: Weak<DynamicImage>,
     image: Arc<DynamicImage>,
-    extremes: Option<Arc<[DynamicImage; 2]>>,
+    extremes: Option<Arc<BlockExtremes>>,
     id: u64,
 }
 
@@ -266,8 +287,8 @@ fn proxy_of(preview: &PreviewState, source: &Arc<DynamicImage>) -> ScopeProxy {
     } else {
         let image = downscale_f32_image_signed(source, w, h);
         let (ew, eh) = size_within(width, height, SCOPE_EXTREMES_EDGE);
-        let (brightest, darkest) = block_extreme_pixels(source, ew, eh);
-        (Arc::new(image), Some(Arc::new([brightest, darkest])))
+        let extremes = block_extreme_pixels(source, ew, eh);
+        (Arc::new(image), Some(Arc::new(extremes)))
     };
     let proxy = ScopeProxy {
         of: Arc::downgrade(source),
