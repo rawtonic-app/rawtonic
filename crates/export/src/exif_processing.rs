@@ -1680,6 +1680,79 @@ pub fn export_metadata_with(
     })
 }
 
+/// Most bytes of TIFF-structured EXIF one JPEG APP1 segment holds: the 16-bit
+/// segment length (65,535) less its own two bytes and the `Exif\0\0` header.
+const JPEG_EXIF_MAX: usize = 65_535 - 2 - 6;
+
+/// EXIF tags that are never dropped to make EXIF fit one JPEG segment:
+/// authorship and rights, camera and lens identity, capture time and
+/// exposure, the output's colour description and size, and the structure
+/// tags. GPS (own IFD) is kept as well. Everything else is capture-only
+/// detail (MakerNote, UserComment, print and tone data, ...) that goes
+/// largest first.
+fn jpeg_exif_is_essential(tag: u16, group: ExifTagGroup) -> bool {
+    group == ExifTagGroup::GPS
+        || matches!(
+            tag,
+            // IFD0: description, make, model, orientation, resolution, software,
+            // date, artist, copyright, and the sub-IFD pointers.
+            0x010e | 0x010f | 0x0110 | 0x0112 | 0x011a | 0x011b | 0x0128 | 0x0131
+                | 0x0132 | 0x013b | 0x8298 | 0x8769 | 0x8825 | 0xa005
+                // Exposure, ISO, date/time original/digitised with sub-seconds and
+                // offsets, focal length, flash, colour space, size, lens.
+                | 0x829a | 0x829d | 0x8822 | 0x8827 | 0x9003 | 0x9004 | 0x9010
+                | 0x9011 | 0x9012 | 0x9201 | 0x9202 | 0x9203 | 0x9204 | 0x9207
+                | 0x9208 | 0x9209 | 0x920a | 0x9290 | 0x9291 | 0x9292 | 0xa001
+                | 0xa002 | 0xa003 | 0xa402 | 0xa403 | 0xa404 | 0xa405 | 0xa406
+                | 0xa431 | 0xa432 | 0xa433 | 0xa434 | 0xa435
+        )
+}
+
+/// `exif` as it fits one JPEG APP1 segment. An EXIF block over 65,527 bytes
+/// would overflow the segment's 16-bit length and corrupt the file, so the
+/// largest capture-only values go first until it fits; essential fields
+/// (`jpeg_exif_is_essential`) stay. Unchanged when it already fits.
+fn fit_exif_to_jpeg_segment(exif: &Metadata) -> Result<Metadata, String> {
+    let size = |m: &Metadata| m.encode().map(|b| b.len()).map_err(|e| e.to_string());
+    let mut current = size(exif)?;
+    if current <= JPEG_EXIF_MAX {
+        return Ok(Metadata::clone(exif));
+    }
+    let endian = exif.get_endian();
+    let mut candidates: Vec<(usize, u16, ExifTagGroup)> = exif
+        .get_ifds()
+        .iter()
+        .filter(|ifd| ifd.get_generic_ifd_nr() == 0)
+        .flat_map(|ifd| ifd.get_tags())
+        .filter(|tag| !jpeg_exif_is_essential(tag.as_u16(), tag.get_group()))
+        .map(|tag| {
+            (
+                tag.value_as_u8_vec(&endian).len(),
+                tag.as_u16(),
+                tag.get_group(),
+            )
+        })
+        .collect();
+    candidates.sort_by_key(|c| std::cmp::Reverse(c.0));
+    let mut fitted = Metadata::clone(exif);
+    for (bytes, tag, group) in candidates {
+        if current <= JPEG_EXIF_MAX {
+            break;
+        }
+        log::warn!(
+            "JPEG export: EXIF tag {tag:#06x} ({bytes} bytes) dropped, EXIF exceeds one segment"
+        );
+        fitted.remove_tag_by_hex_group(tag, group);
+        current = size(&fitted)?;
+    }
+    if current > JPEG_EXIF_MAX {
+        return Err(format!(
+            "the essential EXIF fields need {current} bytes, one JPEG segment holds {JPEG_EXIF_MAX}"
+        ));
+    }
+    Ok(fitted)
+}
+
 /// Embeds `metadata` in encoded export bytes. AVIF takes its EXIF at encoding
 /// time; its XMP (with the AI marking) is added here as a `mime` item.
 pub fn embed_export_metadata(
@@ -1691,8 +1764,7 @@ pub fn embed_export_metadata(
     let tiff_exif = || metadata.exif.encode().map_err(|e| e.to_string());
     match output_format.to_lowercase().as_str() {
         "jpg" | "jpeg" => {
-            metadata
-                .exif
+            fit_exif_to_jpeg_segment(&metadata.exif)?
                 .write_to_vec(image_bytes, FileExtension::JPEG)
                 .map_err(|e| e.to_string())?;
             if let Some(xmp) = xmp {
@@ -1831,6 +1903,8 @@ pub fn record_lightroom_orientation(recipe: &mut Value, source: &Path) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn every_render_resolves_a_recipe_saved_while_its_photo_was_unreadable() {
         use rawtonic_engine::lens_correction::{
@@ -2204,5 +2278,143 @@ mod tests {
             "2020:07:10 07:34:38"
         );
         assert_eq!(exif_datetime(" unknown "), "unknown");
+    }
+
+    fn big_exif_metadata(maker_note: usize, user_comment: usize) -> ExportMetadata {
+        let mut exif = Metadata::new();
+        exif.set_tag(ExifTag::Make("Synthetic".to_string()));
+        exif.set_tag(ExifTag::Model("Camera 1".to_string()));
+        exif.set_tag(ExifTag::Copyright("(c) Test Author".to_string()));
+        exif.set_tag(ExifTag::Software(SOFTWARE.to_string()));
+        exif.set_tag(ExifTag::DateTimeOriginal("2024:05:01 10:20:30".to_string()));
+        exif.set_tag(ExifTag::LensModel("Lens 35mm".to_string()));
+        exif.set_tag(ExifTag::GPSLatitudeRef("N".to_string()));
+        exif.set_tag(ExifTag::MakerNote(vec![7; maker_note]));
+        exif.set_tag(ExifTag::UserComment(vec![b'x'; user_comment]));
+        ExportMetadata {
+            exif,
+            xmp: None,
+            generated: false,
+        }
+    }
+
+    fn small_jpeg() -> Vec<u8> {
+        let image =
+            image::RgbImage::from_fn(32, 24, |x, y| image::Rgb([x as u8 * 7, y as u8 * 9, 90]));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+            .unwrap();
+        bytes
+    }
+
+    fn jpeg_exif_tags(jpeg: &[u8]) -> exif::Exif {
+        exif::Reader::new()
+            .read_from_container(&mut Cursor::new(jpeg))
+            .expect("the JPEG's EXIF reads back")
+    }
+
+    #[test]
+    fn jpeg_export_with_more_than_one_segment_of_exif_stays_a_valid_jpeg() {
+        let plain = small_jpeg();
+        let before = image::load_from_memory(&plain).unwrap();
+        let metadata = big_exif_metadata(100_000, 20_000);
+        let mut jpeg = plain.clone();
+        embed_export_metadata(&mut jpeg, "jpg", &metadata).unwrap();
+
+        let after = image::load_from_memory(&jpeg).expect("a valid JPEG");
+        assert_eq!(after.as_bytes(), before.as_bytes());
+        let read = jpeg_exif_tags(&jpeg);
+        for (tag, want) in [
+            (exif::Tag::Make, "Synthetic"),
+            (exif::Tag::Model, "Camera 1"),
+            (exif::Tag::Copyright, "(c) Test Author"),
+            (exif::Tag::LensModel, "Lens 35mm"),
+        ] {
+            let field = read.get_field(tag, exif::In::PRIMARY).expect("kept");
+            assert!(field.display_value().to_string().contains(want), "{tag}");
+        }
+        assert!(
+            read.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
+                .is_some()
+        );
+        assert!(
+            read.get_field(exif::Tag::GPSLatitudeRef, exif::In::PRIMARY)
+                .is_some()
+        );
+        assert!(
+            read.get_field(exif::Tag::MakerNote, exif::In::PRIMARY)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn jpeg_export_keeps_every_exif_value_that_fits_one_segment() {
+        let mut jpeg = small_jpeg();
+        let metadata = big_exif_metadata(30_000, 20_000);
+        embed_export_metadata(&mut jpeg, "jpg", &metadata).unwrap();
+        image::load_from_memory(&jpeg).expect("a valid JPEG");
+        let read = jpeg_exif_tags(&jpeg);
+        assert!(
+            read.get_field(exif::Tag::MakerNote, exif::In::PRIMARY)
+                .is_some()
+        );
+        assert!(
+            read.get_field(exif::Tag::UserComment, exif::In::PRIMARY)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn jpeg_export_drops_the_largest_capture_values_first() {
+        let mut jpeg = small_jpeg();
+        let metadata = big_exif_metadata(50_000, 30_000);
+        embed_export_metadata(&mut jpeg, "jpg", &metadata).unwrap();
+        image::load_from_memory(&jpeg).expect("a valid JPEG");
+        let read = jpeg_exif_tags(&jpeg);
+        assert!(
+            read.get_field(exif::Tag::MakerNote, exif::In::PRIMARY)
+                .is_none()
+        );
+        assert!(
+            read.get_field(exif::Tag::UserComment, exif::In::PRIMARY)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn png_webp_and_tiff_exports_keep_exif_beyond_64_kb() {
+        use image::ImageFormat;
+        let metadata = big_exif_metadata(100_000, 20_000);
+        for (format, ext) in [
+            (ImageFormat::Png, "png"),
+            (ImageFormat::WebP, "webp"),
+            (ImageFormat::Tiff, "tif"),
+        ] {
+            let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+                16,
+                16,
+                image::Rgb([10, 20, 30]),
+            ));
+            let mut bytes = Vec::new();
+            image
+                .write_to(&mut Cursor::new(&mut bytes), format)
+                .unwrap();
+            embed_export_metadata(&mut bytes, ext, &metadata).unwrap();
+            let decoded = image::load_from_memory(&bytes).expect(ext);
+            assert_eq!(decoded.to_rgb8().get_pixel(3, 3).0, [10, 20, 30], "{ext}");
+            let read = jpeg_exif_tags_in(&bytes);
+            assert!(
+                read.get_field(exif::Tag::MakerNote, exif::In::PRIMARY)
+                    .is_some(),
+                "{ext}"
+            );
+        }
+    }
+
+    fn jpeg_exif_tags_in(bytes: &[u8]) -> exif::Exif {
+        exif::Reader::new()
+            .read_from_container(&mut Cursor::new(bytes))
+            .expect("EXIF reads back")
     }
 }
