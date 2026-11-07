@@ -147,12 +147,12 @@ SIGLIP_USE = {
 # bit-identical): ONNX Runtime maps the data file, so a loaded session
 # holds +0.35 GB instead of +2.68 GB (notes: benchmark-results/
 # srs-search-ceiling-2026-11-03 § SRS2). The app loads this pair for
-# content search and the user's own tags.
+# content search (the user's own tags still load siglip2_text.onnx).
 SIGLIP_TEXT_EXT_SHA256 = {
     "siglip2_text_ext.onnx": "8850287083d7a450ec8112162ccc82c0c830432aee4f7814bcc090de65218dba",
     "siglip2_text_ext.onnx.data": "d7721a55cb0242769a6d4b1031ef14c48df21609757a63b856cb00c21e502348",
 }
-SIGLIP_TEXT_EXT_USE = "Content search and the user's own tags (text encoder as ONNX external data)"
+SIGLIP_TEXT_EXT_USE = "Content search (text encoder as ONNX external data)"
 
 SKY_ENTRY = {
     "used_by": "Sky mask",
