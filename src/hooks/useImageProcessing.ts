@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
-import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import { notify } from '../activity/notify';
@@ -51,7 +50,7 @@ import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
 import { needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
-import type { SharpenView } from '../utils/sharpenView';
+import { onSharpenViewReady, type SharpenView } from '../utils/sharpenView';
 import { acknowledgeParameters, forgetParameterReferences, withParameterReferences } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
 import { viewerShown } from '../utils/viewerMode';
@@ -547,13 +546,10 @@ export function useImageProcessing(
     const unsubscribe = useEditorStore.subscribe((state, previous) => {
       if (state.sharpenView !== previous.sharpenView) renderView();
     });
-    // Without the native app (tests, `npm run dev`) there is no event.
-    const unlisten = listen('sharpen-view-ready', () => {
-      if (useEditorStore.getState().sharpenView) renderView();
-    }).catch(() => undefined);
+    const stopReady = onSharpenViewReady(() => useEditorStore.getState().sharpenView !== null, renderView);
     return () => {
       unsubscribe();
-      void unlisten.then((stop) => stop?.());
+      stopReady();
     };
   }, [previewQueue, currentResRef]);
   useEffect(
