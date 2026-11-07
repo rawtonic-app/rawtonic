@@ -18048,6 +18048,7 @@ fn analytics_config(sender: LatestJobSender<AnalyticsJob>, generation: u64) -> A
         path: "frame.raw".into(),
         compute_waveform: true,
         active_waveform_channel: None,
+        interactive: false,
         sender,
         generation,
     }

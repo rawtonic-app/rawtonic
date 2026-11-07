@@ -1733,6 +1733,8 @@ pub struct AnalyticsJob {
     pub image: Arc<DynamicImage>,
     pub compute_waveform: bool,
     pub active_waveform_channel: Option<String>,
+    /// From a drag's frame (`AnalyticsConfig::interactive`).
+    pub interactive: bool,
     /// The clipping sides the render found (`analytics_output`).
     pub clipped: ClippedSides,
     /// The output space the image is encoded in (the shown one).
@@ -1746,6 +1748,9 @@ pub struct AnalyticsConfig {
     pub path: String,
     pub compute_waveform: bool,
     pub active_waveform_channel: Option<String>,
+    /// Asked by a frame of a drag: the scopes then must not take the CPUs
+    /// the next frames need.
+    pub interactive: bool,
     pub sender: LatestJobSender<AnalyticsJob>,
     /// Rises with each frame that asks for analytics: a job of an older
     /// request that arrives after a newer one's (the zoomed drag's
@@ -4027,6 +4032,7 @@ fn send_analytics(
                 image: Arc::new(DynamicImage::ImageRgba8(image)),
                 compute_waveform: analytics.compute_waveform,
                 active_waveform_channel: analytics.active_waveform_channel,
+                interactive: analytics.interactive,
                 clipped,
                 space,
                 generation: analytics.generation,
