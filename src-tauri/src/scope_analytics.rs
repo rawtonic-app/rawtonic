@@ -27,7 +27,10 @@
 //! clip first (a white balance or a colour-range adjustment), and the
 //! effects that read a pixel's neighbours or position other than masks
 //! (sharpening, clarity, vignette, grain: they see the block's place and
-//! its neighbouring blocks' pixels).
+//! its neighbouring blocks' pixels). A should_fix limit, kept for the drag's
+//! cost: exact channels need up to six such renders per update, and two at
+//! 512 pixels already made the drag slower
+//! (notes: parity-gaps/G23-analysis.md, G23b).
 //!
 //! Why a separate small render instead of a low-resolution pass inside the
 //! frame: the frame's reply does not wait for it (the scope render runs on
