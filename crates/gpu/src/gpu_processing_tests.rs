@@ -18538,3 +18538,43 @@ fn a_zoomed_drag_delivers_analytics_of_the_whole_frame() {
     // Highlights clipped nowhere in either; the same clipping sides.
     assert_eq!(scoped.clipped, whole.clipped);
 }
+
+/// FNV-1a 64 of `text` (a pin that needs no hashing crate).
+fn fnv1a64(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// Tone versions 1–5 render through `apply_tonal_adjustments_v5`, the tonal
+/// adjustments exactly as they were before tone version 6 (main 94452542).
+/// Metal compiles the shader with fast math: #565 added version 6 to the
+/// shared function behind a runtime check, and saved recipes with Shadows,
+/// Whites or Blacks then exported up to one 16-bit code apart from alpha.11.1
+/// (REL12 identity check, 2026-11-07). A new tone behaviour goes into
+/// `apply_tonal_adjustments`, never into this function.
+#[test]
+fn tone_versions_up_to_5_keep_their_own_function() {
+    let shader = include_str!("shaders/shader.wgsl");
+    let start = shader
+        .find("fn apply_tonal_adjustments_v5(")
+        .expect("apply_tonal_adjustments_v5 exists");
+    let end = start + shader[start..].find("\n}\n").expect("function end") + 3;
+    let function = &shader[start..end];
+    assert_eq!(
+        (function.len(), fnv1a64(function)),
+        (7714, 0xc136_83ca_1f9e_b4a7),
+        "apply_tonal_adjustments_v5 must stay byte-identical to main 94452542's apply_tonal_adjustments"
+    );
+    // Every caller sends tone versions 1–5 to it.
+    let calls = shader.matches("apply_tonal_adjustments_v5(").count() - 1;
+    let routed = shader
+        .matches("if (adjustments.global.tone_version < 5.5) {\n")
+        .count();
+    let newer = shader.matches("apply_tonal_adjustments(").count() - 1;
+    assert_eq!(
+        (calls, routed, newer),
+        (3, 3, 3),
+        "each of the three call sites chooses by tone version"
+    );
+}
