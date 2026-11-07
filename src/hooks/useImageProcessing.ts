@@ -547,12 +547,13 @@ export function useImageProcessing(
     const unsubscribe = useEditorStore.subscribe((state, previous) => {
       if (state.sharpenView !== previous.sharpenView) renderView();
     });
+    // Without the native app (tests, `npm run dev`) there is no event.
     const unlisten = listen('sharpen-view-ready', () => {
       if (useEditorStore.getState().sharpenView) renderView();
-    });
+    }).catch(() => undefined);
     return () => {
       unsubscribe();
-      void unlisten.then((stop) => stop());
+      void unlisten.then((stop) => stop?.());
     };
   }, [previewQueue, currentResRef]);
   useEffect(
