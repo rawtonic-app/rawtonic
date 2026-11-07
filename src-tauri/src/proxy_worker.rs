@@ -629,6 +629,7 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
             let app_handle = app_handle.clone();
             std::thread::Builder::new()
                 .name("preview-proxies".into())
+                .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
                 .spawn(move || run(&shared, &app_handle))
                 .expect("spawn the preview proxy worker");
             worker
@@ -659,6 +660,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
     // kept decode 0.66 s p50 at normal priority, 0.55-0.61 s this way).
     let pool = rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("preview-build-{i}"))
+        .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
         .start_handler(|_| crate::export_processing::lower_thread_priority())
         .build()
         .expect("preview build thread pool");

@@ -2019,17 +2019,9 @@ pub fn build_single_mask_adjustments(
     all: &crate::image_processing::PreparedAdjustments,
     mask_index: usize,
 ) -> crate::image_processing::PreparedAdjustments {
-    let mut single = AllAdjustments {
-        global: all.global,
-        mask_adjustments: all.mask_adjustments,
-        mask_count: 1,
-        tile_offset_x: all.tile_offset_x,
-        tile_offset_y: all.tile_offset_y,
-        mask_atlas_cols: all.mask_atlas_cols,
-        render_region: all.render_region,
-        detail_cache: all.detail_cache,
-        source_window: all.source_window,
-    };
+    // Every field as `all`'s but the mask count, copied on the heap (gap G74).
+    let mut single = crate::image_processing::boxed_uniforms(&all.uniforms);
+    single.mask_count = 1;
     single.mask_adjustments[0] = all.mask_adjustments[mask_index];
     for i in 1..single.mask_adjustments.len() {
         single.mask_adjustments[i] = Default::default();

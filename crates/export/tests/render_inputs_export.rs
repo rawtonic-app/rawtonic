@@ -79,10 +79,8 @@ fn mask_bitmaps(snapshot: &Value) -> usize {
 #[test]
 #[ignore = "needs a GPU"]
 fn the_recorder_of_the_real_export_path_holds_only_the_last_export() {
-    // The export render keeps large frames on the stack (the CLI's and the
-    // app's workers have 8 MiB).
-    std::thread::Builder::new()
-        .stack_size(8 << 20)
+    // Renders on a thread like the CLI's and the app's render workers.
+    rawtonic_runtime::render_thread("recorded-exports")
         .spawn(recorded_exports)
         .unwrap()
         .join()

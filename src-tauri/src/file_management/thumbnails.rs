@@ -1149,7 +1149,7 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
         let app_clone = app_handle.clone();
         let manager_clone = manager.clone();
 
-        std::thread::spawn(move || {
+        rawtonic_runtime::spawn_render_thread("thumbnails", move || {
             loop {
                 let path_to_process: String = {
                     let mut queue = lock_recover(&manager_clone.queue);

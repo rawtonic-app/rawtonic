@@ -652,6 +652,7 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
             let app_handle = app_handle.clone();
             std::thread::Builder::new()
                 .name("multi-view-prefetch".into())
+                .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
                 .spawn(move || run(&shared, &app_handle))
                 .expect("spawn the multi view prefetch worker");
             worker
@@ -906,6 +907,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
         rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
             .thread_name(move |i| format!("multi-view-{name}-{i}"))
+            .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
             .start_handler(|_| lower_priority())
             .build()
             .expect("multi view prefetch thread pool")

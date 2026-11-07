@@ -82,6 +82,14 @@ jobs:
           $imports = & $dumpbin /nologo /dependents target\release\rawtonic-app.exe
           $imports
           if ($imports -match '(?i)vcruntime|msvcp') { Write-Error 'The app imports the VC runtime dynamically'; exit 1 }
+          # Main-thread stack reserve from src-tauri/build.rs (8 MiB, gap G74):
+          # Windows' 1 MiB default overflows silently in a render at start.
+          $headers = & $dumpbin /nologo /headers target\release\rawtonic-app.exe
+          $reserve = $headers | Select-String '([0-9A-Fa-f]+) size of stack reserve' | Select-Object -First 1
+          if (-not $reserve) { Write-Error 'no stack reserve in the executable header'; exit 1 }
+          $bytes = [Convert]::ToInt64($reserve.Matches[0].Groups[1].Value, 16)
+          "stack reserve: $bytes bytes"
+          if ($bytes -lt 8388608) { Write-Error "stack reserve $bytes < 8 MiB"; exit 1 }
           foreach ($dll in 'onnxruntime.dll', 'onnxruntime_providers_webgpu.dll') {
             if (-not (Test-Path "src-tauri\resources\$dll")) { Write-Error "$dll not bundled"; exit 1 }
           }
