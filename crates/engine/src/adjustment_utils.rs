@@ -1,4 +1,5 @@
 use image::DynamicImage;
+use rawtonic_recipe::masks;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -48,7 +49,7 @@ pub fn hydrate_sub_masks(
             {
                 continue;
             }
-            for key in ["mask_data_base64", "maskDataBase64"] {
+            for key in ["mask_data_base64", masks::MASK_DATA_BASE64.into_name()] {
                 let Some(val) = params.get_mut(key) else {
                     continue;
                 };
@@ -93,16 +94,22 @@ pub fn hydrate_adjustments_from_cache(
                 }
             }
 
-            if let Some(sub_masks) = patch.get_mut("subMasks").and_then(|v| v.as_array_mut()) {
+            if let Some(sub_masks) = patch
+                .get_mut(masks::SUB_MASKS.name())
+                .and_then(|v| v.as_array_mut())
+            {
                 hydrate_sub_masks(sub_masks, cache);
             }
         }
     }
 
-    if let Some(masks) = adjustments.get_mut("masks").and_then(|v| v.as_array_mut()) {
+    if let Some(masks) = adjustments
+        .get_mut(masks::MASKS.name())
+        .and_then(|v| v.as_array_mut())
+    {
         for mask_container in masks {
             if let Some(sub_masks) = mask_container
-                .get_mut("subMasks")
+                .get_mut(masks::SUB_MASKS.name())
                 .and_then(|v| v.as_array_mut())
             {
                 hydrate_sub_masks(sub_masks, cache);
@@ -178,8 +185,7 @@ struct SpatialSteps {
 impl SpatialSteps {
     fn of(adjustments: &serde_json::Value) -> Self {
         let geometry =
-            rawtonic_recipe::normalize(rawtonic_recipe::StoredRef::new(adjustments), false)
-                .geometry;
+            rawtonic_recipe::geometry::resolve(rawtonic_recipe::StoredRef::new(adjustments));
         let crop_data = geometry.crop;
         Self {
             orientation_steps: geometry.orientation_steps.get() as u8,

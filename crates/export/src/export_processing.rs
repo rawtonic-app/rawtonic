@@ -1,5 +1,7 @@
 use rawtonic_engine::image_loader::DecodeMeasures;
+use rawtonic_engine::recipe_versions::RecipeVersions;
 use rawtonic_recipe::effects;
+use rawtonic_recipe::masks;
 use std::borrow::Cow;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -1185,13 +1187,15 @@ pub fn save_export_image(
 }
 
 /// Renders the main export file of a photo and saves it. With separate mask
-/// files the main file is rendered without its mask layers. `cancelled`
-/// runs between the render and the write.
+/// files the main file is rendered without its mask layers. `versions`:
+/// the recipe's, as `normalize` read them. `cancelled` runs between the
+/// render and the write.
 #[allow(clippy::too_many_arguments)]
 pub fn render_and_save(
     source_path_str: &str,
     source: ExportSource,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     export_settings: &ExportSettings,
     env: &RenderEnv,
     is_raw: bool,
@@ -1204,6 +1208,7 @@ pub fn render_and_save(
         source_path_str,
         source,
         &main_export_adjustments(js_adjustments, export_settings),
+        versions,
         env,
         is_raw,
     )?;
@@ -1231,7 +1236,7 @@ pub fn main_export_adjustments<'a>(
     }
     let mut adjustments = js_adjustments.clone();
     if let Some(obj) = adjustments.as_object_mut() {
-        obj.insert("masks".to_string(), serde_json::json!([]));
+        obj.insert(masks::MASKS.name().to_string(), serde_json::json!([]));
     }
     Cow::Owned(adjustments)
 }
@@ -1335,13 +1340,14 @@ pub fn process_image_for_export_pipeline(
     path: &str,
     source: ExportSource,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     env: &RenderEnv,
     is_raw: bool,
     debug_tag: &str,
     output_precision: RenderOutputPrecision,
     color_space: OutputColorSpace,
 ) -> Result<DynamicImage, String> {
-    let prepared = prepare_export_render(path, source, js_adjustments, env, is_raw)?;
+    let prepared = prepare_export_render(path, source, js_adjustments, versions, env, is_raw)?;
     render_prepared_export(&prepared, env, debug_tag, output_precision, color_space)
 }
 
@@ -1370,10 +1376,12 @@ enum PreparedTarget {
 /// The adjustments an export of `js_adjustments` renders, before the output
 /// colour space: the recipe's uniforms with the photo's base look (from the
 /// decode's `measures`; `library`: the photo's library folder, None outside
-/// any), never showing clipping.
+/// any; `versions`: the recipe's), never showing clipping.
+#[allow(clippy::too_many_arguments)]
 pub fn export_adjustments(
     path: &str,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     is_raw: bool,
     tonemapper_override: Option<u32>,
     mask_definitions: &[MaskDefinition],
@@ -1385,17 +1393,20 @@ pub fn export_adjustments(
         is_raw,
         tonemapper_override,
         mask_definitions,
+        versions,
     );
     crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, path, measures, library);
     all_adjustments.global.show_clipping = 0;
     all_adjustments
 }
 
-/// Prepares `source` with `js_adjustments` for [`render_prepared_export`].
+/// Prepares `source` with `js_adjustments` (whose `versions` the caller read
+/// once, with `normalize`) for [`render_prepared_export`].
 pub fn prepare_export_render(
     path: &str,
     source: ExportSource,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     env: &RenderEnv,
     is_raw: bool,
 ) -> Result<PreparedExport, String> {
@@ -1405,6 +1416,7 @@ pub fn prepare_export_render(
     let all_adjustments = export_adjustments(
         path,
         js_adjustments,
+        versions,
         is_raw,
         tm_override,
         &mask_definitions,
@@ -1982,6 +1994,7 @@ pub fn process_image_for_export(
     path: &str,
     source: ExportSource,
     js_adjustments: &Value,
+    versions: &RecipeVersions,
     export_settings: &ExportSettings,
     env: &RenderEnv,
     is_raw: bool,
@@ -1991,6 +2004,7 @@ pub fn process_image_for_export(
         path,
         source,
         js_adjustments,
+        versions,
         env,
         is_raw,
         "process_image_for_export",
@@ -3293,5 +3307,57 @@ mod render_group_tests {
                 assert!(group.len() == 1 || bytes <= RENDER_GROUP_BYTES, "{group:?}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod avif_export_tests {
+    use super::*;
+
+    /// RAWmakase 0.4.11 fixed 10/12-bit 4:2:0 AVIF showing every other pixel
+    /// in the wrong colour on ARM. Our AVIF export is 8-bit 4:4:4 (ravif);
+    /// this guards that its pixels decode to the exported ones with the same
+    /// error on every pixel parity, also on fine saturated detail.
+    #[test]
+    fn avif_export_decodes_without_alternate_pixel_errors() {
+        let (w, h) = (64u32, 48u32);
+        let source = image::RgbImage::from_fn(w, h, |x, y| {
+            if (16..48).contains(&x) && (12..36).contains(&y) {
+                if (x + y) % 2 == 0 {
+                    image::Rgb([240, 240, 12])
+                } else {
+                    image::Rgb([12, 76, 150])
+                }
+            } else {
+                image::Rgb([(x * 4) as u8, (y * 5) as u8, 128])
+            }
+        });
+        let image = DynamicImage::ImageRgb8(source.clone());
+        let bytes = encode_image_to_bytes(
+            &image,
+            "avif",
+            100,
+            TiffBitDepth::Sixteen,
+            OutputColorSpace::Srgb,
+            None,
+        )
+        .unwrap();
+        let decoded = rawtonic_engine::avif::decode(&bytes).unwrap();
+        assert_eq!(decoded.image.width(), w);
+        let decoded = rawtonic_engine::avif::to_working_space(decoded).to_rgb32f();
+        let (mut sum, mut count) = ([0f64; 4], [0f64; 4]);
+        for (x, y, p) in source.enumerate_pixels() {
+            let q = decoded.get_pixel(x, y);
+            let error: f32 = (0..3).map(|c| (f32::from(p[c]) - q[c] * 255.0).abs()).sum();
+            let class = ((x & 1) + 2 * (y & 1)) as usize;
+            sum[class] += f64::from(error) / 3.0;
+            count[class] += 1.0;
+        }
+        let mean: Vec<f64> = (0..4).map(|c| sum[c] / count[c]).collect();
+        let (low, high) = mean
+            .iter()
+            .fold((f64::MAX, 0f64), |(l, h), &v| (l.min(v), h.max(v)));
+        assert!(high < 3.0, "mean error per parity class {mean:?}");
+        assert!(high < 1.5 * low.max(0.3), "parity classes differ: {mean:?}");
     }
 }

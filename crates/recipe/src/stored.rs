@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 use crate::key::{Key, KeyValue};
 
 /// The recipe key holding each section's on/off switch.
-const SECTION_VISIBILITY: &str = "sectionVisibility";
+pub const SECTION_VISIBILITY: Key<Value> = Key::new("sectionVisibility", Value::Null, 1);
 
 /// A section of the develop panel with an on/off switch in
 /// `sectionVisibility` (missing: on).
@@ -14,6 +14,8 @@ const SECTION_VISIBILITY: &str = "sectionVisibility";
 pub struct Section(&'static str);
 
 impl Section {
+    /// Point and region curves.
+    pub const CURVES: Self = Self("curves");
     /// Exposure, contrast and the tone sliders.
     pub const BASIC: Self = Self("basic");
     /// Presence and detail (clarity, dehaze, centré, sharpening, …).
@@ -72,7 +74,7 @@ impl<'a> StoredRef<'a> {
     /// not a boolean: on).
     pub fn section_visible(self, section: Section) -> bool {
         self.0
-            .get(SECTION_VISIBILITY)
+            .get(SECTION_VISIBILITY.name())
             .and_then(|sections| sections.get(section.name()))
             .and_then(Value::as_bool)
             .unwrap_or(true)

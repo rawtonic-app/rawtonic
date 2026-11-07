@@ -260,6 +260,11 @@ pub const TS: TsSection = TsSection {
     unions: &[],
 };
 
+/// Resolve only this section for a stage that does not consume other sections.
+pub fn resolve(stored: StoredRef<'_>) -> Geometry {
+    Geometry::resolve(stored)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

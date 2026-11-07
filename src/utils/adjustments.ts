@@ -1,8 +1,9 @@
 import { normalizeRelight, type RelightLight, type RelightDepth } from './relight';
 import { v4 as uuidv4 } from 'uuid';
 import { SubMask, SubMaskMode } from '../components/panel/right/Masks';
+export type { SubMask } from '../components/panel/right/Masks';
 import type { AdjustmentLayout, AppSettings } from '../components/ui/AppProperties';
-import type { GrainStructure, RecipeKeys } from '../generated/recipeKeys';
+import type { GrainStructure, MaskLocalKeys, MaskContainerKeys, RecipeKeys } from '../generated/recipeKeys';
 
 export type { Crop } from 'react-image-crop';
 
@@ -548,7 +549,8 @@ type HeldRecipeKey =
   | 'lensVignetteEnabled'
   | 'lensDistortionParams'
   | 'lensMaker'
-  | 'lensModel';
+  | 'lensModel'
+  | 'masks';
 
 /** The lens profile numbers of a recipe (`lensDistortionParams`, crates/recipe/src/lens.rs). */
 export interface LensDistortionParams {
@@ -576,7 +578,7 @@ export interface LensDistortionParams {
 
 /** The develop recipe as the frontend holds it. The keys of the sections in
  * the recipe crate come from its registry (`src/generated/recipeKeys.ts`);
- * the others, and the mask layers' adjustments, are written here. */
+ * the remaining sections are written here. */
 export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<Pick<RecipeKeys, HeldRecipeKey>> {
   [index: string]: unknown;
   aiPatches: Array<AiPatch>;
@@ -711,7 +713,6 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * never changed once the photo is edited (Reset, paste and presets keep
    * it): a photo keeps the size it was edited in (src/utils/sourceFrame.ts). */
   sourceFrameVersion?: number;
-  masks: Array<MaskContainer>;
   sectionVisibility: SectionVisibility;
   /** View state, never saved (`NON_COPYABLE_ADJUSTMENT_KEYS`): the
    * renderer's clipping warnings, `showClippingValue`
@@ -883,56 +884,45 @@ export interface Hsl {
   yellows: HueSatLum;
 }
 
-export interface MaskAdjustments {
+/** The local object's required fields; saved partial recipes may omit them. */
+type RequiredMaskKey =
+  | 'sectionVisibility'
+  | 'blacks'
+  | 'brightness'
+  | 'clarity'
+  | 'colorGrading'
+  | 'colorNoiseReduction'
+  | 'contrast'
+  | 'curves'
+  | 'dehaze'
+  | 'exposure'
+  | 'flareAmount'
+  | 'glowAmount'
+  | 'halationAmount'
+  | 'highlights'
+  | 'hsl'
+  | 'hue'
+  | 'lumaNoiseReduction'
+  | 'saturation'
+  | 'shadows'
+  | 'sharpness'
+  | 'sharpnessThreshold'
+  | 'structure'
+  | 'temperature'
+  | 'tint'
+  | 'vibrance'
+  | 'whites';
+
+export interface MaskAdjustments
+  extends Omit<MaskLocalKeys, RequiredMaskKey>, Required<Pick<MaskLocalKeys, RequiredMaskKey>> {
   [index: string]: unknown;
-  colorRanges?: ColorRange[];
-  blacks: number;
-  brightness: number;
-  clarity: number;
-  colorGrading: ColorGradingProps;
-  colorNoiseReduction: number;
-  contrast: number;
-  curves: Curves;
-  pointCurves?: Curves;
-  parametricCurve?: ParametricCurve;
-  curveMode?: 'point' | 'parametric';
-  dehaze: number;
-  exposure: number;
-  flareAmount: number;
-  glowAmount: number;
-  halationAmount: number;
-  highlights: number;
-  hsl: Hsl;
-  hue: number;
-  id?: string;
-  lumaNoiseReduction: number;
-  saturation: number;
-  sectionVisibility: SectionVisibility;
-  shadows: number;
-  sharpness: number;
-  sharpnessThreshold: number;
-  structure: number;
-  temperature: number;
-  tint: number;
-  vibrance: number;
-  whites: number;
 }
 
-export interface MaskContainer {
-  adjustments: MaskAdjustments;
-  id: string;
-  invert: boolean;
-  /** 2: the mask is computed at 16 bits; 3: also Refine edge on both sides
-   * of a thin mask; 4 (new layers): also AI masks grown and feathered from
-   * the photo around the crop; absent: 8 bits. */
-  maskVersion?: number;
-  name: string;
-  opacity: number;
-  /** Refine edge radius in pixels of the full photo (`maskVersion` 2+). */
-  refineEdge?: number;
-  subMasks: Array<SubMask>;
-  visible: boolean;
-}
+type RequiredMaskContainerKey = 'adjustments' | 'id' | 'invert' | 'name' | 'opacity' | 'subMasks' | 'visible';
+export interface MaskContainer
+  extends
+    Omit<MaskContainerKeys, RequiredMaskContainerKey>,
+    Required<Pick<MaskContainerKeys, RequiredMaskContainerKey>> {}
 
 /** The mask version new layers get (crates/engine/src/masks.rs). */
 export const MASK_VERSION = 4;

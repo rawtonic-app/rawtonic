@@ -18,6 +18,7 @@
 //! Vibrance, vignetting) alone, as Capture One does.
 use crate::image_processing::{AutoAdjustmentResults, downscale_f32_image};
 use image::DynamicImage;
+use rawtonic_recipe::masks;
 use rawtonic_recipe::tone;
 
 const ANALYSIS_MAX_DIM: u32 = 1024;
@@ -572,7 +573,7 @@ pub fn merge_auto_adjustments(adjustments: &mut serde_json::Value, auto: &serde_
                     continue;
                 };
                 let curves = existing
-                    .entry("curves")
+                    .entry(masks::CURVES.name())
                     .or_insert_with(|| serde_json::json!({}));
                 if let Some(curves) = curves.as_object_mut()
                     && is_identity_curve(curves.get("luma"))

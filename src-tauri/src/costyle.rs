@@ -27,6 +27,7 @@
 
 use rawtonic_recipe::color as recipe_color;
 use rawtonic_recipe::effects;
+use rawtonic_recipe::masks;
 use rawtonic_recipe::tone;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -821,8 +822,8 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
         for (k, v) in curves {
             full[k] = v;
         }
-        adjustments.insert("curves".into(), full);
-        adjustments.insert("curveMode".into(), json!("point"));
+        adjustments.insert(masks::CURVES.name().into(), full);
+        adjustments.insert(masks::CURVE_MODE.name().into(), json!("point"));
     }
 
     let mut color_editor_untranslated = false;

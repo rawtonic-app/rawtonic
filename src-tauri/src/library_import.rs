@@ -21,6 +21,7 @@ use rawtonic_interop::{
 use rawtonic_metadata::photo_ref;
 use rawtonic_recipe::geometry;
 use rawtonic_recipe::lens;
+use rawtonic_recipe::masks;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -486,11 +487,11 @@ fn stack_id(source_name: &str, key: &str) -> String {
 /// when the photo is opened or exported (`ai-foreground`, `ai-sky` without
 /// data; `ai_selections::detect_missing`).
 fn has_ai_masks_on_open(adjustments: &Value) -> bool {
-    adjustments["masks"]
+    adjustments[masks::MASKS.name()]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|layer| layer["subMasks"].as_array())
+        .filter_map(|layer| layer[masks::SUB_MASKS.name()].as_array())
         .flatten()
         .any(|sub| {
             matches!(sub["type"].as_str(), Some("ai-foreground" | "ai-sky"))

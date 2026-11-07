@@ -339,6 +339,7 @@ pub(crate) fn frontend_ready(
         .swap(true, std::sync::atomic::Ordering::Relaxed);
     if is_first_run {
         crate::contribute::note_phase("running");
+        crate::start_failure::mark_started();
     }
 
     {

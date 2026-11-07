@@ -19,6 +19,7 @@
 //! waiting for the open photo.
 
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::masks;
 use serde_json::{Value, json};
 
 use crate::lightroom_retouch::{ORIENTATION, PENDING, orient_direction, orient_point};
@@ -44,13 +45,16 @@ fn orientation_of(parameters: &Value) -> Option<u16> {
 /// form.
 fn pending_parameters_mut(adjustments: &mut Value) -> impl Iterator<Item = &mut Value> {
     adjustments
-        .get_mut("masks")
+        .get_mut(masks::MASKS.name())
         .and_then(Value::as_array_mut)
         .into_iter()
         .flatten()
-        .filter_map(|m| m.get_mut("subMasks").and_then(Value::as_array_mut))
+        .filter_map(|m| {
+            m.get_mut(masks::SUB_MASKS.name())
+                .and_then(Value::as_array_mut)
+        })
         .flatten()
-        .filter_map(|sub| sub.get_mut("parameters"))
+        .filter_map(|sub| sub.get_mut(masks::PARAMETERS.name()))
         .filter(|p| p.get(PENDING).is_some_and(Value::is_object))
 }
 
@@ -58,13 +62,13 @@ fn pending_parameters_mut(adjustments: &mut Value) -> impl Iterator<Item = &mut 
 /// orientation.
 pub fn needs_orientation(adjustments: &Value) -> bool {
     adjustments
-        .get("masks")
+        .get(masks::MASKS.name())
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|m| m.get("subMasks").and_then(Value::as_array))
+        .filter_map(|m| m.get(masks::SUB_MASKS.name()).and_then(Value::as_array))
         .flatten()
-        .map(|sub| &sub["parameters"])
+        .map(|sub| &sub[masks::PARAMETERS.name()])
         .any(|p| p.get(PENDING).is_some_and(Value::is_object) && orientation_of(p).is_none())
 }
 
@@ -105,8 +109,14 @@ pub fn placed_parameters(
     // placed shapes record the photo's own frame (`mask_generation`'s
     // `ShapeFrame`), so they are drawn on the same spot of the photo however
     // it is turned, flipped or straightened.
-    let frame = json!({"width": width, "height": height, geometry::ROTATION.name(): 0.0,
-        geometry::FLIP_HORIZONTAL.name(): false, geometry::FLIP_VERTICAL.name(): false, geometry::ORIENTATION_STEPS.name(): 0});
+    let frame = json!({
+        masks::WIDTH.name(): width,
+        masks::HEIGHT.name(): height,
+        geometry::ROTATION.name(): 0.0,
+        geometry::FLIP_HORIZONTAL.name(): false,
+        geometry::FLIP_VERTICAL.name(): false,
+        geometry::ORIENTATION_STEPS.name(): 0,
+    });
     Some(match kind {
         "linear" => {
             let (zx, zy) = pixel(n("zeroX"), n("zeroY"));
@@ -118,9 +128,14 @@ pub fn placed_parameters(
             }
             let (mx, my) = ((zx + fx) / 2.0, (zy + fy) / 2.0);
             let (lx, ly) = (-dy / 2.0, dx / 2.0);
-            json!({"startX": round(mx - lx), "startY": round(my - ly),
-                "endX": round(mx + lx), "endY": round(my + ly), "range": round(length / 2.0),
-                "frame": frame})
+            json!({
+                masks::START_X.name(): round(mx - lx),
+                masks::START_Y.name(): round(my - ly),
+                masks::END_X.name(): round(mx + lx),
+                masks::END_Y.name(): round(my + ly),
+                masks::RANGE.name(): round(length / 2.0),
+                masks::FRAME.name(): frame,
+            })
         }
         "radial" => {
             // Top/Left and Bottom/Right are opposite corners of the
@@ -133,13 +148,14 @@ pub fn placed_parameters(
             let (ux, uy) = orient_direction(orientation, angle.cos(), angle.sin());
             let (dx, dy) = (x2 - x1, y2 - y1);
             json!({
-                "centerX": round((x1 + x2) / 2.0),
-                "centerY": round((y1 + y2) / 2.0),
-                "radiusX": round((dx * ux + dy * uy).abs() / 2.0),
-                "radiusY": round((-dx * uy + dy * ux).abs() / 2.0),
+                masks::CENTER_X.name(): round((x1 + x2) / 2.0),
+                masks::CENTER_Y.name(): round((y1 + y2) / 2.0),
+                masks::RADIUS_X.name(): round((dx * ux + dy * uy).abs() / 2.0),
+                masks::RADIUS_Y.name(): round((-dx * uy + dy * ux).abs() / 2.0),
                 "rotation": round(uy.atan2(ux).to_degrees()),
-                "feather": (g["feather"].as_f64().unwrap_or(50.0) / 100.0).clamp(0.0, 1.0),
-                "frame": frame,
+                masks::FEATHER.name():
+                    (g[masks::FEATHER.name()].as_f64().unwrap_or(50.0) / 100.0).clamp(0.0, 1.0),
+                masks::FRAME.name(): frame,
             })
         }
         "brush" => {
@@ -157,35 +173,40 @@ pub fn placed_parameters(
                         .iter()
                         .filter_map(|d| {
                             let (x, y) = pixel(d[0].as_f64()?, d[1].as_f64()?);
-                            Some(json!({"x": round(x), "y": round(y)}))
+                            Some(json!({masks::X.name(): round(x), masks::Y.name(): round(y)}))
                         })
                         .collect();
                     let radius = stroke["radius"].as_f64()? * long;
                     (!points.is_empty() && radius > 0.0).then(|| {
                         json!({
-                            "tool": "brush",
-                            "brushSize": round(2.0 * radius),
-                            "points": points,
-                            "feather": 0.5,
-                            "flow": round(dab_coverage(stroke["flow"].as_f64().unwrap_or(1.0)) * 100.0),
-                            "lrCenterWeight": stroke["centerWeight"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0),
-                            "autoMask": stroke["autoMask"].as_bool().unwrap_or(false),
-                            "frame": frame,
+                            masks::TOOL.name(): "brush",
+                            masks::BRUSH_SIZE.name(): round(2.0 * radius),
+                            masks::POINTS.name(): points,
+                            masks::FEATHER.name(): 0.5,
+                            masks::FLOW.name(): round(
+                                dab_coverage(stroke[masks::FLOW.name()].as_f64().unwrap_or(1.0))
+                                    * 100.0,
+                            ),
+                            masks::LR_CENTER_WEIGHT.name():
+                                stroke["centerWeight"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0),
+                            masks::AUTO_MASK.name():
+                                stroke[masks::AUTO_MASK.name()].as_bool().unwrap_or(false),
+                            masks::FRAME.name(): frame,
                         })
                     })
                 })
                 .collect();
-            json!({"lines": lines})
+            json!({masks::LINES.name(): lines})
         }
         "color" => {
-            let mut samples: Vec<Value> = g["points"]
+            let mut samples: Vec<Value> = g[masks::POINTS.name()]
                 .as_array()
                 .map(Vec::as_slice)
                 .unwrap_or_default()
                 .iter()
                 .filter_map(|p| {
                     let (x, y) = pixel(p[0].as_f64()?, p[1].as_f64()?);
-                    Some(json!({"x": round(x), "y": round(y)}))
+                    Some(json!({masks::X.name(): round(x), masks::Y.name(): round(y)}))
                 })
                 .collect();
             for corners in g["areas"].as_array().map(Vec::as_slice).unwrap_or_default() {
@@ -204,8 +225,10 @@ pub fn placed_parameters(
                     let (y0, y1) = placed
                         .iter()
                         .fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.1), b.max(p.1)));
-                    samples.push(json!({"x": round(x0), "y": round(y0),
-                        "width": round(x1 - x0), "height": round(y1 - y0)}));
+                    samples.push(
+                        json!({masks::X.name(): round(x0), masks::Y.name(): round(y0),
+                        masks::WIDTH.name(): round(x1 - x0), masks::HEIGHT.name(): round(y1 - y0)}),
+                    );
                 }
             }
             samples.truncate(5);
@@ -214,11 +237,13 @@ pub fn placed_parameters(
                 s[k].as_f64().unwrap_or(0.0) + s[size].as_f64().unwrap_or(0.0) / 2.0
             };
             json!({
-                "targetX": round(center(&first, "x", "width")),
-                "targetY": round(center(&first, "y", "height")),
-                "samples": samples,
-                "refine": g["refine"].as_f64().unwrap_or(50.0),
-                "feather": 0.0,
+                masks::TARGET_X.name():
+                    round(center(&first, masks::X.name(), masks::WIDTH.name())),
+                masks::TARGET_Y.name():
+                    round(center(&first, masks::Y.name(), masks::HEIGHT.name())),
+                masks::SAMPLES.name(): samples,
+                masks::REFINE.name(): g[masks::REFINE.name()].as_f64().unwrap_or(50.0),
+                masks::FEATHER.name(): 0.0,
             })
         }
         _ => return None,
@@ -231,26 +256,32 @@ pub fn placed_parameters(
 /// any was placed.
 pub fn place(adjustments: &mut Value, width: f64, height: f64, orientation: Option<u16>) -> bool {
     let mut placed = false;
-    let Some(masks) = adjustments.get_mut("masks").and_then(Value::as_array_mut) else {
+    let Some(masks) = adjustments
+        .get_mut(masks::MASKS.name())
+        .and_then(Value::as_array_mut)
+    else {
         return false;
     };
     for sub in masks
         .iter_mut()
-        .filter_map(|m| m.get_mut("subMasks").and_then(Value::as_array_mut))
+        .filter_map(|m| {
+            m.get_mut(masks::SUB_MASKS.name())
+                .and_then(Value::as_array_mut)
+        })
         .flatten()
     {
-        let parameters = &sub["parameters"];
+        let parameters = &sub[masks::PARAMETERS.name()];
         let Some(g) = parameters.get(PENDING) else {
             continue;
         };
         let Some(o) = orientation_of(parameters).or(orientation) else {
             continue;
         };
-        if let Some(resolved) = sub["type"]
+        if let Some(resolved) = sub[masks::TYPE.name()]
             .as_str()
             .and_then(|kind| placed_parameters(kind, g, width, height, o))
         {
-            sub["parameters"] = resolved;
+            sub[masks::PARAMETERS.name()] = resolved;
             placed = true;
         }
     }
@@ -284,7 +315,7 @@ pub(crate) fn placed_layer(
 pub(crate) fn has_auto_mask_stroke(parameters: &Value) -> bool {
     parameters[PENDING]["strokes"]
         .as_array()
-        .is_some_and(|strokes| strokes.iter().any(|s| s["autoMask"] == true))
+        .is_some_and(|strokes| strokes.iter().any(|s| s[masks::AUTO_MASK.name()] == true))
 }
 
 #[cfg(test)]

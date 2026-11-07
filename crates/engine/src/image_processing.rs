@@ -7,6 +7,7 @@ use imageproc::geometric_transformations::Projection;
 use nalgebra::{Matrix3 as NaMatrix3, Vector3 as NaVector3};
 use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::masks;
 use rawtonic_recipe::{StoredRef, tone};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -285,9 +286,9 @@ impl Default for GeometryParams {
 
 pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> GeometryParams {
     let render = RenderVersion::of(adjustments);
-    let resolved = rawtonic_recipe::normalize(StoredRef::new(adjustments), false);
-    let geometry = resolved.geometry;
-    let lens = resolved.lens;
+    let stored = StoredRef::new(adjustments);
+    let geometry = geometry::resolve(stored);
+    let lens = rawtonic_recipe::lens::resolve(stored);
     let guided_fill = geometry.guided.fill();
     let profile = &lens.profile;
     let knots = |knots: &[f64]| knots.iter().map(|&v| v as f32).collect::<Vec<f32>>();
@@ -3638,7 +3639,7 @@ struct SpatialSteps {
 
 impl SpatialSteps {
     fn of(adjustments: &Value) -> Self {
-        let geometry = rawtonic_recipe::normalize(StoredRef::new(adjustments), false).geometry;
+        let geometry = geometry::resolve(StoredRef::new(adjustments));
         let orientation_steps = geometry.orientation_steps.get() as u8;
         let rotation_degrees = geometry.rotation.get() as f32;
         let flip_horizontal = geometry.flip_horizontal;
@@ -4660,34 +4661,13 @@ const SCALES: AdjustmentScales = AdjustmentScales {
     flares: 100.0,
 };
 
-fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8] {
-    let mut hsl_array = [HslColor::default(); 8];
-    if let Some(hsl_map) = js_hsl.as_object() {
-        let color_map = [
-            ("reds", 0),
-            ("oranges", 1),
-            ("yellows", 2),
-            ("greens", 3),
-            ("aquas", 4),
-            ("blues", 5),
-            ("purples", 6),
-            ("magentas", 7),
-        ];
-        for (name, index) in color_map.iter() {
-            if let Some(color_data) = hsl_map.get(*name) {
-                hsl_array[*index] = HslColor {
-                    hue: color_data["hue"].as_f64().unwrap_or(0.0) as f32
-                        * SCALES.hsl_hue_multiplier,
-                    saturation: color_data["saturation"].as_f64().unwrap_or(0.0) as f32
-                        / SCALES.hsl_saturation,
-                    luminance: color_data["luminance"].as_f64().unwrap_or(0.0) as f32
-                        / SCALES.hsl_luminance,
-                    _pad: 0.0,
-                };
-            }
-        }
-    }
-    hsl_array
+fn resolved_hsl(hsl: rawtonic_recipe::color::Hsl) -> [HslColor; 8] {
+    hsl.channels.map(|channel| HslColor {
+        hue: channel.hue as f32 * SCALES.hsl_hue_multiplier,
+        saturation: channel.saturation as f32 / SCALES.hsl_saturation,
+        luminance: channel.luminance as f32 / SCALES.hsl_luminance,
+        _pad: 0.0,
+    })
 }
 
 fn resolved_color_grade_settings(wheel: rawtonic_recipe::color::HslChannel) -> ColorGradeSettings {
@@ -4699,24 +4679,13 @@ fn resolved_color_grade_settings(wheel: rawtonic_recipe::color::HslChannel) -> C
     }
 }
 
-fn parse_color_grade_settings(js_cg: &serde_json::Value) -> ColorGradeSettings {
-    if js_cg.is_null() {
-        return ColorGradeSettings::default();
-    }
-    ColorGradeSettings {
-        hue: js_cg["hue"].as_f64().unwrap_or(0.0) as f32,
-        saturation: js_cg["saturation"].as_f64().unwrap_or(0.0) as f32
-            / SCALES.color_grading_saturation,
-        luminance: js_cg["luminance"].as_f64().unwrap_or(0.0) as f32
-            / SCALES.color_grading_luminance,
-        _pad: 0.0,
-    }
-}
-
 fn convert_points_to_aligned(frontend_points: Vec<serde_json::Value>) -> [Point; 16] {
     let mut aligned_points = [Point::default(); 16];
     for (i, point) in frontend_points.iter().enumerate().take(16) {
-        if let (Some(x), Some(y)) = (point["x"].as_f64(), point["y"].as_f64()) {
+        if let (Some(x), Some(y)) = (
+            point[masks::X.name()].as_f64(),
+            point[masks::Y.name()].as_f64(),
+        ) {
             aligned_points[i] = Point {
                 x: x as f32,
                 y: y as f32,
@@ -4975,7 +4944,7 @@ pub fn is_image_edited(
     {
         return true;
     }
-    if let Some(masks) = adj.get("masks").and_then(|v| v.as_array())
+    if let Some(masks) = adj.get(masks::MASKS.name()).and_then(|v| v.as_array())
         && !masks.is_empty()
     {
         return true;
@@ -5055,29 +5024,66 @@ pub fn is_image_edited(
 /// than the inherited sections (which stay as master switches). A recipe
 /// without the key keeps the tool on.
 fn tool_switch(key: &str) -> Option<&'static str> {
+    use rawtonic_recipe::{Section, color};
     if let Some(section) = rawtonic_recipe::detail::tool_switch(key) {
         return Some(section.name());
     }
-    match key {
-        "temperature" | "tint" => Some("whiteBalance"),
-        "vibrance" | "saturation" => Some("presence"),
-        "hsl" => Some("colorMixer"),
-        "colorGrading" => Some("colorGrading"),
-        "levels" => Some("levels"),
-        "colorCalibration" => Some("calibration"),
-        "colorRanges" => Some("colorEditor"),
-        _ => None,
+    for (keys, section) in [
+        (
+            &[color::TEMPERATURE.name(), color::TINT.name()][..],
+            Section::WHITE_BALANCE.name(),
+        ),
+        (
+            &[color::VIBRANCE.name(), color::SATURATION.name()][..],
+            Section::PRESENCE.name(),
+        ),
+        (&[color::HSL.name()][..], Section::COLOR_MIXER.name()),
+        (
+            &[color::COLOR_GRADING.name()][..],
+            Section::COLOR_GRADING.name(),
+        ),
+        (&["levels"][..], "levels"),
+        (
+            &[color::COLOR_CALIBRATION.name()][..],
+            Section::CALIBRATION.name(),
+        ),
+        (
+            &[color::COLOR_RANGES.name()][..],
+            Section::COLOR_EDITOR.name(),
+        ),
+    ] {
+        if keys.contains(&key) {
+            return Some(section);
+        }
     }
+    None
 }
 
+#[cfg(test)]
 fn get_global_adjustments_from_json(
-    js_adjustments: &serde_json::Value,
+    js_adjustments: &Value,
     is_raw: bool,
     tonemapper_override: Option<u32>,
 ) -> GlobalAdjustments {
-    let versions = RecipeVersions::of(js_adjustments, is_raw);
-    // Tone, colour, detail and effects resolve from the same recipe as these uniforms.
     let resolved = rawtonic_recipe::normalize(StoredRef::new(js_adjustments), is_raw);
+    let versions = RecipeVersions::of(js_adjustments, is_raw);
+    get_global_adjustments_resolved(
+        js_adjustments,
+        is_raw,
+        tonemapper_override,
+        &resolved,
+        &versions,
+    )
+}
+
+fn get_global_adjustments_resolved(
+    js_adjustments: &serde_json::Value,
+    is_raw: bool,
+    tonemapper_override: Option<u32>,
+    resolved: &rawtonic_recipe::ResolvedRecipe<'_>,
+    versions: &RecipeVersions,
+) -> GlobalAdjustments {
+    // Tone, colour, detail and effects resolve from the same recipe as these uniforms.
     let tone = &resolved.tone;
     let color = &resolved.color;
     let detail = &resolved.detail;
@@ -5093,16 +5099,19 @@ fn get_global_adjustments_from_json(
     let tool_on = |key: &str| tool_switch(key).is_none_or(&is_visible);
 
     let default_curve = serde_json::json!([{"x": 0.0, "y": 0.0}, {"x": 255.0, "y": 255.0}]);
-    let curves_obj = js_adjustments.get("curves").cloned().unwrap_or_default();
-    let luminance_points = if is_visible("curves") {
+    let curves_obj = js_adjustments
+        .get(masks::CURVES.name())
+        .cloned()
+        .unwrap_or_default();
+    let luminance_points = if is_visible(masks::CURVES.name()) {
         crate::point_curve::luminance_points(&curves_obj)
     } else {
         Vec::new()
     };
 
-    let luma_points: Vec<serde_json::Value> = if is_visible("curves") {
+    let luma_points: Vec<serde_json::Value> = if is_visible(masks::CURVES.name()) {
         curves_obj
-            .get("luma")
+            .get(masks::CURVE_CHANNELS[0].name())
             .unwrap_or(&default_curve)
             .as_array()
             .cloned()
@@ -5110,9 +5119,9 @@ fn get_global_adjustments_from_json(
     } else {
         Vec::new()
     };
-    let red_points: Vec<serde_json::Value> = if is_visible("curves") {
+    let red_points: Vec<serde_json::Value> = if is_visible(masks::CURVES.name()) {
         curves_obj
-            .get("red")
+            .get(masks::CURVE_CHANNELS[1].name())
             .unwrap_or(&default_curve)
             .as_array()
             .cloned()
@@ -5120,9 +5129,9 @@ fn get_global_adjustments_from_json(
     } else {
         Vec::new()
     };
-    let green_points: Vec<serde_json::Value> = if is_visible("curves") {
+    let green_points: Vec<serde_json::Value> = if is_visible(masks::CURVES.name()) {
         curves_obj
-            .get("green")
+            .get(masks::CURVE_CHANNELS[2].name())
             .unwrap_or(&default_curve)
             .as_array()
             .cloned()
@@ -5130,9 +5139,9 @@ fn get_global_adjustments_from_json(
     } else {
         Vec::new()
     };
-    let blue_points: Vec<serde_json::Value> = if is_visible("curves") {
+    let blue_points: Vec<serde_json::Value> = if is_visible(masks::CURVES.name()) {
         curves_obj
-            .get("blue")
+            .get(masks::CURVE_CHANNELS[3].name())
             .unwrap_or(&default_curve)
             .as_array()
             .cloned()
@@ -5189,7 +5198,7 @@ fn get_global_adjustments_from_json(
         } else {
             0.0
         },
-        curve_space: if is_visible("curves") {
+        curve_space: if is_visible(masks::CURVES.name()) {
             crate::point_curve::curve_space(&curves_obj)
         } else {
             0
@@ -5279,12 +5288,7 @@ fn get_global_adjustments_from_json(
 
         color_calibration: color_cal_settings,
 
-        hsl: color.hsl.channels.map(|channel| HslColor {
-            hue: channel.hue as f32 * SCALES.hsl_hue_multiplier,
-            saturation: channel.saturation as f32 / SCALES.hsl_saturation,
-            luminance: channel.luminance as f32 / SCALES.hsl_luminance,
-            _pad: 0.0,
-        }),
+        hsl: resolved_hsl(color.hsl),
         luma_curve: convert_points_to_aligned(luma_points.clone()),
         red_curve: convert_points_to_aligned(red_points.clone()),
         green_curve: convert_points_to_aligned(green_points.clone()),
@@ -5429,7 +5433,7 @@ fn get_global_adjustments_from_json(
             global.calibration_luma[0] = calibration.luminance_keep();
         }
     }
-    if is_visible("curves") {
+    if is_visible(masks::CURVES.name()) {
         let region = crate::region_curve::RegionCurve::from_json(&js_adjustments["regionCurve"]);
         if !region.is_neutral() {
             let lut = region.lut();
@@ -5440,7 +5444,7 @@ fn get_global_adjustments_from_json(
         }
     }
     global.apply_color_ranges(&color.color_ranges);
-    if is_visible("curves") && tool_on("levels") {
+    if is_visible(masks::CURVES.name()) && tool_on("levels") {
         global.apply_levels(&js_adjustments["levels"]);
     }
     if modern_grading(global.tonemapper_mode) && is_visible("color") {
@@ -5549,35 +5553,7 @@ impl GlobalAdjustments {
     /// its selection view (`show_clipping` = 2 + index; exports reset it).
     fn apply_color_ranges(&mut self, ranges: &rawtonic_recipe::color::ColorRanges) {
         for (i, range) in ranges.ranges.iter().take(ranges.count).enumerate() {
-            let chroma = range.chroma.max(0.0);
-            let chroma_range = range.chroma_range.clamp(0.0, 100.0) / 100.0;
-            let lightness_range = range.lightness_range.clamp(0.0, 100.0) / 100.0;
-            let packed = [
-                [
-                    range.hue.rem_euclid(360.0) as f32,
-                    chroma as f32,
-                    range.lightness.clamp(0.0, 1.0) as f32,
-                    (0.02 + lightness_range) as f32,
-                ],
-                [
-                    range.hue_range.clamp(5.0, 90.0) as f32,
-                    (chroma * (1.0 - chroma_range)) as f32,
-                    (chroma * (1.0 + 2.0 * chroma_range) + 0.01) as f32,
-                    (0.1 + 0.9 * range.smoothness.clamp(0.0, 100.0) / 100.0) as f32,
-                ],
-                [
-                    (range.hue_shift.clamp(-100.0, 100.0) * 0.5) as f32,
-                    (range.saturation.clamp(-100.0, 100.0) / 100.0) as f32,
-                    (range.lightness_shift.clamp(-100.0, 100.0) / 100.0 * 0.2) as f32,
-                    0.0,
-                ],
-                [
-                    (range.hue_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
-                    (range.saturation_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
-                    (range.lightness_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
-                    0.0,
-                ],
-            ];
+            let packed = pack_color_range(range);
             self.color_ranges[i * 4..i * 4 + 4].copy_from_slice(&packed);
             if self.show_clipping == 0 && ranges.shown == Some(i) {
                 self.show_clipping = 2 + i as u32;
@@ -5591,52 +5567,42 @@ impl GlobalAdjustments {
 /// vec4 each: (hue°, chroma, lightness, lightness half-width), (hue
 /// half-width, chroma low, chroma high, softness), (hue shift°, saturation,
 /// lightness shift, 0), (hue, saturation, lightness uniformity, 0).
-fn pack_color_ranges(ranges: &serde_json::Value, limit: usize) -> Vec<[[f32; 4]; 4]> {
-    let Some(ranges) = ranges.as_array() else {
-        return Vec::new();
-    };
-    ranges
-        .iter()
-        .take(limit)
-        .map(|range| {
-            let get = |key: &str, default: f64| range[key].as_f64().unwrap_or(default);
-            let chroma = get("chroma", 0.0).max(0.0);
-            let chroma_range = get("chromaRange", 70.0).clamp(0.0, 100.0) / 100.0;
-            let lightness_range = get("lightnessRange", 100.0).clamp(0.0, 100.0) / 100.0;
-            [
-                [
-                    get("hue", 0.0).rem_euclid(360.0) as f32,
-                    chroma as f32,
-                    get("lightness", 0.5).clamp(0.0, 1.0) as f32,
-                    (0.02 + lightness_range) as f32,
-                ],
-                [
-                    get("hueRange", 25.0).clamp(5.0, 90.0) as f32,
-                    (chroma * (1.0 - chroma_range)) as f32,
-                    (chroma * (1.0 + 2.0 * chroma_range) + 0.01) as f32,
-                    (0.1 + 0.9 * get("smoothness", 50.0).clamp(0.0, 100.0) / 100.0) as f32,
-                ],
-                [
-                    (get("hueShift", 0.0).clamp(-100.0, 100.0) * 0.5) as f32,
-                    (get("saturation", 0.0).clamp(-100.0, 100.0) / 100.0) as f32,
-                    (get("lightnessShift", 0.0).clamp(-100.0, 100.0) / 100.0 * 0.2) as f32,
-                    0.0,
-                ],
-                [
-                    (get("hueUniformity", 0.0).clamp(0.0, 100.0) / 100.0) as f32,
-                    (get("saturationUniformity", 0.0).clamp(0.0, 100.0) / 100.0) as f32,
-                    (get("lightnessUniformity", 0.0).clamp(0.0, 100.0) / 100.0) as f32,
-                    0.0,
-                ],
-            ]
-        })
-        .collect()
+fn pack_color_range(range: &rawtonic_recipe::color::ColorRange) -> [[f32; 4]; 4] {
+    let chroma = range.chroma.max(0.0);
+    let chroma_range = range.chroma_range.clamp(0.0, 100.0) / 100.0;
+    let lightness_range = range.lightness_range.clamp(0.0, 100.0) / 100.0;
+    [
+        [
+            range.hue.rem_euclid(360.0) as f32,
+            chroma as f32,
+            range.lightness.clamp(0.0, 1.0) as f32,
+            (0.02 + lightness_range) as f32,
+        ],
+        [
+            range.hue_range.clamp(5.0, 90.0) as f32,
+            (chroma * (1.0 - chroma_range)) as f32,
+            (chroma * (1.0 + 2.0 * chroma_range) + 0.01) as f32,
+            (0.1 + 0.9 * range.smoothness.clamp(0.0, 100.0) / 100.0) as f32,
+        ],
+        [
+            (range.hue_shift.clamp(-100.0, 100.0) * 0.5) as f32,
+            (range.saturation.clamp(-100.0, 100.0) / 100.0) as f32,
+            (range.lightness_shift.clamp(-100.0, 100.0) / 100.0 * 0.2) as f32,
+            0.0,
+        ],
+        [
+            (range.hue_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
+            (range.saturation_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
+            (range.lightness_uniformity.clamp(0.0, 100.0) / 100.0) as f32,
+            0.0,
+        ],
+    ]
 }
 
 /// The recipe's white balance as temperature and tint when it sets one
 /// (custom, Auto or a preset); `None` keeps the camera's (As Shot).
 pub fn recipe_white_balance(adjustments: &serde_json::Value) -> Option<(f64, f64)> {
-    let color = rawtonic_recipe::normalize(StoredRef::new(adjustments), false).color;
+    let color = rawtonic_recipe::color::resolve(StoredRef::new(adjustments));
     let [on, temperature, tint, _] = kelvin_white_balance(color.white_balance);
     (on > 0.0).then_some((temperature as f64, tint as f64))
 }
@@ -5691,11 +5657,6 @@ fn noise_detail(detail: &rawtonic_recipe::detail::Detail) -> [f32; 4] {
 /// Moiré `moireAmount` (0–100) and `moirePattern` (0–100, the size of the
 /// pattern it looks for) as the shader's amount and sampling step (1–8
 /// original pixels).
-fn moire_settings(adjustments: &serde_json::Value) -> [f32; 4] {
-    let get = |key: &str, default: f64| adjustments[key].as_f64().unwrap_or(default);
-    resolved_moire_settings(get("moireAmount", 0.0), get("moirePattern", 30.0))
-}
-
 fn resolved_moire_settings(amount: f64, pattern: f64) -> [f32; 4] {
     let amount = (amount / 100.0).clamp(0.0, 1.0) as f32;
     if amount <= 0.0 {
@@ -6000,135 +5961,134 @@ pub fn bw_version(adjustments: &serde_json::Value) -> u64 {
     crate::recipe_versions::BwVersion::of(adjustments).get()
 }
 
+#[cfg(test)]
 fn get_mask_adjustments_from_json(
-    adj: &serde_json::Value,
+    adj: &Value,
     tonemapper_mode: u32,
     render: RenderVersion,
 ) -> MaskAdjustments {
-    if adj.is_null() {
+    get_mask_adjustments(
+        &rawtonic_recipe::masks::resolve_local(StoredRef::new(adj)),
+        tonemapper_mode,
+        render,
+    )
+}
+
+fn get_mask_adjustments(
+    local: &rawtonic_recipe::masks::LocalAdjustments<'_>,
+    tonemapper_mode: u32,
+    render: RenderVersion,
+) -> MaskAdjustments {
+    if local.is_null {
         return MaskAdjustments::default();
     }
-
-    let visibility = adj.get("sectionVisibility");
-    let is_visible = |section: &str| -> bool {
-        visibility
-            .and_then(|v| v.get(section))
-            .and_then(|s| s.as_bool())
-            .unwrap_or(true)
-    };
-
-    let tool_on = |key: &str| tool_switch(key).is_none_or(&is_visible);
-    // As for the photo (`get_global_adjustments_from_json`).
     let classic_grading =
-        is_visible("color") && (!render.look_tool_switches() || tool_on("colorGrading"));
-    let get_val = |section: &str, key: &str, scale: f32| -> f32 {
-        if is_visible(section) && tool_on(key) {
-            adj[key].as_f64().unwrap_or(0.0) as f32 / scale
-        } else {
-            0.0
-        }
-    };
-
-    let curves_obj = adj.get("curves").cloned().unwrap_or_default();
-    let luminance_points = if is_visible("curves") {
-        crate::point_curve::luminance_points(&curves_obj)
+        local.color_visible && (!render.look_tool_switches() || local.grading_visible);
+    let curves_obj = local.curves;
+    let luminance_points = if !curves_obj.is_null() {
+        crate::point_curve::luminance_points(curves_obj)
     } else {
         Vec::new()
     };
-    let luma_points: Vec<serde_json::Value> = if is_visible("curves") {
-        curves_obj["luma"].as_array().cloned().unwrap_or_default()
+    let luma_points: Vec<serde_json::Value> = if !curves_obj.is_null() {
+        curves_obj[masks::CURVE_CHANNELS[0].name()]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
     } else {
         Vec::new()
     };
-    let red_points: Vec<serde_json::Value> = if is_visible("curves") {
-        curves_obj["red"].as_array().cloned().unwrap_or_default()
+    let red_points: Vec<serde_json::Value> = if !curves_obj.is_null() {
+        curves_obj[masks::CURVE_CHANNELS[1].name()]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
     } else {
         Vec::new()
     };
-    let green_points: Vec<serde_json::Value> = if is_visible("curves") {
-        curves_obj["green"].as_array().cloned().unwrap_or_default()
+    let green_points: Vec<serde_json::Value> = if !curves_obj.is_null() {
+        curves_obj[masks::CURVE_CHANNELS[2].name()]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
     } else {
         Vec::new()
     };
-    let blue_points: Vec<serde_json::Value> = if is_visible("curves") {
-        curves_obj["blue"].as_array().cloned().unwrap_or_default()
+    let blue_points: Vec<serde_json::Value> = if !curves_obj.is_null() {
+        curves_obj[masks::CURVE_CHANNELS[3].name()]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
     } else {
         Vec::new()
     };
-    let cg_obj = adj.get("colorGrading").cloned().unwrap_or_default();
+    let grading = &local.grading;
 
     let mut mask = MaskAdjustments {
-        exposure: get_val("basic", "exposure", SCALES.exposure),
-        brightness: get_val("basic", "brightness", SCALES.brightness),
-        contrast: get_val("basic", "contrast", SCALES.contrast),
-        highlights: get_val("basic", "highlights", SCALES.highlights),
-        shadows: get_val("basic", "shadows", SCALES.shadows),
-        whites: get_val("basic", "whites", SCALES.whites),
-        blacks: get_val("basic", "blacks", SCALES.blacks),
+        exposure: local.exposure.get() as f32 / SCALES.exposure,
+        brightness: local.brightness.get() as f32 / SCALES.brightness,
+        contrast: local.contrast.get() as f32 / SCALES.contrast,
+        highlights: local.highlights.get() as f32 / SCALES.highlights,
+        shadows: local.shadows.get() as f32 / SCALES.shadows,
+        whites: local.whites.get() as f32 / SCALES.whites,
+        blacks: local.blacks.get() as f32 / SCALES.blacks,
 
-        saturation: get_val("color", "saturation", SCALES.saturation),
-        temperature: get_val("color", "temperature", SCALES.temperature),
-        tint: get_val("color", "tint", SCALES.tint),
-        vibrance: get_val("color", "vibrance", SCALES.vibrance),
+        saturation: local.saturation.get() as f32 / SCALES.saturation,
+        temperature: local.temperature.get() as f32 / SCALES.temperature,
+        tint: local.tint.get() as f32 / SCALES.tint,
+        vibrance: local.vibrance.get() as f32 / SCALES.vibrance,
 
-        sharpness: get_val("details", "sharpness", SCALES.sharpness),
-        luma_noise_reduction: get_val("details", "lumaNoiseReduction", SCALES.luma_noise_reduction),
-        color_noise_reduction: get_val(
-            "details",
-            "colorNoiseReduction",
-            SCALES.color_noise_reduction,
-        ),
+        sharpness: local.sharpness.get() as f32 / SCALES.sharpness,
+        luma_noise_reduction: local.luma_noise_reduction.get() as f32 / SCALES.luma_noise_reduction,
+        color_noise_reduction: local.color_noise_reduction.get() as f32
+            / SCALES.color_noise_reduction,
 
-        clarity: get_val("details", "clarity", SCALES.clarity),
-        dehaze: get_val("details", "dehaze", SCALES.dehaze),
-        structure: get_val("details", "structure", SCALES.structure),
+        clarity: local.clarity.get() as f32 / SCALES.clarity,
+        dehaze: local.dehaze.get() as f32 / SCALES.dehaze,
+        structure: local.structure.get() as f32 / SCALES.structure,
 
-        glow_amount: get_val("effects", effects::GLOW_AMOUNT.name(), SCALES.glow),
-        halation_amount: get_val("effects", effects::HALATION_AMOUNT.name(), SCALES.halation),
-        flare_amount: get_val("effects", effects::FLARE_AMOUNT.name(), SCALES.flares),
-        sharpness_threshold: get_val("details", "sharpnessThreshold", SCALES.sharpness_threshold),
+        glow_amount: local.glow_amount.get() as f32 / SCALES.glow,
+        halation_amount: local.halation_amount.get() as f32 / SCALES.halation,
+        flare_amount: local.flare_amount.get() as f32 / SCALES.flares,
+        sharpness_threshold: local.sharpness_threshold.get() as f32 / SCALES.sharpness_threshold,
 
-        hue: get_val("color", "hue", 1.0),
-        defringe: (get_val("details", "defringe", 100.0)).clamp(-1.0, 1.0),
+        hue: local.hue.get() as f32,
+        defringe: (local.defringe.get() as f32 / 100.0).clamp(-1.0, 1.0),
         _pad_cg2: 0.0,
         color_grading_shadows: if classic_grading {
-            parse_color_grade_settings(&cg_obj["shadows"])
+            resolved_color_grade_settings(grading.wheels[0])
         } else {
             ColorGradeSettings::default()
         },
         color_grading_midtones: if classic_grading {
-            parse_color_grade_settings(&cg_obj["midtones"])
+            resolved_color_grade_settings(grading.wheels[1])
         } else {
             ColorGradeSettings::default()
         },
         color_grading_highlights: if classic_grading {
-            parse_color_grade_settings(&cg_obj["highlights"])
+            resolved_color_grade_settings(grading.wheels[2])
         } else {
             ColorGradeSettings::default()
         },
         color_grading_global: if classic_grading {
-            parse_color_grade_settings(&cg_obj["global"])
+            resolved_color_grade_settings(grading.wheels[3])
         } else {
             ColorGradeSettings::default()
         },
         color_grading_blending: if classic_grading {
-            cg_obj["blending"].as_f64().unwrap_or(50.0) as f32 / SCALES.color_grading_blending
+            grading.blending as f32 / SCALES.color_grading_blending
         } else {
             0.5
         },
         color_grading_balance: if classic_grading {
-            cg_obj["balance"].as_f64().unwrap_or(0.0) as f32 / SCALES.color_grading_balance
+            grading.balance as f32 / SCALES.color_grading_balance
         } else {
             0.0
         },
         grading_active: 0,
         color_range_count: 0,
 
-        hsl: if is_visible("color") && tool_on("hsl") {
-            parse_hsl_adjustments(&adj.get("hsl").cloned().unwrap_or_default())
-        } else {
-            [HslColor::default(); 8]
-        },
+        hsl: resolved_hsl(local.hsl),
         luma_curve: convert_points_to_aligned(luma_points.clone()),
         red_curve: convert_points_to_aligned(red_points.clone()),
         green_curve: convert_points_to_aligned(green_points.clone()),
@@ -6137,8 +6097,8 @@ fn get_mask_adjustments_from_json(
         red_curve_count: red_points.len().min(16) as u32,
         green_curve_count: green_points.len().min(16) as u32,
         blue_curve_count: blue_points.len().min(16) as u32,
-        curve_space: if is_visible("curves") {
-            crate::point_curve::curve_space(&curves_obj)
+        curve_space: if !curves_obj.is_null() {
+            crate::point_curve::curve_space(curves_obj)
         } else {
             0
         },
@@ -6147,31 +6107,21 @@ fn get_mask_adjustments_from_json(
         _pad_end7: 0.0,
         grading_lut: [[0.0; 4]; GRADING_LUT_SIZE],
         color_ranges: [[0.0; 4]; 16],
-        moire: if is_visible("details") {
-            moire_settings(adj)
-        } else {
-            [0.0; 4]
-        },
+        moire: resolved_moire_settings(local.moire_amount.get(), local.moire_pattern.get()),
         luminance_curve: convert_points_to_aligned(luminance_points.clone()),
         luminance_curve_count: luminance_points.len().min(16) as u32,
         _pad_luminance: [0; 3],
     };
-    if is_visible("color") && tool_on("colorRanges") {
-        let ranges = pack_color_ranges(&adj["colorRanges"], 4);
-        mask.color_range_count = ranges.len() as u32;
-        for (i, range) in ranges.iter().enumerate() {
-            mask.color_ranges[i * 4..i * 4 + 4].copy_from_slice(range);
-        }
+    mask.color_range_count = local.color_ranges.len() as u32;
+    for (i, range) in local.color_ranges.iter().enumerate() {
+        mask.color_ranges[i * 4..i * 4 + 4].copy_from_slice(&pack_color_range(range));
     }
-    if modern_grading(tonemapper_mode) && is_visible("color") {
-        let off = serde_json::Value::Null;
-        mask.apply_grading(crate::color_grading::Grading::from_json(
-            if tool_on("colorGrading") {
-                &cg_obj
-            } else {
-                &off
-            },
-        ));
+    if modern_grading(tonemapper_mode) && local.color_visible {
+        mask.apply_grading(if local.grading_visible {
+            crate::color_grading::Grading::from_recipe(local.grading)
+        } else {
+            crate::color_grading::Grading::default()
+        });
     }
     mask
 }
@@ -6181,20 +6131,22 @@ fn get_mask_adjustments_from_json(
 /// before render their first 16 points); hidden curves count as none, as
 /// for the uniforms.
 fn global_curve_table(js_adjustments: &serde_json::Value) -> Option<std::sync::Arc<Vec<[f32; 4]>>> {
-    if js_adjustments["curves"]["version"].as_u64().unwrap_or(1)
+    if js_adjustments[masks::CURVES.name()]["version"]
+        .as_u64()
+        .unwrap_or(1)
         < crate::point_curve::LONG_CURVE_VERSION
     {
         return None;
     }
     let visible = js_adjustments
         .get("sectionVisibility")
-        .and_then(|v| v.get("curves"))
+        .and_then(|v| v.get(masks::CURVES.name()))
         .and_then(|s| s.as_bool())
         .unwrap_or(true);
     if !visible {
         return None;
     }
-    let curves = &js_adjustments["curves"];
+    let curves = &js_adjustments[masks::CURVES.name()];
     let channel = |key: &str| match curves.get(key) {
         Some(points) => {
             crate::point_curve::curve_points(points.as_array().map_or(&[], Vec::as_slice))
@@ -6202,10 +6154,10 @@ fn global_curve_table(js_adjustments: &serde_json::Value) -> Option<std::sync::A
         None => vec![(0.0, 0.0), (255.0, 255.0)],
     };
     crate::point_curve::curve_table(&[
-        channel("luma"),
-        channel("red"),
-        channel("green"),
-        channel("blue"),
+        channel(masks::CURVE_CHANNELS[0].name()),
+        channel(masks::CURVE_CHANNELS[1].name()),
+        channel(masks::CURVE_CHANNELS[2].name()),
+        channel(masks::CURVE_CHANNELS[3].name()),
     ])
 }
 
@@ -6214,34 +6166,104 @@ pub fn get_all_adjustments_from_json(
     is_raw: bool,
     tonemapper_override: Option<u32>,
 ) -> PreparedAdjustments {
-    get_all_adjustments_with_masks(
+    let stored = StoredRef::new(js_adjustments);
+    let versions = RecipeVersions::of(js_adjustments, is_raw);
+    let global = get_global_adjustments_resolved(
         js_adjustments,
         is_raw,
         tonemapper_override,
-        &mask_definitions_from_json(js_adjustments),
+        &rawtonic_recipe::normalize(stored, is_raw),
+        &versions,
+    );
+    get_all_adjustments_with_locals(
+        js_adjustments,
+        global,
+        versions.render,
+        masks::resolve(stored)
+            .layers
+            .iter()
+            .filter(|mask| mask.produces_bitmap())
+            .take(MAX_MASKS)
+            .map(|mask| mask.adjustments()),
     )
 }
 
 /// The layers of an adjustments JSON (`masks`), none if any is malformed.
-/// Deserialized in place: cloning the `Value` first doubled the cost of a
-/// stack of brush layers with thousands of points.
+/// Read through the resolved containers alone (not their local adjustments
+/// or the photo's sections). Only the owned rasterization input copies
+/// stroke arrays/payloads; resolving itself borrows them.
 pub fn mask_definitions_from_json(js_adjustments: &serde_json::Value) -> Vec<MaskDefinition> {
-    js_adjustments
-        .get("masks")
-        .and_then(|m| Vec::<MaskDefinition>::deserialize(m).ok())
-        .unwrap_or_default()
+    masks::resolve(StoredRef::new(js_adjustments))
+        .layers
+        .iter()
+        .map(|m| MaskDefinition {
+            id: m.id.to_owned(),
+            name: m.name.to_owned(),
+            visible: m.visible,
+            invert: m.invert,
+            opacity: m.opacity,
+            adjustments: m.stored_adjustments().clone(),
+            mask_version: m.mask_version,
+            refine_edge: m.refine_edge,
+            sub_masks: m
+                .sub_masks
+                .iter()
+                .map(|s| crate::masks::SubMask {
+                    id: s.id.to_owned(),
+                    mask_type: s.mask_type.to_owned(),
+                    visible: s.visible,
+                    invert: s.invert,
+                    opacity: s.opacity,
+                    mode: s.mode,
+                    parameters: s.parameters.clone(),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// [`get_all_adjustments_from_json`] with the layers already read by
 /// [`mask_definitions_from_json`] (a preview reads them once for the masks
-/// and the adjustments).
+/// and the adjustments) and the recipe's `versions`, read once by the caller
+/// (`rawtonic_export::normalize`, or `RecipeVersions::of` for the editor's
+/// own recipes). Neither the mask stack nor the versions are read again.
 pub fn get_all_adjustments_with_masks(
     js_adjustments: &serde_json::Value,
     is_raw: bool,
     tonemapper_override: Option<u32>,
     mask_definitions: &[MaskDefinition],
+    versions: &RecipeVersions,
 ) -> PreparedAdjustments {
-    let mut global = get_global_adjustments_from_json(js_adjustments, is_raw, tonemapper_override);
+    debug_assert_eq!(
+        *versions,
+        RecipeVersions::of(js_adjustments, is_raw),
+        "the versions passed are this recipe's"
+    );
+    let global = get_global_adjustments_resolved(
+        js_adjustments,
+        is_raw,
+        tonemapper_override,
+        &rawtonic_recipe::normalize(StoredRef::new(js_adjustments), is_raw),
+        versions,
+    );
+    get_all_adjustments_with_locals(
+        js_adjustments,
+        global,
+        versions.render,
+        mask_definitions
+            .iter()
+            .filter(|mask| mask.produces_bitmap())
+            .take(MAX_MASKS)
+            .map(|mask| rawtonic_recipe::masks::resolve_local(StoredRef::new(&mask.adjustments))),
+    )
+}
+
+fn get_all_adjustments_with_locals<'a>(
+    js_adjustments: &Value,
+    mut global: GlobalAdjustments,
+    render: RenderVersion,
+    local_adjustments: impl Iterator<Item = rawtonic_recipe::masks::LocalAdjustments<'a>>,
+) -> PreparedAdjustments {
     let (depth_key, relight_surface) = crate::relight::prepare_depth(js_adjustments);
     let ([pattern_low, pattern_high], relight_patterns) =
         crate::relight::prepare_patterns(js_adjustments);
@@ -6261,18 +6283,11 @@ pub fn get_all_adjustments_with_masks(
     if curve_table.is_some() {
         global.region_curve_active[1] = 1;
     }
-    let render = RenderVersion::of(js_adjustments);
     let mut mask_adjustments = [MaskAdjustments::default(); MAX_MASKS];
     let mut mask_count = 0;
 
-    for (i, mask_def) in mask_definitions
-        .iter()
-        .filter(|m| m.produces_bitmap())
-        .take(MAX_MASKS)
-        .enumerate()
-    {
-        mask_adjustments[i] =
-            get_mask_adjustments_from_json(&mask_def.adjustments, global.tonemapper_mode, render);
+    for (i, local) in local_adjustments.enumerate() {
+        mask_adjustments[i] = get_mask_adjustments(&local, global.tonemapper_mode, render);
         mask_adjustments[i].exposure *= exposure_scale;
         mask_count += 1;
     }
@@ -9556,3 +9571,9 @@ mod effects_uniform_tests;
 #[cfg(test)]
 #[path = "image_processing_lens_tests.rs"]
 mod lens_recipe_tests;
+
+#[cfg(test)]
+#[path = "image_processing_mask_tests.rs"]
+mod mask_recipe_tests;
+#[cfg(test)]
+use mask_recipe_tests::{pack_color_ranges, parse_hsl_adjustments};

@@ -1,16 +1,10 @@
 //! Mask layer definitions as stored in a recipe; `mask_generation` rasterises them.
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::masks;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(crate = "serde")]
-#[serde(rename_all = "camelCase")]
-pub enum SubMaskMode {
-    Additive,
-    Subtractive,
-    Intersect,
-}
+pub use rawtonic_recipe::masks::SubMaskMode;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(crate = "serde")]
@@ -59,7 +53,7 @@ pub struct MaskDefinition {
 
 impl MaskDefinition {
     pub fn produces_bitmap(&self) -> bool {
-        self.visible && !self.sub_masks.is_empty()
+        rawtonic_recipe::masks::produces_bitmap(self.visible, self.sub_masks.len())
     }
 
     /// The mask is computed at 16 bits (`maskVersion` 2).
@@ -79,10 +73,9 @@ impl MaskDefinition {
                 matches!(sm.mask_type.as_str(), "color" | "luminance" | "luma-range")
                     || (sm.mask_type == "brush"
                         && crate::mask_parameters::with_resolved(&sm.parameters, |p| {
-                            p["lines"]
-                                .as_array()
-                                .is_some_and(|lines| lines.iter().any(|l| l["autoMask"] == true))
-                                || crate::lightroom_masks::has_auto_mask_stroke(p)
+                            p[masks::LINES.name()].as_array().is_some_and(|lines| {
+                                lines.iter().any(|l| l[masks::AUTO_MASK.name()] == true)
+                            }) || crate::lightroom_masks::has_auto_mask_stroke(p)
                         }))
             })
     }
@@ -215,9 +208,9 @@ pub fn rendered_layers(masks: &Value) -> usize {
         .into_iter()
         .flatten()
         .filter(|layer| {
-            layer.get("visible").and_then(Value::as_bool) != Some(false)
+            layer.get(masks::VISIBLE.name()).and_then(Value::as_bool) != Some(false)
                 && layer
-                    .get("subMasks")
+                    .get(masks::SUB_MASKS.name())
                     .and_then(Value::as_array)
                     .is_some_and(|subs| !subs.is_empty())
         })
@@ -250,19 +243,19 @@ pub fn pending_detections_message(pending: &[PendingDetection]) -> String {
 /// refinement settings when saving a preset or transferring its layers.
 /// Keep in sync with `DETECTION_RESULT_KEYS` in src/utils/settingsClipboard.ts.
 const DETECTION_RESULT_KEYS: [&str; 8] = [
-    "maskDataBase64",
-    "mask_data_base64",
+    masks::MASK_DATA_BASE64.into_name(),
+    masks::MASK_DATA_BASE64_LEGACY.into_name(),
     DETECT_PENDING,
     geometry::ROTATION.name(),
     geometry::FLIP_HORIZONTAL.name(),
     geometry::FLIP_VERTICAL.name(),
     geometry::ORIENTATION_STEPS.name(),
-    "warp",
+    masks::WARP.into_name(),
 ];
 
 fn clear_detection(sub: &mut Value) -> bool {
     if !sub
-        .get("type")
+        .get(masks::TYPE.name())
         .and_then(Value::as_str)
         .is_some_and(|t| DETECTED_TYPES.contains(&t))
     {
@@ -272,7 +265,7 @@ fn clear_detection(sub: &mut Value) -> bool {
         return false;
     };
     let Some(parameters) = sub
-        .entry("parameters")
+        .entry(masks::PARAMETERS.name())
         .or_insert_with(|| serde_json::json!({}))
         .as_object_mut()
     else {
@@ -293,27 +286,27 @@ fn clear_detection(sub: &mut Value) -> bool {
 pub fn prepare_layers_for_photo(layers: &mut Value, new_id: &mut dyn FnMut() -> String) {
     for layer in layers.as_array_mut().into_iter().flatten() {
         for sub in layer
-            .get_mut("subMasks")
+            .get_mut(masks::SUB_MASKS.name())
             .and_then(Value::as_array_mut)
             .into_iter()
             .flatten()
         {
             let snake_bitmap = sub
-                .get("parameters")
-                .is_some_and(|p| p.get("mask_data_base64").is_some());
+                .get(masks::PARAMETERS.name())
+                .is_some_and(|p| p.get(masks::MASK_DATA_BASE64_LEGACY.name()).is_some());
             if !clear_detection(sub) {
                 continue;
             }
-            let parameters = &mut sub["parameters"];
-            parameters["maskDataBase64"] = Value::Null;
+            let parameters = &mut sub[masks::PARAMETERS.name()];
+            parameters[masks::MASK_DATA_BASE64.into_name()] = Value::Null;
             if snake_bitmap {
-                parameters["mask_data_base64"] = Value::Null;
+                parameters[masks::MASK_DATA_BASE64_LEGACY.name()] = Value::Null;
             }
             if nothing_to_detect(parameters) {
                 continue;
             }
             parameters[DETECT_PENDING] = Value::Bool(true);
-            sub["id"] = Value::String(new_id());
+            sub[masks::ID.name()] = Value::String(new_id());
         }
     }
 }
@@ -324,13 +317,13 @@ pub fn prepare_layers_for_photo(layers: &mut Value, new_id: &mut dyn FnMut() -> 
 pub fn without_detections(adjustments: &Value) -> Value {
     let mut out = adjustments.clone();
     for layer in out
-        .get_mut("masks")
+        .get_mut(masks::MASKS.name())
         .and_then(Value::as_array_mut)
         .into_iter()
         .flatten()
     {
         for sub in layer
-            .get_mut("subMasks")
+            .get_mut(masks::SUB_MASKS.name())
             .and_then(Value::as_array_mut)
             .into_iter()
             .flatten()
@@ -372,7 +365,12 @@ pub fn paste_layers(
     if replace {
         return Value::Array(pasted);
     }
-    let id = |layer: &Value| layer.get("id").and_then(Value::as_str).map(str::to_string);
+    let id = |layer: &Value| {
+        layer
+            .get(masks::ID.name())
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
     let mut layers: Vec<Value> = own.as_array().cloned().unwrap_or_default();
     for layer in pasted {
         match layers

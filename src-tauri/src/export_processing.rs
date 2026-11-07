@@ -2,6 +2,7 @@
 //! queue, its Tauri commands and events, sidecar and session access and the
 //! metadata embedding stay here; the render and encoders live in the crate.
 pub use rawtonic_export::export_processing::*;
+use rawtonic_recipe::masks;
 
 use crate::state::ai::AiState;
 use crate::state::export::ExportState;
@@ -525,7 +526,7 @@ fn export_masks_for_image(
     ensure_export_not_cancelled(cancellation_token)?;
     let (img_w, img_h) = transformed_image.dimensions();
     let mask_definitions: Vec<MaskDefinition> = js_adjustments
-        .get("masks")
+        .get(masks::MASKS.name())
         .and_then(|m| serde_json::from_value(m.clone()).ok())
         .unwrap_or_default();
 
@@ -1431,14 +1432,14 @@ fn export_photo(
 
     // A never-edited photo exports with the camera's lens data,
     // as Develop shows it (profile corrections on by default).
-    if let Err(e) = rawtonic_export::normalize::normalize(
+    let normalized = rawtonic_export::normalize::normalize(
         &mut js_adjustments,
         &rawtonic_export::normalize::RecipeSource::file(&source_path),
         rawtonic_export::normalize::Bitmaps::Shared(&develop.patch_cache),
         rawtonic_export::normalize::Defaults::Render,
-    )
-    .lens
-    {
+    );
+    let versions = normalized.file_versions();
+    if let Err(e) = normalized.lens {
         return fail_all(e);
     }
     let is_raw = is_raw_file(&source_path_str);
@@ -1628,6 +1629,7 @@ fn export_photo(
                 &source_path_str,
                 source.clone(),
                 &main_export_adjustments(&js_adjustments, &targets[target].export_settings),
+                &versions,
                 &env,
                 is_raw,
             ));
@@ -2213,7 +2215,7 @@ fn estimate_sizes(
 
         let (img_w, img_h) = preview_image.dimensions();
         let mask_definitions: Vec<MaskDefinition> = adjustments_clone
-            .get("masks")
+            .get(masks::MASKS.name())
             .and_then(|m| serde_json::from_value(m.clone()).ok())
             .unwrap_or_default();
 
@@ -2384,7 +2386,7 @@ fn estimate_sizes(
         let total_scale = gpu_scale * raw_scale_factor;
 
         let mask_definitions: Vec<MaskDefinition> = js_adjustments
-            .get("masks")
+            .get(masks::MASKS.name())
             .and_then(|m| serde_json::from_value(m.clone()).ok())
             .unwrap_or_default();
         let scaled_crop_offset = (

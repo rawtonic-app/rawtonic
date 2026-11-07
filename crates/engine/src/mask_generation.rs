@@ -5,6 +5,7 @@ use crate::masks::{
 use base64::{Engine as _, engine::general_purpose};
 use image::{DynamicImage, GenericImageView, GrayImage, Luma, Rgba};
 use rawtonic_recipe::geometry;
+use rawtonic_recipe::masks;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -152,7 +153,7 @@ impl PhotoGeometry {
     fn warp_change(&self, params: &Value, width: u32, height: u32) -> Option<WarpChange> {
         let now = self.warp.as_deref()?;
         let then = warp_geometry(get_geometry_params_from_json(
-            params.get("warp").filter(|w| w.is_object())?,
+            params.get(masks::WARP.name()).filter(|w| w.is_object())?,
         ));
         (warp_key(&then) != self.warp_key).then(|| WarpChange {
             now: WarpPoints::new(now, width, height),
@@ -294,7 +295,7 @@ struct ShapeFrame {
 impl ShapeFrame {
     /// The usable frame stored under `frame` in `value`.
     fn of(value: &Value) -> Option<Self> {
-        serde_json::from_value::<Self>(value.get("frame")?.clone())
+        serde_json::from_value::<Self>(value.get(masks::FRAME.name())?.clone())
             .ok()?
             .usable()
     }
@@ -370,8 +371,8 @@ pub fn shape_frame(adjustments: &Value, size: Option<(f64, f64)>) -> Value {
     if let Some((width, height)) =
         size.filter(|(w, h)| w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0)
     {
-        frame["width"] = Value::from(width);
-        frame["height"] = Value::from(height);
+        frame[masks::WIDTH.name()] = Value::from(width);
+        frame[masks::HEIGHT.name()] = Value::from(height);
     }
     frame
 }
@@ -400,15 +401,19 @@ pub fn keep_drawn_masks_on_photo(
     {
         return false;
     }
-    let containers = ["masks", "aiPatches"];
+    let containers = [masks::MASKS.name(), "aiPatches"];
     let sub_masks = |adjustments: &Value| -> Vec<Value> {
         containers
             .iter()
             .filter_map(|key| adjustments.get(*key).and_then(Value::as_array))
             .flatten()
-            .filter_map(|container| container.get("subMasks").and_then(Value::as_array))
+            .filter_map(|container| {
+                container
+                    .get(masks::SUB_MASKS.name())
+                    .and_then(Value::as_array)
+            })
             .flatten()
-            .filter_map(|sub| sub.get("parameters").cloned())
+            .filter_map(|sub| sub.get(masks::PARAMETERS.name()).cloned())
             .collect()
     };
     let shown = sub_masks(previous);
@@ -420,10 +425,17 @@ pub fn keep_drawn_masks_on_photo(
         };
         for sub in list
             .iter_mut()
-            .filter_map(|container| container.get_mut("subMasks").and_then(Value::as_array_mut))
+            .filter_map(|container| {
+                container
+                    .get_mut(masks::SUB_MASKS.name())
+                    .and_then(Value::as_array_mut)
+            })
             .flatten()
         {
-            let kind = sub.get("type").and_then(Value::as_str).unwrap_or_default();
+            let kind = sub
+                .get(masks::TYPE.name())
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let (shape, strokes) = (
                 FRAMED_SHAPES.contains(&kind),
                 FRAMED_STROKES.contains(&kind),
@@ -431,21 +443,30 @@ pub fn keep_drawn_masks_on_photo(
             if !(shape || strokes) {
                 continue;
             }
-            let Some(parameters) = sub.get_mut("parameters").filter(|p| p.is_object()) else {
+            let Some(parameters) = sub
+                .get_mut(masks::PARAMETERS.name())
+                .filter(|p| p.is_object())
+            else {
                 continue;
             };
             if !shown.iter().any(|before| before == parameters) {
                 continue;
             }
             if shape {
-                if parameters.get("frame").is_none_or(Value::is_null) {
-                    parameters["frame"] = frame.clone();
+                if parameters
+                    .get(masks::FRAME.name())
+                    .is_none_or(Value::is_null)
+                {
+                    parameters[masks::FRAME.name()] = frame.clone();
                     stamped = true;
                 }
-            } else if let Some(lines) = parameters.get_mut("lines").and_then(Value::as_array_mut) {
+            } else if let Some(lines) = parameters
+                .get_mut(masks::LINES.name())
+                .and_then(Value::as_array_mut)
+            {
                 for line in lines.iter_mut().filter(|line| line.is_object()) {
-                    if line.get("frame").is_none_or(Value::is_null) {
-                        line["frame"] = frame.clone();
+                    if line.get(masks::FRAME.name()).is_none_or(Value::is_null) {
+                        line[masks::FRAME.name()] = frame.clone();
                         stamped = true;
                     }
                 }
@@ -623,13 +644,16 @@ fn shape_as_shown<'a>(kind: &str, params: &'a Value, now: Shown, scale: f32) -> 
         "radial" => ShapeFrame::of(params)
             .and_then(|frame| frame.map_to(now, scale))
             .and_then(|map| {
-                let (x, y) = map.point(num(params, "centerX")?, num(params, "centerY")?);
+                let (x, y) = map.point(
+                    num(params, masks::CENTER_X.name())?,
+                    num(params, masks::CENTER_Y.name())?,
+                );
                 let angle = num(params, "rotation").unwrap_or(0.0).to_radians();
                 let (ax, ay) = map.direction(angle.cos(), angle.sin());
                 let rotation = ay.atan2(ax).to_degrees();
                 let mut shown = params.clone();
-                shown["centerX"] = Value::from(x);
-                shown["centerY"] = Value::from(y);
+                shown[masks::CENTER_X.name()] = Value::from(x);
+                shown[masks::CENTER_Y.name()] = Value::from(y);
                 shown["rotation"] = Value::from(rotation);
                 let mut values = vec![x, y, rotation];
                 if map.resize.is_some() {
@@ -637,10 +661,12 @@ fn shape_as_shown<'a>(kind: &str, params: &'a Value, now: Shown, scale: f32) -> 
                     // keeps the ellipse's area in proportion (exact for an
                     // ellipse along the photo's sides).
                     let along = ax.hypot(ay);
-                    let radius_x = num(params, "radiusX").unwrap_or(0.0) * along;
-                    let radius_y = num(params, "radiusY").unwrap_or(0.0) * map.area_scale() / along;
-                    shown["radiusX"] = Value::from(radius_x);
-                    shown["radiusY"] = Value::from(radius_y);
+                    let radius_x = num(params, masks::RADIUS_X.name()).unwrap_or(0.0) * along;
+                    let radius_y = num(params, masks::RADIUS_Y.name()).unwrap_or(0.0)
+                        * map.area_scale()
+                        / along;
+                    shown[masks::RADIUS_X.name()] = Value::from(radius_x);
+                    shown[masks::RADIUS_Y.name()] = Value::from(radius_y);
                     values.extend([radius_x, radius_y]);
                 }
                 values.iter().all(|v| v.is_finite()).then_some(shown)
@@ -648,8 +674,14 @@ fn shape_as_shown<'a>(kind: &str, params: &'a Value, now: Shown, scale: f32) -> 
         "linear" => ShapeFrame::of(params)
             .and_then(|frame| frame.map_to(now, scale))
             .and_then(|map| {
-                let (sx, sy) = (num(params, "startX")?, num(params, "startY")?);
-                let (ex, ey) = (num(params, "endX")?, num(params, "endY")?);
+                let (sx, sy) = (
+                    num(params, masks::START_X.name())?,
+                    num(params, masks::START_Y.name())?,
+                );
+                let (ex, ey) = (
+                    num(params, masks::END_X.name())?,
+                    num(params, masks::END_Y.name())?,
+                );
                 let start = map.point(sx, sy);
                 let end = map.point(ex, ey);
                 // Mirrored, the start (100%) side would fall on the other
@@ -661,10 +693,10 @@ fn shape_as_shown<'a>(kind: &str, params: &'a Value, now: Shown, scale: f32) -> 
                     (start, end)
                 };
                 let mut shown = params.clone();
-                shown["startX"] = Value::from(start.0);
-                shown["startY"] = Value::from(start.1);
-                shown["endX"] = Value::from(end.0);
-                shown["endY"] = Value::from(end.1);
+                shown[masks::START_X.name()] = Value::from(start.0);
+                shown[masks::START_Y.name()] = Value::from(start.1);
+                shown[masks::END_X.name()] = Value::from(end.0);
+                shown[masks::END_Y.name()] = Value::from(end.1);
                 let mut values = vec![start.0, start.1, end.0, end.1];
                 if map.resize.is_some() {
                     // Distances from the central line scale as areas over
@@ -675,23 +707,23 @@ fn shape_as_shown<'a>(kind: &str, params: &'a Value, now: Shown, scale: f32) -> 
                     } else {
                         map.area_scale().sqrt()
                     };
-                    for key in ["range", "rangeEnd"] {
+                    for key in [masks::RANGE.name(), masks::RANGE_END.name()] {
                         if let Some(range) = num(params, key) {
                             shown[key] = Value::from(range * factor);
                             values.push(range * factor);
                         }
                     }
-                    if let Some(band) = params.get("band") {
-                        for key in ["width", "feather"] {
+                    if let Some(band) = params.get(masks::BAND.name()) {
+                        for key in [masks::WIDTH.name(), masks::FEATHER.name()] {
                             if let Some(distance) = num(band, key) {
-                                shown["band"][key] = Value::from(distance * factor);
+                                shown[masks::BAND.name()][key] = Value::from(distance * factor);
                                 values.push(distance * factor);
                             }
                         }
                     }
-                    if params.get("range").is_none() {
+                    if params.get(masks::RANGE.name()).is_none() {
                         // The default range, carried along.
-                        shown["range"] = Value::from(default_range() as f64 * factor);
+                        shown[masks::RANGE.name()] = Value::from(default_range() as f64 * factor);
                     }
                 }
                 values.iter().all(|v| v.is_finite()).then_some(shown)
@@ -3363,7 +3395,7 @@ fn apply_brush_line(
             started,
             serde_json::json!({
                 "dabs": _dabs,
-                "points": line.points.len(),
+                masks::POINTS.name(): line.points.len(),
                 "rows": bounds.3 - bounds.1 + 1,
                 "cols": bounds.2 - bounds.0 + 1,
                 "radius_px": radius,
@@ -3389,7 +3421,7 @@ fn apply_brush_line(
             "brush_stroke_capsules",
             started,
             serde_json::json!({
-                "points": line.points.len(),
+                masks::POINTS.name(): line.points.len(),
                 "rows": bounds.3 - bounds.1 + 1,
                 "cols": bounds.2 - bounds.0 + 1,
                 "radius_px": radius,
@@ -3414,10 +3446,10 @@ impl Drop for BrushBitmapSpan {
             "brush_bitmap",
             self.started,
             serde_json::json!({
-                "lines": self.lines,
+                masks::LINES.name(): self.lines,
                 "cached_lines": self.cached_lines,
-                "width": self.width,
-                "height": self.height,
+                masks::WIDTH.name(): self.width,
+                masks::HEIGHT.name(): self.height,
             }),
         );
     }

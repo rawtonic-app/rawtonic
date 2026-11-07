@@ -1,7 +1,9 @@
 use rawtonic_recipe::color as recipe_color;
+use rawtonic_recipe::detail;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
 use rawtonic_recipe::lens;
+use rawtonic_recipe::masks;
 use rawtonic_recipe::tone;
 use regex::Regex;
 use regex::regex;
@@ -869,7 +871,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             "version".to_string(),
             json!(rawtonic_engine::point_curve::WIDE_CURVE_VERSION),
         );
-        adjustments.insert("curves".to_string(), Value::Object(curves_map));
+        adjustments.insert(masks::CURVES.name().to_string(), Value::Object(curves_map));
     }
 
     let ranges = point_color_ranges(&xmp_one_line);
@@ -899,7 +901,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     }
     let has_masks = !layers.is_empty();
     if has_masks {
-        adjustments.insert("masks".to_string(), Value::Array(layers));
+        adjustments.insert(masks::MASKS.name().to_string(), Value::Array(layers));
     }
 
     // Lightroom's sharpening sliders map 1:1 onto the response fitted to
@@ -908,11 +910,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     // with response 1.
     // Layers' sharpening adds to the photo's amount, so it counts too.
     let layer_sharpens = adjustments
-        .get("masks")
+        .get(masks::MASKS.name())
         .and_then(Value::as_array)
         .is_some_and(|layers| {
             layers.iter().any(|layer| {
-                layer["adjustments"]["sharpness"]
+                layer[masks::ADJUSTMENTS.name()][detail::SHARPNESS.name()]
                     .as_f64()
                     .is_some_and(|v| v != 0.0)
             })
@@ -1515,12 +1517,12 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             let (kind, parameters) = match (mattr("What"), mattr("MaskSubType")) {
                 (Some("Mask/Image"), Some("1")) => (
                     "ai-foreground",
-                    json!({"maskDataBase64": null, "grow": 0, "feather": 0,
+                    json!({masks::MASK_DATA_BASE64.into_name(): null, "grow": 0, "feather": 0,
                         "subjectVersion": rawtonic_segment::SUBJECT_VERSION}),
                 ),
                 (Some("Mask/Image"), Some("2")) => (
                     "ai-sky",
-                    json!({"maskDataBase64": null, "grow": 0, "feather": 0}),
+                    json!({masks::MASK_DATA_BASE64.into_name(): null, "grow": 0, "feather": 0}),
                 ),
                 (Some("Mask/Gradient"), _) => {
                     match (mnum("ZeroX"), mnum("ZeroY"), mnum("FullX"), mnum("FullY")) {
@@ -1595,12 +1597,12 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             sub_masks.push(json!({
                 "id": format!("lr-{index}-{m_index}-{}", Uuid::new_v4()),
                 "type": kind,
-                "visible": group_active && mattr("MaskActive") != Some("false"),
-                "invert": mattr("MaskInverted") == Some("true"),
-                "opacity": (value * group_value * 100.0).clamp(0.0, 100.0),
+                masks::VISIBLE.name(): group_active && mattr("MaskActive") != Some("false"),
+                masks::INVERT.name(): mattr("MaskInverted") == Some("true"),
+                masks::OPACITY.name(): (value * group_value * 100.0).clamp(0.0, 100.0),
                 "mode": mode,
                 // AI masks are computed, geometry placed, when a photo opens.
-                "parameters": parameters,
+                masks::PARAMETERS.name(): parameters,
             }));
         }
         if !supported || sub_masks.is_empty() {
@@ -1613,32 +1615,36 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
         for (xmp_key, key, scale) in [
             // Stored as EV / 4 (the ±4 EV slider as ±1): Camera Raw renders
             // 0.5 as exactly 2 EV, and Adobe's presets hold 0.0875 for 0.35 EV.
-            ("LocalExposure2012", "exposure", 4.0),
-            ("LocalContrast2012", "contrast", 100.0),
-            ("LocalHighlights2012", "highlights", 100.0),
-            ("LocalShadows2012", "shadows", 100.0),
-            ("LocalWhites2012", "whites", 100.0),
-            ("LocalBlacks2012", "blacks", 100.0),
-            ("LocalClarity2012", "clarity", 100.0),
-            ("LocalDehaze", "dehaze", 100.0),
-            ("LocalTexture", "structure", 100.0),
-            ("LocalSaturation", "saturation", 100.0),
-            ("LocalTemperature", "temperature", 100.0),
-            ("LocalTint", "tint", 100.0),
+            ("LocalExposure2012", tone::EXPOSURE.name(), 4.0),
+            ("LocalContrast2012", tone::CONTRAST.name(), 100.0),
+            ("LocalHighlights2012", tone::HIGHLIGHTS.name(), 100.0),
+            ("LocalShadows2012", tone::SHADOWS.name(), 100.0),
+            ("LocalWhites2012", tone::WHITES.name(), 100.0),
+            ("LocalBlacks2012", tone::BLACKS.name(), 100.0),
+            ("LocalClarity2012", detail::CLARITY.name(), 100.0),
+            ("LocalDehaze", detail::DEHAZE.name(), 100.0),
+            ("LocalTexture", detail::STRUCTURE.name(), 100.0),
+            ("LocalSaturation", recipe_color::SATURATION.name(), 100.0),
+            ("LocalTemperature", recipe_color::TEMPERATURE.name(), 100.0),
+            ("LocalTint", recipe_color::TINT.name(), 100.0),
             // ±1 is Lightroom's ±180° slider (Camera Raw turns 1.0 by ~172°
             // in Oklab; notes: reference/local-hue.md).
-            ("LocalHue", "hue", 180.0),
-            ("LocalSharpness", "sharpness", 100.0),
-            ("LocalLuminanceNoise", "lumaNoiseReduction", 100.0),
-            ("LocalMoire", "moireAmount", 100.0),
+            ("LocalHue", recipe_color::HUE.name(), 180.0),
+            ("LocalSharpness", detail::SHARPNESS.name(), 100.0),
+            (
+                "LocalLuminanceNoise",
+                detail::LUMA_NOISE_REDUCTION.name(),
+                100.0,
+            ),
+            ("LocalMoire", detail::MOIRE_AMOUNT.name(), 100.0),
             // ±1 = ±100; above 0 fringes go, below 0 the photo's Defringe
             // is held back (notes: reference/local-defringe.md).
-            ("LocalDefringe", "defringe", 100.0),
+            ("LocalDefringe", masks::DEFRINGE.name(), 100.0),
         ] {
             if let Some(v) = num(xmp_key).filter(|v| *v != 0.0) {
                 let limit = match key {
-                    "exposure" => 5.0,
-                    "hue" => 180.0,
+                    key if key == tone::EXPOSURE.name() => 5.0,
+                    key if key == recipe_color::HUE.name() => 180.0,
                     _ => 100.0,
                 };
                 let value = (v * scale * amount).clamp(-limit, limit);
@@ -1647,10 +1653,10 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
         }
         if let Some(sat) = num("LocalToningSaturation").filter(|v| *v > 0.0) {
             adjustments.insert(
-                "colorGrading".into(),
+                recipe_color::COLOR_GRADING.name().into(),
                 json!({"global": {
-                    "hue": num("LocalToningHue").unwrap_or(0.0).rem_euclid(360.0),
-                    "saturation": (sat * 100.0 * amount).clamp(0.0, 100.0).round(),
+                    recipe_color::HUE.name(): num("LocalToningHue").unwrap_or(0.0).rem_euclid(360.0),
+                    recipe_color::SATURATION.name(): (sat * 100.0 * amount).clamp(0.0, 100.0).round(),
                     "luminance": 0.0,
                 }}),
             );
@@ -1684,7 +1690,7 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             for (k, v) in curves {
                 full[k] = v;
             }
-            adjustments.insert("curves".into(), full);
+            adjustments.insert(masks::CURVES.name().into(), full);
         }
         let swatches: Vec<String> = seq_items(correction, "LocalPointColors")
             .into_iter()
@@ -1692,16 +1698,19 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             .collect();
         let ranges = point_color_ranges_from(&swatches, &[], 4);
         if !ranges.is_empty() {
-            adjustments.insert("colorRanges".into(), Value::Array(ranges));
+            adjustments.insert(
+                recipe_color::COLOR_RANGES.name().into(),
+                Value::Array(ranges),
+            );
         }
         layers.push(json!({
             "id": format!("lr-mask-{}", Uuid::new_v4()),
             "name": name,
-            "visible": attr("CorrectionActive") != Some("false"),
-            "invert": false,
-            "opacity": 100.0,
-            "adjustments": Value::Object(adjustments),
-            "subMasks": sub_masks,
+            masks::VISIBLE.name(): attr("CorrectionActive") != Some("false"),
+            masks::INVERT.name(): false,
+            masks::OPACITY.name(): 100.0,
+            masks::ADJUSTMENTS.name(): Value::Object(adjustments),
+            masks::SUB_MASKS.name(): sub_masks,
         }));
     }
     (layers, skipped)

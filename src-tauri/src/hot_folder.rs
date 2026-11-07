@@ -21,6 +21,7 @@ use rawtonic_catalog::{Contents, HotFolderConfig, ImportKind, Library};
 use rawtonic_ingest::hot_folder::{DEFAULT_SETTLE, HotFolder};
 use rawtonic_metadata::culling::Rating;
 use rawtonic_recipe::lens;
+use rawtonic_recipe::masks;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -185,7 +186,7 @@ fn next_state(lib: &Library, next: &NextCapture, previous: Option<&str>) -> Opti
 /// or a preset's parameters: marked unresolved, resolved by its first render
 /// and save (`rawtonic_engine::lens_recipe`).
 fn for_new_capture(mut adjustments: Value) -> Value {
-    if let Some(layers) = adjustments.get_mut("masks") {
+    if let Some(layers) = adjustments.get_mut(masks::MASKS.name()) {
         rawtonic_engine::masks::prepare_layers_for_photo(layers, &mut || {
             uuid::Uuid::new_v4().to_string()
         });

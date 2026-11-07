@@ -31,6 +31,7 @@ use image::codecs::jpeg::JpegEncoder;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::geometry;
 use rawtonic_recipe::lens;
+use rawtonic_recipe::masks;
 use rawtonic_recipe::tone;
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
@@ -122,7 +123,7 @@ fn uses_tone_sliders(adjustments: &serde_json::Value) -> bool {
     };
     sets(adjustments)
         || adjustments
-            .get("masks")
+            .get(masks::MASKS.name())
             .and_then(serde_json::Value::as_array)
             .is_some_and(|masks| {
                 masks
@@ -220,7 +221,7 @@ pub(crate) fn compute_thumbnail_cache_hash(
         .ok()
         .is_some_and(|adjustments| {
             adjustments
-                .get("masks")
+                .get(masks::MASKS.name())
                 .and_then(serde_json::Value::as_array)
                 .is_some_and(|masks| !masks.is_empty())
         })
@@ -393,7 +394,7 @@ pub(crate) fn develop_thumbnail(
 
         let mask_definitions: Vec<MaskDefinition> = meta
             .adjustments
-            .get("masks")
+            .get(masks::MASKS.name())
             .and_then(|m| serde_json::from_value(m.clone()).ok())
             .unwrap_or_default();
         let needs_mask_source = mask_definitions

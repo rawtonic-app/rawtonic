@@ -3,6 +3,7 @@
 //! curves from one sampled table (`curve_table`) instead of the uniform's
 //! first 16 points; recipes whose curves fit stay on the exact evaluator.
 use rawtonic_recipe::effects;
+use rawtonic_recipe::masks;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -24,10 +25,12 @@ pub const CURVE_TABLE_SAMPLES: usize = 1025;
 pub fn curve_points(points: &[Value]) -> Vec<(f32, f32)> {
     points
         .iter()
-        .map(|p| match (p["x"].as_f64(), p["y"].as_f64()) {
-            (Some(x), Some(y)) => (x as f32, y as f32),
-            _ => (0.0, 0.0),
-        })
+        .map(
+            |p| match (p[masks::X.name()].as_f64(), p[masks::Y.name()].as_f64()) {
+                (Some(x), Some(y)) => (x as f32, y as f32),
+                _ => (0.0, 0.0),
+            },
+        )
         .collect()
 }
 
@@ -115,10 +118,17 @@ fn is_identity(points: &[(f32, f32)]) -> bool {
 /// they act in the wide working space, which needs `WIDE_CURVE_VERSION` and a
 /// channel that changes something (neutral curves skip the conversion).
 pub fn curve_space(curves: &Value) -> u32 {
-    if curves["version"].as_u64().unwrap_or(1) < WIDE_CURVE_VERSION {
+    if curves[masks::CURVE_VERSION.name()].as_u64().unwrap_or(1) < WIDE_CURVE_VERSION {
         return 0;
     }
-    let changes = ["luma", "red", "green", "blue"].iter().any(|key| {
+    let changes = [
+        masks::CURVE_CHANNELS[0].name(),
+        masks::CURVE_CHANNELS[1].name(),
+        masks::CURVE_CHANNELS[2].name(),
+        masks::CURVE_CHANNELS[3].name(),
+    ]
+    .iter()
+    .any(|key| {
         let points = curve_points(curves[*key].as_array().map_or(&[], Vec::as_slice));
         points.len() >= 2 && !is_identity(&points)
     });
@@ -129,7 +139,7 @@ pub fn curve_space(curves: &Value) -> u32 {
 /// take them; none when it is missing or changes nothing, so the shader
 /// skips it.
 pub fn luminance_points(curves: &Value) -> Vec<Value> {
-    let Some(points) = curves["luminance"].as_array() else {
+    let Some(points) = curves[masks::CURVE_CHANNELS[4].name()].as_array() else {
         return Vec::new();
     };
     let parsed = curve_points(points);
@@ -150,7 +160,7 @@ pub fn curve_input_probe(adjustments: &Value) -> Value {
         return probe;
     };
     for key in [
-        "curves",
+        masks::CURVES.name(),
         "regionCurve",
         effects::GRAIN_AMOUNT.name(),
         "showClipping",
@@ -167,10 +177,13 @@ pub fn curve_input_probe(adjustments: &Value) -> Value {
     {
         recipe.remove(effects::LUT_PATH.into_name());
     }
-    if let Some(masks) = recipe.get_mut("masks").and_then(Value::as_array_mut) {
+    if let Some(masks) = recipe
+        .get_mut(masks::MASKS.name())
+        .and_then(Value::as_array_mut)
+    {
         for mask in masks {
             if let Some(layer) = mask.get_mut("adjustments").and_then(Value::as_object_mut) {
-                layer.remove("curves");
+                layer.remove(masks::CURVES.name());
             }
         }
     }

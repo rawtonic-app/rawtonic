@@ -26,6 +26,7 @@
 //! recipes without it are unchanged.
 
 use rawtonic_recipe::lens;
+use rawtonic_recipe::masks;
 use serde_json::{Map, Value};
 
 /// The recipe key.
@@ -160,7 +161,7 @@ pub fn revert(recipe: &mut Value) -> Vec<Vec<String>> {
 fn goes_by_setting(path: &[String], value: &Value, own: Option<&Value>) -> bool {
     // Curves go whole: their points with the version that says how they render.
     value.is_object()
-        && !(path.len() == 1 && path[0] == "curves")
+        && !(path.len() == 1 && path[0] == masks::CURVES.name())
         && own.is_none_or(Value::is_object)
 }
 
