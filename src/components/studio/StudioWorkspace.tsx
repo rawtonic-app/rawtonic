@@ -24,7 +24,6 @@ import {
   Settings,
   Upload,
   X,
-  Search,
   Star,
   ChevronDown,
   ChevronLeft,
@@ -64,6 +63,7 @@ import StudioDevelop from './StudioDevelop';
 import StudioNavigation, { type FolderActions } from './StudioNavigation';
 import StudioBrowser from './StudioBrowser';
 import StudioFilters from './StudioFilters';
+import StudioSearchBox from './StudioSearchBox';
 import StudioToolBar from './StudioToolBar';
 import MultiViewStage from './MultiViewStage';
 import MultiViewButtons from './MultiViewButtons';
@@ -354,7 +354,8 @@ export default function StudioWorkspace(props: Props) {
     searchCriteria,
     filterCriteria,
     sortCriteria,
-    imageRatings
+    imageRatings,
+    contentRanking
   } = useLibraryStore(
     useShallow((s) => ({
       currentFolderPath: s.currentFolderPath,
@@ -364,7 +365,8 @@ export default function StudioWorkspace(props: Props) {
       searchCriteria: s.searchCriteria,
       filterCriteria: s.filterCriteria,
       sortCriteria: s.sortCriteria,
-      imageRatings: s.imageRatings
+      imageRatings: s.imageRatings,
+      contentRanking: s.contentRanking
     }))
   );
   useCompareSession();
@@ -1017,17 +1019,7 @@ export default function StudioWorkspace(props: Props) {
       >
         {sidesHidden ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
       </button>
-      <label className="studio-search">
-        <Search size={13} />
-        <input
-          ref={searchRef}
-          type="search"
-          aria-label={t('studio.workspace.grid.searchLabel')}
-          placeholder={t('studio.workspace.grid.search')}
-          value={searchCriteria.text}
-          onChange={(e) => useLibraryStore.getState().setSearchCriteria({ text: e.target.value })}
-        />
-      </label>
+      <StudioSearchBox inputRef={searchRef} files={files} />
       <StudioFilters
         counts={props.flagCounts}
         metadataOpen={metadataOpen}
@@ -1050,29 +1042,38 @@ export default function StudioWorkspace(props: Props) {
           </select>
         </label>
       </StudioFilters>
-      <label className="studio-filter" title={t('studio.workspace.grid.sort')}>
-        <select
-          aria-label={t('studio.workspace.grid.sort')}
-          value={sortCriteria.key}
-          onChange={(e) => useLibraryStore.getState().setSortCriteria({ key: e.target.value })}
-        >
-          <option value="name">{t('studio.workspace.grid.sortBy.name')}</option>
-          <option value="date_taken">{t('studio.workspace.grid.sortBy.captured')}</option>
-          <option value="date">{t('studio.workspace.grid.sortBy.date')}</option>
-          <option value="rating">{t('studio.workspace.grid.sortBy.rating')}</option>
-        </select>
-        <button
-          title={t('studio.workspace.grid.reverseSort')}
-          aria-label={t('studio.workspace.grid.reverseSort')}
-          onClick={() =>
-            useLibraryStore.getState().setSortCriteria({
-              order: sortCriteria.order === SortDirection.Ascending ? SortDirection.Descending : SortDirection.Ascending
-            })
-          }
-        >
-          {sortCriteria.order === SortDirection.Ascending ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-        </button>
-      </label>
+      {contentRanking ? (
+        // Content mode orders the view by match (G37): the chosen sort
+        // returns with Text mode or an empty box.
+        <span className="studio-filter studio-sorted-by-match" title={t('studio.contentSearch.sortedByMatchTitle')}>
+          {t('studio.contentSearch.sortedByMatch')}
+        </span>
+      ) : (
+        <label className="studio-filter" title={t('studio.workspace.grid.sort')}>
+          <select
+            aria-label={t('studio.workspace.grid.sort')}
+            value={sortCriteria.key}
+            onChange={(e) => useLibraryStore.getState().setSortCriteria({ key: e.target.value })}
+          >
+            <option value="name">{t('studio.workspace.grid.sortBy.name')}</option>
+            <option value="date_taken">{t('studio.workspace.grid.sortBy.captured')}</option>
+            <option value="date">{t('studio.workspace.grid.sortBy.date')}</option>
+            <option value="rating">{t('studio.workspace.grid.sortBy.rating')}</option>
+          </select>
+          <button
+            title={t('studio.workspace.grid.reverseSort')}
+            aria-label={t('studio.workspace.grid.reverseSort')}
+            onClick={() =>
+              useLibraryStore.getState().setSortCriteria({
+                order:
+                  sortCriteria.order === SortDirection.Ascending ? SortDirection.Descending : SortDirection.Ascending
+              })
+            }
+          >
+            {sortCriteria.order === SortDirection.Ascending ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+          </button>
+        </label>
+      )}
       {shownFolder && (
         <button
           className="studio-subfolders"

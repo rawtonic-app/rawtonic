@@ -24,6 +24,7 @@ pub mod capture_time;
 pub mod catalog_import;
 pub mod checksum;
 pub mod companion;
+pub mod content;
 pub mod derived;
 pub mod duplicates;
 mod error;

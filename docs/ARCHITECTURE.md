@@ -106,8 +106,8 @@ New Rust workspace crates isolate data and file safety.
 
 - `migrations`: the schema's one table of steps (`MIGRATIONS`, the SQL scripts in `crates/catalog/migrations/`) and its
   one runner; a new library is migrated from schema 0, an opened one from its `user_version`, in one immediate
-  transaction. Adding schema 25 = `migrations/0025.sql` + one `MIGRATIONS` line (`crates/catalog/README.md`).
-  `tests/migration_fixtures.rs` upgrades a populated catalog of every schema (1–24) and compares it with the recorded
+  transaction. Adding schema 26 = `migrations/0026.sql` + one `MIGRATIONS` line (`crates/catalog/README.md`).
+  `tests/migration_fixtures.rs` upgrades a populated catalog of every schema (1–25) and compares it with the recorded
   result (schema, rows, foreign keys, searches). `fileops` keeps its journal's steps in its own `migrations.rs` of the
   same shape.
 
@@ -140,6 +140,14 @@ New Rust workspace crates isolate data and file safety.
   Loupe faces and grid badges `src/components/studio/StudioEyes.tsx`; the strip's face box on the photograph
   `src/components/panel/editor/FaceBoxOverlay.tsx`, carried through the recipe's geometry by
   `rawtonic_engine::red_eye::box_outline_shown`, command `face_boxes_shown`).
+- `content`: content search's index (G37, schema 25: `content_embeddings`, one row per photograph with the model id —
+  the vision file's SHA-256 — the file's fingerprint, 768 int8 values and their scale, or the read error),
+  `content_backlog`, `record_content`, `content_status`, `content_ranking` (dot product, best first; a ranking, never a
+  filter or a smart-album rule); app glue `src-tauri/src/content_search.rs` (background pass from the cached thumbnail
+  with SigLIP 2's image encoder on two utility-QoS ONNX Runtime threads behind the `contentSearch` setting, waiting for
+  exports, batch writes and auto tags, which hand it their embeddings; the text encoder as ONNX external data loaded on
+  the first query and dropped after 5 min idle; never downloading by itself), UI `src/components/studio/StudioSearchBox.tsx`
+  and `src/hooks/useContentSearch.ts` (the view's order: `useSortedLibrary`).
 - `duplicates` + `image_hash`: Find Duplicates stage 1 — a hash of each photograph's image data as its file stores it
   (TIFF-based RAWs: the IFD with the most strip/tile bytes; RAF: the CFA section; ISO media/CR3: the largest track's
   samples; JPEG: all but APPn/COM segments; PNG: IHDR/PLTE/tRNS/IDAT; else the whole file, marked `file`), recorded in

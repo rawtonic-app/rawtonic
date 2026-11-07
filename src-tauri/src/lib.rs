@@ -34,6 +34,7 @@ mod camera_tethering;
 mod capture_time;
 mod catalog_subset;
 mod collage;
+mod content_search;
 mod contribute;
 mod costyle;
 mod culling;
@@ -342,6 +343,7 @@ fn start(args: Vec<String>) {
 
             library_search::announce_facts_to(app_handle.clone());
             face_eyes::announce_to(app_handle.clone());
+            content_search::announce_to(app_handle.clone());
             if let Err(error) = storage::remove_models_on_start(&app_handle) {
                 log::error!("Pending model removal failed: {error}");
             }
@@ -889,6 +891,11 @@ fn start(args: Vec<String>) {
             ai_commands::load_relight_pattern,
             ai_commands::cancel_ai_task,
             ai_faces::detect_people,
+            content_search::start_content_index,
+            content_search::stop_content_index,
+            content_search::content_search_status,
+            content_search::content_search_download,
+            content_search::content_search_rank,
             face_eyes::start_eye_check,
             face_eyes::stop_eye_check,
             face_eyes::photo_eyes,

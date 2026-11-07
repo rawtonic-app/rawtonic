@@ -25,6 +25,11 @@
     "cancel": "Annulla",
     "clearDone": "Cancella",
     "close": "Chiudi attività",
+    "contentSearch": {
+      "done": "{{indexed}} di {{total}} foto indicizzate per la ricerca per contenuto",
+      "running": "Indicizzazione delle foto per la ricerca per contenuto",
+      "stopped": "Indicizzazione per la ricerca per contenuto interrotta a {{indexed}} di {{total}}"
+    },
     "copied": "Copiato",
     "copyDetails": "Copia dettagli",
     "dismiss": "Ignora: {{title}}",
@@ -3022,6 +3027,24 @@
         "title": "Trascina per tonalità e saturazione · Maiusc fine · Alt mantiene la tonalità · doppio clic ripristina",
         "valueText": "Tonalità {{hue}}°, saturazione {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "Contenuto",
+      "contentTitle": "Ordina le foto mostrate in base a ciò che mostrano",
+      "download": "Scarica il modello di ricerca ({{size}})",
+      "downloadFailed": "Impossibile scaricare il modello di ricerca: {{error}}",
+      "downloadTitle": "La ricerca per contenuto funziona su questo computer. Il modello viene scaricato una volta, poi nulla esce dal computer.",
+      "indexed": "{{indexed}} di {{total}} indicizzate",
+      "modeLabel": "Cerca per",
+      "notIndexed_one": "{{count}} foto non ancora indicizzata, in fondo",
+      "notIndexed_many": "{{count}} foto non ancora indicizzate, in fondo",
+      "notIndexed_other": "{{count}} foto non ancora indicizzate, in fondo",
+      "placeholder": "Descrivi ciò che mostra la foto",
+      "searchFailed": "Ricerca per contenuto non riuscita: {{error}}",
+      "sortedByMatch": "Ordinate per corrispondenza",
+      "sortedByMatchTitle": "Prima le corrispondenze migliori; è un ordine, non un filtro: tutte le foto restano nella vista",
+      "text": "Testo",
+      "textTitle": "Trova parole in nomi, parole chiave, didascalie e altri metadati"
     },
     "copySettings": {
       "all": "Tutto",

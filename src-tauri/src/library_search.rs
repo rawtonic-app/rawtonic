@@ -44,7 +44,7 @@ pub async fn session_search(
 /// `paths` as the catalog holds them (real paths) in the form of `listed`,
 /// the folder the grid lists (perhaps through a symlink); those outside it
 /// as they are.
-fn as_listed(paths: Vec<PathBuf>, listed: &Path) -> Vec<PathBuf> {
+pub(crate) fn as_listed(paths: Vec<PathBuf>, listed: &Path) -> Vec<PathBuf> {
     match listed.canonicalize() {
         Ok(real) if real != listed => paths
             .into_iter()

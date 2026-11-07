@@ -19,6 +19,11 @@
     "cancel": "취소",
     "clearDone": "지우기",
     "close": "활동 닫기",
+    "contentSearch": {
+      "done": "내용 검색용으로 {{total}}장 중 {{indexed}}장 분석 완료",
+      "running": "내용 검색을 위해 사진 분석 중",
+      "stopped": "내용 검색 분석이 {{total}}장 중 {{indexed}}장에서 중지됨"
+    },
     "copied": "복사됨",
     "copyDetails": "세부 정보 복사",
     "dismiss": "닫기: {{title}}",
@@ -2781,6 +2786,22 @@
         "title": "드래그하여 색조와 채도 조정 · Shift 미세 조정 · Alt 색조 유지 · 두 번 클릭하여 재설정",
         "valueText": "색조 {{hue}}°, 채도 {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "내용",
+      "contentTitle": "표시된 사진을 사진에 담긴 내용으로 정렬",
+      "download": "검색 모델 다운로드({{size}})",
+      "downloadFailed": "검색 모델을 다운로드할 수 없습니다: {{error}}",
+      "downloadTitle": "내용 검색은 이 컴퓨터에서 실행됩니다. 모델은 한 번만 다운로드되며 이후 아무것도 외부로 나가지 않습니다.",
+      "indexed": "{{total}}장 중 {{indexed}}장 분석됨",
+      "modeLabel": "검색 기준",
+      "notIndexed_other": "아직 분석되지 않은 사진 {{count}}장은 맨 뒤에 표시",
+      "placeholder": "사진에 담긴 내용을 입력하세요",
+      "searchFailed": "내용 검색 실패: {{error}}",
+      "sortedByMatch": "일치도순 정렬",
+      "sortedByMatchTitle": "가장 잘 맞는 사진이 먼저 표시됩니다. 필터가 아닌 정렬이므로 모든 사진이 보기에 남습니다",
+      "text": "텍스트",
+      "textTitle": "이름, 키워드, 캡션 및 기타 메타데이터에서 단어 찾기"
     },
     "copySettings": {
       "all": "모두",

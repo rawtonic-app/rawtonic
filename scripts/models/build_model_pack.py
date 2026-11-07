@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -141,6 +142,17 @@ SIGLIP_USE = {
     "siglip2_text.onnx": "Automatic tags (text encoder, only for the user's own tags)",
     "siglip2_tokenizer.json": "Automatic tags (tokenizer, only for the user's own tags)",
 }
+# The text encoder of siglip2_text.onnx with its weights as ONNX external
+# data (scripts/models/external_data.py: same graph and weights, outputs
+# bit-identical): ONNX Runtime maps the data file, so a loaded session
+# holds +0.35 GB instead of +2.68 GB (notes: benchmark-results/
+# srs-search-ceiling-2026-11-03 § SRS2). The app loads this pair for
+# content search (the user's own tags still load siglip2_text.onnx).
+SIGLIP_TEXT_EXT_SHA256 = {
+    "siglip2_text_ext.onnx": "8850287083d7a450ec8112162ccc82c0c830432aee4f7814bcc090de65218dba",
+    "siglip2_text_ext.onnx.data": "d7721a55cb0242769a6d4b1031ef14c48df21609757a63b856cb00c21e502348",
+}
+SIGLIP_TEXT_EXT_USE = "Content search (text encoder as ONNX external data)"
 
 SKY_ENTRY = {
     "used_by": "Sky mask",
@@ -526,6 +538,19 @@ def main() -> None:
             if path.name in carried:  # a group step builds all its files; carried ones stay
                 continue
             entries.append(place(path, args.out, path.name) | {"used_by": SIGLIP_USE[path.name]} | SIGLIP_ENTRY)
+    if todo(SIGLIP_TEXT_EXT_SHA256):
+        from external_data import check as check_external, convert as external_data
+
+        text, tokenizer = args.out / "siglip2_text.onnx", args.out / "siglip2_tokenizer.json"
+        converted = external_data(text, Path(tempfile.mkdtemp(dir=args.cache)), "siglip2_text_ext")
+        check_external(text, converted[0], tokenizer)
+        for path in converted:
+            if path.name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(path, args.out, path.name, SIGLIP_TEXT_EXT_SHA256[path.name])
+                           | {"used_by": SIGLIP_TEXT_EXT_USE} | SIGLIP_ENTRY | {
+                               "source": SIGLIP_ENTRY["source"] + "; weights saved as external data by "
+                                         "scripts/models/external_data.py"})
 
     if todo({"skyseg_upernet_convnext_t.onnx": SKY_SHA256}):
         from export_sky import export as export_sky

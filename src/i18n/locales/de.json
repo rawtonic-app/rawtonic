@@ -22,6 +22,11 @@
     "cancel": "Abbrechen",
     "clearDone": "Leeren",
     "close": "Aktivität schließen",
+    "contentSearch": {
+      "done": "{{indexed}} von {{total}} Fotos für die Inhaltssuche erfasst",
+      "running": "Fotos für die Inhaltssuche erfassen",
+      "stopped": "Erfassung für die Inhaltssuche bei {{indexed}} von {{total}} angehalten"
+    },
     "copied": "Kopiert",
     "copyDetails": "Details kopieren",
     "dismiss": "Ausblenden: {{title}}",
@@ -2872,6 +2877,23 @@
         "title": "Ziehen für Farbton und Sättigung · Umschalt fein · Alt behält den Farbton · Doppelklick setzt zurück",
         "valueText": "Farbton {{hue}}°, Sättigung {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "Inhalt",
+      "contentTitle": "Die gezeigten Fotos danach sortieren, was sie zeigen",
+      "download": "Suchmodell laden ({{size}})",
+      "downloadFailed": "Das Suchmodell konnte nicht geladen werden: {{error}}",
+      "downloadTitle": "Die Inhaltssuche läuft auf diesem Computer. Das Modell wird einmal geladen, danach verlässt nichts den Rechner.",
+      "indexed": "{{indexed}} von {{total}} erfasst",
+      "modeLabel": "Suchen nach",
+      "notIndexed_one": "{{count}} Foto noch nicht erfasst, am Ende",
+      "notIndexed_other": "{{count}} Fotos noch nicht erfasst, am Ende",
+      "placeholder": "Beschreiben, was das Foto zeigt",
+      "searchFailed": "Inhaltssuche fehlgeschlagen: {{error}}",
+      "sortedByMatch": "Nach Übereinstimmung sortiert",
+      "sortedByMatchTitle": "Beste Treffer zuerst; eine Reihenfolge, kein Filter: alle Fotos bleiben in der Ansicht",
+      "text": "Text",
+      "textTitle": "Wörter in Namen, Stichwörtern, Bildunterschriften und anderen Metadaten finden"
     },
     "copySettings": {
       "all": "Alle",

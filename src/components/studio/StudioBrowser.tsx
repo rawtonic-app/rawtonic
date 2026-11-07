@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, useMemo, type Mouse
 import { Image as ImageIcon, Star, SlidersHorizontal, Flag, X, Unlink, Layers } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useProcessStore } from '../../store/useProcessStore';
-import { useLibraryStore } from '../../store/useLibraryStore';
+import { searchTextFilter, useLibraryStore } from '../../store/useLibraryStore';
 import { useUIStore } from '../../store/useUIStore';
 import { EditedStatus, RawStatus, type ImageFile } from '../ui/AppProperties';
 import { selectionCount } from '../../utils/librarySearch';
@@ -314,6 +314,7 @@ export default function StudioBrowser({
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
   const filter = useLibraryStore((s) => s.filterCriteria);
   const search = useLibraryStore((s) => s.searchCriteria);
+  const textFilter = useLibraryStore(searchTextFilter);
   const sessionDirectory = useLibraryStore((s) => s.sessionDirectory);
   const loading = useLibraryStore((s) => s.isViewLoading);
   const filtered =
@@ -322,7 +323,7 @@ export default function StudioBrowser({
     filter.colors.length > 0 ||
     filter.rawStatus !== RawStatus.All ||
     (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All ||
-    search.text.trim() !== '' ||
+    textFilter.trim() !== '' ||
     search.tags.length > 0 ||
     selectionCount(filter.metadata) > 0;
   const clearFilters = () => {

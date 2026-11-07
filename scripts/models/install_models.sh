@@ -59,7 +59,7 @@ fi
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
-gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern '*.onnx' --pattern 'siglip2_tags.bin' \
+gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern '*.onnx' --pattern '*.onnx.data' --pattern 'siglip2_tags.bin' \
   --pattern 'siglip2_tokenizer.json' --pattern 'nlmf_coreml_*' --pattern 'nlmf_mixed640_macos13_coreml_*' --pattern 'birefnet_fp16_coreml_*' --pattern 'skyseg_coreml_*' --pattern 'moebius_unet_fp16_coreml_*' --pattern 'sdxl_vae_*_fp16_coreml_*' --pattern moebius_embeddings.bin --pattern models.json
 if [ "$RUNTIME" = 1 ]; then
   for pair in $LIBS; do
@@ -98,7 +98,7 @@ install_file() {
 }
 
 mkdir -p "$MODELS"
-for file in "$WORK"/*.onnx "$WORK"/siglip2_tags.bin "$WORK"/siglip2_tokenizer.json "$WORK"/nlmf_coreml_* "$WORK"/nlmf_mixed640_macos13_coreml_* "$WORK"/birefnet_fp16_coreml_* "$WORK"/skyseg_coreml_* "$WORK"/moebius_unet_fp16_coreml_* "$WORK"/sdxl_vae_*_fp16_coreml_* "$WORK"/moebius_embeddings.bin; do
+for file in "$WORK"/*.onnx "$WORK"/*.onnx.data "$WORK"/siglip2_tags.bin "$WORK"/siglip2_tokenizer.json "$WORK"/nlmf_coreml_* "$WORK"/nlmf_mixed640_macos13_coreml_* "$WORK"/birefnet_fp16_coreml_* "$WORK"/skyseg_coreml_* "$WORK"/moebius_unet_fp16_coreml_* "$WORK"/sdxl_vae_*_fp16_coreml_* "$WORK"/moebius_embeddings.bin; do
   [ -e "$file" ] || continue
   install_file "$file" "$MODELS" "$(basename "$file")"
 done

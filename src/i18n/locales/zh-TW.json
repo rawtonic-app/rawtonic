@@ -19,6 +19,11 @@
     "cancel": "取消",
     "clearDone": "清除",
     "close": "關閉活動",
+    "contentSearch": {
+      "done": "已為內容搜尋索引 {{indexed}} / {{total}} 張照片",
+      "running": "正在為內容搜尋索引照片",
+      "stopped": "內容搜尋索引已在 {{indexed}} / {{total}} 處停止"
+    },
     "copied": "已複製",
     "copyDetails": "複製詳細資訊",
     "dismiss": "關閉：{{title}}",
@@ -2781,6 +2786,22 @@
         "title": "拖曳以調整色相和飽和度 · Shift 微調 · Alt 保持色相 · 按兩下重設",
         "valueText": "色相 {{hue}}°，飽和度 {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "內容",
+      "contentTitle": "依照片呈現的內容排序目前的照片",
+      "download": "下載搜尋模型（{{size}}）",
+      "downloadFailed": "無法下載搜尋模型：{{error}}",
+      "downloadTitle": "內容搜尋在本機執行。模型只下載一次，之後不會有任何資料離開本機。",
+      "indexed": "已索引 {{indexed}} / {{total}}",
+      "modeLabel": "搜尋方式",
+      "notIndexed_other": "{{count}} 張照片尚未索引，排在最後",
+      "placeholder": "描述照片中的內容",
+      "searchFailed": "內容搜尋失敗：{{error}}",
+      "sortedByMatch": "依符合度排序",
+      "sortedByMatchTitle": "最符合的在前；這是排序而非篩選：所有照片都仍在檢視中",
+      "text": "文字",
+      "textTitle": "在名稱、關鍵字、說明和其他中繼資料中尋找文字"
     },
     "copySettings": {
       "all": "全部",

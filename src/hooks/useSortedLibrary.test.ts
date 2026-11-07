@@ -246,3 +246,40 @@ describe('capture-time order', () => {
     ]);
   });
 });
+
+describe('content search order', () => {
+  const ranked = (paths: string[]) => ({ ranks: new Map(paths.map((path, place) => [path, place])) });
+
+  it('sorts the filtered view by match, photographs not ranked last in the chosen order', () => {
+    const input = {
+      ...state(),
+      imageList: [...files, file('/shoot/d.ARW'), file('/shoot/b.ARW?vc=copy')],
+      searchCriteria: { text: 'a heron', tags: [], mode: 'OR' as const },
+      searchMode: 'content' as const,
+      contentRanking: ranked(['/shoot/b.ARW', '/shoot/c.ARW'])
+    };
+    // The text is no filter in Content mode: every photograph stays; a
+    // virtual copy follows its photograph.
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual([
+      '/shoot/b.ARW',
+      '/shoot/b.ARW?vc=copy',
+      '/shoot/c.ARW',
+      '/shoot/a.ARW',
+      '/shoot/d.ARW'
+    ]);
+    // Filters still apply first.
+    const rated = { ...input, filterCriteria: { ...input.filterCriteria, rating: 4 } };
+    expect(computeSortedLibrary(rated, {}).map((f) => f.path)).toEqual(['/shoot/c.ARW', '/shoot/a.ARW']);
+  });
+
+  it('keeps Text mode a filter and the chosen sort without a ranking', () => {
+    const input = { ...state(), searchCriteria: { text: 'b.ARW', tags: [], mode: 'OR' as const } };
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/b.ARW']);
+    const waiting = { ...input, searchMode: 'content' as const, contentRanking: null };
+    expect(computeSortedLibrary(waiting, {}).map((f) => f.path)).toEqual([
+      '/shoot/a.ARW',
+      '/shoot/b.ARW',
+      '/shoot/c.ARW'
+    ]);
+  });
+});

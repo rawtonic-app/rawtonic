@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import i18n from 'i18next';
 import { notify } from '../activity/notify';
-import { useLibraryStore } from '../store/useLibraryStore';
+import { searchTextFilter, useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged, onCatalogChange } from '../utils/catalogWrites';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { folderViewMode } from '../utils/subfolderView';
@@ -27,7 +27,8 @@ export const EYES_CHANGED = 'library-eyes-changed';
  */
 export function useCatalogSearch() {
   const directory = useLibraryStore((s) => s.sessionDirectory);
-  const text = useLibraryStore((s) => s.searchCriteria.text);
+  // Content mode's text sorts the view (`useContentSearch`), not a filter.
+  const text = useLibraryStore(searchTextFilter);
   const selection = useLibraryStore((s) => s.filterCriteria.metadata);
   const eyes = useLibraryStore((s) => s.filterCriteria.eyes);
   // A new list (a folder refreshed after a rename, move or background

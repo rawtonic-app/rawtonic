@@ -1,0 +1,26 @@
+{
+  "start_content_index": { "directory": "/Shoots/Job", "resume": true },
+  "start_content_index_periodic": { "directory": "/Shoots/Job", "resume": false },
+  "stop_content_index": { "directory": "/Shoots/Job" },
+  "stop_content_index_any": { "directory": null },
+  "content_search_status": { "directory": "/Shoots/Job" },
+  "content_search_download": { "directory": "/Shoots/Job" },
+  "content_search_rank": { "directory": "/Shoots/Job", "query": "a heron", "listed": "/Shoots/Job/Capture" },
+  "content_search_rank_album": { "directory": "/Shoots/Job", "query": "Hochzeit", "listed": null },
+  "status_result": {
+    "installed": false,
+    "downloadBytes": 1535588149,
+    "running": true,
+    "indexed": 4213,
+    "failed": 2,
+    "total": 10000
+  },
+  "rank_result": {
+    "paths": ["/Shoots/Job/Capture/B.ARW", "/Shoots/Job/Capture/A.ARW"],
+    "indexed": 2,
+    "failed": 0,
+    "total": 3
+  },
+  "progress_event": { "directory": "/Shoots/Job", "indexed": 1, "failed": 0, "total": 3 },
+  "done_event": { "directory": "/Shoots/Job", "indexed": 3, "failed": 0, "total": 3, "cancelled": false }
+}

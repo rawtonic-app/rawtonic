@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flag, FlagOff, ListFilter, X, Images, ListPlus } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { useLibraryStore } from '../../store/useLibraryStore';
+import { searchTextFilter, useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { RawStatus, EditedStatus } from '../ui/AppProperties';
 import type { FlagCounts, FlagFilter } from '../../utils/culling';
@@ -37,10 +37,12 @@ export default function StudioFilters({
   onToggleMetadata?: () => void;
 }) {
   const { t } = useTranslation();
-  const { filter, search, sessionDirectory, folder, albumId, setFilter, setSearch } = useLibraryStore(
+  const { filter, search, textFilter, sessionDirectory, folder, albumId, setFilter, setSearch } = useLibraryStore(
     useShallow((s) => ({
       filter: s.filterCriteria,
       search: s.searchCriteria,
+      // Content mode's text sorts, it makes no smart album rule.
+      textFilter: searchTextFilter(s),
       sessionDirectory: s.sessionDirectory,
       folder: s.currentFolderPath,
       albumId: s.activeAlbumId,
@@ -57,21 +59,24 @@ export default function StudioFilters({
   const chosen = selectionCount(filter.metadata);
   const asSmartAlbum = filterAsRule(
     scopeRule(folder, albumId, viewMode),
-    search.text,
+    textFilter,
     filter.metadata,
     filter,
     search.tags
   );
-  const active =
+  // What filters (Content mode's text only sorts: no smart album of it);
+  // Clear also empties the search box.
+  const filtering =
     (filter.flag ?? 'all') !== 'all' ||
     (filter.eyes ?? 'all') !== 'all' ||
     filter.rating !== 0 ||
     filter.colors.length > 0 ||
     filter.rawStatus !== RawStatus.All ||
     (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All ||
-    search.text.trim() !== '' ||
+    textFilter.trim() !== '' ||
     search.tags.length > 0 ||
     chosen > 0;
+  const active = filtering || search.text.trim() !== '';
   return (
     <div className="studio-library-filters" aria-label={t('studio.library.filters.label')}>
       {sessionDirectory && (
@@ -160,9 +165,9 @@ export default function StudioFilters({
       )}
       {sessionDirectory && (
         <button
-          className={`studio-clear-filters${active ? '' : ' is-idle'}`}
+          className={`studio-clear-filters${filtering ? '' : ' is-idle'}`}
           aria-label={t('studio.library.smartAlbums.fromFilter')}
-          tabIndex={active ? undefined : -1}
+          tabIndex={filtering ? undefined : -1}
           disabled={!asSmartAlbum}
           title={
             asSmartAlbum

@@ -854,6 +854,11 @@ pub struct AppSettings {
     /// turned on by the photographer's first Check Eyes (missing: off).
     #[serde(default)]
     pub eye_check: Option<bool>,
+    /// Index what every photograph of the open library shows for the
+    /// search box's Content mode (`content_search`); turned on by the
+    /// photographer's click on its model download (missing: off).
+    #[serde(default)]
+    pub content_search: Option<bool>,
     /// Keys this release does not know (written by a newer one): kept
     /// through every save, never sent back by the frontend
     /// (`take_frontend_snapshot`).
@@ -978,6 +983,7 @@ impl Default for AppSettings {
             adjustment_layout: AdjustmentLayout::default(),
             workspace: WorkspaceState::default(),
             eye_check: None,
+            content_search: None,
             unknown: serde_json::Map::new(),
         }
     }

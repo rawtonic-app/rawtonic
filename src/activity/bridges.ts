@@ -24,6 +24,7 @@ import {
   type DuplicatesProgress
 } from '../utils/duplicates';
 import { sourceOf } from '../entities/photo/photoRef';
+import { CONTENT_INDEX_DONE, CONTENT_INDEX_PROGRESS, type ContentIndexProgress } from '../utils/contentSearch';
 
 const fileName = (path: string) => {
   const file = sourceOf(path);
@@ -448,6 +449,29 @@ export function startActivityBridges(): () => void {
         });
       }
     ),
+    // Content search's index pass (`content_search`): progress and Cancel.
+    listenSafely<ContentIndexProgress>(CONTENT_INDEX_PROGRESS, ({ indexed, failed, total }) => {
+      const activity = useActivityStore.getState();
+      const fields = {
+        source: 'app' as const,
+        title: i18n.t('activity.contentSearch.running'),
+        progress: total > 0 ? { done: indexed + failed, total } : undefined,
+        cancel: () => invoke(Invokes.StopContentIndex, { directory: null }).catch(() => {})
+      };
+      if (activity.entries.some((entry) => entry.id === 'library:content' && entry.status === 'running'))
+        activity.update('library:content', fields);
+      else activity.start({ id: 'library:content', ...fields });
+    }),
+    listenSafely<ContentIndexProgress>(CONTENT_INDEX_DONE, ({ indexed, total, cancelled }) => {
+      const activity = useActivityStore.getState();
+      if (!activity.entries.some((entry) => entry.id === 'library:content')) return;
+      activity.finish('library:content', {
+        title: i18n.t(cancelled ? 'activity.contentSearch.stopped' : 'activity.contentSearch.done', {
+          indexed: indexed.toLocaleString(),
+          total: total.toLocaleString()
+        })
+      });
+    }),
     listenSafely<{ taskId: string | null; done: number; total: number }>(
       'ai-fill-progress',
       ({ taskId, done, total }) => {

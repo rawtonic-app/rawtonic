@@ -63,15 +63,15 @@ const DECODER_SHA256: &str = "998c1cc053a2aad703fd2519fe890a1f80115b238a0da6d7b5
 // SigLIP 2 B/16 for automatic tags (scripts/models/export_siglip2.py). The
 // built-in tags need only the image encoder and their precomputed text
 // embeddings; the text encoder and tokenizer load for the user's own tags.
-const SIGLIP_VISION_FILENAME: &str = "siglip2_vision.onnx";
-const SIGLIP_VISION_SHA256: &str =
+pub(crate) const SIGLIP_VISION_FILENAME: &str = "siglip2_vision.onnx";
+pub(crate) const SIGLIP_VISION_SHA256: &str =
     "d6e4f91fd3779a524d912eef6113ccc816e2c01044e2e27cc166493b0e730fe8";
 const SIGLIP_TAGS_FILENAME: &str = "siglip2_tags.bin";
 const SIGLIP_TAGS_SHA256: &str = "625a8fd388c3cc762ce20818df1cacf478b6d6747a0c3664c9fe13776479c449";
 const SIGLIP_TEXT_FILENAME: &str = "siglip2_text.onnx";
 const SIGLIP_TEXT_SHA256: &str = "1ee7842ea9a96bf8e19951d237db8ee00ca482bf1745027967be976420acc557";
-const SIGLIP_TOKENIZER_FILENAME: &str = "siglip2_tokenizer.json";
-const SIGLIP_TOKENIZER_SHA256: &str =
+pub(crate) const SIGLIP_TOKENIZER_FILENAME: &str = "siglip2_tokenizer.json";
+pub(crate) const SIGLIP_TOKENIZER_SHA256: &str =
     "1de36bea24b2b16b25cc27a4b5ea9c86e2e2ecc3c018cb7d5338f0030d84e4bb";
 /// Width of a SigLIP 2 B/16 embedding.
 pub const SIGLIP_EMBED_DIM: usize = 768;

@@ -28,6 +28,11 @@
     "cancel": "Anuluj",
     "clearDone": "Wyczyść",
     "close": "Zamknij aktywność",
+    "contentSearch": {
+      "done": "Zindeksowano {{indexed}} z {{total}} zdjęć do wyszukiwania treści",
+      "running": "Indeksowanie zdjęć do wyszukiwania treści",
+      "stopped": "Indeksowanie do wyszukiwania treści zatrzymane na {{indexed}} z {{total}}"
+    },
     "copied": "Skopiowano",
     "copyDetails": "Kopiuj szczegóły",
     "dismiss": "Odrzuć: {{title}}",
@@ -3171,6 +3176,25 @@
         "title": "Przeciągnij, aby zmienić odcień i nasycenie · Shift precyzyjnie · Alt zachowuje odcień · dwuklik resetuje",
         "valueText": "Odcień {{hue}}°, nasycenie {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "Treść",
+      "contentTitle": "Sortuj wyświetlane zdjęcia według tego, co przedstawiają",
+      "download": "Pobierz model wyszukiwania ({{size}})",
+      "downloadFailed": "Nie udało się pobrać modelu wyszukiwania: {{error}}",
+      "downloadTitle": "Wyszukiwanie treści działa na tym komputerze. Model jest pobierany raz, potem nic go nie opuszcza.",
+      "indexed": "Zindeksowano {{indexed}} z {{total}}",
+      "modeLabel": "Szukaj według",
+      "notIndexed_one": "{{count}} zdjęcie jeszcze niezindeksowane, na końcu",
+      "notIndexed_few": "{{count}} zdjęcia jeszcze niezindeksowane, na końcu",
+      "notIndexed_many": "{{count}} zdjęć jeszcze niezindeksowanych, na końcu",
+      "notIndexed_other": "{{count}} zdjęcia jeszcze niezindeksowane, na końcu",
+      "placeholder": "Opisz, co przedstawia zdjęcie",
+      "searchFailed": "Wyszukiwanie treści nie powiodło się: {{error}}",
+      "sortedByMatch": "Posortowano według dopasowania",
+      "sortedByMatchTitle": "Najlepsze dopasowania najpierw; to kolejność, nie filtr: wszystkie zdjęcia pozostają w widoku",
+      "text": "Tekst",
+      "textTitle": "Znajdź słowa w nazwach, słowach kluczowych, podpisach i innych metadanych"
     },
     "copySettings": {
       "all": "Wszystko",

@@ -247,6 +247,11 @@ pub fn unload(ai_state: &AiState, reason: UnloadReason) -> Vec<&'static str> {
     if faces {
         dropped.push("faces");
     }
+    // Content search's text model has its own idle time; short of memory
+    // it goes too (loaded again by the next query).
+    if reason == UnloadReason::MemoryPressure && crate::content_search::unload_text() {
+        dropped.push("content-search-text");
+    }
     // Freed here, outside the locks (Core ML and ONNX Runtime release GPU
     // and CPU memory); models a computation still holds go when it ends.
     drop(taken);
@@ -306,7 +311,7 @@ pub fn unload_and_notify(app: &tauri::AppHandle, reason: UnloadReason) -> Vec<&'
 }
 
 /// The process's physical footprint in MB (macOS), for the log.
-fn footprint_mb() -> Option<f64> {
+pub(crate) fn footprint_mb() -> Option<f64> {
     #[cfg(target_os = "macos")]
     {
         // SAFETY: `rusage_info_v4` is plain data, filled by the kernel for

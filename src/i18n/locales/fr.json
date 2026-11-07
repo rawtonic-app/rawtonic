@@ -25,6 +25,11 @@
     "cancel": "Annuler",
     "clearDone": "Effacer",
     "close": "Fermer l’activité",
+    "contentSearch": {
+      "done": "{{indexed}} photos sur {{total}} indexées pour la recherche par contenu",
+      "running": "Indexation des photos pour la recherche par contenu",
+      "stopped": "Indexation pour la recherche par contenu arrêtée à {{indexed}} sur {{total}}"
+    },
     "copied": "Copié",
     "copyDetails": "Copier les détails",
     "dismiss": "Masquer : {{title}}",
@@ -3022,6 +3027,24 @@
         "title": "Faites glisser pour la teinte et la saturation · Maj : précis · Alt conserve la teinte · double-clic réinitialise",
         "valueText": "Teinte {{hue}}°, saturation {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "Contenu",
+      "contentTitle": "Trier les photos affichées selon ce qu’elles montrent",
+      "download": "Télécharger le modèle de recherche ({{size}})",
+      "downloadFailed": "Le modèle de recherche n’a pas pu être téléchargé : {{error}}",
+      "downloadTitle": "La recherche par contenu s’exécute sur cet ordinateur. Le modèle est téléchargé une fois, puis rien n’en sort.",
+      "indexed": "{{indexed}} sur {{total}} indexées",
+      "modeLabel": "Rechercher par",
+      "notIndexed_one": "{{count}} photo pas encore indexée, en dernier",
+      "notIndexed_many": "{{count}} photos pas encore indexées, en dernier",
+      "notIndexed_other": "{{count}} photos pas encore indexées, en dernier",
+      "placeholder": "Décrivez ce que montre la photo",
+      "searchFailed": "La recherche par contenu a échoué : {{error}}",
+      "sortedByMatch": "Trié par correspondance",
+      "sortedByMatchTitle": "Meilleures correspondances d’abord ; un ordre, pas un filtre : toutes les photos restent affichées",
+      "text": "Texte",
+      "textTitle": "Trouver des mots dans les noms, mots-clés, légendes et autres métadonnées"
     },
     "copySettings": {
       "all": "Tout",

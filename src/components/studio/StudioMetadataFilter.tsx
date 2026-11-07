@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ParseKeys, TFunction } from 'i18next';
 import { useShallow } from 'zustand/react/shallow';
-import { useLibraryStore } from '../../store/useLibraryStore';
+import { searchTextFilter, useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { onCatalogChange } from '../../utils/catalogWrites';
 import { folderViewMode } from '../../utils/subfolderView';
@@ -150,7 +150,7 @@ export default function StudioMetadataFilter() {
       directory: s.sessionDirectory,
       folder: s.currentFolderPath,
       albumId: s.activeAlbumId,
-      text: s.searchCriteria.text,
+      text: searchTextFilter(s),
       filter: s.filterCriteria,
       setFilter: s.setFilterCriteria
     }))

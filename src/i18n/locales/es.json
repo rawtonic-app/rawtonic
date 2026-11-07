@@ -25,6 +25,11 @@
     "cancel": "Cancelar",
     "clearDone": "Borrar",
     "close": "Cerrar actividad",
+    "contentSearch": {
+      "done": "{{indexed}} de {{total}} fotos indexadas para la búsqueda por contenido",
+      "running": "Indexando fotos para la búsqueda por contenido",
+      "stopped": "Indexación para la búsqueda por contenido detenida en {{indexed}} de {{total}}"
+    },
     "copied": "Copiado",
     "copyDetails": "Copiar detalles",
     "dismiss": "Descartar: {{title}}",
@@ -3022,6 +3027,24 @@
         "title": "Arrastra para tono y saturación · Mayús: fino · Alt mantiene el tono · doble clic restablece",
         "valueText": "Tono {{hue}}°, saturación {{saturation}}"
       }
+    },
+    "contentSearch": {
+      "content": "Contenido",
+      "contentTitle": "Ordenar las fotos mostradas según lo que muestran",
+      "download": "Descargar modelo de búsqueda ({{size}})",
+      "downloadFailed": "No se pudo descargar el modelo de búsqueda: {{error}}",
+      "downloadTitle": "La búsqueda por contenido se ejecuta en este ordenador. El modelo se descarga una vez y después nada sale de él.",
+      "indexed": "{{indexed}} de {{total}} indexadas",
+      "modeLabel": "Buscar por",
+      "notIndexed_one": "{{count}} foto aún sin indexar, al final",
+      "notIndexed_many": "{{count}} fotos aún sin indexar, al final",
+      "notIndexed_other": "{{count}} fotos aún sin indexar, al final",
+      "placeholder": "Describe lo que muestra la foto",
+      "searchFailed": "La búsqueda por contenido falló: {{error}}",
+      "sortedByMatch": "Ordenado por coincidencia",
+      "sortedByMatchTitle": "Primero las mejores coincidencias; es un orden, no un filtro: todas las fotos siguen en la vista",
+      "text": "Texto",
+      "textTitle": "Buscar palabras en nombres, palabras clave, pies de foto y otros metadatos"
     },
     "copySettings": {
       "all": "Todo",

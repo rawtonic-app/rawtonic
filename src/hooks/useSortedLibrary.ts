@@ -13,6 +13,7 @@ import {
 import { buildImageGroups, GroupBadgeInfo, GroupId } from '../utils/imageGrouping';
 import { flagName, imageFlag, type FlagCounts } from '../utils/culling';
 import { photographPath, selectionCount } from '../utils/librarySearch';
+import { sortByMatch } from '../utils/contentSearch';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 import { arrangeStacks, listingFiltered, useStackStore, type StackEntry, type StackMark } from '../store/useStackStore';
 
@@ -86,6 +87,10 @@ export type LibraryQueryState = Pick<
   imageFlags?: Record<string, number>;
   catalogMatches?: Set<string> | null;
   catalogKnown?: Set<string> | null;
+  /** Content mode: the text sorts the view (`contentRanking`), it does not
+   * filter. */
+  searchMode?: 'text' | 'content';
+  contentRanking?: { ranks: Map<string, number> } | null;
   /** Stack members by path; with `stackView`, stacks collapse. */
   stacks?: Map<string, StackEntry> | null;
   /** A folder or the whole session/catalog is shown (not an album, a
@@ -192,6 +197,8 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     sortCriteria,
     catalogMatches = null,
     catalogKnown = null,
+    searchMode = 'text',
+    contentRanking = null,
     stacks = null,
     stackView = false
   } = libraryState;
@@ -229,7 +236,8 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     return true;
   };
 
-  const { tags: searchTags, text: searchText, mode: searchMode } = searchCriteria;
+  const { tags: searchTags, mode: searchTagMode } = searchCriteria;
+  const searchText = searchMode === 'content' ? '' : searchCriteria.text;
   const lowerCaseSearchText = searchText.trim().toLowerCase();
 
   const parsedTags = searchTags.map((tag: string) => {
@@ -328,7 +336,7 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
         return evaluateQuery(parsedTag, image);
       };
 
-      if (searchMode === 'OR') {
+      if (searchTagMode === 'OR') {
         tagsMatch = parsedTags.some(evaluateTag);
       } else {
         tagsMatch = parsedTags.every(evaluateTag);
@@ -386,14 +394,19 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
 
   // A first query with restrictive filters only sorts its matches. Once the full
   // folder has been ordered, later filters consume that ordering directly.
-  const sorted = cached
+  const chosenOrder = cached
     ? list
     : orderedImages(list.length === imageList.length ? imageList : list, imageRatings, sortCriteria);
+  // Content mode: the filtered view by match, photographs not indexed yet
+  // after the ranked ones in the chosen order.
+  const sorted = contentRanking
+    ? sortByMatch(chosenOrder, contentRanking.ranks, (i) => photographPath(i.path))
+    : chosenOrder;
   // Stacks collapse in folder and session views without a filter or
   // search; filtered results, albums and smart albums list every matching
   // member on its own (Lightroom's collections), so a filter never hides a
   // matching photo inside a collapsed stack.
-  const filtering = listingFiltered(filterCriteria, searchCriteria, catalogMatches);
+  const filtering = listingFiltered(filterCriteria, searchCriteria, catalogMatches) || contentRanking !== null;
   if (stackView && stacks && stacks.size && !filtering) {
     const { list: displayList, marks } = arrangeStacks(sorted, stacks);
     return { displayList, badges, flagCounts, stackMarks: marks };
@@ -414,6 +427,8 @@ export function useSortedLibrary() {
   const sortCriteria = useLibraryStore((state) => state.sortCriteria);
   const catalogMatches = useLibraryStore((state) => state.catalogMatches);
   const catalogKnown = useLibraryStore((state) => state.catalogKnown);
+  const searchMode = useLibraryStore((state) => state.searchMode);
+  const contentRanking = useLibraryStore((state) => state.contentRanking);
   const stackView = useLibraryStore((state) => state.activeAlbumId === null);
   const stacks = useStackStore((state) => state.byPath);
 
@@ -439,6 +454,8 @@ export function useSortedLibrary() {
         sortCriteria,
         catalogMatches,
         catalogKnown,
+        searchMode,
+        contentRanking,
         stacks,
         stackView
       },
@@ -461,6 +478,8 @@ export function useSortedLibrary() {
     searchCriteria,
     catalogMatches,
     catalogKnown,
+    searchMode,
+    contentRanking,
     grouping,
     groupEditedFiles,
     stacks,
