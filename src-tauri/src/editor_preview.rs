@@ -1716,7 +1716,7 @@ pub(crate) fn process_preview_job(
         let new_scale = scale_for_gpu * scale_factor;
         (small_preview_base, new_scale, interactive_quality)
     } else {
-        (final_preview_base, scale_for_gpu, 94)
+        (Arc::clone(&final_preview_base), scale_for_gpu, 94)
     };
 
     let (preview_width, preview_height) = processing_image.dimensions();
@@ -1880,8 +1880,9 @@ pub(crate) fn process_preview_job(
                     compute_waveform,
                     active_waveform_channel: channel_filter,
                     interactive: is_interactive,
-                    sender: tx,
+                    sender: tx.into(),
                     generation,
+                    also_clipped: Default::default(),
                 }
             })
     } else {
@@ -1893,8 +1894,11 @@ pub(crate) fn process_preview_job(
                 (
                     sender,
                     crate::scope_analytics::ScopeAnalyticsJob {
-                        source: Arc::clone(&processing_image),
-                        scale: effective_scale,
+                        // The release frame's input, not the drag's reduced
+                        // one: a clipped pixel the reduction averaged away
+                        // still clips in the release (scope_analytics.rs).
+                        source: Arc::clone(&final_preview_base),
+                        scale: scale_for_gpu,
                         unscaled_crop_offset,
                         recipe: serde_json::Value::Null,
                         masks: Vec::new(),

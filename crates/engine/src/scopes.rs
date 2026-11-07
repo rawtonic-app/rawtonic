@@ -55,6 +55,20 @@ impl ClippedSides {
             shadow_channels: std::array::from_fn(|c| marks & (32 << c) != 0),
         }
     }
+
+    /// The sides and channels clipped in either.
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            shadows: self.shadows || other.shadows,
+            highlights: self.highlights || other.highlights,
+            shadow_channels: std::array::from_fn(|c| {
+                self.shadow_channels[c] || other.shadow_channels[c]
+            }),
+            highlight_channels: std::array::from_fn(|c| {
+                self.highlight_channels[c] || other.highlight_channels[c]
+            }),
+        }
+    }
 }
 
 /// Luma and colour-difference weights of the space the scopes read.

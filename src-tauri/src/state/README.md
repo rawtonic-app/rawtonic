@@ -182,7 +182,7 @@ alone; it does not change the current job, matching the previous cache invalidat
 `context` keeps its own poisoning policy: a lock poisoned by a panic during a device start is emptied (the next
 use starts a new device), not recovered with its data (`context_slot`; `context_lock` and `context()` recover).
 `crash_flag_path` is read under `context` while a device starts (`create_context`), for one read.
-`export_processor`, `scope_cache` and `start_error` are each taken alone. `window_size` is an atomic (an `Arc`, so the worker that waits for the display can own it).
+`export_processor`, `scope_cache`, each of `scope_extremes_cache` and `start_error` are each taken alone. `window_size` is an atomic (an `Arc`, so the worker that waits for the display can own it).
 
 ### `SourceState` (`AppState.source`)
 

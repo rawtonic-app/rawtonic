@@ -7,11 +7,20 @@
 //! frame's recipe and sends its analytics
 //! (`gpu_processing::render_scope_analytics`).
 //!
-//! The drag's clipping marks come from the copy, so a highlight smaller than
-//! one copy pixel (about 12 full-resolution pixels at 26 MP) can average
-//! below the mark until the release frame sends the exact ones; like the
-//! histograms of other editors, which read a reduced preview, the drag's
-//! scopes are a sample.
+//! The copy is an average (a pixel of it stands for a block of about 12 x 12
+//! pixels of a 26 MP frame), so a clipped highlight or shadow smaller than a
+//! block would average below the clipping marks until the release. The
+//! drag's marks therefore come from two more copies of the whole frame
+//! (`block_extreme_pixels`, long edge [`SCOPE_EXTREMES_EDGE`]): per block the
+//! pixel whose brightest channel is highest and the one whose darkest
+//! channel is lowest, real pixels of the release frame's input, rendered
+//! with the frame's recipe and its masks drawn at their size, the same
+//! geometry as the averaged copy's (`render_scope_clip_marks`), before the
+//! averaged copy, whose analytics then carry their marks too. The histogram and the scopes count the
+//! averaged copy alone; like the histograms of other editors, which read a
+//! reduced preview, they are a sample. A colour change between pixels of
+//! one block (a white balance drag) can make another pixel than the
+//! brightest clip first; the release's marks are exact.
 //!
 //! Why a separate small render instead of a low-resolution pass inside the
 //! frame: the frame's reply does not wait for it (the scope render runs on
@@ -31,7 +40,7 @@ use crate::mask_generation::MaskDefinition;
 use crate::state::develop::DevelopSession;
 use crate::state::preview::PreviewState;
 use crate::state::source::LoadedImage;
-use rawtonic_engine::image_processing::downscale_f32_image_signed;
+use rawtonic_engine::image_processing::{block_extreme_pixels, downscale_f32_image_signed};
 
 /// Long edge of the scope render's copy of the frame's input: 512 pixels
 /// hold about 175 000 of a 3:2 photo, some 680 per waveform column of 256
@@ -41,10 +50,19 @@ use rawtonic_engine::image_processing::downscale_f32_image_signed;
 /// besides its colour noise preparation, and the drag's frames waited for it.
 pub(crate) const SCOPE_PROXY_EDGE: u32 = 512;
 
+/// Long edge of the block-extreme copies, which only find the clipping: a
+/// one-pixel highlight stays in its block's copy at any block size, and a
+/// copy of 256 pixels renders in about 1.5 ms against 4 ms at 512 (RTX 3080,
+/// with sharpening and colour noise reduction): at 512 the drag's
+/// input-to-preview p95 rose 1.3 ms
+/// (notes: benchmark-results/g23b-zoom-clip-extrema-2026-11-07/REPORT.md).
+pub(crate) const SCOPE_EXTREMES_EDGE: u32 = 256;
+
 /// A zoomed frame's request for the whole frame's analytics.
 pub(crate) struct ScopeAnalyticsJob {
-    /// The frame's full-frame input (the preview base it rendered a region
-    /// of) and its pixels per full-resolution pixel.
+    /// The release frame's full-frame input (the preview base the drag's
+    /// frame rendered a region of, or of a reduced copy of) and its pixels
+    /// per full-resolution pixel.
     pub source: Arc<DynamicImage>,
     pub scale: f32,
     pub unscaled_crop_offset: (f32, f32),
@@ -66,13 +84,16 @@ pub(crate) struct ScopeAnalyticsJob {
 /// long edge at most [`SCOPE_PROXY_EDGE`], the aspect kept, never larger
 /// than the input.
 pub(crate) fn proxy_size(width: u32, height: u32) -> (u32, u32) {
+    size_within(width, height, SCOPE_PROXY_EDGE)
+}
+
+/// `width` x `height` with its long edge at most `edge`, the aspect kept.
+fn size_within(width: u32, height: u32, edge: u32) -> (u32, u32) {
     let long = width.max(height);
-    if long <= SCOPE_PROXY_EDGE {
+    if long <= edge {
         return (width, height);
     }
-    let fit = |side: u32| {
-        ((side as u64 * SCOPE_PROXY_EDGE as u64 + long as u64 / 2) / long as u64).max(1) as u32
-    };
+    let fit = |side: u32| ((side as u64 * edge as u64 + long as u64 / 2) / long as u64).max(1) as u32;
     (fit(width), fit(height))
 }
 
@@ -128,12 +149,15 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
     // A frame that carried its own analytics came since (the release).
-    if state
-        .preview
-        .full_frame_analytics_generation
-        .load(Ordering::SeqCst)
-        > job.analytics.generation
-    {
+    let generation = job.analytics.generation;
+    let superseded = || {
+        state
+            .preview
+            .full_frame_analytics_generation
+            .load(Ordering::SeqCst)
+            > generation
+    };
+    if superseded() {
         return Ok(());
     }
     #[cfg(feature = "performance-profiling")]
@@ -155,6 +179,43 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
         job.unscaled_crop_offset,
     )?;
     let mut adjustments = job.adjustments;
+    let mut analytics = job.analytics;
+    if let Some(extremes) = &proxy.extremes {
+        let (width, height) = extremes[0].dimensions();
+        let scale = job.scale * width as f32 / job.source.width().max(1) as f32;
+        let mask_bitmaps = crate::editor_preview::preview_mask_bitmaps(
+            &state,
+            &develop,
+            &job.recipe,
+            &job.masks,
+            (loaded_image, *source_scale, *full_dims),
+            (width, height),
+            scale,
+            job.unscaled_crop_offset,
+        )?;
+        adjustments.global.detail_scale = scale;
+        for (copy, cache) in extremes.iter().zip(&gpu.scope_extremes_cache) {
+            #[cfg(feature = "performance-profiling")]
+            let _stage = crate::performance::PerformanceStage::new("scope_clip_marks_render");
+            let marks = gpu_processing::render_scope_clip_marks(
+                &context,
+                &gpu.processor,
+                cache,
+                (copy, proxy.id),
+                RenderRequest {
+                    adjustments: adjustments.clone(),
+                    mask_bitmaps: &mask_bitmaps,
+                    lut: job.lut.clone(),
+                    roi: None,
+                },
+                job.display_space,
+            )?;
+            analytics.also_clipped = analytics.also_clipped.union(marks);
+            if superseded() {
+                return Ok(());
+            }
+        }
+    }
     adjustments.global.detail_scale = scale;
     gpu_processing::render_scope_analytics(
         &context,
@@ -167,16 +228,20 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
             lut: job.lut,
             roi: None,
         },
-        job.analytics,
+        analytics,
         job.display_space,
     )
 }
 
-/// The copy of a preview base the scope render reads, and the id its GPU
-/// upload is kept under (`GpuState::scope_cache`).
+/// The copy of a preview base the scope render reads, its block-extreme
+/// copies (brightest, darkest pixels, long edge [`SCOPE_EXTREMES_EDGE`];
+/// none when the copy is the base itself), and the id their GPU uploads are
+/// kept under
+/// (`GpuState::scope_cache`, `scope_extremes_cache`).
 pub(crate) struct ScopeProxy {
     of: Weak<DynamicImage>,
     image: Arc<DynamicImage>,
+    extremes: Option<Arc<[DynamicImage; 2]>>,
     id: u64,
 }
 
@@ -191,16 +256,22 @@ fn proxy_of(preview: &PreviewState, source: &Arc<DynamicImage>) -> ScopeProxy {
     {
         return proxy.clone();
     }
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("scope_proxy_build");
     let (width, height) = source.dimensions();
     let (w, h) = proxy_size(width, height);
-    let image = if (w, h) == (width, height) {
-        Arc::clone(source)
+    let (image, extremes) = if (w, h) == (width, height) {
+        (Arc::clone(source), None)
     } else {
-        Arc::new(downscale_f32_image_signed(source, w, h))
+        let image = downscale_f32_image_signed(source, w, h);
+        let (ew, eh) = size_within(width, height, SCOPE_EXTREMES_EDGE);
+        let (brightest, darkest) = block_extreme_pixels(source, ew, eh);
+        (Arc::new(image), Some(Arc::new([brightest, darkest])))
     };
     let proxy = ScopeProxy {
         of: Arc::downgrade(source),
         image,
+        extremes,
         id: kept
             .as_ref()
             .map_or(1, |previous| previous.id.wrapping_add(1)),
@@ -214,6 +285,7 @@ impl Clone for ScopeProxy {
         Self {
             of: Weak::clone(&self.of),
             image: Arc::clone(&self.image),
+            extremes: self.extremes.clone(),
             id: self.id,
         }
     }
@@ -231,6 +303,8 @@ mod tests {
         // A small input is read as it is.
         assert_eq!(proxy_size(512, 256), (512, 256));
         assert_eq!(proxy_size(300, 200), (300, 200));
+        // The block-extreme copies, smaller, at the same aspect.
+        assert_eq!(size_within(6240, 4160, SCOPE_EXTREMES_EDGE), (256, 171));
     }
 
     #[test]

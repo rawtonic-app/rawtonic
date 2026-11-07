@@ -18049,8 +18049,9 @@ fn analytics_config(sender: LatestJobSender<AnalyticsJob>, generation: u64) -> A
         compute_waveform: true,
         active_waveform_channel: None,
         interactive: false,
-        sender,
+        sender: sender.into(),
         generation,
+        also_clipped: Default::default(),
     }
 }
 
@@ -18140,4 +18141,278 @@ fn a_zoomed_drag_delivers_analytics_of_the_whole_frame() {
     assert!(region_distance > 0.4, "region {region_distance}");
     // Highlights clipped nowhere in either; the same clipping sides.
     assert_eq!(scoped.clipped, whole.clipped);
+}
+
+/// The layer masks of `recipe` drawn for a whole frame of `width` x
+/// `height` standing for `frame_width` pixels across, as the app draws them
+/// for each render size.
+fn recipe_masks(
+    recipe: &serde_json::Value,
+    (width, height): (u32, u32),
+    frame_width: u32,
+) -> Vec<Arc<MaskBitmap>> {
+    let definitions: Vec<MaskDefinition> =
+        serde_json::from_value(recipe.get("masks").cloned().unwrap_or(json!([]))).unwrap();
+    definitions
+        .iter()
+        .filter_map(|def| {
+            generate_layer_mask(
+                def,
+                width,
+                height,
+                width as f32 / frame_width as f32,
+                (0.0, 0.0),
+                &PhotoGeometry::default(),
+                None,
+            )
+        })
+        .map(Arc::new)
+        .collect()
+}
+
+/// The clipping the release frame (the whole of `frame`) finds with `recipe`
+/// and its masks.
+fn release_clipping(context: &GpuContext, frame: &DynamicImage, recipe: &serde_json::Value) -> ClippedSides {
+    let (sender, receive) = analytics_receiver();
+    let masks = recipe_masks(recipe, frame.dimensions(), frame.width());
+    process_and_get_dynamic_image_inner(
+        context,
+        &ProcessorSlot::new(None),
+        &Mutex::new(None),
+        RenderSource::Image {
+            image: frame,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments: get_all_adjustments_from_json(recipe, true, Some(2)),
+            mask_bitmaps: &masks,
+            lut: None,
+            roi: None,
+        },
+        "apply_adjustments",
+        RenderOutputPrecision::EightBit,
+        false,
+        Some(analytics_config(sender, 1)),
+        None,
+        ReadbackShader::Preview,
+    )
+    .unwrap();
+    receive
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the release frame sends analytics")
+        .clipped
+}
+
+/// What a zoomed drag's scope render sends for `frame` (the release frame's
+/// input) with `recipe`: the averaged copy's analytics alone, and with the
+/// clipping of its block-extreme copies (scope_analytics.rs).
+fn zoomed_drag_clipping(
+    context: &GpuContext,
+    frame: &DynamicImage,
+    recipe: &serde_json::Value,
+) -> (ClippedSides, ClippedSides) {
+    let proxy = crate::image_processing::downscale_f32_image_signed(frame, 512, 512);
+    let (w, h) = proxy.dimensions();
+    // The block-extreme copies' size in the app (long edge 256).
+    let (ew, eh) = (256, (256 * frame.height()).div_ceil(frame.width()));
+    let (bright, dark) = crate::image_processing::block_extreme_pixels(frame, ew, eh);
+    let processor = ProcessorSlot::new(None);
+    let proxy_masks = recipe_masks(recipe, (w, h), frame.width());
+    let extremes_masks = recipe_masks(recipe, (ew, eh), frame.width());
+    // Each copy's pixels per frame pixel and masks, as the app's scope
+    // render sets them.
+    let request = |copy_width: u32| RenderRequest {
+        adjustments: {
+            let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(2));
+            adjustments.global.detail_scale *= copy_width as f32 / frame.width() as f32;
+            adjustments
+        },
+        mask_bitmaps: if copy_width == w {
+            &proxy_masks
+        } else {
+            &extremes_masks
+        },
+        lut: None,
+        roi: None,
+    };
+    let scope = |also_clipped: ClippedSides| {
+        let (sender, receive) = analytics_receiver();
+        let mut config = analytics_config(sender, 1);
+        config.also_clipped = also_clipped;
+        render_scope_analytics(
+            context,
+            &processor,
+            &Mutex::new(None),
+            (&proxy, 1),
+            request(w),
+            config,
+            false,
+        )
+        .unwrap();
+        let job = receive
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the scope render sends analytics");
+        assert_eq!(job.image.dimensions(), (w, h), "the scopes count the averaged copy");
+        job.clipped
+    };
+    let averaged = scope(ClippedSides::default());
+    let mut extremes = ClippedSides::default();
+    for (id, copy) in [(2, &bright), (3, &dark)] {
+        let marks = render_scope_clip_marks(
+            context,
+            &processor,
+            &Mutex::new(None),
+            (copy, id),
+            request(ew),
+            false,
+        )
+        .unwrap();
+        extremes = extremes.union(marks);
+    }
+    (averaged, scope(extremes))
+}
+
+#[test]
+#[ignore = "requires a native GPU; a zoomed drag's clipping marks see isolated clipped pixels"]
+fn a_zoomed_drags_clipping_marks_are_the_release_frames() {
+    let context = context();
+    zoomed_drag_marks_match_the_release(&context, &json!({"exposure": 0.3}));
+    // With the detail steps a photograph usually has (sharpening and noise
+    // reduction work at the copies' scale, `detail_scale`).
+    zoomed_drag_marks_match_the_release(
+        &context,
+        &json!({"exposure": 0.3, "sharpness": 40, "colorNoiseReduction": 25, "clarity": 20}),
+    );
+}
+
+fn zoomed_drag_marks_match_the_release(context: &GpuContext, recipe: &serde_json::Value) {
+    let (width, height) = (2048, 1365);
+    // A smooth mid-tone field, no pixel near either end.
+    let field = |x: u32, _y: u32| {
+        let v = 0.10 + 0.08 * x as f32 / width as f32;
+        image::Rgb([v, v * 0.95, v * 0.9])
+    };
+    let frame_with = |spots: &[((u32, u32), [f32; 3])]| {
+        let mut frame = ImageBuffer::from_fn(width, height, field);
+        for &((x, y), rgb) in spots {
+            frame.put_pixel(x, y, image::Rgb(rgb));
+        }
+        DynamicImage::ImageRgb32F(frame)
+    };
+    // The lowest value (in steps of 1.25) at which one pixel alone clips in
+    // the release frame; the spots sit just above it, so a 4 x 4 block's
+    // average (a 26 MP frame's blocks hold about 140 pixels) stays far below.
+    let clips_alone = |rgb: [f32; 3]| {
+        let frame = frame_with(&[((901, 501), rgb)]);
+        release_clipping(context, &frame, recipe).highlights
+    };
+    let mut hot = 0.5f32;
+    while !clips_alone([hot; 3]) {
+        hot *= 1.25;
+        assert!(hot < 1000.0, "one pixel never clips");
+    }
+    let mut red = hot;
+    while !clips_alone([red, 0.12, 0.11]) {
+        red *= 1.25;
+        assert!(red < 1000.0, "one red pixel never clips");
+    }
+    let (hot, red) = (hot * 1.25, red * 1.25);
+    let cases: [(&str, Vec<((u32, u32), [f32; 3])>); 5] = [
+        ("a red highlight alone", vec![((1000, 600), [red, 0.12, 0.11])]),
+        ("a red shadow alone", vec![((1024, 700), [-0.05, 0.12, 0.11])]),
+        (
+            "isolated highlights, one red only",
+            vec![
+                ((701, 402), [hot; 3]),
+                ((1303, 907), [hot; 3]),
+                ((1801, 211), [hot; 3]),
+                ((1000, 600), [red, 0.12, 0.11]),
+            ],
+        ),
+        (
+            "isolated shadows, one red only",
+            vec![
+                ((333, 1200), [0.0; 3]),
+                ((1700, 50), [0.0; 3]),
+                ((1024, 700), [-0.05, 0.12, 0.11]),
+            ],
+        ),
+        (
+            "both sides",
+            vec![((5, 5), [hot; 3]), ((2040, 1360), [0.0; 3])],
+        ),
+    ];
+    for (name, spots) in cases {
+        let frame = frame_with(&spots);
+        let release = release_clipping(context, &frame, recipe);
+        assert!(release.highlights || release.shadows, "{name} ({recipe}): the release marks {release:?}");
+        let (averaged, drag) = zoomed_drag_clipping(context, &frame, recipe);
+        assert_ne!(averaged, release, "{name} ({recipe}): the averaged copy alone hides them");
+        assert_eq!(drag, release, "{name} ({recipe}): the drag's marks are the release's");
+    }
+    // Nothing clipped: no mark during the drag either.
+    let frame = frame_with(&[]);
+    let release = release_clipping(context, &frame, recipe);
+    assert_eq!(release, ClippedSides::default());
+    assert_eq!(zoomed_drag_clipping(context, &frame, recipe).1, release);
+}
+
+#[test]
+#[ignore = "requires a native GPU; the block extremes keep the frame's vignette geometry"]
+fn a_zoomed_drags_clipping_marks_follow_the_vignette_as_the_release() {
+    let context = context();
+    let (width, height) = (2048, 1365);
+    let recipe = json!({"exposure": 0.3, "vignetteAmount": -100});
+    // A highlight in a corner, from below to well above the clipping point:
+    // the vignette darkens it, so where it clips is decided by the
+    // geometry, and the drag's copies must decide as the release frame.
+    let mut seen = (false, false);
+    let mut value = 0.25f32;
+    while value < 64.0 {
+        let mut frame = ImageBuffer::from_pixel(width, height, image::Rgb([0.1f32, 0.1, 0.1]));
+        frame.put_pixel(6, 4, image::Rgb([value; 3]));
+        let frame = DynamicImage::ImageRgb32F(frame);
+        let release = release_clipping(&context, &frame, &recipe);
+        let (_, drag) = zoomed_drag_clipping(&context, &frame, &recipe);
+        assert_eq!(drag.highlights, release.highlights, "corner value {value}");
+        if release.highlights {
+            seen.1 = true;
+        } else {
+            seen.0 = true;
+        }
+        value *= 1.25;
+    }
+    assert_eq!(seen, (true, true), "both below and above the clipping point");
+}
+
+#[test]
+#[ignore = "requires a native GPU; the block extremes keep the frame's mask geometry"]
+fn a_zoomed_drags_clipping_marks_follow_the_masks_as_the_release() {
+    let context = context();
+    let (width, height) = (2048, 1365);
+    // A radial layer 4 stops darker around (1024, 683), radius 300, hard edge.
+    let recipe = json!({"exposure": 0.3, "masks": [{"id": "dark", "name": "Dark", "visible": true,
+        "invert": false, "opacity": 100, "adjustments": {"exposure": -4},
+        "subMasks": [{"id": "dark-radial", "type": "radial", "visible": true, "invert": false,
+            "opacity": 100, "mode": "additive", "parameters": {"centerX": 1024, "centerY": 683,
+            "radiusX": 300, "radiusY": 300, "rotation": 0, "feather": 0}}]}]});
+    let frame_with = |spot: (u32, u32), value: f32| {
+        let mut frame = ImageBuffer::from_pixel(width, height, image::Rgb([0.1f32, 0.1, 0.1]));
+        frame.put_pixel(spot.0, spot.1, image::Rgb([value; 3]));
+        DynamicImage::ImageRgb32F(frame)
+    };
+    // Clipping just outside the layer, not inside it: where the mask's edge
+    // falls decides, as in the release frame.
+    let mut value = 0.5f32;
+    while !release_clipping(&context, &frame_with((1024, 683 + 340), value), &recipe).highlights {
+        value *= 1.25;
+        assert!(value < 1000.0, "one pixel never clips");
+    }
+    let value = value * 1.25;
+    for (spot, clips) in [((1024, 683 + 340), true), ((1024, 683 + 250), false), ((1024, 683), false)] {
+        let frame = frame_with(spot, value);
+        let release = release_clipping(&context, &frame, &recipe);
+        assert_eq!(release.highlights, clips, "release at {spot:?}");
+        assert_eq!(zoomed_drag_clipping(&context, &frame, &recipe).1, release, "drag at {spot:?}");
+    }
 }
