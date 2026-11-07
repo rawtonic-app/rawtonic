@@ -1877,6 +1877,7 @@ pub(crate) fn process_preview_job(
                     path: loaded_image.path.clone(),
                     compute_waveform,
                     active_waveform_channel: channel_filter,
+                    interactive: is_interactive,
                     sender: tx,
                     generation,
                 }
@@ -2074,31 +2075,55 @@ pub(crate) fn encode_browser_preview(
     crate::preview_jpeg::encode_rgbx_444(image, quality)
 }
 
+/// Threads of a drag's scope updates (`start_analytics_worker`): a drag
+/// frame's histogram and one scope took 5–23 ms on two (Ryzen 5 3600X),
+/// well inside the ~100 ms between updates.
+const DRAG_SCOPE_THREADS: usize = 2;
+
 pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
     let worker_app = app_handle.clone();
     let mut order = crate::scope_analytics::AnalyticsOrder::default();
+    // A drag's scopes (about ten a second) on a few threads below the
+    // editor's priority: on every core they took what the drag's next frames
+    // need (shared caches, memory bandwidth, the webview's thread): with
+    // the base64 RGBA scope images, input -> preview rose 2–5 ms at p50 on
+    // a 6-core PC (notes: parity-gaps/G23-analysis.md, WFT). A settled
+    // frame's scopes keep every core, so they follow a release at once.
+    let drag_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(DRAG_SCOPE_THREADS)
+        .thread_name(|i| format!("drag-scopes-{i}"))
+        .start_handler(|_| crate::export_processing::lower_thread_priority())
+        .build()
+        .ok();
     let sender = gpu_processing::start_latest_job_worker(move |job: AnalyticsJob| {
         if !order.admits(job.generation) {
             return;
         }
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("analytics_compute");
-        let histogram_data = scopes::calculate_histogram_from_image(
-            &job.image,
-            scopes::ScopeSpace::of(job.space),
-            job.clipped,
-        )
-        .ok();
-        let waveform_data = if job.compute_waveform {
-            scopes::calculate_waveform_from_image(
+        let compute = || {
+            let histogram = scopes::calculate_histogram_from_image(
                 &job.image,
-                job.space,
-                job.active_waveform_channel.as_deref(),
+                scopes::ScopeSpace::of(job.space),
+                job.clipped,
             )
-            .ok()
-        } else {
-            None
+            .ok();
+            let waveform = if job.compute_waveform {
+                scopes::calculate_waveform_from_image(
+                    &job.image,
+                    job.space,
+                    job.active_waveform_channel.as_deref(),
+                )
+                .ok()
+            } else {
+                None
+            };
+            (histogram, waveform)
+        };
+        let (histogram_data, waveform_data) = match &drag_pool {
+            Some(pool) if job.interactive => pool.install(compute),
+            _ => compute(),
         };
         if histogram_data.is_some() || waveform_data.is_some() {
             let _ = worker_app.emit(

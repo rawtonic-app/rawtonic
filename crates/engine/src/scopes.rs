@@ -322,7 +322,7 @@ impl Wanted {
         let all = active_channel.is_none();
         Self {
             rgb: all || active_channel == Some("rgb"),
-            luma: all || matches!(active_channel, Some("luma" | "rgb")),
+            luma: all || active_channel == Some("luma"),
             parade: all || active_channel == Some("parade"),
             vectorscope: all || active_channel == Some("vectorscope"),
         }
@@ -529,6 +529,26 @@ pub fn skin_line_degrees(space: OutputColorSpace) -> f64 {
     cr.atan2(cb).to_degrees()
 }
 
+/// One scope image (`SCOPE_SIZE`² RGBA) as a PNG. The webview decodes it
+/// off its main thread (an `<img>`): raw RGBA was ~350 KB of base64 per
+/// update for the main thread to parse and unpack, which delayed the live
+/// preview frames during drags (notes: parity-gaps/G23-analysis.md, WFT).
+/// Fast compression: the update rate (~10/s while dragging) matters more
+/// than the bytes; the images are mostly empty or smooth.
+fn encode_scope_png(rgba: &[u8]) -> Result<Vec<u8>, String> {
+    let mut png = Vec::with_capacity(rgba.len() / 4);
+    let mut encoder = png::Encoder::new(&mut png, SCOPE_SIZE as u32, SCOPE_SIZE as u32);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(png::Compression::Fast);
+    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+    writer.write_image_data(rgba).map_err(|e| e.to_string())?;
+    writer.finish().map_err(|e| e.to_string())?;
+    Ok(png)
+}
+
+/// The scope images are base64 PNGs (`encode_scope_png`) of `width` x
+/// `height` RGBA, empty for a mode that was not computed.
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct WaveformData {
@@ -557,7 +577,7 @@ fn log_scale(bins: &[u32]) -> impl Fn(u32) -> u8 + '_ {
 
 /// The scopes of `image` in `space` as RGBA images (`SCOPE_SIZE`²), the
 /// vectorscope's targets and skin line. `active_channel` limits the work to
-/// one mode ("rgb" also computes luma).
+/// one mode (a drag's: only the shown scope is drawn).
 pub fn calculate_waveform_from_image(
     image: &DynamicImage,
     space: OutputColorSpace,
@@ -568,9 +588,9 @@ pub fn calculate_waveform_from_image(
     let pixels = SCOPE_SIZE * SCOPE_SIZE;
     let encode = |rgba: Vec<u8>| {
         if rgba.is_empty() {
-            String::new()
+            Ok(String::new())
         } else {
-            BASE64.encode(&rgba)
+            encode_scope_png(&rgba).map(|png| BASE64.encode(png))
         }
     };
 
@@ -633,10 +653,10 @@ pub fn calculate_waveform_from_image(
     }
 
     Ok(WaveformData {
-        rgb: encode(rgb),
-        luma: encode(luma),
-        parade: encode(parade),
-        vectorscope: encode(vector),
+        rgb: encode(rgb)?,
+        luma: encode(luma)?,
+        parade: encode(parade)?,
+        vectorscope: encode(vector)?,
         width: SCOPE_SIZE as u32,
         height: SCOPE_SIZE as u32,
         vectorscope_targets: vectorscope_targets(weights),
@@ -952,6 +972,49 @@ mod tests {
         let data =
             calculate_waveform_from_image(&image, OutputColorSpace::Srgb, Some("parade")).unwrap();
         assert!(data.rgb.is_empty() && !data.parade.is_empty());
+        // The RGB waveform alone: the panel draws only the shown mode.
+        let rgb =
+            calculate_waveform_from_image(&image, OutputColorSpace::Srgb, Some("rgb")).unwrap();
+        assert!(!rgb.rgb.is_empty() && rgb.luma.is_empty() && rgb.parade.is_empty());
+    }
+
+    /// The webview draws each scope from its PNG: it must decode to exactly
+    /// the RGBA image the counts give (lossless, full size, alpha kept).
+    #[test]
+    fn scope_images_are_lossless_pngs_of_the_rgba() {
+        let image = DynamicImage::ImageRgb8(test_frame(300));
+        for space in SPACES {
+            let data = calculate_waveform_from_image(&image, space, None).unwrap();
+            let counts = scope_counts(&image, ScopeSpace::of(space), Some("luma")).unwrap();
+            let l = log_scale(&counts.luma);
+            for (mode, encoded) in [
+                ("rgb", &data.rgb),
+                ("luma", &data.luma),
+                ("parade", &data.parade),
+                ("vectorscope", &data.vectorscope),
+            ] {
+                let png = BASE64.decode(encoded).unwrap();
+                let decoded = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+                    .unwrap_or_else(|e| panic!("{mode} {space:?}: {e}"));
+                assert_eq!(decoded.color(), image::ColorType::Rgba8, "{mode}");
+                let rgba = decoded.to_rgba8();
+                assert_eq!(
+                    rgba.dimensions(),
+                    (SCOPE_SIZE as u32, SCOPE_SIZE as u32),
+                    "{mode}"
+                );
+                if mode == "luma" {
+                    for (i, px) in rgba.pixels().enumerate() {
+                        let want = if counts.luma[i] > 0 {
+                            [255, 255, 255, l(counts.luma[i])]
+                        } else {
+                            [0; 4]
+                        };
+                        assert_eq!(px.0, want, "luma pixel {i} {space:?}");
+                    }
+                }
+            }
+        }
     }
 
     /// Time per scope update (histogram + all scopes, as a settled frame

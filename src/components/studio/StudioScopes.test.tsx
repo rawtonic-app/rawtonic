@@ -1,7 +1,7 @@
 import '../../i18n';
 import { afterEach, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import StudioScopes, { scopeMode, scopePixels, waveformY } from './StudioScopes';
+import StudioScopes, { scopeImage, scopeMode, waveformY } from './StudioScopes';
 import { useEditorStore } from '../../store/useEditorStore';
 import type { WaveformData } from '../ui/AppProperties';
 
@@ -13,7 +13,7 @@ afterEach(() => {
 const data: WaveformData = {
   width: 256,
   height: 256,
-  luma: btoa(String.fromCharCode(...new Uint8Array(256 * 4).fill(7)).repeat(256)),
+  luma: 'iVBORw0KGgo=',
   rgb: '',
   parade: '',
   vectorscope: '',
@@ -31,14 +31,12 @@ it('graticule lines sit on the codes they name: 100 % on code 255, 0 % on code 0
   expect(waveformY(50)).toBe(128);
 });
 
-it('decodes a computed scope and nothing for a mode that was not computed', () => {
-  const luma = scopePixels(data, 'luma');
-  expect(luma?.length).toBe(256 * 256 * 4);
-  expect(luma?.[0]).toBe(7);
-  expect(scopePixels(data, 'rgb')).toBeNull();
-  expect(scopePixels(null, 'luma')).toBeNull();
-  // A truncated image is never drawn.
-  expect(scopePixels({ ...data, luma: btoa('short') }, 'luma')).toBeNull();
+it('shows a computed scope as its PNG and nothing for a mode that was not computed', () => {
+  expect(scopeImage(data, 'luma')).toBe('data:image/png;base64,iVBORw0KGgo=');
+  expect(scopeImage(data, 'rgb')).toBeNull();
+  expect(scopeImage(null, 'luma')).toBeNull();
+  // An image of another size is never drawn.
+  expect(scopeImage({ ...data, width: 128 }, 'luma')).toBeNull();
   expect(scopeMode('parade')).toBe('parade');
   expect(scopeMode('bogus')).toBe('luma');
 });
@@ -47,11 +45,15 @@ it("switches modes and draws the backend's vectorscope targets and skin line", (
   useEditorStore.setState({ waveform: data });
   const { container } = render(<StudioScopes />);
   expect(screen.getByRole('img', { name: 'Luma waveform of the shown photo' })).toBeTruthy();
+  expect(container.querySelector('.studio-scope-plot > img')?.getAttribute('src')).toBe(
+    'data:image/png;base64,iVBORw0KGgo='
+  );
   expect(container.querySelectorAll('[data-percent]').length).toBe(5);
   fireEvent.click(screen.getByRole('button', { name: 'Vector' }));
   expect(useEditorStore.getState().activeWaveformChannel).toBe('vectorscope');
   // Not computed yet: the plot says so instead of showing a stale mode.
   expect(screen.getByRole('img', { name: 'Scopes available after opening a photo' })).toBeTruthy();
+  expect(container.querySelector('.studio-scope-plot > img')).toBeNull();
   const red = container.querySelector('[data-target="R100"]')!;
   expect(Number(red.getAttribute('x')) + Number(red.getAttribute('width')) / 2).toBeCloseTo(104.9);
   expect(container.querySelector('[data-target="R75"]')).not.toBeNull();
