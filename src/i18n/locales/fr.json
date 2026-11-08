@@ -327,6 +327,7 @@
       "toggle_pointer_readout": "Valeurs RVB sous le pointeur",
       "toggle_proof_margin": "Marge d'épreuve",
       "toggle_right_panel": "Panneau droit",
+      "toggle_second_window": "Seconde fenêtre",
       "toggle_side_panels": "Panneaux latéraux",
       "toggle_soft_proof": "Épreuvage écran",
       "toggle_split_view": "Avant/après",
@@ -1519,6 +1520,20 @@
     "widthMm": "Largeur (mm)",
     "writes": "Écrit « {{name}} »"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Ouvrez une photo dans la fenêtre principale pour l’afficher ici.",
+    "exitFullScreen": "Quitter le plein écran (Échap)",
+    "fit": "Ajuster",
+    "fullScreen": "Plein écran (F)",
+    "lock": "Verrouiller",
+    "locked": "Verrouillée",
+    "lockHint": "Garder cette photo pendant que la fenêtre principale avance (L)",
+    "toolbar": "Seconde fenêtre",
+    "unlockHint": "Suivre à nouveau la fenêtre principale (L)",
+    "windowTitle": "{{name}} — Seconde fenêtre",
+    "windowTitleEmpty": "Seconde fenêtre"
+  },
   "session": {
     "addFolder": {
       "add_one": "Ajouter {{count}} photo",
@@ -2496,6 +2511,7 @@
         "select_none": "Ne rien sélectionner",
         "show_in_finder": "Afficher dans le Finder",
         "show_original": "Maintenir : toute la photo avant",
+        "spot_new_source": "Chercher une autre source",
         "sync_settings": "Synchroniser les réglages avec les photos sélectionnées",
         "tether_capture": "Déclencher l’appareil connecté",
         "toggle_adjustments": "Basculer le panneau des ajustements",
@@ -2521,6 +2537,7 @@
         "toggle_pointer_readout": "Afficher/masquer les valeurs RVB sous le pointeur",
         "toggle_proof_margin": "Afficher/masquer la marge d'épreuve",
         "toggle_right_panel": "Afficher/Masquer le panneau droit",
+        "toggle_second_window": "Seconde fenêtre : la photo en direct sur un autre écran",
         "toggle_side_panels": "Masquer ou afficher les panneaux latéraux",
         "toggle_soft_proof": "Activer ou désactiver l'épreuvage écran",
         "toggle_split_view": "Avant/Après (vue partagée)",
@@ -2740,6 +2757,8 @@
     "fillAcrossEdges": "Remplir sur les bords",
     "fillAcrossEdgesHint": "Un point de correction qui traverse des bords marqués (angles, lignes, contours d'objets) est rempli avec Supprimer ; les zones planes restent corrigées. Chacun peut être basculé dans la liste ci-dessous.",
     "filling": "Suppression… étape {{done}} sur {{total}}",
+    "findAnotherSource": "Chercher une autre source",
+    "findAnotherSourceHint": "Trouve une autre source automatique pour le point de correction ou de clonage sélectionné (Actualiser de Lightroom).",
     "largeHoleTooSlow": "Ce GPU est trop lent pour supprimer de grandes zones ; Supprimer utilise la méthode rapide jusqu'à la fin de la session.",
     "list": {
       "aria": "Taches et suppressions",
@@ -2748,6 +2767,8 @@
       "deleteAll": "Tout supprimer",
       "hideAll": "Tout masquer",
       "item": "{{kind}} {{number}}",
+      "newSource": "Chercher une autre source pour {{name}}",
+      "newSourceHint": "Chercher une autre source ({{key}})",
       "select": "Sélectionner {{name}}",
       "showAll": "Tout afficher",
       "switching": "Bascule de {{name}}…",

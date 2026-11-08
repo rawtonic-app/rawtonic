@@ -4,6 +4,7 @@ import {
   buildComboMap,
   conflictingActions,
   fieldOwnsKey,
+  normalizeCombo,
   shortcutHint,
   splitByView
 } from './keyboardUtils';
@@ -113,5 +114,15 @@ describe('fieldOwnsKey with a command key', () => {
     expect(fieldOwnsKey(check, 'KeyZ', true)).toBe(false);
     expect(fieldOwnsKey(text, 'KeyZ', true)).toBe(true);
     expect(fieldOwnsKey(area, 'KeyZ', true)).toBe(true);
+  });
+});
+
+describe('the slash key on other layouts', () => {
+  const press = (init: KeyboardEventInit) => normalizeCombo(new KeyboardEvent('keydown', init));
+  it('is Slash on a US layout and on German Shift+7 (the key it produces)', () => {
+    expect(press({ key: '/', code: 'Slash' })).toEqual(['Slash']);
+    expect(press({ key: '/', code: 'Digit7', shiftKey: true })).toEqual(['Slash']);
+    expect(press({ key: '&', code: 'Digit7', shiftKey: true })).toEqual(['shift', 'Digit7']);
+    expect(press({ key: '7', code: 'Digit7' })).toEqual(['Digit7']);
   });
 });

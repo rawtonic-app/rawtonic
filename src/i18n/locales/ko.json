@@ -302,6 +302,7 @@
       "toggle_pointer_readout": "포인터 RGB 표시",
       "toggle_proof_margin": "교정 여백",
       "toggle_right_panel": "오른쪽 패널",
+      "toggle_second_window": "두 번째 창",
       "toggle_side_panels": "측면 패널",
       "toggle_soft_proof": "소프트 교정",
       "toggle_split_view": "보정 전/후",
@@ -1441,6 +1442,20 @@
     "widthMm": "너비(mm)",
     "writes": "“{{name}}” 기록"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "기본 창에서 사진을 열면 여기에 표시됩니다.",
+    "exitFullScreen": "전체 화면 종료 (Esc)",
+    "fit": "맞춤",
+    "fullScreen": "전체 화면 (F)",
+    "lock": "잠금",
+    "locked": "잠김",
+    "lockHint": "기본 창이 다른 사진으로 이동해도 이 사진을 계속 표시 (L)",
+    "toolbar": "두 번째 창",
+    "unlockHint": "다시 기본 창 따라가기 (L)",
+    "windowTitle": "{{name}} — 두 번째 창",
+    "windowTitleEmpty": "두 번째 창"
+  },
   "session": {
     "addFolder": {
       "add_other": "사진 {{count}}장 추가",
@@ -2269,6 +2284,7 @@
         "select_none": "선택 해제",
         "show_in_finder": "Finder에서 보기",
         "show_original": "누르고 있기: 사진 전체 보정 전",
+        "spot_new_source": "다른 소스 찾기",
         "sync_settings": "선택한 사진에 설정 동기화",
         "tether_capture": "테더 카메라 촬영",
         "toggle_adjustments": "조정 패널 전환",
@@ -2294,6 +2310,7 @@
         "toggle_pointer_readout": "포인터 RGB 표시 전환",
         "toggle_proof_margin": "교정 여백 전환",
         "toggle_right_panel": "오른쪽 패널 토글",
+        "toggle_second_window": "두 번째 창: 다른 디스플레이에 사진을 실시간으로 표시",
         "toggle_side_panels": "사이드 패널 숨기기/표시",
         "toggle_soft_proof": "소프트 교정 전환",
         "toggle_split_view": "보정 전/후 (분할 보기)",
@@ -2513,6 +2530,8 @@
     "fillAcrossEdges": "가장자리를 지나면 채우기",
     "fillAcrossEdgesHint": "뚜렷한 가장자리(모서리, 선, 물체 경계)를 지나는 복구 스폿은 대신 제거로 채웁니다. 평평한 영역은 계속 복구됩니다. 각 스폿은 아래 목록에서 전환할 수 있습니다.",
     "filling": "제거 중… {{total}}단계 중 {{done}}단계",
+    "findAnotherSource": "다른 소스 찾기",
+    "findAnotherSourceHint": "선택한 보정 또는 복제 스팟의 다른 자동 소스를 찾습니다(Lightroom의 새로 고침).",
     "largeHoleTooSlow": "이 GPU는 큰 영역을 제거하기에 너무 느립니다. 이 세션 동안 제거는 빠른 방법을 사용합니다.",
     "list": {
       "aria": "스팟 및 제거",
@@ -2521,6 +2540,8 @@
       "deleteAll": "모두 삭제",
       "hideAll": "모두 숨기기",
       "item": "{{kind}} {{number}}",
+      "newSource": "{{name}}의 다른 소스 찾기",
+      "newSourceHint": "다른 소스 찾기({{key}})",
       "select": "{{name}} 선택",
       "showAll": "모두 표시",
       "switching": "{{name}} 전환 중…",

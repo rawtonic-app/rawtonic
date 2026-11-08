@@ -251,6 +251,14 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view'
   },
   {
+    // A second window with the photograph live (Lightroom's Secondary
+    // Display, Capture One's Viewer); ⇧F as in RapidRAW, free here.
+    action: 'toggle_second_window',
+    description: 'settings.keybinds.actions.toggle_second_window',
+    defaultCombo: ['shift', 'KeyF'],
+    section: 'view'
+  },
+  {
     // The window's full screen with the interface as it is. macOS: also
     // ⌃⌘F and View ▸ Enter Full Screen (the system menu); F11 elsewhere.
     action: 'toggle_window_fullscreen',
@@ -568,6 +576,15 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     aliasCombos: [['KeyO']],
     section: 'tools'
   },
+  // Lightroom's Refresh (`/`): the selected heal or clone spot gets another
+  // automatic source, never the one it has nor one an earlier press turned
+  // down (the spot list's button and the spot settings' item also do).
+  {
+    action: 'spot_new_source',
+    description: 'settings.keybinds.actions.spot_new_source',
+    defaultCombo: ['Slash'],
+    section: 'tools'
+  },
   {
     action: 'remove_objects',
     description: 'settings.keybinds.actions.remove_objects',
@@ -818,6 +835,12 @@ export function normalizeCombo(event: KeyboardEvent, osPlatform?: string, librar
     code = 'Equal';
   } else if (code === 'NumpadSubtract') {
     code = 'Minus';
+  } else if (event.key === '/' && /^(Digit[0-9]|Quote|Minus|Equal|Backslash|Intl.*)$/.test(code)) {
+    // The slash typed with Shift (German Shift+7) or elsewhere on the
+    // layout: the key it produces, without the Shift that made it.
+    code = 'Slash';
+    const shift = parts.indexOf('shift');
+    if (shift >= 0) parts.splice(shift, 1);
   }
   if (isValidShortcutKey(code)) {
     parts.push(code);

@@ -313,6 +313,7 @@
       "toggle_pointer_readout": "RGB-Anzeige am Zeiger",
       "toggle_proof_margin": "Proof-Rand",
       "toggle_right_panel": "Rechte Leiste",
+      "toggle_second_window": "Zweites Fenster",
       "toggle_side_panels": "Seitenleisten",
       "toggle_soft_proof": "Softproof",
       "toggle_split_view": "Vorher/Nachher",
@@ -1460,6 +1461,20 @@
     "widthMm": "Breite (mm)",
     "writes": "Schreibt „{{name}}“"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Öffne im Hauptfenster ein Foto, um es hier zu zeigen.",
+    "exitFullScreen": "Vollbild beenden (Esc)",
+    "fit": "Einpassen",
+    "fullScreen": "Vollbild (F)",
+    "lock": "Sperren",
+    "locked": "Gesperrt",
+    "lockHint": "Dieses Foto weiter zeigen, während das Hauptfenster weitergeht (L)",
+    "toolbar": "Zweites Fenster",
+    "unlockHint": "Wieder dem Hauptfenster folgen (L)",
+    "windowTitle": "{{name}} — Zweites Fenster",
+    "windowTitleEmpty": "Zweites Fenster"
+  },
   "session": {
     "addFolder": {
       "add_one": "{{count}} Foto hinzufügen",
@@ -2360,6 +2375,7 @@
         "select_none": "Auswahl aufheben",
         "show_in_finder": "Im Finder zeigen",
         "show_original": "Halten: ganzes Foto vorher",
+        "spot_new_source": "Andere Quelle suchen",
         "sync_settings": "Einstellungen mit den ausgewählten Fotos synchronisieren",
         "tether_capture": "Tethered-Kamera auslösen",
         "toggle_adjustments": "Anpassungen-Panel ein-/ausblenden",
@@ -2385,6 +2401,7 @@
         "toggle_pointer_readout": "RGB-Anzeige am Zeiger ein/aus",
         "toggle_proof_margin": "Prüfrand ein/aus",
         "toggle_right_panel": "Rechtes Panel ein-/ausblenden",
+        "toggle_second_window": "Zweites Fenster: das Foto live auf einem anderen Bildschirm",
         "toggle_side_panels": "Seitenpanels aus-/einblenden",
         "toggle_soft_proof": "Softproof ein-/ausschalten",
         "toggle_split_view": "Vorher/Nachher (geteilte Ansicht)",
@@ -2604,6 +2621,8 @@
     "fillAcrossEdges": "Über Kanten füllen",
     "fillAcrossEdgesHint": "Ein Reparaturpunkt, der starke Kanten kreuzt (Ecken, Linien, Objektränder), wird stattdessen mit Entfernen gefüllt; flache Bereiche werden weiter repariert. Jeder lässt sich in der Liste unten umschalten.",
     "filling": "Wird entfernt… Schritt {{done}} von {{total}}",
+    "findAnotherSource": "Andere Quelle suchen",
+    "findAnotherSourceHint": "Sucht für den ausgewählten Reparieren- oder Klonen-Punkt eine andere automatische Quelle (Lightrooms Aktualisieren).",
     "largeHoleTooSlow": "Diese GPU ist für das Entfernen großer Bereiche zu langsam; Entfernen nutzt bis zum Neustart die schnelle Methode.",
     "list": {
       "aria": "Reparaturen und Entfernungen",
@@ -2612,6 +2631,8 @@
       "deleteAll": "Alle löschen",
       "hideAll": "Alle ausblenden",
       "item": "{{kind}} {{number}}",
+      "newSource": "Andere Quelle für {{name}}",
+      "newSourceHint": "Andere Quelle suchen ({{key}})",
       "select": "{{name}} auswählen",
       "showAll": "Alle einblenden",
       "switching": "{{name}} wird umgeschaltet…",

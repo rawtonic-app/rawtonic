@@ -111,7 +111,10 @@ fn serve(app: &AppHandle, stream: TcpStream) {
 fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, String> {
     match method {
         "ping" => Ok(json!({ "pong": true, "version": env!("CARGO_PKG_VERSION") })),
-        "window.info" => on_main(app, window_info),
+        "window.info" => {
+            let label = window_label(&params);
+            on_main(app, move |app| window_info(app, &label))
+        }
         "input.mouse" => {
             let event = MouseEvent::from_params(&params)?;
             let activate = activate_requested(&params);
@@ -126,8 +129,9 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, String>
             let best = params.get("resolution").and_then(Value::as_str) == Some("best");
             // "p3": pixels in Display P3, so colours beyond sRGB survive.
             let p3 = params.get("color_space").and_then(Value::as_str) == Some("p3");
+            let label = window_label(&params);
             on_main(app, move |app| {
-                let window = app.get_webview_window("main").ok_or("no main window")?;
+                let window = app.get_webview_window(&label).ok_or("no such window")?;
                 native::capture(&window, best, p3)
             })
         }
@@ -143,6 +147,16 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, String>
         })),
         _ => forward(app, method, params),
     }
+}
+
+/// `"window"`: the label of the window to read (default the main one; the
+/// second window is `second-view`).
+fn window_label(params: &Value) -> String {
+    params
+        .get("window")
+        .and_then(Value::as_str)
+        .unwrap_or("main")
+        .to_string()
 }
 
 /// `"activate": true` brings the app and window to the front first. In an
@@ -172,8 +186,8 @@ where
         .map_err(|_| "main thread did not answer within 5 s".to_string())?
 }
 
-fn window_info(app: &AppHandle) -> Result<Value, String> {
-    let window = app.get_webview_window("main").ok_or("no main window")?;
+fn window_info(app: &AppHandle, label: &str) -> Result<Value, String> {
+    let window = app.get_webview_window(label).ok_or("no such window")?;
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let position = window.inner_position().map_err(|e| e.to_string())?;
     let size = window.inner_size().map_err(|e| e.to_string())?;

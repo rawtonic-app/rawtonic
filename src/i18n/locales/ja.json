@@ -302,6 +302,7 @@
       "toggle_pointer_readout": "ポインターのRGB表示",
       "toggle_proof_margin": "校正マージン",
       "toggle_right_panel": "右パネル",
+      "toggle_second_window": "セカンドウィンドウ",
       "toggle_side_panels": "サイドパネル",
       "toggle_soft_proof": "ソフト校正",
       "toggle_split_view": "補正前/補正後",
@@ -1441,6 +1442,20 @@
     "widthMm": "幅 (mm)",
     "writes": "「{{name}}」を書き出します"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "メインウィンドウで写真を開くとここに表示されます。",
+    "exitFullScreen": "フルスクリーンを終了 (Esc)",
+    "fit": "全体表示",
+    "fullScreen": "フルスクリーン (F)",
+    "lock": "ロック",
+    "locked": "ロック中",
+    "lockHint": "メインウィンドウが次の写真に移ってもこの写真を表示し続ける (L)",
+    "toolbar": "セカンドウィンドウ",
+    "unlockHint": "再びメインウィンドウに追従する (L)",
+    "windowTitle": "{{name}} — セカンドウィンドウ",
+    "windowTitleEmpty": "セカンドウィンドウ"
+  },
   "session": {
     "addFolder": {
       "add_other": "{{count}} 枚の写真を追加",
@@ -2269,6 +2284,7 @@
         "select_none": "選択を解除",
         "show_in_finder": "Finderに表示",
         "show_original": "押し続ける: 写真全体を補正前で表示",
+        "spot_new_source": "別のソースを探す",
         "sync_settings": "選択した写真に設定を同期",
         "tether_capture": "テザー接続カメラで撮影",
         "toggle_adjustments": "補正設定パネルの表示/非表示",
@@ -2294,6 +2310,7 @@
         "toggle_pointer_readout": "ポインターのRGB表示を切り替え",
         "toggle_proof_margin": "プルーフマージンの切り替え",
         "toggle_right_panel": "右パネルの表示/非表示",
+        "toggle_second_window": "セカンドウィンドウ：別のディスプレイに写真をライブ表示",
         "toggle_side_panels": "サイドパネルの表示/非表示",
         "toggle_soft_proof": "ソフト校正の切り替え",
         "toggle_split_view": "補正前/補正後 (分割表示)",
@@ -2513,6 +2530,8 @@
     "fillAcrossEdges": "エッジをまたぐ場合は塗りつぶす",
     "fillAcrossEdgesHint": "強いエッジ（角、線、物体の境界）をまたぐ修復スポットは、代わりに削除で塗りつぶします。平坦な部分は修復のままです。各スポットは下のリストで切り替えられます。",
     "filling": "削除中… ステップ {{done}}/{{total}}",
+    "findAnotherSource": "別のソースを探す",
+    "findAnotherSourceHint": "選択した修復または複製スポットの別の自動ソースを探します（Lightroom の再読み込み）。",
     "largeHoleTooSlow": "このGPUは大きな領域の削除には遅すぎます。このセッションの間、削除は高速な方法を使います。",
     "list": {
       "aria": "スポットと除去",
@@ -2521,6 +2540,8 @@
       "deleteAll": "すべて削除",
       "hideAll": "すべて非表示",
       "item": "{{kind}} {{number}}",
+      "newSource": "{{name}} の別のソースを探す",
+      "newSourceHint": "別のソースを探す（{{key}}）",
       "select": "{{name}} を選択",
       "showAll": "すべて表示",
       "switching": "{{name}} を切り替え中…",

@@ -1541,11 +1541,47 @@ pub(crate) fn preview_mask_bitmaps(
     develop: &DevelopSession,
     recipe: &serde_json::Value,
     masks: &[MaskDefinition],
+    source: (&LoadedImage, f32, (u32, u32)),
+    size: (u32, u32),
+    scale: f32,
+    unscaled_crop_offset: (f32, f32),
+) -> Result<Vec<Arc<MaskBitmap>>, String> {
+    Ok(preview_layer_mask_bitmaps(
+        state,
+        develop,
+        recipe,
+        masks,
+        source,
+        size,
+        scale,
+        unscaled_crop_offset,
+        |_| true,
+    )?
+    .into_iter()
+    .flatten()
+    .collect())
+}
+
+/// [`preview_mask_bitmaps`] per layer of `masks`: None for a layer without
+/// a bitmap and for one `draw` leaves out (not drawn).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn preview_layer_mask_bitmaps(
+    state: &AppState,
+    develop: &DevelopSession,
+    recipe: &serde_json::Value,
+    masks: &[MaskDefinition],
     (loaded_image, source_scale, full_dims): (&LoadedImage, f32, (u32, u32)),
     (width, height): (u32, u32),
     scale: f32,
     unscaled_crop_offset: (f32, f32),
-) -> Result<Vec<Arc<MaskBitmap>>, String> {
+    draw: impl Fn(usize) -> bool,
+) -> Result<Vec<Option<Arc<MaskBitmap>>>, String> {
+    let drawn: Vec<MaskDefinition> = masks
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| draw(*i))
+        .map(|(_, def)| def.clone())
+        .collect();
     let warped_image = resolve_warped_image_for_masks(
         state,
         develop,
@@ -1553,7 +1589,7 @@ pub(crate) fn preview_mask_bitmaps(
         loaded_image.is_raw,
         source_scale,
         recipe,
-        masks,
+        &drawn,
     )?;
     let mask_geometry = source_size(
         PhotoGeometry::from_adjustments(recipe),
@@ -1566,7 +1602,11 @@ pub(crate) fn preview_mask_bitmaps(
     );
     masks
         .iter()
-        .filter_map(|def| {
+        .enumerate()
+        .map(|(i, def)| {
+            if !draw(i) {
+                return Ok(None);
+            }
             get_cached_or_generate_mask(
                 develop,
                 def,
@@ -1577,7 +1617,6 @@ pub(crate) fn preview_mask_bitmaps(
                 &mask_geometry,
                 warped_image.as_ref(),
             )
-            .transpose()
         })
         .collect()
 }
@@ -1999,6 +2038,15 @@ pub(crate) fn process_preview_job(
 
     #[cfg(feature = "performance-profiling")]
     drop(adjustments_stage);
+    // The second window shows this frame too (second_window.rs).
+    if use_wgpu_renderer {
+        crate::second_window::note_live(
+            &loaded_image.path,
+            &adjustments_clone,
+            is_interactive,
+            full_dims,
+        );
+    }
     let final_processed_image_result =
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
             &context,

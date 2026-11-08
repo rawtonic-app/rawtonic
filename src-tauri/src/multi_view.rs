@@ -327,7 +327,7 @@ fn base_bytes(worker: &Worker) -> usize {
 /// The recipe a photograph is developed with: the stored one (sidecar or
 /// session), else the defaults with the camera's lens data, as Develop
 /// opens it.
-fn recipe_of(path: &str) -> serde_json::Value {
+pub(crate) fn recipe_of(path: &str) -> serde_json::Value {
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let mut recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
     if !recipe.is_object() {
@@ -784,10 +784,23 @@ fn prepare(
     context: &GpuContext,
     todo: Todo,
 ) -> Result<Option<Prepared>, String> {
+    prepare_in(app_handle, &worker.memory, context, todo, |path| {
+        current_key(context, path)
+    })
+}
+
+/// [`prepare`] with the kept bases of `memory`; None when `shown_key` of
+/// the photograph already is the key it would be developed for.
+fn prepare_in(
+    app_handle: &tauri::AppHandle,
+    memory: &Mutex<Memory>,
+    context: &GpuContext,
+    todo: Todo,
+    shown_key: impl Fn(&str) -> Option<u64>,
+) -> Result<Option<Prepared>, String> {
     let start = Instant::now();
     let preparation_key = base_key(app_handle, &todo.path, &todo.recipe);
-    let known = worker
-        .memory
+    let known = memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .facts
@@ -800,8 +813,7 @@ fn prepare(
             let source = load_source(app_handle, &todo.path, &todo.recipe)?;
             let facts = source.2;
             loaded = Some(source);
-            worker
-                .memory
+            memory
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .facts
@@ -813,11 +825,11 @@ fn prepare(
         let dim = cell_dim(todo.area, shown_size(&todo.recipe, facts));
         (render_key(&todo.path, &todo.recipe, dim, context), dim)
     });
-    if current_key(context, &todo.path) == Some(key) {
+    if shown_key(&todo.path) == Some(key) {
         return Ok(None);
     }
     let cached = {
-        let memory = worker.memory.lock().unwrap_or_else(|e| e.into_inner());
+        let memory = memory.lock().unwrap_or_else(|e| e.into_inner());
         memory
             .bases
             .get(&todo.path)
@@ -833,11 +845,7 @@ fn prepare(
             };
             if source_scale < 1.0 {
                 keep_interim(
-                    &mut worker
-                        .memory
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .interims,
+                    &mut memory.lock().unwrap_or_else(|e| e.into_inner()).interims,
                     &todo.path,
                     Interim {
                         image: Arc::clone(&source),
@@ -881,8 +889,7 @@ fn prepare(
             } else {
                 None
             };
-            worker
-                .memory
+            memory
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .bases
@@ -1070,6 +1077,128 @@ fn develop(
         &rgba,
     );
     Ok(start.elapsed().as_secs_f64() * 1e3)
+}
+
+/// What the second window (second_window.rs) keeps to develop its
+/// photograph again: apart from the multi view's, so neither evicts the
+/// other's.
+#[derive(Default)]
+pub(crate) struct SecondBases {
+    memory: Mutex<Memory>,
+    pub(crate) regions: RegionBases,
+}
+
+impl SecondBases {
+    /// Forgets everything kept of photographs other than `path`.
+    pub(crate) fn keep_only(&self, path: &str) {
+        let mut memory = self.memory.lock().unwrap_or_else(|e| e.into_inner());
+        memory.bases.retain(|p, _| p == path);
+        memory.facts.retain(|p, _| p == path);
+        memory.interims.clear();
+        memory.stamps.retain(|p, _| p == path);
+        self.regions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|p, _| p == path);
+    }
+
+    /// Forgets everything (the window closed).
+    pub(crate) fn clear(&self) {
+        *self.memory.lock().unwrap_or_else(|e| e.into_inner()) = Memory::default();
+        self.regions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
+}
+
+/// A whole photograph developed for the second window.
+pub(crate) struct Developed {
+    pub(crate) key: u64,
+    pub(crate) extent: CellExtent,
+    pub(crate) rgba: image::RgbaImage,
+    pub(crate) source_kind: &'static str,
+    pub(crate) ms: f64,
+}
+
+/// Develops `path` with `recipe` whole, contained in `area` (device px),
+/// with the display's shader variants, as a multi view cell is.
+pub(crate) fn develop_whole(
+    app_handle: &tauri::AppHandle,
+    context: &GpuContext,
+    bases: &SecondBases,
+    path: &str,
+    recipe: serde_json::Value,
+    area: [f32; 4],
+) -> Result<Developed, String> {
+    let start = Instant::now();
+    bases.keep_only(path);
+    let prepared = prepare_in(
+        app_handle,
+        &bases.memory,
+        context,
+        Todo {
+            path: path.to_string(),
+            recipe,
+            area,
+            planned: None,
+        },
+        |_| None,
+    )?
+    .ok_or("nothing to develop")?;
+    bases
+        .memory
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .interims
+        .clear();
+    let scale = prepared.base.scale;
+    let rgba = develop_rgba(
+        app_handle,
+        context,
+        DevelopInput {
+            path: &prepared.path,
+            recipe: &prepared.recipe,
+            facts: prepared.facts,
+            image: &prepared.base.image,
+            scale,
+            crop_offset: (
+                prepared.base.unscaled_crop_offset.0 * scale,
+                prepared.base.unscaled_crop_offset.1 * scale,
+            ),
+            mask_source: prepared.mask_source.as_ref(),
+            key: prepared.key,
+        },
+    )?;
+    let (w, h) = shown_size(&prepared.recipe, prepared.facts);
+    Ok(Developed {
+        key: prepared.key,
+        extent: CellExtent {
+            shown: [w, h],
+            region: None,
+        },
+        rgba,
+        source_kind: prepared.source_kind,
+        ms: start.elapsed().as_secs_f64() * 1e3,
+    })
+}
+
+/// The size `path` is shown at with `recipe` (its crop, else the whole
+/// frame turned), full-resolution px, when its full size is known.
+pub(crate) fn shown_size_of(
+    recipe: &serde_json::Value,
+    full_width: u32,
+    full_height: u32,
+) -> (f32, f32) {
+    shown_size(
+        recipe,
+        Facts {
+            full_width,
+            full_height,
+            is_raw: false,
+            measures: None,
+        },
+    )
 }
 
 /// A secondary photograph's shown size (cropped and turned, full-resolution
@@ -1271,11 +1400,14 @@ struct RegionJob {
     generation: usize,
 }
 
+/// Region bases kept per photograph (see [`RegionBase`]).
+pub(crate) type RegionBases = Mutex<HashMap<String, RegionBase>>;
+
 struct RegionWorker {
     generation: AtomicUsize,
     sender: LatestJobSender<RegionJob>,
     /// Region bases of the shown cells at the current magnification.
-    bases: Mutex<HashMap<String, RegionBase>>,
+    bases: RegionBases,
 }
 
 static REGIONS: OnceLock<Arc<RegionWorker>> = OnceLock::new();
@@ -1350,7 +1482,7 @@ fn refresh_regions(regions: &RegionWorker, file_changed: bool, zoomed: bool) {
 /// A zoom from the webview as the display keeps it: `scale` quantized so a
 /// pan is not a new magnification (regions and their bases are kept per
 /// magnification); None when not usable.
-fn cell_zoom(z: ZoomPayload) -> Option<CellZoom> {
+pub(crate) fn cell_zoom(z: ZoomPayload) -> Option<CellZoom> {
     (z.scale.is_finite() && z.scale > 0.0).then(|| CellZoom {
         scale: snapped_scale(z.scale),
         center: [z.center[0].clamp(0.0, 1.0), z.center[1].clamp(0.0, 1.0)],
@@ -1522,20 +1654,20 @@ fn region_key(path: &str, recipe: &serde_json::Value, zoom: CellZoom, context: &
 }
 
 /// A developed region ready for the display.
-struct Region {
+pub(crate) struct Region {
     path: String,
-    key: u64,
-    extent: CellExtent,
-    rgba: image::RgbaImage,
+    pub(crate) key: u64,
+    pub(crate) extent: CellExtent,
+    pub(crate) rgba: image::RgbaImage,
     source_kind: &'static str,
-    ms: f64,
+    pub(crate) ms: f64,
 }
 
 /// A zoomed region's base (geometry and retouching applied), kept so that a
 /// recipe change (Edit all selected while zoomed) develops it again without
 /// decoding the full-resolution source.
 #[derive(Clone)]
-struct RegionBase {
+pub(crate) struct RegionBase {
     preparation_key: u64,
     zoom_scale: f32,
     /// The region in full-resolution px of the shown photograph.
@@ -1930,15 +2062,14 @@ fn region_source_ready(
 /// shows at `zoom` (with REGION_MARGIN), at this magnification and
 /// geometry: its region is cut from it in milliseconds.
 fn kept_base(
-    worker: &RegionWorker,
+    bases: &RegionBases,
     path: &str,
     area: [f32; 4],
     zoom: CellZoom,
     recipe: &serde_json::Value,
 ) -> Option<RegionBase> {
     let preparation_key = crate::preview_cache::preparation_key(recipe);
-    worker
-        .bases
+    bases
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(path)
@@ -1958,10 +2089,10 @@ fn kept_base(
 /// when one still covers it at this magnification and geometry, else from
 /// a new one; then the region alone through the display's shader variants.
 #[allow(clippy::too_many_arguments)]
-fn develop_region(
+pub(crate) fn develop_region(
     app_handle: &tauri::AppHandle,
     context: &GpuContext,
-    worker: &RegionWorker,
+    bases: &RegionBases,
     path: &str,
     area: [f32; 4],
     zoom: CellZoom,
@@ -1975,13 +2106,12 @@ fn develop_region(
         let (w, h) = shown_size(&recipe, facts);
         gpu_processing::multi_view::zoomed_region(area, [w, h], zoom, REGION_MARGIN)
     };
-    let kept = kept_base(worker, path, area, zoom, &recipe);
+    let kept = kept_base(bases, path, area, zoom, &recipe);
     let (base, source_kind) = match kept {
         Some(base) => (base, "region-cache"),
         None => {
             let (base, kind) = prepare_region(app_handle, path, area, zoom, &recipe)?;
-            worker
-                .bases
+            bases
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(path.to_string(), base.clone());
@@ -2321,7 +2451,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
     // at a time beside them.
     let (ready, heavy): (Vec<_>, Vec<_>) =
         todo.into_iter().partition(|(path, area, zoom, recipe, _)| {
-            kept_base(worker, path, *area, *zoom, recipe).is_some()
+            kept_base(&worker.bases, path, *area, *zoom, recipe).is_some()
                 || (region_from_rows_possible(recipe)
                     && region_source_ready(app_handle, path, *zoom, recipe))
         });
@@ -2369,9 +2499,17 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             else {
                 return;
             };
-            let result =
-                develop_region(app_handle, &context, worker, &path, area, zoom, recipe, key)
-                    .map(|region| (region, zoom.scale));
+            let result = develop_region(
+                app_handle,
+                &context,
+                &worker.bases,
+                &path,
+                area,
+                zoom,
+                recipe,
+                key,
+            )
+            .map(|region| (region, zoom.scale));
             if sender.send((path, result)).is_err() {
                 return;
             }
@@ -2694,13 +2832,13 @@ fn live_region(
     if shown_key == Some(key) {
         return LiveRegion::Current;
     }
-    if kept_base(regions, path, area, zoom, recipe).is_none() {
+    if kept_base(&regions.bases, path, area, zoom, recipe).is_none() {
         return LiveRegion::Unavailable;
     }
     match develop_region(
         app_handle,
         context,
-        regions,
+        &regions.bases,
         path,
         area,
         zoom,
@@ -3248,7 +3386,7 @@ mod tests {
             center: [x, 0.5],
         };
         let area = [0.0, 0.0, 400.0, 300.0];
-        assert!(kept_base(&worker, "a", area, zoom(0.5), &recipe).is_none());
+        assert!(kept_base(&worker.bases, "a", area, zoom(0.5), &recipe).is_none());
         // A base reaching 400 px around the visible 400 x 300 at the centre.
         worker.bases.lock().unwrap().insert(
             "a".into(),
@@ -3263,18 +3401,18 @@ mod tests {
                 mask_source: None,
             },
         );
-        assert!(kept_base(&worker, "a", area, zoom(0.5), &recipe).is_some());
+        assert!(kept_base(&worker.bases, "a", area, zoom(0.5), &recipe).is_some());
         // Panned 100 px: still inside it.
-        assert!(kept_base(&worker, "a", area, zoom(0.525), &recipe).is_some());
+        assert!(kept_base(&worker.bases, "a", area, zoom(0.525), &recipe).is_some());
         // Panned beyond it, another magnification or another geometry: not.
-        assert!(kept_base(&worker, "a", area, zoom(0.8), &recipe).is_none());
+        assert!(kept_base(&worker.bases, "a", area, zoom(0.8), &recipe).is_none());
         let double = CellZoom {
             scale: 2.0,
             ..zoom(0.5)
         };
-        assert!(kept_base(&worker, "a", area, double, &recipe).is_none());
+        assert!(kept_base(&worker.bases, "a", area, double, &recipe).is_none());
         let rotated = serde_json::json!({"rotation": 1.5});
-        assert!(kept_base(&worker, "a", area, zoom(0.5), &rotated).is_none());
-        assert!(kept_base(&worker, "b", area, zoom(0.5), &recipe).is_none());
+        assert!(kept_base(&worker.bases, "a", area, zoom(0.5), &rotated).is_none());
+        assert!(kept_base(&worker.bases, "b", area, zoom(0.5), &recipe).is_none());
     }
 }

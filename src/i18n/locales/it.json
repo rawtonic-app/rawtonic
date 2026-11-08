@@ -327,6 +327,7 @@
       "toggle_pointer_readout": "Lettura RGB del puntatore",
       "toggle_proof_margin": "Margine di prova",
       "toggle_right_panel": "Pannello destro",
+      "toggle_second_window": "Seconda finestra",
       "toggle_side_panels": "Pannelli laterali",
       "toggle_soft_proof": "Prova a video",
       "toggle_split_view": "Prima/dopo",
@@ -1519,6 +1520,20 @@
     "widthMm": "Larghezza (mm)",
     "writes": "Scrive «{{name}}»"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Apri una foto nella finestra principale per mostrarla qui.",
+    "exitFullScreen": "Esci da schermo intero (Esc)",
+    "fit": "Adatta",
+    "fullScreen": "Schermo intero (F)",
+    "lock": "Blocca",
+    "locked": "Bloccata",
+    "lockHint": "Continua a mostrare questa foto mentre la finestra principale va avanti (L)",
+    "toolbar": "Seconda finestra",
+    "unlockHint": "Segui di nuovo la finestra principale (L)",
+    "windowTitle": "{{name}} — Seconda finestra",
+    "windowTitleEmpty": "Seconda finestra"
+  },
   "session": {
     "addFolder": {
       "add_one": "Aggiungi {{count}} foto",
@@ -2496,6 +2511,7 @@
         "select_none": "Deseleziona tutto",
         "show_in_finder": "Mostra nel Finder",
         "show_original": "Tenere premuto: tutta la foto prima",
+        "spot_new_source": "Cerca un'altra sorgente",
         "sync_settings": "Sincronizza le impostazioni con le foto selezionate",
         "tether_capture": "Scatta con la fotocamera collegata",
         "toggle_adjustments": "Attiva/Disattiva pannello Regolazioni",
@@ -2521,6 +2537,7 @@
         "toggle_pointer_readout": "Attiva/disattiva lettura RGB del puntatore",
         "toggle_proof_margin": "Attiva/disattiva margine di prova",
         "toggle_right_panel": "Mostra/Nascondi pannello destro",
+        "toggle_second_window": "Seconda finestra: la foto dal vivo su un altro schermo",
         "toggle_side_panels": "Nascondi o mostra i pannelli laterali",
         "toggle_soft_proof": "Attiva o disattiva la prova colore a schermo",
         "toggle_split_view": "Prima/Dopo (vista divisa)",
@@ -2740,6 +2757,8 @@
     "fillAcrossEdges": "Riempi sui bordi",
     "fillAcrossEdgesHint": "Un punto di correzione che attraversa bordi netti (angoli, linee, contorni di oggetti) viene riempito con Rimuovi; le aree piatte restano corrette. Ognuno può essere cambiato nell'elenco qui sotto.",
     "filling": "Rimozione… passo {{done}} di {{total}}",
+    "findAnotherSource": "Cerca un'altra sorgente",
+    "findAnotherSourceHint": "Trova un'altra sorgente automatica per il punto di correzione o clonazione selezionato (Aggiorna di Lightroom).",
     "largeHoleTooSlow": "Questa GPU è troppo lenta per rimuovere aree grandi; Rimuovi usa il metodo rapido per il resto della sessione.",
     "list": {
       "aria": "Macchie e rimozioni",
@@ -2748,6 +2767,8 @@
       "deleteAll": "Elimina tutte",
       "hideAll": "Nascondi tutte",
       "item": "{{kind}} {{number}}",
+      "newSource": "Cerca un'altra sorgente per {{name}}",
+      "newSourceHint": "Cerca un'altra sorgente ({{key}})",
       "select": "Seleziona {{name}}",
       "showAll": "Mostra tutte",
       "switching": "Cambio di {{name}}…",

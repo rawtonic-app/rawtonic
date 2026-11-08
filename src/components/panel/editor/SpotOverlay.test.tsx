@@ -21,6 +21,9 @@ vi.mock('@tauri-apps/api/event', () => ({
 import SpotOverlay, { pathToBox } from './SpotOverlay';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
+import { useSettingsStore } from '../../../store/useSettingsStore';
+import { useUIStore } from '../../../store/useUIStore';
+import { resetTurnedDownForPhoto } from '../../../utils/spotSource';
 
 beforeAll(() => {
   Element.prototype.setPointerCapture = () => {};
@@ -38,6 +41,7 @@ beforeEach(() => {
     spotVisualize: { on: false, sensitivity: 50 }
   });
   invoke.mockReset();
+  resetTurnedDownForPhoto('/s/a.NEF');
 });
 afterEach(cleanup);
 
@@ -935,5 +939,91 @@ describe('spot removal overlay', () => {
     });
     vi.useRealTimers();
     expect(views()).toBe(3);
+  });
+});
+
+describe('Find another source key', () => {
+  const spot = {
+    id: 's1',
+    mode: 'heal' as const,
+    x: 200,
+    y: 150,
+    radius: 20,
+    sourceX: 260,
+    sourceY: 150,
+    feather: 0,
+    opacity: 100,
+    visible: true
+  };
+  const asks = () => invoke.mock.calls.filter(([name]) => name === 'find_another_spot_source');
+  beforeEach(() => {
+    invoke.mockResolvedValue({ x: 300, y: 150 });
+    useEditorStore.setState({
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [spot] },
+      activeSpotId: 's1'
+    });
+    useSettingsStore.setState({ appSettings: null });
+  });
+  afterEach(() => useSettingsStore.setState({ appSettings: null }));
+
+  it.each([
+    ['US /', { key: '/', code: 'Slash' }],
+    ['German Shift+7', { key: '/', code: 'Digit7', shiftKey: true }]
+  ])('finds one on the default key (%s)', async (_name, init) => {
+    overlay();
+    await act(async () => void fireEvent.keyDown(window, init));
+    expect(asks()).toHaveLength(1);
+  });
+
+  it('follows the key set in Preferences, with or without modifiers', async () => {
+    useSettingsStore.setState({
+      appSettings: { keybinds: { spot_new_source: ['F8'] } } as never
+    });
+    overlay();
+    await act(async () => void fireEvent.keyDown(window, { key: '/', code: 'Slash' }));
+    expect(asks()).toHaveLength(0);
+    await act(async () => void fireEvent.keyDown(window, { key: 'F8', code: 'F8' }));
+    expect(asks()).toHaveLength(1);
+    useSettingsStore.setState({
+      appSettings: { keybinds: { spot_new_source: ['ctrl', 'Slash'] } } as never
+    });
+    await act(async () => void fireEvent.keyDown(window, { key: '/', code: 'Slash', ctrlKey: true }));
+    expect(asks()).toHaveLength(2);
+  });
+
+  it('does nothing behind Preferences: a shortcut being recorded still gets the key', async () => {
+    useUIStore.setState({ isSettingsOpen: true });
+    // The recorder in Preferences listens on window in the capture phase,
+    // after the overlay did.
+    const recorded = vi.fn();
+    window.addEventListener('keydown', recorded, true);
+    try {
+      overlay();
+      await act(async () => void fireEvent.keyDown(window, { key: '/', code: 'Slash' }));
+      await act(async () => void fireEvent.keyDown(window, { key: 'Delete', code: 'Delete' }));
+      await act(async () => void fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' }));
+      expect(recorded).toHaveBeenCalledTimes(3);
+      expect(asks()).toHaveLength(0);
+      expect(useEditorStore.getState().adjustments.spots).toHaveLength(1);
+      expect(useEditorStore.getState().activeSpotId).toBe('s1');
+    } finally {
+      window.removeEventListener('keydown', recorded, true);
+      useUIStore.setState({ isSettingsOpen: false });
+    }
+  });
+
+  it('does nothing behind a dialog either', async () => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('aria-modal', 'true');
+    document.body.appendChild(dialog);
+    try {
+      overlay();
+      await act(async () => void fireEvent.keyDown(window, { key: '/', code: 'Slash' }));
+      await act(async () => void fireEvent.keyDown(window, { key: 'Delete', code: 'Delete' }));
+      expect(asks()).toHaveLength(0);
+      expect(useEditorStore.getState().adjustments.spots).toHaveLength(1);
+    } finally {
+      dialog.remove();
+    }
   });
 });

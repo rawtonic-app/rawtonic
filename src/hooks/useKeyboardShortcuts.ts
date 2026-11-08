@@ -1,3 +1,5 @@
+import { useSecondWindowStore } from '../store/useSecondWindowStore';
+import { toggleSecondWindow } from './useSecondWindow';
 import { useCallback, useEffect, useRef } from 'react';
 import { notify } from '../activity/notify';
 import i18n from 'i18next';
@@ -83,13 +85,19 @@ export const RECIPE_ACTIONS = new Set([
   'toggle_masks'
 ]);
 
-/** No shortcut reaches the app behind Preferences, a dialog or a modal. */
-function shortcutsHeld(state: ShortcutState, chooser = false): boolean {
+/** No shortcut reaches the app behind Preferences, a dialog or a modal.
+ * Also used by capture-phase key handlers outside this hook (the spot
+ * overlay), which would otherwise act while a shortcut is being recorded. */
+export function uiHoldsShortcuts(ui: ReturnType<typeof useUIStore.getState>, chooser = false): boolean {
   return (
-    state.ui.isSettingsOpen ||
+    ui.isSettingsOpen ||
     !!document.querySelector(chooser ? COMMAND_DIALOG_SELECTOR : 'dialog[open], [aria-modal="true"]') ||
-    isAnyModalOpen(state.ui)
+    isAnyModalOpen(ui)
   );
+}
+
+function shortcutsHeld(state: ShortcutState, chooser = false): boolean {
+  return uiHoldsShortcuts(state.ui, chooser);
 }
 
 /** The loupe and the full screen are views: recipe keys are not bound there
@@ -118,6 +126,7 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_split_view: (s) => !!s.editor.splitView,
   toggle_original: (s) => !!s.editor.showOriginal,
   toggle_multi_view: () => useMultiViewStore.getState().active,
+  toggle_second_window: () => useSecondWindowStore.getState().state.open,
   toggle_clipping: (s) => !!s.editor.clipHighlights || !!s.editor.clipShadows,
   toggle_soft_proof: (s) => !!s.editor.softProof,
   // Checked only while the camera JPEG is on screen (`enabled` says
@@ -675,6 +684,14 @@ export const useKeyboardShortcuts = ({
           // Held down: one request, not one per key repeat.
           if (e.repeat) return;
           void runAutoStraighten(handleAutoStraighten);
+        }
+      },
+      toggle_second_window: {
+        shouldFire: () => useSecondWindowStore.getState().state.available,
+        execute: (e) => {
+          e.preventDefault();
+          if (e.repeat) return;
+          toggleSecondWindow();
         }
       },
       toggle_fullscreen: {

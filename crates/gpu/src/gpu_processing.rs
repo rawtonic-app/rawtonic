@@ -21,6 +21,10 @@ use rawtonic_engine::recipe_versions::{ClarityVersion, GrainVersion, ToneVersion
 use rayon::prelude::*;
 
 #[cfg(test)]
+#[path = "gpu_processing_compile_probe.rs"]
+mod compile_probe;
+
+#[cfg(test)]
 #[path = "gpu_processing_tests.rs"]
 mod preview_tests;
 
@@ -3000,6 +3004,41 @@ impl WgpuDisplay {
         self.multi = multi;
     }
 
+    /// Copies a developed whole photograph (`source`, its top left
+    /// `width` × `height`) on the GPU as `path`'s cell frame, rendered for
+    /// `key` and covering `extent` (the second window: the main window's
+    /// live frame, see [`on_live_frame`]). False when `path` has no cell.
+    #[allow(clippy::too_many_arguments)]
+    pub fn copy_cell_frame(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+        source: &wgpu::Texture,
+        size: (u32, u32),
+        key: u64,
+        extent: Option<CellExtent>,
+    ) -> bool {
+        let mut multi = std::mem::take(&mut self.multi);
+        let copied = multi.copy_frame(
+            device,
+            queue,
+            &self.bindings(),
+            path,
+            source,
+            size,
+            key,
+            extent,
+        );
+        self.multi = multi;
+        copied
+    }
+
+    /// Releases the zoomed region of `path`'s cell.
+    pub fn remove_cell_region(&mut self, path: &str) {
+        self.multi.remove_region(path);
+    }
+
     /// Zooms every cell (Lightroom's locked zoom; None: fit).
     pub fn set_multi_view_zoom(&mut self, zoom: Option<CellZoom>) {
         self.multi.set_zoom(zoom);
@@ -3532,7 +3571,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 8192;
+const PREVIEW_PIPELINE_COUNT: usize = 16384;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3545,7 +3584,7 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// relight 64, refined noise reduction 128, range-2 relight lights 256,
 /// range-3 relight lights 512 (always with 256), range-4 relight lights 1024
 /// (always with 512), sharpening response 7's Masking 2048, sharpening
-/// response 8 4096.
+/// response 8 4096, lowered Whites of tone version 12 8192.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3578,6 +3617,12 @@ const SHARPEN_V7_FEATURE: usize = 2048;
 /// Sharpening response 8 on a RAW photo (`SHARPEN_V8`), compiled only for
 /// recipes that use it for the same reason.
 const SHARPEN_V8_FEATURE: usize = 4096;
+/// Lowered Whites of tone version 12 (`WHITES_V12`, shader
+/// `apply_tonal_adjustments_v12`), compiled only for recipes that use it:
+/// with its call present but idle, Metal compiled the tone stage
+/// differently and changed older recipes' exports by one 16-bit step in a
+/// few pixels (40 of 280 preservation exports on the Mac mini).
+const WHITES_V12_FEATURE: usize = 8192;
 
 /// One slot per display variant, on the heap: the processor holds several
 /// such tables, together too large for a render thread's stack.
@@ -4774,6 +4819,18 @@ fn shadows_v6_used(adjustments: &AllAdjustments) -> bool {
                 .any(|m| m.shadows > 0.0))
 }
 
+/// Whether the recipe lowers Whites with tone version 12's response, on the
+/// photo or a layer (`WHITES_V12`).
+fn whites_v12(adjustments: &AllAdjustments) -> bool {
+    ToneVersion::from_uniform(adjustments.global.tone_version).whites_bright_reach()
+        && (adjustments.global.whites < 0.0
+            || adjustments
+                .mask_adjustments
+                .iter()
+                .take(adjustments.mask_count as usize)
+                .any(|m| m.whites < 0.0))
+}
+
 /// Whether lowered Whites of tone version 10 reads the small blur's mean log
 /// luminance (shader.wgsl whites_v10_offset), on the photo or a layer.
 fn whites_v10_used(adjustments: &AllAdjustments) -> bool {
@@ -4934,6 +4991,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let relight_range4 = relight_range4(adjustments);
     let sharpen_v7 = sharpen_v7(adjustments);
     let sharpen_v8 = sharpen_v8(adjustments);
+    let whites_v12 = whites_v12(adjustments);
     for m in adjustments
         .mask_adjustments
         .iter()
@@ -4963,6 +5021,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if relight_range4 { RELIGHT_RANGE4_FEATURE } else { 0 }
         | if sharpen_v7 { SHARPEN_V7_FEATURE } else { 0 }
         | if sharpen_v8 { SHARPEN_V8_FEATURE } else { 0 }
+        | if whites_v12 { WHITES_V12_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -5037,10 +5096,10 @@ fn sharpen_level(adjustments: &AllAdjustments) -> usize {
 }
 
 /// Whether the recipe needs code the plain general pipelines leave out:
-/// Relight's range-2 lights or response 7's Masking or response 8
-/// (`GpuProcessor::range2_pipelines`).
+/// Relight's range-2 lights, response 7's Masking or response 8, or lowered
+/// Whites of tone version 12 (`GpuProcessor::range2_pipelines`).
 fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
-    relight_range2(adjustments) || sharpen_level(adjustments) > 0
+    relight_range2(adjustments) || sharpen_level(adjustments) > 0 || whites_v12(adjustments)
 }
 
 /// The noise refinements with which the shader takes its default noise
@@ -5059,8 +5118,8 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
 }
 
 /// `GpuProcessor::range2_pipelines`.
-type Range2Pipelines =
-    [[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3]; MAIN_OUTPUTS];
+type Range2Pipelines = [[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
+    2]; MAIN_OUTPUTS];
 
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
@@ -5462,6 +5521,7 @@ fn variant_constants(
         ("RELIGHT_RANGE4", ((features >> 10) & 1) as f64),
         ("SHARPEN_V7", ((features >> 11) & 1) as f64),
         ("SHARPEN_V8", ((features >> 12) & 1) as f64),
+        ("WHITES_V12", ((features >> 13) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -7585,9 +7645,9 @@ impl GpuProcessor {
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         if needs_feature_pipeline(adjustments) {
             let long = adjustments.global.region_curve_active[1] != 0;
-            return match self.range2_pipelines[0][sharpen_level(adjustments)]
-                [relight_range_level(adjustments)][usize::from(long)][usize::from(profile)]
-                [usize::from(edge)]
+            return match self.range2_pipelines[0][usize::from(whites_v12(adjustments))]
+                [sharpen_level(adjustments)][relight_range_level(adjustments)][usize::from(long)]
+                [usize::from(profile)][usize::from(edge)]
             .get()
             {
                 Some(Some(pipeline)) => Some(Ok(pipeline)),
@@ -8021,9 +8081,10 @@ impl GpuProcessor {
         let long = adjustments.global.region_curve_active[1] != 0;
         let level = relight_range_level(adjustments);
         let sharpen = sharpen_level(adjustments);
+        let whites = whites_v12(adjustments);
         let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-        match self.range2_pipelines[output.index()][sharpen][level][usize::from(long)]
-            [usize::from(profile)][usize::from(edge)]
+        match self.range2_pipelines[output.index()][usize::from(whites)][sharpen][level]
+            [usize::from(long)][usize::from(profile)][usize::from(edge)]
         .get_or_init(|| {
             self.compile_general(
                 "Compute Pipeline (relight range 2, sharpening 7)",
@@ -8037,6 +8098,7 @@ impl GpuProcessor {
                     ("RELIGHT_RANGE4", on(level >= 3)),
                     ("SHARPEN_V7", on(sharpen == 1)),
                     ("SHARPEN_V8", on(sharpen == 2)),
+                    ("WHITES_V12", on(whites)),
                 ],
             )
             .inspect_err(|error| log::error!("Feature pipeline unavailable: {error}"))
@@ -10148,6 +10210,33 @@ fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
         )
 }
 
+/// A developed frame the main window's display just bound, for a second
+/// display that shows the same photograph (the second window). Its
+/// texture holds the photograph's whole frame in the display's encoding
+/// at `width` × `height` from the top left; frames of a part (a zoomed
+/// drag's region) are not offered.
+pub struct LiveFrame<'a> {
+    pub path: Option<&'a str>,
+    pub texture: &'a wgpu::Texture,
+    pub width: u32,
+    pub height: u32,
+    /// The uncropped crop-editing frame.
+    pub uncropped: bool,
+    /// A tool's view of the photograph (clipping warnings, the sharpening
+    /// mask), not the photograph itself.
+    pub tool_view: bool,
+}
+
+type LiveFrameListener = Box<dyn Fn(&GpuContext, &LiveFrame) + Send + Sync>;
+static LIVE_FRAME: std::sync::OnceLock<LiveFrameListener> = std::sync::OnceLock::new();
+
+/// Set what is told of every frame bound on the main display (once per
+/// process). It runs on the render thread after the frame was presented,
+/// with no display lock held; it must return quickly.
+pub fn on_live_frame(callback: impl Fn(&GpuContext, &LiveFrame) + Send + Sync + 'static) {
+    let _ = LIVE_FRAME.set(Box::new(callback));
+}
+
 /// Called once a sharpening-view variant is compiled: frames asked for
 /// before it showed the photo, so the caller renders the view again.
 static SHARPEN_VIEW_READY: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
@@ -10510,6 +10599,7 @@ fn render_dynamic_image(
     readback_shader: ReadbackShader,
 ) -> Result<DynamicImage, String> {
     let mut request = request;
+    let tool_view = request.adjustments.global.show_clipping != 0;
     if output_to_display {
         let space = context.display_space;
         request.adjustments.global.output_space[0] = space.shader_code();
@@ -10837,6 +10927,8 @@ fn render_dynamic_image(
         );
     }
 
+    let mut bound_uncropped = None;
+    let mut bound_path: Option<String> = None;
     if output_to_display
         && let Some(display) = context
             .display
@@ -10900,6 +10992,8 @@ fn render_dynamic_image(
             })
         );
         display.render(device, queue);
+        bound_uncropped = Some(display.frame_uncropped);
+        bound_path = display.frame_path.clone();
         *processor
             .display_frame
             .lock()
@@ -10913,6 +11007,25 @@ fn render_dynamic_image(
                     height: out_h,
                 },
             });
+    }
+
+    // The second window shows the photograph's whole frame (not a zoomed
+    // drag's region) from this texture too.
+    if let (Some(uncropped), Some(listener), Some(targets)) =
+        (bound_uncropped, LIVE_FRAME.get(), display_targets.as_ref())
+        && (out_x, out_y, out_w, out_h) == (0, 0, width, height)
+    {
+        listener(
+            context,
+            &LiveFrame {
+                path: bound_path.as_deref(),
+                texture: &targets.output_texture,
+                width,
+                height,
+                uncropped,
+                tool_view,
+            },
+        );
     }
 
     if skip_readback {

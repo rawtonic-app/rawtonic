@@ -327,6 +327,7 @@
       "toggle_pointer_readout": "Lectura RGB del puntero",
       "toggle_proof_margin": "Margen de prueba",
       "toggle_right_panel": "Panel derecho",
+      "toggle_second_window": "Segunda ventana",
       "toggle_side_panels": "Paneles laterales",
       "toggle_soft_proof": "Prueba en pantalla",
       "toggle_split_view": "Antes/después",
@@ -1519,6 +1520,20 @@
     "widthMm": "Ancho (mm)",
     "writes": "Escribe «{{name}}»"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Abre una foto en la ventana principal para mostrarla aquí.",
+    "exitFullScreen": "Salir de pantalla completa (Esc)",
+    "fit": "Encajar",
+    "fullScreen": "Pantalla completa (F)",
+    "lock": "Bloquear",
+    "locked": "Bloqueada",
+    "lockHint": "Seguir mostrando esta foto mientras la ventana principal avanza (L)",
+    "toolbar": "Segunda ventana",
+    "unlockHint": "Volver a seguir la ventana principal (L)",
+    "windowTitle": "{{name}} — Segunda ventana",
+    "windowTitleEmpty": "Segunda ventana"
+  },
   "session": {
     "addFolder": {
       "add_one": "Añadir {{count}} foto",
@@ -2496,6 +2511,7 @@
         "select_none": "No seleccionar nada",
         "show_in_finder": "Mostrar en el Finder",
         "show_original": "Mantener: toda la foto antes",
+        "spot_new_source": "Buscar otra fuente",
         "sync_settings": "Sincronizar ajustes con las fotos seleccionadas",
         "tether_capture": "Disparar la cámara conectada",
         "toggle_adjustments": "Alternar panel de Ajustes",
@@ -2521,6 +2537,7 @@
         "toggle_pointer_readout": "Activar/desactivar lectura RGB del puntero",
         "toggle_proof_margin": "Activar/desactivar margen de prueba",
         "toggle_right_panel": "Alternar panel derecho",
+        "toggle_second_window": "Segunda ventana: la foto en directo en otra pantalla",
         "toggle_side_panels": "Ocultar o mostrar los paneles laterales",
         "toggle_soft_proof": "Activar o desactivar la prueba en pantalla",
         "toggle_split_view": "Antes/Después (vista dividida)",
@@ -2740,6 +2757,8 @@
     "fillAcrossEdges": "Rellenar sobre bordes",
     "fillAcrossEdgesHint": "Un punto de corrección que cruza bordes marcados (esquinas, líneas, contornos de objetos) se rellena con Eliminar; las zonas planas se siguen corrigiendo. Cada uno se puede cambiar en la lista de abajo.",
     "filling": "Eliminando… paso {{done}} de {{total}}",
+    "findAnotherSource": "Buscar otra fuente",
+    "findAnotherSourceHint": "Busca otra fuente automática para el punto de reparación o clonación seleccionado (Actualizar de Lightroom).",
     "largeHoleTooSlow": "Esta GPU es demasiado lenta para eliminar zonas grandes; Eliminar usará el método rápido durante el resto de la sesión.",
     "list": {
       "aria": "Manchas y eliminaciones",
@@ -2748,6 +2767,8 @@
       "deleteAll": "Eliminar todas",
       "hideAll": "Ocultar todas",
       "item": "{{kind}} {{number}}",
+      "newSource": "Buscar otra fuente para {{name}}",
+      "newSourceHint": "Buscar otra fuente ({{key}})",
       "select": "Seleccionar {{name}}",
       "showAll": "Mostrar todas",
       "switching": "Cambiando {{name}}…",

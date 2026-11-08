@@ -302,6 +302,7 @@
       "toggle_pointer_readout": "指標 RGB 讀數",
       "toggle_proof_margin": "校樣邊界",
       "toggle_right_panel": "右側面板",
+      "toggle_second_window": "第二視窗",
       "toggle_side_panels": "側邊面板",
       "toggle_soft_proof": "螢幕校樣",
       "toggle_split_view": "修改前/修改後",
@@ -1441,6 +1442,20 @@
     "widthMm": "寬度 (mm)",
     "writes": "寫入「{{name}}」"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "在主視窗中開啟照片即可在此顯示。",
+    "exitFullScreen": "離開全螢幕 (Esc)",
+    "fit": "符合",
+    "fullScreen": "全螢幕 (F)",
+    "lock": "鎖定",
+    "locked": "已鎖定",
+    "lockHint": "主視窗切換照片時繼續顯示此照片 (L)",
+    "toolbar": "第二視窗",
+    "unlockHint": "重新跟隨主視窗 (L)",
+    "windowTitle": "{{name}} — 第二視窗",
+    "windowTitleEmpty": "第二視窗"
+  },
   "session": {
     "addFolder": {
       "add_other": "加入 {{count}} 張照片",
@@ -2269,6 +2284,7 @@
         "select_none": "取消選取",
         "show_in_finder": "在 Finder 中顯示",
         "show_original": "按住：整張照片編輯前",
+        "spot_new_source": "尋找其他來源",
         "sync_settings": "將設定同步到選取的照片",
         "tether_capture": "觸發連線相機",
         "toggle_adjustments": "切換調整面板",
@@ -2294,6 +2310,7 @@
         "toggle_pointer_readout": "切換指標 RGB 讀數",
         "toggle_proof_margin": "切換校樣邊距",
         "toggle_right_panel": "切換右側面板",
+        "toggle_second_window": "第二視窗：在另一台顯示器上即時顯示照片",
         "toggle_side_panels": "隱藏/顯示側邊面板",
         "toggle_soft_proof": "切換軟打樣",
         "toggle_split_view": "前/後對比（分割檢視）",
@@ -2513,6 +2530,8 @@
     "fillAcrossEdges": "跨邊緣時填補",
     "fillAcrossEdgesHint": "跨越明顯邊緣（轉角、線條、物件邊界）的修復點改用移除填補；平坦區域仍使用修復。每個點都可以在下方清單中切換。",
     "filling": "正在移除… 第 {{done}}/{{total}} 步",
+    "findAnotherSource": "尋找其他來源",
+    "findAnotherSourceHint": "為所選修復或仿製斑點尋找其他自動來源（Lightroom 的重新整理）。",
     "largeHoleTooSlow": "此 GPU 處理大面積移除太慢；本次工作階段中移除將使用快速方法。",
     "list": {
       "aria": "污點與移除",
@@ -2521,6 +2540,8 @@
       "deleteAll": "全部刪除",
       "hideAll": "全部隱藏",
       "item": "{{kind}} {{number}}",
+      "newSource": "為 {{name}} 尋找其他來源",
+      "newSourceHint": "尋找其他來源（{{key}}）",
       "select": "選取 {{name}}",
       "showAll": "全部顯示",
       "switching": "正在切換 {{name}}…",

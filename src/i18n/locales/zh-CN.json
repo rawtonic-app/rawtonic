@@ -302,6 +302,7 @@
       "toggle_pointer_readout": "指针 RGB 读数",
       "toggle_proof_margin": "打样边距",
       "toggle_right_panel": "右侧面板",
+      "toggle_second_window": "第二窗口",
       "toggle_side_panels": "侧边面板",
       "toggle_soft_proof": "软打样",
       "toggle_split_view": "修改前/修改后",
@@ -1441,6 +1442,20 @@
     "widthMm": "宽度 (mm)",
     "writes": "写入“{{name}}”"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "在主窗口中打开照片即可在此显示。",
+    "exitFullScreen": "退出全屏 (Esc)",
+    "fit": "适合",
+    "fullScreen": "全屏 (F)",
+    "lock": "锁定",
+    "locked": "已锁定",
+    "lockHint": "主窗口切换照片时继续显示此照片 (L)",
+    "toolbar": "第二窗口",
+    "unlockHint": "重新跟随主窗口 (L)",
+    "windowTitle": "{{name}} — 第二窗口",
+    "windowTitleEmpty": "第二窗口"
+  },
   "session": {
     "addFolder": {
       "add_other": "添加 {{count}} 张照片",
@@ -2269,6 +2284,7 @@
         "select_none": "取消选择",
         "show_in_finder": "在访达中显示",
         "show_original": "按住：整张照片编辑前",
+        "spot_new_source": "查找其他源",
         "sync_settings": "将设置同步到选定照片",
         "tether_capture": "触发联机相机",
         "toggle_adjustments": "切换调整面板",
@@ -2294,6 +2310,7 @@
         "toggle_pointer_readout": "切换指针 RGB 读数",
         "toggle_proof_margin": "切换校样边距",
         "toggle_right_panel": "切换右侧面板",
+        "toggle_second_window": "第二窗口：在另一台显示器上实时显示照片",
         "toggle_side_panels": "隐藏/显示侧边面板",
         "toggle_soft_proof": "切换软打样",
         "toggle_split_view": "前/后对比（分割视图）",
@@ -2513,6 +2530,8 @@
     "fillAcrossEdges": "跨边缘时填充",
     "fillAcrossEdgesHint": "跨越明显边缘（拐角、线条、物体边界）的修复点改用移除填充；平坦区域仍使用修复。每个点都可以在下方列表中切换。",
     "filling": "正在移除… 第 {{done}}/{{total}} 步",
+    "findAnotherSource": "查找其他源",
+    "findAnotherSourceHint": "为所选修复或仿制斑点查找其他自动源（Lightroom 的刷新）。",
     "largeHoleTooSlow": "此 GPU 处理大面积移除太慢；本次会话中移除将使用快速方法。",
     "list": {
       "aria": "污点与移除",
@@ -2521,6 +2540,8 @@
       "deleteAll": "全部删除",
       "hideAll": "全部隐藏",
       "item": "{{kind}} {{number}}",
+      "newSource": "为 {{name}} 查找其他源",
+      "newSourceHint": "查找其他源（{{key}}）",
       "select": "选择 {{name}}",
       "showAll": "全部显示",
       "switching": "正在切换 {{name}}…",
