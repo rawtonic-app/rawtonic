@@ -1,3 +1,9 @@
+import { act, renderHook } from '@testing-library/react';
+import { vi } from 'vitest';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import type { AppSettings } from '../ui/AppProperties';
+import { useIngestDialogSize } from './useIngestDialogSize';
+
 import { describe, expect, it } from 'vitest';
 import { clampIngestSize } from './useIngestDialogSize';
 
@@ -27,12 +33,6 @@ describe('import dialog dimensions', () => {
   });
 });
 
-import { act, renderHook } from '@testing-library/react';
-import { vi } from 'vitest';
-import { useSettingsStore } from '../../store/useSettingsStore';
-import type { AppSettings } from '../ui/AppProperties';
-import { useIngestDialogSize } from './useIngestDialogSize';
-
 it('maximizes, restores and reads persisted dimensions on reopening', () => {
   const original = useSettingsStore.getState();
   const save = vi.fn(async (appSettings: AppSettings) => {
@@ -52,5 +52,40 @@ it('maximizes, restores and reads persisted dimensions on reopening', () => {
   act(() => reopened.result.current.toggle());
   expect(reopened.result.current.size).toEqual({ width: 800, height: 550, maximized: false });
   reopened.unmount();
+  useSettingsStore.setState(original);
+});
+
+it('resizes symmetrically, clamps and saves once on release', () => {
+  const original = useSettingsStore.getState();
+  const save = vi.fn(async () => {});
+  useSettingsStore.setState({
+    appSettings: { ingestDialogSize: { width: 800, height: 550, maximized: false } } as AppSettings,
+    handleSettingsChange: save
+  });
+  const hook = renderHook(useIngestDialogSize);
+  const element = document.createElement('div');
+  element.setPointerCapture = vi.fn();
+  act(() =>
+    hook.result.current.start(
+      {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 1,
+        preventDefault() {},
+        currentTarget: element
+      } as unknown as import('react').PointerEvent<HTMLElement>,
+      'se'
+    )
+  );
+  const move = new Event('pointermove');
+  Object.assign(move, { clientX: 10, clientY: 10 });
+  act(() => element.dispatchEvent(move));
+  expect(hook.result.current.size.width).toBe(820);
+  expect(hook.result.current.size.height).toBe(570);
+  expect(save).not.toHaveBeenCalled();
+  act(() => element.dispatchEvent(new Event('pointerup')));
+  expect(save).toHaveBeenCalledOnce();
+  hook.unmount();
   useSettingsStore.setState(original);
 });

@@ -943,6 +943,10 @@
 /* The import dialog's large view: over the dialog, nearly window-sized. */
 /* The large view fills the window less a margin. The dialog, which clips
    what it holds (top layer), takes the same box while the view is open. */
+.session-ingest-dialog:has(.session-ingest-loupe) {
+  width: calc(100vw - 24px) !important;
+  height: calc(100vh - 24px) !important;
+}
 .session-ingest-loupe {
   position: absolute;
   inset: 0;
@@ -1456,6 +1460,7 @@
   align-content: start;
 }
 .session-ingest-dialog .session-ingest-grid {
+  /* Reserve space for the header, source picker and preview toolbar. */
   height: clamp(300px, calc(100cqh - 330px), 700px);
 }
 .session-ingest-naming,

@@ -45,7 +45,7 @@ export function useIngestDialogSize() {
     const state = useSettingsStore.getState();
     if (state.appSettings) void state.handleSettingsChange({ ...state.appSettings, ingestDialogSize: next });
   };
-  const toggle = () => save({ ...size, maximized: !size.maximized });
+  const toggle = () => save({ ...(stored ?? size), maximized: !size.maximized });
   const start = (event: PointerEvent<HTMLElement>, edge: string) => {
     if (size.maximized || event.button !== 0) return;
     event.preventDefault();
@@ -71,7 +71,7 @@ export function useIngestDialogSize() {
       element.removeEventListener('pointermove', move);
       element.removeEventListener('pointerup', end);
       element.removeEventListener('pointercancel', end);
-      save(next);
+      if (next !== size) save(next);
       setDragSize(undefined);
     };
     element.addEventListener('pointermove', move);
