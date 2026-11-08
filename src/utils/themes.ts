@@ -1,4 +1,4 @@
-/** Incumbent Darkest palette. Legacy `theme` settings are still ignored. */
+/** Interface chrome shades. Legacy `theme` settings are still ignored. */
 export type InterfaceShade = 'darkest' | 'dark-grey' | 'medium-grey';
 
 export function interfaceShade(value: unknown): InterfaceShade {

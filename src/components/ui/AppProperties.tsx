@@ -530,7 +530,7 @@ export interface AppSettings {
   /** Per folder: whether its grid includes the photos of its subfolders. */
   subfolderViews?: Record<string, boolean>;
   sortCriteria?: SortCriteria;
-  /** Legacy: there is no theme choice any more; old values are kept but ignored. */
+  /** Legacy theme picker value; kept but ignored. interfaceShade controls the chrome. */
   theme?: string;
   thumbnailSize?: ThumbnailSize;
   thumbnailAspectRatio?: ThumbnailAspectRatio;
