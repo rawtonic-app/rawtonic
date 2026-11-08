@@ -5049,6 +5049,23 @@ impl MaskBitmap {
         }
     }
 
+    /// A `width` x `height` mask whose pixel `i` is this mask's pixel at
+    /// row-major index `at[i]`: a layer read at the positions a reduced copy
+    /// of the frame took its pixels from (the zoomed drag's block extremes,
+    /// `image_processing::block_extreme_pixels`).
+    pub fn gather(&self, width: u32, height: u32, at: &[u32]) -> Self {
+        debug_assert_eq!(at.len(), width as usize * height as usize);
+        let raw = self.bytes.as_raw();
+        let bytes = at.iter().map(|&i| raw[i as usize]).collect();
+        Self {
+            bytes: GrayImage::from_raw(width, height, bytes).unwrap(),
+            wide: self
+                .wide
+                .as_ref()
+                .map(|wide| at.iter().map(|&i| wide[i as usize]).collect()),
+        }
+    }
+
     /// Bytes the mask holds.
     pub fn byte_len(&self) -> usize {
         self.bytes.as_raw().len() + self.wide.as_ref().map_or(0, |wide| wide.len() * 2)
@@ -10199,5 +10216,33 @@ mod pen_pressure_tests {
             let (thin, wide) = (width_at(&mask, 100), width_at(&mask, 300));
             assert!(thin > 0 && thin < wide, "v{version}: {thin} vs {wide}");
         }
+    }
+}
+
+#[cfg(test)]
+mod gather_tests {
+    use super::MaskBitmap;
+
+    #[test]
+    fn a_gathered_mask_reads_each_pixel_where_its_copy_pixel_came_from() {
+        // 4 x 2 coverage 0, 1/7, ..., 1 (row-major), read back in another
+        // order as 2 x 2, both precisions.
+        let coverage: Vec<f32> = (0..8).map(|i| i as f32 / 7.0).collect();
+        let mask = MaskBitmap::from_coverage(4, 2, &coverage);
+        let gathered = mask.gather(2, 2, &[7, 0, 5, 2]);
+        assert_eq!(gathered.dimensions(), (2, 2));
+        let bytes = |m: &MaskBitmap, i: usize| m.as_raw()[i];
+        assert_eq!(
+            [0, 1, 2, 3].map(|i| bytes(&gathered, i)),
+            [7, 0, 5, 2].map(|i| bytes(&mask, i))
+        );
+        assert_eq!(
+            gathered.wide().unwrap(),
+            [7, 0, 5, 2].map(|i| mask.wide().unwrap()[i])
+        );
+        // An 8-bit mask stays 8-bit.
+        let narrow = MaskBitmap::from(image::GrayImage::from_raw(4, 2, (0..8).collect()).unwrap());
+        assert!(narrow.gather(1, 1, &[6]).wide().is_none());
+        assert_eq!(narrow.gather(1, 1, &[6]).as_raw()[0], 6);
     }
 }

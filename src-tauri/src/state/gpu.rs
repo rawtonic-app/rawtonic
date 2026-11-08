@@ -29,8 +29,10 @@ pub struct GpuState {
     /// The flag file written while a device starts (a crash there leaves it
     /// for the next start); set once at start-up.
     pub(crate) crash_flag_path: Mutex<Option<PathBuf>>,
-    /// The scopes' GPU upload of their source (`scope_analytics`).
+    /// The scopes' GPU upload of their source (`scope_analytics`), and of
+    /// its two block-extreme copies (brightest, darkest pixels).
     pub scope_cache: Mutex<Option<GpuImageCache>>,
+    pub scope_extremes_cache: [Mutex<Option<GpuImageCache>>; 2],
     /// Why the GPU did not start, for the window (`gpu_start_error`).
     pub(crate) start_error: Mutex<Option<String>>,
     /// Backends left out of device starts after a crash, and what this
@@ -52,6 +54,7 @@ impl Default for GpuState {
             export_processor: GpuProcessorSlot::background(None),
             crash_flag_path: Mutex::new(None),
             scope_cache: Mutex::new(None),
+            scope_extremes_cache: [Mutex::new(None), Mutex::new(None)],
             start_error: Mutex::new(None),
             avoid_backends: Mutex::new(wgpu::Backends::empty()),
             start_notice: Mutex::new(None),

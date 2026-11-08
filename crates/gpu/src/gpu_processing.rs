@@ -1753,11 +1753,28 @@ pub struct AnalyticsConfig {
     /// Asked by a frame of a drag: the scopes then must not take the CPUs
     /// the next frames need.
     pub interactive: bool,
-    pub sender: LatestJobSender<AnalyticsJob>,
+    pub sender: AnalyticsSink,
     /// Rises with each frame that asks for analytics: a job of an older
     /// request that arrives after a newer one's (the zoomed drag's
     /// full-frame scope render runs beside the frames) is dropped.
     pub generation: u64,
+    /// Clipping found by other renders of the same frame, added to this
+    /// render's (the zoomed drag's block extremes, [`render_scope_clip_marks`]).
+    pub also_clipped: ClippedSides,
+}
+
+/// Where a render's analytics go.
+pub enum AnalyticsSink {
+    /// The scopes' worker (histogram, waveform, clipping marks).
+    Scopes(LatestJobSender<AnalyticsJob>),
+    /// Only the clipping marks, to the caller ([`render_scope_clip_marks`]).
+    ClipMarks(std::sync::mpsc::Sender<ClippedSides>),
+}
+
+impl From<LatestJobSender<AnalyticsJob>> for AnalyticsSink {
+    fn from(sender: LatestJobSender<AnalyticsJob>) -> Self {
+        Self::Scopes(sender)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -4038,9 +4055,16 @@ fn send_analytics(
     height: u32,
     pixels: Vec<u8>,
 ) {
-    let clipped = clipped_sides(&pixels);
+    let clipped = clipped_sides(&pixels).union(analytics.also_clipped);
+    let sender = match analytics.sender {
+        AnalyticsSink::Scopes(sender) => sender,
+        AnalyticsSink::ClipMarks(marks) => {
+            let _ = marks.send(clipped);
+            return;
+        }
+    };
     if let Some(image) = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels) {
-        analytics.sender.send_unless_older(
+        sender.send_unless_older(
             AnalyticsJob {
                 path: analytics.path,
                 image: Arc::new(DynamicImage::ImageRgba8(image)),
@@ -10315,6 +10339,42 @@ pub fn render_scope_analytics(
         ReadbackShader::Display,
     )
     .map(|_| ())
+}
+
+/// The clipping sides and channels of a whole frame rendered from `copy`
+/// ([`render_scope_analytics`]'s render, the same geometry, without
+/// analytics for the scopes): the zoomed drag's block-extreme copies
+/// (`rawtonic_engine::image_processing::block_extreme_pixels`), whose
+/// clipping the averaged copy's analytics then carry
+/// ([`AnalyticsConfig::also_clipped`]).
+pub fn render_scope_clip_marks(
+    context: &GpuContext,
+    processor_slot: &GpuProcessorSlot,
+    image_cache: &Mutex<Option<GpuImageCache>>,
+    copy: (&DynamicImage, u64),
+    request: RenderRequest,
+    display_space: bool,
+) -> Result<ClippedSides, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    render_scope_analytics(
+        context,
+        processor_slot,
+        image_cache,
+        copy,
+        request,
+        AnalyticsConfig {
+            path: String::new(),
+            compute_waveform: false,
+            active_waveform_channel: None,
+            interactive: true,
+            sender: AnalyticsSink::ClipMarks(tx),
+            generation: 0,
+            also_clipped: ClippedSides::default(),
+        },
+        display_space,
+    )?;
+    rx.try_recv()
+        .map_err(|_| "The clipping marks' render read back no analytics".to_string())
 }
 
 /// The caller id of [`render_scope_analytics`].
