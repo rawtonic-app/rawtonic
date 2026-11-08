@@ -278,10 +278,10 @@ describe('Reviewing before the import (IMPD)', () => {
     const full = vi.fn((p: string) => new Promise<LargePreview>((resolve) => (finish[p] = resolve)));
     render(<Harness list={files(3)} loadFullPreview={full} />);
     await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
-    // Nothing full-size is made until 100 % is asked for.
-    expect(full).not.toHaveBeenCalled();
+    // The shown photograph's full size is made as soon as it is shown, ahead
+    // of Z: the shown one first, then the next one, one at a time.
+    expect(full.mock.calls.map((c) => c[0])).toEqual([path(0)]);
     await user.keyboard('z');
-    // The shown photograph first, then the next one, one at a time.
     expect(full.mock.calls.map((c) => c[0])).toEqual([path(0)]);
     const zoomButton = () => document.querySelector('.session-ingest-loupe-zoom')!;
     expect(zoomButton().textContent).toBe('Loading 100 %…');
@@ -308,6 +308,30 @@ describe('Reviewing before the import (IMPD)', () => {
     await user.keyboard('z');
     expect(fullImage()).toBeNull();
     expect(zoomButton().textContent).toBe('Fit');
+  });
+
+  it('makes the full size ahead, so Z shows 100 % at once, and keeps the previous photograph for stepping back', async () => {
+    const user = userEvent.setup();
+    const full = vi.fn(async (p: string) => ({ url: `blob:${p}`, info: null, width: 6000, height: 4000 }));
+    render(<Harness list={files(3)} loadFullPreview={full} />);
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    // Without any zoom yet: the shown photograph, then the next one.
+    await waitFor(() => expect(full.mock.calls.map((c) => c[0])).toEqual([path(0), path(1)]));
+    const zoomButton = () => document.querySelector('.session-ingest-loupe-zoom')!;
+    const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full');
+    expect(fullImage()).toBeNull();
+    await user.keyboard('z');
+    // Already decoded and measured: 100 % at once, no measuring image.
+    expect(zoomButton().textContent).toBe('100 %');
+    expect(fullImage()?.getAttribute('src')).toBe(`blob:${path(0)}`);
+    expect(fullImage()?.style.width).toBe('6000px');
+    await user.keyboard('{ArrowRight}');
+    expect(fullImage()?.getAttribute('src')).toBe(`blob:${path(1)}`);
+    await waitFor(() => expect(full.mock.calls.map((c) => c[0])).toEqual([path(0), path(1), path(2)]));
+    // Back to the first: kept, not made again.
+    await user.keyboard('{ArrowLeft}');
+    expect(fullImage()?.getAttribute('src')).toBe(`blob:${path(0)}`);
+    expect(full).toHaveBeenCalledTimes(3);
   });
 
   it('Z zooms around the pointer over the photo', async () => {
