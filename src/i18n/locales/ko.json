@@ -302,6 +302,7 @@
       "toggle_pointer_readout": "포인터 RGB 표시",
       "toggle_proof_margin": "교정 여백",
       "toggle_right_panel": "오른쪽 패널",
+      "toggle_second_window": "두 번째 창",
       "toggle_side_panels": "측면 패널",
       "toggle_soft_proof": "소프트 교정",
       "toggle_split_view": "보정 전/후",
@@ -1441,6 +1442,20 @@
     "widthMm": "너비(mm)",
     "writes": "“{{name}}” 기록"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "기본 창에서 사진을 열면 여기에 표시됩니다.",
+    "exitFullScreen": "전체 화면 종료 (Esc)",
+    "fit": "맞춤",
+    "fullScreen": "전체 화면 (F)",
+    "lock": "잠금",
+    "locked": "잠김",
+    "lockHint": "기본 창이 다른 사진으로 이동해도 이 사진을 계속 표시 (L)",
+    "toolbar": "두 번째 창",
+    "unlockHint": "다시 기본 창 따라가기 (L)",
+    "windowTitle": "{{name}} — 두 번째 창",
+    "windowTitleEmpty": "두 번째 창"
+  },
   "session": {
     "addFolder": {
       "add_other": "사진 {{count}}장 추가",
@@ -2295,6 +2310,7 @@
         "toggle_pointer_readout": "포인터 RGB 표시 전환",
         "toggle_proof_margin": "교정 여백 전환",
         "toggle_right_panel": "오른쪽 패널 토글",
+        "toggle_second_window": "두 번째 창: 다른 디스플레이에 사진을 실시간으로 표시",
         "toggle_side_panels": "사이드 패널 숨기기/표시",
         "toggle_soft_proof": "소프트 교정 전환",
         "toggle_split_view": "보정 전/후 (분할 보기)",

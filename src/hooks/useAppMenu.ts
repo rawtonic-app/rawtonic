@@ -26,6 +26,7 @@ import { useUpdateStore } from '../store/useUpdateStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
+import { useSecondWindowStore } from '../store/useSecondWindowStore';
 
 /** The event app_menu.rs sends with the chosen command's name. */
 export const APP_MENU_COMMAND_EVENT = 'app-menu-command';
@@ -174,6 +175,7 @@ export function useAppMenu(): void {
       useCatalogUndoStore.subscribe(schedule),
       useLibraryStore.subscribe(schedule),
       useMultiViewStore.subscribe(schedule),
+      useSecondWindowStore.subscribe(schedule),
       useSettingsStore.subscribe(schedule),
       useUpdateStore.subscribe(schedule),
       onAppCommandsChanged(schedule)

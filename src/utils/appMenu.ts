@@ -219,6 +219,8 @@ export const MENU_LAYOUT: TopMenu[] = [
       { native: 'minimize' },
       { native: 'zoom' },
       'separator',
+      c('toggle_second_window', { check: true }),
+      'separator',
       { native: 'fullscreen' },
       'separator',
       { native: 'bringAllToFront' }

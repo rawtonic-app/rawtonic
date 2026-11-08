@@ -96,6 +96,7 @@ mod qa_control;
 mod qa_crash;
 mod red_eye;
 mod scope_analytics;
+mod second_window;
 mod series_match;
 mod session_bridge;
 mod session_folders;
@@ -284,6 +285,26 @@ fn start(args: Vec<String>) {
         .plugin(tauri_plugin_shell::init())
         .plugin(PinchZoomDisablePlugin)
         .on_window_event(|window, event| {
+            // The second window has its own surface (second_window.rs).
+            if window.label() == second_window::LABEL {
+                match event {
+                    tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                        second_window::closing(window.app_handle())
+                    }
+                    tauri::WindowEvent::Resized(size) => {
+                        second_window::resized(window.app_handle(), window, size.width, size.height)
+                    }
+                    tauri::WindowEvent::Moved(_) => {
+                        if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                            second_window::note_bounds(window.app_handle(), &webview);
+                        }
+                        second_window::repaint(window.app_handle());
+                    }
+                    tauri::WindowEvent::Focused(true) => second_window::repaint(window.app_handle()),
+                    _ => {}
+                }
+                return;
+            }
             // Closing the main window quits once the editor saved (app_quit.rs).
             if let tauri::WindowEvent::CloseRequested { api, .. } = event
                 && window.label() == "main"
@@ -299,6 +320,9 @@ fn start(args: Vec<String>) {
                 performance::log_display_refresh(ns_window);
             }
             let tauri::WindowEvent::Resized(size) = event else { return };
+            if window.label() != "main" {
+                return;
+            }
             let gpu = window.state::<state::gpu::GpuState>();
             let Some(ctx) = gpu.context() else { return };
             gpu_processing::resize_display(&gpu, ctx, size.width, size.height);
@@ -607,6 +631,8 @@ fn start(args: Vec<String>) {
                 // (`start_early`); presenting needs the window.
                 #[cfg(not(target_os = "linux"))]
                 gpu_processing::attach_display(&app.state::<state::gpu::GpuState>(), app.handle());
+                second_window::install(app.handle());
+                second_window::restore(app.handle());
 
                 if let Ok(config_dir) = app.path().app_config_dir() {
                     let path = config_dir.join("window_state.json");
@@ -664,6 +690,7 @@ fn start(args: Vec<String>) {
                     loop {
                         tokio::time::sleep(window_state::INTERVAL).await;
                         window_state::flush();
+                        second_window::flush();
                     }
                 });
 
@@ -736,6 +763,11 @@ fn start(args: Vec<String>) {
         .manage(state::library_files::LibraryQueue::default())
         .invoke_handler(tauri::generate_handler![
             window_customizer::set_window_full_screen,
+            second_window::second_window_state,
+            second_window::second_window_set_open,
+            second_window::second_window_set_locked,
+            second_window::second_window_set_zoom,
+            second_window::second_window_follow,
             session_bridge::session_create,
             snapshots::snapshots_list,
             snapshots::snapshot_create,
@@ -1119,6 +1151,7 @@ fn start(args: Vec<String>) {
                     api.prevent_exit();
                     contribute::clean_exit();
                     window_state::flush();
+                    second_window::flush();
                     startup::flush_logs();
                     let exit_code = if app_quit::is_restart(code) {
                         app_quit::start_new_instance(app_handle);
@@ -1140,6 +1173,7 @@ fn start(args: Vec<String>) {
                 tauri::RunEvent::Exit => {
                     contribute::clean_exit();
                     window_state::flush();
+                    second_window::flush();
                     startup::flush_logs();
                     #[cfg(any(target_os = "macos", target_os = "linux"))]
                     unsafe { libc::_exit(0); }

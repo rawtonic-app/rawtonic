@@ -302,6 +302,7 @@
       "toggle_pointer_readout": "ポインターのRGB表示",
       "toggle_proof_margin": "校正マージン",
       "toggle_right_panel": "右パネル",
+      "toggle_second_window": "セカンドウィンドウ",
       "toggle_side_panels": "サイドパネル",
       "toggle_soft_proof": "ソフト校正",
       "toggle_split_view": "補正前/補正後",
@@ -1441,6 +1442,20 @@
     "widthMm": "幅 (mm)",
     "writes": "「{{name}}」を書き出します"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "メインウィンドウで写真を開くとここに表示されます。",
+    "exitFullScreen": "フルスクリーンを終了 (Esc)",
+    "fit": "全体表示",
+    "fullScreen": "フルスクリーン (F)",
+    "lock": "ロック",
+    "locked": "ロック中",
+    "lockHint": "メインウィンドウが次の写真に移ってもこの写真を表示し続ける (L)",
+    "toolbar": "セカンドウィンドウ",
+    "unlockHint": "再びメインウィンドウに追従する (L)",
+    "windowTitle": "{{name}} — セカンドウィンドウ",
+    "windowTitleEmpty": "セカンドウィンドウ"
+  },
   "session": {
     "addFolder": {
       "add_other": "{{count}} 枚の写真を追加",
@@ -2295,6 +2310,7 @@
         "toggle_pointer_readout": "ポインターのRGB表示を切り替え",
         "toggle_proof_margin": "プルーフマージンの切り替え",
         "toggle_right_panel": "右パネルの表示/非表示",
+        "toggle_second_window": "セカンドウィンドウ：別のディスプレイに写真をライブ表示",
         "toggle_side_panels": "サイドパネルの表示/非表示",
         "toggle_soft_proof": "ソフト校正の切り替え",
         "toggle_split_view": "補正前/補正後 (分割表示)",

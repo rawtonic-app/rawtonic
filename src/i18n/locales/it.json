@@ -327,6 +327,7 @@
       "toggle_pointer_readout": "Lettura RGB del puntatore",
       "toggle_proof_margin": "Margine di prova",
       "toggle_right_panel": "Pannello destro",
+      "toggle_second_window": "Seconda finestra",
       "toggle_side_panels": "Pannelli laterali",
       "toggle_soft_proof": "Prova a video",
       "toggle_split_view": "Prima/dopo",
@@ -1519,6 +1520,20 @@
     "widthMm": "Larghezza (mm)",
     "writes": "Scrive «{{name}}»"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Apri una foto nella finestra principale per mostrarla qui.",
+    "exitFullScreen": "Esci da schermo intero (Esc)",
+    "fit": "Adatta",
+    "fullScreen": "Schermo intero (F)",
+    "lock": "Blocca",
+    "locked": "Bloccata",
+    "lockHint": "Continua a mostrare questa foto mentre la finestra principale va avanti (L)",
+    "toolbar": "Seconda finestra",
+    "unlockHint": "Segui di nuovo la finestra principale (L)",
+    "windowTitle": "{{name}} — Seconda finestra",
+    "windowTitleEmpty": "Seconda finestra"
+  },
   "session": {
     "addFolder": {
       "add_one": "Aggiungi {{count}} foto",
@@ -2522,6 +2537,7 @@
         "toggle_pointer_readout": "Attiva/disattiva lettura RGB del puntatore",
         "toggle_proof_margin": "Attiva/disattiva margine di prova",
         "toggle_right_panel": "Mostra/Nascondi pannello destro",
+        "toggle_second_window": "Seconda finestra: la foto dal vivo su un altro schermo",
         "toggle_side_panels": "Nascondi o mostra i pannelli laterali",
         "toggle_soft_proof": "Attiva o disattiva la prova colore a schermo",
         "toggle_split_view": "Prima/Dopo (vista divisa)",

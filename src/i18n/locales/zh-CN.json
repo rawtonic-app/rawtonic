@@ -302,6 +302,7 @@
       "toggle_pointer_readout": "指针 RGB 读数",
       "toggle_proof_margin": "打样边距",
       "toggle_right_panel": "右侧面板",
+      "toggle_second_window": "第二窗口",
       "toggle_side_panels": "侧边面板",
       "toggle_soft_proof": "软打样",
       "toggle_split_view": "修改前/修改后",
@@ -1441,6 +1442,20 @@
     "widthMm": "宽度 (mm)",
     "writes": "写入“{{name}}”"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "在主窗口中打开照片即可在此显示。",
+    "exitFullScreen": "退出全屏 (Esc)",
+    "fit": "适合",
+    "fullScreen": "全屏 (F)",
+    "lock": "锁定",
+    "locked": "已锁定",
+    "lockHint": "主窗口切换照片时继续显示此照片 (L)",
+    "toolbar": "第二窗口",
+    "unlockHint": "重新跟随主窗口 (L)",
+    "windowTitle": "{{name}} — 第二窗口",
+    "windowTitleEmpty": "第二窗口"
+  },
   "session": {
     "addFolder": {
       "add_other": "添加 {{count}} 张照片",
@@ -2295,6 +2310,7 @@
         "toggle_pointer_readout": "切换指针 RGB 读数",
         "toggle_proof_margin": "切换校样边距",
         "toggle_right_panel": "切换右侧面板",
+        "toggle_second_window": "第二窗口：在另一台显示器上实时显示照片",
         "toggle_side_panels": "隐藏/显示侧边面板",
         "toggle_soft_proof": "切换软打样",
         "toggle_split_view": "前/后对比（分割视图）",

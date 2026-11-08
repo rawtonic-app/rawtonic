@@ -327,6 +327,7 @@
       "toggle_pointer_readout": "Leitura RGB do ponteiro",
       "toggle_proof_margin": "Margem de prova",
       "toggle_right_panel": "Painel direito",
+      "toggle_second_window": "Segunda janela",
       "toggle_side_panels": "Painéis laterais",
       "toggle_soft_proof": "Prova na tela",
       "toggle_split_view": "Antes/depois",
@@ -1519,6 +1520,20 @@
     "widthMm": "Largura (mm)",
     "writes": "Escreve «{{name}}»"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Abra uma foto na janela principal para a mostrar aqui.",
+    "exitFullScreen": "Sair do ecrã inteiro (Esc)",
+    "fit": "Ajustar",
+    "fullScreen": "Ecrã inteiro (F)",
+    "lock": "Bloquear",
+    "locked": "Bloqueada",
+    "lockHint": "Continuar a mostrar esta foto enquanto a janela principal avança (L)",
+    "toolbar": "Segunda janela",
+    "unlockHint": "Voltar a seguir a janela principal (L)",
+    "windowTitle": "{{name}} — Segunda janela",
+    "windowTitleEmpty": "Segunda janela"
+  },
   "session": {
     "addFolder": {
       "add_one": "Adicionar {{count}} foto",
@@ -2522,6 +2537,7 @@
         "toggle_pointer_readout": "Alternar leitura RGB do ponteiro",
         "toggle_proof_margin": "Alternar margem de prova",
         "toggle_right_panel": "Alternar painel direito",
+        "toggle_second_window": "Segunda janela: a foto ao vivo noutro ecrã",
         "toggle_side_panels": "Ocultar ou mostrar os painéis laterais",
         "toggle_soft_proof": "Alternar prova de cores na tela",
         "toggle_split_view": "Antes/Depois (vista dividida)",

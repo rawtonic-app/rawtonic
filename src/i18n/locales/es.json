@@ -327,6 +327,7 @@
       "toggle_pointer_readout": "Lectura RGB del puntero",
       "toggle_proof_margin": "Margen de prueba",
       "toggle_right_panel": "Panel derecho",
+      "toggle_second_window": "Segunda ventana",
       "toggle_side_panels": "Paneles laterales",
       "toggle_soft_proof": "Prueba en pantalla",
       "toggle_split_view": "Antes/después",
@@ -1519,6 +1520,20 @@
     "widthMm": "Ancho (mm)",
     "writes": "Escribe «{{name}}»"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Abre una foto en la ventana principal para mostrarla aquí.",
+    "exitFullScreen": "Salir de pantalla completa (Esc)",
+    "fit": "Encajar",
+    "fullScreen": "Pantalla completa (F)",
+    "lock": "Bloquear",
+    "locked": "Bloqueada",
+    "lockHint": "Seguir mostrando esta foto mientras la ventana principal avanza (L)",
+    "toolbar": "Segunda ventana",
+    "unlockHint": "Volver a seguir la ventana principal (L)",
+    "windowTitle": "{{name}} — Segunda ventana",
+    "windowTitleEmpty": "Segunda ventana"
+  },
   "session": {
     "addFolder": {
       "add_one": "Añadir {{count}} foto",
@@ -2522,6 +2537,7 @@
         "toggle_pointer_readout": "Activar/desactivar lectura RGB del puntero",
         "toggle_proof_margin": "Activar/desactivar margen de prueba",
         "toggle_right_panel": "Alternar panel derecho",
+        "toggle_second_window": "Segunda ventana: la foto en directo en otra pantalla",
         "toggle_side_panels": "Ocultar o mostrar los paneles laterales",
         "toggle_soft_proof": "Activar o desactivar la prueba en pantalla",
         "toggle_split_view": "Antes/Después (vista dividida)",
