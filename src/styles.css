@@ -515,7 +515,8 @@
 }
 
 /* Darkest deliberately uses the incumbent fallbacks in studio.css. These
-   neutral ramps affect chrome only; Viewer background remains independent. */
+   neutral ramps affect chrome only; Viewer background remains independent.
+   Pressed fills mark selection, intentionally deeper than inset controls. */
 :root[data-interface-shade='dark-grey'] {
   --app-bg-primary: rgb(38, 38, 38);
   --app-bg-secondary: rgb(48, 48, 48);

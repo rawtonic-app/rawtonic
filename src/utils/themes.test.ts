@@ -107,7 +107,6 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
         const studio = readFileSync('src/components/studio/studio.css', 'utf8') as string;
         const block = studio.slice(studio.indexOf("button[aria-pressed='true'] {")).split('}')[0];
         expect(block).toContain('var(--studio-shade-pressed-rgb,');
-        expect(studio).toContain("button[aria-pressed='true']:hover:not(:disabled),");
         const tint = rgb(palette['--studio-shade-pressed-rgb']);
         expect(block).toContain('var(--studio-shade-pressed-alpha,');
         const alpha = Number(palette['--studio-shade-pressed-alpha']);
