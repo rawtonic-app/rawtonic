@@ -294,13 +294,30 @@ fn start(args: Vec<String>) {
                     tauri::WindowEvent::Resized(size) => {
                         second_window::resized(window.app_handle(), window, size.width, size.height)
                     }
+                    // Moved to a display of another scale: same logical
+                    // size, other device px.
+                    tauri::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        second_window::resized(
+                            window.app_handle(),
+                            window,
+                            new_inner_size.width,
+                            new_inner_size.height,
+                        )
+                    }
                     tauri::WindowEvent::Moved(_) => {
                         if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
                             second_window::note_bounds(window.app_handle(), &webview);
                         }
                         second_window::repaint(window.app_handle());
                     }
-                    tauri::WindowEvent::Focused(true) => second_window::repaint(window.app_handle()),
+                    tauri::WindowEvent::Focused(true) => {
+                        // Wayland tells no move: the display it is on is
+                        // noted when it is used.
+                        if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                            second_window::note_bounds(window.app_handle(), &webview);
+                        }
+                        second_window::repaint(window.app_handle())
+                    }
                     _ => {}
                 }
                 return;
@@ -768,6 +785,7 @@ fn start(args: Vec<String>) {
             second_window::second_window_set_locked,
             second_window::second_window_set_zoom,
             second_window::second_window_follow,
+            second_window::second_window_frames,
             session_bridge::session_create,
             snapshots::snapshots_list,
             snapshots::snapshot_create,

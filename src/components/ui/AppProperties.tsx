@@ -217,6 +217,7 @@ export enum Invokes {
   SecondWindowSetLocked = 'second_window_set_locked',
   SecondWindowSetZoom = 'second_window_set_zoom',
   SecondWindowFollow = 'second_window_follow',
+  SecondWindowFrames = 'second_window_frames',
   RenderBrowserView = 'render_browser_view',
   SetMultiViewZoom = 'set_multi_view_zoom',
   SetMultiViewLive = 'set_multi_view_live',
