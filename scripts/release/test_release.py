@@ -24,6 +24,10 @@ A small update. Faster things.
 
 - **Faster.** Measured.
 
+### Fixes
+
+- **Fixed.** A bug.
+
 ### Changes to existing edits
 
 - None of note.
@@ -87,7 +91,7 @@ class Notes(unittest.TestCase):
         self.assertIn("Updating from beta.1:", text)
         self.assertIn("`Rawtonic_0.2.0-beta.2_aarch64.dmg` below", text)
         self.assertIn("## What's new since beta.1\n\n- **Faster.** Measured.", text)
-        self.assertIn("## Changes to existing edits\n\n- None of note.", text)
+        self.assertIn("## Fixes\n\n- **Fixed.** A bug.\n\n## Changes to existing edits\n\n- None of note.", text)
         self.assertIn("The known limits of beta.1 remain", text)
         self.assertIn("`libgphoto2-2.5.34.tar.bz2`", text)
         self.assertNotIn("Old intro", text)
