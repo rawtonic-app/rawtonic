@@ -7,6 +7,7 @@ import type { ModuleLayout, WorkspaceModule } from '../../utils/panelLayout';
 import type { ImportMetadataPreset } from '../session/IngestMetadata';
 import type { MetadataSelection } from '../../utils/librarySearch';
 import type { CameraCrops } from '../../utils/cameraCrop';
+import type { InterfaceShade } from '../../utils/themes';
 
 export const GLOBAL_KEYS = [
   ' ',
@@ -497,7 +498,8 @@ export interface AppSettings {
   maskColor?: string;
   /** Size of the interface's panels and bars (1, 1.12 or 1.25). */
   uiScale?: number;
-  interfaceShade?: import('../../utils/themes').InterfaceShade;
+  /** Brightness of the interface chrome, independent of Viewer background. */
+  interfaceShade?: InterfaceShade;
   maskOpacity?: number;
   radialDrawInside?: boolean;
   cropGrid?: CropGrid;

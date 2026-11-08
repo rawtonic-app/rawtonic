@@ -29,7 +29,10 @@ function tokens(selector: string): Record<string, string> {
 function rgb(value: string): number[] {
   return value.startsWith('#')
     ? [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16))
-    : value.match(/\d+/g)!.map(Number);
+    : value
+        .match(/[\d.]+/g)!
+        .slice(0, 3)
+        .map(Number);
 }
 function contrast(a: string, b: string): number {
   const luminance = (value: string) =>
@@ -57,24 +60,57 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
       }
       expect(contrast(palette['--app-button-text'], palette['--app-accent'])).toBeGreaterThanOrEqual(4.5);
     });
-    it('meets AA for studio body text and icons on the chrome ramp', () => {
-      const surfaces =
-        shade === 'darkest'
-          ? ['#292a2c', '#323335']
-          : ['ink', 'inset', 'bg', 'raised', 'hover'].map((role) => palette[`--studio-shade-${role}`]);
-      const foregrounds =
-        shade === 'darkest'
-          ? ['#e0e1e3', '#a5a7aa']
-          : ['text', 'muted', 'line', 'warning', 'error', 'success', 'accent'].map(
-              (role) => palette[`--studio-shade-${role}`]
-            );
-      for (const bg of surfaces) {
-        for (const fg of foregrounds) expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
-        expect(contrast(shade === 'darkest' ? '#9cb8d0' : palette['--studio-shade-accent'], bg)).toBeGreaterThanOrEqual(
-          3
-        );
+    it('meets AA for the body and icon pairs used by the studio', () => {
+      if (shade === 'darkest') {
+        for (const bg of ['#292a2c', '#323335'])
+          for (const fg of ['#e0e1e3', '#a5a7aa']) expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
+        return;
       }
+      // Secondary text is on normal panels, headings and raised rows. Hover
+      // buttons use primary/accent text. Line is an icon/grid role, not body.
+      for (const bg of ['ink', 'inset', 'bg', 'raised']) {
+        for (const fg of ['text', 'muted'])
+          expect(contrast(palette[`--studio-shade-${fg}`], palette[`--studio-shade-${bg}`])).toBeGreaterThanOrEqual(
+            4.5
+          );
+      }
+      for (const bg of ['ink', 'inset', 'bg', 'raised', 'hover']) {
+        expect(contrast(palette['--studio-shade-text'], palette[`--studio-shade-${bg}`])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(palette['--studio-shade-line'], palette[`--studio-shade-${bg}`])).toBeGreaterThanOrEqual(3);
+        expect(contrast(palette['--studio-shade-accent'], palette[`--studio-shade-${bg}`])).toBeGreaterThanOrEqual(3);
+      }
+      // Export errors and destructive menu text use the normal panel/menu;
+      // menu hover changes to white on a red surface. Warning/success labels
+      // also appear on raised rows; warning stars on buttons are icons.
+      for (const fg of ['warning', 'error', 'success'])
+        for (const bg of fg === 'error' ? ['inset', 'bg'] : ['inset', 'bg', 'raised'])
+          expect(contrast(palette[`--studio-shade-${fg}`], palette[`--studio-shade-${bg}`])).toBeGreaterThanOrEqual(
+            4.5
+          );
     });
+    if (shade !== 'darkest')
+      it('preserves disabled/dim hierarchy and recognisable semantic hues', () => {
+        const studio = readFileSync('src/components/studio/studio.css', 'utf8') as string;
+        for (const selector of [
+          '.rawtonic-menu-item.is-disabled',
+          '.studio-layer.is-hidden .studio-layer-label',
+          '.studio-mask-component.is-hidden .studio-mask-component-label',
+          '.studio-preset-amount.is-idle'
+        ]) {
+          const block = studio.slice(studio.indexOf(`${selector} {`)).split('}')[0];
+          const role = block.match(/color: var\((--[\w-]+),/)![1];
+          expect(contrast(palette['--studio-shade-text'], palette[role]), selector).toBeGreaterThanOrEqual(2);
+        }
+        expect(contrast(palette['--studio-shade-text'], palette['--studio-shade-dim'])).toBeGreaterThanOrEqual(2);
+        expect(contrast(palette['--studio-shade-text'], palette['--studio-shade-line'])).toBeGreaterThanOrEqual(1.5);
+        expect(contrast(palette['--studio-shade-text'], palette['--studio-shade-muted'])).toBeGreaterThanOrEqual(1.25);
+        const [wr, , wb] = rgb(palette['--studio-shade-warning']);
+        const [er, eg] = rgb(palette['--studio-shade-error']);
+        const [sr, sg, sb] = rgb(palette['--studio-shade-success']);
+        expect(wr - wb).toBeGreaterThanOrEqual(80);
+        expect(er - eg).toBeGreaterThanOrEqual(50);
+        expect(sg - Math.max(sr, sb)).toBeGreaterThanOrEqual(25);
+      });
     it('keeps photo-overlay captions readable over white and black photographs', () => {
       const studio = readFileSync('src/components/studio/studio.css', 'utf8') as string;
       for (const selector of [
@@ -92,7 +128,10 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
         const bg = resolve(block.match(/background: ([^;]+);/)![1]);
         const fg = resolve(block.match(/(?:^|\n)\s*color: ([^;]+);/)![1]);
         const channels = rgb(bg);
-        const alpha = bg.startsWith('#') && bg.length === 9 ? parseInt(bg.slice(7), 16) / 255 : 1;
+        const alpha =
+          bg.startsWith('#') && bg.length === 9
+            ? parseInt(bg.slice(7), 16) / 255
+            : Number(bg.match(/\/\s*([\d.]+)/)?.[1] ?? 1);
         for (const photo of [0, 255]) {
           const composite = `rgb(${channels.map((c) => Math.round(c * alpha + photo * (1 - alpha))).join(', ')})`;
           expect(contrast(fg, composite), `${selector} over ${photo}`).toBeGreaterThanOrEqual(4.5);

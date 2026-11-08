@@ -1,4 +1,3 @@
-import { interfaceShade } from '../../utils/themes';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Cpu,
@@ -27,6 +26,7 @@ import Input from '../ui/Input';
 import Slider from '../ui/Slider';
 import { useTranslation } from 'react-i18next';
 import type { ParseKeys } from 'i18next';
+import { interfaceShade } from '../../utils/themes';
 import { AppSettings, Invokes, MyLens } from '../ui/AppProperties';
 import {
   conflictingActions,
@@ -792,6 +792,60 @@ export default function SettingsPanel({
                           triggerClassName="bg-bg-primary"
                         />
                       </SettingItem>
+                      <SettingItem
+                        label={t('settings.general.uiScale')}
+                        description={t('settings.general.uiScaleDesc')}
+                      >
+                        <Dropdown
+                          onChange={(value) => onSettingsChange({ ...appSettings, uiScale: Number(value) })}
+                          options={[
+                            { value: '1', label: '100 %' },
+                            { value: '1.12', label: '112 %' },
+                            { value: '1.25', label: '125 %' }
+                          ]}
+                          value={String(appSettings?.uiScale ?? 1)}
+                          triggerClassName="bg-bg-primary"
+                        />
+                      </SettingItem>
+
+                      <SettingItem
+                        label={t('settings.general.developTools')}
+                        description={t('settings.general.developToolsDesc')}
+                      >
+                        <DevelopToolsSide />
+                      </SettingItem>
+
+                      <SettingItem
+                        label={t('settings.general.viewerBackground')}
+                        description={t('settings.general.viewerBackgroundDesc')}
+                      >
+                        <Dropdown
+                          onChange={(value) => onSettingsChange({ ...appSettings, viewerBackground: String(value) })}
+                          options={VIEWER_BACKGROUNDS.map((background) => ({
+                            value: background,
+                            label: viewerBackgroundLabel(background)
+                          }))}
+                          value={resolveViewerBackground(appSettings)}
+                          triggerClassName="bg-bg-primary"
+                        />
+                      </SettingItem>
+
+                      <SettingItem
+                        label={t('settings.general.proofMargin')}
+                        description={t('settings.general.proofMarginDesc')}
+                      >
+                        <Dropdown
+                          onChange={(value) =>
+                            onSettingsChange({ ...appSettings, viewerProofMarginPercent: Number(value) })
+                          }
+                          options={PROOF_MARGIN_PERCENTS.map((percent) => ({
+                            value: String(percent),
+                            label: `${percent} %`
+                          }))}
+                          value={String(appSettings?.viewerProofMarginPercent ?? DEFAULT_PROOF_MARGIN_PERCENT)}
+                          triggerClassName="bg-bg-primary"
+                        />
+                      </SettingItem>
                     </div>
                   </div>
                 </motion.div>
@@ -829,29 +883,6 @@ export default function SettingsPanel({
                       <UpdateSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
                       <CrashReportSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
                       <UsageStatsSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
-
-                      <SettingItem
-                        label={t('settings.general.uiScale')}
-                        description={t('settings.general.uiScaleDesc')}
-                      >
-                        <Dropdown
-                          onChange={(value) => onSettingsChange({ ...appSettings, uiScale: Number(value) })}
-                          options={[
-                            { value: '1', label: '100 %' },
-                            { value: '1.12', label: '112 %' },
-                            { value: '1.25', label: '125 %' }
-                          ]}
-                          value={String(appSettings?.uiScale ?? 1)}
-                          triggerClassName="bg-bg-primary"
-                        />
-                      </SettingItem>
-
-                      <SettingItem
-                        label={t('settings.general.developTools')}
-                        description={t('settings.general.developToolsDesc')}
-                      >
-                        <DevelopToolsSide />
-                      </SettingItem>
 
                       <div className="space-y-4">
                         <SettingItem
@@ -900,38 +931,6 @@ export default function SettingsPanel({
                           )}
                         </AnimatePresence>
                       </div>
-
-                      <SettingItem
-                        label={t('settings.general.viewerBackground')}
-                        description={t('settings.general.viewerBackgroundDesc')}
-                      >
-                        <Dropdown
-                          onChange={(value) => onSettingsChange({ ...appSettings, viewerBackground: String(value) })}
-                          options={VIEWER_BACKGROUNDS.map((background) => ({
-                            value: background,
-                            label: viewerBackgroundLabel(background)
-                          }))}
-                          value={resolveViewerBackground(appSettings)}
-                          triggerClassName="bg-bg-primary"
-                        />
-                      </SettingItem>
-
-                      <SettingItem
-                        label={t('settings.general.proofMargin')}
-                        description={t('settings.general.proofMarginDesc')}
-                      >
-                        <Dropdown
-                          onChange={(value) =>
-                            onSettingsChange({ ...appSettings, viewerProofMarginPercent: Number(value) })
-                          }
-                          options={PROOF_MARGIN_PERCENTS.map((percent) => ({
-                            value: String(percent),
-                            label: `${percent} %`
-                          }))}
-                          value={String(appSettings?.viewerProofMarginPercent ?? DEFAULT_PROOF_MARGIN_PERCENT)}
-                          triggerClassName="bg-bg-primary"
-                        />
-                      </SettingItem>
 
                       <SettingItem
                         label={t('settings.general.autoAdvance')}
