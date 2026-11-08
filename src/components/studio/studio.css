@@ -7378,8 +7378,10 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   display: inline-block;
 }
 
+/* Text/tab toolbars get a second pressed cue without replacing the rings used
+   by colour swatches, level pickers or on-photo handles. */
 :root:is([data-interface-shade='dark-grey'], [data-interface-shade='medium-grey'])
-  :is(.studio-workspace, .studio-controls)
+  :is(.studio-tool-tabs, .studio-viewer-tools, .studio-color-channels, .studio-search-mode, .studio-flag-filters)
   button[aria-pressed='true'] {
   box-shadow: inset 0 -1px 0 var(--studio-shade-accent);
 }
