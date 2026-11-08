@@ -88,10 +88,12 @@ pub(crate) fn serve(request: tauri::http::Request<Vec<u8>>, responder: tauri::Ur
         .then(|| Uuid::parse_str(request.uri().path().trim_start_matches('/')).ok())
         .flatten()
         .and_then(|id| {
-            frames()
+            let main = frames()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .get(id, Instant::now())
+                .get(id, Instant::now());
+            // Else one of the second window's frames (second_window/browser.rs).
+            main.or_else(|| crate::second_window::frame(id))
         });
     let (status, body) = match jpeg {
         Some(jpeg) => (200, jpeg),

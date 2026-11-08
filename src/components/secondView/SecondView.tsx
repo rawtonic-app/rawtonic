@@ -1,6 +1,7 @@
 // The second window's page (second_window.rs): the photograph is drawn
-// natively under this transparent webview; the page only sends the zoom
-// and pan and shows a toolbar that hides while the pointer rests.
+// natively under this transparent webview, or on Linux by the page from
+// JPEG frames (SecondViewFrames.tsx); the page sends the zoom and pan and
+// shows a toolbar that hides while the pointer rests.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -9,9 +10,16 @@ import { useTranslation } from 'react-i18next';
 import { Lock, LockOpen, Maximize, Minimize } from 'lucide-react';
 import clsx from 'clsx';
 import { Invokes } from '../ui/AppProperties';
-import { SECOND_WINDOW_EVENT, closedSecondWindow, type SecondWindowState } from '../../store/useSecondWindowStore';
+import {
+  SECOND_WINDOW_EVENT,
+  SECOND_WINDOW_FRAMES_EVENT,
+  closedSecondWindow,
+  type SecondWindowFrames,
+  type SecondWindowState
+} from '../../store/useSecondWindowStore';
 import { applyInterfaceShade } from '../../utils/themes';
 import { panBy, toggleAt, type Zoom } from './secondViewZoom';
+import SecondViewFrames from './SecondViewFrames';
 
 /** The toolbar hides this long after the pointer last moved. */
 const TOOLBAR_IDLE_MS = 2000;
@@ -29,6 +37,10 @@ function deviceArea(): [number, number] {
   return [window.innerWidth * dpr, window.innerHeight * dpr];
 }
 
+function readLayout(): { area: [number, number]; dpr: number } {
+  return { area: deviceArea(), dpr: window.devicePixelRatio || 1 };
+}
+
 export default function SecondView() {
   const { t } = useTranslation();
   const [state, setState] = useState<SecondWindowState>(closedSecondWindow);
@@ -39,10 +51,55 @@ export default function SecondView() {
   const idleTimer = useRef<number | undefined>(undefined);
   const overToolbar = useRef(false);
   const pending = useRef<number | null>(null);
+  // Where the page draws the photograph: its frames, the zoom it shows at
+  // (set at once while panning, not after the round trip) and its size.
+  const [frames, setFrames] = useState<SecondWindowFrames | null>(null);
+  const [viewZoom, setViewZoom] = useState<Zoom | null>(null);
+  const [layout, setLayout] = useState(readLayout);
 
   useEffect(() => {
     zoomRef.current = state.zoom;
+    // Not while panning: the zoom echoed back would pull the view behind.
+    if (!press.current?.moved && pending.current === null) setViewZoom(state.zoom);
   }, [state.zoom]);
+
+  const pageDraws = state.pageDraws;
+  useEffect(() => {
+    if (!pageDraws) return;
+    void invoke<SecondWindowFrames | null>(Invokes.SecondWindowFrames)
+      .then((current) => current && setFrames(current))
+      .catch(() => {});
+    const unlisten = listen<SecondWindowFrames>(SECOND_WINDOW_FRAMES_EVENT, (event) => setFrames(event.payload));
+    // Laid out again when the window's size or its display's scale
+    // changes (moved to a display of another scale: no resize event).
+    let frame = 0;
+    const refresh = () => {
+      setLayout(readLayout());
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => setLayout(readLayout()));
+    };
+    let media: MediaQueryList | null = null;
+    const onScale = () => {
+      refresh();
+      watchScale();
+    };
+    const watchScale = () => {
+      media?.removeEventListener('change', onScale);
+      media = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      media.addEventListener('change', onScale);
+    };
+    watchScale();
+    window.addEventListener('resize', refresh);
+    const win = getCurrentWindow();
+    const stops = [win.onResized(refresh), win.onScaleChanged(refresh)];
+    return () => {
+      void unlisten.then((stop) => stop());
+      window.removeEventListener('resize', refresh);
+      media?.removeEventListener('change', onScale);
+      cancelAnimationFrame(frame);
+      for (const stop of stops) void stop.then((s) => s());
+    };
+  }, [pageDraws]);
 
   useEffect(() => {
     void invoke<{ language?: string; interfaceShade?: string }>(Invokes.LoadSettings)
@@ -85,6 +142,7 @@ export default function SecondView() {
 
   const sendZoom = useCallback((zoom: Zoom | null) => {
     zoomRef.current = zoom;
+    setViewZoom(zoom);
     // At most one zoom per frame while panning.
     if (pending.current !== null) return;
     pending.current = requestAnimationFrame(() => {
@@ -193,13 +251,25 @@ export default function SecondView() {
 
   return (
     <div
-      className={clsx('relative h-full w-full select-none overflow-hidden', !hasPhoto && 'bg-bg-primary')}
+      className={clsx(
+        'relative h-full w-full select-none overflow-hidden',
+        (!hasPhoto || pageDraws) && 'bg-bg-primary'
+      )}
       style={{ cursor: toolbar || !fullScreen ? cursor : 'none' }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={() => (press.current = null)}
     >
+      {pageDraws && hasPhoto && frames?.path === state.path && (
+        <SecondViewFrames
+          whole={frames.whole}
+          region={frames.region}
+          area={layout.area}
+          zoom={viewZoom}
+          dpr={layout.dpr}
+        />
+      )}
       {!hasPhoto && (
         <div className="flex h-full w-full items-center justify-center text-sm text-text-secondary">
           {t('secondView.empty')}

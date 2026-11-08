@@ -3,25 +3,30 @@
 //! current photograph live with its own Fit / 100 % zoom and pan, or, locked,
 //! keeps showing one photograph while the main window moves on.
 //!
-//! It presents with the same native wgpu path as the main window, on a
-//! surface of its own on the same device: a single multi view cell
-//! (crates/gpu multi_view.rs) fills the window. Each whole frame the main
-//! display binds (`on_live_frame`) is copied into that cell on the GPU, so
-//! every edit shows in both windows at once without developing twice. When
+//! It presents with the same path as the main window. On macOS and Windows
+//! that is the native wgpu display, on a surface of its own on the same
+//! device: a single multi view cell (crates/gpu multi_view.rs) fills the
+//! window. Each whole frame the main display binds (`on_live_frame`) is
+//! copied into that cell on the GPU, so every edit shows in both windows at
+//! once without developing twice. On Linux, where WebKit draws the main
+//! window's previews from JPEG frames, the window's page draws the same
+//! frames (second_window/browser.rs). When
 //! the window needs more pixels than the main frame holds (100 %, or a fit
 //! on a larger display) or the main frame is a tool's view (clipping
 //! warnings), the photograph is developed again for this window once the
 //! edit settles, from the recipe the main frame was rendered with
-//! (multi_view.rs `develop_whole`, `develop_region`). Develop pixels never
-//! cross IPC; the window's webview only sends its zoom and draws its
-//! toolbar over the photograph.
+//! (multi_view.rs `develop_whole`, `develop_region`). With the native
+//! display develop pixels never cross IPC; the window's webview only sends
+//! its zoom and draws its toolbar over the photograph.
 //!
 //! The window's place, size, display, full screen and zoom are kept for the
 //! next start (`second_window.json` in the config folder), and it opens
 //! again when it was open at quit.
 
-// Linux has no native display: the window is never opened there.
-#![cfg_attr(target_os = "linux", allow(dead_code))]
+#[cfg(target_os = "linux")]
+mod browser;
+#[cfg(target_os = "linux")]
+pub(crate) use browser::frame;
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -34,11 +39,18 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
 use crate::gpu_processing::{
-    self, CellExtent, CellLayer, CellZoom, GpuContext, LatestJobSender, LiveFrame, MultiViewCell,
-    WgpuDisplay,
+    self, CellExtent, CellLayer, CellZoom, GpuContext, LatestJobSender, MultiViewCell,
 };
+#[cfg(not(target_os = "linux"))]
+use crate::gpu_processing::{LiveFrame, WgpuDisplay};
 use crate::multi_view::{self, SecondBases, ZoomPayload};
 use crate::state::lock::lock_recover;
+
+/// What shows the photograph: the native display, or on Linux the page.
+#[cfg(not(target_os = "linux"))]
+type View = WgpuDisplay;
+#[cfg(target_os = "linux")]
+type View = browser::BrowserView;
 
 /// The window's label (its webview renders `SecondView` for it).
 pub const LABEL: &str = "second-view";
@@ -78,6 +90,9 @@ pub struct SavedBounds {
 pub struct SecondViewState {
     /// Whether this platform and renderer can show the window at all.
     pub available: bool,
+    /// The page draws the photograph from JPEG frames (Linux; see
+    /// second_window/browser.rs), else the native display under it.
+    pub page_draws: bool,
     pub open: bool,
     pub locked: bool,
     pub path: Option<String>,
@@ -117,7 +132,7 @@ struct Whole {
 
 #[derive(Default)]
 struct Inner {
-    display: Option<WgpuDisplay>,
+    display: Option<View>,
     /// The device `display` presents with; a frame of another (a context
     /// replaced at start) is never copied into it.
     device: Option<Arc<wgpu::Device>>,
@@ -209,19 +224,90 @@ pub(crate) fn note_live(
     });
 }
 
-/// Starts listening to the main display's frames (once, at start-up).
+/// Starts listening to the main display's frames (once, at start-up; on
+/// Linux the preview job hands its frames to [`on_browser_frame`]).
 pub fn install(app_handle: &tauri::AppHandle) {
-    let app = app_handle.clone();
-    gpu_processing::on_live_frame(move |context, frame| on_frame(&app, context, frame));
+    #[cfg(not(target_os = "linux"))]
+    {
+        let app = app_handle.clone();
+        gpu_processing::on_live_frame(move |context, frame| on_frame(&app, context, frame));
+    }
+    #[cfg(target_os = "linux")]
+    let _ = app_handle;
 }
 
-/// The main display bound `frame`: shown here too unless the window is
-/// locked, the frame is the crop tool's uncropped one, or a tool's view.
+/// A whole frame the main window shows, as [`take_live`] needs it.
+struct Offered<'a> {
+    path: &'a str,
+    size: (u32, u32),
+    /// The uncropped crop-editing frame.
+    uncropped: bool,
+    /// A tool's view of the photograph (clipping warnings, the sharpening
+    /// mask), not the photograph itself.
+    tool_view: bool,
+}
+
+/// The main display bound `frame`: shown here too (see [`take_live`]).
+#[cfg(not(target_os = "linux"))]
 fn on_frame(app: &tauri::AppHandle, context: &GpuContext, frame: &LiveFrame) {
+    let Some(path) = frame.path else { return };
+    let offered = Offered {
+        path,
+        size: (frame.width, frame.height),
+        uncropped: frame.uncropped,
+        tool_view: frame.tool_view,
+    };
+    take_live(app, context, offered, |display, key, extent| {
+        display.copy_cell_frame(
+            &context.device,
+            &context.queue,
+            path,
+            frame.texture,
+            (frame.width, frame.height),
+            key,
+            Some(extent),
+        )
+    });
+}
+
+/// Linux: the main window's whole preview frame `jpeg` (`size` px), as
+/// WebKit shows it there; the page shows the same bytes.
+#[cfg(target_os = "linux")]
+pub(crate) fn on_browser_frame(
+    app: &tauri::AppHandle,
+    context: &GpuContext,
+    path: &str,
+    jpeg: &[u8],
+    size: (u32, u32),
+    tool_view: bool,
+) {
     if !is_open() {
         return;
     }
-    let Some(path) = frame.path else { return };
+    let offered = Offered {
+        path,
+        size,
+        uncropped: false,
+        tool_view,
+    };
+    take_live(app, context, offered, |view, key, extent| {
+        view.set_jpeg(path, key, extent, CellLayer::Whole, size, jpeg.to_vec())
+    });
+}
+
+/// Shows the main window's frame here too unless the window is locked, the
+/// frame is the crop tool's uncropped one, or a tool's view; `copy` puts it
+/// into the window's cell (true when it did).
+fn take_live(
+    app: &tauri::AppHandle,
+    context: &GpuContext,
+    frame: Offered,
+    copy: impl FnOnce(&mut View, u64, CellExtent) -> bool,
+) {
+    if !is_open() {
+        return;
+    }
+    let path = frame.path;
     // Only a frame whose recipe is known (the preview job's own): an
     // activation still of the next photograph waits for it.
     let live = lock_recover(&LIVE)
@@ -262,30 +348,22 @@ fn on_frame(app: &tauri::AppHandle, context: &GpuContext, frame: &LiveFrame) {
             return;
         }
         if !frame.tool_view {
+            let (width, height) = frame.size;
             let keep_own = inner.whole.is_some_and(|whole| {
                 whole.own.is_some()
                     && whole.recipe_key == key
                     && u64::from(whole.pixels.0) * u64::from(whole.pixels.1)
-                        >= u64::from(frame.width) * u64::from(frame.height)
+                        >= u64::from(width) * u64::from(height)
             });
             if let Some(display) = inner.display.as_mut() {
-                if !keep_own
-                    && display.copy_cell_frame(
-                        &context.device,
-                        &context.queue,
-                        path,
-                        frame.texture,
-                        (frame.width, frame.height),
-                        key,
-                        Some(CellExtent {
-                            shown: [w, h],
-                            region: None,
-                        }),
-                    )
-                {
+                let extent = CellExtent {
+                    shown: [w, h],
+                    region: None,
+                };
+                if !keep_own && copy(display, key, extent) {
                     inner.whole = Some(Whole {
                         recipe_key: key,
-                        pixels: (frame.width, frame.height),
+                        pixels: frame.size,
                         own: None,
                     });
                 }
@@ -302,8 +380,9 @@ fn on_frame(app: &tauri::AppHandle, context: &GpuContext, frame: &LiveFrame) {
         "[PERF] {}",
         serde_json::json!({
             "stage": "second_window_frame", "ms": started.elapsed().as_secs_f64() * 1e3,
-            "size": [frame.width, frame.height], "interactive": interactive,
+            "size": [frame.size.0, frame.size.1], "interactive": interactive,
             "tool_view": frame.tool_view, "uncropped": frame.uncropped,
+            "epoch_ms": crate::performance::epoch_ms(),
         })
     );
     if changed {
@@ -314,12 +393,17 @@ fn on_frame(app: &tauri::AppHandle, context: &GpuContext, frame: &LiveFrame) {
     }
 }
 
+/// The recipe tag and extent of the zoomed region the window shows of `path`.
+fn region_of(display: &View, path: &str) -> Option<(u64, CellExtent)> {
+    #[cfg(not(target_os = "linux"))]
+    return display.multi_view().region_of(path);
+    #[cfg(target_os = "linux")]
+    return display.region_of(path);
+}
+
 /// Whether the cell's zoomed region was developed from the recipe `key`.
-fn region_is_of(display: &WgpuDisplay, path: &str, key: u64) -> bool {
-    display
-        .multi_view()
-        .region_of(path)
-        .is_some_and(|(region_key, _)| region_key == region_recipe_tag(key))
+fn region_is_of(display: &View, path: &str, key: u64) -> bool {
+    region_of(display, path).is_some_and(|(region_key, _)| region_key == region_recipe_tag(key))
 }
 
 /// The tag a region developed from recipe `key` is kept under: what
@@ -378,10 +462,69 @@ fn set_photo(
     !same_photo || size_changed
 }
 
-fn paint(display: &mut WgpuDisplay, context: &GpuContext, background: [f32; 4]) {
-    display.latest_transform.bg_primary = background;
-    display.latest_transform.bg_secondary = background;
-    display.render(&context.device, &context.queue);
+fn paint(display: &mut View, context: &GpuContext, background: [f32; 4]) {
+    #[cfg(not(target_os = "linux"))]
+    {
+        display.latest_transform.bg_primary = background;
+        display.latest_transform.bg_secondary = background;
+        display.render(&context.device, &context.queue);
+    }
+    // The page draws on the interface's background.
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (context, background);
+        display.render();
+    }
+}
+
+/// A frame developed for the window, made ready for its view outside the
+/// window's lock: the pixels for the native display, a JPEG for the page.
+#[cfg(not(target_os = "linux"))]
+type Prepared<'a> = &'a image::RgbaImage;
+#[cfg(target_os = "linux")]
+type Prepared<'a> = Result<Vec<u8>, String>;
+
+fn prepare(rgba: &image::RgbaImage) -> Prepared<'_> {
+    #[cfg(not(target_os = "linux"))]
+    return rgba;
+    #[cfg(target_os = "linux")]
+    return browser::encode(rgba);
+}
+
+/// Puts a developed frame (`size` px) into the window's cell as `layer`.
+#[allow(clippy::too_many_arguments)]
+fn upload(
+    display: &mut View,
+    context: &GpuContext,
+    path: &str,
+    key: u64,
+    extent: CellExtent,
+    layer: CellLayer,
+    size: (u32, u32),
+    frame: Prepared,
+) {
+    #[cfg(not(target_os = "linux"))]
+    display.upload_cell(
+        &context.device,
+        &context.queue,
+        path,
+        key,
+        extent,
+        layer,
+        size.0,
+        size.1,
+        frame.as_raw(),
+    );
+    #[cfg(target_os = "linux")]
+    {
+        let _ = context;
+        match frame {
+            Ok(jpeg) => {
+                display.set_jpeg(path, key, extent, layer, size, jpeg);
+            }
+            Err(error) => log::warn!("[second_window] {path}: not encoded: {error}"),
+        }
+    }
 }
 
 /// What the window wants developed for itself, worked out on the worker.
@@ -454,9 +597,7 @@ fn want(inner: &Inner) -> Option<Want> {
     }
     let zoom = inner.zoom?;
     let size = shown.shown?;
-    let current = display
-        .multi_view()
-        .region_of(&shown.path)
+    let current = region_of(display, &shown.path)
         .filter(|(key, _)| *key == region_recipe_tag(shown.recipe_key))
         .and_then(|(_, extent)| extent.region)
         .is_some_and(|region| {
@@ -502,6 +643,7 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
             ) {
                 Ok(developed) => {
                     let mut changed = false;
+                    let frame = prepare(&developed.rgba);
                     {
                         let mut guard = lock_recover(&INNER);
                         let Some(inner) = guard.as_mut() else { return };
@@ -520,16 +662,15 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                         }
                         let background = inner.background;
                         if let Some(display) = inner.display.as_mut() {
-                            display.upload_cell(
-                                &context.device,
-                                &context.queue,
+                            upload(
+                                display,
+                                &context,
                                 &path,
                                 developed.key,
                                 developed.extent,
                                 CellLayer::Whole,
-                                developed.rgba.width(),
-                                developed.rgba.height(),
-                                developed.rgba.as_raw(),
+                                developed.rgba.dimensions(),
+                                frame,
                             );
                             paint(display, &context, background);
                         }
@@ -568,6 +709,7 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                 tag,
             ) {
                 Ok(region) => {
+                    let frame = prepare(&region.rgba);
                     let mut guard = lock_recover(&INNER);
                     let Some(inner) = guard.as_mut() else { return };
                     if !inner
@@ -580,16 +722,15 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                     }
                     let background = inner.background;
                     if let Some(display) = inner.display.as_mut() {
-                        display.upload_cell(
-                            &context.device,
-                            &context.queue,
+                        upload(
+                            display,
+                            &context,
                             &path,
                             region.key,
                             region.extent,
                             CellLayer::Region,
-                            region.rgba.width(),
-                            region.rgba.height(),
-                            region.rgba.as_raw(),
+                            region.rgba.dimensions(),
+                            frame,
                         );
                         paint(display, &context, background);
                     }
@@ -616,11 +757,12 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
     let _ = started;
 }
 
-/// Whether this build and platform can show the window: it presents with
-/// the native display, which Linux and the browser renderer do not have.
+/// Whether this build and platform can show the window: with the native
+/// display (not with the browser renderer chosen in Preferences), or on
+/// Linux, where the page draws the main window's frames.
 fn available(app_handle: &tauri::AppHandle) -> bool {
-    cfg!(not(target_os = "linux"))
-        && crate::state::settings::current(app_handle)
+    cfg!(target_os = "linux")
+        || crate::state::settings::current(app_handle)
             .use_wgpu_renderer
             .unwrap_or(true)
 }
@@ -630,6 +772,7 @@ fn state_of(app_handle: &tauri::AppHandle) -> SecondViewState {
     let inner = guard.as_ref();
     SecondViewState {
         available: available(app_handle),
+        page_draws: cfg!(target_os = "linux"),
         open: is_open(),
         locked: inner.is_some_and(|i| i.locked),
         path: inner.and_then(|i| i.shown.as_ref().map(|s| s.path.clone())),
@@ -748,7 +891,6 @@ pub(crate) fn placement(
 // ---------------------------------------------------------------- window
 
 /// A display's bounds in logical px (its own scale).
-#[cfg(not(target_os = "linux"))]
 fn monitor_bounds(monitor: &tauri::Monitor) -> crate::startup::MonitorBounds {
     let scale = monitor.scale_factor();
     let position = monitor.position().to_logical::<f64>(scale);
@@ -763,17 +905,6 @@ fn monitor_bounds(monitor: &tauri::Monitor) -> crate::startup::MonitorBounds {
 
 /// Opens the window (or brings it to the front).
 async fn open_window(app_handle: &tauri::AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "linux")]
-    {
-        let _ = app_handle;
-        Err("The second window needs the native display, which Linux does not have".into())
-    }
-    #[cfg(not(target_os = "linux"))]
-    open_native(app_handle).await
-}
-
-#[cfg(not(target_os = "linux"))]
-async fn open_native(app_handle: &tauri::AppHandle) -> Result<(), String> {
     if !available(app_handle) {
         return Err("The second window needs the native display renderer".into());
     }
@@ -782,7 +913,6 @@ async fn open_native(app_handle: &tauri::AppHandle) -> Result<(), String> {
         let _ = window.set_focus();
         return Ok(());
     }
-    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let context = {
         let app = app_handle.clone();
         tauri::async_runtime::spawn_blocking(move || {
@@ -791,9 +921,6 @@ async fn open_native(app_handle: &tauri::AppHandle) -> Result<(), String> {
         })
         .await
         .map_err(|e| e.to_string())??
-    };
-    let Some((instance, adapter)) = lock_recover(&gpu.adapter).clone() else {
-        return Err("No GPU adapter".into());
     };
 
     let saved_state = saved(app_handle);
@@ -817,9 +944,13 @@ async fn open_native(app_handle: &tauri::AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("index.html".into()),
     )
     .title("Rawtonic — Second Window")
-    .transparent(true)
     .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
     .visible(false);
+    // The native display draws under the page; on Linux the page draws.
+    #[cfg(not(target_os = "linux"))]
+    {
+        builder = builder.transparent(true);
+    }
     #[cfg(target_os = "macos")]
     {
         builder = builder.title_bar_style(tauri::TitleBarStyle::Visible);
@@ -828,6 +959,7 @@ async fn open_native(app_handle: &tauri::AppHandle) -> Result<(), String> {
         builder = builder.inner_size(1280.0, 800.0).center();
     }
     let window = builder.build().map_err(|e| e.to_string())?;
+    // (Ignored where the system places windows itself: Wayland.)
     if let Some(bounds) = bounds {
         let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
             f64::from(bounds.width),
@@ -839,6 +971,53 @@ async fn open_native(app_handle: &tauri::AppHandle) -> Result<(), String> {
         )));
     }
 
+    let display = match make_view(app_handle, &context, &window).await {
+        Ok(display) => display,
+        Err(error) => {
+            let _ = window.destroy();
+            return Err(error);
+        }
+    };
+    let size = window
+        .inner_size()
+        .unwrap_or(tauri::PhysicalSize::new(1280, 800));
+    {
+        let mut guard = lock_recover(&INNER);
+        *guard = Some(Inner {
+            display: Some(display),
+            device: Some(Arc::clone(&context.device)),
+            area: [0.0, 0.0, size.width as f32, size.height as f32],
+            zoom: saved_state.actual_size.then_some(CellZoom {
+                scale: 1.0,
+                center: [0.5, 0.5],
+            }),
+            background: main_background(&context).unwrap_or([0.094, 0.094, 0.094, 1.0]),
+            ..Inner::default()
+        });
+    }
+    OPEN.store(true, Ordering::SeqCst);
+    let _ = window.show();
+    if saved_state.fullscreen {
+        full_screen_again(&window, saved_state.bounds);
+    }
+    update_saved(app_handle, |s| s.open = true);
+    note_bounds(app_handle, &window);
+    show_current(app_handle, &context);
+    emit_state(app_handle);
+    Ok(())
+}
+
+/// The window's own wgpu surface on the main window's device.
+#[cfg(not(target_os = "linux"))]
+async fn make_view(
+    app_handle: &tauri::AppHandle,
+    context: &GpuContext,
+    window: &tauri::WebviewWindow,
+) -> Result<View, String> {
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let Some((instance, adapter)) = lock_recover(&gpu.adapter).clone() else {
+        return Err("No GPU adapter".into());
+    };
     // The surface is made on the main thread (AppKit's view and layer).
     let (send, receive) = std::sync::mpsc::channel();
     {
@@ -859,20 +1038,13 @@ async fn open_native(app_handle: &tauri::AppHandle) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
     }
-    let display = tauri::async_runtime::spawn_blocking(move || {
+    let mut display = tauri::async_runtime::spawn_blocking(move || {
         receive
             .recv_timeout(Duration::from_secs(10))
             .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())??;
-    let mut display = match display {
-        Ok(display) => display,
-        Err(error) => {
-            let _ = window.destroy();
-            return Err(error);
-        }
-    };
+    .map_err(|e| e.to_string())???;
     // Placed and sized after the surface was configured, or meanwhile.
     let size = window
         .inner_size()
@@ -880,30 +1052,17 @@ async fn open_native(app_handle: &tauri::AppHandle) -> Result<(), String> {
     if (display.config.width, display.config.height) != (size.width.max(1), size.height.max(1)) {
         display.resize(&context.device, &context.queue, size.width, size.height);
     }
-    {
-        let mut guard = lock_recover(&INNER);
-        *guard = Some(Inner {
-            display: Some(display),
-            device: Some(Arc::clone(&context.device)),
-            area: [0.0, 0.0, size.width as f32, size.height as f32],
-            zoom: saved_state.actual_size.then_some(CellZoom {
-                scale: 1.0,
-                center: [0.5, 0.5],
-            }),
-            background: main_background(&context).unwrap_or([0.094, 0.094, 0.094, 1.0]),
-            ..Inner::default()
-        });
-    }
-    OPEN.store(true, Ordering::SeqCst);
-    let _ = window.show();
-    if saved_state.fullscreen {
-        let _ = crate::window_customizer::set_window_full_screen(window.clone(), true);
-    }
-    update_saved(app_handle, |s| s.open = true);
-    note_bounds(app_handle, &window);
-    show_current(app_handle, &context);
-    emit_state(app_handle);
-    Ok(())
+    Ok(display)
+}
+
+/// Linux: the page draws the frames.
+#[cfg(target_os = "linux")]
+async fn make_view(
+    app_handle: &tauri::AppHandle,
+    _context: &GpuContext,
+    _window: &tauri::WebviewWindow,
+) -> Result<View, String> {
+    Ok(browser::BrowserView::new(app_handle))
 }
 
 /// Fills a newly opened or unlocked window with the main window's current
@@ -1026,9 +1185,15 @@ pub(crate) fn resized(
                     );
                     display.set_multi_view_zoom(zoom);
                 }
-                display.latest_transform.bg_primary = background;
-                display.latest_transform.bg_secondary = background;
-                display.resize(&context.device, &context.queue, width, height);
+                #[cfg(not(target_os = "linux"))]
+                {
+                    display.latest_transform.bg_primary = background;
+                    display.latest_transform.bg_secondary = background;
+                    display.resize(&context.device, &context.queue, width, height);
+                }
+                // The page lays the frames out at its own size.
+                #[cfg(target_os = "linux")]
+                let _ = (display, background);
             }
         }
         schedule(&app);
@@ -1055,13 +1220,29 @@ pub(crate) fn repaint(app_handle: &tauri::AppHandle) {
     });
 }
 
+/// Whether the windowing system lets no window know or choose its place
+/// (Wayland): only the display a window is on is known, and a window goes
+/// full screen on a display it names.
+fn places_windows_itself() -> bool {
+    #[cfg(target_os = "linux")]
+    return crate::startup::gtk_uses_wayland(|name| std::env::var(name).ok());
+    #[cfg(not(target_os = "linux"))]
+    false
+}
+
 /// Keeps the window's place and size (not while full screen or minimised:
-/// it returns to the frame it had) and whether it is full screen.
+/// it returns to the frame it had) and whether it is full screen. Where
+/// the system places windows itself, the place kept is the top left of the
+/// display the window is on, also while full screen.
 pub(crate) fn note_bounds(app_handle: &tauri::AppHandle, window: &tauri::WebviewWindow) {
     if !is_open() || window.is_minimized().unwrap_or(false) {
         return;
     }
     let fullscreen = window.is_fullscreen().unwrap_or(false);
+    let display = places_windows_itself()
+        .then(|| window.current_monitor().ok().flatten())
+        .flatten()
+        .map(|monitor| monitor_bounds(&monitor));
     let bounds = match (
         window.outer_position(),
         window.inner_size(),
@@ -1071,8 +1252,8 @@ pub(crate) fn note_bounds(app_handle: &tauri::AppHandle, window: &tauri::Webview
             let p = p.to_logical::<f64>(scale);
             let s = s.to_logical::<f64>(scale);
             Some(SavedBounds {
-                x: p.x.round() as i32,
-                y: p.y.round() as i32,
+                x: display.map_or(p.x.round() as i32, |d| d.x),
+                y: display.map_or(p.y.round() as i32, |d| d.y),
                 width: s.width.round() as u32,
                 height: s.height.round() as u32,
             })
@@ -1083,8 +1264,31 @@ pub(crate) fn note_bounds(app_handle: &tauri::AppHandle, window: &tauri::Webview
         saved.fullscreen = fullscreen;
         if bounds.is_some() {
             saved.bounds = bounds;
+        } else if let (Some(d), Some(b)) = (display, saved.bounds.as_mut()) {
+            (b.x, b.y) = (d.x, d.y);
         }
     });
+}
+
+/// Full screen again on the display it was on.
+fn full_screen_again(window: &tauri::WebviewWindow, bounds: Option<SavedBounds>) {
+    // Where windows cannot be placed, it goes full screen on the display
+    // it is put on (the main window's, often) unless that display is named.
+    let display = bounds.filter(|_| places_windows_itself()).and_then(|b| {
+        window.available_monitors().ok()?.into_iter().find(|m| {
+            let d = monitor_bounds(m);
+            (d.x, d.y) == (b.x, b.y)
+        })
+    });
+    let done = match display {
+        Some(monitor) => window
+            .set_fullscreen_on_monitor(monitor.position().cast())
+            .is_ok(),
+        None => false,
+    };
+    if !done {
+        let _ = crate::window_customizer::set_window_full_screen(window.clone(), true);
+    }
 }
 
 /// Opens it again at start-up when it was open at quit.
@@ -1181,6 +1385,17 @@ pub(crate) async fn second_window_set_zoom(
     .map_err(|e| e.to_string())
 }
 
+/// Linux: the frames the page draws now (it asks once when it loads, then
+/// follows `second-window-frames`); None elsewhere (the native display
+/// draws).
+#[tauri::command]
+pub(crate) async fn second_window_frames() -> Option<serde_json::Value> {
+    #[cfg(target_os = "linux")]
+    return browser::current().and_then(|frames| serde_json::to_value(frames).ok());
+    #[cfg(not(target_os = "linux"))]
+    None
+}
+
 /// The main window's photograph while it shows no live preview (the
 /// Library): developed here from its stored recipe.
 #[tauri::command]
@@ -1247,6 +1462,7 @@ mod tests {
     fn the_state_the_webview_reads_is_camel_case() {
         let state = SecondViewState {
             available: true,
+            page_draws: true,
             open: true,
             locked: true,
             path: Some("a".into()),
@@ -1260,7 +1476,7 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "available": true, "open": true, "locked": true, "path": "a",
+                "available": true, "pageDraws": true, "open": true, "locked": true, "path": "a",
                 "shown": [6000.0, 4000.0], "zoom": {"scale": 1.0, "center": [0.5, 0.5]}
             })
         );

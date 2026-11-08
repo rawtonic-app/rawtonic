@@ -463,6 +463,21 @@ pub(crate) fn process_alive(pid: u32) -> bool {
     }
 }
 
+/// Whether GTK runs on Wayland (else X11 or XWayland): it takes the first
+/// backend it can open from GDK_BACKEND.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn gtk_uses_wayland(env: impl Fn(&str) -> Option<String>) -> bool {
+    match env("GDK_BACKEND").and_then(|list| {
+        list.split(',')
+            .map(str::trim)
+            .find(|b| !b.is_empty() && *b != "*")
+            .map(str::to_owned)
+    }) {
+        Some(backend) => backend == "wayland",
+        None => env("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty()),
+    }
+}
+
 /// Whether to set `WEBKIT_FORCE_DMABUF_RENDERER=1` before the webview exists.
 ///
 /// WebKitGTK up to at least 2.50 (the AppImage's) turns its DMA-BUF renderer
@@ -488,16 +503,7 @@ pub(crate) fn force_webkit_dmabuf_renderer(
     if compatibility_mode || USER_CHOICES.iter().any(|name| env(name).is_some()) {
         return false;
     }
-    // GTK takes the first backend it can open from GDK_BACKEND.
-    let wayland = match env("GDK_BACKEND").and_then(|list| {
-        list.split(',')
-            .map(str::trim)
-            .find(|b| !b.is_empty() && *b != "*")
-            .map(str::to_owned)
-    }) {
-        Some(backend) => backend == "wayland",
-        None => env("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty()),
-    };
+    let wayland = gtk_uses_wayland(&env);
     let explicit_sync = nvidia_driver
         .and_then(|version| version.trim().split('.').next()?.parse::<u32>().ok())
         .is_some_and(|major| major >= 555);

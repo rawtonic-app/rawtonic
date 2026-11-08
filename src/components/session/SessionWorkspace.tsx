@@ -1,6 +1,7 @@
 import { buildComboMap, normalizeCombo } from '../../utils/keyboardUtils';
 import { withMovedLibrary, withRecentLibrary } from '../../utils/recentLibraries';
 import { validNamingTemplate, validSequenceStart, type NamePreview } from '../../utils/namingTemplates';
+import { INGEST_RESIZE_EDGES, useIngestDialogSize } from './useIngestDialogSize';
 import NamingEditor from '../ui/NamingEditor';
 import LibraryTransferDialog, { type TransferPurpose } from './LibraryTransferDialog';
 import CatalogExportDialog from './CatalogExportDialog';
@@ -26,6 +27,8 @@ import {
   FolderSync,
   FolderPlus as FolderAdd,
   MemoryStick,
+  Maximize2,
+  Minimize2,
   HardDrive,
   Import,
   RefreshCcw,
@@ -518,6 +521,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
+  const ingestSize = useIngestDialogSize();
   const restored = useRef(false);
   const summaryRequest = useRef(0);
   const imageList = useLibraryStore((s) => s.imageList);
@@ -2104,6 +2108,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       )}
       <dialog
         ref={dialog}
+        style={form === 'ingest' ? ingestSize.style : undefined}
         className={`session-dialog ${form === 'ingest' ? 'session-ingest-dialog' : ''}`}
         onCancel={(e) => {
           if (busy) e.preventDefault();
@@ -2115,7 +2120,22 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         }}
         aria-labelledby="session-dialog-title"
       >
-        <div className="session-dialog-header">
+        {form === 'ingest' &&
+          !ingestSize.size.maximized &&
+          INGEST_RESIZE_EDGES.map((edge) => (
+            <div
+              key={edge}
+              aria-hidden
+              className={`ingest-resize ingest-resize-${edge}`}
+              onPointerDown={(e) => ingestSize.start(e, edge)}
+            />
+          ))}
+        <div
+          className="session-dialog-header"
+          onDoubleClick={(e) => {
+            if (form === 'ingest' && !(e.target as HTMLElement).closest('button')) ingestSize.toggle();
+          }}
+        >
           <div>
             <h2 id="session-dialog-title">
               {form === 'create'
@@ -2140,6 +2160,17 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                     : t('session.ingest.subtitle')}
             </p>
           </div>
+          {form === 'ingest' && (
+            <button
+              type="button"
+              className="session-icon-button"
+              title={t(ingestSize.size.maximized ? 'session.dialogs.restore' : 'session.dialogs.maximize')}
+              aria-label={t(ingestSize.size.maximized ? 'session.dialogs.restore' : 'session.dialogs.maximize')}
+              onClick={ingestSize.toggle}
+            >
+              {ingestSize.size.maximized ? <Minimize2 size={19} /> : <Maximize2 size={19} />}
+            </button>
+          )}
           <button
             className="session-icon-button"
             aria-label={t('session.dialogs.close')}
