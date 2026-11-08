@@ -14,8 +14,14 @@ weights tensor by tensor.
 ## Policy
 
 - A model ships only when its authors grant a license for the weights that
-  allows redistribution and commercial use (Apache-2.0, MIT, BSD, or GPL-3.0
-  for AGPL compatibility). A tag on a third-party mirror is not enough.
+  allows redistribution and commercial use (Apache-2.0, MIT, BSD, GPL-3.0
+  for AGPL compatibility, or plain CC BY 4.0 — no NC, ND or SA variants).
+  A tag on a third-party mirror is not enough.
+- CC BY 4.0 weights (decision 2026-11-08): the author, source and license are
+  credited in About, `THIRD_PARTY_NOTICES.md` and this file; a converted file
+  (ONNX, Core ML, quantised) is marked as changed from the author's release;
+  no additional restrictions are placed on the weights. Photos developed with
+  a model need no credit (the output is not the licensed material).
 - Training-data terms (research-only datasets such as Places365, ADE20K or
   SA-1B) are recorded as a residual risk; no model in the field is free of
   it, Adobe Firefly excepted.
