@@ -1397,7 +1397,7 @@
   white-space: nowrap;
 }
 .studio-layer.is-hidden .studio-layer-label {
-  color: var(--studio-shade-dim, #868a90);
+  color: var(--studio-shade-text, #868a90);
 }
 /* Solo (view only): the shown layer's eye in accent, the others dimmed. */
 .studio-layer.is-solo .studio-layer-eye,
@@ -1406,7 +1406,7 @@
 }
 .studio-layer.is-solo-muted .studio-layer-label,
 .studio-mask-component.is-solo-muted .studio-mask-component-label {
-  color: var(--studio-shade-dim, #868a90);
+  color: var(--studio-shade-text, #868a90);
 }
 .studio-layer.is-solo-muted .studio-mask-thumb > img,
 .studio-mask-component.is-solo-muted .studio-mask-thumb > img {
@@ -1573,7 +1573,7 @@
   color: var(--studio-shade-text, #f1f5f8);
 }
 .studio-mask-component.is-hidden .studio-mask-component-label {
-  color: var(--studio-shade-dim, #868a90);
+  color: var(--studio-shade-text, #868a90);
 }
 /* How the component combines with the ones above it: +, −, ∩. */
 .studio-mask-component .studio-mask-mode {
@@ -2714,7 +2714,7 @@
   white-space: nowrap;
 }
 .studio-muted {
-  color: var(--studio-shade-dim, #848a92);
+  color: var(--studio-shade-muted, #848a92);
 }
 .studio-tool-dialog {
   position: fixed;
@@ -7359,4 +7359,22 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   left: 0;
   top: 0;
   pointer-events: none;
+}
+
+/* Coordinator decision 2026-11-08: hidden/solo-muted labels are readable, selectable information. The
+   shade decision keeps AA text and conveys state with type and an eye cue;
+   the low-contrast dim tier is reserved for genuinely disabled controls. */
+.studio-solo-muted-indicator {
+  display: none;
+}
+:root:is([data-interface-shade='dark-grey'], [data-interface-shade='medium-grey'])
+  :is(.studio-layer.is-hidden, .studio-layer.is-solo-muted)
+  .studio-layer-label,
+:root:is([data-interface-shade='dark-grey'], [data-interface-shade='medium-grey'])
+  :is(.studio-mask-component.is-hidden, .studio-mask-component.is-solo-muted)
+  .studio-mask-component-label {
+  font-style: italic;
+}
+:root:is([data-interface-shade='dark-grey'], [data-interface-shade='medium-grey']) .studio-solo-muted-indicator {
+  display: inline-block;
 }

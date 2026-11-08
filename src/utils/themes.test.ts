@@ -91,15 +91,19 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
     if (shade !== 'darkest')
       it('preserves disabled/dim hierarchy and recognisable semantic hues', () => {
         const studio = readFileSync('src/components/studio/studio.css', 'utf8') as string;
-        for (const selector of [
-          '.rawtonic-menu-item.is-disabled',
-          '.studio-layer.is-hidden .studio-layer-label',
-          '.studio-mask-component.is-hidden .studio-mask-component-label',
-          '.studio-preset-amount.is-idle'
-        ]) {
+        for (const selector of ['.rawtonic-menu-item.is-disabled', '.studio-preset-amount.is-idle']) {
           const block = studio.slice(studio.indexOf(`${selector} {`)).split('}')[0];
           const role = block.match(/color: var\((--[\w-]+),/)![1];
           expect(contrast(palette['--studio-shade-text'], palette[role]), selector).toBeGreaterThanOrEqual(2);
+        }
+        for (const selector of [
+          '.studio-layer.is-hidden .studio-layer-label',
+          '.studio-mask-component.is-hidden .studio-mask-component-label'
+        ]) {
+          const block = studio.slice(studio.indexOf(`${selector} {`)).split('}')[0];
+          const role = block.match(/color: var\((--[\w-]+),/)![1];
+          for (const bg of ['bg', 'raised', 'hover'])
+            expect(contrast(palette[role], palette[`--studio-shade-${bg}`]), selector).toBeGreaterThanOrEqual(4.5);
         }
         expect(contrast(palette['--studio-shade-text'], palette['--studio-shade-dim'])).toBeGreaterThanOrEqual(2);
         expect(contrast(palette['--studio-shade-text'], palette['--studio-shade-line'])).toBeGreaterThanOrEqual(1.5);

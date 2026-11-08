@@ -564,6 +564,9 @@ export default function StudioLayers({
                     icon={Icon}
                     busy={mask.subMasks.some((sub) => Boolean(aiTasks[sub.id]))}
                   />
+                  {mask.visible && layerSolo && layerSolo.layerId !== mask.id && (
+                    <EyeOff className="studio-solo-muted-indicator" size={11} aria-hidden="true" />
+                  )}
                   {renaming !== mask.id && <span className="studio-layer-label">{mask.name}</span>}
                   {unrendered && (
                     <span

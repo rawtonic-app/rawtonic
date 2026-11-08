@@ -123,6 +123,8 @@ describe('layer solo (view only)', () => {
     expect(screen.getByText('Showing only Person')).toBeTruthy();
     expect(document.querySelector('[data-layer-row="l2"]')!.classList.contains('is-solo')).toBe(true);
     expect(document.querySelector('[data-layer-row="l1"]')!.classList.contains('is-solo-muted')).toBe(true);
+    expect(document.querySelector('[data-layer-row="l1"] .studio-solo-muted-indicator')).not.toBeNull();
+    expect(document.querySelector('[data-layer-row="l2"] .studio-solo-muted-indicator')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Select Vignette' }));
     expect(useEditorStore.getState().layerSolo).toEqual({ layerId: 'l1', componentId: null });
     fireEvent.click(screen.getByText('Show all'));
