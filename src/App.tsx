@@ -80,6 +80,7 @@ import { useProductivityActions } from './hooks/useProductivityActions';
 import { useVirtualCopyCommand } from './hooks/useVirtualCopyCommand';
 
 import { useAppInitialization } from './hooks/useAppInitialization';
+import { useSecondWindow } from './hooks/useSecondWindow';
 import './i18n';
 
 import {
@@ -465,6 +466,7 @@ function App() {
 
   useAppLevelCommands();
   useAppMenu();
+  useSecondWindow();
   useKeyboardShortcuts({
     sortedImageList,
     handleBackToLibrary,

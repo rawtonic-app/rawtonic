@@ -341,6 +341,7 @@
       "toggle_pointer_readout": "Odczyt RGB pod wskaźnikiem",
       "toggle_proof_margin": "Margines próby",
       "toggle_right_panel": "Prawy panel",
+      "toggle_second_window": "Drugie okno",
       "toggle_side_panels": "Panele boczne",
       "toggle_soft_proof": "Próbny wydruk ekranowy",
       "toggle_split_view": "Przed/po",
@@ -1578,6 +1579,20 @@
     "widthMm": "Szerokość (mm)",
     "writes": "Zapisuje „{{name}}”"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Otwórz zdjęcie w oknie głównym, aby je tu pokazać.",
+    "exitFullScreen": "Zamknij pełny ekran (Esc)",
+    "fit": "Dopasuj",
+    "fullScreen": "Pełny ekran (F)",
+    "lock": "Zablokuj",
+    "locked": "Zablokowane",
+    "lockHint": "Pokazuj to zdjęcie, gdy okno główne przechodzi dalej (L)",
+    "toolbar": "Drugie okno",
+    "unlockHint": "Znów podążaj za oknem głównym (L)",
+    "windowTitle": "{{name}} — Drugie okno",
+    "windowTitleEmpty": "Drugie okno"
+  },
   "session": {
     "addFolder": {
       "add_one": "Dodaj {{count}} zdjęcie",
@@ -2673,6 +2688,7 @@
         "toggle_pointer_readout": "Przełącz odczyt RGB pod wskaźnikiem",
         "toggle_proof_margin": "Przełącz margines podglądu",
         "toggle_right_panel": "Przełącz prawy panel",
+        "toggle_second_window": "Drugie okno: zdjęcie na żywo na innym ekranie",
         "toggle_side_panels": "Ukryj lub pokaż panele boczne",
         "toggle_soft_proof": "Przełącz próbę kolorów na ekranie",
         "toggle_split_view": "Przed/Po (widok dzielony)",

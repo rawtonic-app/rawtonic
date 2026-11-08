@@ -203,12 +203,12 @@ pub(crate) fn frontend_log(level: String, message: String) -> Result<(), String>
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct MonitorBounds {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
+    pub(crate) x: i32,
+    pub(crate) y: i32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
 }
 
 pub(crate) fn saved_window_state_is_usable(
@@ -218,15 +218,26 @@ pub(crate) fn saved_window_state_is_usable(
     if state.width < 800 || state.height < 600 {
         return false;
     }
+    overlaps_a_monitor(state.x, state.y, state.width, state.height, monitors)
+}
 
+/// Whether a window at `x`, `y` of `width` × `height` (physical px) shows
+/// at least 100 × 100 px on one of `monitors` (none known: assumed so).
+pub(crate) fn overlaps_a_monitor(
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    monitors: &[MonitorBounds],
+) -> bool {
     if monitors.is_empty() {
         return true;
     }
 
-    let window_left = state.x as i64;
-    let window_top = state.y as i64;
-    let window_right = window_left + state.width as i64;
-    let window_bottom = window_top + state.height as i64;
+    let window_left = x as i64;
+    let window_top = y as i64;
+    let window_right = window_left + width as i64;
+    let window_bottom = window_top + height as i64;
 
     monitors.iter().any(|monitor| {
         let monitor_left = monitor.x as i64;

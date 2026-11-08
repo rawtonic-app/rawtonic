@@ -1,3 +1,5 @@
+import { useSecondWindowStore } from '../store/useSecondWindowStore';
+import { toggleSecondWindow } from './useSecondWindow';
 import { useCallback, useEffect, useRef } from 'react';
 import { notify } from '../activity/notify';
 import i18n from 'i18next';
@@ -124,6 +126,7 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_split_view: (s) => !!s.editor.splitView,
   toggle_original: (s) => !!s.editor.showOriginal,
   toggle_multi_view: () => useMultiViewStore.getState().active,
+  toggle_second_window: () => useSecondWindowStore.getState().state.open,
   toggle_clipping: (s) => !!s.editor.clipHighlights || !!s.editor.clipShadows,
   toggle_soft_proof: (s) => !!s.editor.softProof,
   // Checked only while the camera JPEG is on screen (`enabled` says
@@ -681,6 +684,14 @@ export const useKeyboardShortcuts = ({
           // Held down: one request, not one per key repeat.
           if (e.repeat) return;
           void runAutoStraighten(handleAutoStraighten);
+        }
+      },
+      toggle_second_window: {
+        shouldFire: () => useSecondWindowStore.getState().state.available,
+        execute: (e) => {
+          e.preventDefault();
+          if (e.repeat) return;
+          toggleSecondWindow();
         }
       },
       toggle_fullscreen: {

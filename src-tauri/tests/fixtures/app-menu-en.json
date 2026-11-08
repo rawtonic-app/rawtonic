@@ -759,6 +759,16 @@
           "kind": "separator"
         },
         {
+          "kind": "item",
+          "id": "cmd:toggle_second_window",
+          "label": "Second Window",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "separator"
+        },
+        {
           "kind": "native",
           "role": "fullscreen",
           "label": "Enter Full Screen"

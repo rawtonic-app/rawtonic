@@ -341,6 +341,7 @@
       "toggle_pointer_readout": "RGB под указателем",
       "toggle_proof_margin": "Поле цветопробы",
       "toggle_right_panel": "Правая панель",
+      "toggle_second_window": "Второе окно",
       "toggle_side_panels": "Боковые панели",
       "toggle_soft_proof": "Экранная цветопроба",
       "toggle_split_view": "До/после",
@@ -1578,6 +1579,20 @@
     "widthMm": "Ширина (мм)",
     "writes": "Записывает «{{name}}»"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Откройте фото в главном окне, чтобы показать его здесь.",
+    "exitFullScreen": "Выйти из полноэкранного режима (Esc)",
+    "fit": "Вписать",
+    "fullScreen": "Полный экран (F)",
+    "lock": "Закрепить",
+    "locked": "Закреплено",
+    "lockHint": "Показывать это фото, пока главное окно переходит дальше (L)",
+    "toolbar": "Второе окно",
+    "unlockHint": "Снова следовать за главным окном (L)",
+    "windowTitle": "{{name}} — Второе окно",
+    "windowTitleEmpty": "Второе окно"
+  },
   "session": {
     "addFolder": {
       "add_one": "Добавить {{count}} фото",
@@ -2673,6 +2688,7 @@
         "toggle_pointer_readout": "Показать/скрыть RGB под указателем",
         "toggle_proof_margin": "Переключить поля для оценки",
         "toggle_right_panel": "Показать/скрыть правую панель",
+        "toggle_second_window": "Второе окно: фото в реальном времени на другом экране",
         "toggle_side_panels": "Скрыть/показать боковые панели",
         "toggle_soft_proof": "Переключить экранную цветопробу",
         "toggle_split_view": "До/После (разделённый вид)",

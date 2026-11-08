@@ -431,13 +431,46 @@ impl MultiView {
         width: u32,
         height: u32,
     ) {
+        // The live frame's region of the photograph is not known here: it
+        // is shown to fit until the cell's own render arrives.
+        if self.copy_frame(
+            device,
+            queue,
+            bindings,
+            path,
+            source,
+            (width, height),
+            0,
+            None,
+        ) {
+            self.regions.remove(path);
+        }
+    }
+
+    /// Copies the top left `width` × `height` of `source` (a developed
+    /// whole photograph, display-encoded RGBA8) on the GPU as `path`'s
+    /// whole-photograph texture, rendered for `key` (0: a stand-in) and
+    /// covering `extent` (None: shown to fit only). False when `path` is
+    /// not shown or the size does not fit `source`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn copy_frame(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bindings: &DisplayBindings,
+        path: &str,
+        source: &wgpu::Texture,
+        (width, height): (u32, u32),
+        key: u64,
+        extent: Option<CellExtent>,
+    ) -> bool {
         if self.cell(path).is_none()
             || width == 0
             || height == 0
             || width > source.width()
             || height > source.height()
         {
-            return;
+            return false;
         }
         let texture = Self::cell_texture(device, width, height);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -453,11 +486,19 @@ impl MultiView {
             },
         );
         queue.submit(Some(encoder.finish()));
-        // The live frame's region of the photograph is not known here: it
-        // is shown to fit until the cell's own render arrives.
-        let texture = Self::make_texture(device, bindings, 0, None, texture);
+        let texture = Self::make_texture(device, bindings, key, extent, texture);
         self.textures.insert(path.to_string(), texture);
+        true
+    }
+
+    /// Releases `path`'s zoomed region (its recipe changed).
+    pub fn remove_region(&mut self, path: &str) {
         self.regions.remove(path);
+    }
+
+    /// The pixel size of `path`'s whole-photograph texture.
+    pub fn texture_size(&self, path: &str) -> Option<(u32, u32)> {
+        self.textures.get(path).map(CellTexture::size)
     }
 
     fn placement(&self, path: &str, area: [f32; 4], texture: &CellTexture) -> [f32; 4] {

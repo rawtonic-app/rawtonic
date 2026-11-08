@@ -375,7 +375,7 @@ fn create_context(
 }
 
 #[cfg(not(target_os = "linux"))]
-fn configure_display(
+pub(crate) fn configure_display(
     device: &wgpu::Device,
     adapter: &wgpu::Adapter,
     surface: wgpu::Surface<'static>,
