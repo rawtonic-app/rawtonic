@@ -971,7 +971,7 @@ pub fn find_another_source(
 
 /// `adjustments` without the spot `spot_id` (the other patches and spots
 /// stay): what "Find another source" searches on.
-fn without_spot(adjustments: &Value, spot_id: &str) -> Value {
+pub fn without_spot(adjustments: &Value, spot_id: &str) -> Value {
     let mut without = adjustments.clone();
     if let Some(spots) = without.get_mut("spots").and_then(Value::as_array_mut) {
         spots.retain(|item| item.get("id").and_then(Value::as_str) != Some(spot_id));

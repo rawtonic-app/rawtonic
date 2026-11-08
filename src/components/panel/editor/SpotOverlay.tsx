@@ -20,6 +20,13 @@ import { findAnotherSource, resetTurnedDown, resetTurnedDownForPhoto } from '../
 import { buildComboMap, normalizeCombo } from '../../../utils/keyboardUtils';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 
+/** Whether `e` is the key bound to Find another source (`spot_new_source`). */
+function isNewSourceKey(e: KeyboardEvent): boolean {
+  const { appSettings, osPlatform } = useSettingsStore.getState();
+  const key = normalizeCombo(e, osPlatform).join('+');
+  return Boolean(key) && Boolean(buildComboMap(appSettings?.keybinds).get(key)?.includes('spot_new_source'));
+}
+
 interface Props {
   /** The displayed photograph's box in the viewer's (zoomed) content. */
   rect: { left: number; top: number; width: number; height: number };
@@ -773,16 +780,10 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         }));
         resetTurnedDown(id);
         setEditor({ activeSpotId: null });
-      } else if (e.key === '/' && id && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        // Lightroom's Refresh (`/`, the spot list's button and the spot
-        // settings' item; a key of its own in Preferences): another
-        // automatic source for the selected spot. Alt on a German Mac
-        // layout is one of the keys that type the slash, so it is allowed
-        // here like the brush's [ and ].
-        const { appSettings, osPlatform } = useSettingsStore.getState();
-        const combo = normalizeCombo(e, osPlatform);
-        const key = combo.join('+');
-        if (!key || !buildComboMap(appSettings?.keybinds).get(key)?.includes('spot_new_source')) return;
+      } else if (id && isNewSourceKey(e)) {
+        // Lightroom's Refresh (`/` by default, a key of its own in
+        // Preferences): another automatic source for the selected spot,
+        // matched like every tool keybind (on the key it produces).
         e.preventDefault();
         e.stopImmediatePropagation();
         void findAnotherSource(id);

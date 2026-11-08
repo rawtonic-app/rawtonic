@@ -10,7 +10,7 @@ import { toggleRemoveObjects } from './useStudioTools';
 import { useEditorStore } from '../../store/useEditorStore';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
 import { KEYBIND_DEFINITIONS } from '../../utils/keyboardUtils';
-import { resetTurnedDownForPhoto, sourcesTurnedDown } from '../../utils/spotSource';
+import { findAnotherSource, resetTurnedDown, resetTurnedDownForPhoto, sourcesTurnedDown } from '../../utils/spotSource';
 
 beforeEach(() => {
   useEditorStore.setState({
@@ -194,6 +194,40 @@ describe('Find another source', () => {
     expect(last[1]).toMatchObject({ spotId: 's1', excluded: [{ x: 30, y: 10 }] });
     expect(useEditorStore.getState().adjustments.spots[0]).toMatchObject({ sourceX: 50, sourceY: 40 });
     expect(useEditorStore.getState().adjustments.spots[1]).toMatchObject({ sourceX: 30, sourceY: 10 });
+  });
+
+  it('drops an answer for a spot that moved or changed its source meanwhile', async () => {
+    resetTurnedDown('s1');
+    let answer: (v: { x: number; y: number }) => void = () => {};
+    invoke.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const pending = findAnotherSource('s1');
+    // A source drag lands while the search runs.
+    useEditorStore.setState((st) => ({
+      adjustments: {
+        ...st.adjustments,
+        spots: st.adjustments.spots.map((sp) => (sp.id === 's1' ? { ...sp, sourceX: 99, sourceY: 98 } : sp))
+      }
+    }));
+    answer({ x: 40, y: 10 });
+    expect(await pending).toBe(false);
+    expect(useEditorStore.getState().adjustments.spots[0]).toMatchObject({ sourceX: 99, sourceY: 98 });
+    expect(sourcesTurnedDown('s1')).toEqual([]);
+  });
+
+  it('makes each quick press its own undo step', async () => {
+    useEditorStore.getState().resetHistory(useEditorStore.getState().adjustments);
+    let n = 0;
+    invoke.mockImplementation(() => Promise.resolve({ x: 40 + 10 * ++n, y: 10 }));
+    // Both settle well inside the 500 ms history debounce.
+    await act(async () => {
+      await findAnotherSource('s1');
+      await findAnotherSource('s1');
+    });
+    const { history, historyIndex } = useEditorStore.getState();
+    expect(history).toHaveLength(3);
+    expect(historyIndex).toBe(2);
+    expect(history[1].spots[0]).toMatchObject({ sourceX: 50 });
+    expect(history[2].spots[0]).toMatchObject({ sourceX: 60 });
   });
 
   it('keeps the spot as it was when no other source fits', async () => {

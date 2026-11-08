@@ -111,8 +111,7 @@ async fn find_another_source_for(
     } = args;
     let (source, _) = crate::editor_preview::original_source(state).await?;
     tokio::task::spawn_blocking(move || {
-        let base = crate::image_loader::composite_patches_on_image(&source, &js_adjustments)
-            .map_err(|e| e.to_string())?;
+        let base = search_base(&source, &js_adjustments, &spot_id)?;
         Ok(find_another_source(
             &base,
             &js_adjustments,
@@ -123,6 +122,19 @@ async fn find_another_source_for(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// The photo `find_another_spot_source` searches on: the recipe composited
+/// without the spot `spot_id`, so its own healed pixels never take part in
+/// the choice of a source (removing it from the recipe later cannot undo
+/// pixels already composited into the base).
+pub fn search_base(
+    source: &image::DynamicImage,
+    js_adjustments: &Value,
+    spot_id: &str,
+) -> Result<image::DynamicImage, String> {
+    let without = rawtonic_engine::spot_removal::without_spot(js_adjustments, spot_id);
+    crate::image_loader::composite_patches_on_image(source, &without).map_err(|e| e.to_string())
 }
 
 /// The arguments of `find_another_spot_source` as the frontend sends them
@@ -651,5 +663,28 @@ mod tests {
         );
         let none: Option<SpotSource> = None;
         assert_eq!(serde_json::to_value(none).unwrap(), Value::Null);
+    }
+
+    /// The search photo has the selected spot taken out, not healed in:
+    /// the command's base keeps the pixels under the spot, other spots stay.
+    #[test]
+    fn find_another_spot_source_searches_without_the_spots_own_healing() {
+        let mut img = image::Rgb32FImage::from_fn(100, 100, |x, _| {
+            image::Rgb([0.4 + 0.002 * x as f32, 0.4, 0.4])
+        });
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (0, 2)] {
+            img.put_pixel(50 + dx, 50 + dy, image::Rgb([1.0, 1.0, 1.0]));
+        }
+        let source = image::DynamicImage::ImageRgb32F(img);
+        let recipe = serde_json::json!({"spots": [{
+            "id": "s1", "mode": "heal", "x": 51.0, "y": 51.0, "radius": 8.0,
+            "sourceX": 20.0, "sourceY": 20.0, "feather": 0.0, "opacity": 100.0,
+            "visible": true
+        }]});
+        let at = |img: &image::DynamicImage| img.to_rgb32f().get_pixel(50, 50)[0];
+        let healed = crate::image_loader::composite_patches_on_image(&source, &recipe).unwrap();
+        assert!(at(&healed) < 0.9, "the spot heals the dot: {}", at(&healed));
+        let base = search_base(&source, &recipe, "s1").unwrap();
+        assert!(at(&base) > 0.99, "its search base keeps the dot: {}", at(&base));
     }
 }

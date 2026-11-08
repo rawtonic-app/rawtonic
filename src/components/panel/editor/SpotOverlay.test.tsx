@@ -21,6 +21,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 import SpotOverlay, { pathToBox } from './SpotOverlay';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
+import { useSettingsStore } from '../../../store/useSettingsStore';
 import { resetTurnedDownForPhoto } from '../../../utils/spotSource';
 
 beforeAll(() => {
@@ -937,5 +938,55 @@ describe('spot removal overlay', () => {
     });
     vi.useRealTimers();
     expect(views()).toBe(3);
+  });
+});
+
+describe('Find another source key', () => {
+  const spot = {
+    id: 's1',
+    mode: 'heal' as const,
+    x: 200,
+    y: 150,
+    radius: 20,
+    sourceX: 260,
+    sourceY: 150,
+    feather: 0,
+    opacity: 100,
+    visible: true
+  };
+  const asks = () => invoke.mock.calls.filter(([name]) => name === 'find_another_spot_source');
+  beforeEach(() => {
+    invoke.mockResolvedValue({ x: 300, y: 150 });
+    useEditorStore.setState({
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [spot] },
+      activeSpotId: 's1'
+    });
+    useSettingsStore.setState({ appSettings: null });
+  });
+  afterEach(() => useSettingsStore.setState({ appSettings: null }));
+
+  it.each([
+    ['US /', { key: '/', code: 'Slash' }],
+    ['German Shift+7', { key: '/', code: 'Digit7', shiftKey: true }]
+  ])('finds one on the default key (%s)', async (_name, init) => {
+    overlay();
+    await act(async () => void fireEvent.keyDown(window, init));
+    expect(asks()).toHaveLength(1);
+  });
+
+  it('follows the key set in Preferences, with or without modifiers', async () => {
+    useSettingsStore.setState({
+      appSettings: { keybinds: { spot_new_source: ['F8'] } } as never
+    });
+    overlay();
+    await act(async () => void fireEvent.keyDown(window, { key: '/', code: 'Slash' }));
+    expect(asks()).toHaveLength(0);
+    await act(async () => void fireEvent.keyDown(window, { key: 'F8', code: 'F8' }));
+    expect(asks()).toHaveLength(1);
+    useSettingsStore.setState({
+      appSettings: { keybinds: { spot_new_source: ['ctrl', 'Slash'] } } as never
+    });
+    await act(async () => void fireEvent.keyDown(window, { key: '/', code: 'Slash', ctrlKey: true }));
+    expect(asks()).toHaveLength(2);
   });
 });

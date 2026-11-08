@@ -827,6 +827,12 @@ export function normalizeCombo(event: KeyboardEvent, osPlatform?: string, librar
     code = 'Equal';
   } else if (code === 'NumpadSubtract') {
     code = 'Minus';
+  } else if (event.key === '/' && /^(Digit[0-9]|Quote|Minus|Equal|Backslash|Intl.*)$/.test(code)) {
+    // The slash typed with Shift (German Shift+7) or elsewhere on the
+    // layout: the key it produces, without the Shift that made it.
+    code = 'Slash';
+    const shift = parts.indexOf('shift');
+    if (shift >= 0) parts.splice(shift, 1);
   }
   if (isValidShortcutKey(code)) {
     parts.push(code);

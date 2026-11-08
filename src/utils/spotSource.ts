@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { updateAdjustments } from '../hooks/useEditorActions';
+import { debouncedSetHistory, updateAdjustments } from '../hooks/useEditorActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { Invokes } from '../components/ui/AppProperties';
 import type { Spot } from './adjustments';
@@ -56,6 +56,16 @@ export async function findAnotherSource(spotId: string): Promise<boolean> {
   // Fill removals have no source; red eye corrections neither.
   if (!selectedImage?.isReady || !spot) return false;
   const photo = selectedImage.path;
+  // Where the spot copies from when asked: an answer for a spot that was
+  // dragged, moved or undone meanwhile no longer fits and is dropped.
+  const asked = {
+    x: spot.x,
+    y: spot.y,
+    sourceX: spot.sourceX,
+    sourceY: spot.sourceY,
+    radius: spot.radius,
+    points: spot.points
+  };
   resetTurnedDownForPhoto(photo);
   let source: SpotSource | null;
   try {
@@ -74,12 +84,27 @@ export async function findAnotherSource(spotId: string): Promise<boolean> {
   if (now.selectedImage?.path !== photo) return false;
   const current = now.adjustments.spots?.find((s) => s.id === spotId);
   if (!current || !source) return false;
+  if (
+    current.x !== asked.x ||
+    current.y !== asked.y ||
+    current.sourceX !== asked.sourceX ||
+    current.sourceY !== asked.sourceY ||
+    current.radius !== asked.radius ||
+    current.points !== asked.points
+  ) {
+    return false;
+  }
   const found = source;
+  // Each press is a history step of its own: a pending step (500 ms
+  // debounce) of an earlier edit or press is written first, and this one
+  // at once, so quick presses can be undone one by one.
+  debouncedSetHistory.flush();
   // The new source is one undo step (the label of a spot change, "Spot removal").
   updateAdjustments((prev) => ({
     ...prev,
     spots: (prev.spots ?? []).map((s): Spot => (s.id === spotId ? { ...s, sourceX: found.x, sourceY: found.y } : s))
   }));
+  debouncedSetHistory.flush();
   // The source the spot leaves is never offered again (also the one it
   // came back to after an Undo).
   const left = [current.sourceX, current.sourceY] as [number, number];
