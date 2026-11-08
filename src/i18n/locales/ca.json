@@ -327,6 +327,7 @@
       "toggle_pointer_readout": "Lectura RGB del punter",
       "toggle_proof_margin": "Marge de prova",
       "toggle_right_panel": "Tauler dret",
+      "toggle_second_window": "Segona finestra",
       "toggle_side_panels": "Taulers laterals",
       "toggle_soft_proof": "Prova en pantalla",
       "toggle_split_view": "Abans/després",
@@ -1519,6 +1520,20 @@
     "widthMm": "Amplada (mm)",
     "writes": "Escriu «{{name}}»"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Obre una foto a la finestra principal per mostrar-la aquí.",
+    "exitFullScreen": "Surt de la pantalla completa (Esc)",
+    "fit": "Encaixa",
+    "fullScreen": "Pantalla completa (F)",
+    "lock": "Bloqueja",
+    "locked": "Bloquejada",
+    "lockHint": "Continua mostrant aquesta foto mentre la finestra principal avança (L)",
+    "toolbar": "Segona finestra",
+    "unlockHint": "Torna a seguir la finestra principal (L)",
+    "windowTitle": "{{name}} — Segona finestra",
+    "windowTitleEmpty": "Segona finestra"
+  },
   "session": {
     "addFolder": {
       "add_one": "Afegeix {{count}} foto",
@@ -2515,6 +2530,7 @@
         "toggle_pointer_readout": "Activa/desactiva la lectura RGB del punter",
         "toggle_proof_margin": "Activa/desactiva el marge de prova",
         "toggle_right_panel": "Commutar el panell dret",
+        "toggle_second_window": "Segona finestra: la foto en directe en una altra pantalla",
         "toggle_side_panels": "Amaga o mostra els panells laterals",
         "toggle_soft_proof": "Commuta la prova en pantalla",
         "toggle_split_view": "Abans/Després (vista dividida)",

@@ -251,6 +251,14 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view'
   },
   {
+    // A second window with the photograph live (Lightroom's Secondary
+    // Display, Capture One's Viewer); ⇧F as in RapidRAW, free here.
+    action: 'toggle_second_window',
+    description: 'settings.keybinds.actions.toggle_second_window',
+    defaultCombo: ['shift', 'KeyF'],
+    section: 'view'
+  },
+  {
     // The window's full screen with the interface as it is. macOS: also
     // ⌃⌘F and View ▸ Enter Full Screen (the system menu); F11 elsewhere.
     action: 'toggle_window_fullscreen',

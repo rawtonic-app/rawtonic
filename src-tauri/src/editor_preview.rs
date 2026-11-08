@@ -1918,6 +1918,15 @@ pub(crate) fn process_preview_job(
 
     #[cfg(feature = "performance-profiling")]
     drop(adjustments_stage);
+    // The second window shows this frame too (second_window.rs).
+    if use_wgpu_renderer {
+        crate::second_window::note_live(
+            &loaded_image.path,
+            &adjustments_clone,
+            is_interactive,
+            full_dims,
+        );
+    }
     let final_processed_image_result =
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
             &context,

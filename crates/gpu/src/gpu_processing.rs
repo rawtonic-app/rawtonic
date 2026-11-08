@@ -3000,6 +3000,41 @@ impl WgpuDisplay {
         self.multi = multi;
     }
 
+    /// Copies a developed whole photograph (`source`, its top left
+    /// `width` × `height`) on the GPU as `path`'s cell frame, rendered for
+    /// `key` and covering `extent` (the second window: the main window's
+    /// live frame, see [`on_live_frame`]). False when `path` has no cell.
+    #[allow(clippy::too_many_arguments)]
+    pub fn copy_cell_frame(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+        source: &wgpu::Texture,
+        size: (u32, u32),
+        key: u64,
+        extent: Option<CellExtent>,
+    ) -> bool {
+        let mut multi = std::mem::take(&mut self.multi);
+        let copied = multi.copy_frame(
+            device,
+            queue,
+            &self.bindings(),
+            path,
+            source,
+            size,
+            key,
+            extent,
+        );
+        self.multi = multi;
+        copied
+    }
+
+    /// Releases the zoomed region of `path`'s cell.
+    pub fn remove_cell_region(&mut self, path: &str) {
+        self.multi.remove_region(path);
+    }
+
     /// Zooms every cell (Lightroom's locked zoom; None: fit).
     pub fn set_multi_view_zoom(&mut self, zoom: Option<CellZoom>) {
         self.multi.set_zoom(zoom);
@@ -10142,6 +10177,33 @@ fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
         )
 }
 
+/// A developed frame the main window's display just bound, for a second
+/// display that shows the same photograph (the second window). Its
+/// texture holds the photograph's whole frame in the display's encoding
+/// at `width` × `height` from the top left; frames of a part (a zoomed
+/// drag's region) are not offered.
+pub struct LiveFrame<'a> {
+    pub path: Option<&'a str>,
+    pub texture: &'a wgpu::Texture,
+    pub width: u32,
+    pub height: u32,
+    /// The uncropped crop-editing frame.
+    pub uncropped: bool,
+    /// A tool's view of the photograph (clipping warnings, the sharpening
+    /// mask), not the photograph itself.
+    pub tool_view: bool,
+}
+
+type LiveFrameListener = Box<dyn Fn(&GpuContext, &LiveFrame) + Send + Sync>;
+static LIVE_FRAME: std::sync::OnceLock<LiveFrameListener> = std::sync::OnceLock::new();
+
+/// Set what is told of every frame bound on the main display (once per
+/// process). It runs on the render thread after the frame was presented,
+/// with no display lock held; it must return quickly.
+pub fn on_live_frame(callback: impl Fn(&GpuContext, &LiveFrame) + Send + Sync + 'static) {
+    let _ = LIVE_FRAME.set(Box::new(callback));
+}
+
 /// Called once a sharpening-view variant is compiled: frames asked for
 /// before it showed the photo, so the caller renders the view again.
 static SHARPEN_VIEW_READY: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
@@ -10504,6 +10566,7 @@ fn render_dynamic_image(
     readback_shader: ReadbackShader,
 ) -> Result<DynamicImage, String> {
     let mut request = request;
+    let tool_view = request.adjustments.global.show_clipping != 0;
     if output_to_display {
         let space = context.display_space;
         request.adjustments.global.output_space[0] = space.shader_code();
@@ -10831,6 +10894,8 @@ fn render_dynamic_image(
         );
     }
 
+    let mut bound_uncropped = None;
+    let mut bound_path: Option<String> = None;
     if output_to_display
         && let Some(display) = context
             .display
@@ -10894,6 +10959,8 @@ fn render_dynamic_image(
             })
         );
         display.render(device, queue);
+        bound_uncropped = Some(display.frame_uncropped);
+        bound_path = display.frame_path.clone();
         *processor
             .display_frame
             .lock()
@@ -10907,6 +10974,25 @@ fn render_dynamic_image(
                     height: out_h,
                 },
             });
+    }
+
+    // The second window shows the photograph's whole frame (not a zoomed
+    // drag's region) from this texture too.
+    if let (Some(uncropped), Some(listener), Some(targets)) =
+        (bound_uncropped, LIVE_FRAME.get(), display_targets.as_ref())
+        && (out_x, out_y, out_w, out_h) == (0, 0, width, height)
+    {
+        listener(
+            context,
+            &LiveFrame {
+                path: bound_path.as_deref(),
+                texture: &targets.output_texture,
+                width,
+                height,
+                uncropped,
+                tool_view,
+            },
+        );
     }
 
     if skip_readback {

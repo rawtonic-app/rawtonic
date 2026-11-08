@@ -313,6 +313,7 @@
       "toggle_pointer_readout": "Pointer RGB Readout",
       "toggle_proof_margin": "Proof Margin",
       "toggle_right_panel": "Right Panel",
+      "toggle_second_window": "Second Window",
       "toggle_side_panels": "Side Panels",
       "toggle_soft_proof": "Soft Proofing",
       "toggle_split_view": "Before/After",
@@ -1460,6 +1461,20 @@
     "widthMm": "Width (mm)",
     "writes": "Writes “{{name}}”"
   },
+  "secondView": {
+    "actualSize": "100 %",
+    "empty": "Open a photo in the main window to show it here.",
+    "exitFullScreen": "Leave full screen (Esc)",
+    "fit": "Fit",
+    "fullScreen": "Full screen (F)",
+    "lock": "Lock",
+    "locked": "Locked",
+    "lockHint": "Keep showing this photo while the main window moves on (L)",
+    "toolbar": "Second window",
+    "unlockHint": "Follow the main window again (L)",
+    "windowTitle": "{{name}} — Second Window",
+    "windowTitleEmpty": "Second Window"
+  },
   "session": {
     "addFolder": {
       "add_one": "Add {{count}} photo",
@@ -2379,6 +2394,7 @@
         "toggle_pointer_readout": "Toggle pointer RGB readout",
         "toggle_proof_margin": "Toggle proof margin",
         "toggle_right_panel": "Toggle Right Panel",
+        "toggle_second_window": "Second window: the photo live on another display",
         "toggle_side_panels": "Hide or show the side panels",
         "toggle_soft_proof": "Toggle soft proofing",
         "toggle_split_view": "Before/After (split view)",
