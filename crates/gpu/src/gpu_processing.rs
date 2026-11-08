@@ -21,6 +21,10 @@ use rawtonic_engine::recipe_versions::{ClarityVersion, GrainVersion, ToneVersion
 use rayon::prelude::*;
 
 #[cfg(test)]
+#[path = "gpu_processing_compile_probe.rs"]
+mod compile_probe;
+
+#[cfg(test)]
 #[path = "gpu_processing_tests.rs"]
 mod preview_tests;
 
