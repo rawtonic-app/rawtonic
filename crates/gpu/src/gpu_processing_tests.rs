@@ -13251,6 +13251,9 @@ fn relight_tiled_roi_matches_full_frame() {
 #[path = "relight_reference_tests.rs"]
 mod relight_reference_tests;
 
+#[path = "slider_response_tests.rs"]
+mod slider_response;
+
 #[test]
 #[ignore = "requires native GPU; queued Relight geometry outlives the reuse cache"]
 fn relight_queued_depth_survives_cache_eviction() {
