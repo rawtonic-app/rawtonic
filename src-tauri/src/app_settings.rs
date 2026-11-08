@@ -683,6 +683,7 @@ pub struct AppSettings {
     #[serde(default)]
     pub interface_shade: Option<String>,
     #[serde(default)]
+    /// Import window dimensions in CSS px; absent defaults to 90%, capped at 1600 × 1000.
     pub ingest_dialog_size: Option<IngestDialogSize>,
     /// Mask overlay opacity in percent, 0–100 (default 50, as in Capture One).
     #[serde(default)]
