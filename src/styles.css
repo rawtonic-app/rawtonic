@@ -532,17 +532,12 @@
   --studio-shade-ink: #202020;
   --studio-shade-rgb-ink: 32 32 32;
   --studio-shade-inset: #303030;
-  --studio-shade-rgb-inset: 48 48 48;
   --studio-shade-bg: #383838;
-  --studio-shade-rgb-bg: 56 56 56;
   --studio-shade-raised: #404040;
-  --studio-shade-rgb-raised: 64 64 64;
   --studio-shade-hover: #484848;
-  --studio-shade-rgb-hover: 72 72 72;
   --studio-shade-line: #c4c4c4;
   --studio-shade-rgb-line: 196 196 196;
   --studio-shade-muted: #c4c4c4;
-  --studio-shade-rgb-muted: 196 196 196;
   --studio-shade-text: #f0f0f0;
   --studio-shade-rgb-text: 240 240 240;
 }
@@ -562,17 +557,12 @@
   --studio-shade-ink: #373737;
   --studio-shade-rgb-ink: 55 55 55;
   --studio-shade-inset: #4c4c4c;
-  --studio-shade-rgb-inset: 76 76 76;
   --studio-shade-bg: #585858;
-  --studio-shade-rgb-bg: 88 88 88;
   --studio-shade-raised: #626262;
-  --studio-shade-rgb-raised: 98 98 98;
   --studio-shade-hover: #696969;
-  --studio-shade-rgb-hover: 105 105 105;
   --studio-shade-line: #ebebeb;
   --studio-shade-rgb-line: 235 235 235;
   --studio-shade-muted: #ebebeb;
-  --studio-shade-rgb-muted: 235 235 235;
   --studio-shade-text: #ffffff;
   --studio-shade-rgb-text: 255 255 255;
 }

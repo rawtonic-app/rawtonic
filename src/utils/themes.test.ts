@@ -73,6 +73,30 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
         );
       }
     });
+    it('keeps photo-overlay captions readable over white and black photographs', () => {
+      const studio = readFileSync('src/components/studio/studio.css', 'utf8') as string;
+      for (const selector of [
+        '.studio-photo-type',
+        '.studio-photo-stars',
+        '.brush-gesture-readout',
+        '.studio-camera-preview-note'
+      ]) {
+        const block = studio.slice(studio.indexOf(`${selector} {`)).split('}')[0];
+        const resolve = (value: string): string =>
+          value.replace(
+            /var\((--[\w-]+),\s*([^()]+)\)/g,
+            (_, key: string, fallback: string) => palette[key] ?? fallback
+          );
+        const bg = resolve(block.match(/background: ([^;]+);/)![1]);
+        const fg = resolve(block.match(/(?:^|\n)\s*color: ([^;]+);/)![1]);
+        const channels = rgb(bg);
+        const alpha = bg.startsWith('#') && bg.length === 9 ? parseInt(bg.slice(7), 16) / 255 : 1;
+        for (const photo of [0, 255]) {
+          const composite = `rgb(${channels.map((c) => Math.round(c * alpha + photo * (1 - alpha))).join(', ')})`;
+          expect(contrast(fg, composite), `${selector} over ${photo}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
     if (shade !== 'darkest')
       it('uses strictly neutral chrome greys', () => {
         for (const [key, value] of Object.entries(palette)) {
