@@ -13,6 +13,8 @@ import {
   TONE_VERSION,
   KEYLESS_TONE_VERSION,
   CLARITY_VERSION,
+  STRUCTURE_VERSION,
+  withStructureVersion,
   FRINGE_VERSION,
   RENDER_VERSION,
   DEFRINGE_VERSION,
@@ -276,6 +278,34 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(none, true).clarityVersion).toBe(CLARITY_VERSION);
     const old = { clarity: 40, clarityVersion: 1 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(old, true).clarityVersion).toBe(1);
+  });
+
+  it('keep the Structure travel a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).structureVersion).toBe(STRUCTURE_VERSION);
+    expect(initialAdjustmentsFor(false).structureVersion).toBe(STRUCTURE_VERSION);
+    // Structure without a version: the first travel, stated.
+    const used = { structure: 40 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(used, true).structureVersion).toBe(1);
+    const layered = { masks: [{ adjustments: { structure: -30 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layered, true).structureVersion).toBe(1);
+    // No Structure anywhere: the current travel.
+    const none = { clarity: 40 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(none, true).structureVersion).toBe(STRUCTURE_VERSION);
+    const current = { structure: 40, structureVersion: 2 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(current, true).structureVersion).toBe(2);
+    // Copied Structure takes its travel along; nothing else does.
+    expect(withStructureVersion({ structure: 30 }, { structureVersion: 2 } as Adjustments).structureVersion).toBe(2);
+    expect(withStructureVersion({ structure: 30 }, {} as Adjustments).structureVersion).toBe(1);
+    expect(
+      withStructureVersion({ clarity: 30 }, { structureVersion: 2 } as Adjustments).structureVersion
+    ).toBeUndefined();
+    expect(
+      pastedAdjustments(
+        { structure: 30, structureVersion: 2 } as Adjustments,
+        ['structure', 'structureVersion'],
+        PasteMode.Replace
+      ).structureVersion
+    ).toBe(2);
   });
 
   it('keep the Shadows response a saved recipe rendered with', () => {
