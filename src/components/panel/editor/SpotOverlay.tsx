@@ -19,6 +19,8 @@ import { withoutSpotItems } from '../../../utils/spotItems';
 import { findAnotherSource, resetTurnedDown, resetTurnedDownForPhoto } from '../../../utils/spotSource';
 import { buildComboMap, normalizeCombo } from '../../../utils/keyboardUtils';
 import { useSettingsStore } from '../../../store/useSettingsStore';
+import { useUIStore } from '../../../store/useUIStore';
+import { uiHoldsShortcuts } from '../../../hooks/useKeyboardShortcuts';
 
 /** Whether `e` is the key bound to Find another source (`spot_new_source`). */
 function isNewSourceKey(e: KeyboardEvent): boolean {
@@ -769,6 +771,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      // Behind Preferences (also while a shortcut is being recorded), a
+      // dialog or a modal the photo keys do nothing, as everywhere else.
+      if (uiHoldsShortcuts(useUIStore.getState())) return;
       const { activeSpotId: id, spotSettings, setEditor, adjustments } = useEditorStore.getState();
       if ((e.key === 'Delete' || e.key === 'Backspace') && id) {
         e.preventDefault();

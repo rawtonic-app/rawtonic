@@ -22,6 +22,7 @@ import SpotOverlay, { pathToBox } from './SpotOverlay';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
 import { useSettingsStore } from '../../../store/useSettingsStore';
+import { useUIStore } from '../../../store/useUIStore';
 import { resetTurnedDownForPhoto } from '../../../utils/spotSource';
 
 beforeAll(() => {
@@ -988,5 +989,41 @@ describe('Find another source key', () => {
     });
     await act(async () => void fireEvent.keyDown(window, { key: '/', code: 'Slash', ctrlKey: true }));
     expect(asks()).toHaveLength(2);
+  });
+
+  it('does nothing behind Preferences: a shortcut being recorded still gets the key', async () => {
+    useUIStore.setState({ isSettingsOpen: true });
+    // The recorder in Preferences listens on window in the capture phase,
+    // after the overlay did.
+    const recorded = vi.fn();
+    window.addEventListener('keydown', recorded, true);
+    try {
+      overlay();
+      await act(async () => void fireEvent.keyDown(window, { key: '/', code: 'Slash' }));
+      await act(async () => void fireEvent.keyDown(window, { key: 'Delete', code: 'Delete' }));
+      await act(async () => void fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' }));
+      expect(recorded).toHaveBeenCalledTimes(3);
+      expect(asks()).toHaveLength(0);
+      expect(useEditorStore.getState().adjustments.spots).toHaveLength(1);
+      expect(useEditorStore.getState().activeSpotId).toBe('s1');
+    } finally {
+      window.removeEventListener('keydown', recorded, true);
+      useUIStore.setState({ isSettingsOpen: false });
+    }
+  });
+
+  it('does nothing behind a dialog either', async () => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('aria-modal', 'true');
+    document.body.appendChild(dialog);
+    try {
+      overlay();
+      await act(async () => void fireEvent.keyDown(window, { key: '/', code: 'Slash' }));
+      await act(async () => void fireEvent.keyDown(window, { key: 'Delete', code: 'Delete' }));
+      expect(asks()).toHaveLength(0);
+      expect(useEditorStore.getState().adjustments.spots).toHaveLength(1);
+    } finally {
+      dialog.remove();
+    }
   });
 });

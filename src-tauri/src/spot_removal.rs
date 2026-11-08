@@ -125,15 +125,16 @@ async fn find_another_source_for(
 }
 
 /// The photo `find_another_spot_source` searches on: the recipe composited
-/// without the spot `spot_id`, so its own healed pixels never take part in
-/// the choice of a source (removing it from the recipe later cannot undo
-/// pixels already composited into the base).
+/// up to the spot `spot_id` (the spots before it in the list), the stage at
+/// which `apply_spots` renders it. Its own healed pixels and later spots'
+/// repairs, which do not exist yet when it copies its source, never take
+/// part in the choice.
 pub fn search_base(
     source: &image::DynamicImage,
     js_adjustments: &Value,
     spot_id: &str,
 ) -> Result<image::DynamicImage, String> {
-    let without = rawtonic_engine::spot_removal::without_spot(js_adjustments, spot_id);
+    let without = rawtonic_engine::spot_removal::spots_before(js_adjustments, spot_id);
     crate::image_loader::composite_patches_on_image(source, &without).map_err(|e| e.to_string())
 }
 
@@ -690,5 +691,39 @@ mod tests {
             "its search base keeps the dot: {}",
             at(&base)
         );
+    }
+
+    /// `apply_spots` heals in list order: a spot copies its source from the
+    /// photo with the earlier spots healed and the later ones still
+    /// untouched, and so must the search for its source.
+    #[test]
+    fn find_another_spot_source_searches_at_the_spots_rendering_stage() {
+        let mut img = image::Rgb32FImage::from_fn(120, 100, |x, _| {
+            image::Rgb([0.4 + 0.002 * x as f32, 0.4, 0.4])
+        });
+        for (cx, cy) in [(30u32, 50u32), (90, 50)] {
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (0, 2)] {
+                img.put_pixel(cx + dx, cy + dy, image::Rgb([1.0, 1.0, 1.0]));
+            }
+        }
+        let source = image::DynamicImage::ImageRgb32F(img);
+        let spot = |id: &str, x: f64| {
+            serde_json::json!({
+                "id": id, "mode": "heal", "x": x, "y": 51.0, "radius": 8.0,
+                "sourceX": x, "sourceY": 20.0, "feather": 0.0, "opacity": 100.0,
+                "visible": true
+            })
+        };
+        let recipe = serde_json::json!({"spots": [spot("s1", 31.0), spot("s2", 91.0)]});
+        let at = |img: &image::DynamicImage, x: u32| img.to_rgb32f().get_pixel(x, 50)[0];
+        // The first spot's search photo: its own dot unhealed, and the
+        // later spot's dot unhealed too (its repair does not exist yet).
+        let first = search_base(&source, &recipe, "s1").unwrap();
+        assert!(at(&first, 30) > 0.99, "own dot: {}", at(&first, 30));
+        assert!(at(&first, 90) > 0.99, "later dot: {}", at(&first, 90));
+        // The second spot's: the earlier repair is in, its own dot is not.
+        let second = search_base(&source, &recipe, "s2").unwrap();
+        assert!(at(&second, 30) < 0.9, "earlier repair: {}", at(&second, 30));
+        assert!(at(&second, 90) > 0.99, "own dot: {}", at(&second, 90));
     }
 }

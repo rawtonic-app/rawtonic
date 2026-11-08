@@ -950,7 +950,7 @@ pub fn find_another_source(
     spot_id: &str,
     excluded: &[(f64, f64)],
 ) -> Option<(f64, f64)> {
-    let without = without_spot(adjustments, spot_id);
+    let without = spots_before(adjustments, spot_id);
     let spot = adjustments
         .get("spots")
         .and_then(Value::as_array)?
@@ -969,14 +969,21 @@ pub fn find_another_source(
     }
 }
 
-/// `adjustments` without the spot `spot_id` (the other patches and spots
-/// stay): what "Find another source" searches on.
-pub fn without_spot(adjustments: &Value, spot_id: &str) -> Value {
-    let mut without = adjustments.clone();
-    if let Some(spots) = without.get_mut("spots").and_then(Value::as_array_mut) {
-        spots.retain(|item| item.get("id").and_then(Value::as_str) != Some(spot_id));
+/// `adjustments` with only the spots that come before `spot_id` in the list
+/// (patches stay): `apply_spots` heals one spot after the other, so the
+/// photo a spot copies its source from holds the earlier spots' repairs and
+/// neither its own nor later ones. What "Find another source" searches on.
+pub fn spots_before(adjustments: &Value, spot_id: &str) -> Value {
+    let mut before = adjustments.clone();
+    if let Some(spots) = before.get_mut("spots").and_then(Value::as_array_mut) {
+        let own = spots
+            .iter()
+            .position(|item| item.get("id").and_then(Value::as_str) == Some(spot_id));
+        if let Some(own) = own {
+            spots.truncate(own);
+        }
     }
-    without
+    before
 }
 
 /// Mask-frame `excluded` centres in base pixels.
