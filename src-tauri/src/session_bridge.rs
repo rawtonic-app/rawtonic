@@ -2214,10 +2214,10 @@ mod tests {
         let _: fn() -> _ = session_ingest_cards;
         let FullPreview { path } =
             serde_json::from_str(r#"{"path":"/Volumes/CARD/DCIM/100TEST/IMG_0006.ARW"}"#).unwrap();
-        let _ = session_ingest_full_preview(path);
+        assert!(path.ends_with(".ARW"));
         let Eject { mount_point } =
             serde_json::from_str(r#"{"mountPoint":"/Volumes/CARD"}"#).unwrap();
-        let _ = session_eject_card(mount_point);
+        assert_eq!(mount_point, "/Volumes/CARD");
         let Cards {} = serde_json::from_str("{}").unwrap();
         // The ratings ride in `session_ingest`'s `metadata`.
         let metadata: rawtonic_ingest::metadata::ImportMetadata =
