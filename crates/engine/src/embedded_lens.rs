@@ -1290,8 +1290,18 @@ pub fn read_version(
     geometry_version: u64,
     frame_version: u32,
 ) -> Option<EmbeddedLensData> {
-    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     let source = RawSource::new(path).ok()?;
+    read_source(path, &source, ca_version, geometry_version, frame_version)
+}
+
+fn read_source(
+    path: &Path,
+    source: &RawSource,
+    ca_version: u64,
+    geometry_version: u64,
+    frame_version: u32,
+) -> Option<EmbeddedLensData> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     let mut reader = source.reader();
     match extension.as_str() {
         "raf" => {
@@ -1304,10 +1314,7 @@ pub fn read_version(
             // The F600EXR, also without opcodes, renders closer with them.
             // The model string of the RAF header (bytes 28-60).
             let mut header = [0u8; 60];
-            std::fs::File::open(path)
-                .ok()?
-                .read_exact(&mut header)
-                .ok()?;
+            source.reader().read_exact(&mut header).ok()?;
             let model = std::str::from_utf8(&header[28..60])
                 .ok()
                 .map(|text| text.trim_end_matches('\0').to_string());
@@ -1334,11 +1341,10 @@ pub fn read_version(
             // X-Pro2, X-E3 or X-T20 develops the camera's whole recorded
             // frame from frame version 3 (`source_frame`), whose corner the
             // knots refer to.
-            let frame = crate::raw_processing::sensor_and_frame(&source, frame_version)
+            let frame = crate::raw_processing::sensor_and_frame(source, frame_version)
                 .map(|(_, frame)| frame);
             let on_readout = fuji_reads_on_readout(geometry_version, &data.distortion, || {
-                path.to_str()
-                    .and_then(crate::capture_info::fujifilm_crop_mode)
+                crate::capture_info::fujifilm_crop_mode_from(source.buf())
             });
             if on_readout
                 && let Some(reach) = frame.and_then(|[w, _]| {
@@ -1358,7 +1364,8 @@ pub fn read_version(
             fuji_framed(data, aspect)
         }
         "arw" => {
-            let settings = crate::capture_info::sony_lens_settings(path.to_str()?);
+            let settings = crate::capture_info::maker_note_slice(source.buf())
+                .and_then(crate::capture_info::sony_lens_settings_from);
             if settings.is_some_and(|s| s.distortion_off) {
                 return None;
             }
@@ -1370,14 +1377,10 @@ pub fn read_version(
             // sensor's radius the data refer to; from frame version 2 such a
             // frame is a crop of the whole sensor, which develops.
             let mut head = Vec::new();
-            std::fs::File::open(path)
-                .ok()?
-                .take(1 << 20)
-                .read_to_end(&mut head)
-                .ok()?;
+            source.reader().take(1 << 20).read_to_end(&mut head).ok()?;
             let uncut = frame_version != crate::recipe_versions::ORIGINAL_SOURCE_FRAME
-                && crate::raw_processing::sensor_and_frame(&source, frame_version)
-                    != crate::raw_processing::sensor_and_frame(&source, 0);
+                && crate::raw_processing::sensor_and_frame(source, frame_version)
+                    != crate::raw_processing::sensor_and_frame(source, 0);
             let frame_reach = match crate::capture_info::aspect_crop(&head) {
                 _ if uncut => 1.0,
                 Some(crate::capture_info::AspectCrop::Centered(w, h)) => {
@@ -1393,11 +1396,11 @@ pub fn read_version(
                 ..if geometry_version < SONY_FRAME_GEOMETRY {
                     SonyFrame::FULL
                 } else {
-                    sony_sensor_frame(&source, frame_version).unwrap_or(SonyFrame::FULL)
+                    sony_sensor_frame(source, frame_version).unwrap_or(SonyFrame::FULL)
                 }
             };
             // The lateral CA is only in the encrypted SR2 directory.
-            let sr2 = rawler::decoders::arw::ArwDecoder::sr2_subifd(&source).ok();
+            let sr2 = rawler::decoders::arw::ArwDecoder::sr2_subifd(source).ok();
             let chromatic = sr2.as_ref().and_then(|sr2| values(sr2, SR2_CHROMATIC));
             if let Some(distortion) = values(&ifd, SONY_DISTORTION) {
                 let vignetting = values(&ifd, SONY_VIGNETTING).filter(|_| vignetting_auto);
@@ -1422,11 +1425,10 @@ pub fn read_version(
                 geometry_version,
             )
         }
-        "dng" => sony_dng_lens(&source, geometry_version).or_else(|| adobe_profile(&source)),
-        "cr3" => canon_ctmd_lens(path, geometry_version),
+        "dng" => sony_dng_lens(source, geometry_version).or_else(|| adobe_profile(source)),
+        "cr3" => canon_ctmd_lens_source(path, source, geometry_version),
         "rw2" | "rwl" => {
-            let path = path.to_str()?;
-            let chromatic = crate::capture_info::panasonic_ca_info(path)
+            let chromatic = crate::capture_info::panasonic_ca_info_from(source.buf())
                 .filter(|_| {
                     crate::recipe_versions::CameraCaVersion::from_raw(ca_version).panasonic()
                 })
@@ -1435,8 +1437,8 @@ pub fn read_version(
             // aspect crop as zeros (G7, G70: version 0 read their 3:2, 16:9
             // and 1:1 frames at the 4:3 frame's radius, 0.3–1.2 % off).
             let framed = geometry_version >= PANASONIC_FUJIFILM_GEOMETRY;
-            let distortion =
-                crate::capture_info::panasonic_distortion_info(path).and_then(|info| {
+            let distortion = crate::capture_info::panasonic_distortion_info_from(source.buf())
+                .and_then(|info| {
                     let half_diagonal = if framed {
                         info.frame_half_diagonal
                     } else {
@@ -1473,7 +1475,7 @@ pub fn read_version(
                 Some(info) => {
                     let centre = (geometry_version >= NIKON_CENTRE_GEOMETRY)
                         .then(|| {
-                            let frame = rawtonic_rawdecode::source_frame::frame(&source, 0)?;
+                            let frame = rawtonic_rawdecode::source_frame::frame(source, 0)?;
                             let [_, _, width, height] = frame.rect;
                             nikon_centre(&info, width, height, frame.orientation)
                         })
@@ -1484,15 +1486,12 @@ pub fn read_version(
             }
         }
         "orf" | "ori" => {
-            let (distortion, _ca) = crate::capture_info::olympus_lens_correction(path.to_str()?)?;
+            let (distortion, _ca) = crate::capture_info::maker_note_slice(source.buf())
+                .and_then(crate::capture_info::olympus_lens_correction_from)?;
             // The model's corner is the 4:3 sensor's; an aspect-ratio frame
             // (16:9, 3:2, 1:1) reaches a smaller part of its radius.
             let mut head = Vec::new();
-            std::fs::File::open(path)
-                .ok()?
-                .take(8 << 20)
-                .read_to_end(&mut head)
-                .ok()?;
+            source.reader().take(8 << 20).read_to_end(&mut head).ok()?;
             let reach = crate::capture_info::aspect_crop(&head)
                 .map(|crop| match crop {
                     crate::capture_info::AspectCrop::Relative(_, _, w, h)
@@ -1530,7 +1529,7 @@ pub fn read_version(
             let applied = values(&notes, SAMSUNG_APPLIED_DISTORTION);
             let recorded = values(&notes, SAMSUNG_DISTORTION);
             let (model, start) = samsung_model(applied.as_deref(), recorded.as_deref())?;
-            let (_, [w, h]) = crate::raw_processing::sensor_and_frame(&source, 0)?;
+            let (_, [w, h]) = crate::raw_processing::sensor_and_frame(source, 0)?;
             samsung_curve(
                 &samsung_decrypt(model, &key, start)?,
                 (w as f64).hypot(h as f64) / 2.0,
@@ -1951,6 +1950,23 @@ pub fn params_for_version(
 /// camera's data its current `cameraCaVersion` and `cameraGeometryVersion`
 /// (`current_geometry_version`).
 pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
+    apply_default_with(adjustments, source, None);
+}
+
+/// Camera defaults from owned source bytes; never opens the photograph's path.
+pub fn apply_default_from_source(
+    adjustments: &mut serde_json::Value,
+    path: &Path,
+    source: &RawSource,
+) {
+    apply_default_with(adjustments, path, Some(source));
+}
+
+fn apply_default_with(
+    adjustments: &mut serde_json::Value,
+    source: &Path,
+    bytes: Option<&RawSource>,
+) {
     if !(adjustments.is_null() || adjustments.is_object())
         || adjustments.get(lens::CORRECTION_MODE.name()).is_some()
     {
@@ -1967,10 +1983,26 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     // And with the current automatic lateral CA, which decides itself
     // against the camera's CA data (`lateral_ca::applies`, `competes`).
     crate::lateral_ca::apply_default(adjustments, true, is_raw);
-    let geometry = current_geometry_version(source);
+    let geometry = bytes.map_or_else(|| current_geometry_version(source), |_| GEOMETRY_VERSION);
     // The frame it develops (stamped above for a new recipe).
-    let frame = recipe_frame(source, adjustments);
-    if let Some(params) = params_for_version(source, CA_VERSION, geometry, frame) {
+    let frame = bytes.map_or_else(
+        || recipe_frame(source, adjustments),
+        |raw| {
+            rawtonic_rawdecode::source_frame::effective(
+                raw,
+                crate::source_frame::requested(adjustments),
+            )
+        },
+    );
+    let params = bytes.map_or_else(
+        || params_for_version(source, CA_VERSION, geometry, frame),
+        |raw| {
+            read_source(source, raw, CA_VERSION, geometry, frame)
+                .as_ref()
+                .and_then(to_params)
+        },
+    );
+    if let Some(params) = params {
         if adjustments.is_null() {
             *adjustments = serde_json::json!({});
         }
@@ -1983,7 +2015,10 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
         }
         return;
     }
-    let Some((maker, model, params)) = lensfun_default(source) else {
+    let Some((maker, model, params)) = bytes.map_or_else(
+        || lensfun_default(source),
+        |raw| lensfun_from_source(source, raw, false),
+    ) else {
         return;
     };
     if adjustments.is_null() {
@@ -1996,7 +2031,7 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
 }
 
 /// One 4-byte box of an ISO base media file (CR3): (type, body start, end).
-fn bmff_boxes(file: &mut std::fs::File, start: u64, end: u64) -> Vec<([u8; 4], u64, u64)> {
+fn bmff_boxes(file: &mut (impl Read + Seek), start: u64, end: u64) -> Vec<([u8; 4], u64, u64)> {
     let mut boxes = Vec::new();
     let mut pos = start;
     while pos + 8 <= end {
@@ -2026,34 +2061,33 @@ fn bmff_boxes(file: &mut std::fs::File, start: u64, end: u64) -> Vec<([u8; 4], u
 }
 
 /// The first sample of the CR3's timed-metadata (CTMD) track.
-fn canon_ctmd_sample(path: &Path) -> Option<Vec<u8>> {
-    let mut file = std::fs::File::open(path).ok()?;
-    let length = file.metadata().ok()?.len();
-    let find = |file: &mut std::fs::File, start: u64, end: u64, kind: &[u8; 4]| {
+fn canon_ctmd_sample_reader(file: &mut (impl Read + Seek)) -> Option<Vec<u8>> {
+    let length = file.seek(SeekFrom::End(0)).ok()?;
+    let find = |file: &mut _, start: u64, end: u64, kind: &[u8; 4]| {
         bmff_boxes(file, start, end)
             .into_iter()
             .find(|(k, ..)| k == kind)
             .map(|(_, body, end)| (body, end))
     };
-    let (moov, moov_end) = find(&mut file, 0, length, b"moov")?;
-    for (kind, trak, trak_end) in bmff_boxes(&mut file, moov, moov_end) {
+    let (moov, moov_end) = find(file, 0, length, b"moov")?;
+    for (kind, trak, trak_end) in bmff_boxes(file, moov, moov_end) {
         if &kind != b"trak" {
             continue;
         }
-        let Some((stbl, stbl_end)) = find(&mut file, trak, trak_end, b"mdia")
-            .and_then(|(b, e)| find(&mut file, b, e, b"minf"))
-            .and_then(|(b, e)| find(&mut file, b, e, b"stbl"))
+        let Some((stbl, stbl_end)) = find(file, trak, trak_end, b"mdia")
+            .and_then(|(b, e)| find(file, b, e, b"minf"))
+            .and_then(|(b, e)| find(file, b, e, b"stbl"))
         else {
             continue;
         };
-        let Some((stsd, stsd_end)) = find(&mut file, stbl, stbl_end, b"stsd") else {
+        let Some((stsd, stsd_end)) = find(file, stbl, stbl_end, b"stsd") else {
             continue;
         };
         // stsd: version/flags and entry count, then the sample entries.
-        if find(&mut file, stsd + 8, stsd_end, b"CTMD").is_none() {
+        if find(file, stsd + 8, stsd_end, b"CTMD").is_none() {
             continue;
         }
-        let boxes = bmff_boxes(&mut file, stbl, stbl_end);
+        let boxes = bmff_boxes(file, stbl, stbl_end);
         let mut read_at = |offset: u64, buf: &mut [u8]| {
             file.seek(SeekFrom::Start(offset)).ok()?;
             file.read_exact(buf).ok()
@@ -2239,12 +2273,15 @@ fn canon_curves(
 /// (`canon_curves`). Radii are on the sensor, normalized here by half the
 /// recorded image's diagonal (FocalPlaneXResolution), so crop modes read
 /// the same tables.
-fn canon_ctmd_lens(path: &Path, geometry: u64) -> Option<EmbeddedLensData> {
-    let sample = canon_ctmd_sample(path)?;
-    let source = RawSource::new(path).ok()?;
-    let decoder = rawler::get_decoder(&source).ok()?;
+fn canon_ctmd_lens_source(
+    path: &Path,
+    source: &RawSource,
+    geometry: u64,
+) -> Option<EmbeddedLensData> {
+    let sample = canon_ctmd_sample_reader(&mut source.reader())?;
+    let decoder = rawler::get_decoder(source).ok()?;
     let metadata = decoder
-        .raw_metadata(&source, &rawler::decoders::RawDecodeParams::default())
+        .raw_metadata(source, &rawler::decoders::RawDecodeParams::default())
         .ok()?;
     // Camera Raw uses this data on the EOS R5 Mark II and R6 Mark III; on
     // other bodies that store it (R50 V) it uses its own lens profile, which
@@ -2255,7 +2292,7 @@ fn canon_ctmd_lens(path: &Path, geometry: u64) -> Option<EmbeddedLensData> {
     if !matches!(
         model,
         "EOS R5m2" | "EOS R5 Mark II" | "EOS R6 Mark III" | "EOS R6m3" | "EOS R1"
-    ) && lensfun_default(path).is_some()
+    ) && lensfun_from_source(path, source, false).is_some()
     {
         return None;
     }
@@ -2493,12 +2530,9 @@ fn user_crop_diagonal(decoder: &dyn rawler::decoders::Decoder) -> Option<f64> {
         .then(|| (w * width).hypot(h * height) / width.hypot(height))
 }
 
-/// EXIF LensModel (tag 0xA434) read directly from the file.
-fn exif_lens_model(source: &Path) -> Option<String> {
-    let file = std::fs::File::open(source).ok()?;
-    let exif = exif::Reader::new()
-        .read_from_container(&mut std::io::BufReader::new(file))
-        .ok()?;
+/// EXIF LensModel (tag 0xA434) from the source reader.
+fn exif_lens_model_reader(reader: &mut (impl std::io::BufRead + Seek)) -> Option<String> {
+    let exif = exif::Reader::new().read_from_container(reader).ok()?;
     let field = exif.get_field(exif::Tag::LensModel, exif::In::PRIMARY)?;
     match &field.value {
         exif::Value::Ascii(values) => values
@@ -2607,11 +2641,24 @@ fn lensfun_uncached(
     if !any_lens && !matches!(extension.as_str(), "cr3" | "cr2" | "dng") {
         return None;
     }
-    let db = crate::lens_correction::global_lens_db()?;
+    crate::lens_correction::global_lens_db()?;
     let raw = RawSource::new(source).ok()?;
-    let decoder = rawler::get_decoder(&raw).ok()?;
+    lensfun_from_source(source, &raw, any_lens)
+}
+
+fn lensfun_from_source(
+    source: &Path,
+    raw: &RawSource,
+    any_lens: bool,
+) -> Option<(String, String, LensDistortionParams)> {
+    let extension = source.extension()?.to_str()?.to_ascii_lowercase();
+    if !any_lens && !matches!(extension.as_str(), "cr3" | "cr2" | "dng") {
+        return None;
+    }
+    let db = crate::lens_correction::global_lens_db()?;
+    let decoder = rawler::get_decoder(raw).ok()?;
     let metadata = decoder
-        .raw_metadata(&raw, &rawler::decoders::RawDecodeParams::default())
+        .raw_metadata(raw, &rawler::decoders::RawDecodeParams::default())
         .ok()?;
     let rational = |r: rawler::formats::tiff::Rational| (r.d != 0).then(|| r.n as f32 / r.d as f32);
     let exif = &metadata.exif;
@@ -2624,7 +2671,7 @@ fn lensfun_uncached(
         let lens_name = exif
             .lens_model
             .clone()
-            .or_else(|| exif_lens_model(source))
+            .or_else(|| exif_lens_model_reader(&mut raw.reader()))
             .unwrap_or_default();
         let maker = exif
             .lens_make
@@ -2639,7 +2686,7 @@ fn lensfun_uncached(
         let lens_name = exif
             .lens_model
             .clone()
-            .or_else(|| exif_lens_model(source))?;
+            .or_else(|| exif_lens_model_reader(&mut raw.reader()))?;
         crate::lens_correction::find_lens_exact(&db, "Canon", &lens_name)?
     } else if extension != "dng" && is_fixed_lens_compact(&metadata.make, &metadata.model) {
         // Camera Raw corrects these compacts by default with Adobe's own
@@ -3012,6 +3059,25 @@ mod tests {
         20764, -10328, 198, 566, -303, -80, 252, -10239, 163, 175, 434, 122, 3240, 675, -25326,
         16235,
     ];
+
+    /// Pulling a card after reading its bytes must retain its lens defaults.
+    /// Unlike an empty/malformed file, this header supplies real parameters.
+    #[test]
+    fn new_edit_lens_defaults_survive_the_source_path_disappearing() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("card.RW2");
+        let bytes = rw2_header(&FZ330, &GX80_CA);
+        std::fs::write(&path, &bytes).unwrap();
+        let mut expected = serde_json::json!({});
+        apply_default(&mut expected, &path);
+        assert_eq!(expected["lensCorrectionMode"], CAMERA_MODE);
+        assert!(expected.get("lensDistortionParams").is_some());
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let mut actual = serde_json::json!({});
+        apply_default_from_source(&mut actual, &path, &RawSource::new_from_slice(&bytes));
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn panasonic_geometry_version_5_frames_at_the_stored_scale() {

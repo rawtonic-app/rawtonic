@@ -26,7 +26,7 @@ use rawler::formats::bmff::Bmff;
 use rawler::formats::tiff::reader::TiffReader;
 use rawler::formats::tiff::{GenericTiffReader, IFD, Value};
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 const EXIF_IFD_POINTER: u16 = 0x8769;
 const MAKER_NOTE: u16 = 0x927c;
@@ -205,6 +205,11 @@ pub fn sony_lens_settings_from(data: &[u8]) -> Option<SonyLensSettings> {
 /// Olympus ImageProcessing tags 0x150a / 0x150c).
 pub fn olympus_lens_correction(path: &str) -> Option<(Vec<f64>, Option<Vec<f64>>)> {
     let data = maker_note_bytes(path)?;
+    olympus_lens_correction_from(&data)
+}
+
+/// Reads the same correction from Olympus maker-note bytes.
+pub fn olympus_lens_correction_from(data: &[u8]) -> Option<(Vec<f64>, Option<Vec<f64>>)> {
     let (endian_at, ifd_at) = if data.starts_with(b"OLYMPUS\0") {
         (8, 12)
     } else if data.starts_with(b"OM SYSTEM\0") {
@@ -213,7 +218,7 @@ pub fn olympus_lens_correction(path: &str) -> Option<(Vec<f64>, Option<Vec<f64>>
         return None;
     };
     let little = data.get(endian_at..endian_at + 2) == Some(b"II");
-    let ifd = SliceIfd::new(&data, ifd_at, little);
+    let ifd = SliceIfd::new(data, ifd_at, little);
     let sub = ifd.sub_ifd(OLYMPUS_IMAGE_PROCESSING)?;
     let distortion = sub.reals(OLYMPUS_DISTORTION).filter(|v| v.len() == 4)?;
     let ca = sub
@@ -310,13 +315,18 @@ pub fn panasonic_distortion_info(path: &str) -> Option<PanasonicDistortion> {
     let mut file = File::open(path).ok()?;
     let mut data = Vec::new();
     file.by_ref().take(1 << 20).read_to_end(&mut data).ok()?;
+    panasonic_distortion_info_from(&data)
+}
+
+/// Reads the same camera data from an already-read source.
+pub fn panasonic_distortion_info_from(data: &[u8]) -> Option<PanasonicDistortion> {
     let little = match data.get(..2)? {
         b"II" => true,
         b"MM" => false,
         _ => return None,
     };
-    let root_at = SliceIfd::new(&data, 0, little).u32(4)? as usize;
-    let root = SliceIfd::new(&data, root_at, little);
+    let root_at = SliceIfd::new(data, 0, little).u32(4)? as usize;
+    let root = SliceIfd::new(data, root_at, little);
     let bytes = root.bytes(PANASONIC_DISTORTION_INFO)?;
     if bytes.len() != 32 {
         return None;
@@ -371,13 +381,18 @@ pub fn panasonic_ca_info(path: &str) -> Option<([i16; 32], f64)> {
     let mut file = File::open(path).ok()?;
     let mut data = Vec::new();
     file.by_ref().take(1 << 20).read_to_end(&mut data).ok()?;
+    panasonic_ca_info_from(&data)
+}
+
+/// Reads the same camera data from an already-read source.
+pub fn panasonic_ca_info_from(data: &[u8]) -> Option<([i16; 32], f64)> {
     let little = match data.get(..2)? {
         b"II" => true,
         b"MM" => false,
         _ => return None,
     };
-    let root_at = SliceIfd::new(&data, 0, little).u32(4)? as usize;
-    let root = SliceIfd::new(&data, root_at, little);
+    let root_at = SliceIfd::new(data, 0, little).u32(4)? as usize;
+    let root = SliceIfd::new(data, root_at, little);
     let bytes = root.bytes(PANASONIC_CA_INFO)?;
     if bytes.len() != 64 {
         return None;
@@ -493,7 +508,8 @@ fn maker_note_bytes(path: &str) -> Option<Vec<u8>> {
     maker_note_slice(&data).map(<[u8]>::to_vec)
 }
 
-fn maker_note_slice(data: &[u8]) -> Option<&[u8]> {
+/// The EXIF maker note borrowed from an already-read TIFF-based source.
+pub fn maker_note_slice(data: &[u8]) -> Option<&[u8]> {
     let little = match data.get(..2)? {
         b"II" => true,
         b"MM" => false,
@@ -1604,8 +1620,18 @@ pub fn fujifilm_crop_mode(path: &str) -> Option<u16> {
 
 /// The maker note of a RAF's embedded JPEG.
 fn fujifilm_maker_note(path: &str) -> Option<Vec<u8>> {
-    use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
+    fujifilm_maker_note_reader(&mut file)
+}
+
+/// The RAF crop mode from already-read bytes.
+pub fn fujifilm_crop_mode_from(data: &[u8]) -> Option<u16> {
+    fujifilm_crop_mode_from_maker_note(&fujifilm_maker_note_reader(&mut std::io::Cursor::new(
+        data,
+    ))?)
+}
+
+fn fujifilm_maker_note_reader(file: &mut (impl Read + Seek)) -> Option<Vec<u8>> {
     let mut header = [0u8; 100];
     file.read_exact(&mut header).ok()?;
     if &header[..8] != b"FUJIFILM" {

@@ -19,7 +19,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::panic;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -214,6 +213,16 @@ pub const HIGHLIGHT_RENDER_VERSION: u64 = 9;
 /// `image_processing::apply_render_default`).
 pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
     let is_raw = crate::formats::is_raw_file(source);
+    let frame = if is_raw {
+        crate::source_frame::effective(source, crate::source_frame::requested(adjustments))
+    } else {
+        0
+    };
+    decode_variant_for_frame(adjustments, is_raw, frame)
+}
+
+/// The decode settings with a frame already known by the caller (no path reads).
+pub fn decode_variant_for_frame(adjustments: &Value, is_raw: bool, frame: u32) -> DecodeVariant {
     let render = crate::recipe_versions::RenderVersion::effective(adjustments);
     DecodeVariant {
         multiscale: crate::recipe_versions::ColorNoiseVersion::of(adjustments, is_raw).multiscale(),
@@ -222,11 +231,7 @@ pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
         } else {
             DeadTest::SameColour
         },
-        frame: if is_raw {
-            crate::source_frame::effective(source, crate::source_frame::requested(adjustments))
-        } else {
-            0
-        },
+        frame,
         black: if render.border_black() {
             BlackLevels::UnbiasedBorder
         } else if render.unbiased_black() {
@@ -798,7 +803,7 @@ pub fn embedded_preview_fallback(bytes: &[u8], path: &str) -> Option<DynamicImag
     } else {
         // Other RAW containers (for example CR3) also need the decoder's
         // metadata instead of assuming that the container is TIFF or JPEG.
-        let source = rawler::rawsource::RawSource::new(Path::new(path)).ok()?;
+        let source = rawler::rawsource::RawSource::new_from_slice(bytes).with_path(path);
         let decoder = rawler::get_decoder(&source).ok()?;
         let params = rawler::decoders::RawDecodeParams::default();
         let image = decoder

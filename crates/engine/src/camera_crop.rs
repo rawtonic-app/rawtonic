@@ -120,6 +120,17 @@ pub fn apply_default(adjustments: &mut Value, source: &std::path::Path) {
     start_new_edit(adjustments, &crops(&source.to_string_lossy()));
 }
 
+/// Starts a new edit from already-read RAW bytes, without reopening its path.
+pub fn apply_default_from_source(adjustments: &mut Value, source: &rawler::rawsource::RawSource) {
+    if !crate::image_processing::is_new_recipe(adjustments) {
+        return;
+    }
+    let crops: Vec<_> = (0..=crate::source_frame::VERSION)
+        .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(source, version))
+        .collect();
+    start_new_edit(adjustments, &crops);
+}
+
 /// The part of the developed frame the camera's own image (a RAW's
 /// embedded JPEG) shows, for the recipe `adjustments` of the photo at
 /// `path`: the camera's crop in the frame version the recipe develops.
