@@ -50,6 +50,23 @@ export function toggleAt(
   return clampCenter(area, shown, { scale, center });
 }
 
+/** Where a frame of the photograph sits in the window at `zoom` (device
+ * px; crates/gpu multi_view.rs `zoomed_rect`): the photograph enlarged by
+ * `zoom.scale` with `zoom.center` at the window's centre, the frame
+ * covering its `region` of it (null: the whole photograph). */
+export function zoomedRect(
+  area: [number, number],
+  shown: [number, number],
+  region: [number, number, number, number] | null,
+  zoom: Zoom
+): [number, number, number, number] {
+  const s = zoom.scale;
+  const ox = area[0] / 2 - zoom.center[0] * shown[0] * s;
+  const oy = area[1] / 2 - zoom.center[1] * shown[1] * s;
+  if (!region) return [ox, oy, shown[0] * s, shown[1] * s];
+  return [ox + region[0] * s, oy + region[1] * s, region[2] * s, region[3] * s];
+}
+
 /** The zoom after the pointer moved by `delta` (device px) while dragging. */
 export function panBy(area: [number, number], shown: [number, number], zoom: Zoom, delta: [number, number]): Zoom {
   return clampCenter(area, shown, {

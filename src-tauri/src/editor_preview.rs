@@ -2038,8 +2038,11 @@ pub(crate) fn process_preview_job(
 
     #[cfg(feature = "performance-profiling")]
     drop(adjustments_stage);
-    // The second window shows this frame too (second_window.rs).
-    if use_wgpu_renderer {
+    // The second window shows this frame too (second_window.rs; on Linux
+    // from the JPEG below).
+    #[cfg(target_os = "linux")]
+    let tool_view = final_adjustments.global.show_clipping != 0;
+    if use_wgpu_renderer || cfg!(target_os = "linux") {
         crate::second_window::note_live(
             &loaded_image.path,
             &adjustments_clone,
@@ -2148,6 +2151,19 @@ pub(crate) fn process_preview_job(
 
     match encode_result {
         Ok(jpeg_bytes) => {
+            // The second window shows the whole frame (not a zoomed drag's
+            // region nor the crop tool's uncropped one) as it is.
+            #[cfg(target_os = "linux")]
+            if pixel_roi.is_none() && !crop_edit && crate::second_window::is_open() {
+                crate::second_window::on_browser_frame(
+                    app_handle,
+                    &context,
+                    &loaded_image.path,
+                    &jpeg_bytes,
+                    final_rgba_image.dimensions(),
+                    tool_view,
+                );
+            }
             if is_interactive {
                 let (roi_w, roi_h) = final_rgba_image.dimensions();
                 let (rx, ry) = if let Some(r) = pixel_roi {
