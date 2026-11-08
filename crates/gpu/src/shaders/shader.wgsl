@@ -1485,6 +1485,18 @@ const CR_CONTRAST_RAISE_50 = array<f32, 14>(-1.33, -1.27, -1.18, -1.129, -0.995,
 const CR_CONTRAST_RAISE_100 = array<f32, 14>(-3.67, -3.42, -3.12, -2.813, -2.496, -1.881, -1.268, -0.77, -0.02, 0.195, 0.399, 0.542, 0.354, 0.0);
 const CR_CONTRAST_LOWER_50 = array<f32, 14>(0.97, 0.92, 0.88, 0.797, 0.734, 0.607, 0.438, 0.28, 0.01, -0.076, -0.169, -0.243, -0.187, 0.0);
 const CR_CONTRAST_LOWER_100 = array<f32, 14>(1.9, 1.8, 1.68, 1.508, 1.382, 1.12, 0.789, 0.492, 0.01, -0.135, -0.302, -0.444, -0.435, 0.0);
+// toneVersion 15's Contrast (notes: benchmark-results/
+// atf5-contrast-2026-11-08): the tables above put the curve's pivot too
+// high for photographs. At equal global contrast (std of blurred L*) their
+// +100 left L* 30–40 2.9 / 3.5 darker than Camera Raw / Capture One and
+// −100 lifted L* 40–50 1.6 / 2.1 more than either (ATL slider atlas, 48
+// frames). These lower the pivot: + darkens less from display −5 to
+// −2.5 EV and lifts a little more from −2 to −1 EV; − lifts less around
+// −3…−2.5 EV. Other grid points are unchanged.
+const CR_CONTRAST_V15_RAISE_50 = array<f32, 14>(-1.33, -1.27, -1.18, -1.129, -0.995, -0.802, -0.5, -0.26, 0.04, 0.14, 0.23, 0.266, 0.187, 0.0);
+const CR_CONTRAST_V15_RAISE_100 = array<f32, 14>(-3.67, -3.42, -3.12, -2.813, -2.496, -1.76, -1.01, -0.5, 0.1, 0.3, 0.49, 0.57, 0.354, 0.0);
+const CR_CONTRAST_V15_LOWER_50 = array<f32, 14>(0.97, 0.92, 0.88, 0.797, 0.734, 0.607, 0.438, 0.23, -0.02, -0.076, -0.169, -0.243, -0.187, 0.0);
+const CR_CONTRAST_V15_LOWER_100 = array<f32, 14>(1.9, 1.8, 1.68, 1.508, 1.382, 1.12, 0.789, 0.38, -0.05, -0.135, -0.302, -0.444, -0.435, 0.0);
 const CR_DEHAZE_RAISE: f32 = 0.7;
 const CR_DEHAZE_LOWER: f32 = 0.9;
 const CR_DEHAZE_CHROMA: f32 = 1.9;
@@ -1843,6 +1855,9 @@ fn cr_whites_delta(amount: f32, g: vec2<f32>) -> f32 {
 }
 
 fn cr_contrast_delta(amount: f32, g: vec2<f32>) -> f32 {
+    if (adjustments.global.tone_version > 14.5) {
+        return cr_contrast_delta_v15(amount, g);
+    }
     let i = u32(g.x);
     if (amount > 0.0) {
         return cr_two_point(
@@ -1852,6 +1867,19 @@ fn cr_contrast_delta(amount: f32, g: vec2<f32>) -> f32 {
     return cr_two_point(
         mix(CR_CONTRAST_LOWER_50[i], CR_CONTRAST_LOWER_50[i + 1u], g.y),
         mix(CR_CONTRAST_LOWER_100[i], CR_CONTRAST_LOWER_100[i + 1u], g.y), amount);
+}
+
+// toneVersion 15's display-EV change for Contrast (lower pivot, tables above).
+fn cr_contrast_delta_v15(amount: f32, g: vec2<f32>) -> f32 {
+    let i = u32(g.x);
+    if (amount > 0.0) {
+        return cr_two_point(
+            mix(CR_CONTRAST_V15_RAISE_50[i], CR_CONTRAST_V15_RAISE_50[i + 1u], g.y),
+            mix(CR_CONTRAST_V15_RAISE_100[i], CR_CONTRAST_V15_RAISE_100[i + 1u], g.y), amount);
+    }
+    return cr_two_point(
+        mix(CR_CONTRAST_V15_LOWER_50[i], CR_CONTRAST_V15_LOWER_50[i + 1u], g.y),
+        mix(CR_CONTRAST_V15_LOWER_100[i], CR_CONTRAST_V15_LOWER_100[i + 1u], g.y), amount);
 }
 
 // Tone order. The Camera Raw-look sliders turn a display-EV change into a
