@@ -302,7 +302,7 @@
   font-size: 13px;
 }
 .session-dialog::backdrop {
-  background: #090b0ed9;
+  background: rgb(var(--studio-shade-rgb-ink, 9 11 14) / 0.850980392);
 }
 .session-dialog-header {
   display: flex;
@@ -833,7 +833,7 @@
   gap: 8px;
   padding: 10px 16px;
   border-radius: 8px;
-  background: #1b1d1fe6;
+  background: rgb(var(--studio-shade-overlay-rgb, 27 29 31) / 0.901960784);
   color: var(--studio-shade-text, #edf0f2);
   font-size: 13px;
   box-shadow: 0 8px 30px #0008;
