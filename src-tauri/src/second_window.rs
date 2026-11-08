@@ -1024,7 +1024,7 @@ pub fn restore(app_handle: &tauri::AppHandle) {
 // ---------------------------------------------------------------- commands
 
 #[tauri::command]
-pub(crate) fn second_window_state(app_handle: tauri::AppHandle) -> SecondViewState {
+pub(crate) async fn second_window_state(app_handle: tauri::AppHandle) -> SecondViewState {
     state_of(&app_handle)
 }
 
