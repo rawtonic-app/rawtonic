@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Lowering Whites darkens only the bright tones** (new edits): Whites −100 under the RAW look also darkened the upper midtones (L* 60 by about 5) and left bright areas 2.5 L* darker than Capture One's White. It now leaves tones below L* 40 alone and fades in towards white, so skin, foliage and mid greys keep their brightness while skies, snow and highlights come down (on 24 test photos at −100: bright areas −5.1 L*, Capture One −5.3; L* 60 −0.9, Capture One −1.0); texture in bright areas is kept as before. Photos edited before keep their look.
+
 - **Grey interface shades have clearer panel depth.** Sunken controls, panels and raised rows are easier to distinguish in Dark grey and Medium grey. Pressed buttons have a clearer dark fill.
 - **Interface shade:** choose Darkest, Dark grey or Medium grey in Preferences. Changes apply immediately; Darkest keeps the existing appearance and Viewer background keeps its own setting.
 
