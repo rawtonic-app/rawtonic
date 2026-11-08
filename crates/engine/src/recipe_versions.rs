@@ -155,6 +155,9 @@ pub const SHADOW_DETAIL_TONE_VERSION: u64 = 6;
 /// The tone-slider response from which lowered Whites act at an
 /// edge-aware local base (`toneVersion` 10).
 pub const WHITES_LOCAL_BASE_TONE_VERSION: u64 = 10;
+/// The tone-slider response from which lowered Whites reach only the bright
+/// tones (`toneVersion` 12).
+pub const WHITES_BRIGHT_REACH_TONE_VERSION: u64 = 12;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -188,6 +191,11 @@ impl ToneVersion {
     /// Lowered Whites act at an edge-aware local base.
     pub fn whites_local_base(self) -> bool {
         self.0 >= WHITES_LOCAL_BASE_TONE_VERSION
+    }
+
+    /// Lowered Whites reach only the bright tones.
+    pub fn whites_bright_reach(self) -> bool {
+        self.0 >= WHITES_BRIGHT_REACH_TONE_VERSION
     }
 }
 
