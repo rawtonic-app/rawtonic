@@ -431,6 +431,15 @@ impl VibranceVersion {
     pub fn uniform(self) -> u32 {
         self.0 as u32
     }
+
+    pub fn from_uniform(value: u32) -> Self {
+        Self(u64::from(value))
+    }
+
+    /// Vibrance is weighted by Oklab hue and chroma.
+    pub fn oklab(self) -> bool {
+        self.0 >= OKLAB_VIBRANCE_VERSION
+    }
 }
 
 /// Edge-fringe treatments (`fringeVersion`, `edge_fringe::VERSION`).

@@ -358,6 +358,40 @@ fn custom_curve() -> serde_json::Value {
 }
 
 #[test]
+fn vibrance_version_2_compiles_only_where_vibrance_is_used() {
+    let features = |profile: serde_json::Value| {
+        preview_features(&get_all_adjustments_from_json(&profile, true, Some(1)))
+            & VIBRANCE_V2_FEATURE
+    };
+    assert_eq!(
+        features(json!({"vibrance": 30, "vibranceVersion": 2})),
+        VIBRANCE_V2_FEATURE
+    );
+    assert_eq!(
+        features(
+            local_profile(json!({"vibrance": -30}))
+                .as_object()
+                .map(|o| {
+                    let mut p = o.clone();
+                    p.insert("vibranceVersion".into(), json!(2));
+                    serde_json::Value::Object(p)
+                })
+                .unwrap()
+        ),
+        VIBRANCE_V2_FEATURE
+    );
+    // Older recipes and version 2 without Vibrance keep the shader without it.
+    assert_eq!(features(json!({"vibrance": 30})), 0);
+    assert_eq!(features(json!({"saturation": 30, "vibranceVersion": 2})), 0);
+    let used = get_all_adjustments_from_json(
+        &json!({"vibrance": 30, "vibranceVersion": 2}),
+        true,
+        Some(1),
+    );
+    assert!(needs_feature_pipeline(&used));
+}
+
+#[test]
 fn preview_features_preserve_global_and_local_effects() {
     for expected in 0..PREVIEW_PIPELINE_COUNT {
         // Refinements matter only with noise reduction.
@@ -396,6 +430,10 @@ fn preview_features_preserve_global_and_local_effects() {
                 || (expected & TONE_PREVIEW_FEATURE != 0
                     && expected & (SHADOWS_V13_FEATURE | WHITES_V12_FEATURE) == 0))
         {
+            continue;
+        }
+        // Vibrance of version 2 is tested on its own (below the loop).
+        if expected & VIBRANCE_V2_FEATURE != 0 {
             continue;
         }
         let mut effects = json!({});

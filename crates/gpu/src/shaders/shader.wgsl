@@ -60,6 +60,9 @@ override SHADOWS_V13: bool = false;
 // Lowered Highlights of tone version 14 (`apply_highlights_adjustment_v14`),
 // for the same reason (gpu_processing.rs `HIGHLIGHTS_V14_FEATURE`).
 override HIGHLIGHTS_V14: bool = false;
+// Vibrance of `vibranceVersion` 2 (`apply_creative_color_v2`), for the same
+// reason (gpu_processing.rs `VIBRANCE_V2_FEATURE`).
+override VIBRANCE_V2: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -9783,7 +9786,7 @@ fn main(
     }
     composite_rgb_linear = apply_hsl_panel(composite_rgb_linear, final_hsl, absolute_coord_i);
     composite_rgb_linear = apply_hue_shift(composite_rgb_linear, t_hue);
-    if (adjustments.global.vibrance_version >= 2u) {
+    if (VIBRANCE_V2 && adjustments.global.vibrance_version >= 2u) {
         composite_rgb_linear = apply_creative_color_v2(composite_rgb_linear, t_saturation, t_vibrance);
     } else {
         composite_rgb_linear = apply_creative_color(composite_rgb_linear, t_saturation, t_vibrance);
