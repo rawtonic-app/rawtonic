@@ -3885,6 +3885,13 @@
         },
         "otherSideAria": "Wymiary, drugi bok (px)",
         "resize": "Zmień rozmiar, aby dopasować",
+        "superResolution": {
+          "failed": "Superrozdzielczość jest niedostępna: {{error}}",
+          "hint": "Powiększa każde zdjęcie do dwukrotnej szerokości i wysokości za pomocą modelu AI, przed zmianą rozmiaru i wyostrzaniem. Oryginały nigdy nie są zmieniane.",
+          "label": "Superrozdzielczość (2×, AI)",
+          "preparing": "Przygotowywanie modelu superrozdzielczości…",
+          "ready": "Model superrozdzielczości gotowy ({{backend}})."
+        },
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {

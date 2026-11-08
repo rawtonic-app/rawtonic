@@ -177,6 +177,10 @@ pub struct ExportSettings {
     /// Sharpening of the finished output, after the resize.
     #[serde(default)]
     pub output_sharpening: Option<crate::output_sharpening::OutputSharpening>,
+    /// Super Resolution: the rendered photo is enlarged 2× by the AI model
+    /// before the resize, border and output sharpening ([`Enlarger`]).
+    #[serde(default)]
+    pub super_resolution: bool,
 }
 
 impl ExportSettings {
@@ -698,6 +702,7 @@ pub fn compute_fused_geometry(
 }
 
 pub fn compute_export_output_size(src_w: u32, src_h: u32, settings: &ExportSettings) -> (u32, u32) {
+    let (src_w, src_h) = super_resolution_size(src_w, src_h, settings);
     match compute_export_geometry(src_w, src_h, settings) {
         Some(geometry) => (geometry.canvas_w, geometry.canvas_h),
         None => resize_target(src_w, src_h, settings.resize.as_ref()),
@@ -1079,6 +1084,74 @@ pub struct RenderEnv<'a> {
     pub render_inputs: Option<&'a crate::render_inputs::RenderInputs>,
 }
 
+/// Enlarges a rendered export 2× for Super Resolution: the app and the CLI
+/// run the AI model (`rawtonic-superres`) behind it. `image` is the render
+/// in its output encoding; the result has exactly twice its width and
+/// height and the same pixel type. `cancelled` may stop it between tiles.
+pub trait Enlarger: Send + Sync {
+    fn enlarge_2x(
+        &self,
+        image: DynamicImage,
+        cancelled: &dyn Fn() -> Result<(), String>,
+    ) -> Result<DynamicImage, String>;
+}
+
+/// The size a render of `width` × `height` has after Super Resolution.
+pub fn super_resolution_size(width: u32, height: u32, settings: &ExportSettings) -> (u32, u32) {
+    if settings.super_resolution {
+        (width.saturating_mul(2), height.saturating_mul(2))
+    } else {
+        (width, height)
+    }
+}
+
+/// Super Resolution of a rendered export, when the settings ask for it:
+/// before the resize, border and output sharpening, so they apply to the
+/// enlarged photo as they would to a larger original.
+pub fn enlarge_for_export(
+    image: DynamicImage,
+    settings: &ExportSettings,
+    enlarger: Option<&dyn Enlarger>,
+    cancelled: &dyn Fn() -> Result<(), String>,
+) -> Result<DynamicImage, String> {
+    if !settings.super_resolution {
+        return Ok(image);
+    }
+    let enlarger = enlarger.ok_or_else(|| {
+        "Super Resolution needs its AI model, which is not installed".to_string()
+    })?;
+    let (width, height) = image.dimensions();
+    let (target_w, target_h) = super_resolution_size(width, height, settings);
+    if exceeds_max_dimension("Super Resolution size", target_w, target_h) {
+        return Err(format!(
+            "Super Resolution would make {target_w} × {target_h} pixels, more than an export can hold"
+        ));
+    }
+    let enlarged = enlarger.enlarge_2x(image, cancelled)?;
+    if enlarged.dimensions() != (target_w, target_h) {
+        return Err(format!(
+            "Super Resolution returned {:?} instead of {target_w} × {target_h} pixels",
+            enlarged.dimensions()
+        ));
+    }
+    Ok(enlarged)
+}
+
+/// Whether Super Resolution marks an export as containing generated content.
+/// It is a faithful enlargement (an L1-trained regression model that adds
+/// no content of its own, notes
+/// benchmark-results/srx-super-resolution-2026-11-08), so it does not; this
+/// is the one place to change if that decision changes.
+pub const SUPER_RESOLUTION_IS_GENERATED: bool = false;
+
+/// Whether an export's file is marked as containing generated content
+/// (IPTC Digital Source Type, `export_metadata_with`): AI patches of the
+/// recipe, and Super Resolution if [`SUPER_RESOLUTION_IS_GENERATED`].
+pub fn export_marks_generated(js_adjustments: &Value, settings: &ExportSettings) -> bool {
+    rawtonic_engine::image_loader::has_generated_areas(js_adjustments)
+        || (settings.super_resolution && SUPER_RESOLUTION_IS_GENERATED)
+}
+
 /// EXIF tag names and display values, as the app caches them per source.
 pub type ExifMap = std::collections::HashMap<String, String>;
 
@@ -1095,6 +1168,9 @@ pub struct ExportOutput<'a> {
     /// The source's cached EXIF map (see [`export_metadata_with`](crate::exif_processing::export_metadata_with)).
     pub exif_sidecar: &'a dyn Fn() -> Option<ExifMap>,
     pub catalog: &'a dyn Fn() -> Option<rawtonic_metadata::Metadata>,
+    /// Runs Super Resolution when the settings ask for it; `None` where the
+    /// model is not available (such an export fails with a clear error).
+    pub enlarger: Option<&'a dyn Enlarger>,
     /// Writes the encoded bytes for `path` with the given lower-case extension.
     pub write: &'a WriteExport,
 }
@@ -1291,6 +1367,7 @@ pub fn save_rendered_export(
     output: &ExportOutput,
     cancelled: &dyn Fn() -> Result<(), String>,
 ) -> Result<(), String> {
+    let processed = enlarge_for_export(processed, export_settings, output.enlarger, cancelled)?;
     #[cfg(feature = "performance-profiling")]
     let geometry_stage = crate::performance::PerformanceStage::new("export_geometry");
     let final_image =
@@ -1298,7 +1375,7 @@ pub fn save_rendered_export(
     #[cfg(feature = "performance-profiling")]
     drop(geometry_stage);
     cancelled()?;
-    let generated = rawtonic_engine::image_loader::has_generated_areas(js_adjustments);
+    let generated = export_marks_generated(js_adjustments, export_settings);
     save_export_image(
         final_image,
         source_path_str,
@@ -2989,6 +3066,7 @@ mod encoding_input_tests {
                 exif_sidecar: &|| panic!("catalog rights must avoid reading source metadata"),
                 catalog: &catalog,
                 write: &write,
+                enlarger: None,
             };
             save_export_image(
                 DynamicImage::new_rgb8(4, 4),
@@ -3043,6 +3121,7 @@ mod encoding_input_tests {
             exif_sidecar: &|| None,
             catalog: &|| None,
             write: &write,
+            enlarger: None,
         };
         save_export_image(
             DynamicImage::new_rgb8(4, 4),

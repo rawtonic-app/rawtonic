@@ -572,6 +572,7 @@ fn save_image_with_metadata(
             exif_sidecar: &exif_sidecar,
             catalog: &catalog,
             write: &write_export_bytes,
+            enlarger: None,
         },
     )
 }
@@ -1698,6 +1699,7 @@ fn export_photo(
         load_lut: &load_lut,
         render_inputs: None,
     };
+    let enlarger = crate::super_resolution::ExportEnlarger { app_handle };
     // The develop of each kind of main file the recipes want: with its
     // mask layers, or without them when they go to separate files.
     let with_mask_files = |target: usize| targets[target].export_settings.export_masks;
@@ -1773,6 +1775,7 @@ fn export_photo(
                 exif_sidecar: &exif_sidecar,
                 catalog: &catalog,
                 write: &write_export_bytes,
+                enlarger: Some(&enlarger),
             };
             let cancelled = || ensure_export_not_cancelled(cancellation_token);
             let render = rendered.take(target, |group| {
@@ -2070,6 +2073,7 @@ pub async fn run_headless_export(
         destination_type: None,
         subfolder: None,
         output_sharpening: None,
+        super_resolution: false,
     };
 
     let mut custom_adjustments = None;

@@ -3574,6 +3574,13 @@
         },
         "otherSideAria": "Dimensions other side (px)",
         "resize": "Resize to fit",
+        "superResolution": {
+          "failed": "Super Resolution is unavailable: {{error}}",
+          "hint": "Enlarges each photo to twice its width and height with an AI model, before resizing and sharpening. Originals are never changed.",
+          "label": "Super Resolution (2×, AI)",
+          "preparing": "Preparing the Super Resolution model…",
+          "ready": "Super Resolution model ready ({{backend}})."
+        },
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {

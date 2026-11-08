@@ -3730,6 +3730,13 @@
         },
         "otherSideAria": "Dimensions, l'altre costat (px)",
         "resize": "Redimensiona per ajustar",
+        "superResolution": {
+          "failed": "La superresolució no està disponible: {{error}}",
+          "hint": "Amplia cada foto al doble d’amplada i d’alçada amb un model d’IA, abans de redimensionar i enfocar. Els originals no es modifiquen mai.",
+          "label": "Superresolució (2×, IA)",
+          "preparing": "S’està preparant el model de superresolució…",
+          "ready": "Model de superresolució a punt ({{backend}})."
+        },
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {

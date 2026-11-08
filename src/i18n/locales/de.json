@@ -3574,6 +3574,13 @@
         },
         "otherSideAria": "Abmessungen, andere Seite (px)",
         "resize": "Größe anpassen",
+        "superResolution": {
+          "failed": "Super-Resolution ist nicht verfügbar: {{error}}",
+          "hint": "Vergrößert jedes Foto mit einem KI-Modell auf die doppelte Breite und Höhe, vor Größenänderung und Schärfen. Originale werden nie verändert.",
+          "label": "Super-Resolution (2×, KI)",
+          "preparing": "Super-Resolution-Modell wird vorbereitet …",
+          "ready": "Super-Resolution-Modell bereit ({{backend}})."
+        },
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {

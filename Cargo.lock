@@ -5483,6 +5483,7 @@ dependencies = [
  "rawtonic-recipe",
  "rawtonic-runtime",
  "rawtonic-segment",
+ "rawtonic-superres",
  "rusqlite",
  "serde",
  "serde_json",
@@ -5828,6 +5829,19 @@ dependencies = [
  "rawtonic-fs",
  "rawtonic-onnx",
  "rayon",
+]
+
+[[package]]
+name = "rawtonic-superres"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "image",
+ "ndarray",
+ "ort",
+ "rawtonic-denoise",
+ "rawtonic-fs",
+ "rawtonic-onnx",
 ]
 
 [[package]]

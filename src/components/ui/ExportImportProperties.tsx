@@ -76,6 +76,8 @@ export interface ExportSettings {
   subfolder?: string;
   /** Unsharp mask on the output's lightness after the resize. */
   outputSharpening?: { amount: number; radius: number; threshold: number } | null;
+  /** Enlarge 2× with the AI model before the resize (Super Resolution). */
+  superResolution?: boolean;
 }
 
 /** A recipe's output sharpening: for screen with a radius, for print from the viewing distance. */
@@ -154,6 +156,7 @@ export interface ExportPreset {
   resizeValue: number;
   resizeValue2?: number;
   dontEnlarge: boolean;
+  superResolution?: boolean;
   enablePad?: boolean;
   padRatioWidth?: number;
   padRatioHeight?: number;

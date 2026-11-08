@@ -3730,6 +3730,13 @@
         },
         "otherSideAria": "Dimensioni, altro lato (px)",
         "resize": "Ridimensiona per adattare",
+        "superResolution": {
+          "failed": "La super risoluzione non è disponibile: {{error}}",
+          "hint": "Ingrandisce ogni foto al doppio di larghezza e altezza con un modello di IA, prima del ridimensionamento e della nitidezza. Gli originali non vengono mai modificati.",
+          "label": "Super risoluzione (2×, IA)",
+          "preparing": "Preparazione del modello di super risoluzione…",
+          "ready": "Modello di super risoluzione pronto ({{backend}})."
+        },
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {

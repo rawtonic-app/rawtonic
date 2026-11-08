@@ -3477,6 +3477,13 @@
         },
         "otherSideAria": "尺寸，另一边 (px)",
         "resize": "调整尺寸以适合",
+        "superResolution": {
+          "failed": "超分辨率不可用：{{error}}",
+          "hint": "在调整大小和锐化之前，用 AI 模型将每张照片的宽和高放大一倍。原片不会被更改。",
+          "label": "超分辨率（2×，AI）",
+          "preparing": "正在准备超分辨率模型…",
+          "ready": "超分辨率模型已就绪（{{backend}}）。"
+        },
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
