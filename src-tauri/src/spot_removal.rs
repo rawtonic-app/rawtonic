@@ -685,6 +685,10 @@ mod tests {
         let healed = crate::image_loader::composite_patches_on_image(&source, &recipe).unwrap();
         assert!(at(&healed) < 0.9, "the spot heals the dot: {}", at(&healed));
         let base = search_base(&source, &recipe, "s1").unwrap();
-        assert!(at(&base) > 0.99, "its search base keeps the dot: {}", at(&base));
+        assert!(
+            at(&base) > 0.99,
+            "its search base keeps the dot: {}",
+            at(&base)
+        );
     }
 }
