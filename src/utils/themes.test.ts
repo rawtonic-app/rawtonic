@@ -88,6 +88,37 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
             4.5
           );
     });
+    if (shade !== 'darkest') {
+      it('separates sunken, panel and raised surfaces at least as much as Darkest', () => {
+        // Darkest's incumbent studio panel/raised pair; the brighter Medium
+        // ramp keeps stronger steps without sacrificing secondary-text AA.
+        const darkestStep = contrast('#292a2c', '#323335');
+        const minimumStep = shade === 'medium-grey' ? 1.32 : darkestStep;
+        for (const [lower, upper] of [
+          ['inset', 'bg'],
+          ['bg', 'raised']
+        ]) {
+          const a = palette[`--studio-shade-${lower}`];
+          const b = palette[`--studio-shade-${upper}`];
+          expect(rgb(b)[0], `${lower} < ${upper}`).toBeGreaterThan(rgb(a)[0]);
+          expect(contrast(a, b), `${lower} / ${upper}`).toBeGreaterThanOrEqual(minimumStep);
+        }
+      });
+      it('uses a light pressed tint independently of dark photo captions', () => {
+        const studio = readFileSync('src/components/studio/studio.css', 'utf8') as string;
+        const block = studio.slice(studio.indexOf("button[aria-pressed='true'] {")).split('}')[0];
+        expect(block).toContain('var(--studio-shade-pressed-rgb,');
+        const tint = rgb(palette['--studio-shade-pressed-rgb']);
+        const alpha = Number(block.match(/\/\s*([\d.]+)/)![1]);
+        for (const role of ['ink', 'inset', 'bg', 'raised', 'hover']) {
+          const bg = rgb(palette[`--studio-shade-${role}`]);
+          const composite = `rgb(${bg.map((c, i) => c * (1 - alpha) + tint[i] * alpha).join(', ')})`;
+          expect(contrast(composite, palette[`--studio-shade-${role}`])).toBeGreaterThan(1);
+          expect(contrast(palette['--studio-shade-accent'], composite)).toBeGreaterThanOrEqual(4.5);
+        }
+        expect(rgb(palette['--studio-shade-overlay-rgb'])[0]).toBeLessThan(tint[0]);
+      });
+    }
     if (shade !== 'darkest')
       it('preserves disabled/dim hierarchy and recognisable semantic hues', () => {
         const studio = readFileSync('src/components/studio/studio.css', 'utf8') as string;

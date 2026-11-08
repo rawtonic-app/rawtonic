@@ -534,8 +534,8 @@
   --studio-shade-accent: #e0effa;
   --studio-shade-ink: #202020;
   --studio-shade-rgb-ink: 32 32 32;
-  --studio-shade-inset: #303030;
-  --studio-shade-bg: #383838;
+  --studio-shade-inset: #282828;
+  --studio-shade-bg: #343434;
   --studio-shade-raised: #404040;
   --studio-shade-hover: #484848;
   --studio-shade-line: #999999;
@@ -543,6 +543,7 @@
   --studio-shade-muted: #adadad;
   --studio-shade-dim: #737373;
   --studio-shade-overlay-rgb: 24 24 24;
+  --studio-shade-pressed-rgb: 120 120 120;
   --studio-shade-text: #f0f0f0;
   --studio-shade-rgb-text: 240 240 240;
 }
@@ -564,8 +565,8 @@
   --studio-shade-accent: #e0effa;
   --studio-shade-ink: #373737;
   --studio-shade-rgb-ink: 55 55 55;
-  --studio-shade-inset: #4c4c4c;
-  --studio-shade-bg: #585858;
+  --studio-shade-inset: #3e3e3e;
+  --studio-shade-bg: #505050;
   --studio-shade-raised: #626262;
   --studio-shade-hover: #696969;
   --studio-shade-line: #c0c0c0;
@@ -573,6 +574,7 @@
   --studio-shade-muted: #e0e0e0;
   --studio-shade-dim: #949494;
   --studio-shade-overlay-rgb: 24 24 24;
+  --studio-shade-pressed-rgb: 120 120 120;
   --studio-shade-text: #ffffff;
   --studio-shade-rgb-text: 255 255 255;
 }
