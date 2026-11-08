@@ -181,6 +181,19 @@ struct ExtremesKept {
 }
 
 impl ExtremesKept {
+    /// Start a job by resetting all kept state for a new preview base before
+    /// recording its mask shapes. The next job can then reuse unchanged masks.
+    fn begin_job(
+        &mut self,
+        proxy_id: u64,
+        masks: &[MaskDefinition],
+        now: Instant,
+    ) -> (Vec<usize>, Vec<bool>) {
+        let copies = self.copies_to_render(proxy_id, now);
+        let unchanged = self.unchanged_layers(masks);
+        (copies, unchanged)
+    }
+
     /// The copies this job renders: both at a drag's start (or after a
     /// pause), else one, in turn.
     fn copies_to_render(&mut self, proxy_id: u64, now: Instant) -> Vec<usize> {
@@ -291,7 +304,7 @@ fn render(
         // read from its mask at the averaged copy's size instead, the pixel
         // nearest to where each copy pixel came from, until the release
         // frame's exact marks.
-        let unchanged = kept.unchanged_layers(&job.masks);
+        let (copies_to_render, unchanged) = kept.begin_job(proxy.id, &job.masks, Instant::now());
         let frame_masks = crate::editor_preview::preview_layer_mask_bitmaps(
             &state,
             &develop,
@@ -309,7 +322,7 @@ fn render(
             (&extremes.brightest, &extremes.brightest_at),
             (&extremes.darkest, &extremes.darkest_at),
         ];
-        for copy in kept.copies_to_render(proxy.id, Instant::now()) {
+        for copy in copies_to_render {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("scope_clip_marks_render");
             let (image, at) = copies[copy];
@@ -513,6 +526,45 @@ mod tests {
             kept.found(0, ClippedSides::default(), at(1350)),
             ClippedSides::default()
         );
+    }
+
+    #[test]
+    fn a_new_photo_starts_with_fresh_shapes_and_reuses_them_on_its_second_job() {
+        let masks: Vec<MaskDefinition> = serde_json::from_value(serde_json::json!([{
+            "id": "layer1", "name": "Radial", "visible": true,
+            "invert": false, "opacity": 100, "adjustments": {},
+            "subMasks": [{"id": "sm1", "type": "radial", "visible": true,
+                "mode": "additive", "invert": false, "opacity": 100,
+                "parameters": {"centerX": 3000, "centerY": 2000,
+                    "radiusX": 1400, "radiusY": 900, "rotation": 0, "feather": 0.5}}]
+        }]))
+        .unwrap();
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let mut kept = ExtremesKept::default();
+        let highlights = ClippedSides {
+            highlights: true,
+            ..Default::default()
+        };
+        // Photo A: open, then drag a local adjustment with unchanged shapes.
+        assert_eq!(kept.begin_job(1, &masks, at(0)), (vec![0, 1], vec![false]));
+        kept.found(0, highlights, at(0));
+        kept.found(1, highlights, at(0));
+        assert_eq!(kept.begin_job(1, &masks, at(100)), (vec![0], vec![true]));
+        kept.found(0, highlights, at(100));
+        // Photo B deliberately has the same mask shapes: neither A's shapes
+        // nor its fresh clipping marks may carry across the photo change.
+        assert_eq!(
+            kept.begin_job(2, &masks, at(200)),
+            (vec![0, 1], vec![false])
+        );
+        assert_eq!(
+            kept.found(0, ClippedSides::default(), at(200)),
+            ClippedSides::default()
+        );
+        kept.found(1, ClippedSides::default(), at(200));
+        // Already the second job selects base-size masks, rather than 512 px.
+        assert_eq!(kept.begin_job(2, &masks, at(300)), (vec![0], vec![true]));
     }
 
     #[test]
