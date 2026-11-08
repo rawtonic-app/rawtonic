@@ -497,6 +497,7 @@ export interface AppSettings {
   maskColor?: string;
   /** Size of the interface's panels and bars (1, 1.12 or 1.25). */
   uiScale?: number;
+  interfaceShade?: import('../../utils/themes').InterfaceShade;
   maskOpacity?: number;
   radialDrawInside?: boolean;
   cropGrid?: CropGrid;

@@ -666,6 +666,9 @@ pub struct AppSettings {
     /// Size of the interface's panels and bars: 1.0 (default), 1.12 or 1.25.
     #[serde(default)]
     pub ui_scale: Option<f64>,
+    /// Interface chrome shade; absent or unknown values display as Darkest.
+    #[serde(default)]
+    pub interface_shade: Option<String>,
     /// Mask overlay opacity in percent, 0–100 (default 50, as in Capture One).
     #[serde(default)]
     pub mask_opacity: Option<u32>,
@@ -897,6 +900,7 @@ impl Default for AppSettings {
             mask_display_restore: None,
             mask_color: None,
             ui_scale: None,
+            interface_shade: None,
             mask_opacity: None,
             radial_draw_inside: None,
             crop_grid: None,
@@ -1624,6 +1628,21 @@ mod tests {
         migrate_viewer_background(&mut off);
         assert_eq!(off.viewer_background, None);
         assert!(!migrate_viewer_background(&mut off));
+    }
+
+    #[test]
+    fn interface_shade_survives_a_save_without_changing_the_viewer_background() {
+        let legacy: AppSettings = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(legacy.interface_shade, None);
+        for shade in ["darkest", "dark-grey", "medium-grey"] {
+            let settings: AppSettings = serde_json::from_value(serde_json::json!({
+                "interfaceShade": shade, "viewerBackground": "medium"
+            }))
+            .unwrap();
+            let saved = serde_json::to_value(settings).unwrap();
+            assert_eq!(saved["interfaceShade"], shade);
+            assert_eq!(saved["viewerBackground"], "medium");
+        }
     }
 
     #[test]

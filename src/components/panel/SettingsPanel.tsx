@@ -1,3 +1,4 @@
+import { interfaceShade } from '../../utils/themes';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Cpu,
@@ -798,6 +799,24 @@ export default function SettingsPanel({
                       <UpdateSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
                       <CrashReportSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
                       <UsageStatsSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
+
+                      <SettingItem
+                        label={t('settings.general.interfaceShade')}
+                        description={t('settings.general.interfaceShadeDesc')}
+                      >
+                        <Dropdown
+                          onChange={(value) =>
+                            onSettingsChange({ ...appSettings, interfaceShade: interfaceShade(value) })
+                          }
+                          options={[
+                            { value: 'darkest', label: t('settings.general.shadeDarkest') },
+                            { value: 'dark-grey', label: t('settings.general.shadeDarkGrey') },
+                            { value: 'medium-grey', label: t('settings.general.shadeMediumGrey') }
+                          ]}
+                          value={interfaceShade(appSettings?.interfaceShade)}
+                          triggerClassName="bg-bg-primary"
+                        />
+                      </SettingItem>
 
                       <SettingItem
                         label={t('settings.general.uiScale')}
