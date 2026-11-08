@@ -20,6 +20,9 @@
 //! next start (`second_window.json` in the config folder), and it opens
 //! again when it was open at quit.
 
+// Linux has no native display: the window is never opened there.
+#![cfg_attr(target_os = "linux", allow(dead_code))]
+
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
@@ -107,8 +110,9 @@ struct Shown {
 struct Whole {
     recipe_key: u64,
     pixels: (u32, u32),
-    /// Developed for this window (else copied from the main frame).
-    own: bool,
+    /// Developed for this window at this window area (device px; else
+    /// copied from the main frame).
+    own: Option<[f32; 4]>,
 }
 
 #[derive(Default)]
@@ -138,6 +142,10 @@ struct Live {
 static OPEN: AtomicBool = AtomicBool::new(false);
 static INNER: Mutex<Option<Inner>> = Mutex::new(None);
 static LIVE: Mutex<Option<Live>> = Mutex::new(None);
+/// The Library's active photograph, asked for after the main window's
+/// last preview (None once a preview follows): what an unlock or an
+/// opening shows.
+static FOLLOW: Mutex<Option<String>> = Mutex::new(None);
 static GENERATION: AtomicUsize = AtomicUsize::new(0);
 static SAVED: Mutex<Option<(PathBuf, SavedSecondWindow)>> = Mutex::new(None);
 static SAVE_PENDING: AtomicBool = AtomicBool::new(false);
@@ -170,9 +178,22 @@ pub(crate) fn note_live(
     interactive: bool,
     full: (u32, u32),
 ) {
+    // While closed only the settled recipe is kept (no key: the hash is
+    // made when the window opens), so opening shows the photo at once.
     if !is_open() {
+        if !interactive {
+            *lock_recover(&FOLLOW) = None;
+            *lock_recover(&LIVE) = Some(Live {
+                path: path.to_string(),
+                key: 0,
+                recipe: Arc::new(recipe.clone()),
+                interactive,
+                full,
+            });
+        }
         return;
     }
+    *lock_recover(&FOLLOW) = None;
     let key = recipe_key(recipe);
     let mut live = lock_recover(&LIVE);
     let recipe = match live.as_ref() {
@@ -242,7 +263,7 @@ fn on_frame(app: &tauri::AppHandle, context: &GpuContext, frame: &LiveFrame) {
         }
         if !frame.tool_view {
             let keep_own = inner.whole.is_some_and(|whole| {
-                whole.own
+                whole.own.is_some()
                     && whole.recipe_key == key
                     && u64::from(whole.pixels.0) * u64::from(whole.pixels.1)
                         >= u64::from(frame.width) * u64::from(frame.height)
@@ -265,7 +286,7 @@ fn on_frame(app: &tauri::AppHandle, context: &GpuContext, frame: &LiveFrame) {
                     inner.whole = Some(Whole {
                         recipe_key: key,
                         pixels: (frame.width, frame.height),
-                        own: false,
+                        own: None,
                     });
                 }
                 // A region of an earlier recipe would cover the edit.
@@ -405,13 +426,23 @@ fn whole_suffices(pixels: (u32, u32), area: [f32; 4], shown: [f32; 2]) -> bool {
     have >= needed.min(full) * 0.97
 }
 
+/// Whether the cell's whole frame serves a fit in `area`: developed here
+/// for an area at least as large (never asked for again at the same size,
+/// even when the source gave fewer pixels), or holding enough pixels.
+fn whole_is_enough(whole: Whole, area: [f32; 4], shown: [f32; 2]) -> bool {
+    whole
+        .own
+        .is_some_and(|a| a[2] >= area[2] && a[3] >= area[3])
+        || whole_suffices(whole.pixels, area, shown)
+}
+
 fn want(inner: &Inner) -> Option<Want> {
     let shown = inner.shown.as_ref()?;
     let display = inner.display.as_ref()?;
     let whole_current = inner.whole.filter(|w| w.recipe_key == shown.recipe_key);
     let whole_ok = match (whole_current, shown.shown) {
         (Some(whole), Some(size)) => {
-            inner.zoom.is_some() || whole.own || whole_suffices(whole.pixels, inner.area, size)
+            inner.zoom.is_some() || whole_is_enough(whole, inner.area, size)
         }
         (Some(_), None) => true,
         (None, _) => false,
@@ -505,7 +536,7 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                         inner.whole = Some(Whole {
                             recipe_key,
                             pixels: developed.rgba.dimensions(),
-                            own: true,
+                            own: Some(area),
                         });
                     }
                     log::info!(
@@ -717,6 +748,7 @@ pub(crate) fn placement(
 // ---------------------------------------------------------------- window
 
 /// A display's bounds in logical px (its own scale).
+#[cfg(not(target_os = "linux"))]
 fn monitor_bounds(monitor: &tauri::Monitor) -> crate::startup::MonitorBounds {
     let scale = monitor.scale_factor();
     let position = monitor.position().to_logical::<f64>(scale);
@@ -731,6 +763,17 @@ fn monitor_bounds(monitor: &tauri::Monitor) -> crate::startup::MonitorBounds {
 
 /// Opens the window (or brings it to the front).
 async fn open_window(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app_handle;
+        Err("The second window needs the native display, which Linux does not have".into())
+    }
+    #[cfg(not(target_os = "linux"))]
+    open_native(app_handle).await
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn open_native(app_handle: &tauri::AppHandle) -> Result<(), String> {
     if !available(app_handle) {
         return Err("The second window needs the native display renderer".into());
     }
@@ -866,9 +909,18 @@ async fn open_window(app_handle: &tauri::AppHandle) -> Result<(), String> {
 /// Fills a newly opened or unlocked window with the main window's current
 /// photograph (developed for it: the main frame is not at hand here).
 fn show_current(app_handle: &tauri::AppHandle, context: &GpuContext) {
-    let live = lock_recover(&LIVE)
-        .as_ref()
-        .map(|l| (l.path.clone(), l.key, Arc::clone(&l.recipe), l.full));
+    // The Library's active photograph when it was asked for after the
+    // main window's last preview, else that preview's photograph.
+    if let Some(path) = lock_recover(&FOLLOW).clone() {
+        show_followed(app_handle, context, path);
+        return;
+    }
+    let live = lock_recover(&LIVE).as_mut().map(|l| {
+        if l.key == 0 {
+            l.key = recipe_key(&l.recipe);
+        }
+        (l.path.clone(), l.key, Arc::clone(&l.recipe), l.full)
+    });
     if let Some((path, key, recipe, full)) = live {
         {
             let mut guard = lock_recover(&INNER);
@@ -880,12 +932,30 @@ fn show_current(app_handle: &tauri::AppHandle, context: &GpuContext) {
     }
 }
 
+/// Shows `path` from its stored recipe (the Library's active photograph).
+fn show_followed(app_handle: &tauri::AppHandle, context: &GpuContext, path: String) {
+    {
+        let mut guard = lock_recover(&INNER);
+        let Some(inner) = guard.as_mut() else { return };
+        if inner.locked || inner.shown.as_ref().is_some_and(|s| s.path == path) {
+            return;
+        }
+        let recipe = multi_view::recipe_of(&path);
+        let key = recipe_key(&recipe);
+        let shown = multi_view::full_size_of(&path)
+            .map(|(w, h)| multi_view::shown_size_of(&recipe, w, h))
+            .map(|(w, h)| [w, h]);
+        set_photo(inner, context, &path, key, Arc::new(recipe), shown);
+    }
+    emit_state(app_handle);
+    schedule(app_handle);
+}
+
 /// The window is closing: its surface goes first, while the window lives.
 pub(crate) fn closing(app_handle: &tauri::AppHandle) {
     OPEN.store(false, Ordering::SeqCst);
     GENERATION.fetch_add(1, Ordering::SeqCst);
     *lock_recover(&INNER) = None;
-    *lock_recover(&LIVE) = None;
     bases().clear();
     update_saved(app_handle, |s| s.open = false);
     emit_state(app_handle);
@@ -1108,31 +1178,17 @@ pub(crate) async fn second_window_follow(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let Some(path) = path else { return Ok(()) };
+    // Kept while closed or locked: an opening or unlock shows it.
+    *lock_recover(&FOLLOW) = Some(path.clone());
     if !is_open() {
         return Ok(());
     }
     let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
         return Ok(());
     };
-    tauri::async_runtime::spawn_blocking(move || {
-        {
-            let mut guard = lock_recover(&INNER);
-            let Some(inner) = guard.as_mut() else { return };
-            if inner.locked || inner.shown.as_ref().is_some_and(|s| s.path == path) {
-                return;
-            }
-            let recipe = multi_view::recipe_of(&path);
-            let key = recipe_key(&recipe);
-            let shown = multi_view::full_size_of(&path)
-                .map(|(w, h)| multi_view::shown_size_of(&recipe, w, h))
-                .map(|(w, h)| [w, h]);
-            set_photo(inner, &context, &path, key, Arc::new(recipe), shown);
-        }
-        emit_state(&app_handle);
-        schedule(&app_handle);
-    })
-    .await
-    .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || show_followed(&app_handle, &context, path))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -1274,6 +1330,30 @@ mod tests {
         assert!(whole_suffices((3200, 2133), area, shown));
         // Never more than the photograph itself.
         assert!(whole_suffices((1200, 800), area, [1200.0, 800.0]));
+    }
+
+    #[test]
+    fn an_own_frame_is_developed_again_when_the_window_grows() {
+        let small = [0.0, 0.0, 1600.0, 900.0];
+        let full = [0.0, 0.0, 1920.0, 1200.0];
+        let shown = [6000.0, 4000.0];
+        let own = Whole {
+            recipe_key: 1,
+            pixels: (1350, 900),
+            own: Some(small),
+        };
+        assert!(whole_is_enough(own, small, shown));
+        assert!(
+            !whole_is_enough(own, full, shown),
+            "full screen needs 1800 px"
+        );
+        // A source smaller than the area (a reduced preview) is not asked
+        // for again at the area it was developed for.
+        let short = Whole {
+            pixels: (800, 533),
+            ..own
+        };
+        assert!(whole_is_enough(short, small, shown));
     }
 
     #[test]

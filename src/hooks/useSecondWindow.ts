@@ -33,7 +33,9 @@ export function useSecondWindow(): void {
   const open = useSecondWindowStore((s) => s.state.open);
   const inLibrary = useUIStore((s) => s.activeView !== 'editor');
   const active = useLibraryStore((s) => s.libraryActivePath);
+  // Also while it is closed or locked: an opening or unlock shows the
+  // Library's active photograph (second_window.rs FOLLOW).
   useEffect(() => {
-    if (open && inLibrary && active) void invoke(Invokes.SecondWindowFollow, { path: active }).catch(() => {});
+    if (inLibrary && active) void invoke(Invokes.SecondWindowFollow, { path: active }).catch(() => {});
   }, [open, inLibrary, active]);
 }
