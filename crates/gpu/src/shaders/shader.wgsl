@@ -5083,8 +5083,14 @@ fn apply_sharpen_v8(
     );
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
+    // The spreads are summed around this pixel's own value, not around 0:
+    // there the mean of squares less the squared mean cancels down to the
+    // noise floor, and the rounding differences between the detail cache's
+    // pipeline and a frame's became whole output codes (SH8C).
+    let centre = sharpen_perc(load_input(clamp(coords_i, vec2<i32>(0), dims_s)).rgb, is_raw);
     var blur_sum = 0.0;
-    var blur_sq = 0.0;
+    var dev_sum = 0.0;
+    var dev_sq = 0.0;
     var blur_w = 0.0;
     var blur_w2 = 0.0;
     var wide_sum = 0.0;
@@ -5101,7 +5107,8 @@ fn apply_sharpen_v8(
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
             let p = sharpen_perc(load_input(c).rgb, is_raw);
             blur_sum += p * w;
-            blur_sq += p * p * w;
+            dev_sum += (p - centre) * w;
+            dev_sq += (p - centre) * (p - centre) * w;
             blur_w += w;
             blur_w2 += w * w;
             if (tilt != 0.0) {
@@ -5111,13 +5118,15 @@ fn apply_sharpen_v8(
             }
             if (masking > 0.0) {
                 let wm = exp(-f32(sx * sx + sy * sy) / (2.0 * mask_sigma * mask_sigma));
-                m_sum += p * wm;
-                m_sq += p * p * wm;
+                m_sum += (p - centre) * wm;
+                m_sq += (p - centre) * (p - centre) * wm;
                 m_w += wm;
             }
         }
     }
     let mean = blur_sum / blur_w;
+    let dev_mean = dev_sum / blur_w;
+    let kernel_var = max(dev_sq / blur_w - dev_mean * dev_mean, 0.0);
     var d = sharpen_detail(l, mean, is_raw);
     if (tilt != 0.0) {
         let band = (mean - wide_sum / wide_w) * select(1.0, nr_fine_keep, nr_active);
@@ -5150,15 +5159,14 @@ fn apply_sharpen_v8(
     if (noise > 0.0) {
         // The spread over the sharpening kernel (as `spread` below) against
         // the spread white noise of the photo's level has over it.
-        let n_var = max(blur_sq / blur_w - mean * mean, 0.0);
         let kernel_noise = noise * sqrt(max(1.0 - blur_w2 / (blur_w * blur_w), 1e-3));
-        let above = sqrt(max(n_var - SHARPEN_V8_NOISE_FLOOR * kernel_noise * kernel_noise, 0.0));
+        let above = sqrt(max(kernel_var - SHARPEN_V8_NOISE_FLOOR * kernel_noise * kernel_noise, 0.0));
         let qn = above * sharpen_v7_tone_weight(mean) / (SHARPEN_V8_GATE_HALF * kernel_noise);
         let qn3 = qn * qn * qn;
         gate *= qn3 / (1.0 + qn3);
         view_gate = qn3 / (1.0 + qn3);
     }
-    let spread = sqrt(max(blur_sq / blur_w - mean * mean, 0.0));
+    let spread = sqrt(kernel_var);
     if (masking > 0.0) {
         // Outside the dense core, from σ 2 px on: every other point of the
         // even grid (alternating by row), each weighted for the 8 pixels it
@@ -5176,14 +5184,16 @@ fn apply_sharpen_v8(
                 }
                 let w = area * exp(-f32(mx * mx + my * my) / (2.0 * mask_sigma * mask_sigma));
                 let c = clamp(coords_i + vec2<i32>(mx, my), vec2<i32>(0), dims_s);
-                let p = sharpen_perc(load_input(c).rgb, is_raw);
+                let p = sharpen_perc(load_input(c).rgb, is_raw) - centre;
                 m_sum += p * w;
                 m_sq += p * p * w;
                 m_w += w;
             }
         }
-        let m_mean = m_sum / m_w;
-        let mask_spread = sqrt(max(m_sq / m_w - m_mean * m_mean, 0.0));
+        // Summed around `centre`.
+        let m_dev = m_sum / m_w;
+        let m_mean = centre + m_dev;
+        let mask_spread = sqrt(max(m_sq / m_w - m_dev * m_dev, 0.0));
         let t_mask = masking * pow(masking / 50.0, SHARPEN_V7_MASK_EXPONENT) * SHARPEN_MASK_SCALE * SHARPEN_V4_MASK_SCALE;
         // The photo's own noise leaves its spread out (`noise_level`, the
         // full-resolution noise in this square-root encoding; fewer pixels

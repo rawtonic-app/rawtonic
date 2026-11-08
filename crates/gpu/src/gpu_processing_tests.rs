@@ -2053,9 +2053,9 @@ fn sharpen_version_6_reaches_further_on_non_raw_photos() {
 fn cached_detail_of_sharpening_7_and_8_matches_inline_detail_and_follows_the_tone_curve() {
     let (width, height) = (1280u32, 853u32);
     let context = context();
-    // Response 7's Masking and response 8 without Masking, each in its
-    // detail pipeline (`sharpen_level`).
-    for (version, masking, level) in [(7, 50.0, 1), (8, 0.0, 2)] {
+    // Response 7's Masking and response 8 without and with Masking, each in
+    // its detail pipeline (`sharpen_level`).
+    for (version, masking, level) in [(7, 50.0, 1), (8, 0.0, 2), (8, 50.0, 2)] {
         let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
         let started = Instant::now();
         while processor.detail_pipeline_for(level).is_none() {
@@ -2123,7 +2123,7 @@ fn cached_detail_of_sharpening_7_and_8_matches_inline_detail_and_follows_the_ton
         assert_eq!(
             cached,
             render(&adjustments, true),
-            "cached and inline response {version} differ"
+            "cached and inline response {version} (Masking {masking}) differ"
         );
         // A brighter base look moves the mask: the cached stage is rebuilt, not
         // reused from the previous key.
@@ -2132,7 +2132,7 @@ fn cached_detail_of_sharpening_7_and_8_matches_inline_detail_and_follows_the_ton
         assert_eq!(
             brighter_cached,
             render(&adjustments, true),
-            "stale detail cache of response {version} after the tone curve changed"
+            "stale detail cache of response {version} (Masking {masking}) after the tone curve changed"
         );
     }
 }
