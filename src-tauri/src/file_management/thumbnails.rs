@@ -967,20 +967,40 @@ pub(crate) fn source_full_size_jpeg(
             let image = rawtonic_rawdecode::orientation::apply_orientation(image, raw.orientation);
             return Some((encode_full_size(&image)?, FullSizeSource::Embedded));
         }
-        Some((encode_full_size(&render(&bytes)?)?, FullSizeSource::Decoded))
+        let started = std::time::Instant::now();
+        let image = render(&bytes)?;
+        let rendered = started.elapsed();
+        let jpeg = encode_full_size(&image)?;
+        log::info!(
+            "Import 100 % view of {}: rendered in {} ms, encoded in {} ms",
+            path.display(),
+            rendered.as_millis(),
+            (started.elapsed() - rendered).as_millis()
+        );
+        Some((jpeg, FullSizeSource::Decoded))
     }))
     .ok()
     .flatten()
 }
 
 /// A full-size view as a JPEG of high quality (a focus check must not show
-/// compression blocks).
+/// compression blocks; full chroma, so colour edges stay as rendered).
+/// libjpeg-turbo: about 2–2.5× faster than the `image` crate's encoder at
+/// 24–81 MP (notes: benchmark-results/impd3-import-100-2026-11-08).
 fn encode_full_size(image: &DynamicImage) -> Option<Vec<u8>> {
-    let mut buf = Cursor::new(Vec::new());
-    JpegEncoder::new_with_quality(&mut buf, 92)
-        .encode_image(&image.to_rgb8())
-        .ok()?;
-    Some(buf.into_inner())
+    let rgb = image.to_rgb8();
+    let mut compressor = turbojpeg::Compressor::new().ok()?;
+    compressor.set_quality(92).ok()?;
+    compressor.set_subsamp(turbojpeg::Subsamp::None).ok()?;
+    compressor
+        .compress_to_vec(turbojpeg::Image {
+            pixels: rgb.as_raw().as_slice(),
+            width: rgb.width() as usize,
+            pitch: rgb.width() as usize * 3,
+            height: rgb.height() as usize,
+            format: turbojpeg::PixelFormat::RGB,
+        })
+        .ok()
 }
 
 /// What the import dialog's large view shows under a photograph: ISO,

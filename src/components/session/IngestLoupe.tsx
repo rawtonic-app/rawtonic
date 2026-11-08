@@ -21,6 +21,9 @@ export interface LargePreview {
    * file itself for a JPEG); null when there is none. */
   url: string | null;
   info: CaptureInfo | null;
+  /** Its size in pixels once the webview has decoded it (full-size views). */
+  width?: number;
+  height?: number;
 }
 
 /** The long side the backend scales a preview to when it has to make one
@@ -58,7 +61,24 @@ export async function loadIngestPreview(path: string): Promise<LargePreview> {
 export async function loadIngestFullPreview(path: string): Promise<LargePreview> {
   const bytes = await invoke<ArrayBuffer | number[]>(Invokes.SessionIngestFullPreview, { path });
   const data = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes ?? []).buffer;
-  return { url: data.byteLength ? URL.createObjectURL(new Blob([data], { type: 'image/jpeg' })) : null, info: null };
+  if (!data.byteLength) return { url: null, info: null };
+  const url = URL.createObjectURL(new Blob([data], { type: 'image/jpeg' }));
+  return { url, info: null, ...(await decodedSize(url)) };
+}
+
+/** Decodes an image in the webview ahead of showing it (a 24–81 MP JPEG
+ * takes the webview a noticeable moment) and gives its size; nothing when
+ * the webview cannot decode ahead (the view then measures it on load). */
+async function decodedSize(url: string): Promise<{ width?: number; height?: number }> {
+  const image = new Image();
+  if (typeof image.decode !== 'function') return {};
+  image.src = url;
+  try {
+    await image.decode();
+    return image.naturalWidth && image.naturalHeight ? { width: image.naturalWidth, height: image.naturalHeight } : {};
+  } catch {
+    return {};
+  }
 }
 
 /** Large previews of the shown photograph and its neighbours, a couple at a
@@ -115,9 +135,11 @@ export function createLargePreviewCache(
 
 /** Neighbours kept ready for stepping, in the order they are loaded. */
 const NEIGHBOURS = [0, 1, -1, 2];
-/** At 100 %: the shown photograph and the next one (a full RAW decode takes
- * a second or two, so stepping forward through a series finds it ready). */
-const FULL_NEIGHBOURS = [0, 1];
+/** Full-size views made while the large view is open, zoomed or not: the
+ * shown photograph first, so Z or a click finds its pixels ready (a RAW whose
+ * camera JPEG is small renders in 1.5–5 s), then the next one for stepping
+ * forward through a series, and the previous one is kept for stepping back. */
+const FULL_NEIGHBOURS = [0, 1, -1];
 /** Pointer travel (px) below which a press is a click, not a pan. */
 const CLICK_SLOP = 4;
 
@@ -164,7 +186,8 @@ interface Props {
  * viewer in Capture One and Lightroom): its embedded camera preview fitted
  * to the view, filename and capture info, its import checkbox and rating.
  * A click or Z shows it at 100 % around the pointer (the real full-size
- * pixels, `loadIngestFullPreview`) and back; at 100 % a drag pans and the
+ * pixels, `loadIngestFullPreview`, made ahead as soon as it is shown) and
+ * back; at 100 % a drag pans and the
  * arrow keys keep the zoom and spot for the next photograph (a focus check
  * through a series). P includes, X leaves out, 0–5 rate; Space, Escape or
  * the close button go back to the grid. */
@@ -211,11 +234,9 @@ export default function IngestLoupe({
   }, [cache, files, index]);
   useEffect(() => {
     fullCache.want(
-      zoomed
-        ? FULL_NEIGHBOURS.map((offset) => files[index + offset]?.path).filter((path): path is string => !!path)
-        : []
+      FULL_NEIGHBOURS.map((offset) => files[index + offset]?.path).filter((path): path is string => !!path)
     );
-  }, [fullCache, files, index, zoomed]);
+  }, [fullCache, files, index]);
   useEffect(() => () => cache.clear(), [cache]);
   useEffect(() => () => fullCache.clear(), [fullCache]);
 
@@ -251,7 +272,9 @@ export default function IngestLoupe({
   if (!file) return null;
   const preview = cache.get(file.path);
   const full = zoomed ? fullCache.get(file.path) : undefined;
-  const fullSize = full?.url ? natural[full.url] : undefined;
+  const fullSize = full?.url
+    ? (natural[full.url] ?? (full.width && full.height ? { width: full.width, height: full.height } : undefined))
+    : undefined;
   // 100 % is shown (and said) only once the full-size pixels are here.
   const atFull = Boolean(zoomed && full?.url && fullSize);
   const checked = selected.has(file.path);
