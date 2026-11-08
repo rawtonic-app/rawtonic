@@ -861,6 +861,18 @@ describe('Memory cards (IMPD)', () => {
     expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'session_ingest_scan')).toHaveLength(1);
   });
 
+  it('does not open over another dialog of the app', async () => {
+    withCards();
+    await open();
+    await waitFor(() => expect(events.has('card-inserted')).toBe(true));
+    const other = document.createElement('div');
+    other.setAttribute('aria-modal', 'true');
+    document.body.appendChild(other);
+    insert();
+    expect(screen.queryByRole('checkbox', { name: 'A.ARW' })).toBeNull();
+    other.remove();
+  });
+
   it('does nothing with the preference off', async () => {
     withCards();
     useSettingsStore.setState({ appSettings: { openImportOnCard: false } as AppSettings });

@@ -198,6 +198,8 @@ export default function IngestLoupe({
   const [natural, setNatural] = useState<Record<string, { width: number; height: number }>>({});
   const [viewSize, setViewSize] = useState({ width: 0, height: 0 });
   const press = useRef<{ x: number; y: number; focus: ZoomFocus; moved: boolean } | null>(null);
+  // Where the pointer is over the fitted photograph, for Z.
+  const pointer = useRef<ZoomFocus | null>(null);
   // The Library's auto-advance (Caps Lock, Photo › Auto-advance) applies
   // here too: a P, X or rating moves on to the next photograph.
   const autoAdvance = useSettingsStore((state) => state.appSettings?.autoAdvance === true);
@@ -327,7 +329,7 @@ export default function IngestLoupe({
             break;
           case 'z':
           case 'Z':
-            toggleZoom();
+            toggleZoom(pointer.current);
             break;
           case ' ':
           case 'Escape':
@@ -428,6 +430,7 @@ export default function IngestLoupe({
           e.currentTarget.setPointerCapture?.(e.pointerId);
         }}
         onPointerMove={(e) => {
+          if (!zoomed) pointer.current = shareAt(e);
           const start = press.current;
           if (!start || !atFull || !shown) return;
           const dx = e.clientX - start.x;
@@ -444,6 +447,9 @@ export default function IngestLoupe({
           press.current = null;
           if (!start || start.moved) return;
           toggleZoom(zoomed ? null : shareAt(e));
+        }}
+        onPointerLeave={() => {
+          pointer.current = null;
         }}
         onPointerCancel={() => {
           press.current = null;

@@ -236,16 +236,17 @@ pub(crate) fn render_unedited_full_size(
     let versions = normalized.file_versions();
     normalized.lens?;
     let settings = crate::state::settings::current(app_handle);
-    let (pristine, measures) = crate::image_loader::load_base_image_for_recipe_measured(
-        bytes,
-        path,
-        false,
+    // Decoded from the bytes only: the app's loader would also cache the
+    // file's EXIF in sidecars beside it, and nothing may be written beside a
+    // photograph that is not imported (with Apple's RAW engine preferred,
+    // this view still develops with rawler).
+    let options = crate::image_loader::base_options(
         &settings,
-        None,
-        None,
-        &adjustments,
-    )
-    .map_err(|e| e.to_string())?;
+        crate::image_loader::decode_variant(&adjustments, path),
+    );
+    let (pristine, measures) =
+        crate::image_loader::load_base_image_measured(bytes, path, false, &options, None)
+            .map_err(|e| e.to_string())?;
     let source = prepare_export_source(path, Arc::new(pristine), measures, &adjustments)?;
     let luts = app_handle.state::<crate::state::luts::LutState>();
     let develop = app_handle.state::<crate::state::develop::DevelopSession>();

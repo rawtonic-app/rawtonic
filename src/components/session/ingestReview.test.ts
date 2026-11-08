@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { applyReviewKey, cardInsertAction, cardToEject, onCard, reviewKey, withRatings } from './ingestReview';
+import {
+  applyReviewKey,
+  cardInsertAction,
+  cardToEject,
+  companionRaws,
+  onCard,
+  reviewKey,
+  withRatings
+} from './ingestReview';
 import type { ImportMetadata } from './IngestMetadata';
 
 describe('review keys', () => {
@@ -34,6 +42,23 @@ describe('ratings in the import', () => {
     expect(withRatings(preset, ratings, ['/c/A.NEF', '/c/C.NEF'])).toEqual({ ...preset, ratings: { '/c/A.NEF': 3 } });
     expect(withRatings(preset, ratings, ['/c/C.NEF'])).toBe(preset);
     expect(withRatings(null, {}, ['/c/A.NEF'])).toBeNull();
+  });
+});
+
+describe('RAW+JPEG pairs', () => {
+  it('a rating given to the JPEG of a pair goes to its RAW, unless the RAW has one', () => {
+    const files = ['/c/A.NEF', '/c/a.JPG', '/c/B.NEF', '/c/B.JPG', '/c/C.JPG'];
+    const pairs = companionRaws(files, ['nef']);
+    expect([...pairs]).toEqual([
+      ['/c/a.JPG', '/c/A.NEF'],
+      ['/c/B.JPG', '/c/B.NEF']
+    ]);
+    const ratings = { '/c/a.JPG': 5, '/c/B.JPG': 2, '/c/B.NEF': 4, '/c/C.JPG': 3 };
+    expect(withRatings(null, ratings, files, pairs)).toEqual({
+      ratings: { '/c/A.NEF': 5, '/c/B.NEF': 4, '/c/C.JPG': 3 }
+    });
+    // Imported as separate photos: each keeps its own.
+    expect(withRatings(null, ratings, files)!.ratings).toEqual(ratings);
   });
 });
 

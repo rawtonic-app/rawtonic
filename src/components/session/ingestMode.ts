@@ -40,7 +40,7 @@ export function preselectIngestMode({
 }
 
 /** What a camera writes beside a RAW (`ingest::batch::COMPANION_EXTENSIONS`). */
-const COMPANIONS = new Set(['jpg', 'jpeg', 'heic', 'heif', 'hif']);
+export const COMPANIONS = new Set(['jpg', 'jpeg', 'heic', 'heif', 'hif']);
 
 /** Whether `paths` hold a RAW+JPEG pair the ingest would import as one
  * photograph (`ingest::batch::pair_sources`: exactly one RAW, by the app's

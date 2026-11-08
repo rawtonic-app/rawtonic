@@ -82,7 +82,7 @@ import { throttleAsync } from '../../utils/throttle';
 import { onPhotoWritesSettled } from '../../utils/photoWrites';
 import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from './ingestMode';
 import { VOLUMES_CHANGED as VOLUMES_CHANGED_EVENT } from '../../utils/offline';
-import { cardInsertAction, cardToEject, onCard, withRatings, type MemoryCard } from './ingestReview';
+import { cardInsertAction, cardToEject, companionRaws, onCard, withRatings, type MemoryCard } from './ingestReview';
 import { useProcessStore } from '../../store/useProcessStore';
 import { Status } from '../ui/ExportImportProperties';
 import { Trans, useTranslation } from 'react-i18next';
@@ -252,6 +252,11 @@ interface IngestTarget {
   album: { id: string; name: string } | null;
 }
 const NO_TARGET: IngestTarget = { folder: null, album: null };
+/** Whether any dialog of the app is open (Rename, a confirmation,
+ * Preferences, the export dialog…): an inserted card must not open the
+ * import over it. */
+const anotherDialogOpen = () =>
+  typeof document !== 'undefined' && document.querySelector('dialog[open], [aria-modal="true"]') !== null;
 /** `session_bridge::CARD_INSERTED`: a memory card was connected. */
 const CARD_INSERTED_EVENT = 'card-inserted';
 const EJECT_AFTER_KEY = 'rawtonic.ingestEjectAfter';
@@ -708,7 +713,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       importing,
       tethering: Boolean(tether?.camera),
       exporting: useProcessStore.getState().exportState.status === Status.Exporting,
-      dialogOpen: Boolean(form) || !session
+      dialogOpen: Boolean(form) || !session || anotherDialogOpen()
     });
     if (action === 'open') openIngest([card.mountPoint]);
     else if (action === 'wait') {
@@ -1601,7 +1606,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       folder: adding ? null : target.folder,
       album: addToAlbum ? target.album : null,
       separateJpeg,
-      metadata: withRatings(importMetadata, ratings, files),
+      metadata: withRatings(
+        importMetadata,
+        ratings,
+        files,
+        separateJpeg ? undefined : companionRaws(files, useSettingsStore.getState().supportedTypes?.raw ?? FALLBACK_RAW)
+      ),
       eject: ejectAfter ? (sourceCard?.mountPoint ?? null) : null
     });
   };

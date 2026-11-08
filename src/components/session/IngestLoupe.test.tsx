@@ -310,6 +310,29 @@ describe('Reviewing before the import (IMPD)', () => {
     expect(zoomButton().textContent).toBe('Fit');
   });
 
+  it('Z zooms around the pointer over the photo', async () => {
+    const user = userEvent.setup();
+    const full = vi.fn(async () => ({ url: 'blob:full', info: null }));
+    render(<Harness list={files(1)} loadFullPreview={full} />);
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    const fit = await waitFor(() => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit')!);
+    fit.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 400 }) as DOMRect;
+    Object.defineProperty(fit, 'naturalWidth', { value: 600 });
+    Object.defineProperty(fit, 'naturalHeight', { value: 400 });
+    const stage = document.querySelector('.session-ingest-loupe-image')!;
+    fireEvent.pointerMove(stage, { clientX: 150, clientY: 100 });
+    await user.keyboard('z');
+    await waitFor(() => expect(document.querySelector('img[hidden]')).toBeTruthy());
+    const measure = document.querySelector<HTMLImageElement>('img[hidden]')!;
+    Object.defineProperty(measure, 'naturalWidth', { value: 6000 });
+    Object.defineProperty(measure, 'naturalHeight', { value: 4000 });
+    fireEvent.load(measure);
+    // A quarter across and down, at 100 % (dpr 1): that spot sits at the
+    // view's centre (jsdom measured the view as 0 × 0, so its centre is 0, 0).
+    const shown = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full')!;
+    expect(shown.style.transform).toBe('translate(-1500px, -1000px)');
+  });
+
   it('says so when no full-size view can be made, and never upscales the fitted preview', async () => {
     const user = userEvent.setup();
     render(<Harness list={files(1)} loadFullPreview={async () => ({ url: null, info: null })} />);
