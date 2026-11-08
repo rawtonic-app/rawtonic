@@ -3515,7 +3515,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 4096;
+const PREVIEW_PIPELINE_COUNT: usize = 8192;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3527,7 +3527,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// highlights 2, curves 4, masks 8, noise reduction 16, tone sliders 32,
 /// relight 64, refined noise reduction 128, range-2 relight lights 256,
 /// range-3 relight lights 512 (always with 256), range-4 relight lights 1024
-/// (always with 512), sharpening response 7's Masking 2048.
+/// (always with 512), sharpening response 7's Masking 2048, sharpening
+/// response 8 4096.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3557,6 +3558,9 @@ const RELIGHT_RANGE4_FEATURE: usize = 1024;
 /// Metal compiled the sharpening differently and changed older recipes'
 /// exports by one 16-bit step in a few pixels.
 const SHARPEN_V7_FEATURE: usize = 2048;
+/// Sharpening response 8 on a RAW photo (`SHARPEN_V8`), compiled only for
+/// recipes that use it for the same reason.
+const SHARPEN_V8_FEATURE: usize = 4096;
 
 /// One slot per display variant, on the heap: the processor holds several
 /// such tables, together too large for a render thread's stack.
@@ -3568,8 +3572,9 @@ fn variant_table<T: Default>() -> VariantTable<T> {
         .try_into()
         .unwrap_or_else(|_| unreachable!("one slot per display variant"))
 }
-/// A RAW with the default detail settings (Sharpening 40, Color 25).
-const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16;
+/// A RAW with the default detail settings (Sharpening 40, Color 25) and the
+/// newest sharpening response.
+const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16 | SHARPEN_V8_FEATURE;
 
 /// The display variants compiled after the RAW default one at start: edited
 /// RAWs, other photos often without any detail feature, and the all-enabled
@@ -3757,20 +3762,21 @@ pub struct GpuProcessor {
     /// [`MainOutput`][luminance noise profile][edge pass].
     long_curve_pipelines:
         [[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; MAIN_OUTPUTS],
-    /// General pipelines with Relight's range-2 code (`RELIGHT_RANGE2`) or
-    /// response 7's Masking (`SHARPEN_V7`), for recipes that use them, by
-    /// [`MainOutput`][response 7][range level][curve table][luminance noise
-    /// profile][edge pass]; the others are compiled without them.
+    /// General pipelines with Relight's range-2 code (`RELIGHT_RANGE2`),
+    /// response 7's Masking (`SHARPEN_V7`) or response 8 (`SHARPEN_V8`), for
+    /// recipes that use them, by [`MainOutput`][`sharpen_level`][range
+    /// level][curve table][luminance noise profile][edge pass]; the others
+    /// are compiled without them.
     range2_pipelines: Range2Pipelines,
     /// The global curve table in `curve_luts_buffer`'s first slot.
     curve_table_loaded: Mutex<Option<Arc<Vec<[f32; 4]>>>>,
     detail_bgl: wgpu::BindGroupLayout,
     detail_layout: wgpu::PipelineLayout,
     /// Compiled off the render worker on first use; `None` if it failed.
-    /// Without and with response 7's Masking (`SHARPEN_V7`), and for the
-    /// sharpening's mask view (`SHARPEN_VIEW`, with response 7's code).
-    detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 3],
-    detail_compilation: [std::sync::OnceLock<()>; 3],
+    /// By `detail_pipeline_slot` (`SHARPEN_V7`, `SHARPEN_V8`, and for the
+    /// sharpening's mask view `SHARPEN_VIEW`).
+    detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 5],
+    detail_compilation: [std::sync::OnceLock<()>; 5],
     preview_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
     preview_compilation: VariantTable<std::sync::OnceLock<()>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
@@ -4903,6 +4909,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let relight_range3 = relight_range3(adjustments);
     let relight_range4 = relight_range4(adjustments);
     let sharpen_v7 = sharpen_v7(adjustments);
+    let sharpen_v8 = sharpen_v8(adjustments);
     for m in adjustments
         .mask_adjustments
         .iter()
@@ -4931,6 +4938,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if relight_range3 { RELIGHT_RANGE3_FEATURE } else { 0 }
         | if relight_range4 { RELIGHT_RANGE4_FEATURE } else { 0 }
         | if sharpen_v7 { SHARPEN_V7_FEATURE } else { 0 }
+        | if sharpen_v8 { SHARPEN_V8_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -4977,17 +4985,38 @@ fn relight_range_level(adjustments: &AllAdjustments) -> usize {
 }
 
 /// Whether the recipe sharpens with response 7's Masking (shader
-/// `apply_sharpen_v7`: response 7 or newer, Masking above 0, a RAW photo).
+/// `apply_sharpen_v7`: response 7, Masking above 0, a RAW photo; response 8
+/// renders it where it applies).
 fn sharpen_v7(adjustments: &AllAdjustments) -> bool {
     let g = &adjustments.global;
-    g.sharpen_falloff[3] >= 7.0 && g.sharpen_masking > 0.0 && g.is_raw_image == 1
+    g.sharpen_falloff[3] >= 7.0
+        && g.sharpen_masking > 0.0
+        && g.is_raw_image == 1
+        && !sharpen_v8(adjustments)
+}
+
+/// Whether the recipe sharpens with response 8 (shader `apply_sharpen_v8`:
+/// response 8 or newer, a RAW photo with a measured noise level).
+fn sharpen_v8(adjustments: &AllAdjustments) -> bool {
+    let g = &adjustments.global;
+    g.sharpen_falloff[3] >= 8.0 && g.is_raw_image == 1 && g.noise_level > 0.0
+}
+
+/// The sharpening code a recipe's general and detail pipelines compile in:
+/// 0 (responses up to 6's), 1 (response 7's Masking), 2 (response 8).
+fn sharpen_level(adjustments: &AllAdjustments) -> usize {
+    if sharpen_v8(adjustments) {
+        2
+    } else {
+        usize::from(sharpen_v7(adjustments))
+    }
 }
 
 /// Whether the recipe needs code the plain general pipelines leave out:
-/// Relight's range-2 lights or response 7's Masking
+/// Relight's range-2 lights or response 7's Masking or response 8
 /// (`GpuProcessor::range2_pipelines`).
 fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
-    relight_range2(adjustments) || sharpen_v7(adjustments)
+    relight_range2(adjustments) || sharpen_level(adjustments) > 0
 }
 
 /// The noise refinements with which the shader takes its default noise
@@ -5007,7 +5036,7 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
 
 /// `GpuProcessor::range2_pipelines`.
 type Range2Pipelines =
-    [[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 2]; MAIN_OUTPUTS];
+    [[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3]; MAIN_OUTPUTS];
 
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
@@ -5408,6 +5437,7 @@ fn variant_constants(
         ("RELIGHT_RANGE3", ((features >> 9) & 1) as f64),
         ("RELIGHT_RANGE4", ((features >> 10) & 1) as f64),
         ("SHARPEN_V7", ((features >> 11) & 1) as f64),
+        ("SHARPEN_V8", ((features >> 12) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -7525,7 +7555,7 @@ impl GpuProcessor {
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         if needs_feature_pipeline(adjustments) {
             let long = adjustments.global.region_curve_active[1] != 0;
-            return match self.range2_pipelines[0][usize::from(sharpen_v7(adjustments))]
+            return match self.range2_pipelines[0][sharpen_level(adjustments)]
                 [relight_range_level(adjustments)][usize::from(long)][usize::from(profile)]
                 [usize::from(edge)]
             .get()
@@ -7667,25 +7697,30 @@ impl GpuProcessor {
     /// the render worker (frames compute the detail stage inline until then)
     /// or if it failed validation.
     fn detail_pipeline(&self) -> Option<&wgpu::ComputePipeline> {
-        self.detail_pipeline_for(false)
+        self.detail_pipeline_for(0)
     }
 
-    /// `detail_pipeline` with response 7's Masking compiled in or not.
-    fn detail_pipeline_for(&self, sharpen_v7: bool) -> Option<&wgpu::ComputePipeline> {
-        self.detail_pipeline_slot(usize::from(sharpen_v7))
+    /// `detail_pipeline` with the sharpening code of `sharpen_level`: 0
+    /// (responses up to 6's), 1 (response 7's Masking), 2 (response 8).
+    fn detail_pipeline_for(&self, level: usize) -> Option<&wgpu::ComputePipeline> {
+        self.detail_pipeline_slot(level)
     }
 
     /// The detail cache's pass for the mask view: the sharpening stores its
     /// Masking factor in the cache (shader `SHARPEN_VIEW_MARK`), which the
     /// frame's view variant reads (`DetailKey` keeps the two caches apart).
-    fn mask_view_detail_pipeline(&self) -> Option<&wgpu::ComputePipeline> {
-        self.detail_pipeline_slot(2)
+    /// With response 8's code for its recipes (the view then shows its noise
+    /// gate times Masking's).
+    fn mask_view_detail_pipeline(&self, sharpen_v8: bool) -> Option<&wgpu::ComputePipeline> {
+        self.detail_pipeline_slot(3 + usize::from(sharpen_v8))
     }
 
-    /// Slot 0 plain, 1 with response 7's Masking, 2 the mask view.
+    /// Slot 0 plain, 1 with response 7's Masking, 2 with response 8, 3 the
+    /// mask view (response 7's code), 4 the mask view with response 8's.
     fn detail_pipeline_slot(&self, slot: usize) -> Option<&wgpu::ComputePipeline> {
-        let sharpen_v7 = slot >= 1;
-        let mask_view = slot == 2;
+        let sharpen_v7 = slot == 1 || slot >= 3;
+        let sharpen_v8 = slot == 2 || slot == 4;
+        let mask_view = slot >= 3;
         if self.detail_pipeline[slot].get().is_none() {
             self.detail_compilation[slot].get_or_init(|| {
                 let pipeline = Arc::clone(&self.detail_pipeline[slot]);
@@ -7703,6 +7738,7 @@ impl GpuProcessor {
                             compilation_options: wgpu::PipelineCompilationOptions {
                                 constants: &[
                                     ("SHARPEN_V7", if sharpen_v7 { 1.0 } else { 0.0 }),
+                                    ("SHARPEN_V8", if sharpen_v8 { 1.0 } else { 0.0 }),
                                     ("SHARPEN_VIEW", if mask_view { 1.0 } else { 0.0 }),
                                 ],
                                 ..Default::default()
@@ -7954,10 +7990,10 @@ impl GpuProcessor {
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         let long = adjustments.global.region_curve_active[1] != 0;
         let level = relight_range_level(adjustments);
-        let sharpen_v7 = sharpen_v7(adjustments);
+        let sharpen = sharpen_level(adjustments);
         let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-        match self.range2_pipelines[output.index()][usize::from(sharpen_v7)][level]
-            [usize::from(long)][usize::from(profile)][usize::from(edge)]
+        match self.range2_pipelines[output.index()][sharpen][level][usize::from(long)]
+            [usize::from(profile)][usize::from(edge)]
         .get_or_init(|| {
             self.compile_general(
                 "Compute Pipeline (relight range 2, sharpening 7)",
@@ -7969,7 +8005,8 @@ impl GpuProcessor {
                     ("RELIGHT_RANGE2", on(level >= 1)),
                     ("RELIGHT_RANGE3", on(level >= 2)),
                     ("RELIGHT_RANGE4", on(level >= 3)),
-                    ("SHARPEN_V7", on(sharpen_v7)),
+                    ("SHARPEN_V7", on(sharpen == 1)),
+                    ("SHARPEN_V8", on(sharpen == 2)),
                 ],
             )
             .inspect_err(|error| log::error!("Feature pipeline unavailable: {error}"))
@@ -9006,9 +9043,9 @@ impl GpuProcessor {
                         <= BLUR_CACHE_BYTES)
                     .then(|| {
                         if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
-                            self.mask_view_detail_pipeline()
+                            self.mask_view_detail_pipeline(sharpen_v8(adjustments))
                         } else {
-                            self.detail_pipeline_for(sharpen_v7(adjustments))
+                            self.detail_pipeline_for(sharpen_level(adjustments))
                         }
                     })
                     .flatten();

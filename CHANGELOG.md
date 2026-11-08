@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Sharpening no longer sharpens the noise of even areas** (new edits of RAW photos, at every Masking value including 0): what stands no more than the photo's measured noise out of its neighbourhood — judged as it looks after the photo's tone curve — is left unsharpened, while edges and texture are sharpened as before. On 14 test photos (8 at base ISO, 6 at ISO 3200–12800) the sharpened noise in the flattest quarter of each photo, at the same visible detail as Lightroom at Amount 80, falls from 1.05 to 0.88 times Lightroom's (0.84 on the 7 photos the gate was fitted on, 0.90 on the 7 left out); on the high-ISO photos it is 0.68–0.90 times Lightroom's, below Capture One's on each of the five Capture One reaches, with halos still at most Lightroom's and far below Capture One's. At the same Amount, edges on the noisiest photo (ISO 12800) come out up to 10 % softer than before; raise Amount a little to compensate. Recipe `sharpenVersion` 8; JPEGs and saved edits are unchanged.
+
 ## 0.1.0-alpha.12 — 2026-11-08
 
 **Apple silicon now needs macOS 14 Sonoma or later.** Rawtonic for Apple silicon (M1 and later) is built for macOS 14 and later; the AI tools run on ONNX Runtime 1.30.0 there, which needs it. Intel Macs keep macOS 13 and ONNX Runtime 1.23.2. On an Apple silicon Mac with macOS 13, keep alpha.11.1 until you update macOS.
