@@ -459,6 +459,10 @@ fn preview_features_preserve_global_and_local_effects() {
             profile["toneVersion"] = json!(14);
         }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        if expected & HIGHLIGHTS_V14_FEATURE != 0 {
+            // Version 14 changes the Camera Raw look's Highlights only.
+            adjustments.global.tonemapper_mode = 3;
+        }
         if expected & SHARPEN_V8_FEATURE != 0 {
             // Response 8 needs a measured noise level.
             adjustments.global.noise_level = 0.01;

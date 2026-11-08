@@ -4853,9 +4853,13 @@ fn shadows_v13(adjustments: &AllAdjustments) -> bool {
 }
 
 /// Whether the recipe lowers Highlights with tone version 14's response, on
-/// the photo or a layer (`HIGHLIGHTS_V14`).
+/// the photo or a layer (`HIGHLIGHTS_V14`). Only the Camera Raw look's
+/// response changes (shader `base_look_is_camera_raw`); under the other
+/// looks the recipe keeps the version-13 pipeline, which a compiled but idle
+/// version-14 path did not match on Vulkan.
 fn highlights_v14(adjustments: &AllAdjustments) -> bool {
-    ToneVersion::from_uniform(adjustments.global.tone_version).highlights_edge_base()
+    adjustments.global.tonemapper_mode == 3
+        && ToneVersion::from_uniform(adjustments.global.tone_version).highlights_edge_base()
         && (adjustments.global.highlights < 0.0
             || adjustments
                 .mask_adjustments
