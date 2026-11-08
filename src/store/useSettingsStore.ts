@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { platform } from '@tauri-apps/plugin-os';
 import { AppSettings, SupportedTypes, Invokes } from '../components/ui/AppProperties';
 import { libraryChanges } from './libraryFiles';
+import { applyInterfaceShade } from '../utils/themes';
 
 interface SettingsState {
   appSettings: AppSettings | null;
@@ -105,7 +106,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     }
   },
 
-  setAppSettings: (settings) => set({ appSettings: settings }),
+  setAppSettings: (settings) => {
+    applyInterfaceShade(settings?.interfaceShade);
+    set({ appSettings: settings });
+  },
 
   setSupportedTypes: (types) => set({ supportedTypes: types }),
 
@@ -119,6 +123,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     const { searchCriteria: _searchCriteria, ...settingsToSave } = newSettings as AppSettings & {
       searchCriteria?: unknown;
     };
+    applyInterfaceShade(newSettings.interfaceShade);
     set({ appSettings: newSettings });
 
     try {

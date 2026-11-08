@@ -16,7 +16,13 @@
 //! darkest channel is lowest, real pixels, rendered with the frame's recipe
 //! and the frame's layer masks read where each pixel came from
 //! (`render_scope_clip_marks`), before the averaged copy, whose analytics
-//! then carry their marks too. The histogram and the scopes count the
+//! then carry their marks too. A drag's first job renders both copies, each
+//! later one only one of them, in turn, with the other's marks of the
+//! previous job (about 100 ms old): each copy's render took some 4 ms on an
+//! integrated GPU (Radeon 680M), and two per job beside the frames made a
+//! zoomed drag with masks up to 3 ms slower at p95
+//! (notes: benchmark-results/g23m-masks-drag-2026-11-08/REPORT.md). The
+//! release frame's own analytics replace them. The histogram and the scopes count the
 //! averaged copy alone; like the histograms of other editors, which read a
 //! reduced preview, they are a sample.
 //!
@@ -27,7 +33,10 @@
 //! clip first (a white balance or a colour-range adjustment), and the
 //! effects that read a pixel's neighbours or position other than masks
 //! (sharpening, clarity, vignette, grain: they see the block's place and
-//! its neighbouring blocks' pixels). A should_fix limit, kept for the drag's
+//! its neighbouring blocks' pixels). While a layer's shape changes (its
+//! feather or a handle dragged) its mask is read at the averaged copy's
+//! resolution, so a clipped pixel within a copy pixel of a hard mask edge
+//! may see the mask of its neighbour. A should_fix limit, kept for the drag's
 //! cost: exact channels need up to six such renders per update, and two at
 //! 512 pixels already made the drag slower
 //! (notes: parity-gaps/G23-analysis.md, G23b).
@@ -38,6 +47,7 @@
 //! and the copy is downscaled once per preview base, not per frame.
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
+use std::time::{Duration, Instant};
 
 use image::{DynamicImage, GenericImageView};
 use tauri::Manager;
@@ -53,6 +63,7 @@ use crate::state::source::LoadedImage;
 use rawtonic_engine::image_processing::{
     BlockExtremes, block_extreme_pixels, downscale_f32_image_signed,
 };
+use rawtonic_engine::scopes::ClippedSides;
 
 /// Long edge of the scope render's copy of the frame's input: 512 pixels
 /// hold about 175 000 of a 3:2 photo, some 680 per waveform column of 256
@@ -136,8 +147,9 @@ pub(crate) fn next_generation(preview: &PreviewState) -> u64 {
 
 pub(crate) fn start_scope_analytics_worker(app_handle: tauri::AppHandle) {
     let worker_app = app_handle.clone();
+    let mut kept = ExtremesKept::default();
     let sender = gpu_processing::start_latest_job_worker(move |job: ScopeAnalyticsJob| {
-        if let Err(error) = render(&worker_app, job) {
+        if let Err(error) = render(&worker_app, job, &mut kept) {
             log::warn!("Scope analytics of the whole frame failed: {error}");
         }
     });
@@ -149,6 +161,89 @@ pub(crate) fn start_scope_analytics_worker(app_handle: tauri::AppHandle) {
         .unwrap_or_else(|e| e.into_inner()) = Some(sender);
 }
 
+/// How long the marks of one block-extreme copy count for the next jobs:
+/// within a drag the jobs come about every 100 ms, so marks older than this
+/// belong to an earlier drag or another recipe and both copies are rendered.
+const EXTREMES_MARKS_FRESH: Duration = Duration::from_millis(250);
+
+/// What the scope worker keeps from one job of a drag to the next.
+#[derive(Default)]
+struct ExtremesKept {
+    /// The copy the marks below were found in ([`ScopeProxy::id`]).
+    proxy_id: u64,
+    /// Per block-extreme copy (brightest, darkest) its last marks and when.
+    marks: [Option<(ClippedSides, Instant)>; 2],
+    /// The copy the next job renders when the other's marks are fresh.
+    next: usize,
+    /// The shapes of the previous job's layers
+    /// (`mask_generation::mask_shape_hash`).
+    layers: Vec<u64>,
+}
+
+impl ExtremesKept {
+    /// Start a job by resetting all kept state for a new preview base before
+    /// recording its mask shapes. The next job can then reuse unchanged masks.
+    fn begin_job(
+        &mut self,
+        proxy_id: u64,
+        masks: &[MaskDefinition],
+        now: Instant,
+    ) -> (Vec<usize>, Vec<bool>) {
+        let copies = self.copies_to_render(proxy_id, now);
+        let unchanged = self.unchanged_layers(masks);
+        (copies, unchanged)
+    }
+
+    /// The copies this job renders: both at a drag's start (or after a
+    /// pause), else one, in turn.
+    fn copies_to_render(&mut self, proxy_id: u64, now: Instant) -> Vec<usize> {
+        if self.proxy_id != proxy_id {
+            *self = Self {
+                proxy_id,
+                ..Self::default()
+            };
+        }
+        let fresh = |marks: &Option<(ClippedSides, Instant)>| {
+            marks.is_some_and(|(_, at)| now.duration_since(at) <= EXTREMES_MARKS_FRESH)
+        };
+        let other = 1 - self.next;
+        if fresh(&self.marks[other]) {
+            let copy = self.next;
+            self.next = other;
+            vec![copy]
+        } else {
+            vec![0, 1]
+        }
+    }
+
+    /// The marks of both copies: the ones just found, and the other copy's
+    /// from the previous job.
+    fn found(&mut self, copy: usize, marks: ClippedSides, now: Instant) -> ClippedSides {
+        self.marks[copy] = Some((marks, now));
+        self.marks
+            .iter()
+            .flatten()
+            .fold(ClippedSides::default(), |all, (marks, _)| all.union(*marks))
+    }
+
+    /// Per layer of `masks`, whether its shape is the previous job's layer's
+    /// (a local adjustment may have changed; its mask at the preview base's size then is the mask
+    /// cache's entry, drawn once), and keeps `masks` for the next job.
+    fn unchanged_layers(&mut self, masks: &[MaskDefinition]) -> Vec<bool> {
+        let layers: Vec<u64> = masks
+            .iter()
+            .map(rawtonic_engine::mask_generation::mask_shape_hash)
+            .collect();
+        let unchanged = layers
+            .iter()
+            .enumerate()
+            .map(|(i, layer)| self.layers.get(i) == Some(layer))
+            .collect();
+        self.layers = layers;
+        unchanged
+    }
+}
+
 /// The worker's sender, None before it started.
 pub(crate) fn sender(preview: &PreviewState) -> Option<LatestJobSender<ScopeAnalyticsJob>> {
     preview
@@ -158,7 +253,11 @@ pub(crate) fn sender(preview: &PreviewState) -> Option<LatestJobSender<ScopeAnal
         .clone()
 }
 
-fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), String> {
+fn render(
+    app_handle: &tauri::AppHandle,
+    job: ScopeAnalyticsJob,
+    kept: &mut ExtremesKept,
+) -> Result<(), String> {
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
     // A frame that carried its own analytics came since (the release).
@@ -181,7 +280,7 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
     let (width, height) = proxy.image.dimensions();
     let scale = job.scale * width as f32 / job.source.width().max(1) as f32;
     let (loaded_image, source_scale, full_dims) = &job.photo;
-    let mask_bitmaps = crate::editor_preview::preview_mask_bitmaps(
+    let proxy_masks = crate::editor_preview::preview_layer_mask_bitmaps(
         &state,
         &develop,
         &job.recipe,
@@ -190,6 +289,7 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
         (width, height),
         scale,
         job.unscaled_crop_offset,
+        |_| true,
     )?;
     let mut adjustments = job.adjustments;
     let mut analytics = job.analytics;
@@ -198,8 +298,14 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
         // The layers' masks as the release frame draws them (at the preview
         // base's size: the mask cache's entries of that frame), read where
         // each copy pixel came from, so that a mask's edge falls between
-        // pixels as in the release frame, not between blocks.
-        let frame_masks = crate::editor_preview::preview_mask_bitmaps(
+        // pixels as in the release frame, not between blocks. A layer whose
+        // shape changed since the previous job (a mask's feather or handle
+        // dragged) would be drawn at that size again for every job; it is
+        // read from its mask at the averaged copy's size instead, the pixel
+        // nearest to where each copy pixel came from, until the release
+        // frame's exact marks.
+        let (copies_to_render, unchanged) = kept.begin_job(proxy.id, &job.masks, Instant::now());
+        let frame_masks = crate::editor_preview::preview_layer_mask_bitmaps(
             &state,
             &develop,
             &job.recipe,
@@ -208,6 +314,7 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
             job.source.dimensions(),
             job.scale,
             job.unscaled_crop_offset,
+            |i| unchanged[i],
         )?;
         adjustments.global.detail_scale =
             job.scale * width as f32 / job.source.width().max(1) as f32;
@@ -215,18 +322,27 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
             (&extremes.brightest, &extremes.brightest_at),
             (&extremes.darkest, &extremes.darkest_at),
         ];
-        for ((copy, at), cache) in copies.into_iter().zip(&gpu.scope_extremes_cache) {
+        for copy in copies_to_render {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("scope_clip_marks_render");
+            let (image, at) = copies[copy];
             let mask_bitmaps: Vec<_> = frame_masks
                 .iter()
-                .map(|mask| Arc::new(mask.gather(width, height, at)))
+                .zip(&proxy_masks)
+                .filter_map(|(frame, small)| match (frame, small) {
+                    (Some(frame), _) => Some(Arc::new(frame.gather(width, height, at))),
+                    (None, Some(small)) => {
+                        let at = nearest_in(at, job.source.dimensions(), small.dimensions());
+                        Some(Arc::new(small.gather(width, height, &at)))
+                    }
+                    (None, None) => None,
+                })
                 .collect();
             let marks = gpu_processing::render_scope_clip_marks(
                 &context,
                 &gpu.processor,
-                cache,
-                (copy, proxy.id),
+                &gpu.scope_extremes_cache[copy],
+                (image, proxy.id),
                 RenderRequest {
                     adjustments: adjustments.clone(),
                     mask_bitmaps: &mask_bitmaps,
@@ -235,13 +351,14 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
                 },
                 job.display_space,
             )?;
-            analytics.also_clipped = analytics.also_clipped.union(marks);
+            analytics.also_clipped = kept.found(copy, marks, Instant::now());
             if superseded() {
                 return Ok(());
             }
         }
     }
     adjustments.global.detail_scale = scale;
+    let mask_bitmaps: Vec<_> = proxy_masks.into_iter().flatten().collect();
     gpu_processing::render_scope_analytics(
         &context,
         &gpu.processor,
@@ -256,6 +373,20 @@ fn render(app_handle: &tauri::AppHandle, job: ScopeAnalyticsJob) -> Result<(), S
         analytics,
         job.display_space,
     )
+}
+
+/// Per pixel index of a `from` sized frame, the index of the nearest pixel
+/// of its `to` sized copy.
+fn nearest_in(at: &[u32], (from_w, from_h): (u32, u32), (to_w, to_h): (u32, u32)) -> Vec<u32> {
+    let map = |v: u64, from: u32, to: u32| {
+        ((v * 2 + 1) * to as u64 / (from as u64 * 2)).min(to as u64 - 1)
+    };
+    at.iter()
+        .map(|&i| {
+            let (x, y) = (i as u64 % from_w as u64, i as u64 / from_w as u64);
+            (map(y, from_h, to_h) * to_w as u64 + map(x, from_w, to_w)) as u32
+        })
+        .collect()
 }
 
 /// The copy of a preview base the scope render reads, its block-extreme
@@ -342,5 +473,120 @@ mod tests {
         assert!(!order.admits(2));
         assert!(order.admits(3));
         assert!(order.admits(4));
+    }
+
+    #[test]
+    fn a_changed_layer_reads_the_nearest_pixel_of_the_smaller_mask() {
+        // 8 x 4 frame, 4 x 2 copy: pixel (5, 3) lies in copy pixel (2, 1),
+        // (0, 0) in (0, 0), (7, 0) in (3, 0).
+        assert_eq!(nearest_in(&[3 * 8 + 5, 0, 7], (8, 4), (4, 2)), [6, 0, 3]);
+        // Equal sizes keep the index.
+        assert_eq!(nearest_in(&[0, 5, 11], (4, 3), (4, 3)), [0, 5, 11]);
+    }
+
+    #[test]
+    fn the_drag_renders_one_extreme_copy_per_job_after_its_first() {
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let highlights = ClippedSides {
+            highlights: true,
+            ..Default::default()
+        };
+        let shadows = ClippedSides {
+            shadows: true,
+            ..Default::default()
+        };
+        let mut kept = ExtremesKept::default();
+        // The first job renders both copies.
+        assert_eq!(kept.copies_to_render(1, at(0)), [0, 1]);
+        kept.found(0, highlights, at(0));
+        assert_eq!(kept.found(1, ClippedSides::default(), at(0)), highlights);
+        // Then one per job, in turn, each job's marks the union of both
+        // copies' last ones.
+        assert_eq!(kept.copies_to_render(1, at(100)), [0]);
+        assert_eq!(
+            kept.found(0, ClippedSides::default(), at(100)),
+            ClippedSides::default()
+        );
+        assert_eq!(kept.copies_to_render(1, at(200)), [1]);
+        assert_eq!(kept.found(1, shadows, at(200)), shadows);
+        assert_eq!(kept.copies_to_render(1, at(300)), [0]);
+        assert_eq!(
+            kept.found(0, highlights, at(300)),
+            highlights.union(shadows)
+        );
+        // After a pause (the next drag) the other copy's marks are old:
+        // both again.
+        assert_eq!(kept.copies_to_render(1, at(1300)), [0, 1]);
+        // Another preview base forgets the marks.
+        kept.found(0, highlights, at(1300));
+        kept.found(1, shadows, at(1300));
+        assert_eq!(kept.copies_to_render(2, at(1350)), [0, 1]);
+        assert_eq!(
+            kept.found(0, ClippedSides::default(), at(1350)),
+            ClippedSides::default()
+        );
+    }
+
+    #[test]
+    fn a_new_photo_starts_with_fresh_shapes_and_reuses_them_on_its_second_job() {
+        let masks: Vec<MaskDefinition> = serde_json::from_value(serde_json::json!([{
+            "id": "layer1", "name": "Radial", "visible": true,
+            "invert": false, "opacity": 100, "adjustments": {},
+            "subMasks": [{"id": "sm1", "type": "radial", "visible": true,
+                "mode": "additive", "invert": false, "opacity": 100,
+                "parameters": {"centerX": 3000, "centerY": 2000,
+                    "radiusX": 1400, "radiusY": 900, "rotation": 0, "feather": 0.5}}]
+        }]))
+        .unwrap();
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let mut kept = ExtremesKept::default();
+        let highlights = ClippedSides {
+            highlights: true,
+            ..Default::default()
+        };
+        // Photo A: open, then drag a local adjustment with unchanged shapes.
+        assert_eq!(kept.begin_job(1, &masks, at(0)), (vec![0, 1], vec![false]));
+        kept.found(0, highlights, at(0));
+        kept.found(1, highlights, at(0));
+        assert_eq!(kept.begin_job(1, &masks, at(100)), (vec![0], vec![true]));
+        kept.found(0, highlights, at(100));
+        // Photo B deliberately has the same mask shapes: neither A's shapes
+        // nor its fresh clipping marks may carry across the photo change.
+        assert_eq!(
+            kept.begin_job(2, &masks, at(200)),
+            (vec![0, 1], vec![false])
+        );
+        assert_eq!(
+            kept.found(0, ClippedSides::default(), at(200)),
+            ClippedSides::default()
+        );
+        kept.found(1, ClippedSides::default(), at(200));
+        // Already the second job selects base-size masks, rather than 512 px.
+        assert_eq!(kept.begin_job(2, &masks, at(300)), (vec![0], vec![true]));
+    }
+
+    #[test]
+    fn a_local_adjustment_keeps_the_layer_s_full_size_mask_a_new_shape_does_not() {
+        let layer = |exposure: f64, feather: f64| -> MaskDefinition {
+            serde_json::from_value(serde_json::json!({
+                "id": "layer1", "name": "Radial", "visible": true, "invert": false,
+                "opacity": 100, "adjustments": {"exposure": exposure},
+                "subMasks": [{"id": "sm1", "type": "radial", "visible": true,
+                    "mode": "additive", "invert": false, "opacity": 100,
+                    "parameters": {"centerX": 3000, "centerY": 2000, "radiusX": 1400,
+                        "radiusY": 900, "rotation": 0, "feather": feather}}]
+            }))
+            .unwrap()
+        };
+        let mut kept = ExtremesKept::default();
+        // The first job has nothing to compare with.
+        assert_eq!(kept.unchanged_layers(&[layer(0.4, 0.5)]), [false]);
+        // The layer's local Exposure dragged: the same shape.
+        assert_eq!(kept.unchanged_layers(&[layer(0.9, 0.5)]), [true]);
+        // Its Feather dragged: another shape.
+        assert_eq!(kept.unchanged_layers(&[layer(0.9, 0.6)]), [false]);
+        assert_eq!(kept.unchanged_layers(&[layer(0.9, 0.6)]), [true]);
     }
 }

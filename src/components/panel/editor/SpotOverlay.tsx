@@ -16,6 +16,18 @@ import { createSubMask } from '../../../utils/maskUtils';
 import { shapeFrame, type SizedFrame } from '../../../utils/maskGeometry';
 import { fillRemoval, removalArea, removalPatch, type SpotPlan } from '../../../utils/spotFill';
 import { withoutSpotItems } from '../../../utils/spotItems';
+import { findAnotherSource, resetTurnedDown, resetTurnedDownForPhoto } from '../../../utils/spotSource';
+import { buildComboMap, normalizeCombo } from '../../../utils/keyboardUtils';
+import { useSettingsStore } from '../../../store/useSettingsStore';
+import { useUIStore } from '../../../store/useUIStore';
+import { uiHoldsShortcuts } from '../../../hooks/useKeyboardShortcuts';
+
+/** Whether `e` is the key bound to Find another source (`spot_new_source`). */
+function isNewSourceKey(e: KeyboardEvent): boolean {
+  const { appSettings, osPlatform } = useSettingsStore.getState();
+  const key = normalizeCombo(e, osPlatform).join('+');
+  return Boolean(key) && Boolean(buildComboMap(appSettings?.keybinds).get(key)?.includes('spot_new_source'));
+}
 
 interface Props {
   /** The displayed photograph's box in the viewer's (zoomed) content. */
@@ -197,6 +209,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   // Remove areas and objects: the AI patches this tool made.
   const removals = removalsOf(aiPatches, now);
   const activeSpotId = useEditorStore((s) => s.activeSpotId);
+  // Another photograph: the sources turned down belong to the old one.
+  const photoPath = useEditorStore((s) => s.selectedImage?.path);
+  useEffect(() => {
+    if (photoPath) resetTurnedDownForPhoto(photoPath);
+  }, [photoPath]);
   const settings = useEditorStore((s) => s.spotSettings);
   const visualize = useEditorStore((s) => s.spotVisualize);
   // Find Dust's spots before Apply (StudioFindDust), drawn dashed in amber.
@@ -747,12 +764,16 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     return () => unlisten.forEach((p) => p.then((stop) => stop?.()));
   }, [t]);
 
-  // Delete removes the selected spot; [ and ] resize it (or the next one);
-  // Escape cancels the removals being filled, else deselects.
+  // Delete removes the selected spot; / finds it another source; [ and ]
+  // resize it (or the next one); Escape cancels the removals being filled,
+  // else deselects.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      // Behind Preferences (also while a shortcut is being recorded), a
+      // dialog or a modal the photo keys do nothing, as everywhere else.
+      if (uiHoldsShortcuts(useUIStore.getState())) return;
       const { activeSpotId: id, spotSettings, setEditor, adjustments } = useEditorStore.getState();
       if ((e.key === 'Delete' || e.key === 'Backspace') && id) {
         e.preventDefault();
@@ -762,7 +783,15 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           spots: (prev.spots ?? []).filter((s) => s.id !== id),
           aiPatches: (prev.aiPatches ?? []).filter((p) => p.id !== id)
         }));
+        resetTurnedDown(id);
         setEditor({ activeSpotId: null });
+      } else if (id && isNewSourceKey(e)) {
+        // Lightroom's Refresh (`/` by default, a key of its own in
+        // Preferences): another automatic source for the selected spot,
+        // matched like every tool keybind (on the key it produces).
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        void findAnotherSource(id);
       } else if (e.key === '[' || e.key === ']') {
         e.preventDefault();
         e.stopImmediatePropagation();

@@ -5,20 +5,46 @@ import { useEditorStore } from '../../../store/useEditorStore';
 import { INITIAL_LEVELS } from '../../../utils/adjustments';
 import { levelsInputKey, pickedLevels } from '../../../utils/levels';
 import {
-  TAT_UNITS_PER_PIXEL,
   curveInputMean,
   dominantChannel,
   isLevelsPicker,
   isToneTarget,
+  mixerColourOf,
   startTargetedAdjustment,
   targetedPatch,
-  type TatStart
+  tatUnitsPerPixel,
+  type MixerColour,
+  type TatStart,
+  type TatTarget
 } from '../../../utils/targetedAdjustment';
+import type { Adjustments } from '../../../utils/adjustments';
 import { Invokes } from '../../ui/AppProperties';
 import { draftFor } from '../../../utils/sliderDraft';
 
 /** Pointer travel (px) a press may move and still be a click. */
 const CLICK_SLOP = 2;
+
+/**
+ * The colour the target's mixer (the colour mixer or the B&W mix) receives
+ * at `point`, rendered from `adjustments`; when no display variant could
+ * render the probe, the preview base's colour (before white balance and
+ * the rest), as before the probe.
+ */
+async function sampleMixerColour(
+  target: TatTarget,
+  point: { path: string; normalizedX: number; normalizedY: number },
+  adjustments: Adjustments
+): Promise<MixerColour | null> {
+  const mixer = target === 'grayMixer' ? 'blackAndWhite' : 'colorMixer';
+  const sample = await invoke<MixerColour | null>(Invokes.SampleMixerInput, { ...point, adjustments, mixer }).catch(
+    () => null
+  );
+  if (sample) return sample;
+  const linear = await invoke<[number, number, number] | null>(Invokes.SamplePreviewWhiteBalance, point).catch(
+    () => null
+  );
+  return linear ? mixerColourOf(linear) : null;
+}
 
 interface Rect {
   left: number;
@@ -30,7 +56,7 @@ interface Rect {
 /**
  * The Targeted Adjustment Tool's surface over the displayed photo: press
  * on a colour or tone and drag up or down (Shift: finer). Colour targets
- * read the photo's colour before adjustments, the curves the colour they
+ * read the colour their mixer receives, the curves the colour they
  * receive, at the pressed point. The point curve target moves the channel
  * the curve panel shows and marks there the input level under the pointer
  * while it hovers; a click without a drag sets an anchor point.
@@ -39,6 +65,8 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   const target = useEditorStore((s) => s.tatTarget);
   const drag = useRef<{
     startY: number;
+    /** The target pressed with (its pace). */
+    target: TatTarget;
     start: TatStart | null;
     frame: number | null;
     delta: number;
@@ -134,6 +162,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     const normalizedY = (e.clientY - bounds.top) / bounds.height;
     const record = {
       startY: e.clientY,
+      target: tatTarget,
       start: null as TatStart | null,
       frame: null,
       delta: 0,
@@ -182,10 +211,8 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     }
     // Tone targets read the colour the curves receive, rendered from the
     // recipe without them and what follows (layer curves, LUTs, overlays).
-    const [linear, curveInput] = await Promise.all([
-      isToneTarget(tatTarget)
-        ? Promise.resolve(null)
-        : invoke<[number, number, number] | null>(Invokes.SamplePreviewWhiteBalance, point).catch(() => null),
+    const [colour, curveInput] = await Promise.all([
+      isToneTarget(tatTarget) ? Promise.resolve(null) : sampleMixerColour(tatTarget, point, adjustments),
       isToneTarget(tatTarget)
         ? invoke<[number, number, number][] | null>(Invokes.SampleCurveInput, {
             ...point,
@@ -197,7 +224,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     // Drag mode (interactive previews) only after sampling: the sample
     // renders from the preview base the shown frame was built from.
     if (!record.released) setEditor({ isSliderDragging: true });
-    record.start = startTargetedAdjustment(tatTarget, adjustments, linear, curveInput, curveChannel);
+    record.start = startTargetedAdjustment(tatTarget, adjustments, colour, curveInput, curveChannel);
     if (record.start)
       setEditor({
         tatFocus: dominantChannel(record.start),
@@ -232,7 +259,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     const moved = d.startY - e.clientY;
     if (Math.abs(moved) > CLICK_SLOP) d.live = true;
     if (!d.live) return;
-    d.delta = moved * TAT_UNITS_PER_PIXEL * (e.shiftKey ? 0.25 : 1);
+    d.delta = moved * tatUnitsPerPixel(d.target) * (e.shiftKey ? 0.25 : 1);
     if (d.frame === null) d.frame = requestAnimationFrame(apply);
   };
 

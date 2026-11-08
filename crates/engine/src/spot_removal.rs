@@ -774,12 +774,58 @@ pub(crate) fn best_source_with(
     avoid: &[((f64, f64), f64)],
     uneven: f64,
 ) -> Option<(f64, f64)> {
+    best_source_excluding(image, target, radius, avoid, uneven, &[])
+}
+
+/// Whether `path` (a stroke's points, one for a circle) and the circle at
+/// `centre` of `radius` overlap: a point of the path inside it, or a path
+/// segment crossing its rim.
+pub(crate) fn path_reaches(path: &[(f64, f64)], centre: (f64, f64), radius: f64) -> bool {
+    let distance = |p: (f64, f64)| (p.0 - centre.0).hypot(p.1 - centre.1);
+    if path.iter().any(|p| distance(*p) < radius) {
+        return true;
+    }
+    if path.len() < 2 {
+        return false;
+    }
+    let mut best = f64::INFINITY;
+    for pair in path.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        let (vx, vy) = (b.0 - a.0, b.1 - a.1);
+        let length2 = vx * vx + vy * vy;
+        let t = if length2 > 0.0 {
+            (((centre.0 - a.0) * vx + (centre.1 - a.1) * vy) / length2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        best = best.min(distance((a.0 + t * vx, a.1 + t * vy)));
+    }
+    best < radius
+}
+
+/// `best_source_with` that also leaves out every source within one spot
+/// radius (`radius`) of any excluded centre: where the spot copied from
+/// before, and the sources earlier "Find another source" presses turned
+/// down. Same inputs give the same result (the candidates and their order
+/// do not depend on what was tried first), and `None` when nothing else
+/// fits, so the current source stays instead of moving somewhere worse.
+pub(crate) fn best_source_excluding(
+    image: &Rgb32FImage,
+    target: (f64, f64),
+    radius: f64,
+    avoid: &[((f64, f64), f64)],
+    uneven: f64,
+    excluded: &[(f64, f64)],
+) -> Option<(f64, f64)> {
     let (w, h) = (image.width() as f64, image.height() as f64);
     let margin = radius * 1.8;
     let clear = |p: (f64, f64)| {
-        avoid
+        excluded
             .iter()
-            .all(|(c, r)| (c.0 - p.0).hypot(c.1 - p.1) >= radius * 1.1 + r)
+            .all(|c| (c.0 - p.0).hypot(c.1 - p.1) > radius)
+            && avoid
+                .iter()
+                .all(|(c, r)| (c.0 - p.0).hypot(c.1 - p.1) >= radius * 1.1 + r)
     };
     let inside = |p: (f64, f64)| {
         p.0 - margin >= 0.0
@@ -880,6 +926,103 @@ pub fn find_source(
     )
 }
 
+/// The mask-frame source centre `spot` copies from now (`sourceX`,
+/// `sourceY`), when it is a heal or clone spot in `adjustments`.
+pub fn spot_source(adjustments: &Value, spot_id: &str) -> Option<(f64, f64)> {
+    adjustments
+        .get("spots")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|item| item.get("id").and_then(Value::as_str) == Some(spot_id))
+        .and_then(|item| serde_json::from_value::<Spot>(item.clone()).ok())
+        .map(|spot| (spot.source_x, spot.source_y))
+}
+
+/// "Find another source" (Lightroom's `/`): a fresh automatic source for the
+/// existing spot `spot_id`, never the one it has nor any of `excluded`
+/// (mask-frame centres this spot's earlier presses turned down), found on the
+/// photo as the recipe's *other* spots leave it (`adjustments` without
+/// `spot_id`). `None` when the spot is gone or no other source fits, so the
+/// editor keeps the current one. Same inputs give the same answer.
+pub fn find_another_source(
+    base: &DynamicImage,
+    adjustments: &Value,
+    spot_id: &str,
+    excluded: &[(f64, f64)],
+) -> Option<(f64, f64)> {
+    let without = spots_before(adjustments, spot_id);
+    let spot = adjustments
+        .get("spots")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|item| item.get("id").and_then(Value::as_str) == Some(spot_id))
+        .and_then(|item| serde_json::from_value::<Spot>(item.clone()).ok())?;
+    if spot.radius <= 0.0 {
+        return None;
+    }
+    let mut skip = excluded.to_vec();
+    skip.push((spot.source_x, spot.source_y));
+    if spot.points.len() >= 2 {
+        find_stroke_source_excluding(base, &without, &spot.points, spot.radius, &skip)
+    } else {
+        find_source_excluding(base, &without, spot.x, spot.y, spot.radius, &skip)
+    }
+}
+
+/// `adjustments` with only the spots that come before `spot_id` in the list
+/// (patches stay): `apply_spots` heals one spot after the other, so the
+/// photo a spot copies its source from holds the earlier spots' repairs and
+/// neither its own nor later ones. What "Find another source" searches on.
+pub fn spots_before(adjustments: &Value, spot_id: &str) -> Value {
+    let mut before = adjustments.clone();
+    if let Some(spots) = before.get_mut("spots").and_then(Value::as_array_mut) {
+        let own = spots
+            .iter()
+            .position(|item| item.get("id").and_then(Value::as_str) == Some(spot_id));
+        if let Some(own) = own {
+            spots.truncate(own);
+        }
+    }
+    before
+}
+
+/// Mask-frame `excluded` centres in base pixels.
+fn excluded_in_base(
+    adjustments: &Value,
+    frame: (f64, f64),
+    excluded: &[(f64, f64)],
+) -> Vec<(f64, f64)> {
+    excluded
+        .iter()
+        .map(|c| to_base(adjustments, frame, c.0, c.1))
+        .collect()
+}
+
+/// `find_source` that never chooses a source within one spot radius of any
+/// of `excluded` (mask-frame centres).
+pub fn find_source_excluding(
+    base: &DynamicImage,
+    adjustments: &Value,
+    x: f64,
+    y: f64,
+    radius: f64,
+    excluded: &[(f64, f64)],
+) -> Option<(f64, f64)> {
+    let image = base.to_rgb32f();
+    let frame = mask_frame(adjustments, image.width(), image.height());
+    let centre = to_base(adjustments, frame, x, y);
+    let ex = to_base(adjustments, frame, x + 1.0, y);
+    let base_radius = radius * (ex.0 - centre.0).hypot(ex.1 - centre.1);
+    let excluded = &excluded_in_base(adjustments, frame, excluded);
+    let source = best_source_excluding(&image, centre, base_radius.max(1.0), &[], 0.0, excluded)?;
+    to_mask_point(
+        adjustments,
+        frame,
+        (x, y),
+        (source.0 - centre.0, source.1 - centre.1),
+    )
+}
+
 /// The mask-frame point that lies `offset` base pixels from mask-frame
 /// `point`, through the inverse of the geometry's local derivative.
 pub(crate) fn to_mask_point(
@@ -959,8 +1102,15 @@ fn point_statistics(
 /// The best source offset (base pixels) for a brush stroke: scored like a
 /// circle's source (`best_source`) on the stroke's own surroundings and
 /// interior, among offsets that keep the copy clear of the stroke and inside
-/// the photo.
-fn best_stroke_offset(image: &Rgb32FImage, path: &[(f64, f64)], radius: f64) -> Option<(f64, f64)> {
+/// the photo, and whose copied area lies more than one brush radius from any
+/// `excluded` point: the sources earlier "Find another source" presses turned
+/// down (see `best_source_excluding`).
+fn best_stroke_offset_excluding(
+    image: &Rgb32FImage,
+    path: &[(f64, f64)],
+    radius: f64,
+    excluded: &[(f64, f64)],
+) -> Option<(f64, f64)> {
     let (w, h) = (image.width() as f64, image.height() as f64);
     let samples = stroke_samples(path, radius, 1.7);
     let pick = |lo: f64, hi: f64| -> Vec<(f64, f64)> {
@@ -994,6 +1144,9 @@ fn best_stroke_offset(image: &Rgb32FImage, path: &[(f64, f64)], radius: f64) -> 
                 .iter()
                 .chain(&rim)
                 .all(|p| distance_to_path((p.0 + o.0, p.1 + o.1), path) > 1.15 * radius)
+            && excluded
+                .iter()
+                .all(|c| !path_reaches(path, (c.0 - o.0, c.1 - o.1), radius))
     };
     let score = |o: (f64, f64)| {
         let mut difference = 0.0;
@@ -1070,16 +1223,29 @@ pub fn find_stroke_source(
     points: &[StrokePoint],
     radius: f64,
 ) -> Option<(f64, f64)> {
+    find_stroke_source_excluding(base, adjustments, points, radius, &[])
+}
+
+/// `find_stroke_source` that never chooses a source whose copied area lies
+/// within one brush radius of any of `excluded` (mask-frame centres).
+pub fn find_stroke_source_excluding(
+    base: &DynamicImage,
+    adjustments: &Value,
+    points: &[StrokePoint],
+    radius: f64,
+    excluded: &[(f64, f64)],
+) -> Option<(f64, f64)> {
     let first = points.first()?;
     let image = base.to_rgb32f();
     let frame = mask_frame(adjustments, image.width(), image.height());
+    let excluded = &excluded_in_base(adjustments, frame, excluded);
     let path: Vec<(f64, f64)> = points
         .iter()
         .map(|p| to_base(adjustments, frame, p.x, p.y))
         .collect();
     let ex = to_base(adjustments, frame, first.x + 1.0, first.y);
     let base_radius = radius * (ex.0 - path[0].0).hypot(ex.1 - path[0].1);
-    let offset = best_stroke_offset(&image, &path, base_radius.max(1.0))?;
+    let offset = best_stroke_offset_excluding(&image, &path, base_radius.max(1.0), excluded)?;
     to_mask_point(adjustments, frame, (first.x, first.y), offset)
 }
 
@@ -1848,5 +2014,178 @@ mod tests {
         let distance = (sx - 100.0).hypot(sy - 100.0);
         assert!(distance >= 2.2 * 12.0, "{sx} {sy}");
         assert!(sx + 1.7 * 12.0 < 150.0, "source {sx} reaches the dark side");
+    }
+
+    /// A sky-like photo: a smooth gradient with fine grain, so many
+    /// sources match about equally and the choice is up to the search.
+    fn grainy_sky() -> DynamicImage {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut noise = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 40) as f32 / 16_777_216.0 - 0.5
+        };
+        DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(600, 480, |x, y| {
+            let v = 0.55 + 0.0004 * x as f32 + 0.0002 * y as f32 + 0.02 * noise();
+            image::Rgb([v, v * 0.98, v * 0.95])
+        }))
+    }
+
+    fn spot_recipe(id: &str, x: f64, y: f64, source: (f64, f64)) -> Value {
+        serde_json::json!({
+            "spots": [{
+                "id": id,
+                "mode": "heal",
+                "x": x,
+                "y": y,
+                "radius": 10.0,
+                "sourceX": source.0,
+                "sourceY": source.1,
+                "feather": 0.0,
+                "opacity": 100.0,
+                "visible": true
+            }]
+        })
+    }
+
+    #[test]
+    fn another_source_skips_the_current_one_and_the_rejected_ones() {
+        let base = grainy_sky();
+        let (x, y) = (200.0, 200.0);
+        let current = find_source(&base, &serde_json::json!({}), x, y, 10.0).unwrap();
+        let recipe = spot_recipe("s", x, y, current);
+        assert_eq!(spot_source(&recipe, "s"), Some(current));
+
+        // Press 1: never the source the spot has now.
+        let first = find_another_source(&base, &recipe, "s", &[]).unwrap();
+        let offset = (first.0 - x).hypot(first.1 - y);
+        assert!(
+            (first.0 - current.0).hypot(first.1 - current.1) > 10.0,
+            "{first:?} vs {current:?}"
+        );
+        // Still a real source: whole spot and surroundings inside, away
+        // from the spot.
+        assert!(
+            first.0 > 18.0 && first.1 > 18.0 && first.0 < 582.0 && first.1 < 462.0,
+            "{first:?}"
+        );
+        assert!(offset >= 2.2 * 10.0, "{offset}");
+
+        // Press 2 turns down press 1's source: a third one, clear of both.
+        let second = find_another_source(&base, &recipe, "s", &[first]).unwrap();
+        for taken in [current, first] {
+            assert!(
+                (second.0 - taken.0).hypot(second.1 - taken.1) > 10.0,
+                "{second:?} reuses {taken:?}"
+            );
+        }
+        // Same inputs, same answer: a re-press after Undo lands where the
+        // first press did.
+        assert_eq!(find_another_source(&base, &recipe, "s", &[]), Some(first));
+        assert_eq!(
+            find_another_source(&base, &recipe, "s", &[first]),
+            Some(second)
+        );
+
+        // Every other match turned down: no answer, so the spot keeps its
+        // source instead of moving somewhere worse.
+        let mut all = vec![current, first];
+        for _ in 0..200 {
+            match find_another_source(&base, &recipe, "s", &all) {
+                Some(next) => all.push(next),
+                None => break,
+            }
+        }
+        assert!(all.len() > 3, "only {} sources found", all.len());
+        assert_eq!(find_another_source(&base, &recipe, "s", &all), None);
+        assert!(find_another_source(&base, &serde_json::json!({}), "s", &[]).is_none());
+    }
+
+    #[test]
+    fn another_source_skips_every_source_within_one_spot_radius() {
+        let base = grainy_sky();
+        let (x, y) = (200.0, 200.0);
+        let current = find_source(&base, &serde_json::json!({}), x, y, 10.0).unwrap();
+        let recipe = spot_recipe("s", x, y, current);
+        // A rejected centre one radius away still rules its whole circle out.
+        let near = (current.0 + 10.0, current.1);
+        let next = find_another_source(&base, &recipe, "s", &[near]).unwrap();
+        assert!(
+            (next.0 - near.0).hypot(next.1 - near.1) > 10.0,
+            "{next:?} is within a radius of {near:?}"
+        );
+    }
+
+    #[test]
+    fn another_source_never_copies_the_spot_itself() {
+        // The spot sits on a dark scratch; its source must not copy the
+        // scratch (a source at the spot's own healed pixels would).
+        let image = Rgb32FImage::from_fn(400, 300, |x, y| {
+            let dark = (180..=220).contains(&x) && (80..=120).contains(&y);
+            let v = if dark { 0.05 } else { 0.6 };
+            image::Rgb([v, v, v])
+        });
+        let base = DynamicImage::ImageRgb32F(image);
+        let recipe = spot_recipe("s", 200.0, 100.0, (300.0, 100.0));
+        let next = find_another_source(&base, &recipe, "s", &[]).unwrap();
+        assert!((next.0 - 300.0).hypot(next.1 - 100.0) > 10.0, "{next:?}");
+        assert!(
+            !((180.0..=220.0).contains(&next.0) && (80.0..=120.0).contains(&next.1)),
+            "{next:?} copies the scratch"
+        );
+    }
+
+    #[test]
+    fn another_source_for_a_stroke_skips_the_current_offset() {
+        let base = grainy_sky();
+        let points = [
+            StrokePoint { x: 150.0, y: 120.0 },
+            StrokePoint { x: 330.0, y: 120.0 },
+        ];
+        let current = find_stroke_source(&base, &serde_json::json!({}), &points, 8.0).unwrap();
+        let mut recipe = spot_recipe("s", 150.0, 120.0, current);
+        recipe["spots"][0]["points"] = serde_json::json!([
+            {"x": points[0].x, "y": points[0].y},
+            {"x": points[1].x, "y": points[1].y}
+        ]);
+        let next = find_another_source(&base, &recipe, "s", &[]).unwrap();
+        // Where the stroke copies from now, as a path of its own: the new
+        // source must not lie within one brush radius of it.
+        let offset_of = |at: (f64, f64)| -> (f64, f64) { (at.0 - 150.0, at.1 - 120.0) };
+        let copied = offset_of(current);
+        let copied_path: Vec<(f64, f64)> = points
+            .iter()
+            .map(|p| (p.x + copied.0, p.y + copied.1))
+            .collect();
+        let next_path: Vec<(f64, f64)> = {
+            let o = offset_of(next);
+            points.iter().map(|p| (p.x + o.0, p.y + o.1)).collect()
+        };
+        assert!(
+            !copied_path
+                .iter()
+                .any(|p| path_reaches(&next_path, *p, 8.0)),
+            "{next:?} copies where the stroke copies from now ({current:?})"
+        );
+        // A source this press turned down is not offered again.
+        let third = find_another_source(&base, &recipe, "s", &[next]).unwrap();
+        let third_offset = offset_of(third);
+        assert!(
+            third_offset.0.hypot(third_offset.1 - copied.1) > 8.0
+                && (third_offset.0 - offset_of(next).0).hypot(third_offset.1 - offset_of(next).1)
+                    > 8.0,
+            "{third:?} reuses a turned-down source"
+        );
+    }
+
+    #[test]
+    fn an_excluded_source_is_never_chosen_for_a_new_spot() {
+        let base = grainy_sky();
+        let (x, y) = (300.0, 240.0);
+        let plain = find_source(&base, &serde_json::json!({}), x, y, 10.0).unwrap();
+        let elsewhere =
+            find_source_excluding(&base, &serde_json::json!({}), x, y, 10.0, &[plain]).unwrap();
+        assert!((elsewhere.0 - plain.0).hypot(elsewhere.1 - plain.1) > 10.0);
     }
 }

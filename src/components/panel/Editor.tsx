@@ -1527,6 +1527,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       bgSecondary: viewerRgba
     };
   }, [
+    appSettings?.interfaceShade,
     appSettings?.useWgpuRenderer,
     viewerBackground,
     isFullScreen,
@@ -1545,6 +1546,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   useEffect(() => {
     syncWgpuRef.current();
   }, [
+    appSettings?.interfaceShade,
     appSettings?.useWgpuRenderer,
     viewerBackground,
     isFullScreen,
