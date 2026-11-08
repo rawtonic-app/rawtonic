@@ -1303,6 +1303,8 @@ fn read_source(
 ) -> Option<EmbeddedLensData> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     let mut reader = source.reader();
+    // Preserve the bounded metadata reads of the file-based callers.
+    let header = &source.buf()[..source.len().min(8 << 20)];
     match extension.as_str() {
         "raf" => {
             // Camera Raw ignores the stored corrections of these models
@@ -1364,7 +1366,7 @@ fn read_source(
             fuji_framed(data, aspect)
         }
         "arw" => {
-            let settings = crate::capture_info::maker_note_slice(source.buf())
+            let settings = crate::capture_info::maker_note_slice(header)
                 .and_then(crate::capture_info::sony_lens_settings_from);
             if settings.is_some_and(|s| s.distortion_off) {
                 return None;
@@ -1428,7 +1430,8 @@ fn read_source(
         "dng" => sony_dng_lens(source, geometry_version).or_else(|| adobe_profile(source)),
         "cr3" => canon_ctmd_lens_source(path, source, geometry_version),
         "rw2" | "rwl" => {
-            let chromatic = crate::capture_info::panasonic_ca_info_from(source.buf())
+            let header = &header[..header.len().min(1 << 20)];
+            let chromatic = crate::capture_info::panasonic_ca_info_from(header)
                 .filter(|_| {
                     crate::recipe_versions::CameraCaVersion::from_raw(ca_version).panasonic()
                 })
@@ -1437,8 +1440,8 @@ fn read_source(
             // aspect crop as zeros (G7, G70: version 0 read their 3:2, 16:9
             // and 1:1 frames at the 4:3 frame's radius, 0.3–1.2 % off).
             let framed = geometry_version >= PANASONIC_FUJIFILM_GEOMETRY;
-            let distortion = crate::capture_info::panasonic_distortion_info_from(source.buf())
-                .and_then(|info| {
+            let distortion =
+                crate::capture_info::panasonic_distortion_info_from(header).and_then(|info| {
                     let half_diagonal = if framed {
                         info.frame_half_diagonal
                     } else {
@@ -1486,7 +1489,7 @@ fn read_source(
             }
         }
         "orf" | "ori" => {
-            let (distortion, _ca) = crate::capture_info::maker_note_slice(source.buf())
+            let (distortion, _ca) = crate::capture_info::maker_note_slice(header)
                 .and_then(crate::capture_info::olympus_lens_correction_from)?;
             // The model's corner is the 4:3 sensor's; an aspect-ratio frame
             // (16:9, 3:2, 1:1) reaches a smaller part of its radius.
