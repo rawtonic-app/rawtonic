@@ -384,6 +384,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & WHITES_V12_FEATURE != 0 && expected & TONE_PREVIEW_FEATURE == 0 {
             continue;
         }
+        // So is tone version 13's raised Shadows.
+        if expected & SHADOWS_V13_FEATURE != 0 && expected & TONE_PREVIEW_FEATURE == 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -398,7 +402,14 @@ fn preview_features_preserve_global_and_local_effects() {
             effects["colorNoiseReduction"] = json!(30);
         }
         if expected & TONE_PREVIEW_FEATURE != 0 {
-            effects["whites"] = json!(-20);
+            if expected & SHADOWS_V13_FEATURE != 0 {
+                effects["shadows"] = json!(20);
+                if expected & WHITES_V12_FEATURE != 0 {
+                    effects["whites"] = json!(-20);
+                }
+            } else {
+                effects["whites"] = json!(-20);
+            }
         }
         let mut profile = if expected & 8 != 0 {
             local_profile(effects)
@@ -430,6 +441,9 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         if expected & WHITES_V12_FEATURE != 0 {
             profile["toneVersion"] = json!(12);
+        }
+        if expected & SHADOWS_V13_FEATURE != 0 {
+            profile["toneVersion"] = json!(13);
         }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         if expected & SHARPEN_V8_FEATURE != 0 {
@@ -9497,6 +9511,17 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         })
         .collect();
     recipes.extend(twelfth);
+    // Tone version 13 changes raised Shadows only.
+    let thirteenth: Vec<serde_json::Value> = recipes
+        .iter()
+        .filter(|recipe| recipe["shadows"].as_i64().is_some_and(|v| v > 0))
+        .map(|recipe| {
+            let mut recipe = recipe.clone();
+            recipe["toneVersion"] = json!(13);
+            recipe
+        })
+        .collect();
+    recipes.extend(thirteenth);
     // Away from the image borders (the blur clamps there). Over up to 24
     // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
     // 16-bit codes, whichever is more: Shadows and Blacks read the f16
@@ -11575,6 +11600,209 @@ fn tone_version_12_whites_drag_render_time() {
         eprintln!(
             "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
             11 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 13 lifts the midtones less, without a texture boost"]
+fn tone_version_13_shadows_lifts_midtones_less() {
+    let context = context();
+    let (width, height) = (1024u32, 1080u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let textured = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let smooth = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, false),
+    );
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Without raised Shadows version 13 renders as version 12, also through
+    // a file's own curve, and so does raised Shadows under the other looks.
+    for look in [(3, 2.0), (3, 1.0)] {
+        for recipe in [
+            json!({}),
+            json!({ "shadows": -60 }),
+            json!({ "whites": -80, "blacks": -40, "highlights": -80, "contrast": 30 }),
+            json!({ "blacks": 40, "exposure": 1.5 }),
+        ] {
+            assert!(
+                render_raw_look(
+                    &processor,
+                    &textured,
+                    (width, height),
+                    &with(&recipe, 12),
+                    look
+                ) == render_raw_look(
+                    &processor,
+                    &textured,
+                    (width, height),
+                    &with(&recipe, 13),
+                    look
+                ),
+                "{recipe} under {look:?} differs"
+            );
+        }
+    }
+    for look in [(2, 2.0), (0, 2.0)] {
+        let recipe = json!({ "shadows": 80 });
+        assert!(
+            render_raw_look(
+                &processor,
+                &textured,
+                (width, height),
+                &with(&recipe, 12),
+                look
+            ) == render_raw_look(
+                &processor,
+                &textured,
+                (width, height),
+                &with(&recipe, 13),
+                look
+            ),
+            "{recipe} under {look:?} differs"
+        );
+    }
+    let look = (3, 2.0);
+    let render = |view: &wgpu::TextureView, recipe: serde_json::Value| {
+        render_raw_look(&processor, view, (width, height), &recipe, look)
+    };
+    let neutral = render(&textured, with(&json!({}), 13));
+    let rows = (64..(height - 64) as usize).step_by(4);
+    let columns = 32..(width - 32) as usize;
+    for amount in [50, 100] {
+        let twelfth = render(&textured, with(&json!({ "shadows": amount }), 12));
+        let thirteenth = render(&textured, with(&json!({ "shadows": amount }), 13));
+        // Mean dL* per neutral band (below L* 12, 40–60) and the dark band's
+        // texture (std of L* minus the row's 9-pixel mean, L* 12–35).
+        let (mut dl, mut n) = ([[0.0f64; 2]; 2], [0.0f64; 2]);
+        let mut det = [0.0f64; 3];
+        for y in rows.clone() {
+            for x in columns.clone() {
+                let i = y * width as usize + x;
+                let l0 = lstar_of_codes(&neutral[i]);
+                if (12.0..35.0).contains(&l0) {
+                    let local = |img: &[[u16; 3]]| {
+                        let mean = (x - 4..=x + 4)
+                            .map(|k| lstar_of_codes(&img[y * width as usize + k]))
+                            .sum::<f64>()
+                            / 9.0;
+                        (lstar_of_codes(&img[i]) - mean).powi(2)
+                    };
+                    det[0] += local(&neutral);
+                    det[1] += local(&twelfth);
+                    det[2] += local(&thirteenth);
+                }
+                let band = if l0 < 12.0 {
+                    0
+                } else if (40.0..60.0).contains(&l0) {
+                    1
+                } else {
+                    continue;
+                };
+                dl[0][band] += lstar_of_codes(&twelfth[i]) - l0;
+                dl[1][band] += lstar_of_codes(&thirteenth[i]) - l0;
+                n[band] += 1.0;
+            }
+        }
+        let mean = |v: usize, b: usize| dl[v][b] / n[b];
+        let (kept_12, kept_13) = ((det[1] / det[0]).sqrt(), (det[2] / det[0]).sqrt());
+        eprintln!(
+            "Shadows +{amount}: dL* below 12 {:.2} → {:.2}, 40–60 {:.2} → {:.2}; dark texture {kept_12:.3} → {kept_13:.3}",
+            mean(0, 0),
+            mean(1, 0),
+            mean(0, 1),
+            mean(1, 1)
+        );
+        assert!(
+            mean(1, 0) >= 0.9 * mean(0, 0),
+            "Shadows +{amount}: darks lifted {:.2} (version 12 {:.2})",
+            mean(1, 0),
+            mean(0, 0)
+        );
+        assert!(
+            mean(1, 1) > 0.0 && mean(1, 1) < 0.8 * mean(0, 1),
+            "Shadows +{amount}: L* 40–60 {:.2} (version 12 {:.2})",
+            mean(1, 1),
+            mean(0, 1)
+        );
+        assert!(
+            kept_13 < kept_12 && kept_13 > 1.0,
+            "Shadows +{amount}: dark texture {kept_13:.3} (version 12 {kept_12:.3})"
+        );
+        // On a smooth ramp brighter tones stay brighter (by 0.01 L* or two
+        // codes) and nothing turns darker than the neutral render.
+        let flat_neutral = render(&smooth, with(&json!({}), 13));
+        let flat = render(&smooth, with(&json!({ "shadows": amount }), 13));
+        let row = (height / 2 * width) as usize;
+        for x in columns.clone() {
+            let (a, b) = (&flat[row + x - 1], &flat[row + x]);
+            let codes = (0..3).map(|c| a[c] as i32 - b[c] as i32).max().unwrap();
+            assert!(
+                lstar_of_codes(b) >= lstar_of_codes(a) - 0.01 || codes <= 2,
+                "Shadows +{amount}: column {x} below column {}",
+                x - 1
+            );
+            assert!(
+                lstar_of_codes(&flat[row + x]) >= lstar_of_codes(&flat_neutral[row + x]) - 0.02,
+                "Shadows +{amount}: column {x} turned darker"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 13 against version 12: GPU time of a preview render per drag step"]
+fn tone_version_13_shadows_drag_render_time() {
+    // As `tone_version_12_whites_drag_render_time`, with Shadows stepped up.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 12 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "shadows": 20 + 8 * step, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 12) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            12 + k,
             t[t.len() / 2],
             t[t.len() * 9 / 10],
             t.len()

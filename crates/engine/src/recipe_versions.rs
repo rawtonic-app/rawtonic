@@ -158,6 +158,9 @@ pub const WHITES_LOCAL_BASE_TONE_VERSION: u64 = 10;
 /// The tone-slider response from which lowered Whites reach only the bright
 /// tones (`toneVersion` 12).
 pub const WHITES_BRIGHT_REACH_TONE_VERSION: u64 = 12;
+/// The tone-slider response from which raised Shadows lift the midtones less
+/// and no longer boost the shadows' texture (`toneVersion` 13).
+pub const SHADOWS_MIDTONE_CUT_TONE_VERSION: u64 = 13;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -196,6 +199,11 @@ impl ToneVersion {
     /// Lowered Whites reach only the bright tones.
     pub fn whites_bright_reach(self) -> bool {
         self.0 >= WHITES_BRIGHT_REACH_TONE_VERSION
+    }
+
+    /// Raised Shadows lift the midtones less, without a texture boost.
+    pub fn shadows_midtone_cut(self) -> bool {
+        self.0 >= SHADOWS_MIDTONE_CUT_TONE_VERSION
     }
 }
 

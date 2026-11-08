@@ -7322,10 +7322,15 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// Capture One's White does: version 10's gain is weighted by the base
 /// level's display lightness (0 below L* 40, rising to white), where 10
 /// darkened L* 60 by about 5 at −100 (notes: G02,
-/// benchmark-results/g02w-whites-minus-2026-11-08).
+/// benchmark-results/g02w-whites-minus-2026-11-08);
+/// 13 (2026-11-08) lets raised Shadows lift the midtones less and drops
+/// version 6's texture boost: at the same lifted shadow level as Capture
+/// One's Shadow, 12 lifted L* 40–60 by 4 L* more and raised the shadows'
+/// texture 20–30 % more, which read as flat and over-sharpened (notes: G02,
+/// benchmark-results/shd2-shadows-shape-2026-11-08).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 12;
+pub const TONE_VERSION: u64 = 13;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
