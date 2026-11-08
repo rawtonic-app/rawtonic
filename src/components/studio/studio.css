@@ -167,7 +167,6 @@
 :is(.studio-workspace, .studio-controls) button[aria-pressed='true'] {
   color: var(--studio-shade-accent, #d1e5f7);
   background: rgb(var(--studio-shade-overlay-rgb, 120 147 170) / 0.141176471);
-  box-shadow: inset 0 -1px 0 var(--studio-shade-accent, transparent);
 }
 :is(.studio-workspace, .studio-controls) select {
   background: var(--studio-shade-inset, #242527);
@@ -7377,4 +7376,10 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 }
 :root:is([data-interface-shade='dark-grey'], [data-interface-shade='medium-grey']) .studio-solo-muted-indicator {
   display: inline-block;
+}
+
+:root:is([data-interface-shade='dark-grey'], [data-interface-shade='medium-grey'])
+  :is(.studio-workspace, .studio-controls)
+  button[aria-pressed='true'] {
+  box-shadow: inset 0 -1px 0 var(--studio-shade-accent);
 }
