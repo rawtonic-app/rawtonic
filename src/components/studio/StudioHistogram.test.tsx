@@ -183,7 +183,11 @@ it('keeps fixed-size transparent control icons above the plot (studio.css applie
   // @ts-expect-error node:fs is untyped in the frontend tsconfig
   const { readFileSync } = await import('node:fs');
   const style = document.createElement('style');
-  style.textContent = readFileSync('src/components/studio/studio.css', 'utf8') as string;
+  const css = readFileSync('src/components/studio/studio.css', 'utf8') as string;
+  // jsdom does not resolve custom-property fallbacks in paint properties.
+  // Resolve the optional shade tokens to their actual Darkest fallbacks;
+  // palette contrast for every shade is checked in themes.test.ts.
+  style.textContent = css.replace(/var\(--studio-(?:shade-[\w-]+|focus),\s*([^)]+)\)/g, '$1');
   document.head.appendChild(style);
   try {
     const { container } = render(
