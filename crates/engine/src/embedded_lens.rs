@@ -2018,10 +2018,17 @@ fn apply_default_with(
         }
         return;
     }
-    let Some((maker, model, params)) = bytes.map_or_else(
-        || lensfun_default(source),
-        |raw| lensfun_from_source(source, raw, false),
-    ) else {
+    // rawler's embedded lens readers can panic on unsupported variants;
+    // preserve the file path's guarded behavior for the in-memory import path.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        bytes.map_or_else(
+            || lensfun_default(source),
+            |raw| lensfun_from_source(source, raw, false),
+        )
+    }))
+    .ok()
+    .flatten();
+    let Some((maker, model, params)) = result else {
         return;
     };
     if adjustments.is_null() {

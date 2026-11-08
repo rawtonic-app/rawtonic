@@ -262,17 +262,18 @@ fn render_unedited_full_size_with_env(
     // file's EXIF in sidecars beside it, and nothing may be written beside a
     // photograph that is not imported (with Apple's RAW engine preferred,
     // this view still develops with rawler).
+    let frame = if is_raw {
+        let source = rawler::rawsource::RawSource::new_from_slice(bytes).with_path(path);
+        rawtonic_rawdecode::source_frame::effective(
+            &source,
+            rawtonic_engine::source_frame::requested(&adjustments),
+        )
+    } else {
+        0
+    };
     let options = crate::image_loader::base_options(
         settings,
-        rawtonic_engine::image_loader::decode_variant_for_frame(
-            &adjustments,
-            is_raw,
-            if is_raw {
-                rawtonic_engine::source_frame::requested(&adjustments)
-            } else {
-                0
-            },
-        ),
+        rawtonic_engine::image_loader::decode_variant_for_frame(&adjustments, is_raw, frame),
     );
     let (pristine, measures) =
         crate::image_loader::load_base_image_measured(bytes, path, false, &options, None)
@@ -2672,24 +2673,20 @@ mod tests {
                 "the original and every sidecar stay unchanged; none created"
             );
         }
-        // Production normalization and decoding still work with only the
-        // bytes left: a path reopen cannot supply camera crop/lens/frame.
-        let before = render_unedited_full_size_with_env(
-            photo.to_str().unwrap(),
+        // Use a fresh path that has never existed, so path-keyed render
+        // caches cannot hide a reopen after normalization. The full render
+        // must use the same bytes, and leave adjacent sidecars absent.
+        let detached = temp.path().join("never-written.DNG");
+        let before_detached = snapshot();
+        let full = render_unedited_full_size_with_env(
+            detached.to_str().unwrap(),
             &bytes,
             &crate::app_settings::AppSettings::default(),
             &env,
         )
         .unwrap();
-        std::fs::remove_file(&photo).unwrap();
-        let after = render_unedited_full_size_with_env(
-            photo.to_str().unwrap(),
-            &bytes,
-            &crate::app_settings::AppSettings::default(),
-            &env,
-        )
-        .unwrap();
-        assert_eq!(before.to_rgb8(), after.to_rgb8());
+        assert_eq!((full.width(), full.height()), (64, 48));
+        assert_eq!(snapshot(), before_detached);
     }
 
     #[cfg(unix)]

@@ -1086,7 +1086,10 @@ fn levels_at(data: &[u16], specular: usize) -> Option<(f32, u32)> {
 /// Camera make, model and the model's base name (for regional aliases) as
 /// rawler names them (its camera database), and the EXIF ISO.
 pub fn read_camera(path: &str) -> Option<(String, String, String, Option<u32>)> {
-    let source = rawler::rawsource::RawSource::new(std::path::Path::new(path)).ok()?;
+    // Export adjustments may request the camera's base look while the source
+    // is still on a removable import card. Keep this read owned, never mmap it.
+    let bytes = std::fs::read(path).ok()?;
+    let source = rawler::rawsource::RawSource::new_from_shared_vec(std::sync::Arc::new(bytes));
     let decoder = rawler::get_decoder(&source).ok()?;
     let metadata = decoder
         .raw_metadata(&source, &rawler::decoders::RawDecodeParams::default())

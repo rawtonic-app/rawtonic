@@ -104,7 +104,10 @@ pub(crate) fn sigmas_for_path(path: &str) -> Sigmas {
         v1: None,
     };
     let sigmas = (|| {
-        let source = RawSource::new(std::path::Path::new(path)).ok()?;
+        // This path also serves the import dialog's not-yet-imported RAW.
+        // Reopen into owned bytes rather than mapping a removable card file.
+        let bytes = std::fs::read(path).ok()?;
+        let source = RawSource::new_from_shared_vec(std::sync::Arc::new(bytes));
         let decoder = rawler::get_decoder(&source).ok()?;
         let metadata = decoder
             .raw_metadata(&source, &RawDecodeParams::default())
