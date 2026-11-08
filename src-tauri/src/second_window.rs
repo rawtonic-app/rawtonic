@@ -937,15 +937,34 @@ fn show_followed(app_handle: &tauri::AppHandle, context: &GpuContext, path: Stri
     {
         let mut guard = lock_recover(&INNER);
         let Some(inner) = guard.as_mut() else { return };
-        if inner.locked || inner.shown.as_ref().is_some_and(|s| s.path == path) {
+        if inner.locked {
             return;
         }
-        let recipe = multi_view::recipe_of(&path);
+        // The newest recipe of the photograph: its last preview's (edits
+        // not yet saved), else the stored one.
+        let live = lock_recover(&LIVE)
+            .as_ref()
+            .filter(|l| l.path == path)
+            .map(|l| (Arc::clone(&l.recipe), l.full));
+        let (recipe, full) = match live {
+            Some((recipe, full)) => (recipe, Some(full)),
+            None => (
+                Arc::new(multi_view::recipe_of(&path)),
+                multi_view::full_size_of(&path),
+            ),
+        };
         let key = recipe_key(&recipe);
-        let shown = multi_view::full_size_of(&path)
+        if inner
+            .shown
+            .as_ref()
+            .is_some_and(|s| s.path == path && s.recipe_key == key)
+        {
+            return;
+        }
+        let shown = full
             .map(|(w, h)| multi_view::shown_size_of(&recipe, w, h))
             .map(|(w, h)| [w, h]);
-        set_photo(inner, context, &path, key, Arc::new(recipe), shown);
+        set_photo(inner, context, &path, key, recipe, shown);
     }
     emit_state(app_handle);
     schedule(app_handle);
