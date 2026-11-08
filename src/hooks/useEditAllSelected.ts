@@ -17,6 +17,7 @@ import {
   sameAdjustmentValue,
   withBwVersion,
   withClarityVersion,
+  withVibranceVersion,
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -221,9 +222,12 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const shown = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
       const patch = shown
         ? withBwVersion(
-            withClarityVersion(
-              withGrainVersion(
-                withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
+            withVibranceVersion(
+              withClarityVersion(
+                withGrainVersion(
+                  withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
+                  source?.adjustments
+                ),
                 source?.adjustments
               ),
               source?.adjustments
@@ -272,9 +276,12 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const done = writeToOthers(
         applyRef.current,
         withBwVersion(
-          withClarityVersion(
-            withGrainVersion(
-              withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
+          withVibranceVersion(
+            withClarityVersion(
+              withGrainVersion(
+                withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
+                from.adjustments
+              ),
               from.adjustments
             ),
             from.adjustments

@@ -107,6 +107,7 @@ fn versions() -> Value {
     json!({
         "toneVersion": ip::TONE_VERSION,
         "clarityVersion": ip::CLARITY_VERSION,
+        "vibranceVersion": ip::VIBRANCE_VERSION,
         "renderVersion": ip::RENDER_VERSION,
         "colorNoiseVersion": rawtonic_engine::color_noise::VERSION,
     })

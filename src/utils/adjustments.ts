@@ -664,6 +664,12 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * that used Clarity before it = the band against a plain blur. Photo-wide
    * (layers follow it). */
   clarityVersion?: number;
+  /** Vibrance response (crates/engine/src/image_processing.rs
+   * `VIBRANCE_VERSION`): 2 = Oklab chroma scaled at constant hue and
+   * luminance, weighted by hue and chroma as Camera Raw's Vibrance is; 1 or
+   * missing on recipes that used Vibrance before it = the HSV-weighted mix.
+   * Photo-wide (layers follow it). */
+  vibranceVersion?: number;
   /** Edge-fringe pass (crates/engine/src/edge_fringe.rs `VERSION`): 1 =
    * colour along strong luminance edges that neither side explains
    * (demosaic false colour, lateral CA rests) is removed after the lens
@@ -1292,6 +1298,9 @@ export const KEYLESS_TONE_VERSION = 5;
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;
 
+/** The Vibrance response new edits start with (notes: parity-gaps/G06-presence.md). */
+export const VIBRANCE_VERSION = 2;
+
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md):
  * 5 = version 4's pass computed on the GPU; 6 = 7 × 7 windows on moderately noisy photos too. */
 export const FRINGE_VERSION = 6;
@@ -1403,6 +1412,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
         clarityVersion: CLARITY_VERSION,
+        vibranceVersion: VIBRANCE_VERSION,
         fringeVersion: FRINGE_VERSION,
         cameraCaVersion: CAMERA_CA_VERSION,
         cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
@@ -1421,6 +1431,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
         clarityVersion: CLARITY_VERSION,
+        vibranceVersion: VIBRANCE_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         bwVersion: BW_VERSION,
         sharpenVersion: SHARPEN_VERSION,
@@ -1519,6 +1530,7 @@ export const pastedAdjustments = (
       key === 'lumaNoiseVersion' ||
       key === 'grainVersion' ||
       key === 'clarityVersion' ||
+      key === 'vibranceVersion' ||
       key === 'bwVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
     ) {
@@ -1529,8 +1541,11 @@ export const pastedAdjustments = (
     (picked as Record<string, unknown>)[key] = value;
   }
   return withBwVersion(
-    withClarityVersion(
-      withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied),
+    withVibranceVersion(
+      withClarityVersion(
+        withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied),
+        copied
+      ),
       copied
     ),
     copied
@@ -1639,6 +1654,27 @@ export const withClarityVersion = <T extends Partial<Adjustments>>(
   return { ...picked, clarityVersion: source?.clarityVersion ?? 1 };
 };
 
+/** As `withClarityVersion` for Vibrance: wherever Vibrance values are copied
+ * the Vibrance response goes along explicitly — the source's, else 1. */
+export const withVibranceVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>
+): T & Pick<Partial<Adjustments>, 'vibranceVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'vibranceVersion') && picked.vibranceVersion == null) {
+    return { ...picked, vibranceVersion: 1 };
+  }
+  const vibrance =
+    picked.vibrance !== undefined ||
+    (source !== undefined &&
+      (picked.masks ?? []).some((mask) => ((mask?.adjustments?.vibrance as number | undefined) ?? 0) !== 0));
+  if (!vibrance || picked.vibranceVersion != null) {
+    return picked;
+  }
+  return { ...picked, vibranceVersion: source?.vibranceVersion ?? 1 };
+};
+
 /** As `withSharpenVersion` for the black & white mix: wherever mix values
  * are copied (paste, tool copy, Edit all selected, presets) the mix response
  * goes along explicitly — the source's, else 1 (a source or preset from
@@ -1663,7 +1699,7 @@ export const withBwVersion = <T extends Partial<Adjustments>>(
  * before the keys renders with version 1 wherever it is previewed or
  * applied. */
 export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
-  withBwVersion(withClarityVersion(preset, preset), preset);
+  withBwVersion(withVibranceVersion(withClarityVersion(preset, preset), preset), preset);
 
 /** Keys whose values render the pattern of the recipe's grain version. */
 const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;
@@ -1746,6 +1782,16 @@ const loadedClarityVersion = (loaded: Partial<Adjustments>): number => {
   const uses = (values: { clarity?: unknown } | undefined) => ((values?.clarity as number | undefined) ?? 0) !== 0;
   const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
   return rendersDifferently ? 1 : CLARITY_VERSION;
+};
+
+/** The Vibrance response of a saved recipe, as `loadedClarityVersion`. */
+const loadedVibranceVersion = (loaded: Partial<Adjustments>): number => {
+  if (loaded.vibranceVersion !== undefined && loaded.vibranceVersion !== null) {
+    return loaded.vibranceVersion;
+  }
+  const uses = (values: { vibrance?: unknown } | undefined) => ((values?.vibrance as number | undefined) ?? 0) !== 0;
+  const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
+  return rendersDifferently ? 1 : VIBRANCE_VERSION;
 };
 
 /** The colour noise filter of a saved recipe: its own, else the earlier
@@ -1916,6 +1962,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
       toneVersion: loadedToneVersion(loadedAdjustments),
       clarityVersion: loadedClarityVersion(loadedAdjustments),
+      vibranceVersion: loadedVibranceVersion(loadedAdjustments),
       defringeVersion: loadedDefringeVersion(loadedAdjustments),
       bwVersion: loadedBwVersion(loadedAdjustments),
       sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
@@ -2040,7 +2087,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     {
       label: 'modals.copyPaste.groups.presence',
       clipboardSection: 'basic',
-      keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance]
+      keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance, 'vibranceVersion']
     },
     {
       label: 'modals.copyPaste.groups.hueShift',

@@ -13,6 +13,8 @@ import {
   TONE_VERSION,
   KEYLESS_TONE_VERSION,
   CLARITY_VERSION,
+  VIBRANCE_VERSION,
+  withVibranceVersion,
   FRINGE_VERSION,
   RENDER_VERSION,
   DEFRINGE_VERSION,
@@ -258,6 +260,25 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(saved, true).autoCaVersion).toBeUndefined();
     expect(autoCaOn(normalizeLoadedAdjustments(saved, true))).toBe(false);
     expect(autoCaOn({ ...saved, autoChromaticAberration: true })).toBe(true);
+  });
+
+  it('keep the Vibrance response a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).vibranceVersion).toBe(VIBRANCE_VERSION);
+    expect(initialAdjustmentsFor(false).vibranceVersion).toBe(VIBRANCE_VERSION);
+    const used = { vibrance: 40 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(used, true).vibranceVersion).toBe(1);
+    const layered = { masks: [{ adjustments: { vibrance: -30 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layered, true).vibranceVersion).toBe(1);
+    const none = { saturation: 40 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(none, true).vibranceVersion).toBe(VIBRANCE_VERSION);
+    const old = { vibrance: 40, vibranceVersion: 1 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(old, true).vibranceVersion).toBe(1);
+    // Copied Vibrance carries its response: the source's, else the first.
+    expect(withVibranceVersion({ vibrance: 20 } as Partial<Adjustments>)).toEqual({ vibrance: 20, vibranceVersion: 1 });
+    expect(withVibranceVersion({ vibrance: 20 }, { vibranceVersion: 2 } as Partial<Adjustments>).vibranceVersion).toBe(
+      2
+    );
+    expect(withVibranceVersion({ exposure: 1 } as Partial<Adjustments>)).toEqual({ exposure: 1 });
   });
 
   it('keep the Clarity response a saved recipe rendered with', () => {

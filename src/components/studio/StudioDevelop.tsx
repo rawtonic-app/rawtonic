@@ -1436,8 +1436,8 @@ export default function StudioDevelop() {
                   'dehaze',
                   'vibrance',
                   'saturation',
-                  // The photo's Clarity response goes back to a new edit's.
-                  ...(layer ? ['hue'] : ['clarityVersion'])
+                  // The photo's Clarity and Vibrance responses go back to a new edit's.
+                  ...(layer ? ['hue'] : ['clarityVersion', 'vibranceVersion'])
                 ])
               }
             >
