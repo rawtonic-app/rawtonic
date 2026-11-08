@@ -6,7 +6,9 @@ use crate::mask_generation::{MaskDefinition, PhotoGeometry, generate_layer_mask}
 use serde_json::json;
 use std::sync::atomic::Ordering;
 
-/// Compiles all valid preview variants before measuring frame timing (~5 h on RADV).
+/// Compiles all valid preview variants before measuring frame timing.
+/// Budget roughly 5 h on RADV (PCP, 2026-11-08: 1919 serial variant compiles
+/// at ~9 s each; this covers compilation before the frame-timing section).
 /// On Metal, compilation runs in MTLCompilerService, so the test process can show
 /// ~0 % CPU while compilation is progressing.
 /// Run deliberately with:
@@ -135,4 +137,3 @@ fn pipeline_compilation_probe() {
         .force_fallback_variant
         .store(false, Ordering::Relaxed);
 }
-
