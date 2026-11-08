@@ -65,6 +65,100 @@ pub async fn find_spot_source(
     .map_err(|e| e.to_string())?
 }
 
+/// What "Find another source" found (`find_another_spot_source`).
+#[derive(serde::Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotSource {
+    x: f64,
+    y: f64,
+}
+
+/// "Find another source" (Lightroom's `/`, the spot list's button and the
+/// settings' item) for the heal or clone spot `spotId` on the open photo:
+/// its next automatic source in the mask frame, never where it copies from
+/// now nor any of `excluded` (the centres `{x, y}` earlier presses on this
+/// spot turned down), searched without the spot and its healed pixels
+/// (`rawtonic_engine::spot_removal::find_another_source`). `{x, y}`, or
+/// null when no other source fits; the spot then keeps its source.
+#[tauri::command]
+pub async fn find_another_spot_source(
+    spot_id: String,
+    excluded: Option<Vec<StrokePoint>>,
+    js_adjustments: Value,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<Option<SpotSource>, String> {
+    find_another_source_for(
+        FindAnotherArgs {
+            spot_id,
+            excluded,
+            js_adjustments,
+        },
+        &state,
+    )
+    .await
+}
+
+/// `find_another_spot_source` with its arguments together (see
+/// `FindAnotherArgs`).
+async fn find_another_source_for(
+    args: FindAnotherArgs,
+    state: &tauri::State<'_, crate::app_state::AppState>,
+) -> Result<Option<SpotSource>, String> {
+    let FindAnotherArgs {
+        spot_id,
+        excluded,
+        js_adjustments,
+    } = args;
+    let (source, _) = crate::editor_preview::original_source(state).await?;
+    tokio::task::spawn_blocking(move || {
+        let base = search_base(&source, &js_adjustments, &spot_id)?;
+        Ok(find_another_source(
+            &base,
+            &js_adjustments,
+            &spot_id,
+            &excluded_centres(excluded),
+        )
+        .map(|(x, y)| SpotSource { x, y }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The photo `find_another_spot_source` searches on: the recipe composited
+/// up to the spot `spot_id` (the spots before it in the list), the stage at
+/// which `apply_spots` renders it. Its own healed pixels and later spots'
+/// repairs, which do not exist yet when it copies its source, never take
+/// part in the choice.
+pub fn search_base(
+    source: &image::DynamicImage,
+    js_adjustments: &Value,
+    spot_id: &str,
+) -> Result<image::DynamicImage, String> {
+    let without = rawtonic_engine::spot_removal::spots_before(js_adjustments, spot_id);
+    crate::image_loader::composite_patches_on_image(source, &without).map_err(|e| e.to_string())
+}
+
+/// The arguments of `find_another_spot_source` as the frontend sends them
+/// (`src/utils/spotSource.ts`): the command's own arguments, so a test can
+/// read the exact JSON back.
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FindAnotherArgs {
+    pub spot_id: String,
+    pub excluded: Option<Vec<StrokePoint>>,
+    #[serde(default)]
+    pub js_adjustments: Value,
+}
+
+/// The mask-frame centres turned down before, as pairs.
+pub fn excluded_centres(excluded: Option<Vec<StrokePoint>>) -> Vec<(f64, f64)> {
+    excluded
+        .unwrap_or_default()
+        .iter()
+        .map(|p| (p.x, p.y))
+        .collect()
+}
+
 /// Visualize Spots for the open photo: a JPEG of the band-pass view of the
 /// displayed (transformed, cropped) photo with its spots applied, at most
 /// `max_edge` pixels long. The band-pass is cached per photo state, so the
@@ -537,5 +631,99 @@ mod tests {
         assert_eq!(frame(&a), Some((60, 40)));
         assert_eq!(frame(&a), frame(&b));
         assert_ne!(frame(&a), frame(&c));
+    }
+
+    /// The arguments the frontend sends (`src/utils/spotSource.ts`) and the
+    /// answer it expects: `{x, y}` or null, camelCase as every command's
+    /// result.
+    #[test]
+    fn find_another_spot_source_reads_what_the_frontend_sends() {
+        let args: FindAnotherArgs = serde_json::from_value(serde_json::json!({
+            "spotId": "s1",
+            "excluded": [{ "x": 30, "y": 10 }, { "x": 40, "y": 12.5 }],
+            "jsAdjustments": { "spots": [] }
+        }))
+        .unwrap();
+        assert_eq!(args.spot_id, "s1");
+        assert!(args.js_adjustments.get("spots").is_some());
+        assert_eq!(
+            excluded_centres(args.excluded),
+            vec![(30.0, 10.0), (40.0, 12.5)]
+        );
+        // The first press sends none, and a null is accepted too.
+        for empty in [
+            serde_json::json!({ "spotId": "s1", "excluded": [], "jsAdjustments": {} }),
+            serde_json::json!({ "spotId": "s1", "excluded": null, "jsAdjustments": {} }),
+        ] {
+            let args: FindAnotherArgs = serde_json::from_value(empty).unwrap();
+            assert!(excluded_centres(args.excluded).is_empty());
+        }
+        assert_eq!(
+            serde_json::to_value(SpotSource { x: 260.0, y: 150.5 }).unwrap(),
+            serde_json::json!({ "x": 260.0, "y": 150.5 })
+        );
+        let none: Option<SpotSource> = None;
+        assert_eq!(serde_json::to_value(none).unwrap(), Value::Null);
+    }
+
+    /// The search photo has the selected spot taken out, not healed in:
+    /// the command's base keeps the pixels under the spot, other spots stay.
+    #[test]
+    fn find_another_spot_source_searches_without_the_spots_own_healing() {
+        let mut img = image::Rgb32FImage::from_fn(100, 100, |x, _| {
+            image::Rgb([0.4 + 0.002 * x as f32, 0.4, 0.4])
+        });
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (0, 2)] {
+            img.put_pixel(50 + dx, 50 + dy, image::Rgb([1.0, 1.0, 1.0]));
+        }
+        let source = image::DynamicImage::ImageRgb32F(img);
+        let recipe = serde_json::json!({"spots": [{
+            "id": "s1", "mode": "heal", "x": 51.0, "y": 51.0, "radius": 8.0,
+            "sourceX": 20.0, "sourceY": 20.0, "feather": 0.0, "opacity": 100.0,
+            "visible": true
+        }]});
+        let at = |img: &image::DynamicImage| img.to_rgb32f().get_pixel(50, 50)[0];
+        let healed = crate::image_loader::composite_patches_on_image(&source, &recipe).unwrap();
+        assert!(at(&healed) < 0.9, "the spot heals the dot: {}", at(&healed));
+        let base = search_base(&source, &recipe, "s1").unwrap();
+        assert!(
+            at(&base) > 0.99,
+            "its search base keeps the dot: {}",
+            at(&base)
+        );
+    }
+
+    /// `apply_spots` heals in list order: a spot copies its source from the
+    /// photo with the earlier spots healed and the later ones still
+    /// untouched, and so must the search for its source.
+    #[test]
+    fn find_another_spot_source_searches_at_the_spots_rendering_stage() {
+        let mut img = image::Rgb32FImage::from_fn(120, 100, |x, _| {
+            image::Rgb([0.4 + 0.002 * x as f32, 0.4, 0.4])
+        });
+        for (cx, cy) in [(30u32, 50u32), (90, 50)] {
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (0, 2)] {
+                img.put_pixel(cx + dx, cy + dy, image::Rgb([1.0, 1.0, 1.0]));
+            }
+        }
+        let source = image::DynamicImage::ImageRgb32F(img);
+        let spot = |id: &str, x: f64| {
+            serde_json::json!({
+                "id": id, "mode": "heal", "x": x, "y": 51.0, "radius": 8.0,
+                "sourceX": x, "sourceY": 20.0, "feather": 0.0, "opacity": 100.0,
+                "visible": true
+            })
+        };
+        let recipe = serde_json::json!({"spots": [spot("s1", 31.0), spot("s2", 91.0)]});
+        let at = |img: &image::DynamicImage, x: u32| img.to_rgb32f().get_pixel(x, 50)[0];
+        // The first spot's search photo: its own dot unhealed, and the
+        // later spot's dot unhealed too (its repair does not exist yet).
+        let first = search_base(&source, &recipe, "s1").unwrap();
+        assert!(at(&first, 30) > 0.99, "own dot: {}", at(&first, 30));
+        assert!(at(&first, 90) > 0.99, "later dot: {}", at(&first, 90));
+        // The second spot's: the earlier repair is in, its own dot is not.
+        let second = search_base(&source, &recipe, "s2").unwrap();
+        assert!(at(&second, 30) < 0.9, "earlier repair: {}", at(&second, 30));
+        assert!(at(&second, 90) > 0.99, "own dot: {}", at(&second, 90));
     }
 }
