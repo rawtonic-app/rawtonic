@@ -618,6 +618,34 @@ fn a_folders_permissions_travel_with_it() {
     assert_eq!(mode(&from.join("Sub/B.NEF")), 0o600);
 }
 
+/// A folder the user made private after the move stays private when the
+/// move is undone: the restored folder's mode is bounded by the moved
+/// folder's live mode, not only by the recorded one.
+#[cfg(unix)]
+#[test]
+fn undo_keeps_a_folder_made_private_after_the_move() {
+    use std::os::unix::fs::PermissionsExt;
+    let world = World::new();
+    let step = world.folder_step();
+    let (from, to) = world.folder();
+    if volume::unix_mode(&world.target).unwrap().is_none() {
+        eprintln!("SKIP: the target volume has no Unix modes");
+        return;
+    }
+    let set =
+        |p: &Path, mode: u32| fs::set_permissions(p, fs::Permissions::from_mode(mode)).unwrap();
+    set(&from.join("Sub"), 0o755);
+    let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move folder", vec![step], &world.trash)
+        .unwrap();
+    assert_eq!(mode(&to.join("Sub")), 0o755);
+    set(&to.join("Sub"), 0o700);
+    journal.undo(&op.id, &world.trash).unwrap();
+    assert_eq!(mode(&from.join("Sub")), 0o700);
+}
+
 /// The umask of whoever runs the tests cannot take the group's or others'
 /// permission bits from a moved folder: the test above in a child process
 /// with umask 077 (the process umask is set only in the freshly spawned

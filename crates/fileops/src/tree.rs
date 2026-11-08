@@ -246,27 +246,30 @@ fn make_folder(
     #[cfg(unix)]
     let mut builder = builder;
     #[cfg(unix)]
-    {
+    let mode = {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
         let live = if posix_source {
             Some(fs::symlink_metadata(from)?.permissions().mode())
         } else {
             None
         };
-        builder.mode(folder_mode(recorded, live));
-    }
+        let mode = folder_mode(recorded, live);
+        builder.mode(mode);
+        mode
+    };
     #[cfg(not(unix))]
     let _ = (from, recorded, posix_source);
     builder
         .create(to)
         .with_context(|| format!("Cannot create the folder {}", to.display()))?;
     // The creation mode is masked by the umask (a restrictive one would
-    // take the group's or others' bits off the copy); the recorded mode is
-    // set outright, as a copied file's is, keeping the owner's access.
+    // take the group's or others' bits off the copy); the computed mode —
+    // bounded by the recorded and the live mode, so a folder the user made
+    // private since stays private — is set outright, as a copied file's is.
     #[cfg(unix)]
-    if let Some(recorded) = recorded.filter(|_| posix_source) {
+    if posix_source {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(to, fs::Permissions::from_mode(recorded & 0o777 | 0o700))
+        fs::set_permissions(to, fs::Permissions::from_mode(mode))
             .with_context(|| format!("Cannot set the permissions of {}", to.display()))?;
     }
     let attributes = xattr::read_path(from)
@@ -281,7 +284,7 @@ fn make_folder(
 
 /// A copied folder's mode before the umask: its recorded and live modes
 /// as ceilings, without special bits, always with the owner's access.
-/// [`make_folder`] sets the recorded mode outright once the folder exists,
+/// [`make_folder`] sets this mode outright once the folder exists,
 /// so that the umask cannot take group or other permission bits from it.
 #[cfg(unix)]
 fn folder_mode(recorded: Option<u32>, live: Option<u32>) -> u32 {
