@@ -167,6 +167,9 @@ pub const HIGHLIGHTS_EDGE_BASE_TONE_VERSION: u64 = 14;
 /// The tone-slider response from which lowered Blacks' black point reaches
 /// into the midtones (`toneVersion` 16).
 pub const BLACKS_REACH_TONE_VERSION: u64 = 16;
+/// The tone-slider response from which raised Whites move at the reference
+/// editors' pace (`toneVersion` 17, `image_processing::whites_amount_v17`).
+pub const WHITES_TRAVEL_TONE_VERSION: u64 = 17;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -221,6 +224,17 @@ impl ToneVersion {
     /// Lowered Blacks' black point reaches into the midtones (up to L* 80).
     pub fn blacks_reach(self) -> bool {
         self.0 >= BLACKS_REACH_TONE_VERSION
+    }
+
+    /// The Whites amount (recipe units) the renderer applies for the slider
+    /// value `value`: from version 17 raised Whites follow the reference
+    /// editors' travel.
+    pub fn whites_amount(self, value: f64) -> f64 {
+        if self.0 >= WHITES_TRAVEL_TONE_VERSION {
+            ip::whites_amount_v17(value)
+        } else {
+            ip::whites_amount_v1(value)
+        }
     }
 }
 

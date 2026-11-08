@@ -5277,7 +5277,7 @@ fn get_global_adjustments_resolved(
         contrast: tone.contrast.get() as f32 / SCALES.contrast,
         highlights: tone.highlights.get() as f32 / SCALES.highlights,
         shadows: tone.shadows.get() as f32 / SCALES.shadows,
-        whites: tone.whites.get() as f32 / SCALES.whites,
+        whites: versions.tone.whites_amount(tone.whites.get()) as f32 / SCALES.whites,
         blacks: tone.blacks.get() as f32 / SCALES.blacks,
 
         saturation: color.saturation.get() as f32 / SCALES.saturation,
@@ -6418,6 +6418,9 @@ fn get_all_adjustments_with_locals<'a>(
         // A layer's Structure follows the photo's Structure travel.
         mask_adjustments[i].structure =
             versions.structure.amount(local.structure.get()) as f32 / SCALES.structure;
+        // A layer's Whites follow the photo's Whites travel.
+        mask_adjustments[i].whites =
+            versions.tone.whites_amount(local.whites.get()) as f32 / SCALES.whites;
         mask_adjustments[i].exposure *= exposure_scale;
         mask_count += 1;
     }
@@ -7399,9 +7402,45 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// than both reference editors and the steep fade raised the shadows' fine
 /// detail 1.2–1.3 × (theirs 0.8–0.9 ×) (notes: G02,
 /// benchmark-results/atf2-blacks-reach-2026-11-08).
+/// 17 (2026-11-08) moves raised Whites at the reference editors' pace: in
+/// version 16 Whites +50 brightened the brightest tenth as much as Capture
+/// One's White +23 (Camera Raw's +26), so the first half of the slider did
+/// little; the slider now maps +50 to version 16's +74 and +100 to +100
+/// (`whites_amount_v17`; notes: benchmark-results/atf7-slider-travel-2026-11-08).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 16;
+pub const TONE_VERSION: u64 = 17;
+
+/// Whites up to tone version 16: the slider value is the amount.
+pub fn whites_amount_v1(value: f64) -> f64 {
+    value
+}
+
+/// Whites from tone version 17: lowered Whites as before; raised Whites
+/// through a monotone cubic (Hermite) through (0, 0), (50, 74), (100, 100)
+/// with slopes 1.96, 0.77, 0.26, so the slider has no kink and no dead end.
+/// +50 → 74 is the median over 24 calibration photos of the version-16
+/// Whites that brightens the brightest tenth as Capture One's White +50
+/// does (Camera Raw's Whites +50: 74.9); at +100 version 16 already sits at
+/// both references' +100.
+pub fn whites_amount_v17(value: f64) -> f64 {
+    if value <= 0.0 {
+        return value;
+    }
+    let v = value.min(100.0);
+    let (x0, y0, m0, y1, m1) = if v <= 50.0 {
+        (0.0, 0.0, 1.96, 74.0, 0.77)
+    } else {
+        (50.0, 74.0, 0.77, 100.0, 0.26)
+    };
+    let h = 50.0;
+    let t = (v - x0) / h;
+    let (t2, t3) = (t * t, t * t * t);
+    (2.0 * t3 - 3.0 * t2 + 1.0) * y0
+        + (t3 - 2.0 * t2 + t) * h * m0
+        + (-2.0 * t3 + 3.0 * t2) * y1
+        + (t3 - t2) * h * m1
+}
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -8011,6 +8050,54 @@ mod structure_version_tests {
         for i in -99..=100 {
             let next = structure_amount_v2(f64::from(i));
             assert!(next > last, "{i}");
+            last = next;
+        }
+    }
+}
+
+#[cfg(test)]
+mod whites_travel_tests {
+    use super::{SCALES, get_all_adjustments_from_json, whites_amount_v17};
+    use serde_json::json;
+
+    fn amounts(whites: f64, tone: Option<u64>) -> (f32, f32) {
+        let mut recipe = json!({
+            "whites": whites,
+            "masks": [{"id": "m", "name": "m", "visible": true, "invert": false, "opacity": 100,
+                       "subMasks": [{"id": "s", "type": "all", "mode": "additive", "visible": true, "invert": false, "opacity": 100, "parameters": {}}],
+                       "adjustments": {"whites": whites}}]
+        });
+        if let Some(v) = tone {
+            recipe["toneVersion"] = json!(v);
+        }
+        let prepared = get_all_adjustments_from_json(&recipe, true, None);
+        (prepared.global.whites, prepared.mask_adjustments[0].whites)
+    }
+
+    #[test]
+    fn tone_versions_before_17_keep_the_slider_value_as_amount() {
+        for tone in [None, Some(12), Some(16)] {
+            for whites in [-60.0, 40.0] {
+                let (global, layer) = amounts(whites, tone);
+                assert_eq!(global.to_bits(), (whites as f32 / SCALES.whites).to_bits());
+                assert_eq!(layer.to_bits(), global.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn version_17_moves_raised_whites_at_the_references_pace() {
+        for (value, amount) in [(50.0, 74.0), (100.0, 100.0), (-60.0, -60.0), (0.0, 0.0)] {
+            assert!((whites_amount_v17(value) - amount).abs() < 1e-9, "{value}");
+            let (global, layer) = amounts(value, Some(17));
+            assert_eq!(global.to_bits(), (amount as f32 / SCALES.whites).to_bits());
+            assert_eq!(layer.to_bits(), global.to_bits());
+        }
+        // Rises over the whole raised range, without a dead end.
+        let mut last = 0.0;
+        for i in 1..=100 {
+            let next = whites_amount_v17(f64::from(i));
+            assert!(next > last + 0.2, "{i}");
             last = next;
         }
     }

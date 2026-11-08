@@ -658,7 +658,8 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * pivot sits lower (raising darkens the lower midtones less, lowering
    * lifts L* 40–50 less); 16 = and lowered Blacks'
    * black point reaches into the midtones (fading out by L* 80), as
-   * Capture One's Black does; 1 or missing on
+   * Capture One's Black does; 17 = and raised Whites move at the reference
+   * editors' pace (+50 as their +50); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1294,7 +1295,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 16;
+export const TONE_VERSION = 17;
 
 /** The response a recipe without `toneVersion` takes when nothing in it
  * renders differently: 5, the last that leaves Whites, Blacks and Clarity
