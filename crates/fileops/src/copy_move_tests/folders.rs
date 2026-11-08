@@ -618,6 +618,36 @@ fn a_folders_permissions_travel_with_it() {
     assert_eq!(mode(&from.join("Sub/B.NEF")), 0o600);
 }
 
+/// The umask of whoever runs the tests cannot take the group's or others'
+/// permission bits from a moved folder: the test above in a child process
+/// with umask 077 (the process umask is set only in the freshly spawned
+/// child, so no other test sees it). A default umask hid a copy that made
+/// its folders with the umask applied and never set their recorded mode.
+#[cfg(unix)]
+#[test]
+fn a_moved_folders_permissions_ignore_the_umask() {
+    const CHILD: &str = "RAWTONIC_TEST_FOLDER_UMASK_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        use std::os::unix::process::CommandExt;
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child
+            .args([
+                "--exact",
+                "copy_move_tests::folders::a_moved_folders_permissions_ignore_the_umask",
+            ])
+            .env(CHILD, "1");
+        unsafe {
+            child.pre_exec(|| {
+                libc::umask(0o077);
+                Ok(())
+            });
+        }
+        assert!(child.status().unwrap().success());
+        return;
+    }
+    a_folders_permissions_travel_with_it();
+}
+
 /// A file gone from the published copy before the original folder goes to
 /// the Trash: the original is kept, whole.
 #[test]
