@@ -57,6 +57,13 @@ override SHARPEN_V8: bool = false;
 // code is unchanged. `show_clipping` says what it shows: SHARPEN_VIEW_MASK
 // the Masking mask (white = sharpened), SHARPEN_VIEW_GREY the photo in grey.
 override SHARPEN_VIEW: bool = false;
+// The colour mixer's and B&W mix's input probes (the targeted adjustment's
+// sample, `output_space.w` = MIXER_INPUT_PROBE or BW_INPUT_PROBE): compiled
+// only into display variants (gpu_processing.rs `variant_constants`), so
+// exports and the general shader keep their code.
+override MIXER_PROBES: bool = false;
+const MIXER_INPUT_PROBE: u32 = 2u;
+const BW_INPUT_PROBE: u32 = 3u;
 const SHARPEN_VIEW_MASK: u32 = 0x40000004u;
 const SHARPEN_VIEW_GREY: u32 = 0x40000008u;
 // In the mask view the sharpening returns its Masking factor m (0–1) as
@@ -3144,6 +3151,18 @@ const HSL_OKLAB_REACH = array<f32, 8>(32.0, 38.0, 50.0, 55.0, 55.0, 50.0, 40.0, 
 const HSL_HUE_DEGREES = array<f32, 8>(1.0, 1.2, 1.15, 1.15, 1.5, 2.6, 1.7, 1.4);
 const HSL_CHROMA_GAIN: f32 = 0.9;
 const HSL_LIGHTNESS_GAIN: f32 = 0.16;
+
+// A probe's pixel: the Oklab hue direction of linear sRGB `linear` (g, b:
+// 0.5 + a / 2C, 0.5 + b / 2C) and its chroma C × 4 (r, to 0.25), alpha 0
+// marking the probe (photos have alpha 1). Hue keeps the full 8 bits at any
+// chroma; the readback averages directions weighted by chroma
+// (src-tauri editor_preview.rs `mixer_sample`).
+fn mixer_probe_pixel(linear: vec3<f32>) -> vec4<f32> {
+    let lab = linear_srgb_to_oklab(linear);
+    let chroma = length(lab.yz);
+    let direction = select(vec2<f32>(0.0), lab.yz / chroma, chroma > 1.0e-6);
+    return vec4<f32>(clamp(chroma * 4.0, 0.0, 1.0), 0.5 + 0.5 * direction, 0.0);
+}
 
 fn apply_hsl_panel(color: vec3<f32>, hsl_adjustments: array<HslColor, 8>, coords_i: vec2<i32>) -> vec3<f32> {
     let safe_color = gamut_floor(color);
@@ -8975,6 +8994,11 @@ fn main(
     if (adjustments.global.calibration_active.x != 0u) {
         composite_rgb_linear = apply_camera_raw_calibration(composite_rgb_linear);
     }
+    // The colour the mixer selects bands by (`apply_hsl_panel`).
+    if (MIXER_PROBES && adjustments.global.output_space.w == MIXER_INPUT_PROBE) {
+        textureStore(output_texture, id.xy, mixer_probe_pixel(gamut_floor(composite_rgb_linear)));
+        return;
+    }
     composite_rgb_linear = apply_hsl_panel(composite_rgb_linear, final_hsl, absolute_coord_i);
     composite_rgb_linear = apply_hue_shift(composite_rgb_linear, t_hue);
     composite_rgb_linear = apply_creative_color(composite_rgb_linear, t_saturation, t_vibrance);
@@ -9083,6 +9107,11 @@ fn main(
         if (influence > 0.001) {
             default_tonemapped = mix(default_tonemapped, apply_color_ranges(default_tonemapped, i + 1u, count), influence);
         }
+    }
+    // The colour the B&W mix selects bands by (`apply_black_and_white*`).
+    if (MIXER_PROBES && adjustments.global.output_space.w == BW_INPUT_PROBE) {
+        textureStore(output_texture, id.xy, mixer_probe_pixel(display_to_linear(default_tonemapped)));
+        return;
     }
     if (adjustments.global.bw_enabled == 1u) {
         default_tonemapped = apply_black_and_white(default_tonemapped);

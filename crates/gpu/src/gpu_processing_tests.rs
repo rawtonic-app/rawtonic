@@ -19022,3 +19022,122 @@ fn tone_versions_up_to_5_keep_their_own_function() {
         "each of the three call sites chooses by tone version"
     );
 }
+
+/// Oklab hue (degrees) and chroma of linear sRGB.
+fn oklab_hue_chroma([r, g, b]: [f64; 3]) -> (f64, f64) {
+    let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+    let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+    let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+    let a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+    let bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+    (bb.atan2(a).to_degrees().rem_euclid(360.0), a.hypot(bb))
+}
+
+/// The mean hue and chroma of mixer probe pixels (shader
+/// `mixer_probe_pixel`), or None when a pixel is no probe pixel.
+fn probe_hue_chroma(pixels: &[u8]) -> Option<(f64, f64)> {
+    let chunks = pixels.as_chunks::<4>().0;
+    if chunks.iter().any(|p| p[3] != 0) {
+        return None;
+    }
+    let (a, b) = chunks.iter().fold((0.0, 0.0), |(a, b), p| {
+        let c = p[0] as f64 / 255.0 / 4.0;
+        let d = |v: u8| (v as f64 / 255.0 - 0.5) * 2.0;
+        (a + c * d(p[1]), b + c * d(p[2]))
+    });
+    let n = chunks.len() as f64;
+    Some((
+        (b / n).atan2(a / n).to_degrees().rem_euclid(360.0),
+        (a / n).hypot(b / n),
+    ))
+}
+
+#[test]
+#[ignore = "requires a native GPU; the targeted adjustment's colour mixer and B&W probes"]
+fn mixer_probes_store_the_colour_each_mixer_receives_in_display_variants_only() {
+    let context = context();
+    let (width, height) = (32u32, 16u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // One orange-red, linear sRGB.
+    let base = [0.5f32, 0.18, 0.06];
+    let data: Vec<f16> = (0..width * height)
+        .flat_map(|_| {
+            [
+                f16::from_f32(base[0]),
+                f16::from_f32(base[1]),
+                f16::from_f32(base[2]),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = input_from(&context, width, height, &data);
+    let render = |recipe: serde_json::Value, probe: u32, shader: ReadbackShader| -> Vec<u8> {
+        let mut adjustments = get_all_adjustments_from_json(&recipe, true, Some(1));
+        adjustments.global.output_space[3] = probe;
+        if shader == ReadbackShader::Display {
+            prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        }
+        let RenderedPixels::U8(pixels) = readback_pixels(
+            &processor,
+            &view,
+            (width, height),
+            *adjustments,
+            &[],
+            RenderOutputPrecision::EightBit,
+            shader,
+        ) else {
+            unreachable!()
+        };
+        pixels
+    };
+    let display = ReadbackShader::Display;
+    let mixer = crate::image_processing::MIXER_INPUT_PROBE;
+    let bw = crate::image_processing::BW_INPUT_PROBE;
+    // Without adjustments the mixer receives the photo's colour (scaled by
+    // exposure, which keeps the Oklab hue).
+    let (hue, chroma) = probe_hue_chroma(&render(json!({}), mixer, display)).unwrap();
+    let (base_hue, _) = oklab_hue_chroma(base.map(f64::from));
+    assert!(
+        (hue - base_hue).abs() < 1.5,
+        "probe hue {hue:.2} vs photo {base_hue:.2}"
+    );
+    assert!(chroma > 0.05, "chroma {chroma:.3}");
+    // White balance counts (the preview base alone would not show it); the
+    // mixer's own sliders do not act on its input.
+    let cooler = probe_hue_chroma(&render(json!({"temperature": -40}), mixer, display)).unwrap();
+    assert!(
+        (cooler.0 - hue).abs() > 3.0,
+        "temperature moved the hue {hue:.2} → {:.2}",
+        cooler.0
+    );
+    let mixed = json!({"hsl": {"reds": {"hue": 60, "saturation": 80, "luminance": -50},
+        "oranges": {"hue": -60, "saturation": -80, "luminance": 50}}});
+    assert_eq!(
+        render(mixed.clone(), mixer, display),
+        render(json!({}), mixer, display)
+    );
+    // The B&W mix receives the rendered colour: the photo's display colour
+    // without B&W, whatever its mix.
+    let colour = render(mixed.clone(), 0, display);
+    let shown: [f64; 3] = std::array::from_fn(|c| {
+        let v = colour[c] as f64 / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    });
+    let (shown_hue, _) = oklab_hue_chroma(shown);
+    let monochrome = json!({"hsl": mixed["hsl"], "blackAndWhite": true, "bwVersion": 2,
+        "grayMixer": {"red": -60, "orange": 40}});
+    let (bw_hue, _) = probe_hue_chroma(&render(monochrome, bw, display)).unwrap();
+    assert!(
+        (bw_hue - shown_hue).abs() < 2.0,
+        "B&W probe hue {bw_hue:.2} vs shown colour {shown_hue:.2}"
+    );
+    // Export pipelines have no probe: they render on (to Levels' input).
+    assert_eq!(
+        probe_hue_chroma(&render(json!({}), mixer, ReadbackShader::Export)),
+        None
+    );
+}

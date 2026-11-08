@@ -4,8 +4,13 @@ import {
   curveInputMean,
   curveValue,
   dominantChannel,
+  channelShares,
   linearFromSrgb,
+  MIXER_UNITS_PER_PIXEL,
+  mixerColourOf,
   oklch,
+  TAT_UNITS_PER_PIXEL,
+  tatUnitsPerPixel,
   startTargetedAdjustment,
   targetedPatch,
   wideCurveLevels
@@ -13,19 +18,52 @@ import {
 import { regionCurveValue } from './regionCurve';
 
 const base = () => structuredClone(INITIAL_ADJUSTMENTS);
-const sky = linearFromSrgb([90, 140, 220]);
-const foliage = linearFromSrgb([90, 140, 40]);
+const sky = mixerColourOf(linearFromSrgb([90, 140, 220]));
+const foliage = mixerColourOf(linearFromSrgb([90, 140, 40]));
+const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 
 describe('targeted adjustment', () => {
   it('moves the colour mixer channels of the colour under the pointer', () => {
     const start = startTargetedAdjustment('saturation', base(), sky, null)!;
     expect(dominantChannel(start)).toBe('blues');
     const patch = targetedPatch(start, 20);
-    expect(patch.hsl!.blues.saturation).toBe(20);
-    // Neighbours follow less; far channels stay.
-    expect(patch.hsl!.aquas.saturation).toBeLessThan(20);
+    // The drag is shared out: the bands of the colour move by 20 in all,
+    // most of it in Blues; far channels stay.
+    const moved = Object.values(patch.hsl!).map((c) => c.saturation);
+    expect(sum(moved)).toBeCloseTo(20, 0);
+    expect(patch.hsl!.blues.saturation).toBeGreaterThan(10);
+    expect(patch.hsl!.aquas.saturation).toBeLessThan(patch.hsl!.blues.saturation);
     expect(patch.hsl!.reds.saturation).toBe(0);
     expect(patch.hsl!.blues.hue).toBe(0);
+  });
+
+  it("splits a drag between neighbouring bands by the colour's position between them", () => {
+    // HSL band centres (Oklab hue): Reds 15, Oranges 52.
+    const atReds = channelShares(15, [15, 52, 105, 145, 195, 262, 305, 340], [32, 38, 50, 55, 55, 50, 40, 38]);
+    // Magentas' window still reaches the Reds centre (the shader blends it too).
+    expect(atReds[0]).toBeGreaterThan(0.95);
+    expect(sum(atReds)).toBeCloseTo(1, 6);
+    const between = startTargetedAdjustment('saturation', base(), { hue: 33.5, chroma: 0.1 }, null)!;
+    const [reds, oranges, ...rest] = between.weights!;
+    expect(reds + oranges).toBeCloseTo(1, 6);
+    expect(rest.every((w) => w === 0)).toBe(true);
+    // Halfway between the centres: about half each (Oranges reaches further).
+    expect(Math.abs(reds - oranges)).toBeLessThan(0.2);
+    // Closer to Oranges: Oranges takes more.
+    const orangey = startTargetedAdjustment('saturation', base(), { hue: 45, chroma: 0.1 }, null)!;
+    expect(orangey.weights![1]).toBeGreaterThan(orangey.weights![0]);
+    const patch = targetedPatch(orangey, 30);
+    expect(patch.hsl!.reds.saturation + patch.hsl!.oranges.saturation).toBeCloseTo(30, 0);
+  });
+
+  it('moves colour targets by the measured pace, tone targets by their own', () => {
+    expect(tatUnitsPerPixel('hue')).toBe(MIXER_UNITS_PER_PIXEL);
+    expect(tatUnitsPerPixel('grayMixer')).toBe(MIXER_UNITS_PER_PIXEL);
+    expect(tatUnitsPerPixel('curve')).toBe(TAT_UNITS_PER_PIXEL);
+    expect(tatUnitsPerPixel('regionCurve')).toBe(TAT_UNITS_PER_PIXEL);
+    // Lightroom: 68 units over the sky's bands for a 70 pt drag.
+    expect(MIXER_UNITS_PER_PIXEL * 70).toBeGreaterThanOrEqual(60);
+    expect(MIXER_UNITS_PER_PIXEL * 70).toBeLessThanOrEqual(75);
   });
 
   it('adds to the values the drag started from and clamps at the slider ends', () => {
@@ -39,7 +77,8 @@ describe('targeted adjustment', () => {
   });
 
   it('ignores grey for colour targets', () => {
-    expect(startTargetedAdjustment('hue', base(), linearFromSrgb([128, 128, 128]), null)).toBeNull();
+    expect(startTargetedAdjustment('hue', base(), mixerColourOf(linearFromSrgb([128, 128, 128])), null)).toBeNull();
+    expect(startTargetedAdjustment('hue', base(), { hue: 30, chroma: 0.01 }, null)).toBeNull();
     expect(startTargetedAdjustment('grayMixer', base(), null, null)).toBeNull();
   });
 
@@ -47,14 +86,15 @@ describe('targeted adjustment', () => {
     const start = startTargetedAdjustment('grayMixer', base(), sky, null)!;
     const patch = targetedPatch(start, -30);
     expect(patch.blackAndWhite).toBe(true);
-    expect(patch.grayMixer!.blue).toBe(-30);
+    expect(sum(Object.values(patch.grayMixer!))).toBeCloseTo(-30, 0);
+    expect(patch.grayMixer!.blue).toBeLessThan(-20);
     expect(patch.grayMixer!.red).toBe(0);
   });
 
   it("weighs the mix channels with the recipe's mix response", () => {
     // An orange between version 1's orange and yellow windows: version 2's
     // narrower orange window gives yellow a larger share.
-    const orange = linearFromSrgb([230, 160, 40]);
+    const orange = mixerColourOf(linearFromSrgb([230, 160, 40]));
     const v1 = startTargetedAdjustment('grayMixer', { ...base(), bwVersion: 1 }, orange, null)!;
     const v2 = startTargetedAdjustment('grayMixer', { ...base(), bwVersion: 2 }, orange, null)!;
     expect(v1.weights).not.toEqual(v2.weights);

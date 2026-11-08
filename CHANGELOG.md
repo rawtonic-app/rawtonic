@@ -6,6 +6,7 @@
 
 ### Fixes
 
+- **The colour mixer's and the B&W mix's targeted adjustment pick the colour you see and move at Lightroom's pace.** Pressing the *H*, *S*, *L* or B&W target on the photo read the colour of the photo before white balance, tone and calibration, so after a warmer or cooler white balance a skin tone or a sky could move a band next to the one it looks like. It now reads the colour the mixer itself receives at that point (B&W: the rendered colour before the conversion), shares the drag between the bands the colour lies between by where it sits between them, and moves them by one unit per point of drag in all (was half a unit to the strongest band), as Lightroom does. Exports do not change.
 - **Clipping triangles stay right while you drag zoomed in.** At 100 % and closer, the histogram's clipping triangles during a slider drag came from a small averaged copy of the photo, so a few clipped pixels (a specular highlight, a dead-black speck) were averaged away and the triangle lit only when you let go. The drag now also checks, for every small block of the photo, its brightest and its darkest pixel with your edit and the layer masks at that pixel, so such pixels light the triangle during the drag too. The triangle's colour can still miss a channel that only another pixel of the same block clips until you let go; the histogram and the other scopes are unchanged.
 
 ## 0.1.0-alpha.12 — 2026-11-08

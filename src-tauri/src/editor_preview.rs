@@ -1271,6 +1271,79 @@ pub async fn sample_curve_input(
     .map_err(|error| format!("Curve input sampling task failed: {error}"))?
 }
 
+/// The mixer whose input a colour target of the targeted adjustment samples
+/// (`mixer` of [`sample_mixer_input`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MixerProbe {
+    /// The colour mixer (Hue, Saturation, Luminance targets).
+    ColorMixer,
+    /// The B&W mix.
+    BlackAndWhite,
+}
+
+/// The colour a mixer receives around a point: its Oklab hue in degrees
+/// (0–360, the hue the shader's band weights use) and chroma.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct MixerSample {
+    pub hue: f64,
+    pub chroma: f64,
+}
+
+/// Colour targets' sample: the colour the colour mixer (`apply_hsl_panel`)
+/// or the B&W mix receives in the pixels around a point of the shown
+/// preview (`preview_sample_roi`), so white balance, tone, calibration and
+/// everything else before the mixer count (the preview base alone is the
+/// colour before them). `adjustments` is the recipe (without view states).
+/// None while no preview base of the recipe's geometry is cached, or when the
+/// render had no display variant with the probe (the frontend then samples
+/// the preview base).
+#[tauri::command]
+pub async fn sample_mixer_input(
+    path: String,
+    normalized_x: f64,
+    normalized_y: f64,
+    adjustments: serde_json::Value,
+    mixer: MixerProbe,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<MixerSample>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = render_probe(
+            &app_handle,
+            &path,
+            adjustments,
+            ProbeArea::Point(normalized_x, normalized_y),
+            ProbeOutput::Mixer(mixer),
+            "sample_mixer_input",
+        )?;
+        Ok(image.and_then(|image| mixer_sample(image.to_rgba8().as_raw())))
+    })
+    .await
+    .map_err(|error| format!("Mixer input sampling task failed: {error}"))?
+}
+
+/// The mean of a mixer probe's pixels (shader `mixer_probe_pixel`: r chroma
+/// × 4, g/b the hue direction, alpha 0): hue directions weighted by chroma,
+/// as the mean Oklab a/b. None without pixels or when a pixel is not a probe
+/// pixel (a pipeline without the probe rendered the photo).
+fn mixer_sample(rgba: &[u8]) -> Option<MixerSample> {
+    let pixels = rgba.as_chunks::<4>().0;
+    if pixels.is_empty() || pixels.iter().any(|p| p[3] != 0) {
+        return None;
+    }
+    let (a, b) = pixels.iter().fold((0.0, 0.0), |(a, b), p| {
+        let chroma = f64::from(p[0]) / 255.0 / 4.0;
+        let direction = |v: u8| (f64::from(v) / 255.0 - 0.5) * 2.0;
+        (a + chroma * direction(p[1]), b + chroma * direction(p[2]))
+    });
+    let n = pixels.len() as f64;
+    let (a, b) = (a / n, b / n);
+    Some(MixerSample {
+        hue: b.atan2(a).to_degrees().rem_euclid(360.0),
+        chroma: a.hypot(b),
+    })
+}
+
 /// Levels' histogram (Capture One shows the tool's input): counts per 8-bit
 /// display level of red, green and blue (every pixel, as the main histogram
 /// counts; the panel smooths them as the main one) of the shown
@@ -1344,6 +1417,8 @@ enum ProbeArea {
 enum ProbeOutput {
     Space(rawtonic_engine::output_color_space::OutputColorSpace),
     LevelsInput,
+    /// A mixer's input (`MIXER_INPUT_PROBE`, `BW_INPUT_PROBE`).
+    Mixer(MixerProbe),
 }
 
 /// Renders `recipe` (a probe of the current recipe, without view states)
@@ -1425,6 +1500,12 @@ fn render_probe(
         }
         ProbeOutput::LevelsInput => {
             probe.global.output_space[3] = image_processing::LEVELS_INPUT_PROBE;
+        }
+        ProbeOutput::Mixer(mixer) => {
+            probe.global.output_space[3] = match mixer {
+                MixerProbe::ColorMixer => image_processing::MIXER_INPUT_PROBE,
+                MixerProbe::BlackAndWhite => image_processing::BW_INPUT_PROBE,
+            };
         }
     }
     let lut = recipe[effects::LUT_PATH.into_name()]
@@ -4469,5 +4550,81 @@ mod levels_input_tests {
                 .collect::<Vec<_>>(),
             [4, 4, 4]
         );
+    }
+}
+
+#[cfg(test)]
+mod mixer_input_tests {
+    use super::{MixerProbe, MixerSample, mixer_sample};
+    use serde_json::json;
+
+    /// The arguments TargetedAdjustmentOverlay sends (`Invokes.SampleMixerInput`).
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    struct Args {
+        path: String,
+        normalized_x: f64,
+        normalized_y: f64,
+        adjustments: serde_json::Value,
+        mixer: MixerProbe,
+    }
+
+    #[test]
+    fn the_frontends_arguments_and_the_answer_keep_their_shape() {
+        for (name, mixer) in [
+            ("colorMixer", MixerProbe::ColorMixer),
+            ("blackAndWhite", MixerProbe::BlackAndWhite),
+        ] {
+            let args: Args = serde_json::from_value(json!({
+                "path": "/photos/a.raf",
+                "normalizedX": 0.25,
+                "normalizedY": 0.75,
+                "adjustments": {"exposure": 0.5},
+                "mixer": name,
+            }))
+            .unwrap();
+            assert_eq!(args.mixer, mixer);
+        }
+        assert_eq!(
+            serde_json::to_value(MixerSample {
+                hue: 262.0,
+                chroma: 0.1
+            })
+            .unwrap(),
+            json!({"hue": 262.0, "chroma": 0.1})
+        );
+    }
+
+    /// One probe pixel (shader `mixer_probe_pixel`) of Oklab hue `degrees`
+    /// and `chroma`.
+    fn pixel(degrees: f64, chroma: f64) -> [u8; 4] {
+        let (b, a) = degrees.to_radians().sin_cos();
+        let code = |v: f64| (v * 255.0).round() as u8;
+        [
+            code(chroma * 4.0),
+            code(0.5 + 0.5 * a),
+            code(0.5 + 0.5 * b),
+            0,
+        ]
+    }
+
+    #[test]
+    fn hue_and_chroma_come_back_from_the_probe_pixels() {
+        let sample = mixer_sample(&pixel(262.0, 0.12)).unwrap();
+        assert!((sample.hue - 262.0).abs() < 0.5, "{sample:?}");
+        assert!((sample.chroma - 0.12).abs() < 0.002, "{sample:?}");
+        // Hues either side of 0 average to 0, not 180; a greyer pixel counts
+        // less.
+        let pixels = [pixel(350.0, 0.1), pixel(10.0, 0.1), pixel(90.0, 0.0)].concat();
+        let sample = mixer_sample(&pixels).unwrap();
+        assert!(sample.hue < 1.0 || sample.hue > 359.0, "{sample:?}");
+    }
+
+    #[test]
+    fn a_render_without_the_probe_gives_no_sample() {
+        assert_eq!(mixer_sample(&[]), None);
+        // A photo pixel (alpha 1): the pipeline had no probe.
+        assert_eq!(mixer_sample(&[200, 120, 90, 255]), None);
     }
 }
