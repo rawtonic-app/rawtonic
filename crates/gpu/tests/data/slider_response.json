@@ -1,9 +1,9 @@
 {
   "about": "Slider response on generated charts (crates/gpu/src/slider_response_tests.rs). Regenerate only for an intended change: UPDATE_SLIDER_RESPONSE=1 cargo test -p rawtonic-gpu -- --ignored slider_response; the PR explains it.",
-  "generated_on": "Metal, Apple M4 Pro",
+  "generated_on": "Metal, Apple M5 Pro",
   "recipe": "a new RAW edit's versions, Standard look and base curve (renders named camera-raw/…: the Camera Raw look every RAW file gets, sliders only), Sharpening and noise reduction 0, image key measured on each chart; Exposure in EV",
   "tolerance_basis": "max(0.2 CIELAB units, Metal-Vulkan spread); measured 2026-11-08 at most 0.041 (Apple M4 Pro Metal against RADV 680M Vulkan, notes: benchmark-results/srt-slider-regression-2026-11-08)",
-  "versions": {"clarityVersion":2,"colorNoiseVersion":11,"renderVersion":11,"toneVersion":13},
+  "versions": {"clarityVersion":2,"colorNoiseVersion":11,"renderVersion":11,"toneVersion":14},
   "tolerance": {"edge":0.2,"hue_c":0.2,"hue_dc":0.2,"hue_dh":0.2,"hue_dl":0.2,"hue_h":0.2,"hue_l":0.2,"ramp_dl":0.2,"ramp_l":0.2,"tex_dl":0.2,"tex_l":0.2,"tex_rms":0.2},
   "labels": {"edge":["overshoot","undershoot","dark plateau","bright plateau"],"hue":["C* 15 h 0","C* 15 h 30","C* 15 h 60","C* 15 h 90","C* 15 h 120","C* 15 h 150","C* 15 h 180","C* 15 h 210","C* 15 h 240","C* 15 h 270","C* 15 h 300","C* 15 h 330","C* 35 h 0","C* 35 h 30","C* 35 h 60","C* 35 h 90","C* 35 h 120","C* 35 h 150","C* 35 h 180","C* 35 h 210","C* 35 h 240","C* 35 h 270","C* 35 h 300","C* 35 h 330","C* 55 h 0","C* 55 h 30","C* 55 h 60","C* 55 h 90","C* 55 h 120","C* 55 h 150","C* 55 h 180","C* 55 h 210","C* 55 h 240","C* 55 h 270","C* 55 h 300","C* 55 h 330"],"ramp":["L* 0-10","L* 10-20","L* 20-30","L* 30-40","L* 40-50","L* 50-60","L* 60-70","L* 70-80","L* 80-90","L* 90-100"],"tex":["flat @ 0.02","flat @ 0.06","flat @ 0.18","flat @ 0.5"],"tex_rms":["2px @ 0.02","2px @ 0.06","2px @ 0.18","2px @ 0.5","8px @ 0.02","8px @ 0.06","8px @ 0.18","8px @ 0.5","noise @ 0.02","noise @ 0.06","noise @ 0.18","noise @ 0.5"]},
   "renders": {
@@ -572,7 +572,7 @@
       "hue_dl": [-0.723, -0.711, -0.737, -0.723, -0.726, -0.728, -0.728, -0.710, -0.718, -0.727, -0.741, -0.726, -0.694, -0.674, -0.697, -0.724, -0.727, -0.733, -0.714, -0.794, -0.692, -0.676, -0.705, -0.705, -0.644, -0.605, -0.610, -0.721, -0.722, -0.677, -1.011, -1.210, -1.186, -0.764, -0.673, -0.650],
       "ramp_dl": [0.000, 0.000, 0.000, -0.004, -0.287, -2.445, -9.202, -17.202, -22.316, -19.552],
       "tex_dl": [0.000, 0.000, -3.281, -17.326],
-      "tex_rms": [2.724, 5.163, 3.828, 5.446, 1.950, 3.658, 2.510, 2.696, 1.322, 2.463, 1.936, 2.338]
+      "tex_rms": [2.724, 5.163, 3.800, 5.307, 1.950, 3.658, 2.506, 2.683, 1.322, 2.463, 1.932, 2.329]
     },
     "camera-raw/highlights=-50": {
       "edge": [0.000, 0.000, 0.000, -6.607],
@@ -581,7 +581,7 @@
       "hue_dl": [-0.457, -0.449, -0.466, -0.457, -0.459, -0.460, -0.460, -0.448, -0.453, -0.459, -0.468, -0.459, -0.439, -0.423, -0.440, -0.457, -0.460, -0.464, -0.452, -0.502, -0.438, -0.427, -0.445, -0.445, -0.407, -0.382, -0.386, -0.456, -0.457, -0.428, -0.640, -0.764, -0.750, -0.482, -0.426, -0.410],
       "ramp_dl": [0.000, 0.000, 0.000, -0.001, -0.105, -0.989, -3.884, -7.332, -9.466, -6.050],
       "tex_dl": [0.000, 0.000, -1.421, -7.548],
-      "tex_rms": [2.724, 5.163, 5.135, 4.649, 1.950, 3.658, 3.582, 2.919, 1.322, 2.463, 2.408, 2.157]
+      "tex_rms": [2.724, 5.163, 5.130, 4.608, 1.950, 3.658, 3.581, 2.914, 1.322, 2.463, 2.406, 2.155]
     },
     "camera-raw/highlights=+50": {
       "edge": [0.000, 0.000, 0.085, 7.509],
