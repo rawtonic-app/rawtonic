@@ -65,6 +65,87 @@ pub async fn find_spot_source(
     .map_err(|e| e.to_string())?
 }
 
+/// What "Find another source" found (`find_another_spot_source`).
+#[derive(serde::Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotSource {
+    x: f64,
+    y: f64,
+}
+
+/// "Find another source" (Lightroom's `/`, the spot list's button and the
+/// settings' item) for the heal or clone spot `spotId` on the open photo:
+/// its next automatic source in the mask frame, never where it copies from
+/// now nor any of `excluded` (the centres `{x, y}` earlier presses on this
+/// spot turned down), searched without the spot and its healed pixels
+/// (`rawtonic_engine::spot_removal::find_another_source`). `{x, y}`, or
+/// null when no other source fits; the spot then keeps its source.
+#[tauri::command]
+pub async fn find_another_spot_source(
+    spot_id: String,
+    excluded: Option<Vec<StrokePoint>>,
+    js_adjustments: Value,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<Option<SpotSource>, String> {
+    find_another_source_for(
+        FindAnotherArgs {
+            spot_id,
+            excluded,
+            js_adjustments,
+        },
+        &state,
+    )
+    .await
+}
+
+/// `find_another_spot_source` with its arguments together (see
+/// `FindAnotherArgs`).
+async fn find_another_source_for(
+    args: FindAnotherArgs,
+    state: &tauri::State<'_, crate::app_state::AppState>,
+) -> Result<Option<SpotSource>, String> {
+    let FindAnotherArgs {
+        spot_id,
+        excluded,
+        js_adjustments,
+    } = args;
+    let (source, _) = crate::editor_preview::original_source(state).await?;
+    tokio::task::spawn_blocking(move || {
+        let base = crate::image_loader::composite_patches_on_image(&source, &js_adjustments)
+            .map_err(|e| e.to_string())?;
+        Ok(find_another_source(
+            &base,
+            &js_adjustments,
+            &spot_id,
+            &excluded_centres(excluded),
+        )
+        .map(|(x, y)| SpotSource { x, y }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The arguments of `find_another_spot_source` as the frontend sends them
+/// (`src/utils/spotSource.ts`): the command's own arguments, so a test can
+/// read the exact JSON back.
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FindAnotherArgs {
+    pub spot_id: String,
+    pub excluded: Option<Vec<StrokePoint>>,
+    #[serde(default)]
+    pub js_adjustments: Value,
+}
+
+/// The mask-frame centres turned down before, as pairs.
+pub fn excluded_centres(excluded: Option<Vec<StrokePoint>>) -> Vec<(f64, f64)> {
+    excluded
+        .unwrap_or_default()
+        .iter()
+        .map(|p| (p.x, p.y))
+        .collect()
+}
+
 /// Visualize Spots for the open photo: a JPEG of the band-pass view of the
 /// displayed (transformed, cropped) photo with its spots applied, at most
 /// `max_edge` pixels long. The band-pass is cached per photo state, so the
@@ -537,5 +618,38 @@ mod tests {
         assert_eq!(frame(&a), Some((60, 40)));
         assert_eq!(frame(&a), frame(&b));
         assert_ne!(frame(&a), frame(&c));
+    }
+
+    /// The arguments the frontend sends (`src/utils/spotSource.ts`) and the
+    /// answer it expects: `{x, y}` or null, camelCase as every command's
+    /// result.
+    #[test]
+    fn find_another_spot_source_reads_what_the_frontend_sends() {
+        let args: FindAnotherArgs = serde_json::from_value(serde_json::json!({
+            "spotId": "s1",
+            "excluded": [{ "x": 30, "y": 10 }, { "x": 40, "y": 12.5 }],
+            "jsAdjustments": { "spots": [] }
+        }))
+        .unwrap();
+        assert_eq!(args.spot_id, "s1");
+        assert!(args.js_adjustments.get("spots").is_some());
+        assert_eq!(
+            excluded_centres(args.excluded),
+            vec![(30.0, 10.0), (40.0, 12.5)]
+        );
+        // The first press sends none, and a null is accepted too.
+        for empty in [
+            serde_json::json!({ "spotId": "s1", "excluded": [], "jsAdjustments": {} }),
+            serde_json::json!({ "spotId": "s1", "excluded": null, "jsAdjustments": {} }),
+        ] {
+            let args: FindAnotherArgs = serde_json::from_value(empty).unwrap();
+            assert!(excluded_centres(args.excluded).is_empty());
+        }
+        assert_eq!(
+            serde_json::to_value(SpotSource { x: 260.0, y: 150.5 }).unwrap(),
+            serde_json::json!({ "x": 260.0, "y": 150.5 })
+        );
+        let none: Option<SpotSource> = None;
+        assert_eq!(serde_json::to_value(none).unwrap(), Value::Null);
     }
 }

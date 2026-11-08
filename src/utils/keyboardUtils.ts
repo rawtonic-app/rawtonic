@@ -568,6 +568,15 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     aliasCombos: [['KeyO']],
     section: 'tools'
   },
+  // Lightroom's Refresh (`/`): the selected heal or clone spot gets another
+  // automatic source, never the one it has nor one an earlier press turned
+  // down (the spot list's button and the spot settings' item also do).
+  {
+    action: 'spot_new_source',
+    description: 'settings.keybinds.actions.spot_new_source',
+    defaultCombo: ['Slash'],
+    section: 'tools'
+  },
   {
     action: 'remove_objects',
     description: 'settings.keybinds.actions.remove_objects',

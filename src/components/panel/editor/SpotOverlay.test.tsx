@@ -21,6 +21,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 import SpotOverlay, { pathToBox } from './SpotOverlay';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
+import { resetTurnedDownForPhoto } from '../../../utils/spotSource';
 
 beforeAll(() => {
   Element.prototype.setPointerCapture = () => {};
@@ -38,6 +39,7 @@ beforeEach(() => {
     spotVisualize: { on: false, sensitivity: 50 }
   });
   invoke.mockReset();
+  resetTurnedDownForPhoto('/s/a.NEF');
 });
 afterEach(cleanup);
 

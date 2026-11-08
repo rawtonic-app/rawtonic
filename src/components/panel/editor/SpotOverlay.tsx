@@ -16,6 +16,9 @@ import { createSubMask } from '../../../utils/maskUtils';
 import { shapeFrame, type SizedFrame } from '../../../utils/maskGeometry';
 import { fillRemoval, removalArea, removalPatch, type SpotPlan } from '../../../utils/spotFill';
 import { withoutSpotItems } from '../../../utils/spotItems';
+import { findAnotherSource, resetTurnedDown, resetTurnedDownForPhoto } from '../../../utils/spotSource';
+import { buildComboMap, normalizeCombo } from '../../../utils/keyboardUtils';
+import { useSettingsStore } from '../../../store/useSettingsStore';
 
 interface Props {
   /** The displayed photograph's box in the viewer's (zoomed) content. */
@@ -197,6 +200,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   // Remove areas and objects: the AI patches this tool made.
   const removals = removalsOf(aiPatches, now);
   const activeSpotId = useEditorStore((s) => s.activeSpotId);
+  // Another photograph: the sources turned down belong to the old one.
+  const photoPath = useEditorStore((s) => s.selectedImage?.path);
+  useEffect(() => {
+    if (photoPath) resetTurnedDownForPhoto(photoPath);
+  }, [photoPath]);
   const settings = useEditorStore((s) => s.spotSettings);
   const visualize = useEditorStore((s) => s.spotVisualize);
   // Find Dust's spots before Apply (StudioFindDust), drawn dashed in amber.
@@ -747,8 +755,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     return () => unlisten.forEach((p) => p.then((stop) => stop?.()));
   }, [t]);
 
-  // Delete removes the selected spot; [ and ] resize it (or the next one);
-  // Escape cancels the removals being filled, else deselects.
+  // Delete removes the selected spot; / finds it another source; [ and ]
+  // resize it (or the next one); Escape cancels the removals being filled,
+  // else deselects.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -762,7 +771,21 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           spots: (prev.spots ?? []).filter((s) => s.id !== id),
           aiPatches: (prev.aiPatches ?? []).filter((p) => p.id !== id)
         }));
+        resetTurnedDown(id);
         setEditor({ activeSpotId: null });
+      } else if (e.key === '/' && id && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // Lightroom's Refresh (`/`, the spot list's button and the spot
+        // settings' item; a key of its own in Preferences): another
+        // automatic source for the selected spot. Alt on a German Mac
+        // layout is one of the keys that type the slash, so it is allowed
+        // here like the brush's [ and ].
+        const { appSettings, osPlatform } = useSettingsStore.getState();
+        const combo = normalizeCombo(e, osPlatform);
+        const key = combo.join('+');
+        if (!key || !buildComboMap(appSettings?.keybinds).get(key)?.includes('spot_new_source')) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        void findAnotherSource(id);
       } else if (e.key === '[' || e.key === ']') {
         e.preventDefault();
         e.stopImmediatePropagation();

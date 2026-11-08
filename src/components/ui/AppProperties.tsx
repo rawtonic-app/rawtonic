@@ -200,6 +200,7 @@ export enum Invokes {
   RedEyePoint = 'red_eye_point',
   RedEyesShown = 'red_eyes_shown',
   FindSpotSource = 'find_spot_source',
+  FindAnotherSpotSource = 'find_another_spot_source',
   VisualizeSpots = 'visualize_spots',
   FindDust = 'find_dust',
   SyncDustSpots = 'sync_dust_spots',
