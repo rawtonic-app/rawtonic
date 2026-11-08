@@ -166,7 +166,7 @@
 }
 :is(.studio-workspace, .studio-controls) button[aria-pressed='true'] {
   color: var(--studio-shade-accent, #d1e5f7);
-  background: rgb(var(--studio-shade-overlay-rgb, 120 147 170) / 0.141176471);
+  background: rgb(var(--studio-shade-pressed-rgb, 120 147 170) / var(--studio-shade-pressed-alpha, 0.141176471));
 }
 :is(.studio-workspace, .studio-controls) select {
   background: var(--studio-shade-inset, #242527);
