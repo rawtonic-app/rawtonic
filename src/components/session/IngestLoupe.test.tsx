@@ -4,7 +4,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import IngestPreviewGrid, { type IngestCandidate } from './IngestPreviewGrid';
-import { createLargePreviewCache, type LargePreview } from './IngestLoupe';
+import { createLargePreviewCache, zoomOffset, type LargePreview } from './IngestLoupe';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import type { AppSettings } from '../ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
@@ -28,23 +30,34 @@ const largePreview = async (path: string): Promise<LargePreview> => ({
   info: { iso: 'ISO 400', exposure: '1/250 s', aperture: 'f/2.8', focalLength: '35 mm' }
 });
 
+let shownRatings: Record<string, number> = {};
+let shownSelection = new Set<string>();
+
 function Harness({
   list,
   loadPreview = largePreview,
+  loadFullPreview,
   onCancel
 }: {
   list: IngestCandidate[];
   loadPreview?: (path: string) => Promise<LargePreview>;
+  loadFullPreview?: (path: string) => Promise<LargePreview>;
   onCancel?: () => void;
 }) {
   const [selected, setSelected] = useState(() => new Set(list.map((file) => file.path)));
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+  shownRatings = ratings;
+  shownSelection = selected;
   return (
     <dialog open onCancel={onCancel}>
       <IngestPreviewGrid
         files={list}
         selected={selected}
+        ratings={ratings}
+        onRatingsChange={setRatings}
         loadThumbnail={async (path) => `blob:thumb${path}`}
         loadPreview={loadPreview}
+        loadFullPreview={loadFullPreview}
         onSelectedChange={setSelected}
       />
     </dialog>
@@ -91,7 +104,8 @@ describe('Import dialog large view', () => {
 
     await user.keyboard('{Enter}');
     expect(shownName()).toBe('DSC00002.ARW');
-    await user.dblClick(document.querySelector('.session-ingest-loupe-image')!);
+    // A click on the photo zooms (below); the close button goes back.
+    await user.click(screen.getByRole('button', { name: 'Back to the grid (Space)' }));
     expect(loupe()).toBeNull();
   });
 
@@ -174,7 +188,7 @@ describe('Import dialog large view', () => {
     await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
     const image = () => screen.getByRole('img', { name: 'DSC00000.ARW' });
     expect(image().getAttribute('src')).toBe('blob:thumb/Volumes/CARD/DCIM/100MSDCF/DSC00000.ARW');
-    expect(image().className).toBe('is-placeholder');
+    expect(image().className).toContain('is-placeholder');
     await act(async () => finish({ url: 'blob:large', info: null }));
     expect(image().getAttribute('src')).toBe('blob:large');
   });
@@ -221,5 +235,119 @@ describe('large preview cache', () => {
     cache.clear();
     expect(revoked).toEqual(['blob:b', 'blob:a', 'blob:x']);
     expect(cache.get('x')).toBeUndefined();
+  });
+});
+
+describe('Reviewing before the import (IMPD)', () => {
+  const path = (i: number) => files(5)[i].path;
+
+  it('rates with 0–5, includes with P and leaves out with X, in the grid and the large view', async () => {
+    const user = userEvent.setup();
+    render(<Harness list={files(5)} />);
+    screen.getByRole('checkbox', { name: 'DSC00001.ARW' }).focus();
+    await user.keyboard('3');
+    expect(shownRatings).toEqual({ [path(1)]: 3 });
+    expect(screen.getByLabelText('Rate 3 of 5')).toBeTruthy();
+    await user.keyboard('x');
+    expect(shownSelection.has(path(1))).toBe(false);
+    await user.keyboard('p');
+    expect(shownSelection.has(path(1))).toBe(true);
+    // Space opens the large view (as in the Library), it does not untick.
+    await user.keyboard(' ');
+    expect(loupe()).toBeTruthy();
+    expect(shownSelection.has(path(1))).toBe(true);
+    await user.keyboard('5');
+    expect(shownRatings[path(1)]).toBe(5);
+    await user.keyboard('x');
+    expect(shownSelection.has(path(1))).toBe(false);
+    expect(screen.getByRole('checkbox', { name: 'Import' }).getAttribute('aria-checked')).toBe('false');
+    await user.keyboard('{ArrowRight}2');
+    expect(shownRatings).toEqual({ [path(1)]: 5, [path(2)]: 2 });
+    await user.keyboard('0');
+    expect(shownRatings).toEqual({ [path(1)]: 5 });
+    // The stars in the bar rate too; the same star again clears.
+    await user.click(screen.getByRole('button', { name: 'Rate 4 of 5' }));
+    expect(shownRatings[path(2)]).toBe(4);
+    await user.click(screen.getByRole('button', { name: 'Rate 4 of 5' }));
+    expect(shownRatings[path(2)]).toBeUndefined();
+  });
+
+  it('shows 100 % only once the full-size pixels arrive, keeps the zoom while stepping, and Z goes back to fit', async () => {
+    const user = userEvent.setup();
+    const finish: Record<string, (preview: LargePreview) => void> = {};
+    const full = vi.fn((p: string) => new Promise<LargePreview>((resolve) => (finish[p] = resolve)));
+    render(<Harness list={files(3)} loadFullPreview={full} />);
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    // Nothing full-size is made until 100 % is asked for.
+    expect(full).not.toHaveBeenCalled();
+    await user.keyboard('z');
+    // The shown photograph first, then the next one, one at a time.
+    expect(full.mock.calls.map((c) => c[0])).toEqual([path(0)]);
+    const zoomButton = () => document.querySelector('.session-ingest-loupe-zoom')!;
+    expect(zoomButton().textContent).toBe('Loading 100 %…');
+    await act(async () => finish[path(0)]({ url: 'blob:full0', info: null }));
+    const measure = document.querySelector<HTMLImageElement>('img[hidden]')!;
+    Object.defineProperty(measure, 'naturalWidth', { value: 6000 });
+    Object.defineProperty(measure, 'naturalHeight', { value: 4000 });
+    fireEvent.load(measure);
+    expect(zoomButton().textContent).toBe('100 %');
+    const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full');
+    expect(fullImage()?.getAttribute('src')).toBe('blob:full0');
+    expect(fullImage()?.style.width).toBe('6000px');
+    expect(full.mock.calls.map((c) => c[0])).toEqual([path(0), path(1)]);
+    // The next photograph opens at 100 % as soon as its pixels are there.
+    await user.keyboard('{ArrowRight}');
+    expect(shownName()).toBe('DSC00001.ARW');
+    expect(zoomButton().textContent).toBe('Loading 100 %…');
+    await act(async () => finish[path(1)]({ url: 'blob:full1', info: null }));
+    const measure1 = document.querySelector<HTMLImageElement>('img[hidden]')!;
+    Object.defineProperty(measure1, 'naturalWidth', { value: 6000 });
+    Object.defineProperty(measure1, 'naturalHeight', { value: 4000 });
+    fireEvent.load(measure1);
+    expect(fullImage()?.getAttribute('src')).toBe('blob:full1');
+    await user.keyboard('z');
+    expect(fullImage()).toBeNull();
+    expect(zoomButton().textContent).toBe('Fit');
+  });
+
+  it('says so when no full-size view can be made, and never upscales the fitted preview', async () => {
+    const user = userEvent.setup();
+    render(<Harness list={files(1)} loadFullPreview={async () => ({ url: null, info: null })} />);
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    await user.keyboard('z');
+    await waitFor(() => expect(screen.getByText('No full-size view could be made of this file')).toBeTruthy());
+    expect(document.querySelector('img.session-ingest-loupe-full')).toBeNull();
+    expect(document.querySelector('.session-ingest-loupe-zoom')!.textContent).not.toBe('100 %');
+  });
+
+  it("follows the Library's auto-advance: P, X or a rating moves on to the next photo", async () => {
+    useSettingsStore.setState({ appSettings: { autoAdvance: true } as AppSettings });
+    try {
+      const user = userEvent.setup();
+      render(<Harness list={files(3)} />);
+      await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+      await user.keyboard('x');
+      expect(shownName()).toBe('DSC00001.ARW');
+      await user.keyboard('4');
+      expect(shownName()).toBe('DSC00002.ARW');
+      expect(shownRatings).toEqual({ [path(1)]: 4 });
+      expect(shownSelection.has(path(0))).toBe(false);
+      // At the last photo it stays.
+      await user.keyboard('p');
+      expect(shownName()).toBe('DSC00002.ARW');
+    } finally {
+      useSettingsStore.setState({ appSettings: null as unknown as AppSettings });
+    }
+  });
+
+  it('centres the zoom on the chosen spot and keeps the image covering the view', () => {
+    const image = { width: 6000, height: 4000 };
+    const view = { width: 1000, height: 800 };
+    expect(zoomOffset({ x: 0.5, y: 0.5 }, image, view)).toEqual({ x: -2500, y: -1600 });
+    // At the edges the image is not pulled away from the view's border.
+    expect(zoomOffset({ x: 0, y: 0 }, image, view)).toEqual({ x: 0, y: 0 });
+    expect(zoomOffset({ x: 1, y: 1 }, image, view)).toEqual({ x: -5000, y: -3200 });
+    // A small image is centred.
+    expect(zoomOffset({ x: 0.9, y: 0.1 }, { width: 400, height: 200 }, view)).toEqual({ x: 300, y: 300 });
   });
 });

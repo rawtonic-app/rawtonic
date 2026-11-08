@@ -926,6 +926,35 @@ pub async fn session_ingest_preview(
     .map_err(|e| e.to_string())
 }
 
+/// A photograph to import at its full size, for the import dialog's 100 %
+/// view: JPEG bytes from the camera's embedded JPEG when it is full size,
+/// else from the RAW decoded at full size (`source_full_size_jpeg`). Empty
+/// when the file could not be read. Read-only.
+#[tauri::command]
+pub async fn session_ingest_full_preview(
+    path: String,
+    app: tauri::AppHandle,
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let started = std::time::Instant::now();
+        let render = |bytes: &[u8]| {
+            crate::export_processing::render_unedited_full_size(&app, &path, bytes)
+                .map_err(|e| log::warn!("Import 100 % view of {path}: {e}"))
+                .ok()
+        };
+        let full = crate::file_management::source_full_size_jpeg(Path::new(&path), &render);
+        if let Some((_, source)) = &full {
+            log::info!(
+                "Import 100 % view from {source:?} in {} ms",
+                started.elapsed().as_millis()
+            );
+        }
+        tauri::ipc::Response::new(full.map(|(bytes, _)| bytes).unwrap_or_default())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// ISO, shutter speed, aperture and focal length of a photograph to import,
 /// for the import dialog's large view. Read-only.
 #[tauri::command]
@@ -1887,10 +1916,50 @@ pub async fn session_offline(directory: String) -> Result<Vec<OfflineEntry>, Str
 /// its folders again (a drive mounted elsewhere is followed by that check).
 pub const VOLUMES_CHANGED: &str = "volumes-changed";
 
+/// The event the webview gets when a memory card (a volume with a `DCIM`
+/// folder, `ingest::cards`) was connected while the app runs: payload a
+/// `Card`. The webview decides whether to open the import (its preference,
+/// nothing else running).
+pub const CARD_INSERTED: &str = "card-inserted";
+
+/// The memory cards connected now, for the import dialog's source list.
+#[tauri::command]
+pub async fn session_ingest_cards() -> Result<Vec<rawtonic_ingest::cards::Card>, String> {
+    tauri::async_runtime::spawn_blocking(rawtonic_ingest::cards::connected_cards)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Ejects the memory card mounted at `mount_point` (after an import, when
+/// the import dialog's option asks for it). Only a connected card; the
+/// system refuses while a file on it is open.
+#[tauri::command]
+pub async fn session_eject_card(mount_point: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        rawtonic_ingest::cards::eject(Path::new(&mount_point))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Watches the mounts for the whole run (system notifications where the
 /// platform has them, else a poll of the mount list) and tells the webview.
 pub fn start_mount_watch(app: tauri::AppHandle) {
+    // Cards mounted at start-up are not "inserted": only a card connected
+    // while the app runs opens the import. Only the mount list is read here
+    // (nothing on the volumes, so no permission prompt at start-up, and on
+    // this thread, never the main one); a newly mounted volume is looked
+    // into on the watcher's thread.
+    let mounts = std::sync::Mutex::new(rawtonic_ingest::cards::mount_points());
     let kind = rawtonic_fs::volume::watch_mounts(move || {
+        let now = rawtonic_ingest::cards::mount_points();
+        if let Ok(mut before) = mounts.lock() {
+            for card in rawtonic_ingest::cards::inserted_cards(&before, &now) {
+                log::info!("Memory card inserted: {}", card.name);
+                let _ = app.emit(CARD_INSERTED, &card);
+            }
+            *before = now;
+        }
         let seen = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0.0, |d| d.as_secs_f64() * 1000.0);
@@ -2119,6 +2188,67 @@ pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The import dialog's calls of the IMPD commands, as the webview sends
+    /// them (ingestReview.ts, IngestLoupe.tsx, SessionWorkspace.tsx): the
+    /// argument names Tauri matches in camelCase, each bound to its command.
+    #[test]
+    fn import_dialog_card_and_full_size_commands_take_the_webviews_json() {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct FullPreview {
+            path: String,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Eject {
+            mount_point: String,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Cards {}
+        fn bind<A, F: std::future::Future>(_: impl FnOnce(A) -> F) {}
+        fn bind_app<A, F: std::future::Future>(_: impl FnOnce(A, tauri::AppHandle) -> F) {}
+        bind_app(session_ingest_full_preview);
+        bind(session_eject_card);
+        let _: fn() -> _ = session_ingest_cards;
+        let FullPreview { path } =
+            serde_json::from_str(r#"{"path":"/Volumes/CARD/DCIM/100TEST/IMG_0006.ARW"}"#).unwrap();
+        let _ = session_ingest_full_preview(path);
+        let Eject { mount_point } =
+            serde_json::from_str(r#"{"mountPoint":"/Volumes/CARD"}"#).unwrap();
+        let _ = session_eject_card(mount_point);
+        let Cards {} = serde_json::from_str("{}").unwrap();
+        // The ratings ride in `session_ingest`'s `metadata`.
+        let metadata: rawtonic_ingest::metadata::ImportMetadata =
+            serde_json::from_str(r#"{"ratings":{"/Volumes/CARD/DCIM/A.ARW":4}}"#).unwrap();
+        assert_eq!(
+            metadata.ratings.get(Path::new("/Volumes/CARD/DCIM/A.ARW")),
+            Some(&4)
+        );
+        // The card list as the webview reads it (`MemoryCard`).
+        assert_eq!(
+            serde_json::to_value(rawtonic_ingest::cards::Card {
+                mount_point: PathBuf::from("/Volumes/CARD"),
+                name: "CARD".into(),
+            })
+            .unwrap(),
+            serde_json::json!({ "mountPoint": "/Volumes/CARD", "name": "CARD" })
+        );
+    }
+
+    /// The 100 % view's rule: an embedded JPEG is used only when it is
+    /// (nearly) the sensor's size; measured on the IMPD card: Nikon/Canon/
+    /// Pentax embed full size, Sony/Panasonic/Olympus about a third.
+    #[test]
+    fn a_small_embedded_jpeg_is_never_shown_as_100_percent() {
+        use crate::file_management::embedded_is_full_size;
+        assert!(embedded_is_full_size(6000, Some(6016)));
+        assert!(embedded_is_full_size(7360, Some(7392)));
+        assert!(!embedded_is_full_size(1616, Some(6048)));
+        assert!(!embedded_is_full_size(4416, Some(6240)));
+        assert!(!embedded_is_full_size(6000, None));
+    }
 
     /// The derived sidecars of a photograph and its copies are named from
     /// the photograph's path: a copy's name produced where the photograph

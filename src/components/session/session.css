@@ -936,12 +936,20 @@
   cursor: pointer;
 }
 /* The import dialog's large view: over the dialog, nearly window-sized. */
+/* The large view fills the window less a margin. The dialog, which clips
+   what it holds (top layer), takes the same box while the view is open. */
+.session-ingest-dialog:has(.session-ingest-loupe) {
+  width: calc(100vw - 40px);
+  height: calc(100vh - 50px);
+  max-height: none;
+  overflow: hidden;
+}
 .session-ingest-loupe {
   position: fixed;
   inset: 0;
   z-index: 10;
   margin: auto;
-  width: min(1400px, calc(100vw - 40px));
+  width: calc(100vw - 40px);
   height: calc(100vh - 50px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1360,4 +1368,84 @@
 .catalog-import-list select {
   flex: 0 0 auto;
   max-width: 45%;
+}
+
+/* Memory cards as import sources, the pre-import rating and the 100 % view
+   (task IMPD). */
+.session-ingest-cards {
+  display: flex;
+  gap: 6px;
+}
+.session-ingest-source-head .session-action.is-active {
+  border-color: #b4c8d3;
+  color: var(--app-text-primary);
+}
+.session-ingest-rating {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  display: flex;
+  gap: 1px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: #000b;
+  color: #e8e2c8;
+}
+.session-ingest-loupe-stars {
+  display: flex;
+  gap: 0;
+}
+.session-ingest-loupe-stars .session-icon-button {
+  width: 22px;
+  height: 22px;
+  color: var(--app-text-secondary);
+}
+.session-ingest-loupe-stars .session-icon-button.is-on {
+  color: #e8e2c8;
+}
+.session-ingest-loupe-zoom {
+  min-width: 64px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--app-border-color);
+  border-radius: 5px;
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.session-ingest-loupe-zoom.is-on {
+  border-color: #b4c8d3;
+  color: var(--app-text-primary);
+}
+.session-ingest-loupe-image {
+  overflow: hidden;
+  cursor: zoom-in;
+  touch-action: none;
+}
+.session-ingest-loupe-image.is-zoomed {
+  display: block;
+  padding: 0;
+  cursor: grab;
+}
+.session-ingest-loupe-image.is-zoomed:active {
+  cursor: grabbing;
+}
+.session-ingest-loupe-image img.session-ingest-loupe-full {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+  object-fit: fill;
+  image-rendering: pixelated;
+}
+.session-ingest-loupe-note {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 5px;
+  background: #000b;
+  color: var(--app-text-primary);
 }

@@ -25,6 +25,7 @@ import {
   FolderPlus,
   FolderSync,
   FolderPlus as FolderAdd,
+  MemoryStick,
   HardDrive,
   Import,
   RefreshCcw,
@@ -80,6 +81,10 @@ import {
 import { throttleAsync } from '../../utils/throttle';
 import { onPhotoWritesSettled } from '../../utils/photoWrites';
 import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from './ingestMode';
+import { VOLUMES_CHANGED as VOLUMES_CHANGED_EVENT } from '../../utils/offline';
+import { cardInsertAction, cardToEject, onCard, withRatings, type MemoryCard } from './ingestReview';
+import { useProcessStore } from '../../store/useProcessStore';
+import { Status } from '../ui/ExportImportProperties';
 import { Trans, useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import { invokeInOrder } from '../../utils/catalogWrites';
@@ -247,6 +252,22 @@ interface IngestTarget {
   album: { id: string; name: string } | null;
 }
 const NO_TARGET: IngestTarget = { folder: null, album: null };
+/** `session_bridge::CARD_INSERTED`: a memory card was connected. */
+const CARD_INSERTED_EVENT = 'card-inserted';
+const EJECT_AFTER_KEY = 'rawtonic.ingestEjectAfter';
+/** "Eject the card after the import", as last set (off at first). */
+const storedEjectAfter = () => {
+  try {
+    return window.localStorage?.getItem(EJECT_AFTER_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const cardName = (mount: string) =>
+  mount
+    .replace(/[\\/]+$/, '')
+    .split(/[\\/]/)
+    .pop() || mount;
 /** The ingest dialog's file dialog filter when the app's list of formats
  * has not loaded (it normally comes from `get_supported_file_types`). */
 const FALLBACK_RAW = ['arw', 'dng', 'cr3', 'cr2', 'nef', 'raf', 'rw2', 'orf'];
@@ -437,6 +458,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [importAfterCreate, setImportAfterCreate] = useState(false);
   const [sources, setSources] = useState<IngestCandidate[]>([]);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
+  // Star ratings given in the import dialog, applied to the imported copies.
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+  // Memory cards connected now, offered as one-click sources.
+  const [cards, setCards] = useState<MemoryCard[]>([]);
+  const [ejectAfter, setEjectAfter] = useState(storedEjectAfter);
   const [scanning, setScanning] = useState(false);
   const [target, setTarget] = useState<IngestTarget>(NO_TARGET);
   const [addToAlbum, setAddToAlbum] = useState(true);
@@ -639,6 +665,70 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     void listen<{ connected: boolean; status?: TetherStatus }>('tether-state', (event) => {
       if (event.payload.connected && event.payload.status) setTether(event.payload.status);
     }).then((fn) => {
+      if (disposed) fn();
+      else stop = fn;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
+
+  // The memory cards connected now, while the import dialog is open: listed
+  // as sources, and again when a drive comes or goes.
+  useEffect(() => {
+    if (form !== 'ingest' || !isTauri()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    const list = () =>
+      void invoke<MemoryCard[]>(Invokes.SessionIngestCards)
+        .then((found) => {
+          if (!disposed) setCards(Array.isArray(found) ? found : []);
+        })
+        .catch(() => {});
+    list();
+    void listen(VOLUMES_CHANGED_EVENT, list).then((fn) => {
+      if (disposed) fn();
+      else stop = fn;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [form]);
+
+  // A memory card inserted opens the import with it as the source (the
+  // preference, on by default as in Capture One and Lightroom), once per
+  // insertion: never over a running import, tethering or another dialog;
+  // during an export it waits until the export has finished.
+  const cardInserted = useRef<(card: MemoryCard) => void>(() => {});
+  cardInserted.current = (card) => {
+    const action = cardInsertAction({
+      enabled: useSettingsStore.getState().appSettings?.openImportOnCard ?? true,
+      importing,
+      tethering: Boolean(tether?.camera),
+      exporting: useProcessStore.getState().exportState.status === Status.Exporting,
+      dialogOpen: Boolean(form) || !session
+    });
+    if (action === 'open') openIngest([card.mountPoint]);
+    else if (action === 'wait') {
+      const stopWaiting = useProcessStore.subscribe((state) => {
+        if (state.exportState.status === Status.Exporting) return;
+        stopWaiting();
+        // Still there, and still nothing else going on.
+        void invoke<MemoryCard[]>(Invokes.SessionIngestCards)
+          .then((found) => {
+            if (Array.isArray(found) && found.some((c) => c.mountPoint === card.mountPoint)) cardInserted.current(card);
+          })
+          .catch(() => {});
+      });
+    }
+  };
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<MemoryCard>(CARD_INSERTED_EVENT, (event) => cardInserted.current(event.payload)).then((fn) => {
       if (disposed) fn();
       else stop = fn;
     });
@@ -1344,6 +1434,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       listed.current = [];
       setSources([]);
       setChosen(new Set());
+      setRatings({});
       scansRunning.current = 0;
       setScanning(false);
     }
@@ -1492,6 +1583,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     [sources, chosen, supportedTypes]
   );
 
+  // The card the listed photographs all come from (for Eject after import).
+  const sourceCard =
+    sources.length > 0
+      ? (cards.find((card) => sources.every((file) => onCard(file.path, card.mountPoint))) ?? null)
+      : null;
+
   const ingest = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!session) return;
@@ -1504,7 +1601,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       folder: adding ? null : target.folder,
       album: addToAlbum ? target.album : null,
       separateJpeg,
-      metadata: importMetadata
+      metadata: withRatings(importMetadata, ratings, files),
+      eject: ejectAfter ? (sourceCard?.mountPoint ?? null) : null
     });
   };
 
@@ -1520,6 +1618,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       album,
       separateJpeg,
       metadata,
+      eject = null,
       destination: shown
     }: {
       adding: boolean;
@@ -1527,6 +1626,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       album: { id: string; name: string } | null;
       separateJpeg: boolean;
       metadata: ImportMetadata | null;
+      /** The card to eject once every photograph came off it verified. */
+      eject?: string | null;
       /** The folder the grid shows meanwhile (else the first one's). */
       destination?: string;
     }
@@ -1585,6 +1686,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         album: album?.name ?? null,
         albumError
       });
+      const card = cancelRequested.current ? null : cardToEject(eject, files, results);
+      if (card)
+        void invoke(Invokes.SessionEjectCard, { mountPoint: card })
+          .then(() => notify.success(t('session.ingest.ejected', { name: cardName(card) })))
+          .catch((e) => notify.warn(t('session.ingest.ejectFailed', { name: cardName(card), error: String(e) })));
       await refresh();
       // Lightroom shows the new photographs after Import; a dated destination
       // (Photos/2026/2026-10-31) would otherwise leave the shown folder empty.
@@ -2302,9 +2408,32 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   <FolderAdd size={15} />
                   {t('session.ingest.addFolder')}
                 </button>
+                {cards.length > 0 && (
+                  <div className="session-ingest-cards" role="group" aria-label={t('session.ingest.cards')}>
+                    {cards.map((card) => (
+                      <button
+                        key={card.mountPoint}
+                        type="button"
+                        className={`session-action${sourceCard?.mountPoint === card.mountPoint ? ' is-active' : ''}`}
+                        aria-pressed={sourceCard?.mountPoint === card.mountPoint}
+                        title={t('session.ingest.cardHint', { path: card.mountPoint })}
+                        onClick={() => void addSources([card.mountPoint], true)}
+                      >
+                        <MemoryStick size={15} />
+                        {card.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               {sources.length ? (
-                <IngestPreviewGrid files={sources} selected={chosen} onSelectedChange={setChosen} />
+                <IngestPreviewGrid
+                  files={sources}
+                  selected={chosen}
+                  onSelectedChange={setChosen}
+                  ratings={ratings}
+                  onRatingsChange={setRatings}
+                />
               ) : (
                 <div className="session-ingest-empty">
                   {scanning ? (
@@ -2416,6 +2545,23 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 <label className="session-ingest-album">
                   <input type="checkbox" checked={separateJpeg} onChange={(e) => setSeparateJpeg(e.target.checked)} />
                   {t('session.ingest.separateJpeg')}
+                </label>
+              )}
+              {sourceCard && ingestMode === 'copy' && (
+                <label className="session-ingest-album" title={t('session.ingest.ejectAfterHint')}>
+                  <input
+                    type="checkbox"
+                    checked={ejectAfter}
+                    onChange={(e) => {
+                      setEjectAfter(e.target.checked);
+                      try {
+                        window.localStorage?.setItem(EJECT_AFTER_KEY, e.target.checked ? '1' : '0');
+                      } catch {
+                        // Not kept; it still applies to this import.
+                      }
+                    }}
+                  />
+                  {t('session.ingest.ejectAfter', { name: sourceCard.name })}
                 </label>
               )}
             </section>

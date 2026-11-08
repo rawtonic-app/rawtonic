@@ -891,6 +891,98 @@ pub(crate) fn source_large_preview_jpeg(path: &Path, max_size: u32) -> Option<Ve
     })
 }
 
+/// How the import dialog's 100 % view of a photograph was made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FullSizeSource {
+    /// The camera's embedded JPEG: it has (nearly) the sensor's size.
+    Embedded,
+    /// The RAW rendered at its full size as the app shows it unedited
+    /// (`render`): the camera's JPEG is smaller.
+    Decoded,
+    /// A JPEG or other image file: its own pixels.
+    File,
+}
+
+/// An embedded JPEG counts as full size from this share of the sensor's
+/// long side: below it a 100 % view would be an upscale, not a focus check.
+pub(crate) const FULL_SIZE_SHARE: f64 = 0.95;
+
+/// Whether an embedded JPEG `jpeg_long` pixels long is a full-size view of
+/// a sensor `sensor_long` pixels long (`FULL_SIZE_SHARE`); with no sensor
+/// size known it is not.
+pub(crate) fn embedded_is_full_size(jpeg_long: u32, sensor_long: Option<u32>) -> bool {
+    sensor_long.is_some_and(|sensor| f64::from(jpeg_long) >= f64::from(sensor) * FULL_SIZE_SHARE)
+}
+
+/// The import dialog's 100 % view of a photograph not in the library yet,
+/// as a JPEG and how it was made: a RAW's largest embedded JPEG when it is
+/// full size (`embedded_is_full_size`), else the RAW rendered at full size
+/// by `render` (from the bytes read here; the app's render of an unedited
+/// photograph); a JPEG file's own bytes; another image decoded. Reads the
+/// file only; nothing is written or cached.
+pub(crate) fn source_full_size_jpeg(
+    path: &Path,
+    render: &dyn Fn(&[u8]) -> Option<DynamicImage>,
+) -> Option<(Vec<u8>, FullSizeSource)> {
+    if !path.is_file() || is_cloud_placeholder(path) {
+        return None;
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let bytes = read_import_source(path)?;
+        if !is_raw_file(path) {
+            if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                return Some((bytes.to_vec(), FullSizeSource::File));
+            }
+            let image = quick_source_preview(&bytes, path, u32::MAX)?;
+            return Some((encode_full_size(&image)?, FullSizeSource::File));
+        }
+        let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+        let params = rawler::decoders::RawDecodeParams::default();
+        let decoder = rawler::get_decoder(&source).ok();
+        // The sensor's size and orientation, from the RAW's header only.
+        let raw = decoder
+            .as_ref()
+            .and_then(|decoder| decoder.raw_image(&source, &params, true).ok());
+        let sensor_long = raw.as_ref().map(|raw| {
+            let (w, h) = raw
+                .crop_area
+                .map_or((raw.width, raw.height), |area| (area.d.w, area.d.h));
+            u32::try_from(w.max(h)).unwrap_or(u32::MAX)
+        });
+        if let Some(jpeg) = image_loader::priority_embedded_jpeg(&bytes)
+            && let Ok((w, h)) =
+                image::ImageReader::with_format(Cursor::new(&jpeg), image::ImageFormat::Jpeg)
+                    .into_dimensions()
+            && embedded_is_full_size(w.max(h), sensor_long)
+        {
+            return Some((jpeg, FullSizeSource::Embedded));
+        }
+        // A full-size JPEG the file format keeps apart (CR3's first track):
+        // decoded, turned upright as the RAW and encoded again.
+        if let (Some(decoder), Some(raw)) = (&decoder, &raw)
+            && let Ok(Some(image)) = decoder.full_image(&source, &params)
+            && embedded_is_full_size(image.width().max(image.height()), sensor_long)
+        {
+            let image = rawtonic_rawdecode::orientation::apply_orientation(image, raw.orientation);
+            return Some((encode_full_size(&image)?, FullSizeSource::Embedded));
+        }
+        Some((encode_full_size(&render(&bytes)?)?, FullSizeSource::Decoded))
+    }))
+    .ok()
+    .flatten()
+}
+
+/// A full-size view as a JPEG of high quality (a focus check must not show
+/// compression blocks).
+fn encode_full_size(image: &DynamicImage) -> Option<Vec<u8>> {
+    let mut buf = Cursor::new(Vec::new());
+    JpegEncoder::new_with_quality(&mut buf, 92)
+        .encode_image(&image.to_rgb8())
+        .ok()?;
+    Some(buf.into_inner())
+}
+
 /// What the import dialog's large view shows under a photograph: ISO,
 /// shutter speed, aperture and focal length as the camera wrote them. Read
 /// from the file only (nothing is cached beside it); empty fields when the

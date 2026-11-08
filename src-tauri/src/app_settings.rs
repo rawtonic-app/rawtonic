@@ -619,6 +619,11 @@ pub struct AppSettings {
     /// keeps every photo on its memory card and has nothing freed.
     #[serde(default)]
     pub tether_experimental_canon: Option<bool>,
+    /// Open the import dialog with a memory card as its source when the card
+    /// is inserted (Preferences > General; missing: on, as Capture One and
+    /// Lightroom Classic do by default).
+    #[serde(default)]
+    pub open_import_on_card: Option<bool>,
     /// Rawtonic's own presets and styles in the presets panel and the tools'
     /// preset menus (missing: shown).
     #[serde(default)]
@@ -885,6 +890,7 @@ impl Default for AppSettings {
             auto_advance: None,
             usage_stats: None,
             tether_experimental_canon: None,
+            open_import_on_card: None,
             last_root_path: None,
             root_folders: Vec::new(),
             recent_libraries: None,
