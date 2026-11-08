@@ -1,6 +1,9 @@
 //! Uniform bytes recorded on origin/main 2cd8c941 before the detail follow-ups
 //! and geometry migration. No update mode: later recipe sections reuse these.
-use super::get_global_adjustments_from_json;
+//! Fields added since are spliced into the recorded bytes at their offset
+//! (`temperature_version`, 1 for these keyless recipes, and the end padding),
+//! so every recorded field must still match.
+use super::{GlobalAdjustments, get_global_adjustments_from_json};
 use std::fmt::Write as _;
 
 #[test]
@@ -17,12 +20,19 @@ fn global_adjustments_match_recorded_main_bytes() {
         for byte in bytemuck::bytes_of(&uniforms) {
             write!(actual, "{byte:02x}").unwrap();
         }
+        let recorded = case["uniformHex"].as_str().unwrap();
+        let at = 2 * std::mem::offset_of!(GlobalAdjustments, temperature_version);
+        let expected = format!(
+            "{}{}{}{}",
+            &recorded[..at],
+            "01000000",
+            &recorded[at..],
+            "0".repeat(24)
+        );
         assert_eq!(
-            actual,
-            case["uniformHex"].as_str().unwrap(),
+            actual, expected,
             "{}: uniforms changed from main {}",
-            case["name"],
-            fixture["baseline"]
+            case["name"], fixture["baseline"]
         );
     }
 }

@@ -409,6 +409,38 @@ impl ClarityVersion {
     }
 }
 
+/// Temperature with the references' brightness and magenta coupling and
+/// warm range, Tint with Camera Raw's travel (`temperatureVersion` 2).
+pub const COUPLED_TEMPERATURE_VERSION: u64 = 2;
+
+/// `temperatureVersion` (`image_processing::TEMPERATURE_VERSION`): 1 when
+/// missing, never newer than this renderer knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TemperatureVersion(u64);
+
+impl TemperatureVersion {
+    pub fn of(recipe: &Value) -> Self {
+        Self(read(recipe, ip::TEMPERATURE_VERSION_KEY, 1).clamp(1, ip::TEMPERATURE_VERSION))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The version the shader uniform
+    /// (`GlobalAdjustments::temperature_version`) carries.
+    pub fn uniform(self) -> u32 {
+        self.0 as u32
+    }
+
+    /// The Temperature slider brightens when warming, darkens when cooling
+    /// and adds magenta towards the warm end (shader
+    /// `apply_white_balance_v2`).
+    pub fn coupled(self) -> bool {
+        self.0 >= COUPLED_TEMPERATURE_VERSION
+    }
+}
+
 /// Edge-fringe treatments (`fringeVersion`, `edge_fringe::VERSION`).
 pub mod fringe {
     /// 7 × 7 windows (and, from 3, colour lines) on low-noise photos.
@@ -639,6 +671,7 @@ pub struct RecipeVersions {
     pub bw: BwVersion,
     pub grain: GrainVersion,
     pub clarity: ClarityVersion,
+    pub temperature: TemperatureVersion,
     pub fringe: FringeVersion,
     pub auto_ca: AutoCaVersion,
     pub camera_ca: CameraCaVersion,
@@ -661,6 +694,7 @@ impl RecipeVersions {
             bw: BwVersion::of(recipe),
             grain: GrainVersion::of(recipe),
             clarity: ClarityVersion::of(recipe),
+            temperature: TemperatureVersion::of(recipe),
             fringe: FringeVersion::of(recipe),
             auto_ca: AutoCaVersion::of(recipe),
             camera_ca: CameraCaVersion::of(recipe),

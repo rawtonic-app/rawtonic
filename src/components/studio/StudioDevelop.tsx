@@ -1021,7 +1021,12 @@ export default function StudioDevelop() {
       title="White balance"
       label={t('studio.develop.groups.whiteBalance')}
       onReset={() =>
-        reset(layer ? ['temperature', 'tint'] : ['temperature', 'tint', 'whiteBalance', 'wbTemperature', 'wbTint'])
+        reset(
+          layer
+            ? ['temperature', 'tint']
+            : // The photo's Temperature response goes back to a new edit's.
+              ['temperature', 'tint', 'whiteBalance', 'wbTemperature', 'wbTint', 'temperatureVersion']
+        )
       }
       copy={photoOnly([
         ['whiteBalance', t('studio.develop.groups.whiteBalance')],

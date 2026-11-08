@@ -17,6 +17,7 @@ import {
   sameAdjustmentValue,
   withBwVersion,
   withClarityVersion,
+  withTemperatureVersion,
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -220,10 +221,13 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // (inferred after drawn masks are left out of the live patch).
       const shown = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
       const patch = shown
-        ? withBwVersion(
-            withClarityVersion(
-              withGrainVersion(
-                withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
+        ? withTemperatureVersion(
+            withBwVersion(
+              withClarityVersion(
+                withGrainVersion(
+                  withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
+                  source?.adjustments
+                ),
                 source?.adjustments
               ),
               source?.adjustments
@@ -271,10 +275,13 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // on each of them (never the primary's bitmaps).
       const done = writeToOthers(
         applyRef.current,
-        withBwVersion(
-          withClarityVersion(
-            withGrainVersion(
-              withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
+        withTemperatureVersion(
+          withBwVersion(
+            withClarityVersion(
+              withGrainVersion(
+                withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
+                from.adjustments
+              ),
               from.adjustments
             ),
             from.adjustments

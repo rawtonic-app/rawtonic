@@ -4477,6 +4477,9 @@ pub struct GlobalAdjustments {
     /// The recipe's Clarity (`clarity_version`): 1 the band against a plain
     /// blur, 2 against an edge-aware base (fewer halos at narrow edges).
     pub clarity_version: u32,
+    /// The recipe's Temperature (`temperature_version`): 1 luminance kept,
+    /// 2 brightness and magenta coupled like the references' white balance.
+    pub temperature_version: u32,
     /// Median of the decode's linear luminance (image_key.rs), like
     /// `image_key`; 0 = unknown. Lowered Highlights (tone version 3) adapts
     /// to it.
@@ -4496,7 +4499,14 @@ pub struct GlobalAdjustments {
     /// 1 = `BaseLook::apply` flags the scene-referred black point and soft
     /// toe for the shader. Read on the CPU only, like `capture_gain`.
     pub scene_black: u32,
+    /// Keeps the struct as long as the shader's (`_cpu_only`), a multiple
+    /// of 16 bytes.
+    pub _pad_end: [u32; 3],
 }
+
+// The shader's struct is a multiple of 16 bytes; a different length here
+// would shift every later uniform.
+const _: () = assert!(std::mem::size_of::<GlobalAdjustments>().is_multiple_of(16));
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
@@ -5465,11 +5475,13 @@ fn get_global_adjustments_resolved(
         luminance_curve_count: luminance_points.len().min(16) as u32,
         grain_version: versions.grain.uniform(),
         clarity_version: versions.clarity.uniform(),
+        temperature_version: versions.temperature.uniform(),
         image_key_median: 0.0,
         gamut_mapping: u32::from(versions.render.gamut_mapping()),
         grain_color: (effects.grain_color.get() / 100.0).clamp(0.0, 1.0) as f32,
         capture_gain: u32::from(versions.render.capture_gain()),
         scene_black: u32::from(versions.render.scene_black()),
+        _pad_end: [0; 3],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -6024,6 +6036,7 @@ pub fn new_edit_responses(is_raw: bool) -> serde_json::Map<String, serde_json::V
     let mut map = serde_json::Map::new();
     map.insert(TONE_VERSION_KEY.into(), json!(TONE_VERSION));
     map.insert(CLARITY_VERSION_KEY.into(), json!(CLARITY_VERSION));
+    map.insert(TEMPERATURE_VERSION_KEY.into(), json!(TEMPERATURE_VERSION));
     map.insert(
         crate::color_noise::VERSION_KEY.into(),
         json!(crate::color_noise::VERSION),
@@ -7274,6 +7287,24 @@ pub const CLARITY_VERSION: u64 = 2;
 pub fn clarity_version(adjustments: &serde_json::Value) -> u64 {
     crate::recipe_versions::ClarityVersion::of(adjustments).get()
 }
+
+/// The recipe key naming the Temperature slider's response.
+pub const TEMPERATURE_VERSION_KEY: &str = "temperatureVersion";
+/// The newest Temperature: 2 (2026-11-08) couples brightness and the
+/// green–magenta axis to the slider as Capture One's and Camera Raw's white
+/// balance do (they apply it to the camera's channels before the tone curve):
+/// warming brightens (+0.34 EV at +100) and adds magenta, cooling darkens
+/// (−0.12 EV at −100), and +100 reaches the references' warmest setting
+/// (about −150 mired from as shot) instead of a third beyond it; −100 is
+/// unchanged (about +300 mired). Tint gets Camera Raw's travel: ±100 reaches
+/// its ±150 (×1.55 towards green, ×1.9 towards magenta; version 1 reached
+/// −94 / +77; notes: benchmark-results/atf7-slider-travel-2026-11-08) and
+/// brightens towards magenta as both references do (+0.23 EV at +100).
+/// Fitted on half of the slider atlas' 48
+/// frames (notes: benchmark-results/atl-slider-atlas-2026-11-08,
+/// parity-gaps/G01-base-profiles.md). Recipes without the key keep version 1 (luminance
+/// kept).
+pub const TEMPERATURE_VERSION: u64 = 2;
 
 /// The recipe key naming which tone-slider response it was made with.
 pub const TONE_VERSION_KEY: &str = "toneVersion";
@@ -9797,3 +9828,35 @@ mod lens_recipe_tests;
 mod mask_recipe_tests;
 #[cfg(test)]
 use mask_recipe_tests::{pack_color_ranges, parse_hsl_adjustments};
+
+#[cfg(test)]
+mod temperature_version_tests {
+    use super::{TEMPERATURE_VERSION, get_all_adjustments_from_json, new_edit_responses};
+    use serde_json::json;
+
+    #[test]
+    fn recipes_without_a_temperature_version_keep_the_first_response() {
+        let version = |recipe| {
+            get_all_adjustments_from_json(&recipe, true, None)
+                .global
+                .temperature_version
+        };
+        assert_eq!(version(json!({"temperature": 40})), 1);
+        assert_eq!(
+            version(json!({"temperature": 40, "temperatureVersion": 2})),
+            2
+        );
+        assert_eq!(
+            version(json!({"temperatureVersion": 9})),
+            TEMPERATURE_VERSION as u32
+        );
+        assert_eq!(
+            new_edit_responses(true)["temperatureVersion"],
+            json!(TEMPERATURE_VERSION)
+        );
+        assert_eq!(
+            new_edit_responses(false)["temperatureVersion"],
+            json!(TEMPERATURE_VERSION)
+        );
+    }
+}

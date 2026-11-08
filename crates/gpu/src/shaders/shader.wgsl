@@ -291,6 +291,9 @@ struct GlobalAdjustments {
     // The recipe's Clarity (`clarityVersion`): 1 the band against the plain
     // large blur, 2 against clarity_base.
     clarity_version: u32,
+    // The recipe's Temperature (`temperatureVersion`): 1 luminance kept
+    // (apply_white_balance), 2 apply_white_balance_v2.
+    temperature_version: u32,
     // Median of the decode's linear luminance (image_key.rs); 0 = unknown.
     image_key_median: f32,
     // 1: colours outside the output space keep their hue (restore_hue).
@@ -298,6 +301,8 @@ struct GlobalAdjustments {
     // Film grain colour (`grainColor` / 100): 0 one neutral layer, 1
     // independent dye layers (apply_film_grain).
     grain_color: f32,
+    // capture_gain, scene_black and padding: read on the CPU only.
+    _cpu_only: vec4<u32>,
 }
 
 struct MaskAdjustments {
@@ -3757,6 +3762,36 @@ fn apply_white_balance(color: vec3<f32>, temp: f32, tnt: f32) -> vec3<f32> {
     let inverse_luma = 1.0 / max(dot(mult, LUMA_COEFF), 0.0001);
     rgb *= mult * inverse_luma;
     return rgb;
+}
+
+// Temperature version 2 (`temperatureVersion`): the response of Capture
+// One's and Camera Raw's white balance, which they apply to the camera's
+// channels before the tone curve. At the same yellow shift both brighten
+// when warming and darken a little when cooling, and warm along the
+// daylight locus towards magenta; version 1 kept luminance and warmed
+// towards green-yellow. `temp` is the slider / 25 (masks add theirs).
+// Warming is compressed (t − t²/16) so +100 gives version 1's +75, the
+// references' warmest setting (about −150 mired from as shot); cooling keeps
+// version 1's reach (−100 about +300 mired). On version 1's gains the
+// warm side adds 0.025·(t + t²) of Tint and 0.0375·t² EV, the cool side
+// 0.025·t² of Tint and 0.03·t EV (fitted on half of the slider atlas'
+// frames; notes: benchmark-results/atl-slider-atlas-2026-11-08). Tint's own
+// travel is Camera Raw's: ±100 reaches its ±150 (version 1 reached −94 /
+// +77), ×1.55 towards green and ×1.9 towards magenta (notes:
+// benchmark-results/atf7-slider-travel-2026-11-08), and towards magenta it
+// brightens as both references do (0.12 EV per unit, +0.23 EV at +100).
+fn apply_white_balance_v2(color: vec3<f32>, temp: f32, tint_in: f32) -> vec3<f32> {
+    let tnt = tint_in * select(1.9, 1.55, tint_in < 0.0);
+    var t = temp;
+    var magenta = 0.025 * t * t;
+    var ev = 0.03 * t;
+    if (t > 0.0) {
+        t = select(4.0, t - t * t / 16.0, t < 8.0);
+        magenta = 0.025 * (t + t * t);
+        ev = 0.0375 * t * t;
+    }
+    ev += 0.12 * max(tnt, 0.0);
+    return apply_white_balance(color, t, tnt + magenta) * exp2(ev);
 }
 
 fn apply_creative_color(color: vec3<f32>, sat: f32, vib: f32) -> vec3<f32> {
@@ -9678,7 +9713,11 @@ fn main(
     }
 
     var composite_rgb_linear = apply_dehaze(processed_rgb, structure_blurred, is_raw, t_dehaze);
-    composite_rgb_linear = apply_white_balance(composite_rgb_linear, t_temperature, t_tint);
+    if (adjustments.global.temperature_version >= 2u) {
+        composite_rgb_linear = apply_white_balance_v2(composite_rgb_linear, t_temperature, t_tint);
+    } else {
+        composite_rgb_linear = apply_white_balance(composite_rgb_linear, t_temperature, t_tint);
+    }
     composite_rgb_linear = apply_centre_tonal_and_color(composite_rgb_linear, adjustments.global.centre, absolute_coord_i);
     if (ENABLE_TONE) {
         var wide_luma = 0.0;

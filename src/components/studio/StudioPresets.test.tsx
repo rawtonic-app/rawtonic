@@ -105,7 +105,7 @@ describe('Styles & presets tool', () => {
   it('applies a preset to the open photo, or to every selected photo', async () => {
     await renderTool();
     fireEvent.click(screen.getByText('Warm evening'));
-    expect(apply).toHaveBeenLastCalledWith({ temperature: 12 }, ['/job/a.arw']);
+    expect(apply).toHaveBeenLastCalledWith({ temperature: 12, temperatureVersion: 1 }, ['/job/a.arw']);
     useLibraryStore.setState({ multiSelectedPaths: ['/job/a.arw', '/job/b.arw'] });
     fireEvent.click(screen.getByText('High contrast'));
     expect(apply).toHaveBeenLastCalledWith({ contrast: 40, saturation: -100 }, ['/job/a.arw', '/job/b.arw'], {
@@ -279,7 +279,7 @@ describe('preset amount', () => {
   it('blends the last tool preset applied to the open photo with its settings before', async () => {
     await renderTool();
     fireEvent.click(screen.getByRole('button', { name: /Warm evening/ }));
-    expect(apply).toHaveBeenCalledWith({ temperature: 12 }, ['/job/a.arw']);
+    expect(apply).toHaveBeenCalledWith({ temperature: 12, temperatureVersion: 1 }, ['/job/a.arw']);
     const slider = screen.getByLabelText('Preset amount') as HTMLInputElement;
     expect(slider.value).toBe('100');
     fireEvent.change(slider, { target: { value: '50' } });
@@ -318,7 +318,7 @@ describe('preset amount', () => {
     useLibraryStore.setState({ multiSelectedPaths: ['/job/a.arw', '/job/b.arw'] });
     await renderTool();
     fireEvent.click(screen.getByRole('button', { name: /Warm evening/ }));
-    expect(apply).toHaveBeenCalledWith({ temperature: 12 }, ['/job/a.arw', '/job/b.arw']);
+    expect(apply).toHaveBeenCalledWith({ temperature: 12, temperatureVersion: 1 }, ['/job/a.arw', '/job/b.arw']);
     expect((screen.getByLabelText('Preset amount') as HTMLInputElement).disabled).toBe(true);
   });
 
@@ -363,7 +363,7 @@ describe('favourite presets', () => {
     expect(groups[0]).toMatch(/^Favorites/);
     expect(screen.getAllByRole('button', { name: /^Warm evening$/ })).toHaveLength(2);
     fireEvent.click(screen.getAllByRole('button', { name: /^Warm evening$/ })[0]);
-    expect(apply).toHaveBeenCalledWith({ temperature: 12 }, ['/job/a.arw']);
+    expect(apply).toHaveBeenCalledWith({ temperature: 12, temperatureVersion: 1 }, ['/job/a.arw']);
     // Built-in styles can be favourites too; the star reads on without hover.
     fireEvent.click(star(/B&W high contrast/));
     expect(useSettingsStore.getState().appSettings?.favoritePresets).toEqual(['warm', 'bw-high-contrast']);

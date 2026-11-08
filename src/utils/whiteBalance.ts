@@ -64,21 +64,32 @@ const clamp100 = (value: number) => Math.max(-100, Math.min(100, value));
  * gains (1 + 0.2T, 1 + 0.05T, 1 − 0.2T) · (1 + 0.25t, 1 − 0.25t, 1 + 0.25t).
  * Temperature equalises red and blue, Tint then green with them. Solved on
  * the input before any adjustment, the result is absolute: it does not depend
- * on the current white balance, exposure, contrast or curves. */
-export function neutralWhiteBalance([r, g, b]: Rgb) {
+ * on the current white balance, exposure, contrast or curves. With
+ * `temperatureVersion` 2 (`apply_white_balance_v2`) the slider reaches those
+ * gains through its warm compression T − T²/16 and adds magenta to Tint
+ * (0.025·(T + T²) warm, 0.025·T² cool), and Tint itself acts ×1.55
+ * towards green and ×1.9 towards magenta; its brightness change leaves the
+ * colour neutral. */
+export function neutralWhiteBalance([r, g, b]: Rgb, temperatureVersion?: number) {
   if (!(r > 1e-6 && g > 1e-6 && b > 1e-6)) return null;
+  const coupled = (temperatureVersion ?? 1) >= 2;
   const k = b / r;
-  const t = Math.max(-4, Math.min(4, (5 * (k - 1)) / (k + 1)));
+  // Version 2's warmest gains are version 1's at +75.
+  const t = Math.max(-4, Math.min(coupled ? 3 : 4, (5 * (k - 1)) / (k + 1)));
   const green = (1 + 0.05 * t) * g;
   const red = (1 + 0.2 * t) * r;
   const tint = (4 * (green - red)) / (green + red);
-  return { temperature: clamp100(25 * t), tint: clamp100(100 * tint) };
+  if (!coupled) return { temperature: clamp100(25 * t), tint: clamp100(100 * tint) };
+  const slider = t > 0 ? 8 - Math.sqrt(64 - 16 * t) : t;
+  const magenta = t > 0 ? 0.025 * (t + t * t) : 0.025 * t * t;
+  const internal = tint - magenta;
+  return { temperature: clamp100(25 * slider), tint: clamp100((100 * internal) / (internal < 0 ? 1.55 : 1.9)) };
 }
 
 /** [`neutralWhiteBalance`] in the sliders' whole steps (a picked 1.6009 is
  * noise, and does not fit the value field). */
-export function neutralSliders(rgb: Rgb) {
-  const exact = neutralWhiteBalance(rgb);
+export function neutralSliders(rgb: Rgb, temperatureVersion?: number) {
+  const exact = neutralWhiteBalance(rgb, temperatureVersion);
   return exact && { temperature: Math.round(exact.temperature), tint: Math.round(exact.tint) };
 }
 
@@ -87,7 +98,10 @@ export function neutralSliders(rgb: Rgb) {
  * cleared. Files without a camera calibration (JPEG, TIFF, some 4-colour
  * sensors): the relative sliders that neutralise the preview's grey world.
  * `null` while the photo's preview is not ready. */
-export async function autoWhiteBalance(image: SelectedImage): Promise<Partial<Adjustments> | null> {
+export async function autoWhiteBalance(
+  image: SelectedImage,
+  temperatureVersion?: number
+): Promise<Partial<Adjustments> | null> {
   if (image.isRaw) {
     const kelvin = await invoke<{ temperature: number; tint: number } | null>(Invokes.AutoWhiteBalance, {
       path: image.path
@@ -97,7 +111,7 @@ export async function autoWhiteBalance(image: SelectedImage): Promise<Partial<Ad
     }
   }
   const grey = await invoke<Rgb | null>(Invokes.SamplePreviewGreyWorld, { path: image.path });
-  return grey && neutralSliders(grey);
+  return grey && neutralSliders(grey, temperatureVersion);
 }
 
 export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
@@ -147,7 +161,7 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
         };
       }
     }
-    return neutralSliders(linear);
+    return neutralSliders(linear, request.adjustments.temperatureVersion);
   }
   // The CPU-rendered fallback only has the developed image: correct the
   // remaining cast there on top of the current values. A camera JPEG is only a
@@ -156,7 +170,10 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
     ? await sampleRenderedImage(request.finalPreviewUrl, request.normalizedX, request.normalizedY)
     : null;
   if (!rgb || !stillCurrent()) return null;
-  const correction = neutralWhiteBalance(rgb.map((channel) => Math.pow(channel / 255, 2.2)) as Rgb);
+  const correction = neutralWhiteBalance(
+    rgb.map((channel) => Math.pow(channel / 255, 2.2)) as Rgb,
+    request.adjustments.temperatureVersion
+  );
   if (!correction) return null;
   return {
     temperature: Math.round(clamp100((request.adjustments.temperature ?? 0) + correction.temperature)),

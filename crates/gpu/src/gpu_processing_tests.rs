@@ -3314,6 +3314,57 @@ fn grain_version_timing_probe() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; compares the two Temperature responses"]
+fn temperature_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size; the variants alternate within one
+    // process and Temperature moves a little every frame (a drag).
+    let variants = [("v1", 1), ("v2", 2)];
+    let (width, height, frames) = (2304, 1728, 60);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 3);
+    let mut times = vec![Vec::new(); variants.len()];
+    for frame in 0..frames + 2 {
+        for (i, (_, version)) in variants.iter().enumerate() {
+            let profile =
+                json!({"temperatureVersion": version, "temperature": 40.0 + 0.1 * frame as f64});
+            let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+            let start = Instant::now();
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            context
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if frame >= 2 {
+                times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (i, (name, _)) in variants.iter().enumerate() {
+        let t = &mut times[i];
+        t.sort_by(f64::total_cmp);
+        println!(
+            "{}",
+            json!({"variant": name, "median_ms": t[t.len() / 2], "min_ms": t[0], "frames": frames})
+        );
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; compares the two newest sharpening responses"]
 fn sharpen_version_timing_probe() {
     let context = context();

@@ -24,6 +24,7 @@ import {
   withAiDenoiseVersion,
   withBwVersion,
   withClarityVersion,
+  withTemperatureVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -1171,7 +1172,7 @@ export function useEditorActions() {
     const selectedImage = useEditorStore.getState().selectedImage;
     if (!selectedImage?.isReady) return;
     try {
-      const balance = await autoWhiteBalance(selectedImage);
+      const balance = await autoWhiteBalance(selectedImage, useEditorStore.getState().adjustments.temperatureVersion);
       if (!isCurrentEditorImage(selectedImage.path)) return;
       if (!balance) {
         notify.warn(i18next.t('studio.whiteBalance.toasts.needsPreview'));
@@ -1447,10 +1448,12 @@ export function useEditorActions() {
       const grain = withGrainStructure(photoFree);
       let adjustmentsToApply = asChosen
         ? grain
-        : withBwVersion(
-            withClarityVersion(
-              withDiffractionVersion(
-                withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))
+        : withTemperatureVersion(
+            withBwVersion(
+              withClarityVersion(
+                withDiffractionVersion(
+                  withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))
+                )
               )
             )
           );

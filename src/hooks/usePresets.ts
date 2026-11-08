@@ -11,6 +11,7 @@ import {
   withAiDenoiseVersion,
   withBwVersion,
   withClarityVersion,
+  withTemperatureVersion,
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion
@@ -45,6 +46,7 @@ export function collectPresetAdjustments(
       key === 'lumaNoiseVersion' ||
       key === 'grainVersion' ||
       key === 'clarityVersion' ||
+      key === 'temperatureVersion' ||
       key === 'bwVersion'
     )
       continue;
@@ -53,9 +55,12 @@ export function collectPresetAdjustments(
     if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
     presetAdjustments[key] = currentValue;
   }
-  const versioned = withBwVersion(
-    withClarityVersion(
-      withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current),
+  const versioned = withTemperatureVersion(
+    withBwVersion(
+      withClarityVersion(
+        withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current),
+        current
+      ),
       current
     ),
     current
