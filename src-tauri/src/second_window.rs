@@ -940,19 +940,11 @@ fn show_followed(app_handle: &tauri::AppHandle, context: &GpuContext, path: Stri
         if inner.locked {
             return;
         }
-        // The newest recipe of the photograph: its last preview's (edits
-        // not yet saved), else the stored one.
-        let live = lock_recover(&LIVE)
-            .as_ref()
-            .filter(|l| l.path == path)
-            .map(|l| (Arc::clone(&l.recipe), l.full));
-        let (recipe, full) = match live {
-            Some((recipe, full)) => (recipe, Some(full)),
-            None => (
-                Arc::new(multi_view::recipe_of(&path)),
-                multi_view::full_size_of(&path),
-            ),
-        };
+        // The stored recipe: what the Library shows of the photograph (a
+        // preview from Develop may be older than a reset or paste made in
+        // the Library since; Develop's edits are stored on leaving it).
+        let recipe = Arc::new(multi_view::recipe_of(&path));
+        let full = multi_view::full_size_of(&path);
         let key = recipe_key(&recipe);
         if inner
             .shown
