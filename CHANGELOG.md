@@ -7,6 +7,7 @@
 ### Fixes
 
 - **Clipping triangles stay right while you drag zoomed in.** At 100 % and closer, the histogram's clipping triangles during a slider drag came from a small averaged copy of the photo, so a few clipped pixels (a specular highlight, a dead-black speck) were averaged away and the triangle lit only when you let go. The drag now also checks, for every small block of the photo, its brightest and its darkest pixel with your edit and the layer masks at that pixel, so such pixels light the triangle during the drag too. The triangle's colour can still miss a channel that only another pixel of the same block clips until you let go; the histogram and the other scopes are unchanged.
+- **A folder moved to another drive keeps its permissions under a strict umask.** With a umask that takes away the group's or others' permission bits (say `077`, common on shared or hardened accounts), a folder copied to another drive got only its owner's access (`700` instead of `750`), so a colleague could no longer open it; folders now get their own permissions outright, as files already did.
 
 ## 0.1.0-alpha.12 — 2026-11-08
 

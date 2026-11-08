@@ -163,9 +163,10 @@ pub(crate) fn modes(root: &Path) -> Result<BTreeMap<PathBuf, u32>> {
 /// in it, each file as [`volume::copy_verified`] copies one (synced, read
 /// back from the drive and compared), then syncs the folders and lists the
 /// source again: a file added, removed or changed meanwhile fails the
-/// copy. Folders are made with their source's permission bits (bounded by
-/// `modes` and the umask), keeping the owner's access so that the copy
-/// can be managed; files get theirs as a single copy does. Returns the
+/// copy. Folders get their source's permission bits (bounded by `modes`
+/// and the umask, which no longer applies once they are set), keeping the
+/// owner's access so that the copy can be managed; files get theirs as a
+/// single copy does. Returns the
 /// entries with both stamps. On failure what was made is left for the
 /// caller's staging cleanup.
 pub(crate) fn copy_verified(
@@ -245,20 +246,32 @@ fn make_folder(
     #[cfg(unix)]
     let mut builder = builder;
     #[cfg(unix)]
-    {
+    let mode = {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
         let live = if posix_source {
             Some(fs::symlink_metadata(from)?.permissions().mode())
         } else {
             None
         };
-        builder.mode(folder_mode(recorded, live));
-    }
+        let mode = folder_mode(recorded, live);
+        builder.mode(mode);
+        mode
+    };
     #[cfg(not(unix))]
     let _ = (from, recorded, posix_source);
     builder
         .create(to)
         .with_context(|| format!("Cannot create the folder {}", to.display()))?;
+    // The creation mode is masked by the umask (a restrictive one would
+    // take the group's or others' bits off the copy); the computed mode —
+    // bounded by the recorded and the live mode, so a folder the user made
+    // private since stays private — is set outright, as a copied file's is.
+    #[cfg(unix)]
+    if posix_source {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(to, fs::Permissions::from_mode(mode))
+            .with_context(|| format!("Cannot set the permissions of {}", to.display()))?;
+    }
     let attributes = xattr::read_path(from)
         .with_context(|| format!("Cannot read the extended attributes of {}", from.display()))?;
     if !attributes.is_empty() {
@@ -271,6 +284,8 @@ fn make_folder(
 
 /// A copied folder's mode before the umask: its recorded and live modes
 /// as ceilings, without special bits, always with the owner's access.
+/// [`make_folder`] sets this mode outright once the folder exists,
+/// so that the umask cannot take group or other permission bits from it.
 #[cfg(unix)]
 fn folder_mode(recorded: Option<u32>, live: Option<u32>) -> u32 {
     (recorded.unwrap_or(0o777) & live.unwrap_or(0o777) & 0o777) | 0o700
