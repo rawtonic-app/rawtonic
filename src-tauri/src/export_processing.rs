@@ -216,6 +216,71 @@ pub(crate) fn load_export_base_image(
     }
 }
 
+/// A photograph not in the library yet, rendered at full size as the app
+/// shows it unedited: the default recipe of a new photograph through the
+/// export render (GPU), from `bytes` already read from it (a card's file is
+/// read into memory, never mapped). For the import dialog's 100 % view.
+pub(crate) fn render_unedited_full_size(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    bytes: &[u8],
+) -> Result<DynamicImage, String> {
+    let is_raw = is_raw_file(path);
+    let mut adjustments = serde_json::json!({});
+    let normalized = rawtonic_export::normalize::normalize(
+        &mut adjustments,
+        &rawtonic_export::normalize::RecipeSource::file(Path::new(path)),
+        rawtonic_export::normalize::Bitmaps::None,
+        rawtonic_export::normalize::Defaults::Render,
+    );
+    let versions = normalized.file_versions();
+    normalized.lens?;
+    let settings = crate::state::settings::current(app_handle);
+    // Decoded from the bytes only: the app's loader would also cache the
+    // file's EXIF in sidecars beside it, and nothing may be written beside a
+    // photograph that is not imported (with Apple's RAW engine preferred,
+    // this view still develops with rawler).
+    let options = crate::image_loader::base_options(
+        &settings,
+        crate::image_loader::decode_variant(&adjustments, path),
+    );
+    let (pristine, measures) =
+        crate::image_loader::load_base_image_measured(bytes, path, false, &options, None)
+            .map_err(|e| e.to_string())?;
+    let source = prepare_export_source(path, Arc::new(pristine), measures, &adjustments)?;
+    let luts = app_handle.state::<crate::state::luts::LutState>();
+    let develop = app_handle.state::<crate::state::develop::DevelopSession>();
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = get_or_init_gpu_context(&gpu, app_handle)?;
+    let export_settings: ExportSettings = serde_json::from_value(serde_json::json!({
+        "jpegQuality": 92,
+        "tiffBitDepth": 16,
+        "keepMetadata": false,
+        "stripGps": true,
+    }))
+    .map_err(|e| e.to_string())?;
+    let tonemapper_override = |is_raw| resolve_tonemapper_override_from_handle(app_handle, is_raw);
+    let load_lut = |path: &str| get_or_load_lut(&luts, path).ok();
+    let env = RenderEnv {
+        context: &context,
+        processor: &gpu.processor,
+        image_cache: &develop.gpu_image_cache,
+        tonemapper_override: &tonemapper_override,
+        load_lut: &load_lut,
+        render_inputs: None,
+    };
+    process_image_for_export(
+        path,
+        source,
+        &adjustments,
+        &versions,
+        &export_settings,
+        &env,
+        is_raw,
+        "jpeg",
+    )
+}
+
 /// Loads the AI Denoise models these recipes use, once each; photos
 /// that need it fail one by one if it cannot be had.
 pub(crate) async fn prepare_ai_denoise<V: std::borrow::Borrow<Value>>(

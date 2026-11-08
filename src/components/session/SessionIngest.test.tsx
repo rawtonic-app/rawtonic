@@ -828,3 +828,80 @@ describe('Folders › Add Folder… (G39 AF)', () => {
     expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'catalog_add_folder_scan')).toBe(false);
   });
 });
+
+describe('Memory cards (IMPD)', () => {
+  const card = { mountPoint: '/Volumes/CARD', name: 'CARD' };
+  const withCards = () => {
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === 'session_ingest_cards' ? [card] : command === 'session_eject_card' ? null : base(command, args)
+    );
+  };
+  const insert = () =>
+    act(() => {
+      events.get('card-inserted')!({ payload: card });
+    });
+
+  it('an inserted card opens the import with the card as its source, once, and not when the preference is off', async () => {
+    withCards();
+    await open();
+    await waitFor(() => expect(events.has('card-inserted')).toBe(true));
+    insert();
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'A.ARW' })).toBeTruthy());
+    expect(
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(([command]) => command === 'session_ingest_scan')
+        .map(([, a]) => a)
+    ).toEqual([{ directory: '/jobs/Acme', paths: ['/Volumes/CARD'] }]);
+    // Listed as a source, shown as the one in use.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'CARD' }).getAttribute('aria-pressed')).toBe('true'));
+    // A second insertion while the dialog is open does not start again.
+    insert();
+    expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'session_ingest_scan')).toHaveLength(1);
+  });
+
+  it('does not open over another dialog of the app', async () => {
+    withCards();
+    await open();
+    await waitFor(() => expect(events.has('card-inserted')).toBe(true));
+    const other = document.createElement('div');
+    other.setAttribute('aria-modal', 'true');
+    document.body.appendChild(other);
+    insert();
+    expect(screen.queryByRole('checkbox', { name: 'A.ARW' })).toBeNull();
+    other.remove();
+  });
+
+  it('does nothing with the preference off', async () => {
+    withCards();
+    useSettingsStore.setState({ appSettings: { openImportOnCard: false } as AppSettings });
+    await open();
+    await waitFor(() => expect(events.has('card-inserted')).toBe(true));
+    insert();
+    expect(screen.queryByRole('checkbox', { name: 'A.ARW' })).toBeNull();
+  });
+
+  it('sends the ratings with the import and ejects the card only after every photograph came off it', async () => {
+    withCards();
+    const user = userEvent.setup();
+    await open();
+    await waitFor(() => expect(events.has('card-inserted')).toBe(true));
+    insert();
+    const tile = await screen.findByRole('checkbox', { name: 'A.ARW' });
+    tile.focus();
+    await user.keyboard('4');
+    await user.click(await screen.findByRole('checkbox', { name: 'Eject CARD after the import' }));
+    await user.click(screen.getByRole('button', { name: 'Copy 2 photos' }));
+    await waitFor(() => expect(ingestCall()).toBeTruthy());
+    expect(ingestCall()![1]).toMatchObject({
+      sources: ['/Volumes/CARD/DCIM/A.ARW', '/Volumes/CARD/DCIM/C.ARW'],
+      metadata: { ratings: { '/Volumes/CARD/DCIM/A.ARW': 4 } }
+    });
+    await waitFor(() =>
+      expect(vi.mocked(invoke).mock.calls.find(([command]) => command === 'session_eject_card')?.[1]).toEqual({
+        mountPoint: '/Volumes/CARD'
+      })
+    );
+  });
+});

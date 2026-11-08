@@ -537,12 +537,12 @@ fn add_one(
     // A photograph not yet in the library: no other writer can edit it
     // meanwhile, so no write turn is needed.
     let mut note = None;
-    let mut report = if let Some(preset) = metadata {
+    let mut report = if let Some(preset) = metadata.filter(|preset| preset.touches(source)) {
         library.add_files_with_metadata_edit(
             &[source.to_path_buf()],
             |photo, metadata, initialized| {
                 let embedded = crate::metadata::ImportMetadata::embedded(photo, source, None)?;
-                note = preset.merge(embedded, metadata, initialized);
+                note = preset.merge(source, embedded, metadata, initialized);
                 Ok(())
             },
         )?
