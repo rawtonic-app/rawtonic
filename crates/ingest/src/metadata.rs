@@ -9,7 +9,7 @@ use rawtonic_metadata::{IptcKind, MAX_KEYWORDS, Metadata, iptc_field};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,6 +23,11 @@ pub struct ImportMetadata {
     pub include_creator_contact: bool,
     /// Field keys, defaulting to fill-empty. Empty preset values never clear.
     pub overwrite: BTreeSet<String>,
+    /// Star ratings (1–5) given to single photographs in the import dialog,
+    /// by source path as the import lists it. They replace the photograph's
+    /// own rating on the imported copy; nothing is written to the source.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub ratings: BTreeMap<PathBuf, u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +40,12 @@ pub struct MetadataPreset {
 
 impl ImportMetadata {
     pub fn validate(&self) -> Result<(), IngestError> {
+        for rating in self.ratings.values() {
+            ensure!(
+                (1..=5).contains(rating),
+                "Import rating {rating} is not 1 to 5"
+            );
+        }
         let supported_iptc = |key: &str| {
             matches!(key, "usageTerms" | "credit")
                 || iptc_field(key).is_some_and(|(_, _, kind)| kind == IptcKind::Contact)
@@ -98,6 +109,21 @@ impl ImportMetadata {
         }
     }
 
+    /// Whether this holds nothing but ratings: then only the rated
+    /// photographs are touched, the others are imported as they come.
+    fn ratings_only(&self) -> bool {
+        self == &Self {
+            ratings: self.ratings.clone(),
+            ..Self::default()
+        }
+    }
+
+    /// Whether the photograph imported from `source` gets anything from
+    /// this.
+    pub(crate) fn touches(&self, source: &Path) -> bool {
+        !self.ratings_only() || self.ratings.contains_key(source)
+    }
+
     /// What the photograph `photo` (copied from `source`) brings itself: its
     /// embedded metadata and the year `{year}` stands for. Reads the file
     /// only; `header` is its header as registration read it.
@@ -124,6 +150,7 @@ impl ImportMetadata {
     /// photograph is imported and a resumed job does not stop at it again.
     pub(crate) fn merge(
         &self,
+        source: &Path,
         embedded: Embedded,
         metadata: &mut Metadata,
         initialized: bool,
@@ -163,6 +190,11 @@ impl ImportMetadata {
             }
         }
         self.apply(metadata, year);
+        // Given to this photograph in the import dialog: the photographer's
+        // latest call, over the camera's and any sidecar's.
+        if let Some(rating) = self.ratings.get(source) {
+            metadata.rating = *rating;
+        }
         (metadata.keywords.len() > MAX_KEYWORDS).then(|| {
             metadata.keywords = own_keywords;
             format!(
@@ -214,13 +246,21 @@ pub(crate) fn apply_to_copy(
     let Some(id) = result.asset_id.clone() else {
         return Ok(());
     };
+    if !preset.touches(&result.source) {
+        return Ok(());
+    }
     let id = id.as_str();
     let asset = library.asset(id)?;
     // The file is read before the turn, which is held only for the catalog.
     let embedded = ImportMetadata::embedded(&asset.path, &result.source, result.header.take())?;
     let _turn = turn();
     let mut metadata = library.metadata(id)?;
-    let note = preset.merge(embedded, &mut metadata, library.metadata_initialized(id)?);
+    let note = preset.merge(
+        &result.source,
+        embedded,
+        &mut metadata,
+        library.metadata_initialized(id)?,
+    );
     library.set_metadata(id, &metadata)?;
     if let Some(note) = note {
         warn(result, note);

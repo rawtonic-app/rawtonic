@@ -11,6 +11,9 @@ export interface ImportMetadata {
   keywords: string[];
   includeCreatorContact: boolean;
   overwrite: string[];
+  /** Ratings given in the import dialog, by source path (never saved in a
+   * preset; added for one import, `ingestReview.withRatings`). */
+  ratings?: Record<string, number>;
 }
 export interface ImportMetadataPreset extends ImportMetadata {
   id: string;

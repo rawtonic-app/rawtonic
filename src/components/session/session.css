@@ -572,8 +572,13 @@
   font-size: 12px;
 }
 
-.session-ingest-dialog {
-  width: min(960px, calc(100vw - 40px));
+.session-ingest-dialog[open] {
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow: hidden;
+  container-type: size;
+  display: flex;
+  flex-direction: column;
 }
 .session-ingest-form {
   display: grid;
@@ -936,13 +941,19 @@
   cursor: pointer;
 }
 /* The import dialog's large view: over the dialog, nearly window-sized. */
+/* The large view fills the window less a margin. The dialog, which clips
+   what it holds (top layer), takes the same box while the view is open. */
+.session-ingest-dialog:has(.session-ingest-loupe) {
+  width: calc(100vw - 24px) !important;
+  height: calc(100vh - 24px) !important;
+}
 .session-ingest-loupe {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 10;
   margin: auto;
-  width: min(1400px, calc(100vw - 40px));
-  height: calc(100vh - 50px);
+  width: 100%;
+  height: 100%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid var(--studio-shade-hover, #4a4e51);
@@ -1360,4 +1371,157 @@
 .catalog-import-list select {
   flex: 0 0 auto;
   max-width: 45%;
+}
+
+/* Memory cards as import sources, the pre-import rating and the 100 % view
+   (task IMPD). */
+.session-ingest-cards {
+  display: flex;
+  gap: 6px;
+}
+.session-ingest-source-head .session-action.is-active {
+  border-color: #b4c8d3;
+  color: var(--app-text-primary);
+}
+.session-ingest-rating {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  display: flex;
+  gap: 1px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: #000b;
+  color: #e8e2c8;
+}
+.session-ingest-loupe-stars {
+  display: flex;
+  gap: 0;
+}
+.session-ingest-loupe-stars .session-icon-button {
+  width: 22px;
+  height: 22px;
+  color: var(--app-text-secondary);
+}
+.session-ingest-loupe-stars .session-icon-button.is-on {
+  color: #e8e2c8;
+}
+.session-ingest-loupe-zoom {
+  min-width: 64px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--app-border-color);
+  border-radius: 5px;
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.session-ingest-loupe-zoom.is-on {
+  border-color: #b4c8d3;
+  color: var(--app-text-primary);
+}
+.session-ingest-loupe-image {
+  overflow: hidden;
+  cursor: zoom-in;
+  touch-action: none;
+}
+.session-ingest-loupe-image.is-zoomed {
+  display: block;
+  padding: 0;
+  cursor: grab;
+}
+.session-ingest-loupe-image.is-zoomed:active {
+  cursor: grabbing;
+}
+.session-ingest-loupe-image img.session-ingest-loupe-full {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+  object-fit: fill;
+  image-rendering: pixelated;
+}
+.session-ingest-loupe-note {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 5px;
+  background: #000b;
+  color: var(--app-text-primary);
+}
+
+.session-ingest-dialog > .session-ingest-form {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  align-content: start;
+}
+.session-ingest-dialog .session-ingest-grid {
+  /* Reserve space for the header, source picker and preview toolbar. */
+  height: clamp(300px, calc(100cqh - 330px), 700px);
+}
+.session-ingest-naming,
+.session-ingest-backup {
+  max-width: 520px;
+}
+.ingest-resize {
+  position: absolute;
+  z-index: 30;
+  touch-action: none;
+}
+.ingest-resize-n,
+.ingest-resize-s {
+  left: 10px;
+  right: 10px;
+  height: 7px;
+  cursor: ns-resize;
+}
+.ingest-resize-n {
+  top: 0;
+}
+.ingest-resize-s {
+  bottom: 0;
+}
+.ingest-resize-e,
+.ingest-resize-w {
+  top: 10px;
+  bottom: 10px;
+  width: 7px;
+  cursor: ew-resize;
+}
+.ingest-resize-e {
+  right: 0;
+}
+.ingest-resize-w {
+  left: 0;
+}
+.ingest-resize-ne,
+.ingest-resize-nw,
+.ingest-resize-se,
+.ingest-resize-sw {
+  width: 12px;
+  height: 12px;
+}
+.ingest-resize-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.ingest-resize-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.ingest-resize-se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+.ingest-resize-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
 }

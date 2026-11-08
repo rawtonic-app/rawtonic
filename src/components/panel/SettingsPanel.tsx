@@ -884,6 +884,18 @@ export default function SettingsPanel({
                       <CrashReportSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
                       <UsageStatsSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
 
+                      <SettingItem
+                        label={t('settings.general.openImportOnCard')}
+                        description={t('settings.general.openImportOnCardDesc')}
+                      >
+                        <Switch
+                          checked={appSettings?.openImportOnCard ?? true}
+                          id="open-import-on-card-toggle"
+                          label={t('settings.general.openImportOnCardSwitch')}
+                          onChange={(checked) => onSettingsChange({ ...appSettings, openImportOnCard: checked })}
+                        />
+                      </SettingItem>
+
                       <div className="space-y-4">
                         <SettingItem
                           label={t('settings.general.xmpSync')}

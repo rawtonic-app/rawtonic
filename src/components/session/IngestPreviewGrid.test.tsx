@@ -114,14 +114,15 @@ describe('thumbnail queue', () => {
   });
 });
 
-it('toggles an import checkbox with Space without opening the loupe', async () => {
+it('opens the large view with Space without ticking or unticking the photo (as in the Library)', async () => {
   const user = userEvent.setup();
   render(<Harness list={files(1)} load={async () => null} />);
   const checkbox = screen.getByRole('checkbox');
   checkbox.focus();
   await user.keyboard(' ');
-  expect(checkbox.getAttribute('aria-checked')).toBe('false');
-  expect(screen.queryByRole('region', { name: 'Large view' })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Large view' })).toBeTruthy();
+  expect(checkbox.getAttribute('aria-checked')).toBe('true');
   await user.keyboard(' ');
+  expect(screen.queryByRole('region', { name: 'Large view' })).toBeNull();
   expect(checkbox.getAttribute('aria-checked')).toBe('true');
 });

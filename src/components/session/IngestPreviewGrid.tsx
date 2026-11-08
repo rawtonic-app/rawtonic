@@ -1,7 +1,8 @@
 import { Invokes } from '../ui/AppProperties';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Check } from 'lucide-react';
+import { Check, Star } from 'lucide-react';
+import { applyReviewKey, reviewKey } from './ingestReview';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '../../utils/previews';
 import type { Medium } from './ingestMode';
@@ -73,10 +74,15 @@ interface Props {
   files: IngestCandidate[];
   selected: Set<string>;
   onSelectedChange: (next: Set<string>) => void;
+  /** Star ratings given before the import, by path (0 or missing: none). */
+  ratings?: Record<string, number>;
+  onRatingsChange?: (next: Record<string, number>) => void;
   /** For tests; defaults to `loadIngestThumbnail`. */
   loadThumbnail?: (path: string) => Promise<string | null>;
   /** For tests; defaults to `loadIngestPreview`. */
   loadPreview?: (path: string) => Promise<LargePreview>;
+  /** For tests; defaults to `loadIngestFullPreview`. */
+  loadFullPreview?: (path: string) => Promise<LargePreview>;
 }
 
 const storedTileSize = () => {
@@ -91,10 +97,20 @@ const storedTileSize = () => {
 /** The import dialog's source photographs as a grid of previews with
  * checkboxes (Lightroom's and Capture One's import grid): select all or
  * none, Shift-click for a range; only checked photographs are imported.
- * Arrow keys move between photographs; a double-click or Enter opens the
- * focused one large (`IngestLoupe`). Only the visible rows are drawn, so
- * hundreds of files stay light. */
-export default function IngestPreviewGrid({ files, selected, onSelectedChange, loadThumbnail, loadPreview }: Props) {
+ * Arrow keys move between photographs; a double-click, Space or Enter opens
+ * the focused one large (`IngestLoupe`); P includes it, X leaves it out,
+ * 0–5 rate it (the rating goes with the imported copy). Only the visible
+ * rows are drawn, so hundreds of files stay light. */
+export default function IngestPreviewGrid({
+  files,
+  selected,
+  onSelectedChange,
+  ratings = {},
+  onRatingsChange,
+  loadThumbnail,
+  loadPreview,
+  loadFullPreview
+}: Props) {
   const { t } = useTranslation();
   const scroller = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ top: 0, width: 0, height: 0 });
@@ -256,7 +272,15 @@ export default function IngestPreviewGrid({ files, selected, onSelectedChange, l
           const tile = (e.target as HTMLElement).closest<HTMLElement>('[data-index]');
           if (!tile || e.metaKey || e.ctrlKey || e.altKey) return;
           const index = Number(tile.dataset.index);
-          if (e.key === 'Enter') {
+          const review = reviewKey(e);
+          if (review) {
+            e.preventDefault();
+            const next = applyReviewKey(review, files[index].path, selected, ratings);
+            if (next.selected !== selected) onSelectedChange(next.selected);
+            if (next.ratings !== ratings) onRatingsChange?.(next.ratings);
+            return;
+          }
+          if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             setLoupe(index);
             return;
@@ -268,6 +292,10 @@ export default function IngestPreviewGrid({ files, selected, onSelectedChange, l
           e.preventDefault();
           const next = index + by;
           if (next >= 0 && next < files.length) focusTile(next);
+        }}
+        onKeyUp={(e) => {
+          // Space opened the large view; it must not also tick the tile.
+          if (e.key === ' ') e.preventDefault();
         }}
         onScroll={(e) => {
           const top = e.currentTarget.scrollTop;
@@ -288,6 +316,7 @@ export default function IngestPreviewGrid({ files, selected, onSelectedChange, l
                 file={file}
                 index={first * columns + i}
                 checked={selected.has(file.path)}
+                rating={ratings[file.path] ?? 0}
                 thumb={thumbs[file.path]}
                 loaded={file.path in thumbs}
                 want={wanted}
@@ -303,8 +332,11 @@ export default function IngestPreviewGrid({ files, selected, onSelectedChange, l
           files={files}
           index={loupe}
           selected={selected}
+          ratings={ratings}
           thumbnail={thumbs[files[loupe].path]}
           load={loadPreview}
+          loadFull={loadFullPreview}
+          onReview={(path, key) => onRatingsChange?.(applyReviewKey(key, path, selected, ratings).ratings)}
           onIndexChange={setLoupe}
           onToggle={(path) => {
             const next = new Set(selected);
@@ -323,6 +355,7 @@ function IngestTile({
   file,
   index,
   checked,
+  rating,
   thumb,
   loaded,
   want,
@@ -332,6 +365,7 @@ function IngestTile({
   file: IngestCandidate;
   index: number;
   checked: boolean;
+  rating: number;
   thumb: string | null | undefined;
   loaded: boolean;
   want: (path: string) => () => void;
@@ -360,6 +394,13 @@ function IngestTile({
           {checked && <Check size={12} strokeWidth={3} />}
         </span>
         {file.duplicate && <span className="session-ingest-badge">{t('session.ingest.inLibrary')}</span>}
+        {rating > 0 && (
+          <span className="session-ingest-rating" aria-label={t('session.ingest.rateStars', { stars: rating })}>
+            {Array.from({ length: rating }, (_, i) => (
+              <Star key={i} size={9} fill="currentColor" aria-hidden />
+            ))}
+          </span>
+        )}
       </span>
       <span className="session-ingest-name">{name}</span>
     </button>

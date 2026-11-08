@@ -53,6 +53,9 @@ export enum Invokes {
   CalculateGuidedPerspective = 'calculate_guided_perspective',
   SessionIngestPreview = 'session_ingest_preview',
   SessionIngestCaptureInfo = 'session_ingest_capture_info',
+  SessionIngestFullPreview = 'session_ingest_full_preview',
+  SessionIngestCards = 'session_ingest_cards',
+  SessionEjectCard = 'session_eject_card',
   SessionIngestThumbnail = 'session_ingest_thumbnail',
   LibraryCopy = 'library_copy',
   LibraryExportCatalog = 'library_export_catalog',
@@ -469,6 +472,7 @@ export type Activation = 'none' | 'developed' | 'still';
 export type CropGrid = 'always' | 'drag' | 'off';
 
 export interface AppSettings {
+  ingestDialogSize?: { width: number; height: number; maximized: boolean };
   checkForUpdates?: boolean;
   /** Backend-owned Unix timestamp in seconds throttling automatic update checks. */
   lastUpdateCheck?: number | null;
@@ -486,6 +490,8 @@ export interface AppSettings {
   /** Connect Canon cameras on the camera library's untested path to help
    * test it (Preferences > Tethering); off unless true. */
   tetherExperimentalCanon?: boolean;
+  /** Open Import when a memory card is inserted (missing: on). */
+  openImportOnCard?: boolean;
   updatePrereleases?: boolean;
   dismissedUpdateVersion?: string;
   /** The version that ran last; a newer one shows its CHANGELOG section once. */

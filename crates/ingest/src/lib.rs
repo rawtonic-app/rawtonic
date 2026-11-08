@@ -3,6 +3,7 @@ mod error;
 pub use error::IngestError;
 pub mod batch;
 pub mod capture;
+pub mod cards;
 pub mod catalog_export;
 pub mod catalog_import;
 mod copy;

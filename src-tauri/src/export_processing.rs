@@ -216,6 +216,88 @@ pub(crate) fn load_export_base_image(
     }
 }
 
+/// A photograph not in the library yet, rendered at full size as the app
+/// shows it unedited: the default recipe of a new photograph through the
+/// export render (GPU), from `bytes` already read from it (a card's file is
+/// read into memory, never mapped). For the import dialog's 100 % view.
+pub(crate) fn render_unedited_full_size(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    bytes: &[u8],
+) -> Result<DynamicImage, String> {
+    let luts = app_handle.state::<crate::state::luts::LutState>();
+    let develop = app_handle.state::<crate::state::develop::DevelopSession>();
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = get_or_init_gpu_context(&gpu, app_handle)?;
+    let tonemapper_override = |is_raw| resolve_tonemapper_override_from_handle(app_handle, is_raw);
+    let load_lut = |path: &str| get_or_load_lut(&luts, path).ok();
+    let env = RenderEnv {
+        context: &context,
+        processor: &gpu.processor,
+        image_cache: &develop.gpu_image_cache,
+        tonemapper_override: &tonemapper_override,
+        load_lut: &load_lut,
+        render_inputs: None,
+    };
+    render_unedited_full_size_with_env(
+        path,
+        bytes,
+        &crate::state::settings::current(app_handle),
+        &env,
+    )
+}
+
+fn render_unedited_full_size_with_env(
+    path: &str,
+    bytes: &[u8],
+    settings: &crate::app_settings::AppSettings,
+    env: &RenderEnv<'_>,
+) -> Result<DynamicImage, String> {
+    let is_raw = is_raw_file(path);
+    let (adjustments, normalized) =
+        rawtonic_export::normalize::new_edit_from_bytes(Path::new(path), bytes);
+    let versions = normalized.file_versions();
+    normalized.lens?;
+    // Decoded from the bytes only: the app's loader would also cache the
+    // file's EXIF in sidecars beside it, and nothing may be written beside a
+    // photograph that is not imported (with Apple's RAW engine preferred,
+    // this view still develops with rawler).
+    let frame = if is_raw {
+        let source = rawler::rawsource::RawSource::new_from_slice(bytes).with_path(path);
+        rawtonic_rawdecode::source_frame::effective(
+            &source,
+            rawtonic_engine::source_frame::requested(&adjustments),
+        )
+    } else {
+        0
+    };
+    let options = crate::image_loader::base_options(
+        settings,
+        rawtonic_engine::image_loader::decode_variant_for_frame(&adjustments, is_raw, frame),
+    );
+    let (pristine, measures) =
+        crate::image_loader::load_base_image_measured(bytes, path, false, &options, None)
+            .map_err(|e| e.to_string())?;
+    let source = prepare_export_source(path, Arc::new(pristine), measures, &adjustments)?;
+    let export_settings: ExportSettings = serde_json::from_value(serde_json::json!({
+        "jpegQuality": 92,
+        "tiffBitDepth": 16,
+        "keepMetadata": false,
+        "stripGps": true,
+    }))
+    .map_err(|e| e.to_string())?;
+    process_image_for_export(
+        path,
+        source,
+        &adjustments,
+        &versions,
+        &export_settings,
+        env,
+        is_raw,
+        "jpeg",
+    )
+}
+
 /// Loads the AI Denoise models these recipes use, once each; photos
 /// that need it fail one by one if it cannot be had.
 pub(crate) async fn prepare_ai_denoise<V: std::borrow::Borrow<Value>>(
@@ -2496,6 +2578,116 @@ fn estimate_sizes(
 #[cfg(test)]
 mod tests {
     use super::{ExportTarget, PhotoItem, export_in_turn, is_open_edit, plan_output_path};
+
+    /// The exact full-size RAW render used by the import dialog, including
+    /// normalization, decode and GPU processing, must not write beside a card.
+    #[test]
+    #[ignore = "requires a GPU; run explicitly on native QA hosts"]
+    fn import_full_size_render_keeps_source_and_all_sidecars_unchanged() {
+        use super::{RenderEnv, render_unedited_full_size_with_env};
+        use rawtonic_gpu::gpu_processing::{GpuContext, GpuProcessorSlot};
+        use std::collections::BTreeMap;
+        use std::sync::Mutex;
+        let context = GpuContext::headless().expect("native QA requires a GPU");
+        let processor = GpuProcessorSlot::new(None);
+        let cache = Mutex::new(None);
+        let env = RenderEnv {
+            context: &context,
+            processor: &processor,
+            image_cache: &cache,
+            tonemapper_override: &|_| None,
+            load_lut: &|_| None,
+            render_inputs: None,
+        };
+        let pixels = image::Rgb32FImage::from_fn(64, 48, |x, y| {
+            image::Rgb([0.05 + x as f32 / 256.0, 0.1 + y as f32 / 192.0, 0.15])
+        });
+        let bytes = rawtonic_merge::dng::encode_linear_dng(
+            &pixels,
+            &rawtonic_merge::dng::DngMeta {
+                color: None,
+                metadata: None,
+                keep_lens: false,
+                baseline_exposure: None,
+                preview: None,
+                software: "Rawtonic test",
+            },
+        )
+        .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let photo = temp.path().join("source.DNG");
+        std::fs::write(&photo, &bytes).unwrap();
+        let snapshot = || -> BTreeMap<_, _> {
+            std::fs::read_dir(temp.path())
+                .unwrap()
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    (entry.file_name(), std::fs::read(entry.path()).unwrap())
+                })
+                .collect()
+        };
+        // Both clean media and media with existing edits/metadata: also
+        // catch unexpected sidecar names, and preserve the RAW byte for byte.
+        for existing in [false, true] {
+            if existing {
+                for name in [
+                    "source.DNG.rrdata",
+                    "source.DNG.rrexif",
+                    "source.xmp",
+                    "source.DNG.extra",
+                ] {
+                    let contents: &[u8] = match name {
+                        "source.DNG.rrdata" => {
+                            br#"{"rating":4,"tags":["keep"],"adjustments":{"exposure":0.75}}"#
+                        }
+                        "source.DNG.rrexif" => {
+                            br#"{"Make":"Keep this metadata","Model":"Unchanged"}"#
+                        }
+                        "source.xmp" => {
+                            br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><keep/></x:xmpmeta>"#
+                        }
+                        _ => b"existing private metadata\0\xff",
+                    };
+                    std::fs::write(temp.path().join(name), contents).unwrap();
+                }
+            }
+            let before = snapshot();
+            let full = crate::file_management::source_full_size_jpeg(&photo, &|bytes| {
+                Some(
+                    render_unedited_full_size_with_env(
+                        photo.to_str().unwrap(),
+                        bytes,
+                        &crate::app_settings::AppSettings::default(),
+                        &env,
+                    )
+                    .unwrap(),
+                )
+            })
+            .expect("full-size RAW must render");
+            assert_eq!(full.1, crate::file_management::FullSizeSource::Decoded);
+            assert_eq!(image::load_from_memory(&full.0).unwrap().width(), 64);
+            assert_eq!(image::load_from_memory(&full.0).unwrap().height(), 48);
+            assert_eq!(
+                snapshot(),
+                before,
+                "the original and every sidecar stay unchanged; none created"
+            );
+        }
+        // Use a fresh path that has never existed, so path-keyed render
+        // caches cannot hide a reopen after normalization. The full render
+        // must use the same bytes, and leave adjacent sidecars absent.
+        let detached = temp.path().join("never-written.DNG");
+        let before_detached = snapshot();
+        let full = render_unedited_full_size_with_env(
+            detached.to_str().unwrap(),
+            &bytes,
+            &crate::app_settings::AppSettings::default(),
+            &env,
+        )
+        .unwrap();
+        assert_eq!((full.width(), full.height()), (64, 48));
+        assert_eq!(snapshot(), before_detached);
+    }
 
     #[cfg(unix)]
     #[test]

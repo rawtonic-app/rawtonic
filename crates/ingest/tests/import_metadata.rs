@@ -873,3 +873,90 @@ fn add_reports_keywords_beyond_the_limit_and_adds_the_photo() {
         hashes
     );
 }
+
+/// Ratings given in the import dialog (task IMPD): only the rated
+/// photographs get one, written to the copy's catalog record and XMP after
+/// the verified copy; the card's files and sidecars stay as they were, and
+/// unrated photographs get no sidecar from a ratings-only import.
+#[test]
+fn ratings_from_the_import_dialog_reach_only_the_rated_copies() {
+    let d = tempfile::tempdir().unwrap();
+    let card = d.path().join("DCIM/100TEST");
+    fs::create_dir_all(&card).unwrap();
+    let rated = card.join("IMG_0001.NEF");
+    let unrated = card.join("IMG_0002.NEF");
+    fs::write(&rated, b"rated raw bytes").unwrap();
+    fs::write(&unrated, b"unrated raw bytes").unwrap();
+    let hashes = [&rated, &unrated].map(|p| rawtonic_ingest::sha256(p).unwrap());
+    let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
+    // Exactly what the dialog sends (`metadata` of `session_ingest`).
+    let json = format!(
+        r#"{{"ratings":{{{:?}:4}}}}"#,
+        rated.to_string_lossy().into_owned()
+    );
+    let preset: ImportMetadata = serde_json::from_str(&json).unwrap();
+    assert_eq!(preset.ratings.get(&rated), Some(&4));
+    let results = import_batch(
+        &lib,
+        &[rated.clone(), unrated.clone()],
+        &preset_options(&preset),
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(results.len(), 2);
+    for r in &results {
+        assert!(r.error.is_none(), "{r:?}");
+        let dest = r.destination.as_ref().unwrap();
+        let meta = lib.metadata(r.asset_id.as_ref().unwrap()).unwrap();
+        if r.source == rated {
+            assert_eq!(meta.rating, 4);
+            let xmp = fs::read_to_string(dest.with_extension("xmp")).unwrap();
+            assert_eq!(rawtonic_metadata::read_xmp(&xmp).unwrap().0.rating, 4);
+        } else {
+            assert_eq!(meta.rating, 0);
+            assert!(!dest.with_extension("xmp").exists());
+        }
+    }
+    assert_eq!(
+        [&rated, &unrated].map(|p| rawtonic_ingest::sha256(p).unwrap()),
+        hashes
+    );
+    assert!(!rated.with_extension("xmp").exists());
+    assert!(!unrated.with_extension("xmp").exists());
+}
+
+#[test]
+fn an_import_rating_replaces_the_camera_rating_and_must_be_one_to_five() {
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("IMG_0003.NEF");
+    fs::write(&source, b"camera rated").unwrap();
+    rawtonic_metadata::write_xmp(
+        &source.with_extension("xmp"),
+        &Metadata {
+            rating: 2,
+            ..Metadata::default()
+        },
+        None,
+        None,
+    )
+    .unwrap();
+    let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
+    let mut preset = ImportMetadata {
+        creator: "Photographer".into(),
+        ..ImportMetadata::default()
+    };
+    preset.ratings.insert(source.clone(), 6);
+    assert!(preset.validate().is_err());
+    preset.ratings.insert(source.clone(), 5);
+    let results = import_batch(
+        &lib,
+        std::slice::from_ref(&source),
+        &preset_options(&preset),
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    let meta = lib.metadata(results[0].asset_id.as_ref().unwrap()).unwrap();
+    assert_eq!((meta.rating, meta.creator.as_str()), (5, "Photographer"));
+}
