@@ -2336,6 +2336,7 @@
     "categories": {
       "about": "Acerca de",
       "general": "General",
+      "interface": "Interfaz",
       "processing": "Procesamiento",
       "shortcuts": "Controles"
     },
@@ -2428,10 +2429,15 @@
       "enableAutoAdvance": "Pasar a la foto siguiente tras valorar o marcar",
       "enableOsTitlebar": "Activar barra de título del SO",
       "enableXmpSync": "Activar sincronización XMP",
+      "interfaceShade": "Tono de la interfaz",
+      "interfaceShadeDesc": "Brillo de la interfaz. El fondo de la foto conserva su propio ajuste.",
       "nativeTitlebar": "Barra de título nativa",
       "nativeTitlebarDesc": "Usa la barra de título de ventana predeterminada de tu sistema en lugar de la personalizada de Rawtonic.",
       "proofMargin": "Margen de prueba",
       "proofMarginDesc": "Margen alrededor de la foto ajustada cuando el margen de prueba está activo (Alt+X), como parte del lado más corto del visor.",
+      "shadeDarkest": "Más oscuro",
+      "shadeDarkGrey": "Gris oscuro",
+      "shadeMediumGrey": "Gris medio",
       "showBuiltinPresets": "Mostrar ajustes integrados",
       "title": "Ajustes generales",
       "uiScale": "Tamaño de la interfaz",

@@ -43,8 +43,9 @@ const surface = () => {
 };
 
 describe('targeted adjustment surface', () => {
-  it('samples the photo colour under the pointer and moves its mixer channels with the drag', async () => {
-    invoke.mockResolvedValue(linearFromSrgb([90, 140, 220]));
+  it('samples the colour the mixer receives under the pointer and moves its bands with the drag', async () => {
+    // A sky blue at the centre of Blues (Oklab hue 262).
+    invoke.mockResolvedValue({ hue: 262, chroma: 0.12 });
     const el = surface();
     await act(async () => {
       fireEvent.pointerDown(el, {
@@ -54,18 +55,53 @@ describe('targeted adjustment surface', () => {
         pointerId: 1
       });
     });
-    expect(invoke).toHaveBeenCalledWith('sample_preview_white_balance', {
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith('sample_mixer_input', {
+      path: '/s/a.NEF',
+      normalizedX: 0.25,
+      normalizedY: 200 / 300,
+      adjustments: INITIAL_ADJUSTMENTS,
+      mixer: 'colorMixer'
+    });
+    expect(useEditorStore.getState().isSliderDragging).toBe(true);
+    expect(useEditorStore.getState().tatFocus).toBe('blues');
+    // 40 px up: 40 units over the bands of the colour, all of it Blues.
+    fireEvent.pointerMove(el, { clientX: 100, clientY: 160, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 100, clientY: 160, pointerId: 1 });
+    const { adjustments, isSliderDragging } = useEditorStore.getState();
+    expect(adjustments.hsl.blues.saturation).toBe(40);
+    expect(isSliderDragging).toBe(false);
+  });
+
+  it("samples the B&W mix's own input for the B&W target", async () => {
+    useEditorStore.setState({ tatTarget: 'grayMixer' });
+    invoke.mockResolvedValue({ hue: 262, chroma: 0.12 });
+    const el = surface();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 100, clientY: 200, pointerId: 1 });
+    });
+    expect(invoke).toHaveBeenCalledWith('sample_mixer_input', expect.objectContaining({ mixer: 'blackAndWhite' }));
+    fireEvent.pointerMove(el, { clientX: 100, clientY: 250, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 100, clientY: 250, pointerId: 1 });
+    const { grayMixer, blackAndWhite } = useEditorStore.getState().adjustments;
+    expect(blackAndWhite).toBe(true);
+    expect(Object.values(grayMixer!).reduce((a, b) => a + b, 0)).toBeCloseTo(-50, 0);
+  });
+
+  it("falls back to the preview base's colour when the mixer's input cannot be sampled", async () => {
+    invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === 'sample_preview_white_balance' ? linearFromSrgb([90, 140, 220]) : null)
+    );
+    const el = surface();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 100, clientY: 200, pointerId: 1 });
+    });
+    expect(invoke).toHaveBeenLastCalledWith('sample_preview_white_balance', {
       path: '/s/a.NEF',
       normalizedX: 0.25,
       normalizedY: 200 / 300
     });
-    expect(useEditorStore.getState().isSliderDragging).toBe(true);
     expect(useEditorStore.getState().tatFocus).toBe('blues');
-    fireEvent.pointerMove(el, { clientX: 100, clientY: 160, pointerId: 1 });
-    fireEvent.pointerUp(el, { clientX: 100, clientY: 160, pointerId: 1 });
-    const { adjustments, isSliderDragging } = useEditorStore.getState();
-    expect(adjustments.hsl.blues.saturation).toBe(20);
-    expect(isSliderDragging).toBe(false);
   });
 
   it('applies a flick that ends before the colour sample arrives', async () => {
@@ -80,12 +116,12 @@ describe('targeted adjustment surface', () => {
     });
     fireEvent.pointerMove(el, { clientX: 100, clientY: 180, pointerId: 1 });
     fireEvent.pointerUp(el, { clientX: 100, clientY: 180, pointerId: 1 });
-    await act(async () => resolve(linearFromSrgb([90, 140, 220])));
-    expect(useEditorStore.getState().adjustments.hsl.blues.saturation).toBe(10);
+    await act(async () => resolve({ hue: 262, chroma: 0.12 }));
+    expect(useEditorStore.getState().adjustments.hsl.blues.saturation).toBe(20);
   });
 
   it('leaves the photo alone when grey is pressed', async () => {
-    invoke.mockResolvedValue(linearFromSrgb([120, 120, 120]));
+    invoke.mockResolvedValue({ hue: 90, chroma: 0.004 });
     const el = surface();
     await act(async () => {
       fireEvent.pointerDown(el, {

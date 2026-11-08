@@ -49,8 +49,18 @@ const BW_REACH = [33.9, 41.8, 38.7, 41.4, 42.1, 84.8, 60.6, 31.1];
 const BW2_CENTRES = [17.8, 52.4, 93.3, 135.0, 182.9, 247.0, 310.9, 350.5];
 const BW2_REACH = [28.6, 39.4, 41.9, 38.1, 45.4, 77.4, 51.7, 25.3];
 
-/** Slider units per screen pixel of vertical drag (Lightroom-like pace). */
+/** Slider units per screen pixel of vertical drag on the tone targets
+ * (Lightroom-like pace). */
 export const TAT_UNITS_PER_PIXEL = 0.5;
+/** Slider units per screen pixel of vertical drag on the colour targets,
+ * shared out over the bands of the colour (Lightroom: a 70 pt drag on a sky
+ * moved its B&W mix by 68 units, Blue −61 and Purple −7; notes:
+ * reference/ux-black-white-2026-11-03). */
+export const MIXER_UNITS_PER_PIXEL = 1;
+
+/** Slider units per pixel of drag for `target`. */
+export const tatUnitsPerPixel = (target: TatTarget) =>
+  isToneTarget(target) ? TAT_UNITS_PER_PIXEL : MIXER_UNITS_PER_PIXEL;
 /** Colours closer to grey than this (Oklab chroma) have no channel. */
 const MIN_CHROMA = 0.02;
 
@@ -71,19 +81,36 @@ export function oklch([r, g, b]: [number, number, number]) {
   };
 }
 
-/** Each channel's share of a hue, scaled so the strongest channel is 1. */
-function channelWeights(hue: number, centres: number[], reach: number[]) {
+/** Each channel's share of a hue: the shader's band windows over their sum,
+ * as `apply_hsl_panel` mixes the bands, so a colour between two bands
+ * moves both by its position between them and a drag moves the bands by
+ * the drag in all. */
+export function channelShares(hue: number, centres: number[], reach: number[]) {
   const w = centres.map((centre, i) => {
     const distance = Math.abs(((((hue - centre) % 360) + 540) % 360) - 180);
     return 0.5 + 0.5 * Math.cos(Math.min(distance / reach[i], 1) * Math.PI);
   });
-  const max = Math.max(...w);
-  return w.map((x) => (max > 0 ? x / max : 0));
+  const total = w.reduce((sum, x) => sum + x, 0);
+  return w.map((x) => (total > 0 ? x / total : 0));
 }
+
+/** A colour as the mixers select it: Oklab hue (degrees) and chroma. */
+export interface MixerColour {
+  hue: number;
+  chroma: number;
+}
+
+/** The mixer colour of linear sRGB (the preview base sample, when the
+ * mixer's own input could not be sampled). */
+export const mixerColourOf = (linearRgb: [number, number, number]): MixerColour => {
+  const { hue, chroma } = oklch(linearRgb);
+  return { hue, chroma };
+};
 
 export interface TatStart {
   target: TatTarget;
-  /** Channel weights (colour targets) of the sampled colour. */
+  /** Each channel's share (colour targets, summing to 1) of the sampled
+   * colour. */
   weights?: number[];
   /** Curve input level (0–255) under the pointer (curve target). */
   curveX?: number;
@@ -94,8 +121,9 @@ export interface TatStart {
 }
 
 /**
- * Prepares a drag from the colour under the pointer: `linearRgb` is the
- * photo's colour before adjustments (colour targets), `curveInput` the
+ * Prepares a drag from the colour under the pointer: `colour` is the colour
+ * the target's mixer receives there (colour targets; editor_preview.rs
+ * `sample_mixer_input`), `curveInput` the
  * colours the region and point curves receive in the pixels there, linear
  * sRGB that may reach beyond 0–1 (tone targets; editor_preview.rs
  * `sample_curve_input`, rendered without the curves and what follows
@@ -106,7 +134,7 @@ export interface TatStart {
 export function startTargetedAdjustment(
   target: TatTarget,
   base: Adjustments,
-  linearRgb: [number, number, number] | null,
+  colour: MixerColour | null,
   curveInput: [number, number, number][] | null,
   curveChannel: CurveChannel = 'luma'
 ): TatStart | null {
@@ -120,15 +148,14 @@ export function startTargetedAdjustment(
       ...(target === 'curve' ? { curveChannel } : {})
     };
   }
-  if (!linearRgb) return null;
-  const { chroma, hue } = oklch(linearRgb);
-  if (chroma < MIN_CHROMA) return null;
+  if (!colour || !(colour.chroma >= MIN_CHROMA)) return null;
+  const { hue } = colour;
   const weights =
     target === 'grayMixer'
       ? (base.bwVersion ?? 1) >= 2
-        ? channelWeights(hue, BW2_CENTRES, BW2_REACH)
-        : channelWeights(hue, BW_CENTRES, BW_REACH)
-      : channelWeights(hue, HSL_CENTRES, HSL_REACH);
+        ? channelShares(hue, BW2_CENTRES, BW2_REACH)
+        : channelShares(hue, BW_CENTRES, BW_REACH)
+      : channelShares(hue, HSL_CENTRES, HSL_REACH);
   return { target, base, weights };
 }
 

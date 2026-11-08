@@ -4572,6 +4572,13 @@ pub const MAX_MASKS: usize = 32;
 /// stops (no curves, output mapping or dither). Display and export renders
 /// leave it 0.
 pub const LEVELS_INPUT_PROBE: u32 = 1;
+/// `output_space[3]` of the colour mixer's input probe (the targeted
+/// adjustment's sample): the shader stores the Oklab hue direction and chroma
+/// of the colour `apply_hsl_panel` receives, alpha 0, and stops. Only display
+/// variants compile it (shader `MIXER_PROBES`); others store Levels' input.
+pub const MIXER_INPUT_PROBE: u32 = 2;
+/// As [`MIXER_INPUT_PROBE`], for the colour the B&W mix receives.
+pub const BW_INPUT_PROBE: u32 = 3;
 pub use crate::color_grading::GRADING_LUT_SIZE;
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]

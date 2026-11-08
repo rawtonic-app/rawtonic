@@ -5777,17 +5777,17 @@ impl MaskBitmapCache {
     }
 }
 
-/// Serialize borrowed fields directly into the hasher, without copying raster
-/// payloads or serializing local color adjustments that cannot change the mask.
-fn mask_bitmap_key(
-    def: &MaskDefinition,
-    width: u32,
-    height: u32,
-    scale: f32,
-    crop_offset: (f32, f32),
-    geometry: &PhotoGeometry,
-    warped_image: Option<&ParametricMaskSource>,
-) -> MaskBitmapKey {
+/// A hash of what `def`'s mask is drawn from: its shape, not its local
+/// adjustments, name or id (the part of [`mask_bitmap_key`] that does not
+/// depend on the size the mask is drawn at). Two equal hashes draw the same
+/// mask at one size.
+pub fn mask_shape_hash(def: &MaskDefinition) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    hash_mask_shape(def, &mut hasher);
+    hasher.finish()
+}
+
+fn hash_mask_shape(def: &MaskDefinition, hasher: &mut DefaultHasher) {
     #[derive(Serialize)]
     struct BitmapDefinition<'a> {
         visible: bool,
@@ -5826,9 +5826,8 @@ fn mask_bitmap_key(
         }
     }
 
-    let mut hasher = DefaultHasher::new();
     serde_json::to_writer(
-        HashWriter(&mut hasher),
+        HashWriter(hasher),
         &BitmapDefinition {
             visible: def.visible,
             invert: def.invert,
@@ -5851,8 +5850,23 @@ fn mask_bitmap_key(
     )
     .expect("writing mask fields into an infallible hasher cannot fail");
     for sub in &def.sub_masks {
-        crate::mask_parameters::content_hash(&sub.parameters).hash(&mut hasher);
+        crate::mask_parameters::content_hash(&sub.parameters).hash(hasher);
     }
+}
+
+/// Serialize borrowed fields directly into the hasher, without copying raster
+/// payloads or serializing local color adjustments that cannot change the mask.
+fn mask_bitmap_key(
+    def: &MaskDefinition,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+    geometry: &PhotoGeometry,
+    warped_image: Option<&ParametricMaskSource>,
+) -> MaskBitmapKey {
+    let mut hasher = DefaultHasher::new();
+    hash_mask_shape(def, &mut hasher);
 
     width.hash(&mut hasher);
     height.hash(&mut hasher);

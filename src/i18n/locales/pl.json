@@ -2468,6 +2468,7 @@
     "categories": {
       "about": "Informacje",
       "general": "Ogólne",
+      "interface": "Interfejs",
       "processing": "Przetwarzanie",
       "shortcuts": "Sterowanie"
     },
@@ -2563,10 +2564,15 @@
       "enableAutoAdvance": "Przejdź do następnego zdjęcia po ocenie lub oflagowaniu",
       "enableOsTitlebar": "Włącz systemowy pasek tytułu",
       "enableXmpSync": "Włącz synchronizację XMP",
+      "interfaceShade": "Odcień interfejsu",
+      "interfaceShadeDesc": "Jasność interfejsu. Tło zdjęcia zachowuje własne ustawienie.",
       "nativeTitlebar": "Natywny pasek tytułu",
       "nativeTitlebarDesc": "Użyj domyślnego paska tytułu okna twojego systemu zamiast niestandardowego w Rawtonic.",
       "proofMargin": "Margines podglądu",
       "proofMarginDesc": "Margines wokół dopasowanego zdjęcia, gdy margines podglądu jest włączony (Alt+X), jako część krótszego boku podglądu.",
+      "shadeDarkest": "Najciemniejszy",
+      "shadeDarkGrey": "Ciemnoszary",
+      "shadeMediumGrey": "Średnioszary",
       "showBuiltinPresets": "Pokazuj wbudowane ustawienia",
       "title": "Ustawienia ogólne",
       "uiScale": "Rozmiar interfejsu",

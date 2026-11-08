@@ -2203,6 +2203,7 @@
     "categories": {
       "about": "Über",
       "general": "Allgemein",
+      "interface": "Oberfläche",
       "processing": "Verarbeitung",
       "shortcuts": "Steuerung"
     },
@@ -2292,10 +2293,15 @@
       "enableAutoAdvance": "Nach Bewerten oder Markieren zum nächsten Foto",
       "enableOsTitlebar": "OS-Titelleiste aktivieren",
       "enableXmpSync": "XMP-Sync aktivieren",
+      "interfaceShade": "Oberflächenhelligkeit",
+      "interfaceShadeDesc": "Helligkeit der Oberfläche. Der Bildhintergrund behält seine eigene Einstellung.",
       "nativeTitlebar": "Native Titelleiste",
       "nativeTitlebarDesc": "Verwende die Standard-Fenstertitelleiste deines Systems anstelle der eigenen der App.",
       "proofMargin": "Prüfrand",
       "proofMarginDesc": "Rand um das eingepasste Foto bei eingeschaltetem Prüfrand (Alt+X), als Anteil der kürzeren Seite des Betrachters.",
+      "shadeDarkest": "Am dunkelsten",
+      "shadeDarkGrey": "Dunkelgrau",
+      "shadeMediumGrey": "Mittelgrau",
       "showBuiltinPresets": "Mitgelieferte Vorgaben zeigen",
       "title": "Allgemeine Einstellungen",
       "uiScale": "Oberflächengröße",

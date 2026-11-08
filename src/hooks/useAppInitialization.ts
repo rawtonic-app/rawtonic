@@ -7,7 +7,6 @@ import { useUIStore, reconcileWorkspace } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore, ExternalEditSession } from '../store/useProcessStore';
-import { APP_COLOR_VARIABLES } from '../utils/themes';
 import { COPYABLE_ADJUSTMENT_KEYS, CopyPasteSettings, withAdjustmentLayout } from '../utils/adjustments';
 import {
   AppSettings,
@@ -480,9 +479,6 @@ export const useAppInitialization = ({
 
   useEffect(() => {
     const root = document.documentElement;
-    Object.entries(APP_COLOR_VARIABLES).forEach(([key, value]) => {
-      root.style.setProperty(key, value);
-    });
 
     // Rawtonic uses the platform's interface font throughout.
     root.style.setProperty('--font-family', '-apple-system, BlinkMacSystemFont, system-ui, sans-serif');
