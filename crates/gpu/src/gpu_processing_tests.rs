@@ -388,6 +388,16 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & SHADOWS_V13_FEATURE != 0 && expected & TONE_PREVIEW_FEATURE == 0 {
             continue;
         }
+        // Tone version 14's lowered Highlights is Highlights; at version 14
+        // lowered Whites takes version 12's code, so the tone sliders below
+        // need Shadows or that bit.
+        if expected & HIGHLIGHTS_V14_FEATURE != 0
+            && (expected & 2 == 0
+                || (expected & TONE_PREVIEW_FEATURE != 0
+                    && expected & (SHADOWS_V13_FEATURE | WHITES_V12_FEATURE) == 0))
+        {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -444,6 +454,9 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         if expected & SHADOWS_V13_FEATURE != 0 {
             profile["toneVersion"] = json!(13);
+        }
+        if expected & HIGHLIGHTS_V14_FEATURE != 0 {
+            profile["toneVersion"] = json!(14);
         }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         if expected & SHARPEN_V8_FEATURE != 0 {
@@ -9522,6 +9535,17 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         })
         .collect();
     recipes.extend(thirteenth);
+    // Tone version 14 changes lowered Highlights only.
+    let fourteenth: Vec<serde_json::Value> = recipes
+        .iter()
+        .filter(|recipe| recipe["highlights"].as_i64().is_some_and(|v| v < 0))
+        .map(|recipe| {
+            let mut recipe = recipe.clone();
+            recipe["toneVersion"] = json!(14);
+            recipe
+        })
+        .collect();
+    recipes.extend(fourteenth);
     // Away from the image borders (the blur clamps there). Over up to 24
     // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
     // 16-bit codes, whichever is more: Shadows and Blacks read the f16
@@ -11761,6 +11785,201 @@ fn tone_version_13_shadows_lifts_midtones_less() {
                 "Shadows +{amount}: column {x} turned darker"
             );
         }
+    }
+}
+
+/// Bright plateaus (2^0.5, with ±0.15 EV texture) between dark bands 2.5 EV
+/// below them, 128 px each: strong edges with a bright side, as at skies
+/// behind branches.
+fn highlights_v14_edges(width: u32, height: u32) -> Vec<f32> {
+    (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            if (x / 128) % 2 == 0 {
+                (2.0f32).powf(-2.0)
+            } else {
+                (2.0f32).powf(0.5 + 0.15 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos()))
+            }
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Highlights of tone version 14 leaves no light rim at strong edges"]
+fn tone_version_14_highlights_no_light_rim() {
+    let context = context();
+    // 1080 rows: the base's samples at their reference size.
+    let (width, height) = (1024u32, 1080u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let edges = grey_texture(
+        &context,
+        width,
+        height,
+        &highlights_v14_edges(width, height),
+    );
+    let textured = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Without lowered Highlights version 14 renders as version 13, and so
+    // does lowered Highlights under the other looks.
+    for recipe in [
+        json!({}),
+        json!({ "highlights": 60 }),
+        json!({ "whites": -80, "blacks": -40, "shadows": 50, "contrast": 30 }),
+    ] {
+        for view in [&edges, &textured] {
+            assert!(
+                render_raw_look(
+                    &processor,
+                    view,
+                    (width, height),
+                    &with(&recipe, 13),
+                    (3, 2.0)
+                ) == render_raw_look(
+                    &processor,
+                    view,
+                    (width, height),
+                    &with(&recipe, 14),
+                    (3, 2.0)
+                ),
+                "{recipe} differs"
+            );
+        }
+    }
+    for look in [(2, 2.0), (0, 2.0)] {
+        let recipe = json!({ "highlights": -80 });
+        assert!(
+            render_raw_look(
+                &processor,
+                &edges,
+                (width, height),
+                &with(&recipe, 13),
+                look
+            ) == render_raw_look(
+                &processor,
+                &edges,
+                (width, height),
+                &with(&recipe, 14),
+                look
+            ),
+            "{recipe} under {look:?} differs"
+        );
+    }
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &edges, (width, height), &recipe, look)
+    };
+    let neutral = render(with(&json!({}), 14));
+    let w = width as usize;
+    for amount in [50, 100] {
+        let thirteenth = render(with(&json!({ "highlights": -amount }), 13));
+        let fourteenth = render(with(&json!({ "highlights": -amount }), 14));
+        // On the bright plateaus: mean dL* within 12 px of an edge minus the
+        // mean dL* 40 px and more from it (the light rim), and the texture
+        // there (std of L* minus the row's 9-pixel mean) against the neutral
+        // render's.
+        let measure = |img: &[[u16; 3]]| {
+            let (mut near, mut far, mut nn, mut nf) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            let mut det = [0.0f64; 2];
+            for y in (64..height as usize - 64).step_by(4) {
+                for x in 128..w - 128 {
+                    if (x / 128) % 2 == 0 {
+                        continue;
+                    }
+                    let i = y * w + x;
+                    let edge = (x % 128).min(127 - x % 128);
+                    let d = lstar_of_codes(&img[i]) - lstar_of_codes(&neutral[i]);
+                    if edge < 12 {
+                        near += d;
+                        nn += 1.0;
+                    } else if edge >= 40 {
+                        far += d;
+                        nf += 1.0;
+                        let local = |p: &[[u16; 3]]| {
+                            let mean = (x - 4..=x + 4)
+                                .map(|k| lstar_of_codes(&p[y * w + k]))
+                                .sum::<f64>()
+                                / 9.0;
+                            (lstar_of_codes(&p[i]) - mean).powi(2)
+                        };
+                        det[0] += local(&neutral);
+                        det[1] += local(img);
+                    }
+                }
+            }
+            (near / nn - far / nf, far / nf, (det[1] / det[0]).sqrt())
+        };
+        let (rim_13, dl_13, det_13) = measure(&thirteenth);
+        let (rim_14, dl_14, det_14) = measure(&fourteenth);
+        eprintln!(
+            "Highlights -{amount}: light rim {rim_13:.2} → {rim_14:.2} L*, plateau dL* {dl_13:.2} → {dl_14:.2}, texture {det_13:.3} → {det_14:.3}"
+        );
+        assert!(
+            rim_14 < 0.5 && rim_14 < 0.5 * rim_13,
+            "Highlights -{amount}: light rim {rim_14:.2} (version 13 {rim_13:.2})"
+        );
+        assert!(
+            (dl_14 - dl_13).abs() < 0.5,
+            "Highlights -{amount}: plateau dL* {dl_14:.2} (version 13 {dl_13:.2})"
+        );
+        assert!(
+            det_14 > 0.95 * det_13,
+            "Highlights -{amount}: texture {det_14:.3} (version 13 {det_13:.3})"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Highlights of tone version 14 against version 13: GPU time of a preview render per drag step"]
+fn tone_version_14_highlights_drag_render_time() {
+    // As `tone_version_12_whites_drag_render_time`, with Highlights stepped down.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 13 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "highlights": -20 - 8 * step, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 13) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            13 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
     }
 }
 
