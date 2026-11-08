@@ -2112,6 +2112,7 @@
     "categories": {
       "about": "このアプリについて",
       "general": "一般",
+      "interface": "インターフェース",
       "processing": "画像処理",
       "shortcuts": "操作設定"
     },
@@ -2201,10 +2202,15 @@
       "enableAutoAdvance": "レーティングやフラグの後に次の写真へ進む",
       "enableOsTitlebar": "OSのタイトルバーを有効にする",
       "enableXmpSync": "XMP同期を有効にする",
+      "interfaceShade": "インターフェースの明るさ",
+      "interfaceShadeDesc": "インターフェースの明るさです。写真の背景は個別の設定を維持します。",
       "nativeTitlebar": "OS標準のタイトルバー",
       "nativeTitlebarDesc": "Rawtonicカスタムのもの代わりに、システムのデフォルトのウィンドウタイトルバーを使用します。",
       "proofMargin": "プルーフマージン",
       "proofMarginDesc": "プルーフマージンがオンのとき（Alt+X）、全体表示の写真の周りに空ける余白。ビューアの短辺に対する割合。",
+      "shadeDarkest": "最も暗い",
+      "shadeDarkGrey": "ダークグレー",
+      "shadeMediumGrey": "ミディアムグレー",
       "showBuiltinPresets": "内蔵プリセットを表示",
       "title": "全般設定",
       "uiScale": "インターフェイスのサイズ",

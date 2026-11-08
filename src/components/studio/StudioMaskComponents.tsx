@@ -202,6 +202,9 @@ export default function StudioMaskComponents() {
                 }
               >
                 <MaskThumb kind="component" url={thumbnails[sub.id]} icon={Icon} busy={busy(sub)} />
+                {sub.visible && layerSolo?.componentId && layerSolo.componentId !== sub.id && (
+                  <EyeOff className="studio-solo-muted-indicator" size={10} aria-hidden="true" />
+                )}
                 <span className="studio-mask-component-label">{componentLabel(sub)}</span>
                 {busy(sub) && <span className="studio-mask-busy">· {t('studio.masks.computing')}</span>}
                 {!busy(sub) && detectionPending(sub) && (

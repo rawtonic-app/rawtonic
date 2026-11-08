@@ -58,9 +58,9 @@
     width: 14px;
     height: 14px;
     margin: 0;
-    border: 1px solid #6b6e73;
+    border: 1px solid var(--studio-shade-line, #6b6e73);
     border-radius: 3px;
-    background: #1d1e20 center / 10px 10px no-repeat;
+    background: var(--studio-shade-inset, #1d1e20) center / 10px 10px no-repeat;
     cursor: pointer;
   }
   input[type='radio'] {
@@ -68,7 +68,7 @@
   }
   input[type='checkbox']:hover:not(:disabled),
   input[type='radio']:hover:not(:disabled) {
-    border-color: #9a9ea4;
+    border-color: var(--studio-shade-muted, #9a9ea4);
   }
   input[type='checkbox']:checked,
   input[type='checkbox']:indeterminate,
@@ -89,7 +89,7 @@
   input[type='checkbox']:focus-visible,
   input[type='radio']:focus-visible {
     box-shadow:
-      0 0 0 2px #292a2c,
+      0 0 0 2px var(--studio-shade-bg, #292a2c),
       0 0 0 3px #b4c8d3;
   }
   input[type='checkbox']:disabled,
@@ -499,4 +499,80 @@
   .text-shadow-shiny {
     text-shadow: 0 0 18px rgba(255, 255, 255, 0.3);
   }
+}
+
+:root {
+  --app-bg-primary: rgb(24, 24, 24);
+  --app-bg-secondary: rgb(35, 35, 35);
+  --app-surface: rgb(28, 28, 28);
+  --app-card-active: rgb(43, 43, 43);
+  --app-button-text: rgb(0, 0, 0);
+  --app-text-primary: rgb(232, 234, 237);
+  --app-text-secondary: rgb(158, 158, 158);
+  --app-accent: rgb(255, 255, 255);
+  --app-border-color: rgb(45, 45, 45);
+  --app-hover-color: rgb(255, 255, 255);
+}
+
+/* Darkest deliberately uses the incumbent fallbacks in studio.css. These
+   neutral ramps affect chrome only; Viewer background remains independent. */
+:root[data-interface-shade='dark-grey'] {
+  --app-bg-primary: rgb(38, 38, 38);
+  --app-bg-secondary: rgb(48, 48, 48);
+  --app-surface: rgb(43, 43, 43);
+  --app-card-active: rgb(58, 58, 58);
+  --app-button-text: rgb(0, 0, 0);
+  --app-text-primary: rgb(240, 240, 240);
+  --app-text-secondary: rgb(196, 196, 196);
+  --app-accent: rgb(255, 255, 255);
+  --app-border-color: rgb(112, 112, 112);
+  --app-hover-color: rgb(255, 255, 255);
+  --studio-shade-warning: #e6c47e;
+  --studio-shade-error: #f1abab;
+  --studio-shade-success: #a8c8a0;
+  --studio-focus: #e0effa;
+  --studio-shade-accent: #e0effa;
+  --studio-shade-ink: #202020;
+  --studio-shade-rgb-ink: 32 32 32;
+  --studio-shade-inset: #303030;
+  --studio-shade-bg: #383838;
+  --studio-shade-raised: #404040;
+  --studio-shade-hover: #484848;
+  --studio-shade-line: #999999;
+  --studio-shade-rgb-line: 153 153 153;
+  --studio-shade-muted: #adadad;
+  --studio-shade-dim: #737373;
+  --studio-shade-overlay-rgb: 24 24 24;
+  --studio-shade-text: #f0f0f0;
+  --studio-shade-rgb-text: 240 240 240;
+}
+:root[data-interface-shade='medium-grey'] {
+  --app-bg-primary: rgb(76, 76, 76);
+  --app-bg-secondary: rgb(88, 88, 88);
+  --app-surface: rgb(82, 82, 82);
+  --app-card-active: rgb(98, 98, 98);
+  --app-button-text: rgb(0, 0, 0);
+  --app-text-primary: rgb(255, 255, 255);
+  --app-text-secondary: rgb(235, 235, 235);
+  --app-accent: rgb(255, 255, 255);
+  --app-border-color: rgb(170, 170, 170);
+  --app-hover-color: rgb(255, 255, 255);
+  --studio-shade-warning: #ffdf85;
+  --studio-shade-error: #ffbfbf;
+  --studio-shade-success: #b6efb6;
+  --studio-focus: #e0effa;
+  --studio-shade-accent: #e0effa;
+  --studio-shade-ink: #373737;
+  --studio-shade-rgb-ink: 55 55 55;
+  --studio-shade-inset: #4c4c4c;
+  --studio-shade-bg: #585858;
+  --studio-shade-raised: #626262;
+  --studio-shade-hover: #696969;
+  --studio-shade-line: #c0c0c0;
+  --studio-shade-rgb-line: 192 192 192;
+  --studio-shade-muted: #e0e0e0;
+  --studio-shade-dim: #949494;
+  --studio-shade-overlay-rgb: 24 24 24;
+  --studio-shade-text: #ffffff;
+  --studio-shade-rgb-text: 255 255 255;
 }

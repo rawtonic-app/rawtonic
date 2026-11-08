@@ -2112,6 +2112,7 @@
     "categories": {
       "about": "关于",
       "general": "通用",
+      "interface": "界面",
       "processing": "处理",
       "shortcuts": "控制"
     },
@@ -2201,10 +2202,15 @@
       "enableAutoAdvance": "评级或标记后转到下一张照片",
       "enableOsTitlebar": "启用系统标题栏",
       "enableXmpSync": "启用 XMP 同步",
+      "interfaceShade": "界面明度",
+      "interfaceShadeDesc": "界面的亮度。照片背景保留独立设置。",
       "nativeTitlebar": "原生标题栏",
       "nativeTitlebarDesc": "使用系统默认的窗口标题栏，而非 Rawtonic 的自定义标题栏。",
       "proofMargin": "校样边距",
       "proofMarginDesc": "开启校样边距（Alt+X）时适合窗口的照片周围的边距，占查看器较短边的比例。",
+      "shadeDarkest": "最暗",
+      "shadeDarkGrey": "深灰",
+      "shadeMediumGrey": "中灰",
       "showBuiltinPresets": "显示内置预设",
       "title": "通用设置",
       "uiScale": "界面大小",

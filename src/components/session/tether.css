@@ -6,7 +6,7 @@
   width: 316px;
   max-height: calc(100vh - 68px);
   overflow: auto;
-  border: 1px solid #4a4e51;
+  border: 1px solid var(--studio-shade-hover, #4a4e51);
   border-radius: 10px;
   background: var(--app-bg-secondary, #242628);
   color: var(--app-text-primary, #edf0f2);
@@ -86,7 +86,7 @@
 .tether-settings output {
   min-width: 0;
   padding: 5px 6px;
-  border: 1px solid #53565a;
+  border: 1px solid var(--studio-shade-hover, #53565a);
   border-radius: 4px;
   background: var(--app-bg-primary);
   color: var(--app-text-primary);
@@ -161,7 +161,7 @@
   color: var(--app-text-secondary, #aab0b5);
 }
 .tether-test-steps li[data-state='failed'] .tether-test-step > span:last-child {
-  color: #f1abab;
+  color: var(--studio-shade-error, #f1abab);
 }
 .tether-test-steps li[data-state='pending'] strong {
   color: var(--app-text-secondary, #aab0b5);
@@ -177,7 +177,7 @@
 }
 .tether-test-run select {
   padding: 4px 6px;
-  border: 1px solid #53565a;
+  border: 1px solid var(--studio-shade-hover, #53565a);
   border-radius: 4px;
   background: var(--app-bg-primary);
   color: var(--app-text-primary);
@@ -199,7 +199,7 @@
 .tether-test-report textarea {
   width: 100%;
   padding: 6px;
-  border: 1px solid #53565a;
+  border: 1px solid var(--studio-shade-hover, #53565a);
   border-radius: 4px;
   background: var(--app-bg-primary);
   color: var(--app-text-primary);
@@ -219,7 +219,7 @@
   padding: 0 6px;
   border-radius: 3px;
   background: #5a46144d;
-  color: #f0d28c;
+  color: var(--studio-shade-warning, #f0d28c);
   font-size: 10px;
   line-height: 16px;
   text-transform: uppercase;
@@ -232,7 +232,7 @@
   padding: 6px 8px;
   border-radius: 4px;
   background: #5a46144d;
-  color: #f0d28c;
+  color: var(--studio-shade-warning, #f0d28c);
   font-size: 11px;
   line-height: 1.45;
 }
