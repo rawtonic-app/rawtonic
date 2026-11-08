@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowLeftRight, Eye, EyeOff, Loader2, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Eye, EyeOff, Loader2, Trash2, Wand2 } from 'lucide-react';
 import AdjustmentControl from './AdjustmentControl';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
@@ -14,6 +14,7 @@ import { shortcutHint } from '../../utils/keyboardUtils';
 import type { Spot } from '../../utils/adjustments';
 import { spotItems, withoutSpotItems, withSpotItemsVisible, type SpotItemKind } from '../../utils/spotItems';
 import { flipSpotItem } from '../../utils/spotFill';
+import { findAnotherSource, resetTurnedDown } from '../../utils/spotSource';
 import StudioRedEyeControls from './StudioRedEyeControls';
 import { useStudioTools } from './useStudioTools';
 
@@ -299,6 +300,9 @@ export function StudioSpotList() {
   const activeSpotId = useEditorStore((s) => s.activeSpotId);
   // Items being switched between heal and fill (an AI task under their id).
   const busy = useProcessStore((s) => s.activeAiTasks);
+  const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
+  const osPlatform = useSettingsStore((s) => s.osPlatform);
+  const sourceKey = shortcutHint('spot_new_source', keybinds, osPlatform);
   if (items.length === 0) return null;
   const all = new Set(items.map((item) => item.id));
   const anyShown = items.some((item) => item.visible);
@@ -308,6 +312,7 @@ export function StudioSpotList() {
     useEditorStore.getState().setEditor({ activeSpotId: id });
   };
   const remove = (ids: Set<string>) => {
+    ids.forEach(resetTurnedDown);
     updateAdjustments((prev) => withoutSpotItems(prev, ids));
     const { activeSpotId: selected, setEditor } = useEditorStore.getState();
     if (selected && ids.has(selected)) setEditor({ activeSpotId: null });
@@ -362,6 +367,21 @@ export function StudioSpotList() {
               >
                 <span className="studio-layer-label">{name}</span>
               </button>
+              {(item.kind === 'heal' || item.kind === 'clone') && (
+                <button
+                  type="button"
+                  className="studio-row-icon"
+                  aria-label={t('spotRemoval.list.newSource', { name })}
+                  title={
+                    sourceKey
+                      ? t('spotRemoval.list.newSourceHint', { key: sourceKey })
+                      : t('spotRemoval.list.newSource', { name })
+                  }
+                  onClick={() => void findAnotherSource(item.id)}
+                >
+                  <Wand2 size={12} />
+                </button>
+              )}
               {(item.kind === 'heal' || item.kind === 'fill') &&
                 (busy[item.id] ? (
                   <span
@@ -429,6 +449,10 @@ export default function StudioSpotControls() {
   const removalsShown = useEditorStore((s) =>
     Boolean(s.adjustments.aiPatches?.some((p) => p.name === 'Remove' && p.visible !== false))
   );
+  // Heal and clone spots have a source to find another one for.
+  const selectedSpot = useEditorStore((s) =>
+    s.adjustments.spots?.find((spot) => spot.id === s.activeSpotId && (spot.mode === 'heal' || spot.mode === 'clone'))
+  );
   const activeSpot = useEditorStore((s) => s.adjustments.spots?.find((spot) => spot.id === s.activeSpotId));
   const redEye = settings.mode === 'redEye';
   const shown: Settings =
@@ -450,6 +474,8 @@ export default function StudioSpotControls() {
       ? s.activeSpotId
       : null
   );
+  const newSourceKey = shortcutHint('spot_new_source', keybinds, osPlatform);
+  const spotToolOn = useEditorStore((s) => s.isSpotToolActive);
 
   const set = (patch: Partial<Settings>) => {
     // Choosing a mode (or Detect objects) is choosing the tool, as in
@@ -594,11 +620,27 @@ export default function StudioSpotControls() {
           className="studio-text-button"
           title={t('spotRemoval.deleteSelectedHint')}
           onClick={() => {
+            resetTurnedDown(selectedId);
             updateAdjustments((prev) => withoutSpotItems(prev, new Set([selectedId])));
             useEditorStore.getState().setEditor({ activeSpotId: null });
           }}
         >
           {t('spotRemoval.deleteSelected')}
+        </button>
+      )}
+      {selectedSpot && !redEye && spotToolOn && (
+        // Lightroom's Refresh (`/`, the spot list's button) next to the
+        // settings: the right-click on the photograph with the tool opens
+        // this panel, so the item is in the spot's menu there too.
+        <button
+          type="button"
+          className="studio-text-button"
+          title={t('spotRemoval.findAnotherSourceHint')}
+          onClick={() => void findAnotherSource(selectedSpot.id)}
+        >
+          {newSourceKey
+            ? t('studio.spot.withShortcut', { text: t('spotRemoval.findAnotherSource'), key: newSourceKey })
+            : t('spotRemoval.findAnotherSource')}
         </button>
       )}
       {!redEye && hasRemovals && (

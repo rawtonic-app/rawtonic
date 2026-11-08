@@ -10,6 +10,7 @@ import { toggleRemoveObjects } from './useStudioTools';
 import { useEditorStore } from '../../store/useEditorStore';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
 import { KEYBIND_DEFINITIONS } from '../../utils/keyboardUtils';
+import { findAnotherSource, resetTurnedDown, resetTurnedDownForPhoto, sourcesTurnedDown } from '../../utils/spotSource';
 
 beforeEach(() => {
   useEditorStore.setState({
@@ -124,6 +125,124 @@ describe('Shift+Q (remove objects)', () => {
       isSpotToolActive: true,
       spotSettings: { mode: 'remove', detectObjects: true }
     });
+  });
+});
+
+describe('Find another source', () => {
+  const spot = (id: string, mode: 'heal' | 'clone') => ({
+    id,
+    mode,
+    x: 10,
+    y: 10,
+    radius: 5,
+    sourceX: 30,
+    sourceY: 10,
+    feather: 0,
+    opacity: 100,
+    visible: true
+  });
+  beforeEach(() => {
+    invoke.mockReset();
+    resetTurnedDownForPhoto('/s/a.NEF');
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
+      isSpotToolActive: true,
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [spot('s1', 'heal'), spot('s2', 'clone')] },
+      activeSpotId: null
+    });
+  });
+
+  it('is a tools keybind on / of its own (Lightroom), free in every other combo', () => {
+    const def = KEYBIND_DEFINITIONS.find((d) => d.action === 'spot_new_source');
+    expect(def).toMatchObject({ defaultCombo: ['Slash'], section: 'tools' });
+    const combos = KEYBIND_DEFINITIONS.flatMap((d) => [d.defaultCombo, ...(d.aliasCombos ?? [])])
+      .filter((c) => c.length)
+      .map((c) => c.join('+'));
+    expect(combos.filter((c) => c === 'Slash')).toHaveLength(1);
+  });
+
+  it("asks the backend from the spot's row, then from the settings' item, each turning the old source down", async () => {
+    invoke.mockImplementation((_command: string, args: { excluded: unknown[] }) =>
+      Promise.resolve(args.excluded.length ? { x: 50, y: 40 } : { x: 40, y: 10 })
+    );
+    render(<StudioSpotList />);
+    // Heal and clone spots have one; a fill removal has none.
+    const buttons = screen.getAllByRole('button', { name: 'spotRemoval.list.newSource' });
+    expect(buttons).toHaveLength(2);
+    await act(async () => fireEvent.click(buttons[0]));
+    const ask = invoke.mock.calls.filter(([name]) => name === 'find_another_spot_source').at(-1)!;
+    expect(ask[1]).toMatchObject({ spotId: 's1', excluded: [] });
+    // The spot only gets a new source (one recipe change), the other keeps its own.
+    expect(useEditorStore.getState().adjustments.spots.map((s) => [s.id, s.sourceX, s.sourceY])).toEqual([
+      ['s1', 40, 10],
+      ['s2', 30, 10]
+    ]);
+    expect(sourcesTurnedDown('s1')).toEqual([[30, 10]]);
+    cleanup();
+
+    // The settings' item next (the right-click popover on the photo shows
+    // these settings), with the source the spot leaves turned down.
+    useEditorStore.setState({ activeSpotId: 's1' });
+    resetTurnedDownForPhoto('/s/a.NEF');
+    render(<StudioSpotControls />);
+    await act(async () => fireEvent.click(screen.getByTitle('spotRemoval.findAnotherSourceHint')));
+    const last = invoke.mock.calls.filter(([name]) => name === 'find_another_spot_source').at(-1)!;
+    expect(sourcesTurnedDown('s1')).toEqual([
+      [30, 10],
+      [40, 10]
+    ]);
+    expect(last[1]).toMatchObject({ spotId: 's1', excluded: [{ x: 30, y: 10 }] });
+    expect(useEditorStore.getState().adjustments.spots[0]).toMatchObject({ sourceX: 50, sourceY: 40 });
+    expect(useEditorStore.getState().adjustments.spots[1]).toMatchObject({ sourceX: 30, sourceY: 10 });
+  });
+
+  it('drops an answer for a spot that moved or changed its source meanwhile', async () => {
+    resetTurnedDown('s1');
+    let answer: (v: { x: number; y: number }) => void = () => {};
+    invoke.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const pending = findAnotherSource('s1');
+    // A source drag lands while the search runs.
+    useEditorStore.setState((st) => ({
+      adjustments: {
+        ...st.adjustments,
+        spots: st.adjustments.spots.map((sp) => (sp.id === 's1' ? { ...sp, sourceX: 99, sourceY: 98 } : sp))
+      }
+    }));
+    answer({ x: 40, y: 10 });
+    expect(await pending).toBe(false);
+    expect(useEditorStore.getState().adjustments.spots[0]).toMatchObject({ sourceX: 99, sourceY: 98 });
+    expect(sourcesTurnedDown('s1')).toEqual([]);
+  });
+
+  it('makes each quick press its own undo step', async () => {
+    useEditorStore.getState().resetHistory(useEditorStore.getState().adjustments);
+    let n = 0;
+    invoke.mockImplementation(() => Promise.resolve({ x: 40 + 10 * ++n, y: 10 }));
+    // Both settle well inside the 500 ms history debounce.
+    await act(async () => {
+      await findAnotherSource('s1');
+      await findAnotherSource('s1');
+    });
+    const { history, historyIndex } = useEditorStore.getState();
+    expect(history).toHaveLength(3);
+    expect(historyIndex).toBe(2);
+    expect(history[1].spots[0]).toMatchObject({ sourceX: 50 });
+    expect(history[2].spots[0]).toMatchObject({ sourceX: 60 });
+  });
+
+  it('keeps the spot as it was when no other source fits', async () => {
+    invoke.mockResolvedValue(null);
+    render(<StudioSpotList />);
+    const before = useEditorStore.getState().adjustments;
+    await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'spotRemoval.list.newSource' })[0]));
+    expect(useEditorStore.getState().adjustments).toBe(before);
+  });
+
+  it('offers no item for a fill removal or a red eye correction', () => {
+    useEditorStore.setState({ adjustments: structuredClone(INITIAL_ADJUSTMENTS), activeSpotId: null });
+    render(<StudioSpotControls />);
+    expect(screen.queryByRole('button', { name: /spotRemoval\.findAnotherSource/ })).toBeNull();
+    expect(invoke).not.toHaveBeenCalled();
   });
 });
 

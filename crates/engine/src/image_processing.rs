@@ -7317,10 +7317,15 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// converge on white above that level, so the RAW's top EVs keep their
 /// gradation (a negative scan pushed +2.5 EV rendered them as flat tones);
 /// levels below 1.4 render as with 10 (notes: G02,
-/// benchmark-results/r23b-white-rolloff-2026-11-07).
+/// benchmark-results/r23b-white-rolloff-2026-11-07);
+/// 12 (2026-11-08) lets lowered Whites reach only the bright tones, as
+/// Capture One's White does: version 10's gain is weighted by the base
+/// level's display lightness (0 below L* 40, rising to white), where 10
+/// darkened L* 60 by about 5 at −100 (notes: G02,
+/// benchmark-results/g02w-whites-minus-2026-11-08).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 11;
+pub const TONE_VERSION: u64 = 12;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.

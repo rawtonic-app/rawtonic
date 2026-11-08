@@ -83,13 +83,19 @@ export const RECIPE_ACTIONS = new Set([
   'toggle_masks'
 ]);
 
-/** No shortcut reaches the app behind Preferences, a dialog or a modal. */
-function shortcutsHeld(state: ShortcutState, chooser = false): boolean {
+/** No shortcut reaches the app behind Preferences, a dialog or a modal.
+ * Also used by capture-phase key handlers outside this hook (the spot
+ * overlay), which would otherwise act while a shortcut is being recorded. */
+export function uiHoldsShortcuts(ui: ReturnType<typeof useUIStore.getState>, chooser = false): boolean {
   return (
-    state.ui.isSettingsOpen ||
+    ui.isSettingsOpen ||
     !!document.querySelector(chooser ? COMMAND_DIALOG_SELECTOR : 'dialog[open], [aria-modal="true"]') ||
-    isAnyModalOpen(state.ui)
+    isAnyModalOpen(ui)
   );
+}
+
+function shortcutsHeld(state: ShortcutState, chooser = false): boolean {
+  return uiHoldsShortcuts(state.ui, chooser);
 }
 
 /** The loupe and the full screen are views: recipe keys are not bound there

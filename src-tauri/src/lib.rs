@@ -838,6 +838,7 @@ fn start(args: Vec<String>) {
             red_eye::red_eyes_shown,
             red_eye::red_eye_point,
             spot_removal::find_spot_source,
+            spot_removal::find_another_spot_source,
             spot_removal::visualize_spots,
             spot_removal::find_dust,
             spot_removal::sync_dust_spots,
