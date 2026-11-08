@@ -166,15 +166,15 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 - **Fast, on the graphics card.** The photograph is rendered on the GPU (on a Mac natively beneath the interface), so sliders, brushes and masks respond while you drag.
 - **Light.** Exposure, highlights, shadows, whites and blacks, levels, point and region curves, clarity, structure, dehaze.
 - **Colour.** RAW white balance, colour editor, colour grading, vibrance, black-and-white mix, camera profiles, CUBE LUTs, soft proofing for print and web colour spaces.
-- **Detail.** Sharpening, noise reduction, AI Denoise\*, chromatic aberration removal and defringing.
+- **Detail.** Sharpening (hold Option/Alt while dragging Masking to see the mask), noise reduction, AI Denoise\*, chromatic aberration removal and defringing.
 - **Local adjustments.** Brush, linear and radial masks, colour and luminance ranges, subject, sky, background, depth and people masks\* (skin, hair, eyes, lips, clothes …), layer opacity.
 - **Geometry.** Crop, straighten, automatic and guided perspective correction, automatic lens corrections.
 - **Retouch.** Heal and clone with spots or brush strokes, Find dust, object removal\*, automatic face retouch\* with a protection brush for freckles and moles.
 - **Relight\*** _(experimental)_. Up to four added lights with patterns; the photo's own light can be turned down.
 - **Merge.** HDR, panorama, HDR panorama and focus stacking to a DNG; collages.
 - **Film.** Convert scanned negatives; grain with five structures (even, soft, clumped, speckled, gritty) and vignette.
-- **Library.** Ratings, flags, labels, keywords and IPTC in XMP sidecars; stacks and Auto-Stack; find duplicates; eyes-open check\*; Shift Capture Time; Match Light; catalogs, albums and smart albums; import from Lightroom Classic and Capture One.
-- **Output.** JPEG, TIFF, PNG, WebP, JPEG XL and AVIF in sRGB, Display P3, Adobe RGB or ProPhoto RGB; output sharpening for screen and print; watermarks and borders; metadata you choose to keep.
+- **Library.** Ratings, flags, labels, keywords and IPTC in XMP sidecars; stacks and Auto-Stack; find duplicates; eyes-open check\*; Shift Capture Time; Match Light; catalogs, albums and smart albums; search by what a photo shows (Content search\*, sorts by match); import from Lightroom Classic and Capture One.
+- **Output.** Proof sheets (File › Proof Sheet…: numbered contact sheets as PDF or JPEG for clients); JPEG, TIFF, PNG, WebP, JPEG XL and AVIF in sRGB, Display P3, Adobe RGB or ProPhoto RGB; output sharpening for screen and print; watermarks and borders; metadata you choose to keep.
 - **Private by design.** No account or telemetry. An optional startup update check is the only automatic network access ([privacy](PRIVACY.md)).
 
 <sub>\* Optional AI tools. They run on your computer, never in the cloud; each model is downloaded once, the first time you use the tool (see <a href="docs/MODELS.md">AI models</a>). Areas filled by a generative model are marked as such in exported files.</sub>

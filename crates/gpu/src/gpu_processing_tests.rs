@@ -376,6 +376,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & RELIGHT_RANGE4_FEATURE != 0 && expected & RELIGHT_RANGE3_FEATURE == 0 {
             continue;
         }
+        // Response 8 renders Masking itself.
+        if expected & SHARPEN_V7_FEATURE != 0 && expected & SHARPEN_V8_FEATURE != 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -417,7 +421,14 @@ fn preview_features_preserve_global_and_local_effects() {
             profile["sharpenMasking"] = json!(50);
             profile["sharpenVersion"] = json!(7);
         }
+        if expected & SHARPEN_V8_FEATURE != 0 {
+            profile["sharpenVersion"] = json!(8);
+        }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        if expected & SHARPEN_V8_FEATURE != 0 {
+            // Response 8 needs a measured noise level.
+            adjustments.global.noise_level = 0.01;
+        }
         assert_eq!(preview_features(&adjustments), expected, "{profile}");
         if expected & 8 != 0 {
             // Stale entries beyond mask_count must not affect the current image.
@@ -429,7 +440,8 @@ fn preview_features_preserve_global_and_local_effects() {
                         | RELIGHT_RANGE2_FEATURE
                         | RELIGHT_RANGE3_FEATURE
                         | RELIGHT_RANGE4_FEATURE
-                        | SHARPEN_V7_FEATURE)
+                        | SHARPEN_V7_FEATURE
+                        | SHARPEN_V8_FEATURE)
             );
             continue;
         }
@@ -2037,88 +2049,92 @@ fn sharpen_version_6_reaches_further_on_non_raw_photos() {
 }
 
 #[test]
-#[ignore = "requires a native GPU; compares the cached and inline detail stage of response 7"]
-fn cached_detail_of_sharpening_7_matches_inline_detail_and_follows_the_tone_curve() {
+#[ignore = "requires a native GPU; compares the cached and inline detail stage of responses 7 and 8"]
+fn cached_detail_of_sharpening_7_and_8_matches_inline_detail_and_follows_the_tone_curve() {
     let (width, height) = (1280u32, 853u32);
     let context = context();
-    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
-    let started = Instant::now();
-    while processor.detail_pipeline_for(true).is_none() {
-        assert!(
-            started.elapsed().as_secs() < 60,
-            "detail pipeline did not compile"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    let view = input(&context, width, height, 21);
-    let profile = json!({"sharpness": 80, "sharpenMasking": 50, "sharpenVersion": 7,
-        "colorNoiseReduction": 25});
-    let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
-    adjustments.global.noise_level = 0.01;
-    prepare_preview_pipeline(&processor, preview_features(&adjustments));
-    let render = |adjustments: &AllAdjustments, inline: bool| {
-        processor
-            .force_inline_detail
-            .store(inline, Ordering::Relaxed);
-        processor
-            .run(
-                &view,
-                width,
-                height,
-                RenderRequest {
-                    adjustments: (*adjustments).into(),
-                    mask_bitmaps: &[],
-                    lut: None,
-                    roi: None,
+    // Response 7's Masking and response 8 without Masking, each in its
+    // detail pipeline (`sharpen_level`).
+    for (version, masking, level) in [(7, 50.0, 1), (8, 0.0, 2)] {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let started = Instant::now();
+        while processor.detail_pipeline_for(level).is_none() {
+            assert!(
+                started.elapsed().as_secs() < 60,
+                "detail pipeline did not compile"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let view = input(&context, width, height, 21);
+        let profile = json!({"sharpness": 80, "sharpenMasking": masking, "sharpenVersion": version,
+            "colorNoiseReduction": 25});
+        let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        adjustments.global.noise_level = 0.01;
+        prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        let render = |adjustments: &AllAdjustments, inline: bool| {
+            processor
+                .force_inline_detail
+                .store(inline, Ordering::Relaxed);
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: (*adjustments).into(),
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            *processor.display_render_state.lock().unwrap() = None;
+            let pixels = read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d::ZERO,
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
                 },
-                true,
-                RenderOutputPrecision::EightBit,
+                4,
             )
             .unwrap();
-        *processor.display_render_state.lock().unwrap() = None;
-        let pixels = read_texture_data_roi(
-            &context.device,
-            &context.queue,
-            &processor.test_working_texture(),
-            wgpu::Origin3d::ZERO,
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            4,
-        )
-        .unwrap();
-        processor
-            .force_inline_detail
-            .store(false, Ordering::Relaxed);
-        pixels
-    };
-    let cached = render(&adjustments, false);
-    assert!(
-        processor
-            .blur_cache
-            .lock()
-            .unwrap()
-            .tiles
-            .iter()
-            .any(|tile| tile.detail.is_some()),
-        "the detail stage was cached"
-    );
-    assert_eq!(
-        cached,
-        render(&adjustments, true),
-        "cached and inline response 7 differ"
-    );
-    // A brighter base look moves the mask: the cached stage is rebuilt, not
-    // reused from the previous key.
-    adjustments.global.baseline_exposure += 1.0;
-    let brighter_cached = render(&adjustments, false);
-    assert_eq!(
-        brighter_cached,
-        render(&adjustments, true),
-        "stale detail cache after the tone curve changed"
-    );
+            processor
+                .force_inline_detail
+                .store(false, Ordering::Relaxed);
+            pixels
+        };
+        let cached = render(&adjustments, false);
+        assert!(
+            processor
+                .blur_cache
+                .lock()
+                .unwrap()
+                .tiles
+                .iter()
+                .any(|tile| tile.detail.is_some()),
+            "the detail stage was cached"
+        );
+        assert_eq!(
+            cached,
+            render(&adjustments, true),
+            "cached and inline response {version} differ"
+        );
+        // A brighter base look moves the mask: the cached stage is rebuilt, not
+        // reused from the previous key.
+        adjustments.global.baseline_exposure += 1.0;
+        let brighter_cached = render(&adjustments, false);
+        assert_eq!(
+            brighter_cached,
+            render(&adjustments, true),
+            "stale detail cache of response {version} after the tone curve changed"
+        );
+    }
 }
 
 #[test]
@@ -2169,8 +2185,8 @@ fn sharpening_view_shows_the_applied_mask_and_leaves_other_renders_alone() {
     // view's cache holds the Masking factor, and the frames without the view
     // that follow one with it (same sliders) must not read it as colours.
     let started = Instant::now();
-    while processor.detail_pipeline_for(true).is_none()
-        || processor.mask_view_detail_pipeline().is_none()
+    while processor.detail_pipeline_for(1).is_none()
+        || processor.mask_view_detail_pipeline(false).is_none()
     {
         assert!(
             started.elapsed().as_secs() < 120,
@@ -2454,6 +2470,107 @@ fn sharpen_version_7_masks_bright_flat_noise() {
             v6[0]
         );
         assert!(r7 > 2.0 * r6, "texture per flat noise: {r7} against {r6}");
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; compares sharpening responses 7 and 8"]
+fn sharpen_version_8_gates_flat_noise() {
+    // Left half: a flat mid-grey area with noise (σ 0.01 in square-root
+    // luminance, a fixed pseudo-random pattern); right half: the same grey
+    // with a 6 px texture (±20 %) and the same noise.
+    let (width, height) = (128u32, 128u32);
+    let noise_level = 0.01f32;
+    let pixels: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let (x, y) = (i % width, i / width);
+            let hash = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663))
+                .wrapping_mul(2_654_435_761);
+            let noise = (hash >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0;
+            let phase = |c: u32| (c as f32 * std::f32::consts::TAU / 6.0).sin();
+            let base = if x < width / 2 {
+                0.3f32
+            } else {
+                0.3 * (1.0 + 0.2 * phase(x) * phase(y))
+            };
+            let p = base.sqrt() + noise * noise_level * 3f32.sqrt();
+            let v = f16::from_f32(p * p);
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &pixels);
+    let render = |profile: serde_json::Value, is_raw: bool, level: f32| {
+        let mut adjustments = get_all_adjustments_from_json(&profile, is_raw, Some(1));
+        adjustments.global.noise_level = level;
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    for render_version in [
+        None,
+        Some(rawtonic_engine::image_processing::RENDER_VERSION),
+    ] {
+        let recipe = |version: u64| {
+            let mut recipe = json!({"sharpness": 80, "lumaNoiseReduction": 0,
+            "colorNoiseReduction": 0, "sharpenVersion": version});
+            if let Some(render_version) = render_version {
+                recipe["renderVersion"] = json!(render_version);
+            }
+            recipe
+        };
+        // On non-RAW photos, and without a measured noise level, response 7
+        // bit for bit.
+        assert_eq!(
+            render(recipe(8), false, noise_level),
+            render(recipe(7), false, noise_level)
+        );
+        assert_eq!(render(recipe(8), true, 0.0), render(recipe(7), true, 0.0));
+        let flat = render(
+            json!({"sharpness": 0, "lumaNoiseReduction": 0, "colorNoiseReduction": 0}),
+            true,
+            noise_level,
+        );
+        let change = |version: u64| {
+            let pixels = render(recipe(version), true, noise_level);
+            let mut sums = [0.0f64; 2];
+            for y in 8..height - 8 {
+                for x in (8..width / 2 - 8).chain(width / 2 + 8..width - 8) {
+                    let i = ((y * width + x) * 4) as usize;
+                    sums[usize::from(x >= width / 2)] += (pixels[i] as f64 - flat[i] as f64).abs();
+                }
+            }
+            sums
+        };
+        let (v7, v8) = (change(7), change(8));
+        eprintln!("flat {} / {}, texture {} / {}", v7[0], v8[0], v7[1], v8[1]);
+        // Without Masking the flat noise loses nearly all of its sharpening
+        // (5 % kept on Metal), the texture, about five noise levels strong,
+        // most of it (69 %).
+        assert!(
+            v8[0] < 0.25 * v7[0],
+            "flat noise: {} against {}",
+            v8[0],
+            v7[0]
+        );
+        assert!(v8[1] > 0.6 * v7[1], "texture: {} against {}", v8[1], v7[1]);
     }
 }
 
@@ -3159,7 +3276,7 @@ fn grain_version_timing_probe() {
 }
 
 #[test]
-#[ignore = "native GPU timing probe; compares sharpening responses 1 and 2"]
+#[ignore = "native GPU timing probe; compares the two newest sharpening responses"]
 fn sharpen_version_timing_probe() {
     let context = context();
     // Warm display frames at preview size and full-resolution 16-bit
@@ -3200,6 +3317,9 @@ fn sharpen_version_timing_probe() {
                         profile["sharpnessThreshold"] = json!(15.0 + 0.01 * frame as f64);
                     }
                     profile["sharpenVersion"] = json!(version);
+                    let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                    // A measured noise level, which response 8 reads.
+                    adjustments.global.noise_level = 0.004;
                     let start = Instant::now();
                     processor
                         .run(
@@ -3207,7 +3327,7 @@ fn sharpen_version_timing_probe() {
                             width,
                             height,
                             RenderRequest {
-                                adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                                adjustments,
                                 mask_bitmaps: &[],
                                 lut: None,
                                 roi: None,

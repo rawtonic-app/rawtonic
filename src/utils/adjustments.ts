@@ -678,7 +678,9 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * to black and white before it. */
   bwVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
-   * `SHARPEN_VERSION`): 7 = 6 with Masking reading the neighbourhood as it shows on RAW photos (the photo's noise
+   * `SHARPEN_VERSION`): 8 = 7 with a noise gate on RAW photos at every Masking value (what stands no more
+   * than the photo's measured noise out of its neighbourhood is not sharpened; renders as 7 on non-RAW photos and
+   * without a measured noise level); 7 = 6 with Masking reading the neighbourhood as it shows on RAW photos (the photo's noise
    * taken out, bright flat noise no longer kept as texture; renders as 6 without Masking and on non-RAW photos);
    * 6 = 5, and for JPEGs and other non-RAW photos
    * stronger above Amount 40 (closer to Camera Raw's; RAW photos render as 5); 5 = 4 with Masking's ramp after Camera Raw's (wider:
@@ -1298,7 +1300,7 @@ export const DEFRINGE_VERSION = 2;
 export const BW_VERSION = 2;
 
 /** The sharpening response new edits start with (notes: reference/detail.md). */
-export const SHARPEN_VERSION = 7;
+export const SHARPEN_VERSION = 8;
 
 /** The luminance noise reduction new edits start with (notes: reference/luma-noise-reference.md). */
 export const LUMA_NOISE_VERSION = 2;
