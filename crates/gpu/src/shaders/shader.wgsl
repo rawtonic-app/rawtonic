@@ -60,6 +60,9 @@ override SHADOWS_V13: bool = false;
 // Lowered Highlights of tone version 14 (`apply_highlights_adjustment_v14`),
 // for the same reason (gpu_processing.rs `HIGHLIGHTS_V14_FEATURE`).
 override HIGHLIGHTS_V14: bool = false;
+// Lowered Blacks of tone version 16 (`blacks_v16_black_point`), for the
+// same reason (gpu_processing.rs `BLACKS_V16_FEATURE`).
+override BLACKS_V16: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -2074,6 +2077,66 @@ fn blacks_v9_black_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
         let rest = toe * exp(-shift / toe - 1.0);
         out_l = toe * exp(v / toe - 1.0) - rest * (1.0 - (v + shift) / (toe + shift));
     }
+    return encode_signed(lin * (luma_of_lstar(max(out_l, 0.0)) / y));
+}
+
+// Lowered Blacks, tone version 16 (RAW look): version 9's black point
+// reaches into the midtones as Capture One's Black does. Version 9 changed
+// only L* < 30, so at the same darkening of the darkest tenth L* 20–30
+// stayed 5–9 L* lighter than both Capture One and Camera Raw, and its steep
+// fade from L* 10 to 30 raised the shadows' fine detail to 1.2–1.3 × the
+// neutral render's (theirs 0.8–0.9 ×). At −100 version 16 moves L* down by
+// BLACKS_V16_SHIFT × w with w the square of a smoothstep falling from 1 at
+// black to 0 at BLACKS_V16_TOP (L* 30 −5.6, 40 −3.0, 50 −1.2, 60 −0.3,
+// tones from L* 80 unchanged), under version 9's exponential toe
+// BLACKS_V16_TOE wide, and clips what ends below BLACKS_V16_CLIP_WIDTH by up
+// to BLACKS_V16_CLIP to black (Capture One clips the deepest pixels; without
+// it the darkest pixels at −100 stayed 1 point less often black than in
+// Capture One at the same darkening). A lower setting takes the share
+// 1 − (1 − amount)^BLACKS_V16_EASE of −100's change in L* (−50: 0.8, so −50
+// darkens the darkest tenth as much as Capture One's −50; Blacks −1 moves no
+// tone by more than 0.25 L*), which keeps every setting monotone and never
+// lighter. Chosen on 24 of the slider atlas's 48 frames: at the same
+// darkening of the darkest tenth the L* bands stay within 1 L* of Capture
+// One's, the shadows' detail 0.1 above its, BLK's dark-area detail 1.05 of
+// the neutral render's (version 9 1.14)
+// (notes: benchmark-results/atf2-blacks-reach-2026-11-08).
+const BLACKS_V16_SHIFT: f32 = 12.0;
+const BLACKS_V16_TOP: f32 = 80.0;
+const BLACKS_V16_TOE: f32 = 8.0;
+const BLACKS_V16_CLIP: f32 = 0.2;
+const BLACKS_V16_CLIP_WIDTH: f32 = 2.0;
+const BLACKS_V16_EASE: f32 = 2.32;
+
+// Version 16's black point at −100, on L* below BLACKS_V16_TOP.
+fn blacks_v16_full(l: f32) -> f32 {
+    let u = clamp((BLACKS_V16_TOP - l) / BLACKS_V16_TOP, 0.0, 1.0);
+    let s = u * u * (3.0 - 2.0 * u);
+    let v = l - BLACKS_V16_SHIFT * s * s;
+    var out_l = v;
+    if (v < BLACKS_V16_TOE) {
+        // As version 9's toe: slope 1 at the toe, black maps to black.
+        let rest = BLACKS_V16_TOE * exp(-BLACKS_V16_SHIFT / BLACKS_V16_TOE - 1.0);
+        out_l = BLACKS_V16_TOE * exp(v / BLACKS_V16_TOE - 1.0)
+            - rest * (1.0 - (v + BLACKS_V16_SHIFT) / (BLACKS_V16_TOE + BLACKS_V16_SHIFT));
+    }
+    return max(out_l - BLACKS_V16_CLIP * max(1.0 - out_l / BLACKS_V16_CLIP_WIDTH, 0.0), 0.0);
+}
+
+// Version 16's black point on the tone-mapped (sRGB-encoded) colour, which
+// it scales in linear light; `amount` is −Blacks / 100, above 0.
+fn blacks_v16_black_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let lin = decode_signed(rgb);
+    let y = get_luma(max(lin, vec3<f32>(0.0)));
+    if (amount <= 0.0 || y <= 0.0) {
+        return rgb;
+    }
+    let l = lstar_of_luma(y);
+    if (l >= BLACKS_V16_TOP) {
+        return rgb;
+    }
+    let share = 1.0 - pow(1.0 - amount, BLACKS_V16_EASE);
+    let out_l = l - share * (l - blacks_v16_full(l));
     return encode_signed(lin * (luma_of_lstar(max(out_l, 0.0)) / y));
 }
 
@@ -9780,7 +9843,11 @@ fn main(
         }
         if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
             // Renderer value is slider / 40.
-            default_tonemapped = blacks_v9_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            if (BLACKS_V16 && adjustments.global.tone_version > 15.5) {
+                default_tonemapped = blacks_v16_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            } else {
+                default_tonemapped = blacks_v9_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            }
         }
     } else if (is_raw == 1u) {
         var srgb_emulated = linear_to_srgb(composite_rgb_linear);
@@ -9857,7 +9924,11 @@ fn main(
         // The LUT reads the scene colour, which version 9's lowered Blacks
         // no longer darkens: its black point acts on the LUT's colour too.
         if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
-            lut_color = blacks_v9_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            if (BLACKS_V16 && adjustments.global.tone_version > 15.5) {
+                lut_color = blacks_v16_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            } else {
+                lut_color = blacks_v9_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            }
         }
         base_srgb = lut_amount(default_tonemapped, lut_color, adjustments.global.lut_intensity);
     } else {

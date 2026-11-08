@@ -654,7 +654,9 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * tones (L* 40 and up, weighted towards white); 13 = and raised Shadows
    * lifts the midtones less and keeps the shadows' texture as it is (no
    * texture boost); 14 = and lowered Highlights leaves no light rim at
-   * strong edges (its local base is edge-aware); 1 or missing on
+   * strong edges (its local base is edge-aware); 16 = and lowered Blacks'
+   * black point reaches into the midtones (fading out by L* 80), as
+   * Capture One's Black does; 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1278,7 +1280,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 14;
+export const TONE_VERSION = 16;
 
 /** The response a recipe without `toneVersion` takes when nothing in it
  * renders differently: 5, the last that leaves Whites, Blacks and Clarity

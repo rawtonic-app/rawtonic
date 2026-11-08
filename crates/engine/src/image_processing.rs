@@ -7332,10 +7332,16 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// luminance too: with only version 5's wide linear range, a dark surround
 /// pulled the base of the bright side's pixels down and the detail lift
 /// left a light rim at strong edges, 1.0 L* above Camera Raw's at −100
-/// (notes: G02, benchmark-results/atf6-highlights-halo-2026-11-08).
+/// (notes: G02, benchmark-results/atf6-highlights-halo-2026-11-08);
+/// 16 (2026-11-08) lets lowered Blacks reach into the midtones as Capture
+/// One's Black does: version 9's black point changed only L* < 30, so at
+/// the same darkening of the darkest tenth L* 20–30 stayed 5–9 L* lighter
+/// than both reference editors and the steep fade raised the shadows' fine
+/// detail 1.2–1.3 × (theirs 0.8–0.9 ×) (notes: G02,
+/// benchmark-results/atf2-blacks-reach-2026-11-08).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 14;
+pub const TONE_VERSION: u64 = 16;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
