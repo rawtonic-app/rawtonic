@@ -11195,7 +11195,13 @@ fn tone_version_16_blacks_reaches_the_midtones() {
         ] {
             assert!(
                 render_raw_look(&processor, &view, (width, height), &with(&recipe, 14), look)
-                    == render_raw_look(&processor, &view, (width, height), &with(&recipe, 16), look),
+                    == render_raw_look(
+                        &processor,
+                        &view,
+                        (width, height),
+                        &with(&recipe, 16),
+                        look
+                    ),
                 "{recipe} under {look:?} differs"
             );
         }
@@ -11237,10 +11243,17 @@ fn tone_version_16_blacks_reaches_the_midtones() {
             let out = lstar_of_codes(&sixteenth[row + x]);
             // Tones from L* 80 on stay as they are.
             if base >= 80.0 {
-                assert_eq!(sixteenth[row + x], neutral[row + x], "Blacks −{amount}: L* {base:.2} moved");
+                assert_eq!(
+                    sixteenth[row + x],
+                    neutral[row + x],
+                    "Blacks −{amount}: L* {base:.2} moved"
+                );
             }
             // Nothing turns lighter.
-            assert!(out <= base + 0.02, "Blacks −{amount}: L* {base:.2} became {out:.2}");
+            assert!(
+                out <= base + 0.02,
+                "Blacks −{amount}: L* {base:.2} became {out:.2}"
+            );
             // Brighter tones stay brighter (by 0.01 L* or two codes).
             for k in 1..=24 {
                 let (a, b) = (&sixteenth[row + x - k], &sixteenth[row + x]);
@@ -11258,7 +11271,11 @@ fn tone_version_16_blacks_reaches_the_midtones() {
             }
             // Version 9 left L* 30 and up untouched.
             if base >= 30.0 {
-                assert_eq!(ninth[row + x], neutral[row + x], "version 9 Blacks −{amount}: L* {base:.2} moved");
+                assert_eq!(
+                    ninth[row + x],
+                    neutral[row + x],
+                    "version 9 Blacks −{amount}: L* {base:.2} moved"
+                );
             }
         }
         reach.push(at);
@@ -11267,7 +11284,12 @@ fn tone_version_16_blacks_reaches_the_midtones() {
     // curve's design), −50 by 0.8 of that.
     let design = [7.08, 4.22, 1.99, 0.65];
     for (i, d) in design.iter().enumerate() {
-        assert!((reach[1][i] - d).abs() <= 0.3, "Blacks −100 at L* {}: {:.2} (design {d})", [25, 35, 45, 55][i], reach[1][i]);
+        assert!(
+            (reach[1][i] - d).abs() <= 0.3,
+            "Blacks −100 at L* {}: {:.2} (design {d})",
+            [25, 35, 45, 55][i],
+            reach[1][i]
+        );
         assert!(
             (reach[0][i] - 0.8 * d).abs() <= 0.3,
             "Blacks −50 at L* {}: {:.2} (design {:.2})",
