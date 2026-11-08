@@ -8,6 +8,7 @@ import {
   Plus,
   X,
   SlidersHorizontal,
+  Palette,
   Keyboard,
   Bookmark,
   Images,
@@ -337,6 +338,7 @@ export default function SettingsPanel({
   const settingCategories = useMemo(
     () => [
       { id: 'general', label: t('settings.categories.general'), icon: SlidersHorizontal },
+      { id: 'interface', label: t('settings.categories.interface'), icon: Palette },
       { id: 'processing', label: t('settings.categories.processing'), icon: Cpu },
       // Its own page (Lightroom keeps previews in Catalog Settings, Capture
       // One in its Image preferences), not the end of a long one.
@@ -766,6 +768,34 @@ export default function SettingsPanel({
           </nav>
           <div className="pref-content custom-scrollbar">
             <AnimatePresence mode="wait">
+              {activeCategory === 'interface' && (
+                <motion.div key="interface" className="pref-page">
+                  <div className="pref-section">
+                    <Text as="h2" variant={TextVariants.title} className="pref-section-title">
+                      {t('settings.categories.interface')}
+                    </Text>
+                    <div className="space-y-8">
+                      <SettingItem
+                        label={t('settings.general.interfaceShade')}
+                        description={t('settings.general.interfaceShadeDesc')}
+                      >
+                        <Dropdown
+                          onChange={(value) =>
+                            onSettingsChange({ ...appSettings, interfaceShade: interfaceShade(value) })
+                          }
+                          options={[
+                            { value: 'darkest', label: t('settings.general.shadeDarkest') },
+                            { value: 'dark-grey', label: t('settings.general.shadeDarkGrey') },
+                            { value: 'medium-grey', label: t('settings.general.shadeMediumGrey') }
+                          ]}
+                          value={interfaceShade(appSettings?.interfaceShade)}
+                          triggerClassName="bg-bg-primary"
+                        />
+                      </SettingItem>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
               {activeCategory === 'general' && (
                 <motion.div key="general" className="pref-page">
                   <div className="pref-section">
@@ -799,24 +829,6 @@ export default function SettingsPanel({
                       <UpdateSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
                       <CrashReportSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
                       <UsageStatsSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
-
-                      <SettingItem
-                        label={t('settings.general.interfaceShade')}
-                        description={t('settings.general.interfaceShadeDesc')}
-                      >
-                        <Dropdown
-                          onChange={(value) =>
-                            onSettingsChange({ ...appSettings, interfaceShade: interfaceShade(value) })
-                          }
-                          options={[
-                            { value: 'darkest', label: t('settings.general.shadeDarkest') },
-                            { value: 'dark-grey', label: t('settings.general.shadeDarkGrey') },
-                            { value: 'medium-grey', label: t('settings.general.shadeMediumGrey') }
-                          ]}
-                          value={interfaceShade(appSettings?.interfaceShade)}
-                          triggerClassName="bg-bg-primary"
-                        />
-                      </SettingItem>
 
                       <SettingItem
                         label={t('settings.general.uiScale')}

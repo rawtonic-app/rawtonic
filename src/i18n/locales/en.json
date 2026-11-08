@@ -2203,6 +2203,7 @@
     "categories": {
       "about": "About",
       "general": "General",
+      "interface": "Interface",
       "processing": "Processing",
       "shortcuts": "Controls"
     },
