@@ -1776,7 +1776,9 @@
     },
     "dialogs": {
       "close": "Fechar",
-      "openTitle": "Abrir um projeto ou um catálogo do Rawtonic"
+      "maximize": "Maximizar",
+      "openTitle": "Abrir um projeto ou um catálogo do Rawtonic",
+      "restore": "Restaurar"
     },
     "drop": {
       "importing": "Está a decorrer uma importação; largue mais fotografias quando terminar.",

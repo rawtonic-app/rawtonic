@@ -1685,7 +1685,9 @@
     },
     "dialogs": {
       "close": "Close",
-      "openTitle": "Open a Rawtonic project or catalog"
+      "maximize": "Maximize",
+      "openTitle": "Open a Rawtonic project or catalog",
+      "restore": "Restore"
     },
     "drop": {
       "importing": "An import is running; drop more photos when it has finished.",

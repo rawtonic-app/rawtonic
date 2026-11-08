@@ -1634,7 +1634,9 @@
     },
     "dialogs": {
       "close": "닫기",
-      "openTitle": "Rawtonic 프로젝트 또는 카탈로그 열기"
+      "maximize": "최대화",
+      "openTitle": "Rawtonic 프로젝트 또는 카탈로그 열기",
+      "restore": "복원"
     },
     "drop": {
       "importing": "가져오는 중입니다. 완료된 후 사진을 더 놓으세요.",

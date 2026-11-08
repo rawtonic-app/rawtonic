@@ -1685,7 +1685,9 @@
     },
     "dialogs": {
       "close": "Schließen",
-      "openTitle": "Rawtonic-Projekt oder -Katalog öffnen"
+      "maximize": "Maximieren",
+      "openTitle": "Rawtonic-Projekt oder -Katalog öffnen",
+      "restore": "Wiederherstellen"
     },
     "drop": {
       "importing": "Ein Import läuft; ziehe weitere Fotos hierher, wenn er fertig ist.",

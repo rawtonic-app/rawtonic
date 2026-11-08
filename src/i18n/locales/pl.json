@@ -1867,7 +1867,9 @@
     },
     "dialogs": {
       "close": "Zamknij",
-      "openTitle": "Otwórz projekt lub katalog Rawtonic"
+      "maximize": "Maksymalizuj",
+      "openTitle": "Otwórz projekt lub katalog Rawtonic",
+      "restore": "Przywróć"
     },
     "drop": {
       "importing": "Trwa import; upuść kolejne zdjęcia, gdy się zakończy.",

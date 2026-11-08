@@ -587,6 +587,14 @@ pub struct ToolLayout {
     pub solo: BTreeMap<String, bool>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestDialogSize {
+    pub width: f64,
+    pub height: f64,
+    pub maximized: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -674,6 +682,8 @@ pub struct AppSettings {
     /// Interface chrome shade; absent or unknown values display as Darkest.
     #[serde(default)]
     pub interface_shade: Option<String>,
+    #[serde(default)]
+    pub ingest_dialog_size: Option<IngestDialogSize>,
     /// Mask overlay opacity in percent, 0–100 (default 50, as in Capture One).
     #[serde(default)]
     pub mask_opacity: Option<u32>,
@@ -907,6 +917,7 @@ impl Default for AppSettings {
             mask_color: None,
             ui_scale: None,
             interface_shade: None,
+            ingest_dialog_size: None,
             mask_opacity: None,
             radial_draw_inside: None,
             crop_grid: None,
@@ -1634,6 +1645,21 @@ mod tests {
         migrate_viewer_background(&mut off);
         assert_eq!(off.viewer_background, None);
         assert!(!migrate_viewer_background(&mut off));
+    }
+
+    #[test]
+    fn ingest_dialog_dimensions_survive_settings_round_trip() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "ingestDialogSize": {"width": 1200, "height": 800, "maximized": true}
+        }))
+        .unwrap();
+        let saved = serde_json::to_value(settings).unwrap();
+        assert_eq!(
+            saved["ingestDialogSize"],
+            serde_json::json!({
+                "width": 1200.0, "height": 800.0, "maximized": true
+            })
+        );
     }
 
     #[test]

@@ -471,6 +471,7 @@ export type Activation = 'none' | 'developed' | 'still';
 export type CropGrid = 'always' | 'drag' | 'off';
 
 export interface AppSettings {
+  ingestDialogSize?: { width: number; height: number; maximized: boolean };
   checkForUpdates?: boolean;
   /** Backend-owned Unix timestamp in seconds throttling automatic update checks. */
   lastUpdateCheck?: number | null;
