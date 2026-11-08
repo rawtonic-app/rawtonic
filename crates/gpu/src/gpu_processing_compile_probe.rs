@@ -38,6 +38,7 @@ fn pipeline_compilation_probe() {
             && (f & RELIGHT_RANGE3_FEATURE == 0 || f & RELIGHT_RANGE2_FEATURE != 0)
             && (f & RELIGHT_RANGE4_FEATURE == 0 || f & RELIGHT_RANGE3_FEATURE != 0)
             && (f & WHITES_V12_FEATURE == 0 || f & TONE_PREVIEW_FEATURE != 0)
+            && (f & HIGHLIGHTS_V14_FEATURE == 0 || f & 2 != 0)
     }) {
         let start = Instant::now();
         create_preview_pipeline(

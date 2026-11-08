@@ -161,6 +161,9 @@ pub const WHITES_BRIGHT_REACH_TONE_VERSION: u64 = 12;
 /// The tone-slider response from which raised Shadows lift the midtones less
 /// and no longer boost the shadows' texture (`toneVersion` 13).
 pub const SHADOWS_MIDTONE_CUT_TONE_VERSION: u64 = 13;
+/// The tone-slider response from which lowered Highlights take a local base
+/// that is edge-aware in log luminance (`toneVersion` 14).
+pub const HIGHLIGHTS_EDGE_BASE_TONE_VERSION: u64 = 14;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -204,6 +207,12 @@ impl ToneVersion {
     /// Raised Shadows lift the midtones less, without a texture boost.
     pub fn shadows_midtone_cut(self) -> bool {
         self.0 >= SHADOWS_MIDTONE_CUT_TONE_VERSION
+    }
+
+    /// Lowered Highlights take a local base that a neighbour across a strong
+    /// edge hardly pulls.
+    pub fn highlights_edge_base(self) -> bool {
+        self.0 >= HIGHLIGHTS_EDGE_BASE_TONE_VERSION
     }
 }
 
