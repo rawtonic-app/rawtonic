@@ -33,7 +33,10 @@
 //! clip first (a white balance or a colour-range adjustment), and the
 //! effects that read a pixel's neighbours or position other than masks
 //! (sharpening, clarity, vignette, grain: they see the block's place and
-//! its neighbouring blocks' pixels). A should_fix limit, kept for the drag's
+//! its neighbouring blocks' pixels). While a layer's shape changes (its
+//! feather or a handle dragged) its mask is read at the averaged copy's
+//! resolution, so a clipped pixel within a copy pixel of a hard mask edge
+//! may see the mask of its neighbour. A should_fix limit, kept for the drag's
 //! cost: exact channels need up to six such renders per update, and two at
 //! 512 pixels already made the drag slower
 //! (notes: parity-gaps/G23-analysis.md, G23b).
@@ -302,27 +305,22 @@ fn render(
         adjustments.global.detail_scale =
             job.scale * width as f32 / job.source.width().max(1) as f32;
         let copies = [
-            (
-                &extremes.brightest,
-                &extremes.brightest_at,
-                &proxy.brightest_in_proxy,
-            ),
-            (
-                &extremes.darkest,
-                &extremes.darkest_at,
-                &proxy.darkest_in_proxy,
-            ),
+            (&extremes.brightest, &extremes.brightest_at),
+            (&extremes.darkest, &extremes.darkest_at),
         ];
         for copy in kept.copies_to_render(proxy.id, Instant::now()) {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("scope_clip_marks_render");
-            let (image, at, in_proxy) = copies[copy];
+            let (image, at) = copies[copy];
             let mask_bitmaps: Vec<_> = frame_masks
                 .iter()
                 .zip(&proxy_masks)
                 .filter_map(|(frame, small)| match (frame, small) {
                     (Some(frame), _) => Some(Arc::new(frame.gather(width, height, at))),
-                    (None, Some(small)) => Some(Arc::new(small.gather(width, height, in_proxy))),
+                    (None, Some(small)) => {
+                        let at = nearest_in(at, job.source.dimensions(), small.dimensions());
+                        Some(Arc::new(small.gather(width, height, &at)))
+                    }
                     (None, None) => None,
                 })
                 .collect();
@@ -386,10 +384,6 @@ pub(crate) struct ScopeProxy {
     of: Weak<DynamicImage>,
     image: Arc<DynamicImage>,
     extremes: Option<Arc<BlockExtremes>>,
-    /// Per pixel of each block-extreme copy, the averaged copy's pixel
-    /// nearest to where it came from (a changed layer's mask is read there).
-    brightest_in_proxy: Arc<Vec<u32>>,
-    darkest_in_proxy: Arc<Vec<u32>>,
     id: u64,
 }
 
@@ -416,16 +410,9 @@ fn proxy_of(preview: &PreviewState, source: &Arc<DynamicImage>) -> ScopeProxy {
         let extremes = block_extreme_pixels(source, ew, eh);
         (Arc::new(image), Some(Arc::new(extremes)))
     };
-    let in_proxy = |at: fn(&BlockExtremes) -> &Vec<u32>| {
-        Arc::new(extremes.as_deref().map_or_else(Vec::new, |extremes| {
-            nearest_in(at(extremes), (width, height), (w, h))
-        }))
-    };
     let proxy = ScopeProxy {
         of: Arc::downgrade(source),
         image,
-        brightest_in_proxy: in_proxy(|e| &e.brightest_at),
-        darkest_in_proxy: in_proxy(|e| &e.darkest_at),
         extremes,
         id: kept
             .as_ref()
@@ -441,8 +428,6 @@ impl Clone for ScopeProxy {
             of: Weak::clone(&self.of),
             image: Arc::clone(&self.image),
             extremes: self.extremes.clone(),
-            brightest_in_proxy: Arc::clone(&self.brightest_in_proxy),
-            darkest_in_proxy: Arc::clone(&self.darkest_in_proxy),
             id: self.id,
         }
     }
