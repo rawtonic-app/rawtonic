@@ -796,6 +796,7 @@ fn start(args: Vec<String>) {
             gpu_processing::sample_preview_color,
             gpu_processing::sample_preview_patch,
             editor_preview::sample_curve_input,
+            editor_preview::sample_mixer_input,
             editor_preview::levels_input_histogram,
             profile_thumbnails::profile_thumbnails,
             profile_thumbnails::cancel_profile_thumbnails,

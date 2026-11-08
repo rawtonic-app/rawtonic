@@ -5466,6 +5466,12 @@ fn variant_constants(
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
     }
+    // The targeted adjustment's mixer and B&W probes: display variants only
+    // (prepared layers mark them; exports never prepare layers), so export
+    // pipelines compile without them and keep their bits.
+    if prepared_layers {
+        constants.push(("MIXER_PROBES", 1.0));
+    }
     constants
 }
 
