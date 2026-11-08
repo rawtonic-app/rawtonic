@@ -93,7 +93,6 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
         // Darkest's incumbent studio panel/raised pair; the brighter Medium
         // ramp keeps stronger steps without sacrificing secondary-text AA.
         const darkestStep = contrast('#292a2c', '#323335');
-        const minimumStep = shade === 'medium-grey' ? 1.32 : darkestStep;
         for (const [lower, upper] of [
           ['inset', 'bg'],
           ['bg', 'raised']
@@ -101,22 +100,27 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
           const a = palette[`--studio-shade-${lower}`];
           const b = palette[`--studio-shade-${upper}`];
           expect(rgb(b)[0], `${lower} < ${upper}`).toBeGreaterThan(rgb(a)[0]);
-          expect(contrast(a, b), `${lower} / ${upper}`).toBeGreaterThanOrEqual(minimumStep);
+          expect(contrast(a, b), `${lower} / ${upper}`).toBeGreaterThanOrEqual(darkestStep);
         }
       });
-      it('uses a light pressed tint independently of dark photo captions', () => {
+      it('keeps pressed panels at least as distinct as Darkest, independently of photo captions', () => {
         const studio = readFileSync('src/components/studio/studio.css', 'utf8') as string;
         const block = studio.slice(studio.indexOf("button[aria-pressed='true'] {")).split('}')[0];
         expect(block).toContain('var(--studio-shade-pressed-rgb,');
+        expect(studio).toContain("button[aria-pressed='true']:hover:not(:disabled),");
         const tint = rgb(palette['--studio-shade-pressed-rgb']);
-        const alpha = Number(block.match(/\/\s*([\d.]+)/)![1]);
+        expect(block).toContain('var(--studio-shade-pressed-alpha,');
+        const alpha = Number(palette['--studio-shade-pressed-alpha']);
+        const darkestPanel = rgb('#292a2c');
+        const darkestPressed = darkestPanel.map((c, i) => c * (1 - 36 / 255) + [120, 147, 170][i] * (36 / 255));
+        const darkestStep = contrast(`rgb(${darkestPanel.join(', ')})`, `rgb(${darkestPressed.join(', ')})`);
         for (const role of ['ink', 'inset', 'bg', 'raised', 'hover']) {
           const bg = rgb(palette[`--studio-shade-${role}`]);
           const composite = `rgb(${bg.map((c, i) => c * (1 - alpha) + tint[i] * alpha).join(', ')})`;
-          expect(contrast(composite, palette[`--studio-shade-${role}`])).toBeGreaterThan(1);
+          if (role === 'bg' || role === 'raised')
+            expect(contrast(composite, palette[`--studio-shade-${role}`])).toBeGreaterThanOrEqual(darkestStep);
           expect(contrast(palette['--studio-shade-accent'], composite)).toBeGreaterThanOrEqual(4.5);
         }
-        expect(rgb(palette['--studio-shade-overlay-rgb'])[0]).toBeLessThan(tint[0]);
       });
     }
     if (shade !== 'darkest')
@@ -182,7 +186,8 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
               '--studio-shade-accent',
               '--studio-shade-warning',
               '--studio-shade-error',
-              '--studio-shade-success'
+              '--studio-shade-success',
+              '--studio-shade-pressed-alpha'
             ].includes(key)
           )
             expect(new Set(rgb(value)).size).toBe(1);

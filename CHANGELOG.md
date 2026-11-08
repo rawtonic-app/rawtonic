@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Grey interface shades have clearer panel depth.** Sunken controls, panels and raised rows are easier to distinguish in Dark grey and Medium grey. Pressed buttons use their own light neutral tint, while photo captions keep their dark background.
+- **Grey interface shades have clearer panel depth.** Sunken controls, panels and raised rows are easier to distinguish in Dark grey and Medium grey. Pressed buttons have a clearer dark fill, independent of photo captions.
 - **Interface shade:** choose Darkest, Dark grey or Medium grey in Preferences. Changes apply immediately; Darkest keeps the existing appearance and Viewer background keeps its own setting.
 
 - **Sharpening no longer sharpens the noise of even areas** (new edits of RAW photos, at every Masking value including 0): what stands no more than the photo's measured noise out of its neighbourhood — judged as it looks after the photo's tone curve — is left unsharpened, while edges and texture are sharpened as before. On 14 test photos (8 at base ISO, 6 at ISO 3200–12800) the sharpened noise in the flattest quarter of each photo, at the same visible detail as Lightroom at Amount 80, falls from 1.05 to 0.88 times Lightroom's (0.84 on the 7 photos the gate was fitted on, 0.90 on the 7 left out); on the high-ISO photos it is 0.68–0.90 times Lightroom's, below Capture One's on each of the five Capture One reaches, with halos still at most Lightroom's and far below Capture One's. At the same Amount, edges on the noisiest photo (ISO 12800) come out up to 10 % softer than before; raise Amount a little to compensate. Recipe `sharpenVersion` 8; JPEGs and saved edits are unchanged.

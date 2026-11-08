@@ -543,7 +543,8 @@
   --studio-shade-muted: #adadad;
   --studio-shade-dim: #737373;
   --studio-shade-overlay-rgb: 24 24 24;
-  --studio-shade-pressed-rgb: 120 120 120;
+  --studio-shade-pressed-rgb: 0 0 0;
+  --studio-shade-pressed-alpha: 0.32;
   --studio-shade-text: #f0f0f0;
   --studio-shade-rgb-text: 240 240 240;
 }
@@ -574,7 +575,8 @@
   --studio-shade-muted: #e0e0e0;
   --studio-shade-dim: #949494;
   --studio-shade-overlay-rgb: 24 24 24;
-  --studio-shade-pressed-rgb: 120 120 120;
+  --studio-shade-pressed-rgb: 0 0 0;
+  --studio-shade-pressed-alpha: 0.32;
   --studio-shade-text: #ffffff;
   --studio-shade-rgb-text: 255 255 255;
 }
