@@ -449,7 +449,10 @@ pub use crate::capture_info::read_camera;
 /// metadata-only ("dummy") decode. Only for cameras whose Adobe value
 /// depends on the capture size (Phase One Sensor+, Sony α1 II Medium/Small).
 fn read_image_shape(path: &str) -> Option<(u32, bool)> {
-    let source = rawler::rawsource::RawSource::new(std::path::Path::new(path)).ok()?;
+    // Import preview rendering can reach this through the base look; do not
+    // map a not-yet-imported file from a removable card.
+    let bytes = std::fs::read(path).ok()?;
+    let source = rawler::rawsource::RawSource::new_from_shared_vec(std::sync::Arc::new(bytes));
     let decoder = rawler::get_decoder(&source).ok()?;
     let image = decoder
         .raw_image(&source, &rawler::decoders::RawDecodeParams::default(), true)

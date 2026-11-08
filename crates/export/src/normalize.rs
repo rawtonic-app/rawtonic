@@ -2,6 +2,8 @@
 //! plans/architecture-cleanup-2026-11.md): every render of a photograph —
 //! export, CLI, multi-view, collage, thumbnails, the editor's previews —
 //! calls [`normalize`] once instead of the defaulting steps one by one.
+//! The import view uses [`new_edit_from_bytes`] for its not-yet-imported
+//! photograph, applying the same new-edit defaults without reopening a card.
 //!
 //! The steps and their order are those the callers applied one by one
 //! (the render-input snapshots and exports stayed byte-identical), plus the
@@ -157,6 +159,29 @@ pub fn normalize(
     }
 }
 
+/// The import view's new recipe from bytes already read from a card.
+/// The path identifies the format only; no file or sidecar is opened.
+pub fn new_edit_from_bytes(path: &Path, bytes: &[u8]) -> (Value, Normalized) {
+    let mut recipe = serde_json::json!({});
+    let is_raw = rawtonic_engine::formats::is_raw_file(path);
+    if is_raw {
+        let source = rawler::rawsource::RawSource::new_from_slice(bytes);
+        rawtonic_engine::camera_crop::apply_default_from_source(&mut recipe, &source);
+        rawtonic_engine::embedded_lens::apply_default_from_source(&mut recipe, path, &source);
+    } else {
+        rawtonic_engine::image_processing::apply_render_default(&mut recipe);
+    }
+    start_new_edit_responses(&mut recipe, is_raw);
+    let versions = Some(RecipeVersions::of(&recipe, is_raw));
+    (
+        recipe,
+        Normalized {
+            versions,
+            lens: Ok(()),
+        },
+    )
+}
+
 /// Step 3's tool responses (`image_processing::new_edit_responses`) on a
 /// recipe that was new before its defaults; the passes the defaults set
 /// (none of these keys) stay.
@@ -175,6 +200,41 @@ fn start_new_edit_responses(recipe: &mut Value, is_raw: bool) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Private, synthetic or CC0 RAW copies; no path/photograph is committed.
+    /// Compare every recipe field to the established file normalization,
+    /// then remove our scratch copy before normalizing its bytes.
+    #[test]
+    #[ignore = "requires RAWTONIC_IMPORT_QA_SOURCES with representative RAW files"]
+    fn import_byte_normalization_matches_files_after_the_source_is_removed() {
+        let root = std::env::var_os("RAWTONIC_IMPORT_QA_SOURCES").expect("RAW QA source directory");
+        let scratch = tempfile::tempdir().unwrap();
+        let mut tested = 0;
+        for entry in std::fs::read_dir(root).unwrap() {
+            let entry = entry.unwrap();
+            if !rawtonic_engine::formats::is_raw_file(entry.path()) {
+                continue;
+            }
+            let path = scratch.path().join(entry.file_name());
+            std::fs::copy(entry.path(), &path).unwrap();
+            let mut expected = serde_json::json!({});
+            let file = normalize(
+                &mut expected,
+                &RecipeSource::file(&path),
+                Bitmaps::None,
+                Defaults::Render,
+            );
+            file.lens.unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            std::fs::remove_file(&path).unwrap();
+            let (actual, result) = new_edit_from_bytes(&path, &bytes);
+            assert_eq!(actual, expected, "format {:?}", path.extension());
+            assert_eq!(result.versions, file.versions);
+            tested += 1;
+        }
+        assert!(tested > 0, "RAW fixtures are required");
+        println!("{tested} RAW recipes match file normalization with the scratch source removed");
+    }
 
     /// The steps one by one, as the callers applied them before `normalize`.
     fn by_steps(recipe: &Value, path: &Path, defaults: Defaults) -> Value {

@@ -18,6 +18,8 @@
 
 ### Fixes
 
+- **Safer 100 % views during import.** Camera crop, lens corrections and decode setup use the photo bytes already read into memory, so pulling a memory card cannot invalidate a mapped file during this render. Source photos and existing sidecars stay untouched.
+
 - **Fresh clipping-scope masks when opening a photo.** Zoomed-in scope updates now start with fresh mask-shape state and use the base-size masks from the second update when their shapes stay unchanged.
 
 - **The colour mixer's and the B&W mix's targeted adjustment pick the colour you see and move at Lightroom's pace.** Pressing the *H*, *S*, *L* or B&W target on the photo read the colour of the photo before white balance, tone and calibration, so after a warmer or cooler white balance a skin tone or a sky could move a band next to the one it looks like. It now reads the colour the mixer itself receives at that point (B&W: the rendered colour before the conversion), shares the drag between the bands the colour lies between by where it sits between them, and moves them by one unit per point of drag in all (was half a unit to the strongest band), as Lightroom does. Exports do not change.
