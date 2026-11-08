@@ -1634,7 +1634,9 @@
     },
     "dialogs": {
       "close": "關閉",
-      "openTitle": "開啟 Rawtonic 專案或目錄"
+      "maximize": "最大化",
+      "openTitle": "開啟 Rawtonic 專案或目錄",
+      "restore": "還原"
     },
     "drop": {
       "importing": "正在匯入；完成後再拖放更多照片。",
