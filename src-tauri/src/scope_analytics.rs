@@ -175,8 +175,9 @@ struct ExtremesKept {
     marks: [Option<(ClippedSides, Instant)>; 2],
     /// The copy the next job renders when the other's marks are fresh.
     next: usize,
-    /// The previous job's layers, serialized.
-    layers: Vec<String>,
+    /// The shapes of the previous job's layers
+    /// (`mask_generation::mask_shape_hash`).
+    layers: Vec<u64>,
 }
 
 impl ExtremesKept {
@@ -212,18 +213,18 @@ impl ExtremesKept {
             .fold(ClippedSides::default(), |all, (marks, _)| all.union(*marks))
     }
 
-    /// Per layer of `masks`, whether it is the previous job's layer
-    /// unchanged (its mask at the preview base's size then is the mask
+    /// Per layer of `masks`, whether its shape is the previous job's layer's
+    /// (a local adjustment may have changed; its mask at the preview base's size then is the mask
     /// cache's entry, drawn once), and keeps `masks` for the next job.
     fn unchanged_layers(&mut self, masks: &[MaskDefinition]) -> Vec<bool> {
-        let layers: Vec<String> = masks
+        let layers: Vec<u64> = masks
             .iter()
-            .map(|mask| serde_json::to_string(mask).unwrap_or_default())
+            .map(rawtonic_engine::mask_generation::mask_shape_hash)
             .collect();
         let unchanged = layers
             .iter()
             .enumerate()
-            .map(|(i, layer)| !layer.is_empty() && self.layers.get(i) == Some(layer))
+            .map(|(i, layer)| self.layers.get(i) == Some(layer))
             .collect();
         self.layers = layers;
         unchanged
@@ -512,5 +513,28 @@ mod tests {
             kept.found(0, ClippedSides::default(), at(1350)),
             ClippedSides::default()
         );
+    }
+
+    #[test]
+    fn a_local_adjustment_keeps_the_layer_s_full_size_mask_a_new_shape_does_not() {
+        let layer = |exposure: f64, feather: f64| -> MaskDefinition {
+            serde_json::from_value(serde_json::json!({
+                "id": "layer1", "name": "Radial", "visible": true, "invert": false,
+                "opacity": 100, "adjustments": {"exposure": exposure},
+                "subMasks": [{"id": "sm1", "type": "radial", "visible": true,
+                    "mode": "additive", "invert": false, "opacity": 100,
+                    "parameters": {"centerX": 3000, "centerY": 2000, "radiusX": 1400,
+                        "radiusY": 900, "rotation": 0, "feather": feather}}]
+            }))
+            .unwrap()
+        };
+        let mut kept = ExtremesKept::default();
+        // The first job has nothing to compare with.
+        assert_eq!(kept.unchanged_layers(&[layer(0.4, 0.5)]), [false]);
+        // The layer's local Exposure dragged: the same shape.
+        assert_eq!(kept.unchanged_layers(&[layer(0.9, 0.5)]), [true]);
+        // Its Feather dragged: another shape.
+        assert_eq!(kept.unchanged_layers(&[layer(0.9, 0.6)]), [false]);
+        assert_eq!(kept.unchanged_layers(&[layer(0.9, 0.6)]), [true]);
     }
 }
