@@ -6,7 +6,7 @@ import App from './App';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { installFrontendLogBridge } from './utils/frontendLogBridge';
 import { registerAppWrites } from './utils/appWrites';
-import { APP_COLOR_VARIABLES } from './utils/themes';
+import { applyInterfaceShade } from './utils/themes';
 import './styles.css';
 
 installFrontendLogBridge();
@@ -25,9 +25,7 @@ const isSecondView = (() => {
 })();
 
 if (isSecondView) {
-  for (const [name, value] of Object.entries(APP_COLOR_VARIABLES)) {
-    document.documentElement.style.setProperty(name, value);
-  }
+  applyInterfaceShade(undefined);
   void Promise.all([import('./components/secondView/SecondView'), import('./i18n')]).then(
     ([{ default: SecondView }]) => {
       createRoot(document.getElementById('root')!).render(

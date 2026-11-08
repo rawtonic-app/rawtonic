@@ -10,6 +10,7 @@ import { Lock, LockOpen, Maximize, Minimize } from 'lucide-react';
 import clsx from 'clsx';
 import { Invokes } from '../ui/AppProperties';
 import { SECOND_WINDOW_EVENT, closedSecondWindow, type SecondWindowState } from '../../store/useSecondWindowStore';
+import { applyInterfaceShade } from '../../utils/themes';
 import { panBy, toggleAt, type Zoom } from './secondViewZoom';
 
 /** The toolbar hides this long after the pointer last moved. */
@@ -44,8 +45,9 @@ export default function SecondView() {
   }, [state.zoom]);
 
   useEffect(() => {
-    void invoke<{ language?: string }>(Invokes.LoadSettings)
+    void invoke<{ language?: string; interfaceShade?: string }>(Invokes.LoadSettings)
       .then((settings) => {
+        applyInterfaceShade(settings?.interfaceShade);
         if (settings?.language)
           void import('i18next').then(({ default: i18n }) => i18n.changeLanguage(settings.language));
       })
