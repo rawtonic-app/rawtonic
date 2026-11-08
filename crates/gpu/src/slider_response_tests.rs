@@ -8,7 +8,8 @@
 //! noise, a flat patch), a hue wheel at three chroma levels and an edge.
 //! Each is rendered through the export path (`process_and_get_dynamic_image_inner`,
 //! `ReadbackShader::Export`, 16 bit) with a new RAW edit's recipe versions,
-//! the Standard look and its image key measured as the app measures a
+//! the Standard look (the global sliders also under the Camera Raw look,
+//! `camera-raw/…`, which every RAW file renders with) and its image key measured as the app measures a
 //! decode; Sharpening and noise reduction stay at 0, so the texture metrics
 //! show the slider alone. Metrics are CIELAB (D65) of the sRGB output:
 //!
@@ -111,21 +112,51 @@ fn versions() -> Value {
     })
 }
 
-/// Every pinned render: its name and recipe.
+/// Prefix of the renders under the Camera Raw look, the look every RAW file
+/// gets (`baseline_exposure::base_look`); the others use the Standard look.
+const CAMERA_RAW_PREFIX: &str = "camera-raw/";
+
+fn is_baseline(name: &str) -> bool {
+    name.strip_prefix(CAMERA_RAW_PREFIX).unwrap_or(name) == "baseline"
+}
+
+/// The base look a new RAW file renders with, without the file's own
+/// baseline exposure, curve or phone defaults.
+fn camera_raw_look() -> rawtonic_engine::baseline_exposure::BaseLook {
+    rawtonic_engine::baseline_exposure::BaseLook {
+        baseline_ev: 0.0,
+        camera_raw: true,
+        neutral_colour: true,
+        profile_curve: None,
+        no_black_render: false,
+        phone_defaults: false,
+        capture_gain_ev: 0.0,
+    }
+}
+
+/// Every pinned render: its name and recipe. The global sliders are pinned
+/// under both looks: Standard's and Camera Raw's tone code are separate
+/// (Whites of tone versions 10 and 12 act only under the latter, which is
+/// what every RAW file renders with); the colour mixer only under Standard.
 fn renders() -> Vec<(String, Value)> {
     let base = base_recipe();
     let mut out = vec![("baseline".to_string(), base.clone())];
     let sign = |v: f64| if v > 0.0 { "+" } else { "" };
-    for slider in GLOBAL_SLIDERS {
-        let amounts = if slider == "exposure" {
-            EXPOSURE_EV
-        } else {
-            AMOUNTS
-        };
-        for amount in amounts {
-            let mut recipe = base.clone();
-            recipe[slider] = json!(amount);
-            out.push((format!("{slider}={}{amount}", sign(amount)), recipe));
+    for prefix in ["", CAMERA_RAW_PREFIX] {
+        if !prefix.is_empty() {
+            out.push((format!("{prefix}baseline"), base.clone()));
+        }
+        for slider in GLOBAL_SLIDERS {
+            let amounts = if slider == "exposure" {
+                EXPOSURE_EV
+            } else {
+                AMOUNTS
+            };
+            for amount in amounts {
+                let mut recipe = base.clone();
+                recipe[slider] = json!(amount);
+                out.push((format!("{prefix}{slider}={}{amount}", sign(amount)), recipe));
+            }
         }
     }
     for band in HSL_BANDS {
@@ -398,8 +429,13 @@ fn render(
     slot: &GpuProcessorSlot,
     (image, hash, key): &(DynamicImage, u64, Option<[f32; 3]>),
     recipe: &Value,
+    camera_raw: bool,
 ) -> Lab {
     let mut adjustments = get_all_adjustments_from_json(recipe, true, None);
+    if camera_raw {
+        camera_raw_look().apply(&mut adjustments.global);
+        assert_eq!(adjustments.global.tonemapper_mode, 3, "Camera Raw look");
+    }
     // As `baseline_exposure::apply_base_look` sets a decode's key.
     let [low, high, median] = key.unwrap_or([0.0; 3]);
     adjustments.global.image_key = high;
@@ -447,16 +483,17 @@ fn measure(
     slot: &GpuProcessorSlot,
     charts: &Charts,
     recipe: &Value,
+    camera_raw: bool,
 ) -> Measured {
     let [ramp, texture, hue, edge] = &charts.images;
     let rows = HEIGHT / 2 - 32..HEIGHT / 2 + 32;
 
-    let lab = render(context, slot, ramp, recipe);
+    let lab = render(context, slot, ramp, recipe, camera_raw);
     let ramp_columns = (0..WIDTH)
         .map(|x| lab.mean(x..x + 1, rows.clone())[0])
         .collect();
 
-    let lab = render(context, slot, texture, recipe);
+    let lab = render(context, slot, texture, recipe, camera_raw);
     let inset = 12;
     let cell = |column: u32, row: u32| {
         let (w, h) = TEXTURE_CELL;
@@ -479,7 +516,7 @@ fn measure(
         })
         .collect();
 
-    let lab = render(context, slot, hue, recipe);
+    let lab = render(context, slot, hue, recipe, camera_raw);
     let mut hue_values = Vec::new();
     for row in 0..HUE_CHROMAS.len() as u32 {
         for column in 0..HUE_SECTORS as u32 {
@@ -491,7 +528,7 @@ fn measure(
         }
     }
 
-    let lab = render(context, slot, edge, recipe);
+    let lab = render(context, slot, edge, recipe, camera_raw);
     let profile: Vec<f64> = (0..WIDTH)
         .map(|x| lab.mean(x..x + 1, rows.clone())[0])
         .collect();
@@ -632,7 +669,7 @@ fn write_file(
     let header = json!({
         "about": "Slider response on generated charts (crates/gpu/src/slider_response_tests.rs). Regenerate only for an intended change: UPDATE_SLIDER_RESPONSE=1 cargo test -p rawtonic-gpu -- --ignored slider_response; the PR explains it.",
         "versions": versions(),
-        "recipe": "a new RAW edit's versions, Standard look and base curve, Sharpening and noise reduction 0, image key measured on each chart; Exposure in EV",
+        "recipe": "a new RAW edit's versions, Standard look and base curve (renders named camera-raw/…: the Camera Raw look every RAW file gets, sliders only), Sharpening and noise reduction 0, image key measured on each chart; Exposure in EV",
         "generated_on": adapter,
         "tolerance_basis": "max(0.2 CIELAB units, Metal-Vulkan spread); measured 2026-11-08 at most 0.041 (Apple M4 Pro Metal against RADV 680M Vulkan, notes: benchmark-results/srt-slider-regression-2026-11-08)",
     });
@@ -680,18 +717,35 @@ fn slider_response_matches_the_pinned_measurement() {
     let slot = GpuProcessorSlot::new(None);
     let charts = Charts::new();
     let recipes = renders();
-    let baseline = measure(&context, &slot, &charts, &recipes[0].1);
-    let bands = ramp_bands(&baseline);
+    // Each look is compared with its own unchanged render.
+    let looks: Vec<(bool, Measured)> = [false, true]
+        .into_iter()
+        .map(|camera_raw| {
+            let name = if camera_raw {
+                format!("{CAMERA_RAW_PREFIX}baseline")
+            } else {
+                "baseline".to_string()
+            };
+            let recipe = &recipes.iter().find(|(n, _)| *n == name).unwrap().1;
+            (
+                camera_raw,
+                measure(&context, &slot, &charts, recipe, camera_raw),
+            )
+        })
+        .collect();
     let mut measured = Vec::new();
     for (name, recipe) in &recipes {
-        let m = if name == "baseline" {
+        let camera_raw = name.starts_with(CAMERA_RAW_PREFIX);
+        let baseline = &looks.iter().find(|(c, _)| *c == camera_raw).unwrap().1;
+        let bands = ramp_bands(baseline);
+        let m = if is_baseline(name) {
             None
         } else {
-            Some(measure(&context, &slot, &charts, recipe))
+            Some(measure(&context, &slot, &charts, recipe, camera_raw))
         };
         let (values, chroma) = metrics(
-            m.as_ref().unwrap_or(&baseline),
-            m.as_ref().map(|_| &baseline),
+            m.as_ref().unwrap_or(baseline),
+            m.as_ref().map(|_| baseline),
             &bands,
         );
         measured.push((name.clone(), values, chroma));
@@ -793,7 +847,7 @@ fn slider_response_file_covers_every_slider_at_the_current_versions() {
     );
     for (name, _) in renders() {
         let render = &pinned["renders"][&name];
-        for (metric, len) in metric_shape(name == "baseline") {
+        for (metric, len) in metric_shape(is_baseline(&name)) {
             let values = render[metric].as_array();
             assert_eq!(
                 values.map(Vec::len),
@@ -804,7 +858,7 @@ fn slider_response_file_covers_every_slider_at_the_current_versions() {
         assert!(
             pinned["tolerance"]
                 .as_object()
-                .is_some_and(|t| metric_shape(name == "baseline")
+                .is_some_and(|t| metric_shape(is_baseline(&name))
                     .iter()
                     .all(|(m, _)| t.contains_key(*m))),
             "every metric needs a tolerance"
