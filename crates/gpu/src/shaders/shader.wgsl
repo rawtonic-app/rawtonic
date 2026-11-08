@@ -51,6 +51,9 @@ override SHARPEN_V7: bool = false;
 // Sharpening response 8 on a RAW photo (`apply_sharpen_v8`), for the same
 // reason (gpu_processing.rs `SHARPEN_V8_FEATURE`).
 override SHARPEN_V8: bool = false;
+// Lowered Whites of tone version 12 (`apply_tonal_adjustments_v12`), for
+// the same reason (gpu_processing.rs `WHITES_V12_FEATURE`).
+override WHITES_V12: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -2751,9 +2754,10 @@ fn apply_tonal_adjustments(
 }
 
 // Tone version 12: `apply_tonal_adjustments` with lowered Whites of version
-// 12 (`whites_v12_lower`), in its own function so that the older versions'
-// function compiles exactly as before (a shared function behind a version
-// check changed older recipes on Metal, PR #668).
+// 12 (`whites_v12_lower`), in its own function and compiled only where
+// `WHITES_V12` is set (recipes of version 12 that lower Whites; the others
+// render the same through `apply_tonal_adjustments`), so older recipes
+// compile exactly as before (Metal fast math, PR #668).
 fn apply_tonal_adjustments_v12(
     color: vec3<f32>,
     blurred_color_input_space: vec3<f32>,
@@ -7750,7 +7754,7 @@ fn apply_glow_bloom(
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
     if (adjustments.global.tone_version < 5.5) {
         blurred_linear = apply_tonal_adjustments_v5(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
-    } else if (adjustments.global.tone_version > 11.5) {
+    } else if (WHITES_V12 && adjustments.global.tone_version > 11.5) {
         blurred_linear = apply_tonal_adjustments_v12(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
     } else {
         blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
@@ -8632,7 +8636,7 @@ fn apply_halation(
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
     if (adjustments.global.tone_version < 5.5) {
         blurred_linear = apply_tonal_adjustments_v5(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
-    } else if (adjustments.global.tone_version > 11.5) {
+    } else if (WHITES_V12 && adjustments.global.tone_version > 11.5) {
         blurred_linear = apply_tonal_adjustments_v12(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
     } else {
         blurred_linear = apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
@@ -9194,7 +9198,7 @@ fn main(
         }
         if (adjustments.global.tone_version < 5.5) {
             composite_rgb_linear = apply_tonal_adjustments_v5(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
-        } else if (adjustments.global.tone_version > 11.5) {
+        } else if (WHITES_V12 && adjustments.global.tone_version > 11.5) {
             composite_rgb_linear = apply_tonal_adjustments_v12(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
         } else {
             composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);

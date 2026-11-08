@@ -380,6 +380,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & SHARPEN_V7_FEATURE != 0 && expected & SHARPEN_V8_FEATURE != 0 {
             continue;
         }
+        // Tone version 12's lowered Whites is a tone slider.
+        if expected & WHITES_V12_FEATURE != 0 && expected & TONE_PREVIEW_FEATURE == 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -423,6 +427,9 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         if expected & SHARPEN_V8_FEATURE != 0 {
             profile["sharpenVersion"] = json!(8);
+        }
+        if expected & WHITES_V12_FEATURE != 0 {
+            profile["toneVersion"] = json!(12);
         }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         if expected & SHARPEN_V8_FEATURE != 0 {
