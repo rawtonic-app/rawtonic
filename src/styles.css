@@ -527,6 +527,9 @@
   --app-accent: rgb(255, 255, 255);
   --app-border-color: rgb(112, 112, 112);
   --app-hover-color: rgb(255, 255, 255);
+  --studio-shade-warning: #fff1d0;
+  --studio-shade-error: #ffe5e5;
+  --studio-shade-success: #e5ffe8;
   --studio-focus: #e0effa;
   --studio-shade-accent: #e0effa;
   --studio-shade-ink: #202020;
@@ -552,6 +555,9 @@
   --app-accent: rgb(255, 255, 255);
   --app-border-color: rgb(170, 170, 170);
   --app-hover-color: rgb(255, 255, 255);
+  --studio-shade-warning: #fff1d0;
+  --studio-shade-error: #ffe5e5;
+  --studio-shade-success: #e5ffe8;
   --studio-focus: #e0effa;
   --studio-shade-accent: #e0effa;
   --studio-shade-ink: #373737;

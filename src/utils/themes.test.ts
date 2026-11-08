@@ -65,7 +65,9 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
       const foregrounds =
         shade === 'darkest'
           ? ['#e0e1e3', '#a5a7aa']
-          : ['text', 'muted', 'line'].map((role) => palette[`--studio-shade-${role}`]);
+          : ['text', 'muted', 'line', 'warning', 'error', 'success', 'accent'].map(
+              (role) => palette[`--studio-shade-${role}`]
+            );
       for (const bg of surfaces) {
         for (const fg of foregrounds) expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
         expect(contrast(shade === 'darkest' ? '#9cb8d0' : palette['--studio-shade-accent'], bg)).toBeGreaterThanOrEqual(
@@ -100,7 +102,16 @@ for (const shade of ['darkest', 'dark-grey', 'medium-grey']) {
     if (shade !== 'darkest')
       it('uses strictly neutral chrome greys', () => {
         for (const [key, value] of Object.entries(palette)) {
-          if (key !== '--studio-focus' && key !== '--studio-shade-accent') expect(new Set(rgb(value)).size).toBe(1);
+          if (
+            ![
+              '--studio-focus',
+              '--studio-shade-accent',
+              '--studio-shade-warning',
+              '--studio-shade-error',
+              '--studio-shade-success'
+            ].includes(key)
+          )
+            expect(new Set(rgb(value)).size).toBe(1);
         }
       });
   });
