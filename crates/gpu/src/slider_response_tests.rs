@@ -634,6 +634,7 @@ fn write_file(
         "versions": versions(),
         "recipe": "a new RAW edit's versions, Standard look and base curve, Sharpening and noise reduction 0, image key measured on each chart; Exposure in EV",
         "generated_on": adapter,
+        "tolerance_basis": "max(0.2 CIELAB units, Metal-Vulkan spread); measured 2026-11-08 at most 0.041 (Apple M4 Pro Metal against RADV 680M Vulkan, notes: benchmark-results/srt-slider-regression-2026-11-08)",
     });
     for (key, value) in header.as_object().unwrap() {
         writeln!(s, "  {}: {},", json!(key), value).unwrap();
