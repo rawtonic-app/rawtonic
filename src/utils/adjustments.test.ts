@@ -15,6 +15,7 @@ import {
   CLARITY_VERSION,
   VIBRANCE_VERSION,
   withVibranceVersion,
+  layersUseVibrance,
   STRUCTURE_VERSION,
   withStructureVersion,
   layersUseStructure,
@@ -282,6 +283,9 @@ describe('RAW detail defaults', () => {
       2
     );
     expect(withVibranceVersion({ exposure: 1 } as Partial<Adjustments>)).toEqual({ exposure: 1 });
+    // A layer with Vibrance ties the photo's response (Presence's reset keeps it).
+    expect(layersUseVibrance({ masks: [{ adjustments: { vibrance: 50 } }] } as unknown as Adjustments)).toBe(true);
+    expect(layersUseVibrance({ masks: [{ adjustments: { saturation: 50 } }] } as unknown as Adjustments)).toBe(false);
   });
 
   it('keep the Clarity response a saved recipe rendered with', () => {

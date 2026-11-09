@@ -1708,6 +1708,10 @@ export const withStructureVersion = <T extends Partial<Adjustments>>(
   return { ...picked, structureVersion: source?.structureVersion ?? 1 };
 };
 
+/** Whether a layer of the recipe uses Vibrance (its response follows the photo's `vibranceVersion`). */
+export const layersUseVibrance = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.vibrance as number | undefined) ?? 0) !== 0);
+
 /** Whether a layer of the recipe uses Structure (its travel follows the photo's `structureVersion`). */
 export const layersUseStructure = (adjustments: Partial<Adjustments>): boolean =>
   (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0);
