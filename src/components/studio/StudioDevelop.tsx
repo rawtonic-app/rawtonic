@@ -43,6 +43,7 @@ import {
   isFilmGrain,
   withNewGrainStructure,
   layersUseStructure,
+  layersUseWhiteBalance,
   layersUseVibrance,
   type RegionCurve
 } from '../../utils/adjustments';
@@ -1023,7 +1024,21 @@ export default function StudioDevelop() {
       title="White balance"
       label={t('studio.develop.groups.whiteBalance')}
       onReset={() =>
-        reset(layer ? ['temperature', 'tint'] : ['temperature', 'tint', 'whiteBalance', 'wbTemperature', 'wbTint'])
+        reset(
+          layer
+            ? ['temperature', 'tint']
+            : // The photo's Temperature and Tint responses go back to a new edit's,
+              // each only while no layer uses that slider (the layers follow it).
+              [
+                'temperature',
+                'tint',
+                'whiteBalance',
+                'wbTemperature',
+                'wbTint',
+                ...(layersUseWhiteBalance(adjustments, 'temperature') ? [] : ['temperatureVersion']),
+                ...(layersUseWhiteBalance(adjustments, 'tint') ? [] : ['tintVersion'])
+              ]
+        )
       }
       copy={photoOnly([
         ['whiteBalance', t('studio.develop.groups.whiteBalance')],

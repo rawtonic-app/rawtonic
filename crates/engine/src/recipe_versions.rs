@@ -417,6 +417,58 @@ impl ClarityVersion {
     }
 }
 
+/// Temperature with the references' brightness and magenta coupling and
+/// warm range (`temperatureVersion` 2).
+pub const COUPLED_TEMPERATURE_VERSION: u64 = 2;
+
+/// `temperatureVersion` (`image_processing::TEMPERATURE_VERSION`): 1 when
+/// missing, never newer than this renderer knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TemperatureVersion(u64);
+
+impl TemperatureVersion {
+    pub fn of(recipe: &Value) -> Self {
+        Self(read(recipe, ip::TEMPERATURE_VERSION_KEY, 1).clamp(1, ip::TEMPERATURE_VERSION))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The version the shader uniform carries (bits 0–7 of
+    /// `GlobalAdjustments::temperature_version`).
+    pub fn uniform(self) -> u32 {
+        self.0 as u32
+    }
+
+    /// The Temperature slider brightens when warming, darkens when cooling
+    /// and adds magenta towards the warm end (shader `apply_white_balance_v2`).
+    pub fn coupled(self) -> bool {
+        self.0 >= COUPLED_TEMPERATURE_VERSION
+    }
+}
+
+/// `tintVersion` (`image_processing::TINT_VERSION`): 1 when missing, never
+/// newer than this renderer knows. 2 = Camera Raw's travel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TintVersion(u64);
+
+impl TintVersion {
+    pub fn of(recipe: &Value) -> Self {
+        Self(read(recipe, ip::TINT_VERSION_KEY, 1).clamp(1, ip::TINT_VERSION))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The version the shader uniform carries (bits 8–15 of
+    /// `GlobalAdjustments::temperature_version`).
+    pub fn uniform(self) -> u32 {
+        self.0 as u32
+    }
+}
+
 /// Vibrance weighted by hue and chroma in Oklab (`vibranceVersion` 2).
 pub const OKLAB_VIBRANCE_VERSION: u64 = 2;
 
@@ -705,6 +757,8 @@ pub struct RecipeVersions {
     pub bw: BwVersion,
     pub grain: GrainVersion,
     pub clarity: ClarityVersion,
+    pub temperature: TemperatureVersion,
+    pub tint: TintVersion,
     pub vibrance: VibranceVersion,
     pub structure: StructureVersion,
     pub fringe: FringeVersion,
@@ -729,6 +783,8 @@ impl RecipeVersions {
             bw: BwVersion::of(recipe),
             grain: GrainVersion::of(recipe),
             clarity: ClarityVersion::of(recipe),
+            temperature: TemperatureVersion::of(recipe),
+            tint: TintVersion::of(recipe),
             vibrance: VibranceVersion::of(recipe),
             structure: StructureVersion::of(recipe),
             fringe: FringeVersion::of(recipe),

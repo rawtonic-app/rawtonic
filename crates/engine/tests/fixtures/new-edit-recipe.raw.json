@@ -367,6 +367,8 @@
   "colorNoiseVersion": 11,
   "toneVersion": 16,
   "clarityVersion": 2,
+  "temperatureVersion": 2,
+  "tintVersion": 2,
   "vibranceVersion": 2,
   "structureVersion": 2,
   "fringeVersion": 6,

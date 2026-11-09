@@ -128,6 +128,8 @@ interface OldAdjustments {
   colorNoiseVersion?: number;
   toneVersion?: number;
   clarityVersion?: number;
+  temperatureVersion?: number;
+  tintVersion?: number;
   vibranceVersion?: number;
   structureVersion?: number;
   fringeVersion?: number;

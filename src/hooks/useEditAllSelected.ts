@@ -17,6 +17,7 @@ import {
   sameAdjustmentValue,
   withBwVersion,
   withDetailVersions,
+  withWhiteBalanceVersions,
   withVibranceVersion,
   withGrainVersion,
   withLumaNoiseVersion,
@@ -225,7 +226,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
             withVibranceVersion(
               withDetailVersions(
                 withGrainVersion(
-                  withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
+                  withLumaNoiseVersion(
+                    withWhiteBalanceVersions(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
+                    source?.adjustments
+                  ),
                   source?.adjustments
                 ),
                 source?.adjustments
@@ -279,7 +283,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
           withVibranceVersion(
             withDetailVersions(
               withGrainVersion(
-                withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
+                withLumaNoiseVersion(
+                  withWhiteBalanceVersions(withSharpenVersion(changes, from.adjustments), from.adjustments),
+                  from.adjustments
+                ),
                 from.adjustments
               ),
               from.adjustments

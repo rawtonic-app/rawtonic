@@ -107,6 +107,8 @@ fn versions() -> Value {
     json!({
         "toneVersion": ip::TONE_VERSION,
         "clarityVersion": ip::CLARITY_VERSION,
+        "temperatureVersion": ip::TEMPERATURE_VERSION,
+        "tintVersion": ip::TINT_VERSION,
         "vibranceVersion": ip::VIBRANCE_VERSION,
         "structureVersion": ip::STRUCTURE_VERSION,
         "renderVersion": ip::RENDER_VERSION,

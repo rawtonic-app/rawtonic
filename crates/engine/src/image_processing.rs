@@ -4477,6 +4477,11 @@ pub struct GlobalAdjustments {
     /// The recipe's Clarity (`clarity_version`): 1 the band against a plain
     /// blur, 2 against an edge-aware base (fewer halos at narrow edges).
     pub clarity_version: u32,
+    /// The recipe's white balance responses: bits 0–7 Temperature
+    /// (`temperatureVersion`: 1 luminance kept, 2 brightness and magenta
+    /// coupled like the references' white balance), bits 8–15 Tint
+    /// (`tintVersion`: 1 version 1's travel, 2 Camera Raw's).
+    pub temperature_version: u32,
     /// Median of the decode's linear luminance (image_key.rs), like
     /// `image_key`; 0 = unknown. Lowered Highlights (tone version 3) adapts
     /// to it.
@@ -4502,8 +4507,12 @@ pub struct GlobalAdjustments {
     /// Keeps the struct as long as the shader's (rounded up to 16 bytes):
     /// the mask adjustments follow it in `AllAdjustments`
     /// (`global_adjustments_match_the_shader_layout`).
-    pub _pad_vibrance: [u32; 3],
+    pub _pad_vibrance: [u32; 2],
 }
+
+// The shader's struct is a multiple of 16 bytes; a different length here
+// would shift every later uniform.
+const _: () = assert!(std::mem::size_of::<GlobalAdjustments>().is_multiple_of(16));
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
 #[repr(C)]
@@ -5472,13 +5481,14 @@ fn get_global_adjustments_resolved(
         luminance_curve_count: luminance_points.len().min(16) as u32,
         grain_version: versions.grain.uniform(),
         clarity_version: versions.clarity.uniform(),
+        temperature_version: versions.temperature.uniform() | (versions.tint.uniform() << 8),
         image_key_median: 0.0,
         gamut_mapping: u32::from(versions.render.gamut_mapping()),
         grain_color: (effects.grain_color.get() / 100.0).clamp(0.0, 1.0) as f32,
         capture_gain: u32::from(versions.render.capture_gain()),
         scene_black: u32::from(versions.render.scene_black()),
         vibrance_version: versions.vibrance.uniform(),
-        _pad_vibrance: [0; 3],
+        _pad_vibrance: [0; 2],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -6033,6 +6043,8 @@ pub fn new_edit_responses(is_raw: bool) -> serde_json::Map<String, serde_json::V
     let mut map = serde_json::Map::new();
     map.insert(TONE_VERSION_KEY.into(), json!(TONE_VERSION));
     map.insert(CLARITY_VERSION_KEY.into(), json!(CLARITY_VERSION));
+    map.insert(TEMPERATURE_VERSION_KEY.into(), json!(TEMPERATURE_VERSION));
+    map.insert(TINT_VERSION_KEY.into(), json!(TINT_VERSION));
     map.insert(VIBRANCE_VERSION_KEY.into(), json!(VIBRANCE_VERSION));
     map.insert(STRUCTURE_VERSION_KEY.into(), json!(STRUCTURE_VERSION));
     map.insert(
@@ -7320,6 +7332,30 @@ pub fn clarity_version(adjustments: &serde_json::Value) -> u64 {
     crate::recipe_versions::ClarityVersion::of(adjustments).get()
 }
 
+/// The recipe key naming the Temperature slider's response.
+pub const TEMPERATURE_VERSION_KEY: &str = "temperatureVersion";
+/// The newest Temperature: 2 (2026-11-08) couples brightness and the
+/// green–magenta axis to the slider as Capture One's and Camera Raw's white
+/// balance do (they apply it to the camera's channels before the tone curve):
+/// warming brightens (+0.34 EV at +100) and adds magenta, cooling darkens
+/// (−0.12 EV at −100), and +100 reaches the references' warmest setting
+/// (about −150 mired from as shot) instead of a third beyond it; −100 is
+/// unchanged (about +300 mired). Fitted on half of the slider atlas' 48
+/// frames (notes: benchmark-results/atl-slider-atlas-2026-11-08,
+/// parity-gaps/G01-base-profiles.md). Recipes without the key keep version 1
+/// (luminance kept). Tint has its own key (`TINT_VERSION_KEY`), so a
+/// Temperature-only preset or paste never changes how the Tint renders.
+pub const TEMPERATURE_VERSION: u64 = 2;
+
+/// The recipe key naming which Tint response it was made with.
+pub const TINT_VERSION_KEY: &str = "tintVersion";
+/// The newest Tint: 2 (2026-11-08) gets Camera Raw's travel: ±100 reaches
+/// its ±150 (×1.55 towards green, ×1.9 towards magenta; version 1 reached
+/// −94 / +77; notes: benchmark-results/atf7-slider-travel-2026-11-08) and
+/// brightens towards magenta as both references do (+0.23 EV at +100).
+/// Recipes without the key keep version 1.
+pub const TINT_VERSION: u64 = 2;
+
 /// The recipe key naming the Vibrance response it was made with.
 pub const VIBRANCE_VERSION_KEY: &str = "vibranceVersion";
 /// The newest Vibrance: 2 (2026-11-08) scales Oklab chroma at constant hue
@@ -7914,13 +7950,13 @@ mod vibrance_version_tests {
     use serde_json::json;
 
     /// The shader's `GlobalAdjustments` ends with `vibrance_version` and
-    /// `_pad_vibrance: array<u32, 3>` and is rounded up to 16 bytes (it holds
+    /// `_pad_vibrance: array<u32, 2>` and is rounded up to 16 bytes (it holds
     /// vec4s); the Rust struct must be exactly as long, or every field of
     /// `AllAdjustments` after it moves.
     #[test]
     fn global_adjustments_match_the_shader_layout() {
         use super::GlobalAdjustments;
-        let shader_end = std::mem::offset_of!(GlobalAdjustments, vibrance_version) + 4 + 12;
+        let shader_end = std::mem::offset_of!(GlobalAdjustments, vibrance_version) + 4 + 8;
         assert_eq!(
             std::mem::size_of::<GlobalAdjustments>(),
             shader_end.div_ceil(16) * 16
@@ -9971,3 +10007,51 @@ mod lens_recipe_tests;
 mod mask_recipe_tests;
 #[cfg(test)]
 use mask_recipe_tests::{pack_color_ranges, parse_hsl_adjustments};
+
+#[cfg(test)]
+mod temperature_version_tests {
+    use super::{
+        TEMPERATURE_VERSION, TINT_VERSION, get_all_adjustments_from_json, new_edit_responses,
+    };
+    use serde_json::json;
+
+    fn uniform(recipe: serde_json::Value) -> u32 {
+        get_all_adjustments_from_json(&recipe, true, None)
+            .global
+            .temperature_version
+    }
+
+    #[test]
+    fn recipes_without_a_temperature_version_keep_the_first_response() {
+        assert_eq!(uniform(json!({"temperature": 40})) & 0xff, 1);
+        assert_eq!(
+            uniform(json!({"temperature": 40, "temperatureVersion": 2})) & 0xff,
+            2
+        );
+        assert_eq!(
+            uniform(json!({"temperatureVersion": 9})) & 0xff,
+            TEMPERATURE_VERSION as u32
+        );
+        for raw in [true, false] {
+            assert_eq!(
+                new_edit_responses(raw)["temperatureVersion"],
+                json!(TEMPERATURE_VERSION)
+            );
+            assert_eq!(new_edit_responses(raw)["tintVersion"], json!(TINT_VERSION));
+        }
+    }
+
+    /// Each white-balance slider has its own response, so a preset that
+    /// carries only one of them never changes how the other renders.
+    #[test]
+    fn temperature_and_tint_versions_are_independent() {
+        assert_eq!(uniform(json!({"tint": 40})), 0x101);
+        assert_eq!(uniform(json!({"tint": 40, "tintVersion": 2})), 0x201);
+        assert_eq!(
+            uniform(json!({"tint": 40, "tintVersion": 2, "temperatureVersion": 1})),
+            0x201
+        );
+        assert_eq!(uniform(json!({"temperatureVersion": 2})), 0x102);
+        assert_eq!(uniform(json!({"tintVersion": 9})) >> 8, TINT_VERSION as u32);
+    }
+}
