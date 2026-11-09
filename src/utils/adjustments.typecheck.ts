@@ -129,6 +129,7 @@ interface OldAdjustments {
   toneVersion?: number;
   clarityVersion?: number;
   temperatureVersion?: number;
+  structureVersion?: number;
   fringeVersion?: number;
   defringeVersion?: number;
   bwVersion?: number;

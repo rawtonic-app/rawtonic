@@ -42,6 +42,7 @@ import {
   effectiveGrainStructure,
   isFilmGrain,
   withNewGrainStructure,
+  layersUseStructure,
   type RegionCurve
 } from '../../utils/adjustments';
 import { Panel, type AppSettings, type MaskDisplay } from '../ui/AppProperties';
@@ -1441,8 +1442,11 @@ export default function StudioDevelop() {
                   'dehaze',
                   'vibrance',
                   'saturation',
-                  // The photo's Clarity response goes back to a new edit's.
-                  ...(layer ? ['hue'] : ['clarityVersion'])
+                  // The photo's Clarity response and Structure travel go back to a new edit's;
+                  // the Structure travel only while no layer uses Structure (the layers follow it).
+                  ...(layer
+                    ? ['hue']
+                    : ['clarityVersion', ...(layersUseStructure(adjustments) ? [] : ['structureVersion'])])
                 ])
               }
             >

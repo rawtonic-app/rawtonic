@@ -670,6 +670,12 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * setting, Tint with Camera Raw's travel; 1 or missing on recipes that used
    * either before it = luminance kept, half the Tint travel. Photo-wide (layers follow it). */
   temperatureVersion?: number;
+  /** Structure travel (crates/engine/src/image_processing.rs
+   * `STRUCTURE_VERSION`): 2 = the slider's strength per unit follows Camera
+   * Raw's Texture (version 1's ±50 already went beyond Camera Raw's ±100);
+   * 1 or missing on recipes that used Structure before it = the slider value
+   * is the amount. Photo-wide (layers follow it). */
+  structureVersion?: number;
   /** Edge-fringe pass (crates/engine/src/edge_fringe.rs `VERSION`): 1 =
    * colour along strong luminance edges that neither side explains
    * (demosaic false colour, lateral CA rests) is removed after the lens
@@ -1300,6 +1306,8 @@ export const CLARITY_VERSION = 2;
 
 /** The Temperature response new edits start with (notes: parity-gaps/G01-base-profiles.md). */
 export const TEMPERATURE_VERSION = 2;
+/** The Structure travel new edits start with (notes: benchmark-results/atf7-slider-travel-2026-11-08). */
+export const STRUCTURE_VERSION = 2;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md):
  * 5 = version 4's pass computed on the GPU; 6 = 7 × 7 windows on moderately noisy photos too. */
@@ -1413,6 +1421,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         toneVersion: TONE_VERSION,
         clarityVersion: CLARITY_VERSION,
         temperatureVersion: TEMPERATURE_VERSION,
+        structureVersion: STRUCTURE_VERSION,
         fringeVersion: FRINGE_VERSION,
         cameraCaVersion: CAMERA_CA_VERSION,
         cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
@@ -1432,6 +1441,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         toneVersion: TONE_VERSION,
         clarityVersion: CLARITY_VERSION,
         temperatureVersion: TEMPERATURE_VERSION,
+        structureVersion: STRUCTURE_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         bwVersion: BW_VERSION,
         sharpenVersion: SHARPEN_VERSION,
@@ -1531,6 +1541,7 @@ export const pastedAdjustments = (
       key === 'grainVersion' ||
       key === 'clarityVersion' ||
       key === 'temperatureVersion' ||
+      key === 'structureVersion' ||
       key === 'bwVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
     ) {
@@ -1540,10 +1551,10 @@ export const pastedAdjustments = (
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  return withTemperatureVersion(
-    withBwVersion(
-      withClarityVersion(
-        withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied),
+  return withBwVersion(
+    withDetailVersions(
+      withGrainVersion(
+        withLumaNoiseVersion(withTemperatureVersion(withSharpenVersion(picked, copied), copied), copied),
         copied
       ),
       copied
@@ -1676,6 +1687,36 @@ export const withTemperatureVersion = <T extends Partial<Adjustments>>(
   return { ...picked, temperatureVersion: source?.temperatureVersion ?? 1 };
 };
 
+/** As `withClarityVersion` for Structure: wherever Structure values are
+ * copied its travel goes along explicitly — the source's, else 1 (a source or
+ * preset from before the key), never on its own. */
+export const withStructureVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>
+): T & Pick<Partial<Adjustments>, 'structureVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'structureVersion') && picked.structureVersion == null) {
+    return { ...picked, structureVersion: 1 };
+  }
+  const structure =
+    picked.structure !== undefined ||
+    (source !== undefined &&
+      (picked.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0));
+  if (!structure || picked.structureVersion != null) {
+    return picked;
+  }
+  return { ...picked, structureVersion: source?.structureVersion ?? 1 };
+};
+
+/** Whether a layer of the recipe uses Structure (its travel follows the photo's `structureVersion`). */
+export const layersUseStructure = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0);
+
+/** The Clarity response and the Structure travel, each going along with its values. */
+export const withDetailVersions = <T extends Partial<Adjustments>>(picked: T, source?: Partial<Adjustments>) =>
+  withStructureVersion(withClarityVersion(picked, source), source);
+
 /** As `withSharpenVersion` for the black & white mix: wherever mix values
  * are copied (paste, tool copy, Edit all selected, presets) the mix response
  * goes along explicitly — the source's, else 1 (a source or preset from
@@ -1700,7 +1741,7 @@ export const withBwVersion = <T extends Partial<Adjustments>>(
  * before the keys renders with version 1 wherever it is previewed or
  * applied. */
 export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
-  withTemperatureVersion(withBwVersion(withClarityVersion(preset, preset), preset), preset);
+  withBwVersion(withDetailVersions(withTemperatureVersion(preset, preset), preset), preset);
 
 /** Keys whose values render the pattern of the recipe's grain version. */
 const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;
@@ -1796,6 +1837,16 @@ const loadedTemperatureVersion = (loaded: Partial<Adjustments>): number => {
     ((values?.temperature as number | undefined) ?? 0) !== 0 || ((values?.tint as number | undefined) ?? 0) !== 0;
   const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
   return rendersDifferently ? 1 : TEMPERATURE_VERSION;
+};
+
+/** The Structure travel of a saved recipe, as `loadedClarityVersion`. */
+const loadedStructureVersion = (loaded: Partial<Adjustments>): number => {
+  if (loaded.structureVersion !== undefined && loaded.structureVersion !== null) {
+    return loaded.structureVersion;
+  }
+  const uses = (values: { structure?: unknown } | undefined) => ((values?.structure as number | undefined) ?? 0) !== 0;
+  const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
+  return rendersDifferently ? 1 : STRUCTURE_VERSION;
 };
 
 /** The colour noise filter of a saved recipe: its own, else the earlier
@@ -1967,6 +2018,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       toneVersion: loadedToneVersion(loadedAdjustments),
       clarityVersion: loadedClarityVersion(loadedAdjustments),
       temperatureVersion: loadedTemperatureVersion(loadedAdjustments),
+      structureVersion: loadedStructureVersion(loadedAdjustments),
       defringeVersion: loadedDefringeVersion(loadedAdjustments),
       bwVersion: loadedBwVersion(loadedAdjustments),
       sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
@@ -2118,7 +2170,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         DetailsAdjustment.Structure,
         DetailsAdjustment.Dehaze,
         DetailsAdjustment.Centré,
-        'clarityVersion'
+        'clarityVersion',
+        'structureVersion'
       ]
     },
     {

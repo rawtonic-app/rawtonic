@@ -117,6 +117,9 @@ pub struct AiState {
     pub tasks: Mutex<HashMap<String, Arc<AiTaskToken>>>,
     /// The running library tagging pass (`tagging`).
     pub indexing_task: Mutex<Option<JoinHandle<()>>>,
+    /// Super Resolution's model (`super_resolution`), loaded on first use;
+    /// the lock serialises its load and download.
+    pub super_resolution: TokioMutex<Option<Arc<rawtonic_superres::Model>>>,
 }
 
 impl Default for AiState {
@@ -135,6 +138,7 @@ impl Default for AiState {
             faces: Mutex::new(Default::default()),
             tasks: Mutex::new(HashMap::new()),
             indexing_task: Mutex::new(None),
+            super_resolution: TokioMutex::new(None),
         }
     }
 }

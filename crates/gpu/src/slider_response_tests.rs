@@ -108,6 +108,7 @@ fn versions() -> Value {
         "toneVersion": ip::TONE_VERSION,
         "clarityVersion": ip::CLARITY_VERSION,
         "temperatureVersion": ip::TEMPERATURE_VERSION,
+        "structureVersion": ip::STRUCTURE_VERSION,
         "renderVersion": ip::RENDER_VERSION,
         "colorNoiseVersion": rawtonic_engine::color_noise::VERSION,
     })

@@ -56,8 +56,9 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 | `denoise` | AI Denoise on the Bayer mosaic | `onnx`, `rawdecode` | `coreml`, `tiles`, `noise` | model pack |
 | `faces` | detection, landmarks, parsing, retouch | `onnx` | `detect`, `parts`, `retouch` | ignored `real_photos` |
 | `segment` | Sky and Subject networks | `denoise`, `onnx` | `models`, `focus` | model pack |
+| `superres` | Super Resolution (2× at export) | `denoise` (Core ML), `onnx` | `Model`, `enlarge_with` | unit tests, model pack |
 
-Workspace `default-members` leave out `src-tauri`, `denoise`, `faces`, `segment`, `onnx` and `third_party/rawler`;
+Workspace `default-members` leave out `src-tauri`, `denoise`, `faces`, `segment`, `superres`, `onnx` and `third_party/rawler`;
 use `--workspace` or `-p <crate>` for them.
 
 ### Desktop adapter (`src-tauri`)
@@ -379,6 +380,16 @@ load them from a model folder; the app loads them for the editor and its exports
 compute the same masks; Select Subject is `subject_selection` at the component's `subjectVersion`: version 2
 (`select_subject`) is BiRefNet's foreground without separate objects clearly out of focus next to the sharpest
 (`focus.rs`), version 1 and Relight's matte the network's plain output, `run_subject_model`).
+
+
+#### `superres`
+
+`superres` — Super Resolution: the export's 2× enlargement (Compact network, CC BY 4.0) in 512 px tiles with 24 px of
+context, on Core ML on macOS or ONNX Runtime, the pixel type kept (`enlarge_with`). The export crate calls it through
+its `Enlarger` trait (`enlarge_for_export`, before resize, border and output sharpening when `superResolution` is set);
+glue `src-tauri/src/super_resolution.rs` (`prepare_super_resolution` fetches the model when the option is ticked,
+`ExportEnlarger` for the export workers) and the CLI's `--super-resolution`. Whether it marks exports as generated
+content is the one switch `export_marks_generated`.
 
 
 #### `onnx`

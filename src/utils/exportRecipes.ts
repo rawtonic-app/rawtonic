@@ -46,6 +46,8 @@ export interface RecipeDraft {
   /** The box's other side for `dimensions` (pixels). */
   resizeValue2: number;
   dontEnlarge: boolean;
+  /** Enlarge 2× with the AI model before the resize (Super Resolution). */
+  superResolution: boolean;
   metadata: boolean;
   stripGps: boolean;
   keepCreatorContact?: boolean;
@@ -112,6 +114,7 @@ export const DEFAULT_RECIPE_DRAFT: RecipeDraft = {
   resizeValue: 3000,
   resizeValue2: 2000,
   dontEnlarge: true,
+  superResolution: false,
   metadata: true,
   stripGps: true,
   keepCreatorContact: false,
@@ -203,6 +206,7 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
     resizeValue: draft.resizeValue,
     resizeValue2: draft.resizeValue2,
     dontEnlarge: draft.dontEnlarge,
+    superResolution: draft.superResolution,
     keepMetadata: draft.metadata,
     stripGps: draft.stripGps,
     keepCreatorContact: !!draft.keepCreatorContact,
@@ -264,6 +268,7 @@ export function draftFromPreset(preset: ExportPreset): RecipeDraft {
     resizeValue: preset.resizeValue > 0 ? preset.resizeValue : d.resizeValue,
     resizeValue2: (preset.resizeValue2 ?? 0) > 0 ? preset.resizeValue2! : d.resizeValue2,
     dontEnlarge: preset.dontEnlarge ?? d.dontEnlarge,
+    superResolution: !!preset.superResolution,
     metadata: !!preset.keepMetadata,
     stripGps: !!preset.stripGps,
     keepCreatorContact: !!preset.keepCreatorContact,
@@ -327,6 +332,7 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
       preserveTimestamps: draft.preserveTimestamps,
       stripGps: draft.stripGps,
       keepCreatorContact: !!draft.keepCreatorContact,
+      superResolution: draft.superResolution,
       resize: draft.resize
         ? {
             mode: draft.resizeMode,

@@ -283,6 +283,30 @@ MOEBIUS_ONNX_EXPORT = [
     "python", str(Path(__file__).resolve().parent / "convert_moebius_coreml.py"),
 ]
 
+# Super Resolution (export option): Philip Hofmann's 2xBHI_small_compact_pretrain
+# (CC BY 4.0), exported by export_superres.py with the four-rotation average in
+# the graph (a change from the author's release, credited as such); ONNX for
+# every platform and a Core ML program for macOS. The bytes repeat in this
+# environment.
+SUPERRES_ENTRY = {
+    "used_by": "Super Resolution (export option, 2x enlargement)",
+    "source": "2xBHI_small_compact_pretrain (Philip Hofmann, github.com/Phhofm/models release 2xBHI_small_compact_pretrain, .pth SHA-256 17135b91d28e6e11583c96ec6d0d8e05f89a1c7dc0906234ff16a43d633f9ddc), changed: exported by scripts/models/export_superres.py with each tile's four right-angle rotations averaged and clamped (ONNX fp32; Core ML fp16)",
+    "license": "CC BY 4.0",
+    "license_files": ["2xBHI-small-compact-pretrain-CC-BY-4.0.txt"],
+}
+SUPERRES_SHA256 = {
+    "superres_compact_x2.onnx": "088990646244e01a74c12460dda5a86547d967299d70b4e58afd4904abecd0d8",
+    "superres_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "superres_coreml_model.mlmodel": "59668d6013f38bcd11e721b80379f2cb5d0e896b754095f08433d469988cb132",
+    "superres_coreml_weight.bin": "1df839340b0df1bb953ec97b0e084008c3d44557483d6009fed732d635b3a5fe",
+}
+SUPERRES_EXPORT = [
+    "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "coremltools==9.0",
+    "--with", "numpy==2.2.6", "--with", "onnx==1.23.2", "--with", "onnxruntime==1.30.0",
+    "--with", "pillow==12.0.0",
+    "python", str(Path(__file__).resolve().parent / "export_superres.py"),
+]
+
 SAM_ENTRY = {
     "used_by": "Subject mask (point/box prompts; builds before 2026-10-09)",
     "source": "Segment Anything ViT-B checkpoint sam_vit_b_01ec64.pth (Meta), exported by scripts/models/export_sam.py",
@@ -608,6 +632,14 @@ def main() -> None:
                 "used_by": entry["used_by"].replace("(Core ML, macOS)", "(ONNX on a GPU, Windows and Linux)"),
                 "source": entry["source"].replace("(Core ML, fp16)", "--onnx (ONNX, fp16 weights, fp32 compute)"),
             })
+
+    if todo(SUPERRES_SHA256):
+        superres = args.cache / "superres"
+        subprocess.run(SUPERRES_EXPORT + [str(superres)], check=True)
+        for name, expected in SUPERRES_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY)
 
     if todo(FACES_SHA256):
         faces = args.cache / "faces-out"

@@ -10,7 +10,7 @@ import {
   sameAdjustmentValue,
   withAiDenoiseVersion,
   withBwVersion,
-  withClarityVersion,
+  withDetailVersions,
   withTemperatureVersion,
   withGrainVersion,
   withLumaNoiseVersion,
@@ -47,6 +47,7 @@ export function collectPresetAdjustments(
       key === 'grainVersion' ||
       key === 'clarityVersion' ||
       key === 'temperatureVersion' ||
+      key === 'structureVersion' ||
       key === 'bwVersion'
     )
       continue;
@@ -55,10 +56,10 @@ export function collectPresetAdjustments(
     if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
     presetAdjustments[key] = currentValue;
   }
-  const versioned = withTemperatureVersion(
-    withBwVersion(
-      withClarityVersion(
-        withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current),
+  const versioned = withBwVersion(
+    withDetailVersions(
+      withGrainVersion(
+        withLumaNoiseVersion(withTemperatureVersion(withSharpenVersion(presetAdjustments, current), current), current),
         current
       ),
       current

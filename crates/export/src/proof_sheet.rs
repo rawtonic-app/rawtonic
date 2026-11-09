@@ -989,6 +989,7 @@ pub fn cell_settings(
         destination_type: None,
         subfolder: None,
         output_sharpening,
+        super_resolution: false,
     }
 }
 

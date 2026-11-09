@@ -16,7 +16,7 @@ import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/q
 import {
   sameAdjustmentValue,
   withBwVersion,
-  withClarityVersion,
+  withDetailVersions,
   withTemperatureVersion,
   withGrainVersion,
   withLumaNoiseVersion,
@@ -221,11 +221,11 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // (inferred after drawn masks are left out of the live patch).
       const shown = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
       const patch = shown
-        ? withTemperatureVersion(
-            withBwVersion(
-              withClarityVersion(
-                withGrainVersion(
-                  withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
+        ? withBwVersion(
+            withDetailVersions(
+              withGrainVersion(
+                withLumaNoiseVersion(
+                  withTemperatureVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
                   source?.adjustments
                 ),
                 source?.adjustments
@@ -275,11 +275,11 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // on each of them (never the primary's bitmaps).
       const done = writeToOthers(
         applyRef.current,
-        withTemperatureVersion(
-          withBwVersion(
-            withClarityVersion(
-              withGrainVersion(
-                withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
+        withBwVersion(
+          withDetailVersions(
+            withGrainVersion(
+              withLumaNoiseVersion(
+                withTemperatureVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
                 from.adjustments
               ),
               from.adjustments
