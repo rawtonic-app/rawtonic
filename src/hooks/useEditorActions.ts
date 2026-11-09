@@ -24,6 +24,7 @@ import {
   withAiDenoiseVersion,
   withBwVersion,
   withDetailVersions,
+  withVibranceVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -1448,9 +1449,11 @@ export function useEditorActions() {
       let adjustmentsToApply = asChosen
         ? grain
         : withBwVersion(
-            withDetailVersions(
-              withDiffractionVersion(
-                withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))
+            withVibranceVersion(
+              withDetailVersions(
+                withDiffractionVersion(
+                  withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))
+                )
               )
             )
           );

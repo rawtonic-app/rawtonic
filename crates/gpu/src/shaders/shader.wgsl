@@ -60,6 +60,9 @@ override SHADOWS_V13: bool = false;
 // Lowered Highlights of tone version 14 (`apply_highlights_adjustment_v14`),
 // for the same reason (gpu_processing.rs `HIGHLIGHTS_V14_FEATURE`).
 override HIGHLIGHTS_V14: bool = false;
+// Vibrance of `vibranceVersion` 2 (`apply_creative_color_v2`), for the same
+// reason (gpu_processing.rs `VIBRANCE_V2_FEATURE`).
+override VIBRANCE_V2: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -298,6 +301,13 @@ struct GlobalAdjustments {
     // Film grain colour (`grainColor` / 100): 0 one neutral layer, 1
     // independent dye layers (apply_film_grain).
     grain_color: f32,
+    // Read on the CPU only (image_processing.rs `GlobalAdjustments`).
+    _capture_gain: u32,
+    _scene_black: u32,
+    // The recipe's Vibrance (`vibranceVersion`): 1 apply_creative_color's
+    // HSV-weighted mix, 2 apply_vibrance_v2.
+    vibrance_version: u32,
+    _pad_vibrance: array<u32, 3>,
 }
 
 struct MaskAdjustments {
@@ -3800,6 +3810,70 @@ fn apply_creative_color(color: vec3<f32>, sat: f32, vib: f32) -> vec3<f32> {
 
     processed = mix(vec3<f32>(luma), processed, final_mult);
 
+    return gamut_floor(processed);
+}
+
+// Vibrance version 2 (`vibranceVersion`, image_processing.rs
+// `VIBRANCE_VERSION`): the colour's Oklab chroma is scaled at constant hue,
+// then the colour is brought back to its own luminance (Rec. 709 Y), so
+// Vibrance changes neither hue nor brightness. The scale is weighted as Camera
+// Raw's Vibrance is (fitted on half of the slider atlas's frames, notes:
+// parity-gaps/G06-presence.md "Vibrance"): raising favours blues, purples and
+// cyans over reds, oranges and skin and spares saturated colours (a Gaussian
+// fall-off in chroma, wider for blues), growing faster towards +100; lowering
+// cuts every colour, saturated ones less. Tables: 8 Oklab hues 0°, 45°, …,
+// 315°, smoothly interpolated.
+const VIBRANCE2_RAISE_50 = array<f32, 8>(0.1466, 0.1129, 0.3147, 0.3708, 0.5004, 0.4177, 0.5206, 0.4500);
+const VIBRANCE2_RAISE_100 = array<f32, 8>(0.1527, 0.1127, 0.3243, 0.3859, 0.5724, 0.3990, 0.4984, 0.4326);
+const VIBRANCE2_CHROMA_REACH = array<f32, 8>(0.1370, 0.1370, 0.1370, 0.1500, 0.2100, 0.2050, 0.2350, 0.2000);
+const VIBRANCE2_LOWER = array<f32, 8>(1.1191, 0.9710, 0.8760, 0.9486, 0.9924, 0.9871, 0.9861, 0.9639);
+
+fn vibrance2_at(table: array<f32, 8>, hue_deg: f32) -> f32 {
+    var t = table;
+    let x = hue_deg / 45.0;
+    let i0 = u32(floor(x)) % 8u;
+    let i1 = (i0 + 1u) % 8u;
+    let f = x - floor(x);
+    return mix(t[i0], t[i1], f * f * (3.0 - 2.0 * f));
+}
+
+fn apply_vibrance_v2(color: vec3<f32>, vib: f32) -> vec3<f32> {
+    let safe = gamut_floor(color);
+    let lab = linear_srgb_to_oklab(safe);
+    let chroma = length(lab.yz);
+    // A grey has no hue: atan2 of its rounding residue differs between
+    // backends (Metal and Vulkan rendered the texture chart's greys apart).
+    if (chroma < 1.0e-4) {
+        return safe;
+    }
+    let hue = (degrees(atan2(lab.z, lab.y)) + 360.0) % 360.0;
+    var scale: f32;
+    if (vib > 0.0) {
+        let reach = vibrance2_at(VIBRANCE2_CHROMA_REACH, hue);
+        let spare = exp(-(chroma / reach) * (chroma / reach));
+        let weight = mix(vibrance2_at(VIBRANCE2_RAISE_50, hue), vibrance2_at(VIBRANCE2_RAISE_100, hue), clamp(2.0 * vib - 1.0, 0.0, 1.0));
+        scale = 1.0 + vib * (1.0 + 2.6000 * vib) * weight * spare;
+    } else {
+        let weight = mix(0.9300, 0.4700, smoothstep(0.0300, 0.1200, chroma)) * vibrance2_at(VIBRANCE2_LOWER, hue);
+        scale = max(1.0 + vib * weight, 0.0);
+    }
+    var out = max(oklab_to_linear_srgb(vec3<f32>(lab.x, lab.yz * scale)), vec3<f32>(-1.0));
+    let y1 = get_luma(out);
+    if (y1 > 1.0e-6) {
+        out = out * (get_luma(safe) / y1);
+    }
+    return out;
+}
+
+// Saturation and Vibrance of `vibranceVersion` 2: Vibrance (apply_vibrance_v2),
+// then Saturation as version 1 applies it. Without Vibrance exactly version 1.
+fn apply_creative_color_v2(color: vec3<f32>, sat: f32, vib: f32) -> vec3<f32> {
+    if (vib == 0.0) {
+        return apply_creative_color(color, sat, 0.0);
+    }
+    var processed = apply_vibrance_v2(color, vib);
+    let luma = get_luma(gamut_floor(processed));
+    processed = mix(vec3<f32>(luma), processed, max(1.0 + sat, 0.0));
     return gamut_floor(processed);
 }
 
@@ -9717,7 +9791,11 @@ fn main(
     }
     composite_rgb_linear = apply_hsl_panel(composite_rgb_linear, final_hsl, absolute_coord_i);
     composite_rgb_linear = apply_hue_shift(composite_rgb_linear, t_hue);
-    composite_rgb_linear = apply_creative_color(composite_rgb_linear, t_saturation, t_vibrance);
+    if (VIBRANCE_V2 && adjustments.global.vibrance_version >= 2u) {
+        composite_rgb_linear = apply_creative_color_v2(composite_rgb_linear, t_saturation, t_vibrance);
+    } else {
+        composite_rgb_linear = apply_creative_color(composite_rgb_linear, t_saturation, t_vibrance);
+    }
 
     composite_rgb_linear = apply_color_grading(
         composite_rgb_linear,
