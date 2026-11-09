@@ -1136,6 +1136,20 @@ pub fn enlarge_for_export(
     Ok(enlarged)
 }
 
+/// The finishing every rendered file of an export gets, the main file and
+/// each mask layer's image alike, so their sizes match: Super Resolution
+/// (when set), then resize, border, output sharpening and watermark. The
+/// geometry is that of the enlarged photo (mask alphas are fitted to it).
+pub fn finish_rendered_export(
+    image: DynamicImage,
+    settings: &ExportSettings,
+    enlarger: Option<&dyn Enlarger>,
+    cancelled: &dyn Fn() -> Result<(), String>,
+) -> Result<(DynamicImage, ExportGeometry), String> {
+    let image = enlarge_for_export(image, settings, enlarger, cancelled)?;
+    apply_export_geometry_and_watermark(image, settings)
+}
+
 /// Whether Super Resolution marks an export as containing generated content.
 /// It does not (user decision 2026-11-09, docs/MODELS.md "Super
 /// Resolution"): a faithful enlargement by an L1-trained regression model
@@ -1382,11 +1396,11 @@ pub fn save_rendered_export(
     output: &ExportOutput,
     cancelled: &dyn Fn() -> Result<(), String>,
 ) -> Result<(), String> {
-    let processed = enlarge_for_export(processed, export_settings, output.enlarger, cancelled)?;
     #[cfg(feature = "performance-profiling")]
     let geometry_stage = crate::performance::PerformanceStage::new("export_geometry");
     let final_image =
-        apply_export_geometry_and_watermark(processed, export_settings).map(|(image, _)| image)?;
+        finish_rendered_export(processed, export_settings, output.enlarger, cancelled)
+            .map(|(image, _)| image)?;
     #[cfg(feature = "performance-profiling")]
     drop(geometry_stage);
     cancelled()?;
@@ -2625,6 +2639,26 @@ mod super_resolution_tests {
             "{xmp}"
         );
         assert!(xmp.contains("DigitalSourceType"), "{xmp}");
+    }
+
+    #[test]
+    fn mask_layer_images_get_the_main_files_size() {
+        // Separate mask files, no resize: each layer's image and its alpha
+        // are fitted to the same enlarged geometry as the main file.
+        let mut settings = settings(true);
+        settings.export_masks = true;
+        let enlarger = Doubler { wrong: false };
+        let (main, main_geometry) =
+            finish_rendered_export(photo(), &settings, Some(&enlarger), &|| Ok(())).unwrap();
+        let (layer, layer_geometry) =
+            finish_rendered_export(photo(), &settings, Some(&enlarger), &|| Ok(())).unwrap();
+        assert_eq!(main.dimensions(), (60, 40));
+        assert_eq!(layer.dimensions(), main.dimensions());
+        assert_eq!((layer_geometry.photo_w, layer_geometry.photo_h), (60, 40));
+        assert_eq!(
+            (main_geometry.canvas_w, main_geometry.canvas_h),
+            (layer_geometry.canvas_w, layer_geometry.canvas_h)
+        );
     }
 
     #[test]
