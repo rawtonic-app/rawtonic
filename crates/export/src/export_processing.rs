@@ -1137,9 +1137,12 @@ pub fn enlarge_for_export(
 }
 
 /// Whether Super Resolution marks an export as containing generated content.
-/// It is a faithful enlargement (an L1-trained regression model that adds
-/// no content of its own, notes
-/// benchmark-results/srx-super-resolution-2026-11-08), so it does not; this
+/// It does not (user decision 2026-11-09, docs/MODELS.md "Super
+/// Resolution"): a faithful enlargement by an L1-trained regression model
+/// that adds no content of its own (notes
+/// benchmark-results/srx-super-resolution-2026-11-08), an assistive standard
+/// edit under EU AI Act Art. 50(2); the export names the step in its
+/// software field instead (`exif_processing::SUPER_RESOLUTION_NOTE`). This
 /// is the one place to change if that decision changes.
 pub const SUPER_RESOLUTION_IS_GENERATED: bool = false;
 
@@ -1255,6 +1258,19 @@ pub fn save_export_image(
         output.exif_sidecar,
         output.catalog,
     );
+    let metadata = if export_settings.super_resolution
+        && crate::exif_processing::embeds_metadata(&extension)
+    {
+        use crate::exif_processing::{ExportMetadata, SUPER_RESOLUTION_NOTE};
+        match metadata {
+            Some(metadata) => Some(metadata.with_software_note(SUPER_RESOLUTION_NOTE)),
+            None => ExportMetadata::software_note_only(SUPER_RESOLUTION_NOTE)
+                .map_err(|e| log::warn!("{e}"))
+                .ok(),
+        }
+    } else {
+        metadata
+    };
     let image_bytes = encode_with_metadata(image, &extension, export_settings, metadata.as_ref())?;
     #[cfg(feature = "performance-profiling")]
     let _write_stage = crate::performance::PerformanceStage::new("export_write");
@@ -2582,6 +2598,33 @@ mod super_resolution_tests {
             })
             .unwrap_err();
         assert_eq!(cancelled, "Export cancelled");
+    }
+
+    #[test]
+    fn super_resolution_is_noted_after_the_software_name() {
+        use crate::exif_processing::{ExportMetadata, SOFTWARE, SUPER_RESOLUTION_NOTE};
+        let tool = format!("{SOFTWARE} ({SUPER_RESOLUTION_NOTE})");
+        // With the source's metadata stripped there is still the note.
+        let only = ExportMetadata::software_note_only(SUPER_RESOLUTION_NOTE).unwrap();
+        assert!(!only.generated);
+        let xmp = only.xmp.unwrap();
+        assert!(
+            xmp.contains(&format!("xmp:CreatorTool=\"{tool}\"")),
+            "{xmp}"
+        );
+        assert!(!xmp.contains("DigitalSourceType"), "{xmp}");
+        // On top of an export's own packet the note replaces the plain name
+        // and leaves an AI marking of generated areas as it was.
+        let marked = ExportMetadata::marking_only()
+            .unwrap()
+            .with_software_note(SUPER_RESOLUTION_NOTE);
+        assert!(marked.generated);
+        let xmp = marked.xmp.unwrap();
+        assert!(
+            xmp.contains(&format!("xmp:CreatorTool=\"{tool}\"")),
+            "{xmp}"
+        );
+        assert!(xmp.contains("DigitalSourceType"), "{xmp}");
     }
 
     #[test]
