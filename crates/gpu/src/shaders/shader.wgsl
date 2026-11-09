@@ -60,6 +60,12 @@ override SHADOWS_V13: bool = false;
 // Lowered Highlights of tone version 14 (`apply_highlights_adjustment_v14`),
 // for the same reason (gpu_processing.rs `HIGHLIGHTS_V14_FEATURE`).
 override HIGHLIGHTS_V14: bool = false;
+// Vibrance of `vibranceVersion` 2 (`apply_creative_color_v2`), for the same
+// reason (gpu_processing.rs `VIBRANCE_V2_FEATURE`).
+override VIBRANCE_V2: bool = false;
+// Lowered Blacks of tone version 16 (`blacks_v16_black_point`), for the
+// same reason (gpu_processing.rs `BLACKS_V16_FEATURE`).
+override BLACKS_V16: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -303,8 +309,13 @@ struct GlobalAdjustments {
     // Film grain colour (`grainColor` / 100): 0 one neutral layer, 1
     // independent dye layers (apply_film_grain).
     grain_color: f32,
-    // capture_gain, scene_black and padding: read on the CPU only.
-    _cpu_only: vec4<u32>,
+    // Read on the CPU only (image_processing.rs `GlobalAdjustments`).
+    _capture_gain: u32,
+    _scene_black: u32,
+    // The recipe's Vibrance (`vibranceVersion`): 1 apply_creative_color's
+    // HSV-weighted mix, 2 apply_vibrance_v2.
+    vibrance_version: u32,
+    _pad_vibrance: array<u32, 2>,
 }
 
 struct MaskAdjustments {
@@ -1492,6 +1503,20 @@ const CR_CONTRAST_RAISE_50 = array<f32, 14>(-1.33, -1.27, -1.18, -1.129, -0.995,
 const CR_CONTRAST_RAISE_100 = array<f32, 14>(-3.67, -3.42, -3.12, -2.813, -2.496, -1.881, -1.268, -0.77, -0.02, 0.195, 0.399, 0.542, 0.354, 0.0);
 const CR_CONTRAST_LOWER_50 = array<f32, 14>(0.97, 0.92, 0.88, 0.797, 0.734, 0.607, 0.438, 0.28, 0.01, -0.076, -0.169, -0.243, -0.187, 0.0);
 const CR_CONTRAST_LOWER_100 = array<f32, 14>(1.9, 1.8, 1.68, 1.508, 1.382, 1.12, 0.789, 0.492, 0.01, -0.135, -0.302, -0.444, -0.435, 0.0);
+// toneVersion 15's Contrast (notes: benchmark-results/
+// atf5-contrast-2026-11-08): the tables above put the curve's pivot too
+// high for photographs. At equal global contrast (std of blurred L*) their
+// +100 left L* 30–40 2.9 / 3.5 darker than Camera Raw / Capture One and
+// −100 lifted L* 40–50 1.6 / 2.1 more than either (ATL slider atlas, 48
+// frames). These lower the pivot: + darkens less from display −5 to
+// −2.5 EV and lifts a little more from −2 to −1 EV; − lifts less around
+// −3…−2.5 EV. Other grid points are unchanged. −100's −2.5 EV point stops
+// at −0.01: the fitted −0.05 turned tones over there by about 0.014 EV
+// (GPU test `camera_raw_tone_sliders_keep_tones_in_order`).
+const CR_CONTRAST_V15_RAISE_50 = array<f32, 14>(-1.33, -1.27, -1.18, -1.129, -0.995, -0.802, -0.5, -0.26, 0.04, 0.14, 0.23, 0.266, 0.187, 0.0);
+const CR_CONTRAST_V15_RAISE_100 = array<f32, 14>(-3.67, -3.42, -3.12, -2.813, -2.496, -1.76, -1.01, -0.5, 0.1, 0.3, 0.49, 0.57, 0.354, 0.0);
+const CR_CONTRAST_V15_LOWER_50 = array<f32, 14>(0.97, 0.92, 0.88, 0.797, 0.734, 0.607, 0.438, 0.23, -0.02, -0.076, -0.169, -0.243, -0.187, 0.0);
+const CR_CONTRAST_V15_LOWER_100 = array<f32, 14>(1.9, 1.8, 1.68, 1.508, 1.382, 1.12, 0.789, 0.38, -0.01, -0.135, -0.302, -0.444, -0.435, 0.0);
 const CR_DEHAZE_RAISE: f32 = 0.7;
 const CR_DEHAZE_LOWER: f32 = 0.9;
 const CR_DEHAZE_CHROMA: f32 = 1.9;
@@ -1850,6 +1875,9 @@ fn cr_whites_delta(amount: f32, g: vec2<f32>) -> f32 {
 }
 
 fn cr_contrast_delta(amount: f32, g: vec2<f32>) -> f32 {
+    if (adjustments.global.tone_version > 14.5) {
+        return cr_contrast_delta_v15(amount, g);
+    }
     let i = u32(g.x);
     if (amount > 0.0) {
         return cr_two_point(
@@ -1859,6 +1887,19 @@ fn cr_contrast_delta(amount: f32, g: vec2<f32>) -> f32 {
     return cr_two_point(
         mix(CR_CONTRAST_LOWER_50[i], CR_CONTRAST_LOWER_50[i + 1u], g.y),
         mix(CR_CONTRAST_LOWER_100[i], CR_CONTRAST_LOWER_100[i + 1u], g.y), amount);
+}
+
+// toneVersion 15's display-EV change for Contrast (lower pivot, tables above).
+fn cr_contrast_delta_v15(amount: f32, g: vec2<f32>) -> f32 {
+    let i = u32(g.x);
+    if (amount > 0.0) {
+        return cr_two_point(
+            mix(CR_CONTRAST_V15_RAISE_50[i], CR_CONTRAST_V15_RAISE_50[i + 1u], g.y),
+            mix(CR_CONTRAST_V15_RAISE_100[i], CR_CONTRAST_V15_RAISE_100[i + 1u], g.y), amount);
+    }
+    return cr_two_point(
+        mix(CR_CONTRAST_V15_LOWER_50[i], CR_CONTRAST_V15_LOWER_50[i + 1u], g.y),
+        mix(CR_CONTRAST_V15_LOWER_100[i], CR_CONTRAST_V15_LOWER_100[i + 1u], g.y), amount);
 }
 
 // Tone order. The Camera Raw-look sliders turn a display-EV change into a
@@ -2081,6 +2122,66 @@ fn blacks_v9_black_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
         let rest = toe * exp(-shift / toe - 1.0);
         out_l = toe * exp(v / toe - 1.0) - rest * (1.0 - (v + shift) / (toe + shift));
     }
+    return encode_signed(lin * (luma_of_lstar(max(out_l, 0.0)) / y));
+}
+
+// Lowered Blacks, tone version 16 (RAW look): version 9's black point
+// reaches into the midtones as Capture One's Black does. Version 9 changed
+// only L* < 30, so at the same darkening of the darkest tenth L* 20–30
+// stayed 5–9 L* lighter than both Capture One and Camera Raw, and its steep
+// fade from L* 10 to 30 raised the shadows' fine detail to 1.2–1.3 × the
+// neutral render's (theirs 0.8–0.9 ×). At −100 version 16 moves L* down by
+// BLACKS_V16_SHIFT × w with w the square of a smoothstep falling from 1 at
+// black to 0 at BLACKS_V16_TOP (L* 30 −5.6, 40 −3.0, 50 −1.2, 60 −0.3,
+// tones from L* 80 unchanged), under version 9's exponential toe
+// BLACKS_V16_TOE wide, and clips what ends below BLACKS_V16_CLIP_WIDTH by up
+// to BLACKS_V16_CLIP to black (Capture One clips the deepest pixels; without
+// it the darkest pixels at −100 stayed 1 point less often black than in
+// Capture One at the same darkening). A lower setting takes the share
+// 1 − (1 − amount)^BLACKS_V16_EASE of −100's change in L* (−50: 0.8, so −50
+// darkens the darkest tenth as much as Capture One's −50; Blacks −1 moves no
+// tone by more than 0.25 L*), which keeps every setting monotone and never
+// lighter. Chosen on 24 of the slider atlas's 48 frames: at the same
+// darkening of the darkest tenth the L* bands stay within 1 L* of Capture
+// One's, the shadows' detail 0.1 above its, BLK's dark-area detail 1.05 of
+// the neutral render's (version 9 1.14)
+// (notes: benchmark-results/atf2-blacks-reach-2026-11-08).
+const BLACKS_V16_SHIFT: f32 = 12.0;
+const BLACKS_V16_TOP: f32 = 80.0;
+const BLACKS_V16_TOE: f32 = 8.0;
+const BLACKS_V16_CLIP: f32 = 0.2;
+const BLACKS_V16_CLIP_WIDTH: f32 = 2.0;
+const BLACKS_V16_EASE: f32 = 2.32;
+
+// Version 16's black point at −100, on L* below BLACKS_V16_TOP.
+fn blacks_v16_full(l: f32) -> f32 {
+    let u = clamp((BLACKS_V16_TOP - l) / BLACKS_V16_TOP, 0.0, 1.0);
+    let s = u * u * (3.0 - 2.0 * u);
+    let v = l - BLACKS_V16_SHIFT * s * s;
+    var out_l = v;
+    if (v < BLACKS_V16_TOE) {
+        // As version 9's toe: slope 1 at the toe, black maps to black.
+        let rest = BLACKS_V16_TOE * exp(-BLACKS_V16_SHIFT / BLACKS_V16_TOE - 1.0);
+        out_l = BLACKS_V16_TOE * exp(v / BLACKS_V16_TOE - 1.0)
+            - rest * (1.0 - (v + BLACKS_V16_SHIFT) / (BLACKS_V16_TOE + BLACKS_V16_SHIFT));
+    }
+    return max(out_l - BLACKS_V16_CLIP * max(1.0 - out_l / BLACKS_V16_CLIP_WIDTH, 0.0), 0.0);
+}
+
+// Version 16's black point on the tone-mapped (sRGB-encoded) colour, which
+// it scales in linear light; `amount` is −Blacks / 100, above 0.
+fn blacks_v16_black_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let lin = decode_signed(rgb);
+    let y = get_luma(max(lin, vec3<f32>(0.0)));
+    if (amount <= 0.0 || y <= 0.0) {
+        return rgb;
+    }
+    let l = lstar_of_luma(y);
+    if (l >= BLACKS_V16_TOP) {
+        return rgb;
+    }
+    let share = 1.0 - pow(1.0 - amount, BLACKS_V16_EASE);
+    let out_l = l - share * (l - blacks_v16_full(l));
     return encode_signed(lin * (luma_of_lstar(max(out_l, 0.0)) / y));
 }
 
@@ -3849,6 +3950,70 @@ fn apply_creative_color(color: vec3<f32>, sat: f32, vib: f32) -> vec3<f32> {
 
     processed = mix(vec3<f32>(luma), processed, final_mult);
 
+    return gamut_floor(processed);
+}
+
+// Vibrance version 2 (`vibranceVersion`, image_processing.rs
+// `VIBRANCE_VERSION`): the colour's Oklab chroma is scaled at constant hue,
+// then the colour is brought back to its own luminance (Rec. 709 Y), so
+// Vibrance changes neither hue nor brightness. The scale is weighted as Camera
+// Raw's Vibrance is (fitted on half of the slider atlas's frames, notes:
+// parity-gaps/G06-presence.md "Vibrance"): raising favours blues, purples and
+// cyans over reds, oranges and skin and spares saturated colours (a Gaussian
+// fall-off in chroma, wider for blues), growing faster towards +100; lowering
+// cuts every colour, saturated ones less. Tables: 8 Oklab hues 0°, 45°, …,
+// 315°, smoothly interpolated.
+const VIBRANCE2_RAISE_50 = array<f32, 8>(0.1466, 0.1129, 0.3147, 0.3708, 0.5004, 0.4177, 0.5206, 0.4500);
+const VIBRANCE2_RAISE_100 = array<f32, 8>(0.1527, 0.1127, 0.3243, 0.3859, 0.5724, 0.3990, 0.4984, 0.4326);
+const VIBRANCE2_CHROMA_REACH = array<f32, 8>(0.1370, 0.1370, 0.1370, 0.1500, 0.2100, 0.2050, 0.2350, 0.2000);
+const VIBRANCE2_LOWER = array<f32, 8>(1.1191, 0.9710, 0.8760, 0.9486, 0.9924, 0.9871, 0.9861, 0.9639);
+
+fn vibrance2_at(table: array<f32, 8>, hue_deg: f32) -> f32 {
+    var t = table;
+    let x = hue_deg / 45.0;
+    let i0 = u32(floor(x)) % 8u;
+    let i1 = (i0 + 1u) % 8u;
+    let f = x - floor(x);
+    return mix(t[i0], t[i1], f * f * (3.0 - 2.0 * f));
+}
+
+fn apply_vibrance_v2(color: vec3<f32>, vib: f32) -> vec3<f32> {
+    let safe = gamut_floor(color);
+    let lab = linear_srgb_to_oklab(safe);
+    let chroma = length(lab.yz);
+    // A grey has no hue: atan2 of its rounding residue differs between
+    // backends (Metal and Vulkan rendered the texture chart's greys apart).
+    if (chroma < 1.0e-4) {
+        return safe;
+    }
+    let hue = (degrees(atan2(lab.z, lab.y)) + 360.0) % 360.0;
+    var scale: f32;
+    if (vib > 0.0) {
+        let reach = vibrance2_at(VIBRANCE2_CHROMA_REACH, hue);
+        let spare = exp(-(chroma / reach) * (chroma / reach));
+        let weight = mix(vibrance2_at(VIBRANCE2_RAISE_50, hue), vibrance2_at(VIBRANCE2_RAISE_100, hue), clamp(2.0 * vib - 1.0, 0.0, 1.0));
+        scale = 1.0 + vib * (1.0 + 2.6000 * vib) * weight * spare;
+    } else {
+        let weight = mix(0.9300, 0.4700, smoothstep(0.0300, 0.1200, chroma)) * vibrance2_at(VIBRANCE2_LOWER, hue);
+        scale = max(1.0 + vib * weight, 0.0);
+    }
+    var out = max(oklab_to_linear_srgb(vec3<f32>(lab.x, lab.yz * scale)), vec3<f32>(-1.0));
+    let y1 = get_luma(out);
+    if (y1 > 1.0e-6) {
+        out = out * (get_luma(safe) / y1);
+    }
+    return out;
+}
+
+// Saturation and Vibrance of `vibranceVersion` 2: Vibrance (apply_vibrance_v2),
+// then Saturation as version 1 applies it. Without Vibrance exactly version 1.
+fn apply_creative_color_v2(color: vec3<f32>, sat: f32, vib: f32) -> vec3<f32> {
+    if (vib == 0.0) {
+        return apply_creative_color(color, sat, 0.0);
+    }
+    var processed = apply_vibrance_v2(color, vib);
+    let luma = get_luma(gamut_floor(processed));
+    processed = mix(vec3<f32>(luma), processed, max(1.0 + sat, 0.0));
     return gamut_floor(processed);
 }
 
@@ -9772,7 +9937,11 @@ fn main(
     }
     composite_rgb_linear = apply_hsl_panel(composite_rgb_linear, final_hsl, absolute_coord_i);
     composite_rgb_linear = apply_hue_shift(composite_rgb_linear, t_hue);
-    composite_rgb_linear = apply_creative_color(composite_rgb_linear, t_saturation, t_vibrance);
+    if (VIBRANCE_V2 && adjustments.global.vibrance_version >= 2u) {
+        composite_rgb_linear = apply_creative_color_v2(composite_rgb_linear, t_saturation, t_vibrance);
+    } else {
+        composite_rgb_linear = apply_creative_color(composite_rgb_linear, t_saturation, t_vibrance);
+    }
 
     composite_rgb_linear = apply_color_grading(
         composite_rgb_linear,
@@ -9835,7 +10004,11 @@ fn main(
         }
         if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
             // Renderer value is slider / 40.
-            default_tonemapped = blacks_v9_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            if (BLACKS_V16 && adjustments.global.tone_version > 15.5) {
+                default_tonemapped = blacks_v16_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            } else {
+                default_tonemapped = blacks_v9_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            }
         }
     } else if (is_raw == 1u) {
         var srgb_emulated = linear_to_srgb(composite_rgb_linear);
@@ -9912,7 +10085,11 @@ fn main(
         // The LUT reads the scene colour, which version 9's lowered Blacks
         // no longer darkens: its black point acts on the LUT's colour too.
         if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
-            lut_color = blacks_v9_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            if (BLACKS_V16 && adjustments.global.tone_version > 15.5) {
+                lut_color = blacks_v16_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            } else {
+                lut_color = blacks_v9_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));
+            }
         }
         base_srgb = lut_amount(default_tonemapped, lut_color, adjustments.global.lut_intensity);
     } else {

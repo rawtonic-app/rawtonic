@@ -192,6 +192,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "clarityVersion",
         "temperatureVersion",
         "tintVersion",
+        "vibranceVersion",
         "structureVersion",
         "aiDenoise",
         "aiDenoiseVersion",

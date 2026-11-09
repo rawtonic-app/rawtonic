@@ -178,7 +178,7 @@ describe('recorded behaviour worth a second look', () => {
     'a Reset recipe, a lens-only recipe and null all save as a new edit at the current versions',
     () => {
       for (const name of ['null', 'empty', 'frame-only', 'lens-profile-only']) {
-        expect(saved(`raw.${name}`)).toMatchObject({ renderVersion: 11, sourceFrameVersion: 3, toneVersion: 14 });
+        expect(saved(`raw.${name}`)).toMatchObject({ renderVersion: 11, sourceFrameVersion: 3, toneVersion: 16 });
       }
     }
   );

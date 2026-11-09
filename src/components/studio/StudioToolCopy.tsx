@@ -10,6 +10,7 @@ import {
   withBwVersion,
   withDetailVersions,
   withWhiteBalanceVersions,
+  withVibranceVersion,
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -42,6 +43,8 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   // Temperature means what the recipe's Temperature response makes of it.
   temperature: ['temperatureVersion'],
   tint: ['tintVersion'],
+  // Vibrance means what the recipe's Vibrance response makes of it.
+  vibrance: ['vibranceVersion'],
   // Structure means what the recipe's Structure travel makes of it.
   structure: ['structureVersion'],
   // The B&W mix means what the recipe's mix response makes of it.
@@ -70,9 +73,12 @@ export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> 
   // grain version is not picked along (an absent one would read as an undo
   // to version 1): withGrainVersion takes it from the source.
   return withBwVersion(
-    withDetailVersions(
-      withGrainVersion(
-        withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, values), values), values),
+    withVibranceVersion(
+      withDetailVersions(
+        withGrainVersion(
+          withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, values), values), values),
+          values
+        ),
         values
       ),
       values

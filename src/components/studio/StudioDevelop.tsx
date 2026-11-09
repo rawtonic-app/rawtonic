@@ -44,6 +44,7 @@ import {
   withNewGrainStructure,
   layersUseStructure,
   layersUseWhiteBalance,
+  layersUseVibrance,
   type RegionCurve
 } from '../../utils/adjustments';
 import { Panel, type AppSettings, type MaskDisplay } from '../ui/AppProperties';
@@ -1452,11 +1453,15 @@ export default function StudioDevelop() {
                   'dehaze',
                   'vibrance',
                   'saturation',
-                  // The photo's Clarity response and Structure travel go back to a new edit's;
-                  // the Structure travel only while no layer uses Structure (the layers follow it).
+                  // The photo's Clarity and Vibrance responses and Structure travel go back to a new edit's;
+                  // Vibrance and Structure only while no layer uses them (the layers follow the photo's).
                   ...(layer
                     ? ['hue']
-                    : ['clarityVersion', ...(layersUseStructure(adjustments) ? [] : ['structureVersion'])])
+                    : [
+                        'clarityVersion',
+                        ...(layersUseVibrance(adjustments) ? [] : ['vibranceVersion']),
+                        ...(layersUseStructure(adjustments) ? [] : ['structureVersion'])
+                      ])
                 ])
               }
             >

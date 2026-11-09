@@ -654,7 +654,11 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * tones (L* 40 and up, weighted towards white); 13 = and raised Shadows
    * lifts the midtones less and keeps the shadows' texture as it is (no
    * texture boost); 14 = and lowered Highlights leaves no light rim at
-   * strong edges (its local base is edge-aware); 1 or missing on
+   * strong edges (its local base is edge-aware); 15 = and Contrast's
+   * pivot sits lower (raising darkens the lower midtones less, lowering
+   * lifts L* 40–50 less); 16 = and lowered Blacks'
+   * black point reaches into the midtones (fading out by L* 80), as
+   * Capture One's Black does; 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -675,6 +679,12 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * that used Tint before it = about half that. Its own key, so a
    * Temperature-only preset never changes the Tint. Photo-wide (layers follow it). */
   tintVersion?: number;
+  /** Vibrance response (crates/engine/src/image_processing.rs
+   * `VIBRANCE_VERSION`): 2 = Oklab chroma scaled at constant hue and
+   * luminance, weighted by hue and chroma as Camera Raw's Vibrance is; 1 or
+   * missing on recipes that used Vibrance before it = the HSV-weighted mix.
+   * Photo-wide (layers follow it). */
+  vibranceVersion?: number;
   /** Structure travel (crates/engine/src/image_processing.rs
    * `STRUCTURE_VERSION`): 2 = the slider's strength per unit follows Camera
    * Raw's Texture (version 1's ±50 already went beyond Camera Raw's ±100);
@@ -1295,7 +1305,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 14;
+export const TONE_VERSION = 16;
 
 /** The response a recipe without `toneVersion` takes when nothing in it
  * renders differently: 5, the last that leaves Whites, Blacks and Clarity
@@ -1313,6 +1323,8 @@ export const CLARITY_VERSION = 2;
 export const TEMPERATURE_VERSION = 2;
 /** The Tint response new edits start with (notes: benchmark-results/atf7-slider-travel-2026-11-08). */
 export const TINT_VERSION = 2;
+/** The Vibrance response new edits start with (notes: parity-gaps/G06-presence.md). */
+export const VIBRANCE_VERSION = 2;
 /** The Structure travel new edits start with (notes: benchmark-results/atf7-slider-travel-2026-11-08). */
 export const STRUCTURE_VERSION = 2;
 
@@ -1429,6 +1441,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         clarityVersion: CLARITY_VERSION,
         temperatureVersion: TEMPERATURE_VERSION,
         tintVersion: TINT_VERSION,
+        vibranceVersion: VIBRANCE_VERSION,
         structureVersion: STRUCTURE_VERSION,
         fringeVersion: FRINGE_VERSION,
         cameraCaVersion: CAMERA_CA_VERSION,
@@ -1450,6 +1463,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         clarityVersion: CLARITY_VERSION,
         temperatureVersion: TEMPERATURE_VERSION,
         tintVersion: TINT_VERSION,
+        vibranceVersion: VIBRANCE_VERSION,
         structureVersion: STRUCTURE_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         bwVersion: BW_VERSION,
@@ -1551,6 +1565,7 @@ export const pastedAdjustments = (
       key === 'clarityVersion' ||
       key === 'temperatureVersion' ||
       key === 'tintVersion' ||
+      key === 'vibranceVersion' ||
       key === 'structureVersion' ||
       key === 'bwVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
@@ -1562,9 +1577,12 @@ export const pastedAdjustments = (
     (picked as Record<string, unknown>)[key] = value;
   }
   return withBwVersion(
-    withDetailVersions(
-      withGrainVersion(
-        withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, copied), copied), copied),
+    withVibranceVersion(
+      withDetailVersions(
+        withGrainVersion(
+          withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, copied), copied), copied),
+          copied
+        ),
         copied
       ),
       copied
@@ -1705,6 +1723,27 @@ export const withWhiteBalanceVersions = <T extends Partial<Adjustments>>(
   return out;
 };
 
+/** As `withClarityVersion` for Vibrance: wherever Vibrance values are copied
+ * the Vibrance response goes along explicitly — the source's, else 1. */
+export const withVibranceVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>
+): T & Pick<Partial<Adjustments>, 'vibranceVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'vibranceVersion') && picked.vibranceVersion == null) {
+    return { ...picked, vibranceVersion: 1 };
+  }
+  const vibrance =
+    picked.vibrance !== undefined ||
+    (source !== undefined &&
+      (picked.masks ?? []).some((mask) => ((mask?.adjustments?.vibrance as number | undefined) ?? 0) !== 0));
+  if (!vibrance || picked.vibranceVersion != null) {
+    return picked;
+  }
+  return { ...picked, vibranceVersion: source?.vibranceVersion ?? 1 };
+};
+
 /** As `withClarityVersion` for Structure: wherever Structure values are
  * copied its travel goes along explicitly — the source's, else 1 (a source or
  * preset from before the key), never on its own. */
@@ -1726,6 +1765,10 @@ export const withStructureVersion = <T extends Partial<Adjustments>>(
   }
   return { ...picked, structureVersion: source?.structureVersion ?? 1 };
 };
+
+/** Whether a layer of the recipe uses Vibrance (its response follows the photo's `vibranceVersion`). */
+export const layersUseVibrance = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.vibrance as number | undefined) ?? 0) !== 0);
 
 /** Whether a layer of the recipe uses Structure (its travel follows the photo's `structureVersion`). */
 export const layersUseStructure = (adjustments: Partial<Adjustments>): boolean =>
@@ -1759,7 +1802,10 @@ export const withBwVersion = <T extends Partial<Adjustments>>(
  * before the keys renders with version 1 wherever it is previewed or
  * applied. */
 export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
-  withBwVersion(withDetailVersions(withWhiteBalanceVersions(preset, preset), preset), preset);
+  withBwVersion(
+    withVibranceVersion(withDetailVersions(withWhiteBalanceVersions(preset, preset), preset), preset),
+    preset
+  );
 
 /** Keys whose values render the pattern of the recipe's grain version. */
 const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;
@@ -1853,6 +1899,16 @@ const loadedWhiteBalanceVersion = (loaded: Partial<Adjustments>, slider: 'temper
   if (own !== undefined && own !== null) return own;
   const uses = ((loaded[slider] as number | undefined) ?? 0) !== 0 || layersUseWhiteBalance(loaded, slider);
   return uses ? 1 : slider === 'temperature' ? TEMPERATURE_VERSION : TINT_VERSION;
+};
+
+/** The Vibrance response of a saved recipe, as `loadedClarityVersion`. */
+const loadedVibranceVersion = (loaded: Partial<Adjustments>): number => {
+  if (loaded.vibranceVersion !== undefined && loaded.vibranceVersion !== null) {
+    return loaded.vibranceVersion;
+  }
+  const uses = (values: { vibrance?: unknown } | undefined) => ((values?.vibrance as number | undefined) ?? 0) !== 0;
+  const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
+  return rendersDifferently ? 1 : VIBRANCE_VERSION;
 };
 
 /** The Structure travel of a saved recipe, as `loadedClarityVersion`. */
@@ -2035,6 +2091,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       clarityVersion: loadedClarityVersion(loadedAdjustments),
       temperatureVersion: loadedWhiteBalanceVersion(loadedAdjustments, 'temperature'),
       tintVersion: loadedWhiteBalanceVersion(loadedAdjustments, 'tint'),
+      vibranceVersion: loadedVibranceVersion(loadedAdjustments),
       structureVersion: loadedStructureVersion(loadedAdjustments),
       defringeVersion: loadedDefringeVersion(loadedAdjustments),
       bwVersion: loadedBwVersion(loadedAdjustments),
@@ -2168,7 +2225,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     {
       label: 'modals.copyPaste.groups.presence',
       clipboardSection: 'basic',
-      keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance]
+      keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance, 'vibranceVersion']
     },
     {
       label: 'modals.copyPaste.groups.hueShift',

@@ -4495,15 +4495,19 @@ pub struct GlobalAdjustments {
     pub grain_color: f32,
     /// renderVersion 9 (`baseline_exposure::CAPTURE_GAIN_RENDER_VERSION`):
     /// 1 = `BaseLook::apply` adds the capture gain to `baseline_exposure`.
-    /// Read on the CPU only (the shader's struct ends before it).
+    /// Read on the CPU only (the shader names it `_capture_gain`).
     pub capture_gain: u32,
     /// renderVersion 10 (`baseline_exposure::SCENE_BLACK_RENDER_VERSION`):
     /// 1 = `BaseLook::apply` flags the scene-referred black point and soft
     /// toe for the shader. Read on the CPU only, like `capture_gain`.
     pub scene_black: u32,
-    /// Keeps the struct as long as the shader's (`_cpu_only`), a multiple
-    /// of 16 bytes.
-    pub _pad_end: [u32; 3],
+    /// The recipe's Vibrance (`vibrance_version`): 1 the HSV-weighted mix,
+    /// 2 weighted by Oklab hue and chroma (shader `apply_vibrance_v2`).
+    pub vibrance_version: u32,
+    /// Keeps the struct as long as the shader's (rounded up to 16 bytes):
+    /// the mask adjustments follow it in `AllAdjustments`
+    /// (`global_adjustments_match_the_shader_layout`).
+    pub _pad_vibrance: [u32; 2],
 }
 
 // The shader's struct is a multiple of 16 bytes; a different length here
@@ -5483,7 +5487,8 @@ fn get_global_adjustments_resolved(
         grain_color: (effects.grain_color.get() / 100.0).clamp(0.0, 1.0) as f32,
         capture_gain: u32::from(versions.render.capture_gain()),
         scene_black: u32::from(versions.render.scene_black()),
-        _pad_end: [0; 3],
+        vibrance_version: versions.vibrance.uniform(),
+        _pad_vibrance: [0; 2],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -6040,6 +6045,7 @@ pub fn new_edit_responses(is_raw: bool) -> serde_json::Map<String, serde_json::V
     map.insert(CLARITY_VERSION_KEY.into(), json!(CLARITY_VERSION));
     map.insert(TEMPERATURE_VERSION_KEY.into(), json!(TEMPERATURE_VERSION));
     map.insert(TINT_VERSION_KEY.into(), json!(TINT_VERSION));
+    map.insert(VIBRANCE_VERSION_KEY.into(), json!(VIBRANCE_VERSION));
     map.insert(STRUCTURE_VERSION_KEY.into(), json!(STRUCTURE_VERSION));
     map.insert(
         crate::color_noise::VERSION_KEY.into(),
@@ -7350,6 +7356,17 @@ pub const TINT_VERSION_KEY: &str = "tintVersion";
 /// Recipes without the key keep version 1.
 pub const TINT_VERSION: u64 = 2;
 
+/// The recipe key naming the Vibrance response it was made with.
+pub const VIBRANCE_VERSION_KEY: &str = "vibranceVersion";
+/// The newest Vibrance: 2 (2026-11-08) scales Oklab chroma at constant hue
+/// and luminance (Rec. 709 Y), weighted by hue and chroma as Camera Raw's
+/// Vibrance is: raising favours blues, purples and cyans over reds, oranges
+/// and skin and spares saturated colours; lowering cuts saturated colours
+/// less than muted ones. Fitted on half of the slider atlas's 48 frames,
+/// held out on the other half (notes: parity-gaps/G06-presence.md
+/// "Vibrance"). Recipes without the key keep version 1.
+pub const VIBRANCE_VERSION: u64 = 2;
+
 /// The recipe key naming which tone-slider response it was made with.
 pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// The newest tone-slider response: 2 (2026-10-16) lets Shadows above +50
@@ -7407,10 +7424,20 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// luminance too: with only version 5's wide linear range, a dark surround
 /// pulled the base of the bright side's pixels down and the detail lift
 /// left a light rim at strong edges, 1.0 L* above Camera Raw's at −100
-/// (notes: G02, benchmark-results/atf6-highlights-halo-2026-11-08).
+/// (notes: G02, benchmark-results/atf6-highlights-halo-2026-11-08);
+/// 15 (2026-11-08) lowers the Camera Raw look's Contrast pivot: at the same
+/// global contrast, 14 left L* 30–40 2.9 / 3.5 darker than Camera Raw /
+/// Capture One at +100 and lifted L* 40–50 1.6 / 2.1 more than either at
+/// −100 (notes: G02, benchmark-results/atf5-contrast-2026-11-08);
+/// 16 (2026-11-08) lets lowered Blacks reach into the midtones as Capture
+/// One's Black does: version 9's black point changed only L* < 30, so at
+/// the same darkening of the darkest tenth L* 20–30 stayed 5–9 L* lighter
+/// than both reference editors and the steep fade raised the shadows' fine
+/// detail 1.2–1.3 × (theirs 0.8–0.9 ×) (notes: G02,
+/// benchmark-results/atf2-blacks-reach-2026-11-08).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 14;
+pub const TONE_VERSION: u64 = 16;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -7914,6 +7941,41 @@ mod tone_version_tests {
         assert_eq!(version(json!({"blacks": -60, "toneVersion": 9})), 9.0);
         // Version 10 (lowered Whites at a local base) is known.
         assert_eq!(version(json!({"whites": -60, "toneVersion": 10})), 10.0);
+    }
+}
+
+#[cfg(test)]
+mod vibrance_version_tests {
+    use super::{VIBRANCE_VERSION, get_all_adjustments_from_json};
+    use serde_json::json;
+
+    /// The shader's `GlobalAdjustments` ends with `vibrance_version` and
+    /// `_pad_vibrance: array<u32, 2>` and is rounded up to 16 bytes (it holds
+    /// vec4s); the Rust struct must be exactly as long, or every field of
+    /// `AllAdjustments` after it moves.
+    #[test]
+    fn global_adjustments_match_the_shader_layout() {
+        use super::GlobalAdjustments;
+        let shader_end = std::mem::offset_of!(GlobalAdjustments, vibrance_version) + 4 + 8;
+        assert_eq!(
+            std::mem::size_of::<GlobalAdjustments>(),
+            shader_end.div_ceil(16) * 16
+        );
+    }
+
+    #[test]
+    fn recipes_without_a_vibrance_version_keep_the_first_response() {
+        let version = |recipe| {
+            get_all_adjustments_from_json(&recipe, true, None)
+                .global
+                .vibrance_version
+        };
+        assert_eq!(version(json!({"vibrance": 40})), 1);
+        assert_eq!(version(json!({"vibrance": 40, "vibranceVersion": 2})), 2);
+        assert_eq!(
+            version(json!({"vibranceVersion": 9})),
+            VIBRANCE_VERSION as u32
+        );
     }
 }
 

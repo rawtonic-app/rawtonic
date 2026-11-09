@@ -12,6 +12,7 @@ import {
   withBwVersion,
   withDetailVersions,
   withWhiteBalanceVersions,
+  withVibranceVersion,
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion
@@ -48,6 +49,7 @@ export function collectPresetAdjustments(
       key === 'clarityVersion' ||
       key === 'temperatureVersion' ||
       key === 'tintVersion' ||
+      key === 'vibranceVersion' ||
       key === 'structureVersion' ||
       key === 'bwVersion'
     )
@@ -58,10 +60,13 @@ export function collectPresetAdjustments(
     presetAdjustments[key] = currentValue;
   }
   const versioned = withBwVersion(
-    withDetailVersions(
-      withGrainVersion(
-        withLumaNoiseVersion(
-          withWhiteBalanceVersions(withSharpenVersion(presetAdjustments, current), current),
+    withVibranceVersion(
+      withDetailVersions(
+        withGrainVersion(
+          withLumaNoiseVersion(
+            withWhiteBalanceVersions(withSharpenVersion(presetAdjustments, current), current),
+            current
+          ),
           current
         ),
         current
