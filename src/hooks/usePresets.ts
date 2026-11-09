@@ -10,6 +10,7 @@ import {
   sameAdjustmentValue,
   withAiDenoiseVersion,
   withBwVersion,
+  withHslVersion,
   withDetailVersions,
   withWhiteBalanceVersions,
   withVibranceVersion,
@@ -52,7 +53,8 @@ export function collectPresetAdjustments(
       key === 'tintVersion' ||
       key === 'vibranceVersion' ||
       key === 'structureVersion' ||
-      key === 'bwVersion'
+      key === 'bwVersion' ||
+      key === 'hslVersion'
     )
       continue;
     if (!Object.prototype.hasOwnProperty.call(current, key)) continue;
@@ -60,13 +62,16 @@ export function collectPresetAdjustments(
     if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
     presetAdjustments[key] = currentValue;
   }
-  const versioned = withBwVersion(
-    withVibranceVersion(
-      withDetailVersions(
-        withGrainVersion(
-          withLumaNoiseVersion(
-            withWhiteBalanceVersions(
-              withSharpenVersion(withPortableWhites(presetAdjustments, current), current),
+  const versioned = withHslVersion(
+    withBwVersion(
+      withVibranceVersion(
+        withDetailVersions(
+          withGrainVersion(
+            withLumaNoiseVersion(
+              withWhiteBalanceVersions(
+                withSharpenVersion(withPortableWhites(presetAdjustments, current), current),
+                current
+              ),
               current
             ),
             current

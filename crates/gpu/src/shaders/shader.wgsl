@@ -121,7 +121,9 @@ struct HslColor {
     hue: f32,
     saturation: f32,
     luminance: f32,
-    _pad: f32,
+    // hsl[0] of the photo's adjustments: the colour mixer's response
+    // (`hslVersion`) − 1, which its layers render with too; 0 elsewhere.
+    response: f32,
 }
 
 struct ColorGradeSettings {
@@ -4109,6 +4111,153 @@ fn apply_hsl_panel(color: vec3<f32>, hsl_adjustments: array<HslColor, 8>, coords
     let new_chroma = chroma * max(1.0 + chroma_change, 0.0);
     // Lightness moves with the colour's saturation, so near-greys shift less.
     let new_lightness = max(lab.x + lightness_change * smoothstep(0.0, 0.05, chroma), 0.0);
+    let result = oklab_to_linear_srgb(vec3<f32>(new_lightness, new_chroma * cos(new_hue), new_chroma * sin(new_hue)));
+    return gamut_floor(result);
+}
+
+// `hslVersion` 2: each channel's Hue, Saturation and Luminance has its own
+// window over the mixer input's Oklab hue (centre, reach below and above,
+// falloff power), a gain per direction and a slider curve, fitted to Camera
+// Raw's per-hue response (notes: benchmark-results/atf8-hsl-shapes-2026-11-09).
+// Index property × 8 + channel (property 0 hue, 1 saturation, 2 luminance).
+// HSL2_WINDOW: centre (degrees), reach below, reach above, falloff power
+// below.
+// HSL2_GAIN: gain at −100 and +100 (hue: degrees; saturation: chroma
+// change; luminance: Oklab lightness), slider curve exponent, side effect
+// (hue: chroma change per 30°; saturation: lightness per chroma change ×
+// 0.1; luminance: chroma per lightness change × 5).
+// HSL2_SHAPE: chroma power of the effect ((C / 0.06)^a, at most 4), lightness
+// power ((L / 0.6)^b), for hue the share of the move that selects the window
+// at the destination hue, and the falloff power above the centre.
+const HSL2_WINDOW = array<vec4<f32>, 24>(
+    // hue
+    vec4<f32>(9.345, 22.44, 43.46, 1.026), vec4<f32>(53.65, 51.83, 42.74, 0.9879), vec4<f32>(90.43, 46.72, 52.09, 1.371), vec4<f32>(133.4, 57.07, 53.85, 2.05), vec4<f32>(171.8, 32.82, 89.98, 1.406), vec4<f32>(255.6, 67.75, 59.46, 0.5855), vec4<f32>(312.4, 62.21, 38.51, 0.9922), vec4<f32>(345.0, 25.76, 38.31, 2.973),
+    // saturation
+    vec4<f32>(3.728, 19.22, 51.69, 1.526), vec4<f32>(50.23, 46.38, 42.97, 0.7862), vec4<f32>(94.28, 49.99, 49.0, 1.438), vec4<f32>(141.7, 51.61, 32.39, 1.276), vec4<f32>(171.5, 47.17, 82.31, 2.694), vec4<f32>(257.9, 66.58, 57.55, 0.4506), vec4<f32>(326.6, 73.31, 22.56, 1.247), vec4<f32>(347.1, 24.5, 24.17, 1.773),
+    // luminance
+    vec4<f32>(9.242, 20.4, 44.0, 0.6776), vec4<f32>(52.13, 41.22, 39.77, 0.7367), vec4<f32>(93.67, 41.26, 39.51, 0.9953), vec4<f32>(129.5, 35.71, 47.21, 1.043), vec4<f32>(164.2, 33.36, 86.12, 3.0), vec4<f32>(259.7, 83.34, 57.17, 0.5664), vec4<f32>(324.3, 74.2, 19.57, 0.979), vec4<f32>(344.9, 25.06, 29.41, 1.764)
+);
+const HSL2_GAIN = array<vec4<f32>, 24>(
+    // hue
+    vec4<f32>(20.69, 33.89, 1.078, -0.2421), vec4<f32>(42.76, 49.22, 0.8552, 0.01775), vec4<f32>(45.97, 41.36, 1.003, 0.01302), vec4<f32>(35.69, 34.55, 0.9376, 0.1001), vec4<f32>(33.16, 64.36, 1.308, -0.1009), vec4<f32>(86.03, 69.98, 0.6821, 0.00483), vec4<f32>(61.75, 34.18, 0.9037, 0.1922), vec4<f32>(24.71, 18.43, 1.059, 0.1549),
+    // saturation
+    vec4<f32>(0.9817, 0.8595, 1.143, -0.07219), vec4<f32>(0.9857, 0.7948, 1.112, -0.08975), vec4<f32>(0.9526, 0.7964, 1.124, 0.05667), vec4<f32>(0.9751, 1.151, 1.325, -0.09878), vec4<f32>(0.946, 0.8389, 1.023, 0.03637), vec4<f32>(0.9327, 1.124, 1.036, -0.3537), vec4<f32>(0.9418, 0.8309, 0.9288, 0.1954), vec4<f32>(0.9692, 1.109, 1.234, 0.0),
+    // luminance
+    vec4<f32>(0.07783, 0.07556, 0.9983, 0.3672), vec4<f32>(0.1595, 0.1386, 1.005, 0.3125), vec4<f32>(0.2339, 0.1824, 1.099, 0.1678), vec4<f32>(0.1362, 0.1224, 1.019, 0.1648), vec4<f32>(0.09233, 0.08666, 0.9878, 0.1425), vec4<f32>(0.2062, 0.1791, 1.436, 0.5547), vec4<f32>(0.1612, 0.1469, 0.9251, 0.1462), vec4<f32>(0.114, 0.1092, 1.005, -0.02472)
+);
+const HSL2_SHAPE = array<vec4<f32>, 24>(
+    // hue
+    vec4<f32>(0.3187, -0.3019, 0.0005369, 0.8489), vec4<f32>(0.0, 0.04971, 0.1249, 1.013), vec4<f32>(0.0, 0.02166, 0.003912, 1.376), vec4<f32>(0.0, -0.2329, 0.04865, 2.104), vec4<f32>(0.0, 0.03546, 0.0, 1.453), vec4<f32>(0.0, -0.04186, 0.2494, 0.5488), vec4<f32>(0.3516, 0.2341, 0.1296, 0.6129), vec4<f32>(0.02949, -0.03665, 0.0, 2.992),
+    // saturation
+    vec4<f32>(0.04521, -0.08886, 0.0, 1.536), vec4<f32>(0.0, 0.06412, 0.0, 0.7849), vec4<f32>(0.0, -0.1249, 0.0, 1.45), vec4<f32>(0.1111, -0.4927, 0.0, 1.295), vec4<f32>(0.0, -0.2297, 0.0, 2.785), vec4<f32>(0.08132, -0.08518, 0.0, 0.4681), vec4<f32>(0.1156, -0.156, 0.0, 1.261), vec4<f32>(0.001466, -0.1087, 0.0, 1.771),
+    // luminance
+    vec4<f32>(0.0, 0.8986, 0.0, 0.82), vec4<f32>(0.0, 0.9892, 0.0, 0.6362), vec4<f32>(0.1531, 1.785, 0.0, 1.024), vec4<f32>(0.0, 1.662, 0.0, 1.096), vec4<f32>(0.0001443, 1.074, 0.0, 0.8911), vec4<f32>(0.2181, 0.7007, 0.0, 0.8062), vec4<f32>(0.8253, 1.29, 0.0, 1.135), vec4<f32>(0.0, 1.967, 0.0, 2.313)
+);
+
+// Entry `i`'s window at `hue`.
+fn hsl2_window(hue: f32, i: u32) -> f32 {
+    let window = HSL2_WINDOW[i];
+    let e = hue - window.x;
+    let d = e - 360.0 * round(e / 360.0);
+    let below = d < 0.0;
+    let x = clamp(abs(d) / select(window.z, window.y, below), 0.0, 1.0);
+    // exp2 · log2 for pow: as fast and 0 at the window's end (log2(0) = −inf);
+    // pow of a negative base is undefined: cos(π) rounds below −1 on some GPUs.
+    return exp2(select(HSL2_SHAPE[i].w, window.w, below) * log2(max(0.5 + 0.5 * cos(x * 3.14159265), 0.0)));
+}
+
+// The gain of slider position `t` (−1…1) for entry `i`.
+fn hsl2_gain(t: f32, i: u32) -> f32 {
+    let gain = HSL2_GAIN[i];
+    return select(gain.x, gain.y, t > 0.0) * sign(t) * exp2(gain.z * log2(max(abs(t), 1.0e-6)));
+}
+
+// How strongly entry `i` acts on a colour of log2(chroma / 0.06) `log_c`
+// and log2(lightness / 0.6) `log_l` (chroma at least 1e-4, lightness at
+// least 0.05), with the near-grey fade `colourful`: colourful ×
+// min((C / 0.06)^a, 4) × (L / 0.6)^b.
+fn hsl2_strength(log_c: f32, log_l: f32, colourful: f32, i: u32) -> f32 {
+    let shape = HSL2_SHAPE[i];
+    return colourful * min(exp2(shape.x * log_c), 4.0) * exp2(shape.y * log_l);
+}
+
+fn apply_hsl_panel_v2(color: vec3<f32>, hsl_adjustments: array<HslColor, 8>) -> vec3<f32> {
+    let safe_color = gamut_floor(color);
+    var moved = false;
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        moved = moved || hsl_adjustments[i].hue != 0.0 || hsl_adjustments[i].saturation != 0.0
+            || hsl_adjustments[i].luminance != 0.0;
+    }
+    if (!moved) {
+        return safe_color;
+    }
+    let lab = linear_srgb_to_oklab(safe_color);
+    let chroma = length(lab.yz);
+    let colourful = smoothstep(0.0, 0.03, chroma);
+    if (colourful < 0.001) {
+        return safe_color;
+    }
+    let hue = degrees(atan2(lab.z, lab.y));
+    let log_c = log2(max(chroma, 1.0e-4) / 0.06);
+    let log_l = log2(max(lab.x, 0.05) / 0.6);
+
+    // Hue: the move d solves d = Σ G w(hue + β d) (damped iterations from
+    // the move at the colour's own hue).
+    var moves: array<f32, 8>;
+    var any_hue = false;
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        // Renderer value is slider × 0.3 (layers add theirs to the photo's).
+        let t = hsl_adjustments[i].hue / 30.0;
+        moves[i] = 0.0;
+        if (t != 0.0) {
+            moves[i] = hsl2_gain(t, i) * hsl2_strength(log_c, log_l, colourful, i);
+            any_hue = true;
+        }
+    }
+    var hue_shift: f32 = 0.0;
+    var chroma_change: f32 = 0.0;
+    var lightness_change: f32 = 0.0;
+    if (any_hue) {
+        for (var i = 0u; i < 8u; i = i + 1u) {
+            if (moves[i] != 0.0) {
+                hue_shift += moves[i] * hsl2_window(hue, i);
+            }
+        }
+        for (var n = 0u; n < 6u; n = n + 1u) {
+            var next: f32 = 0.0;
+            for (var i = 0u; i < 8u; i = i + 1u) {
+                if (moves[i] != 0.0) {
+                    next += moves[i] * hsl2_window(hue + HSL2_SHAPE[i].z * hue_shift, i);
+                }
+            }
+            hue_shift = 0.5 * hue_shift + 0.5 * next;
+        }
+        for (var i = 0u; i < 8u; i = i + 1u) {
+            if (moves[i] != 0.0) {
+                let own = moves[i] * hsl2_window(hue + HSL2_SHAPE[i].z * hue_shift, i);
+                chroma_change += hsl2_window(hue, i) * HSL2_GAIN[i].w * abs(own) / 30.0;
+            }
+        }
+    }
+    for (var c = 0u; c < 8u; c = c + 1u) {
+        let s = hsl_adjustments[c].saturation;
+        if (s != 0.0) {
+            let i = 8u + c;
+            let change = hsl2_window(hue, i) * hsl2_strength(log_c, log_l, colourful, i) * hsl2_gain(s, i);
+            chroma_change += change;
+            lightness_change += change * HSL2_GAIN[i].w * 0.1;
+        }
+        let l = hsl_adjustments[c].luminance;
+        if (l != 0.0) {
+            let i = 16u + c;
+            let change = hsl2_window(hue, i) * hsl2_strength(log_c, log_l, colourful, i) * hsl2_gain(l, i);
+            lightness_change += change * smoothstep(0.0, 0.05, chroma);
+            chroma_change += change * HSL2_GAIN[i].w * 5.0;
+        }
+    }
+    let new_hue = radians(hue + hue_shift);
+    let new_chroma = chroma * max(1.0 + chroma_change, 0.0);
+    let new_lightness = max(lab.x + lightness_change, 0.0);
     let result = oklab_to_linear_srgb(vec3<f32>(new_lightness, new_chroma * cos(new_hue), new_chroma * sin(new_hue)));
     return gamut_floor(result);
 }
@@ -9935,7 +10084,14 @@ fn main(
         textureStore(output_texture, id.xy, mixer_probe_pixel(gamut_floor(composite_rgb_linear)));
         return;
     }
+    // Version 1 runs on every recipe as before (in a branch of its own the
+    // compiler changed its rounding: exports of version-1 recipes moved by
+    // one level in 0.07 % of values); version 2 replaces its result.
+    let mixer_input = composite_rgb_linear;
     composite_rgb_linear = apply_hsl_panel(composite_rgb_linear, final_hsl, absolute_coord_i);
+    if (adjustments.global.hsl[0].response > 0.5) {
+        composite_rgb_linear = apply_hsl_panel_v2(mixer_input, final_hsl);
+    }
     composite_rgb_linear = apply_hue_shift(composite_rgb_linear, t_hue);
     if (VIBRANCE_V2 && adjustments.global.vibrance_version >= 2u) {
         composite_rgb_linear = apply_creative_color_v2(composite_rgb_linear, t_saturation, t_vibrance);

@@ -4184,7 +4184,10 @@ pub struct HslColor {
     pub hue: f32,
     pub saturation: f32,
     pub luminance: f32,
-    _pad: f32,
+    /// In `hsl[0]` of the photo's adjustments: the colour mixer's response
+    /// (`hsl_version`) − 1, which the photo's layers render with too; 0
+    /// elsewhere.
+    pub response: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -4768,8 +4771,18 @@ fn resolved_hsl(hsl: rawtonic_recipe::color::Hsl) -> [HslColor; 8] {
         hue: channel.hue as f32 * SCALES.hsl_hue_multiplier,
         saturation: channel.saturation as f32 / SCALES.hsl_saturation,
         luminance: channel.luminance as f32 / SCALES.hsl_luminance,
-        _pad: 0.0,
+        response: 0.0,
     })
+}
+
+/// The photo's mixer channels with its response in `hsl[0].response`.
+fn resolved_photo_hsl(
+    hsl: rawtonic_recipe::color::Hsl,
+    version: crate::recipe_versions::HslVersion,
+) -> [HslColor; 8] {
+    let mut channels = resolved_hsl(hsl);
+    channels[0].response = version.uniform();
+    channels
 }
 
 fn resolved_color_grade_settings(wheel: rawtonic_recipe::color::HslChannel) -> ColorGradeSettings {
@@ -5390,7 +5403,7 @@ fn get_global_adjustments_resolved(
 
         color_calibration: color_cal_settings,
 
-        hsl: resolved_hsl(color.hsl),
+        hsl: resolved_photo_hsl(color.hsl, versions.hsl),
         luma_curve: convert_points_to_aligned(luma_points.clone()),
         red_curve: convert_points_to_aligned(red_points.clone()),
         green_curve: convert_points_to_aligned(green_points.clone()),
@@ -6054,6 +6067,7 @@ pub fn new_edit_responses(is_raw: bool) -> serde_json::Map<String, serde_json::V
     map.insert(LUMA_NOISE_VERSION_KEY.into(), json!(LUMA_NOISE_VERSION));
     map.insert(DEFRINGE_VERSION_KEY.into(), json!(DEFRINGE_VERSION));
     map.insert(BW_VERSION_KEY.into(), json!(BW_VERSION));
+    map.insert(HSL_VERSION_KEY.into(), json!(HSL_VERSION));
     map.insert(GRAIN_VERSION_KEY.into(), json!(GRAIN_VERSION));
     if is_raw {
         map.insert(
@@ -6080,6 +6094,25 @@ pub const DEFRINGE_VERSION: u64 = 2;
 /// renderer knows.
 pub fn defringe_version(adjustments: &serde_json::Value) -> u64 {
     crate::recipe_versions::DefringeVersion::of(adjustments).get()
+}
+
+/// The recipe key naming the colour mixer response a recipe was made with.
+pub const HSL_VERSION_KEY: &str = "hslVersion";
+/// The newest colour mixer response: 2 (2026-11-09) gives each channel's
+/// Hue, Saturation and Luminance its own hue window (centre, reach on
+/// either side, falloff), gain per direction and slider curve, fitted to
+/// Camera Raw's per-hue response on 8 of the slider atlas's 16 HSL
+/// photographs (the other 8 held out): Hue moves select by the colour's
+/// destination hue as well, Saturation and Luminance move strongly
+/// saturated colours more than pale ones (notes:
+/// benchmark-results/atf8-hsl-shapes-2026-11-09). Every slider at 0
+/// renders as version 1. Recipes without the key keep version 1.
+pub const HSL_VERSION: u64 = 2;
+
+/// The recipe's colour mixer response, 1 when missing, never newer than
+/// this renderer knows.
+pub fn hsl_version(adjustments: &serde_json::Value) -> u64 {
+    crate::recipe_versions::HslVersion::of(adjustments).get()
 }
 
 /// The recipe key naming the B&W mix response a recipe was made with.
@@ -8487,6 +8520,24 @@ mod editing_tool_tests {
         let colour =
             get_global_adjustments_from_json(&json!({"grayMixer": {"red": 20}}), true, None);
         assert_eq!(colour.bw_enabled, 0);
+    }
+
+    #[test]
+    fn colour_mixer_carries_its_response() {
+        let response = |recipe: serde_json::Value| {
+            let global = get_global_adjustments_from_json(&recipe, true, None);
+            (global.hsl[0].response, global.hsl[1].response)
+        };
+        // Recipes without the key keep the first response.
+        assert_eq!(response(json!({})), (0.0, 0.0));
+        assert_eq!(response(json!({"hslVersion": 1})), (0.0, 0.0));
+        assert_eq!(response(json!({"hslVersion": 2})), (1.0, 0.0));
+        // Never newer than the renderer knows.
+        assert_eq!(
+            response(json!({"hslVersion": 9})),
+            ((HSL_VERSION - 1) as f32, 0.0)
+        );
+        assert!(new_edit_responses(true)[HSL_VERSION_KEY] == json!(HSL_VERSION));
     }
 
     #[test]

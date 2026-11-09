@@ -1557,7 +1557,9 @@ export default function StudioDevelop() {
               toggle={toolSwitch('colorMixer')}
               copy={photoOnly([['hsl', t('studio.develop.params.hsl')]])}
               open
-              onReset={() => reset(['hsl'])}
+              // Every slider at 0 renders alike in every mixer response: the
+              // photo's reset takes a new edit's.
+              onReset={() => reset(layer ? ['hsl'] : ['hsl', 'hslVersion'])}
             >
               {!layer && (
                 <div className="studio-inline studio-tat-row">

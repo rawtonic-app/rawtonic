@@ -39,8 +39,9 @@ export const isToneTarget = (target: TatTarget) => target === 'curve' || target 
 export const HSL_CHANNELS = ['reds', 'oranges', 'yellows', 'greens', 'aquas', 'blues', 'purples', 'magentas'] as const;
 const GRAY_CHANNELS = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta'] as const;
 
-// Channel windows as the shader selects colours (apply_hsl_panel,
-// apply_black_and_white): Oklab hue centres and raised-cosine reach.
+// Channel windows as the shader selects colours (apply_hsl_panel for
+// `hslVersion` 1, apply_black_and_white): Oklab hue centres and
+// raised-cosine reach.
 const HSL_CENTRES = [15, 52, 105, 145, 195, 262, 305, 340];
 const HSL_REACH = [32, 38, 50, 55, 55, 50, 40, 38];
 // apply_black_and_white (`bwVersion` 1) and apply_black_and_white_v2.
@@ -48,6 +49,53 @@ const BW_CENTRES = [18.6, 55.2, 94.3, 134.9, 181.9, 236.0, 312.1, 348.0];
 const BW_REACH = [33.9, 41.8, 38.7, 41.4, 42.1, 84.8, 60.6, 31.1];
 const BW2_CENTRES = [17.8, 52.4, 93.3, 135.0, 182.9, 247.0, 310.9, 350.5];
 const BW2_REACH = [28.6, 39.4, 41.9, 38.1, 45.4, 77.4, 51.7, 25.3];
+
+// apply_hsl_panel_v2 (`hslVersion` 2): per property and channel the window
+// centre, reach below and above (degrees) and falloff power below and above.
+const HSL2_WINDOWS: Record<'hue' | 'saturation' | 'luminance', [number, number, number, number, number][]> = {
+  hue: [
+    [9.345, 22.44, 43.46, 1.026, 0.8489],
+    [53.65, 51.83, 42.74, 0.9879, 1.013],
+    [90.43, 46.72, 52.09, 1.371, 1.376],
+    [133.4, 57.07, 53.85, 2.05, 2.104],
+    [171.8, 32.82, 89.98, 1.406, 1.453],
+    [255.6, 67.75, 59.46, 0.5855, 0.5488],
+    [312.4, 62.21, 38.51, 0.9922, 0.6129],
+    [345, 25.76, 38.31, 2.973, 2.992]
+  ],
+  saturation: [
+    [3.728, 19.22, 51.69, 1.526, 1.536],
+    [50.23, 46.38, 42.97, 0.7862, 0.7849],
+    [94.28, 49.99, 49, 1.438, 1.45],
+    [141.7, 51.61, 32.39, 1.276, 1.295],
+    [171.5, 47.17, 82.31, 2.694, 2.785],
+    [257.9, 66.58, 57.55, 0.4506, 0.4681],
+    [326.6, 73.31, 22.56, 1.247, 1.261],
+    [347.1, 24.5, 24.17, 1.773, 1.771]
+  ],
+  luminance: [
+    [9.242, 20.4, 44, 0.6776, 0.82],
+    [52.13, 41.22, 39.77, 0.7367, 0.6362],
+    [93.67, 41.26, 39.51, 0.9953, 1.024],
+    [129.5, 35.71, 47.21, 1.043, 1.096],
+    [164.2, 33.36, 86.12, 3, 0.8911],
+    [259.7, 83.34, 57.17, 0.5664, 0.8062],
+    [324.3, 74.2, 19.57, 0.979, 1.135],
+    [344.9, 25.06, 29.41, 1.764, 2.313]
+  ]
+};
+
+/** Each channel's share of a hue under `hslVersion` 2's windows of
+ * `property` over their sum. */
+export function channelShares2(hue: number, property: 'hue' | 'saturation' | 'luminance') {
+  const w = HSL2_WINDOWS[property].map(([centre, below, above, powerBelow, powerAbove]) => {
+    const d = ((((hue - centre) % 360) + 540) % 360) - 180;
+    const x = Math.min(Math.abs(d) / (d < 0 ? below : above), 1);
+    return Math.max(0.5 + 0.5 * Math.cos(x * Math.PI), 0) ** (d < 0 ? powerBelow : powerAbove);
+  });
+  const total = w.reduce((sum, x) => sum + x, 0);
+  return w.map((x) => (total > 0 ? x / total : 0));
+}
 
 /** Slider units per screen pixel of vertical drag on the tone targets
  * (Lightroom-like pace). */
@@ -155,7 +203,9 @@ export function startTargetedAdjustment(
       ? (base.bwVersion ?? 1) >= 2
         ? channelShares(hue, BW2_CENTRES, BW2_REACH)
         : channelShares(hue, BW_CENTRES, BW_REACH)
-      : channelShares(hue, HSL_CENTRES, HSL_REACH);
+      : (base.hslVersion ?? 1) >= 2
+        ? channelShares2(hue, target as 'hue' | 'saturation' | 'luminance')
+        : channelShares(hue, HSL_CENTRES, HSL_REACH);
   return { target, base, weights };
 }
 

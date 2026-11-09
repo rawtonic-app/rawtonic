@@ -241,7 +241,7 @@ pub(super) fn parse_hsl_adjustments(js_hsl: &serde_json::Value) -> [HslColor; 8]
                         / SCALES.hsl_saturation,
                     luminance: color_data["luminance"].as_f64().unwrap_or(0.0) as f32
                         / SCALES.hsl_luminance,
-                    _pad: 0.0,
+                    response: 0.0,
                 };
             }
         }

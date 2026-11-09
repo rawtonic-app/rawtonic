@@ -375,6 +375,28 @@ impl BwVersion {
     }
 }
 
+/// `hslVersion` (`image_processing::HSL_VERSION`): the colour mixer's
+/// response, 1 when missing, never newer than this renderer knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HslVersion(u64);
+
+impl HslVersion {
+    pub fn of(recipe: &Value) -> Self {
+        Self(read(recipe, ip::HSL_VERSION_KEY, 1).clamp(1, ip::HSL_VERSION))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The value the shader reads (`hsl[0]` of the photo's adjustments,
+    /// `HslColor::response`): the version − 1, so recipes of the first
+    /// response keep their uniform bytes.
+    pub fn uniform(self) -> f32 {
+        (self.0 - 1) as f32
+    }
+}
+
 /// The film grain (`grainVersion` 3).
 pub const FILM_GRAIN_VERSION: u64 = 3;
 
@@ -779,6 +801,7 @@ pub struct RecipeVersions {
     pub color_noise: ColorNoiseVersion,
     pub defringe: DefringeVersion,
     pub bw: BwVersion,
+    pub hsl: HslVersion,
     pub grain: GrainVersion,
     pub clarity: ClarityVersion,
     pub temperature: TemperatureVersion,
@@ -805,6 +828,7 @@ impl RecipeVersions {
             color_noise: ColorNoiseVersion::of(recipe, is_raw),
             defringe: DefringeVersion::of(recipe),
             bw: BwVersion::of(recipe),
+            hsl: HslVersion::of(recipe),
             grain: GrainVersion::of(recipe),
             clarity: ClarityVersion::of(recipe),
             temperature: TemperatureVersion::of(recipe),
@@ -901,7 +925,7 @@ mod tests {
         let future = json!({
             "renderVersion": 999, "toneVersion": 999, "sharpenVersion": 999,
             "lumaNoiseVersion": 999, "colorNoiseVersion": 999, "defringeVersion": 999,
-            "bwVersion": 999, "grainVersion": 999, "clarityVersion": 999, "vibranceVersion": 999, "structureVersion": 999,
+            "bwVersion": 999, "hslVersion": 999, "grainVersion": 999, "clarityVersion": 999, "vibranceVersion": 999, "structureVersion": 999,
             "fringeVersion": 999, "autoCaVersion": 999, "cameraCaVersion": 999,
             "cameraGeometryVersion": 999, "diffractionVersion": 999, "aiDenoiseVersion": 999,
         });
@@ -910,6 +934,7 @@ mod tests {
         assert_eq!(v.tone.get(), ip::TONE_VERSION);
         assert_eq!(v.vibrance.get(), ip::VIBRANCE_VERSION);
         assert_eq!(v.structure.get(), ip::STRUCTURE_VERSION);
+        assert_eq!(v.hsl.get(), ip::HSL_VERSION);
         assert_eq!(v.color_noise.get(), crate::color_noise::VERSION);
         assert_eq!(v.fringe.get(), crate::edge_fringe::VERSION);
         assert_eq!(
@@ -921,6 +946,7 @@ mod tests {
         let missing = RecipeVersions::of(&json!({"exposure": 1}), true);
         assert_eq!(missing.render.get(), 1);
         assert_eq!(missing.structure.get(), 1);
+        assert_eq!(missing.hsl.get(), 1);
         assert_eq!(missing.fringe.get(), 0);
         assert_eq!(missing.camera_ca.get(), 0);
         assert_eq!(missing.ai_denoise.get(), 1);
