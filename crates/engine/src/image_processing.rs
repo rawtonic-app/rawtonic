@@ -5298,7 +5298,7 @@ fn get_global_adjustments_resolved(
 
         clarity: detail.clarity.get() as f32 / SCALES.clarity,
         dehaze: detail.dehaze.get() as f32 / SCALES.dehaze,
-        structure: detail.structure.get() as f32 / SCALES.structure,
+        structure: versions.structure.amount(detail.structure.get()) as f32 / SCALES.structure,
         centré: tone.centre.get() as f32 / SCALES.centré,
         vignette_amount: effects.vignette_amount.get() as f32 / SCALES.vignette_amount,
         vignette_midpoint: effects.vignette_midpoint.get() as f32 / SCALES.vignette_midpoint,
@@ -6024,6 +6024,7 @@ pub fn new_edit_responses(is_raw: bool) -> serde_json::Map<String, serde_json::V
     let mut map = serde_json::Map::new();
     map.insert(TONE_VERSION_KEY.into(), json!(TONE_VERSION));
     map.insert(CLARITY_VERSION_KEY.into(), json!(CLARITY_VERSION));
+    map.insert(STRUCTURE_VERSION_KEY.into(), json!(STRUCTURE_VERSION));
     map.insert(
         crate::color_noise::VERSION_KEY.into(),
         json!(crate::color_noise::VERSION),
@@ -6294,7 +6295,7 @@ pub fn get_all_adjustments_from_json(
     get_all_adjustments_with_locals(
         js_adjustments,
         global,
-        versions.render,
+        &versions,
         masks::resolve(stored)
             .layers
             .iter()
@@ -6365,7 +6366,7 @@ pub fn get_all_adjustments_with_masks(
     get_all_adjustments_with_locals(
         js_adjustments,
         global,
-        versions.render,
+        versions,
         mask_definitions
             .iter()
             .filter(|mask| mask.produces_bitmap())
@@ -6377,7 +6378,7 @@ pub fn get_all_adjustments_with_masks(
 fn get_all_adjustments_with_locals<'a>(
     js_adjustments: &Value,
     mut global: GlobalAdjustments,
-    render: RenderVersion,
+    versions: &RecipeVersions,
     local_adjustments: impl Iterator<Item = rawtonic_recipe::masks::LocalAdjustments<'a>>,
 ) -> PreparedAdjustments {
     let (depth_key, relight_surface) = crate::relight::prepare_depth(js_adjustments);
@@ -6403,7 +6404,10 @@ fn get_all_adjustments_with_locals<'a>(
     let mut mask_count = 0;
 
     for (i, local) in local_adjustments.enumerate() {
-        mask_adjustments[i] = get_mask_adjustments(&local, global.tonemapper_mode, render);
+        mask_adjustments[i] = get_mask_adjustments(&local, global.tonemapper_mode, versions.render);
+        // A layer's Structure follows the photo's Structure travel.
+        mask_adjustments[i].structure =
+            versions.structure.amount(local.structure.get()) as f32 / SCALES.structure;
         mask_adjustments[i].exposure *= exposure_scale;
         mask_count += 1;
     }
@@ -6411,8 +6415,8 @@ fn get_all_adjustments_with_locals<'a>(
     PreparedAdjustments {
         relight_surface,
         relight_patterns,
-        whole_blur_radius: render.whole_blur_radius(),
-        specialized_export: render.specialized_export(),
+        whole_blur_radius: versions.render.whole_blur_radius(),
+        specialized_export: versions.render.specialized_export(),
         curve_table,
         uniforms: Box::new(AllAdjustments {
             global,
@@ -7256,6 +7260,37 @@ pub fn grain_version(adjustments: &serde_json::Value) -> u64 {
     crate::recipe_versions::GrainVersion::of(adjustments).get()
 }
 
+/// The recipe key naming the Structure travel it was made with.
+pub const STRUCTURE_VERSION_KEY: &str = "structureVersion";
+/// The newest Structure travel: 2 (2026-11-08) maps the slider so its
+/// strength per unit follows Camera Raw's Texture (task ATF7: at equal fine
+/// detail gain, version 1's ±50 already went beyond Camera Raw's ±100; its
+/// +50 / +100 / −50 / −100 reached what version 1 does at about +18 / +29 /
+/// −25 / −41, median of 24 calibration photos, 17.7 / 28.0 / −24.4 / −39.6
+/// on the 24 held-out ones; notes: benchmark-results/atf7-slider-travel-2026-11-08).
+/// The filter itself is unchanged. Recipes without the key keep version 1.
+pub const STRUCTURE_VERSION: u64 = 2;
+/// The Structure version from which the slider follows Camera Raw's travel.
+pub const STRUCTURE_TRAVEL_VERSION: u64 = 2;
+
+/// Structure version 1: the slider value is the amount.
+pub fn structure_amount_v1(value: f64) -> f64 {
+    value
+}
+
+/// Structure version 2: per side a quadratic through 0 and the measured
+/// points (+50 → 18.6, +100 → 29.5; −50 → −25.25, −100 → −41), rising
+/// over the whole range (slope 0.14 / 0.22 at the ends).
+pub fn structure_amount_v2(value: f64) -> f64 {
+    let v = value.clamp(-100.0, 100.0);
+    let (a, b) = if v >= 0.0 {
+        (0.45, -0.00155)
+    } else {
+        (0.6, -0.0019)
+    };
+    v.signum() * (a * v.abs() + b * v * v)
+}
+
 /// The recipe key naming the Clarity response it was made with.
 pub const CLARITY_VERSION_KEY: &str = "clarityVersion";
 /// The newest Clarity: 2 (2026-10-24) measures a pixel's medium-scale band in
@@ -7843,6 +7878,79 @@ mod tone_version_tests {
         assert_eq!(version(json!({"blacks": -60, "toneVersion": 9})), 9.0);
         // Version 10 (lowered Whites at a local base) is known.
         assert_eq!(version(json!({"whites": -60, "toneVersion": 10})), 10.0);
+    }
+}
+
+#[cfg(test)]
+mod structure_version_tests {
+    use super::{SCALES, get_all_adjustments_from_json, structure_amount_v2};
+    use serde_json::json;
+
+    fn amounts(recipe: serde_json::Value) -> (f32, f32) {
+        let prepared = get_all_adjustments_from_json(&recipe, true, None);
+        (
+            prepared.global.structure,
+            prepared.mask_adjustments[0].structure,
+        )
+    }
+
+    fn with_layer(structure: f64, version: Option<u64>) -> serde_json::Value {
+        let mut recipe = json!({
+            "structure": structure,
+            "masks": [{"id": "m", "name": "m", "visible": true, "invert": false, "opacity": 100,
+                       "subMasks": [{"id": "s", "type": "all", "mode": "additive", "visible": true, "invert": false, "opacity": 100, "parameters": {}}],
+                       "adjustments": {"structure": structure}}]
+        });
+        if let Some(v) = version {
+            recipe["structureVersion"] = json!(v);
+        }
+        recipe
+    }
+
+    #[test]
+    fn recipes_without_a_structure_version_keep_the_slider_value_as_amount() {
+        for version in [None, Some(1)] {
+            let (global, layer) = amounts(with_layer(50.0, version));
+            assert_eq!(
+                global.to_bits(),
+                (50.0f64 as f32 / SCALES.structure).to_bits()
+            );
+            assert_eq!(layer.to_bits(), global.to_bits());
+        }
+    }
+
+    #[test]
+    fn version_two_follows_the_measured_travel_on_the_photo_and_its_layers() {
+        for (value, amount) in [
+            (50.0, 18.625),
+            (100.0, 29.5),
+            (-50.0, -25.25),
+            (-100.0, -41.0),
+        ] {
+            assert!(
+                (structure_amount_v2(value) - amount).abs() < 1e-9,
+                "{value}"
+            );
+            let (global, layer) = amounts(with_layer(value, Some(2)));
+            assert_eq!(
+                global.to_bits(),
+                (amount as f32 / SCALES.structure).to_bits()
+            );
+            assert_eq!(layer.to_bits(), global.to_bits());
+        }
+        // A newer version than this renderer knows renders with its newest.
+        assert_eq!(
+            amounts(with_layer(50.0, Some(9))).0,
+            amounts(with_layer(50.0, Some(2))).0
+        );
+        assert_eq!(structure_amount_v2(0.0), 0.0);
+        // Rises over the whole range.
+        let mut last = structure_amount_v2(-100.0);
+        for i in -99..=100 {
+            let next = structure_amount_v2(f64::from(i));
+            assert!(next > last, "{i}");
+            last = next;
+        }
     }
 }
 

@@ -16,7 +16,7 @@ import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/q
 import {
   sameAdjustmentValue,
   withBwVersion,
-  withClarityVersion,
+  withDetailVersions,
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -221,7 +221,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const shown = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
       const patch = shown
         ? withBwVersion(
-            withClarityVersion(
+            withDetailVersions(
               withGrainVersion(
                 withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
                 source?.adjustments
@@ -272,7 +272,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const done = writeToOthers(
         applyRef.current,
         withBwVersion(
-          withClarityVersion(
+          withDetailVersions(
             withGrainVersion(
               withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
               from.adjustments

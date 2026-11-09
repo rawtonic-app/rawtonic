@@ -165,6 +165,7 @@ it('builds the export_images settings from the form', () => {
     preserveTimestamps: false,
     stripGps: true,
     keepCreatorContact: false,
+    superResolution: false,
     resize: { mode: 'megapixels', value: 2.5, dontEnlarge: false },
     border: {
       basis: 'eachEdge',
@@ -328,4 +329,14 @@ it('keeps explicit contact retention through recipes and export, with omission a
   expect(exportSettingsFromPreset(preset).settings.keepCreatorContact).toBe(true);
   delete preset.keepCreatorContact;
   expect(exportSettingsFromPreset(preset).settings.keepCreatorContact).toBe(false);
+});
+
+it('Super Resolution travels from the form through a saved recipe into the export settings', () => {
+  const draft = { ...DEFAULT_RECIPE_DRAFT, superResolution: true };
+  const preset = presetFromDraft(draft, 'sr', 'Large print');
+  expect(preset.superResolution).toBe(true);
+  expect(draftFromPreset(preset).superResolution).toBe(true);
+  expect(exportSettingsFromDraft(draft).settings.superResolution).toBe(true);
+  // A recipe saved before the option exports at the photo's own size.
+  expect(draftFromPreset({ ...preset, superResolution: undefined }).superResolution).toBe(false);
 });

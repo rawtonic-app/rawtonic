@@ -109,6 +109,7 @@ mod startup;
 mod state;
 mod storage;
 mod storage_fs;
+mod super_resolution;
 mod tagging;
 mod tagging_utils;
 mod update_check;
@@ -937,6 +938,7 @@ fn start(args: Vec<String>) {
             ai_commands::precompute_ai_subject_mask,
             ai_commands::precompute_ai_foreground_mask,
             ai_commands::precompute_ai_sky_mask,
+            super_resolution::prepare_super_resolution,
             ai_commands::preload_ai_mask_models,
             ai_commands::warm_up_ai_mask_models,
             ai_lifecycle::unload_ai_models,

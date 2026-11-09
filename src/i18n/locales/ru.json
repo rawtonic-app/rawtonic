@@ -2452,6 +2452,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile.",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
@@ -3885,6 +3886,13 @@
         },
         "otherSideAria": "Размеры, другая сторона (px)",
         "resize": "Изменить размер",
+        "superResolution": {
+          "failed": "Суперразрешение недоступно: {{error}}",
+          "hint": "Увеличивает каждое фото вдвое по ширине и высоте с помощью модели ИИ, до изменения размера и повышения резкости. Оригиналы никогда не изменяются.",
+          "label": "Суперразрешение (2×, ИИ)",
+          "preparing": "Подготовка модели суперразрешения…",
+          "ready": "Модель суперразрешения готова ({{backend}})."
+        },
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {

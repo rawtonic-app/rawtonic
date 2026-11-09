@@ -367,6 +367,7 @@
   "colorNoiseVersion": 11,
   "toneVersion": 15,
   "clarityVersion": 2,
+  "structureVersion": 2,
   "fringeVersion": 6,
   "cameraCaVersion": 1,
   "cameraGeometryVersion": 10,

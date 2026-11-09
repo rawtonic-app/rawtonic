@@ -20,6 +20,7 @@ rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rawtonic-denoise = { path = "../denoise", version = "0.1.0" }
 rawtonic-faces = { path = "../faces", version = "0.1.0" }
 rawtonic-segment = { path = "../segment", version = "0.1.0" }
+rawtonic-superres = { path = "../superres", version = "0.1.0" }
 rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
 image = { workspace = true }
 rawtonic-fs = { path = "../fs", version = "0.1.0" }

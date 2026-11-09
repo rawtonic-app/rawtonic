@@ -1,0 +1,20 @@
+[package]
+name = "rawtonic-superres"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rawtonic's Super Resolution: a rendered photo enlarged 2x by an AI model in tiles, on ONNX Runtime or Core ML, independent of Tauri"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+image = { workspace = true }
+ndarray = { workspace = true }
+ort = { workspace = true, features = ["std", "ndarray", "load-dynamic", "api-22"] }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
+rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rawtonic-denoise = { path = "../denoise", version = "0.1.0" }
