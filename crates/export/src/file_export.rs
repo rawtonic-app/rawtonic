@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::exif_processing::{capture_date_with, read_exif_data_from_bytes};
 use crate::export_processing::{
-    ExportOutput, ExportSettings, RenderEnv, prepare_export_source, render_and_save,
+    Enlarger, ExportOutput, ExportSettings, RenderEnv, prepare_export_source, render_and_save,
     set_capture_file_times,
 };
 use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorSlot};
@@ -116,6 +116,8 @@ pub struct FileExporter {
     selections: Option<Arc<dyn SelectionDetector>>,
     /// Records each export's render inputs (QA, [`crate::render_inputs`]).
     render_inputs: Option<Arc<RenderInputs>>,
+    /// Super Resolution's model; without it such exports fail.
+    enlarger: Option<Arc<dyn Enlarger>>,
 }
 
 impl FileExporter {
@@ -139,6 +141,7 @@ impl FileExporter {
             mosaic_denoisers: [None, None],
             selections: None,
             render_inputs: None,
+            enlarger: None,
         })
     }
 
@@ -154,6 +157,12 @@ impl FileExporter {
     /// The networks for Sky and Subject selections still to compute.
     pub fn with_selection_detector(mut self, detector: Arc<dyn SelectionDetector>) -> Self {
         self.selections = Some(detector);
+        self
+    }
+
+    /// The model for exports with Super Resolution (`superResolution`).
+    pub fn with_enlarger(mut self, enlarger: Arc<dyn Enlarger>) -> Self {
+        self.enlarger = Some(enlarger);
         self
     }
 
@@ -268,6 +277,7 @@ impl FileExporter {
                 exif_sidecar: &exif_sidecar,
                 catalog: &catalog,
                 write: &write,
+                enlarger: self.enlarger.as_deref(),
             },
             &|| Ok(()),
         )?;

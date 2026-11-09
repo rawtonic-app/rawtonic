@@ -127,6 +127,7 @@ export enum Invokes {
   DeleteFolder = 'delete_folder',
   DuplicateFile = 'duplicate_file',
   EstimateExportSizes = 'estimate_export_sizes',
+  PrepareSuperResolution = 'prepare_super_resolution',
   ExportImages = 'export_images',
   ExportImagesBatch = 'export_images_batch',
   ExportNamingPreview = 'export_naming_preview',

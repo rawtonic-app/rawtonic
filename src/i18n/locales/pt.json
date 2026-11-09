@@ -2320,6 +2320,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile.",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
@@ -3730,6 +3731,13 @@
         },
         "otherSideAria": "Dimensões, outro lado (px)",
         "resize": "Redimensionar para caber",
+        "superResolution": {
+          "failed": "A super-resolução não está disponível: {{error}}",
+          "hint": "Amplia cada foto para o dobro da largura e da altura com um modelo de IA, antes do redimensionamento e da nitidez. Os originais nunca são alterados.",
+          "label": "Super-resolução (2×, IA)",
+          "preparing": "A preparar o modelo de super-resolução…",
+          "ready": "Modelo de super-resolução pronto ({{backend}})."
+        },
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {

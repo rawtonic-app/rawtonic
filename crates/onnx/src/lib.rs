@@ -140,10 +140,12 @@ pub enum ModelKind {
     MoebiusEncoder,
     /// The SDXL VAE's decoder (Moebius).
     MoebiusDecoder,
+    /// Super Resolution's 2× enlargement (Compact network).
+    SuperResolution,
 }
 
 impl ModelKind {
-    pub const ALL: [ModelKind; 17] = [
+    pub const ALL: [ModelKind; 18] = [
         ModelKind::Subject,
         ModelKind::SamEncoder,
         ModelKind::SamDecoder,
@@ -161,6 +163,7 @@ impl ModelKind {
         ModelKind::MoebiusUnet,
         ModelKind::MoebiusEncoder,
         ModelKind::MoebiusDecoder,
+        ModelKind::SuperResolution,
     ];
 
     pub fn name(self) -> &'static str {
@@ -182,6 +185,7 @@ impl ModelKind {
             ModelKind::MoebiusUnet => "moebius-unet",
             ModelKind::MoebiusEncoder => "moebius-encoder",
             ModelKind::MoebiusDecoder => "moebius-decoder",
+            ModelKind::SuperResolution => "super-resolution",
         }
     }
 
@@ -193,7 +197,7 @@ impl ModelKind {
 
     /// The model a file of the model pack holds, by its name.
     pub fn from_file_name(name: &str) -> Option<Self> {
-        const PREFIXES: [(&str, ModelKind); 17] = [
+        const PREFIXES: [(&str, ModelKind); 18] = [
             ("birefnet", ModelKind::Subject),
             ("sam2.1_tiny_encoder", ModelKind::SamEncoder),
             ("sam2.1_tiny_decoder", ModelKind::SamDecoder),
@@ -211,6 +215,7 @@ impl ModelKind {
             ("moebius_unet", ModelKind::MoebiusUnet),
             ("sdxl_vae_encoder", ModelKind::MoebiusEncoder),
             ("sdxl_vae_decoder", ModelKind::MoebiusDecoder),
+            ("superres", ModelKind::SuperResolution),
         ];
         PREFIXES
             .into_iter()

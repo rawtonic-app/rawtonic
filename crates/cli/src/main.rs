@@ -329,6 +329,10 @@ struct ExportArgs {
     /// pixels, levels of 255), after any resize.
     #[arg(long, value_parser = parse_output_sharpening)]
     output_sharpening: Option<rawtonic_export::output_sharpening::OutputSharpening>,
+    /// Super Resolution: enlarge each photo 2× with the AI model in --models
+    /// before any resize and output sharpening, as the app's export option.
+    #[arg(long)]
+    super_resolution: bool,
     /// Face retouch for every photo: the sliders for all faces as JSON
     /// (`{"blemishes":60,"evenSkin":50}`, see docs/RECIPE_SCHEMA.md). The
     /// faces are found with the face models in --models (ONNX Runtime from
@@ -475,6 +479,19 @@ fn ai_denoiser(
         rawtonic_denoise::MatchFilter::onnx(&models.join(rawtonic_denoise::ONNX_MODEL), cache)?
     };
     Ok(std::sync::Arc::new(filter))
+}
+
+/// Super Resolution's model of the app's model folder (`--super-resolution`).
+struct SuperResolution(rawtonic_superres::Model);
+
+impl rawtonic_export::export_processing::Enlarger for SuperResolution {
+    fn enlarge_2x(
+        &self,
+        image: image::DynamicImage,
+        cancelled: &dyn Fn() -> Result<(), String>,
+    ) -> Result<image::DynamicImage, String> {
+        self.0.enlarge(image, cancelled)
+    }
 }
 
 /// The Sky and Subject networks of the app's model folder, for selections
@@ -1047,6 +1064,7 @@ fn export(args: ExportArgs) -> Result<()> {
         lensfun_db,
         models,
         output_sharpening,
+        super_resolution,
         face_retouch,
         render_inputs,
     } = args;
@@ -1093,6 +1111,7 @@ fn export(args: ExportArgs) -> Result<()> {
         destination_type: None,
         subfolder: None,
         output_sharpening,
+        super_resolution,
     };
 
     // (photo path, output) pairs. A folder exports every supported image below
@@ -1204,6 +1223,16 @@ fn export(args: ExportArgs) -> Result<()> {
             recipes
         }
         None => recipes,
+    };
+    let exporter = if super_resolution {
+        let model = rawtonic_superres::Model::from_dir(&models_dir(models.clone())?)
+            .context("Super Resolution")?;
+        if model.backend_name().starts_with("ONNX") {
+            ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        exporter.with_enlarger(std::sync::Arc::new(SuperResolution(model)))
+    } else {
+        exporter
     };
     let exporter = with_recipe_models(exporter, models, &recipes);
     let inputs = render_inputs
