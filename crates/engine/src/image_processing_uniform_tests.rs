@@ -17,12 +17,19 @@ fn global_adjustments_match_recorded_main_bytes() {
         for byte in bytemuck::bytes_of(&uniforms) {
             write!(actual, "{byte:02x}").unwrap();
         }
+        // Fields added after the recording sit after its bytes: Vibrance's
+        // version and padding (2026-11-08).
+        let recorded = case["uniformHex"].as_str().unwrap();
+        let (before, added) = actual.split_at(recorded.len().min(actual.len()));
         assert_eq!(
-            actual,
-            case["uniformHex"].as_str().unwrap(),
+            before, recorded,
             "{}: uniforms changed from main {}",
-            case["name"],
-            fixture["baseline"]
+            case["name"], fixture["baseline"]
         );
+        let mut expected_added = String::new();
+        for byte in bytemuck::bytes_of(&[uniforms.vibrance_version, 0, 0, 0]) {
+            write!(expected_added, "{byte:02x}").unwrap();
+        }
+        assert_eq!(added, expected_added, "{}: added fields", case["name"]);
     }
 }

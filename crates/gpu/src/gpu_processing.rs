@@ -17,7 +17,9 @@ use crate::mask_generation::MaskBitmap;
 use crate::scopes::ClippedSides;
 use rawtonic_engine::color_noise::{self, ChromaPyramid};
 use rawtonic_engine::output_color_space::OutputColorSpace;
-use rawtonic_engine::recipe_versions::{ClarityVersion, GrainVersion, ToneVersion};
+use rawtonic_engine::recipe_versions::{
+    ClarityVersion, GrainVersion, ToneVersion, VibranceVersion,
+};
 use rayon::prelude::*;
 
 #[cfg(test)]
@@ -3571,7 +3573,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 65536;
+const PREVIEW_PIPELINE_COUNT: usize = 131072;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3585,7 +3587,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// range-3 relight lights 512 (always with 256), range-4 relight lights 1024
 /// (always with 512), sharpening response 7's Masking 2048, sharpening
 /// response 8 4096, lowered Whites of tone version 12 8192, raised Shadows
-/// of tone version 13 16384, lowered Highlights of tone version 14 32768.
+/// of tone version 13 16384, lowered Highlights of tone version 14 32768,
+/// Vibrance of vibrance version 2 65536.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3632,6 +3635,12 @@ const SHADOWS_V13_FEATURE: usize = 16384;
 /// `apply_highlights_adjustment_v14`), compiled only for recipes that use it
 /// for the same reason.
 const HIGHLIGHTS_V14_FEATURE: usize = 32768;
+/// Vibrance of vibrance version 2 (`VIBRANCE_V2`, shader
+/// `apply_creative_color_v2`), compiled only for recipes that use it: with
+/// its call present but idle, Metal compiled the shader differently and
+/// changed older recipes' exports by up to two 16-bit steps in a few pixels
+/// (170 of 280 preservation exports on the Mac mini).
+const VIBRANCE_V2_FEATURE: usize = 65536;
 
 /// One slot per display variant, on the heap: the processor holds several
 /// such tables, together too large for a render thread's stack.
@@ -4868,6 +4877,18 @@ fn highlights_v14(adjustments: &AllAdjustments) -> bool {
                 .any(|m| m.highlights < 0.0))
 }
 
+/// Whether the recipe sets Vibrance with vibrance version 2's response, on
+/// the photo or a layer (`VIBRANCE_V2`).
+fn vibrance_v2(adjustments: &AllAdjustments) -> bool {
+    VibranceVersion::from_uniform(adjustments.global.vibrance_version).oklab()
+        && (adjustments.global.vibrance != 0.0
+            || adjustments
+                .mask_adjustments
+                .iter()
+                .take(adjustments.mask_count as usize)
+                .any(|m| m.vibrance != 0.0))
+}
+
 /// The tone code a feature pipeline compiles, one bit each: lowered Whites
 /// of version 12 (1), raised Shadows of version 13 (2), lowered Highlights
 /// of version 14 (4).
@@ -5040,6 +5061,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let whites_v12 = whites_v12(adjustments);
     let shadows_v13 = shadows_v13(adjustments);
     let highlights_v14 = highlights_v14(adjustments);
+    let vibrance_v2 = vibrance_v2(adjustments);
     for m in adjustments
         .mask_adjustments
         .iter()
@@ -5072,6 +5094,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if whites_v12 { WHITES_V12_FEATURE } else { 0 }
         | if shadows_v13 { SHADOWS_V13_FEATURE } else { 0 }
         | if highlights_v14 { HIGHLIGHTS_V14_FEATURE } else { 0 }
+        | if vibrance_v2 { VIBRANCE_V2_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -5147,10 +5170,13 @@ fn sharpen_level(adjustments: &AllAdjustments) -> usize {
 
 /// Whether the recipe needs code the plain general pipelines leave out:
 /// Relight's range-2 lights, response 7's Masking or response 8, or lowered
-/// Whites of tone version 12, raised Shadows of tone version 13 or lowered
-/// Highlights of tone version 14 (`GpuProcessor::range2_pipelines`).
+/// Whites of tone version 12, raised Shadows of tone version 13, lowered
+/// Highlights of tone version 14 or Vibrance of vibrance version 2 (`GpuProcessor::range2_pipelines`).
 fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
-    relight_range2(adjustments) || sharpen_level(adjustments) > 0 || tone_level(adjustments) > 0
+    relight_range2(adjustments)
+        || sharpen_level(adjustments) > 0
+        || tone_level(adjustments) > 0
+        || vibrance_v2(adjustments)
 }
 
 /// The noise refinements with which the shader takes its default noise
@@ -5169,8 +5195,8 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
 }
 
 /// `GpuProcessor::range2_pipelines`.
-type Range2Pipelines = [[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
-    8]; MAIN_OUTPUTS];
+type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
+    8]; 2]; MAIN_OUTPUTS];
 
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
@@ -5575,6 +5601,7 @@ fn variant_constants(
         ("WHITES_V12", ((features >> 13) & 1) as f64),
         ("SHADOWS_V13", ((features >> 14) & 1) as f64),
         ("HIGHLIGHTS_V14", ((features >> 15) & 1) as f64),
+        ("VIBRANCE_V2", ((features >> 16) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -7698,9 +7725,10 @@ impl GpuProcessor {
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         if needs_feature_pipeline(adjustments) {
             let long = adjustments.global.region_curve_active[1] != 0;
-            return match self.range2_pipelines[0][tone_level(adjustments)]
-                [sharpen_level(adjustments)][relight_range_level(adjustments)][usize::from(long)]
-                [usize::from(profile)][usize::from(edge)]
+            return match self.range2_pipelines[0][usize::from(vibrance_v2(adjustments))]
+                [tone_level(adjustments)][sharpen_level(adjustments)]
+                [relight_range_level(adjustments)][usize::from(long)][usize::from(profile)]
+                [usize::from(edge)]
             .get()
             {
                 Some(Some(pipeline)) => Some(Ok(pipeline)),
@@ -8135,9 +8163,10 @@ impl GpuProcessor {
         let level = relight_range_level(adjustments);
         let sharpen = sharpen_level(adjustments);
         let tone = tone_level(adjustments);
+        let vibrance = vibrance_v2(adjustments);
         let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-        match self.range2_pipelines[output.index()][tone][sharpen][level][usize::from(long)]
-            [usize::from(profile)][usize::from(edge)]
+        match self.range2_pipelines[output.index()][usize::from(vibrance)][tone][sharpen][level]
+            [usize::from(long)][usize::from(profile)][usize::from(edge)]
         .get_or_init(|| {
             self.compile_general(
                 "Compute Pipeline (relight range 2, sharpening 7)",
@@ -8154,6 +8183,7 @@ impl GpuProcessor {
                     ("WHITES_V12", on(tone & 1 != 0)),
                     ("SHADOWS_V13", on(tone & 2 != 0)),
                     ("HIGHLIGHTS_V14", on(tone & 4 != 0)),
+                    ("VIBRANCE_V2", on(vibrance)),
                 ],
             )
             .inspect_err(|error| log::error!("Feature pipeline unavailable: {error}"))

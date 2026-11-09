@@ -358,6 +358,40 @@ fn custom_curve() -> serde_json::Value {
 }
 
 #[test]
+fn vibrance_version_2_compiles_only_where_vibrance_is_used() {
+    let features = |profile: serde_json::Value| {
+        preview_features(&get_all_adjustments_from_json(&profile, true, Some(1)))
+            & VIBRANCE_V2_FEATURE
+    };
+    assert_eq!(
+        features(json!({"vibrance": 30, "vibranceVersion": 2})),
+        VIBRANCE_V2_FEATURE
+    );
+    assert_eq!(
+        features(
+            local_profile(json!({"vibrance": -30}))
+                .as_object()
+                .map(|o| {
+                    let mut p = o.clone();
+                    p.insert("vibranceVersion".into(), json!(2));
+                    serde_json::Value::Object(p)
+                })
+                .unwrap()
+        ),
+        VIBRANCE_V2_FEATURE
+    );
+    // Older recipes and version 2 without Vibrance keep the shader without it.
+    assert_eq!(features(json!({"vibrance": 30})), 0);
+    assert_eq!(features(json!({"saturation": 30, "vibranceVersion": 2})), 0);
+    let used = get_all_adjustments_from_json(
+        &json!({"vibrance": 30, "vibranceVersion": 2}),
+        true,
+        Some(1),
+    );
+    assert!(needs_feature_pipeline(&used));
+}
+
+#[test]
 fn preview_features_preserve_global_and_local_effects() {
     for expected in 0..PREVIEW_PIPELINE_COUNT {
         // Refinements matter only with noise reduction.
@@ -396,6 +430,10 @@ fn preview_features_preserve_global_and_local_effects() {
                 || (expected & TONE_PREVIEW_FEATURE != 0
                     && expected & (SHADOWS_V13_FEATURE | WHITES_V12_FEATURE) == 0))
         {
+            continue;
+        }
+        // Vibrance of version 2 is tested on its own (below the loop).
+        if expected & VIBRANCE_V2_FEATURE != 0 {
             continue;
         }
         let mut effects = json!({});
@@ -19766,4 +19804,164 @@ fn mixer_probes_store_the_colour_each_mixer_receives_in_display_variants_only() 
         probe_hue_chroma(&render(json!({}), mixer, ReadbackShader::Export)),
         None
     );
+}
+
+/// Vibrance version 2 (`vibranceVersion`): without Vibrance it renders
+/// exactly as version 1 (Saturation alone included); raising it lifts a muted
+/// blue more than a muted orange of the same chroma, spares a saturated
+/// colour, and keeps each colour's hue; lowering it cuts a saturated colour
+/// less than a muted one.
+#[test]
+#[ignore = "requires a native GPU; Vibrance version 2 response"]
+fn vibrance_version_2_weights_hue_and_chroma() {
+    let context = context();
+    // Linear sRGB patches: muted blue, muted orange (equal Oklab chroma
+    // about 0.05) and a saturated red, 256 px each.
+    let patches: [[f32; 3]; 3] = [[0.16, 0.20, 0.30], [0.30, 0.20, 0.13], [0.55, 0.04, 0.03]];
+    let source = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(768, 512, |x, _| {
+        image::Rgb(patches[(x / 256) as usize])
+    }));
+    let render = |profile: serde_json::Value| {
+        chunk_test_render(
+            &context,
+            &source,
+            &profile,
+            false,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        )
+        .unwrap()
+        .into_rgb16()
+    };
+    let lch = |img: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>, i: u32| {
+        let p = img.get_pixel(128 + 256 * i, 256);
+        let lin = |v: u16| {
+            let c = v as f64 / 65535.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (r, g, b) = (lin(p[0]), lin(p[1]), lin(p[2]));
+        let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+        let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+        let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+        let a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+        let bb = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+        (a.hypot(bb), bb.atan2(a).to_degrees())
+    };
+    let base = json!({"renderVersion": 3});
+    let with = |extra: serde_json::Value| {
+        let mut p = base.clone();
+        p.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        render(p)
+    };
+    assert_eq!(
+        with(json!({"saturation": 30})).into_raw(),
+        with(json!({"saturation": 30, "vibranceVersion": 2})).into_raw(),
+        "without Vibrance version 2 renders as version 1"
+    );
+    let neutral = with(json!({}));
+    println!(
+        "neutral {:?} {:?}",
+        neutral.dimensions(),
+        neutral.get_pixel(128, 256)
+    );
+    let up = with(json!({"vibrance": 50, "vibranceVersion": 2}));
+    let down = with(json!({"vibrance": -50, "vibranceVersion": 2}));
+    let ratio = |img: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>, i: u32| {
+        lch(img, i).0 / lch(&neutral, i).0
+    };
+    let (blue, orange, red) = (ratio(&up, 0), ratio(&up, 1), ratio(&up, 2));
+    println!("+50 chroma ratio blue {blue:.3} orange {orange:.3} red {red:.3}");
+    assert!(blue > orange + 0.1, "blue {blue} vs orange {orange}");
+    assert!(red < orange, "saturated red spared: {red} vs {orange}");
+    for i in 0..3 {
+        let dh = (lch(&up, i).1 - lch(&neutral, i).1).abs();
+        assert!(dh < 1.5, "patch {i} keeps its hue: {dh}°");
+    }
+    let (muted, saturated) = (ratio(&down, 1), ratio(&down, 2));
+    println!("-50 chroma ratio orange {muted:.3} red {saturated:.3}");
+    assert!(
+        saturated > muted + 0.05,
+        "lowering spares the saturated red: {saturated} vs {muted}"
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; Vibrance version 2 against version 1: GPU time of a preview render per drag step"]
+fn vibrance_version_2_drag_render_time() {
+    // As `tone_version_6_shadows_drag_render_time`: a 2560 × 1707 colourful
+    // frame, Vibrance dragged, blocks of ten steps alternated per version.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let h = x as f32 / width as f32 * std::f32::consts::TAU;
+            let level = 0.05 + 0.5 * y as f32 / height as f32;
+            let c = 0.6 * (0.5 + 0.5 * (x as f32 * 0.37).sin());
+            [h.cos(), (h + 2.1).cos(), (h + 4.2).cos()]
+                .map(|v| f16::from_f32(level * (1.0 + c * v)))
+                .into_iter()
+                .chain([f16::ONE])
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Colour test scene"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 1 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "vibrance": 20 + 3 * step, "vibranceVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 1) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            1 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
 }

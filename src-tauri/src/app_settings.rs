@@ -190,6 +190,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "lumaNoiseVersion",
         "toneVersion",
         "clarityVersion",
+        "vibranceVersion",
         "structureVersion",
         "aiDenoise",
         "aiDenoiseVersion",
