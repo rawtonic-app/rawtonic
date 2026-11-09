@@ -9588,6 +9588,22 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         })
         .collect();
     recipes.extend(fourteenth);
+    // Tone version 15 changes Contrast only (its own display-EV tables):
+    // Contrast alone, with each other slider and with Exposure ±2. The
+    // other sliders then render as the newest version's.
+    let fifteenth: Vec<serde_json::Value> = recipes
+        .iter()
+        .filter(|recipe| {
+            recipe["toneVersion"].is_null() && recipe["contrast"].as_i64().is_some_and(|v| v != 0)
+        })
+        .map(|recipe| {
+            let mut recipe = recipe.clone();
+            recipe["toneVersion"] = json!(15);
+            recipe
+        })
+        .collect();
+    assert!(!fifteenth.is_empty());
+    recipes.extend(fifteenth);
     // Away from the image borders (the blur clamps there). Over up to 24
     // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
     // 16-bit codes, whichever is more: Shadows and Blacks read the f16
@@ -12167,6 +12183,57 @@ fn tone_version_7_highlights_drag_render_time() {
         eprintln!(
             "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
             6 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; Contrast of tone version 15 against version 12: GPU time of a preview render per drag step"]
+fn tone_version_15_contrast_drag_render_time() {
+    // As `tone_version_6_shadows_drag_render_time`, with Contrast stepped up
+    // (version 15 reads other tables in its own function).
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let ramp = -9.0 + 12.0 * x as f32 / (width - 1) as f32;
+            let texture = 0.4 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos());
+            (2.0f32).powf(ramp + texture)
+        })
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let k = block % 2;
+        let version = [12u64, 15][k];
+        for step in 0..10 {
+            let recipe = json!({ "contrast": 10 + 10 * step, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[k].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            [12, 15][k],
             t[t.len() / 2],
             t[t.len() * 9 / 10],
             t.len()

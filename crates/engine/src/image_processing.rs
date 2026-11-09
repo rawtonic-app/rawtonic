@@ -7388,10 +7388,14 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// luminance too: with only version 5's wide linear range, a dark surround
 /// pulled the base of the bright side's pixels down and the detail lift
 /// left a light rim at strong edges, 1.0 L* above Camera Raw's at −100
-/// (notes: G02, benchmark-results/atf6-highlights-halo-2026-11-08).
+/// (notes: G02, benchmark-results/atf6-highlights-halo-2026-11-08);
+/// 15 (2026-11-08) lowers the Camera Raw look's Contrast pivot: at the same
+/// global contrast, 14 left L* 30–40 2.9 / 3.5 darker than Camera Raw /
+/// Capture One at +100 and lifted L* 40–50 1.6 / 2.1 more than either at
+/// −100 (notes: G02, benchmark-results/atf5-contrast-2026-11-08).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 14;
+pub const TONE_VERSION: u64 = 15;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
