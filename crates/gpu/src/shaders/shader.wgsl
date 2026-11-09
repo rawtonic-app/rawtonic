@@ -3841,6 +3841,11 @@ fn apply_vibrance_v2(color: vec3<f32>, vib: f32) -> vec3<f32> {
     let safe = gamut_floor(color);
     let lab = linear_srgb_to_oklab(safe);
     let chroma = length(lab.yz);
+    // A grey has no hue: atan2 of its rounding residue differs between
+    // backends (Metal and Vulkan rendered the texture chart's greys apart).
+    if (chroma < 1.0e-4) {
+        return safe;
+    }
     let hue = (degrees(atan2(lab.z, lab.y)) + 360.0) % 360.0;
     var scale: f32;
     if (vib > 0.0) {
