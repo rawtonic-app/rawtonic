@@ -66,6 +66,9 @@ override VIBRANCE_V2: bool = false;
 // Lowered Blacks of tone version 16 (`blacks_v16_black_point`), for the
 // same reason (gpu_processing.rs `BLACKS_V16_FEATURE`).
 override BLACKS_V16: bool = false;
+// Colour mixer response 2 (`apply_hsl_panel_v2`) with a slider moved, for
+// the same reason (gpu_processing.rs `HSL_V2_FEATURE`).
+override HSL_V2: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -10173,10 +10176,11 @@ fn main(
     }
     // Version 1 runs on every recipe as before (in a branch of its own the
     // compiler changed its rounding: exports of version-1 recipes moved by
-    // one level in 0.07 % of values); version 2 replaces its result.
+    // one level in 0.07 % of values); version 2, compiled only where
+    // `HSL_V2` is set, replaces its result.
     let mixer_input = composite_rgb_linear;
     composite_rgb_linear = apply_hsl_panel(composite_rgb_linear, final_hsl, absolute_coord_i);
-    if (adjustments.global.hsl[0].response > 0.5) {
+    if (HSL_V2 && adjustments.global.hsl[0].response > 0.5) {
         composite_rgb_linear = apply_hsl_panel_v2(mixer_input, final_hsl);
     }
     composite_rgb_linear = apply_hue_shift(composite_rgb_linear, t_hue);
