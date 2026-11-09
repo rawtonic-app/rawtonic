@@ -18,7 +18,10 @@ use crate::state::ai::AiState;
 /// The model, loaded once: on macOS the Core ML program when its files are
 /// installed (with `download`, fetched first), else the ONNX model on ONNX
 /// Runtime. `Ok(None)` when it is not installed and `download` is false.
-async fn model(app_handle: &tauri::AppHandle, download: bool) -> anyhow::Result<Option<Arc<Model>>> {
+async fn model(
+    app_handle: &tauri::AppHandle,
+    download: bool,
+) -> anyhow::Result<Option<Arc<Model>>> {
     let ai_state = app_handle.state::<AiState>();
     let mut slot = ai_state.super_resolution.lock().await;
     if let Some(model) = slot.as_ref() {

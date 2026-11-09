@@ -62,6 +62,8 @@ weights tensor by tensor.
 | `moebius_unet_fp16_coreml_*` (Core ML package), `moebius_embeddings.bin` | Remove, holes thicker than 205 px (macOS) | Moebius `ft_places2` (Kangsheng Duan, Ziyang Xu et al., Huazhong University of Science and Technology and vivo AI Lab; checkpoint of huggingface.co/hustvl/Moebius at revision cd01f47, SHA-256 6525afb8…; network code github.com/hustvl/Moebius at b88d462) converted by `scripts/models/convert_moebius_coreml.py` (ML program, fp16, macOS 13; reproducible: same SHA-256 in two conversions). Its 20 learned conditioning embeddings are the file beside it, an input of the program (see "Moebius on Core ML" under Object removal). | Apache-2.0 (repository LICENSE and README: "Both the code and the pretrained model weights … Apache License 2.0 … Commercial use of the weights and the images produced with them is permitted"; the Hugging Face card's front matter says MIT; both permissive, shipped under Apache-2.0) | In the pack since 2026-10-27 |
 | `sdxl_vae_encoder_fp16_coreml_*`, `sdxl_vae_decoder_fp16_coreml_*` (Core ML packages) | Moebius's image encoder and decoder | SDXL-VAE-FP16-Fix (huggingface.co/madebyollin/sdxl-vae-fp16-fix, revision 207b116, `diffusion_pytorch_model.safetensors` SHA-256 1b909373…), the SDXL VAE (Stability AI, `stabilityai/sdxl-vae`, card `license: mit`) fine-tuned to run in fp16; the Moebius authors ship its fp16 cast as PixelHacker's VAE (all 248 tensors equal). Converted by `convert_moebius_coreml.py` (fp16, macOS 13). Not the SD 1.x VAE (CreativeML OpenRAIL-M): scaling factor 0.13025 checked. | MIT (model cards) | In the pack since 2026-10-27 |
 | `moebius_unet_fp16w.onnx`, `sdxl_vae_encoder_fp16w.onnx`, `sdxl_vae_decoder_fp16w.onnx` | Remove, holes thicker than 205 px (Windows and Linux, on a GPU provider) | The same Moebius checkpoint and SDXL VAE fp16-fix as the Core ML rows, exported by `convert_moebius_coreml.py --onnx --no-coreml` (opset 17; weights stored as fp16 and cast to fp32 in the graph, so the networks compute in fp32; tensors beyond fp16's range stay fp32; reproducible: same SHA-256 in two exports). Share `moebius_embeddings.bin` with the Core ML programs. | Apache-2.0 (Moebius), MIT (VAE), as above | In the pack since 2026-10-27 (`pack-2026-10-27b`) |
+| `superres_compact_x2.onnx` | Super Resolution (export option, 2× enlargement; Windows, Linux, and macOS without the Core ML files) | Rawtonic's export of Philip Hofmann's 2xBHI_small_compact_pretrain (github.com/Phhofm/models release `2xBHI_small_compact_pretrain`, `.pth` SHA-256 17135b91…9ddc; release notes: "License: CC-BY-4.0", Compact network, L1 + MS-SSIM losses only, trained on his BHI_small tiles (CC BY 4.0 card) bicubic-downsampled) by `scripts/models/export_superres.py`. **Changed from the author's release:** the four right-angle rotations of each 512² tile are enlarged and averaged inside the graph and clamped to 0..1; weights unchanged, fp32, 2.4 MB; reproducible (same SHA-256 in two exports); equal to PyTorch (max difference 0). | CC BY 4.0 (Philip Hofmann) | Built 2026-11-09; not in a pack yet (needs the user's OK for a pack release) |
+| `superres_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Super Resolution on macOS (fast path) | The same graph converted by `export_superres.py` (ML program, fp16 computation, macOS 13; reproducible). Max difference to fp32 0.003, mean 0.0002 of the 0..1 range on five 512² tiles; 50 ms per tile on CPU+GPU of an M5 Pro (Neural Engine 54 ms; 768/1024 px tiles slower). Changed from the author's release as the ONNX row. | CC BY 4.0 (Philip Hofmann) | Built 2026-11-09; not in a pack yet |
 | `face_detection_yunet_2023mar.onnx` | People masks (faces) | YuNet 2023mar (Wu, Peng and Yu), OpenCV Zoo `models/face_detection_yunet` at commit f12e127 (Git LFS object), unchanged; `LICENSE` in that folder: MIT, © 2020 Shiqi Yu. Trained on WIDER FACE (residual risk under Training data). | MIT | In the pack since 2026-10-09 |
 | `face_mesh_v2.onnx` | People masks (eyes, brows, lips, teeth) | MediaPipe Face Mesh V2 (Google), the `face_landmarks_detector.tflite` of `face_landmarker.task` (float16, version 1, storage.googleapis.com/mediapipe-models), converted by `scripts/models/export_faces.py` (tf2onnx, checked against the TFLite interpreter, reproducible: same SHA-256 in two exports). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
 | `selfie_multiclass_256.onnx` | People masks (hair, face and body skin, clothes, accessories) | MediaPipe multiclass selfie segmentation (Google; `selfie_multiclass_256x256.tflite`, float32, version 1), converted by `scripts/models/export_faces.py` (as above). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
@@ -506,6 +508,32 @@ with masking stay above the 2 GB budget with fp16 too. The cold click is
 now mostly the model load (0.7 s in the app; why fp16 loads slower in the
 app than fp32 and than in the tool is not known); loading and warming the
 model before the click is the next step.
+
+## Super Resolution (2026-11-09)
+
+The export option Super Resolution enlarges each rendered photo 2× before the
+resize, border and output sharpening (`rawtonic-superres`). It was
+chosen by a ceiling measurement against Lightroom Classic's
+Super Resolution (notes `benchmark-results/srx-super-resolution-2026-11-08/REPORT.md`):
+34 crops of 17 CC0 RAWs, downsampled 2× (area, linear light), enlarged and
+compared with the original crops.
+
+| Method | PSNR | SSIM | LPIPS | 24 → 96 MP, M5 Pro |
+|---|---|---|---|---|
+| Lightroom Super Resolution | 32.66 | 0.8785 | 0.129 | 7 s |
+| 2xBHI_small_compact_pretrain, 4-rotation average (shipped) | 32.57 | 0.8777 | 0.133 | ≈ 6 s (Core ML), ≈ 4 min (ONNX Runtime CPU) |
+| SwinIR-M classical ×2 (Apache-2.0) | 32.53 | 0.8786 | 0.112 | ≈ 8 min (PyTorch MPS) |
+| Real-ESRGAN x2plus (BSD-3) | 28.71 | 0.765 | 0.280 | invents texture, removes noise |
+| RealPLKSR NomosWebPhoto ×4, SPAN NomosUni ×4 (CC BY 4.0) | 30.4 / 30.2 | 0.82 / 0.84 | 0.131 / 0.180 | invent texture / shift colour |
+
+The shipped model's differences to Lightroom are inside their 95 % bootstrap
+intervals (PSNR −0.09 [−0.20, +0.01] dB). It is an L1-trained regression
+model: it adds no content of its own, so an export with it is not marked as
+generated content (`export_marks_generated`). On real RAWs Lightroom resolves
+more foliage texture and finer high-ISO grain because it enlarges from the
+mosaic; ours enlarges the developed photo faithfully (the difference is in
+demosaicing and noise reduction). The model must see the output encoding:
+on linear values it lost 0.4 dB and rang more.
 
 ## GPU providers on Windows and Linux (2026-10-10)
 

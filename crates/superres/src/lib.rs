@@ -121,9 +121,10 @@ impl Model {
                     package.display()
                 );
             }
-            return Ok(Self::core_ml(
-                rawtonic_denoise::coreml::CoreMlModel::load(&package, CORE_ML_UNITS)?,
-            ));
+            return Ok(Self::core_ml(rawtonic_denoise::coreml::CoreMlModel::load(
+                &package,
+                CORE_ML_UNITS,
+            )?));
         }
         let path: PathBuf = dir.join(ONNX_FILE);
         if !verified(&path, ONNX_SHA256) {
@@ -146,7 +147,11 @@ impl Model {
     /// Enlarges one tile: `input` is [1, 3, TILE, TILE] (RGB, 0..1,
     /// first-major), the result [1, 3, 2·TILE, 2·TILE] in 0..1.
     pub fn enlarge_tile(&self, input: &[f32]) -> Result<Vec<f32>> {
-        ensure!(input.len() == 3 * TILE * TILE, "tile of {} values", input.len());
+        ensure!(
+            input.len() == 3 * TILE * TILE,
+            "tile of {} values",
+            input.len()
+        );
         let values = match &self.backend {
             Backend::Onnx(model) => model.run(|session| {
                 let array = Array4::from_shape_vec((1, 3, TILE, TILE), input.to_vec())?;
@@ -235,14 +240,30 @@ pub fn enlarge_with(
 ) -> Result<DynamicImage, String> {
     let error = |e: anyhow::Error| format!("Super Resolution failed: {e:#}");
     Ok(match image {
-        DynamicImage::ImageRgb8(buf) => DynamicImage::ImageRgb8(enlarge_buffer(&buf, run, cancelled).map_err(error)?),
-        DynamicImage::ImageRgba8(buf) => DynamicImage::ImageRgba8(enlarge_buffer(&buf, run, cancelled).map_err(error)?),
-        DynamicImage::ImageRgb16(buf) => DynamicImage::ImageRgb16(enlarge_buffer(&buf, run, cancelled).map_err(error)?),
-        DynamicImage::ImageRgba16(buf) => DynamicImage::ImageRgba16(enlarge_buffer(&buf, run, cancelled).map_err(error)?),
-        DynamicImage::ImageRgb32F(buf) => DynamicImage::ImageRgb32F(enlarge_buffer(&buf, run, cancelled).map_err(error)?),
-        DynamicImage::ImageRgba32F(buf) => DynamicImage::ImageRgba32F(enlarge_buffer(&buf, run, cancelled).map_err(error)?),
-        DynamicImage::ImageLuma8(buf) => DynamicImage::ImageLuma8(enlarge_buffer(&buf, run, cancelled).map_err(error)?),
-        DynamicImage::ImageLuma16(buf) => DynamicImage::ImageLuma16(enlarge_buffer(&buf, run, cancelled).map_err(error)?),
+        DynamicImage::ImageRgb8(buf) => {
+            DynamicImage::ImageRgb8(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+        }
+        DynamicImage::ImageRgba8(buf) => {
+            DynamicImage::ImageRgba8(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+        }
+        DynamicImage::ImageRgb16(buf) => {
+            DynamicImage::ImageRgb16(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+        }
+        DynamicImage::ImageRgba16(buf) => {
+            DynamicImage::ImageRgba16(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+        }
+        DynamicImage::ImageRgb32F(buf) => {
+            DynamicImage::ImageRgb32F(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+        }
+        DynamicImage::ImageRgba32F(buf) => {
+            DynamicImage::ImageRgba32F(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+        }
+        DynamicImage::ImageLuma8(buf) => {
+            DynamicImage::ImageLuma8(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+        }
+        DynamicImage::ImageLuma16(buf) => {
+            DynamicImage::ImageLuma16(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+        }
         other => {
             let rgb = other.into_rgba32f();
             DynamicImage::ImageRgba32F(enlarge_buffer(&rgb, run, cancelled).map_err(error)?)
@@ -251,38 +272,50 @@ pub fn enlarge_with(
 }
 
 /// How a pixel type's channels map to the model's RGB.
-trait ModelPixel: Pixel<Subpixel: Channel> {
+trait ModelPixel: Pixel {
     fn rgb(&self) -> [f32; 3];
     /// The pixel with enlarged `rgb` and, for alpha, `source`'s alpha.
     fn with_rgb(rgb: [f32; 3], source: &Self) -> Self;
 }
 
-impl<T: Channel> ModelPixel for Rgb<T> {
-    fn rgb(&self) -> [f32; 3] {
-        self.0.map(Channel::to_unit)
-    }
-    fn with_rgb(rgb: [f32; 3], _: &Self) -> Self {
-        Rgb(rgb.map(T::from_unit))
-    }
-}
+// `image` implements `Pixel` for each channel type separately, so these
+// are written out per type.
+macro_rules! model_pixels {
+    ($($t:ty),*) => {$(
+        impl ModelPixel for Rgb<$t> {
+            fn rgb(&self) -> [f32; 3] {
+                self.0.map(Channel::to_unit)
+            }
+            fn with_rgb(rgb: [f32; 3], _: &Self) -> Self {
+                Rgb(rgb.map(<$t>::from_unit))
+            }
+        }
 
-impl<T: Channel> ModelPixel for Rgba<T> {
-    fn rgb(&self) -> [f32; 3] {
-        [self.0[0].to_unit(), self.0[1].to_unit(), self.0[2].to_unit()]
-    }
-    fn with_rgb(rgb: [f32; 3], source: &Self) -> Self {
-        Rgba([T::from_unit(rgb[0]), T::from_unit(rgb[1]), T::from_unit(rgb[2]), source.0[3]])
-    }
+        impl ModelPixel for Rgba<$t> {
+            fn rgb(&self) -> [f32; 3] {
+                [self.0[0].to_unit(), self.0[1].to_unit(), self.0[2].to_unit()]
+            }
+            fn with_rgb(rgb: [f32; 3], source: &Self) -> Self {
+                Rgba([<$t>::from_unit(rgb[0]), <$t>::from_unit(rgb[1]), <$t>::from_unit(rgb[2]), source.0[3]])
+            }
+        }
+    )*};
 }
+model_pixels!(u8, u16, f32);
 
-impl<T: Channel> ModelPixel for Luma<T> {
-    fn rgb(&self) -> [f32; 3] {
-        [self.0[0].to_unit(); 3]
-    }
-    fn with_rgb(rgb: [f32; 3], _: &Self) -> Self {
-        Luma([T::from_unit((rgb[0] + rgb[1] + rgb[2]) / 3.0)])
-    }
+macro_rules! model_greys {
+    ($($t:ty),*) => {$(
+        impl ModelPixel for Luma<$t> {
+            fn rgb(&self) -> [f32; 3] {
+                [self.0[0].to_unit(); 3]
+            }
+            fn with_rgb(rgb: [f32; 3], _: &Self) -> Self {
+                Luma([<$t>::from_unit((rgb[0] + rgb[1] + rgb[2]) / 3.0)])
+            }
+        }
+    )*};
 }
+model_greys!(u8, u16);
 
 fn enlarge_buffer<P: ModelPixel>(
     source: &ImageBuffer<P, Vec<P::Subpixel>>,
@@ -314,7 +347,11 @@ fn enlarge_buffer<P: ModelPixel>(
                 }
             }
             let enlarged = run(&input)?;
-            ensure!(enlarged.len() == 3 * out_tile * out_tile, "tile result of {} values", enlarged.len());
+            ensure!(
+                enlarged.len() == 3 * out_tile * out_tile,
+                "tile result of {} values",
+                enlarged.len()
+            );
             let out_plane = out_tile * out_tile;
             let keep_h = STEP.min(height - y0) * SCALE;
             let keep_w = STEP.min(width - x0) * SCALE;
@@ -325,7 +362,11 @@ fn enlarge_buffer<P: ModelPixel>(
                     let tx = MARGIN * SCALE + kx;
                     let ox = x0 * SCALE + kx;
                     let at = ty * out_tile + tx;
-                    let rgb = [enlarged[at], enlarged[out_plane + at], enlarged[2 * out_plane + at]];
+                    let rgb = [
+                        enlarged[at],
+                        enlarged[out_plane + at],
+                        enlarged[2 * out_plane + at],
+                    ];
                     let src = source.get_pixel((ox / SCALE) as u32, (oy / SCALE) as u32);
                     out.put_pixel(ox as u32, oy as u32, P::with_rgb(rgb, src));
                 }
@@ -370,25 +411,50 @@ mod tests {
         // Sizes below one tile, at a step boundary, and across several tiles.
         for (w, h) in [(1, 1), (37, 5), (STEP as u32, STEP as u32 + 1), (1100, 700)] {
             let source = gradient(w, h);
-            let out = enlarge_with(DynamicImage::ImageRgb32F(source.clone()), &mut nearest, &|| Ok(()))
-                .unwrap()
-                .into_rgb32f();
+            let out = enlarge_with(
+                DynamicImage::ImageRgb32F(source.clone()),
+                &mut nearest,
+                &|| Ok(()),
+            )
+            .unwrap()
+            .into_rgb32f();
             assert_eq!(out.dimensions(), (2 * w, 2 * h));
             for (x, y, pixel) in out.enumerate_pixels() {
-                assert_eq!(pixel, source.get_pixel(x / 2, y / 2), "({x}, {y}) of {w}x{h}");
+                assert_eq!(
+                    pixel,
+                    source.get_pixel(x / 2, y / 2),
+                    "({x}, {y}) of {w}x{h}"
+                );
             }
         }
     }
 
     #[test]
     fn keeps_the_pixel_type_and_alpha() {
-        let rgba = ImageBuffer::from_fn(40, 30, |x, y| Rgba([(x * 6) as u16 * 257, (y * 8) as u16 * 257, 9000, (x + y) as u16 * 1000]));
-        let out = enlarge_with(DynamicImage::ImageRgba16(rgba.clone()), &mut nearest, &|| Ok(())).unwrap();
-        let DynamicImage::ImageRgba16(out) = out else { panic!("pixel type changed") };
+        let rgba = ImageBuffer::from_fn(40, 30, |x, y| {
+            Rgba([
+                (x * 6) as u16 * 257,
+                (y * 8) as u16 * 257,
+                9000,
+                (x + y) as u16 * 900,
+            ])
+        });
+        let out = enlarge_with(
+            DynamicImage::ImageRgba16(rgba.clone()),
+            &mut nearest,
+            &|| Ok(()),
+        )
+        .unwrap();
+        let DynamicImage::ImageRgba16(out) = out else {
+            panic!("pixel type changed")
+        };
         assert_eq!(out.dimensions(), (80, 60));
         assert_eq!(out.get_pixel(13, 7), rgba.get_pixel(6, 3));
         let rgb8 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(9, 4, Rgb([10u8, 200, 255])));
-        assert!(matches!(enlarge_with(rgb8, &mut nearest, &|| Ok(())).unwrap(), DynamicImage::ImageRgb8(_)));
+        assert!(matches!(
+            enlarge_with(rgb8, &mut nearest, &|| Ok(())).unwrap(),
+            DynamicImage::ImageRgb8(_)
+        ));
     }
 
     #[test]
@@ -416,7 +482,11 @@ mod tests {
         let calls = std::cell::Cell::new(0);
         let cancel_after_two = || {
             calls.set(calls.get() + 1);
-            if calls.get() > 2 { Err("Export cancelled".to_string()) } else { Ok(()) }
+            if calls.get() > 2 {
+                Err("Export cancelled".to_string())
+            } else {
+                Ok(())
+            }
         };
         let err = enlarge_with(source, &mut counting, &cancel_after_two).unwrap_err();
         assert!(err.contains("Export cancelled"), "{err}");

@@ -1117,9 +1117,8 @@ pub fn enlarge_for_export(
     if !settings.super_resolution {
         return Ok(image);
     }
-    let enlarger = enlarger.ok_or_else(|| {
-        "Super Resolution needs its AI model, which is not installed".to_string()
-    })?;
+    let enlarger = enlarger
+        .ok_or_else(|| "Super Resolution needs its AI model, which is not installed".to_string())?;
     let (width, height) = image.dimensions();
     let (target_w, target_h) = super_resolution_size(width, height, settings);
     if exceeds_max_dimension("Super Resolution size", target_w, target_h) {
@@ -2492,6 +2491,104 @@ mod directory_tests {
             );
             assert!(result.is_err(), "{sub}");
         }
+    }
+}
+
+#[cfg(test)]
+mod super_resolution_tests {
+    use super::*;
+
+    fn settings(super_resolution: bool) -> ExportSettings {
+        let mut settings: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
+            "filenameTemplate": null, "watermark": null, "resize": null,
+        }))
+        .unwrap();
+        settings.super_resolution = super_resolution;
+        settings
+    }
+
+    /// Nearest-neighbour 2×, or a wrong size when `wrong`.
+    struct Doubler {
+        wrong: bool,
+    }
+
+    impl Enlarger for Doubler {
+        fn enlarge_2x(
+            &self,
+            image: DynamicImage,
+            cancelled: &dyn Fn() -> Result<(), String>,
+        ) -> Result<DynamicImage, String> {
+            cancelled()?;
+            let (w, h) = image.dimensions();
+            let w = if self.wrong { w } else { 2 * w };
+            Ok(image.resize_exact(w, 2 * h, image::imageops::FilterType::Nearest))
+        }
+    }
+
+    fn photo() -> DynamicImage {
+        DynamicImage::ImageRgb16(image::ImageBuffer::from_pixel(
+            30,
+            20,
+            image::Rgb([1000u16, 2000, 3000]),
+        ))
+    }
+
+    #[test]
+    fn older_settings_and_recipes_export_at_the_photos_size() {
+        let settings = settings(false);
+        assert!(!settings.super_resolution);
+        let out = enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: false }), &|| {
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(out.dimensions(), (30, 20));
+        assert_eq!(compute_export_output_size(30, 20, &settings), (30, 20));
+    }
+
+    #[test]
+    fn super_resolution_doubles_before_the_resize() {
+        let mut settings = settings(true);
+        let out = enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: false }), &|| {
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(out.dimensions(), (60, 40));
+        assert!(matches!(out, DynamicImage::ImageRgb16(_)));
+        assert_eq!(compute_export_output_size(30, 20, &settings), (60, 40));
+        // A long-edge resize applies to the enlarged photo.
+        settings.resize = Some(ResizeOptions {
+            mode: ResizeMode::LongEdge,
+            value: 50.0,
+            dont_enlarge: true,
+            second_value: 0.0,
+        });
+        assert_eq!(compute_export_output_size(30, 20, &settings), (50, 33));
+    }
+
+    #[test]
+    fn super_resolution_without_its_model_or_with_a_wrong_result_fails() {
+        let settings = settings(true);
+        let missing = enlarge_for_export(photo(), &settings, None, &|| Ok(())).unwrap_err();
+        assert!(missing.contains("not installed"), "{missing}");
+        let wrong = enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: true }), &|| {
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(wrong.contains("instead of 60 × 40"), "{wrong}");
+        let cancelled =
+            enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: false }), &|| {
+                Err("Export cancelled".to_string())
+            })
+            .unwrap_err();
+        assert_eq!(cancelled, "Export cancelled");
+    }
+
+    #[test]
+    fn super_resolution_alone_does_not_mark_generated_content() {
+        let plain = serde_json::json!({});
+        assert!(!export_marks_generated(&plain, &settings(true)));
+        assert!(!export_marks_generated(&plain, &settings(false)));
     }
 }
 

@@ -5402,6 +5402,7 @@ dependencies = [
  "rawtonic-recipe",
  "rawtonic-runtime",
  "rawtonic-segment",
+ "rawtonic-superres",
  "rawtonic-tether",
  "rayon",
  "regex",
