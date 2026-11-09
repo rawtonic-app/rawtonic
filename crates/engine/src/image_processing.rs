@@ -7392,10 +7392,16 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// 15 (2026-11-08) lowers the Camera Raw look's Contrast pivot: at the same
 /// global contrast, 14 left L* 30–40 2.9 / 3.5 darker than Camera Raw /
 /// Capture One at +100 and lifted L* 40–50 1.6 / 2.1 more than either at
-/// −100 (notes: G02, benchmark-results/atf5-contrast-2026-11-08).
+/// −100 (notes: G02, benchmark-results/atf5-contrast-2026-11-08);
+/// 16 (2026-11-08) lets lowered Blacks reach into the midtones as Capture
+/// One's Black does: version 9's black point changed only L* < 30, so at
+/// the same darkening of the darkest tenth L* 20–30 stayed 5–9 L* lighter
+/// than both reference editors and the steep fade raised the shadows' fine
+/// detail 1.2–1.3 × (theirs 0.8–0.9 ×) (notes: G02,
+/// benchmark-results/atf2-blacks-reach-2026-11-08).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 15;
+pub const TONE_VERSION: u64 = 16;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.

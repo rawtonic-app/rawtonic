@@ -3573,7 +3573,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 131072;
+const PREVIEW_PIPELINE_COUNT: usize = 524288;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3588,7 +3588,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// (always with 512), sharpening response 7's Masking 2048, sharpening
 /// response 8 4096, lowered Whites of tone version 12 8192, raised Shadows
 /// of tone version 13 16384, lowered Highlights of tone version 14 32768,
-/// Vibrance of vibrance version 2 65536.
+/// Vibrance of vibrance version 2 65536, lowered Blacks of tone version 16
+/// 262144 (131072 is reserved).
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3641,6 +3642,10 @@ const HIGHLIGHTS_V14_FEATURE: usize = 32768;
 /// changed older recipes' exports by up to two 16-bit steps in a few pixels
 /// (170 of 280 preservation exports on the Mac mini).
 const VIBRANCE_V2_FEATURE: usize = 65536;
+/// Lowered Blacks of tone version 16 (`BLACKS_V16`, shader
+/// `blacks_v16_black_point`), compiled only for recipes that use it for the
+/// same reason.
+const BLACKS_V16_FEATURE: usize = 262144;
 
 /// One slot per display variant, on the heap: the processor holds several
 /// such tables, together too large for a render thread's stack.
@@ -4889,13 +4894,26 @@ fn vibrance_v2(adjustments: &AllAdjustments) -> bool {
                 .any(|m| m.vibrance != 0.0))
 }
 
+/// Whether the recipe lowers Blacks with tone version 16's response, on the
+/// photo or a layer (`BLACKS_V16`).
+fn blacks_v16(adjustments: &AllAdjustments) -> bool {
+    ToneVersion::from_uniform(adjustments.global.tone_version).blacks_reach()
+        && (adjustments.global.blacks < 0.0
+            || adjustments
+                .mask_adjustments
+                .iter()
+                .take(adjustments.mask_count as usize)
+                .any(|m| m.blacks < 0.0))
+}
+
 /// The tone code a feature pipeline compiles, one bit each: lowered Whites
 /// of version 12 (1), raised Shadows of version 13 (2), lowered Highlights
-/// of version 14 (4).
+/// of version 14 (4), lowered Blacks of version 16 (8).
 fn tone_level(adjustments: &AllAdjustments) -> usize {
     usize::from(whites_v12(adjustments))
         | (usize::from(shadows_v13(adjustments)) << 1)
         | (usize::from(highlights_v14(adjustments)) << 2)
+        | (usize::from(blacks_v16(adjustments)) << 3)
 }
 
 /// Whether lowered Whites of tone version 10 reads the small blur's mean log
@@ -5062,6 +5080,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let shadows_v13 = shadows_v13(adjustments);
     let highlights_v14 = highlights_v14(adjustments);
     let vibrance_v2 = vibrance_v2(adjustments);
+    let blacks_v16 = blacks_v16(adjustments);
     for m in adjustments
         .mask_adjustments
         .iter()
@@ -5095,6 +5114,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if shadows_v13 { SHADOWS_V13_FEATURE } else { 0 }
         | if highlights_v14 { HIGHLIGHTS_V14_FEATURE } else { 0 }
         | if vibrance_v2 { VIBRANCE_V2_FEATURE } else { 0 }
+        | if blacks_v16 { BLACKS_V16_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -5171,7 +5191,8 @@ fn sharpen_level(adjustments: &AllAdjustments) -> usize {
 /// Whether the recipe needs code the plain general pipelines leave out:
 /// Relight's range-2 lights, response 7's Masking or response 8, or lowered
 /// Whites of tone version 12, raised Shadows of tone version 13, lowered
-/// Highlights of tone version 14 or Vibrance of vibrance version 2 (`GpuProcessor::range2_pipelines`).
+/// Highlights of tone version 14, Vibrance of vibrance version 2 or lowered
+/// Blacks of tone version 16 (`GpuProcessor::range2_pipelines`).
 fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
     relight_range2(adjustments)
         || sharpen_level(adjustments) > 0
@@ -5196,7 +5217,7 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
 
 /// `GpuProcessor::range2_pipelines`.
 type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
-    8]; 2]; MAIN_OUTPUTS];
+    16]; 2]; MAIN_OUTPUTS];
 
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
@@ -5602,6 +5623,7 @@ fn variant_constants(
         ("SHADOWS_V13", ((features >> 14) & 1) as f64),
         ("HIGHLIGHTS_V14", ((features >> 15) & 1) as f64),
         ("VIBRANCE_V2", ((features >> 16) & 1) as f64),
+        ("BLACKS_V16", ((features >> 18) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -8184,6 +8206,7 @@ impl GpuProcessor {
                     ("SHADOWS_V13", on(tone & 2 != 0)),
                     ("HIGHLIGHTS_V14", on(tone & 4 != 0)),
                     ("VIBRANCE_V2", on(vibrance)),
+                    ("BLACKS_V16", on(tone & 8 != 0)),
                 ],
             )
             .inspect_err(|error| log::error!("Feature pipeline unavailable: {error}"))
