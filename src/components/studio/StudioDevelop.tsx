@@ -1441,7 +1441,11 @@ export default function StudioDevelop() {
                   // the Structure travel only while no layer uses Structure (the layers follow it).
                   ...(layer
                     ? ['hue']
-                    : ['clarityVersion', 'vibranceVersion', ...(layersUseStructure(adjustments) ? [] : ['structureVersion'])])
+                    : [
+                        'clarityVersion',
+                        'vibranceVersion',
+                        ...(layersUseStructure(adjustments) ? [] : ['structureVersion'])
+                      ])
                 ])
               }
             >
