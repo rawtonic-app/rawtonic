@@ -3660,11 +3660,7 @@ fn colour_mixer_version_timing_probe() {
         ("v2_hue", 3),
         ("v2_satlum", 4),
     ];
-    for (width, height, display, frames) in [
-        (2304, 1728, true, 24),
-        (2304, 1728, false, 24),
-        (6000, 4000, false, 6),
-    ] {
+    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
         let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
         let view = input(&context, width, height, 3);
         let mut times = vec![Vec::new(); variants.len()];
@@ -3721,6 +3717,56 @@ fn colour_mixer_version_timing_probe() {
                 json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"p90_ms":t[t.len() * 9 / 10],"min_ms":t[0],"frames":frames})
             );
         }
+    }
+    // The worst case: every pixel a sky blue inside the moved Blues windows.
+    let (width, height) = (2304u32, 1728u32);
+    let data: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let v = 0.02 * ((i % 97) as f32 / 97.0);
+            [0.12 + v, 0.30 + v, 0.75 - v, 1.0].map(f16::from_f32)
+        })
+        .collect();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &data);
+    let sky = [("sky_v1", 1u64), ("sky_v2", 2)];
+    let mut times = vec![Vec::new(); sky.len()];
+    for frame in 0..26 {
+        for (i, (_, version)) in sky.iter().enumerate() {
+            let profile = json!({"hslVersion": version, "hsl": {"blues": {
+                "hue": 30.0 + 0.01 * frame as f64, "saturation": -20, "luminance": -30}}});
+            let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+            let start = Instant::now();
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            context
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if frame >= 2 {
+                times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (i, (name, _)) in sky.iter().enumerate() {
+        let t = &mut times[i];
+        t.sort_by(f64::total_cmp);
+        println!(
+            "{}",
+            json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"p90_ms":t[t.len() * 9 / 10],"min_ms":t[0],"frames":24})
+        );
     }
 }
 
