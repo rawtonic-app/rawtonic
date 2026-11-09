@@ -565,11 +565,28 @@ impl StructureVersion {
     /// The Structure amount (recipe units) the renderer applies for the
     /// slider value `value` (`image_processing::structure_amount`).
     pub fn amount(self, value: f64) -> f64 {
-        if self.0 >= ip::STRUCTURE_TRAVEL_VERSION {
+        if self.0 >= ip::STRUCTURE_EDGE_AWARE_VERSION {
+            ip::structure_amount_v3(value)
+        } else if self.0 >= ip::STRUCTURE_TRAVEL_VERSION {
             ip::structure_amount_v2(value)
         } else {
             ip::structure_amount_v1(value)
         }
+    }
+
+    /// The version the shader uniform (`GlobalAdjustments::structure_version`)
+    /// carries.
+    pub fn from_uniform(value: u32) -> Self {
+        Self(u64::from(value))
+    }
+
+    pub fn uniform(self) -> u32 {
+        self.0 as u32
+    }
+
+    /// Structure's fine band is measured against an edge-aware base.
+    pub fn edge_aware(self) -> bool {
+        self.0 >= ip::STRUCTURE_EDGE_AWARE_VERSION
     }
 }
 

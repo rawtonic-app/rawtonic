@@ -507,6 +507,9 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & 16 != 0 {
             effects["colorNoiseReduction"] = json!(30);
         }
+        if expected & PRESENCE_V3_FEATURE != 0 {
+            effects["structure"] = json!(30);
+        }
         if expected & TONE_PREVIEW_FEATURE != 0 {
             if expected & BLACKS_V16_FEATURE != 0 {
                 effects["blacks"] = json!(-20);
@@ -572,6 +575,9 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & HSL_V2_FEATURE != 0 {
             profile["hslVersion"] = json!(2);
         }
+        if expected & PRESENCE_V3_FEATURE != 0 {
+            profile["structureVersion"] = json!(3);
+        }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         if expected & HIGHLIGHTS_V14_FEATURE != 0 {
             // Version 14 changes the Camera Raw look's Highlights only.
@@ -606,6 +612,29 @@ fn preview_features_preserve_global_and_local_effects() {
             );
         }
     }
+    // Clarity or Structure of version 3 compile its code, on the photo or a
+    // layer; their earlier versions and the version key alone do not.
+    for (profile, on) in [
+        (json!({"clarity": 40, "clarityVersion": 3}), true),
+        (json!({"clarity": -40, "clarityVersion": 3}), true),
+        (json!({"structure": 40, "structureVersion": 3}), true),
+        (local_profile(json!({"clarity": 40})), false),
+        (json!({"clarity": 40, "clarityVersion": 2}), false),
+        (json!({"structure": 40, "structureVersion": 2}), false),
+        (json!({"clarityVersion": 3, "structureVersion": 3}), false),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        assert_eq!(
+            preview_features(&adjustments) & PRESENCE_V3_FEATURE != 0,
+            on,
+            "{profile}"
+        );
+    }
+    let mut layer = local_profile(json!({"clarity": 40}));
+    layer["clarityVersion"] = json!(3);
+    let adjustments = get_all_adjustments_from_json(&layer, true, Some(1));
+    assert_ne!(preview_features(&adjustments) & PRESENCE_V3_FEATURE, 0);
+    assert!(needs_feature_pipeline(&adjustments));
     // Opposing layers do not cancel everywhere: their bitmap coverage differs.
     let mut profile = local_profile(json!({"sharpness":-50,"lumaNoiseReduction":20}));
     profile["sharpness"] = json!(50);
@@ -15659,24 +15688,39 @@ fn clarity_version_2_blurs_have_their_whole_radius_on_every_render_version() {
     let overlap = TILE_OVERLAP;
     for (index, radius) in [(2usize, 8 * 18), (3, 40 * 18)] {
         // Render version 1, no Clarity version 2: blurs stop at the overlap.
-        assert_eq!(blur_rows_beyond(index, radius, false, 0), 0);
+        assert_eq!(blur_rows_beyond(index, radius, false, 0, 0), 0);
         // Clarity version 2 on render version 1: the whole radius, and the
         // large blur its reach beyond the tile too.
         let reach = 120;
         let extra = if index == 3 { reach } else { 0 };
         assert_eq!(
-            blur_rows_beyond(index, radius, false, reach),
+            blur_rows_beyond(index, radius, false, reach, 0),
             radius + extra - overlap
         );
         assert_eq!(
-            blur_rows_beyond(index, radius, true, reach),
+            blur_rows_beyond(index, radius, true, reach, 0),
             radius + extra - overlap
         );
-        assert_eq!(blur_rows_beyond(index, radius, true, 0), radius - overlap);
+        assert_eq!(
+            blur_rows_beyond(index, radius, true, 0, 0),
+            radius - overlap
+        );
     }
     // Blurs Clarity version 2 does not read keep their render version's rows.
-    assert_eq!(blur_rows_beyond(1, 300, false, 120), 0);
-    assert_eq!(blur_rows_beyond(4, 300, true, 120), 300 - overlap);
+    assert_eq!(blur_rows_beyond(1, 300, false, 120, 0), 0);
+    assert_eq!(blur_rows_beyond(4, 300, true, 120, 0), 300 - overlap);
+    // Clarity and Structure version 3 read the small blur up to their
+    // small reach beyond the tile, on every render version.
+    assert_eq!(
+        blur_rows_beyond(2, 8 * 18, false, 0, 60),
+        8 * 18 + 60 - overlap
+    );
+    assert_eq!(
+        blur_rows_beyond(2, 8 * 18, true, 120, 60),
+        8 * 18 + 60 - overlap
+    );
+    assert_eq!(blur_rows_beyond(3, 40 * 18, false, 0, 60), 0);
+    assert_eq!(blur_rows_beyond(2, 8 * 4, false, 0, 30), 0);
 }
 
 /// Clarity version 2 samples the large blur up to 120 pixels beyond a pixel
@@ -15713,8 +15757,17 @@ fn clarity_version_2_joins_tiles_exactly() {
     };
     // Also on render version 1, whose own blurs stop at the tile overlap: an
     // older recipe gets Clarity version 2 when Clarity is first added to it.
-    for render_version in [1, 3] {
-        let profile = json!({"clarity": 80, "renderVersion": render_version, "clarityVersion": 2});
+    for (render_version, presence) in [
+        (1, json!({"clarity": 80, "clarityVersion": 2})),
+        (3, json!({"clarity": 80, "clarityVersion": 2})),
+        // Version 3's rings and its small-blur ring, and Structure's.
+        (1, json!({"clarity": 80, "clarityVersion": 3})),
+        (3, json!({"clarity": 80, "clarityVersion": 3})),
+        (1, json!({"structure": 80, "structureVersion": 3})),
+        (3, json!({"structure": 80, "structureVersion": 3})),
+    ] {
+        let mut profile = presence.clone();
+        profile["renderVersion"] = json!(render_version);
         let render = |source: &DynamicImage, roi: Roi| {
             chunk_test_render(
                 &context,
@@ -15738,8 +15791,197 @@ fn clarity_version_2_joins_tiles_exactly() {
             .unwrap();
         assert!(
             diff <= 1,
-            "render version {render_version}: a seam row renders as a tile's inside: {diff}"
+            "{profile}: a seam row renders as a tile's inside: {diff}"
         );
+    }
+}
+
+/// Bands 128 px wide, alternating 2^-4.5 and 2^-1 (3.5 EV apart), each
+/// with ±0.15 EV of fine texture: strong edges with texture on both sides.
+fn presence_v3_edges(width: u32, height: u32) -> DynamicImage {
+    DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let level = if (x / 128) % 2 == 0 { -4.5f32 } else { -1.0 };
+        let texture = 0.15 * ((x as f32 * 0.9).sin() * (y as f32 * 0.7).cos());
+        let v = (2.0f32).powf(level + texture);
+        image::Rgb([v, v, v])
+    }))
+}
+
+/// Per band side (dark, bright): mean dL* within 12 px of an edge minus the
+/// mean dL* 40 px and more from it (the rim), and the texture there (std of
+/// L* minus the row's 9-pixel mean) against the neutral render's.
+fn presence_v3_rims(
+    img: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>,
+    neutral: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>,
+) -> [(f64, f64); 2] {
+    let (width, height) = img.dimensions();
+    let l = |p: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>, x: u32, y: u32| {
+        let c = p.get_pixel(x, y).0;
+        lstar_of_codes(&c)
+    };
+    let mut out = [(0.0, 0.0); 2];
+    for (side, slot) in out.iter_mut().enumerate() {
+        let (mut near, mut far, mut nn, mut nf) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        let mut det = [0.0f64; 2];
+        for y in (64..height - 64).step_by(4) {
+            for x in 128..width - 128 {
+                if ((x / 128) % 2) as usize != side {
+                    continue;
+                }
+                let edge = (x % 128).min(127 - x % 128);
+                let d = l(img, x, y) - l(neutral, x, y);
+                if edge < 12 {
+                    near += d;
+                    nn += 1.0;
+                } else if edge >= 40 {
+                    far += d;
+                    nf += 1.0;
+                    let local = |p: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>| {
+                        let mean = (x - 4..=x + 4).map(|k| l(p, k, y)).sum::<f64>() / 9.0;
+                        (l(p, x, y) - mean).powi(2)
+                    };
+                    det[0] += local(neutral);
+                    det[1] += local(img);
+                }
+            }
+        }
+        *slot = (near / nn - far / nf, (det[1] / det[0]).sqrt());
+    }
+    out
+}
+
+/// Clarity version 3 (raising) and Structure version 3 measure their bands
+/// against bases that stay on the pixel's side of a strong edge: Structure
+/// no longer darkens the dark side of bright edges (or lifts it when
+/// lowered), Clarity no longer lifts the bright side of dark edges, while
+/// texture away from the edges keeps its gain. Lowering Clarity renders as
+/// version 2.
+#[test]
+#[ignore = "requires a native GPU; Clarity and Structure version 3 at strong edges"]
+fn presence_version_3_cuts_rims_at_strong_edges() {
+    let context = context();
+    // 1080 rows: the bases' samples at their reference size.
+    let (width, height) = (1024u32, 1080u32);
+    let source = presence_v3_edges(width, height);
+    let render = |profile: serde_json::Value| {
+        let mut profile = profile;
+        profile["renderVersion"] = json!(3);
+        chunk_test_render(
+            &context,
+            &source,
+            &profile,
+            false,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        )
+        .unwrap()
+        .into_rgb16()
+    };
+    let neutral = render(json!({}));
+    // The version keys alone change nothing.
+    assert!(render(json!({"clarityVersion": 3, "structureVersion": 3})) == neutral);
+    for amount in [100, -100] {
+        let v2 = render(json!({"structure": amount, "structureVersion": 2}));
+        let v3 = render(json!({"structure": amount, "structureVersion": 3}));
+        let ([(rim2, _), (_, tex2)], [(rim3, _), (_, tex3)]) = (
+            presence_v3_rims(&v2, &neutral),
+            presence_v3_rims(&v3, &neutral),
+        );
+        eprintln!(
+            "Structure {amount}: dark-side rim {rim2:.2} -> {rim3:.2} L*, bright-side texture {tex2:.3} -> {tex3:.3}"
+        );
+        assert!(
+            rim2.abs() > 0.5 && rim3.abs() < 0.5 * rim2.abs(),
+            "Structure {amount}: dark-side rim {rim3:.2} (version 2 {rim2:.2})"
+        );
+        assert!(
+            (tex3 - 1.0) * (tex2 - 1.0) > 0.0 && (tex3 - 1.0).abs() > 0.8 * (tex2 - 1.0).abs(),
+            "Structure {amount}: texture {tex3:.3} (version 2 {tex2:.3})"
+        );
+    }
+    let v2 = render(json!({"clarity": 100, "clarityVersion": 2}));
+    let v3 = render(json!({"clarity": 100, "clarityVersion": 3}));
+    let ([(dark2, tex_dark2), (halo2, tex2)], [(dark3, tex_dark3), (halo3, tex3)]) = (
+        presence_v3_rims(&v2, &neutral),
+        presence_v3_rims(&v3, &neutral),
+    );
+    eprintln!(
+        "Clarity +100: bright-side halo {halo2:.2} -> {halo3:.2} L*, dark-side rim {dark2:.2} -> {dark3:.2}, texture {tex2:.3} / {tex_dark2:.3} -> {tex3:.3} / {tex_dark3:.3}"
+    );
+    assert!(
+        halo2 > 0.5 && halo3 < 0.6 * halo2,
+        "Clarity +100: bright-side halo {halo3:.2} (version 2 {halo2:.2})"
+    );
+    assert!(
+        dark3.abs() <= dark2.abs(),
+        "Clarity +100: dark-side rim {dark3:.2} (version 2 {dark2:.2})"
+    );
+    assert!(
+        tex3 > 1.0 && tex3 - 1.0 > 0.8 * (tex2 - 1.0),
+        "Clarity +100: texture {tex3:.3} (version 2 {tex2:.3})"
+    );
+    let v2 = render(json!({"clarity": -100, "clarityVersion": 2}));
+    let v3 = render(json!({"clarity": -100, "clarityVersion": 3}));
+    let diff = v2
+        .as_raw()
+        .iter()
+        .zip(v3.as_raw())
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    assert!(diff <= 1, "lowered Clarity renders as version 2: {diff}");
+}
+
+#[test]
+#[ignore = "requires a native GPU; Clarity and Structure version 3 against version 2: GPU time of a preview render per drag step"]
+fn presence_version_3_drag_render_time() {
+    // As `tone_version_14_highlights_drag_render_time`, with Clarity or
+    // Structure stepped up.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    for (tool, key) in [
+        ("clarity", "clarityVersion"),
+        ("structure", "structureVersion"),
+    ] {
+        let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+        for block in 0..24 {
+            let version = 2 + (block % 2) as u64;
+            for step in 0..10 {
+                let mut recipe = json!({ key: version });
+                recipe[tool] = json!(20 + 8 * step);
+                let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+                let start = std::time::Instant::now();
+                let _ = readback_pixels(
+                    &processor,
+                    &view,
+                    (width, height),
+                    *adjustments,
+                    &[],
+                    RenderOutputPrecision::EightBit,
+                    ReadbackShader::Preview,
+                );
+                if step >= 2 && block >= 2 {
+                    times[(version - 2) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+        }
+        for (k, t) in times.iter_mut().enumerate() {
+            t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            eprintln!(
+                "{tool} version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+                2 + k,
+                t[t.len() / 2],
+                t[t.len() * 9 / 10],
+                t.len()
+            );
+        }
     }
 }
 

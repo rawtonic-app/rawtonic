@@ -4510,7 +4510,11 @@ pub struct GlobalAdjustments {
     /// Keeps the struct as long as the shader's (rounded up to 16 bytes):
     /// the mask adjustments follow it in `AllAdjustments`
     /// (`global_adjustments_match_the_shader_layout`).
-    pub _pad_vibrance: [u32; 2],
+    /// The recipe's Structure (`structure_version`): 3 measures the fine band
+    /// against an edge-aware base (shader `apply_structure_v3`), older ones
+    /// against the plain small blur.
+    pub structure_version: u32,
+    pub _pad_vibrance: u32,
 }
 
 // The shader's struct is a multiple of 16 bytes; a different length here
@@ -5501,7 +5505,8 @@ fn get_global_adjustments_resolved(
         capture_gain: u32::from(versions.render.capture_gain()),
         scene_black: u32::from(versions.render.scene_black()),
         vibrance_version: versions.vibrance.uniform(),
-        _pad_vibrance: [0; 2],
+        structure_version: versions.structure.uniform(),
+        _pad_vibrance: 0,
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -7326,10 +7331,28 @@ pub const STRUCTURE_VERSION_KEY: &str = "structureVersion";
 /// +50 / +100 / −50 / −100 reached what version 1 does at about +18 / +29 /
 /// −25 / −41, median of 24 calibration photos, 17.7 / 28.0 / −24.4 / −39.6
 /// on the 24 held-out ones; notes: benchmark-results/atf7-slider-travel-2026-11-08).
-/// The filter itself is unchanged. Recipes without the key keep version 1.
-pub const STRUCTURE_VERSION: u64 = 2;
+/// The filter itself is unchanged. 3 (2026-11-09) measures the fine band in
+/// log luminance against an edge-aware base: the small blur at the pixel and
+/// on a ring of eight points around it, each weighted by how close its
+/// level is to the pixel's own (Gaussian over `STRUCTURE3_RANGE` EV in the
+/// shader), so a strong edge no longer pulls the base of its other side
+/// (dark rims beside bright edges when raising, a lifted dark side when
+/// lowering; task ATF9, notes: benchmark-results/atf9-clarity-texture-halo-2026-11-09).
+/// Its amounts are version 2's × `STRUCTURE3_RAISE` / `STRUCTURE3_LOWER`,
+/// which keeps Camera Raw's travel. Recipes without the key keep version 1.
+pub const STRUCTURE_VERSION: u64 = 3;
 /// The Structure version from which the slider follows Camera Raw's travel.
 pub const STRUCTURE_TRAVEL_VERSION: u64 = 2;
+/// The Structure version whose fine band is measured against an edge-aware
+/// base (shader `apply_structure_v3`).
+pub const STRUCTURE_EDGE_AWARE_VERSION: u64 = 3;
+/// Structure version 3's amount per unit of version 2's, raising and
+/// lowering: the edge-aware base takes less out of strong edges, so the
+/// same fine-detail gain as Camera Raw's Texture needs more amount (median
+/// over 24 calibration frames of the factor that reaches Camera Raw's f01
+/// gain at ±50 / ±100: 1.35 / 1.36 raising, 1.42 / 1.40 lowering).
+pub const STRUCTURE3_RAISE: f64 = 1.35;
+pub const STRUCTURE3_LOWER: f64 = 1.41;
 
 /// Structure version 1: the slider value is the amount.
 pub fn structure_amount_v1(value: f64) -> f64 {
@@ -7349,6 +7372,18 @@ pub fn structure_amount_v2(value: f64) -> f64 {
     v.signum() * (a * v.abs() + b * v * v)
 }
 
+/// Structure version 3: version 2's travel scaled for the edge-aware base
+/// (`STRUCTURE3_RAISE`, `STRUCTURE3_LOWER`).
+pub fn structure_amount_v3(value: f64) -> f64 {
+    let amount = structure_amount_v2(value);
+    amount
+        * if amount >= 0.0 {
+            STRUCTURE3_RAISE
+        } else {
+            STRUCTURE3_LOWER
+        }
+}
+
 /// The recipe key naming the Clarity response it was made with.
 pub const CLARITY_VERSION_KEY: &str = "clarityVersion";
 /// The newest Clarity: 2 (2026-10-24) measures a pixel's medium-scale band in
@@ -7358,9 +7393,16 @@ pub const CLARITY_VERSION_KEY: &str = "clarityVersion";
 /// its darker surroundings up less: per unit of texture gain the dark halo
 /// 1–6 px beside slats, frames and branches is 19–68 % of version 1's on six
 /// held-out photos (about half on a synthetic stripe); farther out it shrinks
-/// less (notes: parity-gaps/G06-presence.md "Clarity halos").
+/// less (notes: parity-gaps/G06-presence.md "Clarity halos"). 3 (2026-11-09)
+/// spaces the rings twice as far, narrows the level range to 0.12 EV and adds
+/// a ring of eight small-blur samples (shader `clarity3_base`): beside a
+/// strong edge every nearby large-blur sample leans to the other side, so
+/// version 2 still left a light halo on the bright side of dark edges
+/// (slider atlas: +0.9 L* over Camera Raw at +100); the small blur a few
+/// pixels away on the pixel's own side does not lean (task ATF9, notes:
+/// benchmark-results/atf9-clarity-texture-halo-2026-11-09).
 /// Recipes without the key keep version 1.
-pub const CLARITY_VERSION: u64 = 2;
+pub const CLARITY_VERSION: u64 = 3;
 
 /// The recipe's Clarity version, 1 when missing, never newer than this
 /// renderer knows.
@@ -8082,14 +8124,18 @@ mod vibrance_version_tests {
     use super::{VIBRANCE_VERSION, get_all_adjustments_from_json};
     use serde_json::json;
 
-    /// The shader's `GlobalAdjustments` ends with `vibrance_version` and
-    /// `_pad_vibrance: array<u32, 2>` and is rounded up to 16 bytes (it holds
-    /// vec4s); the Rust struct must be exactly as long, or every field of
-    /// `AllAdjustments` after it moves.
+    /// The shader's `GlobalAdjustments` ends with `vibrance_version`,
+    /// `structure_version` and `_pad_vibrance` and is rounded up to 16 bytes
+    /// (it holds vec4s); the Rust struct must be exactly as long, or every
+    /// field of `AllAdjustments` after it moves.
     #[test]
     fn global_adjustments_match_the_shader_layout() {
         use super::GlobalAdjustments;
-        let shader_end = std::mem::offset_of!(GlobalAdjustments, vibrance_version) + 4 + 8;
+        let shader_end = std::mem::offset_of!(GlobalAdjustments, _pad_vibrance) + 4;
+        assert_eq!(
+            std::mem::offset_of!(GlobalAdjustments, structure_version),
+            std::mem::offset_of!(GlobalAdjustments, vibrance_version) + 4
+        );
         assert_eq!(
             std::mem::size_of::<GlobalAdjustments>(),
             shader_end.div_ceil(16) * 16
@@ -8114,7 +8160,10 @@ mod vibrance_version_tests {
 
 #[cfg(test)]
 mod structure_version_tests {
-    use super::{SCALES, get_all_adjustments_from_json, structure_amount_v2};
+    use super::{
+        SCALES, STRUCTURE_VERSION, STRUCTURE3_LOWER, STRUCTURE3_RAISE,
+        get_all_adjustments_from_json, structure_amount_v2, structure_amount_v3,
+    };
     use serde_json::json;
 
     fn amounts(recipe: serde_json::Value) -> (f32, f32) {
@@ -8172,7 +8221,7 @@ mod structure_version_tests {
         // A newer version than this renderer knows renders with its newest.
         assert_eq!(
             amounts(with_layer(50.0, Some(9))).0,
-            amounts(with_layer(50.0, Some(2))).0
+            amounts(with_layer(50.0, Some(STRUCTURE_VERSION))).0
         );
         assert_eq!(structure_amount_v2(0.0), 0.0);
         // Rises over the whole range.
@@ -8182,6 +8231,34 @@ mod structure_version_tests {
             assert!(next > last, "{i}");
             last = next;
         }
+    }
+
+    #[test]
+    fn version_three_scales_version_two_on_the_photo_and_its_layers() {
+        for value in [-100.0, -50.0, -1.0, 1.0, 50.0, 100.0] {
+            let factor = if value > 0.0 {
+                STRUCTURE3_RAISE
+            } else {
+                STRUCTURE3_LOWER
+            };
+            let amount = structure_amount_v2(value) * factor;
+            assert_eq!(
+                structure_amount_v3(value).to_bits(),
+                amount.to_bits(),
+                "{value}"
+            );
+            let (global, layer) = amounts(with_layer(value, Some(3)));
+            assert_eq!(
+                global.to_bits(),
+                (amount as f32 / SCALES.structure).to_bits()
+            );
+            assert_eq!(layer.to_bits(), global.to_bits());
+            let prepared = get_all_adjustments_from_json(&with_layer(value, Some(3)), true, None);
+            assert_eq!(prepared.global.structure_version, 3);
+        }
+        assert_eq!(structure_amount_v3(0.0), 0.0);
+        let prepared = get_all_adjustments_from_json(&with_layer(50.0, Some(2)), true, None);
+        assert_eq!(prepared.global.structure_version, 2);
     }
 }
 
@@ -8279,6 +8356,7 @@ mod clarity_version_tests {
         assert_eq!(version(json!({"clarity": 40})), 1);
         assert_eq!(version(json!({"clarity": 40, "clarityVersion": 1})), 1);
         assert_eq!(version(json!({"clarity": 40, "clarityVersion": 2})), 2);
+        assert_eq!(version(json!({"clarity": 40, "clarityVersion": 3})), 3);
         // A newer version than this renderer knows renders with its newest.
         assert_eq!(
             version(json!({"clarityVersion": 9})),

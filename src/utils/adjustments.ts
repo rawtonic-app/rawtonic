@@ -665,7 +665,9 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   toneVersion?: number;
   /** Clarity response (crates/engine/src/image_processing.rs
    * `CLARITY_VERSION`): 2 = the medium-scale band against an edge-aware base
-   * (fewer dark halos beside narrow bright edges); 1 or missing on recipes
+   * (fewer dark halos beside narrow bright edges); 3 = that base also follows
+   * the small blur on the pixel's own side (no light halo beside strong dark
+   * edges); 1 or missing on recipes
    * that used Clarity before it = the band against a plain blur. Photo-wide
    * (layers follow it). */
   clarityVersion?: number;
@@ -689,7 +691,8 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   /** Structure travel (crates/engine/src/image_processing.rs
    * `STRUCTURE_VERSION`): 2 = the slider's strength per unit follows Camera
    * Raw's Texture (version 1's ±50 already went beyond Camera Raw's ±100);
-   * 1 or missing on recipes that used Structure before it = the slider value
+   * 3 = that travel, the fine band against an edge-aware base (no dark rims
+   * beside bright edges); 1 or missing on recipes that used Structure before it = the slider value
    * is the amount. Photo-wide (layers follow it). */
   structureVersion?: number;
   /** Edge-fringe pass (crates/engine/src/edge_fringe.rs `VERSION`): 1 =
@@ -1395,7 +1398,7 @@ export const withCarriedWhitesFor = <T extends Partial<Adjustments>>(
 export const KEYLESS_TONE_VERSION = 5;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
-export const CLARITY_VERSION = 2;
+export const CLARITY_VERSION = 3;
 
 /** The Temperature response new edits start with (notes: parity-gaps/G01-base-profiles.md). */
 export const TEMPERATURE_VERSION = 2;
@@ -1403,8 +1406,9 @@ export const TEMPERATURE_VERSION = 2;
 export const TINT_VERSION = 2;
 /** The Vibrance response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const VIBRANCE_VERSION = 2;
-/** The Structure travel new edits start with (notes: benchmark-results/atf7-slider-travel-2026-11-08). */
-export const STRUCTURE_VERSION = 2;
+/** The Structure response new edits start with (notes: benchmark-results/atf7-slider-travel-2026-11-08,
+ * benchmark-results/atf9-clarity-texture-halo-2026-11-09). */
+export const STRUCTURE_VERSION = 3;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md):
  * 5 = version 4's pass computed on the GPU; 6 = 7 × 7 windows on moderately noisy photos too. */
