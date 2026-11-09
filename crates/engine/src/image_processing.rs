@@ -4488,7 +4488,9 @@ pub struct GlobalAdjustments {
     pub image_key_median: f32,
     /// Colours outside the output space (`renderVersion` 4,
     /// `GAMUT_MAPPING_RENDER_VERSION`): 1 = clipped to it and turned back to
-    /// their own hue (shader.wgsl `restore_hue`), 0 = clipped per channel.
+    /// their own hue (shader.wgsl `restore_hue`), 0 = clipped per channel,
+    /// 2 (`renderVersion` 12, `GAMUT_KNEE_RENDER_VERSION`) = as 1 after
+    /// easing saturated colours near the edge towards it (`ease_into_gamut`).
     pub gamut_mapping: u32,
     /// Film grain colour (`grainColor` / 100, grain version 3): 0 one
     /// neutral layer like black-and-white film, 1 independent dye layers.
@@ -5483,7 +5485,7 @@ fn get_global_adjustments_resolved(
         clarity_version: versions.clarity.uniform(),
         temperature_version: versions.temperature.uniform() | (versions.tint.uniform() << 8),
         image_key_median: 0.0,
-        gamut_mapping: u32::from(versions.render.gamut_mapping()),
+        gamut_mapping: versions.render.gamut_mapping_uniform(),
         grain_color: (effects.grain_color.get() / 100.0).clamp(0.0, 1.0) as f32,
         capture_gain: u32::from(versions.render.capture_gain()),
         scene_black: u32::from(versions.render.scene_black()),
@@ -5936,9 +5938,11 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// extended low ISOs keep Camera Raw's deepest shadows. 11 (2026-11-01)
 /// takes the masked sensor border's black levels when the decoder's spread
 /// over the 2 × 2 positions exceeds the border's by more than 3 levels
-/// (`image_loader::BORDER_BLACK_RENDER_VERSION`).
+/// (`image_loader::BORDER_BLACK_RENDER_VERSION`). 12 (2026-11-09) eases
+/// saturated colours near the output space's edge towards it before the
+/// clip, so they keep their gradation (`GAMUT_KNEE_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 11;
+pub const RENDER_VERSION: u64 = 12;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the
@@ -5961,6 +5965,13 @@ pub const GPU_WARP_RENDER_VERSION: u64 = 7;
 /// their hue (`GlobalAdjustments::gamut_mapping`; notes:
 /// parity-gaps/G01-base-profiles.md).
 pub const GAMUT_MAPPING_RENDER_VERSION: u64 = 4;
+
+/// The render version from which saturated colours from 0.9 of the way to
+/// the output space's edge on are eased towards it at their own CAM16 hue
+/// and lightness before the clip (`GlobalAdjustments::gamut_mapping` 2,
+/// shader `ease_into_gamut`; notes: parity-gaps/G01-base-profiles.md, task
+/// ATF10).
+pub const GAMUT_KNEE_RENDER_VERSION: u64 = 12;
 
 /// The render version from which exports render with the main shader
 /// specialized for the recipe's features, as display frames do, also with
@@ -9863,10 +9874,11 @@ mod render_version_tests {
         assert_eq!(mapping(json!({})), 0);
         assert_eq!(mapping(json!({"renderVersion": 3, "exposure": 1})), 0);
         assert_eq!(mapping(json!({"renderVersion": 4})), 1);
-        assert_eq!(mapping(json!({"renderVersion": 9})), 1);
+        assert_eq!(mapping(json!({"renderVersion": 11})), 1);
+        assert_eq!(mapping(json!({"renderVersion": 12})), 2);
         let mut new_edit = serde_json::Value::Null;
         apply_render_default(&mut new_edit);
-        assert_eq!(mapping(new_edit), 1);
+        assert_eq!(mapping(new_edit), 2);
     }
 
     /// A recipe started by a batch edit (paste, preset, Auto) or for a
