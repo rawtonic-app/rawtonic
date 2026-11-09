@@ -9,6 +9,7 @@ import { usePopoverFocus } from './usePopoverFocus';
 import {
   withBwVersion,
   withDetailVersions,
+  withWhiteBalanceVersions,
   withVibranceVersion,
   withGrainVersion,
   withLumaNoiseVersion,
@@ -39,6 +40,9 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   shadows: ['toneVersion'],
   // Clarity means what the recipe's Clarity response makes of it.
   clarity: ['clarityVersion'],
+  // Temperature means what the recipe's Temperature response makes of it.
+  temperature: ['temperatureVersion'],
+  tint: ['tintVersion'],
   // Vibrance means what the recipe's Vibrance response makes of it.
   vibrance: ['vibranceVersion'],
   // Structure means what the recipe's Structure travel makes of it.
@@ -71,7 +75,10 @@ export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> 
   return withBwVersion(
     withVibranceVersion(
       withDetailVersions(
-        withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, values), values), values),
+        withGrainVersion(
+          withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, values), values), values),
+          values
+        ),
         values
       ),
       values

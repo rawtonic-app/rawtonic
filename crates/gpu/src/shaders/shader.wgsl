@@ -297,6 +297,11 @@ struct GlobalAdjustments {
     // The recipe's Clarity (`clarityVersion`): 1 the band against the plain
     // large blur, 2 against clarity_base.
     clarity_version: u32,
+    // The recipe's white balance responses: bits 0–7 Temperature
+    // (`temperatureVersion`: 1 luminance kept, 2 coupled), bits 8–15 Tint
+    // (`tintVersion`: 1 version 1's travel, 2 Camera Raw's); any 2 uses
+    // apply_white_balance_v2, both 1 apply_white_balance.
+    temperature_version: u32,
     // Median of the decode's linear luminance (image_key.rs); 0 = unknown.
     image_key_median: f32,
     // 1: colours outside the output space keep their hue (restore_hue).
@@ -310,7 +315,7 @@ struct GlobalAdjustments {
     // The recipe's Vibrance (`vibranceVersion`): 1 apply_creative_color's
     // HSV-weighted mix, 2 apply_vibrance_v2.
     vibrance_version: u32,
-    _pad_vibrance: array<u32, 3>,
+    _pad_vibrance: array<u32, 2>,
 }
 
 struct MaskAdjustments {
@@ -3860,6 +3865,48 @@ fn apply_white_balance(color: vec3<f32>, temp: f32, tnt: f32) -> vec3<f32> {
     let inverse_luma = 1.0 / max(dot(mult, LUMA_COEFF), 0.0001);
     rgb *= mult * inverse_luma;
     return rgb;
+}
+
+// Temperature version 2 (`temperatureVersion`): the response of Capture
+// One's and Camera Raw's white balance, which they apply to the camera's
+// channels before the tone curve. At the same yellow shift both brighten
+// when warming and darken a little when cooling, and warm along the
+// daylight locus towards magenta; version 1 kept luminance and warmed
+// towards green-yellow. `temp` is the slider / 25 (masks add theirs).
+// Warming is compressed (t − t²/16) so +100 gives version 1's +75, the
+// references' warmest setting (about −150 mired from as shot); cooling keeps
+// version 1's reach (−100 about +300 mired). On version 1's gains the
+// warm side adds 0.025·(t + t²) of Tint and 0.0375·t² EV, the cool side
+// 0.025·t² of Tint and 0.03·t EV (fitted on half of the slider atlas'
+// frames; notes: benchmark-results/atl-slider-atlas-2026-11-08). Tint
+// version 2 (`tintVersion`, its own key so a Temperature-only preset never
+// changes the Tint): Camera Raw's travel, ±100 reaches its ±150 (version 1
+// reached −94 / +77), ×1.55 towards green and ×1.9 towards magenta (notes:
+// benchmark-results/atf7-slider-travel-2026-11-08), and towards magenta it
+// brightens as both references do (0.12 EV per unit, +0.23 EV at +100).
+// With both at version 2 this is the response measured in the atlas; a
+// slider at its version 1 contributes as in apply_white_balance.
+fn apply_white_balance_v2(color: vec3<f32>, temp: f32, tint_in: f32, coupled: bool, tint_travel: bool) -> vec3<f32> {
+    var tnt = tint_in;
+    if (tint_travel) {
+        tnt = tint_in * select(1.9, 1.55, tint_in < 0.0);
+    }
+    var t = temp;
+    var magenta = 0.0;
+    var ev = 0.0;
+    if (coupled) {
+        magenta = 0.025 * t * t;
+        ev = 0.03 * t;
+        if (t > 0.0) {
+            t = select(4.0, t - t * t / 16.0, t < 8.0);
+            magenta = 0.025 * (t + t * t);
+            ev = 0.0375 * t * t;
+        }
+    }
+    if (tint_travel) {
+        ev += 0.12 * max(tnt, 0.0);
+    }
+    return apply_white_balance(color, t, tnt + magenta) * exp2(ev);
 }
 
 fn apply_creative_color(color: vec3<f32>, sat: f32, vib: f32) -> vec3<f32> {
@@ -9845,7 +9892,13 @@ fn main(
     }
 
     var composite_rgb_linear = apply_dehaze(processed_rgb, structure_blurred, is_raw, t_dehaze);
-    composite_rgb_linear = apply_white_balance(composite_rgb_linear, t_temperature, t_tint);
+    let temperature_coupled = (adjustments.global.temperature_version & 0xffu) >= 2u;
+    let tint_travel = ((adjustments.global.temperature_version >> 8u) & 0xffu) >= 2u;
+    if (temperature_coupled || tint_travel) {
+        composite_rgb_linear = apply_white_balance_v2(composite_rgb_linear, t_temperature, t_tint, temperature_coupled, tint_travel);
+    } else {
+        composite_rgb_linear = apply_white_balance(composite_rgb_linear, t_temperature, t_tint);
+    }
     composite_rgb_linear = apply_centre_tonal_and_color(composite_rgb_linear, adjustments.global.centre, absolute_coord_i);
     if (ENABLE_TONE) {
         var wide_luma = 0.0;

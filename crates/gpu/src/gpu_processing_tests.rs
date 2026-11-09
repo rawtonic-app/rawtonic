@@ -3376,6 +3376,100 @@ fn grain_version_timing_probe() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; compares the two Temperature responses"]
+fn temperature_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size; the variants alternate within one
+    // process and Temperature moves a little every frame (a drag).
+    let variants = [("v1", 1), ("v2", 2)];
+    let (width, height, frames) = (2304, 1728, 60);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 3);
+    let mut times = vec![Vec::new(); variants.len()];
+    for frame in 0..frames + 2 {
+        for (i, (_, version)) in variants.iter().enumerate() {
+            let profile =
+                json!({"temperatureVersion": version, "temperature": 40.0 + 0.1 * frame as f64});
+            let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+            let start = Instant::now();
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            context
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if frame >= 2 {
+                times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (i, (name, _)) in variants.iter().enumerate() {
+        let t = &mut times[i];
+        t.sort_by(f64::total_cmp);
+        println!(
+            "{}",
+            json!({"variant": name, "median_ms": t[t.len() / 2], "min_ms": t[0], "frames": frames})
+        );
+    }
+}
+
+/// Temperature and Tint each follow their own key (`temperatureVersion`,
+/// `tintVersion`): a slider at 0 renders the same under either version of its
+/// key, so a preset or paste that carries only one slider's response never
+/// changes how the other renders; with both at 1 the response is version 1's
+/// and with both at 2 the measured one (slider_response pins).
+#[test]
+#[ignore = "requires a native GPU"]
+fn white_balance_versions_leave_the_other_slider_alone() {
+    let context = context();
+    let source = chunk_test_source(96, 64);
+    let render = |profile: serde_json::Value| {
+        render_source(&context, &source, profile, RenderOutputPrecision::EightBit).into_bytes()
+    };
+    let tint = |temperature_version: u64, tint_version: u64| {
+        render(
+            json!({"tint": 40.0, "temperatureVersion": temperature_version, "tintVersion": tint_version}),
+        )
+    };
+    let temperature = |temperature_version: u64, tint_version: u64| {
+        render(
+            json!({"temperature": 40.0, "temperatureVersion": temperature_version, "tintVersion": tint_version}),
+        )
+    };
+    assert_eq!(tint(1, 1), tint(2, 1), "Tint v1 under either Temperature");
+    assert_eq!(tint(1, 2), tint(2, 2), "Tint v2 under either Temperature");
+    assert_ne!(tint(1, 1), tint(1, 2), "Tint's versions differ");
+    assert_eq!(
+        temperature(1, 1),
+        temperature(1, 2),
+        "Temperature v1 under either Tint"
+    );
+    assert_eq!(
+        temperature(2, 1),
+        temperature(2, 2),
+        "Temperature v2 under either Tint"
+    );
+    assert_ne!(
+        temperature(1, 1),
+        temperature(2, 1),
+        "Temperature's versions differ"
+    );
+}
+
+#[test]
 #[ignore = "native GPU timing probe; compares the two newest sharpening responses"]
 fn sharpen_version_timing_probe() {
     let context = context();
