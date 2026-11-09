@@ -7327,10 +7327,15 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// version 6's texture boost: at the same lifted shadow level as Capture
 /// One's Shadow, 12 lifted L* 40–60 by 4 L* more and raised the shadows'
 /// texture 20–30 % more, which read as flat and over-sharpened (notes: G02,
-/// benchmark-results/shd2-shadows-shape-2026-11-08).
+/// benchmark-results/shd2-shadows-shape-2026-11-08);
+/// 14 (2026-11-08) makes lowered Highlights' local base edge-aware in log
+/// luminance too: with only version 5's wide linear range, a dark surround
+/// pulled the base of the bright side's pixels down and the detail lift
+/// left a light rim at strong edges, 1.0 L* above Camera Raw's at −100
+/// (notes: G02, benchmark-results/atf6-highlights-halo-2026-11-08).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 13;
+pub const TONE_VERSION: u64 = 14;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
