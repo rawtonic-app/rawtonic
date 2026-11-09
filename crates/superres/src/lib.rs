@@ -40,7 +40,7 @@ const INPUT: &str = "image";
 const OUTPUT: &str = "enlarged";
 
 pub const ONNX_FILE: &str = "superres_compact_x2.onnx";
-pub const ONNX_SHA256: &str = "907326f4591a3c81a4f6d4cc90beb6524fda5636ed59e7cf6ae6f7b15676b8dc";
+pub const ONNX_SHA256: &str = "088990646244e01a74c12460dda5a86547d967299d70b4e58afd4904abecd0d8";
 
 /// The same graph as a Core ML program (fp16; largest difference to the
 /// ONNX model 0.003, mean 0.0002 of the 0..1 range), macOS's fast path.
@@ -57,7 +57,7 @@ pub const CORE_ML_FILES: [(&str, &str, &str); 3] = [
     (
         "superres_coreml_model.mlmodel",
         "Data/com.apple.CoreML/model.mlmodel",
-        "68de852d4762eb4fe0ae0bb9c6e149fe139d031e6e8927dbb679597b106744f0",
+        "59668d6013f38bcd11e721b80379f2cb5d0e896b754095f08433d469988cb132",
     ),
     (
         "superres_coreml_weight.bin",

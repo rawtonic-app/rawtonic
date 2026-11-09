@@ -27,7 +27,9 @@ Usage: export_superres.py OUT_DIR [--check IMAGE_DIR]
   --check enlarges 512 px tiles of every image in IMAGE_DIR with PyTorch
   (fp32), the ONNX file (ONNX Runtime, CPU) and the Core ML program and
   prints their largest differences and times.
-Needs: torch, onnx, onnxruntime, coremltools 9 (macOS for the Core ML part).
+Needs: the pack environment (build_model_pack.py SUPERRES_EXPORT: torch 2.7.0,
+coremltools 9.0, onnx 1.23.2; macOS for the Core ML part), in which both
+files repeat byte for byte.
 Notes: benchmark-results/srx-super-resolution-2026-11-08/REPORT.md.
 """
 import argparse
