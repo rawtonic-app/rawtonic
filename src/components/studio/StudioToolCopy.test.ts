@@ -118,3 +118,12 @@ describe('Detail copy groups', () => {
     expect(ADJUSTMENT_GROUPS.effects.some((group) => group.label === 'modals.copyPaste.groups.grain')).toBe(false);
   });
 });
+
+describe('Tool copy of Whites', () => {
+  it('carries the tone-slider response, so Whites +50 keeps its travel on another photo', () => {
+    const v17 = { ...INITIAL_ADJUSTMENTS, whites: 50, toneVersion: 17 } as Adjustments;
+    expect(pick(v17, ['whites'])).toEqual({ whites: 50, toneVersion: 17 });
+    const destination = { ...INITIAL_ADJUSTMENTS, toneVersion: 16 } as Adjustments;
+    expect({ ...destination, ...pick(v17, ['whites']) }.toneVersion).toBe(17);
+  });
+});

@@ -40,8 +40,9 @@
         },
         "bwVersion": 2,
         "contrast": 25,
-        "whites": 15,
+        "whites": 8,
         "blacks": -8,
+        "toneVersion": 17,
         "clarity": 12,
         "clarityVersion": 2
       }

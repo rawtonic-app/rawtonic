@@ -24,8 +24,8 @@ const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 /** Recipe keys without a control of their own that travel with a copied
  * parameter, as in a full copy: the colour noise amounts mean what the
- * recipe's colour noise filter makes of them, Shadows what its tone-slider
- * response makes of it. */
+ * recipe's colour noise filter makes of them, Shadows and Whites what its
+ * tone-slider response makes of them. */
 export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   // A LUT selection includes its baked table and input space.
   lutPath: ['lutName', 'lutSize', 'lutData', 'lutIsSceneReferred'],
@@ -36,8 +36,10 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   lumaNoiseReduction: ['lumaNoiseVersion'],
   lumaNoiseDetail: ['lumaNoiseVersion'],
   lumaNoiseContrast: ['lumaNoiseVersion'],
-  // Shadows means what the recipe's tone-slider response makes of it.
+  // Shadows and Whites mean what the recipe's tone-slider response makes of
+  // them (Whites' travel from tone version 17).
   shadows: ['toneVersion'],
+  whites: ['toneVersion'],
   // Clarity means what the recipe's Clarity response makes of it.
   clarity: ['clarityVersion'],
   // Temperature means what the recipe's Temperature response makes of it.
