@@ -57,6 +57,9 @@ override WHITES_V12: bool = false;
 // Raised Shadows of tone version 13 (`apply_tonal_adjustments_v13`), for
 // the same reason (gpu_processing.rs `SHADOWS_V13_FEATURE`).
 override SHADOWS_V13: bool = false;
+// Lowered Highlights of tone version 14 (`apply_highlights_adjustment_v14`),
+// for the same reason (gpu_processing.rs `HIGHLIGHTS_V14_FEATURE`).
+override HIGHLIGHTS_V14: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -3340,6 +3343,231 @@ fn apply_highlights_adjustment(
         flat_weight += exp(-relative * relative) * spatial_weights[i];
         let diff = abs(s_luma - pixel_luma);
         let w = exp(- (diff * diff) * inv_two_range_sq) * spatial_weights[i];
+
+        sum_luma += s_luma * w;
+        sum_w += w;
+    }
+
+    let luma_base = sum_luma / sum_w;
+    let detail_ratio = pixel_luma / max(luma_base, 1e-4);
+
+    let safe_detail = clamp(detail_ratio, 0.65, 1.55);
+
+    let log_detail = log2(safe_detail);
+    let soft_log_detail = log_detail / (1.0 + abs(log_detail) * 0.40);
+
+    var target_luma: f32 = pixel_luma;
+
+    if (highlights_adj < 0.0) {
+        var k = -highlights_adj;
+        if (v2) {
+            k = HL_K100 * pow(k / HL_K100, HL_V2_AMOUNT_EXPONENT);
+        }
+        let delta_base = max(luma_base - l_pivot, 0.0);
+
+        let compression_strength = k * 2.2 * highlights_gain;
+        var shape = select(0.35, CR_HIGHLIGHTS_SHAPE, base_look_is_camera_raw());
+        if (v2) {
+            shape = HL_V2_SHAPE;
+        }
+        let compressed_delta = delta_base / (1.0 + compression_strength * (delta_base * hl_unit / (1.0 + delta_base * hl_unit * shape)));
+        let target_base = l_pivot + compressed_delta;
+
+        // Version 2 restores bright detail more (cloud structure, as in
+        // Capture One and Camera Raw), dark detail as before: raising that
+        // too darkened the surround next to bright edges (a dark rim).
+        let restoration_gain = 1.0 + k * select(0.55, HL_V2_RESTORE, v2 && soft_log_detail > 0.0);
+        let recovered_detail = exp2(soft_log_detail * restoration_gain);
+
+        var recovered_target = target_base * recovered_detail;
+        // Flat bright areas next to a darker surround: the local base sits
+        // below the area's level there, which lifted its edge into a bright
+        // ring up to 2.8 % (0.04 EV) above the inside of clipped plateaus.
+        // Where many neighbours share the pixel's level (within about 2 %),
+        // the lift is limited to the pixel's own compressed level unless it
+        // is a peak over all of them; texture keeps its lift.
+        let delta_pixel = pixel_luma - l_pivot;
+        let target_pixel = l_pivot + delta_pixel / (1.0 + compression_strength * (delta_pixel * hl_unit / (1.0 + delta_pixel * hl_unit * shape)));
+        let peak = max(pixel_luma / max(brightest_neighbour, 1e-4), 1.0);
+        let capped = min(recovered_target, max(target_pixel * pow(peak, restoration_gain), target_base));
+        // 7.4: the sum of the spatial weights.
+        let flatness = smoothstep(0.15, 0.35, flat_weight / 7.4);
+        recovered_target = mix(recovered_target, capped, flatness);
+
+        var blend_width = select(0.35, CR_HIGHLIGHTS_BLEND, base_look_is_camera_raw());
+        if (v2) {
+            // Narrower as version 3 compresses harder: blending the
+            // untouched level into a far lower target over the v2 width
+            // turned tones over (a dark band inside bright edges).
+            blend_width = HL_V2_BLEND * exp2(-HL_V3_BLEND * max(key_shift, 0.0)) / pivot_unit;
+        }
+        let blend = smoothstep(l_pivot, l_pivot + blend_width, pixel_luma);
+        target_luma = mix(pixel_luma, recovered_target, blend);
+
+    } else {
+        let boost = highlights_adj * 0.70 * highlights_gain;
+        let delta_base = max(luma_base - l_pivot, 0.0);
+        let boosted_delta = delta_base * (1.0 + boost / (1.0 + delta_base * 0.25));
+        let target_base = l_pivot + boosted_delta;
+
+        let detail_boost = exp2(soft_log_detail * (1.0 + highlights_adj * 0.20));
+        let boosted_target = target_base * detail_boost;
+
+        let blend = smoothstep(l_pivot, l_pivot + 0.35, pixel_luma);
+        target_luma = mix(pixel_luma, boosted_target, blend);
+    }
+
+    let luma_ratio = target_luma / pixel_luma;
+    var final_color = color_in * luma_ratio;
+
+    // Compressed highlights lose colour as in Capture One: pixels brought
+    // down from above white keep only part of their chroma (their colour
+    // there is largely reconstructed from clipped channels).
+    let blowout_start = select(1.0, CR_HIGHLIGHTS_DESAT_START, base_look_is_camera_raw());
+    if (highlights_adj < 0.0 && pixel_luma > blowout_start) {
+        let blowout_end = select(3.5, CR_HIGHLIGHTS_DESAT_END, base_look_is_camera_raw());
+        let blowout_gain = select(0.40, CR_HIGHLIGHTS_DESAT, base_look_is_camera_raw());
+        let blowout = smoothstep(blowout_start, blowout_end, pixel_luma) * (-highlights_adj) * blowout_gain;
+        final_color = mix(final_color, vec3<f32>(target_luma), blowout);
+    }
+
+    return final_color;
+}
+
+
+// Version 14 of lowered Highlights (`HIGHLIGHTS_V14`): as
+// `apply_highlights_adjustment`, and the local base's neighbours are
+// also weighted by a Gaussian of their distance in log luminance to the
+// pixel (σ `HL_V14_LOG_RANGE` EV), as lowered Whites' ring base is
+// (`WHITES_V10_RANGE`). Its own function so that older versions compile
+// as before.
+const HL_V14_LOG_RANGE: f32 = 1.2;
+const HL_V14_INV_TWO_LOG_RANGE_SQ: f32 = 1.0 / (2.0 * HL_V14_LOG_RANGE * HL_V14_LOG_RANGE);
+
+fn apply_highlights_adjustment_v14(
+    color_in: vec3<f32>,
+    coords_i: vec2<i32>,
+    scale: f32,
+    is_raw: u32,
+    highlights_adj: f32
+) -> vec3<f32> {
+    if (abs(highlights_adj) < 0.001) {
+        return color_in;
+    }
+
+    let pixel_luma = get_luma(max(color_in, vec3<f32>(0.0)));
+    if (pixel_luma < 0.0001) {
+        return color_in;
+    }
+
+    let standard_look = base_look_is_standard();
+    let v2 = highlights_adj < 0.0 && adjustments.global.tone_version > 1.5 && base_look_is_camera_raw();
+    var l_pivot = select(0.10, STANDARD_HIGHLIGHTS_PIVOT, standard_look);
+    var lower_gain = select(STANDARD_HIGHLIGHTS_LOWER, CR_HIGHLIGHTS_LOWER, base_look_is_camera_raw());
+    // Version 2 works in units of the look's exposure (baseline applied),
+    // so the response sits at the same display levels on every camera.
+    var hl_unit = 1.0;
+    // Version 3: dark frames shift the response down and compress harder
+    // (EV of shift, faded in towards −100). Version 4's negative shift on
+    // bright frames compresses more gently but keeps the pivot and the
+    // blend width (`pivot_unit`), so the upper midtones still darken a
+    // little, as in Camera Raw.
+    var key_shift = 0.0;
+    // Version 7 caps how far version 3 compresses dark frames, but the
+    // local base's range narrows as version 6's did (by the uncapped
+    // shift): with the wide range back, broad lights of a lit night frame
+    // ended up to 4.6 L* darker than the tones just below them.
+    var range_shift = 0.0;
+    var pivot_unit = 1.0;
+    if (v2) {
+        if (adjustments.global.tone_version > 2.5) {
+            let fade = pow(min(-highlights_adj / HL_K100, 1.0), HL_V3_AMOUNT_EXPONENT);
+            key_shift = hl_v3_shift(true) * fade;
+            range_shift = hl_v3_shift(false) * fade;
+        }
+        hl_unit = exp2(adjustments.global.baseline_exposure + key_shift);
+        pivot_unit = exp2(adjustments.global.baseline_exposure + max(key_shift, 0.0));
+        l_pivot = HL_V2_PIVOT / pivot_unit;
+        lower_gain = HL_V2_LOWER * exp2(HL_V3_GAIN * key_shift);
+    }
+    let highlights_gain = select(
+        1.0,
+        select(STANDARD_HIGHLIGHTS_RAISE, lower_gain, highlights_adj < 0.0),
+        standard_look
+    );
+    if (pixel_luma <= l_pivot) {
+        return color_in;
+    }
+
+    let dims = vec2<i32>(input_dims());
+    let max_idx = dims - vec2<i32>(1);
+
+    var center_tex = load_input(clamp(coords_i, vec2<i32>(0), max_idx)).rgb;
+    if (is_raw == 0u) {
+        center_tex = srgb_to_linear(center_tex);
+    }
+    let center_tex_luma = max(get_luma(center_tex), 1e-4);
+
+    let r_inner = max(1, i32(round(3.5 * scale)));
+    let r_outer = max(2, i32(round(7.5 * scale)));
+    let r_diag  = max(1, i32(round(f32(r_outer) * 0.7071)));
+
+    let offsets = array<vec2<i32>, 12>(
+        vec2<i32>( r_inner,        0), vec2<i32>(-r_inner,        0),
+        vec2<i32>(       0,  r_inner), vec2<i32>(       0, -r_inner),
+        vec2<i32>( r_outer,        0), vec2<i32>(-r_outer,        0),
+        vec2<i32>(       0,  r_outer), vec2<i32>(       0, -r_outer),
+        vec2<i32>(  r_diag,   r_diag), vec2<i32>( -r_diag,   r_diag),
+        vec2<i32>(  r_diag,  -r_diag), vec2<i32>( -r_diag,  -r_diag)
+    );
+
+    let spatial_weights = array<f32, 12>(
+        0.85, 0.85, 0.85, 0.85,
+        0.50, 0.50, 0.50, 0.50,
+        0.50, 0.50, 0.50, 0.50
+    );
+
+    // Version 3 narrows it as it compresses harder: rim pixels below a
+    // bright plateau otherwise took a base pulled down by the rim, and the
+    // detail lift on that turned tones over across the edge (a light rim
+    // inside a darker band, 0.1 EV on a clipped disc).
+    let v5 = v2 && adjustments.global.tone_version > 4.5;
+    // Version 5: a wider range lets the base carry mid-scale structure
+    // (clouds, lit walls), so lowering it keeps their detail as Camera Raw
+    // and Capture One do; faded back to the narrow range as version 3
+    // compresses harder on dark frames, where a wide base turned rim tones over.
+    let range_factor = select(0.22, mix(0.22, HL_V5_RANGE, exp2(-HL_V5_DARK * max(range_shift, 0.0))), v5);
+    let range_tol = max(pixel_luma * range_factor, 0.03) * exp2(-HL_V3_RANGE * max(range_shift, 0.0));
+    let inv_two_range_sq = 1.0 / (2.0 * range_tol * range_tol);
+
+    var sum_luma: f32 = pixel_luma;
+    var sum_w: f32 = 1.0;
+    var brightest_neighbour: f32 = 0.0;
+    var flat_weight: f32 = 0.0;
+
+    for (var i = 0u; i < 12u; i = i + 1u) {
+        let coord = clamp(coords_i + offsets[i], vec2<i32>(0), max_idx);
+        var s_rgb = load_input(coord).rgb;
+        if (is_raw == 0u) {
+            s_rgb = srgb_to_linear(s_rgb);
+        }
+        let s_luma_raw = max(get_luma(s_rgb), 0.0);
+        let s_luma = pixel_luma * (s_luma_raw / center_tex_luma);
+
+        brightest_neighbour = max(brightest_neighbour, s_luma);
+        let relative = (s_luma - pixel_luma) / (pixel_luma * 0.02);
+        flat_weight += exp(-relative * relative) * spatial_weights[i];
+        let diff = abs(s_luma - pixel_luma);
+        var w = exp(- (diff * diff) * inv_two_range_sq) * spatial_weights[i];
+        // Version 14: edge-aware in log luminance too, so a neighbour across
+        // a strong edge (≥ 30 L*, well over an EV) hardly pulls the base;
+        // with the wide linear range of version 5 alone, a dark surround
+        // pulled the base of the bright side's pixels down and the detail
+        // lift turned their edge into a light rim.
+        if (v5) {
+            let log_diff = log2(max(s_luma, 1e-6) / pixel_luma);
+            w *= exp(-(log_diff * log_diff) * HL_V14_INV_TWO_LOG_RANGE_SQ);
+        }
 
         sum_luma += s_luma * w;
         sum_w += w;
@@ -9472,7 +9700,11 @@ fn main(
         }
     }
     if (ENABLE_HIGHLIGHTS) {
-        composite_rgb_linear = apply_highlights_adjustment(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
+        if (HIGHLIGHTS_V14 && adjustments.global.tone_version > 13.5) {
+            composite_rgb_linear = apply_highlights_adjustment_v14(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
+        } else {
+            composite_rgb_linear = apply_highlights_adjustment(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
+        }
     }
     composite_rgb_linear = apply_color_calibration(composite_rgb_linear, adjustments.global.color_calibration);
     if (adjustments.global.calibration_active.x != 0u) {

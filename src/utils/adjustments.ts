@@ -653,7 +653,8 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * keep their gradation); 12 = and lowered Whites reaches only the bright
    * tones (L* 40 and up, weighted towards white); 13 = and raised Shadows
    * lifts the midtones less and keeps the shadows' texture as it is (no
-   * texture boost); 1 or missing on
+   * texture boost); 14 = and lowered Highlights leaves no light rim at
+   * strong edges (its local base is edge-aware); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -663,6 +664,12 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * that used Clarity before it = the band against a plain blur. Photo-wide
    * (layers follow it). */
   clarityVersion?: number;
+  /** Structure travel (crates/engine/src/image_processing.rs
+   * `STRUCTURE_VERSION`): 2 = the slider's strength per unit follows Camera
+   * Raw's Texture (version 1's ±50 already went beyond Camera Raw's ±100);
+   * 1 or missing on recipes that used Structure before it = the slider value
+   * is the amount. Photo-wide (layers follow it). */
+  structureVersion?: number;
   /** Edge-fringe pass (crates/engine/src/edge_fringe.rs `VERSION`): 1 =
    * colour along strong luminance edges that neither side explains
    * (demosaic false colour, lateral CA rests) is removed after the lens
@@ -1277,7 +1284,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 13;
+export const TONE_VERSION = 14;
 
 /** The response a recipe without `toneVersion` takes when nothing in it
  * renders differently: 5, the last that leaves Whites, Blacks and Clarity
@@ -1290,6 +1297,9 @@ export const KEYLESS_TONE_VERSION = 5;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;
+
+/** The Structure travel new edits start with (notes: benchmark-results/atf7-slider-travel-2026-11-08). */
+export const STRUCTURE_VERSION = 2;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md):
  * 5 = version 4's pass computed on the GPU; 6 = 7 × 7 windows on moderately noisy photos too. */
@@ -1402,6 +1412,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
         clarityVersion: CLARITY_VERSION,
+        structureVersion: STRUCTURE_VERSION,
         fringeVersion: FRINGE_VERSION,
         cameraCaVersion: CAMERA_CA_VERSION,
         cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
@@ -1420,6 +1431,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
         clarityVersion: CLARITY_VERSION,
+        structureVersion: STRUCTURE_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         bwVersion: BW_VERSION,
         sharpenVersion: SHARPEN_VERSION,
@@ -1518,6 +1530,7 @@ export const pastedAdjustments = (
       key === 'lumaNoiseVersion' ||
       key === 'grainVersion' ||
       key === 'clarityVersion' ||
+      key === 'structureVersion' ||
       key === 'bwVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
     ) {
@@ -1528,7 +1541,7 @@ export const pastedAdjustments = (
     (picked as Record<string, unknown>)[key] = value;
   }
   return withBwVersion(
-    withClarityVersion(
+    withDetailVersions(
       withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied),
       copied
     ),
@@ -1638,6 +1651,36 @@ export const withClarityVersion = <T extends Partial<Adjustments>>(
   return { ...picked, clarityVersion: source?.clarityVersion ?? 1 };
 };
 
+/** As `withClarityVersion` for Structure: wherever Structure values are
+ * copied its travel goes along explicitly — the source's, else 1 (a source or
+ * preset from before the key), never on its own. */
+export const withStructureVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>
+): T & Pick<Partial<Adjustments>, 'structureVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'structureVersion') && picked.structureVersion == null) {
+    return { ...picked, structureVersion: 1 };
+  }
+  const structure =
+    picked.structure !== undefined ||
+    (source !== undefined &&
+      (picked.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0));
+  if (!structure || picked.structureVersion != null) {
+    return picked;
+  }
+  return { ...picked, structureVersion: source?.structureVersion ?? 1 };
+};
+
+/** Whether a layer of the recipe uses Structure (its travel follows the photo's `structureVersion`). */
+export const layersUseStructure = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0);
+
+/** The Clarity response and the Structure travel, each going along with its values. */
+export const withDetailVersions = <T extends Partial<Adjustments>>(picked: T, source?: Partial<Adjustments>) =>
+  withStructureVersion(withClarityVersion(picked, source), source);
+
 /** As `withSharpenVersion` for the black & white mix: wherever mix values
  * are copied (paste, tool copy, Edit all selected, presets) the mix response
  * goes along explicitly — the source's, else 1 (a source or preset from
@@ -1662,7 +1705,7 @@ export const withBwVersion = <T extends Partial<Adjustments>>(
  * before the keys renders with version 1 wherever it is previewed or
  * applied. */
 export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
-  withBwVersion(withClarityVersion(preset, preset), preset);
+  withBwVersion(withDetailVersions(preset, preset), preset);
 
 /** Keys whose values render the pattern of the recipe's grain version. */
 const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;
@@ -1745,6 +1788,16 @@ const loadedClarityVersion = (loaded: Partial<Adjustments>): number => {
   const uses = (values: { clarity?: unknown } | undefined) => ((values?.clarity as number | undefined) ?? 0) !== 0;
   const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
   return rendersDifferently ? 1 : CLARITY_VERSION;
+};
+
+/** The Structure travel of a saved recipe, as `loadedClarityVersion`. */
+const loadedStructureVersion = (loaded: Partial<Adjustments>): number => {
+  if (loaded.structureVersion !== undefined && loaded.structureVersion !== null) {
+    return loaded.structureVersion;
+  }
+  const uses = (values: { structure?: unknown } | undefined) => ((values?.structure as number | undefined) ?? 0) !== 0;
+  const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
+  return rendersDifferently ? 1 : STRUCTURE_VERSION;
 };
 
 /** The colour noise filter of a saved recipe: its own, else the earlier
@@ -1915,6 +1968,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
       toneVersion: loadedToneVersion(loadedAdjustments),
       clarityVersion: loadedClarityVersion(loadedAdjustments),
+      structureVersion: loadedStructureVersion(loadedAdjustments),
       defringeVersion: loadedDefringeVersion(loadedAdjustments),
       bwVersion: loadedBwVersion(loadedAdjustments),
       sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
@@ -2059,7 +2113,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         DetailsAdjustment.Structure,
         DetailsAdjustment.Dehaze,
         DetailsAdjustment.Centré,
-        'clarityVersion'
+        'clarityVersion',
+        'structureVersion'
       ]
     },
     {

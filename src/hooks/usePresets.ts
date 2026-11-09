@@ -10,7 +10,7 @@ import {
   sameAdjustmentValue,
   withAiDenoiseVersion,
   withBwVersion,
-  withClarityVersion,
+  withDetailVersions,
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion
@@ -45,6 +45,7 @@ export function collectPresetAdjustments(
       key === 'lumaNoiseVersion' ||
       key === 'grainVersion' ||
       key === 'clarityVersion' ||
+      key === 'structureVersion' ||
       key === 'bwVersion'
     )
       continue;
@@ -54,7 +55,7 @@ export function collectPresetAdjustments(
     presetAdjustments[key] = currentValue;
   }
   const versioned = withBwVersion(
-    withClarityVersion(
+    withDetailVersions(
       withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current),
       current
     ),
