@@ -104,6 +104,16 @@ impl RenderVersion {
         self.0 >= ip::GAMUT_MAPPING_RENDER_VERSION
     }
 
+    /// The shader's `gamut_mapping`: 0 clipped per channel, 1 clipped at the
+    /// colour's own hue, 2 eased towards the edge first.
+    pub fn gamut_mapping_uniform(self) -> u32 {
+        if self.0 >= ip::GAMUT_KNEE_RENDER_VERSION {
+            2
+        } else {
+            u32::from(self.gamut_mapping())
+        }
+    }
+
     /// Exports render with the shader variant specialized for the recipe.
     pub fn specialized_export(self) -> bool {
         self.0 >= ip::SPECIALIZED_EXPORT_RENDER_VERSION

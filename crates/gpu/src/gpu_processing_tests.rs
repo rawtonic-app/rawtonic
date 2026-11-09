@@ -3470,6 +3470,59 @@ fn white_balance_versions_leave_the_other_slider_alone() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; the output with and without renderVersion 12's gamut knee"]
+fn gamut_knee_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size of a synthetic input whose
+    // colours are mostly saturated, many beyond sRGB (`input`); the
+    // versions alternate within one process and Saturation moves a little
+    // every frame (a drag).
+    let variants = [("render11", 11), ("render12", 12)];
+    let (width, height, frames) = (2304, 1728, 60);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 3);
+    let mut times = vec![Vec::new(); variants.len()];
+    for frame in 0..frames + 2 {
+        for (i, (_, version)) in variants.iter().enumerate() {
+            let profile =
+                json!({"renderVersion": version, "saturation": 10.0 + 0.1 * frame as f64});
+            let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+            let start = Instant::now();
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            context
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if frame >= 2 {
+                times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (i, (name, _)) in variants.iter().enumerate() {
+        let t = &mut times[i];
+        t.sort_by(f64::total_cmp);
+        println!(
+            "{}",
+            json!({"variant": name, "median_ms": t[t.len() / 2], "min_ms": t[0], "frames": frames})
+        );
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; compares the two newest sharpening responses"]
 fn sharpen_version_timing_probe() {
     let context = context();
@@ -9288,6 +9341,149 @@ fn gamut_mapping_keeps_smooth_gradients_smooth() {
             );
         }
     }
+}
+
+/// `renderVersion` 12 eases saturated colours near the output space's edge
+/// towards it (shader `ease_into_gamut`). Ramps from grey out to colours
+/// only ProPhoto holds (a warm orange, a deep red, a magenta, a blue):
+/// colours well inside the cube (every channel between 0.2 and 0.8
+/// encoded) render as with version 11, every pixel keeps
+/// version 11's CAM16 hue within a degree, chroma never falls along the
+/// ramp, neighbouring pixels stay within one 8-bit code (or the clip's own
+/// step), and fewer pixels reach the top code than with the clip.
+#[test]
+#[ignore = "requires a native GPU; soft knee of renderVersion 12 against the clip"]
+fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
+    use rawtonic_engine::output_color_space::TransferCurve;
+    let context = context();
+    let (width, height) = (1024u32, 4u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let ramps: [[[f32; 3]; 2]; 4] = [
+        [[0.5, 0.5, 0.5], [1.5, 0.45, -0.08]],
+        [[0.35, 0.35, 0.35], [1.25, -0.05, 0.02]],
+        [[0.4, 0.4, 0.4], [1.2, -0.1, 1.1]],
+        [[0.3, 0.3, 0.3], [-0.12, 0.1, 1.3]],
+    ];
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let [from, to] = ramps[y as usize];
+            let t = x as f32 / (width - 1) as f32;
+            let c: [f32; 3] = std::array::from_fn(|i| (from[i] + (to[i] - from[i]) * t) * 1.5);
+            [
+                f16::from_f32(c[0]),
+                f16::from_f32(c[1]),
+                f16::from_f32(c[2]),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Ramps to beyond sRGB"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let render = |version: u64| {
+        // The Classic look (0): no look table between the ramp and the output.
+        let adjustments =
+            get_all_adjustments_from_json(&json!({ "renderVersion": version }), true, Some(0));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        pixels
+    };
+    let (clipped, eased) = (render(11), render(12));
+    let linear = |p: &[u16], i: usize| -> [f64; 3] {
+        std::array::from_fn(|c| TransferCurve::Srgb.to_linear(p[i + c] as f64 / 65535.0))
+    };
+    let chroma = |c: [f64; 3]| {
+        let r = c.map(|v| v.max(0.0).cbrt());
+        (r[0] - r[1]).hypot(r[1] - r[2])
+    };
+    let top = |p: &[u16]| {
+        (0..(width * height) as usize)
+            .filter(|i| (0..3).any(|c| p[i * 4 + c] >= 65500))
+            .count()
+    };
+    let mut changed = 0;
+    let mut well_inside = 0;
+    for y in 0..height {
+        let at = |x: u32| ((y * width + x) * 4) as usize;
+        for x in 0..width {
+            let v = &clipped[at(x)..at(x) + 3];
+            if v.iter().all(|&c| (13107..=52428).contains(&c)) {
+                well_inside += 1;
+                assert_eq!(
+                    v,
+                    &eased[at(x)..at(x) + 3],
+                    "ramp {y}: the colour at {x}, well inside, changed"
+                );
+            }
+        }
+        let mut last = 0.0;
+        for x in 1..width {
+            let (a, b) = (linear(&clipped, at(x)), linear(&eased, at(x)));
+            changed += usize::from(clipped[at(x)..at(x) + 3] != eased[at(x)..at(x) + 3]);
+            if chroma(a) > 0.05 {
+                let dh = (cam16_hue_degrees(b) - cam16_hue_degrees(a) + 540.0) % 360.0 - 180.0;
+                assert!(dh.abs() < 1.0, "ramp {y} at {x}: hue moved {dh:.2} degrees");
+            }
+            let c = chroma(b);
+            assert!(
+                c >= last - 1e-3,
+                "ramp {y} at {x}: chroma fell from {last} to {c}"
+            );
+            last = c;
+            for k in 0..3 {
+                let step = (eased[at(x) + k] as i32 - eased[at(x - 1) + k] as i32).abs();
+                let clipped_step =
+                    (clipped[at(x) + k] as i32 - clipped[at(x - 1) + k] as i32).abs();
+                assert!(
+                    step <= 257.max(clipped_step + 32),
+                    "ramp {y} at {x}: a step of {step} sixteen-bit codes (clipped: {clipped_step})"
+                );
+            }
+        }
+    }
+    assert!(changed > 0, "the knee changed no colour");
+    assert!(well_inside > 0, "no ramp colour lies well inside the cube");
+    let (before, after) = (top(&clipped), top(&eased));
+    assert!(
+        after < before,
+        "pixels at the top code: {after} eased vs {before} clipped"
+    );
 }
 
 /// Shadows and Blacks under the Camera Raw look take their gain from the
