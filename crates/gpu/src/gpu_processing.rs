@@ -3647,15 +3647,67 @@ const VIBRANCE_V2_FEATURE: usize = 65536;
 /// same reason.
 const BLACKS_V16_FEATURE: usize = 262144;
 
-/// One slot per display variant, on the heap: the processor holds several
-/// such tables, together too large for a render thread's stack.
-type VariantTable<T> = Box<[T; PREVIEW_PIPELINE_COUNT]>;
+/// Slots per page of a [`VariantTable`]: features that differ only in the
+/// low bits (detail, noise reduction, tone, relight) share a page.
+const VARIANT_PAGE_BITS: u32 = 9;
+const VARIANT_PAGE_SLOTS: usize = 1 << VARIANT_PAGE_BITS;
+const VARIANT_PAGES: usize = PREVIEW_PIPELINE_COUNT / VARIANT_PAGE_SLOTS;
 
-fn variant_table<T: Default>() -> VariantTable<T> {
-    let slots: Box<[T]> = (0..PREVIEW_PIPELINE_COUNT).map(|_| T::default()).collect();
-    slots
-        .try_into()
-        .unwrap_or_else(|_| unreachable!("one slot per display variant"))
+/// One slot per display variant, in pages allocated on first use: each
+/// feature bit doubles the variant count, and at 2^19 variants a
+/// processor's dense tables took 57 MB of memory and 9 ms of its creation,
+/// though a session uses a handful of variants (notes:
+/// benchmark-results/pvt-variant-tables-2026-11-09).
+/// Indexing allocates the slot's page.
+struct VariantTable<T> {
+    pages: Box<[std::sync::OnceLock<Box<[T]>>]>,
+}
+
+impl<T: Default> VariantTable<T> {
+    /// The slot of `features` if its page is allocated.
+    #[cfg(test)]
+    fn get(&self, features: usize) -> Option<&T> {
+        self.pages[features >> VARIANT_PAGE_BITS]
+            .get()
+            .map(|page| &page[features & (VARIANT_PAGE_SLOTS - 1)])
+    }
+
+    /// The allocated slots whose features include all of `features`, in
+    /// ascending order of their features, from `features` on.
+    fn supersets(&self, features: usize) -> impl Iterator<Item = &T> {
+        let high = features >> VARIANT_PAGE_BITS;
+        let low = features & (VARIANT_PAGE_SLOTS - 1);
+        self.pages
+            .iter()
+            .enumerate()
+            .skip(high)
+            .filter(move |&(page, _)| page & high == high)
+            .filter_map(|(_, page)| page.get())
+            .flat_map(move |page| {
+                page.iter()
+                    .enumerate()
+                    .filter(move |&(slot, _)| slot & low == low)
+                    .map(|(_, slot)| slot)
+            })
+    }
+}
+
+impl<T: Default> std::ops::Index<usize> for VariantTable<T> {
+    type Output = T;
+
+    fn index(&self, features: usize) -> &T {
+        &self.pages[features >> VARIANT_PAGE_BITS]
+            .get_or_init(|| (0..VARIANT_PAGE_SLOTS).map(|_| T::default()).collect())
+            [features & (VARIANT_PAGE_SLOTS - 1)]
+    }
+}
+
+fn variant_table<T>() -> VariantTable<T> {
+    VariantTable {
+        pages: (0..VARIANT_PAGES)
+            .map(|_| std::sync::OnceLock::new())
+            .collect(),
+    }
 }
 /// A RAW with the default detail settings (Sharpening 40, Color 25) and the
 /// newest sharpening response.
@@ -3862,17 +3914,16 @@ pub struct GpuProcessor {
     /// sharpening's mask view `SHARPEN_VIEW`).
     detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 5],
     detail_compilation: [std::sync::OnceLock<()>; 5],
-    preview_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
+    preview_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
     preview_compilation: VariantTable<std::sync::OnceLock<()>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
-    preview_failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]>,
+    preview_failed: Arc<VariantTable<std::sync::atomic::AtomicBool>>,
     /// Display variants that read the layer sums (`LAYER_SUMS`), by features.
-    layer_sum_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
+    layer_sum_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
     layer_sum_compilation: VariantTable<std::sync::OnceLock<()>>,
     /// Display variants with the sharpening view (`create_sharpen_view_pipeline`),
     /// by features, compiled off the render worker on first use.
-    sharpen_view_pipelines:
-        Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
+    sharpen_view_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
     sharpen_view_compilation: VariantTable<std::sync::OnceLock<()>>,
     preview_shader: wgpu::ShaderModule,
     preview_layout: wgpu::PipelineLayout,
@@ -5350,8 +5401,8 @@ fn spawn_preview_compile(
     shader: wgpu::ShaderModule,
     layout: wgpu::PipelineLayout,
     features: usize,
-    pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
-    failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]>,
+    pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
+    failed: Arc<VariantTable<std::sync::atomic::AtomicBool>>,
     gate: Option<Arc<StartGate>>,
     start_gate: &Arc<StartGate>,
 ) {
@@ -6075,11 +6126,10 @@ impl GpuProcessor {
         let start_gate = Arc::new(StartGate::default());
         // Display variants compile on demand off the render worker; the
         // common ones start with the processor (see the end of `new`).
-        let preview_pipelines: Arc<
-            [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
-        > = Arc::from(variant_table());
-        let preview_failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]> =
-            Arc::from(variant_table());
+        let preview_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>> =
+            Arc::new(variant_table());
+        let preview_failed: Arc<VariantTable<std::sync::atomic::AtomicBool>> =
+            Arc::new(variant_table());
         let preview_compilation: VariantTable<std::sync::OnceLock<()>> = variant_table();
         if display_variants {
             preview_compilation[RAW_DEFAULT_PREVIEW_FEATURES].get_or_init(|| {
@@ -6621,9 +6671,9 @@ impl GpuProcessor {
             preview_pipelines,
             preview_compilation,
             preview_failed,
-            layer_sum_pipelines: Arc::from(variant_table()),
+            layer_sum_pipelines: Arc::new(variant_table()),
             layer_sum_compilation: variant_table(),
-            sharpen_view_pipelines: Arc::from(variant_table()),
+            sharpen_view_pipelines: Arc::new(variant_table()),
             sharpen_view_compilation: variant_table(),
             preview_shader: shader_module,
             preview_layout: pipeline_layout,
@@ -7719,9 +7769,9 @@ impl GpuProcessor {
             if let Some(pipeline) = self.preview_pipelines[features]
                 .get()
                 .or_else(|| {
-                    (features..PREVIEW_PIPELINE_COUNT)
-                        .filter(|&superset| superset & features == features)
-                        .find_map(|superset| self.preview_pipelines[superset].get())
+                    self.preview_pipelines
+                        .supersets(features)
+                        .find_map(std::sync::OnceLock::get)
                 })
                 .filter(|_| !general_display)
             {
