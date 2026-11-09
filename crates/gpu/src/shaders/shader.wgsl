@@ -1492,11 +1492,13 @@ const CR_CONTRAST_LOWER_100 = array<f32, 14>(1.9, 1.8, 1.68, 1.508, 1.382, 1.12,
 // −100 lifted L* 40–50 1.6 / 2.1 more than either (ATL slider atlas, 48
 // frames). These lower the pivot: + darkens less from display −5 to
 // −2.5 EV and lifts a little more from −2 to −1 EV; − lifts less around
-// −3…−2.5 EV. Other grid points are unchanged.
+// −3…−2.5 EV. Other grid points are unchanged. −100's −2.5 EV point stops
+// at −0.01: the fitted −0.05 turned tones over there by about 0.014 EV
+// (GPU test `camera_raw_tone_sliders_keep_tones_in_order`).
 const CR_CONTRAST_V15_RAISE_50 = array<f32, 14>(-1.33, -1.27, -1.18, -1.129, -0.995, -0.802, -0.5, -0.26, 0.04, 0.14, 0.23, 0.266, 0.187, 0.0);
 const CR_CONTRAST_V15_RAISE_100 = array<f32, 14>(-3.67, -3.42, -3.12, -2.813, -2.496, -1.76, -1.01, -0.5, 0.1, 0.3, 0.49, 0.57, 0.354, 0.0);
 const CR_CONTRAST_V15_LOWER_50 = array<f32, 14>(0.97, 0.92, 0.88, 0.797, 0.734, 0.607, 0.438, 0.23, -0.02, -0.076, -0.169, -0.243, -0.187, 0.0);
-const CR_CONTRAST_V15_LOWER_100 = array<f32, 14>(1.9, 1.8, 1.68, 1.508, 1.382, 1.12, 0.789, 0.38, -0.05, -0.135, -0.302, -0.444, -0.435, 0.0);
+const CR_CONTRAST_V15_LOWER_100 = array<f32, 14>(1.9, 1.8, 1.68, 1.508, 1.382, 1.12, 0.789, 0.38, -0.01, -0.135, -0.302, -0.444, -0.435, 0.0);
 const CR_DEHAZE_RAISE: f32 = 0.7;
 const CR_DEHAZE_LOWER: f32 = 0.9;
 const CR_DEHAZE_CHROMA: f32 = 1.9;

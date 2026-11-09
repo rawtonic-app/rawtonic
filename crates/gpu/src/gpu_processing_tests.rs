@@ -9550,6 +9550,22 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         })
         .collect();
     recipes.extend(fourteenth);
+    // Tone version 15 changes Contrast only (its own display-EV tables):
+    // Contrast alone, with each other slider and with Exposure ±2. The
+    // other sliders then render as the newest version's.
+    let fifteenth: Vec<serde_json::Value> = recipes
+        .iter()
+        .filter(|recipe| {
+            recipe["toneVersion"].is_null() && recipe["contrast"].as_i64().is_some_and(|v| v != 0)
+        })
+        .map(|recipe| {
+            let mut recipe = recipe.clone();
+            recipe["toneVersion"] = json!(15);
+            recipe
+        })
+        .collect();
+    assert!(!fifteenth.is_empty());
+    recipes.extend(fifteenth);
     // Away from the image borders (the blur clamps there). Over up to 24
     // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
     // 16-bit codes, whichever is more: Shadows and Blacks read the f16
