@@ -392,6 +392,55 @@ fn vibrance_version_2_compiles_only_where_vibrance_is_used() {
 }
 
 #[test]
+fn variant_table_allocates_only_the_pages_in_use() {
+    let table = variant_table::<std::sync::OnceLock<usize>>();
+    assert!(table.get(RAW_DEFAULT_PREVIEW_FEATURES).is_none());
+    let used = [
+        RAW_DEFAULT_PREVIEW_FEATURES,
+        RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE | BLACKS_V16_FEATURE,
+        ALL_PREVIEW_FEATURES,
+        TONE_PREVIEW_FEATURE | VIBRANCE_V2_FEATURE,
+    ];
+    for features in used {
+        table[features].set(features).unwrap();
+    }
+    assert_eq!(
+        table.get(ALL_PREVIEW_FEATURES).and_then(|slot| slot.get()),
+        Some(&ALL_PREVIEW_FEATURES)
+    );
+    assert!(
+        table
+            .get(VIBRANCE_V2_FEATURE | 1)
+            .is_some_and(|slot| slot.get().is_none())
+    );
+    let allocated = table
+        .pages
+        .iter()
+        .filter(|page| page.get().is_some())
+        .count();
+    assert_eq!(allocated, 4);
+    // The supersets in ascending order, as a scan of every variant finds them.
+    for features in [
+        0,
+        1,
+        16,
+        TONE_PREVIEW_FEATURE,
+        BLACKS_V16_FEATURE,
+        VIBRANCE_V2_FEATURE | 32,
+    ] {
+        let dense: Vec<usize> = (features..PREVIEW_PIPELINE_COUNT)
+            .filter(|&superset| superset & features == features)
+            .filter_map(|superset| table.get(superset).and_then(|slot| slot.get()).copied())
+            .collect();
+        let sparse: Vec<usize> = table
+            .supersets(features)
+            .filter_map(|slot| slot.get().copied())
+            .collect();
+        assert_eq!(sparse, dense, "supersets of {features}");
+    }
+}
+
+#[test]
 fn preview_features_preserve_global_and_local_effects() {
     for expected in 0..PREVIEW_PIPELINE_COUNT {
         // Refinements matter only with noise reduction.
@@ -645,7 +694,12 @@ fn export_processors_compile_no_display_variant_ahead() {
     let context = context();
     let started = |processor: &GpuProcessor| {
         (0..PREVIEW_PIPELINE_COUNT)
-            .filter(|&features| processor.preview_compilation[features].get().is_some())
+            .filter(|&features| {
+                processor
+                    .preview_compilation
+                    .get(features)
+                    .is_some_and(|slot| slot.get().is_some())
+            })
             .collect::<Vec<_>>()
     };
     let gate_open = |processor: &GpuProcessor| *processor.start_gate.open.lock().unwrap();
