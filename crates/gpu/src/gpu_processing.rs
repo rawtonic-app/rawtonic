@@ -3654,17 +3654,18 @@ const VARIANT_PAGE_SLOTS: usize = 1 << VARIANT_PAGE_BITS;
 const VARIANT_PAGES: usize = PREVIEW_PIPELINE_COUNT / VARIANT_PAGE_SLOTS;
 
 /// One slot per display variant, in pages allocated on first use: each
-/// feature bit doubles the variant count, and a dense table of every
-/// variant for each of the processor's tables took 57 MB of memory and
-/// 40 ms of processor creation at 2^19 variants, though a session uses a
-/// handful (notes: benchmark-results/pvt-variant-tables-2026-11-09).
-/// Indexing allocates the slot's page; [`VariantTable::get`] does not.
+/// feature bit doubles the variant count, and at 2^19 variants a
+/// processor's dense tables took 57 MB of memory and 9 ms of its creation,
+/// though a session uses a handful of variants (notes:
+/// benchmark-results/pvt-variant-tables-2026-11-09).
+/// Indexing allocates the slot's page.
 struct VariantTable<T> {
     pages: Box<[std::sync::OnceLock<Box<[T]>>]>,
 }
 
 impl<T: Default> VariantTable<T> {
     /// The slot of `features` if its page is allocated.
+    #[cfg(test)]
     fn get(&self, features: usize) -> Option<&T> {
         self.pages[features >> VARIANT_PAGE_BITS]
             .get()
