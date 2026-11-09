@@ -490,10 +490,6 @@ fn preview_features_preserve_global_and_local_effects() {
         {
             continue;
         }
-        // 131072 is reserved for another branch's feature and unused yet.
-        if expected & 131072 != 0 {
-            continue;
-        }
         // Vibrance of version 2 is tested on its own (below the loop).
         if expected & VIBRANCE_V2_FEATURE != 0 {
             continue;
@@ -528,6 +524,9 @@ fn preview_features_preserve_global_and_local_effects() {
             } else {
                 effects["whites"] = json!(-20);
             }
+        }
+        if expected & HSL_V2_FEATURE != 0 {
+            effects["hsl"] = json!({"blues": {"saturation": -20}});
         }
         let mut profile = if expected & 8 != 0 {
             local_profile(effects)
@@ -568,6 +567,10 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         if expected & BLACKS_V16_FEATURE != 0 {
             profile["toneVersion"] = json!(16);
+        }
+        // The mixer response is photo-wide.
+        if expected & HSL_V2_FEATURE != 0 {
+            profile["hslVersion"] = json!(2);
         }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         if expected & HIGHLIGHTS_V14_FEATURE != 0 {

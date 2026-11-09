@@ -40,8 +40,6 @@ fn pipeline_compilation_probe() {
             && (f & WHITES_V12_FEATURE == 0 || f & TONE_PREVIEW_FEATURE != 0)
             && (f & HIGHLIGHTS_V14_FEATURE == 0 || f & 2 != 0)
             && (f & BLACKS_V16_FEATURE == 0 || f & TONE_PREVIEW_FEATURE != 0)
-            // 131072 is reserved for another branch's feature and unused yet.
-            && f & 131072 == 0
     }) {
         let start = Instant::now();
         create_preview_pipeline(
