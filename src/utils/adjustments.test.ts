@@ -15,6 +15,7 @@ import {
   CLARITY_VERSION,
   STRUCTURE_VERSION,
   withStructureVersion,
+  layersUseStructure,
   FRINGE_VERSION,
   RENDER_VERSION,
   DEFRINGE_VERSION,
@@ -306,6 +307,9 @@ describe('RAW detail defaults', () => {
         PasteMode.Replace
       ).structureVersion
     ).toBe(2);
+    // A layer with Structure ties the photo's travel (Presence's reset keeps it).
+    expect(layersUseStructure({ masks: [{ adjustments: { structure: 50 } }] } as unknown as Adjustments)).toBe(true);
+    expect(layersUseStructure({ masks: [{ adjustments: { clarity: 50 } }] } as unknown as Adjustments)).toBe(false);
   });
 
   it('keep the Shadows response a saved recipe rendered with', () => {

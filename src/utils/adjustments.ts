@@ -1672,6 +1672,10 @@ export const withStructureVersion = <T extends Partial<Adjustments>>(
   return { ...picked, structureVersion: source?.structureVersion ?? 1 };
 };
 
+/** Whether a layer of the recipe uses Structure (its travel follows the photo's `structureVersion`). */
+export const layersUseStructure = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0);
+
 /** The Clarity response and the Structure travel, each going along with its values. */
 export const withDetailVersions = <T extends Partial<Adjustments>>(picked: T, source?: Partial<Adjustments>) =>
   withStructureVersion(withClarityVersion(picked, source), source);
