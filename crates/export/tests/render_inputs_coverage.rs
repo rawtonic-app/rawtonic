@@ -396,6 +396,7 @@ fn contexts() -> Vec<(&'static str, Value)> {
                    "lensBlurAmount": 100, "lensBlurMaxDepth": 70}),
         ),
         ("/bwVersion", json!({"blackAndWhite": true})),
+        ("/structureVersion", json!({"structure": 50})),
         ("/aiDenoiseVersion", json!({"aiDenoise": 50})),
         ("/vignetteStyle", json!({"vignetteAmount": -40})),
         (

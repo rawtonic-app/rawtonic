@@ -8,7 +8,7 @@ import { useEditorActions } from '../../hooks/useEditorActions';
 import { usePopoverFocus } from './usePopoverFocus';
 import {
   withBwVersion,
-  withClarityVersion,
+  withDetailVersions,
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -38,6 +38,8 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   shadows: ['toneVersion'],
   // Clarity means what the recipe's Clarity response makes of it.
   clarity: ['clarityVersion'],
+  // Structure means what the recipe's Structure travel makes of it.
+  structure: ['structureVersion'],
   // The B&W mix means what the recipe's mix response makes of it.
   blackAndWhite: ['bwVersion'],
   grayMixer: ['bwVersion'],
@@ -64,7 +66,7 @@ export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> 
   // grain version is not picked along (an absent one would read as an undo
   // to version 1): withGrainVersion takes it from the source.
   return withBwVersion(
-    withClarityVersion(
+    withDetailVersions(
       withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, values), values), values),
       values
     ),
