@@ -441,6 +441,10 @@ fn preview_features_preserve_global_and_local_effects() {
         {
             continue;
         }
+        // 131072 is reserved for another branch's feature and unused yet.
+        if expected & 131072 != 0 {
+            continue;
+        }
         // Vibrance of version 2 is tested on its own (below the loop).
         if expected & VIBRANCE_V2_FEATURE != 0 {
             continue;
