@@ -11242,7 +11242,7 @@ fn tone_version_16_blacks_reaches_the_midtones() {
         recipe["toneVersion"] = json!(version);
         recipe
     };
-    // Without lowered Blacks version 16 renders as version 14, also through
+    // Without lowered Blacks version 16 renders as version 15, also through
     // a file's own curve, and so does lowered Blacks under the other looks.
     for look in [(3, 2.0), (3, 1.0)] {
         for recipe in [
@@ -11252,7 +11252,7 @@ fn tone_version_16_blacks_reaches_the_midtones() {
             json!({ "whites": 100, "shadows": 60, "highlights": -100 }),
         ] {
             assert!(
-                render_raw_look(&processor, &view, (width, height), &with(&recipe, 14), look)
+                render_raw_look(&processor, &view, (width, height), &with(&recipe, 15), look)
                     == render_raw_look(
                         &processor,
                         &view,
@@ -11267,7 +11267,7 @@ fn tone_version_16_blacks_reaches_the_midtones() {
     for look in [(2, 2.0), (0, 2.0)] {
         let recipe = json!({ "blacks": -80 });
         assert!(
-            render_raw_look(&processor, &view, (width, height), &with(&recipe, 14), look)
+            render_raw_look(&processor, &view, (width, height), &with(&recipe, 15), look)
                 == render_raw_look(&processor, &view, (width, height), &with(&recipe, 16), look),
             "{recipe} under {look:?} differs"
         );
@@ -11293,7 +11293,7 @@ fn tone_version_16_blacks_reaches_the_midtones() {
     // −100), for −50 and −100.
     let mut reach = Vec::new();
     for amount in [50, 100] {
-        let ninth = render(with(&json!({ "blacks": -amount }), 14));
+        let ninth = render(with(&json!({ "blacks": -amount }), 15));
         let sixteenth = render(with(&json!({ "blacks": -amount }), 16));
         let mut at = [f64::NAN; 4];
         for x in columns.clone() {
@@ -11434,7 +11434,7 @@ fn tone_version_16_blacks_reaches_a_scene_lut() {
 #[test]
 #[ignore = "requires a native GPU; lowered Blacks of tone version 16 against version 14: GPU time of a preview render per drag step"]
 fn tone_version_16_blacks_drag_render_time() {
-    // As `tone_version_9_blacks_drag_render_time`, version 14 (version 9's
+    // As `tone_version_9_blacks_drag_render_time`, version 15 (version 9's
     // black point) against 16.
     let context = context();
     let (width, height) = (2560u32, 1707u32);
@@ -11448,7 +11448,7 @@ fn tone_version_16_blacks_drag_render_time() {
         })
         .collect();
     let view = grey_texture(&context, width, height, &levels);
-    let versions = [14u64, 16];
+    let versions = [15u64, 16];
     let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     for block in 0..24 {
         let k = block % 2;
