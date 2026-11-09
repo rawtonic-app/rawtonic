@@ -57,6 +57,9 @@ function sampleRenderedImage(url: string, x: number, y: number): Promise<Rgb | n
   });
 }
 
+/** The recipe's white balance responses (`temperatureVersion`, `tintVersion`). */
+export type WhiteBalanceVersions = Pick<Partial<Adjustments>, 'temperatureVersion' | 'tintVersion'>;
+
 const clamp100 = (value: number) => Math.max(-100, Math.min(100, value));
 
 /** Temperature and Tint that make linear `rgb` neutral under the shader's
@@ -67,29 +70,30 @@ const clamp100 = (value: number) => Math.max(-100, Math.min(100, value));
  * on the current white balance, exposure, contrast or curves. With
  * `temperatureVersion` 2 (`apply_white_balance_v2`) the slider reaches those
  * gains through its warm compression T − T²/16 and adds magenta to Tint
- * (0.025·(T + T²) warm, 0.025·T² cool), and Tint itself acts ×1.55
- * towards green and ×1.9 towards magenta; its brightness change leaves the
- * colour neutral. */
-export function neutralWhiteBalance([r, g, b]: Rgb, temperatureVersion?: number) {
+ * (0.025·(T + T²) warm, 0.025·T² cool); with `tintVersion` 2 Tint itself
+ * acts ×1.55 towards green and ×1.9 towards magenta. Their brightness change
+ * leaves the colour neutral. */
+export function neutralWhiteBalance([r, g, b]: Rgb, versions: WhiteBalanceVersions = {}) {
   if (!(r > 1e-6 && g > 1e-6 && b > 1e-6)) return null;
-  const coupled = (temperatureVersion ?? 1) >= 2;
+  const coupled = (versions.temperatureVersion ?? 1) >= 2;
+  const travel = (versions.tintVersion ?? 1) >= 2;
   const k = b / r;
   // Version 2's warmest gains are version 1's at +75.
   const t = Math.max(-4, Math.min(coupled ? 3 : 4, (5 * (k - 1)) / (k + 1)));
   const green = (1 + 0.05 * t) * g;
   const red = (1 + 0.2 * t) * r;
   const tint = (4 * (green - red)) / (green + red);
-  if (!coupled) return { temperature: clamp100(25 * t), tint: clamp100(100 * tint) };
-  const slider = t > 0 ? 8 - Math.sqrt(64 - 16 * t) : t;
-  const magenta = t > 0 ? 0.025 * (t + t * t) : 0.025 * t * t;
+  const slider = coupled && t > 0 ? 8 - Math.sqrt(64 - 16 * t) : t;
+  const magenta = !coupled ? 0 : t > 0 ? 0.025 * (t + t * t) : 0.025 * t * t;
   const internal = tint - magenta;
-  return { temperature: clamp100(25 * slider), tint: clamp100((100 * internal) / (internal < 0 ? 1.55 : 1.9)) };
+  const scale = travel ? (internal < 0 ? 1.55 : 1.9) : 1;
+  return { temperature: clamp100(25 * slider), tint: clamp100((100 * internal) / scale) };
 }
 
 /** [`neutralWhiteBalance`] in the sliders' whole steps (a picked 1.6009 is
  * noise, and does not fit the value field). */
-export function neutralSliders(rgb: Rgb, temperatureVersion?: number) {
-  const exact = neutralWhiteBalance(rgb, temperatureVersion);
+export function neutralSliders(rgb: Rgb, versions: WhiteBalanceVersions = {}) {
+  const exact = neutralWhiteBalance(rgb, versions);
   return exact && { temperature: Math.round(exact.temperature), tint: Math.round(exact.tint) };
 }
 
@@ -100,7 +104,7 @@ export function neutralSliders(rgb: Rgb, temperatureVersion?: number) {
  * `null` while the photo's preview is not ready. */
 export async function autoWhiteBalance(
   image: SelectedImage,
-  temperatureVersion?: number
+  versions: WhiteBalanceVersions = {}
 ): Promise<Partial<Adjustments> | null> {
   if (image.isRaw) {
     const kelvin = await invoke<{ temperature: number; tint: number } | null>(Invokes.AutoWhiteBalance, {
@@ -111,7 +115,7 @@ export async function autoWhiteBalance(
     }
   }
   const grey = await invoke<Rgb | null>(Invokes.SamplePreviewGreyWorld, { path: image.path });
-  return grey && neutralSliders(grey, temperatureVersion);
+  return grey && neutralSliders(grey, versions);
 }
 
 export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
@@ -161,7 +165,7 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
         };
       }
     }
-    return neutralSliders(linear, request.adjustments.temperatureVersion);
+    return neutralSliders(linear, request.adjustments);
   }
   // The CPU-rendered fallback only has the developed image: correct the
   // remaining cast there on top of the current values. A camera JPEG is only a
@@ -172,7 +176,7 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
   if (!rgb || !stillCurrent()) return null;
   const correction = neutralWhiteBalance(
     rgb.map((channel) => Math.pow(channel / 255, 2.2)) as Rgb,
-    request.adjustments.temperatureVersion
+    request.adjustments
   );
   if (!correction) return null;
   return {

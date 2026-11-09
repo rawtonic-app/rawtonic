@@ -1334,6 +1334,10 @@ mod tests {
                 rawtonic_engine::image_processing::TEMPERATURE_VERSION,
             ),
             (
+                rawtonic_engine::image_processing::TINT_VERSION_KEY,
+                rawtonic_engine::image_processing::TINT_VERSION,
+            ),
+            (
                 rawtonic_engine::image_processing::STRUCTURE_VERSION_KEY,
                 rawtonic_engine::image_processing::STRUCTURE_VERSION,
             ),

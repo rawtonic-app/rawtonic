@@ -1,7 +1,7 @@
 //! Uniform bytes recorded on origin/main 2cd8c941 before the detail follow-ups
 //! and geometry migration. No update mode: later recipe sections reuse these.
 //! Fields added since are spliced into the recorded bytes at their offset
-//! (`temperature_version`, 1 for these keyless recipes, and the end padding),
+//! (`temperature_version`, 0x101 = Temperature and Tint version 1 for these keyless recipes, and the end padding),
 //! so every recorded field must still match.
 use super::{GlobalAdjustments, get_global_adjustments_from_json};
 use std::fmt::Write as _;
@@ -25,7 +25,7 @@ fn global_adjustments_match_recorded_main_bytes() {
         let expected = format!(
             "{}{}{}{}",
             &recorded[..at],
-            "01000000",
+            "01010000",
             &recorded[at..],
             "0".repeat(24)
         );

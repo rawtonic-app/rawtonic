@@ -214,25 +214,33 @@ describe('Auto white balance', () => {
 });
 
 // temperatureVersion 2 (apply_white_balance_v2): the slider's warm side is
-// compressed (T − T²/16) and adds magenta to Tint, Tint acts ×1.55 / ×1.9;
-// its brightness change
-// keeps neutral colours neutral.
-const balancedV2 = (rgb: number[], temperature: number, tint: number) => {
+// compressed (T − T²/16) and adds magenta to Tint; tintVersion 2: Tint acts
+// ×1.55 / ×1.9. Their brightness change keeps neutral colours neutral.
+const balancedV2 = (rgb: number[], temperature: number, tint: number, coupled: boolean, travel: boolean) => {
   let t = temperature / 25;
-  let magenta = 0.025 * t * t;
-  if (t > 0) {
-    t = t - (t * t) / 16;
-    magenta = 0.025 * (t + t * t);
+  let magenta = 0;
+  if (coupled) {
+    magenta = 0.025 * t * t;
+    if (t > 0) {
+      t = t - (t * t) / 16;
+      magenta = 0.025 * (t + t * t);
+    }
   }
-  return balanced(rgb, 25 * t, tint * (tint < 0 ? 1.55 : 1.9) + 100 * magenta);
+  return balanced(rgb, 25 * t, (travel ? tint * (tint < 0 ? 1.55 : 1.9) : tint) + 100 * magenta);
 };
 
-it.each([[[0.18, 0.2, 0.25]], [[0.3, 0.22, 0.15]], [[0.1, 0.13, 0.1]], [[0.05, 0.04, 0.06]]])(
-  'solves the coupled Temperature (version 2) that makes %j neutral',
-  (rgb) => {
-    const result = neutralWhiteBalance(rgb as [number, number, number], 2)!;
-    const [r, g, b] = balancedV2(rgb, result.temperature, result.tint);
-    expect(b / r).toBeCloseTo(1, 9);
-    expect(g / r).toBeCloseTo(1, 9);
-  }
-);
+describe.each([
+  [2, 2],
+  [2, 1],
+  [1, 2]
+])('temperatureVersion %i, tintVersion %i', (temperatureVersion, tintVersion) => {
+  it.each([[[0.18, 0.2, 0.25]], [[0.3, 0.22, 0.15]], [[0.1, 0.13, 0.1]], [[0.05, 0.04, 0.06]]])(
+    'solves the sliders that make %j neutral',
+    (rgb) => {
+      const result = neutralWhiteBalance(rgb as [number, number, number], { temperatureVersion, tintVersion })!;
+      const [r, g, b] = balancedV2(rgb, result.temperature, result.tint, temperatureVersion >= 2, tintVersion >= 2);
+      expect(b / r).toBeCloseTo(1, 9);
+      expect(g / r).toBeCloseTo(1, 9);
+    }
+  );
+});

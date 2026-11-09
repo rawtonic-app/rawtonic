@@ -43,6 +43,7 @@ import {
   isFilmGrain,
   withNewGrainStructure,
   layersUseStructure,
+  layersUseWhiteBalance,
   type RegionCurve
 } from '../../utils/adjustments';
 import { Panel, type AppSettings, type MaskDisplay } from '../ui/AppProperties';
@@ -1025,8 +1026,17 @@ export default function StudioDevelop() {
         reset(
           layer
             ? ['temperature', 'tint']
-            : // The photo's Temperature response goes back to a new edit's.
-              ['temperature', 'tint', 'whiteBalance', 'wbTemperature', 'wbTint', 'temperatureVersion']
+            : // The photo's Temperature and Tint responses go back to a new edit's,
+              // each only while no layer uses that slider (the layers follow it).
+              [
+                'temperature',
+                'tint',
+                'whiteBalance',
+                'wbTemperature',
+                'wbTint',
+                ...(layersUseWhiteBalance(adjustments, 'temperature') ? [] : ['temperatureVersion']),
+                ...(layersUseWhiteBalance(adjustments, 'tint') ? [] : ['tintVersion'])
+              ]
         )
       }
       copy={photoOnly([

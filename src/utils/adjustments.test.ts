@@ -16,6 +16,10 @@ import {
   STRUCTURE_VERSION,
   withStructureVersion,
   layersUseStructure,
+  layersUseWhiteBalance,
+  withWhiteBalanceVersions,
+  TEMPERATURE_VERSION,
+  TINT_VERSION,
   FRINGE_VERSION,
   RENDER_VERSION,
   DEFRINGE_VERSION,
@@ -310,6 +314,26 @@ describe('RAW detail defaults', () => {
     // A layer with Structure ties the photo's travel (Presence's reset keeps it).
     expect(layersUseStructure({ masks: [{ adjustments: { structure: 50 } }] } as unknown as Adjustments)).toBe(true);
     expect(layersUseStructure({ masks: [{ adjustments: { clarity: 50 } }] } as unknown as Adjustments)).toBe(false);
+  });
+
+  it('keep the Temperature and the Tint response apart', () => {
+    expect(initialAdjustmentsFor(true).temperatureVersion).toBe(TEMPERATURE_VERSION);
+    expect(initialAdjustmentsFor(false).tintVersion).toBe(TINT_VERSION);
+    // A Temperature-only preset from before the keys takes only the
+    // Temperature response along: the photo's Tint keeps rendering as it did.
+    const preset = withWhiteBalanceVersions({ temperature: 12 }, {} as Adjustments);
+    expect(preset).toEqual({ temperature: 12, temperatureVersion: 1 });
+    expect(withWhiteBalanceVersions({ tint: 40 }, { tintVersion: 2, temperatureVersion: 1 } as Adjustments)).toEqual({
+      tint: 40,
+      tintVersion: 2
+    });
+    // A saved recipe keeps each response its own slider rendered with.
+    const loaded = normalizeLoadedAdjustments({ tint: 40 } as unknown as Adjustments, true);
+    expect([loaded.temperatureVersion, loaded.tintVersion]).toEqual([TEMPERATURE_VERSION, 1]);
+    const layered = { masks: [{ adjustments: { temperature: 50 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(layersUseWhiteBalance(layered, 'temperature')).toBe(true);
+    expect(layersUseWhiteBalance(layered, 'tint')).toBe(false);
+    expect(normalizeLoadedAdjustments(layered, true).temperatureVersion).toBe(1);
   });
 
   it('keep the Shadows response a saved recipe rendered with', () => {

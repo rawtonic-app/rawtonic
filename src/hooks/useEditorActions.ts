@@ -24,7 +24,7 @@ import {
   withAiDenoiseVersion,
   withBwVersion,
   withDetailVersions,
-  withTemperatureVersion,
+  withWhiteBalanceVersions,
   withDiffractionVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -1172,7 +1172,7 @@ export function useEditorActions() {
     const selectedImage = useEditorStore.getState().selectedImage;
     if (!selectedImage?.isReady) return;
     try {
-      const balance = await autoWhiteBalance(selectedImage, useEditorStore.getState().adjustments.temperatureVersion);
+      const balance = await autoWhiteBalance(selectedImage, useEditorStore.getState().adjustments);
       if (!isCurrentEditorImage(selectedImage.path)) return;
       if (!balance) {
         notify.warn(i18next.t('studio.whiteBalance.toasts.needsPreview'));
@@ -1452,7 +1452,7 @@ export function useEditorActions() {
             withDetailVersions(
               withDiffractionVersion(
                 withLumaNoiseVersion(
-                  withSharpenVersion(withAiDenoiseVersion(withTemperatureVersion(withLegacyGrainVersion(grain))))
+                  withSharpenVersion(withAiDenoiseVersion(withWhiteBalanceVersions(withLegacyGrainVersion(grain))))
                 )
               )
             )
