@@ -1130,6 +1130,19 @@ pub fn apply_gps_from_rawler(metadata: &mut Metadata, original_path_str: &str) {
 /// Name and version written as EXIF Software and XMP CreatorTool.
 pub const SOFTWARE: &str = concat!("Rawtonic ", env!("CARGO_PKG_VERSION"));
 
+/// The processing note of an export enlarged by Super Resolution, after the
+/// software's name in EXIF Software and XMP CreatorTool (not an AI marking:
+/// `export_processing::SUPER_RESOLUTION_IS_GENERATED`).
+pub const SUPER_RESOLUTION_NOTE: &str = "Super Resolution 2x";
+
+/// Whether exports in `output_format` carry EXIF and XMP.
+pub fn embeds_metadata(output_format: &str) -> bool {
+    matches!(
+        output_format.to_lowercase().as_str(),
+        "jpg" | "jpeg" | "png" | "tif" | "tiff" | "webp" | "avif" | "jxl"
+    )
+}
+
 /// Metadata embedded in one export: EXIF (with GPS unless stripped) and the
 /// XMP packet with the session's descriptive metadata.
 pub struct ExportMetadata {
@@ -1141,6 +1154,36 @@ pub struct ExportMetadata {
 }
 
 impl ExportMetadata {
+    /// Adds `note` after the software's name in EXIF Software and XMP
+    /// CreatorTool (`Rawtonic 0.1.0 (Super Resolution 2x)`).
+    pub fn with_software_note(mut self, note: &str) -> Self {
+        let tool = format!("{SOFTWARE} ({note})");
+        self.exif.set_tag(ExifTag::Software(tool.clone()));
+        if let Some(xmp) = &mut self.xmp {
+            *xmp = xmp.replacen(
+                &format!("xmp:CreatorTool=\"{SOFTWARE}\""),
+                &format!("xmp:CreatorTool=\"{tool}\""),
+                1,
+            );
+        }
+        self
+    }
+
+    /// Only the creating tool with `note`, for an export whose other
+    /// metadata is stripped.
+    pub fn software_note_only(note: &str) -> Result<Self, String> {
+        let tool = format!("{SOFTWARE} ({note})");
+        let mut exif = Metadata::new();
+        exif.set_tag(ExifTag::Software(tool.clone()));
+        let xmp = rawtonic_metadata::export_xmp(&rawtonic_metadata::Metadata::default(), &tool)
+            .map_err(|e| format!("The software note could not be made: {e}"))?;
+        Ok(Self {
+            exif,
+            xmp: Some(xmp),
+            generated: false,
+        })
+    }
+
     /// Only the AI marking and the creating tool (EXIF Software and the XMP
     /// marking), for a photo with generated areas.
     pub fn marking_only() -> Result<Self, String> {
@@ -1295,10 +1338,7 @@ pub fn export_metadata_with(
     exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
     catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
 ) -> Option<ExportMetadata> {
-    if !matches!(
-        output_format.to_lowercase().as_str(),
-        "jpg" | "jpeg" | "png" | "tif" | "tiff" | "webp" | "avif" | "jxl"
-    ) {
+    if !embeds_metadata(output_format) {
         return None;
     }
     let digital_source_type = generated.then_some(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI);

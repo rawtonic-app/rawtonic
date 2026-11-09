@@ -42,7 +42,7 @@ pub use rawtonic_segment::{
 /// licenses (docs/MODELS.md, scripts/models/build_model_pack.py);
 /// `scripts/models/install_models.sh` installs them ahead with `gh`.
 const MODEL_PACK_URL: &str =
-    "https://github.com/rawtonic-app/models/releases/download/pack-2026-11-07";
+    "https://github.com/rawtonic-app/models/releases/download/pack-2026-11-09";
 
 // SAM 2.1 Hiera-T (Meta, Apache-2.0 weights), exported by
 // scripts/models/export_sam2.py: the photo stretched to 1024 x 1024 in,
@@ -284,7 +284,7 @@ pub(crate) fn ensure_runtime() -> Result<()> {
     ensure_local_runtime()
 }
 
-fn get_models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
+pub(crate) fn get_models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     let models_dir = app_handle.path().app_data_dir()?.join("models");
     if !models_dir.exists() {
         fs::create_dir_all(&models_dir)?;
@@ -1013,7 +1013,7 @@ pub(crate) async fn assemble_package(
 /// loaded on the CPU and GPU: `None` when its files are missing (with
 /// `download`, fetched first) or Core ML fails, and the ONNX model is used.
 #[cfg(target_os = "macos")]
-async fn load_core_ml(
+pub(crate) async fn load_core_ml(
     app_handle: &tauri::AppHandle,
     models_dir: &Path,
     package: &str,

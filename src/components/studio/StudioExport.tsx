@@ -180,6 +180,21 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       : [{ recipe: editedRecipe, draft: form }]
   ).map((job) => ({ ...job, ...exportSettingsFromDraft(job.draft) }));
 
+  // Super Resolution's AI model, fetched once when an export would use it,
+  // so the export itself downloads nothing.
+  const [superResolution, setSuperResolution] = useState<{ backend?: string; error?: string } | null>(null);
+  const superResolutionWanted = planned.some((job) => job.draft.superResolution);
+  useEffect(() => {
+    if (!superResolutionWanted || superResolution) return;
+    let active = true;
+    invoke<string>(Invokes.PrepareSuperResolution)
+      .then((backend) => active && setSuperResolution({ backend }))
+      .catch((error) => active && setSuperResolution({ error: String(error) }));
+    return () => {
+      active = false;
+    };
+  }, [superResolutionWanted, superResolution]);
+
   // Estimated file size, as the inherited panel showed (first photograph
   // rendered, extrapolated by the backend to the whole selection).
   const [estimated, setEstimated] = useState<{
@@ -677,6 +692,27 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
           </fieldset>
           <fieldset disabled={choosing}>
             <legend>{t('studio.export.sizing.legend')}</legend>
+            <label className="studio-check" title={t('studio.export.sizing.superResolution.hint')}>
+              <input
+                type="checkbox"
+                checked={draft.superResolution}
+                onChange={(e) => {
+                  // Ticked again after a failure: try to fetch the model again.
+                  if (e.target.checked && superResolution?.error) setSuperResolution(null);
+                  set({ superResolution: e.target.checked });
+                }}
+              />
+              {t('studio.export.sizing.superResolution.label')}
+            </label>
+            {draft.superResolution && (
+              <small role="status">
+                {superResolution?.error
+                  ? t('studio.export.sizing.superResolution.failed', { error: superResolution.error })
+                  : superResolution?.backend
+                    ? t('studio.export.sizing.superResolution.ready', { backend: superResolution.backend })
+                    : t('studio.export.sizing.superResolution.preparing')}
+              </small>
+            )}
             <label className="studio-check">
               <input type="checkbox" checked={draft.resize} onChange={(e) => set({ resize: e.target.checked })} />
               {t('studio.export.sizing.resize')}

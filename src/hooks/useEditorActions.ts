@@ -23,7 +23,7 @@ import {
   sameAdjustmentValue,
   withAiDenoiseVersion,
   withBwVersion,
-  withClarityVersion,
+  withDetailVersions,
   withVibranceVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
@@ -1450,7 +1450,7 @@ export function useEditorActions() {
         ? grain
         : withBwVersion(
             withVibranceVersion(
-              withClarityVersion(
+              withDetailVersions(
                 withDiffractionVersion(
                   withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))
                 )

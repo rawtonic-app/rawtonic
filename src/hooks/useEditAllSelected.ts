@@ -16,7 +16,7 @@ import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/q
 import {
   sameAdjustmentValue,
   withBwVersion,
-  withClarityVersion,
+  withDetailVersions,
   withVibranceVersion,
   withGrainVersion,
   withLumaNoiseVersion,
@@ -223,7 +223,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const patch = shown
         ? withBwVersion(
             withVibranceVersion(
-              withClarityVersion(
+              withDetailVersions(
                 withGrainVersion(
                   withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
                   source?.adjustments
@@ -277,7 +277,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         applyRef.current,
         withBwVersion(
           withVibranceVersion(
-            withClarityVersion(
+            withDetailVersions(
               withGrainVersion(
                 withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments),
                 from.adjustments

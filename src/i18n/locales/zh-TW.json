@@ -2096,6 +2096,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile.",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
@@ -3477,6 +3478,13 @@
         },
         "otherSideAria": "尺寸，另一邊 (px)",
         "resize": "調整尺寸以符合",
+        "superResolution": {
+          "failed": "無法使用超解析度：{{error}}",
+          "hint": "在調整大小與銳利化之前，以 AI 模型將每張照片的寬度與高度放大一倍。原始照片不會被變更。",
+          "label": "超解析度（2×，AI）",
+          "preparing": "正在準備超解析度模型…",
+          "ready": "超解析度模型已就緒（{{backend}}）。"
+        },
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {

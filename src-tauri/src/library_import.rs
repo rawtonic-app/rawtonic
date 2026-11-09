@@ -1332,6 +1332,8 @@ mod tests {
             (
                 rawtonic_engine::image_processing::VIBRANCE_VERSION_KEY,
                 rawtonic_engine::image_processing::VIBRANCE_VERSION,
+                rawtonic_engine::image_processing::STRUCTURE_VERSION_KEY,
+                rawtonic_engine::image_processing::STRUCTURE_VERSION,
             ),
             (
                 rawtonic_engine::color_noise::VERSION_KEY,

@@ -442,6 +442,31 @@ impl VibranceVersion {
     }
 }
 
+/// `structureVersion` (`image_processing::STRUCTURE_VERSION`): 1 when
+/// missing, never newer than this renderer knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StructureVersion(u64);
+
+impl StructureVersion {
+    pub fn of(recipe: &Value) -> Self {
+        Self(read(recipe, ip::STRUCTURE_VERSION_KEY, 1).clamp(1, ip::STRUCTURE_VERSION))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The Structure amount (recipe units) the renderer applies for the
+    /// slider value `value` (`image_processing::structure_amount`).
+    pub fn amount(self, value: f64) -> f64 {
+        if self.0 >= ip::STRUCTURE_TRAVEL_VERSION {
+            ip::structure_amount_v2(value)
+        } else {
+            ip::structure_amount_v1(value)
+        }
+    }
+}
+
 /// Edge-fringe treatments (`fringeVersion`, `edge_fringe::VERSION`).
 pub mod fringe {
     /// 7 × 7 windows (and, from 3, colour lines) on low-noise photos.
@@ -673,6 +698,7 @@ pub struct RecipeVersions {
     pub grain: GrainVersion,
     pub clarity: ClarityVersion,
     pub vibrance: VibranceVersion,
+    pub structure: StructureVersion,
     pub fringe: FringeVersion,
     pub auto_ca: AutoCaVersion,
     pub camera_ca: CameraCaVersion,
@@ -696,6 +722,7 @@ impl RecipeVersions {
             grain: GrainVersion::of(recipe),
             clarity: ClarityVersion::of(recipe),
             vibrance: VibranceVersion::of(recipe),
+            structure: StructureVersion::of(recipe),
             fringe: FringeVersion::of(recipe),
             auto_ca: AutoCaVersion::of(recipe),
             camera_ca: CameraCaVersion::of(recipe),
@@ -786,7 +813,7 @@ mod tests {
         let future = json!({
             "renderVersion": 999, "toneVersion": 999, "sharpenVersion": 999,
             "lumaNoiseVersion": 999, "colorNoiseVersion": 999, "defringeVersion": 999,
-            "bwVersion": 999, "grainVersion": 999, "clarityVersion": 999, "vibranceVersion": 999,
+            "bwVersion": 999, "grainVersion": 999, "clarityVersion": 999, "vibranceVersion": 999, "structureVersion": 999,
             "fringeVersion": 999, "autoCaVersion": 999, "cameraCaVersion": 999,
             "cameraGeometryVersion": 999, "diffractionVersion": 999, "aiDenoiseVersion": 999,
         });
@@ -794,6 +821,7 @@ mod tests {
         assert_eq!(v.render.get(), ip::RENDER_VERSION);
         assert_eq!(v.tone.get(), ip::TONE_VERSION);
         assert_eq!(v.vibrance.get(), ip::VIBRANCE_VERSION);
+        assert_eq!(v.structure.get(), ip::STRUCTURE_VERSION);
         assert_eq!(v.color_noise.get(), crate::color_noise::VERSION);
         assert_eq!(v.fringe.get(), crate::edge_fringe::VERSION);
         assert_eq!(
@@ -804,6 +832,7 @@ mod tests {
         assert_eq!(v.diffraction.get(), 999);
         let missing = RecipeVersions::of(&json!({"exposure": 1}), true);
         assert_eq!(missing.render.get(), 1);
+        assert_eq!(missing.structure.get(), 1);
         assert_eq!(missing.fringe.get(), 0);
         assert_eq!(missing.camera_ca.get(), 0);
         assert_eq!(missing.ai_denoise.get(), 1);

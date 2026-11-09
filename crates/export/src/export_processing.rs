@@ -177,6 +177,10 @@ pub struct ExportSettings {
     /// Sharpening of the finished output, after the resize.
     #[serde(default)]
     pub output_sharpening: Option<crate::output_sharpening::OutputSharpening>,
+    /// Super Resolution: the rendered photo is enlarged 2× by the AI model
+    /// before the resize, border and output sharpening ([`Enlarger`]).
+    #[serde(default)]
+    pub super_resolution: bool,
 }
 
 impl ExportSettings {
@@ -698,6 +702,7 @@ pub fn compute_fused_geometry(
 }
 
 pub fn compute_export_output_size(src_w: u32, src_h: u32, settings: &ExportSettings) -> (u32, u32) {
+    let (src_w, src_h) = super_resolution_size(src_w, src_h, settings);
     match compute_export_geometry(src_w, src_h, settings) {
         Some(geometry) => (geometry.canvas_w, geometry.canvas_h),
         None => resize_target(src_w, src_h, settings.resize.as_ref()),
@@ -1079,6 +1084,90 @@ pub struct RenderEnv<'a> {
     pub render_inputs: Option<&'a crate::render_inputs::RenderInputs>,
 }
 
+/// Enlarges a rendered export 2× for Super Resolution: the app and the CLI
+/// run the AI model (`rawtonic-superres`) behind it. `image` is the render
+/// in its output encoding; the result has exactly twice its width and
+/// height and the same pixel type. `cancelled` may stop it between tiles.
+pub trait Enlarger: Send + Sync {
+    fn enlarge_2x(
+        &self,
+        image: DynamicImage,
+        cancelled: &dyn Fn() -> Result<(), String>,
+    ) -> Result<DynamicImage, String>;
+}
+
+/// The size a render of `width` × `height` has after Super Resolution.
+pub fn super_resolution_size(width: u32, height: u32, settings: &ExportSettings) -> (u32, u32) {
+    if settings.super_resolution {
+        (width.saturating_mul(2), height.saturating_mul(2))
+    } else {
+        (width, height)
+    }
+}
+
+/// Super Resolution of a rendered export, when the settings ask for it:
+/// before the resize, border and output sharpening, so they apply to the
+/// enlarged photo as they would to a larger original.
+pub fn enlarge_for_export(
+    image: DynamicImage,
+    settings: &ExportSettings,
+    enlarger: Option<&dyn Enlarger>,
+    cancelled: &dyn Fn() -> Result<(), String>,
+) -> Result<DynamicImage, String> {
+    if !settings.super_resolution {
+        return Ok(image);
+    }
+    let enlarger = enlarger
+        .ok_or_else(|| "Super Resolution needs its AI model, which is not installed".to_string())?;
+    let (width, height) = image.dimensions();
+    let (target_w, target_h) = super_resolution_size(width, height, settings);
+    if exceeds_max_dimension("Super Resolution size", target_w, target_h) {
+        return Err(format!(
+            "Super Resolution would make {target_w} × {target_h} pixels, more than an export can hold"
+        ));
+    }
+    let enlarged = enlarger.enlarge_2x(image, cancelled)?;
+    if enlarged.dimensions() != (target_w, target_h) {
+        return Err(format!(
+            "Super Resolution returned {:?} instead of {target_w} × {target_h} pixels",
+            enlarged.dimensions()
+        ));
+    }
+    Ok(enlarged)
+}
+
+/// The finishing every rendered file of an export gets, the main file and
+/// each mask layer's image alike, so their sizes match: Super Resolution
+/// (when set), then resize, border, output sharpening and watermark. The
+/// geometry is that of the enlarged photo (mask alphas are fitted to it).
+pub fn finish_rendered_export(
+    image: DynamicImage,
+    settings: &ExportSettings,
+    enlarger: Option<&dyn Enlarger>,
+    cancelled: &dyn Fn() -> Result<(), String>,
+) -> Result<(DynamicImage, ExportGeometry), String> {
+    let image = enlarge_for_export(image, settings, enlarger, cancelled)?;
+    apply_export_geometry_and_watermark(image, settings)
+}
+
+/// Whether Super Resolution marks an export as containing generated content.
+/// It does not (user decision 2026-11-09, docs/MODELS.md "Super
+/// Resolution"): a faithful enlargement by an L1-trained regression model
+/// that adds no content of its own (notes
+/// benchmark-results/srx-super-resolution-2026-11-08), an assistive standard
+/// edit under EU AI Act Art. 50(2); the export names the step in its
+/// software field instead (`exif_processing::SUPER_RESOLUTION_NOTE`). This
+/// is the one place to change if that decision changes.
+pub const SUPER_RESOLUTION_IS_GENERATED: bool = false;
+
+/// Whether an export's file is marked as containing generated content
+/// (IPTC Digital Source Type, `export_metadata_with`): AI patches of the
+/// recipe, and Super Resolution if [`SUPER_RESOLUTION_IS_GENERATED`].
+pub fn export_marks_generated(js_adjustments: &Value, settings: &ExportSettings) -> bool {
+    rawtonic_engine::image_loader::has_generated_areas(js_adjustments)
+        || (settings.super_resolution && SUPER_RESOLUTION_IS_GENERATED)
+}
+
 /// EXIF tag names and display values, as the app caches them per source.
 pub type ExifMap = std::collections::HashMap<String, String>;
 
@@ -1095,6 +1184,9 @@ pub struct ExportOutput<'a> {
     /// The source's cached EXIF map (see [`export_metadata_with`](crate::exif_processing::export_metadata_with)).
     pub exif_sidecar: &'a dyn Fn() -> Option<ExifMap>,
     pub catalog: &'a dyn Fn() -> Option<rawtonic_metadata::Metadata>,
+    /// Runs Super Resolution when the settings ask for it; `None` where the
+    /// model is not available (such an export fails with a clear error).
+    pub enlarger: Option<&'a dyn Enlarger>,
     /// Writes the encoded bytes for `path` with the given lower-case extension.
     pub write: &'a WriteExport,
 }
@@ -1180,6 +1272,19 @@ pub fn save_export_image(
         output.exif_sidecar,
         output.catalog,
     );
+    let metadata = if export_settings.super_resolution
+        && crate::exif_processing::embeds_metadata(&extension)
+    {
+        use crate::exif_processing::{ExportMetadata, SUPER_RESOLUTION_NOTE};
+        match metadata {
+            Some(metadata) => Some(metadata.with_software_note(SUPER_RESOLUTION_NOTE)),
+            None => ExportMetadata::software_note_only(SUPER_RESOLUTION_NOTE)
+                .map_err(|e| log::warn!("{e}"))
+                .ok(),
+        }
+    } else {
+        metadata
+    };
     let image_bytes = encode_with_metadata(image, &extension, export_settings, metadata.as_ref())?;
     #[cfg(feature = "performance-profiling")]
     let _write_stage = crate::performance::PerformanceStage::new("export_write");
@@ -1294,11 +1399,12 @@ pub fn save_rendered_export(
     #[cfg(feature = "performance-profiling")]
     let geometry_stage = crate::performance::PerformanceStage::new("export_geometry");
     let final_image =
-        apply_export_geometry_and_watermark(processed, export_settings).map(|(image, _)| image)?;
+        finish_rendered_export(processed, export_settings, output.enlarger, cancelled)
+            .map(|(image, _)| image)?;
     #[cfg(feature = "performance-profiling")]
     drop(geometry_stage);
     cancelled()?;
-    let generated = rawtonic_engine::image_loader::has_generated_areas(js_adjustments);
+    let generated = export_marks_generated(js_adjustments, export_settings);
     save_export_image(
         final_image,
         source_path_str,
@@ -2419,6 +2525,151 @@ mod directory_tests {
 }
 
 #[cfg(test)]
+mod super_resolution_tests {
+    use super::*;
+
+    fn settings(super_resolution: bool) -> ExportSettings {
+        let mut settings: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
+            "filenameTemplate": null, "watermark": null, "resize": null,
+        }))
+        .unwrap();
+        settings.super_resolution = super_resolution;
+        settings
+    }
+
+    /// Nearest-neighbour 2×, or a wrong size when `wrong`.
+    struct Doubler {
+        wrong: bool,
+    }
+
+    impl Enlarger for Doubler {
+        fn enlarge_2x(
+            &self,
+            image: DynamicImage,
+            cancelled: &dyn Fn() -> Result<(), String>,
+        ) -> Result<DynamicImage, String> {
+            cancelled()?;
+            let (w, h) = image.dimensions();
+            let w = if self.wrong { w } else { 2 * w };
+            Ok(image.resize_exact(w, 2 * h, image::imageops::FilterType::Nearest))
+        }
+    }
+
+    fn photo() -> DynamicImage {
+        DynamicImage::ImageRgb16(image::ImageBuffer::from_pixel(
+            30,
+            20,
+            image::Rgb([1000u16, 2000, 3000]),
+        ))
+    }
+
+    #[test]
+    fn older_settings_and_recipes_export_at_the_photos_size() {
+        let settings = settings(false);
+        assert!(!settings.super_resolution);
+        let out = enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: false }), &|| {
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(out.dimensions(), (30, 20));
+        assert_eq!(compute_export_output_size(30, 20, &settings), (30, 20));
+    }
+
+    #[test]
+    fn super_resolution_doubles_before_the_resize() {
+        let mut settings = settings(true);
+        let out = enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: false }), &|| {
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(out.dimensions(), (60, 40));
+        assert!(matches!(out, DynamicImage::ImageRgb16(_)));
+        assert_eq!(compute_export_output_size(30, 20, &settings), (60, 40));
+        // A long-edge resize applies to the enlarged photo.
+        settings.resize = Some(ResizeOptions {
+            mode: ResizeMode::LongEdge,
+            value: 50.0,
+            dont_enlarge: true,
+            second_value: 0.0,
+        });
+        assert_eq!(compute_export_output_size(30, 20, &settings), (50, 33));
+    }
+
+    #[test]
+    fn super_resolution_without_its_model_or_with_a_wrong_result_fails() {
+        let settings = settings(true);
+        let missing = enlarge_for_export(photo(), &settings, None, &|| Ok(())).unwrap_err();
+        assert!(missing.contains("not installed"), "{missing}");
+        let wrong = enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: true }), &|| {
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(wrong.contains("instead of 60 × 40"), "{wrong}");
+        let cancelled =
+            enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: false }), &|| {
+                Err("Export cancelled".to_string())
+            })
+            .unwrap_err();
+        assert_eq!(cancelled, "Export cancelled");
+    }
+
+    #[test]
+    fn super_resolution_is_noted_after_the_software_name() {
+        use crate::exif_processing::{ExportMetadata, SOFTWARE, SUPER_RESOLUTION_NOTE};
+        let tool = format!("{SOFTWARE} ({SUPER_RESOLUTION_NOTE})");
+        // With the source's metadata stripped there is still the note.
+        let only = ExportMetadata::software_note_only(SUPER_RESOLUTION_NOTE).unwrap();
+        assert!(!only.generated);
+        let xmp = only.xmp.unwrap();
+        assert!(
+            xmp.contains(&format!("xmp:CreatorTool=\"{tool}\"")),
+            "{xmp}"
+        );
+        assert!(!xmp.contains("DigitalSourceType"), "{xmp}");
+        // On top of an export's own packet the note replaces the plain name
+        // and leaves an AI marking of generated areas as it was.
+        let marked = ExportMetadata::marking_only()
+            .unwrap()
+            .with_software_note(SUPER_RESOLUTION_NOTE);
+        assert!(marked.generated);
+        let xmp = marked.xmp.unwrap();
+        assert!(
+            xmp.contains(&format!("xmp:CreatorTool=\"{tool}\"")),
+            "{xmp}"
+        );
+        assert!(xmp.contains("DigitalSourceType"), "{xmp}");
+    }
+
+    #[test]
+    fn mask_layer_images_get_the_main_files_size() {
+        // Separate mask files, no resize: each layer's image and its alpha
+        // are fitted to the same enlarged geometry as the main file.
+        let mut settings = settings(true);
+        settings.export_masks = true;
+        let enlarger = Doubler { wrong: false };
+        let (main, main_geometry) =
+            finish_rendered_export(photo(), &settings, Some(&enlarger), &|| Ok(())).unwrap();
+        let (layer, layer_geometry) =
+            finish_rendered_export(photo(), &settings, Some(&enlarger), &|| Ok(())).unwrap();
+        assert_eq!(main.dimensions(), (60, 40));
+        assert_eq!(layer.dimensions(), main.dimensions());
+        assert_eq!((layer_geometry.photo_w, layer_geometry.photo_h), (60, 40));
+        assert_eq!(
+            (main_geometry.canvas_w, main_geometry.canvas_h),
+            (layer_geometry.canvas_w, layer_geometry.canvas_h)
+        );
+    }
+
+    #[test]
+    fn super_resolution_alone_does_not_mark_generated_content() {
+        let plain = serde_json::json!({});
+        assert!(!export_marks_generated(&plain, &settings(true)));
+        assert!(!export_marks_generated(&plain, &settings(false)));
+    }
+}
+
+#[cfg(test)]
 mod resize_tests {
     use super::*;
 
@@ -2989,6 +3240,7 @@ mod encoding_input_tests {
                 exif_sidecar: &|| panic!("catalog rights must avoid reading source metadata"),
                 catalog: &catalog,
                 write: &write,
+                enlarger: None,
             };
             save_export_image(
                 DynamicImage::new_rgb8(4, 4),
@@ -3043,6 +3295,7 @@ mod encoding_input_tests {
             exif_sidecar: &|| None,
             catalog: &|| None,
             write: &write,
+            enlarger: None,
         };
         save_export_image(
             DynamicImage::new_rgb8(4, 4),
