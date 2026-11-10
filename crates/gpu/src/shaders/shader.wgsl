@@ -811,9 +811,10 @@ fn clipped_lightness_chroma(clipped: vec3<f32>, direction: vec2<f32>, to_space: 
 // through the colour (the grey of its own lightness between linear greys
 // 0.05 and 0.5, else the nearer of those two); outside, its chroma over
 // the chroma the clip leaves it (restore_hue, `gamut_mapping` 1), which
-// is 1 at the edge too and within a few percent of the ray's measure
-// beyond it (48 photos). From GAMUT_KNEE on, u is squeezed into the rest
-// of the way to the edge. A colour inside the space keeps that share of
+// is 1 at the edge too, close to the ray's measure beyond it (its excess
+// over 1 at a median 0.8 to 1.0 of the ray's on photos) and needs no
+// search of its own. From GAMUT_KNEE on, u is squeezed into the rest of
+// the way to the edge. A colour inside the space keeps that share of
 // its chroma at its own lightness; a colour outside takes the lightness
 // and chroma the clip gives it, the chroma short of the clip's by what is
 // left of the way: just inside the edge next to it, the clip's
