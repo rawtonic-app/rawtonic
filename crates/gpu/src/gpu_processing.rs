@@ -10752,7 +10752,7 @@ pub fn process_and_get_dynamic_image_inner(
     if output_to_display {
         return render();
     }
-    processor_slot.discard_after(gpu_scoped(&context.device, render).and_then(|image| image))
+    processor_slot.scoped(|| gpu_scoped(&context.device, render).and_then(|image| image))
 }
 
 /// Renders the analytics of a whole frame for the scopes from `proxy`, a
@@ -10855,12 +10855,12 @@ pub fn process_and_get_dynamic_images(
     caller_id: &str,
     outputs: &[RenderOutput],
 ) -> Result<Vec<DynamicImage>, String> {
-    processor_slot.discard_after(
+    processor_slot.scoped(|| {
         gpu_scoped(&context.device, || {
             render_outputs(context, processor_slot, kept, request, caller_id, outputs)
         })
-        .and_then(|images| images),
-    )
+        .and_then(|images| images)
+    })
 }
 
 fn render_outputs(

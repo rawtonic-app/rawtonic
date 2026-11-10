@@ -19,6 +19,7 @@
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
+use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 
 /// How long background renders wait after a foreground render ends: longer
@@ -46,8 +47,12 @@ struct State {
 pub struct ProcessorSlot<T> {
     slot: Mutex<T>,
     background_only: bool,
-    /// A render on it ran out of graphics memory (`discard_after`).
+    /// A render on it ran out of graphics memory (`scoped`).
     discard: AtomicBool,
+    /// The thread whose scoped render is under way (`scoped`) and the
+    /// others waiting for it.
+    scoping: Mutex<Option<ThreadId>>,
+    scoping_ended: Condvar,
 }
 
 impl<T> ProcessorSlot<T> {
@@ -58,6 +63,8 @@ impl<T> ProcessorSlot<T> {
             slot: Mutex::new(value),
             background_only: false,
             discard: AtomicBool::new(false),
+            scoping: Mutex::new(None),
+            scoping_ended: Condvar::new(),
         }
     }
 
@@ -69,6 +76,8 @@ impl<T> ProcessorSlot<T> {
             slot: Mutex::new(value),
             background_only: true,
             discard: AtomicBool::new(false),
+            scoping: Mutex::new(None),
+            scoping_ended: Condvar::new(),
         }
     }
 }
@@ -79,13 +88,56 @@ impl<T> ProcessorSlot<T> {
         self.background_only
     }
 
-    /// `result` of a render on this slot's processor. When the render ran
-    /// out of graphics memory the processor may hold a texture or pipeline
-    /// it could not allocate (wgpu hands out an invalid object and keeps
-    /// it), which would fail every later render on it even once memory is
-    /// free: the next render that locks the slot builds a new processor
-    /// (`take_discarded`).
-    pub fn discard_after<R>(&self, result: Result<R, String>) -> Result<R, String> {
+    /// Runs a render on this slot's processor, `work` returning its result
+    /// once the GPU's error scopes are read (`gpu_scoped`), and one at a
+    /// time per background-only slot (the exports') until the result is
+    /// known; slots with turns (the Develop view's, thumbnails) are not gated. When the render ran out of
+    /// graphics memory the processor may hold a texture or pipeline it could
+    /// not allocate (wgpu hands out an invalid object and keeps it), which
+    /// would fail every later render on it even once memory is free: the
+    /// next render that locks the slot builds a new processor
+    /// (`take_discarded`). The scopes are read only after the render
+    /// released the processor, so another render must not take it before
+    /// the mark is set: it would reuse the invalid object and fail with a
+    /// validation error nobody retries (notes: parity-gaps/G66). A render
+    /// nested in one of its own thread goes on at once.
+    pub fn scoped<R>(&self, work: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+        if !self.background_only {
+            // Foreground renders and thumbnails take turns; a gate in front
+            // of the turns would let a background render hold up a frame.
+            return self.mark_discard(work());
+        }
+        let me = std::thread::current().id();
+        let mut scoping = self.scoping.lock().unwrap_or_else(PoisonError::into_inner);
+        if *scoping == Some(me) {
+            drop(scoping);
+            return work();
+        }
+        while scoping.is_some() {
+            scoping = self
+                .scoping_ended
+                .wait(scoping)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+        *scoping = Some(me);
+        drop(scoping);
+        /// Hands the slot on, also when `work` panics.
+        struct Handoff<'a, T>(&'a ProcessorSlot<T>);
+        impl<T> Drop for Handoff<'_, T> {
+            fn drop(&mut self) {
+                *self
+                    .0
+                    .scoping
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = None;
+                self.0.scoping_ended.notify_all();
+            }
+        }
+        let _handoff = Handoff(self);
+        self.mark_discard(work())
+    }
+
+    fn mark_discard<R>(&self, result: Result<R, String>) -> Result<R, String> {
         if let Err(error) = &result
             && rawtonic_runtime::gpu_memory::is_gpu_out_of_memory(error)
         {
@@ -94,7 +146,7 @@ impl<T> ProcessorSlot<T> {
         result
     }
 
-    /// Whether the processor is to be built anew (`discard_after`); once.
+    /// Whether the processor is to be built anew (`scoped`); once.
     pub(super) fn take_discarded(&self) -> bool {
         self.discard.swap(false, Ordering::SeqCst)
     }
@@ -518,17 +570,67 @@ mod tests {
     #[test]
     fn a_render_out_of_graphics_memory_discards_its_processor() {
         let slot = ProcessorSlot::background(Some(1));
-        let _ = slot.discard_after::<()>(Err("The file is damaged".to_string()));
-        let _ = slot.discard_after(Ok(()));
+        let _ = slot.scoped::<()>(|| Err("The file is damaged".to_string()));
+        let _ = slot.scoped(|| Ok(()));
         assert!(!slot.take_discarded());
         let error = rawtonic_runtime::gpu_memory::gpu_out_of_memory("render");
         assert_eq!(
-            slot.discard_after::<()>(Err(error.clone())),
+            slot.scoped::<()>(|| Err(error.clone())),
             Err(error),
             "the error is passed on"
         );
         assert!(slot.take_discarded());
         assert!(!slot.take_discarded(), "once");
+    }
+
+    /// Another export worker does not take the processor between the failed
+    /// render releasing it and the discard mark: it waits and then finds
+    /// the processor to be built anew, never the invalid one.
+    #[test]
+    fn a_slot_with_turns_is_not_gated() {
+        let slot = ProcessorSlot::new(Some(1));
+        let _ = slot.scoped(|| {
+            // A render nested from another thread is not held up.
+            std::thread::scope(|scope| scope.spawn(|| slot.scoped(|| Ok(()))).join().unwrap())
+        });
+    }
+
+    #[test]
+    fn a_second_worker_never_gets_the_processor_a_failed_render_left() {
+        let turns = turns();
+        let slot: &'static ProcessorSlot<Option<&str>> =
+            Box::leak(Box::new(ProcessorSlot::background(Some("invalid"))));
+        let (released, released_rx) = channel();
+        let (go, go_rx) = channel::<()>();
+        let first = std::thread::spawn(move || {
+            slot.scoped::<()>(|| {
+                drop(turns.lock(slot, false).unwrap());
+                // The processor is free; the error scopes are not read yet.
+                released.send(()).unwrap();
+                go_rx.recv().unwrap();
+                Err(rawtonic_runtime::gpu_memory::gpu_out_of_memory("render"))
+            })
+        });
+        released_rx.recv().unwrap();
+        let (got, got_rx) = channel();
+        let second = std::thread::spawn(move || {
+            slot.scoped(|| {
+                let mut processor = turns.lock(slot, false).unwrap();
+                if slot.take_discarded() {
+                    processor.take();
+                }
+                got.send(*processor).unwrap();
+                Ok(())
+            })
+        });
+        assert!(
+            got_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "the second worker waits for the mark"
+        );
+        go.send(()).unwrap();
+        assert!(first.join().unwrap().is_err());
+        second.join().unwrap().unwrap();
+        assert_eq!(got_rx.recv().unwrap(), None, "a fresh processor");
     }
 
     /// Memory pressure frees an idle processor, never one a render holds.
