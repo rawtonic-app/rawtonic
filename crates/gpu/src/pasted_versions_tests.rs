@@ -15,7 +15,6 @@
 
 use super::*;
 use rawtonic_engine::pasted_versions::{PasteTarget, express_pasted, translate};
-use std::fmt::Write as _;
 
 /// Per-pixel ΔE76 between two renders of the same chart.
 fn delta_e(a: &Lab, b: &Lab) -> Vec<f64> {
