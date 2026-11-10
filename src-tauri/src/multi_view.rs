@@ -328,11 +328,8 @@ fn base_bytes(worker: &Worker) -> usize {
 /// session), else the defaults with the camera's lens data, as Develop
 /// opens it.
 pub(crate) fn recipe_of(path: &str) -> serde_json::Value {
-    let (source_path, sidecar_path) = parse_virtual_path(path);
-    let mut recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
-    if !recipe.is_object() {
-        recipe = serde_json::json!({});
-    }
+    let (source_path, _) = parse_virtual_path(path);
+    let mut recipe = saved_recipe_of(path);
     let _ = rawtonic_export::normalize::normalize(
         &mut recipe,
         &rawtonic_export::normalize::RecipeSource::file(&source_path),
@@ -340,6 +337,18 @@ pub(crate) fn recipe_of(path: &str) -> serde_json::Value {
         rawtonic_export::normalize::Defaults::Render,
     );
     recipe
+}
+
+/// `path`'s recipe as saved (an object; `{}` without one), before the
+/// render defaults `recipe_of` adds.
+fn saved_recipe_of(path: &str) -> serde_json::Value {
+    let (_, sidecar_path) = parse_virtual_path(path);
+    let recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+    if recipe.is_object() {
+        recipe
+    } else {
+        serde_json::json!({})
+    }
 }
 
 /// Developed browser cells for Linux (and the split's before), using the
@@ -1242,7 +1251,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
         if job.primary.as_deref() == Some(cell.path.as_str()) {
             continue;
         }
-        let recipe = with_live_patch(recipe_of(&cell.path));
+        let recipe = with_live_patch(recipe_of(&cell.path), &cell.path);
         let known = worker
             .memory
             .lock()
@@ -2182,7 +2191,7 @@ fn still_wanted(context: &GpuContext, path: &str, key: u64, scale: f32) -> bool 
     };
     zoom.is_some_and(|zoom| {
         zoom.scale == scale
-            && region_key(path, &with_live_patch(recipe_of(path)), zoom, context) == key
+            && region_key(path, &with_live_patch(recipe_of(path), path), zoom, context) == key
     })
 }
 
@@ -2407,7 +2416,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             .filter(|cell| multi.primary() != Some(cell.path.as_str()))
             .filter_map(|cell| {
                 let zoom = multi.zoom_of(&cell.path)?;
-                let recipe = with_live_patch(recipe_of(&cell.path));
+                let recipe = with_live_patch(recipe_of(&cell.path), &cell.path);
                 let key = region_key(&cell.path, &recipe, zoom, &context);
                 let shown = facts
                     .as_ref()
@@ -2598,14 +2607,26 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
     rawtonic_runtime::allocator::release_freed_memory();
 }
 
-/// The recipe a secondary is shown with during Edit all selected: its stored
-/// recipe with the changes not yet written to it.
-fn with_live_patch(mut recipe: serde_json::Value) -> serde_json::Value {
+/// The recipe a secondary (`path`) is shown with during Edit all selected:
+/// its stored recipe with the changes not yet written to it.
+fn with_live_patch(mut recipe: serde_json::Value, path: &str) -> serde_json::Value {
     let live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(patch) = live.patch.as_ref() {
-        // Whites in this cell's tone-slider response, as the written paste.
+        // In this cell's responses, decided on its saved recipe as the
+        // written paste is (Edit all selected replaces the layers):
+        // `pasted_versions::express_pasted`.
         let mut patch = serde_json::Value::Object(patch.clone());
-        rawtonic_engine::image_processing::express_pasted_whites(&mut patch, &recipe);
+        let saved = saved_recipe_of(path);
+        rawtonic_engine::pasted_versions::express_pasted(
+            &mut patch,
+            &rawtonic_engine::pasted_versions::PasteTarget {
+                recipe: &saved,
+                is_new: image_processing::is_new_recipe(&saved),
+                is_raw: is_raw_file(parse_virtual_path(path).0),
+                replace_layers: true,
+                merge_groups: false,
+            },
+        );
         if let (Some(patch), Some(object)) = (patch.as_object(), recipe.as_object_mut()) {
             for (key, value) in patch {
                 object.insert(key.clone(), value.clone());
@@ -2701,7 +2722,7 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
             live.settled += 1;
             (path, live.patch.is_some())
         };
-        let recipe = with_live_patch(recipe_of(&path));
+        let recipe = with_live_patch(recipe_of(&path), &path);
         // A zoomed cell shows its sharp region over the enlarged photograph:
         // that region follows the change (from its kept region base).
         let zoomed = context
@@ -3243,13 +3264,13 @@ mod tests {
         let stored = serde_json::json!({"exposure": 0.0, "contrast": 10, "crop": null});
         set_live(Some(serde_json::json!({"exposure": 1.25})));
         assert!(live_pending());
-        let shown = with_live_patch(stored.clone());
+        let shown = with_live_patch(stored.clone(), "a.jpg");
         assert_eq!(shown["exposure"], 1.25);
         assert_eq!(shown["contrast"], 10);
         // Written: the stored recipe alone again, nothing left to develop.
         set_live(None);
         assert!(!live_pending());
-        assert_eq!(with_live_patch(stored.clone()), stored);
+        assert_eq!(with_live_patch(stored.clone(), "a.jpg"), stored);
         // An empty patch is no patch.
         set_live(Some(serde_json::json!({})));
         assert!(!live_pending());

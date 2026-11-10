@@ -1,0 +1,767 @@
+[
+ {
+  "name": "structure carried when nothing on the destination uses it",
+  "pasted": {
+   "structure": 50,
+   "structureVersion": 3
+  },
+  "destination": {
+   "structureVersion": 1,
+   "exposure": 0.5
+  },
+  "expected": {
+   "structure": 50,
+   "structureVersion": 3
+  }
+ },
+ {
+  "name": "structure on a layer keeps version 1, the pasted value as its amount",
+  "pasted": {
+   "structure": 50,
+   "structureVersion": 2
+  },
+  "destination": {
+   "structureVersion": 1,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "structure": 40
+     }
+    }
+   ]
+  },
+  "expected": {
+   "structure": 18.625,
+   "structureVersion": 1
+  }
+ },
+ {
+  "name": "structure on the photo outside the paste keeps version 1",
+  "pasted": {
+   "structureVersion": 2,
+   "masks": [
+    {
+     "id": "b",
+     "adjustments": {
+      "structure": 50
+     }
+    }
+   ]
+  },
+  "destination": {
+   "structure": 20
+  },
+  "expected": {
+   "masks": [
+    {
+     "id": "b",
+     "adjustments": {
+      "structure": 18.625
+     }
+    }
+   ],
+   "structureVersion": 1
+  }
+ },
+ {
+  "name": "structure 1 onto 2 with a layer: the amount as version 2's value",
+  "pasted": {
+   "structure": 20,
+   "structureVersion": 1
+  },
+  "destination": {
+   "structureVersion": 2,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "structure": -10
+     }
+    }
+   ]
+  },
+  "expected": {
+   "structure": 54.781124347600645,
+   "structureVersion": 2
+  }
+ },
+ {
+  "name": "structure layer replaced by the paste (Edit all selected) does not count",
+  "pasted": {
+   "structure": 50,
+   "structureVersion": 3,
+   "masks": []
+  },
+  "destination": {
+   "structureVersion": 1,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "structure": 40
+     }
+    }
+   ]
+  },
+  "expected": {
+   "structure": 50,
+   "structureVersion": 3,
+   "masks": []
+  },
+  "replaceLayers": true
+ },
+ {
+  "name": "structure layer of the same id replaced by the pasted one does not count",
+  "pasted": {
+   "structureVersion": 3,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "structure": 30
+     }
+    }
+   ]
+  },
+  "destination": {
+   "structureVersion": 1,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "structure": 40
+     }
+    }
+   ]
+  },
+  "expected": {
+   "structureVersion": 3,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "structure": 30
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "structure layer of another id stays and counts",
+  "pasted": {
+   "structureVersion": 3,
+   "masks": [
+    {
+     "id": "x",
+     "adjustments": {
+      "structure": 30
+     }
+    }
+   ]
+  },
+  "destination": {
+   "structureVersion": 1,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "structure": 40
+     }
+    }
+   ]
+  },
+  "expected": {
+   "masks": [
+    {
+     "id": "x",
+     "adjustments": {
+      "structure": 12.105
+     }
+    }
+   ],
+   "structureVersion": 1
+  }
+ },
+ {
+  "name": "a never-edited photograph takes every pasted version",
+  "pasted": {
+   "shadows": 30,
+   "toneVersion": 12,
+   "clarity": 10,
+   "clarityVersion": 1
+  },
+  "destination": {},
+  "expected": {
+   "shadows": 30,
+   "toneVersion": 12,
+   "clarity": 10,
+   "clarityVersion": 1
+  },
+  "isNew": true
+ },
+ {
+  "name": "tone version stays on an edited photograph (it renders without sliders too)",
+  "pasted": {
+   "shadows": 30,
+   "toneVersion": 17
+  },
+  "destination": {
+   "toneVersion": 12,
+   "crop": null
+  },
+  "expected": {
+   "shadows": 30,
+   "toneVersion": 12
+  }
+ },
+ {
+  "name": "whites pasted with tone version 17 onto 16: the amount as version 16's value",
+  "pasted": {
+   "whites": 50,
+   "toneVersion": 17
+  },
+  "destination": {
+   "toneVersion": 16,
+   "exposure": 0.3
+  },
+  "expected": {
+   "whites": 74,
+   "toneVersion": 16
+  }
+ },
+ {
+  "name": "whites carried as amount (no tone version) onto 17",
+  "pasted": {
+   "whites": 74
+  },
+  "destination": {
+   "toneVersion": 17
+  },
+  "expected": {
+   "whites": 50
+  }
+ },
+ {
+  "name": "same version: nothing changes",
+  "pasted": {
+   "clarity": 30,
+   "clarityVersion": 3
+  },
+  "destination": {
+   "clarityVersion": 3,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "clarity": 10
+     }
+    }
+   ]
+  },
+  "expected": {
+   "clarity": 30,
+   "clarityVersion": 3
+  }
+ },
+ {
+  "name": "clarity on a layer keeps the destination's, the value as it is",
+  "pasted": {
+   "clarity": 30,
+   "clarityVersion": 3
+  },
+  "destination": {
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "clarity": 10
+     }
+    }
+   ]
+  },
+  "expected": {
+   "clarity": 30,
+   "clarityVersion": 1
+  }
+ },
+ {
+  "name": "vibrance at 0 on the destination does not count",
+  "pasted": {
+   "vibrance": 25,
+   "vibranceVersion": 2
+  },
+  "destination": {
+   "vibrance": 0,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "vibrance": 0
+     }
+    }
+   ]
+  },
+  "expected": {
+   "vibrance": 25,
+   "vibranceVersion": 2
+  }
+ },
+ {
+  "name": "temperature 2 onto 1 with a layer: warming compressed",
+  "pasted": {
+   "temperature": 100,
+   "temperatureVersion": 2
+  },
+  "destination": {
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "temperature": -20
+     }
+    }
+   ]
+  },
+  "expected": {
+   "temperature": 75,
+   "temperatureVersion": 1
+  }
+ },
+ {
+  "name": "temperature 1 onto 2 with a layer: warming stretched, cooling alike",
+  "pasted": {
+   "temperature": 50,
+   "temperatureVersion": 1,
+   "masks": [
+    {
+     "id": "p",
+     "adjustments": {
+      "temperature": -30
+     }
+    }
+   ]
+  },
+  "destination": {
+   "temperatureVersion": 2,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "temperature": 10
+     }
+    }
+   ]
+  },
+  "expected": {
+   "temperature": 58.57864376269049,
+   "masks": [
+    {
+     "id": "p",
+     "adjustments": {
+      "temperature": -30
+     }
+    }
+   ],
+   "temperatureVersion": 2
+  }
+ },
+ {
+  "name": "tint 2 onto 1 with the photo's tint: travel scaled",
+  "pasted": {
+   "masks": [
+    {
+     "id": "t",
+     "adjustments": {
+      "tint": 40
+     }
+    }
+   ],
+   "tintVersion": 2
+  },
+  "destination": {
+   "tint": 5
+  },
+  "expected": {
+   "masks": [
+    {
+     "id": "t",
+     "adjustments": {
+      "tint": 76
+     }
+    }
+   ],
+   "tintVersion": 1
+  }
+ },
+ {
+  "name": "tint 1 onto 2: travel reduced",
+  "pasted": {
+   "tint": -31,
+   "tintVersion": 1
+  },
+  "destination": {
+   "tintVersion": 2,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "tint": 10
+     }
+    }
+   ]
+  },
+  "expected": {
+   "tint": -20,
+   "tintVersion": 2
+  }
+ },
+ {
+  "name": "colour mixer on a layer keeps the destination's mixer response",
+  "pasted": {
+   "hsl": {
+    "reds": {
+     "hue": 10,
+     "saturation": 0,
+     "luminance": 0
+    }
+   },
+   "hslVersion": 2
+  },
+  "destination": {
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "hsl": {
+       "blues": {
+        "hue": 0,
+        "saturation": -20,
+        "luminance": 0
+       }
+      }
+     }
+    }
+   ]
+  },
+  "expected": {
+   "hsl": {
+    "reds": {
+     "hue": 10,
+     "saturation": 0,
+     "luminance": 0
+    }
+   },
+   "hslVersion": 1
+  }
+ },
+ {
+  "name": "colour mixer at 0 everywhere: carried",
+  "pasted": {
+   "hsl": {
+    "reds": {
+     "hue": 10,
+     "saturation": 0,
+     "luminance": 0
+    }
+   },
+   "hslVersion": 2
+  },
+  "destination": {
+   "hsl": {
+    "reds": {
+     "hue": 0,
+     "saturation": 0,
+     "luminance": 0
+    }
+   }
+  },
+  "expected": {
+   "hsl": {
+    "reds": {
+     "hue": 10,
+     "saturation": 0,
+     "luminance": 0
+    }
+   },
+   "hslVersion": 2
+  }
+ },
+ {
+  "name": "sharpening radius onto a RAW with its default amount keeps its response",
+  "pasted": {
+   "sharpenRadius": 1.2,
+   "sharpenVersion": 8
+  },
+  "destination": {
+   "exposure": 0.2
+  },
+  "expected": {
+   "sharpenRadius": 1.2,
+   "sharpenVersion": 1
+  },
+  "isRaw": true
+ },
+ {
+  "name": "sharpening radius onto a JPEG without sharpening: carried",
+  "pasted": {
+   "sharpenRadius": 1.2,
+   "sharpenVersion": 8
+  },
+  "destination": {
+   "exposure": 0.2
+  },
+  "expected": {
+   "sharpenRadius": 1.2,
+   "sharpenVersion": 8
+  }
+ },
+ {
+  "name": "sharpening amount pasted over the destination's, a layer sharpens: kept",
+  "pasted": {
+   "sharpness": 60,
+   "sharpenVersion": 8
+  },
+  "destination": {
+   "sharpness": 40,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "sharpness": 30
+     }
+    }
+   ]
+  },
+  "expected": {
+   "sharpness": 60,
+   "sharpenVersion": 1
+  }
+ },
+ {
+  "name": "colour noise version stays on an edited photograph",
+  "pasted": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 11
+  },
+  "destination": {
+   "colorNoiseVersion": 2,
+   "exposure": 1
+  },
+  "expected": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 2
+  }
+ },
+ {
+  "name": "defringe on a layer keeps the detector",
+  "pasted": {
+   "defringePurpleAmount": 20,
+   "defringeVersion": 2
+  },
+  "destination": {
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "defringe": 40
+     }
+    }
+   ]
+  },
+  "expected": {
+   "defringePurpleAmount": 20,
+   "defringeVersion": 1
+  }
+ },
+ {
+  "name": "defringe green outside the paste keeps the detector",
+  "pasted": {
+   "defringePurpleAmount": 20,
+   "defringeVersion": 2
+  },
+  "destination": {
+   "defringeGreenAmount": 10
+  },
+  "expected": {
+   "defringePurpleAmount": 20,
+   "defringeVersion": 1
+  }
+ },
+ {
+  "name": "several keys decided each on its own",
+  "pasted": {
+   "clarity": 20,
+   "clarityVersion": 3,
+   "structure": 10,
+   "structureVersion": 3
+  },
+  "destination": {
+   "clarityVersion": 1,
+   "structureVersion": 1,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "clarity": 15
+     }
+    }
+   ]
+  },
+  "expected": {
+   "clarity": 20,
+   "structure": 10,
+   "structureVersion": 3,
+   "clarityVersion": 1
+  }
+ },
+ {
+  "name": "a layer pasted from a newer edit keeps its source's travel when nothing else uses it",
+  "pasted": {
+   "structureVersion": 3,
+   "masks": [
+    {
+     "id": "x",
+     "adjustments": {
+      "structure": 30
+     }
+    }
+   ]
+  },
+  "destination": {
+   "structureVersion": 1,
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "exposure": 1
+     }
+    }
+   ]
+  },
+  "expected": {
+   "structureVersion": 3,
+   "masks": [
+    {
+     "id": "x",
+     "adjustments": {
+      "structure": 30
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "colour noise onto an edited RAW without its own: the version it renders with, stated",
+  "pasted": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 11
+  },
+  "destination": {
+   "exposure": 0.5
+  },
+  "isRaw": true,
+  "expected": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 11
+  }
+ },
+ {
+  "name": "colour noise onto an edited JPEG without its own: version 1, stated",
+  "pasted": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 11
+  },
+  "destination": {
+   "exposure": 0.5
+  },
+  "expected": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 1
+  }
+ },
+ {
+  "name": "a style's colour mixer joins the photo's: its other colours keep the response",
+  "pasted": {
+   "hsl": {
+    "reds": {
+     "hue": 10
+    }
+   },
+   "hslVersion": 2
+  },
+  "destination": {
+   "hslVersion": 1,
+   "hsl": {
+    "blues": {
+     "saturation": -40
+    }
+   }
+  },
+  "mergeGroups": true,
+  "expected": {
+   "hsl": {
+    "reds": {
+     "hue": 10
+    }
+   },
+   "hslVersion": 1
+  }
+ },
+ {
+  "name": "a style's colour mixer over every moved colour of the photo's: carried",
+  "pasted": {
+   "hsl": {
+    "blues": {
+     "saturation": 20
+    }
+   },
+   "hslVersion": 2
+  },
+  "destination": {
+   "hslVersion": 1,
+   "hsl": {
+    "blues": {
+     "saturation": -40,
+     "hue": 0
+    }
+   }
+  },
+  "mergeGroups": true,
+  "expected": {
+   "hsl": {
+    "blues": {
+     "saturation": 20
+    }
+   },
+   "hslVersion": 2
+  }
+ },
+ {
+  "name": "a pasted colour mixer replaces the photo's whole mixer: carried",
+  "pasted": {
+   "hsl": {
+    "reds": {
+     "hue": 10
+    }
+   },
+   "hslVersion": 2
+  },
+  "destination": {
+   "hslVersion": 1,
+   "hsl": {
+    "blues": {
+     "saturation": -40
+    }
+   }
+  },
+  "expected": {
+   "hsl": {
+    "reds": {
+     "hue": 10
+    }
+   },
+   "hslVersion": 2
+  }
+ }
+]

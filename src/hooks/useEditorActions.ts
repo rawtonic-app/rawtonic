@@ -33,8 +33,10 @@ import {
   withGrainStructure,
   withLegacyGrainVersion,
   withLoadedCurves,
-  withCarriedWhitesFor
+  withCarriedWhitesFor,
+  isNewRecipe
 } from '../utils/adjustments';
+import { expressPastedSettings, withKeptVersions } from '../utils/pastedVersions';
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
@@ -374,6 +376,27 @@ export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
 }
 
+/** The recipe pasted versions are decided on for the open photograph
+ * `path` (`pasted_versions`), and whether it has no edit yet: while it
+ * still shows what it was opened from, its saved recipe, as the backend
+ * decides for the closed photographs of the same batch (the editor's recipe
+ * states versions a saved one leaves to its default); else `editorRecipe`.
+ * `revert`: a style is applied, decided on the photo without its last one. */
+export function openPasteTarget(
+  path: string,
+  editorRecipe: Partial<Adjustments>,
+  revert = false
+): { recipe: Partial<Adjustments>; isNew: boolean } {
+  const { history, historyPending } = useEditorStore.getState();
+  const unchanged =
+    history.length === 1 && !historyPending && openedRecipe?.path === path && history[0] === openedRecipe.shown;
+  if (!unchanged) return { recipe: editorRecipe, isNew: isNewRecipe(editorRecipe) };
+  const saved = openedRecipe!.saved;
+  if (newSaved(saved)) return { recipe: editorRecipe, isNew: true };
+  const recipe = saved as Adjustments;
+  return { recipe: revert ? revertStyle(recipe).recipe : recipe, isNew: false };
+}
+
 /** The open photograph `open` with `pasted` (from `paste`, null: a preset),
  * as the backend pastes onto a closed photograph (`pasteInto`, `masks::paste_layers`): onto
  * its saved recipe while it is not edited since it was opened (then made
@@ -384,7 +407,12 @@ function pastedOpen(
   open: { path: string; isRaw: boolean },
   current: Adjustments,
   pasted: Partial<Adjustments>,
-  paste: { source: string; replaceLayers: boolean; newEdit?: ReturnType<typeof newEditResponses> } | null,
+  paste: {
+    source: string;
+    replaceLayers: boolean;
+    asChosen?: boolean;
+    newEdit?: ReturnType<typeof newEditResponses>;
+  } | null,
   style: StyleOp | null = null
 ): Adjustments | null {
   const { history, historyPending } = useEditorStore.getState();
@@ -407,9 +435,18 @@ function pastedOpen(
   // with that one taken back, as the backend applies it to the others.
   const reverted = style && base ? revertStyle(base) : null;
   if (reverted) base = reverted.recipe;
-  // Carried Whites in the response of the recipe they go onto, after the
-  // style before is taken back (as the backend writes the others).
-  const here = withCarriedWhitesFor(pasted, base ?? current);
+  // In the responses of the recipe they go onto, after the style before is
+  // taken back (as the backend writes the others): carried Whites, and the
+  // version keys something the paste leaves renders with (pastedVersions.ts).
+  // Versions chosen in the picker go along as chosen.
+  const here = paste?.asChosen
+    ? withCarriedWhitesFor(pasted, base ?? current)
+    : expressPastedSettings(pasted, {
+        ...openPasteTarget(open.path, base ?? current, Boolean(style)),
+        isRaw: open.isRaw,
+        replaceLayers: paste?.replaceLayers ?? true,
+        mergeGroups: Boolean(style)
+      });
   let merged = style?.remove
     ? base
     : pasteInto(base, styleGroupsJoined(base, here, style), {
@@ -1483,7 +1520,7 @@ export function useEditorActions() {
       // the others with (`pastedOpen`), saved as every edit.
       const open = selectedImage?.isReady && pathsToUpdate.includes(selectedImage.path) ? selectedImage : null;
       const paste = pasteFrom
-        ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
+        ? { source: pasteFrom, replaceLayers, ...(asChosen ? { asChosen, newEdit: newEditResponses() } : {}) }
         : null;
       const presetWithAiMasks = adjustmentsToApply.masks?.some((layer) =>
         layer.subMasks.some((sub) => DETECTED_TYPES.has(sub.type))
@@ -1519,11 +1556,25 @@ export function useEditorActions() {
           const unresolved = withPastedLensUnresolved(merged, current, adjustmentsToApply);
           // The style's record, of the recipe as shown (its lens data waiting).
           const without = styleHere && !styleHere.remove ? revertStyle(current).recipe : null;
-          // The style's values as written onto this photo (carried Whites in its response).
-          const next =
+          // The style's values as written onto this photo (in its responses),
+          // recorded from the versions the paste kept as it stated them.
+          const styleValues =
             styleHere && !styleHere.remove
-              ? recordStyle(without!, unresolved, withCarriedWhitesFor(adjustmentsToApply, without!), styleHere.id)
-              : unresolved;
+              ? expressPastedSettings(adjustmentsToApply, {
+                  ...openPasteTarget(open.path, without!, true),
+                  isRaw: open.isRaw,
+                  replaceLayers: true,
+                  mergeGroups: true
+                })
+              : null;
+          const next = styleValues
+            ? recordStyle(
+                withKeptVersions(without!, adjustmentsToApply, styleValues),
+                unresolved,
+                styleValues,
+                styleHere!.id
+              )
+            : unresolved;
           debouncedSetHistory.flush();
           setAdjustments(() => next);
           // Its own step also during a drag (not one of its moves).
@@ -1533,7 +1584,14 @@ export function useEditorActions() {
           if (unresolved !== merged) void resolvePastedLens(open.path, pastedStep);
         }
       } else if (open) {
-        setAdjustments({ ...adjustments, ...withCarriedWhitesFor(adjustmentsToApply, adjustments) });
+        setAdjustments({
+          ...adjustments,
+          ...expressPastedSettings(adjustmentsToApply, {
+            ...openPasteTarget(open.path, adjustments),
+            isRaw: open.isRaw,
+            replaceLayers: true
+          })
+        });
         // Its History entry now, so it is the open photograph's part of the
         // batch's undo step (not a later step of its own).
         debouncedSetHistory.flush();

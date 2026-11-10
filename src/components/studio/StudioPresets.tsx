@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
-import { useEditorActions } from '../../hooks/useEditorActions';
+import { openPasteTarget, useEditorActions } from '../../hooks/useEditorActions';
 import { usePresets, type UserPreset } from '../../hooks/usePresets';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import type { Preset } from '../ui/AppProperties';
@@ -16,9 +16,10 @@ import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../../utils/b
 import {
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
-  withCarriedWhitesFor,
-  withPresetVersions
+  withPresetVersions,
+  type Adjustments
 } from '../../utils/adjustments';
+import { expressPastedSettings } from '../../utils/pastedVersions';
 import { appliedStyleOf, revertStyle, withStyleAmount } from '../../utils/appliedStyle';
 import { presetPreview, presetValues, toolPresetToSave } from './toolPresets';
 import { noteTool } from '../contribute/usageStats';
@@ -209,7 +210,13 @@ export default function StudioPresets() {
         ? normalizeLoadedAdjustments(reverted.recipe, Boolean(image.isRaw))
         : reverted?.recipe;
       // No preview for a preset that needs the RAW developed again.
-      const previewed = presetPreview(current, preset.adjustments, Boolean(image.isRaw), base && { base, style: true });
+      const previewed = presetPreview(
+        current,
+        preset.adjustments,
+        Boolean(image.isRaw),
+        base && { base, style: true },
+        openPasteTarget(image.path, base ?? current, Boolean(base))
+      );
       if (!previewed) return endPreview();
       previewing.current = true;
       setEditor({ previewOverride: previewed });
@@ -222,6 +229,8 @@ export default function StudioPresets() {
     path: string;
     preset: Preset;
     base: Record<string, unknown>;
+    /** What the preset's versions were decided on when it was applied (`openPasteTarget`). */
+    target: { recipe: Partial<Adjustments>; isNew: boolean };
     value: number;
   } | null>(null);
   const { showContextMenu } = useContextMenu();
@@ -301,6 +310,7 @@ export default function StudioPresets() {
             path: open,
             preset,
             base: structuredClone(currentAdjustments()) as unknown as Record<string, unknown>,
+            target: openPasteTarget(open, currentAdjustments()),
             value: 100
           }
         : null
@@ -315,10 +325,15 @@ export default function StudioPresets() {
     const current = currentAdjustments();
     const style = appliedStyleOf(current);
     if (!style || !stylePreset || stylePreset.id !== style.id) return;
-    // Carried Whites in this photo's response, as applying the style wrote them.
-    const values = withCarriedWhitesFor(presetValues(stylePreset.adjustments), current);
     // Blended from the editor's values where the photo had none before.
     const { recipe: without, removed } = revertStyle(current);
+    // In this photo's responses, as applying the style wrote them (pastedVersions.ts).
+    const values = expressPastedSettings(presetValues(stylePreset.adjustments), {
+      recipe: without,
+      isRaw: Boolean(selectedImage?.isRaw),
+      replaceLayers: true,
+      mergeGroups: true
+    });
     const base = removed ? normalizeLoadedAdjustments(without, Boolean(selectedImage?.isRaw)) : without;
     // A slider inside a group the photo has only partly (an HSL colour, a
     // grading range) blends from its default.
@@ -328,7 +343,11 @@ export default function StudioPresets() {
   const changeAmount = (value: number) => {
     if (!amount || amount.path !== selectedImage?.path) return;
     setAmount({ ...amount, value });
-    const values = withCarriedWhitesFor(presetValues(amount.preset.adjustments), amount.base);
+    const values = expressPastedSettings(presetValues(amount.preset.adjustments), {
+      ...amount.target,
+      isRaw: Boolean(selectedImage?.isRaw),
+      replaceLayers: true
+    });
     // Above half strength the preset's mask is already on this photo.
     // Keep its pending/completed detection across Amount moves; returning
     // from the base masks below half strength starts a fresh detection.

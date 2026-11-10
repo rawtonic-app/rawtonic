@@ -383,6 +383,10 @@ pub struct PasteFrom {
     /// (settings chosen in the picker carry versions only when chosen).
     #[serde(default)]
     pub new_edit: Option<NewEditResponses>,
+    /// Chosen in the Copy and Sync settings picker: processing versions go
+    /// along exactly as chosen there (`pasted_versions` leaves them).
+    #[serde(default)]
+    pub as_chosen: bool,
 }
 
 /// The processing versions of a new edit (`newEditResponses` in the editor).
@@ -596,10 +600,25 @@ fn pasted_into(
         new_adjustments.clone()
     });
 
-    // Whites carried without a tone version mean the amount they render: in
-    // this photograph's response (no photo-wide key changes with them).
+    // In this photograph's responses: Whites carried without a tone version
+    // mean the amount they render, and a version key stays the
+    // photograph's while something the paste leaves renders with it
+    // (`pasted_versions`); versions chosen in the picker go along as chosen.
     let mut expressed = adjustments.clone();
-    rawtonic_engine::image_processing::express_pasted_whites(&mut expressed, &new_adjustments);
+    if paste.is_some_and(|from| from.as_chosen) {
+        rawtonic_engine::image_processing::express_pasted_whites(&mut expressed, &new_adjustments);
+    } else {
+        rawtonic_engine::pasted_versions::express_pasted(
+            &mut expressed,
+            &rawtonic_engine::pasted_versions::PasteTarget {
+                recipe: &new_adjustments,
+                is_new: new_edit,
+                is_raw: is_raw_file(source_path),
+                replace_layers: paste.is_none_or(|from| from.replace_layers),
+                merge_groups: style.is_some(),
+            },
+        );
+    }
     let adjustments = &expressed;
     if let (Some(new_map), Some(pasted_map)) =
         (new_adjustments.as_object_mut(), adjustments.as_object())
@@ -1800,12 +1819,49 @@ mod tests {
             paste(v17.clone(), serde_json::json!({"whites": 74.0}))["whites"],
             50.0
         );
-        // Settings that name their tone version mean its values.
+        // Settings that name their tone version mean its values: on an
+        // edited photograph (which renders with its tone version also where
+        // no slider is moved) the amount they render, in its response.
         let named = paste(v16, serde_json::json!({"whites": 50.0, "toneVersion": 17}));
         assert_eq!(
             (named["whites"].as_f64(), named["toneVersion"].as_u64()),
-            (Some(50.0), Some(17))
+            (Some(74.0), Some(16))
         );
+    }
+
+    /// A pasted tool's version key goes along only when nothing the paste
+    /// leaves on the photograph renders with it: a layer using Structure
+    /// keeps the photograph's travel (and its own value); without one the
+    /// paste takes the source's (`pasted_versions`).
+    #[test]
+    fn a_pasted_structure_keeps_the_travel_a_layer_of_the_photograph_uses() {
+        let source = Path::new("/nowhere/photo.CR3");
+        let paste = |base: Value| {
+            pasted_into(
+                base,
+                &None,
+                "/nowhere/photo.CR3",
+                source,
+                &serde_json::json!({"structure": 50.0, "structureVersion": 3}),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        let layer = serde_json::json!([{"id": "l", "adjustments": {"structure": 40.0}}]);
+        let kept = paste(serde_json::json!({"exposure": 0.5, "masks": layer}));
+        // Stated as the photograph renders it (no key: version 1).
+        assert_eq!(kept["structureVersion"], 1, "{kept}");
+        assert_eq!(
+            kept["structure"].as_f64(),
+            Some(rawtonic_engine::image_processing::structure_amount_v2(50.0))
+        );
+        assert_eq!(kept["masks"][0]["adjustments"]["structure"], 40.0);
+        let taken = paste(serde_json::json!({"exposure": 0.5}));
+        assert_eq!(taken["structureVersion"], 3);
+        assert_eq!(taken["structure"], 50.0);
     }
 
     /// Editing a photograph without an edit (or after a Library Reset) from
@@ -2583,6 +2639,7 @@ mod tests {
         let paste = PasteFrom {
             source: paths[0].clone(),
             replace_layers: false,
+            as_chosen: false,
             new_edit: None,
         };
         let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
@@ -2652,6 +2709,7 @@ mod tests {
         let paste = PasteFrom {
             source: paths[0].clone(),
             replace_layers: false,
+            as_chosen: true,
             new_edit: Some(NewEditResponses {
                 raw,
                 other: serde_json::Map::new(),
@@ -2692,6 +2750,7 @@ mod tests {
         let paste = PasteFrom {
             source: "/elsewhere/B.ARW".into(),
             replace_layers: false,
+            as_chosen: false,
             new_edit: None,
         };
         // As Shot: no custom balance.
@@ -2725,6 +2784,7 @@ mod tests {
         let paste = PasteFrom {
             source: "/elsewhere/B.ARW".into(),
             replace_layers: false,
+            as_chosen: false,
             new_edit: None,
         };
         // The photograph has one layer; 32 more would be 33.
@@ -2842,6 +2902,7 @@ mod tests {
         let paste = PasteFrom {
             source: paths[0].clone(),
             replace_layers: false,
+            as_chosen: false,
             new_edit: None,
         };
         let mut runs = Vec::new();
