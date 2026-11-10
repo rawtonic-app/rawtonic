@@ -7407,8 +7407,11 @@ pub const DEHAZE_VERSION_KEY: &str = "dehazeVersion";
 /// spared them), local contrast keeps falling to −100 (about half; version
 /// 1 lost no more below −50) and chroma fades. On the slider atlas version
 /// 1's −100 lost as much local contrast as Camera Raw's −48 with twice its
-/// lift (task ATF1; fitted on half of the atlas's 48 frames, held out on the
-/// other half; notes: benchmark-results/atf1-dehaze-negative-2026-11-10,
+/// lift (task ATF1). Fitted on 24 of the atlas's 48 frames; the other 24
+/// were looked at during model selection (one objective was tightened after
+/// their first check), so they are not an independent validation, and on
+/// them −100 still misses the atlas's amber bound in one tone band (median
+/// 2.5 L*; notes: benchmark-results/atf1-dehaze-negative-2026-11-10,
 /// parity-gaps/G06-presence.md). Raising Dehaze is the same in both.
 /// Recipes without the key keep version 1.
 pub const DEHAZE_VERSION: u64 = 2;
