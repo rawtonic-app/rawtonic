@@ -26,7 +26,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { INITIAL_ADJUSTMENTS, PasteMode, normalizeLoadedAdjustments, whitesAmountV17 } from '../utils/adjustments';
-import { revertStyle } from '../utils/appliedStyle';
+import { revertStyle, withStyleAmount } from '../utils/appliedStyle';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
 import { cropEditCancelled, cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
@@ -1424,6 +1424,14 @@ describe('pasted version keys onto a never-edited open photo', () => {
       });
     });
     expect(useEditorStore.getState().adjustments).toMatchObject({ toneVersion: 1, highlights: -30 });
+    // Its record keeps that response at every Amount (no switch at 50 %).
+    const applied = useEditorStore.getState().adjustments;
+    const without = revertStyle(applied).recipe;
+    expect(without).toMatchObject({ toneVersion: 1, highlights: 0 });
+    for (const amount of [49, 50, 0])
+      expect(withStyleAmount(applied, without, { toneVersion: 2, highlights: -30 }, amount)).toMatchObject({
+        toneVersion: 1
+      });
     await act(async () => {});
   });
 });

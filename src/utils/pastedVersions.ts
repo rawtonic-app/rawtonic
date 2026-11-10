@@ -136,6 +136,25 @@ const KEYS: VersionKey[] = [
   }
 ];
 
+/** The version keys a paste may keep as the photograph has them. */
+export const PASTED_VERSION_KEYS: readonly string[] = KEYS.map((key) => key.key);
+
+/** `before` (the photograph before a style, which a style's record keeps)
+ * with each version key the paste kept (`expressed` states it otherwise
+ * than `pasted`) as the paste stated it: the photograph renders the same
+ * with either (the editor states a missing key's default its own way), and
+ * the record must not switch it at the style's Amount's midpoint. */
+export function withKeptVersions<T extends Partial<Adjustments>>(
+  before: T,
+  pasted: Partial<Adjustments>,
+  expressed: Partial<Adjustments>
+): T {
+  const p = pasted as Values;
+  const e = expressed as Values;
+  const kept = PASTED_VERSION_KEYS.filter((key) => has(p, key) && has(e, key) && e[key] !== p[key]);
+  return kept.length === 0 ? before : { ...before, ...Object.fromEntries(kept.map((key) => [key, e[key]])) };
+}
+
 const RAW_DEFAULTED = new Set(['sharpness', 'lumaNoiseReduction']);
 
 type Values = Record<string, unknown>;

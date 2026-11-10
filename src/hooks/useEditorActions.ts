@@ -36,7 +36,7 @@ import {
   withCarriedWhitesFor,
   isNewRecipe
 } from '../utils/adjustments';
-import { expressPastedSettings } from '../utils/pastedVersions';
+import { expressPastedSettings, withKeptVersions } from '../utils/pastedVersions';
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
@@ -1556,21 +1556,25 @@ export function useEditorActions() {
           const unresolved = withPastedLensUnresolved(merged, current, adjustmentsToApply);
           // The style's record, of the recipe as shown (its lens data waiting).
           const without = styleHere && !styleHere.remove ? revertStyle(current).recipe : null;
-          // The style's values as written onto this photo (carried Whites in its response).
-          const next =
+          // The style's values as written onto this photo (in its responses),
+          // recorded from the versions the paste kept as it stated them.
+          const styleValues =
             styleHere && !styleHere.remove
-              ? recordStyle(
-                  without!,
-                  unresolved,
-                  expressPastedSettings(adjustmentsToApply, {
-                    ...openPasteTarget(open.path, without!, true),
-                    isRaw: open.isRaw,
-                    replaceLayers: true,
-                    mergeGroups: true
-                  }),
-                  styleHere.id
-                )
-              : unresolved;
+              ? expressPastedSettings(adjustmentsToApply, {
+                  ...openPasteTarget(open.path, without!, true),
+                  isRaw: open.isRaw,
+                  replaceLayers: true,
+                  mergeGroups: true
+                })
+              : null;
+          const next = styleValues
+            ? recordStyle(
+                withKeptVersions(without!, adjustmentsToApply, styleValues),
+                unresolved,
+                styleValues,
+                styleHere!.id
+              )
+            : unresolved;
           debouncedSetHistory.flush();
           setAdjustments(() => next);
           // Its own step also during a drag (not one of its moves).
