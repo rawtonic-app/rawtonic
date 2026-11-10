@@ -10618,6 +10618,10 @@ fn lock_processor<'a>(
     };
     #[cfg(feature = "performance-profiling")]
     drop(wait_stage);
+    if processor_slot.take_discarded() {
+        log::warn!("Rebuilding the GPU processor after a render ran out of graphics memory");
+        processor_lock.take();
+    }
     let mut needs_new_processor = false;
     // Processing pipelines and scratch tiles do not depend on source size.
     // The constructor clamps scratch allocation to a 2304-pixel tile, while
@@ -10718,7 +10722,7 @@ pub fn process_and_get_dynamic_image_inner(
     if output_to_display {
         return render();
     }
-    gpu_scoped(&context.device, render).and_then(|image| image)
+    processor_slot.discard_after(gpu_scoped(&context.device, render).and_then(|image| image))
 }
 
 /// Renders the analytics of a whole frame for the scopes from `proxy`, a
@@ -10821,10 +10825,12 @@ pub fn process_and_get_dynamic_images(
     caller_id: &str,
     outputs: &[RenderOutput],
 ) -> Result<Vec<DynamicImage>, String> {
-    gpu_scoped(&context.device, || {
-        render_outputs(context, processor_slot, kept, request, caller_id, outputs)
-    })
-    .and_then(|images| images)
+    processor_slot.discard_after(
+        gpu_scoped(&context.device, || {
+            render_outputs(context, processor_slot, kept, request, caller_id, outputs)
+        })
+        .and_then(|images| images),
+    )
 }
 
 fn render_outputs(
@@ -10909,7 +10915,9 @@ pub fn gpu_scoped<T>(device: &wgpu::Device, work: impl FnOnce() -> T) -> Result<
         Some(error) => {
             log::error!("GPU render failed: {error}");
             Err(match error {
-                wgpu::Error::OutOfMemory { .. } => "The graphics card ran out of memory for this photograph. Close other programs that use it and try again.".to_string(),
+                wgpu::Error::OutOfMemory { .. } => {
+                    rawtonic_runtime::gpu_memory::gpu_out_of_memory("render")
+                }
                 _ => format!("The graphics card could not render this photograph: {error}"),
             })
         }

@@ -6,6 +6,8 @@
 //! Points: `start` (before Tauri builds the app, the crash records armed
 //! early), `setup` (before the log exists), `gpu-adapter`, `gpu-device`,
 //! `gpu-compile` (the GPU start's steps, its flag written).
+//! `RAWTONIC_TEST_GPU_OOM=<n>` fails export renders out of graphics memory
+//! (`gpu_out_of_memory`).
 
 /// Crashes here when `RAWTONIC_TEST_CRASH` names this point.
 pub(crate) fn at(point: &str) {
@@ -42,4 +44,26 @@ fn crash(kind: &str) {
         "panic" => panic!("RAWTONIC_TEST_CRASH panic"),
         _ => {}
     }
+}
+
+/// `RAWTONIC_TEST_GPU_OOM=<n>`: the first `n` export renders of the process
+/// fail as a graphics card out of memory does, after their files are
+/// planned (tests of the export's retry: a retried photo must come out as
+/// it does without the fault, under the same name).
+pub(crate) fn gpu_out_of_memory() -> Result<(), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static FAILED: AtomicU64 = AtomicU64::new(0);
+    let Some(wanted) = std::env::var("RAWTONIC_TEST_GPU_OOM")
+        .ok()
+        .and_then(|n| n.parse::<u64>().ok())
+    else {
+        return Ok(());
+    };
+    if FAILED.fetch_add(1, Ordering::SeqCst) < wanted {
+        eprintln!("RAWTONIC_TEST_GPU_OOM: an export render fails out of memory");
+        return Err(rawtonic_runtime::gpu_memory::gpu_out_of_memory(
+            "failure injected by a test",
+        ));
+    }
+    Ok(())
 }

@@ -1,0 +1,2 @@
+[{"format":"tiff","settings":{"jpegQuality":90,"keepMetadata":false,"stripGps":false,"tiffBitDepth":16,"subfolder":"tiff16"}},
+ {"format":"jpg","settings":{"jpegQuality":90,"keepMetadata":false,"stripGps":false,"subfolder":"jpg"}}]

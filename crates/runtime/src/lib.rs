@@ -9,6 +9,7 @@ mod cancel;
 pub use cancel::CancelToken;
 mod cancelled;
 pub use cancelled::Cancelled;
+pub mod gpu_memory;
 mod render_stack;
 pub use render_stack::{
     RENDER_FRAME_BUDGET, RENDER_STACK_SIZE, render_thread, spawn_render_thread,

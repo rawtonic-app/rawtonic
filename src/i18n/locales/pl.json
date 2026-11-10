@@ -3719,6 +3719,7 @@
       },
       "errors": {
         "batchFailed": "Nieudane eksporty: {{failed}} z {{total}}",
+        "gpuMemory": "Za mało pamięci graficznej dla tego zdjęcia. Zamknij inne programy korzystające z karty graficznej i wyeksportuj to zdjęcie ponownie.",
         "offline": "{{file}} jest offline: eksport wymaga pliku RAW.",
         "terminated": "Eksport został nieoczekiwanie przerwany.",
         "textureLimit": "Obraz ({{width}} × {{height}} px) jest większy, niż ta karta graficzna może wyrenderować ({{limit}} px na bok).",

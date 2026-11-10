@@ -35,6 +35,13 @@ describe('render errors', () => {
       'a.jpg konnte nicht geschrieben werden: No space left on device (os error 28)'
     );
     expect(renderErrorMessage('Export task terminated unexpectedly')).toBe('Der Export wurde unerwartet beendet.');
+    expect(
+      renderErrorMessage(
+        'Not enough graphics memory for this photo. Close other programs that use the graphics card and export this photo again.'
+      )
+    ).toBe(
+      'Nicht genug Grafikspeicher für dieses Foto. Schließe andere Programme, die die Grafikkarte nutzen, und exportiere dieses Foto erneut.'
+    );
     expect(renderErrorMessage('Unreadable export request')).toBe(
       'Die gespeicherten Einstellungen dieses Exports konnten nicht gelesen werden.'
     );
