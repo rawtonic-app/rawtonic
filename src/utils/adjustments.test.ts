@@ -15,6 +15,9 @@ import {
   CLARITY_VERSION,
   VIBRANCE_VERSION,
   withVibranceVersion,
+  layersUseMixer,
+  withPresetVersions,
+  withHslVersion,
   layersUseVibrance,
   STRUCTURE_VERSION,
   withStructureVersion,
@@ -244,6 +247,13 @@ describe('RAW detail defaults', () => {
     const pasted = pastedAdjustments(normalizeLoadedAdjustments(moved, true), ['hsl', 'hslVersion'], PasteMode.Replace);
     expect(JSON.parse(JSON.stringify(pasted)).hslVersion).toBe(1);
     expect(pastedAdjustments({ ...moved, hslVersion: 2 }, ['hsl', 'hslVersion'], PasteMode.Merge).hslVersion).toBe(2);
+    // Copied layers that use the mixer carry the source's response; a
+    // layer-only preset from before the key states version 1.
+    const layerOnly = { masks: [{ adjustments: { hsl: { blues: { saturation: -30 } } } }] } as unknown as Adjustments;
+    expect(withHslVersion(layerOnly, { hslVersion: 2 }).hslVersion).toBe(2);
+    expect(withPresetVersions(layerOnly).hslVersion).toBe(1);
+    expect(layersUseMixer(layerOnly)).toBe(true);
+    expect(layersUseMixer({ masks: [{ adjustments: { saturation: 50 } }] } as unknown as Adjustments)).toBe(false);
   });
 
   it('carry the AI Denoise version with a copied amount', () => {

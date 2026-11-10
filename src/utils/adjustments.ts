@@ -1623,7 +1623,7 @@ const loadedHslVersion = (loaded: Partial<Adjustments>): number | undefined => {
   if (loaded.hslVersion !== undefined && loaded.hslVersion !== null) {
     return loaded.hslVersion;
   }
-  const used = mixerMoved(loaded.hsl) || (loaded.masks ?? []).some((mask) => mixerMoved(mask?.adjustments?.hsl));
+  const used = mixerMoved(loaded.hsl) || layersUseMixer(loaded);
   return used ? undefined : HSL_VERSION;
 };
 
@@ -1875,6 +1875,10 @@ export const withStructureVersion = <T extends Partial<Adjustments>>(
 export const layersUseVibrance = (adjustments: Partial<Adjustments>): boolean =>
   (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.vibrance as number | undefined) ?? 0) !== 0);
 
+/** Whether a layer of the recipe moves a colour mixer slider (its mixer follows the photo's `hslVersion`). */
+export const layersUseMixer = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.masks ?? []).some((mask) => mixerMoved(mask?.adjustments?.hsl));
+
 /** Whether a layer of the recipe uses Structure (its travel follows the photo's `structureVersion`). */
 export const layersUseStructure = (adjustments: Partial<Adjustments>): boolean =>
   (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0);
@@ -1915,7 +1919,10 @@ export const withHslVersion = <T extends Partial<Adjustments>>(
   if (Object.prototype.hasOwnProperty.call(picked, 'hslVersion') && picked.hslVersion == null) {
     return { ...picked, hslVersion: 1 };
   }
-  if (picked.hsl === undefined || picked.hslVersion != null) {
+  // Layers' mixer renders with the photo's response, so copied layers that
+  // use it carry it too.
+  const mixer = picked.hsl !== undefined || (source !== undefined && layersUseMixer(picked));
+  if (!mixer || picked.hslVersion != null) {
     return picked;
   }
   return { ...picked, hslVersion: source?.hslVersion ?? 1 };
