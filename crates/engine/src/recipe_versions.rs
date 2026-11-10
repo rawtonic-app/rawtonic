@@ -236,6 +236,16 @@ impl ToneVersion {
             ip::whites_amount_v1(value)
         }
     }
+
+    /// The slider value that renders the Whites amount `amount` (the inverse
+    /// of [`Self::whites_amount`]).
+    pub fn whites_value(self, amount: f64) -> f64 {
+        if self.0 >= WHITES_TRAVEL_TONE_VERSION {
+            ip::whites_value_v17(amount)
+        } else {
+            amount
+        }
+    }
 }
 
 /// `sharpenVersion` (`image_processing::SHARPEN_VERSION`): 1 when missing,

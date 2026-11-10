@@ -14,6 +14,7 @@ import {
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
+  withPortableWhites,
   type Adjustments
 } from '../../utils/adjustments';
 
@@ -24,8 +25,8 @@ const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 /** Recipe keys without a control of their own that travel with a copied
  * parameter, as in a full copy: the colour noise amounts mean what the
- * recipe's colour noise filter makes of them, Shadows and Whites what its
- * tone-slider response makes of them. */
+ * recipe's colour noise filter makes of them, Shadows what its tone-slider
+ * response makes of it. */
 export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   // A LUT selection includes its baked table and input space.
   lutPath: ['lutName', 'lutSize', 'lutData', 'lutIsSceneReferred'],
@@ -36,10 +37,9 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   lumaNoiseReduction: ['lumaNoiseVersion'],
   lumaNoiseDetail: ['lumaNoiseVersion'],
   lumaNoiseContrast: ['lumaNoiseVersion'],
-  // Shadows and Whites mean what the recipe's tone-slider response makes of
-  // them (Whites' travel from tone version 17).
+  // Shadows means what the recipe's tone-slider response makes of it.
+  // (Whites travel as the amount they render: withPortableWhites.)
   shadows: ['toneVersion'],
-  whites: ['toneVersion'],
   // Clarity means what the recipe's Clarity response makes of it.
   clarity: ['clarityVersion'],
   // Temperature means what the recipe's Temperature response makes of it.
@@ -74,11 +74,14 @@ export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> 
   // A missing response key would vanish on the way: say it explicitly. The
   // grain version is not picked along (an absent one would read as an undo
   // to version 1): withGrainVersion takes it from the source.
-  return withBwVersion(
-    withVibranceVersion(
-      withDetailVersions(
-        withGrainVersion(
-          withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, values), values), values),
+  return withPortableWhites(
+    withBwVersion(
+      withVibranceVersion(
+        withDetailVersions(
+          withGrainVersion(
+            withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, values), values), values),
+            values
+          ),
           values
         ),
         values

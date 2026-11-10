@@ -7478,6 +7478,67 @@ pub fn whites_amount_v17(value: f64) -> f64 {
         + (t3 - t2) * h * m1
 }
 
+/// The version-17 Whites slider value that renders `amount` (the inverse of
+/// [`whites_amount_v17`], a monotone bijection of 0..=100; lowered Whites
+/// unchanged), to 1e-9 of a slider step.
+pub fn whites_value_v17(amount: f64) -> f64 {
+    if amount <= 0.0 {
+        return amount;
+    }
+    let target = amount.min(100.0);
+    let (mut lo, mut hi) = (0.0, 100.0);
+    for _ in 0..64 {
+        let mid = 0.5 * (lo + hi);
+        if whites_amount_v17(mid) < target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    // A slider value copied back onto its own response comes back exactly.
+    let value = 0.5 * (lo + hi);
+    let rounded = (value * 1e6).round() / 1e6;
+    if (whites_amount_v17(rounded) - target).abs() <= 1e-9 {
+        rounded
+    } else {
+        value
+    }
+}
+
+/// Settings that travel between photographs (copy, presets, Edit all
+/// selected) without their own `toneVersion` carry Whites as the amount they
+/// render (version 16's slider value; presets from before version 17 are
+/// that already). `destination` is the photograph's recipe: its own and its
+/// layers' Whites in `pasted` are re-expressed in its tone-slider response,
+/// so the paste changes no photo-wide key and renders the copied amount.
+pub fn express_pasted_whites(pasted: &mut serde_json::Value, destination: &serde_json::Value) {
+    let tone = crate::recipe_versions::ToneVersion::of(destination);
+    let Some(map) = pasted.as_object_mut() else {
+        return;
+    };
+    if map.contains_key(TONE_VERSION_KEY) {
+        return;
+    }
+    let express = |value: &mut serde_json::Value| {
+        if let Some(amount) = value.as_f64() {
+            let slider = tone.whites_value(amount);
+            if slider != amount {
+                *value = serde_json::json!(slider);
+            }
+        }
+    };
+    if let Some(whites) = map.get_mut("whites") {
+        express(whites);
+    }
+    if let Some(layers) = map.get_mut("masks").and_then(|m| m.as_array_mut()) {
+        for layer in layers {
+            if let Some(whites) = layer.pointer_mut("/adjustments/whites") {
+                express(whites);
+            }
+        }
+    }
+}
+
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
 pub fn tone_version_of(adjustments: &serde_json::Value) -> u64 {
@@ -8093,7 +8154,10 @@ mod structure_version_tests {
 
 #[cfg(test)]
 mod whites_travel_tests {
-    use super::{SCALES, get_all_adjustments_from_json, whites_amount_v17};
+    use super::{
+        SCALES, express_pasted_whites, get_all_adjustments_from_json, whites_amount_v17,
+        whites_value_v17,
+    };
     use serde_json::json;
 
     fn amounts(whites: f64, tone: Option<u64>) -> (f32, f32) {
@@ -8136,6 +8200,34 @@ mod whites_travel_tests {
             assert!(next > last + 0.2, "{i}");
             last = next;
         }
+    }
+
+    #[test]
+    fn a_copied_whites_amount_comes_back_as_the_slider_value_it_was() {
+        for value in -100..=100 {
+            let value = f64::from(value);
+            assert_eq!(whites_value_v17(whites_amount_v17(value)), value, "{value}");
+        }
+        assert!((whites_amount_v17(whites_value_v17(90.0)) - 90.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pasted_whites_are_expressed_in_the_destinations_response() {
+        let pasted = || json!({"whites": 74.0, "masks": [{"adjustments": {"whites": 74.0}}, {"adjustments": {}}]});
+        let mut onto_17 = pasted();
+        express_pasted_whites(&mut onto_17, &json!({"toneVersion": 17}));
+        assert_eq!(onto_17["whites"], 50.0);
+        assert_eq!(onto_17["masks"][0]["adjustments"]["whites"], 50.0);
+        assert_eq!(onto_17["masks"][1]["adjustments"], json!({}));
+        for destination in [json!({}), json!({"toneVersion": 16})] {
+            let mut onto_old = pasted();
+            express_pasted_whites(&mut onto_old, &destination);
+            assert_eq!(onto_old, pasted());
+        }
+        // Settings with their own tone version mean that version's values.
+        let mut named = json!({"whites": 50.0, "toneVersion": 17});
+        express_pasted_whites(&mut named, &json!({"toneVersion": 16}));
+        assert_eq!(named["whites"], 50.0);
     }
 }
 

@@ -15,6 +15,7 @@ import {
   withVibranceVersion,
   withGrainVersion,
   withLumaNoiseVersion,
+  withPortableWhites,
   withSharpenVersion
 } from '../utils/adjustments';
 import { Folder, Invokes, Preset } from '../components/ui/AppProperties';
@@ -64,7 +65,10 @@ export function collectPresetAdjustments(
       withDetailVersions(
         withGrainVersion(
           withLumaNoiseVersion(
-            withWhiteBalanceVersions(withSharpenVersion(presetAdjustments, current), current),
+            withWhiteBalanceVersions(
+              withSharpenVersion(withPortableWhites(presetAdjustments, current), current),
+              current
+            ),
             current
           ),
           current

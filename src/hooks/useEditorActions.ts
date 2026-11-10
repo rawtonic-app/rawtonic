@@ -31,7 +31,8 @@ import {
   withSharpenVersion,
   withGrainStructure,
   withLegacyGrainVersion,
-  withLoadedCurves
+  withLoadedCurves,
+  withCarriedWhitesFor
 } from '../utils/adjustments';
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
@@ -1506,14 +1507,17 @@ export function useEditorActions() {
         // Preset layers replace the photo's layers, with the same fresh
         // detections as paste. Save the open photo through its editor only:
         // a parallel batch write could replace a newly completed detection.
-        const merged = style && !styleHere ? null : pastedOpen(open, current, adjustmentsToApply, paste, styleHere);
+        // Carried Whites in the open photo's own response (as the backend
+        // writes them onto the others).
+        const here = withCarriedWhitesFor(adjustmentsToApply, current);
+        const merged = style && !styleHere ? null : pastedOpen(open, current, here, paste, styleHere);
         if (merged) {
           // (Taking a style back leaves the lens: it is the photo's own.)
           const unresolved = withPastedLensUnresolved(merged, current, adjustmentsToApply);
           // The style's record, of the recipe as shown (its lens data waiting).
           const next =
             styleHere && !styleHere.remove
-              ? recordStyle(revertStyle(current).recipe, unresolved, adjustmentsToApply, styleHere.id)
+              ? recordStyle(revertStyle(current).recipe, unresolved, here, styleHere.id)
               : unresolved;
           debouncedSetHistory.flush();
           setAdjustments(() => next);
@@ -1524,7 +1528,7 @@ export function useEditorActions() {
           if (unresolved !== merged) void resolvePastedLens(open.path, pastedStep);
         }
       } else if (open) {
-        setAdjustments({ ...adjustments, ...adjustmentsToApply });
+        setAdjustments({ ...adjustments, ...withCarriedWhitesFor(adjustmentsToApply, adjustments) });
         // Its History entry now, so it is the open photograph's part of the
         // batch's undo step (not a later step of its own).
         debouncedSetHistory.flush();
