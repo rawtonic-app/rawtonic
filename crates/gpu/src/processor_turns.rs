@@ -90,7 +90,8 @@ impl<T> ProcessorSlot<T> {
 
     /// Runs a render on this slot's processor, `work` returning its result
     /// once the GPU's error scopes are read (`gpu_scoped`), and one at a
-    /// time per slot until the result is known. When the render ran out of
+    /// time per background-only slot (the exports') until the result is
+    /// known; slots with turns (the Develop view's, thumbnails) are not gated. When the render ran out of
     /// graphics memory the processor may hold a texture or pipeline it could
     /// not allocate (wgpu hands out an invalid object and keeps it), which
     /// would fail every later render on it even once memory is free: the
@@ -101,6 +102,11 @@ impl<T> ProcessorSlot<T> {
     /// validation error nobody retries (notes: parity-gaps/G66). A render
     /// nested in one of its own thread goes on at once.
     pub fn scoped<R>(&self, work: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+        if !self.background_only {
+            // Foreground renders and thumbnails take turns; a gate in front
+            // of the turns would let a background render hold up a frame.
+            return self.mark_discard(work());
+        }
         let me = std::thread::current().id();
         let mut scoping = self.scoping.lock().unwrap_or_else(PoisonError::into_inner);
         if *scoping == Some(me) {
@@ -128,7 +134,10 @@ impl<T> ProcessorSlot<T> {
             }
         }
         let _handoff = Handoff(self);
-        let result = work();
+        self.mark_discard(work())
+    }
+
+    fn mark_discard<R>(&self, result: Result<R, String>) -> Result<R, String> {
         if let Err(error) = &result
             && rawtonic_runtime::gpu_memory::is_gpu_out_of_memory(error)
         {
@@ -577,6 +586,15 @@ mod tests {
     /// Another export worker does not take the processor between the failed
     /// render releasing it and the discard mark: it waits and then finds
     /// the processor to be built anew, never the invalid one.
+    #[test]
+    fn a_slot_with_turns_is_not_gated() {
+        let slot = ProcessorSlot::new(Some(1));
+        let _ = slot.scoped(|| {
+            // A render nested from another thread is not held up.
+            std::thread::scope(|scope| scope.spawn(|| slot.scoped(|| Ok(()))).join().unwrap())
+        });
+    }
+
     #[test]
     fn a_second_worker_never_gets_the_processor_a_failed_render_left() {
         let turns = turns();
