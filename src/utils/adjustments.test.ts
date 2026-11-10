@@ -15,6 +15,9 @@ import {
   CLARITY_VERSION,
   VIBRANCE_VERSION,
   withVibranceVersion,
+  layersUseMixer,
+  withPresetVersions,
+  withHslVersion,
   layersUseVibrance,
   STRUCTURE_VERSION,
   withStructureVersion,
@@ -27,6 +30,7 @@ import {
   RENDER_VERSION,
   DEFRINGE_VERSION,
   BW_VERSION,
+  HSL_VERSION,
   SHARPEN_VERSION,
   LUMA_NOISE_VERSION,
   AI_DENOISE_VERSION,
@@ -208,6 +212,48 @@ describe('RAW detail defaults', () => {
     expect(pastedAdjustments({ ...mixed, bwVersion: 2 }, ['grayMixer', 'bwVersion'], PasteMode.Merge).bwVersion).toBe(
       2
     );
+  });
+
+  it('keep the colour mixer response a saved recipe rendered with', () => {
+    expect(HSL_VERSION).toBe(2);
+    expect(initialAdjustmentsFor(true).hslVersion).toBe(HSL_VERSION);
+    expect(initialAdjustmentsFor(false).hslVersion).toBe(HSL_VERSION);
+    // Every mixer slider at 0 renders the same with either response.
+    expect(normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS } as Adjustments, true).hslVersion).toBe(HSL_VERSION);
+    // A recipe that moved a mixer slider, on the photo or a layer, keeps the
+    // first response (missing key).
+    const moved = {
+      ...INITIAL_ADJUSTMENTS,
+      hsl: { ...INITIAL_ADJUSTMENTS.hsl, blues: { hue: 0, saturation: -30, luminance: 0 } }
+    } as Adjustments;
+    expect(normalizeLoadedAdjustments(moved, true).hslVersion).toBeUndefined();
+    const layer = {
+      ...INITIAL_ADJUSTMENTS,
+      masks: [
+        {
+          id: 'm',
+          name: 'm',
+          visible: true,
+          invert: false,
+          opacity: 100,
+          subMasks: [],
+          adjustments: { hsl: { reds: { hue: 10 } } }
+        }
+      ]
+    } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layer, true).hslVersion).toBeUndefined();
+    expect(normalizeLoadedAdjustments({ ...moved, hslVersion: 2 }, true).hslVersion).toBe(2);
+    // A paste of the mixer states the source's response (1 for the older edit).
+    const pasted = pastedAdjustments(normalizeLoadedAdjustments(moved, true), ['hsl', 'hslVersion'], PasteMode.Replace);
+    expect(JSON.parse(JSON.stringify(pasted)).hslVersion).toBe(1);
+    expect(pastedAdjustments({ ...moved, hslVersion: 2 }, ['hsl', 'hslVersion'], PasteMode.Merge).hslVersion).toBe(2);
+    // Copied layers that use the mixer carry the source's response; a
+    // layer-only preset from before the key states version 1.
+    const layerOnly = { masks: [{ adjustments: { hsl: { blues: { saturation: -30 } } } }] } as unknown as Adjustments;
+    expect(withHslVersion(layerOnly, { hslVersion: 2 }).hslVersion).toBe(2);
+    expect(withPresetVersions(layerOnly).hslVersion).toBe(1);
+    expect(layersUseMixer(layerOnly)).toBe(true);
+    expect(layersUseMixer({ masks: [{ adjustments: { saturation: 50 } }] } as unknown as Adjustments)).toBe(false);
   });
 
   it('carry the AI Denoise version with a copied amount', () => {

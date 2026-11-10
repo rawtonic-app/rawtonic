@@ -1365,6 +1365,10 @@ mod tests {
                 rawtonic_engine::image_processing::BW_VERSION_KEY,
                 rawtonic_engine::image_processing::BW_VERSION,
             ),
+            (
+                rawtonic_engine::image_processing::HSL_VERSION_KEY,
+                rawtonic_engine::image_processing::HSL_VERSION,
+            ),
         ] {
             assert_eq!(a[key].as_u64(), Some(version), "{key}");
         }

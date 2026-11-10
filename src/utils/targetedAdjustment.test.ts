@@ -104,6 +104,21 @@ describe('targeted adjustment', () => {
     );
   });
 
+  it("weighs the mixer channels with the recipe's mixer response", () => {
+    const orange = mixerColourOf(linearFromSrgb([230, 160, 40]));
+    const v1 = startTargetedAdjustment('saturation', { ...base(), hslVersion: 1 }, orange, null)!;
+    const v2 = startTargetedAdjustment('saturation', { ...base(), hslVersion: 2 }, orange, null)!;
+    expect(v1.weights).not.toEqual(v2.weights);
+    expect(sum(v2.weights!)).toBeCloseTo(1, 6);
+    // Without the key: version 1, as the renderer.
+    expect(startTargetedAdjustment('saturation', { ...base(), hslVersion: undefined }, orange, null)!.weights).toEqual(
+      v1.weights
+    );
+    // A sky blue drives mostly Blues under version 2.
+    const blues = startTargetedAdjustment('luminance', { ...base(), hslVersion: 2 }, sky, null)!;
+    expect(blues.weights![5]).toBeGreaterThan(0.5);
+  });
+
   it('adds a curve point at the level under the pointer and then moves it', () => {
     const start = startTargetedAdjustment('curve', base(), null, [linearFromSrgb([100, 100, 100])])!;
     expect(start.curveX).toBe(100);
