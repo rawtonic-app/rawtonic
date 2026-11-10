@@ -32,7 +32,8 @@
    ]
   },
   "expected": {
-   "structure": 18.625
+   "structure": 18.625,
+   "structureVersion": 1
   }
  },
  {
@@ -59,7 +60,8 @@
       "structure": 18.625
      }
     }
-   ]
+   ],
+   "structureVersion": 1
   }
  },
  {
@@ -80,7 +82,8 @@
    ]
   },
   "expected": {
-   "structure": 54.781124347600645
+   "structure": 54.781124347600645,
+   "structureVersion": 2
   }
  },
  {
@@ -176,7 +179,8 @@
       "structure": 12.105
      }
     }
-   ]
+   ],
+   "structureVersion": 1
   }
  },
  {
@@ -207,7 +211,8 @@
    "crop": null
   },
   "expected": {
-   "shadows": 30
+   "shadows": 30,
+   "toneVersion": 12
   }
  },
  {
@@ -221,7 +226,8 @@
    "exposure": 0.3
   },
   "expected": {
-   "whites": 74
+   "whites": 74,
+   "toneVersion": 16
   }
  },
  {
@@ -275,7 +281,8 @@
    ]
   },
   "expected": {
-   "clarity": 30
+   "clarity": 30,
+   "clarityVersion": 1
   }
  },
  {
@@ -317,7 +324,8 @@
    ]
   },
   "expected": {
-   "temperature": 75
+   "temperature": 75,
+   "temperatureVersion": 1
   }
  },
  {
@@ -354,7 +362,8 @@
       "temperature": -30
      }
     }
-   ]
+   ],
+   "temperatureVersion": 2
   }
  },
  {
@@ -381,7 +390,8 @@
       "tint": 76
      }
     }
-   ]
+   ],
+   "tintVersion": 1
   }
  },
  {
@@ -402,7 +412,8 @@
    ]
   },
   "expected": {
-   "tint": -20
+   "tint": -20,
+   "tintVersion": 2
   }
  },
  {
@@ -440,7 +451,8 @@
      "saturation": 0,
      "luminance": 0
     }
-   }
+   },
+   "hslVersion": 1
   }
  },
  {
@@ -485,7 +497,8 @@
    "exposure": 0.2
   },
   "expected": {
-   "sharpenRadius": 1.2
+   "sharpenRadius": 1.2,
+   "sharpenVersion": 1
   },
   "isRaw": true
  },
@@ -521,7 +534,8 @@
    ]
   },
   "expected": {
-   "sharpness": 60
+   "sharpness": 60,
+   "sharpenVersion": 1
   }
  },
  {
@@ -535,7 +549,8 @@
    "exposure": 1
   },
   "expected": {
-   "colorNoiseReduction": 30
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 2
   }
  },
  {
@@ -555,7 +570,8 @@
    ]
   },
   "expected": {
-   "defringePurpleAmount": 20
+   "defringePurpleAmount": 20,
+   "defringeVersion": 1
   }
  },
  {
@@ -568,7 +584,8 @@
    "defringeGreenAmount": 10
   },
   "expected": {
-   "defringePurpleAmount": 20
+   "defringePurpleAmount": 20,
+   "defringeVersion": 1
   }
  },
  {
@@ -594,7 +611,8 @@
   "expected": {
    "clarity": 20,
    "structure": 10,
-   "structureVersion": 3
+   "structureVersion": 3,
+   "clarityVersion": 1
   }
  },
  {
@@ -631,6 +649,119 @@
      }
     }
    ]
+  }
+ },
+ {
+  "name": "colour noise onto an edited RAW without its own: the version it renders with, stated",
+  "pasted": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 11
+  },
+  "destination": {
+   "exposure": 0.5
+  },
+  "isRaw": true,
+  "expected": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 11
+  }
+ },
+ {
+  "name": "colour noise onto an edited JPEG without its own: version 1, stated",
+  "pasted": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 11
+  },
+  "destination": {
+   "exposure": 0.5
+  },
+  "expected": {
+   "colorNoiseReduction": 30,
+   "colorNoiseVersion": 1
+  }
+ },
+ {
+  "name": "a style's colour mixer joins the photo's: its other colours keep the response",
+  "pasted": {
+   "hsl": {
+    "reds": {
+     "hue": 10
+    }
+   },
+   "hslVersion": 2
+  },
+  "destination": {
+   "hslVersion": 1,
+   "hsl": {
+    "blues": {
+     "saturation": -40
+    }
+   }
+  },
+  "mergeGroups": true,
+  "expected": {
+   "hsl": {
+    "reds": {
+     "hue": 10
+    }
+   },
+   "hslVersion": 1
+  }
+ },
+ {
+  "name": "a style's colour mixer over every moved colour of the photo's: carried",
+  "pasted": {
+   "hsl": {
+    "blues": {
+     "saturation": 20
+    }
+   },
+   "hslVersion": 2
+  },
+  "destination": {
+   "hslVersion": 1,
+   "hsl": {
+    "blues": {
+     "saturation": -40,
+     "hue": 0
+    }
+   }
+  },
+  "mergeGroups": true,
+  "expected": {
+   "hsl": {
+    "blues": {
+     "saturation": 20
+    }
+   },
+   "hslVersion": 2
+  }
+ },
+ {
+  "name": "a pasted colour mixer replaces the photo's whole mixer: carried",
+  "pasted": {
+   "hsl": {
+    "reds": {
+     "hue": 10
+    }
+   },
+   "hslVersion": 2
+  },
+  "destination": {
+   "hslVersion": 1,
+   "hsl": {
+    "blues": {
+     "saturation": -40
+    }
+   }
+  },
+  "expected": {
+   "hsl": {
+    "reds": {
+     "hue": 10
+    }
+   },
+   "hslVersion": 2
   }
  }
 ]

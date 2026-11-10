@@ -376,6 +376,21 @@ export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
 }
 
+/** Whether the open photograph `path` has no edit yet: it was opened from
+ * a new (or no) saved recipe and has not been edited since loading. Pasted
+ * versions go onto it as onto a never-edited closed photograph
+ * (`pasted_versions`: it takes every one). */
+export function openHasNoEdit(path: string): boolean {
+  const { history, historyPending } = useEditorStore.getState();
+  return (
+    history.length === 1 &&
+    !historyPending &&
+    openedRecipe?.path === path &&
+    history[0] === openedRecipe.shown &&
+    newSaved(openedRecipe.saved)
+  );
+}
+
 /** The open photograph `open` with `pasted` (from `paste`, null: a preset),
  * as the backend pastes onto a closed photograph (`pasteInto`, `masks::paste_layers`): onto
  * its saved recipe while it is not edited since it was opened (then made
@@ -422,9 +437,10 @@ function pastedOpen(
     ? withCarriedWhitesFor(pasted, base ?? current)
     : expressPastedSettings(pasted, {
         recipe: base ?? current,
-        isNew: !base || isNewRecipe(base),
+        isNew: !base || isNewRecipe(base) || openHasNoEdit(open.path),
         isRaw: open.isRaw,
-        replaceLayers: paste?.replaceLayers ?? true
+        replaceLayers: paste?.replaceLayers ?? true,
+        mergeGroups: Boolean(style)
       });
   let merged = style?.remove
     ? base
@@ -1529,6 +1545,8 @@ export function useEditorActions() {
         // Preset layers replace the photo's layers, with the same fresh
         // detections as paste. Save the open photo through its editor only:
         // a parallel batch write could replace a newly completed detection.
+        // (Before the paste becomes a step of its history.)
+        const noEditBefore = openHasNoEdit(open.path);
         const merged = style && !styleHere ? null : pastedOpen(open, current, adjustmentsToApply, paste, styleHere);
         if (merged) {
           // (Taking a style back leaves the lens: it is the photo's own.)
@@ -1543,8 +1561,10 @@ export function useEditorActions() {
                   unresolved,
                   expressPastedSettings(adjustmentsToApply, {
                     recipe: without!,
+                    isNew: noEditBefore,
                     isRaw: open.isRaw,
-                    replaceLayers: true
+                    replaceLayers: true,
+                    mergeGroups: true
                   }),
                   styleHere.id
                 )
@@ -1562,7 +1582,7 @@ export function useEditorActions() {
           ...adjustments,
           ...expressPastedSettings(adjustmentsToApply, {
             recipe: adjustments,
-            isNew: false,
+            isNew: openHasNoEdit(open.path),
             isRaw: open.isRaw,
             replaceLayers: true
           })

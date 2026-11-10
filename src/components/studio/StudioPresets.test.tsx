@@ -24,7 +24,8 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 const apply = vi.fn();
 const setAdjustments = vi.fn();
 vi.mock('../../hooks/useEditorActions', () => ({
-  useEditorActions: () => ({ applyAdjustmentsToPaths: apply, setAdjustments })
+  useEditorActions: () => ({ applyAdjustmentsToPaths: apply, setAdjustments }),
+  openHasNoEdit: () => false
 }));
 const mockInvoke = vi.mocked(invoke);
 

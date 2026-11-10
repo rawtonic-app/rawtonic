@@ -21,7 +21,7 @@
 use serde_json::Value;
 
 use crate::image_processing as ip;
-use crate::recipe_versions::ToneVersion;
+use crate::recipe_versions::{self as rv, ToneVersion};
 
 /// The photograph pasted onto.
 #[derive(Clone, Copy, Debug)]
@@ -36,6 +36,10 @@ pub struct PasteTarget<'a> {
     /// Pasted layers replace all of its own (else they join them, a pasted
     /// layer replacing its own of the same id: `masks::paste_layers`).
     pub replace_layers: bool,
+    /// A style: its nested settings join the photograph's own setting by
+    /// setting (`applied_style::merged`, a colour mixer's other colours stay)
+    /// instead of replacing them.
+    pub merge_groups: bool,
 }
 
 /// What on a photograph renders with a version key besides pasted values.
@@ -55,8 +59,13 @@ enum Users {
 /// A slider's value at one version re-expressed at another.
 type Translate = fn(value: f64, from: u64, to: u64) -> f64;
 
+/// The version a recipe renders with (`recipe_versions`: its default when
+/// missing, its clamp); `is_raw`: the photograph is a RAW file.
+type Effective = fn(recipe: &Value, is_raw: bool) -> u64;
+
 struct VersionKey {
     key: &'static str,
+    effective: Effective,
     users: Users,
     /// The sliders (photograph and layers) whose values the key's versions
     /// render differently, with the translation between versions (none:
@@ -69,18 +78,21 @@ struct VersionKey {
 const KEYS: &[VersionKey] = &[
     VersionKey {
         key: ip::TONE_VERSION_KEY,
+        effective: |r, _| rv::ToneVersion::of(r).get(),
         users: Users::Always,
         translated: &["whites"],
         translate: Some(translate_whites),
     },
     VersionKey {
         key: crate::color_noise::VERSION_KEY,
+        effective: |r, raw| rv::ColorNoiseVersion::of(r, raw).get(),
         users: Users::Always,
         translated: &[],
         translate: None,
     },
     VersionKey {
         key: ip::CLARITY_VERSION_KEY,
+        effective: |r, _| rv::ClarityVersion::of(r).get(),
         users: Users::Sliders {
             global: &["clarity"],
             layer: &["clarity"],
@@ -90,6 +102,7 @@ const KEYS: &[VersionKey] = &[
     },
     VersionKey {
         key: ip::STRUCTURE_VERSION_KEY,
+        effective: |r, _| rv::StructureVersion::of(r).get(),
         users: Users::Sliders {
             global: &["structure"],
             layer: &["structure"],
@@ -99,6 +112,7 @@ const KEYS: &[VersionKey] = &[
     },
     VersionKey {
         key: ip::VIBRANCE_VERSION_KEY,
+        effective: |r, _| rv::VibranceVersion::of(r).get(),
         users: Users::Sliders {
             global: &["vibrance"],
             layer: &["vibrance"],
@@ -108,6 +122,7 @@ const KEYS: &[VersionKey] = &[
     },
     VersionKey {
         key: ip::TEMPERATURE_VERSION_KEY,
+        effective: |r, _| rv::TemperatureVersion::of(r).get(),
         users: Users::Sliders {
             global: &["temperature"],
             layer: &["temperature"],
@@ -117,6 +132,7 @@ const KEYS: &[VersionKey] = &[
     },
     VersionKey {
         key: ip::TINT_VERSION_KEY,
+        effective: |r, _| rv::TintVersion::of(r).get(),
         users: Users::Sliders {
             global: &["tint"],
             layer: &["tint"],
@@ -126,6 +142,7 @@ const KEYS: &[VersionKey] = &[
     },
     VersionKey {
         key: ip::HSL_VERSION_KEY,
+        effective: |r, _| rv::HslVersion::of(r).get(),
         users: Users::Sliders {
             global: &["hsl"],
             layer: &["hsl"],
@@ -135,6 +152,7 @@ const KEYS: &[VersionKey] = &[
     },
     VersionKey {
         key: ip::SHARPEN_VERSION_KEY,
+        effective: |r, _| rv::SharpenVersion::of(r).get(),
         users: Users::Sliders {
             global: &["sharpness"],
             layer: &["sharpness"],
@@ -144,6 +162,7 @@ const KEYS: &[VersionKey] = &[
     },
     VersionKey {
         key: ip::LUMA_NOISE_VERSION_KEY,
+        effective: |r, _| rv::LumaNoiseVersion::of(r).get(),
         users: Users::Sliders {
             global: &["lumaNoiseReduction"],
             layer: &["lumaNoiseReduction"],
@@ -153,6 +172,7 @@ const KEYS: &[VersionKey] = &[
     },
     VersionKey {
         key: ip::DEFRINGE_VERSION_KEY,
+        effective: |r, _| rv::DefringeVersion::of(r).get(),
         users: Users::Sliders {
             global: &["defringePurpleAmount", "defringeGreenAmount"],
             layer: &["defringe"],
@@ -165,11 +185,6 @@ const KEYS: &[VersionKey] = &[
 /// Sliders a RAW file renders with a default when its recipe has none.
 const RAW_DEFAULTED: &[&str] = &["sharpness", "lumaNoiseReduction"];
 
-/// A version as the renderer reads it: 1 when missing or not a version.
-fn version(recipe: &Value, key: &str) -> u64 {
-    recipe.get(key).and_then(Value::as_u64).unwrap_or(1)
-}
-
 /// Whether a slider value renders anything: a number off 0, a colour mixer
 /// with a slider off 0.
 fn moved(value: &Value) -> bool {
@@ -180,6 +195,29 @@ fn moved(value: &Value) -> bool {
                 .as_object()
                 .is_some_and(|c| c.values().any(|v| v.as_f64().is_some_and(|v| v != 0.0)))
         }),
+        _ => false,
+    }
+}
+
+/// Whether a setting `own` keeps, merged by setting with `pasted`, a
+/// moved value the paste does not set (a colour mixer's other colours).
+fn keeps_moved_leaves(own: &Value, pasted: &Value) -> bool {
+    match (own, pasted) {
+        (Value::Object(own), Value::Object(pasted)) => {
+            own.iter().any(|(key, value)| match pasted.get(key) {
+                None => moved_anywhere(value),
+                Some(pasted) => keeps_moved_leaves(value, pasted),
+            })
+        }
+        _ => false,
+    }
+}
+
+/// A number off 0 anywhere in `value`.
+fn moved_anywhere(value: &Value) -> bool {
+    match value {
+        Value::Number(n) => n.as_f64().is_some_and(|v| v != 0.0),
+        Value::Object(map) => map.values().any(moved_anywhere),
         _ => false,
     }
 }
@@ -217,14 +255,15 @@ fn used_by_kept(key: &VersionKey, pasted: &Value, target: &PasteTarget) -> bool 
         Users::Always => return true,
         Users::Sliders { global, layer } => (global, layer),
     };
-    let pasted_has = |slider: &str| pasted.get(slider).is_some();
-    let global_used = global.iter().any(|slider| {
-        !pasted_has(slider)
-            && match target.recipe.get(*slider) {
-                Some(value) => moved(value),
-                None => target.is_raw && RAW_DEFAULTED.contains(slider),
-            }
-    });
+    let global_used =
+        global.iter().any(
+            |slider| match (target.recipe.get(*slider), pasted.get(*slider)) {
+                (Some(own), Some(pasted)) => target.merge_groups && keeps_moved_leaves(own, pasted),
+                (_, Some(_)) => false,
+                (Some(own), None) => moved(own),
+                (None, None) => target.is_raw && RAW_DEFAULTED.contains(slider),
+            },
+        );
     global_used
         || kept_layers(pasted, target).iter().any(|own| {
             layer.iter().any(|slider| {
@@ -237,8 +276,8 @@ fn used_by_kept(key: &VersionKey, pasted: &Value, target: &PasteTarget) -> bool 
 /// `pasted` (settings carried from another photograph, a preset, Edit all
 /// selected) as `target` takes them: Whites carried as their amount in its
 /// tone-slider response ([`ip::express_pasted_whites`]), and every version
-/// key that something `target` keeps renders with left as `target` has it,
-/// the pasted values re-expressed in that response.
+/// key that something `target` keeps renders with stated as `target`
+/// renders it, the pasted values re-expressed in that response.
 pub fn express_pasted(pasted: &mut Value, target: &PasteTarget) {
     ip::express_pasted_whites(pasted, target.recipe);
     if target.is_new {
@@ -248,14 +287,16 @@ pub fn express_pasted(pasted: &mut Value, target: &PasteTarget) {
         let Some(from) = pasted.get(key.key).and_then(Value::as_u64) else {
             continue;
         };
-        let to = version(target.recipe, key.key);
+        let to = (key.effective)(target.recipe, target.is_raw);
         if from == to || !used_by_kept(key, pasted, target) {
             continue;
         }
         let Some(map) = pasted.as_object_mut() else {
             return;
         };
-        map.remove(key.key);
+        // Stated, as the photograph renders it: a missing key may read
+        // otherwise once pasted values join (colour noise without an amount).
+        map.insert(key.key.to_string(), serde_json::json!(to));
         let Some(translate) = key.translate else {
             continue;
         };
@@ -407,6 +448,7 @@ mod tests {
                     is_new: case["isNew"].as_bool().unwrap_or(false),
                     is_raw: case["isRaw"].as_bool().unwrap_or(false),
                     replace_layers: case["replaceLayers"].as_bool().unwrap_or(false),
+                    merge_groups: case["mergeGroups"].as_bool().unwrap_or(false),
                 },
             );
             assert_close(&pasted, &case["expected"], name);
@@ -494,9 +536,13 @@ mod tests {
                 is_new: false,
                 is_raw: true,
                 replace_layers: false,
+                merge_groups: false,
             },
         );
-        assert_eq!(pasted, json!({"structure": ip::structure_amount_v2(50.0)}));
+        assert_eq!(
+            pasted,
+            json!({"structure": ip::structure_amount_v2(50.0), "structureVersion": 1})
+        );
         let mut pasted = json!({"structure": 50, "structureVersion": 3});
         express_pasted(
             &mut pasted,
@@ -505,6 +551,7 @@ mod tests {
                 is_new: false,
                 is_raw: true,
                 replace_layers: false,
+                merge_groups: false,
             },
         );
         assert_eq!(pasted, json!({"structure": 50, "structureVersion": 3}));

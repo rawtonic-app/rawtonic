@@ -8,6 +8,17 @@
  * both are checked against crates/engine/tests/data/pasted_versions.json.
  */
 import {
+  CLARITY_VERSION,
+  COLOR_NOISE_VERSION,
+  DEFRINGE_VERSION,
+  HSL_VERSION,
+  LUMA_NOISE_VERSION,
+  SHARPEN_VERSION,
+  STRUCTURE_VERSION,
+  TEMPERATURE_VERSION,
+  TINT_VERSION,
+  TONE_VERSION,
+  VIBRANCE_VERSION,
   WHITES_TRAVEL_TONE_VERSION,
   isNewRecipe,
   whitesAmountV17,
@@ -26,12 +37,17 @@ export interface PasteTarget {
   replaceLayers: boolean;
   /** It has no edit yet and takes every pasted version (default: `recipe` is none or a new recipe). */
   isNew?: boolean;
+  /** A style: its nested settings join the photograph's own setting by
+   * setting (a colour mixer's other colours stay) instead of replacing them. */
+  mergeGroups?: boolean;
 }
 
 type Translate = (value: number, from: number, to: number) => number;
 
 interface VersionKey {
   key: string;
+  /** The newest version this build renders (a recipe's is clamped to it). */
+  newest: number;
   /** `always`: the key changes how the photograph renders without any slider. */
   users: 'always' | { global: string[]; layer: string[] };
   translated: string[];
@@ -90,23 +106,31 @@ const translateTint: Translate = (value, from, to) => {
 const sliders = (...names: string[]) => ({ global: names, layer: names });
 
 const KEYS: VersionKey[] = [
-  { key: 'toneVersion', users: 'always', translated: ['whites'], translate: translateWhites },
-  { key: 'colorNoiseVersion', users: 'always', translated: [] },
-  { key: 'clarityVersion', users: sliders('clarity'), translated: [] },
-  { key: 'structureVersion', users: sliders('structure'), translated: ['structure'], translate: translateStructure },
-  { key: 'vibranceVersion', users: sliders('vibrance'), translated: [] },
+  { key: 'toneVersion', newest: TONE_VERSION, users: 'always', translated: ['whites'], translate: translateWhites },
+  { key: 'colorNoiseVersion', newest: COLOR_NOISE_VERSION, users: 'always', translated: [] },
+  { key: 'clarityVersion', newest: CLARITY_VERSION, users: sliders('clarity'), translated: [] },
+  {
+    key: 'structureVersion',
+    newest: STRUCTURE_VERSION,
+    users: sliders('structure'),
+    translated: ['structure'],
+    translate: translateStructure
+  },
+  { key: 'vibranceVersion', newest: VIBRANCE_VERSION, users: sliders('vibrance'), translated: [] },
   {
     key: 'temperatureVersion',
+    newest: TEMPERATURE_VERSION,
     users: sliders('temperature'),
     translated: ['temperature'],
     translate: translateTemperature
   },
-  { key: 'tintVersion', users: sliders('tint'), translated: ['tint'], translate: translateTint },
-  { key: 'hslVersion', users: sliders('hsl'), translated: [] },
-  { key: 'sharpenVersion', users: sliders('sharpness'), translated: [] },
-  { key: 'lumaNoiseVersion', users: sliders('lumaNoiseReduction'), translated: [] },
+  { key: 'tintVersion', newest: TINT_VERSION, users: sliders('tint'), translated: ['tint'], translate: translateTint },
+  { key: 'hslVersion', newest: HSL_VERSION, users: sliders('hsl'), translated: [] },
+  { key: 'sharpenVersion', newest: SHARPEN_VERSION, users: sliders('sharpness'), translated: [] },
+  { key: 'lumaNoiseVersion', newest: LUMA_NOISE_VERSION, users: sliders('lumaNoiseReduction'), translated: [] },
   {
     key: 'defringeVersion',
+    newest: DEFRINGE_VERSION,
     users: { global: ['defringePurpleAmount', 'defringeGreenAmount'], layer: ['defringe'] },
     translated: []
   }
@@ -134,6 +158,28 @@ const moved = (value: unknown): boolean => {
 
 const has = (values: Values, key: string) => Object.prototype.hasOwnProperty.call(values, key);
 
+const isObject = (value: unknown): value is Values => !!value && typeof value === 'object' && !Array.isArray(value);
+
+/** A number off 0 anywhere in `value`. */
+const movedAnywhere = (value: unknown): boolean =>
+  typeof value === 'number' ? value !== 0 : isObject(value) && Object.values(value).some(movedAnywhere);
+
+/** Whether `own`, merged by setting with `pasted`, keeps a moved value the paste does not set. */
+const keepsMovedLeaves = (own: unknown, pasted: unknown): boolean =>
+  isObject(own) &&
+  isObject(pasted) &&
+  Object.entries(own).some(([key, value]) =>
+    has(pasted, key) ? keepsMovedLeaves(value, pasted[key]) : movedAnywhere(value)
+  );
+
+/** The version `recipe` renders with (the engine's `recipe_versions`: its
+ * default when missing, clamped to what this build knows). */
+const effective = (key: VersionKey, recipe: Values, isRaw: boolean): number => {
+  const own = asVersion(recipe[key.key]);
+  if (own !== undefined) return Math.min(Math.max(own, 1), key.newest);
+  return key.key === 'colorNoiseVersion' && isRaw && recipe.colorNoiseReduction === undefined ? COLOR_NOISE_VERSION : 1;
+};
+
 const keptLayers = (pasted: Values, recipe: Values, replaceLayers: boolean): Layer[] => {
   const own = Array.isArray(recipe.masks) ? (recipe.masks as Layer[]) : [];
   if (!has(pasted, 'masks')) return own;
@@ -149,13 +195,12 @@ const keptLayers = (pasted: Values, recipe: Values, replaceLayers: boolean): Lay
 const usedByKept = (key: VersionKey, pasted: Values, recipe: Values, target: PasteTarget): boolean => {
   if (key.users === 'always') return true;
   const { global, layer } = key.users;
-  const globalUsed = global.some(
-    (slider) =>
-      !has(pasted, slider) &&
-      (has(recipe, slider) && recipe[slider] !== undefined
-        ? moved(recipe[slider])
-        : target.isRaw && RAW_DEFAULTED.has(slider))
-  );
+  const globalUsed = global.some((slider) => {
+    const own = recipe[slider];
+    if (has(pasted, slider))
+      return Boolean(target.mergeGroups) && own !== undefined && keepsMovedLeaves(own, pasted[slider]);
+    return own !== undefined ? moved(own) : target.isRaw && RAW_DEFAULTED.has(slider);
+  });
   return (
     globalUsed ||
     keptLayers(pasted, recipe, target.replaceLayers).some((own) =>
@@ -168,8 +213,8 @@ const usedByKept = (key: VersionKey, pasted: Values, recipe: Values, target: Pas
  * `settings` (carried from another photograph, a preset, Edit all selected)
  * as `target` takes them: Whites carried as their amount in its tone-slider
  * response (`withCarriedWhitesFor`), and every version key that something
- * `target` keeps renders with left as `target` has it, the pasted values
- * re-expressed in that response.
+ * `target` keeps renders with stated as `target` renders it, the pasted
+ * values re-expressed in that response.
  */
 export function expressPastedSettings<T extends Partial<Adjustments>>(settings: T, target: PasteTarget): T {
   const recipe = (target.recipe ?? {}) as Values;
@@ -179,10 +224,11 @@ export function expressPastedSettings<T extends Partial<Adjustments>>(settings: 
   for (const key of KEYS) {
     const from = asVersion(out[key.key]);
     if (from === undefined) continue;
-    const to = asVersion(recipe[key.key]) ?? 1;
+    const to = effective(key, recipe, target.isRaw);
     if (from === to || !usedByKept(key, out, recipe, target)) continue;
-    const { [key.key]: _dropped, ...kept } = out;
-    out = kept;
+    // Stated, as the photograph renders it: a missing key may read otherwise
+    // once pasted values join (colour noise without an amount).
+    out = { ...out, [key.key]: to };
     const translate = key.translate;
     if (!translate) continue;
     const express = (value: unknown) => (typeof value === 'number' ? translate(value, from, to) : value);

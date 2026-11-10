@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
-import { useEditorActions } from '../../hooks/useEditorActions';
+import { openHasNoEdit, useEditorActions } from '../../hooks/useEditorActions';
 import { usePresets, type UserPreset } from '../../hooks/usePresets';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import type { Preset } from '../ui/AppProperties';
@@ -210,7 +210,13 @@ export default function StudioPresets() {
         ? normalizeLoadedAdjustments(reverted.recipe, Boolean(image.isRaw))
         : reverted?.recipe;
       // No preview for a preset that needs the RAW developed again.
-      const previewed = presetPreview(current, preset.adjustments, Boolean(image.isRaw), base && { base, style: true });
+      const previewed = presetPreview(
+        current,
+        preset.adjustments,
+        Boolean(image.isRaw),
+        base && { base, style: true },
+        openHasNoEdit(image.path)
+      );
       if (!previewed) return endPreview();
       previewing.current = true;
       setEditor({ previewOverride: previewed });
@@ -223,6 +229,8 @@ export default function StudioPresets() {
     path: string;
     preset: Preset;
     base: Record<string, unknown>;
+    /** The photo had no edit before (it took every version the preset names). */
+    isNew: boolean;
     value: number;
   } | null>(null);
   const { showContextMenu } = useContextMenu();
@@ -302,6 +310,7 @@ export default function StudioPresets() {
             path: open,
             preset,
             base: structuredClone(currentAdjustments()) as unknown as Record<string, unknown>,
+            isNew: openHasNoEdit(open),
             value: 100
           }
         : null
@@ -322,7 +331,8 @@ export default function StudioPresets() {
     const values = expressPastedSettings(presetValues(stylePreset.adjustments), {
       recipe: without,
       isRaw: Boolean(selectedImage?.isRaw),
-      replaceLayers: true
+      replaceLayers: true,
+      mergeGroups: true
     });
     const base = removed ? normalizeLoadedAdjustments(without, Boolean(selectedImage?.isRaw)) : without;
     // A slider inside a group the photo has only partly (an HSL colour, a
@@ -335,6 +345,7 @@ export default function StudioPresets() {
     setAmount({ ...amount, value });
     const values = expressPastedSettings(presetValues(amount.preset.adjustments), {
       recipe: amount.base as Partial<Adjustments>,
+      isNew: amount.isNew,
       isRaw: Boolean(selectedImage?.isRaw),
       replaceLayers: true
     });

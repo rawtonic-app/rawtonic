@@ -615,6 +615,7 @@ fn pasted_into(
                 is_new: new_edit,
                 is_raw: is_raw_file(source_path),
                 replace_layers: paste.is_none_or(|from| from.replace_layers),
+                merge_groups: style.is_some(),
             },
         );
     }
@@ -1851,7 +1852,8 @@ mod tests {
         };
         let layer = serde_json::json!([{"id": "l", "adjustments": {"structure": 40.0}}]);
         let kept = paste(serde_json::json!({"exposure": 0.5, "masks": layer}));
-        assert!(kept.get("structureVersion").is_none(), "{kept}");
+        // Stated as the photograph renders it (no key: version 1).
+        assert_eq!(kept["structureVersion"], 1, "{kept}");
         assert_eq!(
             kept["structure"].as_f64(),
             Some(rawtonic_engine::image_processing::structure_amount_v2(50.0))

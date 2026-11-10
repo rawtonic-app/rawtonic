@@ -2613,6 +2613,7 @@ fn with_live_patch(mut recipe: serde_json::Value, path: &str) -> serde_json::Val
                 is_new: image_processing::is_new_recipe(&recipe),
                 is_raw: is_raw_file(parse_virtual_path(path).0),
                 replace_layers: true,
+                merge_groups: false,
             },
         );
         if let (Some(patch), Some(object)) = (patch.as_object(), recipe.as_object_mut()) {

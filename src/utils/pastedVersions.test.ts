@@ -26,7 +26,8 @@ describe('expressPastedSettings', () => {
     const got = expressPastedSettings(c.pasted as Partial<Adjustments>, {
       recipe: (c as { isNew?: boolean }).isNew ? null : destination,
       isRaw: Boolean((c as { isRaw?: boolean }).isRaw),
-      replaceLayers: Boolean((c as { replaceLayers?: boolean }).replaceLayers)
+      replaceLayers: Boolean((c as { replaceLayers?: boolean }).replaceLayers),
+      mergeGroups: Boolean((c as { mergeGroups?: boolean }).mergeGroups)
     });
     expectClose(got, c.expected, name);
   });

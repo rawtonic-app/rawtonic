@@ -1390,3 +1390,19 @@ describe('pasted version keys', () => {
     await act(async () => {});
   });
 });
+
+describe('pasted version keys onto a never-edited open photo', () => {
+  it("takes a style's tone version as a never-edited closed photo does", async () => {
+    const { result } = renderHook(useEditorActions);
+    const shown = { ...useEditorStore.getState().adjustments, toneVersion: 17 };
+    useEditorStore.setState({ adjustments: shown, history: [shown], historyIndex: 0 });
+    rememberOpenedRecipe('/first.dng', { saved: null, camera: {} as never, width: 4000, height: 3000, shown });
+    act(() => {
+      void result.current.applyAdjustmentsToPaths({ toneVersion: 2, contrast: -18 } as never, ['/first.dng'], {
+        style: { id: 'soft', remove: false }
+      });
+    });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ toneVersion: 2, contrast: -18 });
+    await act(async () => {});
+  });
+});

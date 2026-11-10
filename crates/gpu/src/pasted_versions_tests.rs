@@ -296,6 +296,7 @@ fn pasted_global_tool_leaves_the_layers_as_they_were() {
                 is_new: false,
                 is_raw: true,
                 replace_layers: false,
+                merge_groups: false,
             },
         );
         let merged = |pasted: &Value| {
