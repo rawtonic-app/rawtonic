@@ -17,7 +17,8 @@
 //! their tiles while foreground renders run (notes: parity-gaps/G44).
 
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::Cell;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant};
@@ -26,6 +27,13 @@ use std::time::{Duration, Instant};
 /// than the gap between two frames of a drag, so that no export render
 /// starts between them.
 pub(super) const FOREGROUND_PAUSE: Duration = Duration::from_millis(250);
+
+thread_local! {
+    /// The slot with turns (address) whose `scoped` render this thread runs,
+    /// and how many of its turns that render has ended without the result
+    /// being known yet.
+    static SHARED_SCOPE: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
+}
 
 #[derive(Default)]
 struct State {
@@ -49,6 +57,12 @@ pub struct ProcessorSlot<T> {
     background_only: bool,
     /// A render on it ran out of graphics memory (`scoped`).
     discard: AtomicBool,
+    /// Renders on a slot with turns that ended their turn inside `scoped`
+    /// and have not yet set the discard mark: background renders do not
+    /// take a turn meanwhile, foreground renders never wait for it.
+    unresolved: AtomicUsize,
+    /// Signals `unresolved` reaching zero (with `scoping`'s lock).
+    resolved: Condvar,
     /// The thread whose scoped render is under way (`scoped`) and the
     /// others waiting for it.
     scoping: Mutex<Option<ThreadId>>,
@@ -63,6 +77,8 @@ impl<T> ProcessorSlot<T> {
             slot: Mutex::new(value),
             background_only: false,
             discard: AtomicBool::new(false),
+            unresolved: AtomicUsize::new(0),
+            resolved: Condvar::new(),
             scoping: Mutex::new(None),
             scoping_ended: Condvar::new(),
         }
@@ -76,6 +92,8 @@ impl<T> ProcessorSlot<T> {
             slot: Mutex::new(value),
             background_only: true,
             discard: AtomicBool::new(false),
+            unresolved: AtomicUsize::new(0),
+            resolved: Condvar::new(),
             scoping: Mutex::new(None),
             scoping_ended: Condvar::new(),
         }
@@ -91,7 +109,9 @@ impl<T> ProcessorSlot<T> {
     /// Runs a render on this slot's processor, `work` returning its result
     /// once the GPU's error scopes are read (`gpu_scoped`), and one at a
     /// time per background-only slot (the exports') until the result is
-    /// known; slots with turns (the Develop view's, thumbnails) are not gated. When the render ran out of
+    /// known; on a slot with turns (the Develop view's, thumbnails) the
+    /// background renders take no turn until it is, the foreground ones
+    /// never wait. When the render ran out of
     /// graphics memory the processor may hold a texture or pipeline it could
     /// not allocate (wgpu hands out an invalid object and keeps it), which
     /// would fail every later render on it even once memory is free: the
@@ -103,9 +123,7 @@ impl<T> ProcessorSlot<T> {
     /// nested in one of its own thread goes on at once.
     pub fn scoped<R>(&self, work: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
         if !self.background_only {
-            // Foreground renders and thumbnails take turns; a gate in front
-            // of the turns would let a background render hold up a frame.
-            return self.mark_discard(work());
+            return self.scoped_with_turns(work);
         }
         let me = std::thread::current().id();
         let mut scoping = self.scoping.lock().unwrap_or_else(PoisonError::into_inner);
@@ -137,6 +155,41 @@ impl<T> ProcessorSlot<T> {
         self.mark_discard(work())
     }
 
+    /// A slot with turns: a gate in front of them would let a background
+    /// render hold up a frame, so the turns carry it: a render that ends
+    /// its turn here counts as unresolved until its mark is set, and
+    /// background renders take no turn meanwhile (`TURNS.lock`); foreground
+    /// renders never wait for it. (Notes: parity-gaps/G66.)
+    fn scoped_with_turns<R>(
+        &self,
+        work: impl FnOnce() -> Result<R, String>,
+    ) -> Result<R, String> {
+        let addr = std::ptr::from_ref(self) as usize;
+        if SHARED_SCOPE.with(Cell::get).is_some() {
+            return self.mark_discard(work());
+        }
+        SHARED_SCOPE.with(|scope| scope.set(Some((addr, 0))));
+        /// Marks the renders resolved, also when `work` panics.
+        struct Resolve<'a, T>(&'a ProcessorSlot<T>);
+        impl<T> Drop for Resolve<'_, T> {
+            fn drop(&mut self) {
+                let registered = SHARED_SCOPE
+                    .with(Cell::take)
+                    .map_or(0, |(_, registered)| registered);
+                if registered > 0 {
+                    let held = self.0.scoping.lock().unwrap_or_else(PoisonError::into_inner);
+                    self.0.unresolved.fetch_sub(registered, Ordering::SeqCst);
+                    drop(held);
+                    self.0.resolved.notify_all();
+                }
+            }
+        }
+        let resolve = Resolve(self);
+        let result = self.mark_discard(work());
+        drop(resolve);
+        result
+    }
+
     fn mark_discard<R>(&self, result: Result<R, String>) -> Result<R, String> {
         if let Err(error) = &result
             && rawtonic_runtime::gpu_memory::is_gpu_out_of_memory(error)
@@ -144,6 +197,17 @@ impl<T> ProcessorSlot<T> {
             self.discard.store(true, Ordering::SeqCst);
         }
         result
+    }
+
+    /// Waits until no render that ended its turn in `scoped` is unresolved.
+    fn wait_resolved(&self) {
+        let mut held = self.scoping.lock().unwrap_or_else(PoisonError::into_inner);
+        while self.unresolved.load(Ordering::SeqCst) > 0 {
+            held = self
+                .resolved
+                .wait(held)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
     }
 
     /// Whether the processor is to be built anew (`scoped`); once.
@@ -220,7 +284,22 @@ impl ProcessorTurns {
             }
             state.waiting -= 1;
         } else {
-            state = self.wait_for_foreground(state, !slot.background_only).0;
+            loop {
+                if !slot.background_only {
+                    // Holding nothing: a render that ended its turn in
+                    // `scoped` sets its mark in a moment.
+                    drop(state);
+                    slot.wait_resolved();
+                    state = self.state();
+                }
+                state = self
+                    .wait_for_foreground(state, !slot.background_only, Some(&slot.unresolved))
+                    .0;
+                // Ended a turn meanwhile: wait for its mark as well.
+                if slot.background_only || slot.unresolved.load(Ordering::SeqCst) == 0 {
+                    break;
+                }
+            }
         }
         let takes_turn = !slot.background_only;
         state.taken |= takes_turn;
@@ -229,11 +308,16 @@ impl ProcessorTurns {
         // Uncontended but for callers outside the turns (the app's
         // pipeline prewarm) and, on a background-only slot, other
         // background renders.
+        let pending = SHARED_SCOPE
+            .with(Cell::get)
+            .is_some_and(|(addr, _)| addr == std::ptr::from_ref(slot) as usize)
+            .then_some(&slot.unresolved);
         let turn = |guard| TurnGuard {
             guard,
             turns: self,
             foreground,
             takes_turn,
+            pending,
         };
         match slot.lock() {
             Ok(guard) => Ok(turn(guard)),
@@ -248,12 +332,16 @@ impl ProcessorTurns {
         &self,
         mut state: MutexGuard<'a, State>,
         for_turn: bool,
+        unresolved: Option<&AtomicUsize>,
     ) -> (MutexGuard<'a, State>, bool) {
         let mut waited = false;
         loop {
             let pause = state.ended.map_or(Duration::ZERO, |ended| {
                 FOREGROUND_PAUSE.saturating_sub(ended.elapsed())
             });
+            if unresolved.is_some_and(|count| count.load(Ordering::SeqCst) > 0) {
+                return (state, true);
+            }
             let taken = state.foreground_runs || (for_turn && state.taken);
             if !taken && state.waiting == 0 && pause.is_zero() {
                 return (state, waited);
@@ -289,6 +377,9 @@ pub(super) struct TurnGuard<'a, T> {
     foreground: bool,
     /// Off on a background-only slot.
     takes_turn: bool,
+    /// Set on a render inside `ProcessorSlot::scoped` of a slot with turns:
+    /// its result is unknown until the turn has ended.
+    pending: Option<&'a AtomicUsize>,
 }
 
 impl<T> TurnGuard<'_, T> {
@@ -303,7 +394,7 @@ impl ProcessorTurns {
     /// A background render on a background-only slot, between two of its
     /// tiles: waits while foreground renders run; true if it did.
     pub(super) fn pause_for_foreground(&self) -> bool {
-        self.wait_for_foreground(self.state(), false).1
+        self.wait_for_foreground(self.state(), false, None).1
     }
 }
 
@@ -337,6 +428,13 @@ impl<T> Drop for TurnGuard<'_, T> {
             return;
         }
         let mut state = self.turns.state();
+        if let Some(unresolved) = self.pending {
+            // Under the turns' lock: no background render sees the turn
+            // free and the render unresolved at different times.
+            unresolved.fetch_add(1, Ordering::SeqCst);
+            SHARED_SCOPE
+                .with(|scope| scope.set(scope.get().map(|(addr, count)| (addr, count + 1))));
+        }
         state.taken = false;
         state.foreground_runs = false;
         if self.foreground {
@@ -593,6 +691,88 @@ mod tests {
             // A render nested from another thread is not held up.
             std::thread::scope(|scope| scope.spawn(|| slot.scoped(|| Ok(()))).join().unwrap())
         });
+    }
+
+    /// Thumbnails on the shared slot: a second one does not take the turn
+    /// a failed render ended before its mark, while a Develop frame goes on.
+    #[test]
+    fn a_thumbnail_never_gets_the_processor_a_failed_thumbnail_left() {
+        let turns = turns();
+        let slot: &'static ProcessorSlot<Option<&str>> =
+            Box::leak(Box::new(ProcessorSlot::new(Some("invalid"))));
+        let (released, released_rx) = channel();
+        let (go, go_rx) = channel::<()>();
+        let first = std::thread::spawn(move || {
+            slot.scoped::<()>(|| {
+                drop(turns.lock(slot, false).unwrap());
+                released.send(()).unwrap();
+                go_rx.recv().unwrap();
+                Err(rawtonic_runtime::gpu_memory::gpu_out_of_memory("render"))
+            })
+        });
+        released_rx.recv().unwrap();
+        let (got, got_rx) = channel();
+        let second = std::thread::spawn(move || {
+            slot.scoped(|| {
+                let mut processor = turns.lock(slot, false).unwrap();
+                if slot.take_discarded() {
+                    processor.take();
+                }
+                got.send(*processor).unwrap();
+                Ok(())
+            })
+        });
+        assert!(
+            got_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "the second thumbnail waits for the mark"
+        );
+        // The Develop frame is not held up by the window.
+        let started = Instant::now();
+        drop(turns.lock(slot, true).unwrap());
+        assert!(started.elapsed() < Duration::from_millis(50));
+        go.send(()).unwrap();
+        assert!(first.join().unwrap().is_err());
+        second.join().unwrap().unwrap();
+        assert_eq!(got_rx.recv().unwrap(), None, "a fresh processor");
+    }
+
+    /// Several thumbnails at once, one failing: none deadlocks, none sees
+    /// the processor the failed one left.
+    #[test]
+    fn concurrent_thumbnails_with_a_failure_never_reuse_the_discarded_processor() {
+        let turns = turns();
+        let slot: &'static ProcessorSlot<Option<u32>> =
+            Box::leak(Box::new(ProcessorSlot::new(Some(0))));
+        let seen_invalid = &*Box::leak(Box::new(AtomicBool::new(false)));
+        let workers: Vec<_> = (0..8u32)
+            .map(|n| {
+                std::thread::spawn(move || {
+                    for round in 0..20u32 {
+                        let _ = slot.scoped(|| {
+                            let mut processor = turns.lock(slot, false).unwrap();
+                            if slot.take_discarded() {
+                                *processor = Some(0);
+                            }
+                            // 99 = a processor that held an invalid object.
+                            if *processor == Some(99) {
+                                seen_invalid.store(true, Ordering::SeqCst);
+                            }
+                            if n == 3 && round % 5 == 0 {
+                                *processor = Some(99);
+                                drop(processor);
+                                std::thread::sleep(Duration::from_millis(2));
+                                return Err(rawtonic_runtime::gpu_memory::gpu_out_of_memory("r"));
+                            }
+                            Ok(())
+                        });
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert!(!seen_invalid.load(Ordering::SeqCst));
     }
 
     #[test]
