@@ -490,10 +490,6 @@ fn preview_features_preserve_global_and_local_effects() {
         {
             continue;
         }
-        // 131072 is reserved for another branch's feature and unused yet.
-        if expected & 131072 != 0 {
-            continue;
-        }
         // Vibrance of version 2 is tested on its own (below the loop).
         if expected & VIBRANCE_V2_FEATURE != 0 {
             continue;
@@ -528,6 +524,9 @@ fn preview_features_preserve_global_and_local_effects() {
             } else {
                 effects["whites"] = json!(-20);
             }
+        }
+        if expected & HSL_V2_FEATURE != 0 {
+            effects["hsl"] = json!({"blues": {"saturation": -20}});
         }
         let mut profile = if expected & 8 != 0 {
             local_profile(effects)
@@ -568,6 +567,10 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         if expected & BLACKS_V16_FEATURE != 0 {
             profile["toneVersion"] = json!(16);
+        }
+        // The mixer response is photo-wide.
+        if expected & HSL_V2_FEATURE != 0 {
+            profile["hslVersion"] = json!(2);
         }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         if expected & HIGHLIGHTS_V14_FEATURE != 0 {
@@ -1474,6 +1477,128 @@ fn bw_mix_version_2_keeps_the_conversion_and_lowers_further() {
         render(json!({"blackAndWhite": true, "grayMixer": {"blue": -60}})),
         bw(1, json!({"blue": -60}))
     );
+}
+
+#[test]
+#[ignore = "requires a native GPU; colour mixer responses"]
+fn colour_mixer_version_2_keeps_greys_zero_and_smooth_sweeps() {
+    let (width, height) = (360u32, 4u32);
+    // Row 0: a hue sweep at Oklab L 0.65, chroma 0.12 (one degree per
+    // column); row 1 the same at chroma 0.04; row 2 a grey ramp; row 3 a
+    // chroma ramp at hue 250 (a sky blue) from grey to 0.15.
+    let oklab = |l: f32, a: f32, b: f32| {
+        let (l_, m_, s_) = (
+            l + 0.396_337_8 * a + 0.215_803_76 * b,
+            l - 0.105_561_346 * a - 0.063_854_17 * b,
+            l - 0.089_484_18 * a - 1.291_485_5 * b,
+        );
+        let (l3, m3, s3) = (l_ * l_ * l_, m_ * m_ * m_, s_ * s_ * s_);
+        [
+            4.076_741_7 * l3 - 3.307_711_6 * m3 + 0.230_969_94 * s3,
+            -1.268_438 * l3 + 2.609_757_4 * m3 - 0.341_319_38 * s3,
+            -0.004_196_086_3 * l3 - 0.703_418_6 * m3 + 1.707_614_7 * s3,
+        ]
+    };
+    let mut data = Vec::new();
+    for y in 0..height {
+        for x in 0..width {
+            let t = x as f32 / (width - 1) as f32;
+            let rgb = match y {
+                0 | 1 => {
+                    let (c, h) = (if y == 0 { 0.12 } else { 0.04 }, (x as f32).to_radians());
+                    oklab(0.65, c * h.cos(), c * h.sin())
+                }
+                2 => [0.02 + 0.8 * t; 3],
+                _ => {
+                    let h = 250f32.to_radians();
+                    oklab(0.6, 0.15 * t * h.cos(), 0.15 * t * h.sin())
+                }
+            };
+            data.extend(rgb.iter().map(|v| f16::from_f32(v.max(0.0))));
+            data.push(f16::ONE);
+        }
+    }
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &data);
+    let render = |profile: serde_json::Value| -> Vec<u16> {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(2));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let mixer =
+        |version: u64, hsl: serde_json::Value| render(json!({"hslVersion": version, "hsl": hsl}));
+    // Every slider at 0: both responses render alike, and recipes without
+    // the key render version 1.
+    let neutral = mixer(1, json!({}));
+    assert_eq!(neutral, mixer(2, json!({})));
+    let blues = json!({"blues": {"hue": 60, "saturation": -40, "luminance": 30}});
+    assert_eq!(render(json!({"hsl": blues})), mixer(1, blues.clone()));
+    assert_ne!(mixer(1, blues.clone()), mixer(2, blues));
+    let row = |pixels: &[u16], y: u32| {
+        pixels[(y * width * 4) as usize..((y + 1) * width * 4) as usize].to_vec()
+    };
+    let channels = [
+        "reds", "oranges", "yellows", "greens", "aquas", "blues", "purples", "magentas",
+    ];
+    for property in ["hue", "saturation", "luminance"] {
+        for value in [-100, 100] {
+            let hsl: serde_json::Map<_, _> = channels
+                .iter()
+                .map(|c| (c.to_string(), json!({property: value})))
+                .collect();
+            let all = mixer(2, serde_json::Value::Object(hsl));
+            // Greys stay untouched.
+            assert_eq!(
+                row(&all, 2),
+                row(&neutral, 2),
+                "{property} {value}: grey ramp"
+            );
+            for channel in channels {
+                let one = mixer(2, json!({channel: {property: value}}));
+                assert_eq!(
+                    row(&one, 2),
+                    row(&neutral, 2),
+                    "{channel} {property} {value}: grey ramp"
+                );
+                // No step between neighbouring pixels of a smooth sweep
+                // grows beyond twice the unchanged sweep's largest step plus
+                // a margin (no banding at the window edges).
+                for y in [0u32, 1, 3] {
+                    let (a, b) = (row(&neutral, y), row(&one, y));
+                    let largest = |p: &[u16]| {
+                        (1..width as usize)
+                            .flat_map(|x| (0..3).map(move |c| (x, c)))
+                            .map(|(x, c)| (p[x * 4 + c] as i32 - p[(x - 1) * 4 + c] as i32).abs())
+                            .max()
+                            .unwrap()
+                    };
+                    let (before, after) = (largest(&a), largest(&b));
+                    assert!(
+                        after <= 2 * before + 1200,
+                        "{channel} {property} {value} row {y}: largest step {after} (unchanged {before})"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -3572,6 +3697,131 @@ fn gamut_knee_timing_probe() {
         println!(
             "{}",
             json!({"variant": name, "median_ms": t[t.len() / 2], "min_ms": t[0], "frames": frames})
+        );
+    }
+}
+
+#[test]
+#[ignore = "native GPU timing probe; compares the colour mixer responses"]
+fn colour_mixer_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size and full-resolution 16-bit
+    // readbacks; the variants alternate within one process and the dragged
+    // slider moves a little every frame (a drag on Blues Hue with other
+    // channels already set, the costliest case of version 2).
+    let variants = [
+        ("none", 0u64),
+        ("v1", 1),
+        ("v2", 2),
+        ("v2_hue", 3),
+        ("v2_satlum", 4),
+    ];
+    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input(&context, width, height, 3);
+        let mut times = vec![Vec::new(); variants.len()];
+        for frame in 0..frames + 2 {
+            for (i, (_, version)) in variants.iter().enumerate() {
+                let profile = if *version == 0 {
+                    json!({})
+                } else if *version == 3 {
+                    json!({"hslVersion": 2, "hsl": {"blues": {"hue": 30.0 + 0.01 * frame as f64}, "oranges": {"hue": 10}, "greens": {"hue": -20}}})
+                } else if *version == 4 {
+                    json!({"hslVersion": 2, "hsl": {"blues": {"saturation": -20.0 + 0.01 * frame as f64, "luminance": -30}, "oranges": {"saturation": 15, "luminance": 20}, "greens": {"saturation": -30}}})
+                } else {
+                    json!({"hslVersion": version, "hsl": {
+                        "blues": {"hue": 30.0 + 0.01 * frame as f64, "saturation": -20, "luminance": -30},
+                        "oranges": {"hue": 10, "saturation": 15, "luminance": 20},
+                        "greens": {"hue": -20, "saturation": -30}
+                    }})
+                };
+                let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                let start = Instant::now();
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments,
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi: None,
+                        },
+                        display,
+                        if display {
+                            RenderOutputPrecision::EightBit
+                        } else {
+                            RenderOutputPrecision::SixteenBit
+                        },
+                    )
+                    .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                if frame >= 2 {
+                    times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+        }
+        for (i, (name, _)) in variants.iter().enumerate() {
+            let t = &mut times[i];
+            t.sort_by(f64::total_cmp);
+            println!(
+                "{}",
+                json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"p90_ms":t[t.len() * 9 / 10],"min_ms":t[0],"frames":frames})
+            );
+        }
+    }
+    // The worst case: every pixel a sky blue inside the moved Blues windows.
+    let (width, height) = (2304u32, 1728u32);
+    let data: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let v = 0.02 * ((i % 97) as f32 / 97.0);
+            [0.12 + v, 0.30 + v, 0.75 - v, 1.0].map(f16::from_f32)
+        })
+        .collect();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &data);
+    let sky = [("sky_v1", 1u64), ("sky_v2", 2)];
+    let mut times = vec![Vec::new(); sky.len()];
+    for frame in 0..26 {
+        for (i, (_, version)) in sky.iter().enumerate() {
+            let profile = json!({"hslVersion": version, "hsl": {"blues": {
+                "hue": 30.0 + 0.01 * frame as f64, "saturation": -20, "luminance": -30}}});
+            let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+            let start = Instant::now();
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            context
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if frame >= 2 {
+                times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (i, (name, _)) in sky.iter().enumerate() {
+        let t = &mut times[i];
+        t.sort_by(f64::total_cmp);
+        println!(
+            "{}",
+            json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"p90_ms":t[t.len() * 9 / 10],"min_ms":t[0],"frames":24})
         );
     }
 }

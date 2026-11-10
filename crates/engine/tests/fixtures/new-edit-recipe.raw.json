@@ -377,6 +377,7 @@
   "autoCaVersion": 3,
   "defringeVersion": 2,
   "bwVersion": 2,
+  "hslVersion": 2,
   "sharpenVersion": 8,
   "lumaNoiseVersion": 2,
   "aiDenoiseVersion": 3,

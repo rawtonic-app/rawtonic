@@ -638,8 +638,9 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             && let Some(Value::Number(n)) = num_to_json(num)
             && let Some(val_f64) = n.as_f64()
         {
-            let adjusted_hue = val_f64 * 0.75;
-            color_map.insert(recipe_color::HUE.name().to_string(), json!(adjusted_hue));
+            // Colour mixer response 2 turns hue as Camera Raw does at the
+            // same value.
+            color_map.insert(recipe_color::HUE.name().to_string(), json!(val_f64));
         }
         if let Some(raw) = attrs.get(&format!("SaturationAdjustment{}", src))
             && let Some(num) = parse_num(raw.trim_start_matches('+'))
@@ -659,6 +660,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     }
     if !hsl_map.is_empty() {
         adjustments.insert(recipe_color::HSL.name().to_string(), Value::Object(hsl_map));
+        // Lightroom's mixer values: the response fitted to it.
+        adjustments.insert(
+            rawtonic_engine::image_processing::HSL_VERSION_KEY.to_string(),
+            json!(rawtonic_engine::image_processing::HSL_VERSION),
+        );
     }
 
     let mut shadows_map = Map::new();

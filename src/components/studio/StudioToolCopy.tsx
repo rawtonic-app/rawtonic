@@ -8,6 +8,7 @@ import { useEditorActions } from '../../hooks/useEditorActions';
 import { usePopoverFocus } from './usePopoverFocus';
 import {
   withBwVersion,
+  withHslVersion,
   withDetailVersions,
   withWhiteBalanceVersions,
   withVibranceVersion,
@@ -52,6 +53,8 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   // The B&W mix means what the recipe's mix response makes of it.
   blackAndWhite: ['bwVersion'],
   grayMixer: ['bwVersion'],
+  // The colour mixer means what the recipe's mixer response makes of it.
+  hsl: ['hslVersion'],
   // Defringe means what the recipe's fringe detector makes of it.
   defringePurpleAmount: ['defringeVersion'],
   defringeGreenAmount: ['defringeVersion'],
@@ -75,11 +78,14 @@ export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> 
   // grain version is not picked along (an absent one would read as an undo
   // to version 1): withGrainVersion takes it from the source.
   return withPortableWhites(
-    withBwVersion(
-      withVibranceVersion(
-        withDetailVersions(
-          withGrainVersion(
-            withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, values), values), values),
+    withHslVersion(
+      withBwVersion(
+        withVibranceVersion(
+          withDetailVersions(
+            withGrainVersion(
+              withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, values), values), values),
+              values
+            ),
             values
           ),
           values

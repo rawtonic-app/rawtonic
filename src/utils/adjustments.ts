@@ -709,6 +709,13 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * conversion at 0 is version 1's. 1 or missing on recipes that converted
    * to black and white before it. */
   bwVersion?: number;
+  /** Colour mixer response (crates/engine/src/image_processing.rs
+   * `HSL_VERSION`): 2 = each channel's Hue, Saturation and Luminance with
+   * its own hue window, gains and slider curve fitted to Camera Raw (the
+   * same slider value moves colours as Camera Raw does); every slider at 0
+   * renders as version 1. 1 or missing on recipes that used the mixer before
+   * it. Photo-wide: the layers' mixer renders with the photo's. */
+  hslVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
    * `SHARPEN_VERSION`): 8 = 7 with a noise gate on RAW photos at every Masking value (what stands no more
    * than the photo's measured noise out of its neighbourhood is not sharpened; renders as 7 on non-RAW photos and
@@ -1412,6 +1419,10 @@ export const DEFRINGE_VERSION = 2;
  * benchmark-results/bw2-black-white-2026-11-03). */
 export const BW_VERSION = 2;
 
+/** The colour mixer response new edits start with (notes:
+ * benchmark-results/atf8-hsl-shapes-2026-11-09). */
+export const HSL_VERSION = 2;
+
 /** The sharpening response new edits start with (notes: reference/detail.md). */
 export const SHARPEN_VERSION = 8;
 
@@ -1522,6 +1533,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         autoCaVersion: AUTO_CA_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         bwVersion: BW_VERSION,
+        hslVersion: HSL_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
@@ -1540,6 +1552,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         structureVersion: STRUCTURE_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         bwVersion: BW_VERSION,
+        hslVersion: HSL_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
@@ -1599,6 +1612,23 @@ const loadedBwVersion = (loaded: Partial<Adjustments>): number | undefined => {
   return loaded.blackAndWhite && mixed ? undefined : BW_VERSION;
 };
 
+/** Whether any colour mixer slider of `hsl` is off 0. */
+const mixerMoved = (hsl: unknown): boolean =>
+  Object.values((hsl ?? {}) as Record<string, Record<string, number | undefined> | undefined>).some((channel) =>
+    Object.values(channel ?? {}).some((v) => (v ?? 0) !== 0)
+  );
+
+/** The colour mixer response of a saved recipe: its own; else the current
+ * one when no mixer slider (photo or layer) is off 0 (every response renders
+ * it alike), the first one otherwise (missing key). */
+const loadedHslVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.hslVersion !== undefined && loaded.hslVersion !== null) {
+    return loaded.hslVersion;
+  }
+  const used = mixerMoved(loaded.hsl) || layersUseMixer(loaded);
+  return used ? undefined : HSL_VERSION;
+};
+
 /** Whether a recipe renders the same with every sharpening response: no
  * sharpening (photo or layer); response 3 differs from 1 at every amount. */
 const sharpensAlikeInEveryVersion = (values: Partial<Adjustments>, isRaw: boolean): boolean => {
@@ -1641,6 +1671,7 @@ export const pastedAdjustments = (
       key === 'vibranceVersion' ||
       key === 'structureVersion' ||
       key === 'bwVersion' ||
+      key === 'hslVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
     ) {
       continue;
@@ -1649,11 +1680,14 @@ export const pastedAdjustments = (
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  return withBwVersion(
-    withVibranceVersion(
-      withDetailVersions(
-        withGrainVersion(
-          withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, copied), copied), copied),
+  return withHslVersion(
+    withBwVersion(
+      withVibranceVersion(
+        withDetailVersions(
+          withGrainVersion(
+            withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, copied), copied), copied),
+            copied
+          ),
           copied
         ),
         copied
@@ -1843,6 +1877,10 @@ export const withStructureVersion = <T extends Partial<Adjustments>>(
 export const layersUseVibrance = (adjustments: Partial<Adjustments>): boolean =>
   (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.vibrance as number | undefined) ?? 0) !== 0);
 
+/** Whether a layer of the recipe moves a colour mixer slider (its mixer follows the photo's `hslVersion`). */
+export const layersUseMixer = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.masks ?? []).some((mask) => mixerMoved(mask?.adjustments?.hsl));
+
 /** Whether a layer of the recipe uses Structure (its travel follows the photo's `structureVersion`). */
 export const layersUseStructure = (adjustments: Partial<Adjustments>): boolean =>
   (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0);
@@ -1870,13 +1908,38 @@ export const withBwVersion = <T extends Partial<Adjustments>>(
   return { ...picked, bwVersion: source?.bwVersion ?? 1 };
 };
 
+/** As `withBwVersion` for the colour mixer: wherever mixer values are
+ * copied the mixer response goes along explicitly — the source's, else 1 (a
+ * source or preset from before the key) — so the copy renders the mixer as
+ * the source does. */
+export const withHslVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>
+): T & Pick<Partial<Adjustments>, 'hslVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'hslVersion') && picked.hslVersion == null) {
+    return { ...picked, hslVersion: 1 };
+  }
+  // Layers' mixer renders with the photo's response, so copied layers that
+  // use it carry it too.
+  const mixer = picked.hsl !== undefined || (source !== undefined && layersUseMixer(picked));
+  if (!mixer || picked.hslVersion != null) {
+    return picked;
+  }
+  return { ...picked, hslVersion: source?.hslVersion ?? 1 };
+};
+
 /** A preset's settings with its Clarity and B&W mix responses stated: the
  * preset is its own source, so Clarity on its layers alone or a mix from
  * before the keys renders with version 1 wherever it is previewed or
  * applied. */
 export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
-  withBwVersion(
-    withVibranceVersion(withDetailVersions(withWhiteBalanceVersions(preset, preset), preset), preset),
+  withHslVersion(
+    withBwVersion(
+      withVibranceVersion(withDetailVersions(withWhiteBalanceVersions(preset, preset), preset), preset),
+      preset
+    ),
     preset
   );
 
@@ -2168,6 +2231,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       structureVersion: loadedStructureVersion(loadedAdjustments),
       defringeVersion: loadedDefringeVersion(loadedAdjustments),
       bwVersion: loadedBwVersion(loadedAdjustments),
+      hslVersion: loadedHslVersion(loadedAdjustments),
       sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
       // A saved recipe's own grain; without the key 1 where it has grain, else
       // the newest (a new edit's, as `initialAdjustmentsFor`).
@@ -2305,7 +2369,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
       keys: [ColorAdjustment.Hue]
     },
     { label: 'modals.copyPaste.groups.colorGrading', keys: [ColorAdjustment.ColorGrading] },
-    { label: 'modals.copyPaste.groups.colorMixer', keys: [ColorAdjustment.Hsl, 'colorRanges'] },
+    { label: 'modals.copyPaste.groups.colorMixer', keys: [ColorAdjustment.Hsl, 'colorRanges', 'hslVersion'] },
     { label: 'modals.copyPaste.groups.colorCalibration', keys: ['colorCalibration'] },
     { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer', 'bwVersion'] }
   ],

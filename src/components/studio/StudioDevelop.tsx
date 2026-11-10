@@ -44,6 +44,7 @@ import {
   withNewGrainStructure,
   layersUseStructure,
   layersUseWhiteBalance,
+  layersUseMixer,
   layersUseVibrance,
   type RegionCurve
 } from '../../utils/adjustments';
@@ -1557,7 +1558,10 @@ export default function StudioDevelop() {
               toggle={toolSwitch('colorMixer')}
               copy={photoOnly([['hsl', t('studio.develop.params.hsl')]])}
               open
-              onReset={() => reset(['hsl'])}
+              // Every slider at 0 renders alike in every mixer response: the
+              // photo's reset takes a new edit's, unless a layer uses the
+              // mixer (the layers follow the photo's response).
+              onReset={() => reset(layer || layersUseMixer(adjustments) ? ['hsl'] : ['hsl', 'hslVersion'])}
             >
               {!layer && (
                 <div className="studio-inline studio-tat-row">

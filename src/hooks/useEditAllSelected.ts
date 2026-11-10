@@ -16,6 +16,7 @@ import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/q
 import {
   sameAdjustmentValue,
   withBwVersion,
+  withHslVersion,
   withDetailVersions,
   withWhiteBalanceVersions,
   withVibranceVersion,
@@ -223,13 +224,16 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // (inferred after drawn masks are left out of the live patch).
       const shown = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
       const patch = shown
-        ? withBwVersion(
-            withVibranceVersion(
-              withDetailVersions(
-                withGrainVersion(
-                  withLumaNoiseVersion(
-                    withWhiteBalanceVersions(
-                      withSharpenVersion(withPortableWhites(shown, source?.adjustments), source?.adjustments),
+        ? withHslVersion(
+            withBwVersion(
+              withVibranceVersion(
+                withDetailVersions(
+                  withGrainVersion(
+                    withLumaNoiseVersion(
+                      withWhiteBalanceVersions(
+                        withSharpenVersion(withPortableWhites(shown, source?.adjustments), source?.adjustments),
+                        source?.adjustments
+                      ),
                       source?.adjustments
                     ),
                     source?.adjustments
@@ -283,13 +287,16 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // on each of them (never the primary's bitmaps).
       const done = writeToOthers(
         applyRef.current,
-        withBwVersion(
-          withVibranceVersion(
-            withDetailVersions(
-              withGrainVersion(
-                withLumaNoiseVersion(
-                  withWhiteBalanceVersions(
-                    withSharpenVersion(withPortableWhites(changes, from.adjustments), from.adjustments),
+        withHslVersion(
+          withBwVersion(
+            withVibranceVersion(
+              withDetailVersions(
+                withGrainVersion(
+                  withLumaNoiseVersion(
+                    withWhiteBalanceVersions(
+                      withSharpenVersion(withPortableWhites(changes, from.adjustments), from.adjustments),
+                      from.adjustments
+                    ),
                     from.adjustments
                   ),
                   from.adjustments

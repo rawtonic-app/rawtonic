@@ -135,6 +135,7 @@ interface OldAdjustments {
   fringeVersion?: number;
   defringeVersion?: number;
   bwVersion?: number;
+  hslVersion?: number;
   sharpenVersion?: number;
   lumaNoiseVersion?: number;
   renderVersion?: number;
