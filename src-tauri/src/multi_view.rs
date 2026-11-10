@@ -328,11 +328,8 @@ fn base_bytes(worker: &Worker) -> usize {
 /// session), else the defaults with the camera's lens data, as Develop
 /// opens it.
 pub(crate) fn recipe_of(path: &str) -> serde_json::Value {
-    let (source_path, sidecar_path) = parse_virtual_path(path);
-    let mut recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
-    if !recipe.is_object() {
-        recipe = serde_json::json!({});
-    }
+    let (source_path, _) = parse_virtual_path(path);
+    let mut recipe = saved_recipe_of(path);
     let _ = rawtonic_export::normalize::normalize(
         &mut recipe,
         &rawtonic_export::normalize::RecipeSource::file(&source_path),
@@ -340,6 +337,18 @@ pub(crate) fn recipe_of(path: &str) -> serde_json::Value {
         rawtonic_export::normalize::Defaults::Render,
     );
     recipe
+}
+
+/// `path`'s recipe as saved (an object; `{}` without one), before the
+/// render defaults `recipe_of` adds.
+fn saved_recipe_of(path: &str) -> serde_json::Value {
+    let (_, sidecar_path) = parse_virtual_path(path);
+    let recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+    if recipe.is_object() {
+        recipe
+    } else {
+        serde_json::json!({})
+    }
 }
 
 /// Developed browser cells for Linux (and the split's before), using the
@@ -2603,14 +2612,16 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
 fn with_live_patch(mut recipe: serde_json::Value, path: &str) -> serde_json::Value {
     let live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(patch) = live.patch.as_ref() {
-        // In this cell's responses, as the written paste (Edit all selected
-        // replaces the layers): `pasted_versions::express_pasted`.
+        // In this cell's responses, decided on its saved recipe as the
+        // written paste is (Edit all selected replaces the layers):
+        // `pasted_versions::express_pasted`.
         let mut patch = serde_json::Value::Object(patch.clone());
+        let saved = saved_recipe_of(path);
         rawtonic_engine::pasted_versions::express_pasted(
             &mut patch,
             &rawtonic_engine::pasted_versions::PasteTarget {
-                recipe: &recipe,
-                is_new: image_processing::is_new_recipe(&recipe),
+                recipe: &saved,
+                is_new: image_processing::is_new_recipe(&saved),
                 is_raw: is_raw_file(parse_virtual_path(path).0),
                 replace_layers: true,
                 merge_groups: false,

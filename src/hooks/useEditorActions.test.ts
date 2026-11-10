@@ -1405,4 +1405,25 @@ describe('pasted version keys onto a never-edited open photo', () => {
     expect(useEditorStore.getState().adjustments).toMatchObject({ toneVersion: 2, contrast: -18 });
     await act(async () => {});
   });
+
+  it('decides on the saved recipe of an older edit it still shows, as for the closed photos', async () => {
+    const { result } = renderHook(useEditorActions);
+    // The editor states the keyless tone response as 5; the saved recipe renders 1.
+    const shown = { ...useEditorStore.getState().adjustments, exposure: 0.5, toneVersion: 5 };
+    useEditorStore.setState({ adjustments: shown, history: [shown], historyIndex: 0 });
+    rememberOpenedRecipe('/first.dng', {
+      saved: { exposure: 0.5 },
+      camera: {} as never,
+      width: 4000,
+      height: 3000,
+      shown
+    });
+    act(() => {
+      void result.current.applyAdjustmentsToPaths({ toneVersion: 2, highlights: -30 } as never, ['/first.dng'], {
+        style: { id: 'soft', remove: false }
+      });
+    });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ toneVersion: 1, highlights: -30 });
+    await act(async () => {});
+  });
 });

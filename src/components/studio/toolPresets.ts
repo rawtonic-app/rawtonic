@@ -51,8 +51,9 @@ export function presetPreview(
   adjustments: Partial<Adjustments>,
   isRaw: boolean,
   style?: { base: Adjustments; style: true },
-  /** The photo has no edit yet (it takes every version the preset names). */
-  isNew = false
+  /** What the preset's versions are decided on (`openPasteTarget`; default:
+   * the photo shown, without its last style for a style, as edited). */
+  target?: { recipe: Partial<Adjustments>; isNew: boolean }
 ): Adjustments | null {
   // Detection needs the target photo, can be expensive and commits a bitmap.
   // A hover override cannot run that edit safely.
@@ -60,7 +61,8 @@ export function presetPreview(
   // In the photo's own responses, as applying the preset writes them (pastedVersions.ts).
   const values = expressPastedSettings(presetValues(adjustments), {
     recipe: style ? style.base : current,
-    isNew,
+    isNew: false,
+    ...target,
     isRaw,
     replaceLayers: true,
     mergeGroups: Boolean(style)

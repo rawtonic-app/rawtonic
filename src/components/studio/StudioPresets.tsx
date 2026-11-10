@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
-import { openHasNoEdit, useEditorActions } from '../../hooks/useEditorActions';
+import { openPasteTarget, useEditorActions } from '../../hooks/useEditorActions';
 import { usePresets, type UserPreset } from '../../hooks/usePresets';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import type { Preset } from '../ui/AppProperties';
@@ -215,7 +215,7 @@ export default function StudioPresets() {
         preset.adjustments,
         Boolean(image.isRaw),
         base && { base, style: true },
-        openHasNoEdit(image.path)
+        openPasteTarget(image.path, base ?? current, Boolean(base))
       );
       if (!previewed) return endPreview();
       previewing.current = true;
@@ -229,8 +229,8 @@ export default function StudioPresets() {
     path: string;
     preset: Preset;
     base: Record<string, unknown>;
-    /** The photo had no edit before (it took every version the preset names). */
-    isNew: boolean;
+    /** What the preset's versions were decided on when it was applied (`openPasteTarget`). */
+    target: { recipe: Partial<Adjustments>; isNew: boolean };
     value: number;
   } | null>(null);
   const { showContextMenu } = useContextMenu();
@@ -310,7 +310,7 @@ export default function StudioPresets() {
             path: open,
             preset,
             base: structuredClone(currentAdjustments()) as unknown as Record<string, unknown>,
-            isNew: openHasNoEdit(open),
+            target: openPasteTarget(open, currentAdjustments()),
             value: 100
           }
         : null
@@ -344,8 +344,7 @@ export default function StudioPresets() {
     if (!amount || amount.path !== selectedImage?.path) return;
     setAmount({ ...amount, value });
     const values = expressPastedSettings(presetValues(amount.preset.adjustments), {
-      recipe: amount.base as Partial<Adjustments>,
-      isNew: amount.isNew,
+      ...amount.target,
       isRaw: Boolean(selectedImage?.isRaw),
       replaceLayers: true
     });

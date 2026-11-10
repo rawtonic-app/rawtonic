@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Bookmark, Trash2 } from 'lucide-react';
 import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
-import { openHasNoEdit, useEditorActions } from '../../hooks/useEditorActions';
+import { openPasteTarget, useEditorActions } from '../../hooks/useEditorActions';
 import { usePresets } from '../../hooks/usePresets';
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../../utils/builtinPresets';
 import type { Preset } from '../ui/AppProperties';
@@ -110,7 +110,7 @@ function ToolPresetsPopover({
       preset.adjustments,
       Boolean(image.isRaw),
       undefined,
-      openHasNoEdit(image.path)
+      openPasteTarget(image.path, adjustments)
     );
     if (!previewed) return endPreview();
     previewing.current = true;

@@ -25,7 +25,7 @@ const apply = vi.fn();
 const setAdjustments = vi.fn();
 vi.mock('../../hooks/useEditorActions', () => ({
   useEditorActions: () => ({ applyAdjustmentsToPaths: apply, setAdjustments }),
-  openHasNoEdit: () => false
+  openPasteTarget: (_path: string, recipe: unknown) => ({ recipe, isNew: false })
 }));
 const mockInvoke = vi.mocked(invoke);
 

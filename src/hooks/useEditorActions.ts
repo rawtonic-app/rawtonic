@@ -376,19 +376,25 @@ export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
 }
 
-/** Whether the open photograph `path` has no edit yet: it was opened from
- * a new (or no) saved recipe and has not been edited since loading. Pasted
- * versions go onto it as onto a never-edited closed photograph
- * (`pasted_versions`: it takes every one). */
-export function openHasNoEdit(path: string): boolean {
+/** The recipe pasted versions are decided on for the open photograph
+ * `path` (`pasted_versions`), and whether it has no edit yet: while it
+ * still shows what it was opened from, its saved recipe, as the backend
+ * decides for the closed photographs of the same batch (the editor's recipe
+ * states versions a saved one leaves to its default); else `editorRecipe`.
+ * `revert`: a style is applied, decided on the photo without its last one. */
+export function openPasteTarget(
+  path: string,
+  editorRecipe: Partial<Adjustments>,
+  revert = false
+): { recipe: Partial<Adjustments>; isNew: boolean } {
   const { history, historyPending } = useEditorStore.getState();
-  return (
-    history.length === 1 &&
-    !historyPending &&
-    openedRecipe?.path === path &&
-    history[0] === openedRecipe.shown &&
-    newSaved(openedRecipe.saved)
-  );
+  const unchanged =
+    history.length === 1 && !historyPending && openedRecipe?.path === path && history[0] === openedRecipe.shown;
+  if (!unchanged) return { recipe: editorRecipe, isNew: isNewRecipe(editorRecipe) };
+  const saved = openedRecipe!.saved;
+  if (newSaved(saved)) return { recipe: editorRecipe, isNew: true };
+  const recipe = saved as Adjustments;
+  return { recipe: revert ? revertStyle(recipe).recipe : recipe, isNew: false };
 }
 
 /** The open photograph `open` with `pasted` (from `paste`, null: a preset),
@@ -436,8 +442,7 @@ function pastedOpen(
   const here = paste?.asChosen
     ? withCarriedWhitesFor(pasted, base ?? current)
     : expressPastedSettings(pasted, {
-        recipe: base ?? current,
-        isNew: !base || isNewRecipe(base) || openHasNoEdit(open.path),
+        ...openPasteTarget(open.path, base ?? current, Boolean(style)),
         isRaw: open.isRaw,
         replaceLayers: paste?.replaceLayers ?? true,
         mergeGroups: Boolean(style)
@@ -1545,8 +1550,6 @@ export function useEditorActions() {
         // Preset layers replace the photo's layers, with the same fresh
         // detections as paste. Save the open photo through its editor only:
         // a parallel batch write could replace a newly completed detection.
-        // (Before the paste becomes a step of its history.)
-        const noEditBefore = openHasNoEdit(open.path);
         const merged = style && !styleHere ? null : pastedOpen(open, current, adjustmentsToApply, paste, styleHere);
         if (merged) {
           // (Taking a style back leaves the lens: it is the photo's own.)
@@ -1560,8 +1563,7 @@ export function useEditorActions() {
                   without!,
                   unresolved,
                   expressPastedSettings(adjustmentsToApply, {
-                    recipe: without!,
-                    isNew: noEditBefore,
+                    ...openPasteTarget(open.path, without!, true),
                     isRaw: open.isRaw,
                     replaceLayers: true,
                     mergeGroups: true
@@ -1581,8 +1583,7 @@ export function useEditorActions() {
         setAdjustments({
           ...adjustments,
           ...expressPastedSettings(adjustmentsToApply, {
-            recipe: adjustments,
-            isNew: openHasNoEdit(open.path),
+            ...openPasteTarget(open.path, adjustments),
             isRaw: open.isRaw,
             replaceLayers: true
           })
