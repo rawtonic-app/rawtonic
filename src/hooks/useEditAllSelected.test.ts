@@ -159,6 +159,46 @@ describe('Edit all selected', () => {
     expect(pasted()).toEqual([{ paths: ['/s/b.CR3?vc=c0ffee'], adjustments: { masks: [sky('data:own')] } }]);
   });
 
+  it("carries layers' Whites as the amount they render with a detection sent to the primary's copies", () => {
+    const sky = (data: string | null) => ({
+      id: 'l',
+      name: 'Sky',
+      visible: true,
+      invert: false,
+      opacity: 100,
+      adjustments: { whites: 50 },
+      subMasks: [
+        {
+          id: 's',
+          type: 'ai-sky',
+          visible: true,
+          invert: false,
+          opacity: 100,
+          mode: 'additive',
+          parameters: { maskDataBase64: data }
+        }
+      ]
+    });
+    act(() =>
+      useEditorStore.setState({
+        adjustments: { ...useEditorStore.getState().adjustments, toneVersion: 17, masks: [sky(null)] as never }
+      })
+    );
+    renderHook(() => useEditAllSelected(true, [...selection, '/s/b.CR3?vc=c0ffee']));
+    edit({ masks: [sky('data:own')] as never });
+    act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
+    // Version 17's layer Whites +50 render the amount 74.
+    expect(pasted()[0].adjustments.masks![0].adjustments.whites).toBe(74);
+  });
+
+  it('carries a Whites change as the amount it renders, without the tone version', () => {
+    act(() => useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, toneVersion: 17 } }));
+    renderHook(() => useEditAllSelected(true, selection));
+    edit({ whites: 50 });
+    act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
+    expect(pasted()[0].adjustments).toEqual({ whites: 74 });
+  });
+
   it('takes away from the others a setting the primary no longer has', () => {
     act(() =>
       useEditorStore.setState({

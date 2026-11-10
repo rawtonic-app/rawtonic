@@ -369,7 +369,8 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
           copies.forEach((path) => globalImageCache.delete(path));
           // Framed by the primary, as every sync is (legacy unframed shapes).
           const masks = frameDrawnMasks(state.adjustments.masks, state.adjustments, image.width, image.height);
-          void applyRef.current({ masks }, copies, {
+          // Its layers' Whites as the amount they render, as every sync carries them.
+          void applyRef.current(withPortableWhites({ masks }, state.adjustments), copies, {
             openingNow: true,
             pasteFrom: image.path,
             replaceLayers: true,
