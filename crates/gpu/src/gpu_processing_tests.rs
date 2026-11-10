@@ -3649,6 +3649,59 @@ fn white_balance_versions_leave_the_other_slider_alone() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; the output with and without renderVersion 12's gamut knee"]
+fn gamut_knee_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size of a synthetic input whose
+    // colours are mostly saturated, many beyond sRGB (`input`); the
+    // versions alternate within one process and Saturation moves a little
+    // every frame (a drag).
+    let variants = [("render11", 11), ("render12", 12)];
+    let (width, height, frames) = (2304, 1728, 60);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 3);
+    let mut times = vec![Vec::new(); variants.len()];
+    for frame in 0..frames + 2 {
+        for (i, (_, version)) in variants.iter().enumerate() {
+            let profile =
+                json!({"renderVersion": version, "saturation": 10.0 + 0.1 * frame as f64});
+            let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+            let start = Instant::now();
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            context
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if frame >= 2 {
+                times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (i, (name, _)) in variants.iter().enumerate() {
+        let t = &mut times[i];
+        t.sort_by(f64::total_cmp);
+        println!(
+            "{}",
+            json!({"variant": name, "median_ms": t[t.len() / 2], "min_ms": t[0], "frames": frames})
+        );
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; compares the colour mixer responses"]
 fn colour_mixer_version_timing_probe() {
     let context = context();
@@ -9179,11 +9232,35 @@ fn wide_gamut_exports_keep_colours_beyond_srgb_and_match_inside_it() {
         }
     }
     assert!(differs, "the mapping changed no colour beyond sRGB");
+    // With the gamut knee (`renderVersion` 12) colours beyond the proofed
+    // space are eased into it; the gamut warning still marks them (it
+    // judges the colour before the easing) and nothing else.
+    let knee = |warning: bool| {
+        render_with(
+            json!({ "saturation": 20, "softProof": "srgb", "softProofWarning": warning, "renderVersion": 12 }),
+            OutputColorSpace::DisplayP3,
+            3,
+        )
+    };
+    let (knee_proofed, knee_warned) = (knee(false), knee(true));
+    for y in (2..height).step_by(5) {
+        let green = at(&knee_warned, width * 5 / 8, y);
+        assert!(
+            green[0] > 0.9 && green[1] < 0.01 && green[2] < 0.01,
+            "warning with the knee at {y}: {green:?}"
+        );
+        assert_eq!(
+            at(&knee_warned, 17, y),
+            at(&knee_proofed, 17, y),
+            "warning on grey with the knee"
+        );
+    }
 }
 
-/// CAM16 hue angle (degrees) of a linear sRGB colour under the viewing
-/// conditions of the shader's gamut mapping (`linear_srgb_to_cam`).
-fn cam16_hue_degrees(c: [f64; 3]) -> f64 {
+/// CAM16 opponent axes (red–green, yellow–blue) of a linear sRGB colour
+/// under the viewing conditions of the shader's gamut mapping
+/// (`linear_srgb_to_cam`).
+fn cam16_opponent(c: [f64; 3]) -> [f64; 2] {
     const CONE: [[f64; 3]; 3] = [
         [0.084755396, 0.168648653, 0.0197274085],
         [0.0413088283, 0.208882542, 0.0229392433],
@@ -9194,9 +9271,23 @@ fn cam16_hue_degrees(c: [f64; 3]) -> f64 {
         let y = x.abs().powf(0.42);
         x.signum() * y / (y + 27.13)
     });
-    let a = r[0] - 12.0 * r[1] / 11.0 + r[2] / 11.0;
-    let b = (r[0] + r[1] - 2.0 * r[2]) / 9.0;
+    [
+        r[0] - 12.0 * r[1] / 11.0 + r[2] / 11.0,
+        (r[0] + r[1] - 2.0 * r[2]) / 9.0,
+    ]
+}
+
+/// CAM16 hue angle (degrees) of a linear sRGB colour (`cam16_opponent`).
+fn cam16_hue_degrees(c: [f64; 3]) -> f64 {
+    let [a, b] = cam16_opponent(c);
     b.atan2(a).to_degrees()
+}
+
+/// CAM16 chroma of a linear sRGB colour, up to a constant factor
+/// (`cam16_opponent`).
+fn cam16_chroma(c: [f64; 3]) -> f64 {
+    let [a, b] = cam16_opponent(c);
+    a.hypot(b)
 }
 
 #[test]
@@ -9592,6 +9683,223 @@ fn gamut_mapping_keeps_smooth_gradients_smooth() {
             );
         }
     }
+}
+
+/// `renderVersion` 12 eases saturated colours near the output space's edge
+/// towards it (shader `ease_into_gamut`). Ramps from grey out to colours
+/// only ProPhoto holds (a warm orange, a deep red, a magenta, a blue, a
+/// cyan):
+/// colours well inside the cube (every channel between 0.2 and 0.8
+/// encoded) render as with version 11, every pixel keeps
+/// version 11's CAM16 hue within a degree, chroma falls along the ramp
+/// only where and as far as the clip's own does (colours beyond the edge
+/// take the clip's lightness and chroma), neighbouring pixels stay within
+/// one 8-bit code (or the clip's own step), and fewer pixels reach the top
+/// code than with the clip: in sRGB, Display P3 and Adobe RGB output, each
+/// against its own cube. ProPhoto output is the same in both versions.
+#[test]
+#[ignore = "requires a native GPU; soft knee of renderVersion 12 against the clip"]
+fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let (width, height) = (1024u32, 5u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let ramps: [[[f32; 3]; 2]; 5] = [
+        [[0.5, 0.5, 0.5], [1.5, 0.45, -0.08]],
+        [[0.35, 0.35, 0.35], [1.25, -0.05, 0.02]],
+        [[0.4, 0.4, 0.4], [1.2, -0.1, 1.1]],
+        [[0.3, 0.3, 0.3], [-0.12, 0.1, 1.3]],
+        [[0.3, 0.3, 0.3], [-0.2, 0.55, 0.6]],
+    ];
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let [from, to] = ramps[y as usize];
+            let t = x as f32 / (width - 1) as f32;
+            let c: [f32; 3] = std::array::from_fn(|i| (from[i] + (to[i] - from[i]) * t) * 1.5);
+            [
+                f16::from_f32(c[0]),
+                f16::from_f32(c[1]),
+                f16::from_f32(c[2]),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Ramps to beyond sRGB"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let render = |version: u64, space: OutputColorSpace| {
+        // The Classic look (0): no look table between the ramp and the output.
+        let mut adjustments =
+            get_all_adjustments_from_json(&json!({ "renderVersion": version }), true, Some(0));
+        adjustments.global.output_space[0] = space.shader_code();
+        adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        pixels
+    };
+    // ProPhoto holds the working gamut: nothing is eased into it.
+    assert_eq!(
+        render(11, OutputColorSpace::ProPhoto),
+        render(12, OutputColorSpace::ProPhoto),
+        "ProPhoto output changed"
+    );
+    // Each space that clips: its own cube, searched through its own matrix.
+    let mut tops = 0;
+    for space in [
+        OutputColorSpace::Srgb,
+        OutputColorSpace::DisplayP3,
+        OutputColorSpace::AdobeRgb,
+    ] {
+        let (clipped, eased) = (render(11, space), render(12, space));
+        // An output pixel as the space's own linear RGB, and as linear
+        // sRGB (negative outside sRGB) for its CAM16 hue and chroma.
+        let (to_srgb, transfer) = (space.to_linear_srgb(), space.transfer());
+        let own = |p: &[u16], i: usize| -> [f64; 3] {
+            std::array::from_fn(|c| transfer.to_linear(p[i + c] as f64 / 65535.0))
+        };
+        let linear = |p: &[u16], i: usize| -> [f64; 3] {
+            let rgb = own(p, i);
+            to_srgb.map(|row| row[0] * rgb[0] + row[1] * rgb[1] + row[2] * rgb[2])
+        };
+        // Colourfulness inside the space's cube (its own RGB).
+        let chroma = |c: [f64; 3]| {
+            let r = c.map(|v| v.max(0.0).cbrt());
+            (r[0] - r[1]).hypot(r[1] - r[2])
+        };
+        let top = |p: &[u16]| {
+            (0..(width * height) as usize)
+                .filter(|i| (0..3).any(|c| p[i * 4 + c] >= 65500))
+                .count()
+        };
+        let mut changed = 0;
+        let mut well_inside = 0;
+        let mut beyond = 0;
+        for y in 0..height {
+            let at = |x: u32| ((y * width + x) * 4) as usize;
+            for x in 0..width {
+                let v = &clipped[at(x)..at(x) + 3];
+                if v.iter().all(|&c| (13107..=52428).contains(&c)) {
+                    well_inside += 1;
+                    assert_eq!(
+                        v,
+                        &eased[at(x)..at(x) + 3],
+                        "{space:?} ramp {y}: the colour at {x}, well inside, changed"
+                    );
+                }
+            }
+            let (mut last, mut last_clip, mut peak, mut peak_clip) =
+                (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            for x in 1..width {
+                let (a, b) = (linear(&clipped, at(x)), linear(&eased, at(x)));
+                changed += usize::from(clipped[at(x)..at(x) + 3] != eased[at(x)..at(x) + 3]);
+                if chroma(own(&clipped, at(x))) > 0.05 {
+                    let dh = (cam16_hue_degrees(b) - cam16_hue_degrees(a) + 540.0) % 360.0 - 180.0;
+                    assert!(
+                        dh.abs() < 1.0,
+                        "{space:?} ramp {y} at {x}: hue moved {dh:.2} degrees"
+                    );
+                }
+                // The eased colour follows the clip's (restore_hue's), whose
+                // chroma falls again far beyond the edge: from one pixel to
+                // the next it may fall by the clip's own fall, and over the
+                // ramp it never drops further below its peak than the clip's.
+                let (c, c_clip) = (chroma(own(&eased, at(x))), chroma(own(&clipped, at(x))));
+                assert!(
+                    c >= last - 2e-3 - (last_clip - c_clip).max(0.0),
+                    "{space:?} ramp {y} at {x}: chroma fell from {last} to {c} (clipped: {last_clip} to {c_clip})"
+                );
+                (last, last_clip) = (c, c_clip);
+                (peak, peak_clip) = (peak.max(c), peak_clip.max(c_clip));
+                // A colour the clip moved (beyond the edge) keeps the clip's
+                // colourfulness but for the knee's share, at most a fortieth.
+                // Eased along its own lightness instead, saturated colours
+                // came out less colourful than the clip's (cyans under
+                // Vibrance +100 against Camera Raw: 0.12 of their chroma
+                // ratio instead of 0.03, task ATF10F).
+                if clipped[at(x)..at(x) + 3]
+                    .iter()
+                    .any(|&v| v == 0 || v == 65535)
+                {
+                    let kept = cam16_chroma(b) / cam16_chroma(a);
+                    beyond += 1;
+                    assert!(
+                        (0.97..=1.005).contains(&kept),
+                        "{space:?} ramp {y} at {x}: {kept:.3} of the clip's chroma"
+                    );
+                }
+                assert!(
+                    peak - c <= peak_clip - c_clip + 2e-3,
+                    "{space:?} ramp {y} at {x}: chroma {c} under its peak {peak} (clipped: {c_clip} under {peak_clip})"
+                );
+                for k in 0..3 {
+                    let step = (eased[at(x) + k] as i32 - eased[at(x - 1) + k] as i32).abs();
+                    let clipped_step =
+                        (clipped[at(x) + k] as i32 - clipped[at(x - 1) + k] as i32).abs();
+                    assert!(
+                        step <= 257.max(clipped_step + 32),
+                        "{space:?} ramp {y} at {x}: a step of {step} sixteen-bit codes (clipped: {clipped_step})"
+                    );
+                }
+            }
+        }
+        assert!(changed > 0, "{space:?}: the knee changed no colour");
+        // Fewer in the wider spaces (of the 5120: sRGB 2698, Display P3
+        // 441, Adobe RGB 252).
+        assert!(
+            beyond > 200,
+            "{space:?}: only {beyond} ramp colours lie beyond the edge"
+        );
+        assert!(
+            well_inside > 0,
+            "{space:?}: no ramp colour lies well inside the cube"
+        );
+        let (before, after) = (top(&clipped), top(&eased));
+        // (The ramps leave the wider spaces through their lower faces
+        // only: no top code there in either version.)
+        assert!(
+            after < before || (before == 0 && after == 0),
+            "{space:?}: pixels at the top code: {after} eased vs {before} clipped"
+        );
+        tops += before;
+    }
+    assert!(tops > 0, "no space had pixels at the top code to ease");
 }
 
 /// Shadows and Blacks under the Camera Raw look take their gain from the
