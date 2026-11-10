@@ -1148,22 +1148,40 @@ pub(crate) async fn export_images_impl(
                     let pinned = (photos.read)(global_index);
                     let owner = pinned.as_ref().ok().and_then(|p| p.owner.clone());
                     crate::session_bridge::with_culling_owner(owner.as_deref(), || {
-                        export_photo(
-                            &app_handle_clone,
-                            &context_clone,
-                            &settings,
-                            &targets,
+                        // A retry exports the same snapshot of the photo
+                        // into the files the first attempt reserved.
+                        let planned = PlannedFiles::default();
+                        rawtonic_runtime::gpu_memory::retry_out_of_memory(
                             &wanted,
-                            photos.open_path.as_deref(),
-                            pinned,
-                            &used_paths_clone,
-                            &cancellation_token_clone,
-                            PhotoItem {
-                                global_index,
-                                image_path_str: &image_path_str,
-                                appearance_count,
-                                explicit_vc,
-                                total_paths,
+                            |wanted| {
+                                export_photo(
+                                    &app_handle_clone,
+                                    &context_clone,
+                                    &settings,
+                                    &targets,
+                                    wanted,
+                                    photos.open_path.as_deref(),
+                                    pinned.clone(),
+                                    &used_paths_clone,
+                                    &planned,
+                                    &cancellation_token_clone,
+                                    PhotoItem {
+                                        global_index,
+                                        image_path_str: &image_path_str,
+                                        appearance_count,
+                                        explicit_vc,
+                                        total_paths,
+                                    },
+                                )
+                            },
+                            |target| planned.unpublished(target),
+                            |again, wait| {
+                                log::warn!(
+                                    "Export: the graphics card ran out of memory for {} recipe(s) of {image_path_str}; again in {wait:?}",
+                                    again.len()
+                                );
+                                release_gpu_memory(&app_handle_clone, &context_clone);
+                                wait_unless_cancelled(wait, &cancellation_token_clone)
                             },
                         )
                     })
@@ -1313,6 +1331,79 @@ struct PhotoItem<'a> {
     appearance_count: usize,
     explicit_vc: Option<u32>,
     total_paths: usize,
+}
+
+/// The files a photo's recipes were given, by recipe: a retry of the
+/// photo exports into the same ones instead of reserving new names (which
+/// would be `_1` files, its own reservation taken).
+#[derive(Default)]
+struct PlannedFiles(Mutex<std::collections::HashMap<usize, std::path::PathBuf>>);
+
+impl PlannedFiles {
+    /// The file of `target`: the one planned before, or `plan`'s.
+    fn once(
+        &self,
+        target: usize,
+        plan: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    ) -> Result<std::path::PathBuf, String> {
+        if let Some(path) = self.0.lock().unwrap().get(&target) {
+            return Ok(path.clone());
+        }
+        let path = plan()?;
+        self.0.lock().unwrap().insert(target, path.clone());
+        Ok(path)
+    }
+
+    /// Whether `target`'s file is not published (or not planned yet): only
+    /// then can the recipe be exported again. Once its file is there its
+    /// mask files may have failed; that stays a failure as before.
+    fn unpublished(&self, target: usize) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .get(&target)
+            .is_none_or(|path| !path.exists())
+    }
+}
+
+/// Frees what the app itself holds on the graphics card and can rebuild:
+/// the exports' processor when no render holds it (its textures and
+/// pipelines), the scopes' uploads and the Develop view's upload of its
+/// photo (the next frame uploads it again). Renders in progress keep
+/// theirs. (A processor a render holds is rebuilt at its next use anyway:
+/// the failed render marked it, `ProcessorSlot::discard_after`.)
+fn release_gpu_memory(app_handle: &tauri::AppHandle, context: &GpuContext) {
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let processor = gpu.export_processor.take_if_idle().is_some();
+    let caches = std::iter::once(&gpu.scope_cache)
+        .chain(&gpu.scope_extremes_cache)
+        .chain(std::iter::once(
+            &app_handle.state::<DevelopSession>().gpu_image_cache,
+        ))
+        .filter(|cache| {
+            cache
+                .try_lock()
+                .is_ok_and(|mut cache| cache.take().is_some())
+        })
+        .count();
+    // wgpu frees dropped resources once the device is polled.
+    let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
+    log::info!(
+        "Export: freed GPU memory before a retry (export processor: {processor}, uploads: {caches})"
+    );
+}
+
+/// Sleeps `wait` unless the export is cancelled meanwhile (`false` then).
+fn wait_unless_cancelled(wait: std::time::Duration, cancellation_token: &AtomicBool) -> bool {
+    let step = std::time::Duration::from_millis(50);
+    let start = std::time::Instant::now();
+    while start.elapsed() < wait {
+        if cancellation_token.load(Ordering::SeqCst) {
+            return false;
+        }
+        std::thread::sleep(step.min(wait.saturating_sub(start.elapsed())));
+    }
+    !cancellation_token.load(Ordering::SeqCst)
 }
 
 /// The file a recipe writes for a photo: its name from the recipe's
@@ -1472,6 +1563,7 @@ fn export_photo(
     open_path: Option<&str>,
     pinned: Result<PinnedPhoto, String>,
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
+    planned: &PlannedFiles,
     cancellation_token: &AtomicBool,
     item: PhotoItem,
 ) -> Vec<(usize, Result<(), String>)> {
@@ -1548,15 +1640,17 @@ fn export_photo(
             .take(crate::image_processing::MAX_MASKS)
             .count();
     let plan = |target: usize| {
-        let output_path = plan_output_path(
-            &targets[target],
-            &item,
-            original_path,
-            &file_date,
-            capture.as_ref(),
-            mask_layers,
-            used_paths,
-        )?;
+        let output_path = planned.once(target, || {
+            plan_output_path(
+                &targets[target],
+                &item,
+                original_path,
+                &file_date,
+                capture.as_ref(),
+                mask_layers,
+                used_paths,
+            )
+        })?;
         if let Some(tracking) = &targets[target].tracking {
             tracking.started(item.global_index, &output_path);
         }
@@ -1775,6 +1869,8 @@ fn export_photo(
                 .as_ref()
                 .map_err(Clone::clone)?;
             ensure_export_not_cancelled(cancellation_token)?;
+            #[cfg(feature = "qa-control")]
+            crate::qa_crash::gpu_out_of_memory()?;
             let output = ExportOutput {
                 path: output_path,
                 format: targets[target].output_format.as_str(),
@@ -2587,7 +2683,9 @@ fn estimate_sizes(
 
 #[cfg(test)]
 mod tests {
-    use super::{ExportTarget, PhotoItem, export_in_turn, is_open_edit, plan_output_path};
+    use super::{
+        ExportTarget, PhotoItem, PlannedFiles, export_in_turn, is_open_edit, plan_output_path,
+    };
 
     /// The exact full-size RAW render used by the import dialog, including
     /// normalization, decode and GPU processing, must not write beside a card.
@@ -2902,6 +3000,43 @@ mod tests {
     /// reserved with the main file, so neither takes the other's (review of
     /// F10: recipe B's `Photo_2_mask_0_image` against recipe A's `Photo_2`
     /// with separate masks).
+    #[test]
+    fn a_retry_exports_into_the_file_its_first_attempt_reserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let target = ExportTarget {
+            output_folder_or_file: dir.path().to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+            }))
+            .unwrap(),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let source = dir.path().join("a.CR3");
+        let item = PhotoItem {
+            global_index: 0,
+            image_path_str: "a.CR3",
+            appearance_count: 1,
+            explicit_vc: None,
+            total_paths: 2,
+        };
+        let date = chrono::Utc::now();
+        let planned = PlannedFiles::default();
+        let plan = || plan_output_path(&target, &item, &source, &date, None, 0, &used);
+        let first = planned.once(0, plan).unwrap();
+        let again = planned.once(0, plan).unwrap();
+        assert_eq!(first, again, "no _1 name for the retry");
+        assert_eq!(first.file_name().unwrap(), "a_edited.jpg");
+        assert!(planned.unpublished(0) && planned.unpublished(1));
+        std::fs::write(&first, b"published").unwrap();
+        assert!(!planned.unpublished(0), "its file is there: not again");
+        let other = plan_output_path(&target, &item, &source, &date, None, 0, &used).unwrap();
+        assert_ne!(other, first, "the reservation still holds for others");
+    }
+
     #[test]
     fn mask_file_names_are_reserved_with_their_main_file() {
         let dir = tempfile::tempdir().unwrap();

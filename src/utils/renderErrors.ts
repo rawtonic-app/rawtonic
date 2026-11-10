@@ -12,6 +12,9 @@ const OFFLINE = /^(.+) is offline: exporting needs the RAW file$/;
 const WRITE_FAILED = /^Failed to write file to '(.+)': (.+)$/s;
 const KNOWN: Record<string, () => string> = {
   'Export task terminated unexpectedly': () => i18n.t('studio.export.errors.terminated'),
+  // rawtonic_runtime::gpu_memory::GPU_MEMORY_EXHAUSTED: still out of memory after the export's retries.
+  'Not enough graphics memory for this photo. Close other programs that use the graphics card and export this photo again.':
+    () => i18n.t('studio.export.errors.gpuMemory'),
   'Unreadable export request': () => i18n.t('studio.export.errors.unreadableRequest')
 };
 

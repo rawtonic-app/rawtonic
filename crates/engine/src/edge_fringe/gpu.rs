@@ -371,7 +371,12 @@ fn run_scoped(
     );
     let validation = pollster::block_on(validation.pop());
     let memory = pollster::block_on(memory.pop());
-    if let Some(error) = memory.or(validation) {
+    if memory.is_some() {
+        return Err(rawtonic_runtime::gpu_memory::gpu_out_of_memory(
+            "edge-fringe pass",
+        ));
+    }
+    if let Some(error) = validation {
         return Err(format!("The edge-fringe pass failed on the GPU: {error}"));
     }
     result

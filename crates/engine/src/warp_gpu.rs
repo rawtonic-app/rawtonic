@@ -493,7 +493,10 @@ fn scoped<T>(device: &wgpu::Device, run: impl FnOnce() -> Result<T, String>) -> 
     let internal = pollster::block_on(internal.pop());
     let validation = pollster::block_on(validation.pop());
     let memory = pollster::block_on(memory.pop());
-    if let Some(error) = memory.or(validation).or(internal) {
+    if memory.is_some() {
+        return Err(rawtonic_runtime::gpu_memory::gpu_out_of_memory("warp"));
+    }
+    if let Some(error) = validation.or(internal) {
         return Err(format!("The warp failed on the GPU: {error}"));
     }
     result

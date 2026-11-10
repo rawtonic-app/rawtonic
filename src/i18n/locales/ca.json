@@ -3567,6 +3567,7 @@
       },
       "errors": {
         "batchFailed": "{{failed}} de {{total}} exportacions han fallat",
+        "gpuMemory": "No hi ha prou memòria gràfica per a aquesta foto. Tanca altres programes que facin servir la targeta gràfica i torna a exportar aquesta foto.",
         "offline": "{{file}} està fora de línia: per exportar cal el fitxer RAW.",
         "terminated": "L'exportació s'ha aturat inesperadament.",
         "textureLimit": "La imatge ({{width}} × {{height}} px) és més gran del que aquesta targeta gràfica pot processar ({{limit}} px per costat).",

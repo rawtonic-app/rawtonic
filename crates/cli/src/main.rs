@@ -1256,18 +1256,36 @@ fn export(args: ExportArgs) -> Result<()> {
             )}));
             continue;
         }
-        let result = exporter.export(&rawtonic_export::file_export::FileExport {
-            source: &source,
-            output,
-            format: &format,
-            recipe,
-            settings: settings.clone(),
-            base: rawtonic_engine::image_loader::BaseImageOptions::default(),
-            catalog: photo_metadata(photo, &source, &sidecar),
-            capture: corrected_capture(&source),
-            library: library.as_deref(),
-        });
-        match result {
+        // A render out of graphics memory (another program holding it) is
+        // exported again after a wait, into the same file (app: the same).
+        let catalog = photo_metadata(photo, &source, &sidecar);
+        let capture = corrected_capture(&source);
+        let mut results = rawtonic_runtime::gpu_memory::retry_out_of_memory(
+            &[()],
+            |_| {
+                let result = exporter.export(&rawtonic_export::file_export::FileExport {
+                    source: &source,
+                    output,
+                    format: &format,
+                    recipe: recipe.clone(),
+                    settings: settings.clone(),
+                    base: rawtonic_engine::image_loader::BaseImageOptions::default(),
+                    catalog: catalog.clone(),
+                    capture: capture.clone(),
+                    library: library.as_deref(),
+                });
+                vec![((), result)]
+            },
+            |()| !output.exists(),
+            |_, wait| {
+                eprintln!(
+                    "Rawtonic: the graphics card ran out of memory for {photo}; again in {wait:?}"
+                );
+                std::thread::sleep(wait);
+                true
+            },
+        );
+        match results.remove(0).1 {
             Ok(()) => written.push(output.clone()),
             Err(error) => failed.push(serde_json::json!({"source": photo, "error": error})),
         }

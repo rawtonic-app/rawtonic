@@ -17,6 +17,7 @@
 //! their tiles while foreground renders run (notes: parity-gaps/G44).
 
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -45,6 +46,8 @@ struct State {
 pub struct ProcessorSlot<T> {
     slot: Mutex<T>,
     background_only: bool,
+    /// A render on it ran out of graphics memory (`discard_after`).
+    discard: AtomicBool,
 }
 
 impl<T> ProcessorSlot<T> {
@@ -54,6 +57,7 @@ impl<T> ProcessorSlot<T> {
         Self {
             slot: Mutex::new(value),
             background_only: false,
+            discard: AtomicBool::new(false),
         }
     }
 
@@ -64,6 +68,7 @@ impl<T> ProcessorSlot<T> {
         Self {
             slot: Mutex::new(value),
             background_only: true,
+            discard: AtomicBool::new(false),
         }
     }
 }
@@ -72,6 +77,26 @@ impl<T> ProcessorSlot<T> {
     /// Whether only background renders (exports) use this slot.
     pub fn background_only(&self) -> bool {
         self.background_only
+    }
+
+    /// `result` of a render on this slot's processor. When the render ran
+    /// out of graphics memory the processor may hold a texture or pipeline
+    /// it could not allocate (wgpu hands out an invalid object and keeps
+    /// it), which would fail every later render on it even once memory is
+    /// free: the next render that locks the slot builds a new processor
+    /// (`take_discarded`).
+    pub fn discard_after<R>(&self, result: Result<R, String>) -> Result<R, String> {
+        if let Err(error) = &result
+            && rawtonic_runtime::gpu_memory::is_gpu_out_of_memory(error)
+        {
+            self.discard.store(true, Ordering::SeqCst);
+        }
+        result
+    }
+
+    /// Whether the processor is to be built anew (`discard_after`); once.
+    pub(super) fn take_discarded(&self) -> bool {
+        self.discard.swap(false, Ordering::SeqCst)
     }
 }
 
@@ -486,6 +511,24 @@ mod tests {
         // No frame since: it goes on at once.
         std::thread::sleep(FOREGROUND_PAUSE);
         assert!(!turns.pause_for_foreground());
+    }
+
+    /// A render that ran out of graphics memory has the next render build a
+    /// new processor, once; other failures and successes keep it.
+    #[test]
+    fn a_render_out_of_graphics_memory_discards_its_processor() {
+        let slot = ProcessorSlot::background(Some(1));
+        let _ = slot.discard_after::<()>(Err("The file is damaged".to_string()));
+        let _ = slot.discard_after(Ok(()));
+        assert!(!slot.take_discarded());
+        let error = rawtonic_runtime::gpu_memory::gpu_out_of_memory("render");
+        assert_eq!(
+            slot.discard_after::<()>(Err(error.clone())),
+            Err(error),
+            "the error is passed on"
+        );
+        assert!(slot.take_discarded());
+        assert!(!slot.take_discarded(), "once");
     }
 
     /// Memory pressure frees an idle processor, never one a render holds.
