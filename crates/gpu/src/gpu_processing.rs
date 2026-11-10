@@ -3911,6 +3911,8 @@ pub struct GpuProcessor {
     /// level][curve table][luminance noise profile][edge pass]; the others
     /// are compiled without them.
     range2_pipelines: Range2Pipelines,
+    /// `range2_pipelines` with colour mixer response 2 (`HSL_V2`).
+    mixer_feature_pipelines: MixerFeaturePipelines,
     /// The global curve table in `curve_luts_buffer`'s first slot.
     curve_table_loaded: Mutex<Option<Arc<Vec<[f32; 4]>>>>,
     detail_bgl: wgpu::BindGroupLayout,
@@ -5293,8 +5295,36 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
 }
 
 /// `GpuProcessor::range2_pipelines`.
-type Range2Pipelines = [[[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
-    16]; 2]; 2]; MAIN_OUTPUTS];
+type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
+    16]; 2]; MAIN_OUTPUTS];
+
+/// `GpuProcessor::range2_pipelines` for colour mixer response 2 (`HSL_V2`),
+/// one flat table on the heap: a further dimension of the inline table made
+/// `GpuProcessor` too large for a test thread's stack.
+type MixerFeaturePipelines = Box<[std::sync::OnceLock<Option<wgpu::ComputePipeline>>]>;
+
+/// The slots of `MixerFeaturePipelines`, one per index of `Range2Pipelines`.
+const MIXER_FEATURE_SLOTS: usize = MAIN_OUTPUTS * 2 * 16 * 3 * 4 * 2 * 2 * 2;
+
+/// The slot in `MixerFeaturePipelines` of a `Range2Pipelines` index.
+#[allow(clippy::too_many_arguments)]
+fn mixer_feature_slot(
+    output: usize,
+    vibrance: bool,
+    tone: usize,
+    sharpen: usize,
+    level: usize,
+    long: bool,
+    profile: bool,
+    edge: bool,
+) -> usize {
+    ((((((output * 2 + usize::from(vibrance)) * 16 + tone) * 3 + sharpen) * 4 + level) * 2
+        + usize::from(long))
+        * 2
+        + usize::from(profile))
+        * 2
+        + usize::from(edge)
+}
 
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
@@ -6690,6 +6720,9 @@ impl GpuProcessor {
             profile_pipelines: Default::default(),
             long_curve_pipelines: Default::default(),
             range2_pipelines: Default::default(),
+            mixer_feature_pipelines: (0..MIXER_FEATURE_SLOTS)
+                .map(|_| std::sync::OnceLock::new())
+                .collect(),
             curve_table_loaded: Mutex::new(None),
             detail_bgl,
             detail_layout,
@@ -7824,12 +7857,24 @@ impl GpuProcessor {
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         if needs_feature_pipeline(adjustments) {
             let long = adjustments.global.region_curve_active[1] != 0;
-            return match self.range2_pipelines[0][usize::from(hsl_v2(adjustments))]
-                [usize::from(vibrance_v2(adjustments))][tone_level(adjustments)]
-                [sharpen_level(adjustments)][relight_range_level(adjustments)][usize::from(long)]
-                [usize::from(profile)][usize::from(edge)]
-            .get()
-            {
+            let slot = if hsl_v2(adjustments) {
+                &self.mixer_feature_pipelines[mixer_feature_slot(
+                    0,
+                    vibrance_v2(adjustments),
+                    tone_level(adjustments),
+                    sharpen_level(adjustments),
+                    relight_range_level(adjustments),
+                    long,
+                    profile,
+                    edge,
+                )]
+            } else {
+                &self.range2_pipelines[0][usize::from(vibrance_v2(adjustments))]
+                    [tone_level(adjustments)][sharpen_level(adjustments)]
+                    [relight_range_level(adjustments)][usize::from(long)][usize::from(profile)]
+                    [usize::from(edge)]
+            };
+            return match slot.get() {
                 Some(Some(pipeline)) => Some(Ok(pipeline)),
                 Some(None) => Some(Err("Feature pipeline unavailable".to_string())),
                 None => None,
@@ -8265,33 +8310,47 @@ impl GpuProcessor {
         let vibrance = vibrance_v2(adjustments);
         let hsl = hsl_v2(adjustments);
         let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-        match self.range2_pipelines[output.index()][usize::from(hsl)][usize::from(vibrance)][tone]
-            [sharpen][level][usize::from(long)][usize::from(profile)][usize::from(edge)]
-        .get_or_init(|| {
-            self.compile_general(
-                "Compute Pipeline (relight range 2, sharpening 7)",
-                output,
-                &[
-                    ("EDGE_NR", on(edge)),
-                    ("LUMA_PROFILE", on(profile)),
-                    ("LONG_CURVES", on(long)),
-                    ("RELIGHT_RANGE2", on(level >= 1)),
-                    ("RELIGHT_RANGE3", on(level >= 2)),
-                    ("RELIGHT_RANGE4", on(level >= 3)),
-                    ("SHARPEN_V7", on(sharpen == 1)),
-                    ("SHARPEN_V8", on(sharpen == 2)),
-                    ("WHITES_V12", on(tone & 1 != 0)),
-                    ("SHADOWS_V13", on(tone & 2 != 0)),
-                    ("HIGHLIGHTS_V14", on(tone & 4 != 0)),
-                    ("VIBRANCE_V2", on(vibrance)),
-                    ("BLACKS_V16", on(tone & 8 != 0)),
-                    ("HSL_V2", on(hsl)),
-                ],
-            )
-            .inspect_err(|error| log::error!("Feature pipeline unavailable: {error}"))
-            .ok()
-        })
-        .as_ref()
+        let slot = if hsl {
+            &self.mixer_feature_pipelines[mixer_feature_slot(
+                output.index(),
+                vibrance,
+                tone,
+                sharpen,
+                level,
+                long,
+                profile,
+                edge,
+            )]
+        } else {
+            &self.range2_pipelines[output.index()][usize::from(vibrance)][tone][sharpen][level]
+                [usize::from(long)][usize::from(profile)][usize::from(edge)]
+        };
+        match slot
+            .get_or_init(|| {
+                self.compile_general(
+                    "Compute Pipeline (relight range 2, sharpening 7)",
+                    output,
+                    &[
+                        ("EDGE_NR", on(edge)),
+                        ("LUMA_PROFILE", on(profile)),
+                        ("LONG_CURVES", on(long)),
+                        ("RELIGHT_RANGE2", on(level >= 1)),
+                        ("RELIGHT_RANGE3", on(level >= 2)),
+                        ("RELIGHT_RANGE4", on(level >= 3)),
+                        ("SHARPEN_V7", on(sharpen == 1)),
+                        ("SHARPEN_V8", on(sharpen == 2)),
+                        ("WHITES_V12", on(tone & 1 != 0)),
+                        ("SHADOWS_V13", on(tone & 2 != 0)),
+                        ("HIGHLIGHTS_V14", on(tone & 4 != 0)),
+                        ("VIBRANCE_V2", on(vibrance)),
+                        ("BLACKS_V16", on(tone & 8 != 0)),
+                        ("HSL_V2", on(hsl)),
+                    ],
+                )
+                .inspect_err(|error| log::error!("Feature pipeline unavailable: {error}"))
+                .ok()
+            })
+            .as_ref()
         {
             Some(pipeline) => Ok(pipeline),
             // The plain pipeline would render the lights in the first ranges
