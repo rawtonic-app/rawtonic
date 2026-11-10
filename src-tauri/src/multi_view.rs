@@ -2602,9 +2602,14 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
 /// recipe with the changes not yet written to it.
 fn with_live_patch(mut recipe: serde_json::Value) -> serde_json::Value {
     let live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
-    if let (Some(patch), Some(object)) = (live.patch.as_ref(), recipe.as_object_mut()) {
-        for (key, value) in patch {
-            object.insert(key.clone(), value.clone());
+    if let Some(patch) = live.patch.as_ref() {
+        // Whites in this cell's tone-slider response, as the written paste.
+        let mut patch = serde_json::Value::Object(patch.clone());
+        rawtonic_engine::image_processing::express_pasted_whites(&mut patch, &recipe);
+        if let (Some(patch), Some(object)) = (patch.as_object(), recipe.as_object_mut()) {
+            for (key, value) in patch {
+                object.insert(key.clone(), value.clone());
+            }
         }
     }
     recipe

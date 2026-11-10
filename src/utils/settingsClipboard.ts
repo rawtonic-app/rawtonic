@@ -5,6 +5,7 @@ import {
   SOURCE_FRAME_VERSION,
   initialAdjustmentsFor,
   sameAdjustmentValue,
+  withPortableWhites,
   type Adjustments,
   type MaskContainer
 } from './adjustments';
@@ -96,7 +97,8 @@ export function chosenSettings(source: Adjustments, keys: string[], layerIds: st
   const ids = new Set(layerIds);
   const layers = (source.masks ?? []).filter((layer: MaskContainer) => ids.has(layer.id));
   if (layers.length > 0) chosen.masks = structuredClone(layers);
-  return chosen as Partial<Adjustments>;
+  // Whites without the tone version: as the amount they render.
+  return withPortableWhites(chosen as Partial<Adjustments>, source);
 }
 
 /** The processing versions a new edit gets (`initialAdjustmentsFor`), RAW

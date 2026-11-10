@@ -22,6 +22,7 @@ import {
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
+  withPortableWhites,
   type Adjustments
 } from '../utils/adjustments';
 
@@ -227,7 +228,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
               withDetailVersions(
                 withGrainVersion(
                   withLumaNoiseVersion(
-                    withWhiteBalanceVersions(withSharpenVersion(shown, source?.adjustments), source?.adjustments),
+                    withWhiteBalanceVersions(
+                      withSharpenVersion(withPortableWhites(shown, source?.adjustments), source?.adjustments),
+                      source?.adjustments
+                    ),
                     source?.adjustments
                   ),
                   source?.adjustments
@@ -284,7 +288,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
             withDetailVersions(
               withGrainVersion(
                 withLumaNoiseVersion(
-                  withWhiteBalanceVersions(withSharpenVersion(changes, from.adjustments), from.adjustments),
+                  withWhiteBalanceVersions(
+                    withSharpenVersion(withPortableWhites(changes, from.adjustments), from.adjustments),
+                    from.adjustments
+                  ),
                   from.adjustments
                 ),
                 from.adjustments
@@ -362,7 +369,8 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
           copies.forEach((path) => globalImageCache.delete(path));
           // Framed by the primary, as every sync is (legacy unframed shapes).
           const masks = frameDrawnMasks(state.adjustments.masks, state.adjustments, image.width, image.height);
-          void applyRef.current({ masks }, copies, {
+          // Its layers' Whites as the amount they render, as every sync carries them.
+          void applyRef.current(withPortableWhites({ masks }, state.adjustments), copies, {
             openingNow: true,
             pasteFrom: image.path,
             replaceLayers: true,

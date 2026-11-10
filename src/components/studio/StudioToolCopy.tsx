@@ -14,6 +14,7 @@ import {
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
+  withPortableWhites,
   type Adjustments
 } from '../../utils/adjustments';
 
@@ -37,6 +38,7 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   lumaNoiseDetail: ['lumaNoiseVersion'],
   lumaNoiseContrast: ['lumaNoiseVersion'],
   // Shadows means what the recipe's tone-slider response makes of it.
+  // (Whites travel as the amount they render: withPortableWhites.)
   shadows: ['toneVersion'],
   // Clarity means what the recipe's Clarity response makes of it.
   clarity: ['clarityVersion'],
@@ -72,11 +74,14 @@ export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> 
   // A missing response key would vanish on the way: say it explicitly. The
   // grain version is not picked along (an absent one would read as an undo
   // to version 1): withGrainVersion takes it from the source.
-  return withBwVersion(
-    withVibranceVersion(
-      withDetailVersions(
-        withGrainVersion(
-          withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, values), values), values),
+  return withPortableWhites(
+    withBwVersion(
+      withVibranceVersion(
+        withDetailVersions(
+          withGrainVersion(
+            withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, values), values), values),
+            values
+          ),
           values
         ),
         values

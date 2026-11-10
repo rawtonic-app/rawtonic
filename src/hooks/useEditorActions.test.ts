@@ -25,7 +25,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
-import { INITIAL_ADJUSTMENTS, PasteMode, normalizeLoadedAdjustments } from '../utils/adjustments';
+import { INITIAL_ADJUSTMENTS, PasteMode, normalizeLoadedAdjustments, whitesAmountV17 } from '../utils/adjustments';
 import { revertStyle } from '../utils/appliedStyle';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
@@ -1080,6 +1080,21 @@ describe('styles', () => {
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     act(() => useEditorStore.getState().undo());
     expect(recipe()).toMatchObject({ contrast: 30, appliedStyle: { id: 'b' } });
+  });
+
+  it("puts a style's carried Whites in the response of the photo without the style before", async () => {
+    const { result } = renderHook(useEditorActions);
+    const v17 = { ...useEditorStore.getState().adjustments, toneVersion: 17, whites: 0 };
+    useEditorStore.setState({ adjustments: v17, history: [v17], historyIndex: 0 });
+    // A style naming tone version 2, then one carrying Whites 15 (amount) without it.
+    applyStyle(result, { toneVersion: 2, contrast: -18 }, 'soft');
+    expect(recipe()).toMatchObject({ toneVersion: 2 });
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
+    applyStyle(result, { whites: 15, contrast: 25 }, 'hard');
+    // Back on version 17 without the first style: the slider value that renders 15.
+    expect(recipe()).toMatchObject({ toneVersion: 17, contrast: 25, appliedStyle: { id: 'hard' } });
+    expect(whitesAmountV17(recipe().whites as number)).toBeCloseTo(15, 9);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   });
 
   it("applies a style to a never-edited open photo on its editor recipe, with a new edit's versions", async () => {

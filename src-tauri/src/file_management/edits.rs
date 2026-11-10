@@ -596,6 +596,11 @@ fn pasted_into(
         new_adjustments.clone()
     });
 
+    // Whites carried without a tone version mean the amount they render: in
+    // this photograph's response (no photo-wide key changes with them).
+    let mut expressed = adjustments.clone();
+    rawtonic_engine::image_processing::express_pasted_whites(&mut expressed, &new_adjustments);
+    let adjustments = &expressed;
     if let (Some(new_map), Some(pasted_map)) =
         (new_adjustments.as_object_mut(), adjustments.as_object())
     {
@@ -1760,6 +1765,47 @@ mod tests {
         // A Reset's recipe keeps its frame through the paste after it.
         assert_eq!(paste(serde_json::json!({KEY: 0}))[KEY], 0);
         assert_eq!(paste(serde_json::json!({}))[KEY], VERSION);
+    }
+
+    /// Whites copied without a tone version carry the amount they render:
+    /// pasted onto a version-16 photograph they keep that amount in its own
+    /// response, its tone version and its layers' Whites stay as they were.
+    #[test]
+    fn pasted_whites_keep_their_amount_and_the_photographs_tone_version() {
+        let source = Path::new("/nowhere/photo.CR3");
+        let paste = |base: Value, pasted: Value| {
+            pasted_into(
+                base,
+                &None,
+                "/nowhere/photo.CR3",
+                source,
+                &pasted,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        let layer = serde_json::json!([{"id": "l", "adjustments": {"whites": 50.0}}]);
+        let v16 = serde_json::json!({"toneVersion": 16, "whites": 0.0, "masks": layer});
+        // Whites +50 copied from a version-17 photograph: amount 74.
+        let pasted = paste(v16.clone(), serde_json::json!({"whites": 74.0}));
+        assert_eq!(pasted["toneVersion"], 16);
+        assert_eq!(pasted["whites"], 74.0);
+        assert_eq!(pasted["masks"][0]["adjustments"]["whites"], 50.0);
+        // Onto a version-17 photograph the amount is its slider's +50.
+        let v17 = serde_json::json!({"toneVersion": 17, "whites": 0.0});
+        assert_eq!(
+            paste(v17.clone(), serde_json::json!({"whites": 74.0}))["whites"],
+            50.0
+        );
+        // Settings that name their tone version mean its values.
+        let named = paste(v16, serde_json::json!({"whites": 50.0, "toneVersion": 17}));
+        assert_eq!(
+            (named["whites"].as_f64(), named["toneVersion"].as_u64()),
+            (Some(50.0), Some(17))
+        );
     }
 
     /// Editing a photograph without an edit (or after a Library Reset) from

@@ -31,7 +31,8 @@ import {
   withSharpenVersion,
   withGrainStructure,
   withLegacyGrainVersion,
-  withLoadedCurves
+  withLoadedCurves,
+  withCarriedWhitesFor
 } from '../utils/adjustments';
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
@@ -405,9 +406,12 @@ function pastedOpen(
   // with that one taken back, as the backend applies it to the others.
   const reverted = style && base ? revertStyle(base) : null;
   if (reverted) base = reverted.recipe;
+  // Carried Whites in the response of the recipe they go onto, after the
+  // style before is taken back (as the backend writes the others).
+  const here = withCarriedWhitesFor(pasted, base ?? current);
   let merged = style?.remove
     ? base
-    : pasteInto(base, styleGroupsJoined(base, pasted, style), {
+    : pasteInto(base, styleGroupsJoined(base, here, style), {
         samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
         replaceLayers: paste?.replaceLayers ?? true,
         keepNulls: !paste,
@@ -1511,9 +1515,11 @@ export function useEditorActions() {
           // (Taking a style back leaves the lens: it is the photo's own.)
           const unresolved = withPastedLensUnresolved(merged, current, adjustmentsToApply);
           // The style's record, of the recipe as shown (its lens data waiting).
+          const without = styleHere && !styleHere.remove ? revertStyle(current).recipe : null;
+          // The style's values as written onto this photo (carried Whites in its response).
           const next =
             styleHere && !styleHere.remove
-              ? recordStyle(revertStyle(current).recipe, unresolved, adjustmentsToApply, styleHere.id)
+              ? recordStyle(without!, unresolved, withCarriedWhitesFor(adjustmentsToApply, without!), styleHere.id)
               : unresolved;
           debouncedSetHistory.flush();
           setAdjustments(() => next);
@@ -1524,7 +1530,7 @@ export function useEditorActions() {
           if (unresolved !== merged) void resolvePastedLens(open.path, pastedStep);
         }
       } else if (open) {
-        setAdjustments({ ...adjustments, ...adjustmentsToApply });
+        setAdjustments({ ...adjustments, ...withCarriedWhitesFor(adjustmentsToApply, adjustments) });
         // Its History entry now, so it is the open photograph's part of the
         // batch's undo step (not a later step of its own).
         debouncedSetHistory.flush();

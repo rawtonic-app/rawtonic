@@ -118,3 +118,16 @@ describe('Detail copy groups', () => {
     expect(ADJUSTMENT_GROUPS.effects.some((group) => group.label === 'modals.copyPaste.groups.grain')).toBe(false);
   });
 });
+
+describe('Tool copy of Whites', () => {
+  it('carries the amount Whites render, never the photo-wide tone version', () => {
+    // Whites +50 on a version-17 photo render version 16's +74.
+    const v17 = { ...INITIAL_ADJUSTMENTS, whites: 50, toneVersion: 17 } as Adjustments;
+    expect(pick(v17, ['whites'])).toEqual({ whites: 74 });
+    // A legacy edit without the key renders its value as the amount.
+    const keyless = normalizeLoadedAdjustments({ whites: 50 } as unknown as Adjustments, true);
+    expect(pick(keyless, ['whites'])).toEqual({ whites: 50 });
+    // With Shadows the tone version goes along, and the values mean it.
+    expect(pick(v17, ['whites', 'shadows'])).toMatchObject({ whites: 50, toneVersion: 17 });
+  });
+});

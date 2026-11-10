@@ -13,7 +13,12 @@ import type { Preset } from '../ui/AppProperties';
 import { ToolGroup } from './StudioDevelop';
 import { blendPreset } from '../../utils/presetAmount';
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../../utils/builtinPresets';
-import { initialAdjustmentsFor, normalizeLoadedAdjustments, withPresetVersions } from '../../utils/adjustments';
+import {
+  initialAdjustmentsFor,
+  normalizeLoadedAdjustments,
+  withCarriedWhitesFor,
+  withPresetVersions
+} from '../../utils/adjustments';
 import { appliedStyleOf, revertStyle, withStyleAmount } from '../../utils/appliedStyle';
 import { presetPreview, presetValues, toolPresetToSave } from './toolPresets';
 import { noteTool } from '../contribute/usageStats';
@@ -310,7 +315,8 @@ export default function StudioPresets() {
     const current = currentAdjustments();
     const style = appliedStyleOf(current);
     if (!style || !stylePreset || stylePreset.id !== style.id) return;
-    const values = presetValues(stylePreset.adjustments);
+    // Carried Whites in this photo's response, as applying the style wrote them.
+    const values = withCarriedWhitesFor(presetValues(stylePreset.adjustments), current);
     // Blended from the editor's values where the photo had none before.
     const { recipe: without, removed } = revertStyle(current);
     const base = removed ? normalizeLoadedAdjustments(without, Boolean(selectedImage?.isRaw)) : without;
@@ -322,7 +328,7 @@ export default function StudioPresets() {
   const changeAmount = (value: number) => {
     if (!amount || amount.path !== selectedImage?.path) return;
     setAmount({ ...amount, value });
-    const values = presetValues(amount.preset.adjustments);
+    const values = withCarriedWhitesFor(presetValues(amount.preset.adjustments), amount.base);
     // Above half strength the preset's mask is already on this photo.
     // Keep its pending/completed detection across Amount moves; returning
     // from the base masks below half strength starts a fresh detection.
