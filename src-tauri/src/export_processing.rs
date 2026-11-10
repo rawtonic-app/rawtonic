@@ -1148,22 +1148,36 @@ pub(crate) async fn export_images_impl(
                     let pinned = (photos.read)(global_index);
                     let owner = pinned.as_ref().ok().and_then(|p| p.owner.clone());
                     crate::session_bridge::with_culling_owner(owner.as_deref(), || {
-                        export_photo(
-                            &app_handle_clone,
-                            &context_clone,
-                            &settings,
-                            &targets,
+                        // A retry exports the same snapshot of the photo
+                        // into the files the first attempt reserved.
+                        let planned = PlannedFiles::default();
+                        export_with_gpu_memory_retries(
                             &wanted,
-                            photos.open_path.as_deref(),
-                            pinned,
-                            &used_paths_clone,
-                            &cancellation_token_clone,
-                            PhotoItem {
-                                global_index,
-                                image_path_str: &image_path_str,
-                                appearance_count,
-                                explicit_vc,
-                                total_paths,
+                            |wanted| {
+                                export_photo(
+                                    &app_handle_clone,
+                                    &context_clone,
+                                    &settings,
+                                    &targets,
+                                    wanted,
+                                    photos.open_path.as_deref(),
+                                    pinned.clone(),
+                                    &used_paths_clone,
+                                    &planned,
+                                    &cancellation_token_clone,
+                                    PhotoItem {
+                                        global_index,
+                                        image_path_str: &image_path_str,
+                                        appearance_count,
+                                        explicit_vc,
+                                        total_paths,
+                                    },
+                                )
+                            },
+                            |target| planned.unpublished(target),
+                            |wait| {
+                                release_gpu_memory(&app_handle_clone, &context_clone);
+                                wait_unless_cancelled(wait, &cancellation_token_clone)
                             },
                         )
                     })
@@ -1313,6 +1327,147 @@ struct PhotoItem<'a> {
     appearance_count: usize,
     explicit_vc: Option<u32>,
     total_paths: usize,
+}
+
+/// The waits before the retries of a photo whose render ran out of
+/// graphics memory. Another program (a game, another editor, a GPU job)
+/// that holds the memory often frees it within seconds; a batch export
+/// should not lose the photos that met it (notes:
+/// benchmark-results/axf-app-export-flake-2026-11-10). About 7.5 s at
+/// most per photo, so a card that stays full fails each photo in turn
+/// instead of stalling the batch.
+const GPU_MEMORY_RETRY_WAITS: [std::time::Duration; 3] = [
+    std::time::Duration::from_millis(500),
+    std::time::Duration::from_secs(2),
+    std::time::Duration::from_secs(5),
+];
+
+/// A photo's recipes that still ran out of graphics memory after every
+/// retry fail with this (`renderErrors.ts` translates it).
+pub(crate) const GPU_MEMORY_EXHAUSTED: &str = "Not enough graphics memory for this photo. Close other programs that use the graphics card and export this photo again.";
+
+/// The files a photo's recipes were given, by recipe: a retry of the
+/// photo exports into the same ones instead of reserving new names (which
+/// would be `_1` files, its own reservation taken).
+#[derive(Default)]
+struct PlannedFiles(Mutex<std::collections::HashMap<usize, std::path::PathBuf>>);
+
+impl PlannedFiles {
+    /// The file of `target`: the one planned before, or `plan`'s.
+    fn once(
+        &self,
+        target: usize,
+        plan: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    ) -> Result<std::path::PathBuf, String> {
+        if let Some(path) = self.0.lock().unwrap().get(&target) {
+            return Ok(path.clone());
+        }
+        let path = plan()?;
+        self.0.lock().unwrap().insert(target, path.clone());
+        Ok(path)
+    }
+
+    /// Whether `target`'s file is not published (or not planned yet): only
+    /// then can the recipe be exported again. Once its file is there its
+    /// mask files may have failed; that stays a failure as before.
+    fn unpublished(&self, target: usize) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .get(&target)
+            .is_none_or(|path| !path.exists())
+    }
+}
+
+/// Exports a photo's recipes `wanted` with `attempt` and exports those that
+/// ran out of graphics memory again after each of
+/// [`GPU_MEMORY_RETRY_WAITS`] (`before_retry` frees memory and waits;
+/// `false` when the export was cancelled meanwhile). Only recipes whose
+/// file is not published (`may_retry`) are exported again; recipes of one
+/// render group fail together, so a retry renders them together again.
+/// Those still out of memory fail with [`GPU_MEMORY_EXHAUSTED`]: the photo
+/// is reported, never skipped. Each recipe's result once, in `wanted`'s
+/// order.
+fn export_with_gpu_memory_retries(
+    wanted: &[usize],
+    mut attempt: impl FnMut(&[usize]) -> Vec<(usize, Result<(), String>)>,
+    mut may_retry: impl FnMut(usize) -> bool,
+    mut before_retry: impl FnMut(std::time::Duration) -> bool,
+) -> Vec<(usize, Result<(), String>)> {
+    use rawtonic_runtime::gpu_memory::is_gpu_out_of_memory;
+    let out_of_memory =
+        |result: &Result<(), String>| matches!(result, Err(e) if is_gpu_out_of_memory(e));
+    let mut results = attempt(wanted);
+    for (retry, wait) in GPU_MEMORY_RETRY_WAITS.into_iter().enumerate() {
+        let again: Vec<usize> = results
+            .iter()
+            .filter(|(target, result)| out_of_memory(result) && may_retry(*target))
+            .map(|(target, _)| *target)
+            .collect();
+        if again.is_empty() {
+            break;
+        }
+        log::warn!(
+            "Export: the graphics card ran out of memory for {} recipe(s); retry {} in {:?}",
+            again.len(),
+            retry + 1,
+            wait
+        );
+        if !before_retry(wait) {
+            break;
+        }
+        for (target, result) in attempt(&again) {
+            if let Some(slot) = results.iter_mut().find(|(t, _)| *t == target) {
+                slot.1 = result;
+            }
+        }
+    }
+    for (_, result) in &mut results {
+        if out_of_memory(result) {
+            log::error!("Export failed for lack of graphics memory: {result:?}");
+            *result = Err(GPU_MEMORY_EXHAUSTED.to_string());
+        }
+    }
+    results
+}
+
+/// Frees what the app itself holds on the graphics card and can rebuild:
+/// the exports' processor when no render holds it (its textures and
+/// pipelines), the scopes' uploads and the Develop view's upload of its
+/// photo (the next frame uploads it again). Renders in progress keep
+/// theirs.
+fn release_gpu_memory(app_handle: &tauri::AppHandle, context: &GpuContext) {
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let processor = gpu.export_processor.take_if_idle().is_some();
+    let caches = std::iter::once(&gpu.scope_cache)
+        .chain(&gpu.scope_extremes_cache)
+        .chain(std::iter::once(
+            &app_handle.state::<DevelopSession>().gpu_image_cache,
+        ))
+        .filter(|cache| {
+            cache
+                .try_lock()
+                .is_ok_and(|mut cache| cache.take().is_some())
+        })
+        .count();
+    // wgpu frees dropped resources once the device is polled.
+    let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
+    log::info!(
+        "Export: freed GPU memory before a retry (export processor: {processor}, uploads: {caches})"
+    );
+}
+
+/// Sleeps `wait` unless the export is cancelled meanwhile (`false` then).
+fn wait_unless_cancelled(wait: std::time::Duration, cancellation_token: &AtomicBool) -> bool {
+    let step = std::time::Duration::from_millis(50);
+    let start = std::time::Instant::now();
+    while start.elapsed() < wait {
+        if cancellation_token.load(Ordering::SeqCst) {
+            return false;
+        }
+        std::thread::sleep(step.min(wait.saturating_sub(start.elapsed())));
+    }
+    !cancellation_token.load(Ordering::SeqCst)
 }
 
 /// The file a recipe writes for a photo: its name from the recipe's
@@ -1472,6 +1627,7 @@ fn export_photo(
     open_path: Option<&str>,
     pinned: Result<PinnedPhoto, String>,
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
+    planned: &PlannedFiles,
     cancellation_token: &AtomicBool,
     item: PhotoItem,
 ) -> Vec<(usize, Result<(), String>)> {
@@ -1548,15 +1704,17 @@ fn export_photo(
             .take(crate::image_processing::MAX_MASKS)
             .count();
     let plan = |target: usize| {
-        let output_path = plan_output_path(
-            &targets[target],
-            &item,
-            original_path,
-            &file_date,
-            capture.as_ref(),
-            mask_layers,
-            used_paths,
-        )?;
+        let output_path = planned.once(target, || {
+            plan_output_path(
+                &targets[target],
+                &item,
+                original_path,
+                &file_date,
+                capture.as_ref(),
+                mask_layers,
+                used_paths,
+            )
+        })?;
         if let Some(tracking) = &targets[target].tracking {
             tracking.started(item.global_index, &output_path);
         }
@@ -1775,6 +1933,8 @@ fn export_photo(
                 .as_ref()
                 .map_err(Clone::clone)?;
             ensure_export_not_cancelled(cancellation_token)?;
+            #[cfg(feature = "qa-control")]
+            crate::qa_crash::gpu_out_of_memory()?;
             let output = ExportOutput {
                 path: output_path,
                 format: targets[target].output_format.as_str(),
@@ -2587,7 +2747,10 @@ fn estimate_sizes(
 
 #[cfg(test)]
 mod tests {
-    use super::{ExportTarget, PhotoItem, export_in_turn, is_open_edit, plan_output_path};
+    use super::{
+        ExportTarget, GPU_MEMORY_EXHAUSTED, GPU_MEMORY_RETRY_WAITS, PhotoItem, PlannedFiles,
+        export_in_turn, export_with_gpu_memory_retries, is_open_edit, plan_output_path,
+    };
 
     /// The exact full-size RAW render used by the import dialog, including
     /// normalization, decode and GPU processing, must not write beside a card.
@@ -2902,6 +3065,134 @@ mod tests {
     /// reserved with the main file, so neither takes the other's (review of
     /// F10: recipe B's `Photo_2_mask_0_image` against recipe A's `Photo_2`
     /// with separate masks).
+    #[test]
+    fn recipes_out_of_graphics_memory_are_exported_again_after_a_wait() {
+        let oom = || Err(rawtonic_runtime::gpu_memory::gpu_out_of_memory("test"));
+        let mut attempts = Vec::new();
+        let mut waits = Vec::new();
+        let results = export_with_gpu_memory_retries(
+            &[0, 1, 2],
+            |wanted| {
+                attempts.push(wanted.to_vec());
+                wanted
+                    .iter()
+                    .map(|&t| match (attempts.len(), t) {
+                        (1, 1 | 2) | (2, 2) => (t, oom()),
+                        _ => (t, Ok(())),
+                    })
+                    .collect()
+            },
+            |_| true,
+            |wait| {
+                waits.push(wait);
+                true
+            },
+        );
+        assert_eq!(attempts, [vec![0, 1, 2], vec![1, 2], vec![2]]);
+        assert_eq!(waits, GPU_MEMORY_RETRY_WAITS[..2]);
+        assert_eq!(results, [(0, Ok(())), (1, Ok(())), (2, Ok(()))]);
+    }
+
+    #[test]
+    fn a_photo_still_out_of_graphics_memory_fails_with_a_clear_message() {
+        let mut attempts = 0;
+        let results = export_with_gpu_memory_retries(
+            &[0, 1],
+            |wanted| {
+                attempts += 1;
+                wanted
+                    .iter()
+                    .map(|&t| {
+                        let error = if t == 0 {
+                            rawtonic_runtime::gpu_memory::gpu_out_of_memory("test")
+                        } else {
+                            "The file is damaged".to_string()
+                        };
+                        (t, Err(error))
+                    })
+                    .collect()
+            },
+            |_| true,
+            |_| true,
+        );
+        assert_eq!(attempts, 1 + GPU_MEMORY_RETRY_WAITS.len());
+        assert_eq!(
+            results,
+            [
+                (0, Err(GPU_MEMORY_EXHAUSTED.to_string())),
+                (1, Err("The file is damaged".to_string()))
+            ],
+            "other failures are not retried and keep their message"
+        );
+    }
+
+    #[test]
+    fn a_published_recipe_or_a_cancelled_export_is_not_exported_again() {
+        let oom = || Err(rawtonic_runtime::gpu_memory::gpu_out_of_memory("test"));
+        let mut attempts = 0;
+        let results = export_with_gpu_memory_retries(
+            &[0],
+            |wanted| {
+                attempts += 1;
+                wanted.iter().map(|&t| (t, oom())).collect()
+            },
+            |_| false,
+            |_| true,
+        );
+        assert_eq!(
+            (attempts, &results[0].1),
+            (1, &Err(GPU_MEMORY_EXHAUSTED.to_string()))
+        );
+        let mut attempts = 0;
+        export_with_gpu_memory_retries(
+            &[0],
+            |wanted| {
+                attempts += 1;
+                wanted.iter().map(|&t| (t, oom())).collect()
+            },
+            |_| true,
+            |_| false,
+        );
+        assert_eq!(attempts, 1, "cancelled during the wait");
+    }
+
+    #[test]
+    fn a_retry_exports_into_the_file_its_first_attempt_reserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let target = ExportTarget {
+            output_folder_or_file: dir.path().to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+            }))
+            .unwrap(),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let source = dir.path().join("a.CR3");
+        let item = PhotoItem {
+            global_index: 0,
+            image_path_str: "a.CR3",
+            appearance_count: 1,
+            explicit_vc: None,
+            total_paths: 2,
+        };
+        let date = chrono::Utc::now();
+        let planned = PlannedFiles::default();
+        let plan = || plan_output_path(&target, &item, &source, &date, None, 0, &used);
+        let first = planned.once(0, plan).unwrap();
+        let again = planned.once(0, plan).unwrap();
+        assert_eq!(first, again, "no _1 name for the retry");
+        assert_eq!(first.file_name().unwrap(), "a_edited.jpg");
+        assert!(planned.unpublished(0) && planned.unpublished(1));
+        std::fs::write(&first, b"published").unwrap();
+        assert!(!planned.unpublished(0), "its file is there: not again");
+        let other = plan_output_path(&target, &item, &source, &date, None, 0, &used).unwrap();
+        assert_ne!(other, first, "the reservation still holds for others");
+    }
+
     #[test]
     fn mask_file_names_are_reserved_with_their_main_file() {
         let dir = tempfile::tempdir().unwrap();

@@ -3567,6 +3567,7 @@
       },
       "errors": {
         "batchFailed": "{{failed}} de {{total}} exportaciones fallaron",
+        "gpuMemory": "No hay suficiente memoria gráfica para esta foto. Cierra otros programas que usen la tarjeta gráfica y vuelve a exportar esta foto.",
         "offline": "{{file}} está sin conexión: para exportar se necesita el archivo RAW.",
         "terminated": "La exportación se detuvo de forma inesperada.",
         "textureLimit": "La imagen ({{width}} × {{height}} px) es más grande de lo que esta tarjeta gráfica puede procesar ({{limit}} px por lado).",

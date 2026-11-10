@@ -3414,6 +3414,7 @@
       },
       "errors": {
         "batchFailed": "{{failed}} of {{total}} exports failed",
+        "gpuMemory": "Not enough graphics memory for this photo. Close other programs that use the graphics card and export this photo again.",
         "offline": "{{file}} is offline: exporting needs the RAW file.",
         "terminated": "The export stopped unexpectedly.",
         "textureLimit": "The photo ({{width}} × {{height}} px) is larger than this graphics card can render ({{limit}} px per side).",

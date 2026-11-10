@@ -10822,7 +10822,9 @@ pub fn gpu_scoped<T>(device: &wgpu::Device, work: impl FnOnce() -> T) -> Result<
         Some(error) => {
             log::error!("GPU render failed: {error}");
             Err(match error {
-                wgpu::Error::OutOfMemory { .. } => "The graphics card ran out of memory for this photograph. Close other programs that use it and try again.".to_string(),
+                wgpu::Error::OutOfMemory { .. } => {
+                    rawtonic_runtime::gpu_memory::gpu_out_of_memory("render")
+                }
                 _ => format!("The graphics card could not render this photograph: {error}"),
             })
         }
