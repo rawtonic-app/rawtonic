@@ -21214,6 +21214,35 @@ fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
             bytemuck::cast_slice(&data),
         )
         .create_view(&Default::default());
+    // Each version's own display variant must be compiled before the
+    // timing: until then the all-features variant renders its frames
+    // (`preview_pipeline`), far slower than either.
+    for version in [1, 2] {
+        let adjustments = raw_look_adjustments(&recipe(version, 0), (3, 2.0));
+        let features = preview_features(&adjustments);
+        let _ = readback_pixels(
+            &processor,
+            &view,
+            (width, height),
+            *adjustments,
+            &[],
+            RenderOutputPrecision::EightBit,
+            ReadbackShader::Preview,
+        );
+        let started = std::time::Instant::now();
+        while processor
+            .preview_pipelines
+            .get(features)
+            .and_then(|slot| slot.get())
+            .is_none()
+        {
+            assert!(
+                started.elapsed().as_secs() < 300,
+                "the display variant of version {version} did not compile"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
     let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     for block in 0..24 {
         let version = 1 + (block % 2) as u64;
