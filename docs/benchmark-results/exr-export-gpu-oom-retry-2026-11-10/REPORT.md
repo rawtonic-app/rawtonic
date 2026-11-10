@@ -32,6 +32,21 @@ hog is killed HOLD s after the export's first out-of-memory warning.
 
 The device survives a real wgpu out-of-memory: the retry in the same process renders the same bytes.
 
+**Review round 1 (Codex):** a render out of memory can leave an invalid lazily allocated texture
+(e.g. the deferred tile) in the processor, which the CLI kept and the app kept when another worker held
+its processor. Now `ProcessorSlot::discard_after` marks the slot when a CPU-readback render fails out of
+memory and the next render builds a new processor. Matrix on that build (`matrix.sh`, GPU otherwise
+idle, hog freed 1 s after the first out-of-memory warning):
+
+| run | free MiB | rc | output |
+|---|---|---|---|
+| inject A/B/C | – | 0/0/1 | as above (B = A, same names; C reported, no file) |
+| app2 (16-bit TIFF + JPEG of one photo, one group render) | no hog | 0 | tiff 42c93627…, jpg a6023ab0… |
+| app2 | 1200 | 0 | the same; render OOM, processor rebuilt, one retry |
+| app2 | 800 | 0 | the same; OOM before the render, one retry |
+| app | 800 / 1800 | 0 / 0 | 42c93627… (1800: render OOM, processor rebuilt) |
+| CLI | none / 1800 / 1200 / 800 | 0 each | 42c93627…, one retry each |
+
 ## Byte identity otherwise
 
 `check_host.sh` (notes repo) vs `prv18-base-ff254602` (main's render code): b897a95b CLI 326/326 and app

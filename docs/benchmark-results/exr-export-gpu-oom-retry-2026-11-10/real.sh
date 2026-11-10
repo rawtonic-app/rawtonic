@@ -1,5 +1,6 @@
 #!/bin/bash
-# real.sh MODE LEAVE HOLD: a real GPU out-of-memory (task EXR). vram_hog (AXF) leaves LEAVE MiB
+# real.sh MODE LEAVE HOLD: a real GPU out-of-memory (task EXR). MODE app, app2 (two.json: 16-bit TIFF + JPEG
+# of one photo, one group render) or cli. vram_hog (AXF) leaves LEAVE MiB
 # free; one pentax-k1.PEF raw.new export starts (MODE app: the QA app binary of inject.sh;
 # cli: the rawtonic CLI); HOLD s after the export's first out-of-memory warning the hog is
 # killed (a co-tenant that frees its memory). Prints rc and the output's SHA-256 (compare with
@@ -11,6 +12,10 @@ o=$S/out.real.$MODE.$LEAVE.$(date +%s); mkdir -p $o; L=$o.log
 if [ "$LEAVE" -gt 0 ]; then $S/hog $LEAVE > $S/hog.log & H=$!; sleep 2; cat $S/hog.log; fi
 if [ $MODE = cli ]; then
   RAWTONIC_LENSFUN_DB=$T/lensfun_db HOME=$S/home $T/rawtonic export $P --output $o/pentax-k1.tif --format tiff --tiff-bit-depth 16 --adjustments $R > $L 2>&1 & E=$!
+elif [ $MODE = app2 ]; then
+  # two recipes of one photo: one group render (deferred main pass, encoded per recipe)
+  mkdir -p $S/src1; [ -e $S/src1/pentax-k1.PEF ] || cp $P $S/src1/
+  HOME=$S/home $S/bin/target/release/rawtonic-app export $S/src1 --output $o --recipes $S/two.json --adjustments $R > $L 2>&1 & E=$!
 else
   mkdir -p $S/src1; [ -e $S/src1/pentax-k1.PEF ] || cp $P $S/src1/
   HOME=$S/home $S/bin/target/release/rawtonic-app export $S/src1 --output $o --format tiff --tiff-bit-depth 16 --adjustments $R > $L 2>&1 & E=$!
@@ -20,4 +25,4 @@ if [ -n "$H" ]; then
   sleep $HOLD; kill $H 2>/dev/null
 fi
 wait $E; echo "real $MODE rc=$? leave=$LEAVE hold=$HOLD"
-(cd $o && sha256sum *); grep -E "ran out of memory for|freed GPU|Export error|exports failed" $L | head
+(cd $o && find . -type f | sort | xargs -r sha256sum); grep -E "ran out of memory for|freed GPU|Export error|exports failed" $L | head
