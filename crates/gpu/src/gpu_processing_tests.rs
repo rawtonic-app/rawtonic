@@ -9445,11 +9445,12 @@ fn gamut_mapping_keeps_smooth_gradients_smooth() {
 /// only where and as far as the clip's own does (colours beyond the edge
 /// take the clip's lightness and chroma), neighbouring pixels stay within
 /// one 8-bit code (or the clip's own step), and fewer pixels reach the top
-/// code than with the clip.
+/// code than with the clip: in sRGB, Display P3 and Adobe RGB output, each
+/// against its own cube. ProPhoto output is the same in both versions.
 #[test]
 #[ignore = "requires a native GPU; soft knee of renderVersion 12 against the clip"]
 fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
-    use rawtonic_engine::output_color_space::TransferCurve;
+    use rawtonic_engine::output_color_space::OutputColorSpace;
     let context = context();
     let (width, height) = (1024u32, 5u32);
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
@@ -9496,10 +9497,13 @@ fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
             bytemuck::cast_slice(&data),
         )
         .create_view(&Default::default());
-    let render = |version: u64| {
+    let render = |version: u64, space: OutputColorSpace| {
         // The Classic look (0): no look table between the ramp and the output.
-        let adjustments =
+        let mut adjustments =
             get_all_adjustments_from_json(&json!({ "renderVersion": version }), true, Some(0));
+        adjustments.global.output_space[0] = space.shader_code();
+        adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
         let (pixels, ..) = processor
             .run(
                 &view,
@@ -9520,97 +9524,132 @@ fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
         };
         pixels
     };
-    let (clipped, eased) = (render(11), render(12));
-    let linear = |p: &[u16], i: usize| -> [f64; 3] {
-        std::array::from_fn(|c| TransferCurve::Srgb.to_linear(p[i + c] as f64 / 65535.0))
-    };
-    let chroma = |c: [f64; 3]| {
-        let r = c.map(|v| v.max(0.0).cbrt());
-        (r[0] - r[1]).hypot(r[1] - r[2])
-    };
-    let top = |p: &[u16]| {
-        (0..(width * height) as usize)
-            .filter(|i| (0..3).any(|c| p[i * 4 + c] >= 65500))
-            .count()
-    };
-    let mut changed = 0;
-    let mut well_inside = 0;
-    let mut beyond = 0;
-    for y in 0..height {
-        let at = |x: u32| ((y * width + x) * 4) as usize;
-        for x in 0..width {
-            let v = &clipped[at(x)..at(x) + 3];
-            if v.iter().all(|&c| (13107..=52428).contains(&c)) {
-                well_inside += 1;
-                assert_eq!(
-                    v,
-                    &eased[at(x)..at(x) + 3],
-                    "ramp {y}: the colour at {x}, well inside, changed"
+    // ProPhoto holds the working gamut: nothing is eased into it.
+    assert_eq!(
+        render(11, OutputColorSpace::ProPhoto),
+        render(12, OutputColorSpace::ProPhoto),
+        "ProPhoto output changed"
+    );
+    // Each space that clips: its own cube, searched through its own matrix.
+    let mut tops = 0;
+    for space in [
+        OutputColorSpace::Srgb,
+        OutputColorSpace::DisplayP3,
+        OutputColorSpace::AdobeRgb,
+    ] {
+        let (clipped, eased) = (render(11, space), render(12, space));
+        // An output pixel as the space's own linear RGB, and as linear
+        // sRGB (negative outside sRGB) for its CAM16 hue and chroma.
+        let (to_srgb, transfer) = (space.to_linear_srgb(), space.transfer());
+        let own = |p: &[u16], i: usize| -> [f64; 3] {
+            std::array::from_fn(|c| transfer.to_linear(p[i + c] as f64 / 65535.0))
+        };
+        let linear = |p: &[u16], i: usize| -> [f64; 3] {
+            let rgb = own(p, i);
+            to_srgb.map(|row| row[0] * rgb[0] + row[1] * rgb[1] + row[2] * rgb[2])
+        };
+        // Colourfulness inside the space's cube (its own RGB).
+        let chroma = |c: [f64; 3]| {
+            let r = c.map(|v| v.max(0.0).cbrt());
+            (r[0] - r[1]).hypot(r[1] - r[2])
+        };
+        let top = |p: &[u16]| {
+            (0..(width * height) as usize)
+                .filter(|i| (0..3).any(|c| p[i * 4 + c] >= 65500))
+                .count()
+        };
+        let mut changed = 0;
+        let mut well_inside = 0;
+        let mut beyond = 0;
+        for y in 0..height {
+            let at = |x: u32| ((y * width + x) * 4) as usize;
+            for x in 0..width {
+                let v = &clipped[at(x)..at(x) + 3];
+                if v.iter().all(|&c| (13107..=52428).contains(&c)) {
+                    well_inside += 1;
+                    assert_eq!(
+                        v,
+                        &eased[at(x)..at(x) + 3],
+                        "{space:?} ramp {y}: the colour at {x}, well inside, changed"
+                    );
+                }
+            }
+            let (mut last, mut last_clip, mut peak, mut peak_clip) =
+                (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            for x in 1..width {
+                let (a, b) = (linear(&clipped, at(x)), linear(&eased, at(x)));
+                changed += usize::from(clipped[at(x)..at(x) + 3] != eased[at(x)..at(x) + 3]);
+                if chroma(own(&clipped, at(x))) > 0.05 {
+                    let dh = (cam16_hue_degrees(b) - cam16_hue_degrees(a) + 540.0) % 360.0 - 180.0;
+                    assert!(
+                        dh.abs() < 1.0,
+                        "{space:?} ramp {y} at {x}: hue moved {dh:.2} degrees"
+                    );
+                }
+                // The eased colour follows the clip's (restore_hue's), whose
+                // chroma falls again far beyond the edge: from one pixel to
+                // the next it may fall by the clip's own fall, and over the
+                // ramp it never drops further below its peak than the clip's.
+                let (c, c_clip) = (chroma(own(&eased, at(x))), chroma(own(&clipped, at(x))));
+                assert!(
+                    c >= last - 2e-3 - (last_clip - c_clip).max(0.0),
+                    "{space:?} ramp {y} at {x}: chroma fell from {last} to {c} (clipped: {last_clip} to {c_clip})"
                 );
+                (last, last_clip) = (c, c_clip);
+                (peak, peak_clip) = (peak.max(c), peak_clip.max(c_clip));
+                // A colour the clip moved (beyond the edge) keeps the clip's
+                // colourfulness but for the knee's share, at most a fortieth.
+                // Eased along its own lightness instead, saturated colours
+                // came out less colourful than the clip's (cyans under
+                // Vibrance +100 against Camera Raw: 0.12 of their chroma
+                // ratio instead of 0.03, task ATF10F).
+                if clipped[at(x)..at(x) + 3]
+                    .iter()
+                    .any(|&v| v == 0 || v == 65535)
+                {
+                    let kept = cam16_chroma(b) / cam16_chroma(a);
+                    beyond += 1;
+                    assert!(
+                        (0.97..=1.005).contains(&kept),
+                        "{space:?} ramp {y} at {x}: {kept:.3} of the clip's chroma"
+                    );
+                }
+                assert!(
+                    peak - c <= peak_clip - c_clip + 2e-3,
+                    "{space:?} ramp {y} at {x}: chroma {c} under its peak {peak} (clipped: {c_clip} under {peak_clip})"
+                );
+                for k in 0..3 {
+                    let step = (eased[at(x) + k] as i32 - eased[at(x - 1) + k] as i32).abs();
+                    let clipped_step =
+                        (clipped[at(x) + k] as i32 - clipped[at(x - 1) + k] as i32).abs();
+                    assert!(
+                        step <= 257.max(clipped_step + 32),
+                        "{space:?} ramp {y} at {x}: a step of {step} sixteen-bit codes (clipped: {clipped_step})"
+                    );
+                }
             }
         }
-        let (mut last, mut last_clip, mut peak, mut peak_clip) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
-        for x in 1..width {
-            let (a, b) = (linear(&clipped, at(x)), linear(&eased, at(x)));
-            changed += usize::from(clipped[at(x)..at(x) + 3] != eased[at(x)..at(x) + 3]);
-            if chroma(a) > 0.05 {
-                let dh = (cam16_hue_degrees(b) - cam16_hue_degrees(a) + 540.0) % 360.0 - 180.0;
-                assert!(dh.abs() < 1.0, "ramp {y} at {x}: hue moved {dh:.2} degrees");
-            }
-            // The eased colour follows the clip's (restore_hue's), whose
-            // chroma falls again far beyond the edge: from one pixel to
-            // the next it may fall by the clip's own fall, and over the
-            // ramp it never drops further below its peak than the clip's.
-            let (c, c_clip) = (chroma(b), chroma(a));
-            assert!(
-                c >= last - 2e-3 - (last_clip - c_clip).max(0.0),
-                "ramp {y} at {x}: chroma fell from {last} to {c} (clipped: {last_clip} to {c_clip})"
-            );
-            (last, last_clip) = (c, c_clip);
-            (peak, peak_clip) = (peak.max(c), peak_clip.max(c_clip));
-            // A colour the clip moved (beyond the edge) keeps the clip's
-            // colourfulness but for the knee's share, at most a fortieth.
-            // Eased along its own lightness instead, saturated colours
-            // came out less colourful than the clip's (cyans under
-            // Vibrance +100 against Camera Raw: 0.12 of their chroma
-            // ratio instead of 0.03, task ATF10F).
-            if clipped[at(x)..at(x) + 3]
-                .iter()
-                .any(|&v| v == 0 || v == 65535)
-            {
-                let kept = cam16_chroma(b) / cam16_chroma(a);
-                beyond += 1;
-                assert!(
-                    (0.97..=1.005).contains(&kept),
-                    "ramp {y} at {x}: {kept:.3} of the clip's chroma"
-                );
-            }
-            assert!(
-                peak - c <= peak_clip - c_clip + 2e-3,
-                "ramp {y} at {x}: chroma {c} under its peak {peak} (clipped: {c_clip} under {peak_clip})"
-            );
-            for k in 0..3 {
-                let step = (eased[at(x) + k] as i32 - eased[at(x - 1) + k] as i32).abs();
-                let clipped_step =
-                    (clipped[at(x) + k] as i32 - clipped[at(x - 1) + k] as i32).abs();
-                assert!(
-                    step <= 257.max(clipped_step + 32),
-                    "ramp {y} at {x}: a step of {step} sixteen-bit codes (clipped: {clipped_step})"
-                );
-            }
-        }
+        assert!(changed > 0, "{space:?}: the knee changed no colour");
+        // Fewer in the wider spaces (of the 5120: sRGB 2698, Display P3
+        // 441, Adobe RGB 252).
+        assert!(
+            beyond > 200,
+            "{space:?}: only {beyond} ramp colours lie beyond the edge"
+        );
+        assert!(
+            well_inside > 0,
+            "{space:?}: no ramp colour lies well inside the cube"
+        );
+        let (before, after) = (top(&clipped), top(&eased));
+        // (The ramps leave the wider spaces through their lower faces
+        // only: no top code there in either version.)
+        assert!(
+            after < before || (before == 0 && after == 0),
+            "{space:?}: pixels at the top code: {after} eased vs {before} clipped"
+        );
+        tops += before;
     }
-    assert!(changed > 0, "the knee changed no colour");
-    assert!(
-        beyond > 500,
-        "only {beyond} ramp colours lie beyond the edge"
-    );
-    assert!(well_inside > 0, "no ramp colour lies well inside the cube");
-    let (before, after) = (top(&clipped), top(&eased));
-    assert!(
-        after < before,
-        "pixels at the top code: {after} eased vs {before} clipped"
-    );
+    assert!(tops > 0, "no space had pixels at the top code to ease");
 }
 
 /// Shadows and Blacks under the Camera Raw look take their gain from the
