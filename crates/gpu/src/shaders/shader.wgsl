@@ -69,6 +69,10 @@ override BLACKS_V16: bool = false;
 // Colour mixer response 2 (`apply_hsl_panel_v2`) with a slider moved, for
 // the same reason (gpu_processing.rs `HSL_V2_FEATURE`).
 override HSL_V2: bool = false;
+// Clarity version 3 and Structure version 3 (`apply_band_contrast_log_v3`,
+// `apply_structure_v3`), for the same reason (gpu_processing.rs
+// `PRESENCE_V3_FEATURE`).
+override PRESENCE_V3: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -320,7 +324,11 @@ struct GlobalAdjustments {
     // The recipe's Vibrance (`vibranceVersion`): 1 apply_creative_color's
     // HSV-weighted mix, 2 apply_vibrance_v2.
     vibrance_version: u32,
-    _pad_vibrance: array<u32, 2>,
+    // The recipe's Structure (`structureVersion`): 3 the fine band against
+    // structure3_base (`apply_structure_v3`), older ones against the plain
+    // small blur.
+    structure_version: u32,
+    _pad_vibrance: u32,
 }
 
 struct MaskAdjustments {
@@ -5319,6 +5327,141 @@ fn apply_band_contrast_log(
     return mix(color_linear, color_linear * exp2(band * amount), noise_floor);
 }
 
+// Clarity version 3 (`PRESENCE_V3`, `clarity3_base`): as version 2 with its
+// two rings of large-blur samples twice as far out, a narrower level range,
+// and a third ring of eight small-blur samples. Beside a strong edge every
+// large-blur sample near the pixel is pulled towards the other side, so
+// version 2's base still sat below a bright pixel next to a dark edge (a
+// light halo) and above a dark one next to a bright edge; the small blur a
+// few pixels away on the pixel's own side is not, and the narrow range lets
+// only samples at the pixel's level count. Lowering Clarity keeps version
+// 2 (at the slider atlas's level of both references; with the new base it
+// took more fine detail than medium-scale contrast out of some photos).
+// Its own functions so that older versions compile as before.
+// Raising: version 2's gain × 1.2, the most at which no family of the atlas
+// cells got worse than version 2's (more turned the tone bands further
+// from both references).
+const CLARITY3_GAIN_RAISE: f32 = 1.3 * 1.2;
+const CLARITY3_RANGE: f32 = 0.12;
+// Ring spacing in units of the large blur's sigma (version 2: 0.5).
+const CLARITY3_SIDE: f32 = 1.0;
+// The small-blur ring: its distance in units of the small blur's sigma and
+// the weight of each of its samples (a large-blur sample weighs 1).
+const CLARITY3_FINE_SIDE: f32 = 4.0;
+const CLARITY3_FINE_WEIGHT: f32 = 0.5;
+
+fn clarity3_base(coords: vec2<i32>, own_log: f32, scale: f32) -> f32 {
+    let dims = vec2<i32>(textureDimensions(structure_blur_texture)) - vec2<i32>(1);
+    let d = clamp(CLARITY3_SIDE * 20.0 * scale, 1.0, 60.0);
+    let dd = i32(round(d));
+    let dg = i32(round(d * 0.7071));
+    let offsets = array<vec2<i32>, 9>(
+        vec2<i32>(0, 0), vec2<i32>(dd, 0), vec2<i32>(-dd, 0), vec2<i32>(0, dd), vec2<i32>(0, -dd),
+        vec2<i32>(dg, dg), vec2<i32>(-dg, dg), vec2<i32>(dg, -dg), vec2<i32>(-dg, -dg));
+    var sum = 0.0;
+    var wsum = 0.0;
+    for (var ring = 1; ring <= 2; ring = ring + 1) {
+        for (var k = select(1u, 0u, ring == 1); k < 9u; k = k + 1u) {
+            let g = textureLoad(structure_blur_texture, clamp(coords + offsets[k] * ring, vec2<i32>(0), dims), 0).a;
+            let t = (g - own_log) / CLARITY3_RANGE;
+            let w = exp(-0.5 * t * t) + 1e-4;
+            sum += w * g;
+            wsum += w;
+        }
+    }
+    let fine_dims = vec2<i32>(textureDimensions(clarity_blur_texture)) - vec2<i32>(1);
+    let fd = clamp(CLARITY3_FINE_SIDE * 4.0 * scale, 1.0, 60.0);
+    let fdd = i32(round(fd));
+    let fdg = i32(round(fd * 0.7071));
+    let fine_offsets = array<vec2<i32>, 8>(
+        vec2<i32>(fdd, 0), vec2<i32>(-fdd, 0), vec2<i32>(0, fdd), vec2<i32>(0, -fdd),
+        vec2<i32>(fdg, fdg), vec2<i32>(-fdg, fdg), vec2<i32>(fdg, -fdg), vec2<i32>(-fdg, -fdg));
+    for (var k = 0u; k < 8u; k = k + 1u) {
+        let g = small_blur_mean_log(clamp(coords + fine_offsets[k], vec2<i32>(0), fine_dims));
+        let t = (g - own_log) / CLARITY3_RANGE;
+        let w = CLARITY3_FINE_WEIGHT * exp(-0.5 * t * t);
+        sum += w * g;
+        wsum += w;
+    }
+    let fine = small_blur_mean_log(coords);
+    let tf = (fine - own_log) / CLARITY3_RANGE;
+    let wf = CLARITY_FINE_PRIOR * exp(-0.5 * tf * tf);
+    return (sum + wf * fine) / (wsum + wf);
+}
+
+fn apply_band_contrast_log_v3(
+    color_linear: vec3<f32>,
+    coords: vec2<i32>,
+    scale: f32,
+    amount: f32,
+    exposure_gain: f32
+) -> vec3<f32> {
+    if (amount == 0.0) {
+        return color_linear;
+    }
+    let luma = max(get_luma(color_linear), 0.0001);
+    let own_log = log2(luma);
+    var base: f32;
+    if (amount > 0.0) {
+        base = clarity3_base(coords, own_log, scale);
+    } else {
+        base = clarity_base(coords, own_log, scale);
+    }
+    let band = 2.0 * tanh((own_log - base) * 0.5);
+    let noise_floor = smoothstep(0.0, 0.004, luma * exposure_gain);
+    return mix(color_linear, color_linear * exp2(band * amount), noise_floor);
+}
+
+// Structure version 3 (`PRESENCE_V3`, `structure3_base`): the fine band in
+// log luminance against the small blur at the pixel and on a ring of eight
+// points around it (1.5 small-blur sigmas out), each weighted
+// by how close its level is to the pixel's own (Gaussian over
+// STRUCTURE3_RANGE EV). The plain small blur beside a strong edge is pulled
+// towards the other side, so raising Structure darkened the dark side of
+// bright edges into a rim and lowering it lifted that side; samples at the
+// pixel's own level keep the base on its side. The amounts come from the
+// CPU (`structure_amount_v3`).
+const STRUCTURE3_RANGE: f32 = 0.2;
+
+fn structure3_base(coords: vec2<i32>, own_log: f32, scale: f32) -> f32 {
+    let dims = vec2<i32>(textureDimensions(clarity_blur_texture)) - vec2<i32>(1);
+    let d = clamp(6.0 * scale, 1.0, 60.0);
+    let dd = i32(round(d));
+    let dg = i32(round(d * 0.7071));
+    let offsets = array<vec2<i32>, 8>(
+        vec2<i32>(dd, 0), vec2<i32>(-dd, 0), vec2<i32>(0, dd), vec2<i32>(0, -dd),
+        vec2<i32>(dg, dg), vec2<i32>(-dg, dg), vec2<i32>(dg, -dg), vec2<i32>(-dg, -dg));
+    let c = blur_log_luma(textureLoad(clarity_blur_texture, coords, 0).rgb);
+    let tc = (c - own_log) / STRUCTURE3_RANGE;
+    var wsum = exp(-0.5 * tc * tc) + 1e-4;
+    var sum = wsum * c;
+    for (var k = 0u; k < 8u; k = k + 1u) {
+        let g = blur_log_luma(textureLoad(clarity_blur_texture, clamp(coords + offsets[k], vec2<i32>(0), dims), 0).rgb);
+        let t = (g - own_log) / STRUCTURE3_RANGE;
+        let w = exp(-0.5 * t * t) + 1e-4;
+        sum += w * g;
+        wsum += w;
+    }
+    return sum / wsum;
+}
+
+fn apply_structure_v3(
+    color_linear: vec3<f32>,
+    coords: vec2<i32>,
+    scale: f32,
+    amount: f32,
+    exposure_gain: f32
+) -> vec3<f32> {
+    if (amount == 0.0) {
+        return color_linear;
+    }
+    let luma = max(get_luma(color_linear), 0.0001);
+    let own_log = log2(luma);
+    let band = 2.0 * tanh((own_log - structure3_base(coords, own_log, scale)) * 0.5);
+    let noise_floor = smoothstep(0.0, 0.004, luma * exposure_gain);
+    return mix(color_linear, color_linear * exp2(band * amount), noise_floor);
+}
+
 fn sharpen_perc(c: vec3<f32>, is_raw: u32) -> f32 {
     let y = max(get_luma(c), 0.0);
     if (is_raw == 1u) { return sqrt(y); }
@@ -10268,9 +10411,17 @@ fn main(
     // Structure works on fine detail (the small blur), Clarity on the medium
     // scale (the large blur), as in Capture One and Lightroom.
     let exposure_gain = exp2(t_exposure);
-    locally_contrasted_rgb = apply_band_contrast(locally_contrasted_rgb, clarity_blurred,
-        band_amount(t_structure, STRUCTURE_GAIN_RAISE, STRUCTURE_GAIN_LOWER), is_raw, exposure_gain);
-    if (adjustments.global.clarity_version >= 2u) {
+    if (PRESENCE_V3 && adjustments.global.structure_version >= 3u) {
+        locally_contrasted_rgb = apply_structure_v3(locally_contrasted_rgb, vec2<i32>(id.xy), scale,
+            band_amount(t_structure, STRUCTURE_GAIN_RAISE, STRUCTURE_GAIN_LOWER), exposure_gain);
+    } else {
+        locally_contrasted_rgb = apply_band_contrast(locally_contrasted_rgb, clarity_blurred,
+            band_amount(t_structure, STRUCTURE_GAIN_RAISE, STRUCTURE_GAIN_LOWER), is_raw, exposure_gain);
+    }
+    if (PRESENCE_V3 && adjustments.global.clarity_version >= 3u) {
+        locally_contrasted_rgb = apply_band_contrast_log_v3(locally_contrasted_rgb, vec2<i32>(id.xy), scale,
+            band_amount(t_clarity, CLARITY3_GAIN_RAISE, CLARITY2_GAIN_LOWER), exposure_gain);
+    } else if (adjustments.global.clarity_version >= 2u) {
         locally_contrasted_rgb = apply_band_contrast_log(locally_contrasted_rgb, vec2<i32>(id.xy), scale,
             band_amount(t_clarity, CLARITY2_GAIN_RAISE, CLARITY2_GAIN_LOWER), exposure_gain);
     } else {
