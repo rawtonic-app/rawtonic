@@ -1370,7 +1370,8 @@ impl PlannedFiles {
 /// the exports' processor when no render holds it (its textures and
 /// pipelines), the scopes' uploads and the Develop view's upload of its
 /// photo (the next frame uploads it again). Renders in progress keep
-/// theirs.
+/// theirs. (A processor a render holds is rebuilt at its next use anyway:
+/// the failed render marked it, `ProcessorSlot::discard_after`.)
 fn release_gpu_memory(app_handle: &tauri::AppHandle, context: &GpuContext) {
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let processor = gpu.export_processor.take_if_idle().is_some();
