@@ -194,6 +194,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "tintVersion",
         "vibranceVersion",
         "structureVersion",
+        "dehazeVersion",
         "aiDenoise",
         "aiDenoiseVersion",
         "defringePurpleAmount",

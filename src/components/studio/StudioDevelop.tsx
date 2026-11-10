@@ -42,6 +42,7 @@ import {
   effectiveGrainStructure,
   isFilmGrain,
   withNewGrainStructure,
+  layersUseDehaze,
   layersUseStructure,
   layersUseWhiteBalance,
   layersUseMixer,
@@ -1454,14 +1455,15 @@ export default function StudioDevelop() {
                   'dehaze',
                   'vibrance',
                   'saturation',
-                  // The photo's Clarity and Vibrance responses and Structure travel go back to a new edit's;
-                  // Vibrance and Structure only while no layer uses them (the layers follow the photo's).
+                  // The photo's Clarity, Vibrance and Dehaze responses and Structure travel go back to a new edit's;
+                  // Vibrance, Structure and Dehaze only while no layer uses them (the layers follow the photo's).
                   ...(layer
                     ? ['hue']
                     : [
                         'clarityVersion',
                         ...(layersUseVibrance(adjustments) ? [] : ['vibranceVersion']),
-                        ...(layersUseStructure(adjustments) ? [] : ['structureVersion'])
+                        ...(layersUseStructure(adjustments) ? [] : ['structureVersion']),
+                        ...(layersUseDehaze(adjustments) ? [] : ['dehazeVersion'])
                       ])
                 ])
               }

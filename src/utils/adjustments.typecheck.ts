@@ -132,6 +132,7 @@ interface OldAdjustments {
   tintVersion?: number;
   vibranceVersion?: number;
   structureVersion?: number;
+  dehazeVersion?: number;
   fringeVersion?: number;
   defringeVersion?: number;
   bwVersion?: number;

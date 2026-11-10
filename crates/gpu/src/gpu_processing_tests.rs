@@ -392,6 +392,34 @@ fn vibrance_version_2_compiles_only_where_vibrance_is_used() {
 }
 
 #[test]
+fn dehaze_version_2_compiles_only_where_dehaze_is_lowered() {
+    let features = |profile: serde_json::Value| {
+        preview_features(&get_all_adjustments_from_json(&profile, true, Some(1)))
+            & DEHAZE_V2_FEATURE
+    };
+    assert_eq!(
+        features(json!({"dehaze": -30, "dehazeVersion": 2})),
+        DEHAZE_V2_FEATURE
+    );
+    let mut layer = local_profile(json!({"dehaze": -30}));
+    layer["dehazeVersion"] = json!(2);
+    assert_eq!(features(layer), DEHAZE_V2_FEATURE);
+    // Older recipes, raised Dehaze (the same in both versions) and the key
+    // alone keep the shader without it.
+    assert_eq!(features(json!({"dehaze": -30})), 0);
+    assert_eq!(features(json!({"dehaze": -30, "dehazeVersion": 1})), 0);
+    assert_eq!(features(json!({"dehaze": 30, "dehazeVersion": 2})), 0);
+    assert_eq!(features(json!({"dehazeVersion": 2})), 0);
+    assert_eq!(features(local_profile(json!({"dehaze": -30}))), 0);
+    let used =
+        get_all_adjustments_from_json(&json!({"dehaze": -30, "dehazeVersion": 2}), true, Some(1));
+    assert!(needs_feature_pipeline(&used));
+    let raised =
+        get_all_adjustments_from_json(&json!({"dehaze": 30, "dehazeVersion": 2}), true, Some(1));
+    assert!(!needs_feature_pipeline(&raised));
+}
+
+#[test]
 fn variant_table_allocates_only_the_pages_in_use() {
     let table = variant_table::<std::sync::OnceLock<usize>>();
     assert!(table.get(RAW_DEFAULT_PREVIEW_FEATURES).is_none());
@@ -492,6 +520,11 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         // Vibrance of version 2 is tested on its own (below the loop).
         if expected & VIBRANCE_V2_FEATURE != 0 {
+            continue;
+        }
+        // Lowered Dehaze of version 2 likewise
+        // (`dehaze_version_2_compiles_only_where_dehaze_is_lowered`).
+        if expected & DEHAZE_V2_FEATURE != 0 {
             continue;
         }
         let mut effects = json!({});
@@ -21126,8 +21159,24 @@ fn vibrance_version_2_weights_hue_and_chroma() {
 #[test]
 #[ignore = "requires a native GPU; Vibrance version 2 against version 1: GPU time of a preview render per drag step"]
 fn vibrance_version_2_drag_render_time() {
+    version_drag_render_times(
+        |version, step| json!({ "vibrance": 20 + 3 * step, "vibranceVersion": version }),
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Dehaze version 2 against version 1: GPU time of a preview render per drag step"]
+fn dehaze_version_2_drag_render_time() {
+    version_drag_render_times(
+        |version, step| json!({ "dehaze": -20 - 3 * step, "dehazeVersion": version }),
+    );
+}
+
+/// Prints the GPU time of a preview render per drag step under versions 1
+/// and 2 of a tool (`recipe(version, step)`).
+fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
     // As `tone_version_6_shadows_drag_render_time`: a 2560 × 1707 colourful
-    // frame, Vibrance dragged, blocks of ten steps alternated per version.
+    // frame, the slider dragged, blocks of ten steps alternated per version.
     let context = context();
     let (width, height) = (2560u32, 1707u32);
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
@@ -21169,7 +21218,7 @@ fn vibrance_version_2_drag_render_time() {
     for block in 0..24 {
         let version = 1 + (block % 2) as u64;
         for step in 0..10 {
-            let recipe = json!({ "vibrance": 20 + 3 * step, "vibranceVersion": version });
+            let recipe = recipe(version, step);
             let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
             let start = std::time::Instant::now();
             let _ = readback_pixels(
@@ -21196,4 +21245,92 @@ fn vibrance_version_2_drag_render_time() {
             t.len()
         );
     }
+}
+
+/// Lowered Dehaze of version 2 (`dehazeVersion`): the key alone and raised
+/// Dehaze render exactly as version 1; lowering lifts black much further,
+/// keeps flattening fine contrast below −50 (version 1 stops there), fades
+/// colour and keeps the order of tones.
+#[test]
+#[ignore = "requires a native GPU; Dehaze version 2 response"]
+fn dehaze_version_2_lowers_as_a_veil() {
+    let context = context();
+    // Linear sRGB, 256 px each: near-black, warm stripes of 4 px a stop
+    // apart, light grey.
+    let source = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(768, 512, |x, _| {
+        image::Rgb(match x / 256 {
+            0 => [0.004, 0.003, 0.002],
+            1 if (x / 4) % 2 == 0 => [0.10, 0.06, 0.04],
+            1 => [0.20, 0.12, 0.08],
+            _ => [0.6, 0.6, 0.6],
+        })
+    }));
+    let render = |extra: serde_json::Value| {
+        let mut profile = json!({"renderVersion": 3});
+        profile
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        chunk_test_render(
+            &context,
+            &source,
+            &profile,
+            false,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        )
+        .unwrap()
+        .into_rgb16()
+    };
+    let neutral = render(json!({}));
+    assert_eq!(
+        neutral.as_raw(),
+        render(json!({"dehazeVersion": 2})).as_raw(),
+        "the key alone changes nothing"
+    );
+    assert_eq!(
+        render(json!({"dehaze": 40})).into_raw(),
+        render(json!({"dehaze": 40, "dehazeVersion": 2})).into_raw(),
+        "raised Dehaze renders as version 1"
+    );
+    type Image = image::ImageBuffer<image::Rgb<u16>, Vec<u16>>;
+    let green = |img: &Image, x: u32| f64::from(img.get_pixel(x, 256)[1]);
+    // The stripes' step in the output, and the dark stripe's colour as the
+    // share of its green that red exceeds it by.
+    let step = |img: &Image| green(img, 388) - green(img, 384);
+    let colour = |img: &Image| {
+        let p = img.get_pixel(388, 256);
+        (f64::from(p[0]) - f64::from(p[2])) / f64::from(p[1])
+    };
+    let lowered =
+        |amount: i32, version: u64| render(json!({"dehaze": amount, "dehazeVersion": version}));
+    let (v1, v2) = (lowered(-100, 1), lowered(-100, 2));
+    let (v1_half, v2_half) = (lowered(-50, 1), lowered(-50, 2));
+    println!(
+        "black {} / v1 {} / v2 {}; step {} / v1 {} {} / v2 {} {}; colour {:.3} / v2 {:.3}",
+        green(&neutral, 128),
+        green(&v1, 128),
+        green(&v2, 128),
+        step(&neutral),
+        step(&v1_half),
+        step(&v1),
+        step(&v2_half),
+        step(&v2),
+        colour(&neutral),
+        colour(&v2)
+    );
+    assert!(
+        green(&v2, 128) > 1.5 * green(&v1, 128),
+        "version 2 lifts black further"
+    );
+    assert!(
+        step(&v2) < 0.8 * step(&v2_half) && step(&v2) < 0.8 * step(&v1),
+        "version 2 keeps flattening below -50"
+    );
+    assert!(step(&v2) > 0.0, "the stripes keep their order");
+    assert!(
+        green(&v2, 128) < green(&v2, 384) && green(&v2, 388) < green(&v2, 640),
+        "the tones keep their order"
+    );
+    assert!(colour(&v2) < 0.6 * colour(&neutral), "colour fades");
 }

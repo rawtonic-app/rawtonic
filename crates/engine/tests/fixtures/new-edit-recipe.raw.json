@@ -371,6 +371,7 @@
   "tintVersion": 2,
   "vibranceVersion": 2,
   "structureVersion": 3,
+  "dehazeVersion": 2,
   "fringeVersion": 6,
   "cameraCaVersion": 1,
   "cameraGeometryVersion": 10,

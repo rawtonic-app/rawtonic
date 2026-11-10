@@ -73,6 +73,9 @@ override HSL_V2: bool = false;
 // `apply_structure_v3`), for the same reason (gpu_processing.rs
 // `PRESENCE_V3_FEATURE`).
 override PRESENCE_V3: bool = false;
+// Lowered Dehaze of `dehazeVersion` 2 (`apply_dehaze_lower_v2`), for the
+// same reason (gpu_processing.rs `DEHAZE_V2_FEATURE`).
+override DEHAZE_V2: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -328,7 +331,10 @@ struct GlobalAdjustments {
     // structure3_base (`apply_structure_v3`), older ones against the plain
     // small blur.
     structure_version: u32,
-    _pad_vibrance: u32,
+    // The recipe's Dehaze (`dehazeVersion`): 2 lowers with
+    // apply_dehaze_lower_v2, 1 with apply_dehaze; raising is apply_dehaze's
+    // in both.
+    dehaze_version: u32,
 }
 
 struct MaskAdjustments {
@@ -6873,6 +6879,74 @@ fn apply_dehaze(color: vec3<f32>, blurred_color_input_space: vec3<f32>, is_raw: 
     return gamut_floor(result);
 }
 
+// Lowered Dehaze of `dehazeVersion` 2 (image_processing.rs `DEHAZE_VERSION`),
+// fitted to Camera Raw's negative Dehaze on half of the slider atlas's 48
+// frames (notes: benchmark-results/atf1-dehaze-negative-2026-11-10): a veil.
+// The tones rise towards white in the perceptual domain, the blacks with
+// them (Camera Raw lifts black by 30 L* at −100; version 1 spared it), each
+// pixel moves towards the large blur in log luminance (local contrast at
+// −100 about half, where version 1 stopped at −50's loss), and chroma
+// fades. `a` is the slider's share of its range, the same under every look
+// (fitted under the Camera Raw look every RAW file gets). Laws in `a` are
+// (linear, quadratic) or (offset, per a) pairs through the fits at −50 and
+// −100.
+//
+// Share of the remaining headroom the tones rise by (linear, quadratic).
+const DEHAZE2_LIFT: vec2<f32> = vec2<f32>(0.3666, 0.0844);
+// Share of that lift black gets (offset, per a); the full lift from
+// DEHAZE2_BLACK_END (perceptual) up.
+const DEHAZE2_BLACK: vec2<f32> = vec2<f32>(0.2021, 0.0888);
+const DEHAZE2_BLACK_END: f32 = 0.65;
+// Share of a pixel's log2 distance to the large blur that goes (linear,
+// quadratic), for pixels brighter than their surroundings (x, y) and darker
+// ones (z, w): darker ones less, and levelling off sooner (below), so the
+// dark side of a strong edge keeps a light rim no larger than Camera Raw's.
+const DEHAZE2_PULL: vec4<f32> = vec4<f32>(0.5565, 0.139, 0.5012, -0.21);
+// Distance (EV) at which the pull levels off (offset, per a), brighter
+// (x, y) and darker pixels (z, w); never under DEHAZE2_REACH_MIN.
+const DEHAZE2_REACH: vec4<f32> = vec4<f32>(-1.197, 4.7648, -0.7491, 3.4948);
+const DEHAZE2_REACH_MIN: f32 = 0.3;
+// Chroma lost (linear, quadratic).
+const DEHAZE2_FADE: vec2<f32> = vec2<f32>(0.5852, 0.0244);
+// The veil is mostly a gain on the colour (its largest share), which keeps
+// the colours' proportions, and added near black: a gain would leave a
+// clipped black pixel black beside its lifted neighbours. The luminance at
+// which the gain has half its largest share.
+const DEHAZE2_GAIN_SHARE: f32 = 0.94;
+const DEHAZE2_ADD_LUMA: f32 = 0.002;
+
+fn apply_dehaze_lower_v2(color: vec3<f32>, blurred_color_input_space: vec3<f32>, is_raw: u32, amount: f32) -> vec3<f32> {
+    var blurred_linear: vec3<f32>;
+    if (is_raw == 1u) {
+        blurred_linear = blurred_color_input_space;
+    } else {
+        blurred_linear = srgb_to_linear(blurred_color_input_space);
+    }
+    let a = clamp(-amount * DEHAZE_SCALE, 0.0, 1.0);
+    let safe = gamut_floor(color);
+    let luma = max(get_luma(safe), 0.0001);
+    let blurred_luma = max(get_luma(max(blurred_linear, vec3<f32>(0.0))), 0.0001);
+    let offset = log2(luma / blurred_luma);
+    let darker = offset < 0.0;
+    let pull_law = select(DEHAZE2_PULL.xy, DEHAZE2_PULL.zw, darker);
+    let reach_law = select(DEHAZE2_REACH.xy, DEHAZE2_REACH.zw, darker);
+    let reach = max(reach_law.x + reach_law.y * a, DEHAZE2_REACH_MIN);
+    let pull = exp2(-a * (pull_law.x + pull_law.y * a) * reach * tanh(offset / reach));
+    let pulled = safe * pull;
+    let pulled_luma = max(luma * pull, 0.0001);
+    // A monotone lift in the perceptual domain (slope above 1 − lift), so
+    // tones never swap order; scene values above 1 stay.
+    let p = pow(pulled_luma, 0.4545);
+    let pc = min(p, 1.0);
+    let lift = a * (DEHAZE2_LIFT.x + DEHAZE2_LIFT.y * a);
+    let black = DEHAZE2_BLACK.x + DEHAZE2_BLACK.y * a;
+    let veil_luma = pow(p + lift * (1.0 - pc) * mix(black, 1.0, smoothstep(0.0, DEHAZE2_BLACK_END, pc)), 2.2);
+    let gain_share = DEHAZE2_GAIN_SHARE * pulled_luma / (pulled_luma + DEHAZE2_ADD_LUMA);
+    let veiled = mix(pulled + vec3<f32>(veil_luma - pulled_luma), pulled * (veil_luma / pulled_luma), gain_share);
+    let keep = 1.0 - a * (DEHAZE2_FADE.x + DEHAZE2_FADE.y * a);
+    return gamut_floor(mix(vec3<f32>(get_luma(veiled)), veiled, keep));
+}
+
 // Noise level assumed when the photo's own was not measured.
 const LUMA_NR_DEFAULT_NOISE: f32 = 0.004;
 const COLOR_NR_STRIDE_MIN: f32 = 3.0;
@@ -10468,6 +10542,11 @@ fn main(
     }
 
     var composite_rgb_linear = apply_dehaze(processed_rgb, structure_blurred, is_raw, t_dehaze);
+    // The line above stays as it was, so pipelines without DEHAZE_V2 compile
+    // the code they always had.
+    if (DEHAZE_V2 && adjustments.global.dehaze_version >= 2u && t_dehaze < 0.0) {
+        composite_rgb_linear = apply_dehaze_lower_v2(processed_rgb, structure_blurred, is_raw, t_dehaze);
+    }
     let temperature_coupled = (adjustments.global.temperature_version & 0xffu) >= 2u;
     let tint_travel = ((adjustments.global.temperature_version >> 8u) & 0xffu) >= 2u;
     if (temperature_coupled || tint_travel) {

@@ -558,6 +558,39 @@ impl VibranceVersion {
     }
 }
 
+/// Lowered Dehaze as a veil fitted to Camera Raw's (`dehazeVersion` 2).
+pub const VEIL_DEHAZE_VERSION: u64 = 2;
+
+/// `dehazeVersion` (`image_processing::DEHAZE_VERSION`): 1 when missing,
+/// never newer than this renderer knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DehazeVersion(u64);
+
+impl DehazeVersion {
+    pub fn of(recipe: &Value) -> Self {
+        Self(read(recipe, ip::DEHAZE_VERSION_KEY, 1).clamp(1, ip::DEHAZE_VERSION))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The version the shader uniform (`GlobalAdjustments::dehaze_version`)
+    /// carries.
+    pub fn uniform(self) -> u32 {
+        self.0 as u32
+    }
+
+    pub fn from_uniform(value: u32) -> Self {
+        Self(u64::from(value))
+    }
+
+    /// Lowering Dehaze lays a veil (shader `apply_dehaze_lower_v2`).
+    pub fn veil(self) -> bool {
+        self.0 >= VEIL_DEHAZE_VERSION
+    }
+}
+
 /// `structureVersion` (`image_processing::STRUCTURE_VERSION`): 1 when
 /// missing, never newer than this renderer knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -835,6 +868,7 @@ pub struct RecipeVersions {
     pub tint: TintVersion,
     pub vibrance: VibranceVersion,
     pub structure: StructureVersion,
+    pub dehaze: DehazeVersion,
     pub fringe: FringeVersion,
     pub auto_ca: AutoCaVersion,
     pub camera_ca: CameraCaVersion,
@@ -862,6 +896,7 @@ impl RecipeVersions {
             tint: TintVersion::of(recipe),
             vibrance: VibranceVersion::of(recipe),
             structure: StructureVersion::of(recipe),
+            dehaze: DehazeVersion::of(recipe),
             fringe: FringeVersion::of(recipe),
             auto_ca: AutoCaVersion::of(recipe),
             camera_ca: CameraCaVersion::of(recipe),
@@ -952,7 +987,7 @@ mod tests {
         let future = json!({
             "renderVersion": 999, "toneVersion": 999, "sharpenVersion": 999,
             "lumaNoiseVersion": 999, "colorNoiseVersion": 999, "defringeVersion": 999,
-            "bwVersion": 999, "hslVersion": 999, "grainVersion": 999, "clarityVersion": 999, "vibranceVersion": 999, "structureVersion": 999,
+            "bwVersion": 999, "hslVersion": 999, "grainVersion": 999, "clarityVersion": 999, "vibranceVersion": 999, "structureVersion": 999, "dehazeVersion": 999,
             "fringeVersion": 999, "autoCaVersion": 999, "cameraCaVersion": 999,
             "cameraGeometryVersion": 999, "diffractionVersion": 999, "aiDenoiseVersion": 999,
         });
@@ -961,6 +996,7 @@ mod tests {
         assert_eq!(v.tone.get(), ip::TONE_VERSION);
         assert_eq!(v.vibrance.get(), ip::VIBRANCE_VERSION);
         assert_eq!(v.structure.get(), ip::STRUCTURE_VERSION);
+        assert_eq!(v.dehaze.get(), ip::DEHAZE_VERSION);
         assert_eq!(v.hsl.get(), ip::HSL_VERSION);
         assert_eq!(v.color_noise.get(), crate::color_noise::VERSION);
         assert_eq!(v.fringe.get(), crate::edge_fringe::VERSION);

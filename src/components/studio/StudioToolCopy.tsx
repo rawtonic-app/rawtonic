@@ -50,6 +50,8 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   vibrance: ['vibranceVersion'],
   // Structure means what the recipe's Structure travel makes of it.
   structure: ['structureVersion'],
+  // Dehaze means what the recipe's Dehaze response makes of it.
+  dehaze: ['dehazeVersion'],
   // The B&W mix means what the recipe's mix response makes of it.
   blackAndWhite: ['bwVersion'],
   grayMixer: ['bwVersion'],

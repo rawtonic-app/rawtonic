@@ -11,6 +11,7 @@ import {
   CLARITY_VERSION,
   COLOR_NOISE_VERSION,
   DEFRINGE_VERSION,
+  DEHAZE_VERSION,
   HSL_VERSION,
   LUMA_NOISE_VERSION,
   SHARPEN_VERSION,
@@ -116,6 +117,7 @@ const KEYS: VersionKey[] = [
     translated: ['structure'],
     translate: translateStructure
   },
+  { key: 'dehazeVersion', newest: DEHAZE_VERSION, users: sliders('dehaze'), translated: [] },
   { key: 'vibranceVersion', newest: VIBRANCE_VERSION, users: sliders('vibrance'), translated: [] },
   {
     key: 'temperatureVersion',

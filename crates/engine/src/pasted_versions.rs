@@ -111,6 +111,16 @@ const KEYS: &[VersionKey] = &[
         translate: Some(translate_structure),
     },
     VersionKey {
+        key: ip::DEHAZE_VERSION_KEY,
+        effective: |r, _| rv::DehazeVersion::of(r).get(),
+        users: Users::Sliders {
+            global: &["dehaze"],
+            layer: &["dehaze"],
+        },
+        translated: &[],
+        translate: None,
+    },
+    VersionKey {
         key: ip::VIBRANCE_VERSION_KEY,
         effective: |r, _| rv::VibranceVersion::of(r).get(),
         users: Users::Sliders {
