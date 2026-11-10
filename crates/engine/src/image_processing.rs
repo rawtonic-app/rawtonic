@@ -5940,7 +5940,8 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// over the 2 × 2 positions exceeds the border's by more than 3 levels
 /// (`image_loader::BORDER_BLACK_RENDER_VERSION`). 12 (2026-11-09) eases
 /// saturated colours near the output space's edge towards it before the
-/// clip, so they keep their gradation (`GAMUT_KNEE_RENDER_VERSION`).
+/// clip, so fewer of them end at a channel's maximum
+/// (`GAMUT_KNEE_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
 pub const RENDER_VERSION: u64 = 12;
 
@@ -5966,11 +5967,12 @@ pub const GPU_WARP_RENDER_VERSION: u64 = 7;
 /// parity-gaps/G01-base-profiles.md).
 pub const GAMUT_MAPPING_RENDER_VERSION: u64 = 4;
 
-/// The render version from which saturated colours from 0.9 of the way to
+/// The render version from which saturated colours from 0.95 of the way to
 /// the output space's edge on are eased towards it at their own CAM16 hue
-/// and lightness before the clip (`GlobalAdjustments::gamut_mapping` 2,
-/// shader `ease_into_gamut`; notes: parity-gaps/G01-base-profiles.md, task
-/// ATF10).
+/// before the clip: inside the space at their own lightness, beyond it at
+/// the lightness and chroma the clip gives them
+/// (`GlobalAdjustments::gamut_mapping` 2, shader `ease_into_gamut`; notes:
+/// parity-gaps/G01-base-profiles.md, tasks ATF10 and ATF10F).
 pub const GAMUT_KNEE_RENDER_VERSION: u64 = 12;
 
 /// The render version from which exports render with the main shader

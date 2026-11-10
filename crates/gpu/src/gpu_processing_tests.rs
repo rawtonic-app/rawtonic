@@ -8982,11 +8982,35 @@ fn wide_gamut_exports_keep_colours_beyond_srgb_and_match_inside_it() {
         }
     }
     assert!(differs, "the mapping changed no colour beyond sRGB");
+    // With the gamut knee (`renderVersion` 12) colours beyond the proofed
+    // space are eased into it; the gamut warning still marks them (it
+    // judges the colour before the easing) and nothing else.
+    let knee = |warning: bool| {
+        render_with(
+            json!({ "saturation": 20, "softProof": "srgb", "softProofWarning": warning, "renderVersion": 12 }),
+            OutputColorSpace::DisplayP3,
+            3,
+        )
+    };
+    let (knee_proofed, knee_warned) = (knee(false), knee(true));
+    for y in (2..height).step_by(5) {
+        let green = at(&knee_warned, width * 5 / 8, y);
+        assert!(
+            green[0] > 0.9 && green[1] < 0.01 && green[2] < 0.01,
+            "warning with the knee at {y}: {green:?}"
+        );
+        assert_eq!(
+            at(&knee_warned, 17, y),
+            at(&knee_proofed, 17, y),
+            "warning on grey with the knee"
+        );
+    }
 }
 
-/// CAM16 hue angle (degrees) of a linear sRGB colour under the viewing
-/// conditions of the shader's gamut mapping (`linear_srgb_to_cam`).
-fn cam16_hue_degrees(c: [f64; 3]) -> f64 {
+/// CAM16 opponent axes (red–green, yellow–blue) of a linear sRGB colour
+/// under the viewing conditions of the shader's gamut mapping
+/// (`linear_srgb_to_cam`).
+fn cam16_opponent(c: [f64; 3]) -> [f64; 2] {
     const CONE: [[f64; 3]; 3] = [
         [0.084755396, 0.168648653, 0.0197274085],
         [0.0413088283, 0.208882542, 0.0229392433],
@@ -8997,9 +9021,23 @@ fn cam16_hue_degrees(c: [f64; 3]) -> f64 {
         let y = x.abs().powf(0.42);
         x.signum() * y / (y + 27.13)
     });
-    let a = r[0] - 12.0 * r[1] / 11.0 + r[2] / 11.0;
-    let b = (r[0] + r[1] - 2.0 * r[2]) / 9.0;
+    [
+        r[0] - 12.0 * r[1] / 11.0 + r[2] / 11.0,
+        (r[0] + r[1] - 2.0 * r[2]) / 9.0,
+    ]
+}
+
+/// CAM16 hue angle (degrees) of a linear sRGB colour (`cam16_opponent`).
+fn cam16_hue_degrees(c: [f64; 3]) -> f64 {
+    let [a, b] = cam16_opponent(c);
     b.atan2(a).to_degrees()
+}
+
+/// CAM16 chroma of a linear sRGB colour, up to a constant factor
+/// (`cam16_opponent`).
+fn cam16_chroma(c: [f64; 3]) -> f64 {
+    let [a, b] = cam16_opponent(c);
+    a.hypot(b)
 }
 
 #[test]
@@ -9399,24 +9437,28 @@ fn gamut_mapping_keeps_smooth_gradients_smooth() {
 
 /// `renderVersion` 12 eases saturated colours near the output space's edge
 /// towards it (shader `ease_into_gamut`). Ramps from grey out to colours
-/// only ProPhoto holds (a warm orange, a deep red, a magenta, a blue):
+/// only ProPhoto holds (a warm orange, a deep red, a magenta, a blue, a
+/// cyan):
 /// colours well inside the cube (every channel between 0.2 and 0.8
 /// encoded) render as with version 11, every pixel keeps
-/// version 11's CAM16 hue within a degree, chroma never falls along the
-/// ramp, neighbouring pixels stay within one 8-bit code (or the clip's own
-/// step), and fewer pixels reach the top code than with the clip.
+/// version 11's CAM16 hue within a degree, chroma falls along the ramp
+/// only where and as far as the clip's own does (colours beyond the edge
+/// take the clip's lightness and chroma), neighbouring pixels stay within
+/// one 8-bit code (or the clip's own step), and fewer pixels reach the top
+/// code than with the clip.
 #[test]
 #[ignore = "requires a native GPU; soft knee of renderVersion 12 against the clip"]
 fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
     use rawtonic_engine::output_color_space::TransferCurve;
     let context = context();
-    let (width, height) = (1024u32, 4u32);
+    let (width, height) = (1024u32, 5u32);
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
-    let ramps: [[[f32; 3]; 2]; 4] = [
+    let ramps: [[[f32; 3]; 2]; 5] = [
         [[0.5, 0.5, 0.5], [1.5, 0.45, -0.08]],
         [[0.35, 0.35, 0.35], [1.25, -0.05, 0.02]],
         [[0.4, 0.4, 0.4], [1.2, -0.1, 1.1]],
         [[0.3, 0.3, 0.3], [-0.12, 0.1, 1.3]],
+        [[0.3, 0.3, 0.3], [-0.2, 0.55, 0.6]],
     ];
     let data: Vec<f16> = (0..height)
         .flat_map(|y| (0..width).map(move |x| (x, y)))
@@ -9493,6 +9535,7 @@ fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
     };
     let mut changed = 0;
     let mut well_inside = 0;
+    let mut beyond = 0;
     for y in 0..height {
         let at = |x: u32| ((y * width + x) * 4) as usize;
         for x in 0..width {
@@ -9506,7 +9549,7 @@ fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
                 );
             }
         }
-        let mut last = 0.0;
+        let (mut last, mut last_clip, mut peak, mut peak_clip) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
         for x in 1..width {
             let (a, b) = (linear(&clipped, at(x)), linear(&eased, at(x)));
             changed += usize::from(clipped[at(x)..at(x) + 3] != eased[at(x)..at(x) + 3]);
@@ -9514,12 +9557,38 @@ fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
                 let dh = (cam16_hue_degrees(b) - cam16_hue_degrees(a) + 540.0) % 360.0 - 180.0;
                 assert!(dh.abs() < 1.0, "ramp {y} at {x}: hue moved {dh:.2} degrees");
             }
-            let c = chroma(b);
+            // The eased colour follows the clip's (restore_hue's), whose
+            // chroma falls again far beyond the edge: from one pixel to
+            // the next it may fall by the clip's own fall, and over the
+            // ramp it never drops further below its peak than the clip's.
+            let (c, c_clip) = (chroma(b), chroma(a));
             assert!(
-                c >= last - 1e-3,
-                "ramp {y} at {x}: chroma fell from {last} to {c}"
+                c >= last - 2e-3 - (last_clip - c_clip).max(0.0),
+                "ramp {y} at {x}: chroma fell from {last} to {c} (clipped: {last_clip} to {c_clip})"
             );
-            last = c;
+            (last, last_clip) = (c, c_clip);
+            (peak, peak_clip) = (peak.max(c), peak_clip.max(c_clip));
+            // A colour the clip moved (beyond the edge) keeps the clip's
+            // colourfulness but for the knee's share, at most a fortieth.
+            // Eased along its own lightness instead, saturated colours
+            // came out less colourful than the clip's (cyans under
+            // Vibrance +100 against Camera Raw: 0.12 of their chroma
+            // ratio instead of 0.03, task ATF10F).
+            if clipped[at(x)..at(x) + 3]
+                .iter()
+                .any(|&v| v == 0 || v == 65535)
+            {
+                let kept = cam16_chroma(b) / cam16_chroma(a);
+                beyond += 1;
+                assert!(
+                    (0.97..=1.005).contains(&kept),
+                    "ramp {y} at {x}: {kept:.3} of the clip's chroma"
+                );
+            }
+            assert!(
+                peak - c <= peak_clip - c_clip + 2e-3,
+                "ramp {y} at {x}: chroma {c} under its peak {peak} (clipped: {c_clip} under {peak_clip})"
+            );
             for k in 0..3 {
                 let step = (eased[at(x) + k] as i32 - eased[at(x - 1) + k] as i32).abs();
                 let clipped_step =
@@ -9532,6 +9601,10 @@ fn gamut_knee_eases_saturated_colours_and_keeps_their_hue_and_order() {
         }
     }
     assert!(changed > 0, "the knee changed no colour");
+    assert!(
+        beyond > 500,
+        "only {beyond} ramp colours lie beyond the edge"
+    );
     assert!(well_inside > 0, "no ramp colour lies well inside the cube");
     let (before, after) = (top(&clipped), top(&eased));
     assert!(

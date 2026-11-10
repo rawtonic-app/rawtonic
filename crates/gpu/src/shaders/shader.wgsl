@@ -724,13 +724,18 @@ fn restore_hue(source: vec3<f32>, clipped: vec3<f32>, to_space: mat3x3<f32>) -> 
 }
 
 // Where the soft knee of `gamut_mapping` 2 starts: colours from this
-// fraction of the way to the gamut's edge on are eased towards it.
-const GAMUT_KNEE: f32 = 0.9;
+// fraction of the way to the gamut's edge on are eased towards it. Of 0.9,
+// 0.95 and 0.97 on the slider atlas's 48 frames: from 0.9 saturated colours
+// lost enough chroma to show against Camera Raw under lowered Vibrance,
+// from 0.97 Temperature +100 clipped more of the photo than Camera Raw
+// again (task ATF10F).
+const GAMUT_KNEE: f32 = 0.95;
 // CAM16 lightness of linear grey 0.5 (linear_srgb_to_cam(vec3(0.5)).x):
-// colours lighter than it are eased towards that grey.
+// the way to the edge of colours lighter than it is measured from that
+// grey.
 const KNEE_FOCAL_J: f32 = 0.75139565;
-// CAM16 lightness of linear grey 0.05 (about L* 27): colours darker than
-// it are eased towards that grey.
+// CAM16 lightness of linear grey 0.05 (about L* 27): the way to the edge
+// of colours darker than it is measured from that grey.
 const KNEE_DARK_FOCAL_J: f32 = 0.28848386;
 // CAM16 chroma (this file's scale) from which the knee acts fully.
 const KNEE_FULL_CHROMA: f32 = 0.02;
@@ -781,19 +786,44 @@ fn knee_crossing(focal: f32, slope: f32, direction: vec2<f32>, low_start: f32, h
     return low + (high - low) * clamp(-low_excess / max(high_excess - low_excess, 1e-12), 0.0, 1.0);
 }
 
+// The colour restore_hue gives a colour outside `to_space`'s cube, as its
+// CAM16 lightness and chroma at the source's hue `direction` (`clipped`:
+// the colour clipped to the cube, the space's linear RGB): the clipped
+// colour's lightness and chroma, the chroma lowered to the cube where that
+// hue holds less. Its own search, so restore_hue of `gamut_mapping` 1
+// stays as it was.
+fn clipped_lightness_chroma(clipped: vec3<f32>, direction: vec2<f32>, to_space: mat3x3<f32>) -> vec2<f32> {
+    let kept = linear_srgb_to_cam(mat3_inverse(to_space) * clipped);
+    let chroma = length(kept.yz);
+    let full_excess = knee_excess(kept.x, 0.0, direction, chroma, to_space);
+    if (full_excess <= 0.0) {
+        return vec2<f32>(kept.x, chroma);
+    }
+    let grey_excess = knee_excess(kept.x, 0.0, direction, 0.0, to_space);
+    return vec2<f32>(kept.x, knee_crossing(kept.x, 0.0, direction, 0.0, chroma, grey_excess, full_excess, 4, to_space));
+}
+
 // `gamut_mapping` 2 (`renderVersion` 12): saturated colours near or beyond
 // the edge of the space that clips (`to_space`, linear RGB from linear
-// sRGB) are eased towards it at their own CAM16 hue, so they keep their
-// gradation instead of running into a flat clipped patch. Along a ray from
-// a grey through the colour (the grey of its own lightness between linear
-// greys 0.05 and 0.5, else the nearer of those two, so light colours darken
-// and dark ones lighten a little as they lose chroma, as the clip moves
-// them, and the ray always starts inside the space), the part from
-// GAMUT_KNEE of the way to the edge on is
-// squeezed into the rest of the way; colours further inside are
-// unchanged, near-neutral ones (light highlights) eased less. Clipping and
-// restore_hue handle what is left. Linear sRGB in
-// and out. Notes: parity-gaps/G01-base-profiles.md (task ATF10).
+// sRGB) are eased towards it at their own CAM16 hue, so fewer of them end
+// on the faces of its cube. How far out a colour lies (u, 1 at the edge):
+// inside the space, its chroma over the edge's along a ray from a grey
+// through the colour (the grey of its own lightness between linear greys
+// 0.05 and 0.5, else the nearer of those two); outside, its chroma over
+// the chroma the clip leaves it (restore_hue, `gamut_mapping` 1), which
+// is 1 at the edge too and within a few percent of the ray's measure
+// beyond it (48 photos). From GAMUT_KNEE on, u is squeezed into the rest
+// of the way to the edge. A colour inside the space keeps that share of
+// its chroma at its own lightness; a colour outside takes the lightness
+// and chroma the clip gives it, the chroma short of the clip's by what is
+// left of the way: just inside the edge next to it, the clip's
+// colourfulness and brightness far outside. (Eased along the ray at their
+// own lightness instead, colours beyond the edge came out less colourful
+// than the clip's, which is what Camera Raw shows: cyans under Vibrance
+// +100 most.) Colours further inside are unchanged, near-neutral ones
+// (light highlights) eased less. Clipping and restore_hue handle what is
+// left. Linear sRGB in and out. Notes: parity-gaps/G01-base-profiles.md
+// (tasks ATF10, ATF10F).
 fn ease_into_gamut(colour: vec3<f32>, to_space: mat3x3<f32>) -> vec3<f32> {
     let cam = linear_srgb_to_cam(colour);
     let chroma = length(cam.yz);
@@ -801,22 +831,32 @@ fn ease_into_gamut(colour: vec3<f32>, to_space: mat3x3<f32>) -> vec3<f32> {
         return colour;
     }
     let direction = cam.yz / chroma;
-    let focal = clamp(cam.x, KNEE_DARK_FOCAL_J, KNEE_FOCAL_J);
-    let slope = (cam.x - focal) / chroma;
-    let reach = chroma / GAMUT_KNEE;
-    let reach_excess = knee_excess(focal, slope, direction, reach, to_space);
-    // Further than the knee from the edge (most pixels).
-    if (reach_excess <= 0.0) {
-        return colour;
-    }
-    let grey_excess = knee_excess(focal, slope, direction, 0.0, to_space);
-    if (grey_excess > 0.0) {
-        return colour;
-    }
-    let edge = knee_crossing(focal, slope, direction, 0.0, reach, grey_excess, reach_excess, 4, to_space);
-    let u = chroma / max(edge, 1e-9);
-    if (u <= GAMUT_KNEE) {
-        return colour;
+    let in_space = to_space * colour;
+    // The lightness and chroma the eased colour starts from, and u.
+    var base = vec2<f32>(cam.x, chroma);
+    var u = 1.0;
+    if (outside_unit_cube(in_space)) {
+        base = clipped_lightness_chroma(clamp(in_space, vec3<f32>(0.0), vec3<f32>(1.0)), direction, to_space);
+        u = max(chroma / max(base.y, 1e-9), 1.0);
+    } else {
+        let focal = clamp(cam.x, KNEE_DARK_FOCAL_J, KNEE_FOCAL_J);
+        let slope = (cam.x - focal) / chroma;
+        let reach = chroma / GAMUT_KNEE;
+        let reach_excess = knee_excess(focal, slope, direction, reach, to_space);
+        // Further than the knee from the edge (most pixels).
+        if (reach_excess <= 0.0) {
+            return colour;
+        }
+        // The edge lies between the colour itself (inside) and `reach`: a
+        // narrow bracket, so the crossing is found closely also where the
+        // ray leaves the cube near one of its edges (two faces at once;
+        // searched from the grey on, u was off there by enough to show as
+        // a step between neighbouring colours).
+        let edge = knee_crossing(focal, slope, direction, chroma, reach, unit_cube_excess(in_space), reach_excess, 4, to_space);
+        u = min(chroma / max(edge, 1e-9), 1.0);
+        if (u <= GAMUT_KNEE) {
+            return colour;
+        }
     }
     // In units of the edge: u from GAMUT_KNEE on is squeezed into
     // GAMUT_KNEE to 1 by a rational knee of slope 1 at its start that
@@ -827,8 +867,11 @@ fn ease_into_gamut(colour: vec3<f32>, to_space: mat3x3<f32>) -> vec3<f32> {
     // clip, which turns them white; the knee comes in smoothly up to
     // KNEE_FULL_CHROMA.
     let strength = smoothstep(0.0, KNEE_FULL_CHROMA, chroma);
-    let eased = mix(u, squeezed, strength) * edge;
-    return cam_to_linear_srgb(vec3<f32>(focal + slope * eased, direction * eased));
+    // The share of the chroma that is kept: of the colour's own inside the
+    // space, of the clip's outside it (the same at the edge, where the
+    // clip leaves the colour as it is).
+    let kept = mix(1.0, squeezed / min(u, 1.0), strength);
+    return cam_to_linear_srgb(vec3<f32>(base.x, direction * (base.y * kept)));
 }
 
 // The last step: display values → the output space's primaries and curve
@@ -847,10 +890,20 @@ fn encode_output(d: vec3<f32>) -> vec3<f32> {
         }
         if (space != 3u) {
             let colour = decode_signed(d);
-            let eased = ease_into_gamut(colour, to_space);
-            // Colours the knee leaves keep their exact display values.
-            if (any(eased != colour)) {
-                return encode_output_v4(encode_signed(eased));
+            // The gamut warning marks the colours the proofed space does
+            // not hold: judged before they are eased into it, as
+            // encode_output_v4 judges them, which then marks them.
+            var warned = false;
+            if (proof != 0u && adjustments.global.output_space.z != 0u) {
+                let proofed = to_space * colour;
+                warned = any(abs(proofed - clamp(proofed, vec3<f32>(0.0), vec3<f32>(1.0))) > vec3<f32>(1.0 / 255.0));
+            }
+            if (!warned) {
+                let eased = ease_into_gamut(colour, to_space);
+                // Colours the knee leaves keep their exact display values.
+                if (any(eased != colour)) {
+                    return encode_output_v4(encode_signed(eased));
+                }
             }
         }
     }
