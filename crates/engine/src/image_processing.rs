@@ -4516,7 +4516,9 @@ pub struct GlobalAdjustments {
     /// against an edge-aware base (shader `apply_structure_v3`), older ones
     /// against the plain small blur.
     pub structure_version: u32,
-    pub _pad_vibrance: u32,
+    /// The recipe's Dehaze (`dehaze_version`): 2 lowers as a veil (shader
+    /// `apply_dehaze_lower_v2`), 1 with the first response.
+    pub dehaze_version: u32,
 }
 
 // The shader's struct is a multiple of 16 bytes; a different length here
@@ -5508,7 +5510,7 @@ fn get_global_adjustments_resolved(
         scene_black: u32::from(versions.render.scene_black()),
         vibrance_version: versions.vibrance.uniform(),
         structure_version: versions.structure.uniform(),
-        _pad_vibrance: 0,
+        dehaze_version: versions.dehaze.uniform(),
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -6078,6 +6080,7 @@ pub fn new_edit_responses(is_raw: bool) -> serde_json::Map<String, serde_json::V
     map.insert(TINT_VERSION_KEY.into(), json!(TINT_VERSION));
     map.insert(VIBRANCE_VERSION_KEY.into(), json!(VIBRANCE_VERSION));
     map.insert(STRUCTURE_VERSION_KEY.into(), json!(STRUCTURE_VERSION));
+    map.insert(DEHAZE_VERSION_KEY.into(), json!(DEHAZE_VERSION));
     map.insert(
         crate::color_noise::VERSION_KEY.into(),
         json!(crate::color_noise::VERSION),
@@ -7397,6 +7400,22 @@ pub fn structure_amount_v3(value: f64) -> f64 {
         }
 }
 
+/// The recipe key naming the Dehaze response it was made with.
+pub const DEHAZE_VERSION_KEY: &str = "dehazeVersion";
+/// The newest Dehaze: 2 (2026-11-10) lowers as Camera Raw's negative Dehaze
+/// does, a veil: the tones rise towards white with the blacks (version 1
+/// spared them), local contrast keeps falling to −100 (about half; version
+/// 1 lost no more below −50) and chroma fades. On the slider atlas version
+/// 1's −100 lost as much local contrast as Camera Raw's −48 with twice its
+/// lift (task ATF1). Fitted on 24 of the atlas's 48 frames; the other 24
+/// were looked at during model selection (one objective was tightened after
+/// their first check), so they are not an independent validation, and on
+/// them −100 still misses the atlas's amber bound in one tone band (median
+/// 2.5 L*; notes: benchmark-results/atf1-dehaze-negative-2026-11-10,
+/// parity-gaps/G06-presence.md). Raising Dehaze is the same in both.
+/// Recipes without the key keep version 1.
+pub const DEHAZE_VERSION: u64 = 2;
+
 /// The recipe key naming the Clarity response it was made with.
 pub const CLARITY_VERSION_KEY: &str = "clarityVersion";
 /// The newest Clarity: 2 (2026-10-24) measures a pixel's medium-scale band in
@@ -8138,13 +8157,13 @@ mod vibrance_version_tests {
     use serde_json::json;
 
     /// The shader's `GlobalAdjustments` ends with `vibrance_version`,
-    /// `structure_version` and `_pad_vibrance` and is rounded up to 16 bytes
+    /// `structure_version` and `dehaze_version` and is rounded up to 16 bytes
     /// (it holds vec4s); the Rust struct must be exactly as long, or every
     /// field of `AllAdjustments` after it moves.
     #[test]
     fn global_adjustments_match_the_shader_layout() {
         use super::GlobalAdjustments;
-        let shader_end = std::mem::offset_of!(GlobalAdjustments, _pad_vibrance) + 4;
+        let shader_end = std::mem::offset_of!(GlobalAdjustments, dehaze_version) + 4;
         assert_eq!(
             std::mem::offset_of!(GlobalAdjustments, structure_version),
             std::mem::offset_of!(GlobalAdjustments, vibrance_version) + 4
@@ -8375,6 +8394,32 @@ mod clarity_version_tests {
             version(json!({"clarityVersion": 9})),
             CLARITY_VERSION as u32
         );
+    }
+}
+
+#[cfg(test)]
+mod dehaze_version_tests {
+    use super::{DEHAZE_VERSION, get_all_adjustments_from_json, new_edit_responses};
+    use serde_json::json;
+
+    #[test]
+    fn recipes_without_a_dehaze_version_keep_the_first_response() {
+        let version = |recipe| {
+            get_all_adjustments_from_json(&recipe, true, None)
+                .global
+                .dehaze_version
+        };
+        assert_eq!(version(json!({"dehaze": -40})), 1);
+        assert_eq!(version(json!({"dehaze": -40, "dehazeVersion": 1})), 1);
+        assert_eq!(version(json!({"dehaze": -40, "dehazeVersion": 2})), 2);
+        // A newer version than this renderer knows renders with its newest.
+        assert_eq!(version(json!({"dehazeVersion": 9})), DEHAZE_VERSION as u32);
+        for raw in [true, false] {
+            assert_eq!(
+                new_edit_responses(raw)["dehazeVersion"],
+                json!(DEHAZE_VERSION)
+            );
+        }
     }
 }
 

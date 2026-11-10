@@ -286,6 +286,42 @@
   }
  },
  {
+  "name": "dehaze on a layer keeps the destination's, the value as it is",
+  "pasted": {
+   "dehaze": -40,
+   "dehazeVersion": 2
+  },
+  "destination": {
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "dehaze": -20
+     }
+    }
+   ]
+  },
+  "expected": {
+   "dehaze": -40,
+   "dehazeVersion": 1
+  }
+ },
+ {
+  "name": "dehaze carried when nothing on the destination uses it",
+  "pasted": {
+   "dehaze": -40,
+   "dehazeVersion": 2
+  },
+  "destination": {
+   "exposure": 0.5,
+   "dehaze": 0
+  },
+  "expected": {
+   "dehaze": -40,
+   "dehazeVersion": 2
+  }
+ },
+ {
   "name": "vibrance at 0 on the destination does not count",
   "pasted": {
    "vibrance": 25,

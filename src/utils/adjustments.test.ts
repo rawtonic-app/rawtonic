@@ -15,6 +15,9 @@ import {
   CLARITY_VERSION,
   VIBRANCE_VERSION,
   withVibranceVersion,
+  DEHAZE_VERSION,
+  withDehazeVersion,
+  layersUseDehaze,
   layersUseMixer,
   withPresetVersions,
   withHslVersion,
@@ -314,6 +317,26 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(saved, true).autoCaVersion).toBeUndefined();
     expect(autoCaOn(normalizeLoadedAdjustments(saved, true))).toBe(false);
     expect(autoCaOn({ ...saved, autoChromaticAberration: true })).toBe(true);
+  });
+
+  it('keep the Dehaze response a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).dehazeVersion).toBe(DEHAZE_VERSION);
+    expect(initialAdjustmentsFor(false).dehazeVersion).toBe(DEHAZE_VERSION);
+    const used = { dehaze: -40 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(used, true).dehazeVersion).toBe(1);
+    const layered = { masks: [{ adjustments: { dehaze: -30 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layered, true).dehazeVersion).toBe(1);
+    const none = { clarity: 40 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(none, true).dehazeVersion).toBe(DEHAZE_VERSION);
+    const old = { dehaze: 40, dehazeVersion: 1 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(old, true).dehazeVersion).toBe(1);
+    // Copied Dehaze carries its response: the source's, else the first.
+    expect(withDehazeVersion({ dehaze: -20 } as Partial<Adjustments>)).toEqual({ dehaze: -20, dehazeVersion: 1 });
+    expect(withDehazeVersion({ dehaze: -20 }, { dehazeVersion: 2 } as Partial<Adjustments>).dehazeVersion).toBe(2);
+    expect(withDehazeVersion({ exposure: 1 } as Partial<Adjustments>)).toEqual({ exposure: 1 });
+    // A layer with Dehaze ties the photo's response (Presence's reset keeps it).
+    expect(layersUseDehaze({ masks: [{ adjustments: { dehaze: -50 } }] } as unknown as Adjustments)).toBe(true);
+    expect(layersUseDehaze({ masks: [{ adjustments: { clarity: 50 } }] } as unknown as Adjustments)).toBe(false);
   });
 
   it('keep the Vibrance response a saved recipe rendered with', () => {

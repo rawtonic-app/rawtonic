@@ -397,6 +397,7 @@ fn contexts() -> Vec<(&'static str, Value)> {
         ),
         ("/bwVersion", json!({"blackAndWhite": true})),
         ("/structureVersion", json!({"structure": 50})),
+        ("/dehazeVersion", json!({"dehaze": -50})),
         ("/aiDenoiseVersion", json!({"aiDenoise": 50})),
         ("/vignetteStyle", json!({"vignetteAmount": -40})),
         (

@@ -695,6 +695,12 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * beside bright edges); 1 or missing on recipes that used Structure before it = the slider value
    * is the amount. Photo-wide (layers follow it). */
   structureVersion?: number;
+  /** Dehaze response (crates/engine/src/image_processing.rs
+   * `DEHAZE_VERSION`): 2 = lowering lays a veil as Camera Raw's negative
+   * Dehaze does (blacks rise too, local contrast keeps falling to −100);
+   * 1 or missing on recipes that lowered Dehaze before it = the first
+   * response. Raising is the same in both. Photo-wide (layers follow it). */
+  dehazeVersion?: number;
   /** Edge-fringe pass (crates/engine/src/edge_fringe.rs `VERSION`): 1 =
    * colour along strong luminance edges that neither side explains
    * (demosaic false colour, lateral CA rests) is removed after the lens
@@ -1411,6 +1417,8 @@ export const VIBRANCE_VERSION = 2;
 /** The Structure response new edits start with (notes: benchmark-results/atf7-slider-travel-2026-11-08,
  * benchmark-results/atf9-clarity-texture-halo-2026-11-09). */
 export const STRUCTURE_VERSION = 3;
+/** The Dehaze response new edits start with (notes: benchmark-results/atf1-dehaze-negative-2026-11-10). */
+export const DEHAZE_VERSION = 2;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md):
  * 5 = version 4's pass computed on the GPU; 6 = 7 × 7 windows on moderately noisy photos too. */
@@ -1531,6 +1539,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         tintVersion: TINT_VERSION,
         vibranceVersion: VIBRANCE_VERSION,
         structureVersion: STRUCTURE_VERSION,
+        dehazeVersion: DEHAZE_VERSION,
         fringeVersion: FRINGE_VERSION,
         cameraCaVersion: CAMERA_CA_VERSION,
         cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
@@ -1554,6 +1563,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         tintVersion: TINT_VERSION,
         vibranceVersion: VIBRANCE_VERSION,
         structureVersion: STRUCTURE_VERSION,
+        dehazeVersion: DEHAZE_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         bwVersion: BW_VERSION,
         hslVersion: HSL_VERSION,
@@ -1674,6 +1684,7 @@ export const pastedAdjustments = (
       key === 'tintVersion' ||
       key === 'vibranceVersion' ||
       key === 'structureVersion' ||
+      key === 'dehazeVersion' ||
       key === 'bwVersion' ||
       key === 'hslVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
@@ -1877,6 +1888,28 @@ export const withStructureVersion = <T extends Partial<Adjustments>>(
   return { ...picked, structureVersion: source?.structureVersion ?? 1 };
 };
 
+/** As `withClarityVersion` for Dehaze: wherever Dehaze values are copied its
+ * response goes along explicitly — the source's, else 1 (a source or preset
+ * from before the key), never on its own. */
+export const withDehazeVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>
+): T & Pick<Partial<Adjustments>, 'dehazeVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'dehazeVersion') && picked.dehazeVersion == null) {
+    return { ...picked, dehazeVersion: 1 };
+  }
+  const dehaze =
+    picked.dehaze !== undefined ||
+    (source !== undefined &&
+      (picked.masks ?? []).some((mask) => ((mask?.adjustments?.dehaze as number | undefined) ?? 0) !== 0));
+  if (!dehaze || picked.dehazeVersion != null) {
+    return picked;
+  }
+  return { ...picked, dehazeVersion: source?.dehazeVersion ?? 1 };
+};
+
 /** Whether a layer of the recipe uses Vibrance (its response follows the photo's `vibranceVersion`). */
 export const layersUseVibrance = (adjustments: Partial<Adjustments>): boolean =>
   (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.vibrance as number | undefined) ?? 0) !== 0);
@@ -1889,9 +1922,13 @@ export const layersUseMixer = (adjustments: Partial<Adjustments>): boolean =>
 export const layersUseStructure = (adjustments: Partial<Adjustments>): boolean =>
   (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0);
 
-/** The Clarity response and the Structure travel, each going along with its values. */
+/** Whether a layer of the recipe uses Dehaze (its response follows the photo's `dehazeVersion`). */
+export const layersUseDehaze = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.dehaze as number | undefined) ?? 0) !== 0);
+
+/** The Clarity and Dehaze responses and the Structure travel, each going along with its values. */
 export const withDetailVersions = <T extends Partial<Adjustments>>(picked: T, source?: Partial<Adjustments>) =>
-  withStructureVersion(withClarityVersion(picked, source), source);
+  withDehazeVersion(withStructureVersion(withClarityVersion(picked, source), source), source);
 
 /** As `withSharpenVersion` for the black & white mix: wherever mix values
  * are copied (paste, tool copy, Edit all selected, presets) the mix response
@@ -2059,6 +2096,16 @@ const loadedStructureVersion = (loaded: Partial<Adjustments>): number => {
   const uses = (values: { structure?: unknown } | undefined) => ((values?.structure as number | undefined) ?? 0) !== 0;
   const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
   return rendersDifferently ? 1 : STRUCTURE_VERSION;
+};
+
+/** The Dehaze response of a saved recipe, as `loadedClarityVersion`. */
+const loadedDehazeVersion = (loaded: Partial<Adjustments>): number => {
+  if (loaded.dehazeVersion !== undefined && loaded.dehazeVersion !== null) {
+    return loaded.dehazeVersion;
+  }
+  const uses = (values: { dehaze?: unknown } | undefined) => ((values?.dehaze as number | undefined) ?? 0) !== 0;
+  const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
+  return rendersDifferently ? 1 : DEHAZE_VERSION;
 };
 
 /** The colour noise filter of a saved recipe: its own, else the earlier
@@ -2233,6 +2280,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       tintVersion: loadedWhiteBalanceVersion(loadedAdjustments, 'tint'),
       vibranceVersion: loadedVibranceVersion(loadedAdjustments),
       structureVersion: loadedStructureVersion(loadedAdjustments),
+      dehazeVersion: loadedDehazeVersion(loadedAdjustments),
       defringeVersion: loadedDefringeVersion(loadedAdjustments),
       bwVersion: loadedBwVersion(loadedAdjustments),
       hslVersion: loadedHslVersion(loadedAdjustments),
@@ -2387,7 +2435,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         DetailsAdjustment.Dehaze,
         DetailsAdjustment.Centré,
         'clarityVersion',
-        'structureVersion'
+        'structureVersion',
+        'dehazeVersion'
       ]
     },
     {

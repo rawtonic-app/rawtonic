@@ -53,6 +53,7 @@ export function collectPresetAdjustments(
       key === 'tintVersion' ||
       key === 'vibranceVersion' ||
       key === 'structureVersion' ||
+      key === 'dehazeVersion' ||
       key === 'bwVersion' ||
       key === 'hslVersion'
     )

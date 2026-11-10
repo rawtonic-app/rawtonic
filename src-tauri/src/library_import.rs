@@ -1346,6 +1346,10 @@ mod tests {
                 rawtonic_engine::image_processing::STRUCTURE_VERSION,
             ),
             (
+                rawtonic_engine::image_processing::DEHAZE_VERSION_KEY,
+                rawtonic_engine::image_processing::DEHAZE_VERSION,
+            ),
+            (
                 rawtonic_engine::color_noise::VERSION_KEY,
                 rawtonic_engine::color_noise::VERSION,
             ),

@@ -111,6 +111,7 @@ fn versions() -> Value {
         "tintVersion": ip::TINT_VERSION,
         "vibranceVersion": ip::VIBRANCE_VERSION,
         "structureVersion": ip::STRUCTURE_VERSION,
+        "dehazeVersion": ip::DEHAZE_VERSION,
         "hslVersion": ip::HSL_VERSION,
         "renderVersion": ip::RENDER_VERSION,
         "colorNoiseVersion": rawtonic_engine::color_noise::VERSION,
