@@ -749,7 +749,9 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * darker than its adjacent samples of the other colours, so thin dark
    * lines keep their colour; 4 = colours outside the output space keep
    * their own hue when clipped to it; 5 = exports render with the shader
-   * variant specialized for the recipe's features; 1 or missing = before.
+   * variant specialized for the recipe's features; 12 = saturated colours
+   * near the output space's edge are eased towards it before the clip, so
+   * they keep their gradation; 1 or missing = before.
    * Per photo, never copied. */
   renderVersion?: number;
   /** The frame of the RAW the recipe develops (crates/rawdecode/src/source_frame.rs,
@@ -1432,7 +1434,7 @@ export const SHARPEN_VERSION = 8;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 11;
+export const RENDER_VERSION = 12;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
