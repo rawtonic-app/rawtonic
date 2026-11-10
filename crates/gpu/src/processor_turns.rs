@@ -16,8 +16,8 @@
 //! turn, so foreground renders never wait for them, and they pause between
 //! their tiles while foreground renders run (notes: parity-gaps/G44).
 
-use std::ops::{Deref, DerefMut};
 use std::cell::Cell;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
 use std::thread::ThreadId;
@@ -160,10 +160,7 @@ impl<T> ProcessorSlot<T> {
     /// its turn here counts as unresolved until its mark is set, and
     /// background renders take no turn meanwhile (`TURNS.lock`); foreground
     /// renders never wait for it. (Notes: parity-gaps/G66.)
-    fn scoped_with_turns<R>(
-        &self,
-        work: impl FnOnce() -> Result<R, String>,
-    ) -> Result<R, String> {
+    fn scoped_with_turns<R>(&self, work: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
         let addr = std::ptr::from_ref(self) as usize;
         if SHARED_SCOPE.with(Cell::get).is_some() {
             return self.mark_discard(work());
@@ -177,7 +174,11 @@ impl<T> ProcessorSlot<T> {
                     .with(Cell::take)
                     .map_or(0, |(_, registered)| registered);
                 if registered > 0 {
-                    let held = self.0.scoping.lock().unwrap_or_else(PoisonError::into_inner);
+                    let held = self
+                        .0
+                        .scoping
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner);
                     self.0.unresolved.fetch_sub(registered, Ordering::SeqCst);
                     drop(held);
                     self.0.resolved.notify_all();
