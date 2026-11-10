@@ -7,9 +7,9 @@ import {
   withLumaNoiseVersion,
   withPresetVersions,
   withSharpenVersion,
-  withCarriedWhitesFor,
   type Adjustments
 } from '../../utils/adjustments';
+import { expressPastedSettings } from '../../utils/pastedVersions';
 import { DETECTED_TYPES, withPendingDetections } from '../../utils/settingsClipboard';
 import { developmentSignature } from '../../utils/aiDenoise';
 import { COPIED_ALONG, pick } from './StudioToolCopy';
@@ -55,8 +55,12 @@ export function presetPreview(
   // Detection needs the target photo, can be expensive and commits a bitmap.
   // A hover override cannot run that edit safely.
   if (adjustments.masks?.some((layer) => layer.subMasks.some((sub) => DETECTED_TYPES.has(sub.type)))) return null;
-  // Carried Whites in the photo's own response, as applying the preset writes them.
-  const values = withCarriedWhitesFor(presetValues(adjustments), style ? style.base : current);
+  // In the photo's own responses, as applying the preset writes them (pastedVersions.ts).
+  const values = expressPastedSettings(presetValues(adjustments), {
+    recipe: style ? style.base : current,
+    isRaw,
+    replaceLayers: true
+  });
   const previewed = (style ? withStyleValues(style.base, values) : { ...current, ...values }) as Adjustments;
   return developmentSignature(previewed, isRaw) === developmentSignature(current, isRaw) ? previewed : null;
 }

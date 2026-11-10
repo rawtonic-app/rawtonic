@@ -1087,8 +1087,10 @@ describe('styles', () => {
     const v17 = { ...useEditorStore.getState().adjustments, toneVersion: 17, whites: 0 };
     useEditorStore.setState({ adjustments: v17, history: [v17], historyIndex: 0 });
     // A style naming tone version 2, then one carrying Whites 15 (amount) without it.
+    // The edited photo keeps its tone version (it renders with it also
+    // where no slider is moved: pastedVersions.ts).
     applyStyle(result, { toneVersion: 2, contrast: -18 }, 'soft');
-    expect(recipe()).toMatchObject({ toneVersion: 2 });
+    expect(recipe()).toMatchObject({ toneVersion: 17, contrast: -18 });
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     applyStyle(result, { whites: 15, contrast: 25 }, 'hard');
     // Back on version 17 without the first style: the slider value that renders 15.
@@ -1351,5 +1353,40 @@ describe('per-tool before and the whole-photo toggle', () => {
     expect(useEditorStore.getState().previewOverride?.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
     toggleBeforeView();
     expect(useEditorStore.getState()).toMatchObject({ showOriginal: false, previewOverride: null });
+  });
+});
+
+describe('pasted version keys', () => {
+  const recipe = () => useEditorStore.getState().adjustments as unknown as Record<string, unknown>;
+  const withLayer = (structure: number) => ({
+    ...useEditorStore.getState().adjustments,
+    structureVersion: 1,
+    masks: [{ id: 'dodge', name: 'Dodge', visible: true, subMasks: [], adjustments: { structure } }]
+  });
+  const pasteStructure = (result: { current: ReturnType<typeof useEditorActions> }) =>
+    act(() => {
+      void result.current.applyAdjustmentsToPaths({ structure: 50, structureVersion: 3 } as never, ['/first.dng'], {
+        pasteFrom: '/other.dng'
+      });
+    });
+
+  it("keeps the open photo's Structure travel while a layer uses it, the pasted value as its amount", async () => {
+    const { result } = renderHook(useEditorActions);
+    const own = withLayer(40);
+    useEditorStore.setState({ adjustments: own as never, history: [own as never], historyIndex: 0 });
+    pasteStructure(result);
+    // Version 2's amount at 50, which version 1 renders as its value.
+    expect(recipe()).toMatchObject({ structureVersion: 1, structure: 0.45 * 50 - 0.00155 * 2500 });
+    expect((recipe().masks as { adjustments: unknown }[])[0].adjustments).toEqual({ structure: 40 });
+    await act(async () => {});
+  });
+
+  it('takes the source travel when nothing on the photo uses it', async () => {
+    const { result } = renderHook(useEditorActions);
+    const own = withLayer(0);
+    useEditorStore.setState({ adjustments: own as never, history: [own as never], historyIndex: 0 });
+    pasteStructure(result);
+    expect(recipe()).toMatchObject({ structureVersion: 3, structure: 50 });
+    await act(async () => {});
   });
 });

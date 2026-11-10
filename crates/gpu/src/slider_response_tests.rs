@@ -432,9 +432,21 @@ impl Charts {
 fn render(
     context: &GpuContext,
     slot: &GpuProcessorSlot,
+    chart: &(DynamicImage, u64, Option<[f32; 3]>),
+    recipe: &Value,
+    camera_raw: bool,
+) -> Lab {
+    render_with_masks(context, slot, chart, recipe, camera_raw, &[])
+}
+
+/// [`render`] with the recipe's layers drawn by `masks` (one per layer).
+fn render_with_masks(
+    context: &GpuContext,
+    slot: &GpuProcessorSlot,
     (image, hash, key): &(DynamicImage, u64, Option<[f32; 3]>),
     recipe: &Value,
     camera_raw: bool,
+    masks: &[Arc<MaskBitmap>],
 ) -> Lab {
     let mut adjustments = get_all_adjustments_from_json(recipe, true, None);
     if camera_raw {
@@ -456,7 +468,7 @@ fn render(
         },
         RenderRequest {
             adjustments,
-            mask_bitmaps: &[],
+            mask_bitmaps: masks,
             lut: None,
             roi: None,
         },
@@ -713,6 +725,9 @@ fn adapter_name() -> String {
         })
         .unwrap_or_default()
 }
+
+#[path = "pasted_versions_tests.rs"]
+mod pasted_versions;
 
 #[test]
 #[ignore = "requires a native GPU; every global slider's response on generated charts against tests/data/slider_response.json"]

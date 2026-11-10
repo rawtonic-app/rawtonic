@@ -16,9 +16,10 @@ import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../../utils/b
 import {
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
-  withCarriedWhitesFor,
-  withPresetVersions
+  withPresetVersions,
+  type Adjustments
 } from '../../utils/adjustments';
+import { expressPastedSettings } from '../../utils/pastedVersions';
 import { appliedStyleOf, revertStyle, withStyleAmount } from '../../utils/appliedStyle';
 import { presetPreview, presetValues, toolPresetToSave } from './toolPresets';
 import { noteTool } from '../contribute/usageStats';
@@ -315,10 +316,14 @@ export default function StudioPresets() {
     const current = currentAdjustments();
     const style = appliedStyleOf(current);
     if (!style || !stylePreset || stylePreset.id !== style.id) return;
-    // Carried Whites in this photo's response, as applying the style wrote them.
-    const values = withCarriedWhitesFor(presetValues(stylePreset.adjustments), current);
     // Blended from the editor's values where the photo had none before.
     const { recipe: without, removed } = revertStyle(current);
+    // In this photo's responses, as applying the style wrote them (pastedVersions.ts).
+    const values = expressPastedSettings(presetValues(stylePreset.adjustments), {
+      recipe: without,
+      isRaw: Boolean(selectedImage?.isRaw),
+      replaceLayers: true
+    });
     const base = removed ? normalizeLoadedAdjustments(without, Boolean(selectedImage?.isRaw)) : without;
     // A slider inside a group the photo has only partly (an HSL colour, a
     // grading range) blends from its default.
@@ -328,7 +333,11 @@ export default function StudioPresets() {
   const changeAmount = (value: number) => {
     if (!amount || amount.path !== selectedImage?.path) return;
     setAmount({ ...amount, value });
-    const values = withCarriedWhitesFor(presetValues(amount.preset.adjustments), amount.base);
+    const values = expressPastedSettings(presetValues(amount.preset.adjustments), {
+      recipe: amount.base as Partial<Adjustments>,
+      isRaw: Boolean(selectedImage?.isRaw),
+      replaceLayers: true
+    });
     // Above half strength the preset's mask is already on this photo.
     // Keep its pending/completed detection across Amount moves; returning
     // from the base masks below half strength starts a fresh detection.
