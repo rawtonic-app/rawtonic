@@ -18,7 +18,7 @@ use crate::scopes::ClippedSides;
 use rawtonic_engine::color_noise::{self, ChromaPyramid};
 use rawtonic_engine::output_color_space::OutputColorSpace;
 use rawtonic_engine::recipe_versions::{
-    ClarityVersion, GrainVersion, ToneVersion, VibranceVersion,
+    ClarityVersion, GrainVersion, StructureVersion, ToneVersion, VibranceVersion,
 };
 use rayon::prelude::*;
 
@@ -3573,7 +3573,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 524288;
+const PREVIEW_PIPELINE_COUNT: usize = 1048576;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3589,7 +3589,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// response 8 4096, lowered Whites of tone version 12 8192, raised Shadows
 /// of tone version 13 16384, lowered Highlights of tone version 14 32768,
 /// Vibrance of vibrance version 2 65536, lowered Blacks of tone version 16
-/// 262144, colour mixer response 2 131072.
+/// 262144, colour mixer response 2 131072,
+/// Clarity or Structure version 3 524288.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3652,6 +3653,10 @@ const BLACKS_V16_FEATURE: usize = 262144;
 /// older recipes' exports by one 16-bit step in a few pixels (12 of 326
 /// preservation exports on the laptop).
 const HSL_V2_FEATURE: usize = 131072;
+/// Clarity version 3 or Structure version 3 (`PRESENCE_V3`, shader
+/// `apply_band_contrast_log_v3` / `apply_structure_v3`), compiled only for
+/// recipes that use one for the same reason.
+const PRESENCE_V3_FEATURE: usize = 524288;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
 /// low bits (detail, noise reduction, tone, relight) share a page.
@@ -4981,6 +4986,22 @@ fn blacks_v16(adjustments: &AllAdjustments) -> bool {
                 .any(|m| m.blacks < 0.0))
 }
 
+/// Whether the recipe uses Clarity version 3 or Structure version 3, on the
+/// photo or a layer (`PRESENCE_V3`).
+fn presence_v3(adjustments: &AllAdjustments) -> bool {
+    let g = &adjustments.global;
+    let masks = || {
+        adjustments
+            .mask_adjustments
+            .iter()
+            .take(adjustments.mask_count as usize)
+    };
+    (ClarityVersion::from_uniform(g.clarity_version).get() >= 3
+        && (g.clarity != 0.0 || masks().any(|m| m.clarity != 0.0)))
+        || (StructureVersion::from_uniform(g.structure_version).edge_aware()
+            && (g.structure != 0.0 || masks().any(|m| m.structure != 0.0)))
+}
+
 /// The tone code a feature pipeline compiles, one bit each: lowered Whites
 /// of version 12 (1), raised Shadows of version 13 (2), lowered Highlights
 /// of version 14 (4), lowered Blacks of version 16 (8).
@@ -5011,26 +5032,67 @@ fn clarity_reach(adjustments: &AllAdjustments, scale: f32) -> u32 {
             .iter()
             .take(adjustments.mask_count as usize)
             .any(|m| m.clarity != 0.0);
-    if !ClarityVersion::from_uniform(g.clarity_version).edge_aware() || !used {
+    let version = ClarityVersion::from_uniform(g.clarity_version);
+    if !version.edge_aware() || !used {
         return 0;
     }
-    2 * (10.0 * scale).clamp(1.0, 60.0).round() as u32
+    // Version 3's rings are twice as far out (shader `clarity3_base`).
+    let side = if version.get() >= 3 { 20.0 } else { 10.0 };
+    2 * (side * scale).clamp(1.0, 60.0).round() as u32
+}
+
+/// How far beyond a pixel the small blur is read: Clarity version 3's
+/// small-blur ring (shader `clarity3_base`: 16 × short side / 1080 pixels,
+/// at most 60) and Structure version 3's ring (`structure3_base`: 6 × short
+/// side / 1080, at most 60), 0 when neither is used.
+fn small_blur_reach(adjustments: &AllAdjustments, scale: f32) -> u32 {
+    let g = &adjustments.global;
+    let masks = || {
+        adjustments
+            .mask_adjustments
+            .iter()
+            .take(adjustments.mask_count as usize)
+    };
+    let clarity = ClarityVersion::from_uniform(g.clarity_version).get() >= 3
+        && (g.clarity != 0.0 || masks().any(|m| m.clarity != 0.0));
+    let structure = StructureVersion::from_uniform(g.structure_version).edge_aware()
+        && (g.structure != 0.0 || masks().any(|m| m.structure != 0.0));
+    let clarity_reach = if clarity {
+        (16.0 * scale).clamp(1.0, 60.0).round() as u32
+    } else {
+        0
+    };
+    let structure_reach = if structure {
+        (6.0 * scale).clamp(1.0, 60.0).round() as u32
+    } else {
+        0
+    };
+    clarity_reach.max(structure_reach)
 }
 
 /// Rows the vertical pass of blur `index` (radius `radius`) blurs beyond a
 /// tile's input region, so its values are exact where they are read: with
 /// the whole blur radius (`renderVersion` 2 on) every blur up to the tile
 /// edge; the blurs Clarity version 2 reads (`reach` > 0: the small one at the
-/// pixel, the large one up to `reach` beyond it) on every render version.
-fn blur_rows_beyond(index: usize, radius: u32, whole_blur_radius: bool, reach: u32) -> u32 {
+/// pixel, the large one up to `reach` beyond it) on every render version,
+/// and the small one up to `small_reach` beyond it (Clarity and Structure
+/// version 3).
+fn blur_rows_beyond(
+    index: usize,
+    radius: u32,
+    whole_blur_radius: bool,
+    reach: u32,
+    small_reach: u32,
+) -> u32 {
     let clarity_v2_reads = reach > 0 && (index == 2 || index == 3);
-    if !whole_blur_radius && !clarity_v2_reads {
+    let small_reads = small_reach > 0 && index == 2;
+    if !whole_blur_radius && !clarity_v2_reads && !small_reads {
         return 0;
     }
-    let beyond_tile = if clarity_v2_reads && index == 3 {
-        reach
-    } else {
-        0
+    let beyond_tile = match index {
+        3 if clarity_v2_reads => reach,
+        2 => small_reach,
+        _ => 0,
     };
     (radius + beyond_tile).saturating_sub(TILE_OVERLAP)
 }
@@ -5157,6 +5219,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let vibrance_v2 = vibrance_v2(adjustments);
     let blacks_v16 = blacks_v16(adjustments);
     let hsl_v2 = hsl_v2(adjustments);
+    let presence_v3 = presence_v3(adjustments);
     for m in adjustments
         .mask_adjustments
         .iter()
@@ -5192,6 +5255,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if vibrance_v2 { VIBRANCE_V2_FEATURE } else { 0 }
         | if blacks_v16 { BLACKS_V16_FEATURE } else { 0 }
         | if hsl_v2 { HSL_V2_FEATURE } else { 0 }
+        | if presence_v3 { PRESENCE_V3_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -5269,7 +5333,8 @@ fn sharpen_level(adjustments: &AllAdjustments) -> usize {
 /// Relight's range-2 lights, response 7's Masking or response 8, or lowered
 /// Whites of tone version 12, raised Shadows of tone version 13, lowered
 /// Highlights of tone version 14, Vibrance of vibrance version 2 or lowered
-/// Blacks of tone version 16, or colour mixer response 2
+/// Blacks of tone version 16, colour mixer response 2 or Clarity or Structure
+/// version 3
 /// (`GpuProcessor::range2_pipelines`).
 fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
     relight_range2(adjustments)
@@ -5277,6 +5342,7 @@ fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
         || tone_level(adjustments) > 0
         || vibrance_v2(adjustments)
         || hsl_v2(adjustments)
+        || presence_v3(adjustments)
 }
 
 /// The noise refinements with which the shader takes its default noise
@@ -5298,13 +5364,14 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
 type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
     16]; 2]; MAIN_OUTPUTS];
 
-/// `GpuProcessor::range2_pipelines` for colour mixer response 2 (`HSL_V2`),
-/// one flat table on the heap: a further dimension of the inline table made
+/// `GpuProcessor::range2_pipelines` for colour mixer response 2 (`HSL_V2`)
+/// and Clarity or Structure version 3 (`PRESENCE_V3`), one flat table on the
+/// heap: a further dimension of the inline table made
 /// `GpuProcessor` too large for a test thread's stack.
 type MixerFeaturePipelines = Box<[std::sync::OnceLock<Option<wgpu::ComputePipeline>>]>;
 
 /// The slots of `MixerFeaturePipelines`, one per index of `Range2Pipelines`.
-const MIXER_FEATURE_SLOTS: usize = MAIN_OUTPUTS * 2 * 16 * 3 * 4 * 2 * 2 * 2;
+const MIXER_FEATURE_SLOTS: usize = MAIN_OUTPUTS * 2 * 16 * 3 * 4 * 2 * 2 * 2 * 2 * 2;
 
 /// The slot in `MixerFeaturePipelines` of a `Range2Pipelines` index.
 #[allow(clippy::too_many_arguments)]
@@ -5317,13 +5384,19 @@ fn mixer_feature_slot(
     long: bool,
     profile: bool,
     edge: bool,
+    hsl: bool,
+    presence: bool,
 ) -> usize {
-    ((((((output * 2 + usize::from(vibrance)) * 16 + tone) * 3 + sharpen) * 4 + level) * 2
+    ((((((((output * 2 + usize::from(vibrance)) * 16 + tone) * 3 + sharpen) * 4 + level) * 2
         + usize::from(long))
         * 2
         + usize::from(profile))
         * 2
-        + usize::from(edge)
+        + usize::from(edge))
+        * 2
+        + usize::from(hsl))
+        * 2
+        + usize::from(presence)
 }
 
 /// Per mask layer: the curve data its table was built from, and whether the
@@ -5732,6 +5805,7 @@ fn variant_constants(
         ("VIBRANCE_V2", ((features >> 16) & 1) as f64),
         ("BLACKS_V16", ((features >> 18) & 1) as f64),
         ("HSL_V2", ((features >> 17) & 1) as f64),
+        ("PRESENCE_V3", ((features >> 19) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -5853,6 +5927,7 @@ struct LayerSumsCache {
 /// Renders run in tiles of this size (photo pixels, aligned to the photo's
 /// origin); each tile's blurs cover the tile and `TILE_OVERLAP` around it.
 const TILE_SIZE: u32 = 2048;
+
 const TILE_OVERLAP: u32 = 128;
 
 impl GpuProcessor {
@@ -7857,7 +7932,9 @@ impl GpuProcessor {
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
         if needs_feature_pipeline(adjustments) {
             let long = adjustments.global.region_curve_active[1] != 0;
-            let slot = if hsl_v2(adjustments) {
+            let hsl = hsl_v2(adjustments);
+            let presence = presence_v3(adjustments);
+            let slot = if hsl || presence {
                 &self.mixer_feature_pipelines[mixer_feature_slot(
                     0,
                     vibrance_v2(adjustments),
@@ -7867,6 +7944,8 @@ impl GpuProcessor {
                     long,
                     profile,
                     edge,
+                    hsl,
+                    presence,
                 )]
             } else {
                 &self.range2_pipelines[0][usize::from(vibrance_v2(adjustments))]
@@ -8309,8 +8388,9 @@ impl GpuProcessor {
         let tone = tone_level(adjustments);
         let vibrance = vibrance_v2(adjustments);
         let hsl = hsl_v2(adjustments);
+        let presence = presence_v3(adjustments);
         let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-        let slot = if hsl {
+        let slot = if hsl || presence {
             &self.mixer_feature_pipelines[mixer_feature_slot(
                 output.index(),
                 vibrance,
@@ -8320,6 +8400,8 @@ impl GpuProcessor {
                 long,
                 profile,
                 edge,
+                hsl,
+                presence,
             )]
         } else {
             &self.range2_pipelines[output.index()][usize::from(vibrance)][tone][sharpen][level]
@@ -8345,6 +8427,7 @@ impl GpuProcessor {
                         ("VIBRANCE_V2", on(vibrance)),
                         ("BLACKS_V16", on(tone & 8 != 0)),
                         ("HSL_V2", on(hsl)),
+                        ("PRESENCE_V3", on(presence)),
                     ],
                 )
                 .inspect_err(|error| log::error!("Feature pipeline unavailable: {error}"))
@@ -9115,6 +9198,7 @@ impl GpuProcessor {
         // beyond the tile; its rows there are exact on
         // every render version (older ones read no blur beyond the tile).
         let reach = clarity_reach(adjustments, scale);
+        let small_reach = small_blur_reach(adjustments, scale);
         let log_alpha = reach > 0 || shadows_v6_used(adjustments) || whites_v10_used(adjustments);
         // Tone version 6 stores the small blur's mean log luminance against
         // the log luminance of its colour (blur.wgsl, flag bit 2): in deep
@@ -9122,7 +9206,9 @@ impl GpuProcessor {
         // raised Shadows' level turned into steps on smooth gradients.
         let relative_log =
             log_alpha && ToneVersion::from_uniform(adjustments.global.tone_version).shadow_detail();
-        let largest_beyond = ((40.0 * scale).ceil() as u32 + reach).saturating_sub(TILE_OVERLAP);
+        let largest_beyond = ((40.0 * scale).ceil() as u32 + reach)
+            .max((8.0 * scale).ceil() as u32 + small_reach)
+            .saturating_sub(TILE_OVERLAP);
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {
                 let x_start_unclamped = tile_x * TILE_SIZE;
@@ -9190,7 +9276,7 @@ impl GpuProcessor {
                     input_width,
                     input_height,
                     u32::from(whole_blur_radius),
-                    reach,
+                    reach | (small_reach << 16),
                     u32::from(log_alpha) | (u32::from(relative_log) << 1),
                 ];
                 let mut cache = blur_cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -9239,7 +9325,8 @@ impl GpuProcessor {
                     let radius = (base_radius * scale).ceil().max(1.0) as u32;
                     // The vertical pass reads the rows the horizontal one
                     // blurred: beyond the overlap where the radius is larger.
-                    let beyond = blur_rows_beyond(index, radius, whole_blur_radius, reach);
+                    let beyond =
+                        blur_rows_beyond(index, radius, whole_blur_radius, reach, small_reach);
                     let rows_above = beyond.min(input_y_start);
                     let blurred_rows = input_height + rows_above + beyond.min(height - input_y_end);
                     let ping_pong_view = if blurred_rows > self.tile_output_size.height {
