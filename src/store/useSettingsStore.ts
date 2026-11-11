@@ -4,6 +4,7 @@ import { platform } from '@tauri-apps/plugin-os';
 import { AppSettings, SupportedTypes, Invokes } from '../components/ui/AppProperties';
 import { libraryChanges } from './libraryFiles';
 import { applyInterfaceShade } from '../utils/themes';
+import { drainBeforeRelaunch } from '../utils/quit';
 
 interface SettingsState {
   appSettings: AppSettings | null;
@@ -88,7 +89,10 @@ export async function relaunchAfterSettingsSaves(relaunch: () => Promise<void>):
   // restart. The two write their own files.
   const settings = await flushSettingsSaves();
   const library = await libraryChanges.flush(RELAUNCH_FLUSH_TIMEOUT_MS);
-  const failures = [...settings, ...library];
+  // Photo edits and metadata writes too, as a quit would: a restart that
+  // would lose one keeps the app open with what is not saved.
+  const photos = await drainBeforeRelaunch();
+  const failures = [...settings, ...library, ...photos];
   if (failures.length === 0) await relaunch();
   return failures;
 }

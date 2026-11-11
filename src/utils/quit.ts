@@ -254,6 +254,25 @@ async function drainBeforeQuit(requestId: number): Promise<string[] | null> {
   }
 }
 
+/** The photo-side drain of a quit for an app restart (`relaunch()` ends the
+ * process without the native quit handshake): runs every flush, waits for
+ * the writes in flight and steps, and resolves with what is not saved yet
+ * (failed writes, running batch operations); empty when a restart loses
+ * nothing. */
+export async function drainBeforeRelaunch(): Promise<string[]> {
+  const kept = new QuitDrain();
+  kept.recordRunningBatches();
+  const stopWrites = onPhotoWritesSettled((settled) => kept.record(settled.id, settled.kind, settled.failed));
+  try {
+    kept.recordOther(await flushBeforeQuit());
+    await photoWritesAndStepsSettled();
+    kept.recordOther([...checks].flatMap((check) => check()));
+    return kept.items();
+  } finally {
+    stopWrites();
+  }
+}
+
 /** Forgets what a library's pending saves held once a switch to another
  * library begins (its saves are written or discarded by then); returns the
  * end of the switch. */

@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useUIStore } from '../store/useUIStore';
 import { invoke } from '@tauri-apps/api/core';
 import {
+  drainBeforeRelaunch,
   cancelQuitRequest,
   confirmQuitWithUnsaved,
   flushBeforeQuit,
@@ -276,4 +277,14 @@ it('cancels a dismissed confirmation, but closing after confirmation does not ca
   next.onCancel?.();
   expect(quit).toHaveBeenCalledOnce();
   expect(cancel).toHaveBeenCalledOnce();
+});
+
+it('a restart keeps the app open while a photo save failed (Reset graphics and retry)', async () => {
+  register(() => Promise.resolve(['Edits: a.raw']));
+  expect(await drainBeforeRelaunch()).toEqual(['Edits: a.raw']);
+});
+
+it('a restart with everything saved goes ahead', async () => {
+  register(() => Promise.resolve([]));
+  expect(await drainBeforeRelaunch()).toEqual([]);
 });

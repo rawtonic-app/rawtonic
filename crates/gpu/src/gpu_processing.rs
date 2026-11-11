@@ -5583,24 +5583,35 @@ fn compiles_ahead() -> bool {
 /// library: the RAW default variant took 9.1 s beside them, 6.0 s alone (G56).
 #[derive(Default)]
 struct StartGate {
-    open: Mutex<bool>,
+    /// (open, cancelled)
+    open: Mutex<(bool, bool)>,
     opened: std::sync::Condvar,
 }
 
 impl StartGate {
     fn open(&self) {
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
-        if !*open {
-            *open = true;
+        if !open.0 {
+            open.0 = true;
             self.opened.notify_all();
         }
     }
 
-    fn wait(&self) {
+    /// Ends a wait without opening: its compile is never needed (the
+    /// owner of a pipeline with its own gate was dropped).
+    fn cancel(&self) {
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
-        while !*open {
+        open.1 = true;
+        self.opened.notify_all();
+    }
+
+    /// Whether the gate opened (false: cancelled first).
+    fn wait(&self) -> bool {
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        while !open.0 && !open.1 {
             open = self.opened.wait(open).unwrap_or_else(|e| e.into_inner());
         }
+        open.0
     }
 }
 
@@ -5622,7 +5633,9 @@ impl BackgroundPipeline {
         let device = device.clone();
         let start = Arc::clone(gate);
         rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
-            start.wait();
+            if !start.wait() {
+                return;
+            }
             let created = create(&device);
             if let Err(error) = &created {
                 log::error!("{error}");
@@ -5647,6 +5660,16 @@ impl BackgroundPipeline {
     }
 }
 
+/// A processor dropped before its gate opened (an export processor released
+/// under memory pressure, or one under a compile limit whose general
+/// pipelines were never needed) ends the compile threads still waiting,
+/// instead of leaving them holding the device.
+impl Drop for BackgroundPipeline {
+    fn drop(&mut self) {
+        self.gate.cancel();
+    }
+}
+
 /// Compiles display variant `features` on its own thread, once `gate`
 /// opens if one is given. The RAW default variant opens `start_gate` when it
 /// settles and logs its start and end (the first frame of a cold start
@@ -5665,8 +5688,10 @@ fn spawn_preview_compile(
     let first = features == RAW_DEFAULT_PREVIEW_FEATURES;
     let opens = first.then(|| Arc::clone(start_gate));
     rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
-        if let Some(gate) = gate {
-            gate.wait();
+        if let Some(gate) = gate
+            && !gate.wait()
+        {
+            return;
         }
         let started = std::time::Instant::now();
         if first {
