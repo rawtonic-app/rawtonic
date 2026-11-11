@@ -16,6 +16,8 @@ export function restoreSnapshot(snapshot: Snapshot): boolean {
   // An edit still settling is its own step, before the restore.
   debouncedSetHistory.flush();
   updateAdjustments(() => restored);
+  // Restoring starts a new edit; Before/After returns to the unedited photo.
+  useEditorStore.setState({ beforeSnapshot: null });
   debouncedSetHistory.flush();
   const { history, historyIndex } = useEditorStore.getState();
   const step = history[historyIndex];

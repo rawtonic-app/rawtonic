@@ -124,6 +124,19 @@ it('restores a snapshot as one named, undoable history step', async () => {
   expect(useEditorStore.getState().adjustments.exposure).toBe(0);
 });
 
+it('clears the pressed Compare state when restoring a compared snapshot', async () => {
+  kept[PHOTO] = [{ id: 'a', name: 'Bright', createdAt: '2026-10-20T10:00:00.000Z', adjustments: recipe(2) }];
+  render(<StudioSnapshots />);
+  await screen.findByText('Bright');
+  const compare = screen.getByRole('button', { name: "Compare Bright with the current edit (Before/After's before)" });
+  fireEvent.click(compare);
+  expect(compare.getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(screen.getByTitle('Restore Bright (a history step: Undo returns)'));
+  expect(useEditorStore.getState().adjustments.exposure).toBe(2);
+  expect(compare.getAttribute('aria-pressed')).toBe('false');
+  expect(useEditorStore.getState().beforeSnapshot).toBeNull();
+});
+
 it('takes a snapshot of any history step, named after it, and deletes one', async () => {
   useEditorStore.getState().pushHistory(recipe(0.5));
   useEditorStore.getState().pushHistory(recipe(1.5));
