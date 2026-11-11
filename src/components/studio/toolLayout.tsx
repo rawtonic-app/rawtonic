@@ -25,7 +25,7 @@ import { createDragGhost } from './dragGhost';
  * open state and order are remembered per column. */
 const ToolColumnContext = createContext<{
   scope: string;
-  menu?(e: React.MouseEvent): void;
+  menu?(e: React.MouseEvent, resetThis?: () => void): void;
   /** One tool open at a time in this column. */
   solo?: boolean;
   /** Opens `title` and closes the column's other tools. */
@@ -199,13 +199,19 @@ export function ToolColumn({ scope, className, children }: { scope: string; clas
     const slot = el?.closest<HTMLElement>('[data-tool-slot]');
     return slot && slot.parentElement === ref.current ? slot : null;
   };
-  const menu = (e: React.MouseEvent) => {
+  const menu = (e: React.MouseEvent, resetThis?: () => void) => {
     const id = slotOf(e.currentTarget as Element)?.dataset.toolSlot;
     if (!id) return;
     e.preventDefault();
     const at = order.indexOf(id);
     const title = (e.currentTarget as Element).closest<HTMLElement>('[data-tool-title]')?.dataset.toolTitle;
     showContextMenu(e.clientX, e.clientY, [
+      ...(resetThis
+        ? [
+            { label: t('studio.develop.toolGroup.resetGroup'), icon: RotateCcw, onClick: resetThis },
+            { type: OPTION_SEPARATOR }
+          ]
+        : []),
       {
         label: t('studio.develop.layout.moveUp'),
         icon: ArrowUp,
@@ -316,7 +322,7 @@ export function ToolColumn({ scope, className, children }: { scope: string; clas
   const context = useMemo(
     () => ({
       scope,
-      menu: (e: React.MouseEvent) => menuRef.current(e),
+      menu: (e: React.MouseEvent, resetThis?: () => void) => menuRef.current(e, resetThis),
       solo,
       openOnly: (title: string) => openOnlyRef.current(title)
     }),

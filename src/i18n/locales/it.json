@@ -3284,6 +3284,7 @@
         "other": "Regolazione",
         "redEyes": "Occhi rossi",
         "remove": "Rimuovi",
+        "resetGroup": "Reimposta {{tool}}",
         "spots": "Rimozione macchie",
         "title": "Cronologia"
       },
@@ -3493,6 +3494,8 @@
       "toolGroup": {
         "isOn": "{{tool}} attivo",
         "reset": "Ripristina {{tool}}",
+        "resetGroup": "Reimposta gruppo",
+        "resetHint": "Alt/Opzione-clic sul nome reimposta {{tool}}",
         "resetOrHold": "Reimposta {{tool}} (tieni premuto, o premi con Alt/Opzione: mostra la foto senza lo strumento)",
         "turnOff": "Disattiva {{tool}}",
         "turnOn": "Attiva {{tool}}"

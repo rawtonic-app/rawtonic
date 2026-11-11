@@ -3041,6 +3041,7 @@
         "other": "调整",
         "redEyes": "红眼",
         "remove": "移除",
+        "resetGroup": "重置{{tool}}",
         "spots": "污点去除",
         "title": "历史记录"
       },
@@ -3250,6 +3251,8 @@
       "toolGroup": {
         "isOn": "{{tool}} 开启",
         "reset": "重置{{tool}}",
+        "resetGroup": "重置组",
+        "resetHint": "按住 Alt/Option 点击名称可重置{{tool}}",
         "resetOrHold": "重置{{tool}}（按住，或按住 Alt/Option 键按下：显示不含此工具的照片）",
         "turnOff": "关闭{{tool}}",
         "turnOn": "开启{{tool}}"

@@ -13,6 +13,7 @@ import {
   COLOR_NOISE_VERSION,
   GRAIN_VERSION,
   INITIAL_ADJUSTMENTS,
+  initialAdjustmentsFor,
   normalizeLoadedAdjustments
 } from '../../utils/adjustments';
 import { Panel, type AppSettings, type SelectedImage } from '../ui/AppProperties';
@@ -1781,5 +1782,143 @@ describe('Subject starts when the masking tools are reached for', () => {
     const tab = within(screen.getByRole('navigation')).getByRole('button', { name: 'Layers & masks' });
     fireEvent.pointerDown(tab);
     expect(await subjectAsked()).toBe(1);
+  });
+});
+
+describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
+  const setEdit = (patch: Record<string, unknown>) =>
+    act(() => {
+      useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, ...patch } }));
+      debouncedSetHistory.cancel();
+      useEditorStore.getState().resetHistory(useEditorStore.getState().adjustments);
+    });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const adjustments = () => useEditorStore.getState().adjustments as Record<string, any>;
+  const step = () => {
+    const { history, historyIndex } = useEditorStore.getState();
+    return history[historyIndex];
+  };
+  const inColor = () => {
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Color' }));
+    openGroups();
+  };
+
+  it('Alt-click on Presence resets its sliders only, as one undo step named "Reset Presence"', async () => {
+    const { historyStepName } = await import('./historyLabels');
+    const { default: i18n } = await import('i18next');
+    setEdit({ clarity: 30, dehaze: -20, vibrance: 40, saturation: -10, exposure: 0.7, contrast: 25 });
+    mount();
+    openGroups();
+    const stepsBefore = useEditorStore.getState().history.length;
+    fireEvent.click(screen.getByText('Presence', { selector: '.studio-tool-name' }), { altKey: true });
+    const now = adjustments();
+    expect([now.clarity, now.dehaze, now.vibrance, now.saturation]).toEqual([0, 0, 0, 0]);
+    // No other group is touched.
+    expect([now.exposure, now.contrast]).toEqual([0.7, 25]);
+    expect(useEditorStore.getState().history.length).toBe(stepsBefore + 1);
+    expect(historyStepName(step(), i18n.t.bind(i18n))).toBe('Reset Presence');
+    act(() => useEditorStore.getState().undo());
+    expect([adjustments().clarity, adjustments().vibrance, adjustments().exposure]).toEqual([30, 40, 0.7]);
+  });
+
+  it('a plain click or Alt-click outside the name does not reset', () => {
+    setEdit({ clarity: 30 });
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByText('Presence', { selector: '.studio-tool-name' }));
+    fireEvent.click(screen.getByText('Presence', { selector: '.studio-tool-name' }).closest('summary')!, {
+      altKey: true
+    });
+    expect(adjustments().clarity).toBe(30);
+  });
+
+  it('offers "Reset group" in the group context menu and shows the modifier hint in the title tooltip', () => {
+    setEdit({ shadows: 40, whites: -15, clarity: 30 });
+    render(
+      <ContextMenuProvider>
+        <StudioDevelop />
+      </ContextMenuProvider>
+    );
+    openGroups();
+    const name = screen.getByText('Exposure', { selector: '.studio-tool-name' });
+    expect(name.getAttribute('title')).toBe('Alt/Option-click the name to reset Exposure');
+    fireEvent.contextMenu(name);
+    fireEvent.click(screen.getByText('Reset group'));
+    expect([adjustments().shadows, adjustments().whites]).toEqual([0, 0]);
+    expect(adjustments().clarity).toBe(30);
+  });
+
+  it('White balance goes back to As Shot with its version keys, none while a layer uses the slider', () => {
+    setEdit({ temperature: 35, tint: -12, temperatureVersion: 1, tintVersion: 1 });
+    mount();
+    openGroups();
+    const name = () => screen.getByText('White balance', { selector: '.studio-tool-name' });
+    fireEvent.click(name(), { altKey: true });
+    expect([adjustments().temperature, adjustments().tint]).toEqual([0, 0]);
+    expect(adjustments().temperatureVersion).toBe(initialAdjustmentsFor(true).temperatureVersion);
+    expect(adjustments().tintVersion).toBe(initialAdjustmentsFor(true).tintVersion);
+    act(() => useEditorStore.getState().undo());
+    // A layer uses Temperature: the photo's response (version key) must stay.
+    const layer = { ...structuredClone(INITIAL_MASK_CONTAINER), id: 'l1', adjustments: { temperature: 20 } };
+    setEdit({ temperature: 35, tint: -12, temperatureVersion: 1, tintVersion: 1, masks: [layer] });
+    fireEvent.click(name(), { altKey: true });
+    expect([adjustments().temperature, adjustments().tint]).toEqual([0, 0]);
+    expect(adjustments().temperatureVersion).toBe(1);
+    expect(adjustments().tintVersion).toBe(initialAdjustmentsFor(true).tintVersion);
+    expect(adjustments().masks[0].adjustments.temperature).toBe(20);
+  });
+
+  it('Color mixer resets all 24 values (every band, hue, saturation, luminance) and nothing else', () => {
+    const hsl = structuredClone(INITIAL_ADJUSTMENTS.hsl) as unknown as Record<string, Record<string, number>>;
+    for (const band of Object.keys(hsl)) Object.keys(hsl[band]).forEach((k) => (hsl[band][k] = 12));
+    setEdit({ hsl, vibrance: 33 });
+    mount();
+    inColor();
+    fireEvent.click(screen.getByText('Color mixer', { selector: '.studio-tool-name' }), { altKey: true });
+    expect(adjustments().hsl).toEqual(INITIAL_ADJUSTMENTS.hsl);
+    expect(Object.keys(adjustments().hsl)).toHaveLength(8);
+    expect(adjustments().vibrance).toBe(33);
+    act(() => useEditorStore.getState().undo());
+    expect(adjustments().hsl.blues.saturation).toBe(12);
+  });
+
+  it('Black & white resets its 8-channel mix and leaves the colour mixer alone', () => {
+    const gray = { red: 10, orange: 20, yellow: -30, green: 5, aqua: 6, blue: -7, purple: 8, magenta: 9 };
+    const hsl = structuredClone(INITIAL_ADJUSTMENTS.hsl) as unknown as Record<string, Record<string, number>>;
+    hsl.reds.hue = 9;
+    setEdit({ blackAndWhite: true, grayMixer: gray, hsl });
+    mount();
+    inColor();
+    fireEvent.click(screen.getByText('Black & white', { selector: '.studio-tool-name' }), { altKey: true });
+    expect(adjustments().grayMixer).toEqual(INITIAL_ADJUSTMENTS.grayMixer);
+    expect(adjustments().hsl.reds.hue).toBe(9);
+  });
+
+  it("names the reset of a layer's group, which changes only that layer", async () => {
+    const { historyStepName } = await import('./historyLabels');
+    const { default: i18n } = await import('i18next');
+    mount();
+    openLayersTab();
+    fireEvent.click(screen.getByRole('button', { name: 'New linear gradient layer' }));
+    openGroups();
+    edit('Brightness', -0.25);
+    expect(adjustments().masks[0].adjustments.brightness).toBe(-0.25);
+    fireEvent.click(screen.getByText('Exposure', { selector: '.studio-tool-name' }), { altKey: true });
+    expect(adjustments().masks[0].adjustments.brightness).toBe(0);
+    expect(historyStepName(step(), i18n.t.bind(i18n))).toBe('Reset Exposure');
+  });
+
+  it('a reset of values already at their defaults names no step', async () => {
+    const { historyStepName } = await import('./historyLabels');
+    const { default: i18n } = await import('i18next');
+    mount();
+    openGroups();
+    const presence = () => screen.getByText('Presence', { selector: '.studio-tool-name' });
+    // The first reset takes the new edit's version keys; the second finds nothing to change.
+    fireEvent.click(presence(), { altKey: true });
+    const first = step();
+    fireEvent.click(presence(), { altKey: true });
+    expect(step()).not.toBe(first);
+    expect(historyStepName(step(), i18n.t.bind(i18n))).toBeNull();
   });
 });
