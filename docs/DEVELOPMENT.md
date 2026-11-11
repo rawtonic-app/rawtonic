@@ -92,7 +92,7 @@ npm run tauri -- build --debug --bundles app
 
 `--recipes recipes.json` exports with several recipes at once, as ticked recipes in the export dialog (each photo is developed once for all of them): a JSON array of `{"format": "jpg", "settings": {…}}`, `settings` in the shape of a queued export's settings (`jpegQuality`, `resize`, `tiffBitDepth`, `colorSpace`, `keepMetadata`, `stripGps`, `filenameTemplate`, `subfolder`, …); `--output` is then the folder the recipes' subfolders go into. Built with `--features performance-profiling`, the run logs `[PERF_STAGE]` records with their thread and end time for batch-export profiles (notes: parity-gaps/G43).
 
-`rawtonic-app --warm-gpu-cache` compiles the pipelines a start compiles ahead (the RAW default display variant 17, the variants after it, the general pipelines, the detail pass) into the app's pipeline cache file and exits, without a window: the device starts as the app's (Preferences backend, fallback, same cache folder), it stops after 120 s at the latest, logs to `gpu-warmup.log` beside `app.log` and exits 0 when the file is filled or the backend keeps no pipeline cache (Metal, DX12, GL: it only creates the device), else 1. The Windows installer runs it after every install or update. QA hooks for the backend fallback: `RAWTONIC_GPU_FAIL_BACKENDS=vulkan` (a comma list as `WGPU_BACKEND`) makes device creation fail on those backends; the log then names each failure and the backend that started (`GPU started on dx12 after: …`), and when none starts the window shows the reason.
+`rawtonic-app --warm-gpu-cache` compiles the pipelines a start compiles ahead (the RAW default display variant 17, the variants after it, the general pipelines, the detail pass) into the app's pipeline cache file and exits, without a window: the device starts as the app's (Preferences backend, fallback, same cache folder), it stops after 120 s at the latest, logs to `gpu-warmup.log` beside `app.log` and exits 0 when the file is filled or the backend keeps no pipeline cache (Metal, DX12, GL: it only creates the device), else 1. It leaves out what the start guard leaves out and never writes the guard's flag or state (nor does a headless export). No installer runs it (G76); the first start with a window compiles the same pipelines and shows "Preparing graphics for this computer" in the activity centre while the first one compiles. QA hooks for the backend fallback: `RAWTONIC_GPU_FAIL_BACKENDS=vulkan` (a comma list as `WGPU_BACKEND`) makes device creation fail on those backends; the log then names each failure and the backend that started (`GPU started on dx12 after: …`), and when none starts the window shows the reason.
 
 Relative paths refer to the folder the command was run in: for the AppImage the folder it was started from (the AppImage runtime's `$OWD`, or `$PWD` with `--appimage-extract-and-run`; its AppRun changes into the read-only mount), for the plain binary and the binary inside the macOS bundle the working directory. `open -a Rawtonic --args …` starts in `/`, so pass absolute paths there. For plain exports on Unix (without `--recipes`), an output-folder permissions/read-only-filesystem check fails before rendering if the folder is not writable.
 
@@ -213,6 +213,19 @@ How to read it: measure on an idle machine (the script prints the load average) 
 ### Releases
 
 `scripts/release.sh VERSION` makes a release up to a draft prerelease: bump PR, signed macOS DMGs, Linux AppImage, Windows installer, every smoke, notes and checksums. Steps, configuration and the scripted GUI smoke: [RELEASING.md](RELEASING.md).
+
+### Symbolizing a Windows crash report
+
+A Windows release carries no symbols, so a crash report's backtrace names each frame by module and offset (`12: rawtonic-app.exe+0x1a2b3c`; frames whose function the build cannot name are never given a guessed export name). The Windows workflow builds with line tables into `rawtonic_app.pdb` (`CARGO_PROFILE_RELEASE_STRIP=none`, `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only`; the code is the same), keeps the executable and the PDB as the `windows-symbols` artifact (not part of any download) and `scripts/release.sh` keeps a release's copy in the private repository `RAWTONIC_SYMBOLS_REPO` as release `symbols-vVERSION` ([RELEASING.md](RELEASING.md)). Symbols are no secret (the source is public, the paths are the runner's), they are only kept out of the downloads.
+
+To resolve the frames of a report from version VERSION, take that release's symbols (the artifact of an unreleased build's run works the same) and pass the `rawtonic-app.exe` offsets, relative to the image base, to `llvm-symbolizer` (LLVM 17 or newer, any platform; it reads the PDB beside the executable):
+
+```sh
+gh release download symbols-vVERSION -R "$RAWTONIC_SYMBOLS_REPO" -D sym && (cd sym && unzip -o *-windows-symbols.zip)
+llvm-symbolizer --obj=sym/rawtonic-app.exe --relative-address 0x1a2b3c 0x2b3c4d
+```
+
+`SYMBOLS.txt` names the version, commit and the executable's SHA-256, which must match the `rawtonic-app.exe` of the reporter's download. Frames in other modules (`amdvlk64.dll+0x…`, `nvoglv64.dll+0x…`) belong to the graphics driver: report them with the driver version the report names.
 
 ### macOS release signing (opt-in)
 

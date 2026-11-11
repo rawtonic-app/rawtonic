@@ -909,7 +909,7 @@
     }
   },
   "errors": {
-    "gpuStartFailed": "Rawtonic 無法啟動圖形處理器，因此無法沖洗或匯出照片。請更新顯示卡驅動程式並重新啟動 Rawtonic。詳細資訊：{{details}}",
+    "gpuStartFailed": "Rawtonic 無法啟動圖形處理器，因此無法沖洗或匯出照片。請重設圖形設定並重試；如果仍無效，請更新顯示卡驅動程式。詳細資訊：{{details}}",
     "operationFailed": "無法完成操作。"
   },
   "gpuBackend": {
@@ -922,7 +922,13 @@
     "leftOutKept": "{{crashed}} 在 {{date}} 啟動 Rawtonic 時當機，重試時也當機了。在你重新選擇自動之前不使用 {{avoided}}。",
     "none": "無圖形處理器",
     "openGl": "依照偏好設定 → 處理中的設定，處理使用 OpenGL。早期版本的 Rawtonic 會在啟動時圖形當機後自行切換到 OpenGL；建議使用「自動」。",
+    "openGlUnavailable": "此電腦上不使用 OpenGL：在部分顯示卡驅動程式下它會使 Rawtonic 停止運作。處理現已設為「自動」（偏好設定 → 處理）。",
     "openPreferences": "開啟偏好設定",
+    "prepared": "已在 {{seconds}} 秒內為此電腦準備好圖形",
+    "preparing": "正在為此電腦準備圖形",
+    "preparingDetail": "Rawtonic 正在為此圖形處理器和驅動程式編譯處理著色器。這會在安裝或驅動程式更新後進行，可能需要幾分鐘；完成後顯影會立即顯示照片。",
+    "resetAndRetry": "重設圖形設定並重試",
+    "resetFailed": "無法重設圖形設定：{{details}}",
     "unknownBackend": "圖形後端",
     "useAutomatic": "重新自動選擇",
     "useAutomaticFailed": "無法儲存變更。"

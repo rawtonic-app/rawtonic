@@ -2,7 +2,7 @@
 //! The first-start privacy notice for Windows copies no installer introduced
 //! (the portable zip, or a silent install). The installers show the same
 //! text on their first page and then set `PrivacyNoticeShown`
-//! (`windows/installer-hooks.nsh`, `windows/msi-warmup.wxs`). Until the notice
+//! (`windows/installer-hooks.nsh`, `windows/msi-fragment.wxs`). Until the notice
 //! was shown, one way or the other, the startup update check does not run
 //! (`app_settings::reserve_update_check`). Other platforms have no such
 //! installer step and are not affected.

@@ -30,15 +30,23 @@ import { PhotoBatch, batchPhotoSettled, photoBatches, unsettledPhotos } from '..
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave } from './useEditorActions';
 import { sourceOf } from '../entities/photo/photoRef';
-import { gpuBackendStatus, showGpuBackendNotice } from '../components/panel/gpuBackend';
+import {
+  gpuBackendStatus,
+  resetGraphicsAndRetry,
+  showGpuBackendNotice,
+  watchGraphicsPreparation
+} from '../components/panel/gpuBackend';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
 // No graphics backend could start the GPU (src-tauri gpu_processing.rs
 // `gpu_start_error`): no photo can be developed or exported, so it stays a
-// failure in the activity centre and names what failed.
+// failure in the activity centre, names what failed and offers the way out.
 const showGpuStartError = (details: string) =>
-  notify.error(i18n.t('errors.gpuStartFailed', { details }), { toastId: 'gpu-start-failed' });
+  notify.error(i18n.t('errors.gpuStartFailed', { details }), {
+    toastId: 'gpu-start-failed',
+    actions: [{ label: i18n.t('gpuBackend.resetAndRetry'), run: () => resetGraphicsAndRetry() }]
+  });
 
 // Event payloads, as emitted by the backend in src-tauri/src.
 interface AnalyticsUpdatePayload {
@@ -826,6 +834,8 @@ export function useTauriListeners({
         if (isEffectActive && typeof error === 'string' && error) showGpuStartError(error);
       })
       .catch(() => {});
+    // The first start's shader compile is shown while it lasts.
+    void watchGraphicsPreparation();
     // A backend left out after a crash at an earlier start is said, with
     // the one used instead (it answers once the GPU started or failed).
     gpuBackendStatus()

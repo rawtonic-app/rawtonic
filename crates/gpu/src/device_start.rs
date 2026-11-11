@@ -3,10 +3,17 @@
 //! The first try is the choice the app always made: one wgpu pick among the
 //! preferred backends (`WGPU_BACKEND` when set, else the platform's set).
 //! When the device cannot be created on the backend picked, that backend is
-//! left out and the pick repeats; then the platform's last resorts follow
-//! (Windows: OpenGL, which wgpu offers only where a GL driver exists). Every
-//! failure is kept, so a start where nothing works names what failed instead
-//! of ending without a word.
+//! left out and the pick repeats. Every failure is kept, so a start where
+//! nothing works names what failed instead of ending without a word.
+//!
+//! OpenGL is never used on Windows (`usable_backends`): wgpu's WGL backend
+//! panics ("Could not lock adapter context. This is most-likely a deadlock")
+//! when a thread waits more than 1 s for the GL context, and one compile of
+//! the processing shader holds it for seconds while the start compiles its
+//! pipelines on several threads. Seen as a start crash on a Radeon 680M
+//! (AMD GL 4.6 driver, notes: parity-gaps/G76-windows-installer-feedback.md).
+//! Windows 11 needs a DirectX 12 GPU; a PC with neither DX12 nor Vulkan gets
+//! the window's "graphics could not start" message instead of that crash.
 //!
 //! Microsoft's software renderer (WARP, "Microsoft Basic Render Driver") is
 //! refused like a device that does not start: its shader compiler corrupts
@@ -33,10 +40,10 @@ pub fn backend_tiers(
     preferred: Option<wgpu::Backends>,
     available: wgpu::Backends,
 ) -> Vec<wgpu::Backends> {
-    // Windows: Vulkan or DX12 (wgpu's order, power preference across both),
-    // OpenGL only when neither starts. Elsewhere wgpu's default set.
+    // Windows: Vulkan or DX12 (wgpu's order, power preference across both;
+    // no OpenGL, see the module). Elsewhere wgpu's default set.
     let platform: &[wgpu::Backends] = if cfg!(target_os = "windows") {
-        &[wgpu::Backends::PRIMARY, wgpu::Backends::GL]
+        &[wgpu::Backends::PRIMARY]
     } else {
         &[wgpu::Backends::all()]
     };
@@ -112,6 +119,25 @@ pub fn start_with_fallback<A, D>(
     ))
 }
 
+/// The backends a device may start on: those compiled into this build,
+/// without wgpu's no-op backend (it never yields an adapter unless asked
+/// for) and, on Windows, without OpenGL (see the module).
+pub fn usable_backends() -> wgpu::Backends {
+    usable_of(
+        wgpu::Instance::enabled_backend_features(),
+        cfg!(target_os = "windows"),
+    )
+}
+
+fn usable_of(compiled: wgpu::Backends, windows: bool) -> wgpu::Backends {
+    let unusable = if windows {
+        wgpu::Backends::NOOP | wgpu::Backends::GL
+    } else {
+        wgpu::Backends::NOOP
+    };
+    compiled - unusable
+}
+
 /// Why the adapter cannot run the processing pipeline, if it cannot: WARP,
 /// found by its PCI ids (Microsoft vendor 0x1414, device 0x8C) on DX12.
 pub fn unsupported_adapter(info: &wgpu::AdapterInfo) -> Option<&'static str> {
@@ -158,14 +184,13 @@ pub fn start_device(
     let failing = std::env::var("RAWTONIC_GPU_FAIL_BACKENDS")
         .map(|list| wgpu::Backends::from_comma_list(&list))
         .unwrap_or(wgpu::Backends::empty());
-    // wgpu's no-op backend never yields an adapter unless asked for.
-    let compiled = wgpu::Instance::enabled_backend_features() - wgpu::Backends::NOOP;
-    let available = compiled - avoid;
+    let usable = usable_backends();
+    let available = usable - avoid;
     if available.is_empty() {
         return Err(format!(
             "No graphics backend is left to try: {} crashed while starting at an earlier start \
-             (Preferences → Processing → Use automatic again tries them again)",
-            names(compiled & avoid)
+             (Reset graphics settings and retry tries them again)",
+            names(usable & avoid)
         ));
     }
     let tiers = backend_tiers(wgpu::Backends::from_env(), available);
@@ -324,6 +349,22 @@ mod tests {
     }
 
     #[test]
+    fn open_gl_is_never_used_on_windows() {
+        let compiled = Backends::VULKAN | Backends::DX12 | Backends::GL | Backends::NOOP;
+        assert_eq!(usable_of(compiled, true), Backends::PRIMARY & compiled);
+        assert_eq!(
+            usable_of(compiled, false),
+            Backends::VULKAN | Backends::DX12 | Backends::GL
+        );
+        assert!(!usable_backends().contains(Backends::NOOP));
+        // Nothing reaches OpenGL there, not even a preference for it
+        // (`WGPU_BACKEND=gl`): it is not in the backends tried.
+        let usable = usable_of(compiled, true);
+        let tiers = backend_tiers(Some(Backends::GL), usable);
+        assert!(tiers.iter().all(|tier| !tier.contains(Backends::GL)));
+    }
+
+    #[test]
     fn backends_missing_from_the_build_are_not_tried() {
         let available = Backends::VULKAN | Backends::DX12 | Backends::GL;
         let tiers = backend_tiers(Some(Backends::METAL), available);
@@ -346,7 +387,7 @@ mod tests {
                 .fold(Backends::DX12, |all, tier| all | *tier)
         );
         if cfg!(target_os = "windows") {
-            assert_eq!(platform_last, [Backends::PRIMARY, Backends::GL]);
+            assert_eq!(platform_last, [Backends::PRIMARY]);
         } else {
             // Linux and macOS: wgpu's own pick, as before the fallback.
             assert_eq!(platform_last, [Backends::all()]);

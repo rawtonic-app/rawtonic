@@ -531,14 +531,17 @@ equivalence tests).
 
 `gpu` (gpu_processing: GpuProcessor, shader variants + WGSL in `crates/gpu/src/shaders/`, readback, WgpuDisplay
 presentation, `GpuContext::headless`, GPU equivalence tests; `device_start`: the device with a backend fallback, Windows
-Vulkan/DX12 then OpenGL, every failure named, backends to leave out (`avoid`) and each step announced (`on_step`) for the
-app's start guard `src-tauri/src/gpu_start_guard.rs` (a flag naming backends and step while a device starts and its first
+Vulkan/DX12 and never OpenGL (`usable_backends`: wgpu's WGL backend panics on a context lock held over 1 s), every
+failure named, backends to leave out (`avoid`) and each step announced (`on_step`) for the app's start guard
+`src-tauri/src/gpu_start_guard.rs` (a flag naming backends and step while a windowed start's device starts and its first
 processor compiles; after a crash the next start leaves those backends out with a notice, the one after retries the
-choice once, a second crash keeps the fallback until Preferences → Processing → Use automatic again; state in the
-config folder's `gpu-start.json`, the processing backend preference is never changed; `RAWTONIC_TEST_CRASH` in
-`qa_crash.rs`, `qa-control` builds only); `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by
-adapter, driver and app version, filled ahead by `rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, run by
-the Windows installer's hook `src-tauri/windows/installer-hooks.nsh`));
+choice once, a second crash keeps the fallback until Preferences → Processing → Use automatic again; it never leaves
+out every usable backend (then only the newest crash's); headless runs follow it read-only and write no flag; state in
+the config folder's `gpu-start.json`, the processing backend preference is never changed silently; when no backend
+starts the window offers Reset graphics settings and retry; `RAWTONIC_TEST_CRASH` in `qa_crash.rs`, `qa-control`
+builds only); `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by adapter, driver and app version,
+filled by the first start (shown as "Preparing graphics" in the activity centre) or ahead by
+`rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, a QA/benchmark tool; no installer runs it));
 
 
 #### `export`

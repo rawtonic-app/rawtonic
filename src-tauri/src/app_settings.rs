@@ -1164,8 +1164,7 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
 
 /// The processing backend chosen in Preferences, read without the
 /// settings store's migrations or the keeping of an unreadable file: for a
-/// run that must leave the settings alone (`gpu_warmup`, run by the
-/// installer before the first launch).
+/// run that must leave the settings alone (`gpu_warmup`).
 pub fn read_processing_backend(app_handle: &AppHandle) -> Option<String> {
     processing_backend_in(&get_settings_path(app_handle).ok()?)
 }

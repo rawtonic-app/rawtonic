@@ -371,6 +371,9 @@ export default function SettingsPanel({
     return rawOptions.filter((opt) => {
       if (opt.value === 'metal' && osPlatform !== 'macos') return false;
       if (opt.value === 'dx12' && osPlatform === 'macos') return false;
+      // OpenGL is used on Linux only (src-tauri startup.rs GL_BACKEND_USABLE):
+      // not built in on macOS, and it crashes at start on Windows (G76).
+      if (opt.value === 'gl' && osPlatform !== 'linux') return false;
       return true;
     });
   }, [t, osPlatform]);

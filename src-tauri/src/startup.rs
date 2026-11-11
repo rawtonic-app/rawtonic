@@ -442,9 +442,11 @@ pub(crate) fn apply_processing_backend(backend: Option<&str>) {
     }
 }
 
-/// wgpu's OpenGL backend is not compiled in on Apple platforms (it would
-/// need ANGLE), so falling back to it there leaves no GPU at all.
-pub(crate) const GL_BACKEND_COMPILED: bool = !cfg!(any(target_os = "macos", target_os = "ios"));
+/// Whether a device may start on OpenGL: wgpu's OpenGL backend is not
+/// compiled in on Apple platforms (it would need ANGLE), and on Windows it
+/// is never used (`rawtonic_gpu::device_start::usable_backends`).
+pub(crate) const GL_BACKEND_USABLE: bool =
+    !cfg!(any(target_os = "macos", target_os = "ios", target_os = "windows"));
 
 pub(crate) fn process_alive(pid: u32) -> bool {
     #[cfg(unix)]
