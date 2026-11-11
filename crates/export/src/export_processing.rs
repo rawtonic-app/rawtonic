@@ -1958,6 +1958,11 @@ pub fn render_prepared_exports(
 /// at once (7.1 s) and the peak footprint at 6.7 GB (6 or more: 8.0–8.2 GB).
 const MASK_GENERATORS: usize = 4;
 
+// Effort 4 gives the smallest output among efforts 1–4 on the 36 MP
+// synthetic benchmark, in 2.24 s instead of effort 7's 143 s. Keep lossless
+// exports interactive; the encoder's memory budget remains open (G64).
+const LOSSLESS_JXL_EFFORT: u8 = 4;
+
 /// Encodes an export render for `extension` and embeds `metadata` (EXIF and
 /// XMP from [`exif_processing::export_metadata_with`](crate::exif_processing::export_metadata_with)).
 pub fn encode_with_metadata(
@@ -2179,11 +2184,13 @@ pub fn encode_image_to_bytes(
                 if has_alpha {
                     let rgba = image.to_rgba8();
                     LosslessConfig::new()
+                        .with_effort(LOSSLESS_JXL_EFFORT)
                         .encode(rgba.as_raw(), width, height, PixelLayout::Rgba8)
                         .map_err(|e| format!("Failed to encode lossless JXL: {}", e))?
                 } else {
                     let rgb = image.to_rgb8();
                     LosslessConfig::new()
+                        .with_effort(LOSSLESS_JXL_EFFORT)
                         .encode(rgb.as_raw(), width, height, PixelLayout::Rgb8)
                         .map_err(|e| format!("Failed to encode lossless JXL: {}", e))?
                 }
@@ -2377,6 +2384,7 @@ fn encode_wide_jxl(
             (image.to_rgb8().into_raw(), PixelLayout::Rgb8)
         };
         return LosslessConfig::new()
+            .with_effort(LOSSLESS_JXL_EFFORT)
             .encode_request(width, height, layout)
             .with_color_encoding(encoding)
             .encode(&pixels)
@@ -3095,6 +3103,73 @@ mod encoding_memory_tests {
         let image = jxl_oxide::JxlImage::read_with_defaults(Cursor::new(bytes)).unwrap();
         let render = image.render_frame(0).unwrap();
         render.image_all_channels().buf().to_vec()
+    }
+
+    /// Multi-group encoding must also decode, not just the single-group
+    /// colour swatches. Run with --ignored on native QA hosts.
+    #[test]
+    #[ignore = "36 MP encoder regression; requires the independent djxl executable"]
+    fn lossless_jxl_36mp_export_preserves_every_sample() {
+        let mut state = 123456789u32;
+        let original = DynamicImage::ImageRgb8(image::RgbImage::from_fn(7360, 4912, |x, y| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let noise = (state & 15) as u8;
+            image::Rgb([
+                ((x * 255 / 7360) as u8).saturating_add(noise),
+                ((y * 255 / 4912) as u8).saturating_add(noise),
+                (((x + y) * 255 / 12272) as u8).saturating_add(noise),
+            ])
+        }));
+        let bytes = encode_image_to_bytes(
+            &original,
+            "jxl",
+            100,
+            TiffBitDepth::Eight,
+            OutputColorSpace::Srgb,
+            None,
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("export.jxl");
+        crate::output::write_new_output(&source, bytes).unwrap();
+        // jxl-oxide 0.12 rejects these multi-group ANS streams (including
+        // the previous effort-7 default); libjxl decodes them correctly.
+        let decoded = std::process::Command::new("djxl")
+            .arg(&source)
+            .args(["-", "--output_format", "ppm"])
+            .output()
+            .expect("native QA requires libjxl's djxl decoder");
+        assert!(
+            decoded.status.success(),
+            "{}",
+            String::from_utf8_lossy(&decoded.stderr)
+        );
+        let decoded = image::load_from_memory(&decoded.stdout).unwrap();
+        assert_eq!(decoded.to_rgb8(), original.to_rgb8());
+    }
+
+    #[test]
+    fn lossless_jxl_export_preserves_every_rgb_sample() {
+        let rgb = wide_test_image();
+        let rgba = DynamicImage::ImageRgba8(image::RgbaImage::from_fn(64, 64, |x, y| {
+            image::Rgba([x as u8 * 4, y as u8 * 4, 90, (x + y) as u8 * 2])
+        }));
+        for original in [rgb, rgba] {
+            let bytes = encode_image_to_bytes(
+                &original,
+                "jxl",
+                100,
+                TiffBitDepth::Eight,
+                OutputColorSpace::Srgb,
+                None,
+            )
+            .unwrap();
+            let decoder = jxl_oxide::integration::JxlDecoder::new(Cursor::new(bytes)).unwrap();
+            let decoded = DynamicImage::from_decoder(decoder).unwrap();
+            assert_eq!(decoded.to_rgba8(), original.to_rgba8());
+        }
     }
 
     #[test]

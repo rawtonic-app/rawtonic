@@ -2358,7 +2358,8 @@ mod tests {
     fn jpeg_export_with_more_than_one_segment_of_exif_stays_a_valid_jpeg() {
         let plain = small_jpeg();
         let before = image::load_from_memory(&plain).unwrap();
-        let metadata = big_exif_metadata(100_000, 20_000);
+        // Exercise the upper end of the 70–200 KB maker-note lead.
+        let metadata = big_exif_metadata(200_000, 20_000);
         let mut jpeg = plain.clone();
         embed_export_metadata(&mut jpeg, "jpg", &metadata).unwrap();
 
