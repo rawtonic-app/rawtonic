@@ -180,6 +180,10 @@ pub const BLACKS_REACH_TONE_VERSION: u64 = 16;
 /// The tone-slider response from which raised Whites move at the reference
 /// editors' pace (`toneVersion` 17, `image_processing::whites_amount_v17`).
 pub const WHITES_TRAVEL_TONE_VERSION: u64 = 17;
+/// The tone-slider response from which lowered Blacks move at Capture One's
+/// pace and reach its −100 (`toneVersion` 18,
+/// `image_processing::blacks_amount_v18`).
+pub const BLACKS_TRAVEL_TONE_VERSION: u64 = 18;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -254,6 +258,29 @@ impl ToneVersion {
             ip::whites_value_v17(amount)
         } else {
             amount
+        }
+    }
+
+    /// The Blacks amount (recipe units, version 16's slider value; −200 is
+    /// the end of version 18's reach) that the RAW look's black point
+    /// applies for the slider value `value`: from version 18 lowered Blacks
+    /// follow Capture One's travel.
+    pub fn blacks_amount(self, value: f64) -> f64 {
+        if self.0 >= BLACKS_TRAVEL_TONE_VERSION {
+            ip::blacks_amount_v18(value)
+        } else {
+            value
+        }
+    }
+
+    /// The slider value that renders the Blacks amount `amount` (the inverse
+    /// of [`Self::blacks_amount`]; amounts beyond the version's reach end at
+    /// −100).
+    pub fn blacks_value(self, amount: f64) -> f64 {
+        if self.0 >= BLACKS_TRAVEL_TONE_VERSION {
+            ip::blacks_value_v18(amount)
+        } else {
+            amount.max(-100.0)
         }
     }
 }

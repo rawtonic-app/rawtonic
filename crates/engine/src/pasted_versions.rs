@@ -10,7 +10,8 @@
 //! So the destination keeps its key whenever something it keeps renders
 //! with it, and the pasted values are re-expressed in its response: exact
 //! where the versions differ only in the slider's travel (Whites 16 / 17,
-//! Structure 1 / 2), as the nearest value where the algorithm differs (the
+//! Structure 1 / 2; Blacks travel as amounts, `ip::express_pasted_blacks`),
+//! as the nearest value where the algorithm differs (the
 //! measured error per key: docs/RECIPE_SCHEMA.md). With nothing that uses
 //! it, the key goes along and the paste renders as on the source.
 //!
@@ -287,12 +288,19 @@ fn used_by_kept(key: &VersionKey, pasted: &Value, target: &PasteTarget) -> bool 
 /// selected) as `target` takes them: Whites carried as their amount in its
 /// tone-slider response ([`ip::express_pasted_whites`]), and every version
 /// key that something `target` keeps renders with stated as `target`
-/// renders it, the pasted values re-expressed in that response.
+/// renders it, the pasted values re-expressed in that response; then Blacks
+/// (always carried as amounts) in the tone version and look the photograph
+/// ends up with ([`ip::express_pasted_blacks`]).
 pub fn express_pasted(pasted: &mut Value, target: &PasteTarget) {
     ip::express_pasted_whites(pasted, target.recipe);
-    if target.is_new {
-        return;
+    if !target.is_new {
+        express_versions(pasted, target);
     }
+    ip::express_pasted_blacks(pasted, target.recipe, target.is_raw);
+}
+
+/// The version keys of [`express_pasted`].
+fn express_versions(pasted: &mut Value, target: &PasteTarget) {
     for key in KEYS {
         let Some(from) = pasted.get(key.key).and_then(Value::as_u64) else {
             continue;

@@ -83,7 +83,12 @@ export function groupModified(group: SettingsGroup, adjustments: Adjustments, is
  * balance has no custom one) is `null`: the destination loses its own too
  * (`pasted_metadata`). Processing versions only when chosen (`RESPONSE_KEYS`
  * among `keys`), each as the source has it. */
-export function chosenSettings(source: Adjustments, keys: string[], layerIds: string[]): Partial<Adjustments> {
+export function chosenSettings(
+  source: Adjustments,
+  keys: string[],
+  layerIds: string[],
+  sourceIsRaw: boolean
+): Partial<Adjustments> {
   const chosen: Record<string, unknown> = {};
   const values = source as unknown as Record<string, unknown>;
   for (const key of keys) {
@@ -97,8 +102,8 @@ export function chosenSettings(source: Adjustments, keys: string[], layerIds: st
   const ids = new Set(layerIds);
   const layers = (source.masks ?? []).filter((layer: MaskContainer) => ids.has(layer.id));
   if (layers.length > 0) chosen.masks = structuredClone(layers);
-  // Whites without the tone version: as the amount they render.
-  return withPortableWhites(chosen as Partial<Adjustments>, source);
+  // Whites without the tone version, and Blacks: as the amount they render.
+  return withPortableWhites(chosen as Partial<Adjustments>, source, sourceIsRaw);
 }
 
 /** The processing versions a new edit gets (`initialAdjustmentsFor`), RAW
