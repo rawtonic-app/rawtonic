@@ -196,9 +196,29 @@ export const WHITE_BALANCE_PRESETS = {
   flash: { label: 'Flash', temperature: 5500, tint: 0 }
 } as const;
 
-/** The Kelvin slider runs in mireds, so warm light gets more travel, as in
- * Lightroom. */
+/**
+ * The Kelvin slider's track. Lightroom's drag travel from As Shot (measured
+ * on one RAW, 150 pt track, notes: benchmark-results/uxv-slider-use-test-
+ * 2026-11-10, `lr_feel.tsv`): 4050 K → 6093 K at +30 pt and 8314 K at +60 pt,
+ * which a position linear in K^0.75 follows to within 0.1 % (a pure mired
+ * track reached 6811 K and 21680 K there). Above `KNEE` the remaining track
+ * (the last fifth) compresses 10 000 K → 50 000 K logarithmically, so the
+ * whole range stays reachable by dragging. Only the slider's geometry: a
+ * stored Kelvin means what it meant before, keys and the field stay in K.
+ */
+const POWER = 0.75;
+const KNEE = 10000;
+/** Track units from the left end (2000 K) to 50 000 K: 150 pt at ~6.04 per pt. */
+const TAIL_UNITS = 205;
+const knee = KNEE ** POWER;
+const tail = Math.log(50000 / KNEE);
 export const KELVIN_SCALE = {
-  toTrack: (kelvin: number) => -1e6 / Math.max(kelvin, 1),
-  fromTrack: (position: number) => Math.round(-1e6 / Math.min(position, -1))
+  toTrack: (kelvin: number) => {
+    const k = Math.max(kelvin, 1);
+    return k <= KNEE ? k ** POWER : knee + (TAIL_UNITS * Math.log(k / KNEE)) / tail;
+  },
+  fromTrack: (position: number) =>
+    Math.round(
+      position <= knee ? Math.max(position, 1) ** (1 / POWER) : KNEE * Math.exp(((position - knee) * tail) / TAIL_UNITS)
+    )
 };

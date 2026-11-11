@@ -4,6 +4,7 @@ import type { WhiteBalanceMode } from '../../utils/adjustments';
 import { KELVIN_SCALE, WHITE_BALANCE_PRESETS } from '../../utils/whiteBalance';
 import { useTranslation } from 'react-i18next';
 import { Invokes } from '../ui/AppProperties';
+import { KELVIN_KEYS } from './sliderFeel';
 import AdjustmentControl from './AdjustmentControl';
 
 export interface WhiteBalanceValues {
@@ -128,6 +129,7 @@ export default function StudioWhiteBalance({
         step={50}
         defaultValue={asShot.temperature}
         scale={KELVIN_SCALE}
+        keys={KELVIN_KEYS}
         track="temperature"
         disabled={disabled}
         onChange={(temperature) => custom({ temperature, tint: shown.tint })}

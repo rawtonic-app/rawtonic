@@ -123,8 +123,22 @@ describe('white balance', () => {
 
   it('maps Kelvin to mireds and back', () => {
     for (const k of [2000, 2850, 5500, 12000, 50000]) expect(KELVIN_SCALE.fromTrack(KELVIN_SCALE.toTrack(k))).toBe(k);
-    // Warm light gets more of the track than blue sky.
-    const span = (a: number, b: number) => KELVIN_SCALE.toTrack(b) - KELVIN_SCALE.toTrack(a);
-    expect(span(2000, 5500)).toBeGreaterThan(span(5500, 50000));
+    expect(KELVIN_SCALE.toTrack(50000)).toBeGreaterThan(KELVIN_SCALE.toTrack(12000));
+  });
+
+  it("travels from As Shot as Lightroom's track does (4050 K: 6093 K at +30 pt, 8314 K at +60 pt)", () => {
+    // Lightroom's Basic track is ~150 pt of thumb travel for 2000-50000 K.
+    const perPoint = (KELVIN_SCALE.toTrack(50000) - KELVIN_SCALE.toTrack(2000)) / 150;
+    const dragged = (from: number, points: number) =>
+      KELVIN_SCALE.fromTrack(KELVIN_SCALE.toTrack(from) + points * perPoint);
+    expect(Math.abs(dragged(4050, 30) / 6093 - 1)).toBeLessThan(0.01);
+    expect(Math.abs(dragged(4050, 60) / 8314 - 1)).toBeLessThan(0.01);
+    // The whole range stays on the track, in order.
+    expect(KELVIN_SCALE.fromTrack(KELVIN_SCALE.toTrack(50000))).toBe(50000);
+    let last = 0;
+    for (const k of [2000, 3000, 5000, 9999, 10000, 10001, 20000, 50000]) {
+      expect(KELVIN_SCALE.toTrack(k)).toBeGreaterThan(last);
+      last = KELVIN_SCALE.toTrack(k);
+    }
   });
 });
