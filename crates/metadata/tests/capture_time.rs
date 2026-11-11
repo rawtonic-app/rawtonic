@@ -36,10 +36,13 @@ fn xmp_dates_keep_fraction_and_offset_and_invent_none() {
     ] {
         assert_eq!(time(text).to_xmp(), text);
     }
-    // Minutes only: seconds zero. Capture One's `Z` after a local time
-    // states no offset.
+    // Minutes only: seconds zero. `Z` is UTC, kept as written.
     assert_eq!(time("2026-10-30T14:05").to_xmp(), "2026-10-30T14:05:00");
-    assert_eq!(time("2019-01-24T12:29:49Z").offset, None);
+    assert_eq!(
+        time("2019-01-24T12:29:49Z").to_xmp(),
+        "2019-01-24T12:29:49Z"
+    );
+    assert_eq!(time("2019-01-24T12:29:49Z").utc_offset(), Some("+00:00"));
     for bad in [
         "2026-10-30",
         "2026-10-30T14",
@@ -54,6 +57,10 @@ fn xmp_dates_keep_fraction_and_offset_and_invent_none() {
     assert!(time("2026-10-30T14:05:09.50").same_moment(&time("2026-10-30T14:05:09.5+01:00")));
     assert!(!time("2026-10-30T14:05:09.5").same_moment(&time("2026-10-30T14:05:09.6")));
     assert!(!time("2026-10-30T14:05:10").same_moment(&time("2026-10-30T14:05:09")));
+    // Offsets: one left out says nothing; two stated must agree.
+    assert!(time("2026-10-30T14:05:09").same_moment(&time("2026-10-30T14:05:09+02:00")));
+    assert!(!time("2026-10-30T14:05:09+01:00").same_moment(&time("2026-10-30T14:05:09+02:00")));
+    assert!(time("2026-10-30T14:05:09Z").same_moment(&time("2026-10-30T14:05:09+00:00")));
 }
 
 #[test]
@@ -195,6 +202,6 @@ fn without_a_correction_the_dates_stay_byte_for_byte() {
     }
     assert_eq!(
         read_capture_time(C1_IPTC).unwrap(),
-        Some(time("2026-05-01T10:20:30"))
+        Some(time("2026-05-01T10:20:30Z"))
     );
 }

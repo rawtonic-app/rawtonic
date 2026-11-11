@@ -635,6 +635,10 @@ fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
             .captured
             .filter(|_| dated)
             .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string()),
+        // The fraction and offset the file states beside that time (as
+        // Shift Capture Time reads the file's time).
+        captured_subsec: capture.subsec.clone().filter(|_| dated),
+        captured_offset: capture.offset.clone().filter(|_| dated),
         make: capture.make,
         model: capture.model,
         lens: capture.lens,

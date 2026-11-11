@@ -115,6 +115,17 @@ pub fn resolve(lib: &Library, paths: &[String], keep: XmpChoice) -> anyhow::Resu
         let result = match keep {
             XmpChoice::Library => lib.keep_library_xmp(&asset.id),
             XmpChoice::Xmp => lib.use_xmp(&asset.id).and_then(|undo| {
+                // The sidecar's capture time changed the correction: what
+                // the photograph shows and exports follows.
+                if undo.capture_before != undo.capture_after
+                    && let Err(e) = crate::capture_time::follow_correction(
+                        &lib.directory,
+                        &asset.path,
+                        undo.capture_after.as_ref(),
+                    )
+                {
+                    log::warn!("Capture time read from XMP; editor sidecar pending: {e}");
+                }
                 // Read: undoable even when writing the sidecar back fails.
                 report.undo.push(undo);
                 report.read.push(shown.clone());
@@ -140,7 +151,19 @@ pub fn undo(lib: &Library, undo: &[XmpUndo]) -> XmpReport {
             .map(|a| a.path.to_string_lossy().into_owned())
             .unwrap_or_else(|_| step.asset.clone());
         match lib.undo_use_xmp(step) {
-            Ok(()) => report.done.push(path),
+            Ok(()) => {
+                if step.capture_before != step.capture_after
+                    && let Ok(asset) = lib.asset(&step.asset)
+                    && let Err(e) = crate::capture_time::follow_correction(
+                        &lib.directory,
+                        &asset.path,
+                        lib.capture_override(&step.asset).ok().flatten().as_ref(),
+                    )
+                {
+                    log::warn!("Capture time restored; editor sidecar pending: {e}");
+                }
+                report.done.push(path)
+            }
             Err(e) => {
                 report.undo.push(step.clone());
                 report.failed.push(XmpFailure {

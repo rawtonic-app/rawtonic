@@ -93,6 +93,13 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         &[("xmp_capture", "TEXT")],
         include_str!("../migrations/0027.sql"),
     ),
+    // The capture time's fraction and offset in the facts of `assets`.
+    Migration::with_columns(
+        28,
+        "assets",
+        &[("capture_subsec", "TEXT"), ("capture_offset", "TEXT")],
+        include_str!("../migrations/0028.sql"),
+    ),
 ];
 
 /// The newest schema: the last migration's.

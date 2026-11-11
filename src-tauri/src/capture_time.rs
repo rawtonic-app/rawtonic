@@ -337,6 +337,33 @@ fn exif_updates(time: &CaptureTime) -> HashMap<String, String> {
         .collect()
 }
 
+/// Brings a photograph's editor-state EXIF (its `.rrdata`, which display
+/// and export read) to its capture time after the library's correction
+/// changed outside Shift Capture Time (Use XMP and its undo): `now`, or the
+/// time its file states when the correction is gone. Nothing for an
+/// offline photograph without an EXIF map, or a file without a time.
+/// Written as a photograph of `library`.
+pub(crate) fn follow_correction(
+    library: &Path,
+    source: &Path,
+    now: Option<&CaptureTime>,
+) -> Result<(), String> {
+    if crate::exif_processing::read_rrexif_sidecar(source).is_none() && !source.is_file() {
+        return Ok(());
+    }
+    let time = match now {
+        Some(time) => time.clone(),
+        None => match source_time(source) {
+            Some((time, _)) => time,
+            None => return Ok(()),
+        },
+    };
+    let owner = library.to_string_lossy().into_owned();
+    crate::session_bridge::with_culling_owner(Some(&owner), || {
+        crate::file_management::update_exif_of(&source.to_string_lossy(), &exif_updates(&time))
+    })
+}
+
 fn apply(library: &Path, changes: &[PlannedChange]) -> Result<Applied, String> {
     let lib = Library::open(library)
         .map_err(|e| format!("The library {} cannot be read: {e:#}", library.display()))?;
@@ -710,6 +737,73 @@ mod tests {
 
         // The camera files were never written.
         assert_eq!([sha256(&a), sha256(&b)], hashes);
+    }
+
+    #[test]
+    fn use_xmp_brings_what_the_photograph_shows_to_the_sidecar_s_time() {
+        use crate::xmp_review::{XmpChoice, resolve, undo};
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(
+            &temp.path().join("Job"),
+            "Job",
+            rawtonic_catalog::Mode::Session,
+        )
+        .unwrap();
+        let b = camera_jpeg(&lib, "B.jpg", "2026:10:30 23:45:00");
+        let id = lib.add_asset(&b).unwrap().id;
+        // The facts pass reads the file's time (fraction and offset too).
+        let facts = rawtonic_ingest::capture::capture_facts(&b).unwrap();
+        assert_eq!(facts.captured_subsec.as_deref(), Some("05"));
+        lib.record_facts(&id, &facts).unwrap();
+        let hash = sha256(&b);
+        let b_path = b.to_string_lossy().into_owned();
+        let found = preview(std::slice::from_ref(&b_path));
+        let library = PathBuf::from(found.library.clone().unwrap());
+        let planned = plan(&found.items, &hours(false, "1"));
+        assert!(
+            apply(&library, &planned.changes)
+                .unwrap()
+                .conflicts
+                .is_empty()
+        );
+        let corrected = lib.capture_override(&id).unwrap().unwrap();
+        let shown = || crate::exif_processing::read_rrexif_sidecar(&b).unwrap();
+        assert_eq!(shown()["DateTimeOriginal"], "2026-10-31 00:45:00");
+
+        // Another editor puts the camera's time back into the sidecar.
+        let xmp = b.with_extension("xmp");
+        let text = std::fs::read_to_string(&xmp).unwrap();
+        let back = text.replace(
+            "2026-10-31T00:45:00.05+02:00",
+            "2026-10-30T23:45:00.05+02:00",
+        );
+        assert_ne!(back, text);
+        std::fs::write(&xmp, back).unwrap();
+        assert!(lib.sync_xmp(&id).is_err(), "a conflict");
+
+        // Use XMP: no correction, and the photograph shows (and exports)
+        // the file's own time again.
+        let report = resolve(&lib, std::slice::from_ref(&b_path), XmpChoice::Xmp).unwrap();
+        assert_eq!(report.read, std::slice::from_ref(&b_path));
+        assert_eq!(lib.capture_override(&id).unwrap(), None);
+        assert_eq!(shown()["DateTimeOriginal"], "2026-10-30 23:45:00");
+        assert_eq!(shown()["SubSecTimeOriginal"], "05");
+        assert_eq!(shown()["OffsetTimeOriginal"], "+02:00");
+        let pinned =
+            crate::export_processing::pin_photos(std::slice::from_ref(&b_path), None, None, None)
+                .unwrap();
+        assert!(pinned[0].capture.is_none());
+        assert_eq!(
+            pinned[0].exif(&b).unwrap()["DateTimeOriginal"],
+            "2026-10-30 23:45:00"
+        );
+
+        // Its undo brings the correction back, there too.
+        let undone = undo(&lib, &report.undo);
+        assert!(undone.failed.is_empty(), "{:?}", undone.failed);
+        assert_eq!(lib.capture_override(&id).unwrap(), Some(corrected));
+        assert_eq!(shown()["DateTimeOriginal"], "2026-10-31 00:45:00");
+        assert_eq!(sha256(&b), hash, "the camera file is never written");
     }
 
     #[test]

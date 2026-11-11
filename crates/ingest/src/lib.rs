@@ -1877,6 +1877,8 @@ mod exif_and_sidecar_tests {
             facts,
             rawtonic_catalog::CaptureFacts {
                 captured: Some("2025-12-24 18:30:15".into()),
+                captured_subsec: Some("042".into()),
+                captured_offset: Some("+02:00".into()),
                 make: Some("Testmaker".into()),
                 model: Some("Model One".into()),
                 lens: Some("Test Lens 35mm F2.8".into()),

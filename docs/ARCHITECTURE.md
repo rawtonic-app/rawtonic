@@ -130,7 +130,9 @@ New Rust workspace crates isolate data and file safety.
   UI `CaptureTimeDialog`). The XMP sidecar carries it as `exif:DateTimeOriginal` + `photoshop:DateCreated`
   (`capture_write` → `rawtonic_metadata::CaptureWrite`; `metadata.xmp_capture`, schema 27, is the value the library
   owns there, so a reset removes only that); a sidecar's differing `exif:DateTimeOriginal` becomes the correction on
-  import, Use XMP, adopt and the first facts read (`adopt_sidecar`).
+  import, Use XMP, adopt and the first facts read (`adopt_sidecar`), compared with the file's whole time (facts keep its
+  fraction and offset, `assets.capture_subsec`/`capture_offset`, schema 28); Use XMP and its undo bring the `.rrdata`
+  EXIF along (`src-tauri/src/capture_time.rs::follow_correction`).
 - `session_move`: whether a whole session folder may move into a folder (G40: photos never move out of their session; a
   catalog is not moved this way) — not into itself or another library, no name clash, its database not open in another
   connection (an exclusive-lock probe); the move itself is one `fileops` step, app glue `src-tauri/src/session_move.rs`

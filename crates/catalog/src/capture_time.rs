@@ -228,7 +228,7 @@ impl CaptureTime {
         Self::new(
             &format!("{} {}", value.date, value.time),
             value.fraction.as_deref(),
-            value.offset.as_deref(),
+            value.utc_offset(),
         )
     }
 
@@ -471,13 +471,24 @@ pub(crate) fn adopt_sidecar(
     let Ok(time) = CaptureTime::from_xmp(stated) else {
         return Ok(());
     };
-    let camera: Option<String> = conn
-        .query_row("SELECT capture_time FROM assets WHERE id=?", [id], |r| {
-            r.get(0)
-        })
+    // The file's time with the fraction and offset it states (none known
+    // for photographs whose facts were read before schema 28: whole
+    // seconds then).
+    let camera: Option<CaptureTime> = conn
+        .query_row(
+            "SELECT capture_time,capture_subsec,capture_offset FROM assets WHERE id=?",
+            [id],
+            |r| {
+                Ok(r.get::<_, Option<String>>(0)?.map(|local| CaptureTime {
+                    local,
+                    subsec: r.get(1).ok().flatten(),
+                    offset: r.get(2).ok().flatten(),
+                }))
+            },
+        )
         .optional()?
         .flatten();
-    let Some(camera) = camera.filter(|c| !c.is_empty()) else {
+    let Some(camera) = camera.filter(|c| !c.local.is_empty()) else {
         return Ok(());
     };
     let current = override_of(conn, id)?;
@@ -490,7 +501,7 @@ pub(crate) fn adopt_sidecar(
             "UPDATE metadata SET xmp_capture=? WHERE asset_id=?",
             params![stated.to_xmp(), id],
         )?;
-    } else if time.local == camera {
+    } else if stated.same_moment(&camera.to_xmp()) {
         // The file's time: no correction (equal times create none).
         conn.execute("DELETE FROM capture_overrides WHERE asset_id=?", [id])?;
         conn.execute(
@@ -507,6 +518,41 @@ pub(crate) fn adopt_sidecar(
         conn.execute(
             "UPDATE metadata SET xmp_capture=? WHERE asset_id=?",
             params![stated.to_xmp(), id],
+        )?;
+    }
+    Ok(())
+}
+
+/// Drops the library's IPTC Date Created of asset `id` when it holds the
+/// correction being removed (`removed`): read from a sidecar the correction
+/// came from (Lightroom writes it beside its edited capture time) or from
+/// one the library wrote, it is that correction, not a date of its own, and
+/// the sidecar writer then removes it with the correction's other date. An
+/// IPTC Date Created of another value stays.
+fn forget_mirrored_date(conn: &Connection, id: &str, removed: &CaptureTime) -> Result<()> {
+    let data: Option<String> = conn
+        .query_row("SELECT data FROM metadata WHERE asset_id=?", [id], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    let Some(data) = data else {
+        return Ok(());
+    };
+    let mut metadata: rawtonic_metadata::Metadata = serde_json::from_str(&data)?;
+    let mirrored = metadata
+        .iptc
+        .get("dateCreated")
+        .and_then(|value| XmpDateTime::parse(value))
+        .is_some_and(|value| value.same_moment(&removed.to_xmp()));
+    if mirrored {
+        metadata.iptc.remove("dateCreated");
+        conn.execute(
+            "UPDATE metadata SET data=? WHERE asset_id=?",
+            params![serde_json::to_string(&metadata)?, id],
+        )?;
+        conn.execute(
+            "UPDATE assets SET search_text=? WHERE id=?",
+            params![crate::search_text(&metadata), id],
         )?;
     }
     Ok(())
@@ -624,10 +670,15 @@ impl Library {
                         subsec=excluded.subsec,offset=excluded.offset",
                     params![change.asset_id, time.local, time.subsec, time.offset],
                 )?,
-                None => tx.execute(
-                    "DELETE FROM capture_overrides WHERE asset_id=?",
-                    [&change.asset_id],
-                )?,
+                None => {
+                    if let Some(removed) = &change.expected {
+                        forget_mirrored_date(&tx, &change.asset_id, removed)?;
+                    }
+                    tx.execute(
+                        "DELETE FROM capture_overrides WHERE asset_id=?",
+                        [&change.asset_id],
+                    )?
+                }
             };
             // The XMP sidecar follows (`capture_write`); one changed
             // elsewhere stays a conflict.

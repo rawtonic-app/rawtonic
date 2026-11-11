@@ -203,8 +203,7 @@ pub struct XmpDateTime {
     pub time: String,
     /// Fraction of the second as written, digits only.
     pub fraction: Option<String>,
-    /// UTC offset `±HH:MM` as written. A `Z` reads as none: Capture One
-    /// writes it after the camera's local time, so it states no offset.
+    /// UTC offset as written: `±HH:MM`, or `Z` for UTC.
     pub offset: Option<String>,
 }
 
@@ -224,7 +223,8 @@ impl XmpDateTime {
             None => (rest, None),
         };
         let offset = match offset {
-            None | Some("Z") => None,
+            None => None,
+            Some("Z") => Some("Z".to_string()),
             Some(o) => {
                 let (h, m) = o[1..].split_once(':')?;
                 if !digits(h, 2) || !digits(m, 2) {
@@ -273,17 +273,30 @@ impl XmpDateTime {
         out
     }
 
-    /// The same wall time, to the fraction both state (trailing zeros
-    /// aside); the offset is not compared.
+    /// The UTC offset in `±HH:MM` form (`Z` is `+00:00`).
+    pub fn utc_offset(&self) -> Option<&str> {
+        self.offset
+            .as_deref()
+            .map(|o| if o == "Z" { "+00:00" } else { o })
+    }
+
+    /// The same wall time, to the fraction and the offset both state
+    /// (trailing fraction zeros aside): a value that leaves one out says
+    /// nothing against the other's, two that state different ones differ.
     pub fn same_moment(&self, other: &Self) -> bool {
         let fraction =
             |f: &Option<String>| f.as_deref().map(|f| f.trim_end_matches('0').to_string());
+        let agree = |a: Option<String>, b: Option<String>| match (a, b) {
+            (Some(a), Some(b)) => a == b,
+            _ => true,
+        };
         self.date == other.date
             && self.time == other.time
-            && match (fraction(&self.fraction), fraction(&other.fraction)) {
-                (Some(a), Some(b)) => a == b,
-                _ => true,
-            }
+            && agree(fraction(&self.fraction), fraction(&other.fraction))
+            && agree(
+                self.utc_offset().map(str::to_string),
+                other.utc_offset().map(str::to_string),
+            )
     }
 }
 

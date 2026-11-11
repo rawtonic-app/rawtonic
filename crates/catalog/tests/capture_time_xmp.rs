@@ -188,8 +188,11 @@ fn a_photo_without_a_sidecar_gets_one_only_with_a_correction() {
 #[test]
 fn lightroom_s_edited_capture_time_imports_as_a_correction_and_equal_ones_do_not() {
     let d = tempfile::tempdir().unwrap();
-    // Lightroom's Edit Capture Time moved the shot two hours later.
-    let shifted = LIGHTROOM.replace(LIGHTROOM_TIME, "2020-10-18T15:34:44");
+    // Lightroom's Edit Capture Time moved the shot two hours later (and
+    // writes the IPTC Date Created with it).
+    let shifted = LIGHTROOM
+        .replace(LIGHTROOM_TIME, "2020-10-18T15:34:44")
+        .replace("2026-05-01T10:20:30", "2020-10-18T15:34:44");
     let (lib, id, photo) = import(&d.path().join("lr"), "A.ORF", Some(&shifted));
     let camera_file = sha256(&photo);
     lib.record_facts(&id, &facts("2020-10-18 13:34:44"))
@@ -202,7 +205,13 @@ fn lightroom_s_edited_capture_time_imports_as_a_correction_and_equal_ones_do_not
     lib.record_facts(&id, &facts("2020-10-18 13:34:44"))
         .unwrap();
     assert!(lib.capture_override(&id).unwrap().is_some());
-    // The library owns that value now: a reset removes Lightroom's date.
+    // The library owns that value now: a reset removes Lightroom's date,
+    // and the IPTC Date Created Lightroom wrote beside it (the same
+    // correction) both in the library and in the sidecar.
+    assert_eq!(
+        lib.metadata(&id).unwrap().iptc["dateCreated"],
+        "2020-10-18T15:34:44"
+    );
     set(
         &lib,
         &id,
@@ -211,6 +220,8 @@ fn lightroom_s_edited_capture_time_imports_as_a_correction_and_equal_ones_do_not
     );
     lib.write_pending_xmp().unwrap();
     assert_eq!(stated(&photo), None);
+    assert!(!sidecar(&photo).contains("DateCreated"));
+    assert!(!lib.metadata(&id).unwrap().iptc.contains_key("dateCreated"));
     assert_eq!(sha256(&photo), camera_file);
 
     // Equal to the file's time (Capture One's `Z` after local time): none.
@@ -228,6 +239,63 @@ fn lightroom_s_edited_capture_time_imports_as_a_correction_and_equal_ones_do_not
     assert_eq!(
         late.capture_override(&late_id).unwrap().unwrap().local,
         "2020-10-18 15:34:44"
+    );
+}
+
+#[test]
+fn the_file_s_fraction_and_offset_decide_whether_a_time_differs() {
+    let d = tempfile::tempdir().unwrap();
+    let camera = CaptureFacts {
+        captured_subsec: Some("10".into()),
+        captured_offset: Some("+02:00".into()),
+        ..facts("2026-10-30 12:00:00")
+    };
+    // A burst frame moved by a quarter of a second, written by one library.
+    let (lib, id, photo) = import(&d.path().join("one"), "A.ARW", None);
+    lib.record_facts(&id, &camera).unwrap();
+    let quarter = time("2026-10-30 12:00:00", Some("35"), Some("+02:00")).unwrap();
+    set(&lib, &id, None, Some(quarter.clone()));
+    lib.write_pending_xmp().unwrap();
+    assert_eq!(
+        stated(&photo).as_deref(),
+        Some("2026-10-30T12:00:00.35+02:00")
+    );
+    // Read by another: a correction, though the second is the file's.
+    let (other, other_id, _) = import(&d.path().join("two"), "A.ARW", Some(&sidecar(&photo)));
+    other.record_facts(&other_id, &camera).unwrap();
+    assert_eq!(other.capture_override(&other_id).unwrap(), Some(quarter));
+
+    // The file's own time, with or without what the sidecar leaves out: none.
+    for same in [
+        "2026-10-30T12:00:00",
+        "2026-10-30T12:00:00.1",
+        "2026-10-30T12:00:00.10+02:00",
+    ] {
+        let dir = d.path().join(same.replace([':', '.', '+'], "-"));
+        let packet = LIGHTROOM.replace(LIGHTROOM_TIME, same);
+        let (lib, id, _) = import(&dir, "A.ARW", Some(&packet));
+        lib.record_facts(&id, &camera).unwrap();
+        assert_eq!(lib.capture_override(&id).unwrap(), None, "{same}");
+    }
+    // Another offset at the same wall time is another time.
+    let packet = LIGHTROOM.replace(LIGHTROOM_TIME, "2026-10-30T12:00:00.10+01:00");
+    let (lib, id, _) = import(&d.path().join("offset"), "A.ARW", Some(&packet));
+    lib.record_facts(&id, &camera).unwrap();
+    assert_eq!(
+        lib.capture_override(&id).unwrap(),
+        Some(time("2026-10-30 12:00:00", Some("10"), Some("+01:00")).unwrap())
+    );
+    // UTC stated as `Z` stays UTC.
+    let packet = LIGHTROOM.replace(LIGHTROOM_TIME, "2026-10-30T10:00:00Z");
+    let (lib, id, _) = import(&d.path().join("utc"), "A.ARW", Some(&packet));
+    lib.record_facts(&id, &camera).unwrap();
+    assert_eq!(
+        lib.capture_override(&id)
+            .unwrap()
+            .unwrap()
+            .offset
+            .as_deref(),
+        Some("+00:00")
     );
 }
 
@@ -263,8 +331,23 @@ fn a_sidecar_changed_elsewhere_follows_the_conflict_the_photographer_resolves() 
         Some("2020-10-18T11:34:44.07+02:00")
     );
 
+    // Only the offset changed elsewhere: Use XMP takes that offset.
+    let moved = sidecar(&photo).replace("11:34:44.07+02:00", "11:34:44.07+01:00");
+    fs::write(photo.with_extension("xmp"), &moved).unwrap();
+    assert!(lib.sync_xmp(&id).is_err());
+    lib.use_xmp(&id).unwrap();
+    assert_eq!(
+        lib.capture_override(&id).unwrap(),
+        Some(time("2020-10-18 11:34:44", Some("07"), Some("+01:00")).unwrap())
+    );
+    lib.sync_xmp(&id).unwrap();
+    assert_eq!(
+        stated(&photo).as_deref(),
+        Some("2020-10-18T11:34:44.07+01:00")
+    );
+
     // A sidecar back at the file's time read with Use XMP: no correction.
-    let camera = sidecar(&photo).replace("2020-10-18T11:34:44.07+02:00", LIGHTROOM_TIME);
+    let camera = sidecar(&photo).replace("2020-10-18T11:34:44.07+01:00", LIGHTROOM_TIME);
     fs::write(photo.with_extension("xmp"), &camera).unwrap();
     assert!(lib.sync_xmp(&id).is_err());
     lib.use_xmp(&id).unwrap();
@@ -289,6 +372,7 @@ fn a_library_of_schema_26_opens_and_writes_corrections() {
         .unwrap();
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0028.sql")).unwrap();
     db.execute_batch(include_str!("undo_0027.sql")).unwrap();
     drop(db);
     let lib = Library::open(d.path()).unwrap();
