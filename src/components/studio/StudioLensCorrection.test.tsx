@@ -64,7 +64,7 @@ describe('Lens correction tool', () => {
       ...INITIAL_ADJUSTMENTS,
       lensMaker: 'Sony',
       lensModel: 'Earlier profile name',
-      lensDistortionParams: distortion,
+      lensDistortionParams: { ...distortion, model: 1, tca_vr: 1, tca_vb: 1, vig_k1: 0, vig_k2: 0, vig_k3: 0 },
       lensCorrectionMode: 'manual',
       lensProfileFor: 'saved stamp'
     };
@@ -73,7 +73,7 @@ describe('Lens correction tool', () => {
     const select = screen.getByLabelText('Lens model') as HTMLSelectElement;
     expect(select.value).toBe('Earlier profile name');
     expect(select.selectedOptions[0].textContent).toBe('Earlier profile name');
-    expect(current.lensDistortionParams).toEqual(distortion);
+    expect(current.lensDistortionParams).toMatchObject(distortion);
     expect(current.lensProfileFor).toBe('saved stamp');
     expect(setAdjustments).not.toHaveBeenCalled();
   });
