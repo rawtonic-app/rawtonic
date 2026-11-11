@@ -51,6 +51,24 @@ fn main() {
     if let Some(path) = std::env::var_os("EXQ_JXL_OUTPUT") {
         rawtonic_export::output::write_new_output(path, &bytes).unwrap();
     }
+    if std::env::args().any(|arg| arg == "--verify-libjxl") {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("export.jxl");
+        rawtonic_export::output::write_new_output(&source, &bytes).unwrap();
+        let decoded = std::process::Command::new("djxl")
+            .arg(&source)
+            .args(["-", "--output_format", "ppm"])
+            .output()
+            .expect("requires libjxl's djxl decoder");
+        assert!(
+            decoded.status.success(),
+            "{}",
+            String::from_utf8_lossy(&decoded.stderr)
+        );
+        let decoded = image::load_from_memory(&decoded.stdout).unwrap();
+        assert_eq!(decoded.to_rgb8(), image.to_rgb8());
+        println!("libjxl_decoded_pixels_identical=true");
+    }
     if std::env::args().any(|arg| arg == "--verify") {
         let decoder = jxl_oxide::integration::JxlDecoder::new(std::io::Cursor::new(bytes)).unwrap();
         let decoded = DynamicImage::from_decoder(decoder).unwrap();

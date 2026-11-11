@@ -3105,6 +3105,51 @@ mod encoding_memory_tests {
         render.image_all_channels().buf().to_vec()
     }
 
+    /// Multi-group encoding must also decode, not just the single-group
+    /// colour swatches. Run with --ignored on native QA hosts.
+    #[test]
+    #[ignore = "36 MP encoder regression; requires the independent djxl executable"]
+    fn lossless_jxl_36mp_export_preserves_every_sample() {
+        let mut state = 123456789u32;
+        let original = DynamicImage::ImageRgb8(image::RgbImage::from_fn(7360, 4912, |x, y| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let noise = (state & 15) as u8;
+            image::Rgb([
+                ((x * 255 / 7360) as u8).saturating_add(noise),
+                ((y * 255 / 4912) as u8).saturating_add(noise),
+                (((x + y) * 255 / 12272) as u8).saturating_add(noise),
+            ])
+        }));
+        let bytes = encode_image_to_bytes(
+            &original,
+            "jxl",
+            100,
+            TiffBitDepth::Eight,
+            OutputColorSpace::Srgb,
+            None,
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("export.jxl");
+        crate::output::write_new_output(&source, bytes).unwrap();
+        // jxl-oxide 0.12 rejects these multi-group ANS streams (including
+        // the previous effort-7 default); libjxl decodes them correctly.
+        let decoded = std::process::Command::new("djxl")
+            .arg(&source)
+            .args(["-", "--output_format", "ppm"])
+            .output()
+            .expect("native QA requires libjxl's djxl decoder");
+        assert!(
+            decoded.status.success(),
+            "{}",
+            String::from_utf8_lossy(&decoded.stderr)
+        );
+        let decoded = image::load_from_memory(&decoded.stdout).unwrap();
+        assert_eq!(decoded.to_rgb8(), original.to_rgb8());
+    }
+
     #[test]
     fn lossless_jxl_export_preserves_every_rgb_sample() {
         let rgb = wide_test_image();
