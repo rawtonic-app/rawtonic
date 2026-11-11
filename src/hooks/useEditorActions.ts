@@ -460,7 +460,12 @@ function pastedOpen(
         samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
         replaceLayers: paste?.replaceLayers ?? true,
         keepNulls: !paste,
-        newEdit: paste?.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
+        // A never-edited (or Reset) photo takes a new edit's versions first,
+        // whatever brings the settings (a preset too), as the backend's
+        // `start_new_edit` does; carried Whites and Blacks are expressed in them.
+        newEdit: ((newEdit) => (newEdit ? (open.isRaw ? newEdit.raw : newEdit.other) : undefined))(
+          paste?.newEdit ?? (target.isNew ? newEditResponses() : undefined)
+        ),
         // A new recipe starts with the camera's crop of the frame it shows.
         cameraCrop:
           opened && open.isRaw && newSaved(opened.saved)
