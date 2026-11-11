@@ -3434,6 +3434,7 @@
         "other": "Korekta",
         "redEyes": "Czerwone oczy",
         "remove": "Usuń",
+        "resetGroup": "Zresetuj {{tool}}",
         "spots": "Usuwanie plam",
         "title": "Historia"
       },
@@ -3643,6 +3644,8 @@
       "toolGroup": {
         "isOn": "{{tool}} włączone",
         "reset": "Resetuj: {{tool}}",
+        "resetGroup": "Zresetuj grupę",
+        "resetHint": "Alt/Option-klik na nazwie resetuje {{tool}}",
         "resetOrHold": "Resetuj {{tool}} (przytrzymaj lub naciśnij z Alt/Option: pokaż zdjęcie bez narzędzia)",
         "turnOff": "Wyłącz: {{tool}}",
         "turnOn": "Włącz: {{tool}}"

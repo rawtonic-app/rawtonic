@@ -6065,6 +6065,28 @@ pub fn apply_render_default(adjustments: &mut serde_json::Value) {
     }
 }
 
+/// Every version a new recipe (`is_new_recipe`) of a RAW (`is_raw`) or
+/// other photo starts with, as the editor's new edit (`initialAdjustmentsFor`):
+/// the render, sharpening and frame versions (`apply_render_default`), the
+/// tool responses (`new_edit_responses`) and a RAW's fringe and lateral CA
+/// passes. A batch edit of a never-opened photo starts from it, so its
+/// first save is the edit opening it first would make; a saved recipe keeps
+/// its own versions. The camera's lens versions follow its data
+/// (`embedded_lens::apply_default`).
+pub fn start_new_edit(adjustments: &mut serde_json::Value, is_raw: bool) {
+    if !is_new_recipe(adjustments) {
+        return;
+    }
+    apply_render_default(adjustments);
+    if let Some(map) = adjustments.as_object_mut() {
+        for (key, value) in new_edit_responses(is_raw) {
+            map.entry(key).or_insert(value);
+        }
+    }
+    crate::edge_fringe::apply_default(adjustments, true, is_raw);
+    crate::lateral_ca::apply_default(adjustments, true, is_raw);
+}
+
 /// The tool responses the editor's new edit of a RAW (`is_raw`) or other
 /// photo starts with (`initialAdjustmentsFor`, `newEditResponses`), beside
 /// the render, sharpening and frame versions (`apply_render_default`) and

@@ -3041,6 +3041,7 @@
         "other": "補正",
         "redEyes": "赤目",
         "remove": "削除",
+        "resetGroup": "{{tool}}をリセット",
         "spots": "スポット除去",
         "title": "履歴"
       },
@@ -3250,6 +3251,8 @@
       "toolGroup": {
         "isOn": "{{tool}} オン",
         "reset": "{{tool}}をリセット",
+        "resetGroup": "グループをリセット",
+        "resetHint": "名前を Alt/Option クリックすると {{tool}} をリセット",
         "resetOrHold": "{{tool}}をリセット（長押し、またはAlt/Optionを押しながら押す: このツールなしの写真を表示）",
         "turnOff": "{{tool}}をオフ",
         "turnOn": "{{tool}}をオン"

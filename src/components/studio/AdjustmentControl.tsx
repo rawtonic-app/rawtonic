@@ -2,6 +2,7 @@ import { memo, useEffect, useId, useRef, useState, type KeyboardEvent, type Poin
 import { useTranslation } from 'react-i18next';
 import { selectOnFocus } from '../../utils/selectOnFocus';
 import { MIN_SEND_INTERVAL_MS } from '../../hooks/useDragSend';
+import { resolveKeySteps, stepOf, type KeySteps, type StepSet } from './sliderFeel';
 
 export interface AdjustmentControlProps {
   label: string;
@@ -20,6 +21,12 @@ export interface AdjustmentControlProps {
     toTrack(value: number): number;
     fromTrack(position: number): number;
   };
+  /** Keyboard steps (plain, Shift, Alt) of the slider and of the value field;
+   * whole-unit sliders step like Lightroom's by default (sliderFeel.ts). */
+  keys?: KeySteps;
+  /** Shortest drag travel in points: on a shorter track a drag moves the value
+   * as if the track were this long (HSL, as Lightroom's 200 pt). */
+  minTravel?: number;
   disabled?: boolean;
   /** Option (Alt) held during a drag shows a view of this control's effect
    * (the sharpening view, utils/sharpenView): called with true when it
@@ -73,6 +80,8 @@ export default memo(function AdjustmentControl({
   unit = '',
   track,
   scale,
+  keys: keyOverride,
+  minTravel = 0,
   disabled = false,
   optionView,
   onChange,
@@ -84,6 +93,10 @@ export default memo(function AdjustmentControl({
   const [text, setText] = useState(shownValue(value, step));
   // A slider or label drag in progress: the row shows its pressed state.
   const [dragging, setDragging] = useState(false);
+  // The pointer is over the row: Up/Down step the slider without a click.
+  const [hovered, setHovered] = useState(false);
+  const keySteps = resolveKeySteps(step, keyOverride);
+  const trackRef = useRef<HTMLInputElement | null>(null);
   const active = useRef(false);
   const frame = useRef<number | null>(null);
   const pending = useRef(value);
@@ -199,21 +212,41 @@ export default memo(function AdjustmentControl({
     update(defaultValue);
     end();
   };
+  // One key press on the slider: its steps, from the value shown.
+  const stepBy = (direction: 1 | -1, set: StepSet, shift: boolean, alt: boolean, from = local) => {
+    const delta = stepOf(set, shift, alt);
+    update(from + direction * delta, Math.min(step, delta));
+    flush();
+  };
   const keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
-    const delta = step * (event.shiftKey ? 10 : event.altKey ? 0.1 : 1);
-    update(
-      event.key === 'Home'
-        ? min
-        : event.key === 'End'
-          ? max
-          : local + (['ArrowRight', 'ArrowUp'].includes(event.key) ? delta : -delta),
-      event.altKey ? step / 10 : step
-    );
-    flush();
+    if (event.key === 'Home' || event.key === 'End') {
+      update(event.key === 'Home' ? min : max);
+      flush();
+      return;
+    }
+    stepBy(['ArrowRight', 'ArrowUp'].includes(event.key) ? 1 : -1, keySteps.slider, event.shiftKey, event.altKey);
   };
+  // Up/Down while the pointer rests on the row and no field or slider has
+  // the focus: the hovered slider steps as a focused one does.
+  const hoverKeys = useRef<(event: globalThis.KeyboardEvent) => void>(() => {});
+  hoverKeys.current = (event) => {
+    if (disabled || event.ctrlKey || event.metaKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const target = event.target as HTMLElement | null;
+    // A focused field or slider (also another one's) owns the arrow keys.
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    stepBy(event.key === 'ArrowUp' ? 1 : -1, keySteps.slider, event.shiftKey, event.altKey, pending.current);
+  };
+  useEffect(() => {
+    if (!hovered) return;
+    const key = (event: globalThis.KeyboardEvent) => hoverKeys.current(event);
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  }, [hovered]);
   const scrubStart = (e: PointerEvent<HTMLLabelElement>) => {
     if (disabled || e.button !== 0) return;
     e.preventDefault();
@@ -244,7 +277,11 @@ export default memo(function AdjustmentControl({
     end();
   };
   return (
-    <div className={`adjustment-control ${disabled ? 'is-disabled' : ''} ${dragging ? 'is-active' : ''}`}>
+    <div
+      className={`adjustment-control ${disabled ? 'is-disabled' : ''} ${dragging ? 'is-active' : ''}`}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+    >
       <label
         htmlFor={id}
         title={t('studio.adjustment.scrubHint')}
@@ -268,6 +305,7 @@ export default memo(function AdjustmentControl({
       </label>
       <input
         id={id}
+        ref={trackRef}
         className={`adjustment-track ${track || ''}`}
         type="range"
         min={trackMin}
@@ -308,7 +346,7 @@ export default memo(function AdjustmentControl({
               x: e.clientX,
               centreY: (box.top || 0) + box.height / 2,
               value: start,
-              perPixel: (trackMax - trackMin) / travel
+              perPixel: (trackMax - trackMin) / Math.max(travel, minTravel)
             };
           } else begin();
         }}
@@ -357,6 +395,17 @@ export default memo(function AdjustmentControl({
         onBlur={commitText}
         onKeyDown={(e) => {
           e.stopPropagation();
+          if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            const typed = Number(text.replace(',', '.'));
+            stepBy(
+              e.key === 'ArrowUp' ? 1 : -1,
+              keySteps.field,
+              e.shiftKey,
+              e.altKey,
+              text.trim() && Number.isFinite(typed) ? typed : pending.current
+            );
+          }
           if (e.key === 'Enter') e.currentTarget.blur();
           if (e.key === 'Escape') {
             canceled.current = true;
