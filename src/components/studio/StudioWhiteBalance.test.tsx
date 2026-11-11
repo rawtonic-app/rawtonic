@@ -131,8 +131,8 @@ describe('white balance', () => {
     const perPoint = (KELVIN_SCALE.toTrack(50000) - KELVIN_SCALE.toTrack(2000)) / 150;
     const dragged = (from: number, points: number) =>
       KELVIN_SCALE.fromTrack(KELVIN_SCALE.toTrack(from) + points * perPoint);
-    expect(Math.abs(dragged(4050, 30) / 6093 - 1)).toBeLessThan(0.01);
-    expect(Math.abs(dragged(4050, 60) / 8314 - 1)).toBeLessThan(0.01);
+    expect(Math.abs(dragged(4050, 30) / 6093 - 1)).toBeLessThan(0.003);
+    expect(Math.abs(dragged(4050, 60) / 8314 - 1)).toBeLessThan(0.003);
     // The whole range stays on the track, in order.
     expect(KELVIN_SCALE.fromTrack(KELVIN_SCALE.toTrack(50000))).toBe(50000);
     let last = 0;

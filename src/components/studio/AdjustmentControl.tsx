@@ -229,14 +229,14 @@ export default memo(function AdjustmentControl({
     }
     stepBy(['ArrowRight', 'ArrowUp'].includes(event.key) ? 1 : -1, keySteps.slider, event.shiftKey, event.altKey);
   };
-  // Up/Down while the pointer rests on the row, nothing typed or focused in
-  // a field: the hovered slider steps as a focused one does.
+  // Up/Down while the pointer rests on the row and no field or slider has
+  // the focus: the hovered slider steps as a focused one does.
   const hoverKeys = useRef<(event: globalThis.KeyboardEvent) => void>(() => {});
   hoverKeys.current = (event) => {
     if (disabled || event.ctrlKey || event.metaKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
     const target = event.target as HTMLElement | null;
-    if (target?.closest('input:not([type="range"]), textarea, select, [contenteditable="true"]')) return;
-    if (target === trackRef.current) return;
+    // A focused field or slider (also another one's) owns the arrow keys.
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
     event.preventDefault();
     event.stopPropagation();
     stepBy(event.key === 'ArrowUp' ? 1 : -1, keySteps.slider, event.shiftKey, event.altKey, pending.current);

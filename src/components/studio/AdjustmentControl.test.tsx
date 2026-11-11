@@ -409,6 +409,23 @@ describe('Lightroom keyboard steps and travel', () => {
     expect(change).not.toHaveBeenCalled();
   });
 
+  it('a focused slider keeps its arrow keys while the pointer rests on another row', () => {
+    const contrast = vi.fn();
+    const clarity = vi.fn();
+    render(
+      <>
+        <AdjustmentControl label="Contrast" value={0} onChange={contrast} />
+        <AdjustmentControl label="Clarity" value={0} onChange={clarity} />
+      </>
+    );
+    fireEvent.pointerEnter(screen.getByRole('slider', { name: 'Contrast' }).closest('.adjustment-control')!);
+    const focused = screen.getByRole('slider', { name: 'Clarity' });
+    focused.focus();
+    fireEvent.keyDown(focused, { key: 'ArrowUp' });
+    expect(clarity).toHaveBeenLastCalledWith(5);
+    expect(contrast).not.toHaveBeenCalled();
+  });
+
   it('a track shorter than the minimum travel drags as if it had that length', () => {
     const box = { left: 0, top: 0, width: 109, height: 20 } as DOMRect; // 100 px of travel
     const drag = (minTravel?: number) => {
