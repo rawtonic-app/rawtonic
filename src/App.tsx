@@ -563,6 +563,7 @@ function App() {
           hasNativeMacTitlebar && 'macos-native-chrome',
           osPlatform === 'linux' && 'linux-unified-chrome',
           hasCustomChrome && 'custom-window-chrome',
+          showWindowControls && 'custom-windowed',
           hasNativeMacTitlebar && !isWindowFullScreen && 'macos-windowed',
           barsHidden && 'bars-hidden',
           isFullScreen && 'is-image-fullscreen',
