@@ -4291,7 +4291,9 @@ pub fn is_geometry_identity(params: &GeometryParams) -> bool {
                 && (params.tca_vr - 1.0).abs() < 1e-6
                 && (params.tca_vb - 1.0).abs() < 1e-6
                 && params.tca_vr2.abs() < 1e-9
-                && params.tca_vb2.abs() < 1e-9));
+                && params.tca_vb2.abs() < 1e-9
+                && params.tca_vr1.abs() < 1e-9
+                && params.tca_vb1.abs() < 1e-9));
 
     let vig_identity = !params.lens_vignette_enabled
         || ((params.lens_vignette_amount - 1.0).abs() < 1e-4
@@ -9621,6 +9623,22 @@ mod warp_points_tests {
         DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(width, height, |x, y| {
             image::Rgb([x as f32, y as f32, 0.0])
         }))
+    }
+
+    /// Lateral CA growing only with the radius itself (lensfun's poly3
+    /// linear term, neutral constant and quadratic terms) is a warp.
+    #[test]
+    fn a_linear_only_lateral_ca_is_no_identity() {
+        let params = get_geometry_params_from_json(&serde_json::json!({
+            "lensDistortionParams": {"tca_vr1": 0.0004, "convention": 1}
+        }));
+        assert!(!is_geometry_identity(&params));
+        let blue = GeometryParams {
+            tca_vb1: -0.0003,
+            ..Default::default()
+        };
+        assert!(!is_geometry_identity(&blue));
+        assert!(is_geometry_identity(&GeometryParams::default()));
     }
 
     /// A warp that moves no pixel (vignetting only, automatic CA that found

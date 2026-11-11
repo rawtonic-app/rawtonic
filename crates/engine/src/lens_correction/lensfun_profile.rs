@@ -22,10 +22,11 @@
 //!   calibration is farther than 1 in those units.
 //! - The distortion runs about the middle of the pixel grid, as Lensfun's
 //!   (`image_processing::lens_centre`; earlier warps use width / 2).
-//! - The warp fills the frame exactly (`convention` ≥ 1:
-//!   `image_processing::compute_lens_auto_crop_scale` scans every border
-//!   pixel, no margin, never below 1) — Rawtonic's framing, not Lensfun's
-//!   auto scale.
+//! - The warp frames the widest crop the corrected photo fills (`convention`
+//!   ≥ 1: `image_processing::compute_lens_auto_crop_scale` scans every
+//!   border pixel, no margin; at Lensfun's focal-preserving scale the zoom
+//!   may be below 1) — never empty corners, unlike Lensfun's auto scale,
+//!   which adds a margin.
 use super::{CalibrationElement, Distortion, Lens, LensDistortionParams, Tca, Vignetting};
 
 /// `LensDistortionParams::convention` of profiles resolved here.
@@ -36,9 +37,11 @@ pub const CONVENTION: u32 = 1;
 /// k1 r³).
 pub const MODEL_PTLENS_UNSCALED: u32 = 4;
 
-/// Lensfun's default focus distance where the photo states none (metres).
+/// The focus distance assumed where the photo states none, or 0 or another
+/// value that is no distance (metres; EXIF SubjectDistance 0 means
+/// unknown).
 const DEFAULT_DISTANCE: f32 = 1000.0;
-/// The aperture assumed where the photo states none (as
+/// The aperture assumed where the photo states none or no valid one (as
 /// `get_distortion_params`).
 const DEFAULT_APERTURE: f32 = 3.5;
 
@@ -404,10 +407,11 @@ impl Lens {
             params.tca_vb2 = bb * s * s;
         }
 
+        let valid = |v: Option<f32>| v.filter(|v| v.is_finite() && *v > 0.0);
         if let Some([k1, k2, k3]) = self.vignetting_at(
             focal,
-            aperture.unwrap_or(DEFAULT_APERTURE),
-            distance.unwrap_or(DEFAULT_DISTANCE),
+            valid(aperture).unwrap_or(DEFAULT_APERTURE),
+            valid(distance).unwrap_or(DEFAULT_DISTANCE),
         ) {
             let s2 = vignetting_scale * vignetting_scale;
             params.vig_k1 = k1 * s2;
@@ -518,6 +522,16 @@ mod tests {
         // f/0.5 (8) lies 6 from f/2: no vignetting correction.
         assert!(l.vignetting_at(50.0, 32.0, 10.0).is_some());
         assert_eq!(l.vignetting_at(50.0, 0.5, 10.0), None);
+        // A distance of 0 (EXIF's "unknown") is no distance: corrected as
+        // without one.
+        let at = |distance| {
+            let p = l
+                .profile_params(50.0, Some(4.0), distance, Some(1.0))
+                .unwrap();
+            (p.vig_k1, p.vig_k2, p.vig_k3)
+        };
+        assert_eq!(at(Some(0.0)), at(None));
+        assert!(at(None).0 < 0.0);
     }
 
     /// A PTLens profile keeps its own scale: the corner's displacement is
