@@ -9,6 +9,7 @@ use std::num::NonZero;
 
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
+use crate::display_variant_ir::DisplayShader;
 use crate::image_processing::{
     AllAdjustments, MAX_MASKS, Point, SHARPEN_VIEW_MASK, boxed_uniforms, is_sharpen_view,
 };
@@ -3959,6 +3960,9 @@ pub struct GpuProcessor {
     sharpen_view_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
     sharpen_view_compilation: VariantTable<std::sync::OnceLock<()>>,
     preview_shader: wgpu::ShaderModule,
+    /// The same shader as naga IR, from which display variants compile
+    /// without the code their constants rule out (`display_variant_ir`).
+    display_shader: Arc<DisplayShader>,
     preview_layout: wgpu::PipelineLayout,
     /// `None` records a variant that failed validation; exports use the general pipeline.
     export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
@@ -5691,6 +5695,7 @@ impl Drop for BackgroundPipeline {
 fn spawn_preview_compile(
     device: Arc<wgpu::Device>,
     shader: wgpu::ShaderModule,
+    display: Arc<DisplayShader>,
     layout: wgpu::PipelineLayout,
     features: usize,
     pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
@@ -5716,7 +5721,15 @@ fn spawn_preview_compile(
         // The general pipeline was validated at construction and
         // stays in use if this variant cannot be created.
         match create_preview_pipeline(
-            &device, &shader, &layout, features, true, true, false, false,
+            &device,
+            &shader,
+            Some(&display),
+            &layout,
+            features,
+            true,
+            true,
+            false,
+            false,
         ) {
             Ok(pipeline) => {
                 let _ = pipelines[features].set(pipeline);
@@ -5893,9 +5906,11 @@ fn encode_bind_group_layout(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn create_preview_pipeline(
     device: &wgpu::Device,
     shader_module: &wgpu::ShaderModule,
+    display: Option<&DisplayShader>,
     pipeline_layout: &wgpu::PipelineLayout,
     features: usize,
     direct_curves: bool,
@@ -5912,7 +5927,50 @@ fn create_preview_pipeline(
         layer_sums,
         deferred,
     );
-    create_variant_pipeline(device, shader_module, pipeline_layout, &label, &constants)
+    match display {
+        Some(display) => create_display_pipeline(
+            device,
+            shader_module,
+            display,
+            pipeline_layout,
+            &label,
+            &constants,
+        ),
+        None => create_variant_pipeline(device, shader_module, pipeline_layout, &label, &constants),
+    }
+}
+
+/// A display pipeline from the shader with the code its constants rule out
+/// removed (`display_variant_ir`): far less for the driver to compile. Falls
+/// back to the whole shader if that module cannot be made.
+fn create_display_pipeline(
+    device: &wgpu::Device,
+    shader_module: &wgpu::ShaderModule,
+    display: &DisplayShader,
+    pipeline_layout: &wgpu::PipelineLayout,
+    label: &str,
+    constants: &[(&str, f64)],
+) -> Result<wgpu::ComputePipeline, String> {
+    let module = match display.variant_module(constants) {
+        Ok(module) => module,
+        Err(error) => {
+            log::warn!("{label}: compiling the whole shader ({error})");
+            return create_variant_pipeline(
+                device,
+                shader_module,
+                pipeline_layout,
+                label,
+                constants,
+            );
+        }
+    };
+    let shader = validated(device, &format!("shader '{label}'"), || {
+        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(module)),
+        })
+    })?;
+    create_variant_pipeline(device, &shader, pipeline_layout, label, &[])
 }
 
 /// The variant that shows the sharpening view for a frame of `features`:
@@ -5929,13 +5987,21 @@ fn sharpen_view_features(features: usize) -> usize {
 fn create_sharpen_view_pipeline(
     device: &wgpu::Device,
     shader_module: &wgpu::ShaderModule,
+    display: &DisplayShader,
     pipeline_layout: &wgpu::PipelineLayout,
     features: usize,
 ) -> Result<wgpu::ComputePipeline, String> {
     let label = format!("Sharpening view {features}");
     let mut constants = variant_constants(features, true, true, false, false);
     constants.push(("SHARPEN_VIEW", 1.0));
-    create_variant_pipeline(device, shader_module, pipeline_layout, &label, &constants)
+    create_display_pipeline(
+        device,
+        shader_module,
+        display,
+        pipeline_layout,
+        &label,
+        &constants,
+    )
 }
 
 /// The pipeline constants of display variant `features`
@@ -6138,6 +6204,7 @@ impl GpuProcessor {
         const MAX_MASK_BINDINGS: u32 = 1;
 
         let shader_module = create_shader(device, "Image Processing Shader", shader_source)?;
+        let display_shader = DisplayShader::new(shader_source);
 
         let mut bind_group_layout_entries = vec![
             wgpu::BindGroupLayoutEntry {
@@ -6450,6 +6517,7 @@ impl GpuProcessor {
                 spawn_preview_compile(
                     Arc::clone(device),
                     shader_module.clone(),
+                    Arc::clone(&display_shader),
                     pipeline_layout.clone(),
                     RAW_DEFAULT_PREVIEW_FEATURES,
                     Arc::clone(&preview_pipelines),
@@ -6994,6 +7062,7 @@ impl GpuProcessor {
             sharpen_view_pipelines: Arc::new(variant_table()),
             sharpen_view_compilation: variant_table(),
             preview_shader: shader_module,
+            display_shader,
             preview_layout: pipeline_layout,
             export_pipelines: variant_table(),
             high_precision_export_pipelines: variant_table(),
@@ -8185,10 +8254,20 @@ impl GpuProcessor {
             let pipelines = Arc::clone(&self.layer_sum_pipelines);
             let device = Arc::clone(&self.context.device);
             let shader = self.preview_shader.clone();
+            let display = Arc::clone(&self.display_shader);
             let layout = self.preview_layout.clone();
             rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
-                match create_preview_pipeline(&device, &shader, &layout, features, true, true, true, false)
-                {
+                match create_preview_pipeline(
+                    &device,
+                    &shader,
+                    Some(&display),
+                    &layout,
+                    features,
+                    true,
+                    true,
+                    true,
+                    false,
+                ) {
                     Ok(pipeline) => {
                         let _ = pipelines[features].set(pipeline);
                     }
@@ -8229,10 +8308,11 @@ impl GpuProcessor {
             let pipelines = Arc::clone(&self.sharpen_view_pipelines);
             let device = Arc::clone(&self.context.device);
             let shader = self.preview_shader.clone();
+            let display = Arc::clone(&self.display_shader);
             let layout = self.preview_layout.clone();
             rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
                 let started = std::time::Instant::now();
-                match create_sharpen_view_pipeline(&device, &shader, &layout, features) {
+                match create_sharpen_view_pipeline(&device, &shader, &display, &layout, features) {
                     Ok(pipeline) => {
                         let _ = pipelines[features].set(pipeline);
                         log::info!(
@@ -8267,6 +8347,7 @@ impl GpuProcessor {
             spawn_preview_compile(
                 Arc::clone(&self.context.device),
                 self.preview_shader.clone(),
+                Arc::clone(&self.display_shader),
                 self.preview_layout.clone(),
                 features,
                 Arc::clone(&self.preview_pipelines),
@@ -8383,6 +8464,7 @@ impl GpuProcessor {
                 create_preview_pipeline(
                     &self.context.device,
                     shader,
+                    None,
                     layout,
                     features,
                     true,

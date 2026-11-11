@@ -3378,6 +3378,7 @@ pub(super) fn prepare_preview_pipeline(processor: &GpuProcessor, features: usize
         create_preview_pipeline(
             &processor.context.device,
             &processor.preview_shader,
+            Some(&processor.display_shader),
             &processor.preview_layout,
             features,
             true,
@@ -3394,6 +3395,7 @@ fn prepare_layer_sum_pipeline(processor: &GpuProcessor, features: usize) {
         create_preview_pipeline(
             &processor.context.device,
             &processor.preview_shader,
+            Some(&processor.display_shader),
             &processor.preview_layout,
             features,
             true,
@@ -3410,6 +3412,7 @@ fn prepare_legacy_curve_pipeline(processor: &GpuProcessor, features: usize) {
         create_preview_pipeline(
             &processor.context.device,
             &processor.preview_shader,
+            None,
             &processor.preview_layout,
             features,
             false,
@@ -3426,6 +3429,7 @@ fn prepare_unprepared_layer_pipeline(processor: &GpuProcessor, features: usize) 
         create_preview_pipeline(
             &processor.context.device,
             &processor.preview_shader,
+            None,
             &processor.preview_layout,
             features,
             true,
@@ -8837,10 +8841,12 @@ fn fallback_variant_matches_specialized_display() {
 
 #[test]
 #[ignore = "requires a native GPU; display variants without the effects code against those with it"]
-fn display_variants_without_effects_render_the_same_pixels() {
+fn display_variants_from_folded_ir_render_the_same_pixels() {
     // A recipe without glow, halation or grain renders its display variant
-    // without that code (`EFFECTS_FEATURE`); the frame must be the one the
-    // variant with the code renders, byte for byte (exports keep the code).
+    // without that code (`EFFECTS_FEATURE`) and without every branch its
+    // constants decide (`display_variant_ir`); the frame must be the one the
+    // whole shader with the effects code renders, byte for byte, as display
+    // variants were compiled before.
     let context = context();
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
@@ -8870,6 +8876,9 @@ fn display_variants_without_effects_render_the_same_pixels() {
                 create_preview_pipeline(
                     &processor.context.device,
                     &processor.preview_shader,
+                    // The reference: the whole shader with the effects code,
+                    // as display variants compiled before.
+                    (!with_effects).then_some(&*processor.display_shader),
                     &processor.preview_layout,
                     if with_effects {
                         features | EFFECTS_FEATURE

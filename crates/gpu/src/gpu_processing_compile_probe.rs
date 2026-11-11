@@ -45,6 +45,7 @@ fn pipeline_compilation_probe() {
         create_preview_pipeline(
             &context.device,
             &processor.preview_shader,
+            Some(&processor.display_shader),
             &processor.preview_layout,
             features,
             true,
