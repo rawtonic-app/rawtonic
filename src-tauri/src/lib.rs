@@ -703,6 +703,15 @@ fn start(args: Vec<String>) {
                     let _ = window.center();
                 }
 
+                #[cfg(windows)]
+                startup::keep_window_on_screen(
+                    &window,
+                    (
+                        main_window_cfg.min_width.unwrap_or(0.0),
+                        main_window_cfg.min_height.unwrap_or(0.0),
+                    ),
+                );
+
                 let window_failsafe = window.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(4)).await;

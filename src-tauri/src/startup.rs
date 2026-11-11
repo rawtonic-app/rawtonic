@@ -339,6 +339,156 @@ pub(crate) fn linux_restored_window_size(
     )))
 }
 
+/// What the start does with a window that does not fit on its screen.
+#[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum WorkAreaFit {
+    /// Fully inside a work area.
+    Keep,
+    /// Move (and shrink) to these outer bounds.
+    Place(MonitorBounds),
+    /// Not even the minimum size fits: maximize on this work area.
+    Maximize(MonitorBounds),
+}
+
+/// Fits a window's outer bounds into the work area (the screen without the
+/// taskbar) of the monitor it overlaps most, or the first one when it is on
+/// none. A window that only sticks out is moved in at its size; one larger
+/// than the work area shrinks to it and is centred; when even
+/// `min_outer` does not fit, it is maximized. Physical pixels throughout.
+#[cfg(any(windows, test))]
+pub(crate) fn fit_into_work_area(
+    window: MonitorBounds,
+    min_outer: (u32, u32),
+    work_areas: &[MonitorBounds],
+) -> WorkAreaFit {
+    let overlap = |area: &MonitorBounds| {
+        let width = (window.x as i64 + window.width as i64).min(area.x as i64 + area.width as i64)
+            - (window.x as i64).max(area.x as i64);
+        let height = (window.y as i64 + window.height as i64)
+            .min(area.y as i64 + area.height as i64)
+            - (window.y as i64).max(area.y as i64);
+        width.max(0) * height.max(0)
+    };
+    let Some(area) = work_areas
+        .iter()
+        .copied()
+        .filter(|area| area.width > 0 && area.height > 0)
+        .max_by_key(|area| overlap(area))
+        .filter(|area| overlap(area) > 0)
+        .or_else(|| work_areas.first().copied())
+    else {
+        return WorkAreaFit::Keep;
+    };
+    let inside = window.x >= area.x
+        && window.y >= area.y
+        && window.x as i64 + window.width as i64 <= area.x as i64 + area.width as i64
+        && window.y as i64 + window.height as i64 <= area.y as i64 + area.height as i64;
+    if inside {
+        return WorkAreaFit::Keep;
+    }
+    if min_outer.0 > area.width || min_outer.1 > area.height {
+        return WorkAreaFit::Maximize(area);
+    }
+    let width = window.width.min(area.width);
+    let height = window.height.min(area.height);
+    let (x, y) = if width < window.width || height < window.height {
+        (
+            area.x + ((area.width - width) / 2) as i32,
+            area.y + ((area.height - height) / 2) as i32,
+        )
+    } else {
+        let clamp = |pos: i32, size: u32, start: i32, extent: u32| {
+            pos.clamp(start, start + (extent - size) as i32)
+        };
+        (
+            clamp(window.x, width, area.x, area.width),
+            clamp(window.y, height, area.y, area.height),
+        )
+    };
+    WorkAreaFit::Place(MonitorBounds {
+        x,
+        y,
+        width,
+        height,
+    })
+}
+
+/// Set when the start found no room for the window's minimum size; the
+/// window is then maximized when it is first shown (`frontend_ready`).
+#[cfg(windows)]
+static MAXIMIZE_AT_SHOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Keeps the hidden main window on screen at the start (Windows): the
+/// configured 1440 × 900 at 125 % display scale is taller than a 1080 px
+/// screen, and a saved geometry may come from another monitor or scale.
+/// Runs after the restore or centring. Moving to a monitor of another scale
+/// lets Windows rescale the window, so it measures again after a move.
+#[cfg(windows)]
+pub(crate) fn keep_window_on_screen(window: &tauri::WebviewWindow, min_inner: (f64, f64)) {
+    for _ in 0..2 {
+        let (Ok(position), Ok(outer), Ok(inner), Ok(monitors)) = (
+            window.outer_position(),
+            window.outer_size(),
+            window.inner_size(),
+            window.available_monitors(),
+        ) else {
+            return;
+        };
+        let current = MonitorBounds {
+            x: position.x,
+            y: position.y,
+            width: outer.width,
+            height: outer.height,
+        };
+        let frame = (
+            outer.width.saturating_sub(inner.width),
+            outer.height.saturating_sub(inner.height),
+        );
+        let work_areas: Vec<MonitorBounds> = monitors
+            .iter()
+            .map(|monitor| {
+                let area = monitor.work_area();
+                MonitorBounds {
+                    x: area.position.x,
+                    y: area.position.y,
+                    width: area.size.width,
+                    height: area.size.height,
+                }
+            })
+            .collect();
+        // The minimum size at the target monitor's scale: take the largest
+        // scale on offer, so the check never lets a too-small area pass.
+        let scale = monitors
+            .iter()
+            .map(|monitor| monitor.scale_factor())
+            .fold(1.0_f64, f64::max);
+        let min_outer = (
+            (min_inner.0 * scale).ceil() as u32 + frame.0,
+            (min_inner.1 * scale).ceil() as u32 + frame.1,
+        );
+        match fit_into_work_area(current, min_outer, &work_areas) {
+            WorkAreaFit::Keep => return,
+            WorkAreaFit::Maximize(area) => {
+                log::warn!(
+                    "Window {current:?} does not fit the work area {area:?} even at its minimum size; maximizing."
+                );
+                let _ = window.set_position(tauri::PhysicalPosition::new(area.x, area.y));
+                MAXIMIZE_AT_SHOW.store(true, std::sync::atomic::Ordering::Relaxed);
+                return;
+            }
+            WorkAreaFit::Place(bounds) => {
+                log::info!("Window {current:?} moved into the work area as {bounds:?}.");
+                let _ = window.set_position(tauri::PhysicalPosition::new(bounds.x, bounds.y));
+                let _ = window.set_size(tauri::PhysicalSize::new(
+                    bounds.width.saturating_sub(frame.0).max(1),
+                    bounds.height.saturating_sub(frame.1).max(1),
+                ));
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub(crate) fn frontend_ready(
     app_handle: tauri::AppHandle,
@@ -405,6 +555,10 @@ pub(crate) fn frontend_ready(
         }
         if let Err(e) = window.set_focus() {
             log::error!("Failed to focus window: {}", e);
+        }
+        #[cfg(windows)]
+        if is_first_run && MAXIMIZE_AT_SHOW.load(std::sync::atomic::Ordering::Relaxed) {
+            should_maximize = true;
         }
         #[cfg(any(windows, target_os = "linux"))]
         if is_first_run && should_maximize {
@@ -755,5 +909,95 @@ mod webkit_renderer_tests {
             nvidia,
             false
         ));
+    }
+}
+
+#[cfg(test)]
+mod work_area_tests {
+    use super::{MonitorBounds, WorkAreaFit, fit_into_work_area};
+
+    fn rect(x: i32, y: i32, width: u32, height: u32) -> MonitorBounds {
+        MonitorBounds {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    /// 1920 × 1080 at 125 % with a 48 px taskbar; the minimum 780 × 560 at 125 %.
+    const LAPTOP: MonitorBounds = MonitorBounds {
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1032,
+    };
+    const MIN: (u32, u32) = (975, 700);
+
+    #[test]
+    fn a_window_inside_the_work_area_stays_as_it_is() {
+        assert_eq!(
+            fit_into_work_area(rect(100, 50, 1200, 800), MIN, &[LAPTOP]),
+            WorkAreaFit::Keep
+        );
+        assert_eq!(
+            fit_into_work_area(LAPTOP, MIN, &[LAPTOP]),
+            WorkAreaFit::Keep
+        );
+    }
+
+    #[test]
+    fn the_configured_size_at_125_percent_shrinks_to_the_work_area_and_is_centred() {
+        // 1440 × 900 logical = 1800 × 1125 physical, centred on the full screen: top above it.
+        assert_eq!(
+            fit_into_work_area(rect(60, -22, 1800, 1125), MIN, &[LAPTOP]),
+            WorkAreaFit::Place(rect(60, 0, 1800, 1032))
+        );
+    }
+
+    #[test]
+    fn a_window_that_only_sticks_out_moves_in_at_its_size() {
+        assert_eq!(
+            fit_into_work_area(rect(1500, -62, 1000, 800), MIN, &[LAPTOP]),
+            WorkAreaFit::Place(rect(920, 0, 1000, 800))
+        );
+        assert_eq!(
+            fit_into_work_area(rect(-300, 600, 1000, 800), MIN, &[LAPTOP]),
+            WorkAreaFit::Place(rect(0, 232, 1000, 800))
+        );
+    }
+
+    #[test]
+    fn a_geometry_from_a_monitor_that_is_gone_comes_back_on_the_first_one() {
+        assert_eq!(
+            fit_into_work_area(rect(2600, 100, 1200, 800), MIN, &[LAPTOP]),
+            WorkAreaFit::Place(rect(720, 100, 1200, 800))
+        );
+    }
+
+    #[test]
+    fn the_monitor_the_window_overlaps_most_is_the_one_it_is_fitted_to() {
+        let left = rect(-2560, 0, 2560, 1400);
+        assert_eq!(
+            fit_into_work_area(rect(-1500, 900, 1400, 800), MIN, &[LAPTOP, left]),
+            WorkAreaFit::Place(rect(-1500, 600, 1400, 800))
+        );
+    }
+
+    #[test]
+    fn a_work_area_smaller_than_the_minimum_size_maximizes() {
+        let small = rect(0, 0, 1280, 672);
+        assert_eq!(
+            fit_into_work_area(rect(0, 0, 1800, 1125), MIN, &[small]),
+            WorkAreaFit::Maximize(small)
+        );
+    }
+
+    #[test]
+    fn no_monitor_known_changes_nothing() {
+        assert_eq!(
+            fit_into_work_area(rect(0, -62, 1800, 1125), MIN, &[]),
+            WorkAreaFit::Keep
+        );
     }
 }
