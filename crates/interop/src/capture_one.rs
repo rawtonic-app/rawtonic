@@ -202,6 +202,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
             creator: text(10)?,
             copyright: text(11)?,
             iptc: Default::default(),
+            capture: Default::default(),
         };
         let mut metadata = metadata;
         for (index, (_, key)) in IPTC_COLUMNS.iter().enumerate() {

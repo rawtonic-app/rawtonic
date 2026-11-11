@@ -384,6 +384,21 @@ fn apply(library: &Path, changes: &[PlannedChange]) -> Result<Applied, String> {
             }
         }
     });
+    // The XMP sidecars carry the correction too (`capture_time::capture_write`).
+    // The editor-sidecar writes above sync them already; the others (no
+    // `.rrdata` written) follow here. Offline ones stay pending.
+    let sources: Vec<PathBuf> = changes
+        .iter()
+        .map(|change| parse_virtual_path(&change.path).0)
+        .collect();
+    match Library::open(library) {
+        Ok(lib) => {
+            if let Err(e) = lib.write_pending_xmp_of(Some(&sources)) {
+                log::warn!("Capture time corrected in the library; XMP pending: {e}");
+            }
+        }
+        Err(e) => log::warn!("Capture time corrected in the library; XMP pending: {e}"),
+    }
     Ok(Applied {
         conflicts: Vec::new(),
         failed,
@@ -631,6 +646,15 @@ mod tests {
         assert_eq!(shown["Make"], "Maker", "the camera's other fields stay");
         let written = std::fs::read_to_string(b.with_file_name("B.jpg.rrdata")).unwrap();
         assert!(written.contains("2026-10-31 00:45:00"), "{written}");
+        // So does its XMP sidecar, for other editors; A gets none.
+        let stated = |photo: &Path| {
+            std::fs::read_to_string(photo.with_extension("xmp"))
+                .ok()
+                .and_then(|text| rawtonic_metadata::read_capture_time(&text).unwrap())
+                .map(|time| time.to_xmp())
+        };
+        assert_eq!(stated(&b).as_deref(), Some("2026-10-31T00:45:00.05+02:00"));
+        assert!(!a.with_extension("xmp").exists());
 
         // A decode keeps the file's EXIF (also cached): what the app shows
         // of it takes the correction.
@@ -674,6 +698,7 @@ mod tests {
         let shown = crate::exif_processing::read_rrexif_sidecar(&b).unwrap();
         assert_eq!(shown["DateTimeOriginal"], "2026-10-30 23:45:00");
         assert_eq!(shown["SubSecTimeOriginal"], "05");
+        assert_eq!(stated(&b), None, "the XMP dates written are removed");
 
         // A decode cached while it was corrected shows the camera's time again.
         let mut cached = decoded.clone();

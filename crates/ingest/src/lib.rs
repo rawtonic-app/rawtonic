@@ -1459,6 +1459,7 @@ fn register_with_sidecar(
                         editor_state: given.editor_state.clone().or(read.editor_state),
                         metadata: read.metadata.or(given.metadata.clone()),
                         xmp_digest: read.xmp_digest.or(given.xmp_digest.clone()),
+                        capture: read.capture.or(given.capture.clone()),
                     },
                 });
             }

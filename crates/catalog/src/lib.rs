@@ -1294,11 +1294,13 @@ impl Library {
         let path = rawtonic_metadata::sidecar_path(&self.asset(asset)?.path);
         let text = fs::read_to_string(path)?;
         let (metadata, _) = rawtonic_metadata::read_xmp(&text)?;
+        let stated = rawtonic_metadata::read_capture_time(&text)?;
         self.set_metadata(asset, &metadata)?;
         self.conn.execute(
             "UPDATE metadata SET xmp_hash=?,xmp_publishing=NULL,xmp_status='synced' WHERE asset_id=?",
             params![rawtonic_fs::sha256_hex(text.as_bytes()), asset],
         )?;
+        capture_time::adopt_sidecar(&self.conn, asset, stated.as_ref())?;
         Ok(metadata)
     }
 

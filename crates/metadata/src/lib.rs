@@ -27,6 +27,9 @@ pub const IPTC_EXT: &str = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
 /// XMP Dynamic Media: Lightroom Classic (15) and Bridge write the pick flag
 /// as `xmpDM:pick` (1 pick, -1 reject, 0 none) with `xmpDM:good`.
 pub const XMP_DM: &str = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
+/// EXIF in XMP: `exif:DateTimeOriginal`, the capture time Lightroom's Edit
+/// Capture Time and Rawtonic's Shift Capture Time write.
+pub const EXIF: &str = "http://ns.adobe.com/exif/1.0/";
 /// IPTC Digital Source Type of a photo with areas made by a generative model
 /// (object removal, generative fill): the machine-readable marking the EU AI
 /// Act (Art. 50(2)) asks of such output.
@@ -183,6 +186,134 @@ pub struct Metadata {
     /// value; an explicit empty string clears it on every write.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub iptc: BTreeMap<String, String>,
+    /// What a sidecar write does with the corrected capture time. Never
+    /// stored with the metadata: the library's correction is its own record
+    /// and the catalog sets this for each write.
+    #[serde(skip)]
+    pub capture: CaptureWrite,
+}
+
+/// A date and time as XMP writes it (`2026-10-30T14:05:09.66+02:00`), at
+/// least to the minute.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XmpDateTime {
+    /// `YYYY-MM-DD`.
+    pub date: String,
+    /// `HH:MM:SS` (seconds `00` when the value has minutes only).
+    pub time: String,
+    /// Fraction of the second as written, digits only.
+    pub fraction: Option<String>,
+    /// UTC offset `±HH:MM` as written. A `Z` reads as none: Capture One
+    /// writes it after the camera's local time, so it states no offset.
+    pub offset: Option<String>,
+}
+
+impl XmpDateTime {
+    /// Reads an XMP date with a time; None for anything else (a date
+    /// alone, a malformed value).
+    pub fn parse(text: &str) -> Option<Self> {
+        let digits = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
+        let (date, rest) = text.trim().split_once('T')?;
+        let mut parts = date.split('-');
+        let (y, m, d) = (parts.next()?, parts.next()?, parts.next()?);
+        if parts.next().is_some() || !digits(y, 4) || !digits(m, 2) || !digits(d, 2) {
+            return None;
+        }
+        let (clock, offset) = match rest.find(['Z', '+', '-']) {
+            Some(at) => (&rest[..at], Some(&rest[at..])),
+            None => (rest, None),
+        };
+        let offset = match offset {
+            None | Some("Z") => None,
+            Some(o) => {
+                let (h, m) = o[1..].split_once(':')?;
+                if !digits(h, 2) || !digits(m, 2) {
+                    return None;
+                }
+                Some(o.to_string())
+            }
+        };
+        let (clock, fraction) = match clock.split_once('.') {
+            Some((clock, f)) if !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit()) => {
+                (clock, Some(f.to_string()))
+            }
+            Some(_) => return None,
+            None => (clock, None),
+        };
+        let fields: Vec<&str> = clock.split(':').collect();
+        if !(2..=3).contains(&fields.len()) || !fields.iter().all(|f| digits(f, 2)) {
+            return None;
+        }
+        if fraction.is_some() && fields.len() == 2 {
+            return None;
+        }
+        Some(Self {
+            date: date.to_string(),
+            time: format!(
+                "{}:{}:{}",
+                fields[0],
+                fields[1],
+                fields.get(2).unwrap_or(&"00")
+            ),
+            fraction,
+            offset,
+        })
+    }
+
+    /// The XMP form: fraction and offset only when known.
+    pub fn to_xmp(&self) -> String {
+        let mut out = format!("{}T{}", self.date, self.time);
+        if let Some(fraction) = &self.fraction {
+            out.push('.');
+            out.push_str(fraction);
+        }
+        if let Some(offset) = &self.offset {
+            out.push_str(offset);
+        }
+        out
+    }
+
+    /// The same wall time, to the fraction both state (trailing zeros
+    /// aside); the offset is not compared.
+    pub fn same_moment(&self, other: &Self) -> bool {
+        let fraction =
+            |f: &Option<String>| f.as_deref().map(|f| f.trim_end_matches('0').to_string());
+        self.date == other.date
+            && self.time == other.time
+            && match (fraction(&self.fraction), fraction(&other.fraction)) {
+                (Some(a), Some(b)) => a == b,
+                _ => true,
+            }
+    }
+}
+
+/// What a sidecar write does with `exif:DateTimeOriginal` and
+/// `photoshop:DateCreated`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum CaptureWrite {
+    /// Leaves them as they are (a photograph without a correction).
+    #[default]
+    Keep,
+    /// Writes both with the corrected capture time.
+    Set(XmpDateTime),
+    /// Removes those that still hold this time (what the library wrote or
+    /// took from the sidecar as its correction): the correction was reset,
+    /// so the camera's time applies again. Another value is left alone.
+    Remove(XmpDateTime),
+}
+
+/// The capture time a sidecar states (`exif:DateTimeOriginal`), if it has
+/// one with a time.
+pub fn read_capture_time(text: &str) -> Result<Option<XmpDateTime>, MetadataError> {
+    Ok(packet_capture_time(text)?)
+}
+
+fn packet_capture_time(text: &str) -> Result<Option<XmpDateTime>> {
+    ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
+    let doc = roxmltree::Document::parse(text)?;
+    Ok(property(doc.root(), EXIF, "DateTimeOriginal")
+        .as_deref()
+        .and_then(XmpDateTime::parse))
 }
 
 impl Metadata {
@@ -673,6 +804,19 @@ fn merge_packet(
     recipe: Option<&serde_json::Value>,
 ) -> Result<String> {
     metadata.validate()?;
+    // While a correction is set, both dates are its own: an IPTC Date
+    // Created the library holds is not written over it.
+    let without_date_created;
+    let metadata = if matches!(metadata.capture, CaptureWrite::Set(_))
+        && metadata.iptc.contains_key("dateCreated")
+    {
+        let mut copy = metadata.clone();
+        copy.iptc.remove("dateCreated");
+        without_date_created = copy;
+        &without_date_created
+    } else {
+        metadata
+    };
     let base = existing.unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF></x:xmpmeta>");
     ensure!(base.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
     let doc = roxmltree::Document::parse(base)?;
@@ -715,6 +859,25 @@ fn merge_packet(
     // IPTC fields this model has a value for replace the sidecar's; the
     // others stay as they are, so IPTC written by Lightroom or Capture One
     // before Rawtonic knew the field is never dropped.
+    // The corrected capture time (`CaptureWrite`): set, it owns
+    // `exif:DateTimeOriginal` and `photoshop:DateCreated`; reset, it removes
+    // those that still hold the time it had (an IPTC Date Created the
+    // library holds is written as any IPTC field).
+    let holds = |namespace: &str, name: &str, time: &XmpDateTime| {
+        property(root, namespace, name)
+            .as_deref()
+            .and_then(XmpDateTime::parse)
+            .is_some_and(|value| value.same_moment(time))
+    };
+    let (own_original, own_created, corrected) = match &metadata.capture {
+        CaptureWrite::Keep => (false, false, None),
+        CaptureWrite::Set(time) => (true, true, Some(time)),
+        CaptureWrite::Remove(time) => (
+            holds(EXIF, "DateTimeOriginal", time),
+            holds(PHOTOSHOP, "DateCreated", time) && !metadata.iptc.contains_key("dateCreated"),
+            None,
+        ),
+    };
     let has_contact = IPTC_FIELDS
         .iter()
         .any(|(k, _, _, kind)| *kind == IptcKind::Contact && metadata.iptc.contains_key(*k));
@@ -725,6 +888,8 @@ fn merge_packet(
         (managed(namespace, name) && !(keep_label && namespace == Some(XMP) && name == "Label"))
             || iptc_key(namespace, name).is_some_and(|k| metadata.iptc.contains_key(k))
             || (has_contact && namespace == Some(IPTC_CORE) && name == "CreatorContactInfo")
+            || (own_original && namespace == Some(EXIF) && name == "DateTimeOriginal")
+            || (own_created && namespace == Some(PHOTOSHOP) && name == "DateCreated")
     };
     let owned =
         |node: roxmltree::Node| managed(node.tag_name().namespace(), node.tag_name().name());
@@ -791,8 +956,11 @@ fn merge_packet(
         ));
     }
     let namespaces = iptc_namespaces(metadata);
-    if !photoshop.is_empty() && namespaces.is_empty() {
+    if (!photoshop.is_empty() || corrected.is_some()) && namespaces.is_empty() {
         shared.push_str(&format!(" xmlns:photoshop=\"{PHOTOSHOP}\""));
+    }
+    if corrected.is_some() {
+        shared.push_str(&format!(" xmlns:exif=\"{EXIF}\""));
     }
     let label_attribute = if keep_label {
         String::new()
@@ -845,6 +1013,12 @@ fn merge_packet(
         ForeignContact::default()
     };
     out.push_str(&iptc_elements(metadata, &kept_contact, &foreign));
+    if let Some(time) = corrected {
+        let value = escape(&time.to_xmp());
+        out.push_str(&format!(
+            "<exif:DateTimeOriginal>{value}</exif:DateTimeOriginal><photoshop:DateCreated>{value}</photoshop:DateCreated>"
+        ));
+    }
     // Every level of a hierarchical keyword is a term of `dc:subject` and
     // the keyword itself an entry of `lr:hierarchicalSubject`, as Lightroom
     // writes them; a hierarchy in `dc:subject` would be one odd keyword there.

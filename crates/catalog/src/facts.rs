@@ -167,7 +167,20 @@ impl Library {
     /// Records what asset `id`'s file says about its capture. Returns
     /// whether the asset exists.
     pub fn record_facts(&self, id: &str, facts: &CaptureFacts) -> Result<bool, CatalogError> {
-        Ok(write_facts(&self.conn, id, facts)?.0)
+        let unread: bool = self
+            .conn
+            .query_row("SELECT facts_read=0 FROM assets WHERE id=?", [id], |r| {
+                r.get(0)
+            })
+            .optional()?
+            .unwrap_or(false);
+        let written = write_facts(&self.conn, id, facts)?.0;
+        // The file's time is known now: the adopted sidecar's capture time
+        // can be compared with it (`capture_time::adopt_sidecar`).
+        if written && unread {
+            self.adopt_sidecar_on_disk(&self.conn, id, &self.asset(id)?.path)?;
+        }
+        Ok(written)
     }
 
     /// Asset `id`'s capture facts, and whether its file was read for them.
@@ -269,6 +282,9 @@ impl Library {
                 .unwrap_or(false);
             if unread {
                 let (written, rating) = write_facts(&tx, &id, &facts)?;
+                if written {
+                    self.adopt_sidecar_on_disk(&tx, &id, &path)?;
+                }
                 recorded += usize::from(written);
                 if let Some(rating) = rating {
                     rated.push((path, rating));

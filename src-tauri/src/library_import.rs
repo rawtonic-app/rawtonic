@@ -726,6 +726,7 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
         }),
         metadata: Some(photo.metadata.clone()),
         xmp_digest: None,
+        capture: None,
     };
     let id = match catalog.asset_at(&photo.path)? {
         Some(asset) => {

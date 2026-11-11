@@ -1,4 +1,4 @@
-# user_version 26
+# user_version 27
 # schema
 'index' | 'asset_imports_batch' | 'asset_imports' | 'CREATE INDEX asset_imports_batch ON asset_imports(batch_id)'
 'index' | 'asset_keywords_keyword' | 'asset_keywords' | 'CREATE INDEX asset_keywords_keyword ON asset_keywords(keyword)'
@@ -154,7 +154,7 @@
 'table' | 'metadata' | 'metadata' | 'CREATE TABLE metadata(asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
  rating INTEGER NOT NULL DEFAULT 0 CHECK(rating BETWEEN 0 AND 5), label TEXT NOT NULL DEFAULT '''',
  flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1), data TEXT NOT NULL DEFAULT ''{}'',
- xmp_hash TEXT, xmp_status TEXT NOT NULL DEFAULT ''pending'', from_camera INTEGER NOT NULL DEFAULT 0, xmp_publishing TEXT)'
+ xmp_hash TEXT, xmp_status TEXT NOT NULL DEFAULT ''pending'', from_camera INTEGER NOT NULL DEFAULT 0, xmp_publishing TEXT, xmp_capture TEXT)'
 'table' | 'naming_templates' | 'naming_templates' | 'CREATE TABLE naming_templates(id TEXT PRIMARY KEY, name TEXT NOT NULL, template TEXT NOT NULL)'
 'table' | 'presets' | 'presets' | 'CREATE TABLE presets(id TEXT PRIMARY KEY, name TEXT NOT NULL, recipe_json TEXT NOT NULL)'
 'table' | 'recipe_blob_refs' | 'recipe_blob_refs' | 'CREATE TABLE recipe_blob_refs(
@@ -277,16 +277,16 @@ END'
 4 | '00000000-0000-4000-9000-000000000002' | NULL | 1 | '{"adjustments":{"temperature":5200}}' | NULL | '2026-06-02 12:00:04'
 5 | '00000000-0000-4000-9000-000000000003' | NULL | 1 | '{"adjustments":{"exposure":-0.2}}' | NULL | '2026-06-03 12:00:05'
 6 | '00000000-0000-4000-9000-000000000003' | 5 | 1 | '{"adjustments":{"exposure":-0.2,"vibrance":15}}' | NULL | '2026-06-03 12:00:06'
-# table metadata (9 rows): asset_id, rating, label, flag, data, xmp_hash, xmp_status, from_camera, xmp_publishing
-'00000000-0000-4000-8000-000000000001' | 5 | 'red' | 1 | '{"creator":"Synthetic Photographer","flag":1,"keywords":["wedding","ceremony"],"label":"red","rating":5,"title":"First kiss"}' | 'digest-1' | 'synced' | 0 | NULL
-'00000000-0000-4000-8000-000000000002' | 4 | 'yellow' | 0 | '{"flag":0,"keywords":["wedding","  sunset ",7],"label":"yellow","rating":4}' | 'digest-2' | 'pending' | 0 | NULL
-'00000000-0000-4000-8000-000000000003' | 3 | 'green' | -1 | '{"flag":-1,"keywords":["portrait"],"label":"green","rating":3}' | NULL | 'pending' | 1 | NULL
-'00000000-0000-4000-8000-000000000004' | 1 | '' | 0 | '{"flag":0,"keywords":["archive","Wedding"],"label":"","rating":1}' | NULL | 'pending' | 0 | NULL
-'00000000-0000-4000-8000-000000000005' | 0 | '' | 0 | '{"flag":0,"label":"","rating":0}' | NULL | 'pending' | 0 | NULL
-'00000000-0000-4000-8000-000000000006' | 2 | '' | 0 | '{"flag":0,"label":"","rating":2}' | 'digest-6' | 'synced' | 0 | NULL
-'00000000-0000-4000-8000-000000000007' | 0 | '' | 0 | '{"flag":0,"label":"","rating":0}' | NULL | 'pending' | 0 | NULL
-'00000000-0000-4000-8000-000000000008' | 0 | '' | 0 | '{}' | NULL | 'pending' | 0 | NULL
-'00000000-0000-4000-8000-000000000009' | 0 | '' | 0 | '{"flag":0,"keywords":["landscape"],"label":"","rating":0}' | NULL | 'pending' | 0 | NULL
+# table metadata (9 rows): asset_id, rating, label, flag, data, xmp_hash, xmp_status, from_camera, xmp_publishing, xmp_capture
+'00000000-0000-4000-8000-000000000001' | 5 | 'red' | 1 | '{"creator":"Synthetic Photographer","flag":1,"keywords":["wedding","ceremony"],"label":"red","rating":5,"title":"First kiss"}' | 'digest-1' | 'synced' | 0 | NULL | NULL
+'00000000-0000-4000-8000-000000000002' | 4 | 'yellow' | 0 | '{"flag":0,"keywords":["wedding","  sunset ",7],"label":"yellow","rating":4}' | 'digest-2' | 'pending' | 0 | NULL | NULL
+'00000000-0000-4000-8000-000000000003' | 3 | 'green' | -1 | '{"flag":-1,"keywords":["portrait"],"label":"green","rating":3}' | NULL | 'pending' | 1 | NULL | NULL
+'00000000-0000-4000-8000-000000000004' | 1 | '' | 0 | '{"flag":0,"keywords":["archive","Wedding"],"label":"","rating":1}' | NULL | 'pending' | 0 | NULL | NULL
+'00000000-0000-4000-8000-000000000005' | 0 | '' | 0 | '{"flag":0,"label":"","rating":0}' | NULL | 'pending' | 0 | NULL | NULL
+'00000000-0000-4000-8000-000000000006' | 2 | '' | 0 | '{"flag":0,"label":"","rating":2}' | 'digest-6' | 'synced' | 0 | NULL | NULL
+'00000000-0000-4000-8000-000000000007' | 0 | '' | 0 | '{"flag":0,"label":"","rating":0}' | NULL | 'pending' | 0 | NULL | NULL
+'00000000-0000-4000-8000-000000000008' | 0 | '' | 0 | '{}' | NULL | 'pending' | 0 | NULL | NULL
+'00000000-0000-4000-8000-000000000009' | 0 | '' | 0 | '{"flag":0,"keywords":["landscape"],"label":"","rating":0}' | NULL | 'pending' | 0 | NULL | NULL
 # table masks (1 rows): id, version_id, vector_json, raster_path, hash
 'mask-1' | '00000000-0000-4000-9000-000000000001' | '{"type":"radial"}' | 'masks/mask-1.png' | 'mask-hash-1'
 # table presets (1 rows): id, name, recipe_json

@@ -127,7 +127,10 @@ New Rust workspace crates isolate data and file safety.
   arithmetic keeping fraction digits and UTC offset; the editor state's EXIF map carries the correction on read and
   save; search uses the effective time; app glue `src-tauri/src/capture_time.rs` with preview/plan/apply commands,
   exports take it through `PinnedPhoto::capture` and `rawtonic_export::exif_processing::apply_corrected_capture_time`,
-  UI `CaptureTimeDialog`).
+  UI `CaptureTimeDialog`). The XMP sidecar carries it as `exif:DateTimeOriginal` + `photoshop:DateCreated`
+  (`capture_write` → `rawtonic_metadata::CaptureWrite`; `metadata.xmp_capture`, schema 27, is the value the library
+  owns there, so a reset removes only that); a sidecar's differing `exif:DateTimeOriginal` becomes the correction on
+  import, Use XMP, adopt and the first facts read (`adopt_sidecar`).
 - `session_move`: whether a whole session folder may move into a folder (G40: photos never move out of their session; a
   catalog is not moved this way) — not into itself or another library, no name clash, its database not open in another
   connection (an exclusive-lock probe); the move itself is one `fileops` step, app glue `src-tauri/src/session_move.rs`
