@@ -37,7 +37,7 @@ pub fn set_maximize_button_rect(
 ) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use tauri::Emitter;
+        use tauri::{Emitter, Manager};
         let parent = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
         let app = window.app_handle().clone();
         win32::set_listener(move |hovered, pressed| {
