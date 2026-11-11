@@ -48,6 +48,9 @@ fn main() {
         bytes.len(),
         start.elapsed().as_secs_f64()
     );
+    if let Some(path) = std::env::var_os("EXQ_JXL_OUTPUT") {
+        rawtonic_export::output::write_new_output(path, &bytes).unwrap();
+    }
     if std::env::args().any(|arg| arg == "--verify") {
         let decoder = jxl_oxide::integration::JxlDecoder::new(std::io::Cursor::new(bytes)).unwrap();
         let decoded = DynamicImage::from_decoder(decoder).unwrap();
