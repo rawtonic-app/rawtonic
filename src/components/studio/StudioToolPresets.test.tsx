@@ -384,10 +384,10 @@ describe("which presets are a tool's", () => {
 describe('saving a tool preset', () => {
   it('states the colour noise filter of an edit from before its version, through JSON', () => {
     const legacy = { ...INITIAL_ADJUSTMENTS, colorNoiseReduction: 30, colorNoiseVersion: undefined } as Adjustments;
-    const saved = JSON.parse(JSON.stringify(toolPresetToSave(legacy, ['colorNoiseReduction'])));
+    const saved = JSON.parse(JSON.stringify(toolPresetToSave(legacy, ['colorNoiseReduction'], true)));
     expect(saved).toEqual({ colorNoiseReduction: 30, colorNoiseVersion: 1 });
     const current = { ...INITIAL_ADJUSTMENTS, colorNoiseReduction: 30, colorNoiseVersion: 10 } as Adjustments;
-    expect(toolPresetToSave(current, ['colorNoiseReduction']).colorNoiseVersion).toBe(10);
+    expect(toolPresetToSave(current, ['colorNoiseReduction'], true).colorNoiseVersion).toBe(10);
   });
 });
 

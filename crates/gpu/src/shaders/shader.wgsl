@@ -10617,11 +10617,13 @@ fn main(
             whites_offset = whites_v10_offset(vec2<i32>(id.xy), initial_linear_rgb, scale);
         }
         // Version 18 gives the RAW look's black point Blacks amounts beyond
-        // version 17's −100 (image_processing.rs `blacks_amount_v18`);
-        // Blacks' scene gain, which a RAW takes only without that look,
-        // keeps version 17's reach.
+        // version 17's −100 (image_processing.rs `blacks_amount_v18`, for a
+        // RAW with the Standard tone mapper, which its base look turns into
+        // the Camera Raw look). Should such a RAW render without that look,
+        // Blacks' scene gain keeps version 17's reach; AgX and Classic
+        // never get the remapped amounts and keep their sum.
         var scene_blacks = t_blacks;
-        if (is_raw == 1u && adjustments.global.tone_version > 17.5) {
+        if (is_raw == 1u && adjustments.global.tone_version > 17.5 && adjustments.global.tonemapper_mode == 2u) {
             scene_blacks = max(t_blacks, -2.5);
         }
         if (adjustments.global.tone_version < 5.5) {

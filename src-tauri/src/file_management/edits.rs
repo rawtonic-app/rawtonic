@@ -603,12 +603,17 @@ fn pasted_into(
     });
 
     // In this photograph's responses: Whites carried without a tone version
-    // mean the amount they render, and a version key stays the
+    // and Blacks mean the amount they render, and a version key stays the
     // photograph's while something the paste leaves renders with it
     // (`pasted_versions`); versions chosen in the picker go along as chosen.
     let mut expressed = adjustments.clone();
     if paste.is_some_and(|from| from.as_chosen) {
         rawtonic_engine::image_processing::express_pasted_whites(&mut expressed, &new_adjustments);
+        rawtonic_engine::image_processing::express_pasted_blacks(
+            &mut expressed,
+            &new_adjustments,
+            is_raw_file(source_path),
+        );
     } else {
         rawtonic_engine::pasted_versions::express_pasted(
             &mut expressed,

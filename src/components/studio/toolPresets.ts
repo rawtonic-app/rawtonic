@@ -74,8 +74,8 @@ export function presetPreview(
 /** A tool's settings to save as its preset: as copied (`pick`), with the
  * colour noise filter of an edit from before its version key stated (it
  * would vanish in JSON and the preset would render with another filter). */
-export function toolPresetToSave(current: Adjustments, keys: string[]): Partial<Adjustments> {
-  const picked = pick(current, keys);
+export function toolPresetToSave(current: Adjustments, keys: string[], isRaw: boolean): Partial<Adjustments> {
+  const picked = pick(current, keys, isRaw);
   if ('colorNoiseVersion' in picked && picked.colorNoiseVersion == null && picked.colorNoiseReduction !== undefined)
     picked.colorNoiseVersion = 1;
   return picked;

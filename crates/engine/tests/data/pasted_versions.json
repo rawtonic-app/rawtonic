@@ -255,7 +255,8 @@
   "expected": {
    "blacks": -100,
    "toneVersion": 16
-  }
+  },
+  "isRaw": true
  },
  {
   "name": "blacks pasted with tone version 17 onto 18: 17's -100 is 18's -71.55",
@@ -270,7 +271,8 @@
   "expected": {
    "blacks": -71.551724,
    "toneVersion": 18
-  }
+  },
+  "isRaw": true
  },
  {
   "name": "blacks -50 means the same in 16 and 18",
@@ -285,7 +287,8 @@
   "expected": {
    "blacks": -50,
    "toneVersion": 18
-  }
+  },
+  "isRaw": true
  },
  {
   "name": "blacks carried as amount (no tone version) onto 18",
@@ -313,6 +316,39 @@
      }
     }
    ]
+  },
+  "isRaw": true
+ },
+ {
+  "name": "blacks of a JPEG keep their value across tone versions 17 and 18",
+  "pasted": {
+   "blacks": -100,
+   "toneVersion": 17
+  },
+  "destination": {
+   "toneVersion": 18,
+   "exposure": 0.3
+  },
+  "expected": {
+   "blacks": -100,
+   "toneVersion": 18
+  }
+ },
+ {
+  "name": "blacks onto a RAW with the AgX look keep their value",
+  "pasted": {
+   "blacks": -80,
+   "toneVersion": 17
+  },
+  "destination": {
+   "toneVersion": 18,
+   "toneMapper": "agx",
+   "exposure": 0.3
+  },
+  "isRaw": true,
+  "expected": {
+   "blacks": -80,
+   "toneVersion": 18
   }
  },
  {

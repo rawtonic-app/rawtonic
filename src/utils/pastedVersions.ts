@@ -21,11 +21,10 @@ import {
   TONE_VERSION,
   VIBRANCE_VERSION,
   WHITES_TRAVEL_TONE_VERSION,
-  blacksAmount,
-  blacksValue,
   isNewRecipe,
   whitesAmountV17,
   whitesValueV17,
+  withCarriedBlacksFor,
   withCarriedWhitesFor,
   type Adjustments
 } from './adjustments';
@@ -45,7 +44,7 @@ export interface PasteTarget {
   mergeGroups?: boolean;
 }
 
-type Translate = (value: number, from: number, to: number, slider: string) => number;
+type Translate = (value: number, from: number, to: number) => number;
 
 interface VersionKey {
   key: string;
@@ -88,9 +87,10 @@ const translateStructure: Translate = (value, from, to) => {
   return to <= 1 ? strength : structureValueV2(strength);
 };
 
-/** Whites and Blacks: the amount version `from` renders, as `to`'s slider value (the engine's `translate_tone`). */
-const translateTone: Translate = (value, from, to, slider) => {
-  if (slider === 'blacks') return blacksValue(blacksAmount(value, from), to);
+/** Whites: the amount version `from` renders, as `to`'s slider value.
+ * (Blacks travel as amounts, expressed once the keys are decided:
+ * `withCarriedBlacksFor`.) */
+const translateWhites: Translate = (value, from, to) => {
   const amount = from >= WHITES_TRAVEL_TONE_VERSION ? whitesAmountV17(value) : value;
   return to >= WHITES_TRAVEL_TONE_VERSION ? whitesValueV17(amount) : amount;
 };
@@ -115,8 +115,8 @@ const KEYS: VersionKey[] = [
     key: 'toneVersion',
     newest: TONE_VERSION,
     users: 'always',
-    translated: ['whites', 'blacks'],
-    translate: translateTone
+    translated: ['whites'],
+    translate: translateWhites
   },
   { key: 'colorNoiseVersion', newest: COLOR_NOISE_VERSION, users: 'always', translated: [] },
   { key: 'clarityVersion', newest: CLARITY_VERSION, users: sliders('clarity'), translated: [] },
@@ -245,12 +245,15 @@ const usedByKept = (key: VersionKey, pasted: Values, recipe: Values, target: Pas
  * as `target` takes them: Whites carried as their amount in its tone-slider
  * response (`withCarriedWhitesFor`), and every version key that something
  * `target` keeps renders with stated as `target` renders it, the pasted
- * values re-expressed in that response.
+ * values re-expressed in that response; then Blacks (always carried as
+ * amounts) in the tone version and look the photograph ends up with
+ * (`withCarriedBlacksFor`).
  */
 export function expressPastedSettings<T extends Partial<Adjustments>>(settings: T, target: PasteTarget): T {
   const recipe = (target.recipe ?? {}) as Values;
   const carried = withCarriedWhitesFor(settings, target.recipe ?? undefined);
-  if (target.isNew ?? (!target.recipe || isNewRecipe(target.recipe))) return carried;
+  if (target.isNew ?? (!target.recipe || isNewRecipe(target.recipe)))
+    return withCarriedBlacksFor(carried, target.recipe ?? undefined, target.isRaw);
   let out = carried as unknown as Values;
   for (const key of KEYS) {
     const from = asVersion(out[key.key]);
@@ -262,8 +265,8 @@ export function expressPastedSettings<T extends Partial<Adjustments>>(settings: 
     out = { ...out, [key.key]: to };
     const translate = key.translate;
     if (!translate) continue;
+    const express = (value: unknown) => (typeof value === 'number' ? translate(value, from, to) : value);
     for (const slider of key.translated) {
-      const express = (value: unknown) => (typeof value === 'number' ? translate(value, from, to, slider) : value);
       if (has(out, slider)) out = { ...out, [slider]: express(out[slider]) };
       if (Array.isArray(out.masks))
         out = {
@@ -276,5 +279,6 @@ export function expressPastedSettings<T extends Partial<Adjustments>>(settings: 
         };
     }
   }
-  return out as unknown as T;
+  // Blacks (amounts) in the response the photograph now has.
+  return withCarriedBlacksFor(out as unknown as T, target.recipe ?? undefined, target.isRaw);
 }

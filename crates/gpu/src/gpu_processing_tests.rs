@@ -12309,6 +12309,27 @@ fn tone_version_18_blacks_moves_at_capture_ones_pace() {
             );
         }
     }
+    // The AgX and Classic looks keep their Blacks (and its sum beyond −100,
+    // as photo and layers add up), as version 17 renders them.
+    for look in [(1, 2.0), (0, 2.0)] {
+        for recipe in [
+            json!({ "blacks": -100 }),
+            json!({ "blacks": -160 }),
+            json!({ "blacks": -70, "shadows": 40 }),
+        ] {
+            assert!(
+                render_raw_look(&processor, &view, (width, height), &with(&recipe, 17), look)
+                    == render_raw_look(
+                        &processor,
+                        &view,
+                        (width, height),
+                        &with(&recipe, 18),
+                        look
+                    ),
+                "{recipe} under {look:?} differs"
+            );
+        }
+    }
     let render = |recipe: serde_json::Value| {
         render_raw_look(&processor, &view, (width, height), &recipe, (3, 2.0))
     };

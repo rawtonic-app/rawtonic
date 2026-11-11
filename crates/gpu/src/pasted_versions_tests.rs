@@ -15,6 +15,7 @@
 
 use super::*;
 use rawtonic_engine::pasted_versions::{PasteTarget, express_pasted, translate};
+use rawtonic_engine::recipe_versions::ToneVersion;
 
 /// Per-pixel ΔE76 between two renders of the same chart.
 fn delta_e(a: &Lab, b: &Lab) -> Vec<f64> {
@@ -216,13 +217,20 @@ fn pasted_versions_translation_error() {
                 let mut source = base_recipe();
                 source[case.key] = json!(from);
                 set(&mut source, case.slider, value);
-                let translated = translate(
-                    case.key,
-                    case.slider.split('.').next().unwrap(),
-                    value,
-                    from,
-                    to,
-                );
+                // Blacks travel as amounts (`express_pasted_blacks`), the
+                // charts render the RAW look.
+                let translated = if case.slider == "blacks" {
+                    let tone = |v: u64| ToneVersion::of(&json!({ "toneVersion": v }));
+                    tone(to).blacks_value(tone(from).blacks_amount(value))
+                } else {
+                    translate(
+                        case.key,
+                        case.slider.split('.').next().unwrap(),
+                        value,
+                        from,
+                        to,
+                    )
+                };
                 let mut pasted = base_recipe();
                 pasted[case.key] = json!(to);
                 set(&mut pasted, case.slider, translated);

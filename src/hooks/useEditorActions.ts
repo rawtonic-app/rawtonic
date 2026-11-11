@@ -33,6 +33,7 @@ import {
   withGrainStructure,
   withLegacyGrainVersion,
   withLoadedCurves,
+  withCarriedBlacksFor,
   withCarriedWhitesFor,
   isNewRecipe
 } from '../utils/adjustments';
@@ -440,7 +441,7 @@ function pastedOpen(
   // version keys something the paste leaves renders with (pastedVersions.ts).
   // Versions chosen in the picker go along as chosen.
   const here = paste?.asChosen
-    ? withCarriedWhitesFor(pasted, base ?? current)
+    ? withCarriedBlacksFor(withCarriedWhitesFor(pasted, base ?? current), base ?? current, open.isRaw)
     : expressPastedSettings(pasted, {
         ...openPasteTarget(open.path, base ?? current, Boolean(style)),
         isRaw: open.isRaw,
@@ -1681,7 +1682,10 @@ export function useEditorActions() {
       if (!source) return;
       const copy = (choice: SettingsChoice) => {
         rememberChoice(choice, source.path);
-        const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
+        const chosen = withSourceFrames(
+          chosenSettings(source.adjustments, choice.keys, choice.layerIds, isRawPhoto(source.path)),
+          source
+        );
         useEditorStore.getState().setEditor({ copiedAdjustments: chosen as Adjustments, copiedFrom: source.path });
         useProcessStore.getState().setProcess({ isCopied: true });
       };
@@ -1728,7 +1732,10 @@ export function useEditorActions() {
       if (!source) return;
       const sync = (choice: SettingsChoice) => {
         rememberChoice(choice, source.path);
-        const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
+        const chosen = withSourceFrames(
+          chosenSettings(source.adjustments, choice.keys, choice.layerIds, isRawPhoto(source.path)),
+          source
+        );
         if (Object.keys(chosen).length > 0) {
           applyAdjustmentsToPaths(chosen, targets, { pasteFrom: source.path, asChosen: true, label: 'sync' });
           noteTool('copySettings');
@@ -1762,7 +1769,10 @@ export function useEditorActions() {
       const source = await settingsSource(previousPhoto);
       if (!source) return;
       const choice = rememberedChoice(source);
-      const applied = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
+      const applied = withSourceFrames(
+        chosenSettings(source.adjustments, choice.keys, choice.layerIds, isRawPhoto(source.path)),
+        source
+      );
       if (Object.keys(applied).length > 0)
         applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path, asChosen: true });
     },

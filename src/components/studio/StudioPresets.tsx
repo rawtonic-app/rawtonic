@@ -388,7 +388,9 @@ export default function StudioPresets() {
         onClick: () =>
           overwritePreset(
             preset.id,
-            preset.toolKeys ? toolPresetToSave(currentAdjustments(), preset.toolKeys) : undefined
+            preset.toolKeys
+              ? toolPresetToSave(currentAdjustments(), preset.toolKeys, Boolean(selectedImage?.isRaw))
+              : undefined
           )
       },
       { label: t('studio.presets.menu.duplicate'), onClick: () => duplicatePreset(preset.id) },

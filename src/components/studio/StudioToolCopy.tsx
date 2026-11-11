@@ -71,7 +71,9 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   aiDenoise: ['aiDenoiseVersion']
 };
 
-export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
+/** `keys` of `values` (and the keys that say how they render), as copied
+ * from a photo (`isRaw`: a RAW file). */
+export function pick(values: Adjustments, keys: string[], isRaw: boolean): Partial<Adjustments> {
   const all = new Set(keys.flatMap((key) => [key, ...(COPIED_ALONG[key] ?? [])]));
   const picked = Object.fromEntries(
     [...all].map((key) => [key, structuredClone(values[key as keyof Adjustments])])
@@ -96,7 +98,8 @@ export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> 
       ),
       values
     ),
-    values
+    values,
+    isRaw
   );
 }
 
@@ -130,7 +133,7 @@ export default function StudioToolCopy({
   const copy = (chosen: string[]) => {
     const { adjustments, selectedImage: image, setEditor } = useEditorStore.getState();
     if (!image) return null;
-    const values = pick(adjustments, chosen);
+    const values = pick(adjustments, chosen, image.isRaw);
     setEditor({ toolClipboard: { tool, source: image.path, values } });
     return values;
   };
