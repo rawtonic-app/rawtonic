@@ -14,9 +14,8 @@
 //! shadows of cameras it was not trained on (notes:
 //! benchmark-results/aid-ai-denoise-shadows-2026-11-11/). With
 //! `sensor_means` the result keeps the sensor's local means (`keep_means`):
-//! per 2 × 2 position and level, the local mean of sample − result is added
-//! back, so the network removes noise and does not move a patch's level or
-//! colour.
+//! per 2 × 2 position the local mean of sample − result is added back, so
+//! the network removes noise and does not move an area's level or colour.
 
 use std::sync::Arc;
 
@@ -200,186 +199,49 @@ pub(crate) fn apply<T: Copy>(
     Ok(())
 }
 
-/// Side of a cell of `keep_means`'s grid, in samples of one 2 × 2 position
-/// (two photosites each).
-const MEANS_CELL: usize = 8;
-/// Radius in cells of the three box passes over the grid: close to a
-/// Gaussian of 55 photosites' spread. Half and twice that window were
-/// measured too (notes:
-/// benchmark-results/aid-ai-denoise-shadows-2026-11-11/): a narrower one
+/// Radius, in samples of one 2 × 2 position (two photosites each), of the
+/// three box passes `keep_means` averages over: close to a Gaussian of 49
+/// photosites' spread. Radii from 6 to 96 were measured (notes:
+/// benchmark-results/aid-ai-denoise-shadows-2026-11-11/): a narrower window
 /// brings back more of the sensor's noise, a wider one follows the shift
-/// of a camera the network does not know less closely.
-const MEANS_RADIUS: usize = 3;
+/// less closely where a dark area lies beside a bright one.
+const MEANS_RADIUS: usize = 24;
 const MEANS_PASSES: usize = 3;
-/// Radius of the box mean of the denoised samples that stands for a
-/// sample's level.
-const LEVEL_RADIUS: usize = 2;
-/// Samples per cell, on average over the window, that a level's own shift
-/// counts as against the window's shift over all levels.
-const LEVEL_SUPPORT: f32 = 16.0;
-/// The smallest scale of the levels: a quarter of a 14-bit step.
-const MIN_LEVEL: f32 = 1.0 / 65536.0;
 
-/// Adds to `denoised` what the denoiser took from the sensor's local means
-/// (both `aw` × `ah`, whole 2 × 2 tiles).
-///
-/// The shift, `mosaic` − `denoised`, is averaged per 2 × 2 position over a
-/// wide window, apart for each level: a network's shift depends on how
-/// bright an area is, and a dark patch beside a bright one must not get
-/// their common mean. A sample's level is a small box mean of the denoised
-/// samples around it; the levels' nodes are one stop apart above the noise
-/// of such a mean (the noise the denoiser removed in the photo's darkest
-/// cells over the box's side), so levels that the noise cannot tell apart
-/// share a node. A level with few samples in the window leans on the
-/// window's shift over all levels. Samples at or above white take no part:
-/// they are kept as recorded.
+/// Adds to `denoised`, per 2 × 2 position, the local mean of `mosaic` −
+/// `denoised` (both `aw` × `ah`, whole 2 × 2 tiles), so the result's local
+/// means are the sensor's. Samples at or above white take no part: they
+/// are kept as recorded.
 fn keep_means(mosaic: &[f32], denoised: &mut [f32], aw: usize, ah: usize) {
     let (pw, ph) = (aw / 2, ah / 2);
-    let (cell, radius) = (MEANS_CELL, MEANS_RADIUS);
-    let (gw, gh) = (pw.div_ceil(cell), ph.div_ceil(cell));
     for position in 0..4 {
         let at = |x: usize, y: usize| (2 * y + position / 2) * aw + 2 * x + position % 2;
-        // The level of each sample: a box mean of the denoised samples.
-        let mut level = vec![0.0f32; pw * ph];
-        let mut count = vec![1.0f32; pw * ph];
-        level.par_chunks_mut(pw).enumerate().for_each(|(y, row)| {
-            for (x, v) in row.iter_mut().enumerate() {
-                *v = denoised[at(x, y)];
-            }
-        });
-        box_sum(&mut level, pw, ph, LEVEL_RADIUS);
-        box_sum(&mut count, pw, ph, LEVEL_RADIUS);
-        // The noise removed in the darkest cells, as it is left in a level:
-        // the scale of the levels.
-        let mut removed: Vec<f32> = (0..gw * gh)
-            .into_par_iter()
-            .filter_map(|c| {
-                let (cx, cy) = (c % gw, c / gw);
-                let (mut n, mut sum) = (0u32, 0.0f64);
-                for y in cy * cell..((cy + 1) * cell).min(ph) {
-                    for x in cx * cell..((cx + 1) * cell).min(pw) {
-                        let i = at(x, y);
-                        if mosaic[i] < 1.0 {
-                            n += 1;
-                            sum += ((mosaic[i] - denoised[i]) as f64).powi(2);
-                        }
-                    }
-                }
-                (n as usize * 2 >= cell * cell).then(|| (sum / n as f64).sqrt() as f32)
-            })
-            .collect();
-        removed.sort_by(f32::total_cmp);
-        let floor = (removed.get(removed.len() / 10).copied().unwrap_or(0.0)
-            / (2 * LEVEL_RADIUS + 1) as f32)
-            .max(MIN_LEVEL);
-        // Node k stands for the level floor · (2^k − 1); the last one is
-        // at or above white.
-        let stops = |v: f32| (((v.to_bits() >> 23) & 0xff) as usize).saturating_sub(127);
-        let nodes = stops(1.0 / floor + 1.0) + 2;
-        let node_of = |x: usize, y: usize| {
-            let v = level[y * pw + x].max(0.0) / count[y * pw + x] / floor + 1.0;
-            let k = stops(v);
-            if k + 1 >= nodes {
-                (nodes - 2, 1.0)
-            } else {
-                (k, v / (1u32 << k) as f32 - 1.0)
-            }
-        };
-        // Sums of the shift and of the samples per cell and node.
-        let mut shift = vec![0.0f32; nodes * gw * gh];
-        let mut weight = vec![0.0f32; nodes * gw * gh];
-        let rows: Vec<(Vec<f32>, Vec<f32>)> = (0..gh)
-            .into_par_iter()
-            .map(|cy| {
-                let mut s = vec![0.0f32; nodes * gw];
-                let mut w = vec![0.0f32; nodes * gw];
-                for y in cy * cell..((cy + 1) * cell).min(ph) {
-                    for x in 0..pw {
-                        let i = at(x, y);
-                        if mosaic[i] >= 1.0 {
-                            continue;
-                        }
-                        let (k, t) = node_of(x, y);
-                        let d = mosaic[i] - denoised[i];
-                        let c = x / cell;
-                        s[k * gw + c] += (1.0 - t) * d;
-                        w[k * gw + c] += 1.0 - t;
-                        s[(k + 1) * gw + c] += t * d;
-                        w[(k + 1) * gw + c] += t;
-                    }
-                }
-                (s, w)
-            })
-            .collect();
-        for (cy, (s, w)) in rows.iter().enumerate() {
-            for k in 0..nodes {
-                let to = k * gw * gh + cy * gw;
-                shift[to..to + gw].copy_from_slice(&s[k * gw..(k + 1) * gw]);
-                weight[to..to + gw].copy_from_slice(&w[k * gw..(k + 1) * gw]);
-            }
-        }
+        let mut shift = vec![0.0f32; pw * ph];
+        let mut weight = vec![0.0f32; pw * ph];
         shift
-            .par_chunks_mut(gw * gh)
-            .chain(weight.par_chunks_mut(gw * gh))
-            .for_each(|grid| {
-                for _ in 0..MEANS_PASSES {
-                    box_sum(grid, gw, gh, radius);
+            .par_chunks_mut(pw)
+            .zip(weight.par_chunks_mut(pw))
+            .enumerate()
+            .for_each(|(y, (shift, weight))| {
+                for x in 0..pw {
+                    let i = at(x, y);
+                    if mosaic[i] < 1.0 {
+                        shift[x] = mosaic[i] - denoised[i];
+                        weight[x] = 1.0;
+                    }
                 }
             });
-        // The same over all levels.
-        let mut all_shift = vec![0.0f32; gw * gh];
-        let mut all_weight = vec![0.0f32; gw * gh];
-        for k in 0..nodes {
-            for c in 0..gw * gh {
-                all_shift[c] += shift[k * gw * gh + c];
-                all_weight[c] += weight[k * gw * gh + c];
-            }
+        for _ in 0..MEANS_PASSES {
+            box_sum(&mut shift, pw, ph, MEANS_RADIUS);
+            box_sum(&mut weight, pw, ph, MEANS_RADIUS);
         }
-        // `LEVEL_SUPPORT` samples per cell in the units of the box sums.
-        let support = (0..2 * MEANS_PASSES).fold(LEVEL_SUPPORT, |s, _| s * (2 * radius + 1) as f32);
-        // Bilinear between cell centres.
-        let axis = |p: usize, n: usize| {
-            let f = (p as f32 + 0.5) / cell as f32 - 0.5;
-            if f <= 0.0 {
-                (0usize, 0usize, 0.0f32)
-            } else {
-                let i = (f.floor() as usize).min(n - 1);
-                (i, (i + 1).min(n - 1), f.fract())
-            }
-        };
-        let (shift, weight) = (&shift, &weight);
-        let (all_shift, all_weight) = (&all_shift, &all_weight);
-        let added: Vec<f32> = (0..pw * ph)
-            .into_par_iter()
-            .map(|j| {
-                let (x, y) = (j % pw, j / pw);
-                if mosaic[at(x, y)] >= 1.0 {
-                    return 0.0;
-                }
-                let (x0, x1, tx) = axis(x, gw);
-                let (y0, y1, ty) = axis(y, gh);
-                let sample = |grid: &[f32]| {
-                    let top = grid[y0 * gw + x0] + (grid[y0 * gw + x1] - grid[y0 * gw + x0]) * tx;
-                    let bottom =
-                        grid[y1 * gw + x0] + (grid[y1 * gw + x1] - grid[y1 * gw + x0]) * tx;
-                    top + (bottom - top) * ty
-                };
-                let (k, t) = node_of(x, y);
-                let slice = |grid: &[f32]| {
-                    let low = sample(&grid[k * gw * gh..(k + 1) * gw * gh]);
-                    let high = sample(&grid[(k + 1) * gw * gh..(k + 2) * gw * gh]);
-                    low + (high - low) * t
-                };
-                let all = sample(all_weight);
-                if all <= 0.0 {
-                    return 0.0;
-                }
-                (slice(shift) + support * sample(all_shift) / all) / (slice(weight) + support)
-            })
-            .collect();
         for y in 0..ph {
             for x in 0..pw {
-                denoised[at(x, y)] += added[y * pw + x];
+                let i = at(x, y);
+                let w = weight[y * pw + x];
+                if mosaic[i] < 1.0 && w > 0.0 {
+                    denoised[i] += shift[y * pw + x] / w;
+                }
             }
         }
     }
