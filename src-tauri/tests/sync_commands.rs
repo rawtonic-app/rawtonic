@@ -184,6 +184,10 @@ const SYNC_COMMANDS: &[(&str, &str)] = &[
         "main-thread-only API: menu, window, quit or webview",
     ),
     (
+        "set_maximize_button_rect",
+        "main-thread-only API: menu, window, quit or webview",
+    ),
+    (
         "show_in_finder",
         "spawns the file manager or a background job and returns at once",
     ),
