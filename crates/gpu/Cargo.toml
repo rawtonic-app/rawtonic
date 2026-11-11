@@ -35,3 +35,6 @@ pollster = { workspace = true }
 base64 = { workspace = true }
 rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-support"] }
 tempfile = { workspace = true }
+# compile_probe: the shader as naga IR, folded and stubbed before the driver sees it.
+naga = { version = "30.0.1", features = ["wgsl-in"] }
+wgpu = { workspace = true, features = ["naga-ir"] }
