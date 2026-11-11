@@ -46,3 +46,15 @@ function Wait-Qa([int]$Port = 7979, [int]$TimeoutSec = 90) {
     }
     throw "QA channel on port $Port did not answer in $TimeoutSec s"
 }
+
+# state.wait / ui.wait are answered by the webview within 30 s at most (the
+# native side gives up then), so a longer wait polls in slices of 20 s.
+function Wait-QaState([string]$Path, $Equals = $null, [int]$TimeoutSec = 120) {
+    $end = (Get-Date).AddSeconds($TimeoutSec)
+    do {
+        $p = @{ path = $Path; timeout_ms = 20000 }
+        if ($null -ne $Equals) { $p.equals = $Equals }
+        try { return Invoke-Qa state.wait $p } catch { if ($_ -notmatch 'timed out') { throw } }
+    } while ((Get-Date) -lt $end)
+    throw "state $Path did not become ready in $TimeoutSec s"
+}

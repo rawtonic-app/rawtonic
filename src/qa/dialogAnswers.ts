@@ -1,7 +1,7 @@
 // QA builds only (VITE_RAWTONIC_QA=1): answers for the next native open
 // dialogs, queued over the QA control channel (`dialog.answer`) and taken by
 // src/utils/fileDialog.ts. Ordinary builds never import this module.
-import type { OpenDialogOptions } from '@tauri-apps/plugin-dialog';
+import type { OpenDialogOptions, SaveDialogOptions } from '@tauri-apps/plugin-dialog';
 
 /** A queued answer: a path, several paths, or null (the user cancelled). */
 export type DialogAnswer = string | string[] | null;
@@ -26,13 +26,13 @@ export function queueDialogAnswers(answers: DialogAnswer[]) {
 
 /** The next queued answer for a dialog asked with `options`; undefined when
  * none is queued (the native panel opens then). Records what was asked. */
-export function takeDialogAnswer(options: OpenDialogOptions): DialogAnswer | undefined {
+export function takeDialogAnswer(options: OpenDialogOptions | SaveDialogOptions): DialogAnswer | undefined {
   const answer = queue.length ? queue.shift() : undefined;
   asked.push({
     title: options.title ?? null,
     defaultPath: options.defaultPath ?? null,
-    directory: Boolean(options.directory),
-    multiple: Boolean(options.multiple),
+    directory: 'directory' in options && Boolean(options.directory),
+    multiple: 'multiple' in options && Boolean(options.multiple),
     answer: answer === undefined ? 'native' : answer
   });
   if (asked.length > 50) asked.shift();

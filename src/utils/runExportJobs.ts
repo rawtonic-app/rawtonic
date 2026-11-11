@@ -1,6 +1,6 @@
 import i18n from 'i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { openDialog, saveDialog } from './fileDialog';
 import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
 import { Status, type ExportPreset } from '../components/ui/ExportImportProperties';
@@ -86,14 +86,14 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         total: 1,
         library: submittedFrom(session)
       }).catch(() => undefined);
-      const file = await save({
+      const file = await saveDialog({
         title: t('studio.export.dialogs.exportFile', { name }),
         defaultPath: named?.name ?? `${stem}.${extension}`,
         filters: [{ name: extension.toUpperCase(), extensions: [extension] }]
       });
       return typeof file === 'string' ? { path: file, isFile: true } : null;
     }
-    const chosen = await open({
+    const chosen = await openDialog({
       title: t('studio.export.dialogs.exportFolder', {
         count: paths.length,
         name
