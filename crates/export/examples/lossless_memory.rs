@@ -4,8 +4,10 @@ use image::{DynamicImage, Rgb, RgbImage};
 use rawtonic_engine::output_color_space::OutputColorSpace;
 use rawtonic_export::export_processing::{TiffBitDepth, encode_image_to_bytes};
 fn main() {
-    let format = std::env::args().nth(1).expect("tiff or jxl");
-    assert!(matches!(format.as_str(), "tiff" | "jxl" | "jxl-fast"));
+    let format = std::env::args()
+        .nth(1)
+        .expect("tiff, jxl, or jxl-effort [1..10]");
+    assert!(matches!(format.as_str(), "tiff" | "jxl" | "jxl-effort"));
     let mut state = 123456789u32;
     let image = DynamicImage::ImageRgb8(RgbImage::from_fn(7360, 4912, |x, y| {
         state ^= state << 13;
@@ -19,9 +21,9 @@ fn main() {
         ])
     }));
     let start = std::time::Instant::now();
-    let bytes = if format == "jxl-fast" {
+    let bytes = if format == "jxl-effort" {
         jxl_encoder::LosslessConfig::new()
-            .with_effort(1)
+            .with_effort(std::env::args().nth(2).expect("effort").parse().unwrap())
             .encode(
                 image.as_bytes(),
                 image.width(),
@@ -46,4 +48,10 @@ fn main() {
         bytes.len(),
         start.elapsed().as_secs_f64()
     );
+    if std::env::args().any(|arg| arg == "--verify") {
+        let decoder = jxl_oxide::integration::JxlDecoder::new(std::io::Cursor::new(bytes)).unwrap();
+        let decoded = DynamicImage::from_decoder(decoder).unwrap();
+        assert_eq!(decoded.to_rgb8(), image.to_rgb8());
+        println!("decoded_pixels_identical=true");
+    }
 }

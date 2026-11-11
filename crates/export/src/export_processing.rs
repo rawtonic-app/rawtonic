@@ -1958,6 +1958,11 @@ pub fn render_prepared_exports(
 /// at once (7.1 s) and the peak footprint at 6.7 GB (6 or more: 8.0–8.2 GB).
 const MASK_GENERATORS: usize = 4;
 
+// Effort 4 gives the smallest output among efforts 1–4 on the 36 MP
+// synthetic benchmark, in 2.24 s instead of effort 7's 143 s. Keep lossless
+// exports interactive; the encoder's memory budget remains open (G64).
+const LOSSLESS_JXL_EFFORT: u8 = 4;
+
 /// Encodes an export render for `extension` and embeds `metadata` (EXIF and
 /// XMP from [`exif_processing::export_metadata_with`](crate::exif_processing::export_metadata_with)).
 pub fn encode_with_metadata(
@@ -2179,11 +2184,13 @@ pub fn encode_image_to_bytes(
                 if has_alpha {
                     let rgba = image.to_rgba8();
                     LosslessConfig::new()
+                        .with_effort(LOSSLESS_JXL_EFFORT)
                         .encode(rgba.as_raw(), width, height, PixelLayout::Rgba8)
                         .map_err(|e| format!("Failed to encode lossless JXL: {}", e))?
                 } else {
                     let rgb = image.to_rgb8();
                     LosslessConfig::new()
+                        .with_effort(LOSSLESS_JXL_EFFORT)
                         .encode(rgb.as_raw(), width, height, PixelLayout::Rgb8)
                         .map_err(|e| format!("Failed to encode lossless JXL: {}", e))?
                 }
@@ -2377,6 +2384,7 @@ fn encode_wide_jxl(
             (image.to_rgb8().into_raw(), PixelLayout::Rgb8)
         };
         return LosslessConfig::new()
+            .with_effort(LOSSLESS_JXL_EFFORT)
             .encode_request(width, height, layout)
             .with_color_encoding(encoding)
             .encode(&pixels)

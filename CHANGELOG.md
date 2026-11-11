@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **A corrected capture time now travels in the XMP sidecar.** *Shift Capture Time* writes the corrected time as `exif:DateTimeOriginal` and `photoshop:DateCreated` (with fraction of a second and UTC offset when known; no offset is invented) into the photo's XMP sidecar, so Lightroom, Capture One and other libraries see it, as with Lightroom's Edit Capture Time; *Back to the time in the file* and Undo remove exactly the dates Rawtonic wrote. The other way round, a sidecar whose capture time differs from the file's — for example after Lightroom's Edit Capture Time — becomes the photo's capture-time correction when it is imported or read with *Use XMP*; equal times change nothing. Sidecars of photos without a correction are written byte for byte as before, and your photo files are never changed.
+- **Faster lossless JPEG XL exports.** A synthetic 36 MP RGB image encoded in about 2.3 seconds instead of 143 seconds on the test laptop, with identical decoded pixels and a 72% larger file. Memory use remains above the export budget; lossy JPEG XL is unchanged.
 
 - **Updated lens corrections** from Lensfun, including Nikkor Z 24-70mm f/2.8 S II, GF 63mm, Tamron 70-300mm, OM System EXIF names and the corrected Nikkor AF 80-400mm profile. Already resolved lens corrections and saved diffraction settings keep their previous results.
 
