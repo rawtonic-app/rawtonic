@@ -6157,7 +6157,9 @@ fn version_5_exports_render_their_specialized_variant_within_rounding() {
                 if raw && tonemapper == 3 {
                     adjustments.global.profile_curve[15][3] = 2.0;
                 }
-                let features = preview_features(&adjustments);
+                // The display variant's features with the effects code
+                // exports always keep (`EFFECTS_FEATURE`).
+                let features = preview_features(&adjustments) | EFFECTS_FEATURE;
                 assert!(std::ptr::eq(
                     processor
                         .export_pipeline(&adjustments, MainOutput::Deferred)
