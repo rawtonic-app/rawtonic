@@ -97,7 +97,7 @@ Other systems are not supported yet; you can try to [build from source](docs/DEV
 
 ### 1 · Bring the shoot in
 
-Start a **project** for a portrait sitting, a wedding or a product shoot. **Ingest** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. The card is never changed. You can also drag photographs from the Finder or your file manager straight onto the window. Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives (optionally from subfolders too) and can apply a preset or the previous photo's settings, a rating and keywords straight away; it keeps watching when you reopen the project, and picks up what arrived while Rawtonic was closed.
+Start a **project** for a portrait sitting, a wedding or a product shoot. **Ingest** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. In the import dialog you can check photos at 100 % for focus (Z or a click, real pixels, not an enlarged preview) rate them and choose which to import before anything is copied; inserting a memory card opens the import with that card, and it can be ejected once every photo is copied and verified. The card is never changed. You can also drag photographs from the Finder or your file manager straight onto the window. Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives (optionally from subfolders too) and can apply a preset or the previous photo's settings, a rating and keywords straight away; it keeps watching when you reopen the project, and picks up what arrived while Rawtonic was closed.
 
 Use a **catalog** for a growing photo collection. Imports copy into its own `Photos/year/date` folders by default; you can also keep photos in their existing folders. Albums organize photographs without moving them. Moved, renamed, added or deleted files outside Rawtonic? **Synchronize Folder** finds the changes, follows moved photos with their edits and lets you review everything before it is applied. The library menu can create a **portable copy** for another computer, make a **full verified backup**, or **restore a backup** into a new folder—including external originals and required edit resources.
 
@@ -115,7 +115,7 @@ The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P a
 
 ### 3 · Develop
 
-The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History**, copy settings across a series and save your own presets. Drag a slider to explore, move the pointer away from it while dragging for a finer drag, or type a number to be exact. The **Profile** browser shows the open photo with every camera profile and look; hover to preview, click to apply. **Match Light** gives a series the exposure and white balance that make it look lit like a reference photo.
+The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History** (⌥/Alt-click a tool group's name resets that group), copy settings across a series and save your own presets. Drag a slider to explore, move the pointer away from it while dragging for a finer drag, step it with the arrow keys, or type a number to be exact. A **second window** (Window ▸ Second Window, ⇧F) shows the photo live on another display, with its own zoom and a lock that keeps one photo while you move on. The **Profile** browser shows the open photo with every camera profile and look; hover to preview, click to apply. **Match Light** gives a series the exposure and white balance that make it look lit like a reference photo.
 
 <table>
 <tr>
@@ -158,7 +158,7 @@ The **Develop** room gives the photograph the space: a filmstrip, a histogram an
   <a href="docs/images/readme-export.jpg"><img src="docs/images/readme-export.jpg" alt="Export dialog with three recipes ticked: high quality, web and a 16-bit Adobe RGB TIFF for print" width="860"></a>
 </p>
 
-Save **export recipes** for full-size delivery, web sizes, social media or TIFFs for retouching, and tick several to produce every version in one go, each with its own size, format, colour space, sharpening, watermark and folder. The **export queue** survives a restart: resume an interrupted job and retry failed photographs when you are ready.
+Save **export recipes** for full-size delivery, web sizes, social media or TIFFs for retouching, and tick several to produce every version in one go, each with its own size, format, colour space, sharpening, watermark and folder. **Super Resolution** enlarges a photo 2× with an AI model as it is exported. The **export queue** survives a restart: resume an interrupted job and retry failed photographs when you are ready.
 
 ## What it does
 
@@ -174,7 +174,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 - **Merge.** HDR, panorama, HDR panorama and focus stacking to a DNG; collages.
 - **Film.** Convert scanned negatives; grain with five structures (even, soft, clumped, speckled, gritty) and vignette.
 - **Library.** Ratings, flags, labels, keywords and IPTC in XMP sidecars; stacks and Auto-Stack; find duplicates; eyes-open check\*; Shift Capture Time; Match Light; catalogs, albums and smart albums; search by what a photo shows (Content search\*, sorts by match); import from Lightroom Classic and Capture One.
-- **Output.** Proof sheets (File › Proof Sheet…: numbered contact sheets as PDF or JPEG for clients); JPEG, TIFF, PNG, WebP, JPEG XL and AVIF in sRGB, Display P3, Adobe RGB or ProPhoto RGB; output sharpening for screen and print; watermarks and borders; metadata you choose to keep.
+- **Output.** Super Resolution (2× enlargement at export\*); proof sheets (File › Proof Sheet…: numbered contact sheets as PDF or JPEG for clients); JPEG, TIFF, PNG, WebP, JPEG XL and AVIF in sRGB, Display P3, Adobe RGB or ProPhoto RGB; output sharpening for screen and print; watermarks and borders; metadata you choose to keep.
 - **Private by design.** No account or telemetry. An optional startup update check is the only automatic network access ([privacy](PRIVACY.md)).
 
 <sub>\* Optional AI tools. They run on your computer, never in the cloud; each model is downloaded once, the first time you use the tool (see <a href="docs/MODELS.md">AI models</a>). Areas filled by a generative model are marked as such in exported files.</sub>
@@ -199,6 +199,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | ⌘' / Ctrl+'                  | new virtual copy               |
 | **⇧\\**                      | camera preview (the JPEG in the RAW) |
 | **F**                        | photograph alone, full screen  |
+| **⇧F**                       | second window (another display) |
 | **I** (Develop, full screen) | photograph info                |
 | ⌃⌘F (macOS) / **F11**        | window full screen             |
 | **⇧Return** / **⌘Return**    | pin / clear the reference      |
