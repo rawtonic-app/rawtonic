@@ -576,7 +576,7 @@ function App() {
           <SessionWorkspace
             onNavigate={handleSelectSubfolder}
             nativeTitlebar={hasNativeMacTitlebar || showWindowControls}
-            windowControls={showWindowControls ? <WindowControls /> : undefined}
+            windowControls={showWindowControls ? <WindowControls snapLayouts={osPlatform === 'windows'} /> : undefined}
           />
         </PerfProfiler>
         <PerfProfiler id="workspace">

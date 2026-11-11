@@ -99,9 +99,14 @@
   background: transparent;
   color: var(--studio-muted);
 }
-.studio-window-controls button:hover {
+.studio-window-controls button:hover,
+.studio-window-controls button.is-hovered {
   background: #ffffff10;
   color: var(--studio-text);
+}
+.studio-window-controls button:active,
+.studio-window-controls button.is-pressed {
+  background: #ffffff1c;
 }
 .studio-window-controls .studio-window-close:hover {
   background: #c42b35;

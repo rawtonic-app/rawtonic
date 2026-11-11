@@ -122,7 +122,17 @@ fn build_tauri() {
             Err(e) => panic!("Cannot clear the generated VC runtime override: {e}"),
         }
     }
-    tauri_build::build();
+    // Tauri's manifest plus the Windows 8+ compatibility entry (layered
+    // child windows, src/snap_layout/win32.rs).
+    println!("cargo:rerun-if-changed=windows-app-manifest.xml");
+    let windows = tauri_build::WindowsAttributes::new()
+        .app_manifest(include_str!("windows-app-manifest.xml"));
+    if let Err(error) =
+        tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
+    {
+        println!("{error:#}");
+        std::process::exit(1);
+    }
     if msvc && shim.exists() {
         // Move only Tauri's generated override, keeping resource.lib intact.
         // /LIBPATH is app-local, unlike cargo:rustc-link-search. The original
