@@ -5562,6 +5562,7 @@ dependencies = [
  "rawtonic-recipe",
  "rawtonic-runtime",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

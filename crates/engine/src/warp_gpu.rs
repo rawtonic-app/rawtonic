@@ -71,8 +71,10 @@ struct Params {
     /// (`WarpUniforms::lcx`, `lcy`).
     lcx: f32,
     lcy: f32,
-    _pad1: u32,
-    _pad2: u32,
+    /// Growth of the red and blue scales with the relative radius itself
+    /// (`WarpUniforms::tca_linear`; TCA_LINEAR).
+    vr1: f32,
+    vb1: f32,
 }
 
 const LENS: u32 = 1;
@@ -90,6 +92,11 @@ const MANUAL_VIGNETTING: u32 = 1024;
 /// The lens runs about (`lcx`, `lcy`), not the frame centre
 /// (shaders/warp.wgsl `source_point_off_centre`).
 const LENS_CENTRE: u32 = 2048;
+/// A lensfun profile under its own conventions (lens model 4 or 0, a
+/// framing zoom also below 1): shaders/warp.wgsl `source_point_lensfun`.
+const LENSFUN: u32 = 4096;
+/// The lateral CA grows with the radius itself too (`vr1`, `vb1`).
+const TCA_LINEAR: u32 = 8192;
 
 /// Output pixels per submission: display frames queued meanwhile wait for
 /// one band, not the whole frame, and a band's buffers stay small.
@@ -253,15 +260,22 @@ fn params(u: &WarpUniforms, source: &SourceRows, out: OutputRows) -> (Params, Ve
         } else if u.ptlens {
             flags |= PTLENS;
         }
+        if u.lensfun {
+            flags |= LENSFUN;
+        }
     }
     // Only an off-centre lens takes the shader's other path: warps about the
     // frame centre keep the function they had before cameraGeometryVersion 8,
     // since fast math would change their bits otherwise.
-    if u.lcx != u.cx || u.lcy != u.cy {
+    if (u.lcx != u.cx || u.lcy != u.cy) && !u.lensfun {
         flags |= LENS_CENTRE;
     }
     let manual = u.manual_c.inspect(|_| flags |= MANUAL).unwrap_or(0.0);
     let [vr, vb, vr2, vb2, inv_hd2] = u.tca.inspect(|_| flags |= TCA).unwrap_or_default();
+    let [vr1, vb1] = u.tca_linear;
+    if u.tca.is_some() && (vr1 != 0.0 || vb1 != 0.0) {
+        flags |= TCA_LINEAR;
+    }
     let [vk1, vk2, vk3, lens_vig_amt] = u
         .vignetting
         .inspect(|_| flags |= VIGNETTING)
@@ -319,6 +333,8 @@ fn params(u: &WarpUniforms, source: &SourceRows, out: OutputRows) -> (Params, Ve
         mv_per_hd,
         lcx: u.lcx,
         lcy: u.lcy,
+        vr1,
+        vb1,
         ..Default::default()
     };
     (params, table_data)
@@ -823,5 +839,7 @@ mod tests {
             "    if (P.flags & LENS_CENTRE) != 0u {\n        s = source_point_off_centre(p);\n    } else {\n        s = source_point(p);\n    }\n"
         ));
         assert!(shader.contains(&format!("const LENS_CENTRE: u32 = {LENS_CENTRE}u;")));
+        assert!(shader.contains(&format!("const LENSFUN: u32 = {LENSFUN}u;")));
+        assert!(shader.contains(&format!("const TCA_LINEAR: u32 = {TCA_LINEAR}u;")));
     }
 }
