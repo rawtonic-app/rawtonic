@@ -664,7 +664,14 @@ mod tests {
     const WINDOWS: Backends = Backends::VULKAN.union(Backends::DX12);
 
     fn windows_start(state: &GuardState, crashed: Option<Backends>) -> Decision {
-        decide(state, crashed.map(crash).as_ref(), None, false, WINDOWS, TODAY)
+        decide(
+            state,
+            crashed.map(crash).as_ref(),
+            None,
+            false,
+            WINDOWS,
+            TODAY,
+        )
     }
 
     #[test]
@@ -730,7 +737,10 @@ mod tests {
         assert!(flag.exists());
         // Nothing recorded: nothing left out.
         let empty = tempfile::tempdir().unwrap();
-        assert_eq!(for_headless_run(empty.path(), WINDOWS).avoid, Backends::empty());
+        assert_eq!(
+            for_headless_run(empty.path(), WINDOWS).avoid,
+            Backends::empty()
+        );
         assert!(!empty.path().join(STATE_FILE).exists());
     }
 

@@ -132,8 +132,11 @@ export async function resetGraphicsAndRetry(restart: () => Promise<void> = relau
     const unsaved = await relaunchAfterSettingsSaves(restart);
     if (unsaved.length > 0) throw new Error(unsaved.join(', '));
   } catch (error) {
-    notify.error(i18n.t('gpuBackend.resetFailed', { details: error instanceof Error ? error.message : String(error) }), {
-      toastId: 'gpu-reset-failed'
-    });
+    notify.error(
+      i18n.t('gpuBackend.resetFailed', { details: error instanceof Error ? error.message : String(error) }),
+      {
+        toastId: 'gpu-reset-failed'
+      }
+    );
   }
 }

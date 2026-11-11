@@ -1284,7 +1284,10 @@ mod tests {
 
     #[test]
     fn windows_frames_name_module_and_offset_and_never_a_guessed_export() {
-        let frame = |module: Option<&str>, offset: Option<u64>, function: Option<&str>, at: Option<&str>| {
+        let frame = |module: Option<&str>,
+                     offset: Option<u64>,
+                     function: Option<&str>,
+                     at: Option<&str>| {
             ModuleFrame {
                 module: module.map(str::to_string),
                 offset,
@@ -1294,7 +1297,12 @@ mod tests {
         };
         let frames = [
             // A stripped release: Windows' lookup guessed an export name.
-            frame(Some("rawtonic-app.exe"), Some(0x1a2b3c), Some("onig_get_capture_tree"), None),
+            frame(
+                Some("rawtonic-app.exe"),
+                Some(0x1a2b3c),
+                Some("onig_get_capture_tree"),
+                None,
+            ),
             frame(None, None, Some("lost"), None),
             frame(Some("amdvlk64.dll"), Some(0x10), None, None),
             // A build with debug info: name and line kept.
@@ -1312,7 +1320,10 @@ mod tests {
         );
         assert_eq!(format_module_frames(&[frame(None, None, None, None)]), None);
         let many = vec![frame(Some("a.dll"), Some(1), None, None); MAX_FRAMES + 10];
-        assert_eq!(format_module_frames(&many).unwrap().lines().count(), MAX_FRAMES);
+        assert_eq!(
+            format_module_frames(&many).unwrap().lines().count(),
+            MAX_FRAMES
+        );
     }
 
     #[test]
