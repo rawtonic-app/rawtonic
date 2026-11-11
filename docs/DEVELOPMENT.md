@@ -218,7 +218,7 @@ How to read it: measure on an idle machine (the script prints the load average) 
 
 A Windows release carries no symbols, so a crash report's backtrace names each frame by module and offset (`12: rawtonic-app.exe+0x1a2b3c`; frames whose function the build cannot name are never given a guessed export name). The Windows workflow builds with line tables into `rawtonic_app.pdb` (`CARGO_PROFILE_RELEASE_STRIP=none`, `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only`; the code is the same), keeps the executable and the PDB as the `windows-symbols` artifact (not part of any download) and `scripts/release.sh` keeps a release's copy in the private repository `RAWTONIC_SYMBOLS_REPO` as release `symbols-vVERSION` ([RELEASING.md](RELEASING.md)). Symbols are no secret (the source is public, the paths are the runner's), they are only kept out of the downloads.
 
-To resolve the frames of a report from version VERSION, take that release's symbols (the artifact of an unreleased build's run works the same) and pass the `rawtonic-app.exe` offsets, relative to the image base, to `llvm-symbolizer` (LLVM 17 or newer, any platform; it reads the PDB beside the executable):
+To resolve the frames of a report from version VERSION, take that release's symbols (the artifact of an unreleased build's run works the same) and pass the `rawtonic-app.exe` offsets, relative to the image base, to `llvm-symbolizer` (checked with LLVM 23 on macOS; it reads the PDB beside the executable and lists inlined frames):
 
 ```sh
 gh release download symbols-vVERSION -R "$RAWTONIC_SYMBOLS_REPO" -D sym && (cd sym && unzip -o *-windows-symbols.zip)
