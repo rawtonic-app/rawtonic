@@ -85,7 +85,7 @@ pub struct SourceFacts {
     /// Its median (version 6 on; kept apart so older headers still parse).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_key_median: Option<f32>,
-    /// `airlight::for_path` (measured on the decode; version 21 on).
+    /// `airlight::for_path` (measured on the decode; version 22 on).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub airlight: Option<f32>,
     /// `diffraction` Airy σ in pixels.
