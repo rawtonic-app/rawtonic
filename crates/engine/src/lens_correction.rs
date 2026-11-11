@@ -4,6 +4,9 @@ use std::cmp::Ordering;
 use std::fs;
 use walkdir::WalkDir;
 
+mod lensfun_profile;
+pub use lensfun_profile::{CONVENTION, MODEL_PTLENS_UNSCALED};
+
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Distortion {
     #[serde(rename = "@model")]
@@ -192,6 +195,25 @@ pub struct LensDistortionParams {
     centre_x: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
     centre_y: f64,
+    /// Growth of the red and blue scales with the radius itself (relative
+    /// to the half diagonal): lensfun's poly3 lateral CA linear term
+    /// (`convention` 1; earlier resolutions fitted it into the others).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    tca_vr1: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    tca_vb1: f64,
+    /// How a lensfun database profile was resolved: absent (0) as
+    /// `Lens::get_distortion_params` (a PTLens fit mapping corner to corner,
+    /// lateral CA without its linear term, nearest aperture and distance,
+    /// the frame filled from eight points with a margin); 1 under lensfun's
+    /// own conventions (`Lens::profile_params`, 2026-11-12), framed by the
+    /// warp's exact fill (`image_processing::compute_lens_auto_crop_scale`).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    convention: u32,
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }
 
 /// The warp's tabulated radial distortion (lens model 2): an output radius
@@ -429,6 +451,9 @@ impl LensDistortionParams {
             table_radii: Vec::new(),
             centre_x: 0.0,
             centre_y: 0.0,
+            tca_vr1: 0.0,
+            tca_vb1: 0.0,
+            convention: 0,
         }
     }
 
@@ -485,6 +510,8 @@ impl LensDistortionParams {
             tca_vb: 1.0,
             tca_vr2: 0.0,
             tca_vb2: 0.0,
+            tca_vr1: 0.0,
+            tca_vb1: 0.0,
             ..self
         }
     }
@@ -506,6 +533,8 @@ impl LensDistortionParams {
             && (self.tca_vb - 1.0).abs() < 1e-12
             && self.tca_vr2.abs() < 1e-12
             && self.tca_vb2.abs() < 1e-12
+            && self.tca_vr1.abs() < 1e-12
+            && self.tca_vb1.abs() < 1e-12
             && is_unit_zoom(&self.zoom)
             && self.table.iter().all(|t| (t - 1.0).abs() < 1e-12)
     }
@@ -919,6 +948,9 @@ impl Lens {
             table_radii: Vec::new(),
             centre_x: 0.0,
             centre_y: 0.0,
+            tca_vr1: 0.0,
+            tca_vb1: 0.0,
+            convention: 0,
         })
     }
 }
@@ -1509,6 +1541,10 @@ fn previous_display_names() -> &'static [[String; 4]] {
     })
 }
 
+/// The profile of the maker's lens shown as `model` for a shot, as a fresh
+/// lens choice resolves it: under lensfun's conventions
+/// (`Lens::profile_params`). Recipes keep the parameters they were resolved
+/// with (`lens_recipe`), so earlier resolutions render as before.
 pub fn resolve_lens_params(
     db: &LensDatabase,
     maker: &str,
@@ -1519,7 +1555,7 @@ pub fn resolve_lens_params(
     camera_crop: Option<f32>,
 ) -> Option<LensDistortionParams> {
     let (_, lens) = find_lens_by_display_name(db, maker, model)?;
-    lens.get_distortion_params(focal_length, aperture, distance, camera_crop)
+    lens.profile_params(focal_length, aperture, distance, camera_crop)
 }
 
 #[cfg(test)]

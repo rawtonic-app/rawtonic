@@ -133,6 +133,13 @@ pub struct GeometryParams {
     /// diagonal, read only with `lens_zoom_exact` ([`lens_centre`]).
     #[serde(default, skip_serializing_if = "is_no_lens_centre")]
     pub lens_centre: [f32; 2],
+    /// A lensfun profile resolved under its own conventions
+    /// (`LensDistortionParams::convention` ≥ 1): the distortion runs about
+    /// the middle of the pixel grid ([`lens_centre`]), and the lens
+    /// correction fills the frame exactly: every border pixel checked, no
+    /// margin, as with `lens_zoom_exact`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lens_fill_exact: bool,
     pub tca_vr: f32,
     pub tca_vb: f32,
     /// Growth of tca_vr / tca_vb with the squared relative radius.
@@ -140,6 +147,12 @@ pub struct GeometryParams {
     pub tca_vr2: f32,
     #[serde(default)]
     pub tca_vb2: f32,
+    /// Growth of tca_vr / tca_vb with the relative radius itself (lensfun's
+    /// poly3 linear term, `LensDistortionParams::tca_vr1`).
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub tca_vr1: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub tca_vb1: f32,
     pub vig_k1: f32,
     pub vig_k2: f32,
     pub vig_k3: f32,
@@ -194,6 +207,10 @@ pub struct GeometryParams {
     pub manual_vignette_midpoint: f32,
 }
 
+fn is_zero_f32(value: &f32) -> bool {
+    *value == 0.0
+}
+
 fn is_no_lens_centre(centre: &[f32; 2]) -> bool {
     *centre == [0.0; 2]
 }
@@ -211,6 +228,13 @@ fn lens_centre(
     hd: f64,
 ) -> (f32, f32) {
     let [ox, oy] = params.lens_centre;
+    if has_lens_correction && params.lens_fill_exact {
+        // The middle of the pixel grid: pixel centres run 0 … width − 1
+        // (`interpolate_pixel`), so the frame's centre is half a pixel
+        // before (`cx`, `cy`) = (width / 2, height / 2), which every warp
+        // before lensfun's conventions keeps.
+        return (cx - 0.5, cy - 0.5);
+    }
     if has_lens_correction && params.lens_zoom_exact && (ox != 0.0 || oy != 0.0) {
         (
             (f64::from(cx) + f64::from(ox) * hd) as f32,
@@ -261,10 +285,13 @@ impl Default for GeometryParams {
             lens_zoom: 1.0,
             lens_zoom_exact: false,
             lens_centre: [0.0; 2],
+            lens_fill_exact: false,
             tca_vr: 1.0,
             tca_vb: 1.0,
             tca_vr2: 0.0,
             tca_vb2: 0.0,
+            tca_vr1: 0.0,
+            tca_vb1: 0.0,
             vig_k1: 0.0,
             vig_k2: 0.0,
             vig_k3: 0.0,
@@ -321,10 +348,13 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         lens_zoom: profile.zoom as f32,
         lens_zoom_exact: profile.exact_zoom,
         lens_centre: profile.centre.map(|v| v as f32),
+        lens_fill_exact: profile.convention >= u64::from(crate::lens_correction::CONVENTION),
         tca_vr: profile.tca_vr as f32,
         tca_vb: profile.tca_vb as f32,
         tca_vr2: profile.tca_vr2 as f32,
         tca_vb2: profile.tca_vb2 as f32,
+        tca_vr1: profile.tca_vr1 as f32,
+        tca_vb1: profile.tca_vb1 as f32,
         vig_k1: profile.vig_k1 as f32,
         vig_k2: profile.vig_k2 as f32,
         vig_k3: profile.vig_k3 as f32,
@@ -405,7 +435,9 @@ fn has_own_tca(params: &GeometryParams) -> bool {
         && ((params.tca_vr - 1.0).abs() > 1e-6
             || (params.tca_vb - 1.0).abs() > 1e-6
             || params.tca_vr2.abs() > 1e-9
-            || params.tca_vb2.abs() > 1e-9)
+            || params.tca_vb2.abs() > 1e-9
+            || params.tca_vr1.abs() > 1e-9
+            || params.tca_vb1.abs() > 1e-9)
 }
 
 /// The lens data's own lateral CA correction at its amount: red and blue
@@ -426,14 +458,53 @@ fn own_tca(params: &GeometryParams) -> (f32, f32, f32, f32) {
     (vr, vb, params.tca_vr2 * amount, params.tca_vb2 * amount)
 }
 
+/// The growth of the red and blue scales with the relative radius itself
+/// (`tca_vr1`, `tca_vb1`) at the lens data's CA amount, as the warp applies
+/// them beside [`own_tca`].
+fn own_tca_linear(params: &GeometryParams) -> (f32, f32) {
+    let amount = params.lens_tca_amount;
+    (params.tca_vr1 * amount, params.tca_vb1 * amount)
+}
+
 /// `own_tca` as the model the automatic estimate competes with
-/// (`lateral_ca::estimate_versus`).
+/// (`lateral_ca::estimate_versus`): a linear radius term (lensfun's poly3)
+/// as the closest scale and growth with r² over the frame, since the
+/// estimate's model has no such term (the warp itself applies it exactly).
 pub fn own_tca_model(params: &GeometryParams) -> crate::lateral_ca::CaModel {
     let (vr, vb, vr2, vb2) = own_tca(params);
+    let (vr1, vb1) = own_tca_linear(params);
+    let channel = |v: f32, v1: f32, v2: f32| -> (f32, f32) {
+        if v1 == 0.0 {
+            return (v - 1.0, v2);
+        }
+        let curve: Vec<(f64, f64)> = (0..=64)
+            .map(|i| {
+                let r = f64::from(i) / 64.0;
+                let scale = f64::from(v) - 1.0 + f64::from(v1) * r + f64::from(v2) * r * r;
+                (r, scale)
+            })
+            .collect();
+        crate::embedded_lens::fit_chromatic(&curve)
+            .filter(|(a, b)| a.is_finite() && b.is_finite())
+            .map_or((v - 1.0, v2), |(a, b)| (a as f32, b as f32))
+    };
     crate::lateral_ca::CaModel {
-        red: (vr - 1.0, vr2),
-        blue: (vb - 1.0, vb2),
+        red: channel(vr, vr1, vr2),
+        blue: channel(vb, vb1, vb2),
     }
+}
+
+/// Whether lens model `model` is a PTLens polynomial (`r (a r³ + b r² + c r
+/// + d)`): model 1 with d = 1 − a − b − c (corner to corner), or
+/// `MODEL_PTLENS_UNSCALED` with d = 1 (lensfun's own scale).
+fn is_ptlens_model(model: u32) -> bool {
+    model == 1 || model == crate::lens_correction::MODEL_PTLENS_UNSCALED
+}
+
+/// The constant term d of a PTLens lens model (`is_ptlens_model`).
+#[inline(always)]
+fn ptlens_d(unit: bool, a: f64, b: f64, c: f64) -> f64 {
+    if unit { 1.0 } else { 1.0 - a - b - c }
 }
 
 /// `DynamicImage::thumbnail`, also right for float images: the image crate
@@ -990,6 +1061,10 @@ struct TcaContext<'a> {
     inv_hd2: f32,
     vr2: f32,
     vb2: f32,
+    /// Growth of the red and blue scales with the relative radius itself
+    /// (lensfun's poly3 linear term).
+    vr1: f32,
+    vb1: f32,
     /// The frame row and column `src_raw` starts at (0: the whole frame; a
     /// region's source holds only the rows and columns it reads). Positions
     /// stay in frame pixels; `src_height` counts the rows from `row0` to the
@@ -998,6 +1073,20 @@ struct TcaContext<'a> {
     col0: f32,
     /// `GeometryParams::keep_negative`.
     keep_negative: bool,
+}
+
+/// The red and blue scales at (`x`, `y`) with a linear radius term:
+/// `v + v1 r + v2 r²`, r relative to the half diagonal (shaders/warp.wgsl
+/// `TCA_LINEAR`).
+#[inline(always)]
+fn tca_linear_scales(tca: &TcaContext, x: f32, y: f32, vr: f32, vb: f32) -> (f32, f32) {
+    let (dx, dy) = (x - tca.cx, y - tca.cy);
+    let r2 = (dx * dx + dy * dy) * tca.inv_hd2;
+    let r = r2.sqrt();
+    (
+        vr + tca.vr1 * r + tca.vr2 * r2,
+        vb + tca.vb1 * r + tca.vb2 * r2,
+    )
 }
 
 #[inline(always)]
@@ -1017,7 +1106,9 @@ fn interpolate_pixel_with_tca(
     let gx = base_x;
     let gy = base_y;
 
-    let (vr, vb) = if tca.vr2 != 0.0 || tca.vb2 != 0.0 {
+    let (vr, vb) = if tca.vr1 != 0.0 || tca.vb1 != 0.0 {
+        tca_linear_scales(tca, base_x, base_y, vr, vb)
+    } else if tca.vr2 != 0.0 || tca.vb2 != 0.0 {
         let r2 = ((base_x - cx) * (base_x - cx) + (base_y - cy) * (base_y - cy)) * tca.inv_hd2;
         (vr + tca.vr2 * r2, vb + tca.vb2 * r2)
     } else {
@@ -1107,7 +1198,9 @@ fn interpolate_4_with_tca(
     let mut xs = [[0.0f32; 4]; 3];
     let mut ys = [[0.0f32; 4]; 3];
     for (l, &(base_x, base_y)) in points.iter().enumerate() {
-        let (vr, vb) = if tca.vr2 != 0.0 || tca.vb2 != 0.0 {
+        let (vr, vb) = if tca.vr1 != 0.0 || tca.vb1 != 0.0 {
+            tca_linear_scales(tca, base_x, base_y, vr, vb)
+        } else if tca.vr2 != 0.0 || tca.vb2 != 0.0 {
             let r2 = ((base_x - cx) * (base_x - cx) + (base_y - cy) * (base_y - cy)) * tca.inv_hd2;
             (vr + tca.vr2 * r2, vb + tca.vb2 * r2)
         } else {
@@ -1238,6 +1331,10 @@ fn lens_table(params: &GeometryParams) -> Option<RadialTable> {
     RadialTable::new(&values, f64::from(params.lens_table_end))
 }
 
+/// The smallest framing zoom the exact fill (`lens_fill_exact`) searches
+/// from.
+const MIN_FILL_ZOOM: f64 = 0.25;
+
 fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32) -> f64 {
     let cx = (width / 2.0) as f64;
     let cy = (height / 2.0) as f64;
@@ -1254,7 +1351,8 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
     let table = lens_table(params);
     let has_lens_correction = params.lens_distortion_enabled
         && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6 || table.is_some());
-    let is_ptlens = params.lens_model == 1;
+    let is_ptlens = is_ptlens_model(params.lens_model);
+    let ptlens_unit = params.lens_model == crate::lens_correction::MODEL_PTLENS_UNSCALED;
 
     let sample_points: [(f64, f64); 8] = [
         (cx, 0.0),
@@ -1279,7 +1377,7 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
             let a = lk1;
             let b = lk2;
             let c = lk3;
-            let d = 1.0 - a - b - c;
+            let d = ptlens_d(ptlens_unit, a, b, c);
             ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
         } else {
             ru_norm
@@ -1327,10 +1425,20 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
     // would still sample outside (manual distortion, an amount below 100 %, a
     // fitted curve's bulge), without a margin. Every border pixel is checked
     // at the position the warp samples (0 … width − 1, `interpolate_pixel`);
-    // `INSIDE` covers its f32 rounding.
-    if has_lens_correction && params.lens_zoom_exact {
+    // `INSIDE` covers its f32 rounding. A lensfun profile under its own
+    // conventions (`lens_fill_exact`) is framed so too: the largest crop
+    // the corrected photo fills (no empty corners, the widest such field,
+    // which at Lensfun's focal-preserving scale can be a zoom below 1).
+    if has_lens_correction && (params.lens_zoom_exact || params.lens_fill_exact) {
         const INSIDE: f64 = 0.01;
-        let zoom = (1.0 + (params.lens_zoom as f64 - 1.0) * lens_dist_amt.clamp(0.0, 1.0)).max(1.0);
+        // A lensfun profile at its own scale may frame wider than zoom 1
+        // while every border pixel still samples the photo (a corrected
+        // barrel): the search starts well below it.
+        let zoom = if params.lens_fill_exact && !params.lens_zoom_exact {
+            MIN_FILL_ZOOM
+        } else {
+            (1.0 + (params.lens_zoom as f64 - 1.0) * lens_dist_amt.clamp(0.0, 1.0)).max(1.0)
+        };
         let (last_x, last_y) = (width as f64 - 1.0, height as f64 - 1.0);
         let (lcx, lcy) = lens_centre(
             params,
@@ -1385,6 +1493,7 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
             params.lens_model,
             params.lens_distortion_amount.to_bits(),
             u32::from(params.lens_profile_exact),
+            u32::from(params.lens_fill_exact),
             params.distortion.to_bits(),
             params.lens_zoom.to_bits(),
             params.lens_table_end.to_bits(),
@@ -1493,6 +1602,11 @@ struct WarpKernel {
     lens_dist_amt: f64,
     has_lens_correction: bool,
     is_ptlens: bool,
+    /// The PTLens model keeps its own scale (d = 1, `ptlens_d`).
+    ptlens_unit: bool,
+    /// A lensfun profile under its own conventions with its distortion on
+    /// (`GeometryParams::lens_fill_exact`).
+    lensfun: bool,
     lens_table: Option<RadialTable>,
     /// `lens_table` in f32, for `f32_warp`.
     lens_table32: Option<crate::lens_correction::RadialTable32>,
@@ -1501,6 +1615,9 @@ struct WarpKernel {
     vb: f32,
     vr2: f32,
     vb2: f32,
+    /// Growth of the red and blue scales with the relative radius itself.
+    vr1: f32,
+    vb1: f32,
     has_tca: bool,
     vk1: f64,
     vk2: f64,
@@ -1562,7 +1679,8 @@ impl WarpKernel {
         let lens_table = lens_table(params);
         let has_lens_correction = params.lens_distortion_enabled
             && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6 || lens_table.is_some());
-        let is_ptlens = params.lens_model == 1;
+        let is_ptlens = is_ptlens_model(params.lens_model);
+        let ptlens_unit = params.lens_model == crate::lens_correction::MODEL_PTLENS_UNSCALED;
 
         let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
             compute_lens_auto_crop_scale(params, width as f32, height as f32) as f32
@@ -1585,6 +1703,11 @@ impl WarpKernel {
             }
             None => None,
         };
+        let (vr1, vb1) = if measured.is_some() {
+            (0.0, 0.0)
+        } else {
+            own_tca_linear(params)
+        };
         let (vr, vb, vr2, vb2, tca_on) = match measured {
             Some(m) => (1.0 + m.red.0, 1.0 + m.blue.0, m.red.1, m.blue.1, true),
             None => {
@@ -1596,7 +1719,9 @@ impl WarpKernel {
             && ((vr - 1.0).abs() > 1e-5
                 || (vb - 1.0).abs() > 1e-5
                 || vr2.abs() > 1e-6
-                || vb2.abs() > 1e-6);
+                || vb2.abs() > 1e-6
+                || vr1.abs() > 1e-6
+                || vb1.abs() > 1e-6);
 
         let vk1 = params.vig_k1 as f64;
         let vk2 = params.vig_k2 as f64;
@@ -1632,6 +1757,8 @@ impl WarpKernel {
             lens_dist_amt,
             has_lens_correction,
             is_ptlens,
+            ptlens_unit,
+            lensfun: params.lens_fill_exact && has_lens_correction,
             lens_table32: lens_table
                 .as_ref()
                 .filter(|_| params.f32_warp)
@@ -1642,6 +1769,8 @@ impl WarpKernel {
             vb,
             vr2,
             vb2,
+            vr1,
+            vb1,
             has_tca,
             vk1,
             vk2,
@@ -1699,7 +1828,7 @@ impl WarpKernel {
         let mut src_y = current_vec.y * inv_z;
 
         let (lcx, lcy) = (self.lcx, self.lcy);
-        if self.auto_crop_scale > 1.0 {
+        if self.auto_crop_scale != 1.0 {
             src_x = lcx + (src_x - lcx) / self.auto_crop_scale;
             src_y = lcy + (src_y - lcy) / self.auto_crop_scale;
         }
@@ -1719,7 +1848,7 @@ impl WarpKernel {
                     let a = self.lk1;
                     let b = self.lk2;
                     let c = self.lk3;
-                    let d = 1.0 - a - b - c;
+                    let d = ptlens_d(self.ptlens_unit, a, b, c);
                     ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
                 } else {
                     ru_norm
@@ -1761,7 +1890,7 @@ impl WarpKernel {
         let mut src_x = current_vec.x * inv_z;
         let mut src_y = current_vec.y * inv_z;
         let (lcx, lcy) = (self.lcx, self.lcy);
-        if self.auto_crop_scale > 1.0 {
+        if self.auto_crop_scale != 1.0 {
             src_x = lcx + (src_x - lcx) / self.auto_crop_scale;
             src_y = lcy + (src_y - lcy) / self.auto_crop_scale;
         }
@@ -1775,7 +1904,11 @@ impl WarpKernel {
                 let rd_norm = if let Some(table) = &self.lens_table32 {
                     ru_norm * table.at(ru_norm)
                 } else if self.is_ptlens {
-                    let d = 1.0 - k1 - k2 - k3;
+                    let d = if self.ptlens_unit {
+                        1.0
+                    } else {
+                        1.0 - k1 - k2 - k3
+                    };
                     ru_norm * (k1 * ru_norm2 * ru_norm + k2 * ru_norm2 + k3 * ru_norm + d)
                 } else {
                     ru_norm
@@ -1820,7 +1953,15 @@ impl WarpKernel {
             return (!outside).then_some([src_x, src_x, src_y, src_y]);
         }
         let (cx, cy) = (self.cx, self.cy);
-        let (vr, vb) = if self.vr2 != 0.0 || self.vb2 != 0.0 {
+        let (vr, vb) = if self.vr1 != 0.0 || self.vb1 != 0.0 {
+            let inv_hd2 = 1.0 / (cx * cx + cy * cy).max(1.0);
+            let r2 = ((src_x - cx) * (src_x - cx) + (src_y - cy) * (src_y - cy)) * inv_hd2;
+            let r = r2.sqrt();
+            (
+                self.vr + self.vr1 * r + self.vr2 * r2,
+                self.vb + self.vb1 * r + self.vb2 * r2,
+            )
+        } else if self.vr2 != 0.0 || self.vb2 != 0.0 {
             let inv_hd2 = 1.0 / (cx * cx + cy * cy).max(1.0);
             let r2 = ((src_x - cx) * (src_x - cx) + (src_y - cy) * (src_y - cy)) * inv_hd2;
             (self.vr + self.vr2 * r2, self.vb + self.vb2 * r2)
@@ -1937,6 +2078,8 @@ impl WarpKernel {
             inv_hd2: 1.0 / (self.cx * self.cx + self.cy * self.cy).max(1.0),
             vr2: self.vr2,
             vb2: self.vb2,
+            vr1: self.vr1,
+            vb1: self.vb1,
             row0: row0 as f32,
             col0,
             keep_negative: self.keep_negative,
@@ -1997,6 +2140,8 @@ impl WarpKernel {
             inv_hd2: 1.0 / (self.cx * self.cx + self.cy * self.cy).max(1.0),
             vr2: self.vr2,
             vb2: self.vb2,
+            vr1: self.vr1,
+            vb1: self.vb1,
             row0: source.row0 as f32,
             col0: source.col0 as f32,
             keep_negative: self.keep_negative,
@@ -2040,7 +2185,7 @@ impl WarpKernel {
         let (mut src_x, mut src_y) = (p[0] / p[2], p[1] / p[2]);
         let crop = f64::from(self.auto_crop_scale);
         let (lcx, lcy) = (f64::from(self.lcx), f64::from(self.lcy));
-        if crop > 1.0 {
+        if crop != 1.0 {
             src_x = lcx + (src_x - lcx) / crop;
             src_y = lcy + (src_y - lcy) / crop;
         }
@@ -2053,7 +2198,7 @@ impl WarpKernel {
                 let rd = if let Some(table) = &self.lens_table {
                     r * table.at(r)
                 } else if self.is_ptlens {
-                    let d = 1.0 - self.lk1 - self.lk2 - self.lk3;
+                    let d = ptlens_d(self.ptlens_unit, self.lk1, self.lk2, self.lk3);
                     r * (self.lk1 * r2 * r + self.lk2 * r2 + self.lk3 * r + d)
                 } else {
                     r * (1.0 + self.lk1 * r2 + self.lk2 * r2 * r2 + self.lk3 * r2 * r2 * r2)
@@ -2092,6 +2237,9 @@ pub(crate) struct WarpUniforms {
     pub auto_crop_scale: f32,
     pub lens: bool,
     pub ptlens: bool,
+    /// `WarpKernel::lensfun`: shaders/warp.wgsl `source_point_lensfun`
+    /// (lens model 4 or 0, a framing zoom also below 1).
+    pub lensfun: bool,
     pub k: [f32; 3],
     pub lens_dist_amt: f32,
     pub table: Option<crate::lens_correction::RadialTable32>,
@@ -2099,6 +2247,8 @@ pub(crate) struct WarpUniforms {
     pub manual_c: Option<f32>,
     /// (vr, vb, vr2, vb2, 1 / half-diagonal²) of the lateral CA.
     pub tca: Option<[f32; 5]>,
+    /// Its growth with the relative radius itself (vr1, vb1), zero without.
+    pub tca_linear: [f32; 2],
     /// (k1, k2, k3, amount) of the vignetting.
     pub vignetting: Option<[f32; 4]>,
     /// Manual lens vignetting: (EV at half the long side, power of the
@@ -2125,6 +2275,7 @@ impl WarpKernel {
             auto_crop_scale: self.auto_crop_scale,
             lens: self.has_lens_correction,
             ptlens: self.is_ptlens,
+            lensfun: self.lensfun,
             k: [self.lk1 as f32, self.lk2 as f32, self.lk3 as f32],
             lens_dist_amt: self.lens_dist_amt as f32,
             table: self.lens_table32.clone(),
@@ -2139,6 +2290,11 @@ impl WarpKernel {
                     1.0 / (self.cx * self.cx + self.cy * self.cy).max(1.0),
                 ]
             }),
+            tca_linear: if self.has_tca {
+                [self.vr1, self.vb1]
+            } else {
+                [0.0; 2]
+            },
             vignetting: self.has_vignetting.then_some([
                 self.vk1 as f32,
                 self.vk2 as f32,
@@ -2489,7 +2645,8 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
     let table = lens_table(&params);
     let has_lens_correction = params.lens_distortion_enabled
         && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6 || table.is_some());
-    let is_ptlens = params.lens_model == 1;
+    let is_ptlens = is_ptlens_model(params.lens_model);
+    let ptlens_unit = params.lens_model == crate::lens_correction::MODEL_PTLENS_UNSCALED;
 
     let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
         compute_lens_auto_crop_scale(&params, width as f32, height as f32) as f32
@@ -2549,7 +2706,7 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
                                 let a = lk1;
                                 let b = lk2;
                                 let c = lk3;
-                                let d = 1.0 - a - b - c;
+                                let d = ptlens_d(ptlens_unit, a, b, c);
                                 let poly = a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d;
 
                                 let val = ru * poly;
@@ -2590,7 +2747,7 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
                     }
                 }
 
-                if auto_crop_scale > 1.0 {
+                if auto_crop_scale != 1.0 {
                     current_x = lcx + (current_x - lcx) * auto_crop_scale;
                     current_y = lcy + (current_y - lcy) * auto_crop_scale;
                 }
@@ -2641,6 +2798,8 @@ pub struct WarpPoints {
     lens_dist_amt: f64,
     has_lens_correction: bool,
     is_ptlens: bool,
+    /// `WarpKernel::ptlens_unit`.
+    ptlens_unit: bool,
     lens_table: Option<RadialTable>,
     auto_crop_scale: f32,
 }
@@ -2681,10 +2840,19 @@ impl WarpPoints {
             lens_k,
             lens_dist_amt: (params.lens_distortion_amount as f64) * lens_strength(params).0,
             has_lens_correction,
-            is_ptlens: params.lens_model == 1,
+            is_ptlens: is_ptlens_model(params.lens_model),
+            ptlens_unit: params.lens_model == crate::lens_correction::MODEL_PTLENS_UNSCALED,
             lens_table,
             auto_crop_scale,
         }
+    }
+
+    /// The zoom that frames the corrected image (below 1 only for a lensfun
+    /// profile under its own conventions, `lens_fill_exact`): output
+    /// points are divided by it about the lens centre before the lens
+    /// mapping.
+    pub fn framing_zoom(&self) -> f32 {
+        self.auto_crop_scale
     }
 
     /// The source point output pixel (`x`, `y`) samples.
@@ -2698,7 +2866,7 @@ impl WarpPoints {
         let mut src_x = v.x * inv_z;
         let mut src_y = v.y * inv_z;
         let (lcx, lcy) = (self.lcx, self.lcy);
-        if self.auto_crop_scale > 1.0 {
+        if self.auto_crop_scale != 1.0 {
             src_x = lcx + (src_x - lcx) / self.auto_crop_scale;
             src_y = lcy + (src_y - lcy) / self.auto_crop_scale;
         }
@@ -2713,7 +2881,7 @@ impl WarpPoints {
                 let rd_norm = if let Some(table) = &self.lens_table {
                     ru_norm * table.at(ru_norm)
                 } else if self.is_ptlens {
-                    let d = 1.0 - a - b - c;
+                    let d = ptlens_d(self.ptlens_unit, a, b, c);
                     ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
                 } else {
                     ru_norm
@@ -2773,7 +2941,7 @@ impl WarpPoints {
                         let (t, slope) = table.with_slope(ru_norm);
                         (ru * t, t + ru_norm * slope)
                     } else if self.is_ptlens {
-                        let d = 1.0 - a - b - c;
+                        let d = ptlens_d(self.ptlens_unit, a, b, c);
                         let poly = a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d;
                         let prime = 4.0 * a * ru_norm2 * ru_norm
                             + 3.0 * b * ru_norm2
@@ -2806,7 +2974,7 @@ impl WarpPoints {
                 current_y = lcy + (dy * scale) as f32;
             }
         }
-        if self.auto_crop_scale > 1.0 {
+        if self.auto_crop_scale != 1.0 {
             let (lcx, lcy) = (self.lcx, self.lcy);
             current_x = lcx + (current_x - lcx) * self.auto_crop_scale;
             current_y = lcy + (current_y - lcy) * self.auto_crop_scale;
@@ -2932,7 +3100,8 @@ pub fn inverse_transform_point(
         let table = lens_table(&params);
         let has_lens_correction = params.lens_distortion_enabled
             && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6 || table.is_some());
-        let is_ptlens = params.lens_model == 1;
+        let is_ptlens = is_ptlens_model(params.lens_model);
+        let ptlens_unit = params.lens_model == crate::lens_correction::MODEL_PTLENS_UNSCALED;
 
         let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
             compute_lens_auto_crop_scale(&params, width, height)
@@ -2942,7 +3111,7 @@ pub fn inverse_transform_point(
 
         let (lcx, lcy) = lens_centre(&params, has_lens_correction, cx_f32, cy_f32, hd);
         let (lcx, lcy) = (lcx as f64, lcy as f64);
-        if auto_crop_scale > 1.0 {
+        if auto_crop_scale != 1.0 {
             src_x = lcx + (src_x - lcx) / auto_crop_scale;
             src_y = lcy + (src_y - lcy) / auto_crop_scale;
         }
@@ -2962,7 +3131,7 @@ pub fn inverse_transform_point(
                     let a = lk1;
                     let b = lk2;
                     let c = lk3;
-                    let d = 1.0 - a - b - c;
+                    let d = ptlens_d(ptlens_unit, a, b, c);
                     ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
                 } else {
                     ru_norm
@@ -7911,6 +8080,16 @@ mod warp_quad_tests {
                 scale: 120.0,
                 ..base.clone()
             },
+            // Lensfun's poly3 lateral CA with its linear radius term.
+            GeometryParams {
+                tca_vr: 1.002,
+                tca_vb: 0.999,
+                tca_vr1: 0.0015,
+                tca_vb1: -0.001,
+                tca_vr2: 0.0005,
+                keep_negative: true,
+                ..base.clone()
+            },
         ];
         // Each also with the f32 warp (`F32_WARP_RENDER_VERSION`).
         let cases = cases.iter().flat_map(|params| {
@@ -8003,6 +8182,15 @@ mod warp_quad_tests {
                 distortion: -40.0,
                 vertical: 20.0,
                 rotate: 2.5,
+                ..base.clone()
+            },
+            // A lensfun PTLens profile at its own scale, framed exactly.
+            GeometryParams {
+                lens_model: crate::lens_correction::MODEL_PTLENS_UNSCALED,
+                lens_dist_k1: 0.012,
+                lens_dist_k2: -0.03,
+                lens_dist_k3: 0.01,
+                lens_fill_exact: true,
                 ..base.clone()
             },
         ];
@@ -9207,6 +9395,49 @@ mod manual_distortion_tests {
                     "{amount} {r}"
                 );
             }
+        }
+    }
+
+    /// A lensfun profile under its own conventions is framed by the
+    /// largest crop the corrected photo fills: every border pixel samples
+    /// inside it, a slightly wider framing would not, and the zoom may be
+    /// below 1 (a corrected barrel at Lensfun's focal-preserving scale) or
+    /// above (a corrected pincushion), about the middle of the pixel grid.
+    #[test]
+    fn lensfun_profiles_fill_the_frame_with_the_widest_field() {
+        let (w, h) = (1200u32, 800u32);
+        let border = |warp: &WarpPoints| {
+            let (last_x, last_y) = ((w - 1) as f32, (h - 1) as f32);
+            (0..w)
+                .flat_map(|x| [(x as f32, 0.0), (x as f32, last_y)])
+                .chain((0..h).flat_map(|y| [(0.0, y as f32), (last_x, y as f32)]))
+                .map(|(x, y)| {
+                    let (sx, sy) = warp.to_source(x, y).unwrap();
+                    sx.min(sy).min(last_x - sx).min(last_y - sy)
+                })
+                .fold(f32::MAX, f32::min)
+        };
+        for (k1, k2, k3, below_one) in [(0.002, -0.06, 0.004, true), (-0.01, 0.04, -0.02, false)] {
+            let params = GeometryParams {
+                lens_model: crate::lens_correction::MODEL_PTLENS_UNSCALED,
+                lens_dist_k1: k1,
+                lens_dist_k2: k2,
+                lens_dist_k3: k3,
+                lens_fill_exact: true,
+                ..Default::default()
+            };
+            let warp = WarpPoints::new(&params, w, h);
+            let zoom = warp.framing_zoom();
+            assert_eq!(zoom < 1.0, below_one, "{zoom}");
+            // Inside, within the scan's 0.01 px allowance.
+            let margin = border(&warp);
+            assert!((0.0..0.02).contains(&margin), "{zoom}: {margin}");
+            assert_eq!((warp.lcx, warp.lcy), (599.5, 399.5));
+            let wider = WarpPoints {
+                auto_crop_scale: zoom * (1.0 - 1e-4),
+                ..warp
+            };
+            assert!(border(&wider) < 0.0, "{zoom}");
         }
     }
 

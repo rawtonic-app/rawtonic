@@ -207,6 +207,8 @@ fn warp_geometry(params: GeometryParams) -> GeometryParams {
         tca_vb: defaults.tca_vb,
         tca_vr2: defaults.tca_vr2,
         tca_vb2: defaults.tca_vb2,
+        tca_vr1: defaults.tca_vr1,
+        tca_vb1: defaults.tca_vb1,
         vig_k1: defaults.vig_k1,
         vig_k2: defaults.vig_k2,
         vig_k3: defaults.vig_k3,

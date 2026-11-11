@@ -8,8 +8,13 @@ fn geometry_params_match_recorded_main_values() {
         serde_json::from_str(include_str!("fixtures/lens_geometry_params.json")).unwrap();
     for case in fixture["cases"].as_array().unwrap() {
         let params = geometry_params_for(&case["recipe"], case["isRaw"].as_bool().unwrap());
+        // Fields added later (lensfun's conventions, 2026-11-12) must keep
+        // their neutral values for these recipes; the rest as recorded.
+        let debug = format!("{params:?}")
+            .replace("lens_fill_exact: false, ", "")
+            .replace("tca_vr1: 0.0, tca_vb1: 0.0, ", "");
         assert_eq!(
-            format!("{params:?}"),
+            debug,
             case["paramsDebug"].as_str().unwrap(),
             "{}: geometry parameters changed from main {}",
             case["name"],

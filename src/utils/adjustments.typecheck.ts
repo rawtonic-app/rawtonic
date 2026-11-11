@@ -116,6 +116,9 @@ interface OldAdjustments {
     table_radii?: number[];
     centre_x?: number;
     centre_y?: number;
+    tca_vr1?: number;
+    tca_vb1?: number;
+    convention?: number;
   } | null;
   lensMaker: string | null;
   lensProfileFor?: string | null;

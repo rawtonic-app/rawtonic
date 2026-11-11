@@ -61,8 +61,10 @@ struct Params {
     // frame centre unless the camera's data place it off-centre).
     lcx: f32,
     lcy: f32,
-    _pad1: u32,
-    _pad2: u32,
+    // Growth of the red and blue scales with the relative radius itself
+    // (TCA_LINEAR; lensfun's poly3 linear term).
+    vr1: f32,
+    vb1: f32,
 }
 
 const LENS: u32 = 1u;
@@ -77,6 +79,10 @@ const MANUAL_VIGNETTING: u32 = 1024u;
 // The framing zoom and the lens distortion run about (`lcx`, `lcy`) instead
 // of the frame centre (`source_point_off_centre`).
 const LENS_CENTRE: u32 = 2048u;
+// A lensfun profile under its own conventions (`source_point_lensfun`).
+const LENSFUN: u32 = 4096u;
+// The lateral CA grows with the radius itself too (`vr1`, `vb1`).
+const TCA_LINEAR: u32 = 8192u;
 // Write each pixel's source position (x, y, and z < 0 where it is left
 // black) instead of sampling (tests of the warp's precision).
 const POSITIONS: u32 = 256u;
@@ -250,6 +256,55 @@ fn source_point_off_centre(p: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(sx, sy, 1.0);
 }
 
+// A lensfun profile under its own conventions (LENSFUN; image_processing.rs
+// `source_point_f32` with `lens_fill_exact`): the PTLens polynomial with
+// d = 1 (lens model 4) or the even polynomial (model 0), about (`lcx`,
+// `lcy`), the framing zoom applied also below 1. A function of its own so
+// `source_point` and `source_point_off_centre` keep their bits.
+fn source_point_lensfun(p: vec3<f32>) -> vec3<f32> {
+    if abs(p.z) <= 1e-6 {
+        return vec3<f32>(0.0, 0.0, -1.0);
+    }
+    let cx = P.cx;
+    let cy = P.cy;
+    let lcx = P.lcx;
+    let lcy = P.lcy;
+    let inv_z = 1.0 / p.z;
+    var sx = p.x * inv_z;
+    var sy = p.y * inv_z;
+    if P.auto_crop_scale != 1.0 {
+        sx = lcx + (sx - lcx) / P.auto_crop_scale;
+        sy = lcy + (sy - lcy) / P.auto_crop_scale;
+    }
+    let dx = sx - lcx;
+    let dy = sy - lcy;
+    let ru = sqrt(dx * dx + dy * dy);
+    if ru > 1e-6 {
+        let ru_norm = ru / P.hd;
+        let ru_norm2 = ru_norm * ru_norm;
+        var rd_norm: f32;
+        if (P.flags & PTLENS) != 0u {
+            rd_norm = ru_norm * (P.k1 * ru_norm2 * ru_norm + P.k2 * ru_norm2 + P.k3 * ru_norm + 1.0);
+        } else {
+            rd_norm = ru_norm * (1.0 + P.k1 * ru_norm2 + P.k2 * (ru_norm2 * ru_norm2)
+                + P.k3 * (ru_norm2 * ru_norm2 * ru_norm2));
+        }
+        let effective = ru_norm + (rd_norm - ru_norm) * P.lens_dist_amt;
+        let scale = effective / ru_norm;
+        sx = lcx + dx * scale;
+        sy = lcy + dy * scale;
+    }
+    if (P.flags & MANUAL) != 0u {
+        let mx = sx - cx;
+        let my = sy - cy;
+        let r2_norm = (mx * mx + my * my) * P.max_radius_sq_inv;
+        let f = 1.0 + P.k_distortion_c * (1.0 - r2_norm);
+        sx = cx + mx * f;
+        sy = cy + my * f;
+    }
+    return vec3<f32>(sx, sy, 1.0);
+}
+
 // Channel `c` of frame pixel (x, y); 0 and `missed` set where `src` does
 // not hold it.
 fn at(x: u32, y: u32, c: u32) -> f32 {
@@ -347,6 +402,11 @@ fn warp(@builtin(global_invocation_id) id: vec3<u32>) {
     } else {
         s = source_point(p);
     }
+    // Lensfun's conventions take their own function; the block above stays
+    // as it was for every other warp.
+    if (P.flags & LENSFUN) != 0u {
+        s = source_point_lensfun(p);
+    }
     if (P.flags & POSITIONS) != 0u {
         dst[o] = s.x;
         dst[o + 1u] = s.y;
@@ -360,7 +420,12 @@ fn warp(@builtin(global_invocation_id) id: vec3<u32>) {
         if (P.flags & TCA) != 0u {
             var vr = P.vr;
             var vb = P.vb;
-            if P.vr2 != 0.0 || P.vb2 != 0.0 {
+            if (P.flags & TCA_LINEAR) != 0u {
+                let r2 = ((sx - P.cx) * (sx - P.cx) + (sy - P.cy) * (sy - P.cy)) * P.inv_hd2;
+                let r = sqrt(r2);
+                vr = vr + P.vr1 * r + P.vr2 * r2;
+                vb = vb + P.vb1 * r + P.vb2 * r2;
+            } else if P.vr2 != 0.0 || P.vb2 != 0.0 {
                 let r2 = ((sx - P.cx) * (sx - P.cx) + (sy - P.cy) * (sy - P.cy)) * P.inv_hd2;
                 vr = vr + P.vr2 * r2;
                 vb = vb + P.vb2 * r2;

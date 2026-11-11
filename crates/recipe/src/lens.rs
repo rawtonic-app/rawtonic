@@ -137,6 +137,12 @@ pub struct Profile {
     pub tca_vb: f64,
     pub tca_vr2: f64,
     pub tca_vb2: f64,
+    /// Growth of the red and blue scales with the radius itself (`tca_vr1`,
+    /// `tca_vb1`; lensfun's poly3 linear term).
+    pub tca_vr1: f64,
+    pub tca_vb1: f64,
+    /// How a lensfun profile was resolved (`convention`; 0 when absent).
+    pub convention: u64,
     pub vig_k1: f64,
     pub vig_k2: f64,
     pub vig_k3: f64,
@@ -190,6 +196,12 @@ impl Profile {
             tca_vb: number("tca_vb", 1.0),
             tca_vr2: number("tca_vr2", 0.0),
             tca_vb2: number("tca_vb2", 0.0),
+            tca_vr1: number("tca_vr1", 0.0),
+            tca_vb1: number("tca_vb1", 0.0),
+            convention: object
+                .and_then(|p| p.get("convention"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
             vig_k1: number("vig_k1", 0.0),
             vig_k2: number("vig_k2", 0.0),
             vig_k3: number("vig_k3", 0.0),
