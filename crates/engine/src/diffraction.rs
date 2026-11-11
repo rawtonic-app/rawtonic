@@ -29,12 +29,9 @@ const MAX_AMOUNT: f32 = 1.2;
 const ONSET: (f32, f32) = (0.35, 0.55);
 
 /// `adjustments.diffractionVersion`, written when the correction is switched
-/// on. `3`: includes Sigma FP2 and Sony DSC-HX200V (2026-11-11).
-/// `2` excludes these bodies. A body without FocalPlaneXResolution takes its crop factor from
-/// the whole bundled database. Missing (`1`, recipes from before
-/// 2026-10-18): without the camera entries that update added
-/// (`lens_correction::CAMERAS_ADDED_2026_10_18`), so those renders stay as
-/// they were.
+/// on. Version 3 uses the current database, version 2 uses the camera
+/// table from 2026-10-18, and version 1 (also missing) uses the earlier table.
+/// The excluded additions are recorded in `lens_correction`.
 pub const VERSION: u64 = 3;
 pub const VERSION_KEY: &str = "diffractionVersion";
 
@@ -49,7 +46,7 @@ pub(crate) fn requested_flag(
     }
     if version.get() >= 3 {
         3.0
-    } else if version.whole_database() {
+    } else if version.get() >= 2 {
         2.0
     } else {
         1.0
@@ -77,7 +74,7 @@ pub fn airy_sigma(f_number: f32, pitch_um: f32) -> Option<f32> {
     (f_number > 0.0 && pitch_um > 0.0).then(|| AIRY_SIGMA * WAVELENGTH_UM * f_number / pitch_um)
 }
 
-/// Airy σ for the current version and for version 1 (`VERSION`).
+/// Airy σ for the current and both older diffraction versions.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Sigmas {
     pub current: Option<f32>,
@@ -239,6 +236,32 @@ mod tests {
             flag(serde_json::json!({"diffractionCorrection": true, "diffractionVersion": 2})),
             2.0
         );
+    }
+
+    #[test]
+    fn offline_facts_round_trip_selects_each_diffraction_version() {
+        let path = "diffraction-version-selection-test.raw";
+        let facts = crate::source_facts::SourceFacts {
+            version: crate::source_facts::VERSION,
+            diffraction_sigma: Some(0.9),
+            diffraction_v2_differs: true,
+            diffraction_sigma_v2: Some(0.7),
+            diffraction_v1_differs: true,
+            diffraction_sigma_v1: Some(0.5),
+            ..Default::default()
+        };
+        let facts = serde_json::from_str(&serde_json::to_string(&facts).unwrap()).unwrap();
+        crate::source_facts::register(path, facts);
+        for (version, sigma) in [(1, 0.5), (2, 0.7), (3, 0.9)] {
+            let recipe =
+                serde_json::json!({"diffractionCorrection": true, "diffractionVersion": version});
+            let mut global =
+                crate::image_processing::get_all_adjustments_from_json(&recipe, true, None).global;
+            apply(&mut global, path);
+            let (radius, amount) = correction(sigma);
+            assert_eq!(&global.sharpen_falloff[1..3], &[radius, amount]);
+        }
+        crate::source_facts::forget(path);
     }
 
     /// Prints the Airy σ found for `$DIFFRACTION_FILES` (`;`-separated).

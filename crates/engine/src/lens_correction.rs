@@ -1387,7 +1387,8 @@ pub const CAMERAS_ADDED_2026_10_18: &[(&str, &str)] = &[
     ("Panasonic", "DC-ZS300"),
 ];
 
-/// Bodies newly covered by the 2026-11-11 database; older diffraction versions exclude them.
+/// Bodies newly covered by Lensfun 52cf1a7b0e82e07e0ecaa3391ee5106a6dd1ee54
+/// (2026-11-11); older diffraction versions exclude them.
 pub const CAMERAS_ADDED_2026_11_11: &[(&str, &str)] =
     &[("Sigma", "Sigma FP2"), ("Sony", "DSC-HX200V")];
 
@@ -1470,6 +1471,20 @@ pub fn find_lens_by_display_name<'a>(
     if let Some((name, lens)) = named.iter().find(|(name, _)| name == model) {
         return Some((name.clone(), lens));
     }
+    // A database rename or newly ambiguous short name must retain the
+    // identity saved by the earlier database, including its calibration crop.
+    if let Some(row) = previous_display_names()
+        .iter()
+        .find(|r| r[0] == maker && r[1] == model)
+    {
+        let crop = row[3].parse::<f32>().ok();
+        let mut matches = named.iter().filter(|(_, lens)| {
+            lens.get_canonical_model_name() == row[2] && lens.cropfactor == crop
+        });
+        if let (Some((name, lens)), None) = (matches.next(), matches.next()) {
+            return Some((name.clone(), *lens));
+        }
+    }
     let key = |name: &str| name.trim().to_lowercase();
     let wanted = key(model);
     if wanted.len() < 8 {
@@ -1482,6 +1497,18 @@ pub fn find_lens_by_display_name<'a>(
         (Some((name, lens)), None) => Some((name.clone(), lens)),
         _ => None,
     }
+}
+
+// Derived from the previous bundled CC BY-SA Lensfun database, before
+// display names changed. This index is data, not lens-specific matching code.
+fn previous_display_names() -> &'static [[String; 4]] {
+    static NAMES: std::sync::OnceLock<Vec<[String; 4]>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        serde_json::from_str(include_str!(
+            "../../../src-tauri/lensfun_db/display-names-2026-10-18.json"
+        ))
+        .expect("bundled lens name index")
+    })
 }
 
 pub fn resolve_lens_params(
@@ -1623,54 +1650,7 @@ mod tests {
     /// `diffraction::VERSION` that keeps older recipes on the earlier table
     /// (as `CAMERAS_ADDED_2026_10_18`); then record the new fingerprint.
     /// notes: benchmark-results/lens-pinning-2026-10-31/REPORT.md.
-    #[test]
-    fn the_camera_crop_factors_diffraction_reads_are_those_its_versions_know() {
-        let mut rows: Vec<String> = super::embedded_lens_db()
-            .cameras
-            .iter()
-            .map(|camera| {
-                let names = |names: &[MultiName]| {
-                    names
-                        .iter()
-                        .map(|name| name.value.as_str())
-                        .collect::<Vec<_>>()
-                        .join("|")
-                };
-                format!(
-                    "{}\t{}\t{}",
-                    names(&camera.maker),
-                    names(&camera.model),
-                    camera.cropfactor
-                )
-            })
-            .collect();
-        rows.sort();
-        // FNV-1a: stable across toolchains, unlike the std hasher.
-        let fingerprint = rows
-            .join("\n")
-            .bytes()
-            .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
-                (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-            });
-        assert_eq!(
-            (rows.len(), format!("{fingerprint:016x}")),
-            (1059, "7e1de23d6a6d09ee".to_string()),
-            "the bundled database's camera table changed: give diffraction a new version first"
-        );
-    }
-
-    #[test]
-    fn earlier_diffraction_versions_keep_their_camera_table() {
-        let mut db = embedded_lens_db();
-        for (maker, model) in CAMERAS_ADDED_2026_11_11 {
-            assert!(camera_crop_factor(&db, maker, model).is_some());
-            assert_eq!(
-                camera_crop_factor_without(&db, maker, model, CAMERAS_ADDED_2026_11_11),
-                None
-            );
-        }
-        db.cameras
-            .retain(|camera| !is_excluded(camera, CAMERAS_ADDED_2026_11_11));
+    fn camera_table_fingerprint(db: &LensDatabase) -> (usize, u64) {
         let mut rows: Vec<_> = db
             .cameras
             .iter()
@@ -1690,13 +1670,38 @@ mod tests {
             })
             .collect();
         rows.sort();
+        // FNV-1a: stable across toolchains.
         let hash = rows
             .join("\n")
             .bytes()
             .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
                 (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
             });
-        assert_eq!((rows.len(), hash), (1057, 0x54ec57bdc4d10421));
+        (rows.len(), hash)
+    }
+
+    #[test]
+    fn the_camera_crop_factors_diffraction_reads_are_those_its_versions_know() {
+        assert_eq!(
+            camera_table_fingerprint(&embedded_lens_db()),
+            (1059, 0x7e1de23d6a6d09ee),
+            "the bundled database's camera table changed: give diffraction a new version first"
+        );
+    }
+
+    #[test]
+    fn earlier_diffraction_versions_keep_their_camera_table() {
+        let mut db = embedded_lens_db();
+        for (maker, model) in CAMERAS_ADDED_2026_11_11 {
+            assert!(camera_crop_factor(&db, maker, model).is_some());
+            assert_eq!(
+                camera_crop_factor_without(&db, maker, model, CAMERAS_ADDED_2026_11_11),
+                None
+            );
+        }
+        db.cameras
+            .retain(|camera| !is_excluded(camera, CAMERAS_ADDED_2026_11_11));
+        assert_eq!(camera_table_fingerprint(&db), (1057, 0x54ec57bdc4d10421));
     }
 
     use super::*;
@@ -1931,6 +1936,29 @@ mod tests {
         assert_eq!(without_model_code("RF 50mm F1.4"), None);
         assert_eq!(without_model_code("XF 18mm F2 R"), None);
         assert_eq!(without_model_code("EF 70-200mm"), None);
+    }
+
+    #[test]
+    fn every_previous_display_name_keeps_its_lens_identity() {
+        let db = embedded_lens_db();
+        for row in previous_display_names() {
+            let (_, lens) = find_lens_by_display_name(&db, &row[0], &row[1])
+                .unwrap_or_else(|| panic!("lost saved choice: {} {}", row[0], row[1]));
+            assert_eq!(
+                lens.get_canonical_model_name(),
+                row[2],
+                "{} {}",
+                row[0],
+                row[1]
+            );
+            assert_eq!(
+                lens.cropfactor,
+                row[3].parse::<f32>().ok(),
+                "{} {}",
+                row[0],
+                row[1]
+            );
+        }
     }
 
     #[test]
