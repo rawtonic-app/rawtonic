@@ -456,14 +456,9 @@ fn stub(module: &mut naga::Module, name: &str) -> Result<(), String> {
                     .expressions
                     .append(naga::Expression::FunctionArgument(0), span)
             } else {
-                let zero = function
+                function
                     .expressions
-                    .append(naga::Expression::ZeroValue(result.ty), span);
-                body.push(
-                    naga::Statement::Emit(function.expressions.range_from(0)),
-                    span,
-                );
-                zero
+                    .append(naga::Expression::ZeroValue(result.ty), span)
             })
         }
     };
