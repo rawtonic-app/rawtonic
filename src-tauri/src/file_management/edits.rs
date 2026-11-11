@@ -2186,6 +2186,72 @@ mod tests {
     }
 
     #[test]
+    fn rating_undo_preserves_reject_without_a_flag_receipt() {
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let lib = Library::create(&root, "Rating undo", Mode::Session).unwrap();
+        let source = root.join("Capture/source.nef");
+        fs::write(&source, b"synthetic original").unwrap();
+        let asset = lib.add_asset(&source).unwrap();
+        let path = source.to_string_lossy().into_owned();
+        crate::session_bridge::write_flag_values(root.to_str().unwrap(), vec![(path.clone(), -1)])
+            .unwrap();
+        // Count actual metadata writes, including same-value flag writes.
+        let audit = rusqlite::Connection::open(root.join("session.sqlite")).unwrap();
+        audit
+            .execute_batch(
+                "CREATE TABLE culling_write_audit (rating INTEGER);
+            CREATE TRIGGER audit_culling_write AFTER UPDATE OF data ON metadata
+            BEGIN INSERT INTO culling_write_audit VALUES (NEW.rating); END;",
+            )
+            .unwrap();
+        let rate = write_culling_batch(
+            vec![CullingWrite {
+                path,
+                value: CullingValue::Rating(3),
+                asset_id: None,
+                directory: None,
+            }],
+            Some(root.to_string_lossy().into_owned()),
+            None,
+            Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(rate.len(), 1);
+        assert_eq!(rate[0].before, CullingValue::Rating(0));
+        assert_eq!(lib.metadata(&asset.id).unwrap().rating, 3);
+        let undo = write_culling_batch(
+            vec![CullingWrite {
+                path: rate[0].path.clone(),
+                value: rate[0].before.clone(),
+                asset_id: rate[0].asset_id.clone(),
+                directory: rate[0].directory.clone(),
+            }],
+            Some(root.to_string_lossy().into_owned()),
+            None,
+            Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(undo.len(), 1);
+        assert_eq!(undo[0].after, CullingValue::Rating(0));
+        assert_eq!(lib.metadata(&asset.id).unwrap().rating, 0);
+        assert_eq!(lib.flags().unwrap().get(&source), Some(&-1));
+        let writes: Vec<u8> = audit
+            .prepare("SELECT rating FROM culling_write_audit")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            writes,
+            vec![3, 0],
+            "one write per rating change, no flag resubmission"
+        );
+    }
+
+    #[test]
     fn culling_undo_follows_asset_identity_after_a_move_and_refuses_missing_unmanaged_files() {
         use rawtonic_catalog::{Library, Mode};
         let temp = tempfile::tempdir().unwrap();
