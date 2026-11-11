@@ -3107,19 +3107,24 @@ mod encoding_memory_tests {
 
     #[test]
     fn lossless_jxl_export_preserves_every_rgb_sample() {
-        let original = wide_test_image();
-        let bytes = encode_image_to_bytes(
-            &original,
-            "jxl",
-            100,
-            TiffBitDepth::Eight,
-            OutputColorSpace::Srgb,
-            None,
-        )
-        .unwrap();
-        let decoder = jxl_oxide::integration::JxlDecoder::new(Cursor::new(bytes)).unwrap();
-        let decoded = DynamicImage::from_decoder(decoder).unwrap();
-        assert_eq!(decoded.to_rgb8(), original.to_rgb8());
+        let rgb = wide_test_image();
+        let rgba = DynamicImage::ImageRgba8(image::RgbaImage::from_fn(64, 64, |x, y| {
+            image::Rgba([x as u8 * 4, y as u8 * 4, 90, (x + y) as u8 * 2])
+        }));
+        for original in [rgb, rgba] {
+            let bytes = encode_image_to_bytes(
+                &original,
+                "jxl",
+                100,
+                TiffBitDepth::Eight,
+                OutputColorSpace::Srgb,
+                None,
+            )
+            .unwrap();
+            let decoder = jxl_oxide::integration::JxlDecoder::new(Cursor::new(bytes)).unwrap();
+            let decoded = DynamicImage::from_decoder(decoder).unwrap();
+            assert_eq!(decoded.to_rgba8(), original.to_rgba8());
+        }
     }
 
     #[test]
