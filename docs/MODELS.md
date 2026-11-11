@@ -1035,7 +1035,9 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   35–75 (above 1.05 on 4 / 4 / 10 pairs, at most 1.46 / 1.71 / 1.30;
   where the level moved less than 0.3 L the median is 1.00: version 3's
   darker shadows hid noise in black); colour noise 0.53 / 0.71 / 0.81 /
-  1.01. Below ISO 12800 every median ratio is within 0.86–1.002. Tried
+  1.01. Below ISO 12800 every median ratio is within 0.86–1.002. An
+  export takes 0.4–0.6 s longer per 18–24 MP (7.5–7.9 s → 7.8–8.4 s with
+  the network's result cached; the network itself takes 45 s there). Tried
   and rejected: the shadow means taken before the network (the restore's
   gain scales the network's residue: luminance noise 3.5 → 4.8), the
   network's input clipped at black (cast 2.3 on the five deep pairs), a
