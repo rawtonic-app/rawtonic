@@ -1,4 +1,4 @@
-# user_version 25
+# user_version 26
 # schema
 'index' | 'asset_imports_batch' | 'asset_imports' | 'CREATE INDEX asset_imports_batch ON asset_imports(batch_id)'
 'index' | 'asset_keywords_keyword' | 'asset_keywords' | 'CREATE INDEX asset_keywords_keyword ON asset_keywords(keyword)'

@@ -108,7 +108,7 @@ New Rust workspace crates isolate data and file safety.
 - `migrations`: the schema's one table of steps (`MIGRATIONS`, the SQL scripts in `crates/catalog/migrations/`) and its
   one runner; a new library is migrated from schema 0, an opened one from its `user_version`, in one immediate
   transaction. Adding schema 26 = `migrations/0026.sql` + one `MIGRATIONS` line (`crates/catalog/README.md`).
-  `tests/migration_fixtures.rs` upgrades a populated catalog of every schema (1–25) and compares it with the recorded
+  `tests/migration_fixtures.rs` upgrades a populated catalog of every schema (1–26) and compares it with the recorded
   result (schema, rows, foreign keys, searches). `fileops` keeps its journal's steps in its own `migrations.rs` of the
   same shape.
 

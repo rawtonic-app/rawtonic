@@ -1228,3 +1228,139 @@ fn a_failing_migration_changes_nothing() {
     assert_eq!(version_of(&conn), 10);
     assert_eq!(dump(&conn, 10), before);
 }
+
+/// Schema 26: AI Denoise edits saved before version 4 are listed as older
+/// (the fact was computed when they were saved, with 3 the latest); the
+/// recipes are not touched, and the step gives the same facts again.
+#[test]
+fn schema_26_flags_ai_denoise_before_version_4_and_only_facts() {
+    use rawtonic_metadata::provenance::{AI_DENOISE, OLDER_DENOISE};
+    let dir = tempfile::tempdir().unwrap();
+    let job = dir.path().join("Job");
+    drop(Library::create(&job, "Job", Mode::Session).unwrap());
+    for suffix in ["", "-wal", "-shm"] {
+        let path = job.join(format!("session.sqlite{suffix}"));
+        if path.exists() {
+            fs::remove_file(path).unwrap();
+        }
+    }
+    let db = job.join("session.sqlite");
+    let conn = Connection::open(&db).unwrap();
+    register_functions(&conn);
+    let sql = fs::read_to_string(fixtures().join("v25.sql")).unwrap();
+    conn.execute_batch(&format!("BEGIN;{sql}COMMIT;")).unwrap();
+    // (version id, head recipe, legacy editor state, facts an earlier build stored)
+    let adjustments = |extra: serde_json::Value| {
+        let mut a = json!({"exposure": 0.2});
+        a.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        json!({"adjustments": a}).to_string()
+    };
+    let cases = [
+        (901, adjustments(json!({"aiDenoise": 40})), true), // no version: 1
+        (902, adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 2})), true),
+        (903, adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 3})), true),
+        (904, adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 4})), true),
+        (905, adjustments(json!({"aiDenoise": 0, "aiDenoiseVersion": 3})), false),
+        (906, adjustments(json!({"exposure": 1.0})), false),
+    ];
+    for (n, payload, _) in &cases {
+        let id = *n as u32;
+        put(
+            &conn,
+            "assets",
+            &[
+                ("id", t(&asset_id(id))),
+                ("root_id", t("session")),
+                ("rel_path", t(&format!("Capture/A{n}.ARW"))),
+                ("size", i(1)),
+                ("mtime", i(1)),
+                ("fingerprint", t(&format!("xxh3:{n}"))),
+                ("kind", t("arw")),
+            ],
+        );
+        put(
+            &conn,
+            "versions",
+            &[
+                ("id", t(&version_id(id))),
+                ("asset_id", t(&asset_id(id))),
+                ("name", t("Original")),
+                ("is_primary", i(1)),
+            ],
+        );
+        put(
+            &conn,
+            "recipes",
+            &[
+                ("id", i(1000 + n)),
+                ("version_id", t(&version_id(id))),
+                ("schema_version", i(1)),
+                ("payload", t(payload)),
+                ("created_at", t("2026-06-01 12:00:00")),
+            ],
+        );
+        conn.execute(
+            "UPDATE versions SET head=? WHERE id=?",
+            rusqlite::params![1000 + n, version_id(id)],
+        )
+        .unwrap();
+    }
+    // A virtual copy keeps its editor state instead of a recipe.
+    let copy = adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 3}));
+    let copy_state = json!({"editor_state": serde_json::from_str::<serde_json::Value>(&copy).unwrap()})
+        .to_string();
+    conn.execute(
+        "INSERT INTO versions(id, asset_id, name, is_primary, legacy_state) VALUES(?,?,?,0,?)",
+        rusqlite::params![version_id(907), asset_id(901), "Copy", copy_state],
+    )
+    .unwrap();
+    // As earlier builds stored them: AI Denoise, never the older bit.
+    conn.execute(
+        "UPDATE versions SET ai_facts = ai_facts & ~? WHERE ai_facts != 0",
+        [i64::from(OLDER_DENOISE)],
+    )
+    .unwrap();
+    let facts = |conn: &Connection| -> Vec<(u32, i64)> {
+        (901..=907)
+            .map(|n| {
+                (
+                    n,
+                    conn.query_row(
+                        "SELECT ai_facts FROM versions WHERE id=?",
+                        [version_id(n)],
+                        |r| r.get(0),
+                    )
+                    .unwrap(),
+                )
+            })
+            .collect()
+    };
+    let (denoise, older) = (i64::from(AI_DENOISE), i64::from(AI_DENOISE | OLDER_DENOISE));
+    assert_eq!(
+        facts(&conn).iter().map(|f| f.1).collect::<Vec<_>>(),
+        [denoise, denoise, denoise, denoise, 0, 0, denoise],
+        "stored as an earlier build left them"
+    );
+    let recipes_before = rows(&conn, "SELECT id, payload FROM recipes ORDER BY id");
+    drop(conn);
+
+    drop(Library::open(&job).unwrap());
+    let conn = Connection::open(&db).unwrap();
+    register_functions(&conn);
+    assert_eq!(version_of(&conn), DB_SCHEMA_VERSION);
+    let after = facts(&conn);
+    assert_eq!(
+        after.iter().map(|f| f.1).collect::<Vec<_>>(),
+        [older, older, older, denoise, 0, 0, older],
+        "versions 1, 2, 3 (and the copy) are older; 4, off and unedited are not"
+    );
+    assert_eq!(
+        rows(&conn, "SELECT id, payload FROM recipes ORDER BY id"),
+        recipes_before,
+        "no recipe changed"
+    );
+    conn.execute_batch(&script(26)).unwrap();
+    assert_eq!(facts(&conn), after, "running it again changes nothing");
+}
