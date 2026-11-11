@@ -35,6 +35,12 @@ jobs:
         with:
           key: windows-qa
       - run: npm ci
+      # Windows-only path behaviour the Unix gates cannot see (WFQ: flags
+      # keyed by `…\Photos/2026/…` lost after a restart).
+      - name: Windows path regression tests
+        run: |
+          cargo test -p rawtonic-catalog --locked --test portable_paths -- stored_path_is_read_back flags_and_assets_use_the_path
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # --no-bundle: only the executable; the folder is assembled below the
       # way the portable zip of the release is (exe, resources\, lensfun_db\).
       - name: Build the QA executable
