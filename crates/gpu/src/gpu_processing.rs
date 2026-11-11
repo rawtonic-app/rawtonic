@@ -5452,6 +5452,7 @@ fn validated<T>(
     what: &str,
     create: impl FnOnce() -> T,
 ) -> Result<T, String> {
+    let _slot = compile_slot();
     let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
     let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let started = std::time::Instant::now();
@@ -5472,6 +5473,61 @@ fn validated<T>(
         Some(error) => Err(format!("GPU {what} could not be created: {error}")),
         None => Ok(value),
     }
+}
+
+/// Diagnostic (G76/WMEM, Windows AMD Vulkan memory growth at start):
+/// `RAWTONIC_GPU_COMPILE_CONCURRENCY=N` lets at most N shader-module or
+/// pipeline creations run at once. Unset: no limit, as always.
+struct CompileLimit {
+    running: Mutex<usize>,
+    freed: std::sync::Condvar,
+    max: usize,
+}
+
+fn compile_limit() -> Option<&'static CompileLimit> {
+    static LIMIT: std::sync::OnceLock<Option<CompileLimit>> = std::sync::OnceLock::new();
+    LIMIT
+        .get_or_init(|| {
+            let max = std::env::var("RAWTONIC_GPU_COMPILE_CONCURRENCY")
+                .ok()?
+                .trim()
+                .parse::<usize>()
+                .ok()
+                .filter(|n| *n > 0)?;
+            log::warn!("GPU compiles limited to {max} at once (RAWTONIC_GPU_COMPILE_CONCURRENCY)");
+            Some(CompileLimit {
+                running: Mutex::new(0),
+                freed: std::sync::Condvar::new(),
+                max,
+            })
+        })
+        .as_ref()
+}
+
+struct CompileSlot(&'static CompileLimit);
+
+impl Drop for CompileSlot {
+    fn drop(&mut self) {
+        let mut running = self.0.running.lock().unwrap_or_else(|e| e.into_inner());
+        *running -= 1;
+        self.0.freed.notify_one();
+    }
+}
+
+fn compile_slot() -> Option<CompileSlot> {
+    let limit = compile_limit()?;
+    let mut running = limit.running.lock().unwrap_or_else(|e| e.into_inner());
+    while *running >= limit.max {
+        running = limit.freed.wait(running).unwrap_or_else(|e| e.into_inner());
+    }
+    *running += 1;
+    Some(CompileSlot(limit))
+}
+
+/// Diagnostic (G76/WMEM): `RAWTONIC_GPU_START_VARIANTS=0` compiles no display
+/// variant ahead after the RAW default one.
+fn start_variants_enabled() -> bool {
+    std::env::var("RAWTONIC_GPU_START_VARIANTS").map_or(true, |v| v.trim() != "0")
 }
 
 /// Holds the pipelines compiled ahead back until the first display variant
@@ -6929,8 +6985,14 @@ impl GpuProcessor {
             processor.start_gate.open();
             return Ok(processor);
         }
-        for features in START_PREVIEW_FEATURES {
-            processor.compile_preview_variant_after_start(features);
+        if start_variants_enabled() {
+            for features in START_PREVIEW_FEATURES {
+                processor.compile_preview_variant_after_start(features);
+            }
+        } else {
+            log::warn!(
+                "GPU display variants after the first not compiled ahead (RAWTONIC_GPU_START_VARIANTS=0)"
+            );
         }
         Ok(processor)
     }
