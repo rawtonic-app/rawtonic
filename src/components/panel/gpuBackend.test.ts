@@ -49,6 +49,7 @@ describe('GPU backend fallback notice', () => {
 
   it('mentions an OpenGL preference and says nothing without a notice', () => {
     expect(gpuNoticeText(status({ notice: { kind: 'openGlPreference' } }), t)).toContain('OpenGL');
+    expect(gpuNoticeText(status({ notice: { kind: 'openGlUnavailable' } }), t)).toContain('set to Auto now');
     expect(gpuNoticeText(status({ notice: null }), t)).toBeNull();
   });
 });

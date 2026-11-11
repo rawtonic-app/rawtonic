@@ -405,6 +405,111 @@ pub fn reduce_backtrace(text: &str) -> Option<String> {
     Some(keep_start(&lines.join("\n"), DIAGNOSTICS_CAP).to_string())
 }
 
+/// One frame of a backtrace taken on Windows: where its code is (the
+/// module's file name and the offset in it) and, only where the build's
+/// debug info names it, the function and its source line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleFrame {
+    pub module: Option<String>,
+    pub offset: Option<u64>,
+    pub function: Option<String>,
+    /// `file.rs:line`.
+    pub at: Option<String>,
+}
+
+/// Frames as `N: module+0xoffset`, followed by `function (file.rs:line)`
+/// where the debug info gave them. A release build on Windows carries no
+/// symbols (its PDB is kept privately, docs/DEVELOPMENT.md), so Windows'
+/// symbol lookup names the nearest exported function instead (every frame
+/// read `onig_*` in G76's report): a name without a source line is left
+/// out, the module and offset are what symbolizes the frame later. `None`
+/// when no frame has a module.
+pub fn format_module_frames(frames: &[ModuleFrame]) -> Option<String> {
+    let lines: Vec<String> = frames
+        .iter()
+        .filter_map(|frame| {
+            let place = match (&frame.module, frame.offset) {
+                (Some(module), Some(offset)) => format!("{module}+0x{offset:x}"),
+                _ => return None,
+            };
+            Some(match (&frame.function, &frame.at) {
+                (Some(function), Some(at)) => format!("{place} {function} ({at})"),
+                _ => place,
+            })
+        })
+        .take(MAX_FRAMES)
+        .enumerate()
+        .map(|(n, line)| format!("{n}: {line}"))
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    Some(keep_start(&lines.join("\n"), DIAGNOSTICS_CAP).to_string())
+}
+
+/// This thread's backtrace for a panic note: on Windows as module and
+/// offset (`format_module_frames`), elsewhere as std prints it, reduced.
+fn capture_backtrace() -> Option<String> {
+    #[cfg(windows)]
+    {
+        windows_frames::capture()
+    }
+    #[cfg(not(windows))]
+    {
+        reduce_backtrace(&std::backtrace::Backtrace::force_capture().to_string())
+    }
+}
+
+#[cfg(windows)]
+mod windows_frames {
+    use super::{ModuleFrame, file_name_only, format_module_frames};
+
+    pub(super) fn capture() -> Option<String> {
+        let trace = backtrace::Backtrace::new();
+        let frames: Vec<ModuleFrame> = trace
+            .frames()
+            .iter()
+            .map(|frame| {
+                let base = frame.module_base_address();
+                let symbol = frame.symbols().first();
+                let at = symbol.and_then(|symbol| {
+                    let file = symbol.filename()?;
+                    Some(format!(
+                        "{}:{}",
+                        file_name_only(&file.to_string_lossy()),
+                        symbol.lineno()?
+                    ))
+                });
+                let function = at
+                    .as_ref()
+                    .and(symbol.and_then(|symbol| symbol.name().map(|name| format!("{name:#}"))));
+                ModuleFrame {
+                    module: base.and_then(module_file_name),
+                    offset: base.map(|base| (frame.ip() as u64).wrapping_sub(base as u64)),
+                    function,
+                    at,
+                }
+            })
+            .collect();
+        format_module_frames(&frames)
+    }
+
+    /// The file name (no folder) of the module loaded at `base`.
+    fn module_file_name(base: *mut std::ffi::c_void) -> Option<String> {
+        use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
+        let mut buffer = [0u16; 1024];
+        // SAFETY: `base` is a module's base address as the frame's lookup
+        // returned it (an HMODULE is that address); the buffer's length is
+        // passed, and the call writes at most that many units.
+        let len = unsafe { GetModuleFileNameW(base, buffer.as_mut_ptr(), buffer.len() as u32) };
+        if len == 0 {
+            return None;
+        }
+        let path = String::from_utf16_lossy(&buffer[..len as usize]);
+        Some(file_name_only(&path))
+    }
+}
+
 fn signal_name(signal: i32) -> String {
     match signal {
         4 => "SIGILL".into(),
@@ -953,7 +1058,7 @@ pub fn note_panic(info: &std::panic::PanicHookInfo<'_>) {
             )
         },
     );
-    let backtrace = reduce_backtrace(&std::backtrace::Backtrace::force_capture().to_string());
+    let backtrace = capture_backtrace();
     let note = PanicNote {
         pid: std::process::id(),
         at: now_secs(),
@@ -1175,6 +1280,50 @@ mod tests {
         assert_eq!(utc_date(0), "1970-01-01");
         assert_eq!(utc_date(T0), "2026-10-24");
         assert_eq!(utc_date(951_782_400), "2000-02-29");
+    }
+
+    #[test]
+    fn windows_frames_name_module_and_offset_and_never_a_guessed_export() {
+        let frame = |module: Option<&str>,
+                     offset: Option<u64>,
+                     function: Option<&str>,
+                     at: Option<&str>| {
+            ModuleFrame {
+                module: module.map(str::to_string),
+                offset,
+                function: function.map(str::to_string),
+                at: at.map(str::to_string),
+            }
+        };
+        let frames = [
+            // A stripped release: Windows' lookup guessed an export name.
+            frame(
+                Some("rawtonic-app.exe"),
+                Some(0x1a2b3c),
+                Some("onig_get_capture_tree"),
+                None,
+            ),
+            frame(None, None, Some("lost"), None),
+            frame(Some("amdvlk64.dll"), Some(0x10), None, None),
+            // A build with debug info: name and line kept.
+            frame(
+                Some("rawtonic-app.exe"),
+                Some(0xff),
+                Some("rawtonic_gpu::device_start::start_device"),
+                Some("device_start.rs:42"),
+            ),
+        ];
+        assert_eq!(
+            format_module_frames(&frames).unwrap(),
+            "0: rawtonic-app.exe+0x1a2b3c\n1: amdvlk64.dll+0x10\n\
+             2: rawtonic-app.exe+0xff rawtonic_gpu::device_start::start_device (device_start.rs:42)"
+        );
+        assert_eq!(format_module_frames(&[frame(None, None, None, None)]), None);
+        let many = vec![frame(Some("a.dll"), Some(1), None, None); MAX_FRAMES + 10];
+        assert_eq!(
+            format_module_frames(&many).unwrap().lines().count(),
+            MAX_FRAMES
+        );
     }
 
     #[test]

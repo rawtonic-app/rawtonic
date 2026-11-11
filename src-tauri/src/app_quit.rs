@@ -307,6 +307,10 @@ pub fn request_quit<R: Runtime>(app: &AppHandle<R>) {
     let Some(id) = lock().begin(Instant::now()) else {
         return;
     };
+    // The user ends the app: however it ends from here (its first shader
+    // compile may hold the quit, or the system may end it), that is no GPU
+    // start crash (G76).
+    crate::gpu_start_guard::quit_requested();
     let asked = app.emit_to(
         "main",
         "app-quit-requested",

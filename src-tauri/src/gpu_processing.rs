@@ -175,6 +175,24 @@ pub async fn gpu_backend_use_automatic(app_handle: tauri::AppHandle) -> Result<(
     .map_err(|e| e.to_string())?
 }
 
+/// Resolves once the start's RAW default display variant has compiled (or
+/// the GPU did not start): the window shows "Preparing graphics" in the
+/// activity centre while it waits, the visible form of the first start's
+/// shader compile (G76: no installer compiles ahead any more). `false`
+/// when the GPU did not start, or after 15 minutes without the variant.
+#[tauri::command]
+pub async fn gpu_first_display_ready(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ready = wait_for_first_display_variant(std::time::Duration::from_secs(15 * 60))
+            && app_handle.state::<GpuState>().start_error().is_none();
+        // QA reads the window's "Graphics prepared" moment from the log.
+        log::info!("Graphics prepared: first display variant ready = {ready}");
+        ready
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Holds optional start-up work (background library passes, model
 /// warm-ups) until the RAW default display variant is compiled, for at most
 /// 30 s: a cold start's first Develop frame waits for that compile.

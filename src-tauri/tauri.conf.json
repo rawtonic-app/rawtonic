@@ -345,10 +345,10 @@
           }
         },
         "fragmentPaths": [
-          "windows/msi-warmup.wxs"
+          "windows/msi-fragment.wxs"
         ],
         "componentGroupRefs": [
-          "RawtonicGpuWarmup"
+          "RawtonicMsiFragment"
         ]
       }
     }

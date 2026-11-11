@@ -767,7 +767,7 @@ fn export_processors_compile_no_display_variant_ahead() {
             })
             .collect::<Vec<_>>()
     };
-    let gate_open = |processor: &GpuProcessor| *processor.start_gate.open.lock().unwrap();
+    let gate_open = |processor: &GpuProcessor| processor.start_gate.open.lock().unwrap().0;
 
     let develop = create_processor(&ProcessorSlot::new(None), &context, 64, 64).unwrap();
     assert!(started(&develop).contains(&RAW_DEFAULT_PREVIEW_FEATURES));
