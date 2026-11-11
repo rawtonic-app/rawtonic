@@ -495,6 +495,11 @@ useEditorStore.subscribe((state, previous) => {
       patch.previousPhotoSize = lastOpened.size;
     }
     if (opened) lastOpened = { path: opened, size: null };
+  } else if (!previous.isSliderDragging && state.isSliderDragging && !heldHistory) {
+    // An interaction starts: the edit still waiting from the one before (a
+    // drag's draft or a key press, committed as it ended) is its own step,
+    // however soon this one follows.
+    scheduledHistory.flush();
   } else if (previous.isSliderDragging && !state.isSliderDragging && heldHistory) {
     // The drag ended: its last edit becomes one step (a final value sent
     // just after the release still joins it).

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Each arrow-key press on a slider or value field is its own Undo step.** Two quick taps used to merge into one step when they came less than half a second apart; now every press is undone on its own, while a held key (auto-repeat) stays one step, as a drag does.
+- **Each arrow-key press and each slider drag is its own Undo step.** Two quick taps of an arrow key on a slider or value field, or two short drags, used to merge into one step when they came less than half a second apart; now each is undone on its own, while a held key (auto-repeat) stays one step, as a drag does.
 
 - **Windows: the window controls sit in the toolbar.** Minimize, maximize/restore and close are now at the right end of the top bar (as on Linux) instead of in a separate "Rawtonic" strip above it, which freed a row; the empty bar drags the window and a double-click maximizes or restores it. The controls' labels are translated. Not yet: Windows 11's snap layouts on hovering the maximize button.
 

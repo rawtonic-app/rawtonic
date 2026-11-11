@@ -709,6 +709,24 @@ describe('slider drag drafts', () => {
     useEditorStore.setState({ isSliderDragging: false });
   });
 
+  it('keeps two quick interactions (key taps, short drags) as two undo steps through their drafts', () => {
+    vi.useFakeTimers();
+    const unregister = registerSliderDraftRenderer(() => true);
+    const tap = (exposure: number) => {
+      useEditorStore.setState({ isSliderDragging: true });
+      updateAdjustments({ exposure });
+      useEditorStore.setState({ isSliderDragging: false });
+    };
+    tap(0.1);
+    vi.advanceTimersByTime(200);
+    tap(0.2);
+    vi.advanceTimersByTime(600);
+    expect(useEditorStore.getState().history.map((r) => r.exposure)).toEqual([-2, 0.1, 0.2]);
+    useEditorStore.getState().undo();
+    expect(useEditorStore.getState().adjustments.exposure).toBe(0.1);
+    unregister();
+  });
+
   it('renders every move but commits on the interval and when the drag ends', () => {
     vi.useFakeTimers();
     const rendered: number[] = [];
