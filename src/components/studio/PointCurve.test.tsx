@@ -272,7 +272,8 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
         />
       );
       Object.assign(view.container.querySelector('svg')!, {
-        getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) })
+        getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+        hasPointerCapture: () => false
       });
       const midtone = handle('Region curve midtone split');
       Object.assign(midtone, { setPointerCapture: () => {}, hasPointerCapture: () => false });
@@ -295,6 +296,22 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
       expect(onInteraction).toHaveBeenCalledTimes(2);
       expect(midtone.getAttribute('aria-valuenow')).toBe('50');
     });
+
+    it.each(['pointerup', 'pointercancel', 'lostpointercapture'])(
+      'ends a split drag once on %s despite subsequent cleanup events',
+      (event) => {
+        const { midtone, onInteraction, unmount } = setup();
+        fireEvent(midtone, new Event(event, { bubbles: true }));
+        expect(onInteraction.mock.calls).toEqual([[true], [false]]);
+        expect(midtone.getAttribute('aria-valuenow')).toBe('50');
+        expect(midtone.classList.contains('is-dragging')).toBe(false);
+        fireEvent.lostPointerCapture(midtone);
+        fireEvent.pointerCancel(midtone);
+        fireEvent.pointerUp(midtone);
+        unmount();
+        expect(onInteraction.mock.calls).toEqual([[true], [false]]);
+      }
+    );
 
     it('gives the interaction back when the curve unmounts mid-drag', () => {
       const { unmount, onInteraction } = setup();
