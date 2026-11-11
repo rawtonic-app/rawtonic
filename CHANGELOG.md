@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Windows: the AI tools no longer crash the app on PCs with an old Visual C++ runtime.** Choosing Brush or another AI masking tool could close Rawtonic within seconds (access violation in `MSVCP140.dll`) where Windows only had an older Microsoft C++ runtime: ONNX Runtime needs a current one. The installers and the portable zip now bring the current runtime beside ONNX Runtime, without administrator rights or a separate install, and if an older one is still in use the AI tools say the AI runtime is unavailable instead of crashing.
+
 - Copy Settings in the Library uses the active photo after another photo is deselected.
 
 - **A corrected capture time now travels in the XMP sidecar.** *Shift Capture Time* writes the corrected time as `exif:DateTimeOriginal` and `photoshop:DateCreated` (with fraction of a second and UTC offset when known; no offset is invented) into the photo's XMP sidecar, so Lightroom, Capture One and other libraries see it, as with Lightroom's Edit Capture Time; *Back to the time in the file* and Undo remove exactly the dates Rawtonic wrote. The other way round, a sidecar whose capture time differs from the file's — for example after Lightroom's Edit Capture Time — becomes the photo's capture-time correction when it is imported or read with *Use XMP*; equal times change nothing. Sidecars of photos without a correction are written byte for byte as before, and your photo files are never changed.
