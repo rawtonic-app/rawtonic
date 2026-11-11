@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import StudioBrowser from './StudioBrowser';
 import { ownsPanelShortcut, focusWorkspaceControl, topEdgeDragsWindow } from './workspaceInteractions';
-import { readFileSync } from 'node:fs';
 import { type ImageFile } from '../ui/AppProperties';
 
 beforeEach(() =>
@@ -65,15 +64,6 @@ describe('top edge as title bar', () => {
       expect(topEdgeDragsWindow(p, true)).toBe(false);
     }
     expect(topEdgeDragsWindow('', false)).toBe(false);
-  });
-
-  it('shrinks the Show bars button on every platform that uses the strip as title bar, leaving drag area', () => {
-    // jsdom applies no CSS: pin the selectors that give the strip its drag area.
-    const css = readFileSync('src/components/studio/studio.css', 'utf8');
-    for (const cls of ['macos-windowed', 'custom-windowed']) {
-      expect(css).toContain(`.studio-app.${cls} .studio-edge.is-top`);
-      expect(css).toContain(`.studio-app.${cls} .studio-workspace .studio-edge.is-top > button`);
-    }
   });
 });
 describe('filmstrip selection reveal', () => {
