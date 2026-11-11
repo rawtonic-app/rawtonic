@@ -192,6 +192,7 @@ fn constants(spec: &Spec) -> naga::back::PipelineConstants {
         ("HSL_V2", ((f >> 17) & 1) as f64),
         ("PRESENCE_V3", ((f >> 19) & 1) as f64),
         ("DEHAZE_V2", ((f >> 20) & 1) as f64),
+        ("ENABLE_EFFECTS", ((f >> 21) & 1) as f64),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))

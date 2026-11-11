@@ -3578,7 +3578,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 2097152;
+const PREVIEW_PIPELINE_COUNT: usize = 4194304;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3596,7 +3596,7 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Vibrance of vibrance version 2 65536, lowered Blacks of tone version 16
 /// 262144, colour mixer response 2 131072,
 /// Clarity or Structure version 3 524288, lowered Dehaze of dehaze version 2
-/// 1048576.
+/// 1048576, glow, halation or grain 2097152.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3667,6 +3667,14 @@ const PRESENCE_V3_FEATURE: usize = 524288;
 /// `apply_dehaze_lower_v2`), compiled only for recipes that use it for the
 /// same reason.
 const DEHAZE_V2_FEATURE: usize = 1048576;
+/// Glow, halation or grain on the photo or a layer (shader `ENABLE_EFFECTS`).
+/// Glow and halation each carry the complete tone stage, so without them a
+/// display variant is far less code: on AMD's Windows Vulkan driver, which
+/// inlines every call before it drops unused code, the RAW default variant
+/// compiled in N s instead of N s at N instead of N GB (G76/WCC, Radeon 680M).
+/// Exports keep the code (`export_features`), so their pixels stay as they
+/// were.
+const EFFECTS_FEATURE: usize = 2097152;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
 /// low bits (detail, noise reduction, tone, relight) share a page.
@@ -5245,11 +5253,14 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let hsl_v2 = hsl_v2(adjustments);
     let presence_v3 = presence_v3(adjustments);
     let dehaze_v2 = dehaze_v2(adjustments);
+    // The shader applies each when its amount (with the layers') is above 0.
+    let mut effects = g.glow_amount != 0.0 || g.halation_amount != 0.0 || g.grain_amount != 0.0;
     for m in adjustments
         .mask_adjustments
         .iter()
         .take(adjustments.mask_count as usize)
     {
+        effects |= m.glow_amount != 0.0 || m.halation_amount != 0.0;
         sharpen |= m.sharpness != 0.0;
         highlights |= m.highlights != 0.0;
         curves |= m.luminance_curve_count >= 2
@@ -5282,6 +5293,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if hsl_v2 { HSL_V2_FEATURE } else { 0 }
         | if presence_v3 { PRESENCE_V3_FEATURE } else { 0 }
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
+        | if effects { EFFECTS_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -5376,8 +5388,8 @@ fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
 /// reduction (`apply_noise_reduction`).
 const DEFAULT_NOISE_DETAIL: [f32; 4] = [0.5, 0.0, 0.5, 0.5];
 
-/// The variant an export compiles: the curves, tone, relight and refined
-/// noise reduction code stay in even where idle (see
+/// The variant an export compiles: the curves, tone, relight, refined
+/// noise reduction and effects code stay in even where idle (see
 /// `LUMA_NR_EDGE_NOISE_START` for why idle code matters).
 fn export_features(adjustments: &AllAdjustments) -> usize {
     preview_features(adjustments)
@@ -5385,6 +5397,7 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
         | TONE_PREVIEW_FEATURE
         | RELIGHT_PREVIEW_FEATURE
         | REFINED_NR_PREVIEW_FEATURE
+        | EFFECTS_FEATURE
 }
 
 /// `GpuProcessor::range2_pipelines`.
@@ -5959,6 +5972,7 @@ fn variant_constants(
         ("HSL_V2", ((features >> 17) & 1) as f64),
         ("PRESENCE_V3", ((features >> 19) & 1) as f64),
         ("DEHAZE_V2", ((features >> 20) & 1) as f64),
+        ("ENABLE_EFFECTS", ((features >> 21) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -8343,9 +8357,10 @@ impl GpuProcessor {
             return self.general_pipeline(adjustments, output);
         }
         // From `renderVersion` 5 the variant of the recipe's own features,
-        // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`).
+        // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`), with
+        // the effects code they always had (`EFFECTS_FEATURE`).
         let features = if adjustments.specialized_export {
-            preview_features(adjustments)
+            preview_features(adjustments) | EFFECTS_FEATURE
         } else {
             // Metal may reassociate active neighbourhood operations when
             // unrelated branches are removed. Their full general pipeline

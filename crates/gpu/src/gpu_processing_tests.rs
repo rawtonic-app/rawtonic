@@ -527,6 +527,10 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & DEHAZE_V2_FEATURE != 0 {
             continue;
         }
+        // Effects likewise (`effects_compile_only_where_a_recipe_has_them`).
+        if expected & EFFECTS_FEATURE != 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -8829,6 +8833,123 @@ fn fallback_variant_matches_specialized_display() {
         checked += 1;
     }
     assert_eq!(checked, 9);
+}
+
+#[test]
+#[ignore = "requires a native GPU; display variants without the effects code against those with it"]
+fn display_variants_without_effects_render_the_same_pixels() {
+    // A recipe without glow, halation or grain renders its display variant
+    // without that code (`EFFECTS_FEATURE`); the frame must be the one the
+    // variant with the code renders, byte for byte (exports keep the code).
+    let context = context();
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 31);
+    let mut checked = 0;
+    for profile in [
+        json!({}),
+        json!({"sharpness":40,"colorNoiseReduction":25}),
+        json!({"sharpness":40,"colorNoiseReduction":25,"sharpenVersion":8}),
+        json!({"highlights":-40,"curves":custom_curve(),"lumaNoiseReduction":20}),
+        json!({"sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,
+            "lumaNoiseDetail":70,"colorNoiseSmoothness":20}),
+        json!({"exposure":0.4,"contrast":25,"shadows":30,"whites":-20,"blacks":-10,
+            "clarity":20,"dehaze":15,"vibrance":20,"saturation":10}),
+        curve_mask_stack(6, false),
+        json!({"sharpness":53,"vibrance":72,"saturation":27,"brightness":0.25,
+            "masks":(0..4).map(|i| local_mask(&format!("m{i}"), json!({"curves":custom_curve(),"highlights":30})))
+                .collect::<Vec<_>>()}),
+        relight_portrait_profile(4),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let features = preview_features(&adjustments);
+        assert_eq!(features & EFFECTS_FEATURE, 0, "{profile}");
+        let masks = generated_profile_masks(&profile, width, height);
+        let render = |with_effects: bool| {
+            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            processor.preview_pipelines[features].get_or_init(|| {
+                create_preview_pipeline(
+                    &processor.context.device,
+                    &processor.preview_shader,
+                    &processor.preview_layout,
+                    if with_effects {
+                        features | EFFECTS_FEATURE
+                    } else {
+                        features
+                    },
+                    true,
+                    true,
+                    false,
+                    false,
+                )
+                .unwrap()
+            });
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: adjustments.clone(),
+                        mask_bitmaps: &masks,
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d::ZERO,
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                4,
+            )
+            .unwrap()
+        };
+        let with_effects = render(true);
+        let without = render(false);
+        let differing = with_effects
+            .iter()
+            .zip(&without)
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            differing,
+            0,
+            "{}: {differing} bytes differ",
+            profile.to_string().chars().take(200).collect::<String>()
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 9);
+}
+
+#[test]
+fn effects_compile_only_where_a_recipe_has_them() {
+    let features = |profile: serde_json::Value| {
+        preview_features(&get_all_adjustments_from_json(&profile, true, Some(1))) & EFFECTS_FEATURE
+    };
+    assert_eq!(features(json!({})), 0);
+    assert_eq!(features(json!({"sharpness": 40, "clarity": 20})), 0);
+    for effect in ["glowAmount", "halationAmount", "grainAmount"] {
+        assert_eq!(features(json!({ effect: 30 })), EFFECTS_FEATURE, "{effect}");
+    }
+    for effect in ["glowAmount", "halationAmount"] {
+        assert_eq!(
+            features(local_profile(json!({ effect: 30 }))),
+            EFFECTS_FEATURE,
+            "layer {effect}"
+        );
+    }
+    // Exports keep the code whatever the recipe holds.
+    let plain = get_all_adjustments_from_json(&json!({}), true, Some(1));
+    assert_ne!(export_features(&plain) & EFFECTS_FEATURE, 0);
 }
 
 #[test]

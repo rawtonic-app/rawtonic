@@ -87,6 +87,11 @@ override SHARPEN_VIEW: bool = false;
 // only into display variants (gpu_processing.rs `variant_constants`), so
 // exports and the general shader keep their code.
 override MIXER_PROBES: bool = false;
+// Glow, halation and grain: left out of display variants of recipes without
+// them (gpu_processing.rs `EFFECTS_FEATURE`), so the driver compiles far less
+// code for a first preview (each of glow and halation carries the complete
+// tone stage); exports and the general shader keep them (the default).
+override ENABLE_EFFECTS: bool = true;
 const MIXER_INPUT_PROBE: u32 = 2u;
 const BW_INPUT_PROBE: u32 = 3u;
 const SHARPEN_VIEW_MASK: u32 = 0x40000004u;
@@ -10565,17 +10570,19 @@ fn main(
         processed_rgb = apply_relight(processed_rgb, absolute_coord, full_dims, exposure_gain);
     }
 
-    if (t_glow > 0.0) {
-        processed_rgb = apply_glow_bloom(
-            processed_rgb, structure_blurred, t_glow, is_raw,
-            t_exposure, t_brightness, t_contrast, t_whites
-        );
-    }
-    if (t_halation > 0.0) {
-        processed_rgb = apply_halation(
-            processed_rgb, clarity_blurred, t_halation, is_raw,
-            t_exposure, t_brightness, t_contrast, t_whites
-        );
+    if (ENABLE_EFFECTS) {
+        if (t_glow > 0.0) {
+            processed_rgb = apply_glow_bloom(
+                processed_rgb, structure_blurred, t_glow, is_raw,
+                t_exposure, t_brightness, t_contrast, t_whites
+            );
+        }
+        if (t_halation > 0.0) {
+            processed_rgb = apply_halation(
+                processed_rgb, clarity_blurred, t_halation, is_raw,
+                t_exposure, t_brightness, t_contrast, t_whites
+            );
+        }
     }
     if (t_flare > 0.0) {
         let uv = vec2<f32>(absolute_coord) / full_dims;
@@ -10920,35 +10927,37 @@ fn main(
         final_rgb = lut_amount(final_rgb, lut_color, adjustments.global.lut_intensity);
     }
 
-    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version < 2u && adjustments.global.grain_structure == GRAIN_EVEN) {
-        let coord = vec2<f32>(absolute_coord_i);
-        var amount = adjustments.global.grain_amount * 0.5;
-        let grain_frequency = (1.0 / max(adjustments.global.grain_size, 0.1)) / scale;
-        let roughness = adjustments.global.grain_roughness;
-        let luma = max(0.0, get_luma(final_rgb));
-        var luma_mask = smoothstep(0.0, 0.15, luma) * (1.0 - smoothstep(0.6, 1.0, luma));
-        if (adjustments.global.tonemapper_mode >= 2u) {
-            // Lightroom's grain (measured in Camera Raw, notes: reference/grain.md):
-            // about twice as strong, even across the tonal range up to near
-            // black and white, and stronger as it gets finer below size 25.
-            amount *= GRAIN_GAIN * (1.0 + GRAIN_FINE_BOOST * max(0.0, 1.0 - adjustments.global.grain_size * 2.0));
-            luma_mask = smoothstep(0.0, 0.03, luma) * (1.0 - smoothstep(0.97, 1.0, luma));
+    if (ENABLE_EFFECTS) {
+        if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version < 2u && adjustments.global.grain_structure == GRAIN_EVEN) {
+            let coord = vec2<f32>(absolute_coord_i);
+            var amount = adjustments.global.grain_amount * 0.5;
+            let grain_frequency = (1.0 / max(adjustments.global.grain_size, 0.1)) / scale;
+            let roughness = adjustments.global.grain_roughness;
+            let luma = max(0.0, get_luma(final_rgb));
+            var luma_mask = smoothstep(0.0, 0.15, luma) * (1.0 - smoothstep(0.6, 1.0, luma));
+            if (adjustments.global.tonemapper_mode >= 2u) {
+                // Lightroom's grain (measured in Camera Raw, notes: reference/grain.md):
+                // about twice as strong, even across the tonal range up to near
+                // black and white, and stronger as it gets finer below size 25.
+                amount *= GRAIN_GAIN * (1.0 + GRAIN_FINE_BOOST * max(0.0, 1.0 - adjustments.global.grain_size * 2.0));
+                luma_mask = smoothstep(0.0, 0.03, luma) * (1.0 - smoothstep(0.97, 1.0, luma));
+            }
+            let base_coord = coord * grain_frequency;
+            let rough_coord = coord * grain_frequency * 0.6;
+            let noise_base = gradient_noise(base_coord);
+            let noise_rough = gradient_noise(rough_coord + vec2<f32>(5.2, 1.3));
+            let noise_val = mix(noise_base, noise_rough, roughness);
+            final_rgb += vec3<f32>(noise_val) * amount * luma_mask;
         }
-        let base_coord = coord * grain_frequency;
-        let rough_coord = coord * grain_frequency * 0.6;
-        let noise_base = gradient_noise(base_coord);
-        let noise_rough = gradient_noise(rough_coord + vec2<f32>(5.2, 1.3));
-        let noise_val = mix(noise_base, noise_rough, roughness);
-        final_rgb += vec3<f32>(noise_val) * amount * luma_mask;
-    }
-    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version < 2u && adjustments.global.grain_structure != GRAIN_EVEN) {
-        final_rgb = apply_grain_structure(final_rgb, vec2<f32>(absolute_coord_i), scale);
-    }
-    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version == 2u) {
-        final_rgb = apply_portable_grain(final_rgb, absolute_coord);
-    }
-    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version >= 3u) {
-        final_rgb = apply_film_grain(final_rgb, absolute_coord);
+        if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version < 2u && adjustments.global.grain_structure != GRAIN_EVEN) {
+            final_rgb = apply_grain_structure(final_rgb, vec2<f32>(absolute_coord_i), scale);
+        }
+        if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version == 2u) {
+            final_rgb = apply_portable_grain(final_rgb, absolute_coord);
+        }
+        if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version >= 3u) {
+            final_rgb = apply_film_grain(final_rgb, absolute_coord);
+        }
     }
 
     // Clipping warnings, each side on its own (`show_clipping` as above):
