@@ -817,6 +817,9 @@ pub const AI_DENOISE_VERSION_KEY: &str = "aiDenoiseVersion";
 pub const BLEND_AI_DENOISE_VERSION: u8 = 1;
 /// The AI Denoise version that runs the mixed-precision model package.
 pub const MIXED_PRECISION_AI_DENOISE_VERSION: u8 = 3;
+/// The AI Denoise version whose result keeps the sensor's local means
+/// (`MosaicDenoise::sensor_means`).
+pub const SENSOR_MEANS_AI_DENOISE_VERSION: u8 = 4;
 
 /// `aiDenoiseVersion` (`image_loader::AI_DENOISE_VERSION`): 1 when missing,
 /// never newer than this renderer knows.
@@ -847,6 +850,11 @@ impl AiDenoiseVersion {
     /// Runs the mixed-precision model package.
     pub fn mixed_precision(self) -> bool {
         self.0 >= MIXED_PRECISION_AI_DENOISE_VERSION
+    }
+
+    /// Keeps the sensor's local means in the network's result.
+    pub fn sensor_means(self) -> bool {
+        self.0 >= SENSOR_MEANS_AI_DENOISE_VERSION
     }
 }
 

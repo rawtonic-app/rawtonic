@@ -55,9 +55,9 @@ pub use rawtonic_metadata::provenance::{
 };
 
 /// The AI Denoise version new edits get (`aiDenoiseVersion`; recipes
-/// without the key are version 1): 3, the mixed-precision model, since the
-/// model pack carries it (pack-2026-10-18).
-pub const AI_DENOISE_VERSION: u8 = 3;
+/// without the key are version 1): 4, the mixed-precision model (in the
+/// model pack since pack-2026-10-18) with the sensor's local means kept.
+pub const AI_DENOISE_VERSION: u8 = 4;
 
 /// How a recipe's AI Denoise develops the mosaic.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -65,7 +65,9 @@ pub struct AiDenoiseSettings {
     /// `aiDenoiseVersion`: 1 blends the network's result by the slider; 2
     /// maps the slider to the noise the network is told about; both run the
     /// first (full-precision) model. 3 is 2's mapping on the faster
-    /// mixed-precision model. Each version has one model, so a saved recipe
+    /// mixed-precision model. 4 is 3 with the sensor's local means kept in
+    /// the network's result (`sensor_means`): the same model and the same
+    /// cached results. Each version has one model, so a saved recipe
     /// renders the same whatever models are installed.
     pub version: u8,
     /// Share of the network's result kept (`MosaicDenoise::amount`).
@@ -131,6 +133,26 @@ impl AiDenoiseSettings {
         usize::from(
             crate::recipe_versions::AiDenoiseVersion::from_raw(self.version).mixed_precision(),
         )
+    }
+
+    /// Whether the network's result keeps the sensor's local means (from
+    /// version 4). Before, AI Denoise darkened and tinted deep shadows at
+    /// high ISO more than the photo without it: on the RawNIND pairs of
+    /// notes benchmark-results/aid-ai-denoise-shadows-2026-11-11/ the
+    /// colour cast of flat deep shadows at ISO 12800 and above was 1.58
+    /// with it against 0.70 without.
+    pub fn sensor_means(&self) -> bool {
+        crate::recipe_versions::AiDenoiseVersion::from_raw(self.version).sensor_means()
+    }
+
+    /// The decoder's option for `denoiser` (this version's model).
+    pub fn mosaic_denoise(
+        &self,
+        denoiser: std::sync::Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>,
+    ) -> rawtonic_rawdecode::mosaic_denoise::MosaicDenoise {
+        rawtonic_rawdecode::mosaic_denoise::MosaicDenoise::new(denoiser, self.blend)
+            .with_noise_scale(self.noise_scale)
+            .with_sensor_means(self.sensor_means())
     }
 }
 
@@ -2044,12 +2066,18 @@ mod ai_denoise_tests {
             ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 9 }))
                 .unwrap()
                 .version,
-            3
+            4
         );
         // Version 3: the same mapping on the mixed-precision model.
         let v3 = ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 3 })).unwrap();
         assert_eq!((v3.blend, v3.noise_scale, v3.model()), (1.0, 0.8, 1));
         assert_eq!((at(50.0).model(), v1.model()), (0, 0));
+        // Version 4: version 3 with the sensor's local means kept; no
+        // earlier version keeps them.
+        let v4 = ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 4 })).unwrap();
+        assert_eq!((v4.blend, v4.noise_scale, v4.model()), (1.0, 0.8, 1));
+        assert!(v4.sensor_means());
+        assert!(!v3.sensor_means() && !at(50.0).sensor_means() && !v1.sensor_means());
     }
 }
 
