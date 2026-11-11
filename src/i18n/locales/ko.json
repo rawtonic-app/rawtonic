@@ -1498,7 +1498,11 @@
       "picked_other": "선택 {{count}}",
       "tether": "테더",
       "tetherConnected": "{{camera}} 연결됨",
-      "tetherTitle": "테더 촬영: USB로 연결한 카메라의 사진이 이 라이브러리로 바로 들어옵니다"
+      "tetherTitle": "테더 촬영: USB로 연결한 카메라의 사진이 이 라이브러리로 바로 들어옵니다",
+      "windowClose": "창 닫기",
+      "windowMaximize": "창 최대화",
+      "windowMinimize": "창 최소화",
+      "windowRestore": "창 복원"
     },
     "catalogExport": {
       "cancelled": "카탈로그 “{{name}}” 내보내기를 취소했습니다. 아무것도 만들지 않았습니다",

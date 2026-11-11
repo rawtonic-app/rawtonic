@@ -1527,7 +1527,11 @@
       "picked_other": "{{count}} picked",
       "tether": "Tether",
       "tetherConnected": "{{camera}} connected",
-      "tetherTitle": "Shoot tethered: photos from a camera on USB come straight into this library"
+      "tetherTitle": "Shoot tethered: photos from a camera on USB come straight into this library",
+      "windowClose": "Close window",
+      "windowMaximize": "Maximize window",
+      "windowMinimize": "Minimize window",
+      "windowRestore": "Restore window"
     },
     "catalogExport": {
       "cancelled": "Catalog export “{{name}}” cancelled; nothing was created",

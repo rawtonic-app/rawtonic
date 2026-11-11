@@ -1596,7 +1596,11 @@
       "picked_other": "{{count}} retenues",
       "tether": "Connexion",
       "tetherConnected": "{{camera}} connecté",
-      "tetherTitle": "Prise de vue connectée : les photos d’un appareil en USB arrivent directement dans cette bibliothèque"
+      "tetherTitle": "Prise de vue connectée : les photos d’un appareil en USB arrivent directement dans cette bibliothèque",
+      "windowClose": "Fermer la fenêtre",
+      "windowMaximize": "Agrandir la fenêtre",
+      "windowMinimize": "Réduire la fenêtre",
+      "windowRestore": "Restaurer la fenêtre"
     },
     "catalogExport": {
       "cancelled": "Export du catalogue « {{name}} » annulé ; rien n’a été créé",

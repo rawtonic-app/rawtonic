@@ -1498,7 +1498,11 @@
       "picked_other": "{{count}} 張留用",
       "tether": "連線拍攝",
       "tetherConnected": "{{camera}} 已連線",
-      "tetherTitle": "連線拍攝：USB 相機拍攝的照片直接進入此圖庫"
+      "tetherTitle": "連線拍攝：USB 相機拍攝的照片直接進入此圖庫",
+      "windowClose": "關閉視窗",
+      "windowMaximize": "最大化視窗",
+      "windowMinimize": "最小化視窗",
+      "windowRestore": "還原視窗"
     },
     "catalogExport": {
       "cancelled": "目錄「{{name}}」匯出已取消；未建立任何內容",

@@ -35,7 +35,6 @@ import {
 } from './activity/showPhotos';
 import clsx from 'clsx';
 
-import TitleBar from './window/TitleBar';
 import WindowControls from './window/WindowControls';
 import SessionWorkspace from './components/session/SessionWorkspace';
 import { openPendingXmpView, PENDING_XMP_VIEW_ID, SHOW_PENDING_XMP_EVENT } from './components/session/SessionXmpStatus';
@@ -119,12 +118,11 @@ function App() {
     }))
   );
 
-  const { activeView, isFullScreen, isWindowFullScreen, isInstantTransition, activePanel, setUI } = useUIStore(
+  const { activeView, isFullScreen, isWindowFullScreen, activePanel, setUI } = useUIStore(
     useShallow((state) => ({
       activeView: state.activeView,
       isFullScreen: state.isFullScreen,
       isWindowFullScreen: state.isWindowFullScreen,
-      isInstantTransition: state.isInstantTransition,
       activePanel: state.activePanel,
       setUI: state.setUI
     }))
@@ -538,8 +536,11 @@ function App() {
     // (hasRenderedFirstFrame is only set by a frame of the selected photo.)
     (hasRenderedFirstFrame || holdingNativeFrame);
   const hasNativeMacTitlebar = osPlatform === 'macos';
-  const hasUnifiedTitlebar = hasNativeMacTitlebar || osPlatform === 'linux';
-  const showLinuxWindowControls = osPlatform === 'linux' && !appSettings?.decorations && !isWindowFullScreen;
+  // Windows and Linux draw their own window controls at the right end of the
+  // session bar (no separate title strip); with the system's native title bar
+  // (Preferences) or in the full screen the bar has none.
+  const hasCustomChrome = osPlatform === 'linux' || osPlatform === 'windows';
+  const showWindowControls = hasCustomChrome && !appSettings?.decorations && !isWindowFullScreen;
 
   // Profiling builds: when App's own mount effects (the last to run) are done.
   useEffect(() => reportPerformance('mount_effects_end', { epoch_ms: Math.round(epochOf(performance.now())) }), []);
@@ -561,30 +562,20 @@ function App() {
           'studio-app flex flex-col h-screen font-sans text-text-primary overflow-hidden select-none',
           hasNativeMacTitlebar && 'macos-native-chrome',
           osPlatform === 'linux' && 'linux-unified-chrome',
+          hasCustomChrome && 'custom-window-chrome',
           hasNativeMacTitlebar && !isWindowFullScreen && 'macos-windowed',
           barsHidden && 'bars-hidden',
           isFullScreen && 'is-image-fullscreen',
           isWgpuActive ? 'bg-transparent' : 'bg-bg-primary'
         )}
       >
-        {!hasUnifiedTitlebar && (
-          <div
-            className={clsx(
-              'shrink-0 overflow-hidden z-50',
-              !isInstantTransition && 'transition-all duration-300 ease-in-out',
-              isFullScreen ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-15 opacity-100'
-            )}
-          >
-            {appSettings?.decorations || (!isWindowFullScreen && <TitleBar />)}
-          </div>
-        )}
         {/* Hidden, not unmounted, in the full screen (studio.css): the
             session keeps its tethering, ingest and dialogs running. */}
         <PerfProfiler id="session">
           <SessionWorkspace
             onNavigate={handleSelectSubfolder}
-            nativeTitlebar={hasNativeMacTitlebar || showLinuxWindowControls}
-            windowControls={showLinuxWindowControls ? <WindowControls /> : undefined}
+            nativeTitlebar={hasNativeMacTitlebar || showWindowControls}
+            windowControls={showWindowControls ? <WindowControls /> : undefined}
           />
         </PerfProfiler>
         <PerfProfiler id="workspace">

@@ -1596,7 +1596,11 @@
       "picked_other": "{{count}} scelte",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} collegata",
-      "tetherTitle": "Scatto collegato: le foto di una fotocamera via USB arrivano direttamente in questa libreria"
+      "tetherTitle": "Scatto collegato: le foto di una fotocamera via USB arrivano direttamente in questa libreria",
+      "windowClose": "Chiudi finestra",
+      "windowMaximize": "Ingrandisci finestra",
+      "windowMinimize": "Riduci a icona",
+      "windowRestore": "Ripristina finestra"
     },
     "catalogExport": {
       "cancelled": "Esportazione del catalogo «{{name}}» annullata; non è stato creato nulla",
