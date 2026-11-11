@@ -3041,6 +3041,7 @@
         "other": "調整",
         "redEyes": "紅眼",
         "remove": "移除",
+        "resetGroup": "重設{{tool}}",
         "spots": "污點移除",
         "title": "步驟記錄"
       },
@@ -3250,6 +3251,8 @@
       "toolGroup": {
         "isOn": "{{tool}} 開啟",
         "reset": "重設{{tool}}",
+        "resetGroup": "重設群組",
+        "resetHint": "按住 Alt/Option 點按名稱可重設{{tool}}",
         "resetOrHold": "重設{{tool}}（按住，或按住 Alt/Option 鍵按下：顯示不含此工具的照片）",
         "turnOff": "關閉{{tool}}",
         "turnOn": "開啟{{tool}}"

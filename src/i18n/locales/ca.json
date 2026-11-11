@@ -3284,6 +3284,7 @@
         "other": "Ajustament",
         "redEyes": "Ulls vermells",
         "remove": "Elimina",
+        "resetGroup": "Restableix {{tool}}",
         "spots": "Eliminació de taques",
         "title": "Historial"
       },
@@ -3493,6 +3494,8 @@
       "toolGroup": {
         "isOn": "{{tool}} activat",
         "reset": "Restableix {{tool}}",
+        "resetGroup": "Restableix el grup",
+        "resetHint": "Alt/Opció-clic al nom restableix {{tool}}",
         "resetOrHold": "Restableix {{tool}} (mantén premut, o prem amb Alt/Opció: mostra la foto sense l’eina)",
         "turnOff": "Desactiva {{tool}}",
         "turnOn": "Activa {{tool}}"

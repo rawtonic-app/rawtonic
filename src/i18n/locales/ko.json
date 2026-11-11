@@ -3041,6 +3041,7 @@
         "other": "조정",
         "redEyes": "적목",
         "remove": "제거",
+        "resetGroup": "{{tool}} 재설정",
         "spots": "잡티 제거",
         "title": "작업 내역"
       },
@@ -3250,6 +3251,8 @@
       "toolGroup": {
         "isOn": "{{tool}} 켬",
         "reset": "{{tool}} 재설정",
+        "resetGroup": "그룹 재설정",
+        "resetHint": "이름을 Alt/Option 클릭하면 {{tool}} 재설정",
         "resetOrHold": "{{tool}} 재설정 (길게 누르거나 Alt/Option과 함께 누르기: 이 도구 없이 사진 보기)",
         "turnOff": "{{tool}} 끄기",
         "turnOn": "{{tool}} 켜기"

@@ -174,3 +174,9 @@ export function describeHistoryStep(before: Adjustments, after: Adjustments, t: 
     : describeLayers(before.masks ?? [], after.masks ?? [], t, language);
   return [photo, layers].filter(Boolean).join(' · ') || t('studio.develop.history.other');
 }
+
+/** Whether a step changed any value of the recipe (a reset of values that
+ * were already at their defaults writes an equal recipe). */
+export function changesValues(before: Adjustments, after: Adjustments): boolean {
+  return changedKeys(before, after).length > 0;
+}
