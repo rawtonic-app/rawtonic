@@ -126,19 +126,29 @@ fn flags_and_assets_use_the_path_a_folder_listing_returns_after_reopening() {
         .map(|entry| entry.unwrap().path())
         .collect();
     listed.sort();
-    let flags = lib.flags().unwrap();
+    // Compared as text: the window keys flags by the path's string (JSON),
+    // and on Windows `Path` equality would take `/` for `\`.
+    let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
+    let listed: Vec<String> = listed.iter().map(|path| text(path)).collect();
+    let flags: std::collections::HashMap<String, i8> = lib
+        .flags()
+        .unwrap()
+        .into_iter()
+        .map(|(path, flag)| (text(&path), flag))
+        .collect();
     assert_eq!(flags.get(&listed[0]), Some(&1), "{flags:?} vs {listed:?}");
     assert_eq!(flags.get(&listed[1]), Some(&-1), "{flags:?} vs {listed:?}");
-    let mut assets: Vec<_> = lib
+    let mut assets: Vec<String> = lib
         .assets(None)
         .unwrap()
         .into_iter()
-        .map(|a| a.path)
+        .map(|a| text(&a.path))
         .collect();
     assets.sort();
     assert_eq!(assets, listed);
     for path in &listed {
-        assert_eq!(lib.asset_at(path).unwrap().unwrap().path, *path);
+        let asset = lib.asset_at(std::path::Path::new(path)).unwrap().unwrap();
+        assert_eq!(text(&asset.path), *path);
     }
 }
 
