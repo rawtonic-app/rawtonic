@@ -3672,9 +3672,10 @@ const DEHAZE_V2_FEATURE: usize = 1048576;
 /// Glow and halation each carry the complete tone stage, so without them a
 /// display variant is far less code: on AMD's Windows Vulkan driver, which
 /// inlines every call before it drops unused code, the RAW default variant
-/// compiled in N s instead of N s at N instead of N GB (G76/WCC, Radeon 680M).
-/// Exports keep the code (`export_features`), so their pixels stay as they
-/// were.
+/// compiled in 8.1 s at 0.7 GB peak private memory instead of 63 s at 4.1 GB
+/// (both without the decided branches, `display_variant_ir`; 97 s at 7.8 GB
+/// as compiled before; G76/WCC round 1, Radeon 680M). Exports keep the code
+/// (`export_features`), so their pixels stay as they were.
 const EFFECTS_FEATURE: usize = 2097152;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
