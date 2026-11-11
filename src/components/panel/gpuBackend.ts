@@ -121,6 +121,50 @@ export async function watchGraphicsPreparation(
   notify.info(i18n.t('gpuBackend.prepared', { seconds }), { toastId: PREPARING_ID, autoClose: 6000 });
 }
 
+const COMPILING_ID = 'gpu-compiling';
+
+/**
+ * Any later shader compile (a new edit's or photo's processing variant, a
+ * thumbnail's) as the same running task "Preparing graphics for this
+ * computer", shown once it lasts longer than `PREPARING_SHOWN_AFTER_MS`:
+ * on some drivers one takes 65–90 s, and the Develop panel and thumbnails
+ * wait for it (WFQ, Radeon 680M). Fed by `gpu-compiling` (true when the
+ * first compile starts, false when the last ends). Not shown while the
+ * first start's own task (`watchGraphicsPreparation`) runs.
+ */
+export function createCompileActivity(shownAfterMs = PREPARING_SHOWN_AFTER_MS) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let shown = false;
+  return (running: boolean) => {
+    if (running) {
+      if (timer || shown) return;
+      const show = () => {
+        const activity = useActivityStore.getState();
+        // The first start's task says it already; looked at again later.
+        if (activity.entries.some((e) => e.id === PREPARING_ID && e.status === 'running')) {
+          timer = setTimeout(show, shownAfterMs);
+          return;
+        }
+        timer = null;
+        shown = true;
+        activity.start({
+          id: COMPILING_ID,
+          source: 'app',
+          title: i18n.t('gpuBackend.preparing'),
+          detail: i18n.t('gpuBackend.preparingDetail')
+        });
+      };
+      timer = setTimeout(show, shownAfterMs);
+      return;
+    }
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (!shown) return;
+    shown = false;
+    useActivityStore.getState().resolve(COMPILING_ID);
+  };
+}
+
 /**
  * "Reset graphics settings and retry": nothing left out after a crash, the
  * processing backend back to Auto, then a relaunch once every setting is

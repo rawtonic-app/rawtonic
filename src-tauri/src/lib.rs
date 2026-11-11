@@ -349,6 +349,7 @@ fn start(args: Vec<String>) {
             // Before anything reads settings or user content (see the module).
             let carried_over = identity_migration::carry_over(app.handle());
             gpu_processing::notify_sharpen_view_ready(app.handle());
+            gpu_processing::notify_compile_activity(app.handle());
             if matches!(launch_req, LaunchRequest::WarmGpuCache) {
                 gpu_warmup::start(app.handle());
                 return Ok(());
@@ -879,6 +880,7 @@ fn start(args: Vec<String>) {
             gpu_processing::gpu_backend_status,
             gpu_processing::gpu_backend_use_automatic,
             gpu_processing::gpu_first_display_ready,
+            gpu_processing::gpu_compiling,
             startup::frontend_log,
             collage::save_collage,
             proof_sheet::proof_sheet_preview,

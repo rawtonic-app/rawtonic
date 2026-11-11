@@ -8,7 +8,7 @@ import en from '../../i18n/locales/en.json';
 import { Invokes, type AppSettings } from '../ui/AppProperties';
 import { useActivityStore } from '../../store/useActivityStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
-import { resetGraphicsAndRetry, watchGraphicsPreparation } from './gpuBackend';
+import { createCompileActivity, resetGraphicsAndRetry, watchGraphicsPreparation } from './gpuBackend';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'windows' }));
@@ -26,6 +26,54 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+const compiling = () => useActivityStore.getState().entries.find((e) => e.id === 'gpu-compiling');
+
+// WFQ: a later compile (65–90 s on a Radeon 680M) left Develop looking dead.
+describe('Preparing graphics for a later compile', () => {
+  it('is not shown for a quick compile', async () => {
+    vi.useFakeTimers();
+    const activity = createCompileActivity(1500);
+    activity(true);
+    await vi.advanceTimersByTimeAsync(400);
+    activity(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(compiling()).toBeUndefined();
+  });
+
+  it('runs while a slow compile lasts and goes when the last ends', async () => {
+    vi.useFakeTimers();
+    const activity = createCompileActivity(1500);
+    activity(true);
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(compiling()?.status).toBe('running');
+    expect(compiling()?.title).toBe('Preparing graphics for this computer');
+    activity(true);
+    expect(useActivityStore.getState().entries.filter((e) => e.id === 'gpu-compiling')).toHaveLength(1);
+    activity(false);
+    expect(compiling()).toBeUndefined();
+    // The next slow compile shows it again.
+    activity(true);
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(compiling()?.status).toBe('running');
+  });
+
+  it('is not shown twice while the first start says it already', async () => {
+    vi.useFakeTimers();
+    let finish: (compiled: boolean) => void = () => {};
+    const first = watchGraphicsPreparation(() => new Promise<boolean>((resolve) => (finish = resolve)), 1500);
+    const activity = createCompileActivity(1500);
+    activity(true);
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(entry()?.status).toBe('running');
+    expect(compiling()).toBeUndefined();
+    // A compile still running after the first start's is shown then.
+    finish(true);
+    await first;
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(compiling()?.status).toBe('running');
+  });
 });
 
 describe('Preparing graphics', () => {

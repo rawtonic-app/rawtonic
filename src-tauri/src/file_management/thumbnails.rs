@@ -1188,23 +1188,29 @@ pub(crate) fn generate_single_thumbnail_and_cache(
     let target_width_small = settings.small_thumbnail_resolution.unwrap_or(480);
     let target_width_medium = settings.medium_thumbnail_resolution.unwrap_or(1280);
 
-    if let Ok(thumb_image) =
-        generate_thumbnail_data(path_str, gpu_context, preloaded_image, app_handle)
-        && let (Ok(small_data), Ok(medium_data)) = (
-            encode_thumbnail(&thumb_image, target_width_small),
-            encode_thumbnail(&thumb_image, target_width_medium),
-        )
-    {
-        cache_thumbnail(&small_path, &small_data).ok()?;
-        cache_thumbnail(&medium_path, &medium_data).ok()?;
-        return Some((
-            small_path.to_string_lossy().into_owned(),
-            medium_path.to_string_lossy().into_owned(),
-            rating,
-            is_edited,
-        ));
+    // A failure is logged: the tile otherwise keeps its placeholder with
+    // nothing anywhere saying why (WFQ: two blank thumbnails, no log line).
+    let made = generate_thumbnail_data(path_str, gpu_context, preloaded_image, app_handle)
+        .and_then(|image| {
+            Ok((
+                encode_thumbnail(&image, target_width_small)?,
+                encode_thumbnail(&image, target_width_medium)?,
+            ))
+        })
+        .and_then(|(small_data, medium_data)| {
+            cache_thumbnail(&small_path, &small_data)?;
+            cache_thumbnail(&medium_path, &medium_data)
+        });
+    if let Err(error) = made {
+        log::warn!("Thumbnail of {path_str} not made: {error:#}");
+        return None;
     }
-    None
+    Some((
+        small_path.to_string_lossy().into_owned(),
+        medium_path.to_string_lossy().into_owned(),
+        rating,
+        is_edited,
+    ))
 }
 
 /// Makes `path`'s thumbnails again after its preview proxy was written (the
