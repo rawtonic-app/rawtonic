@@ -597,11 +597,13 @@ fn export_masks_for_image(
     context: &Arc<GpuContext>,
     develop: &DevelopSession,
     is_raw: bool,
-    app_handle: &tauri::AppHandle,
+    gpu: &crate::state::gpu::GpuState,
+    tm_override: Option<u32>,
+    lut: Option<Arc<crate::lut_processing::Lut>>,
+    enlarger: Option<&dyn rawtonic_export::export_processing::Enlarger>,
     pinned: &PinnedPhoto,
     cancellation_token: &AtomicBool,
 ) -> Result<(), String> {
-    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     ensure_export_not_cancelled(cancellation_token)?;
     let (transformed_image, unscaled_crop_offset) =
         apply_all_transformations(Cow::Borrowed(base_image), js_adjustments, is_raw)?;
@@ -641,12 +643,7 @@ fn export_masks_for_image(
     }
 
     if !mask_bitmaps.is_empty() {
-        let tm_override = resolve_tonemapper_override_from_handle(app_handle, is_raw);
         let all_adjustments = get_all_adjustments_from_json(js_adjustments, is_raw, tm_override);
-        let lut_path = js_adjustments[effects::LUT_PATH.into_name()].as_str();
-        let lut = lut_path.and_then(|p| {
-            get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
-        });
         let unique_hash = calculate_full_job_hash(source_path_str, js_adjustments);
         let extension = output_path_obj
             .extension()
@@ -661,7 +658,7 @@ fn export_masks_for_image(
 
             let processed = process_and_get_dynamic_image_with_precision(
                 context,
-                &gpu,
+                gpu,
                 develop,
                 transformed_image.as_ref(),
                 unique_hash,
@@ -678,12 +675,10 @@ fn export_masks_for_image(
 
             // The same finishing as the main file (Super Resolution included),
             // so the layer's image and alpha match its size.
-            let (with_options, geometry) = finish_rendered_export(
-                processed,
-                export_settings,
-                Some(&crate::super_resolution::ExportEnlarger { app_handle }),
-                &|| ensure_export_not_cancelled(cancellation_token),
-            )?;
+            let (with_options, geometry) =
+                finish_rendered_export(processed, export_settings, enlarger, &|| {
+                    ensure_export_not_cancelled(cancellation_token)
+                })?;
 
             let alpha_scaled = imageops::resize(
                 &mask_bitmaps[i],
@@ -1938,7 +1933,18 @@ fn export_photo(
                     context,
                     &develop,
                     is_raw,
-                    app_handle,
+                    &app_handle.state::<crate::state::gpu::GpuState>(),
+                    resolve_tonemapper_override_from_handle(app_handle, is_raw),
+                    js_adjustments[effects::LUT_PATH.into_name()]
+                        .as_str()
+                        .and_then(|path| {
+                            get_or_load_lut(
+                                &app_handle.state::<crate::state::luts::LutState>(),
+                                path,
+                            )
+                            .ok()
+                        }),
+                    Some(&crate::super_resolution::ExportEnlarger { app_handle }),
                     &pinned,
                     &finish_photo,
                 )?;
@@ -2685,6 +2691,101 @@ mod tests {
     use super::{
         ExportTarget, PhotoItem, PlannedFiles, export_in_turn, is_open_edit, plan_output_path,
     };
+
+    /// Exercise the app's layer export, including real PNG encoding and
+    /// no-clobber file publication, with an upscaler accepted by production.
+    #[test]
+    #[ignore = "requires a GPU; run explicitly on native QA hosts"]
+    fn super_resolution_main_mask_and_alpha_files_share_dimensions() {
+        use super::*;
+        use rawtonic_export::export_processing::Enlarger;
+        struct Doubler;
+        impl Enlarger for Doubler {
+            fn enlarge_2x(
+                &self,
+                image: DynamicImage,
+                cancelled: &dyn Fn() -> Result<(), String>,
+            ) -> Result<DynamicImage, String> {
+                cancelled()?;
+                Ok(image.resize_exact(
+                    image.width() * 2,
+                    image.height() * 2,
+                    imageops::FilterType::Nearest,
+                ))
+            }
+        }
+        let context = Arc::new(GpuContext::headless().expect("native QA requires a GPU"));
+        let gpu = crate::state::gpu::GpuState::default();
+        let develop = DevelopSession::default();
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source.png");
+        let photo =
+            DynamicImage::ImageRgb8(ImageBuffer::from_pixel(30, 20, image::Rgb([80, 100, 120])));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        photo.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        crate::session_bridge::write_new_output(&source, bytes.into_inner()).unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let adjustments = serde_json::json!({"masks": [{
+            "id": "layer", "name": "Gradient", "visible": true, "invert": false,
+            "adjustments": {"exposure": 0.5}, "subMasks": [{
+                "id": "linear", "type": "linear", "visible": true, "mode": "additive",
+                "parameters": {"startX": 0, "startY": 10, "endX": 30, "endY": 10, "range": 10}
+            }]
+        }]});
+        let pinned: PinnedPhoto = serde_json::from_value(
+            serde_json::json!({"adjustments": adjustments, "metadata": null}),
+        )
+        .unwrap();
+        for enabled in [false, true] {
+            let mut settings: ExportSettings = serde_json::from_value(serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+                "filenameTemplate": null, "watermark": null, "resize": null
+            }))
+            .unwrap();
+            settings.super_resolution = enabled;
+            settings.export_masks = true;
+            let output = temp.path().join(format!("main-{enabled}.png"));
+            let (main, _) =
+                finish_rendered_export(photo.clone(), &settings, Some(&Doubler), &|| Ok(()))
+                    .unwrap();
+            save_image_with_metadata(
+                main,
+                &output,
+                source.to_str().unwrap(),
+                &settings,
+                false,
+                &pinned,
+            )
+            .unwrap();
+            export_masks_for_image(
+                &photo,
+                &photo,
+                &adjustments,
+                &settings,
+                &output,
+                source.to_str().unwrap(),
+                &context,
+                &develop,
+                false,
+                &gpu,
+                None,
+                None,
+                Some(&Doubler),
+                &pinned,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            let main = image::open(&output).unwrap();
+            let [layer, alpha] = mask_file_paths(&output, 0);
+            let layer = image::open(layer).unwrap();
+            let alpha = image::open(alpha).unwrap();
+            let expected = if enabled { (60, 40) } else { (30, 20) };
+            assert_eq!(main.dimensions(), expected);
+            assert_eq!(layer.dimensions(), main.dimensions());
+            assert_eq!(alpha.dimensions(), main.dimensions());
+        }
+        assert_eq!(std::fs::read(source).unwrap(), original);
+    }
 
     /// The exact full-size RAW render used by the import dialog, including
     /// normalization, decode and GPU processing, must not write beside a card.

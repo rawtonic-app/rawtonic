@@ -62,7 +62,37 @@ async fn model(
         )
         .await?;
     }
-    let model = tokio::task::spawn_blocking(move || Model::onnx(&path)).await??;
+    let mut model = tokio::task::spawn_blocking(move || Model::onnx(&path)).await??;
+    if download
+        && model.uses_cpu()
+        && !verify_sha256(
+            &models_dir.join(rawtonic_superres::CPU_ONNX_FILE),
+            rawtonic_superres::CPU_ONNX_SHA256,
+        )?
+    {
+        match download_verified(
+            app_handle,
+            &models_dir,
+            rawtonic_superres::CPU_ONNX_FILE,
+            rawtonic_superres::CPU_ONNX_SHA256,
+            "Super Resolution CPU Model",
+        )
+        .await
+        {
+            Ok(_) => {
+                let cpu_path = models_dir.join(rawtonic_superres::CPU_ONNX_FILE);
+                match tokio::task::spawn_blocking(move || Model::cpu(&cpu_path)).await? {
+                    Ok(cpu) => model = cpu,
+                    Err(error) => log::warn!(
+                        "Optional Super Resolution CPU graph could not load; using the original graph: {error:#}"
+                    ),
+                }
+            }
+            Err(error) => log::warn!(
+                "Optional Super Resolution CPU graph unavailable; using the original graph: {error:#}"
+            ),
+        }
+    }
     log::info!(
         "Super Resolution: model loaded on {} in {} ms",
         model.backend_name(),
