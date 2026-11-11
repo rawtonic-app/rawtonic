@@ -52,7 +52,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 
 | Crate | Owns | Depends on | Key modules | Tests/hooks |
 |---|---|---|---|---|
-| `onnx` | every ONNX model load, providers | none | `runtime`, `check`, `bench` | `rawtonic ai-bench` |
+| `onnx` | every ONNX model load, providers, the bundled VC++ runtime on Windows | none | `runtime`, `vc_runtime`, `check`, `bench` | `rawtonic ai-bench` |
 | `denoise` | AI Denoise on the Bayer mosaic | `onnx`, `rawdecode` | `coreml`, `tiles`, `noise` | model pack |
 | `faces` | detection, landmarks, parsing, retouch | `onnx` | `detect`, `parts`, `retouch` | ignored `real_photos` |
 | `segment` | Sky and Subject networks | `denoise`, `onnx` | `models`, `focus` | model pack |

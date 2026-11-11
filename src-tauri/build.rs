@@ -137,6 +137,108 @@ fn build_tauri() {
     }
 }
 
+/// The VC++ runtime libraries ONNX Runtime and its WebGPU plugin import
+/// (`dumpbin /dependents`), bundled app-local beside `onnxruntime.dll`
+/// (gap G76): Microsoft's DLLs are built with the current toolset and crash
+/// in an older system `MSVCP140.dll` (`std::mutex`, VS 2022 17.10). The app
+/// loads them before ONNX Runtime (rawtonic-onnx `vc_runtime`). The x64-only
+/// `vcruntime140_1.dll` is optional; the CI check (scripts/windows/
+/// check_vc_runtime.ps1) proves every import is covered and new enough.
+const VC_RUNTIME: &[(&str, bool)] = &[
+    ("vcruntime140.dll", true),
+    ("vcruntime140_1.dll", false),
+    ("msvcp140.dll", true),
+    ("msvcp140_1.dll", true),
+    ("msvcp140_atomic_wait.dll", true),
+];
+
+/// The redistributable CRT folder of the Visual Studio that builds this
+/// (`VC\Redist\MSVC\<version>\<arch>\Microsoft.VC14x.CRT`):
+/// `RAWTONIC_VC_REDIST_DIR` (that folder itself), else `VCToolsRedistDir`
+/// of a developer prompt, else the newest Visual Studio with C++ tools that
+/// vswhere finds.
+fn vc_redist_dir(target_arch: &str) -> PathBuf {
+    println!("cargo:rerun-if-env-changed=RAWTONIC_VC_REDIST_DIR");
+    println!("cargo:rerun-if-env-changed=VCToolsRedistDir");
+    if let Some(dir) = env::var_os("RAWTONIC_VC_REDIST_DIR") {
+        return PathBuf::from(dir);
+    }
+    let arch = match target_arch {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        other => panic!("No VC++ runtime for {other}"),
+    };
+    let redist = env::var_os("VCToolsRedistDir")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let program_files = env::var_os("ProgramFiles(x86)")?;
+            let vswhere =
+                Path::new(&program_files).join("Microsoft Visual Studio/Installer/vswhere.exe");
+            let output = std::process::Command::new(vswhere)
+                .args([
+                    "-latest",
+                    "-products",
+                    "*",
+                    "-requires",
+                    "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                    "-property",
+                    "installationPath",
+                ])
+                .output()
+                .ok()?;
+            let install = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+            let version = fs::read_to_string(
+                install.join("VC/Auxiliary/Build/Microsoft.VCRedistVersion.default.txt"),
+            )
+            .ok()?;
+            Some(install.join("VC/Redist/MSVC").join(version.trim()))
+        });
+    let Some(redist) = redist else {
+        panic!(
+            "RAWTONIC_BUNDLE_ONNX=1 on Windows bundles the VC++ runtime, but no Visual Studio redistributable folder was found; set RAWTONIC_VC_REDIST_DIR to its Microsoft.VC14x.CRT folder"
+        );
+    };
+    let arch_dir = redist.join(arch);
+    fs::read_dir(&arch_dir)
+        .ok()
+        .and_then(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.starts_with("Microsoft.VC") && n.ends_with(".CRT"))
+                })
+                .max()
+        })
+        .unwrap_or_else(|| panic!("No Microsoft.VC*.CRT folder in {}", arch_dir.display()))
+}
+
+/// Copies the VC++ runtime into `dest` (resources\, beside ONNX Runtime).
+fn bundle_vc_runtime(dest: &Path, target_arch: &str) {
+    let source = vc_redist_dir(target_arch);
+    println!("cargo:warning=VC++ runtime from {}", source.display());
+    for &(name, required) in VC_RUNTIME {
+        let from = source.join(name);
+        println!("cargo:rerun-if-changed={}", from.display());
+        if !from.is_file() {
+            if required {
+                panic!("{} is missing", from.display());
+            }
+            // Not in this architecture's runtime: no stale copy either.
+            match fs::remove_file(dest.join(name)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => panic!("Cannot remove the stale {name}: {e}"),
+            }
+            continue;
+        }
+        fs::copy(&from, dest.join(name))
+            .unwrap_or_else(|e| panic!("Cannot bundle {}: {e}", from.display()));
+    }
+}
+
 fn main() {
     link_main_stack();
     println!("cargo:rerun-if-env-changed=RAWTONIC_BUNDLE_ONNX");
@@ -295,6 +397,10 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed=../licenses/models/{from}");
         fs::copy(source.join(from), licenses.join(to)).unwrap();
+    }
+
+    if target_os == "windows" {
+        bundle_vc_runtime(&dest_dir, &target_arch);
     }
 
     if target_os == "android" {

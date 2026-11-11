@@ -222,6 +222,17 @@ pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
             "ONNX Runtime is not installed (no library at {shown})"
         )));
     }
+    // Windows: the bundled VC++ runtime first, and none too old for the
+    // library (gap G76; `vc_runtime`).
+    #[cfg(windows)]
+    match crate::vc_runtime::prepare(path) {
+        Ok(in_use) => log::info!("AI: Visual C++ runtime {in_use}"),
+        Err(why) => {
+            return Err(RuntimeError::unusable(format!(
+                "ONNX Runtime at {shown} not loaded: {why}"
+            )));
+        }
+    }
     let version = check_library(path)?;
     // `ort` loads this file from now on; its one environment is created
     // here and kept for the life of the process (`environment`).

@@ -81,8 +81,10 @@ jobs:
           npm run tauri -- build --bundles nsis,msi --ci --config $wix -- --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "VERSION=$version" >> $env:GITHUB_ENV
-      # Static VC runtime: no VCRUNTIME/MSVCP imports, so no VC++
-      # redistributable is needed; the UCRT is part of Windows 10/11.
+      # Static VC runtime: the app imports no VCRUNTIME/MSVCP; the UCRT is
+      # part of Windows 10/11. ONNX Runtime's DLLs do import them: build.rs
+      # bundles the current VC++ runtime beside them (gap G76), checked in
+      # the shipped folder below.
       - name: Check the executable's imports and the bundled files
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -127,6 +129,9 @@ jobs:
           }
           $dxc = Get-ChildItem $root -Recurse -Include dxcompiler.dll, dxil.dll
           if ($dxc) { Write-Error "DXC must not be bundled: $dxc"; exit 1 }
+          # Every VC++ runtime import is bundled and at least the toolset's version (gap G76).
+          & pwsh -NoProfile -File scripts\windows\check_vc_runtime.ps1 -Root $root
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           # The zip holds one folder, Rawtonic\, so unpacking it never scatters files.
           $stage = Join-Path $env:RUNNER_TEMP 'portable'
           New-Item -ItemType Directory $stage | Out-Null
