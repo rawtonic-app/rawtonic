@@ -1259,10 +1259,26 @@ fn schema_26_flags_ai_denoise_before_version_4_and_only_facts() {
     };
     let cases = [
         (901, adjustments(json!({"aiDenoise": 40})), true), // no version: 1
-        (902, adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 2})), true),
-        (903, adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 3})), true),
-        (904, adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 4})), true),
-        (905, adjustments(json!({"aiDenoise": 0, "aiDenoiseVersion": 3})), false),
+        (
+            902,
+            adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 2})),
+            true,
+        ),
+        (
+            903,
+            adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 3})),
+            true,
+        ),
+        (
+            904,
+            adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 4})),
+            true,
+        ),
+        (
+            905,
+            adjustments(json!({"aiDenoise": 0, "aiDenoiseVersion": 3})),
+            false,
+        ),
         (906, adjustments(json!({"exposure": 1.0})), false),
     ];
     for (n, payload, _) in &cases {
@@ -1309,8 +1325,9 @@ fn schema_26_flags_ai_denoise_before_version_4_and_only_facts() {
     }
     // A virtual copy keeps its editor state instead of a recipe.
     let copy = adjustments(json!({"aiDenoise": 40, "aiDenoiseVersion": 3}));
-    let copy_state = json!({"editor_state": serde_json::from_str::<serde_json::Value>(&copy).unwrap()})
-        .to_string();
+    let copy_state =
+        json!({"editor_state": serde_json::from_str::<serde_json::Value>(&copy).unwrap()})
+            .to_string();
     conn.execute(
         "INSERT INTO versions(id, asset_id, name, is_primary, legacy_state) VALUES(?,?,?,0,?)",
         rusqlite::params![version_id(907), asset_id(901), "Copy", copy_state],
