@@ -5,8 +5,8 @@
 //!   uses the tool renders exactly as if the user had set the photo's own
 //!   slider to the translated value (the layer keeps its version and its
 //!   value), where carrying the source's key would change the layer;
-//! - the translation between versions: exact pairs (Whites 16 / 17,
-//!   Structure 1 / 2) render byte-identical to the source; for the others
+//! - the translation between versions: exact pairs (Whites 16 / 17, Blacks
+//!   17 → 18, Structure 1 / 2) render byte-identical to the source; for the others
 //!   the remaining error (CIELAB ΔE76 over the four charts, Camera Raw look)
 //!   is measured and printed, with the error of pasting the value untranslated.
 //!
@@ -97,6 +97,15 @@ const CASES: &[Case] = &[
         pairs: &[(17, 12), (17, 5), (5, 17)],
         values: SIGNED,
         exact: &[],
+    },
+    // Lowered Blacks' travel (version 18): 17's values are 18's exactly; 18's
+    // −100 is deeper than 17's reach.
+    Case {
+        key: "toneVersion",
+        slider: "blacks",
+        pairs: &[(17, 18), (18, 17), (18, 16)],
+        values: &[-100.0, -75.0, -50.0, 50.0],
+        exact: &[(17, 18)],
     },
     Case {
         key: "clarityVersion",

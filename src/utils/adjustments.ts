@@ -659,7 +659,9 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * lifts L* 40–50 less); 16 = and lowered Blacks'
    * black point reaches into the midtones (fading out by L* 80), as
    * Capture One's Black does; 17 = and raised Whites move at the reference
-   * editors' pace (+50 as their +50); 1 or missing on
+   * editors' pace (+50 as their +50); 18 = and lowered Blacks move at
+   * Capture One's pace on the RAW look (−50 as before, −100 reaches its
+   * −100, version 16's −100 at −72); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1324,7 +1326,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 17;
+export const TONE_VERSION = 18;
 
 /** The tone-slider response from which raised Whites move at the reference
  * editors' pace (`whites_amount_v17` in crates/engine/src/image_processing.rs). */
@@ -1362,39 +1364,116 @@ export function whitesValueV17(amount: number): number {
   return Math.abs(whitesAmountV17(rounded) - target) <= 1e-9 ? rounded : value;
 }
 
-const whitesTravel = (recipe?: Partial<Adjustments>) => (recipe?.toneVersion ?? 1) >= WHITES_TRAVEL_TONE_VERSION;
+/** The tone-slider response from which lowered Blacks move at Capture One's
+ * pace on the RAW look (`blacks_amount_v18` in crates/engine/src/image_processing.rs). */
+export const BLACKS_TRAVEL_TONE_VERSION = 18;
 
-/** `settings` with its own and its layers' Whites passed through `map`;
- * settings that name their `toneVersion` mean that version's values and stay. */
-const mapCarriedWhites = <T extends Partial<Adjustments>>(settings: T, map: (value: number) => number): T => {
+const BLACKS_V16_EASE = 2.32;
+
+/** The Blacks amount version 18 renders for the slider value `value` on the
+ * RAW look (as the engine's `blacks_amount_v18`: version 16's slider value,
+ * −200 at the end of its reach; raised Blacks as the value). */
+export function blacksAmountV18(value: number): number {
+  if (value >= 0) return value;
+  const a = Math.min(-value / 100, 1);
+  const half = 1 - Math.pow(0.5, BLACKS_V16_EASE);
+  const pace = BLACKS_V16_EASE * Math.pow(0.5, BLACKS_V16_EASE - 1);
+  const whole = 0.5 + (1 - half) / pace;
+  let amount: number;
+  if (a <= 0.5) amount = a;
+  else if (a <= whole) amount = 1 - Math.pow(1 - Math.min(half + pace * (a - 0.5), 1), 1 / BLACKS_V16_EASE);
+  else amount = 1 + (a - whole) / (1 - whole);
+  return -100 * amount;
+}
+
+/** The version-18 slider value that renders the Blacks amount `amount` (the
+ * engine's `blacks_value_v18`). */
+export function blacksValueV18(amount: number): number {
+  if (amount >= 0) return amount;
+  const target = Math.max(amount, -200);
+  let lo = -100;
+  let hi = 0;
+  for (let i = 0; i < 64; i++) {
+    const mid = 0.5 * (lo + hi);
+    if (blacksAmountV18(mid) > target) hi = mid;
+    else lo = mid;
+  }
+  // A slider value copied back onto its own response comes back exactly.
+  const value = 0.5 * (lo + hi);
+  const rounded = Math.round(value * 1e6) / 1e6;
+  return Math.abs(blacksAmountV18(rounded) - target) <= 1e-9 ? rounded : value;
+}
+
+/** The Blacks amount tone version `tone` renders for `value` (the engine's `ToneVersion::blacks_amount`). */
+export const blacksAmount = (value: number, tone: number): number =>
+  tone >= BLACKS_TRAVEL_TONE_VERSION ? blacksAmountV18(value) : value;
+
+/** The slider value tone version `tone` renders the Blacks amount `amount`
+ * with (the engine's `ToneVersion::blacks_value`; deeper than its reach: −100). */
+export const blacksValue = (amount: number, tone: number): number =>
+  tone >= BLACKS_TRAVEL_TONE_VERSION ? blacksValueV18(amount) : Math.max(amount, -100);
+
+const toneOf = (recipe?: Partial<Adjustments>) => recipe?.toneVersion ?? 1;
+
+/** `settings` with its own and its layers' Whites and Blacks passed through
+ * `whites` / `blacks`; settings that name their `toneVersion` mean that
+ * version's values and stay. */
+const mapCarriedTone = <T extends Partial<Adjustments>>(
+  settings: T,
+  whites: (value: number) => number,
+  blacks: (value: number) => number
+): T => {
   if (Object.prototype.hasOwnProperty.call(settings, 'toneVersion')) return settings;
-  const layerWhites = (settings.masks ?? []).some((mask) => typeof mask?.adjustments?.whites === 'number');
-  if (typeof settings.whites !== 'number' && !layerWhites) return settings;
-  const out = { ...settings };
-  if (typeof out.whites === 'number') out.whites = map(out.whites);
-  if (layerWhites)
-    out.masks = out.masks!.map((mask) =>
-      typeof mask?.adjustments?.whites === 'number'
-        ? { ...mask, adjustments: { ...mask.adjustments, whites: map(mask.adjustments.whites as number) } }
-        : mask
-    );
+  const maps = { whites, blacks } as const;
+  let out = settings;
+  for (const slider of ['whites', 'blacks'] as const) {
+    const map = maps[slider];
+    const layerValue = (out.masks ?? []).some((mask) => typeof mask?.adjustments?.[slider] === 'number');
+    if (typeof out[slider] === 'number' && map(out[slider] as number) !== out[slider])
+      out = { ...out, [slider]: map(out[slider] as number) };
+    if (layerValue)
+      out = {
+        ...out,
+        masks: out.masks!.map((mask) =>
+          typeof mask?.adjustments?.[slider] === 'number' &&
+          map(mask.adjustments[slider] as number) !== mask.adjustments[slider]
+            ? { ...mask, adjustments: { ...mask.adjustments, [slider]: map(mask.adjustments[slider] as number) } }
+            : mask
+        )
+      };
+  }
   return out;
 };
 
 /** Settings leaving `source` (copy, presets, Edit all selected) without their
- * own `toneVersion` carry Whites as the amount they render (version 16's
- * slider value, which presets from before version 17 hold already), so
- * applying them changes no photo-wide key (`withCarriedWhitesFor`). */
-export const withPortableWhites = <T extends Partial<Adjustments>>(settings: T, source?: Partial<Adjustments>): T =>
-  whitesTravel(source) ? mapCarriedWhites(settings, whitesAmountV17) : settings;
+ * own `toneVersion` carry Whites and Blacks as the amount they render
+ * (version 16's slider value, Blacks down to −200; presets from before
+ * versions 17 / 18 hold that already), so applying them changes no
+ * photo-wide key (`withCarriedWhitesFor`). */
+export const withPortableWhites = <T extends Partial<Adjustments>>(settings: T, source?: Partial<Adjustments>): T => {
+  const tone = toneOf(source);
+  return mapCarriedTone(
+    settings,
+    (value) => (tone >= WHITES_TRAVEL_TONE_VERSION ? whitesAmountV17(value) : value),
+    (value) => blacksAmount(value, tone)
+  );
+};
 
 /** Carried settings (`withPortableWhites`) as `destination` reads them: its
- * own and its layers' Whites re-expressed in its tone-slider response (as
- * the engine's `express_pasted_whites` does for the photos it writes). */
+ * own and its layers' Whites and Blacks re-expressed in its tone-slider
+ * response (as the engine's `express_pasted_whites` does for the photos it
+ * writes). */
 export const withCarriedWhitesFor = <T extends Partial<Adjustments>>(
   settings: T,
   destination?: Partial<Adjustments>
-): T => (whitesTravel(destination) ? mapCarriedWhites(settings, whitesValueV17) : settings);
+): T => {
+  const tone = toneOf(destination);
+  return mapCarriedTone(
+    settings,
+    (value) => (tone >= WHITES_TRAVEL_TONE_VERSION ? whitesValueV17(value) : value),
+    (value) => blacksValue(value, tone)
+  );
+};
 
 /** The response a recipe without `toneVersion` takes when nothing in it
  * renders differently: 5, the last that leaves Whites, Blacks and Clarity

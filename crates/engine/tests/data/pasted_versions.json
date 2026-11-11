@@ -243,6 +243,79 @@
   }
  },
  {
+  "name": "blacks pasted with tone version 18 onto 16: the amount, deeper than 16's reach at -100",
+  "pasted": {
+   "blacks": -100,
+   "toneVersion": 18
+  },
+  "destination": {
+   "toneVersion": 16,
+   "exposure": 0.3
+  },
+  "expected": {
+   "blacks": -100,
+   "toneVersion": 16
+  }
+ },
+ {
+  "name": "blacks pasted with tone version 17 onto 18: 17's -100 is 18's -71.55",
+  "pasted": {
+   "blacks": -100,
+   "toneVersion": 17
+  },
+  "destination": {
+   "toneVersion": 18,
+   "exposure": 0.3
+  },
+  "expected": {
+   "blacks": -71.551724,
+   "toneVersion": 18
+  }
+ },
+ {
+  "name": "blacks -50 means the same in 16 and 18",
+  "pasted": {
+   "blacks": -50,
+   "toneVersion": 16
+  },
+  "destination": {
+   "toneVersion": 18,
+   "exposure": 0.3
+  },
+  "expected": {
+   "blacks": -50,
+   "toneVersion": 18
+  }
+ },
+ {
+  "name": "blacks carried as amount (no tone version) onto 18",
+  "pasted": {
+   "blacks": -200,
+   "masks": [
+    {
+     "id": "l",
+     "adjustments": {
+      "blacks": -100
+     }
+    }
+   ]
+  },
+  "destination": {
+   "toneVersion": 18
+  },
+  "expected": {
+   "blacks": -100,
+   "masks": [
+    {
+     "id": "l",
+     "adjustments": {
+      "blacks": -71.551724
+     }
+    }
+   ]
+  }
+ },
+ {
   "name": "same version: nothing changes",
   "pasted": {
    "clarity": 30,

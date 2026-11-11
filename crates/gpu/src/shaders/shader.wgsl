@@ -2390,6 +2390,58 @@ fn blacks_v16_black_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     return encode_signed(lin * (luma_of_lstar(max(out_l, 0.0)) / y));
 }
 
+// Lowered Blacks, tone version 18 (RAW look): the slider moves at Capture
+// One's pace and reaches its −100. Version 16's −100 darkened L* 10–30 by
+// 9 / 7 L* where Capture One's Black −100 darkens them by 14 / 15. The
+// renderer (image_processing.rs `blacks_amount_v18`) maps the slider to an
+// amount of 0…2: up to 1 version 16's black point at that amount (its −50
+// unchanged, its −100 at slider −72); beyond 1 the black point moves on
+// from version 16's −100 curve to the same curve with BLACKS_V18_SHIFT,
+// reached at −100, by the amount over 1 (both curves monotone and never
+// lighter, so every mix is too). At −100 L* 20 / 30 / 40 / 50 move by
+// −15.8 / −11.2 / −6.0 / −2.4 (version 16: −8.5 / −5.6 / −3.0 / −1.2);
+// tones from L* 80 stay. Chosen on 24 of the
+// slider atlas's 48 frames, the others held out: at the same slider value
+// the darkest tenth and L* 10–30 within 1 L* of Capture One's −100 (L* 30–40
+// 2 L* deeper, Camera Raw's 20 deeper), at the same darkening the tone
+// bands within 0.9 L* of the references, the shadows' detail 0.19 above
+// Capture One's (version 16 0.18) and no more crushed blacks than Capture
+// One (notes: benchmark-results/blt-blacks-travel-2026-11-11).
+const BLACKS_V18_SHIFT: f32 = 24.0;
+
+// Version 16's −100 curve (`blacks_v16_full`) with the shift `shift`.
+fn blacks_v18_curve(l: f32, shift: f32) -> f32 {
+    let u = clamp((BLACKS_V16_TOP - l) / BLACKS_V16_TOP, 0.0, 1.0);
+    let s = u * u * (3.0 - 2.0 * u);
+    let v = l - shift * s * s;
+    var out_l = v;
+    if (v < BLACKS_V16_TOE) {
+        let rest = BLACKS_V16_TOE * exp(-shift / BLACKS_V16_TOE - 1.0);
+        out_l = BLACKS_V16_TOE * exp(v / BLACKS_V16_TOE - 1.0)
+            - rest * (1.0 - (v + shift) / (BLACKS_V16_TOE + shift));
+    }
+    return max(out_l - BLACKS_V16_CLIP * max(1.0 - out_l / BLACKS_V16_CLIP_WIDTH, 0.0), 0.0);
+}
+
+// Version 18's black point on the tone-mapped (sRGB-encoded) colour;
+// `amount` is the renderer's −Blacks / 100, 0…2.
+fn blacks_v18_black_point(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    if (amount <= 1.0) {
+        return blacks_v16_black_point(rgb, amount);
+    }
+    let lin = decode_signed(rgb);
+    let y = get_luma(max(lin, vec3<f32>(0.0)));
+    if (y <= 0.0) {
+        return rgb;
+    }
+    let l = lstar_of_luma(y);
+    if (l >= BLACKS_V16_TOP) {
+        return rgb;
+    }
+    let out_l = mix(blacks_v18_curve(l, BLACKS_V16_SHIFT), blacks_v18_curve(l, BLACKS_V18_SHIFT), min(amount - 1.0, 1.0));
+    return encode_signed(lin * (luma_of_lstar(max(out_l, 0.0)) / y));
+}
+
 // Tone version 10: lowered Whites keeps the bright areas' texture, as
 // Capture One's White does. Version 9 applied the whites gain per pixel,
 // which flattened texture in clouds, snow and fabric (detail 0.87 of the
@@ -10564,14 +10616,22 @@ fn main(
         if (t_whites < 0.0 && adjustments.global.tone_version > 9.5 && base_look_is_camera_raw()) {
             whites_offset = whites_v10_offset(vec2<i32>(id.xy), initial_linear_rgb, scale);
         }
+        // Version 18 gives the RAW look's black point Blacks amounts beyond
+        // version 17's −100 (image_processing.rs `blacks_amount_v18`);
+        // Blacks' scene gain, which a RAW takes only without that look,
+        // keeps version 17's reach.
+        var scene_blacks = t_blacks;
+        if (is_raw == 1u && adjustments.global.tone_version > 17.5) {
+            scene_blacks = max(t_blacks, -2.5);
+        }
         if (adjustments.global.tone_version < 5.5) {
-            composite_rgb_linear = apply_tonal_adjustments_v5(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+            composite_rgb_linear = apply_tonal_adjustments_v5(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, scene_blacks, exposure_gain);
         } else if (SHADOWS_V13 && adjustments.global.tone_version > 12.5) {
-            composite_rgb_linear = apply_tonal_adjustments_v13(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+            composite_rgb_linear = apply_tonal_adjustments_v13(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, scene_blacks, exposure_gain);
         } else if (WHITES_V12 && adjustments.global.tone_version > 11.5) {
-            composite_rgb_linear = apply_tonal_adjustments_v12(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+            composite_rgb_linear = apply_tonal_adjustments_v12(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, scene_blacks, exposure_gain);
         } else {
-            composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+            composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, scene_blacks, exposure_gain);
         }
     }
     if (ENABLE_HIGHLIGHTS) {
@@ -10667,7 +10727,9 @@ fn main(
         }
         if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
             // Renderer value is slider / 40.
-            if (BLACKS_V16 && adjustments.global.tone_version > 15.5) {
+            if (BLACKS_V16 && adjustments.global.tone_version > 17.5) {
+                default_tonemapped = blacks_v18_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 2.0));
+            } else if (BLACKS_V16 && adjustments.global.tone_version > 15.5) {
                 default_tonemapped = blacks_v16_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
             } else {
                 default_tonemapped = blacks_v9_black_point(default_tonemapped, clamp(-t_blacks * 0.4, 0.0, 1.0));
@@ -10748,7 +10810,9 @@ fn main(
         // The LUT reads the scene colour, which version 9's lowered Blacks
         // no longer darkens: its black point acts on the LUT's colour too.
         if (ENABLE_TONE && blacks_v9_active(t_blacks, is_raw)) {
-            if (BLACKS_V16 && adjustments.global.tone_version > 15.5) {
+            if (BLACKS_V16 && adjustments.global.tone_version > 17.5) {
+                lut_color = blacks_v18_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 2.0));
+            } else if (BLACKS_V16 && adjustments.global.tone_version > 15.5) {
                 lut_color = blacks_v16_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));
             } else {
                 lut_color = blacks_v9_black_point(lut_color, clamp(-t_blacks * 0.4, 0.0, 1.0));

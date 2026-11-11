@@ -21,6 +21,8 @@ import {
   TONE_VERSION,
   VIBRANCE_VERSION,
   WHITES_TRAVEL_TONE_VERSION,
+  blacksAmount,
+  blacksValue,
   isNewRecipe,
   whitesAmountV17,
   whitesValueV17,
@@ -43,7 +45,7 @@ export interface PasteTarget {
   mergeGroups?: boolean;
 }
 
-type Translate = (value: number, from: number, to: number) => number;
+type Translate = (value: number, from: number, to: number, slider: string) => number;
 
 interface VersionKey {
   key: string;
@@ -86,7 +88,9 @@ const translateStructure: Translate = (value, from, to) => {
   return to <= 1 ? strength : structureValueV2(strength);
 };
 
-const translateWhites: Translate = (value, from, to) => {
+/** Whites and Blacks: the amount version `from` renders, as `to`'s slider value (the engine's `translate_tone`). */
+const translateTone: Translate = (value, from, to, slider) => {
+  if (slider === 'blacks') return blacksValue(blacksAmount(value, from), to);
   const amount = from >= WHITES_TRAVEL_TONE_VERSION ? whitesAmountV17(value) : value;
   return to >= WHITES_TRAVEL_TONE_VERSION ? whitesValueV17(amount) : amount;
 };
@@ -107,7 +111,13 @@ const translateTint: Translate = (value, from, to) => {
 const sliders = (...names: string[]) => ({ global: names, layer: names });
 
 const KEYS: VersionKey[] = [
-  { key: 'toneVersion', newest: TONE_VERSION, users: 'always', translated: ['whites'], translate: translateWhites },
+  {
+    key: 'toneVersion',
+    newest: TONE_VERSION,
+    users: 'always',
+    translated: ['whites', 'blacks'],
+    translate: translateTone
+  },
   { key: 'colorNoiseVersion', newest: COLOR_NOISE_VERSION, users: 'always', translated: [] },
   { key: 'clarityVersion', newest: CLARITY_VERSION, users: sliders('clarity'), translated: [] },
   {
@@ -252,8 +262,8 @@ export function expressPastedSettings<T extends Partial<Adjustments>>(settings: 
     out = { ...out, [key.key]: to };
     const translate = key.translate;
     if (!translate) continue;
-    const express = (value: unknown) => (typeof value === 'number' ? translate(value, from, to) : value);
     for (const slider of key.translated) {
+      const express = (value: unknown) => (typeof value === 'number' ? translate(value, from, to, slider) : value);
       if (has(out, slider)) out = { ...out, [slider]: express(out[slider]) };
       if (Array.isArray(out.masks))
         out = {

@@ -10,7 +10,8 @@
 //! So the destination keeps its key whenever something it keeps renders
 //! with it, and the pasted values are re-expressed in its response: exact
 //! where the versions differ only in the slider's travel (Whites 16 / 17,
-//! Structure 1 / 2), as the nearest value where the algorithm differs (the
+//! Blacks 16 / 18 as the RAW look renders them, Structure 1 / 2), as the
+//! nearest value where the algorithm differs (the
 //! measured error per key: docs/RECIPE_SCHEMA.md). With nothing that uses
 //! it, the key goes along and the paste renders as on the source.
 //!
@@ -57,7 +58,7 @@ enum Users {
 }
 
 /// A slider's value at one version re-expressed at another.
-type Translate = fn(value: f64, from: u64, to: u64) -> f64;
+type Translate = fn(slider: &str, value: f64, from: u64, to: u64) -> f64;
 
 /// The version a recipe renders with (`recipe_versions`: its default when
 /// missing, its clamp); `is_raw`: the photograph is a RAW file.
@@ -80,8 +81,8 @@ const KEYS: &[VersionKey] = &[
         key: ip::TONE_VERSION_KEY,
         effective: |r, _| rv::ToneVersion::of(r).get(),
         users: Users::Always,
-        translated: &["whites"],
-        translate: Some(translate_whites),
+        translated: &["whites", "blacks"],
+        translate: Some(translate_tone),
     },
     VersionKey {
         key: crate::color_noise::VERSION_KEY,
@@ -310,9 +311,9 @@ pub fn express_pasted(pasted: &mut Value, target: &PasteTarget) {
         let Some(translate) = key.translate else {
             continue;
         };
-        let express = |value: &mut Value| {
+        let express = |value: &mut Value, slider: &str| {
             if let Some(v) = value.as_f64() {
-                let expressed = translate(v, from, to);
+                let expressed = translate(slider, v, from, to);
                 if expressed != v {
                     *value = serde_json::json!(expressed);
                 }
@@ -320,12 +321,12 @@ pub fn express_pasted(pasted: &mut Value, target: &PasteTarget) {
         };
         for slider in key.translated {
             if let Some(value) = map.get_mut(*slider) {
-                express(value);
+                express(value, slider);
             }
             if let Some(layers) = map.get_mut("masks").and_then(Value::as_array_mut) {
                 for layer in layers {
                     if let Some(value) = layer.pointer_mut(&format!("/adjustments/{slider}")) {
-                        express(value);
+                        express(value, slider);
                     }
                 }
             }
@@ -341,15 +342,20 @@ pub fn translate(key: &str, slider: &str, value: f64, from: u64, to: u64) -> f64
     KEYS.iter()
         .find(|k| k.key == key && k.translated.contains(&slider))
         .and_then(|k| k.translate)
-        .map_or(value, |translate| translate(value, from, to))
+        .map_or(value, |translate| translate(slider, value, from, to))
 }
 
-/// Whites: the amount version `from` renders, as `to`'s slider value
-/// (exact: both responses are monotone bijections of the amount).
-fn translate_whites(value: f64, from: u64, to: u64) -> f64 {
-    let amount =
-        ToneVersion::of(&serde_json::json!({ ip::TONE_VERSION_KEY: from })).whites_amount(value);
-    ToneVersion::of(&serde_json::json!({ ip::TONE_VERSION_KEY: to })).whites_value(amount)
+/// Whites and Blacks: the amount version `from` renders, as `to`'s slider
+/// value (exact: every response is a monotone bijection of the amount;
+/// Blacks deeper than version 16 / 17 reach end at −100 there).
+fn translate_tone(slider: &str, value: f64, from: u64, to: u64) -> f64 {
+    let from = ToneVersion::of(&serde_json::json!({ ip::TONE_VERSION_KEY: from }));
+    let to = ToneVersion::of(&serde_json::json!({ ip::TONE_VERSION_KEY: to }));
+    if slider == "blacks" {
+        to.blacks_value(from.blacks_amount(value))
+    } else {
+        to.whites_value(from.whites_amount(value))
+    }
 }
 
 /// Structure as the strength of version 2's travel: version 1 renders its
@@ -358,7 +364,7 @@ fn translate_whites(value: f64, from: u64, to: u64) -> f64 {
 /// its edge-aware base. Exact between 1 and 2 (the amount, to the f32 the
 /// renderer takes); v1 amounts beyond version 2's reach (+29.5 / −41) end at
 /// ±100.
-fn translate_structure(value: f64, from: u64, to: u64) -> f64 {
+fn translate_structure(_: &str, value: f64, from: u64, to: u64) -> f64 {
     if (from <= 1) == (to <= 1) {
         return value;
     }
@@ -406,7 +412,7 @@ pub fn structure_value_v2(amount: f64) -> f64 {
 /// travel at t = slider / 25, so its +100 is version 1's +75) and couples
 /// brightness and magenta, which version 1 cannot render; cooling travels
 /// alike. The value with the same warm–cool shift.
-fn translate_temperature(value: f64, from: u64, to: u64) -> f64 {
+fn translate_temperature(_: &str, value: f64, from: u64, to: u64) -> f64 {
     if value <= 0.0 || from.min(2) == to.min(2) {
         return value;
     }
@@ -426,7 +432,7 @@ fn translate_temperature(value: f64, from: u64, to: u64) -> f64 {
 /// Tint: version 2 travels ×1.9 towards magenta and ×1.55 towards green of
 /// version 1 (and brightens towards magenta, which version 1 cannot
 /// render). The value with the same tint, within ±100.
-fn translate_tint(value: f64, from: u64, to: u64) -> f64 {
+fn translate_tint(_: &str, value: f64, from: u64, to: u64) -> f64 {
     if from.min(2) == to.min(2) {
         return value;
     }
@@ -499,9 +505,9 @@ mod tests {
         for i in -1000..=1000 {
             let value = f64::from(i) / 10.0;
             let amount = ip::structure_amount_v2(value);
-            let as_v1 = translate_structure(value, 2, 1);
+            let as_v1 = translate_structure("", value, 2, 1);
             assert_eq!(as_v1.to_bits(), amount.to_bits(), "{value}");
-            let back = translate_structure(as_v1, 1, 2);
+            let back = translate_structure("", as_v1, 1, 2);
             assert_eq!(
                 (ip::structure_amount_v2(back) as f32).to_bits(),
                 (amount as f32).to_bits(),
@@ -509,25 +515,25 @@ mod tests {
             );
         }
         // Version 1's amounts beyond version 2's reach end at its ends.
-        assert!((translate_structure(60.0, 1, 2) - 100.0).abs() < 1e-9);
-        assert!((translate_structure(-80.0, 1, 2) + 100.0).abs() < 1e-9);
+        assert!((translate_structure("", 60.0, 1, 2) - 100.0).abs() < 1e-9);
+        assert!((translate_structure("", -80.0, 1, 2) + 100.0).abs() < 1e-9);
         // Versions 2 and 3 share the slider's strength.
-        assert_eq!(translate_structure(37.0, 2, 3), 37.0);
-        assert_eq!(translate_structure(37.0, 3, 2), 37.0);
+        assert_eq!(translate_structure("", 37.0, 2, 3), 37.0);
+        assert_eq!(translate_structure("", 37.0, 3, 2), 37.0);
     }
 
     #[test]
     fn temperature_and_tint_translations_invert_each_other() {
         for i in -100..=100 {
             let v = f64::from(i);
-            let t = translate_temperature(translate_temperature(v, 2, 1), 1, 2);
+            let t = translate_temperature("", translate_temperature("", v, 2, 1), 1, 2);
             assert!((t - v).abs() < 1e-9, "temperature {v}: {t}");
-            let back = translate_tint(translate_tint(v, 1, 2), 2, 1);
+            let back = translate_tint("", translate_tint("", v, 1, 2), 2, 1);
             assert!((back - v).abs() < 1e-9, "tint {v}: {back}");
         }
-        assert_eq!(translate_temperature(100.0, 2, 1), 75.0);
-        assert_eq!(translate_temperature(90.0, 1, 2), 100.0);
-        assert_eq!(translate_tint(100.0, 2, 1), 100.0);
+        assert_eq!(translate_temperature("", 100.0, 2, 1), 75.0);
+        assert_eq!(translate_temperature("", 90.0, 1, 2), 100.0);
+        assert_eq!(translate_tint("", 100.0, 2, 1), 100.0);
     }
 
     /// A destination whose layer uses Structure keeps its travel and its
