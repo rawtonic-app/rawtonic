@@ -4,7 +4,7 @@
 
 - **Updated lens corrections** from Lensfun, including Nikkor Z 24-70mm f/2.8 S II, GF 63mm, Tamron 70-300mm, OM System EXIF names and the corrected Nikkor AF 80-400mm profile. Already resolved lens corrections and saved diffraction settings keep their previous results.
 
-- Restoring a snapshot clears its Compare selection, returning Before/After to the unedited photograph.
+- **Restoring a compared snapshot clears its Compare selection.** Before/After returns to the unedited photograph; a different snapshot selected as the reference stays selected.
 
 - **Windows: the window controls sit in the toolbar.** Minimize, maximize/restore and close are now at the right end of the top bar (as on Linux) instead of in a separate "Rawtonic" strip above it, which freed a row; the empty bar drags the window and a double-click maximizes or restores it. The controls' labels are translated. Not yet: Windows 11's snap layouts on hovering the maximize button.
 
