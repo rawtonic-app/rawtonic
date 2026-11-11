@@ -180,8 +180,7 @@ pub(crate) fn load_export_base_image(
                     source_path
                 )
             })?;
-        let denoise = rawtonic_rawdecode::mosaic_denoise::MosaicDenoise::new(denoiser, ai.blend)
-            .with_noise_scale(ai.noise_scale);
+        let denoise = ai.mosaic_denoise(denoiser);
         Some(match denoise_progress {
             Some(progress) => denoise.with_progress(progress),
             None => denoise,

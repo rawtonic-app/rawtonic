@@ -12,13 +12,20 @@ export const TOOL_BEFORE_HOLD_MS = 350;
  * Either way that press does not reset. A short plain click resets as before.
  * Nothing is written: no recipe change, no history step.
  */
-export function useToolBeforeHold(tool: string, onReset: (() => void) | undefined) {
+export function useToolBeforeHold(
+  tool: string,
+  onReset: (() => void) | undefined,
+  /** The click's reset, when it should be named as a history step. */
+  clickReset?: () => void
+) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showing = useRef(false);
   // The press showed the before: its click must not reset.
   const swallowClick = useRef(false);
   const resetRef = useRef(onReset);
   resetRef.current = onReset;
+  const clickRef = useRef(clickReset);
+  clickRef.current = clickReset;
 
   const clearTimer = () => {
     if (timer.current !== null) clearTimeout(timer.current);
@@ -73,7 +80,7 @@ export function useToolBeforeHold(tool: string, onReset: (() => void) | undefine
         swallowClick.current = false;
         return;
       }
-      resetRef.current?.();
+      (clickRef.current ?? resetRef.current)?.();
     }
   };
 }

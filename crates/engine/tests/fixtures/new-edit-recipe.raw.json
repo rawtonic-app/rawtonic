@@ -381,7 +381,7 @@
   "hslVersion": 2,
   "sharpenVersion": 8,
   "lumaNoiseVersion": 2,
-  "aiDenoiseVersion": 3,
+  "aiDenoiseVersion": 4,
   "renderVersion": 12,
   "sourceFrameVersion": 3,
   "grainVersion": 3

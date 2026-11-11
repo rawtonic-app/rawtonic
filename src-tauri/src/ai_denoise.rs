@@ -218,8 +218,7 @@ pub async fn option_for(
         return Ok(None);
     };
     Ok(Some(
-        MosaicDenoise::new(denoiser(app_handle, ai.model()).await?, ai.blend)
-            .with_noise_scale(ai.noise_scale),
+        ai.mosaic_denoise(denoiser(app_handle, ai.model()).await?),
     ))
 }
 

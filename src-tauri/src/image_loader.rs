@@ -647,9 +647,13 @@ pub fn decoded_cache_key(
     let mut key = path.to_string();
     if let Some(d) = denoise {
         key.push_str(&format!("\u{1}ai-denoise {:.3}", d.amount));
-        // Versions differ in the noise scale and the model.
+        // Versions differ in the noise scale, the model and whether the
+        // sensor's local means are kept (versions 3 and 4 only in that).
         if d.noise_scale != 1.0 {
             key.push_str(&format!(" ×{:.4}", d.noise_scale));
+        }
+        if d.sensor_means {
+            key.push_str(" means");
         }
         key.push_str(&format!(" {:p}", Arc::as_ptr(&d.denoiser) as *const ()));
     }
@@ -1814,6 +1818,45 @@ mod activation_tests {
         let active = active.as_ref().unwrap();
         assert_eq!(active.path, "opened.raf");
         assert!(Arc::ptr_eq(&active.image, &active_pixels));
+    }
+
+    #[test]
+    fn ai_denoise_versions_never_share_a_decoded_base() {
+        use rawtonic_engine::image_loader::ai_denoise_settings;
+        use rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser;
+        struct Same;
+        impl MosaicDenoiser for Same {
+            fn denoise(
+                &self,
+                mosaic: &[f32],
+                _: usize,
+                _: usize,
+                _: [u8; 4],
+            ) -> anyhow::Result<Vec<f32>> {
+                Ok(mosaic.to_vec())
+            }
+        }
+        // One denoiser for both, as versions 3 and 4 have one model.
+        let denoiser: Arc<dyn MosaicDenoiser> = Arc::new(Same);
+        let key = |amount: u32, version: u32| {
+            let recipe = serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version });
+            let denoise = ai_denoise_settings(&recipe)
+                .unwrap()
+                .mosaic_denoise(denoiser.clone());
+            decoded_cache_key("/p/A.NEF", Some(&denoise), DecodeVariant::default())
+        };
+        // Version 4 at the same amount is version 3's network result with
+        // the sensor's means kept: other pixels, another base.
+        assert_ne!(key(50, 3), key(50, 4));
+        assert_ne!(key(80, 3), key(80, 4));
+        assert_ne!(key(30, 3), key(30, 4));
+        assert_eq!(key(50, 4), key(50, 4));
+        assert_ne!(key(50, 4), key(60, 4));
+        // Version 3's key is the one it had before version 4.
+        assert!(key(50, 3).ends_with(&format!(
+            " ×0.8000 {:p}",
+            Arc::as_ptr(&denoiser) as *const ()
+        )));
     }
 
     #[test]

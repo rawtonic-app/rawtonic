@@ -3284,6 +3284,7 @@
         "other": "Ajuste",
         "redEyes": "Olhos vermelhos",
         "remove": "Remover",
+        "resetGroup": "Repor {{tool}}",
         "spots": "Remoção de manchas",
         "title": "Histórico"
       },
@@ -3493,6 +3494,8 @@
       "toolGroup": {
         "isOn": "{{tool}} ativado",
         "reset": "Redefinir {{tool}}",
+        "resetGroup": "Repor grupo",
+        "resetHint": "Alt/Option-clique no nome repõe {{tool}}",
         "resetOrHold": "Repor {{tool}} (manter premido, ou premir com Alt/Opção: mostrar a foto sem a ferramenta)",
         "turnOff": "Desativar {{tool}}",
         "turnOn": "Ativar {{tool}}"

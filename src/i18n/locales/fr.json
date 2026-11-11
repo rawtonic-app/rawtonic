@@ -3284,6 +3284,7 @@
         "other": "Réglage",
         "redEyes": "Yeux rouges",
         "remove": "Supprimer",
+        "resetGroup": "Réinitialiser {{tool}}",
         "spots": "Suppression des taches",
         "title": "Historique"
       },
@@ -3493,6 +3494,8 @@
       "toolGroup": {
         "isOn": "{{tool}} activé",
         "reset": "Réinitialiser {{tool}}",
+        "resetGroup": "Réinitialiser le groupe",
+        "resetHint": "Alt/Option-clic sur le nom : réinitialise {{tool}}",
         "resetOrHold": "Réinitialiser {{tool}} (maintenir, ou appuyer avec Alt/Option : afficher la photo sans l’outil)",
         "turnOff": "Désactiver {{tool}}",
         "turnOn": "Activer {{tool}}"

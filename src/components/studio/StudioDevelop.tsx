@@ -81,6 +81,7 @@ import { StudioSpotPanel, resetSpotSettings } from './StudioSpotControls';
 import StudioToolCopy, { type ToolParams } from './StudioToolCopy';
 import StudioToolPresets from './StudioToolPresets';
 import { PRESET_TOOLS } from './toolPresets';
+import { resetGroup } from './groupReset';
 import { ToolColumn, useToolMenu, useToolOpen, useToolOpenOnly } from './toolLayout';
 import StudioHistory from './StudioHistory';
 import StudioSnapshots from './StudioSnapshots';
@@ -147,7 +148,8 @@ export function ToolGroup({
   }, [isOpen, onOpenChange]);
   const menu = useToolMenu();
   const openOnly = useToolOpenOnly();
-  const hold = useToolBeforeHold(name, before ? onReset : undefined);
+  const resetNamed = onReset ? () => resetGroup(onReset, name) : undefined;
+  const hold = useToolBeforeHold(name, before ? onReset : undefined, resetNamed);
   return (
     <details
       className={`studio-tool-group ${toggle && !toggle.enabled ? 'is-off' : ''}`}
@@ -162,10 +164,17 @@ export function ToolGroup({
       }}
     >
       <summary
-        onContextMenu={menu}
+        onContextMenu={(e) => menu?.(e, resetNamed)}
         onClick={(e) => {
-          // Option-click opens this tool alone (Lightroom's panel headers).
-          if (!e.altKey || !openOnly) return;
+          if (!e.altKey) return;
+          // Option-click on the name resets the group (Lightroom's group
+          // titles); on the rest of the header it opens this tool alone.
+          if (resetNamed && (e.target as Element).closest('.studio-tool-name')) {
+            e.preventDefault();
+            resetNamed();
+            return;
+          }
+          if (!openOnly) return;
           e.preventDefault();
           openOnly(title);
         }}
@@ -194,7 +203,12 @@ export function ToolGroup({
           <GripVertical className="studio-tool-grip" size={11} aria-hidden />
         )}
         <ChevronDown size={12} />
-        <span>{name}</span>
+        <span
+          className="studio-tool-name"
+          title={onReset ? t('studio.develop.toolGroup.resetHint', { tool: name }) : undefined}
+        >
+          {name}
+        </span>
         {copy && PRESET_TOOLS.has(title) && <StudioToolPresets tool={title} label={name} params={copy} />}
         {copy && <StudioToolCopy tool={title} label={name} params={copy} />}
         {actions}
@@ -212,7 +226,7 @@ export function ToolGroup({
               : {
                   onClick: (e: React.MouseEvent) => {
                     e.preventDefault();
-                    onReset();
+                    resetNamed?.();
                   }
                 })}
           >

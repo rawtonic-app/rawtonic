@@ -3284,6 +3284,7 @@
         "other": "Ajuste",
         "redEyes": "Ojos rojos",
         "remove": "Eliminar",
+        "resetGroup": "Restablecer {{tool}}",
         "spots": "Eliminación de manchas",
         "title": "Historial"
       },
@@ -3493,6 +3494,8 @@
       "toolGroup": {
         "isOn": "{{tool}} activado",
         "reset": "Restablecer {{tool}}",
+        "resetGroup": "Restablecer grupo",
+        "resetHint": "Alt/Opción-clic en el nombre restablece {{tool}}",
         "resetOrHold": "Restablecer {{tool}} (mantener, o pulsar con Alt/Opción: ver la foto sin la herramienta)",
         "turnOff": "Desactivar {{tool}}",
         "turnOn": "Activar {{tool}}"
