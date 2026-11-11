@@ -59,6 +59,25 @@ const renderTool = async () => {
 };
 
 describe('Lens correction tool', () => {
+  it('shows a stamped saved lens name after the database renames its list entry', async () => {
+    current = {
+      ...INITIAL_ADJUSTMENTS,
+      lensMaker: 'Sony',
+      lensModel: 'Earlier profile name',
+      lensDistortionParams: distortion,
+      lensCorrectionMode: 'manual',
+      lensProfileFor: 'saved stamp'
+    };
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    const select = screen.getByLabelText('Lens model') as HTMLSelectElement;
+    expect(select.value).toBe('Earlier profile name');
+    expect(select.selectedOptions[0].textContent).toBe('Earlier profile name');
+    expect(current.lensDistortionParams).toEqual(distortion);
+    expect(current.lensProfileFor).toBe('saved stamp');
+    expect(setAdjustments).not.toHaveBeenCalled();
+  });
+
   it("enables the detected profile looked up with the photo's EXIF", async () => {
     await renderTool();
     await act(async () => {

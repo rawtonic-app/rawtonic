@@ -266,6 +266,9 @@ export default function StudioLensCorrection() {
               onChange={(e) => void chooseModel(e.target.value)}
             >
               <option value="">{adjustments.lensMaker ? t('studio.lens.chooseLens') : '—'}</option>
+              {adjustments.lensModel && !lenses.includes(adjustments.lensModel) && (
+                <option value={adjustments.lensModel}>{adjustments.lensModel}</option>
+              )}
               {lenses.map((lens) => (
                 <option key={lens} value={lens}>
                   {lens}

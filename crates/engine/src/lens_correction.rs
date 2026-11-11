@@ -1499,15 +1499,13 @@ pub fn find_lens_by_display_name<'a>(
     }
 }
 
-// Derived from the previous bundled CC BY-SA Lensfun database, before
-// display names changed. This index is data, not lens-specific matching code.
+// Display identities saved by the previously bundled Lensfun database
+// (43f9e001, adopted 2026-10-18), before later database renames.
 fn previous_display_names() -> &'static [[String; 4]] {
     static NAMES: std::sync::OnceLock<Vec<[String; 4]>> = std::sync::OnceLock::new();
     NAMES.get_or_init(|| {
-        serde_json::from_str(include_str!(
-            "../../../src-tauri/lensfun_db/display-names-2026-10-18.json"
-        ))
-        .expect("bundled lens name index")
+        serde_json::from_str(include_str!("lensfun_display_names_2026_10_18.json"))
+            .expect("bundled lens name index")
     })
 }
 
@@ -1936,6 +1934,34 @@ mod tests {
         assert_eq!(without_model_code("RF 50mm F1.4"), None);
         assert_eq!(without_model_code("XF 18mm F2 R"), None);
         assert_eq!(without_model_code("EF 70-200mm"), None);
+    }
+
+    /// Rebuild the compatibility index from the previous bundled database:
+    /// LENSFUN_DIR=/path/to/old/db cargo test -p rawtonic-engine print_display_name_index -- --ignored --nocapture
+    /// Take the JSON between DISPLAY_NAME_INDEX markers; no files are written.
+    #[test]
+    #[ignore = "tool: requires LENSFUN_DIR pointing to the previous database"]
+    fn print_display_name_index() {
+        let db = load_lensfun_dir(std::path::Path::new(&std::env::var("LENSFUN_DIR").unwrap()));
+        let mut rows: Vec<_> = db
+            .lenses
+            .iter()
+            .map(|lens| {
+                let maker = lens.get_maker();
+                let siblings = lenses_for_maker(&db, &maker);
+                [
+                    maker,
+                    lens.get_display_name(&siblings),
+                    lens.get_canonical_model_name(),
+                    lens.cropfactor.map(|v| v.to_string()).unwrap_or_default(),
+                ]
+            })
+            .collect();
+        rows.sort();
+        println!(
+            "DISPLAY_NAME_INDEX\n{}\nDISPLAY_NAME_INDEX",
+            serde_json::to_string_pretty(&rows).unwrap()
+        );
     }
 
     #[test]
