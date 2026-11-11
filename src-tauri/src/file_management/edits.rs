@@ -573,11 +573,13 @@ fn pasted_into(
     }
     let mut new_adjustments = base;
     let new_edit = crate::image_processing::is_new_recipe(&new_adjustments);
-    // A photo without an edit starts one: the camera's crop and the current
-    // render version, as the editor's new edits (a pasted crop replaces it).
-    // (`camera_crop::apply_default` also stamps the render versions.)
+    // A photo without an edit starts one: the camera's crop and every
+    // version of the editor's new edit, so the paste renders as on the
+    // photo opened first (a pasted crop replaces the crop; pasted versions
+    // the photo's: it has nothing else that uses them).
     rawtonic_engine::camera_crop::apply_default(&mut new_adjustments, source_path);
-    // Its processing versions are a new edit's own.
+    // The versions chosen in the picker come with the editor's new edit,
+    // which adds those left to the camera's data.
     if new_edit
         && let (Some(responses), Some(map)) = (
             paste.and_then(|p| p.new_edit.as_ref()),
@@ -1923,6 +1925,98 @@ mod tests {
         assert_eq!(values, before, "applied once");
     }
 
+    /// A batch edit of a photograph never opened (Edit all selected, paste,
+    /// sync, preset, style) gives it the same edit the photograph opened
+    /// first gets: every tool response of the editor's new edit, so Contrast
+    /// −100 renders with today's tone response on both, not the legacy one
+    /// a recipe without `toneVersion` keeps (notes: benchmark-results/
+    /// uxv-slider-use-test-2026-11-10 FINDINGS.md "Fresh unopened batch
+    /// target"). Rendered alike: the uniforms of both are identical.
+    #[test]
+    fn a_batch_edit_of_a_never_opened_photo_matches_the_one_opened_first() {
+        let path = "/offline/fbv-never-opened.NEF";
+        let source = Path::new(path);
+        let opened: Value = serde_json::from_str(include_str!(
+            "../../../crates/engine/tests/fixtures/new-edit-recipe.raw.json"
+        ))
+        .unwrap();
+        let edit = serde_json::json!({"contrast": -100.0});
+        let render = |mut recipe: Value| {
+            rawtonic_export::normalize::normalize(
+                &mut recipe,
+                &rawtonic_export::normalize::RecipeSource::file(source),
+                rawtonic_export::normalize::Bitmaps::None,
+                rawtonic_export::normalize::Defaults::Render,
+            );
+            let prepared = rawtonic_engine::image_processing::get_all_adjustments_from_json(
+                &recipe, true, None,
+            );
+            bytemuck::bytes_of(&*prepared.uniforms).to_vec()
+        };
+        let pastes = [
+            (
+                "edit all selected",
+                Some(PasteFrom {
+                    source: "/offline/opened.NEF".into(),
+                    replace_layers: true,
+                    new_edit: None,
+                    as_chosen: false,
+                }),
+                None,
+            ),
+            (
+                "paste or sync",
+                Some(PasteFrom {
+                    source: "/offline/opened.NEF".into(),
+                    replace_layers: false,
+                    new_edit: None,
+                    as_chosen: false,
+                }),
+                None,
+            ),
+            ("preset", None, None),
+            (
+                "style",
+                None,
+                Some(StyleOp {
+                    id: "s".into(),
+                    remove: false,
+                }),
+            ),
+        ];
+        for (name, paste, style) in &pastes {
+            let paste_onto = |base: Value| {
+                pasted_into(
+                    base,
+                    &None,
+                    path,
+                    source,
+                    &edit,
+                    paste.as_ref(),
+                    style.as_ref(),
+                    None,
+                    None,
+                )
+                .unwrap()
+            };
+            let a = paste_onto(opened.clone());
+            for never_opened in [Value::Null, serde_json::json!({})] {
+                let b = paste_onto(never_opened);
+                assert_eq!(b["contrast"], -100.0, "{name}");
+                for (key, value) in opened.as_object().unwrap() {
+                    // The camera's lens versions need its data (none offline).
+                    if key.ends_with("Version")
+                        && key != "cameraCaVersion"
+                        && key != "cameraGeometryVersion"
+                    {
+                        assert_eq!(b.get(key), Some(value), "{name}: {key} in {b}");
+                    }
+                }
+                assert!(render(a.clone()) == render(b), "{name}: renders differ");
+            }
+        }
+    }
+
     /// A style replaces the photograph's last applied style with that
     /// photograph's own values before it; applying it again removes it.
     #[test]
@@ -2704,8 +2798,11 @@ mod tests {
             br#"{"version":1,"rating":0,"tags":[],"adjustments":null}"#,
         )
         .unwrap();
+        // The editor's map adds what the engine's new edit leaves to the
+        // camera's data (`image_processing::start_new_edit`).
         let mut raw = serde_json::Map::new();
         raw.insert("toneVersion".into(), serde_json::json!(2));
+        raw.insert("cameraGeometryVersion".into(), serde_json::json!(10));
         let paste = PasteFrom {
             source: paths[0].clone(),
             replace_layers: false,
@@ -2730,7 +2827,12 @@ mod tests {
         });
         assert!(failed.is_empty(), "{failed:?}");
         let new = crate::exif_processing::load_sidecar(&sidecar).adjustments;
-        assert_eq!(new["toneVersion"], 2, "a new edit's versions");
+        assert_eq!(
+            new["toneVersion"],
+            rawtonic_engine::image_processing::TONE_VERSION,
+            "a new edit's versions"
+        );
+        assert_eq!(new["cameraGeometryVersion"], 10);
         assert_eq!(new["shadows"], 80);
         // An edited photograph keeps its own (here none: an older edit).
         let (_, edited) = parse_virtual_path(&paths[0]);
