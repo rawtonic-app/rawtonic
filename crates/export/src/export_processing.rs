@@ -3098,6 +3098,23 @@ mod encoding_memory_tests {
     }
 
     #[test]
+    fn lossless_jxl_export_preserves_every_rgb_sample() {
+        let original = wide_test_image();
+        let bytes = encode_image_to_bytes(
+            &original,
+            "jxl",
+            100,
+            TiffBitDepth::Eight,
+            OutputColorSpace::Srgb,
+            None,
+        )
+        .unwrap();
+        let decoder = jxl_oxide::integration::JxlDecoder::new(Cursor::new(bytes)).unwrap();
+        let decoded = DynamicImage::from_decoder(decoder).unwrap();
+        assert_eq!(decoded.to_rgb8(), original.to_rgb8());
+    }
+
+    #[test]
     fn wide_jpeg_xl_decodes_to_the_colours_of_its_space() {
         let image = wide_test_image();
         let source = image.to_rgb8();

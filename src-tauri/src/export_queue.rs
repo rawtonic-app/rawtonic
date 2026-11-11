@@ -1649,6 +1649,95 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a GPU; run explicitly on native QA hosts"]
+    fn mixed_master_copy_batch_matches_single_exports() {
+        use rawtonic_engine::{
+            output_color_space::OutputColorSpace, recipe_versions::RecipeVersions,
+        };
+        use rawtonic_export::export_processing::{
+            RenderEnv, TiffBitDepth, encode_image_to_bytes, prepare_export_render,
+            prepare_export_source, render_prepared_export,
+        };
+        use rawtonic_gpu::gpu_processing::{GpuContext, GpuProcessorSlot, RenderOutputPrecision};
+        let libs = two_catalogs();
+        let source = libs.source.to_string_lossy().into_owned();
+        let copy = format!("{source}?vc=9b8208");
+        std::fs::write(
+            libs.source.with_file_name("A.jpg.9b8208.rrdata"),
+            serde_json::to_vec(&recipe(-1.0, 5, &[])).unwrap(),
+        )
+        .unwrap();
+        let pixels = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(64, 48, |x, y| {
+            image::Rgb([40 + x as u8, 60 + y as u8, 80])
+        }));
+        let context = GpuContext::headless().expect("native QA requires a GPU");
+        let processor = GpuProcessorSlot::new(None);
+        let cache = std::sync::Mutex::new(None);
+        let env = RenderEnv {
+            context: &context,
+            processor: &processor,
+            image_cache: &cache,
+            tonemapper_override: &|_| None,
+            load_lut: &|_| None,
+            render_inputs: None,
+        };
+        let export = |photo: &crate::export_processing::PinnedPhoto| {
+            let adjustments = &photo.adjustments;
+            let prepared_source = prepare_export_source(
+                &source,
+                std::sync::Arc::new(pixels.clone()),
+                None,
+                adjustments,
+            )
+            .unwrap();
+            let prepared = prepare_export_render(
+                &source,
+                prepared_source,
+                adjustments,
+                &RecipeVersions::of(adjustments, false),
+                &env,
+                false,
+            )
+            .unwrap();
+            let rendered = render_prepared_export(
+                &prepared,
+                &env,
+                "exq",
+                RenderOutputPrecision::EightBit,
+                OutputColorSpace::Srgb,
+            )
+            .unwrap();
+            encode_image_to_bytes(
+                &rendered,
+                "png",
+                100,
+                TiffBitDepth::Eight,
+                OutputColorSpace::Srgb,
+                None,
+            )
+            .unwrap()
+        };
+        for open in [&source, &copy] {
+            let capture = |paths: &[String]| {
+                let mut req = request(paths, Some(libs.a.directory.as_path()));
+                req.current_edit_path = Some(open.clone());
+                req.current_edit_adjustments = Some(json!({"exposure": 0.5}));
+                queued(req).as_run()
+            };
+            let batch = capture(&[source.clone(), copy.clone()]);
+            let master = capture(std::slice::from_ref(&source));
+            let single_copy = capture(std::slice::from_ref(&copy));
+            let outputs: Vec<_> = batch.iter().map(export).collect();
+            assert_ne!(
+                outputs[0], outputs[1],
+                "different recipes must change pixels"
+            );
+            assert_eq!(outputs[0], export(&master[0]));
+            assert_eq!(outputs[1], export(&single_copy[0]));
+        }
+    }
+
+    #[test]
     fn a_virtual_copy_exports_its_own_recipe_rating_label_and_keywords() {
         let libs = two_catalogs();
         let source = libs.source.to_string_lossy().into_owned();
