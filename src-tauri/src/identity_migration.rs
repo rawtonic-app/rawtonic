@@ -36,7 +36,9 @@ pub fn carry_over(app: &tauri::AppHandle) -> Report {
     // A QA build (own identifier) starts empty: it must never inherit a
     // working configuration or library from the former identity.
     if cfg!(feature = "qa-control") {
-        report.messages.push("QA build: identity carry-over skipped".to_string());
+        report
+            .messages
+            .push("QA build: identity carry-over skipped".to_string());
         return report;
     }
     let path = app.path();
