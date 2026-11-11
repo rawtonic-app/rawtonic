@@ -446,7 +446,7 @@ export const withAiDenoiseVersion = <T extends Partial<Adjustments>>(
 };
 
 /** diffraction.rs VERSION for a request made now. */
-export const DIFFRACTION_VERSION = 2;
+export const DIFFRACTION_VERSION = 3;
 
 /** The diffraction correction's crop-factor lookup depends on its version,
  * so wherever the switch is copied (paste, presets) its version goes along:

@@ -59,6 +59,25 @@ const renderTool = async () => {
 };
 
 describe('Lens correction tool', () => {
+  it('shows a stamped saved lens name after the database renames its list entry', async () => {
+    current = {
+      ...INITIAL_ADJUSTMENTS,
+      lensMaker: 'Sony',
+      lensModel: 'Earlier profile name',
+      lensDistortionParams: { ...distortion, model: 1, tca_vr: 1, tca_vb: 1, vig_k1: 0, vig_k2: 0, vig_k3: 0 },
+      lensCorrectionMode: 'manual',
+      lensProfileFor: 'saved stamp'
+    };
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    const select = screen.getByLabelText('Lens model') as HTMLSelectElement;
+    expect(select.value).toBe('Earlier profile name');
+    expect(select.selectedOptions[0].textContent).toBe('Earlier profile name');
+    expect(current.lensDistortionParams).toMatchObject(distortion);
+    expect(current.lensProfileFor).toBe('saved stamp');
+    expect(setAdjustments).not.toHaveBeenCalled();
+  });
+
   it("enables the detected profile looked up with the photo's EXIF", async () => {
     await renderTool();
     await act(async () => {
@@ -142,7 +161,7 @@ describe('Lens correction tool', () => {
     const diffraction = () => screen.getByRole('checkbox', { name: 'Diffraction correction' });
     fireEvent.click(diffraction());
     expect(current.diffractionCorrection).toBe(true);
-    expect(current.diffractionVersion).toBe(2);
+    expect(current.diffractionVersion).toBe(3);
     fireEvent.click(diffraction());
     expect(current.diffractionCorrection).toBeUndefined();
     expect(current.diffractionVersion).toBeUndefined();

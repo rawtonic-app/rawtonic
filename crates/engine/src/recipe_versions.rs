@@ -812,10 +812,6 @@ impl CameraGeometryVersion {
     }
 }
 
-/// The diffraction correction that takes a crop factor from the whole
-/// bundled database (`diffractionVersion` 2).
-pub const WHOLE_DATABASE_DIFFRACTION_VERSION: u64 = 2;
-
 /// `diffractionVersion` (`diffraction::VERSION`): 1 when missing (read as
 /// stored, not clamped).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -828,12 +824,6 @@ impl DiffractionVersion {
 
     pub fn get(self) -> u64 {
         self.0
-    }
-
-    /// Bodies without FocalPlaneXResolution take their crop factor from the
-    /// whole bundled database.
-    pub fn whole_database(self) -> bool {
-        self.0 >= WHOLE_DATABASE_DIFFRACTION_VERSION
     }
 }
 
