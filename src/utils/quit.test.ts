@@ -3,7 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useUIStore } from '../store/useUIStore';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  drainBeforeRelaunch,
+  relaunchAfterPhotoSaves,
   cancelQuitRequest,
   confirmQuitWithUnsaved,
   flushBeforeQuit,
@@ -281,10 +281,28 @@ it('cancels a dismissed confirmation, but closing after confirmation does not ca
 
 it('a restart keeps the app open while a photo save failed (Reset graphics and retry)', async () => {
   register(() => Promise.resolve(['Edits: a.raw']));
-  expect(await drainBeforeRelaunch()).toEqual(['Edits: a.raw']);
+  const restart = vi.fn(() => Promise.resolve());
+  expect(await relaunchAfterPhotoSaves(() => Promise.resolve([]), restart)).toEqual(['Edits: a.raw']);
+  expect(restart).not.toHaveBeenCalled();
+  expect(useUIStore.getState().quitSaving).toBeNull();
 });
 
-it('a restart with everything saved goes ahead', async () => {
-  register(() => Promise.resolve([]));
-  expect(await drainBeforeRelaunch()).toEqual([]);
+it('a restart holds editing from before its flushes until it restarts', async () => {
+  const held: unknown[] = [];
+  register(() => {
+    held.push(useUIStore.getState().quitSaving);
+    return Promise.resolve([]);
+  });
+  const restart = vi.fn(() => {
+    held.push(useUIStore.getState().quitSaving);
+    return Promise.resolve();
+  });
+  const before = () => {
+    held.push(useUIStore.getState().quitSaving);
+    return Promise.resolve([]);
+  };
+  expect(await relaunchAfterPhotoSaves(before, restart)).toEqual([]);
+  expect(restart).toHaveBeenCalledOnce();
+  expect(held.every((value) => value != null)).toBe(true);
+  expect(useUIStore.getState().quitSaving).toBeNull();
 });

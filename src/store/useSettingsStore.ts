@@ -4,7 +4,7 @@ import { platform } from '@tauri-apps/plugin-os';
 import { AppSettings, SupportedTypes, Invokes } from '../components/ui/AppProperties';
 import { libraryChanges } from './libraryFiles';
 import { applyInterfaceShade } from '../utils/themes';
-import { drainBeforeRelaunch } from '../utils/quit';
+import { relaunchAfterPhotoSaves } from '../utils/quit';
 
 interface SettingsState {
   appSettings: AppSettings | null;
@@ -86,15 +86,14 @@ export function flushSettingsSaves(timeoutMs = SETTINGS_FLUSH_TIMEOUT_MS): Promi
  */
 export async function relaunchAfterSettingsSaves(relaunch: () => Promise<void>): Promise<string[]> {
   // Settings first: saving the processing settings is what needs the
-  // restart. The two write their own files.
-  const settings = await flushSettingsSaves();
-  const library = await libraryChanges.flush(RELAUNCH_FLUSH_TIMEOUT_MS);
-  // Photo edits and metadata writes too, as a quit would: a restart that
-  // would lose one keeps the app open with what is not saved.
-  const photos = await drainBeforeRelaunch();
-  const failures = [...settings, ...library, ...photos];
-  if (failures.length === 0) await relaunch();
-  return failures;
+  // restart. The two write their own files. Then photo edits and metadata
+  // writes, as a quit would: a restart that would lose one keeps the app
+  // open with what is not saved.
+  return relaunchAfterPhotoSaves(async () => {
+    const settings = await flushSettingsSaves();
+    const library = await libraryChanges.flush(RELAUNCH_FLUSH_TIMEOUT_MS);
+    return [...settings, ...library];
+  }, relaunch);
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({

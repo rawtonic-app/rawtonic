@@ -254,22 +254,35 @@ async function drainBeforeQuit(requestId: number): Promise<string[] | null> {
   }
 }
 
+/** A restart's own quit hold (native quit requests use positive ids). */
+const RELAUNCH_HOLD = -1;
+
 /** The photo-side drain of a quit for an app restart (`relaunch()` ends the
- * process without the native quit handshake): runs every flush, waits for
- * the writes in flight and steps, and resolves with what is not saved yet
- * (failed writes, running batch operations); empty when a restart loses
- * nothing. */
-export async function drainBeforeRelaunch(): Promise<string[]> {
+ * process without the native quit handshake). Like a quit it holds editing
+ * (`quitSaving`) from before the flushes until `restart` ran, so an edit made
+ * while it waits cannot be left unwritten; runs every flush, waits for the
+ * writes in flight and steps, and calls `restart` only when nothing is left
+ * unsaved (failed writes, running batch operations). Resolves with what is
+ * not saved; the hold ends then (also when `restart` failed). */
+export async function relaunchAfterPhotoSaves(
+  before: () => Promise<string[]>,
+  restart: () => Promise<void>
+): Promise<string[]> {
   const kept = new QuitDrain();
-  kept.recordRunningBatches();
+  holdForQuit(RELAUNCH_HOLD);
   const stopWrites = onPhotoWritesSettled((settled) => kept.record(settled.id, settled.kind, settled.failed));
   try {
+    const earlier = await before();
+    kept.recordRunningBatches();
     kept.recordOther(await flushBeforeQuit());
     await photoWritesAndStepsSettled();
     kept.recordOther([...checks].flatMap((check) => check()));
-    return kept.items();
+    const failures = [...earlier, ...kept.items()];
+    if (failures.length === 0) await restart();
+    return failures;
   } finally {
     stopWrites();
+    releaseQuitHold(RELAUNCH_HOLD);
   }
 }
 
