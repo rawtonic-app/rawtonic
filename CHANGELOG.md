@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.13 — 2026-11-11
+
 The thirteenth alpha. Exports can be enlarged 2× by an AI model (Super Resolution), a second window shows the photo live on a second display, and the import dialog shows real pixels at 100 % for a focus check, with ratings, before anything is copied; inserting a memory card opens it. For new edits, Whites, Shadows, Highlights, Blacks, Contrast, Structure, Clarity, Vibrance, Temperature and Tint, the colour mixer and lowered Dehaze were measured against Camera Raw and Capture One on a 48-photo slider atlas and refitted, AI Denoise keeps the shadows' level and colour, and Sharpening of RAW photos leaves the noise of even areas alone. Sliders step with the keys as in Lightroom, and Alt/Option-click on a group's name resets the group. Saved edits export as in alpha.12 (see *Changes to existing edits*).
 
 ### Highlights
