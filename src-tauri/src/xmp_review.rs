@@ -36,6 +36,11 @@ pub struct XmpFailure {
 /// What resolving or its undo did, by photograph path.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct XmpReport {
+    /// Photographs whose capture-time correction the step changed, with
+    /// the correction they have now: their editor-state EXIF follows
+    /// (`follow_capture`), after the library's write lock is released.
+    #[serde(skip)]
+    pub capture_changed: Vec<(PathBuf, Option<rawtonic_catalog::capture_time::CaptureTime>)>,
     /// Resolved (or undone) and in sync or pending now.
     pub done: Vec<String>,
     /// Offline photographs: left until they are back.
@@ -114,14 +119,32 @@ pub fn resolve(lib: &Library, paths: &[String], keep: XmpChoice) -> anyhow::Resu
         let shown = source.to_string_lossy().into_owned();
         let result = match keep {
             XmpChoice::Library => lib.keep_library_xmp(&asset.id),
-            XmpChoice::Xmp => lib.use_xmp(&asset.id).and_then(|undo| {
-                // Read: undoable even when writing the sidecar back fails.
-                report.undo.push(undo);
-                report.read.push(shown.clone());
-                lib.sync_xmp(&asset.id).map_err(|e| {
-                    anyhow::anyhow!("Read from the XMP sidecar; writing it back failed: {e}").into()
+            XmpChoice::Xmp => {
+                // The file's whole capture time (fraction and offset; a
+                // library read before schema 28 has whole seconds), which
+                // the sidecar's is compared with.
+                if let Some(facts) = rawtonic_ingest::capture::capture_facts(&asset.path)
+                    && let Err(e) = lib.record_facts(&asset.id, &facts)
+                {
+                    log::warn!("Capture facts not refreshed before Use XMP: {e}");
+                }
+                lib.use_xmp(&asset.id).and_then(|undo| {
+                    // The sidecar's capture time changed the correction: what
+                    // the photograph shows and exports follows.
+                    if undo.capture_before != undo.capture_after {
+                        report
+                            .capture_changed
+                            .push((asset.path.clone(), undo.capture_after.clone()));
+                    }
+                    // Read: undoable even when writing the sidecar back fails.
+                    report.undo.push(undo);
+                    report.read.push(shown.clone());
+                    lib.sync_xmp(&asset.id).map_err(|e| {
+                        anyhow::anyhow!("Read from the XMP sidecar; writing it back failed: {e}")
+                            .into()
+                    })
                 })
-            }),
+            }
         };
         report.note(shown, result);
     }
@@ -140,7 +163,16 @@ pub fn undo(lib: &Library, undo: &[XmpUndo]) -> XmpReport {
             .map(|a| a.path.to_string_lossy().into_owned())
             .unwrap_or_else(|_| step.asset.clone());
         match lib.undo_use_xmp(step) {
-            Ok(()) => report.done.push(path),
+            Ok(()) => {
+                if step.capture_before != step.capture_after
+                    && let Ok(asset) = lib.asset(&step.asset)
+                {
+                    report
+                        .capture_changed
+                        .push((asset.path, lib.capture_override(&step.asset).ok().flatten()));
+                }
+                report.done.push(path)
+            }
             Err(e) => {
                 report.undo.push(step.clone());
                 report.failed.push(XmpFailure {
@@ -152,6 +184,32 @@ pub fn undo(lib: &Library, undo: &[XmpUndo]) -> XmpReport {
     }
     report.undo.reverse();
     report
+}
+
+/// Brings the editor-state EXIF (`.rrdata`: display, export) of the
+/// photographs whose correction a step changed (`XmpReport::capture_changed`)
+/// to it. Outside the library's write lock, which the editor-sidecar write
+/// takes itself.
+pub fn follow_capture(directory: &Path, report: &XmpReport) {
+    for (path, now) in &report.capture_changed {
+        if let Err(e) = crate::capture_time::follow_correction(directory, path, now.as_ref()) {
+            log::warn!("Capture time changed by XMP; editor sidecar pending: {e}");
+        }
+    }
+}
+
+/// `follow_capture` on a blocking worker, once the command's library work
+/// is done.
+async fn followed(directory: String, report: XmpReport) -> Result<XmpReport, String> {
+    if report.capture_changed.is_empty() {
+        return Ok(report);
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        follow_capture(Path::new(&directory), &report);
+        report
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -169,18 +227,20 @@ pub async fn session_xmp_resolve(
     paths: Vec<String>,
     keep: XmpChoice,
 ) -> Result<XmpReport, String> {
-    with_library(directory, true, move |lib| {
+    let report = with_library(directory.clone(), true, move |lib| {
         resolve(lib, &paths, keep).map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    followed(directory, report).await
 }
 
 #[tauri::command]
 pub async fn session_xmp_undo(directory: String, steps: Vec<XmpUndo>) -> Result<XmpReport, String> {
-    with_library(directory, true, move |lib| Ok(undo(lib, &steps)))
+    let report = with_library(directory.clone(), true, move |lib| Ok(undo(lib, &steps)))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+    followed(directory, report).await
 }
 
 /// How each library's sidecars looked at its last check, so the next one

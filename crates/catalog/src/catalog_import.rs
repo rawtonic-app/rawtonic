@@ -1430,6 +1430,10 @@ fn replace(
             xmp_hash,
             xmp_status,
             from_camera,
+            // The capture time comes over as a change of its own.
+            capture_before: None,
+            capture_after: None,
+            xmp_capture: None,
         });
     }
     // Their virtual copies (state and snapshots); copies only here stay.

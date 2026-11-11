@@ -86,6 +86,20 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration::sql(25, include_str!("../migrations/0025.sql")),
     // The older-AI-Denoise-version fact of recipes saved before version 4.
     Migration::sql(26, include_str!("../migrations/0026.sql")),
+    // The corrected capture time the XMP sidecar holds, in `metadata`.
+    Migration::with_columns(
+        27,
+        "metadata",
+        &[("xmp_capture", "TEXT")],
+        include_str!("../migrations/0027.sql"),
+    ),
+    // The capture time's fraction and offset in the facts of `assets`.
+    Migration::with_columns(
+        28,
+        "assets",
+        &[("capture_subsec", "TEXT"), ("capture_offset", "TEXT")],
+        include_str!("../migrations/0028.sql"),
+    ),
 ];
 
 /// The newest schema: the last migration's.

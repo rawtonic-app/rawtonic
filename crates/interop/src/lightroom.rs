@@ -172,6 +172,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
                 .unwrap_or(from_xmp.copyright),
             // City, country, headline, contact … from the catalog's XMP.
             iptc: from_xmp.iptc,
+            capture: Default::default(),
         };
         // The settings list every value, defaults included; only photos
         // Lightroom marks as adjusted carry them.

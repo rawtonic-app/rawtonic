@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **A corrected capture time now travels in the XMP sidecar.** *Shift Capture Time* writes the corrected time as `exif:DateTimeOriginal` and `photoshop:DateCreated` (with fraction of a second and UTC offset when known; no offset is invented) into the photo's XMP sidecar, so Lightroom, Capture One and other libraries see it, as with Lightroom's Edit Capture Time; *Back to the time in the file* and Undo remove exactly the dates Rawtonic wrote. The other way round, a sidecar whose capture time differs from the file's — for example after Lightroom's Edit Capture Time — becomes the photo's capture-time correction when it is imported or read with *Use XMP*; equal times change nothing. Sidecars of photos without a correction are written byte for byte as before, and your photo files are never changed.
+
 - **Updated lens corrections** from Lensfun, including Nikkor Z 24-70mm f/2.8 S II, GF 63mm, Tamron 70-300mm, OM System EXIF names and the corrected Nikkor AF 80-400mm profile. Already resolved lens corrections and saved diffraction settings keep their previous results.
 
 - **Restoring a compared snapshot clears its Compare selection.** Before/After returns to the unedited photograph; a different snapshot selected as the reference stays selected.

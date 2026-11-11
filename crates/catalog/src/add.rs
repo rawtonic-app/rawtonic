@@ -90,6 +90,10 @@ pub struct Contents {
     /// The XMP sidecar `metadata` was read from, by digest: the library
     /// then knows it holds exactly that sidecar's metadata.
     pub xmp_digest: Option<String>,
+    /// The capture time that XMP sidecar states (`exif:DateTimeOriginal`):
+    /// another editor's corrected time becomes the library's correction
+    /// once the file's own time is known (`capture_time::adopt_sidecar`).
+    pub capture: Option<rawtonic_metadata::XmpDateTime>,
 }
 
 impl Contents {
@@ -126,6 +130,7 @@ impl Contents {
                 ),
                 xmp_digest: Some(rawtonic_fs::sha256_hex(text.as_bytes())),
                 metadata: Some(metadata),
+                capture: rawtonic_metadata::read_capture_time(&text).unwrap_or_default(),
             });
         }
         Ok(Self::default())
@@ -180,6 +185,8 @@ pub struct PlannedAsset {
     recipe: Option<String>,
     metadata: Option<Metadata>,
     xmp_digest: Option<String>,
+    /// The capture time the XMP sidecar states (`Contents::capture`).
+    sidecar_capture: Option<rawtonic_metadata::XmpDateTime>,
     metadata_edited: bool,
     /// The snapshots its editor sidecar carries.
     snapshots: Vec<crate::Snapshot>,
@@ -330,6 +337,7 @@ impl Library {
             metadata,
             snapshots: contents.snapshots(),
             xmp_digest: contents.xmp_digest,
+            sidecar_capture: contents.capture,
             metadata_edited: false,
             companion: None,
             facts: None,
@@ -439,6 +447,9 @@ impl Library {
             crate::snapshots::insert(&tx, &self.directory, &version, &asset.snapshots)?;
             if let Some(facts) = &asset.facts {
                 crate::facts::write_facts(&tx, &id, facts)?;
+            }
+            if asset.xmp_digest.is_some() {
+                crate::capture_time::adopt_sidecar(&tx, &id, asset.sidecar_capture.as_ref())?;
             }
             if let Some((kind, batch_id)) = &mut batch {
                 if matches!(kind, ImportKind::HotFolder | ImportKind::Tether)
@@ -662,6 +673,7 @@ impl Library {
                     "UPDATE metadata SET xmp_hash=?,xmp_publishing=NULL,xmp_status='synced' WHERE asset_id=?",
                     params![digest, id],
                 )?;
+                crate::capture_time::adopt_sidecar(&tx, id, contents.capture.as_ref())?;
             }
         }
         tx.commit()?;
