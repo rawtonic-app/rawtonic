@@ -86,7 +86,8 @@ const PREPARING_ID = 'gpu-preparing';
 /**
  * The start's first shader compile as a running task in the activity centre
  * ("Preparing graphics for this computer"), shown once it takes longer than
- * `PREPARING_SHOWN_AFTER_MS`, then logged under Done with its time. A warm
+ * `PREPARING_SHOWN_AFTER_MS`, then a short notice with its time (also under
+ * Done). A warm
  * start finishes before it is shown. `ready` resolves when the compile is
  * done (`gpu_first_display_ready`): true when it compiled, false when the
  * GPU did not start (that failure is told on its own, `gpu-start-failed`).
@@ -114,7 +115,10 @@ export async function watchGraphicsPreparation(
     return;
   }
   const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
-  useActivityStore.getState().finish(PREPARING_ID, { title: i18n.t('gpuBackend.prepared', { seconds }) });
+  // The end is said, not only logged under Done: the header's running task
+  // just goes away otherwise.
+  useActivityStore.getState().resolve(PREPARING_ID);
+  notify.info(i18n.t('gpuBackend.prepared', { seconds }), { toastId: PREPARING_ID, autoClose: 6000 });
 }
 
 /**

@@ -5475,59 +5475,75 @@ fn validated<T>(
     }
 }
 
-/// Diagnostic (G76/WMEM, Windows AMD Vulkan memory growth at start):
-/// `RAWTONIC_GPU_COMPILE_CONCURRENCY=N` lets at most N shader-module or
-/// pipeline creations run at once. Unset: no limit, as always.
+/// How many shader-module and pipeline creations may run at once: no limit
+/// unless the device's driver needs one (`device_start::compile_limit`) or
+/// `RAWTONIC_GPU_COMPILE_CONCURRENCY=N` sets one (it wins; 0 = no limit).
+/// G76/WMEM: AMD's Windows Vulkan driver committed 25–30 GB of private memory
+/// while our start compiled several pipelines at once on a Radeon 680M; one
+/// at a time it stayed at about 8 GB during the first compile and fell to
+/// 2 GB after, and the first display variant took as long (66.7 against
+/// 68.9 s).
 struct CompileLimit {
-    running: Mutex<usize>,
+    /// Running creations and the limit.
+    state: Mutex<(usize, Option<usize>)>,
     freed: std::sync::Condvar,
-    max: usize,
 }
 
-fn compile_limit() -> Option<&'static CompileLimit> {
-    static LIMIT: std::sync::OnceLock<Option<CompileLimit>> = std::sync::OnceLock::new();
-    LIMIT
-        .get_or_init(|| {
-            let max = std::env::var("RAWTONIC_GPU_COMPILE_CONCURRENCY")
-                .ok()?
-                .trim()
-                .parse::<usize>()
-                .ok()
-                .filter(|n| *n > 0)?;
-            log::warn!("GPU compiles limited to {max} at once (RAWTONIC_GPU_COMPILE_CONCURRENCY)");
-            Some(CompileLimit {
-                running: Mutex::new(0),
-                freed: std::sync::Condvar::new(),
-                max,
-            })
-        })
-        .as_ref()
+static COMPILE_LIMIT: CompileLimit = CompileLimit {
+    state: Mutex::new((0, None)),
+    freed: std::sync::Condvar::new(),
+};
+
+fn env_compile_limit() -> Option<Option<usize>> {
+    let n = std::env::var("RAWTONIC_GPU_COMPILE_CONCURRENCY")
+        .ok()?
+        .trim()
+        .parse::<usize>()
+        .ok()?;
+    Some((n > 0).then_some(n))
 }
 
-struct CompileSlot(&'static CompileLimit);
+/// Sets the limit for the device just started (`None`: no limit); the
+/// environment variable overrides it.
+pub fn set_compile_limit(limit: Option<usize>) {
+    let limit = env_compile_limit().unwrap_or(limit);
+    if let Some(n) = limit {
+        log::info!("GPU shader compiles run at most {n} at once");
+    }
+    let mut state = COMPILE_LIMIT
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    state.1 = limit;
+    COMPILE_LIMIT.freed.notify_all();
+}
+
+struct CompileSlot;
 
 impl Drop for CompileSlot {
     fn drop(&mut self) {
-        let mut running = self.0.running.lock().unwrap_or_else(|e| e.into_inner());
-        *running -= 1;
-        self.0.freed.notify_one();
+        let mut state = COMPILE_LIMIT
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        state.0 -= 1;
+        COMPILE_LIMIT.freed.notify_all();
     }
 }
 
-fn compile_slot() -> Option<CompileSlot> {
-    let limit = compile_limit()?;
-    let mut running = limit.running.lock().unwrap_or_else(|e| e.into_inner());
-    while *running >= limit.max {
-        running = limit.freed.wait(running).unwrap_or_else(|e| e.into_inner());
+fn compile_slot() -> CompileSlot {
+    let mut state = COMPILE_LIMIT
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    while state.1.is_some_and(|max| state.0 >= max) {
+        state = COMPILE_LIMIT
+            .freed
+            .wait(state)
+            .unwrap_or_else(|e| e.into_inner());
     }
-    *running += 1;
-    Some(CompileSlot(limit))
-}
-
-/// Diagnostic (G76/WMEM): `RAWTONIC_GPU_START_VARIANTS=0` compiles no display
-/// variant ahead after the RAW default one.
-fn start_variants_enabled() -> bool {
-    std::env::var("RAWTONIC_GPU_START_VARIANTS").map_or(true, |v| v.trim() != "0")
+    state.0 += 1;
+    CompileSlot
 }
 
 /// Holds the pipelines compiled ahead back until the first display variant
@@ -6985,14 +7001,8 @@ impl GpuProcessor {
             processor.start_gate.open();
             return Ok(processor);
         }
-        if start_variants_enabled() {
-            for features in START_PREVIEW_FEATURES {
-                processor.compile_preview_variant_after_start(features);
-            }
-        } else {
-            log::warn!(
-                "GPU display variants after the first not compiled ahead (RAWTONIC_GPU_START_VARIANTS=0)"
-            );
+        for features in START_PREVIEW_FEATURES {
+            processor.compile_preview_variant_after_start(features);
         }
         Ok(processor)
     }

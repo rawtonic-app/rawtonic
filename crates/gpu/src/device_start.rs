@@ -138,6 +138,16 @@ fn usable_of(compiled: wgpu::Backends, windows: bool) -> wgpu::Backends {
     compiled - unusable
 }
 
+/// The shader compiles the device may run at once
+/// (`gpu_processing::set_compile_limit`): one on AMD's Windows Vulkan driver,
+/// which committed 25–30 GB of memory when several ran at once (Radeon 680M,
+/// driver 25.10; notes: parity-gaps/G76-windows-installer-feedback.md), with
+/// no slower first display variant; no limit elsewhere.
+pub fn compile_limit(info: &wgpu::AdapterInfo, windows: bool) -> Option<usize> {
+    const AMD: u32 = 0x1002;
+    (windows && info.backend == wgpu::Backend::Vulkan && info.vendor == AMD).then_some(1)
+}
+
 /// Why the adapter cannot run the processing pipeline, if it cannot: WARP,
 /// found by its PCI ids (Microsoft vendor 0x1414, device 0x8C) on DX12.
 pub fn unsupported_adapter(info: &wgpu::AdapterInfo) -> Option<&'static str> {
@@ -225,6 +235,10 @@ pub fn start_device(
                 .map_err(|e| e.to_string())
         },
     )?;
+    crate::gpu_processing::set_compile_limit(compile_limit(
+        &adapter.get_info(),
+        cfg!(target_os = "windows"),
+    ));
     Ok(StartedDevice {
         instance,
         adapter,
@@ -346,6 +360,21 @@ mod tests {
         // Other software adapters (llvmpipe, SwiftShader) and real GPUs start.
         assert!(unsupported_adapter(&adapter(Backend::Vulkan, 0x10005, 0)).is_none());
         assert!(unsupported_adapter(&adapter(Backend::Dx12, 0x10de, 0x2206)).is_none());
+    }
+
+    #[test]
+    fn amd_vulkan_on_windows_compiles_one_at_a_time() {
+        let amd = |backend| wgpu::AdapterInfo {
+            backend,
+            ..adapter(backend, 0x1002, 0x1681)
+        };
+        assert_eq!(compile_limit(&amd(Backend::Vulkan), true), Some(1));
+        assert_eq!(compile_limit(&amd(Backend::Dx12), true), None);
+        assert_eq!(compile_limit(&amd(Backend::Vulkan), false), None);
+        assert_eq!(
+            compile_limit(&adapter(Backend::Vulkan, 0x10de, 0x2206), true),
+            None
+        );
     }
 
     #[test]

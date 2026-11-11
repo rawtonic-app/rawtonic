@@ -108,6 +108,20 @@ pub(crate) fn clean_exit() {
     }
 }
 
+/// The user asked to quit: the start flag goes as at a clean exit, so a
+/// process that ends during its first compile after the window was closed
+/// (G76: a close 60 s into a 62–69 s cold compile left a fallback) is not
+/// taken for a crash. Should the quit be cancelled, a crash later in this
+/// start is not recorded either; the next start's own flag covers its own.
+pub(crate) fn quit_requested() {
+    if let Some(path) = FLAG_PATH.get()
+        && path.exists()
+    {
+        log::info!("Quit requested while the GPU starts: not a start crash if it ends now.");
+    }
+    clean_exit();
+}
+
 fn exit_with(gate: &Mutex<bool>, path: &Path) {
     let mut exiting = gate
         .lock()
