@@ -404,7 +404,7 @@ export function openPasteTarget(
  * into the editor's recipe as loading does), else onto its edit. Its AI
  * bitmaps a paste changed get ids of their own (the renderer keeps bitmaps
  * by id). Null with a message when it would exceed the layers applied. */
-function pastedOpen(
+export function pastedOpen(
   open: { path: string; isRaw: boolean },
   current: Adjustments,
   pasted: Partial<Adjustments>,
