@@ -439,11 +439,17 @@ function pastedOpen(
   // In the responses of the recipe they go onto, after the style before is
   // taken back (as the backend writes the others): carried Whites, and the
   // version keys something the paste leaves renders with (pastedVersions.ts).
-  // Versions chosen in the picker go along as chosen.
+  // Versions chosen in the picker go along as chosen. Carried Whites and
+  // Blacks take the photo's response: a never-edited (or Reset) photo's is
+  // its new edit's, the editor's recipe, as `pasteInto` installs it and the
+  // backend expresses them after `start_new_edit`.
+  const target = openPasteTarget(open.path, base ?? current, Boolean(style));
+  const responses = target.isNew ? current : target.recipe;
   const here = paste?.asChosen
-    ? withCarriedBlacksFor(withCarriedWhitesFor(pasted, base ?? current), base ?? current, open.isRaw)
+    ? withCarriedBlacksFor(withCarriedWhitesFor(pasted, responses), responses, open.isRaw)
     : expressPastedSettings(pasted, {
-        ...openPasteTarget(open.path, base ?? current, Boolean(style)),
+        ...target,
+        recipe: target.isNew ? current : target.recipe,
         isRaw: open.isRaw,
         replaceLayers: paste?.replaceLayers ?? true,
         mergeGroups: Boolean(style)

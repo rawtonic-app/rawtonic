@@ -1406,6 +1406,33 @@ describe('pasted version keys onto a never-edited open photo', () => {
     await act(async () => {});
   });
 
+  it("expresses carried Blacks of a Copy/Sync paste in a Reset photo's new edit, as the closed photos", async () => {
+    const { result } = renderHook(useEditorActions);
+    // A Reset RAW: its saved recipe keeps only its frame; the editor shows the new edit's versions.
+    const shown = { ...useEditorStore.getState().adjustments, toneVersion: 18 };
+    useEditorStore.setState({ adjustments: shown, history: [shown], historyIndex: 0 });
+    rememberOpenedRecipe('/first.dng', {
+      saved: { sourceFrameVersion: 3 },
+      camera: {} as never,
+      width: 4000,
+      height: 3000,
+      shown
+    });
+    // Blacks −100 from a version-17 RAW, carried as its amount (−100).
+    act(() => {
+      void result.current.applyAdjustmentsToPaths({ blacks: -100, whites: 74 } as never, ['/first.dng'], {
+        pasteFrom: '/other.dng',
+        asChosen: true
+      });
+    });
+    const pasted = useEditorStore.getState().adjustments;
+    expect(pasted.toneVersion).toBe(18);
+    // Version 18's slider value for version 16's −100, as the backend writes onto a closed Reset photo.
+    expect(pasted.blacks).toBeCloseTo(-71.551724, 5);
+    expect(whitesAmountV17(pasted.whites)).toBeCloseTo(74, 9);
+    await act(async () => {});
+  });
+
   it('decides on the saved recipe of an older edit it still shows, as for the closed photos', async () => {
     const { result } = renderHook(useEditorActions);
     // The editor states the keyless tone response as 5; the saved recipe renders 1.

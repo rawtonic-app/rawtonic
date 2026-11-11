@@ -2817,7 +2817,8 @@ mod tests {
                 other: serde_json::Map::new(),
             }),
         };
-        let pasted = serde_json::json!({"shadows": 80});
+        // Blacks −100 from a version-17 RAW, carried as its amount.
+        let pasted = serde_json::json!({"shadows": 80, "blacks": -100.0});
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
             pasted_metadata(
                 path,
@@ -2838,6 +2839,10 @@ mod tests {
             "a new edit's versions"
         );
         assert_eq!(new["cameraGeometryVersion"], 10);
+        // In the new edit's tone response, as the open photograph pastes it
+        // (useEditorActions.test.ts: "expresses carried Blacks … Reset photo").
+        let blacks = new["blacks"].as_f64().unwrap();
+        assert!((blacks - -71.551_724).abs() < 1e-5, "{blacks}");
         assert_eq!(new["shadows"], 80);
         // An edited photograph keeps its own (here none: an older edit).
         let (_, edited) = parse_virtual_path(&paths[0]);
