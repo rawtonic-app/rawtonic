@@ -33,6 +33,7 @@ import {
   withGrainStructure,
   withLegacyGrainVersion,
   withLoadedCurves,
+  withCarriedBlacksFor,
   withCarriedWhitesFor,
   isNewRecipe
 } from '../utils/adjustments';
@@ -403,7 +404,7 @@ export function openPasteTarget(
  * into the editor's recipe as loading does), else onto its edit. Its AI
  * bitmaps a paste changed get ids of their own (the renderer keeps bitmaps
  * by id). Null with a message when it would exceed the layers applied. */
-function pastedOpen(
+export function pastedOpen(
   open: { path: string; isRaw: boolean },
   current: Adjustments,
   pasted: Partial<Adjustments>,
@@ -438,11 +439,17 @@ function pastedOpen(
   // In the responses of the recipe they go onto, after the style before is
   // taken back (as the backend writes the others): carried Whites, and the
   // version keys something the paste leaves renders with (pastedVersions.ts).
-  // Versions chosen in the picker go along as chosen.
+  // Versions chosen in the picker go along as chosen. Carried Whites and
+  // Blacks take the photo's response: a never-edited (or Reset) photo's is
+  // its new edit's, the editor's recipe, as `pasteInto` installs it and the
+  // backend expresses them after `start_new_edit`.
+  const target = openPasteTarget(open.path, base ?? current, Boolean(style));
+  const responses = target.isNew ? current : target.recipe;
   const here = paste?.asChosen
-    ? withCarriedWhitesFor(pasted, base ?? current)
+    ? withCarriedBlacksFor(withCarriedWhitesFor(pasted, responses), responses, open.isRaw)
     : expressPastedSettings(pasted, {
-        ...openPasteTarget(open.path, base ?? current, Boolean(style)),
+        ...target,
+        recipe: target.isNew ? current : target.recipe,
         isRaw: open.isRaw,
         replaceLayers: paste?.replaceLayers ?? true,
         mergeGroups: Boolean(style)
@@ -453,7 +460,12 @@ function pastedOpen(
         samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
         replaceLayers: paste?.replaceLayers ?? true,
         keepNulls: !paste,
-        newEdit: paste?.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
+        // A never-edited (or Reset) photo takes a new edit's versions first,
+        // whatever brings the settings (a preset too), as the backend's
+        // `start_new_edit` does; carried Whites and Blacks are expressed in them.
+        newEdit: ((newEdit) => (newEdit ? (open.isRaw ? newEdit.raw : newEdit.other) : undefined))(
+          paste?.newEdit ?? (target.isNew ? newEditResponses() : undefined)
+        ),
         // A new recipe starts with the camera's crop of the frame it shows.
         cameraCrop:
           opened && open.isRaw && newSaved(opened.saved)
@@ -1681,7 +1693,10 @@ export function useEditorActions() {
       if (!source) return;
       const copy = (choice: SettingsChoice) => {
         rememberChoice(choice, source.path);
-        const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
+        const chosen = withSourceFrames(
+          chosenSettings(source.adjustments, choice.keys, choice.layerIds, isRawPhoto(source.path)),
+          source
+        );
         useEditorStore.getState().setEditor({ copiedAdjustments: chosen as Adjustments, copiedFrom: source.path });
         useProcessStore.getState().setProcess({ isCopied: true });
       };
@@ -1728,7 +1743,10 @@ export function useEditorActions() {
       if (!source) return;
       const sync = (choice: SettingsChoice) => {
         rememberChoice(choice, source.path);
-        const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
+        const chosen = withSourceFrames(
+          chosenSettings(source.adjustments, choice.keys, choice.layerIds, isRawPhoto(source.path)),
+          source
+        );
         if (Object.keys(chosen).length > 0) {
           applyAdjustmentsToPaths(chosen, targets, { pasteFrom: source.path, asChosen: true, label: 'sync' });
           noteTool('copySettings');
@@ -1762,7 +1780,10 @@ export function useEditorActions() {
       const source = await settingsSource(previousPhoto);
       if (!source) return;
       const choice = rememberedChoice(source);
-      const applied = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
+      const applied = withSourceFrames(
+        chosenSettings(source.adjustments, choice.keys, choice.layerIds, isRawPhoto(source.path)),
+        source
+      );
       if (Object.keys(applied).length > 0)
         applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path, asChosen: true });
     },

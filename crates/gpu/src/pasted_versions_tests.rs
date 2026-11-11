@@ -5,8 +5,8 @@
 //!   uses the tool renders exactly as if the user had set the photo's own
 //!   slider to the translated value (the layer keeps its version and its
 //!   value), where carrying the source's key would change the layer;
-//! - the translation between versions: exact pairs (Whites 16 / 17,
-//!   Structure 1 / 2) render byte-identical to the source; for the others
+//! - the translation between versions: exact pairs (Whites 16 / 17, Blacks
+//!   17 → 18, Structure 1 / 2) render byte-identical to the source; for the others
 //!   the remaining error (CIELAB ΔE76 over the four charts, Camera Raw look)
 //!   is measured and printed, with the error of pasting the value untranslated.
 //!
@@ -15,6 +15,7 @@
 
 use super::*;
 use rawtonic_engine::pasted_versions::{PasteTarget, express_pasted, translate};
+use rawtonic_engine::recipe_versions::ToneVersion;
 
 /// Per-pixel ΔE76 between two renders of the same chart.
 fn delta_e(a: &Lab, b: &Lab) -> Vec<f64> {
@@ -97,6 +98,15 @@ const CASES: &[Case] = &[
         pairs: &[(17, 12), (17, 5), (5, 17)],
         values: SIGNED,
         exact: &[],
+    },
+    // Lowered Blacks' travel (version 18): 17's values are 18's exactly; 18's
+    // −100 is deeper than 17's reach.
+    Case {
+        key: "toneVersion",
+        slider: "blacks",
+        pairs: &[(17, 18), (18, 17), (18, 16)],
+        values: &[-100.0, -75.0, -50.0, 50.0],
+        exact: &[(17, 18)],
     },
     Case {
         key: "clarityVersion",
@@ -207,13 +217,20 @@ fn pasted_versions_translation_error() {
                 let mut source = base_recipe();
                 source[case.key] = json!(from);
                 set(&mut source, case.slider, value);
-                let translated = translate(
-                    case.key,
-                    case.slider.split('.').next().unwrap(),
-                    value,
-                    from,
-                    to,
-                );
+                // Blacks travel as amounts (`express_pasted_blacks`), the
+                // charts render the RAW look.
+                let translated = if case.slider == "blacks" {
+                    let tone = |v: u64| ToneVersion::of(&json!({ "toneVersion": v }));
+                    tone(to).blacks_value(tone(from).blacks_amount(value))
+                } else {
+                    translate(
+                        case.key,
+                        case.slider.split('.').next().unwrap(),
+                        value,
+                        from,
+                        to,
+                    )
+                };
                 let mut pasted = base_recipe();
                 pasted[case.key] = json!(to);
                 set(&mut pasted, case.slider, translated);

@@ -16,39 +16,39 @@ describe('Tool copy of grain', () => {
   it('copies and syncs untouched Colour alone, including through JSON and paste', () => {
     const source = { ...INITIAL_ADJUSTMENTS, grainVersion: 3, grainAmount: 40 } as Adjustments;
     const target = { ...source, grainColor: 74 };
-    const picked = pick(source, ['grainColor']);
+    const picked = pick(source, ['grainColor'], true);
     expect(picked).toEqual({ grainColor: 0, grainVersion: 3 });
     expect({ ...target, ...picked }.grainColor).toBe(0); // Tool sync uses this same pick.
     const clipboard = JSON.parse(JSON.stringify(picked));
     expect(pastedAdjustments(clipboard, ['grainColor'], PasteMode.Replace)).toEqual({ grainColor: 0, grainVersion: 3 });
-    expect(pick({ ...source, grainColor: 56 }, ['grainColor'])).toEqual({ grainColor: 56, grainVersion: 3 });
-    expect(pick(source, ['exposure'])).not.toHaveProperty('grainColor');
+    expect(pick({ ...source, grainColor: 56 }, ['grainColor'], true)).toEqual({ grainColor: 56, grainVersion: 3 });
+    expect(pick(source, ['exposure'], true)).not.toHaveProperty('grainColor');
   });
 
   it('copies the source grain version, never downgrades it', () => {
     // A source that never used grain: its Size goes with the newest version.
     const fresh = { ...INITIAL_ADJUSTMENTS } as Adjustments;
-    expect(pick(fresh, ['grainSize']).grainVersion).toBe(GRAIN_VERSION);
+    expect(pick(fresh, ['grainSize'], true).grainVersion).toBe(GRAIN_VERSION);
     const v1 = { ...INITIAL_ADJUSTMENTS, grainAmount: 30, grainVersion: 1 } as Adjustments;
-    expect(pick(v1, ['grainSize']).grainVersion).toBe(1);
+    expect(pick(v1, ['grainSize'], true).grainVersion).toBe(1);
     const v2 = { ...INITIAL_ADJUSTMENTS, grainAmount: 30, grainVersion: 2 } as Adjustments;
-    expect(pick(v2, ['grainAmount', 'grainSize']).grainVersion).toBe(2);
-    expect('grainVersion' in pick(v2, ['exposure'])).toBe(false);
+    expect(pick(v2, ['grainAmount', 'grainSize'], true).grainVersion).toBe(2);
+    expect('grainVersion' in pick(v2, ['exposure'], true)).toBe(false);
   });
 
   it("states film grain's default Colour, so a saved preset or copy sets it", () => {
     // New neutral grain whose Colour was never touched (missing = 0).
     const neutral = { ...INITIAL_ADJUSTMENTS, grainAmount: 40, grainVersion: 3 } as Adjustments;
     const keys = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'];
-    const saved = JSON.parse(JSON.stringify(toolPresetToSave(neutral, keys)));
+    const saved = JSON.parse(JSON.stringify(toolPresetToSave(neutral, keys, true)));
     expect(saved.grainColor).toBe(0);
     const coloured = { ...INITIAL_ADJUSTMENTS, grainAmount: 40, grainVersion: 3, grainColor: 74 } as Adjustments;
     expect({ ...coloured, ...presetValues(saved) }.grainColor).toBe(0);
-    expect(JSON.parse(JSON.stringify(pick(neutral, keys))).grainColor).toBe(0);
+    expect(JSON.parse(JSON.stringify(pick(neutral, keys, true))).grainColor).toBe(0);
     // Older grain has no Colour, and a copy without it leaves the destination's.
     const v2 = { ...INITIAL_ADJUSTMENTS, grainAmount: 30, grainVersion: 2 } as Adjustments;
-    expect(JSON.parse(JSON.stringify(pick(v2, keys))).grainColor).toBeUndefined();
-    expect(pick(neutral, ['grainAmount'])).not.toHaveProperty('grainColor');
+    expect(JSON.parse(JSON.stringify(pick(v2, keys, true))).grainColor).toBeUndefined();
+    expect(pick(neutral, ['grainAmount'], true)).not.toHaveProperty('grainColor');
   });
 });
 
@@ -57,11 +57,11 @@ describe('Tool copy of Clarity', () => {
     // An older edit with Clarity and no key: its copy states version 1, so a
     // photo already at the current version renders the amount as the source.
     const old = normalizeLoadedAdjustments({ clarity: 40 } as unknown as Adjustments, true);
-    expect(JSON.parse(JSON.stringify(pick(old, ['clarity'])))).toEqual({ clarity: 40, clarityVersion: 1 });
+    expect(JSON.parse(JSON.stringify(pick(old, ['clarity'], true)))).toEqual({ clarity: 40, clarityVersion: 1 });
     const destination = { ...INITIAL_ADJUSTMENTS, clarityVersion: CLARITY_VERSION } as Adjustments;
-    expect({ ...destination, ...pick(old, ['clarity']) }.clarityVersion).toBe(1);
+    expect({ ...destination, ...pick(old, ['clarity'], true) }.clarityVersion).toBe(1);
     const current = normalizeLoadedAdjustments({ clarity: 40, clarityVersion: 2 } as unknown as Adjustments, true);
-    expect(pick(current, ['clarity']).clarityVersion).toBe(2);
+    expect(pick(current, ['clarity'], true).clarityVersion).toBe(2);
   });
 });
 
@@ -73,12 +73,12 @@ describe('Tool copy of the black & white mix', () => {
       { blackAndWhite: true, grayMixer: { ...INITIAL_ADJUSTMENTS.grayMixer, blue: -40 } } as unknown as Adjustments,
       true
     );
-    const copied = JSON.parse(JSON.stringify(pick(old, ['grayMixer'])));
+    const copied = JSON.parse(JSON.stringify(pick(old, ['grayMixer'], true)));
     expect(copied.bwVersion).toBe(1);
     const destination = { ...INITIAL_ADJUSTMENTS, bwVersion: 2 } as Adjustments;
     expect({ ...destination, ...copied }.bwVersion).toBe(1);
     const current = normalizeLoadedAdjustments({ blackAndWhite: true, bwVersion: 2 } as unknown as Adjustments, true);
-    expect(pick(current, ['grayMixer']).bwVersion).toBe(2);
+    expect(pick(current, ['grayMixer'], true).bwVersion).toBe(2);
   });
 });
 
@@ -93,7 +93,7 @@ describe('Tool copy of LUT', () => {
       lutIsSceneReferred: true,
       lutIntensity: 70
     } as Adjustments;
-    expect(pick(source, ['lutPath', 'lutIntensity'])).toEqual({
+    expect(pick(source, ['lutPath', 'lutIntensity'], true)).toEqual({
       lutPath: source.lutPath,
       lutName: source.lutName,
       lutSize: 2,
@@ -123,11 +123,11 @@ describe('Tool copy of Whites', () => {
   it('carries the amount Whites render, never the photo-wide tone version', () => {
     // Whites +50 on a version-17 photo render version 16's +74.
     const v17 = { ...INITIAL_ADJUSTMENTS, whites: 50, toneVersion: 17 } as Adjustments;
-    expect(pick(v17, ['whites'])).toEqual({ whites: 74 });
+    expect(pick(v17, ['whites'], true)).toEqual({ whites: 74 });
     // A legacy edit without the key renders its value as the amount.
     const keyless = normalizeLoadedAdjustments({ whites: 50 } as unknown as Adjustments, true);
-    expect(pick(keyless, ['whites'])).toEqual({ whites: 50 });
+    expect(pick(keyless, ['whites'], true)).toEqual({ whites: 50 });
     // With Shadows the tone version goes along, and the values mean it.
-    expect(pick(v17, ['whites', 'shadows'])).toMatchObject({ whites: 50, toneVersion: 17 });
+    expect(pick(v17, ['whites', 'shadows'], true)).toMatchObject({ whites: 50, toneVersion: 17 });
   });
 });

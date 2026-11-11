@@ -31,22 +31,22 @@ const group = (label: string) => SETTINGS_GROUPS.find((g) => g.label === `modals
 describe('settings clipboard', () => {
   it('takes the chosen groups and layers only', () => {
     const source = recipe({ exposure: 1, contrast: 20, masks: [layer('sky'), layer('dodge')] });
-    const chosen = chosenSettings(source, [...group('tone').keys, 'masks'], ['sky']);
+    const chosen = chosenSettings(source, [...group('tone').keys, 'masks'], ['sky'], true);
     expect(chosen.contrast).toBe(20);
     expect('exposure' in chosen).toBe(false);
     expect(chosen.masks?.map((l) => l.id)).toEqual(['sky']);
-    expect(chosenSettings(source, group('tone').keys, []).masks).toBeUndefined();
+    expect(chosenSettings(source, group('tone').keys, [], true).masks).toBeUndefined();
   });
 
   it('takes processing versions only when chosen, a missing one as missing', () => {
     const source = recipe({ toneVersion: 2, sharpenVersion: 2, contrast: 20 } as Partial<Adjustments>);
     delete (source as Partial<Adjustments>).defringeVersion;
     // Not chosen: none, also with the tools that use them.
-    const plain = chosenSettings(source, [...group('tone').keys, ...group('sharpness').keys], []);
+    const plain = chosenSettings(source, [...group('tone').keys, ...group('sharpness').keys], [], true);
     for (const key of RESPONSE_KEYS) expect(key in plain).toBe(false);
     expect(plain.contrast).toBe(20);
     // Chosen: every one, a missing one as null (it travels as missing).
-    const withVersions = chosenSettings(source, [...group('tone').keys, ...RESPONSE_KEYS], []) as Record<
+    const withVersions = chosenSettings(source, [...group('tone').keys, ...RESPONSE_KEYS], [], true) as Record<
       string,
       unknown
     >;
@@ -56,7 +56,7 @@ describe('settings clipboard', () => {
     // renderer reads them missing (no edge-fringe pass, the first CA estimate).
     delete (source as Partial<Adjustments>).fringeVersion;
     delete (source as Partial<Adjustments>).autoCaVersion;
-    const stated = chosenSettings(source, RESPONSE_KEYS, []) as Record<string, unknown>;
+    const stated = chosenSettings(source, RESPONSE_KEYS, [], true) as Record<string, unknown>;
     expect([stated.fringeVersion, stated.autoCaVersion]).toEqual([0, 1]);
   });
 
@@ -64,7 +64,7 @@ describe('settings clipboard', () => {
     const asShot = recipe({ temperature: 0, tint: 0 });
     delete (asShot as Partial<Adjustments>).whiteBalance;
     delete (asShot as Partial<Adjustments>).wbTemperature;
-    const chosen = chosenSettings(asShot, group('whiteBalance').keys, []);
+    const chosen = chosenSettings(asShot, group('whiteBalance').keys, [], true);
     // Null: the destination loses its own (the backend removes it).
     expect(chosen.whiteBalance).toBeNull();
     expect(chosen.wbTemperature).toBeNull();
@@ -195,9 +195,9 @@ describe('Copy/Sync of grain', () => {
     const source = { ...INITIAL_ADJUSTMENTS, grainAmount: 30, grainVersion: 2 } as Adjustments;
     const grain = SETTINGS_GROUPS.find((g) => g.label === 'modals.copyPaste.groups.grain')!;
     expect(grain.keys).not.toContain('grainVersion');
-    const applied = withGrainStructure(chosenSettings(source, grain.keys, []));
+    const applied = withGrainStructure(chosenSettings(source, grain.keys, [], true));
     expect('grainVersion' in applied).toBe(false);
-    expect(chosenSettings(source, [...grain.keys, 'grainVersion'], []).grainVersion).toBe(2);
+    expect(chosenSettings(source, [...grain.keys, 'grainVersion'], [], true).grainVersion).toBe(2);
     // A never-edited destination gets a new edit's grain; an edited one keeps its own.
     const fresh = pasteInto(null, applied, {
       samePhoto: false,

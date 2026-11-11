@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
+import { isRawPhoto } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { onRecipeWritten, registerRecipeFlush, useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
@@ -231,7 +232,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
                   withGrainVersion(
                     withLumaNoiseVersion(
                       withWhiteBalanceVersions(
-                        withSharpenVersion(withPortableWhites(shown, source?.adjustments), source?.adjustments),
+                        withSharpenVersion(
+                          withPortableWhites(shown, source?.adjustments, Boolean(source && isRawPhoto(source.path))),
+                          source?.adjustments
+                        ),
                         source?.adjustments
                       ),
                       source?.adjustments
@@ -294,7 +298,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
                 withGrainVersion(
                   withLumaNoiseVersion(
                     withWhiteBalanceVersions(
-                      withSharpenVersion(withPortableWhites(changes, from.adjustments), from.adjustments),
+                      withSharpenVersion(
+                        withPortableWhites(changes, from.adjustments, isRawPhoto(from.path)),
+                        from.adjustments
+                      ),
                       from.adjustments
                     ),
                     from.adjustments
@@ -376,8 +383,8 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
           copies.forEach((path) => globalImageCache.delete(path));
           // Framed by the primary, as every sync is (legacy unframed shapes).
           const masks = frameDrawnMasks(state.adjustments.masks, state.adjustments, image.width, image.height);
-          // Its layers' Whites as the amount they render, as every sync carries them.
-          void applyRef.current(withPortableWhites({ masks }, state.adjustments), copies, {
+          // Its layers' Whites and Blacks as the amount they render, as every sync carries them.
+          void applyRef.current(withPortableWhites({ masks }, state.adjustments, isRawPhoto(image.path)), copies, {
             openingNow: true,
             pasteFrom: image.path,
             replaceLayers: true,

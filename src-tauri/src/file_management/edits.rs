@@ -603,12 +603,17 @@ fn pasted_into(
     });
 
     // In this photograph's responses: Whites carried without a tone version
-    // mean the amount they render, and a version key stays the
+    // and Blacks mean the amount they render, and a version key stays the
     // photograph's while something the paste leaves renders with it
     // (`pasted_versions`); versions chosen in the picker go along as chosen.
     let mut expressed = adjustments.clone();
     if paste.is_some_and(|from| from.as_chosen) {
         rawtonic_engine::image_processing::express_pasted_whites(&mut expressed, &new_adjustments);
+        rawtonic_engine::image_processing::express_pasted_blacks(
+            &mut expressed,
+            &new_adjustments,
+            is_raw_file(source_path),
+        );
     } else {
         rawtonic_engine::pasted_versions::express_pasted(
             &mut expressed,
@@ -2812,7 +2817,8 @@ mod tests {
                 other: serde_json::Map::new(),
             }),
         };
-        let pasted = serde_json::json!({"shadows": 80});
+        // Blacks −100 from a version-17 RAW, carried as its amount.
+        let pasted = serde_json::json!({"shadows": 80, "blacks": -100.0});
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
             pasted_metadata(
                 path,
@@ -2833,6 +2839,10 @@ mod tests {
             "a new edit's versions"
         );
         assert_eq!(new["cameraGeometryVersion"], 10);
+        // In the new edit's tone response, as the open photograph pastes it
+        // (useEditorActions.test.ts: "expresses carried Blacks … Reset photo").
+        let blacks = new["blacks"].as_f64().unwrap();
+        assert!((blacks - -71.551_724).abs() < 1e-5, "{blacks}");
         assert_eq!(new["shadows"], 80);
         // An edited photograph keeps its own (here none: an older edit).
         let (_, edited) = parse_virtual_path(&paths[0]);

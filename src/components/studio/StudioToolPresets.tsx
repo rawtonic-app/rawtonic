@@ -127,7 +127,7 @@ function ToolPresetsPopover({
     onClose();
   };
   const saveCurrent = (name: string) => {
-    addToolPreset(name, toolPresetToSave(currentAdjustments(), keys), label, keys);
+    addToolPreset(name, toolPresetToSave(currentAdjustments(), keys, Boolean(selectedImage?.isRaw)), label, keys);
     setNaming(false);
   };
 

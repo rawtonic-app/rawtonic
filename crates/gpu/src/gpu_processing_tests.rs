@@ -12201,6 +12201,20 @@ fn tone_version_16_blacks_reaches_a_scene_lut() {
         n > 0 && lowered > 2.5,
         "Blacks −100 under a scene LUT lowers L* 30–40 by {lowered:.2}"
     );
+    // Version 18's −100 goes deeper there, as on the tone-mapped colour.
+    let eighteenth = render(-100, 18);
+    let mut deeper = 0.0;
+    for x in 64..(width - 64) as usize {
+        let base = lstar_of_codes(&neutral[row + x]);
+        if base > 30.0 && base < 40.0 {
+            deeper += lstar_of_codes(&sixteenth[row + x]) - lstar_of_codes(&eighteenth[row + x]);
+        }
+    }
+    let deeper = deeper / n as f64;
+    assert!(
+        deeper > 2.0,
+        "version 18's Blacks −100 under a scene LUT lowers L* 30–40 {deeper:.2} more"
+    );
 }
 
 #[test]
@@ -12226,6 +12240,188 @@ fn tone_version_16_blacks_drag_render_time() {
         let k = block % 2;
         for step in 0..10 {
             let recipe = json!({ "blacks": -20 - 6 * step, "toneVersion": versions[k] });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[k].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            versions[k],
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Blacks of tone version 18 against version 17 on a grey ramp"]
+fn tone_version_18_blacks_moves_at_capture_ones_pace() {
+    let context = context();
+    let (width, height) = (2048u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Scene luminance from 2^-14 to 2^2, evenly in EV across the columns.
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(-14.0 + 16.0 * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Up to Blacks −50, and raised, version 18 renders as version 17, also
+    // through a file's own curve.
+    for look in [(3, 2.0), (3, 1.0)] {
+        for recipe in [
+            json!({}),
+            json!({ "blacks": 100 }),
+            json!({ "blacks": -30 }),
+            json!({ "blacks": -50 }),
+            json!({ "whites": -100, "blacks": -50, "contrast": 30 }),
+            json!({ "whites": 100, "shadows": 60, "highlights": -100 }),
+        ] {
+            assert!(
+                render_raw_look(&processor, &view, (width, height), &with(&recipe, 17), look)
+                    == render_raw_look(
+                        &processor,
+                        &view,
+                        (width, height),
+                        &with(&recipe, 18),
+                        look
+                    ),
+                "{recipe} under {look:?} differs"
+            );
+        }
+    }
+    // The AgX and Classic looks keep their Blacks (and its sum beyond −100,
+    // as photo and layers add up), as version 17 renders them.
+    for look in [(1, 2.0), (0, 2.0)] {
+        for recipe in [
+            json!({ "blacks": -100 }),
+            json!({ "blacks": -160 }),
+            json!({ "blacks": -70, "shadows": 40 }),
+        ] {
+            assert!(
+                render_raw_look(&processor, &view, (width, height), &with(&recipe, 17), look)
+                    == render_raw_look(
+                        &processor,
+                        &view,
+                        (width, height),
+                        &with(&recipe, 18),
+                        look
+                    ),
+                "{recipe} under {look:?} differs"
+            );
+        }
+    }
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &view, (width, height), &recipe, (3, 2.0))
+    };
+    let row = (height / 2 * width) as usize;
+    let columns = 64..(width - 64) as usize;
+    let neutral = render(with(&json!({}), 18));
+    let old_full = render(with(&json!({ "blacks": -100 }), 17));
+    // Version 17's −100 is version 18's −71.55 (`blacks_value_v18`), within a
+    // code of rounding.
+    let at_72 = render(with(&json!({ "blacks": -71.551_724 }), 18));
+    for x in columns.clone() {
+        let codes = (0..3)
+            .map(|c| (at_72[row + x][c] as i32 - old_full[row + x][c] as i32).abs())
+            .max()
+            .unwrap();
+        assert!(
+            codes <= 1,
+            "Blacks −71.55: column {x} differs by {codes} codes"
+        );
+    }
+    let full = render(with(&json!({ "blacks": -100 }), 18));
+    let between = render(with(&json!({ "blacks": -85 }), 18));
+    let mut at = [f64::NAN; 4];
+    for x in columns.clone() {
+        let base = lstar_of_codes(&neutral[row + x]);
+        let out = lstar_of_codes(&full[row + x]);
+        // Tones from L* 80 on stay as they are.
+        if base >= 80.0 {
+            assert_eq!(full[row + x], neutral[row + x], "L* {base:.2} moved");
+        }
+        // Deeper than version 17's −100, −85 between the two.
+        let old = lstar_of_codes(&old_full[row + x]);
+        let mid = lstar_of_codes(&between[row + x]);
+        assert!(
+            out <= old + 0.02,
+            "L* {base:.2}: {out:.2} lighter than version 17's {old:.2}"
+        );
+        assert!(
+            mid <= old + 0.02 && mid >= out - 0.02,
+            "L* {base:.2}: −85 {mid:.2} not between {old:.2} and {out:.2}"
+        );
+        // Brighter tones stay brighter (by 0.01 L* or two codes).
+        for k in 1..=24 {
+            let (a, b) = (&full[row + x - k], &full[row + x]);
+            let codes = (0..3).map(|c| a[c] as i32 - b[c] as i32).max().unwrap();
+            assert!(
+                lstar_of_codes(b) >= lstar_of_codes(a) - 0.01 || codes <= 2,
+                "column {x} below column {}",
+                x - k
+            );
+        }
+        for (i, target) in [25.0, 35.0, 45.0, 55.0].into_iter().enumerate() {
+            if at[i].is_nan() && base >= target {
+                at[i] = base - out;
+            }
+        }
+    }
+    // −100 darkens L* 25 / 35 / 45 / 55 by 14.16 / 8.45 / 3.97 / 1.29 (the
+    // curve's design: twice version 16's shift).
+    for (i, d) in [14.16, 8.45, 3.97, 1.29].iter().enumerate() {
+        assert!(
+            (at[i] - d).abs() <= 0.3,
+            "Blacks −100 at L* {}: {:.2} (design {d})",
+            [25, 35, 45, 55][i],
+            at[i]
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Blacks of tone version 18 against version 17: GPU time of a preview render per drag step"]
+fn tone_version_18_blacks_drag_render_time() {
+    // As `tone_version_16_blacks_drag_render_time`, over the lower half of
+    // the slider where version 18 mixes two black-point curves.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let ramp = -9.0 + 10.0 * x as f32 / (width - 1) as f32;
+            let texture = 0.4 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos());
+            (2.0f32).powf(ramp + texture)
+        })
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let versions = [17u64, 18];
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let k = block % 2;
+        for step in 0..10 {
+            let recipe = json!({ "blacks": -46 - 6 * step, "toneVersion": versions[k] });
             let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
             let start = std::time::Instant::now();
             let _ = readback_pixels(

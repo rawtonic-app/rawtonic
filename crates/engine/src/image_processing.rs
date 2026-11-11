@@ -5582,6 +5582,10 @@ fn get_global_adjustments_resolved(
         };
         global.apply_grading(grading);
     }
+    // The RAW look's lowered Blacks follow the version's travel.
+    if blacks_set_the_black_point(&global) {
+        global.blacks = versions.tone.blacks_amount(tone.blacks.get()) as f32 / SCALES.blacks;
+    }
     global
 }
 
@@ -6509,6 +6513,11 @@ fn get_all_adjustments_with_locals<'a>(
         // A layer's Whites follow the photo's Whites travel.
         mask_adjustments[i].whites =
             versions.tone.whites_amount(local.whites.get()) as f32 / SCALES.whites;
+        // A layer's Blacks follow the photo's Blacks travel.
+        if blacks_set_the_black_point(&global) {
+            mask_adjustments[i].blacks =
+                versions.tone.blacks_amount(local.blacks.get()) as f32 / SCALES.blacks;
+        }
         mask_adjustments[i].exposure *= exposure_scale;
         mask_count += 1;
     }
@@ -7572,9 +7581,16 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// One's White +23 (Camera Raw's +26), so the first half of the slider did
 /// little; the slider now maps +50 to version 16's +74 and +100 to +100
 /// (`whites_amount_v17`; notes: benchmark-results/atf7-slider-travel-2026-11-08).
+/// 18 (2026-11-11) moves lowered Blacks at Capture One's pace on the RAW
+/// look: version 16's −100 darkened L* 10–30 only 9 / 7 L* where Capture
+/// One's Black −100 darkens them 14 / 15 (Camera Raw 15 / 23, crushing a
+/// quarter of the photo), and its second half did little (L* 20–30 −5.7 at
+/// −50, −7.1 at −100). The slider keeps version 16 up to −50, reaches
+/// version 16's −100 at −72 and a twice as deep black point at −100
+/// (`blacks_amount_v18`; notes: benchmark-results/blt-blacks-travel-2026-11-11).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 17;
+pub const TONE_VERSION: u64 = 18;
 
 /// Whites up to tone version 16: the slider value is the amount.
 pub fn whites_amount_v1(value: f64) -> f64 {
@@ -7634,6 +7650,78 @@ pub fn whites_value_v17(amount: f64) -> f64 {
     }
 }
 
+/// Version 16's Blacks ease (`BLACKS_V16_EASE` in shader.wgsl): its slider
+/// share of −100's change in L* is 1 − (1 − a)^ease at a = −Blacks / 100.
+const BLACKS_V16_EASE: f64 = 2.32;
+
+/// Blacks up to tone version 17 and above 0: the slider value is the amount.
+/// From tone version 18 lowered Blacks on the RAW look take the amount
+/// (version 16's slider value, beyond −100 the deeper black point of
+/// `blacks_v18_black_point` in shader.wgsl, −200 at its end) along three
+/// joined pieces of a = −value / 100: up to a = ½ version 16 itself (its −50
+/// darkens the darkest tenth as Capture One's −50 does); then version 16's
+/// share of −100's change continued along its tangent at ½ until it is
+/// whole (a ≈ 0.716, Blacks −72 = version 16's −100); then linear to the
+/// deeper black point at −100. The pieces join with the same pace of the
+/// darkest tenth's change (median over the slider atlas's 48 frames:
+/// −2.59 L* at −50, −3.25 at version 16's −100, −4.13 at −100 against
+/// Capture One's −2.75 / −4.00), and version 16's slider values map onto
+/// version 18's exactly (`blacks_value_v18`)
+/// (notes: benchmark-results/blt-blacks-travel-2026-11-11).
+pub fn blacks_amount_v18(value: f64) -> f64 {
+    if value >= 0.0 {
+        return value;
+    }
+    let a = (-value / 100.0).min(1.0);
+    let half = 1.0 - 0.5_f64.powf(BLACKS_V16_EASE);
+    let pace = BLACKS_V16_EASE * 0.5_f64.powf(BLACKS_V16_EASE - 1.0);
+    let whole = 0.5 + (1.0 - half) / pace;
+    let amount = if a <= 0.5 {
+        a
+    } else if a <= whole {
+        let share = (half + pace * (a - 0.5)).min(1.0);
+        1.0 - (1.0 - share).powf(1.0 / BLACKS_V16_EASE)
+    } else {
+        1.0 + (a - whole) / (1.0 - whole)
+    };
+    -100.0 * amount
+}
+
+/// The version-18 Blacks slider value that renders `amount` (the inverse of
+/// [`blacks_amount_v18`], a monotone bijection of −200..=0; raised Blacks
+/// unchanged; amounts beyond −200 end at −100), to 1e-9 of a slider step.
+pub fn blacks_value_v18(amount: f64) -> f64 {
+    if amount >= 0.0 {
+        return amount;
+    }
+    let target = amount.max(-200.0);
+    let (mut lo, mut hi) = (-100.0, 0.0);
+    for _ in 0..64 {
+        let mid = 0.5 * (lo + hi);
+        if blacks_amount_v18(mid) > target {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    // A slider value copied back onto its own response comes back exactly.
+    let value = 0.5 * (lo + hi);
+    let rounded = (value * 1e6).round() / 1e6;
+    if (blacks_amount_v18(rounded) - target).abs() <= 1e-9 {
+        rounded
+    } else {
+        value
+    }
+}
+
+/// Whether Blacks on a photo prepared as `global` (before its base look)
+/// sets the RAW look's black point, the response whose travel version 18
+/// changes: a RAW file with the Standard tone mapper (which its base look
+/// turns into the Camera Raw look; `blacks_v9_active` in shader.wgsl).
+fn blacks_set_the_black_point(global: &GlobalAdjustments) -> bool {
+    global.is_raw_image == 1 && global.tonemapper_mode == tonemapper_mode_of("standard")
+}
+
 /// Settings that travel between photographs (copy, presets, Edit all
 /// selected) without their own `toneVersion` carry Whites as the amount they
 /// render (version 16's slider value; presets from before version 17 are
@@ -7648,24 +7736,79 @@ pub fn express_pasted_whites(pasted: &mut serde_json::Value, destination: &serde
     if map.contains_key(TONE_VERSION_KEY) {
         return;
     }
-    let express = |value: &mut serde_json::Value| {
+    express_slider(map, "whites", |amount| tone.whites_value(amount));
+}
+
+/// `map`'s own and its layers' `slider` passed through `express`.
+fn express_slider(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    slider: &str,
+    express: impl Fn(f64) -> f64,
+) {
+    let apply = |value: &mut serde_json::Value| {
         if let Some(amount) = value.as_f64() {
-            let slider = tone.whites_value(amount);
-            if slider != amount {
-                *value = serde_json::json!(slider);
+            let expressed = express(amount);
+            if expressed != amount {
+                *value = serde_json::json!(expressed);
             }
         }
     };
-    if let Some(whites) = map.get_mut("whites") {
-        express(whites);
+    if let Some(value) = map.get_mut(slider) {
+        apply(value);
     }
     if let Some(layers) = map.get_mut("masks").and_then(|m| m.as_array_mut()) {
         for layer in layers {
-            if let Some(whites) = layer.pointer_mut("/adjustments/whites") {
-                express(whites);
+            if let Some(value) = layer.pointer_mut(&format!("/adjustments/{slider}")) {
+                apply(value);
             }
         }
     }
+}
+
+/// Whether Blacks on a photograph with `recipe` (`is_raw`: a RAW file) sets
+/// the RAW look's black point, the response whose travel tone version 18
+/// changes: a RAW with the Standard tone mapper, which its base look turns
+/// into the Camera Raw look (as [`blacks_set_the_black_point`] decides for
+/// the renderer). Elsewhere (JPEG/TIFF, AgX, Classic) the Blacks slider value
+/// is the amount at every version.
+pub fn blacks_set_black_point_of(recipe: &serde_json::Value, is_raw: bool) -> bool {
+    is_raw && recipe["toneMapper"].as_str().unwrap_or("standard") == "standard"
+}
+
+/// Carried settings' Blacks, the photo's and its layers', as the photograph
+/// `destination` (`destination_is_raw`: a RAW file) renders them once they
+/// are applied. Carried Blacks are always amounts, with or without a
+/// `toneVersion` (the editor's `withPortableWhites`: version 16's slider
+/// value, down to −200, where the source's Blacks set the RAW look's black
+/// point; the slider value elsewhere; at versions before 18 the two are the
+/// same, so earlier presets hold amounts already). They take the slider
+/// value of the tone version the photograph then has (`pasted`'s own if it
+/// names one, else the destination's) where its Blacks set the black point
+/// (in the look it then has), else the amount itself, at most −100.
+pub fn express_pasted_blacks(
+    pasted: &mut serde_json::Value,
+    destination: &serde_json::Value,
+    destination_is_raw: bool,
+) {
+    let tone = crate::recipe_versions::ToneVersion::of(if pasted.get(TONE_VERSION_KEY).is_some() {
+        &*pasted
+    } else {
+        destination
+    });
+    let look = serde_json::json!({
+        "toneMapper": pasted.get("toneMapper").or_else(|| destination.get("toneMapper"))
+    });
+    let black_point = blacks_set_black_point_of(&look, destination_is_raw);
+    let Some(map) = pasted.as_object_mut() else {
+        return;
+    };
+    express_slider(map, "blacks", |amount| {
+        if black_point {
+            tone.blacks_value(amount)
+        } else {
+            amount.max(-100.0)
+        }
+    });
 }
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
@@ -8313,6 +8456,144 @@ mod structure_version_tests {
         assert_eq!(structure_amount_v3(0.0), 0.0);
         let prepared = get_all_adjustments_from_json(&with_layer(50.0, Some(2)), true, None);
         assert_eq!(prepared.global.structure_version, 2);
+    }
+}
+
+#[cfg(test)]
+mod blacks_travel_tests {
+    use super::{
+        SCALES, blacks_amount_v18, blacks_value_v18, express_pasted_blacks,
+        get_all_adjustments_from_json,
+    };
+    use serde_json::json;
+
+    fn amounts(blacks: f64, tone: Option<u64>, is_raw: bool, mapper: Option<&str>) -> (f32, f32) {
+        let mut recipe = json!({
+            "blacks": blacks,
+            "masks": [{"id": "m", "name": "m", "visible": true, "invert": false, "opacity": 100,
+                       "subMasks": [{"id": "s", "type": "all", "mode": "additive", "visible": true, "invert": false, "opacity": 100, "parameters": {}}],
+                       "adjustments": {"blacks": blacks}}]
+        });
+        if let Some(v) = tone {
+            recipe["toneVersion"] = json!(v);
+        }
+        if let Some(m) = mapper {
+            recipe["toneMapper"] = json!(m);
+        }
+        let prepared = get_all_adjustments_from_json(&recipe, is_raw, None);
+        (prepared.global.blacks, prepared.mask_adjustments[0].blacks)
+    }
+
+    #[test]
+    fn tone_versions_before_18_and_other_photos_keep_the_slider_value_as_amount() {
+        let cases = [
+            (None, true, None),
+            (Some(16), true, None),
+            (Some(17), true, None),
+            // Version 18 without the RAW look's black point.
+            (Some(18), false, None),
+            (Some(18), true, Some("agx")),
+            (Some(18), true, Some("basic")),
+        ];
+        for (tone, is_raw, mapper) in cases {
+            for blacks in [-100.0, -60.0, 40.0] {
+                let (global, layer) = amounts(blacks, tone, is_raw, mapper);
+                assert_eq!(global.to_bits(), (blacks as f32 / SCALES.blacks).to_bits());
+                assert_eq!(layer.to_bits(), global.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn version_18_moves_lowered_blacks_at_capture_ones_pace() {
+        // −50 as version 16, version 16's −100 at about −72, twice as deep a
+        // black point at −100; raised Blacks unchanged.
+        for (value, amount) in [
+            (0.0, 0.0),
+            (-30.0, -30.0),
+            (-50.0, -50.0),
+            (-100.0, -200.0),
+            (60.0, 60.0),
+        ] {
+            assert!((blacks_amount_v18(value) - amount).abs() < 1e-9, "{value}");
+            let (global, layer) = amounts(value, Some(18), true, None);
+            assert_eq!(global.to_bits(), (amount as f32 / SCALES.blacks).to_bits());
+            assert_eq!(layer.to_bits(), global.to_bits());
+        }
+        assert!((blacks_value_v18(-100.0) - -71.551_724).abs() < 1e-5);
+        // Falls over the whole lowered range, without a dead end; from −50 to
+        // −72 the share of version 16's −100 change that its black point
+        // renders (1 − (1 − a)^2.32) rises along its tangent at −50, so the
+        // slider's pace has no kink there.
+        let share = |value: f64| 1.0 - (1.0 + blacks_amount_v18(value) / 100.0).powf(2.32);
+        let mut last = 0.0;
+        for i in 1..=1000 {
+            let value = -f64::from(i) / 10.0;
+            let next = blacks_amount_v18(value);
+            assert!(last - next > 0.05, "{i}");
+            if (-71.5..=-50.0).contains(&value) {
+                let pace = 2.32 * 0.5_f64.powf(1.32) / 100.0;
+                assert!(
+                    (share(value) - share(-50.0) - pace * (-50.0 - value)).abs() < 1e-9,
+                    "{value}"
+                );
+            }
+            last = next;
+        }
+    }
+
+    #[test]
+    fn a_copied_blacks_amount_comes_back_as_the_slider_value_it_was() {
+        for value in -100..=100 {
+            let value = f64::from(value);
+            assert_eq!(blacks_value_v18(blacks_amount_v18(value)), value, "{value}");
+        }
+        for amount in [-150.0, -87.5, -100.0] {
+            assert!((blacks_amount_v18(blacks_value_v18(amount)) - amount).abs() < 1e-9);
+        }
+        // Deeper than the reach: −100.
+        assert_eq!(blacks_value_v18(-250.0), -100.0);
+    }
+
+    #[test]
+    fn pasted_blacks_are_expressed_in_the_destinations_response() {
+        let pasted = || json!({"blacks": -200.0, "masks": [{"adjustments": {"blacks": -100.0}}, {"adjustments": {}}]});
+        let mut onto_18 = pasted();
+        express_pasted_blacks(&mut onto_18, &json!({"toneVersion": 18}), true);
+        assert_eq!(onto_18["blacks"], -100.0);
+        assert!(
+            (onto_18["masks"][0]["adjustments"]["blacks"]
+                .as_f64()
+                .unwrap()
+                - -71.551_724)
+                .abs()
+                < 1e-5
+        );
+        assert_eq!(onto_18["masks"][1]["adjustments"], json!({}));
+        // Older RAW-look photos, and photos without the black point (a JPEG,
+        // an AgX or Classic RAW): the amount, at most −100.
+        for (destination, is_raw) in [
+            (json!({}), true),
+            (json!({"toneVersion": 17}), true),
+            (json!({"toneVersion": 18}), false),
+            (json!({"toneVersion": 18, "toneMapper": "agx"}), true),
+            (json!({"toneVersion": 18, "toneMapper": "basic"}), true),
+        ] {
+            let mut onto = pasted();
+            express_pasted_blacks(&mut onto, &destination, is_raw);
+            assert_eq!(onto["blacks"], -100.0, "{destination}");
+            assert_eq!(onto["masks"][0]["adjustments"]["blacks"], -100.0);
+        }
+        let mut jpeg = json!({"blacks": -72.0});
+        express_pasted_blacks(&mut jpeg, &json!({"toneVersion": 18}), false);
+        assert_eq!(jpeg["blacks"], -72.0);
+        // The tone version and look the settings bring decide when they name them.
+        let mut named = json!({"blacks": -100.0, "toneVersion": 18});
+        express_pasted_blacks(&mut named, &json!({"toneVersion": 16}), true);
+        assert!((named["blacks"].as_f64().unwrap() - -71.551_724).abs() < 1e-5);
+        let mut agx = json!({"blacks": -100.0, "toneMapper": "agx"});
+        express_pasted_blacks(&mut agx, &json!({"toneVersion": 18}), true);
+        assert_eq!(agx["blacks"], -100.0);
     }
 }
 

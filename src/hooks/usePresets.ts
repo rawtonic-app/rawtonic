@@ -35,8 +35,15 @@ export function collectPresetAdjustments(
   {
     includeMasks,
     includeCropTransform,
-    presetType
-  }: { includeMasks: boolean; includeCropTransform: boolean; presetType: 'tool' | 'style' }
+    presetType,
+    isRaw = false
+  }: {
+    includeMasks: boolean;
+    includeCropTransform: boolean;
+    presetType: 'tool' | 'style';
+    /** `current` is a RAW file's recipe (Blacks carried as their amount). */
+    isRaw?: boolean;
+  }
 ): Partial<Adjustments> {
   const GEOMETRY_KEYS = ADJUSTMENT_GROUPS.geometry.flatMap((group) => group.keys);
   const MASK_KEYS = ADJUSTMENT_GROUPS.masks.flatMap((group) => group.keys);
@@ -70,7 +77,7 @@ export function collectPresetAdjustments(
           withGrainVersion(
             withLumaNoiseVersion(
               withWhiteBalanceVersions(
-                withSharpenVersion(withPortableWhites(presetAdjustments, current), current),
+                withSharpenVersion(withPortableWhites(presetAdjustments, current, isRaw), current),
                 current
               ),
               current
@@ -276,7 +283,8 @@ export function usePresets(
     const presetAdjustments = collectPresetAdjustments(current, defaults, {
       includeMasks,
       includeCropTransform,
-      presetType
+      presetType,
+      isRaw
     });
 
     const newPresetData: Preset = {
@@ -452,7 +460,8 @@ export function usePresets(
       collectPresetAdjustments(current, defaults, {
         includeMasks,
         includeCropTransform,
-        presetType
+        presetType,
+        isRaw
       });
 
     let updatedPreset: Preset | null = null;
