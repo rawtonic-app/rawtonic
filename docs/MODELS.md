@@ -1007,38 +1007,45 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   not trained on (EOS M100). Version 3 therefore gave a stronger colour
   cast in lifted shadows than the photo without AI Denoise. Version 4 adds
   the local mean of sample − result back to the result
-  (`mosaic_denoise::keep_means`; same model, same cached results). 60
-  RawNIND pairs, ISO 3200–51200 (26 of G17's set and 34 of scenes the
-  RawNIND networks hold out, 14 of them EOS M100), noisy frame at
-  Exposure +2 against the clean frame, renderVersion 11, colour cast ×100
-  of flat shadow blocks, median over the pairs with such blocks
-  (L 0.05–0.15 / 0.15–0.25 / 0.25–0.35; n 20 / 32 / 39): without AI
-  Denoise 0.69 / 0.70 / 0.78, version 3 1.02 / 1.86 / 1.24, version 4
-  0.68 / 0.73 / 0.72. Per pair version 4 is at 0.95 / 0.95 / 0.99 of the
-  photo without AI Denoise (better on 7, 15, 12 pairs, worse on 4, 11,
-  12; ties within 0.05) and at 0.59 / 0.56 / 0.81 of version 3 (better on 14, 24, 21 pairs,
-  worse on 2, 2, 6). EOS M100:
-  ISO 3200–10000 0.62 / 0.83 / 0.87 (version 3 2.73 / 4.06 / 4.62, without
-  0.58 / 0.80 / 0.90), ISO 12800+ 2.29 / 2.45 / 2.14 (2.96 / 4.60 / 6.57,
-  without 2.22 / 2.66 / 2.34). It is level with the photo without AI
-  Denoise, not below it in every group: the fit pairs of G17 at ISO
-  12800+ have 0.76 / 0.79 / 0.63 against 0.70 / 0.66 / 0.71. Black level
-  of flat blocks at L 5–15, ISO 12800+: −0.18 L (version 3 −3.36, without
+  (`mosaic_denoise::keep_means`: per 2 × 2 position, three box passes of
+  radius 24; same model, same cached results). 60 RawNIND pairs, ISO
+  3200–51200 (26 of G17's set and 34 of scenes the RawNIND networks hold
+  out, 14 of them EOS M100), noisy frame at Exposure +2 against the clean
+  frame, renderVersion 11, colour cast ×100 of flat shadow blocks, median
+  over the pairs with such blocks (L 0.05–0.15 / 0.15–0.25 / 0.25–0.35;
+  n 20 / 32 / 39): without AI Denoise 0.69 / 0.70 / 0.78, version 3
+  1.02 / 1.86 / 1.24, version 4 0.67 / 0.74 / 0.75. Per pair version 4 is
+  at 0.96 / 0.97 / 0.98 of the photo without AI Denoise (better on 7, 14,
+  13 pairs, worse on 4, 7, 8; ties within 0.05; mean difference −0.11 /
+  −0.06 / −0.03, largest +0.54 / +0.57 / +0.40, version 3's +2.15 / +4.28 /
+  +5.23) and at 0.69 / 0.57 / 0.81 of version 3 (better on 15, 23, 22
+  pairs, worse on 3, 3, 6). EOS M100: ISO 3200–10000 0.67 / 0.79 / 0.82
+  (version 3 2.73 / 4.06 / 4.62, without 0.58 / 0.80 / 0.90), ISO 12800+
+  1.95 / 2.12 / 2.14 (2.96 / 4.60 / 6.57, without 2.22 / 2.66 / 2.34). It
+  is level with the photo without AI Denoise, not below it in every group
+  of pairs: the fit pairs of G17 at ISO 12800+ have 0.81 / 1.01 / 0.78
+  against 0.70 / 0.66 / 0.71 (version 3 1.58 / 0.97 / 0.80; means 0.85 /
+  0.88 / 0.81 against 0.72 / 0.82 / 0.77, version 3 1.38 / 1.86 / 1.39;
+  in the middle band version 4 is below version 3 on 8 of the 9 pairs). Black level of
+  flat blocks at L 5–15, ISO 12800+: −0.21 L (version 3 −3.36, without
   +0.55). Per pair against version 3 (full size, Oklab, against the clean
-  frame): colour detail and edges kept 0.998–1.005, lightness edges kept
-  1.00–1.02, their errors 1.00–1.01; luminance noise of flat blocks at
-  ISO 12800+ 0.86 at L 5–15, 0.98 / 1.00 / 1.01 at L 15–25 / 25–35 /
-  35–75 (above 1.05 on 4 / 4 / 10 pairs, at most 1.41 / 1.63 / 1.20, on
-  pairs whose level version 3 had moved: where the level moved less than
-  0.3 L the ratio is 1.00, at most 1.12); colour noise 0.55 / 0.81 /
-  0.88 / 1.02. Below ISO 12800 every median ratio is within 0.90–1.004. An
-  export with the network's result cached takes 0–0.8 s longer per 24 MP
-  (7.5–8.5 s → 7.7–8.8 s). Tried and rejected: the shadow means taken
-  before the network (the restore's gain scales the network's residue:
-  luminance noise 3.5 → 4.8), the network's input clipped at black (cast
-  2.3), a noise map from smoothed levels (no change in the shift), and a
-  plain low-pass of the shift (level with the photo without AI Denoise
-  only with a narrow window, which brings sensor noise back).
+  frame), ISO 12800+: colour detail, texture and edges kept 1.00–1.01,
+  lightness edges kept 1.01, their errors 1.00–1.01; luminance noise of
+  flat blocks 0.86 at L 5–15 and 0.96 / 0.99 / 1.01 at L 15–25 / 25–35 /
+  35–75 (above 1.05 on 4 / 4 / 10 pairs, at most 1.46 / 1.71 / 1.30;
+  where the level moved less than 0.3 L the median is 1.00: version 3's
+  darker shadows hid noise in black); colour noise 0.53 / 0.71 / 0.81 /
+  1.01. Below ISO 12800 every median ratio is within 0.86–1.002. Tried
+  and rejected: the shadow means taken before the network (the restore's
+  gain scales the network's residue: luminance noise 3.5 → 4.8), the
+  network's input clipped at black (cast 2.3 on the five deep pairs), a
+  noise map from smoothed levels (the shift stays), radii of 6, 12, 48
+  and 96 (narrower brings sensor noise back, wider follows the shift
+  less: per pair 1.32 / 1.15 / 1.13 / 1.30 of the photo without AI
+  Denoise at L 0.15–0.25 on 12 pairs, 1.08 at 24), and the mean taken
+  apart for each level (the same cast, 0.95 / 0.95 / 0.99 on the 60
+  pairs, with more colour noise at ISO 12800+, 0.55 / 0.81 / 0.88 of
+  version 3 against 0.53 / 0.71 / 0.81, and three times the code).
   Candidates measured for better fine texture, all with weights under MIT
   from their authors, on the same six scenes through Rawtonic's pipeline:
   DRUNet (KAIR, MIT) on the packed mosaic after a variance-stabilising
