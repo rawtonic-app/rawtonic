@@ -59,6 +59,7 @@ import {
   maskDisplayOf,
   maskOpacityOf
 } from '../../utils/maskDisplay';
+import { EXPOSURE_KEYS, HSL_TRAVEL_PT } from './sliderFeel';
 import AdjustmentControl from './AdjustmentControl';
 import StudioProfileBrowser from './StudioProfileBrowser';
 import StudioWhiteBalance from './StudioWhiteBalance';
@@ -937,6 +938,7 @@ export default function StudioDevelop() {
       defaultValue={(defaults[key] ?? 0) as number}
       disabled={!panelsReady}
       track={track}
+      keys={key === 'exposure' ? EXPOSURE_KEYS : undefined}
       optionView={optionViewOf(key)}
       onChange={changeOf(key)}
       onInteraction={onInteraction}
@@ -1604,6 +1606,7 @@ export default function StudioDevelop() {
                   key={key}
                   label={t(`adjustments.color.${key}`)}
                   value={values.hsl[hsl][key]}
+                  minTravel={HSL_TRAVEL_PT}
                   disabled={!panelsReady}
                   onInteraction={onInteraction}
                   onChange={(v) =>

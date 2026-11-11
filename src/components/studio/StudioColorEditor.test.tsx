@@ -286,9 +286,9 @@ describe('range wheel <-> sliders', () => {
     });
     fireEvent.keyDown(slider, { key: 'ArrowRight' });
     rerender(<Harness initial={[range]} />);
-    expect(lastRanges()[0].hueRange).toBe(26);
-    expect(edge().getAttribute('aria-valuenow')).toBe('26');
-    // The clockwise edge (hue 50 − 26) sits lower on the wheel than before.
+    expect(lastRanges()[0].hueRange).toBe(30);
+    expect(edge().getAttribute('aria-valuenow')).toBe('30');
+    // The clockwise edge (hue 50 − 30) sits lower on the wheel than before.
     expect(Number(edge().getAttribute('cy'))).toBeGreaterThan(before);
   });
 
@@ -394,7 +394,7 @@ describe('skin tone mode', () => {
     expect(names.indexOf('Color range hue uniformity')).toBeLessThan(names.indexOf('Color range hue'));
     expect(screen.getByText('Amount')).toBeTruthy();
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Color range saturation uniformity' }), { key: 'ArrowRight' });
-    expect(lastRanges().find((r) => r.kind === 'skin')!.saturationUniformity).toBe(1);
+    expect(lastRanges().find((r) => r.kind === 'skin')!.saturationUniformity).toBe(5);
     expect(lastRanges().find((r) => r.id === other.id)).toEqual(other);
   });
 

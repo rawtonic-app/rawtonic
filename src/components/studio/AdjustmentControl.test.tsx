@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, act } from '@testing-library/react'
 import AdjustmentControl, { dragPrecision } from './AdjustmentControl';
 import { histogramBins } from './StudioHistogram';
 import { visibleRange } from './StudioBrowser';
+import { EXPOSURE_KEYS, HSL_TRAVEL_PT, KELVIN_KEYS } from './sliderFeel';
+import { KELVIN_SCALE } from '../../utils/whiteBalance';
 
 beforeEach(() => vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => setTimeout(() => fn(0), 16)));
 afterEach(() => {
@@ -244,12 +246,12 @@ describe('professional adjustment control', () => {
   });
   it('supports fine and coarse keyboard steps and reset', () => {
     const change = vi.fn();
-    render(<AdjustmentControl label="Contrast" value={0} onChange={change} />);
+    render(<AdjustmentControl label="Contrast" value={0} step={0.5} onChange={change} />);
     const slider = screen.getByRole('slider');
     fireEvent.keyDown(slider, { key: 'ArrowRight', altKey: true });
-    expect(change).toHaveBeenLastCalledWith(0.1);
+    expect(change).toHaveBeenLastCalledWith(0.05);
     fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true });
-    expect(change).toHaveBeenLastCalledWith(10);
+    expect(change).toHaveBeenLastCalledWith(5);
     fireEvent.doubleClick(slider);
     expect(change).toHaveBeenLastCalledWith(0);
   });
@@ -299,5 +301,147 @@ describe('native histogram adapter', () => {
     expect(histogramBins({ data: [0, 10, 20] })).toEqual([0, 10, 20]);
     expect(histogramBins(null)).toEqual([]);
     expect(histogramBins([NaN, -4, 12])).toEqual([0, 0, 12]);
+  });
+});
+
+describe('Lightroom keyboard steps and travel', () => {
+  const field = (name: string) => screen.getByLabelText(new RegExp(`${name} value`)) as HTMLInputElement;
+  const press = (el: HTMLElement, key: string, mods: { shiftKey?: boolean; altKey?: boolean } = {}) =>
+    fireEvent.keyDown(el, { key, ...mods });
+
+  it('numeric fields step 1 / Shift 10 on whole-unit sliders', () => {
+    const change = vi.fn();
+    render(<AdjustmentControl label="Contrast" value={0} onChange={change} />);
+    const input = field('Contrast');
+    press(input, 'ArrowUp');
+    expect(change).toHaveBeenLastCalledWith(1);
+    press(input, 'ArrowUp', { shiftKey: true });
+    expect(change).toHaveBeenLastCalledWith(11);
+    press(input, 'ArrowDown', { shiftKey: true });
+    expect(change).toHaveBeenLastCalledWith(1);
+    press(input, 'ArrowDown');
+    expect(change).toHaveBeenLastCalledWith(0);
+  });
+
+  it('exposure steps 0.10 / Shift 0.33 EV in the field and on the slider, Alt 0.01', () => {
+    const change = vi.fn();
+    render(
+      <AdjustmentControl
+        label="Exposure"
+        value={0}
+        min={-5}
+        max={5}
+        step={0.01}
+        keys={EXPOSURE_KEYS}
+        onChange={change}
+      />
+    );
+    press(field('Exposure'), 'ArrowUp');
+    expect(change).toHaveBeenLastCalledWith(0.1);
+    press(field('Exposure'), 'ArrowUp', { shiftKey: true });
+    expect(change).toHaveBeenLastCalledWith(0.43);
+    const slider = screen.getByRole('slider', { name: 'Exposure' });
+    press(slider, 'ArrowRight');
+    expect(change).toHaveBeenLastCalledWith(0.53);
+    press(slider, 'ArrowRight', { shiftKey: true });
+    expect(change).toHaveBeenLastCalledWith(0.86);
+    press(slider, 'ArrowLeft', { altKey: true });
+    expect(change).toHaveBeenLastCalledWith(0.85);
+  });
+
+  it('Kelvin steps 50 K / Shift 200 K in the field and on the slider', () => {
+    const change = vi.fn();
+    render(
+      <AdjustmentControl
+        label="Temperature"
+        value={4050}
+        min={2000}
+        max={50000}
+        step={50}
+        keys={KELVIN_KEYS}
+        scale={KELVIN_SCALE}
+        onChange={change}
+      />
+    );
+    press(field('Temperature'), 'ArrowUp');
+    expect(change).toHaveBeenLastCalledWith(4100);
+    press(field('Temperature'), 'ArrowUp', { shiftKey: true });
+    expect(change).toHaveBeenLastCalledWith(4300);
+    press(screen.getByRole('slider', { name: 'Temperature' }), 'ArrowRight', { shiftKey: true });
+    expect(change).toHaveBeenLastCalledWith(4500);
+  });
+
+  it('a focused whole-unit slider steps 5 / Shift 20 / Alt 1', () => {
+    const change = vi.fn();
+    render(<AdjustmentControl label="Clarity" value={0} onChange={change} />);
+    const slider = screen.getByRole('slider', { name: 'Clarity' });
+    press(slider, 'ArrowRight');
+    expect(change).toHaveBeenLastCalledWith(5);
+    press(slider, 'ArrowRight', { shiftKey: true });
+    expect(change).toHaveBeenLastCalledWith(25);
+    press(slider, 'ArrowLeft', { altKey: true });
+    expect(change).toHaveBeenLastCalledWith(24);
+  });
+
+  it('a hovered slider steps with Up/Down without a click, not under a text field', () => {
+    const change = vi.fn();
+    render(
+      <>
+        <AdjustmentControl label="Clarity" value={0} onChange={change} />
+        <input aria-label="elsewhere" type="text" />
+      </>
+    );
+    const row = screen.getByRole('slider', { name: 'Clarity' }).closest('.adjustment-control')!;
+    fireEvent.keyDown(document.body, { key: 'ArrowUp' });
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.pointerEnter(row);
+    fireEvent.keyDown(document.body, { key: 'ArrowUp' });
+    expect(change).toHaveBeenLastCalledWith(5);
+    fireEvent.keyDown(document.body, { key: 'ArrowDown', shiftKey: true });
+    expect(change).toHaveBeenLastCalledWith(-15);
+    fireEvent.keyDown(document.body, { key: 'ArrowDown', altKey: true });
+    expect(change).toHaveBeenLastCalledWith(-16);
+    change.mockClear();
+    fireEvent.keyDown(screen.getByLabelText('elsewhere'), { key: 'ArrowUp' });
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.pointerLeave(row);
+    fireEvent.keyDown(document.body, { key: 'ArrowUp' });
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it('a focused slider keeps its arrow keys while the pointer rests on another row', () => {
+    const contrast = vi.fn();
+    const clarity = vi.fn();
+    render(
+      <>
+        <AdjustmentControl label="Contrast" value={0} onChange={contrast} />
+        <AdjustmentControl label="Clarity" value={0} onChange={clarity} />
+      </>
+    );
+    fireEvent.pointerEnter(screen.getByRole('slider', { name: 'Contrast' }).closest('.adjustment-control')!);
+    const focused = screen.getByRole('slider', { name: 'Clarity' });
+    focused.focus();
+    fireEvent.keyDown(focused, { key: 'ArrowUp' });
+    expect(clarity).toHaveBeenLastCalledWith(5);
+    expect(contrast).not.toHaveBeenCalled();
+  });
+
+  it('a track shorter than the minimum travel drags as if it had that length', () => {
+    const box = { left: 0, top: 0, width: 109, height: 20 } as DOMRect; // 100 px of travel
+    const drag = (minTravel?: number) => {
+      const change = vi.fn();
+      const { unmount } = render(<AdjustmentControl label="Hue" value={0} minTravel={minTravel} onChange={change} />);
+      const slider = screen.getByRole('slider', { name: 'Hue' });
+      vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(box);
+      slider.setPointerCapture = vi.fn();
+      fireEvent.pointerDown(slider, { button: 0, clientX: 54.5, clientY: 10, pointerId: 1 });
+      fireEvent.pointerMove(slider, { clientX: 74.5, clientY: 10, pointerId: 1 });
+      fireEvent.pointerUp(slider, { pointerId: 1 });
+      unmount();
+      return change.mock.calls.at(-1)![0];
+    };
+    // ±100 over 100 px: 2 units per px; over a 200 pt travel: 1 per pt.
+    expect(drag()).toBe(40);
+    expect(drag(HSL_TRAVEL_PT)).toBe(20);
   });
 });
