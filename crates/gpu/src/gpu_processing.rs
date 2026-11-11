@@ -5907,7 +5907,6 @@ fn encode_bind_group_layout(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn create_preview_pipeline(
     device: &wgpu::Device,
     shader_module: &wgpu::ShaderModule,
