@@ -23,7 +23,7 @@ use rawtonic_engine::formats::is_raw_file;
 use rawtonic_engine::image_loader::{
     BaseImageOptions, ai_denoise_settings, load_base_image_measured,
 };
-use rawtonic_rawdecode::mosaic_denoise::{MosaicDenoise, MosaicDenoiser};
+use rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser;
 
 /// One export: `output` must not exist; its extension, else `format`,
 /// chooses the encoder.
@@ -203,8 +203,7 @@ impl FileExporter {
                     job.source.display()
                 )
             })?;
-            base.mosaic_denoise =
-                Some(MosaicDenoise::new(denoiser, ai.blend).with_noise_scale(ai.noise_scale));
+            base.mosaic_denoise = Some(ai.mosaic_denoise(denoiser));
         }
         if let Some(inputs) = &self.render_inputs {
             inputs.decode(

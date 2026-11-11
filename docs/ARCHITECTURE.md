@@ -344,8 +344,9 @@ start; `CameraHelpDialog`; `usageStats.ts`: tools used, from each history step's
 
 `denoise` — AI Denoise: Nonlocal MatchFilter on the Bayer mosaic (Core ML on macOS, ONNX Runtime elsewhere), blind noise
 estimate (scaled by `MosaicDenoise::noise_scale`), tiles of the model's input size, a content-keyed f16 cache; plugs
-into rawdecode's `mosaic_denoise` hook (before highlight reconstruction and demosaicing). App glue
-`src-tauri/src/ai_denoise.rs` (one denoiser per model: versions 1–2 the first Core ML package, version 3 the
+into rawdecode's `mosaic_denoise` hook (before highlight reconstruction and demosaicing; from version 4 the hook
+puts the sensor's local means back into the network's result, `keep_means`). App glue
+`src-tauri/src/ai_denoise.rs` (one denoiser per model: versions 1–2 the first Core ML package, versions 3–4 the
 mixed-precision 640 px one; no fallback, so a recipe always renders with its version's model); the recipe's `aiDenoise`
 (0–100) and `aiDenoiseVersion` decide (`rawtonic_engine::image_loader::ai_denoise_settings`), Develop re-develops via
 `apply_ai_denoise`. Its `coreml::CoreMlModel` (compile once to `.mlmodelc`, float inputs, one float output) also runs

@@ -53,7 +53,7 @@ weights tensor by tensor.
 | `siglip2_text_ext.onnx` + `siglip2_text_ext.onnx.data` (with `siglip2_vision.onnx`, `siglip2_tokenizer.json`) | Content search (Library search box, *Content* mode) | `siglip2_text.onnx` (below) with its weights saved as ONNX external data by `scripts/models/external_data.py`: same graph and weights, outputs bit-identical (checked by the script and by `build_model_pack.py`), reproducible (same SHA-256 in two runs). ONNX Runtime maps the data file instead of copying it, so the loaded text encoder takes +0.35 GB instead of +2.68 GB (notes: benchmark-results/srs-search-ceiling-2026-11-03 § SRS2). Downloaded only on the user's click; the user's own tags still load `siglip2_text.onnx`. | Apache-2.0 | Added to pack-2026-11-07 on 2026-11-07 (additive extension, user decision: only while no released app points to that pack) |
 | `siglip2_vision.onnx`, `siglip2_tags.bin` (+ `siglip2_text.onnx`, `siglip2_tokenizer.json` for own tags) | Auto tags | Rawtonic's export of Google's SigLIP 2 B/16 (`google/siglip2-base-patch16-224`, revision 75de2d5) by `scripts/models/export_siglip2.py`; reproducible (same SHA-256 in two exports). Replaced the inherited CLIP (OpenAI ViT-B/32, model card: deployed use "out of scope") on 2026-10-08. | Apache-2.0 | In the pack |
 | `nlmf_coreml_*` (Core ML package), `nlmf.onnx` | AI Denoise (Detail → Noise reduction) | Nonlocal MatchFilter (Sánchez-Beeckman and Buades, MIT), Core ML and ONNX conversions by sheldonxxxx/RapidRAW-Nonlocal-Denoise at revision af6bf36, unchanged (hashes from its `distribution.json`) | MIT | In the pack |
-| `nlmf_mixed640_macos13_coreml_*` (Core ML package) | AI Denoise version 3 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, Core ML for macOS 13 like the app, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible. Version 3, the default for new RAW edits, runs it; version 1 and 2 recipes keep `nlmf_coreml_*`. A macOS 15 build of it (`nlmf_mixed640_coreml_*`, same weights, same results on macOS 26) went into pack-2026-10-18 first and is used by no build. | MIT | In the pack (from pack-2026-10-18) |
+| `nlmf_mixed640_macos13_coreml_*` (Core ML package) | AI Denoise versions 3 and 4 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, Core ML for macOS 13 like the app, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible. Versions 3 and 4 (4 is the default for new RAW edits) run it; version 1 and 2 recipes keep `nlmf_coreml_*`. A macOS 15 build of it (`nlmf_mixed640_coreml_*`, same weights, same results on macOS 26) went into pack-2026-10-18 first and is used by no build. | MIT | In the pack (from pack-2026-10-18) |
 | `skyseg_upernet_convnext_t.onnx` | Sky mask | Rawtonic's export of UperNet + ConvNeXt-T on ADE20K (Meta's checkpoint from facebookresearch/ConvNeXt, MIT; transformers conversion `openmmlab/upernet-convnext-tiny`, revision 876ffc5) by `scripts/models/export_sky.py`; sky probability of ADE20K class 2, fp16 storage, reproducible (same SHA-256 in two exports). | MIT (Meta) | In the pack since 2026-10-09 |
 | `skyseg_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Sky mask on macOS (fast path) | The same UperNet + ConvNeXt-T checkpoint and revision converted from PyTorch with coremltools 9.0 by `scripts/models/convert_sky_coreml.py` (the export's graph; ML program, fp32, 237 MB; reproducible with `PYTHONHASHSEED=0`: same SHA-256 in three conversions). Probabilities equal to PyTorch's (largest difference < 1e-4, mask IoU 1.0 on 13 photos), 0.06 s on the GPU of an M5 Pro against 0.35-0.8 s on the CPU. Downloaded on macOS for the first Sky mask (before 2026-10-19 only `install_models.sh` installed them); if Core ML fails, the app uses the ONNX model. | MIT | Built 2026-10-10, in the pack |
 | `skyseg-u2net.onnx` | Sky mask (inherited) | Byte-identical to `JianyuanWang/skyseg` (a re-upload tagged MIT); originally from xiongzhu666's Sky-Segmentation repo (MIT code). The author states the model was trained on ADE20K plus private company data; the README does not license the ONNX file. | Unclear | Replaced 2026-10-09 |
@@ -998,6 +998,56 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   compiles the package (D7200: 9.9 s in all). Camera Raw Denoise takes
   6.3–6.9 s per 24 MP (command to result), so version 3 is still about
   1.5× slower; version 2 runs at version 1's speed.
+  **AI Denoise version 4 (2026-11-11, Linux, RTX 3080; notes:
+  benchmark-results/aid-ai-denoise-shadows-2026-11-11, task AID).** The
+  network's result is darker than the sensor's samples in high-ISO shadows,
+  by a different amount per colour (on an α7C frame at ISO 25600 the red
+  samples of the darkest third average 6.6e-4 of white and the network's
+  result 2.6e-4), and it tints the shadows and mid-tones of a camera it was
+  not trained on (EOS M100). Version 3 therefore gave a stronger colour
+  cast in lifted shadows than the photo without AI Denoise. Version 4 adds
+  the local mean of sample − result back to the result
+  (`mosaic_denoise::keep_means`: per 2 × 2 position, three box passes of
+  radius 24; same model, same cached results). 60 RawNIND pairs, ISO
+  3200–51200 (26 of G17's set and 34 of scenes the RawNIND networks hold
+  out, 14 of them EOS M100), noisy frame at Exposure +2 against the clean
+  frame, renderVersion 11, colour cast ×100 of flat shadow blocks, median
+  over the pairs with such blocks (L 0.05–0.15 / 0.15–0.25 / 0.25–0.35;
+  n 20 / 32 / 39): without AI Denoise 0.69 / 0.70 / 0.78, version 3
+  1.02 / 1.86 / 1.24, version 4 0.67 / 0.74 / 0.75. Per pair version 4 is
+  at 0.96 / 0.97 / 0.98 of the photo without AI Denoise (better on 7, 14,
+  13 pairs, worse on 4, 7, 8; ties within 0.05; mean difference −0.11 /
+  −0.06 / −0.03, largest +0.54 / +0.57 / +0.40, version 3's +2.15 / +4.28 /
+  +5.23) and at 0.69 / 0.57 / 0.81 of version 3 (better on 15, 23, 22
+  pairs, worse on 3, 3, 6). EOS M100: ISO 3200–10000 0.67 / 0.79 / 0.82
+  (version 3 2.73 / 4.06 / 4.62, without 0.58 / 0.80 / 0.90), ISO 12800+
+  1.95 / 2.12 / 2.14 (2.96 / 4.60 / 6.57, without 2.22 / 2.66 / 2.34). It
+  is level with the photo without AI Denoise, not below it in every group
+  of pairs: the fit pairs of G17 at ISO 12800+ have 0.81 / 1.01 / 0.78
+  against 0.70 / 0.66 / 0.71 (version 3 1.58 / 0.97 / 0.80; means 0.85 /
+  0.88 / 0.81 against 0.72 / 0.82 / 0.77, version 3 1.38 / 1.86 / 1.39;
+  in the middle band version 4 is below version 3 on 8 of the 9 pairs). Black level of
+  flat blocks at L 5–15, ISO 12800+: −0.21 L (version 3 −3.36, without
+  +0.55). Per pair against version 3 (full size, Oklab, against the clean
+  frame), ISO 12800+: colour detail, texture and edges kept 1.00–1.01,
+  lightness edges kept 1.01, their errors 1.00–1.01; luminance noise of
+  flat blocks 0.86 at L 5–15 and 0.96 / 0.99 / 1.01 at L 15–25 / 25–35 /
+  35–75 (above 1.05 on 4 / 4 / 10 pairs, at most 1.46 / 1.71 / 1.30;
+  where the level moved less than 0.3 L the median is 1.00: version 3's
+  darker shadows hid noise in black); colour noise 0.53 / 0.71 / 0.81 /
+  1.01. Below ISO 12800 every median ratio is within 0.86–1.002. An
+  export takes 0.4–0.6 s longer per 18–24 MP (7.5–7.9 s → 7.8–8.4 s with
+  the network's result cached; the network itself takes 45 s there). Tried
+  and rejected: the shadow means taken before the network (the restore's
+  gain scales the network's residue: luminance noise 3.5 → 4.8), the
+  network's input clipped at black (cast 2.3 on the five deep pairs), a
+  noise map from smoothed levels (the shift stays), radii of 6, 12, 48
+  and 96 (narrower brings sensor noise back, wider follows the shift
+  less: per pair 1.32 / 1.15 / 1.13 / 1.30 of the photo without AI
+  Denoise at L 0.15–0.25 on 12 pairs, 1.08 at 24), and the mean taken
+  apart for each level (the same cast, 0.95 / 0.95 / 0.99 on the 60
+  pairs, with more colour noise at ISO 12800+, 0.55 / 0.81 / 0.88 of
+  version 3 against 0.53 / 0.71 / 0.81, and three times the code).
   Candidates measured for better fine texture, all with weights under MIT
   from their authors, on the same six scenes through Rawtonic's pipeline:
   DRUNet (KAIR, MIT) on the packed mosaic after a variance-stabilising

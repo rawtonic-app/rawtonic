@@ -111,7 +111,7 @@ pub fn ai_denoise_amount(adjustments: &Value) -> f32 {
 }
 
 /// The newest AI Denoise version this build renders.
-pub const AI_DENOISE_LATEST: u8 = 3;
+pub const AI_DENOISE_LATEST: u8 = 4;
 
 /// Sub-mask types of the inherited patches that no model makes: clone and
 /// heal copy pixels, liquify warps them, retouch smooths them.
@@ -396,8 +396,12 @@ mod tests {
         let brush = json!({"masks": [{"subMasks": [{"type": "brush"}]}]});
         assert_eq!(ai_facts(&brush), 0);
         assert_eq!(
-            ai_facts(&json!({"aiDenoise": 40, "aiDenoiseVersion": 3})),
+            ai_facts(&json!({"aiDenoise": 40, "aiDenoiseVersion": 4})),
             AI_DENOISE
+        );
+        assert_eq!(
+            ai_facts(&json!({"aiDenoise": 40, "aiDenoiseVersion": 3})),
+            AI_DENOISE | OLDER_DENOISE
         );
         assert_eq!(
             ai_facts(&json!({"aiDenoise": 40})),
@@ -409,7 +413,7 @@ mod tests {
 
     #[test]
     fn reads_stored_recipes_and_editor_states() {
-        let adjustments = json!({"aiDenoise": 30, "aiDenoiseVersion": 3});
+        let adjustments = json!({"aiDenoise": 30, "aiDenoiseVersion": 4});
         let recipe = json!({"schema_version": 1, "adjustments": adjustments, "editor_state": {}});
         let state = json!({"version": 1, "adjustments": adjustments});
         let wrapped = json!({"adjustments": null, "editor_state": {"adjustments": adjustments}});
