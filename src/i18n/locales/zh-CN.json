@@ -1498,7 +1498,11 @@
       "picked_other": "{{count}} 张留用",
       "tether": "联机拍摄",
       "tetherConnected": "{{camera}} 已连接",
-      "tetherTitle": "联机拍摄：USB 相机拍摄的照片直接进入此图库"
+      "tetherTitle": "联机拍摄：USB 相机拍摄的照片直接进入此图库",
+      "windowClose": "关闭窗口",
+      "windowMaximize": "最大化窗口",
+      "windowMinimize": "最小化窗口",
+      "windowRestore": "还原窗口"
     },
     "catalogExport": {
       "cancelled": "目录“{{name}}”导出已取消；未创建任何内容",

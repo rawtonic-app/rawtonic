@@ -57,7 +57,7 @@
   padding-bottom: 16px;
 }
 .studio-app.macos-native-chrome .session-welcome,
-.studio-app.linux-unified-chrome .session-welcome {
+.studio-app.custom-window-chrome .session-welcome {
   top: 44px;
 }
 /* WebKitGTK otherwise paints the system's light select face over our dark
@@ -4744,13 +4744,16 @@ body.is-dragging.is-drop-refused * {
   background: #ffffff10;
   color: var(--studio-shade-text, #e6e7e9);
 }
-/* With the top bar hidden on a windowed Mac, the strip is the title bar:
-   tall enough for the window buttons, draggable, with a small button. */
-.studio-app.macos-windowed .studio-edge.is-top {
+/* With the top bar hidden on a windowed Mac, or on Windows/Linux with our own
+   window controls, the strip is the title bar: tall enough, draggable, with
+   a small button. */
+.studio-app.macos-windowed .studio-edge.is-top,
+.studio-app.custom-windowed .studio-edge.is-top {
   height: 38px;
   align-items: center;
 }
-.studio-app.macos-windowed .studio-workspace .studio-edge.is-top > button {
+.studio-app.macos-windowed .studio-workspace .studio-edge.is-top > button,
+.studio-app.custom-windowed .studio-workspace .studio-edge.is-top > button {
   flex: none;
   width: 48px;
   height: 18px;

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Copy, Minus, Square, X } from 'lucide-react';
 
-/** Linux window controls share the session bar instead of adding a second row. */
+/** Windows and Linux window controls share the session bar instead of adding a second row. */
 export default function WindowControls() {
+  const { t } = useTranslation();
   const [appWindow] = useState(() => getCurrentWindow());
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -28,25 +30,27 @@ export default function WindowControls() {
     };
   }, [appWindow]);
 
+  const maximizeLabel = t(isMaximized ? 'session.bar.windowRestore' : 'session.bar.windowMaximize');
+
   return (
     <div className="studio-window-controls">
       <button
-        aria-label="Minimize window"
-        title="Minimize window"
+        aria-label={t('session.bar.windowMinimize')}
+        title={t('session.bar.windowMinimize')}
         onClick={() => void appWindow.minimize().catch(console.error)}
       >
         <Minus size={15} />
       </button>
       <button
-        aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
-        title={isMaximized ? 'Restore window' : 'Maximize window'}
+        aria-label={maximizeLabel}
+        title={maximizeLabel}
         onClick={() => void appWindow.toggleMaximize().catch(console.error)}
       >
         {isMaximized ? <Copy size={13} /> : <Square size={13} />}
       </button>
       <button
-        aria-label="Close window"
-        title="Close window"
+        aria-label={t('session.bar.windowClose')}
+        title={t('session.bar.windowClose')}
         className="studio-window-close"
         onClick={() => void appWindow.close().catch(console.error)}
       >

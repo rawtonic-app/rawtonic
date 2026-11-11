@@ -1665,7 +1665,11 @@
       "picked_other": "wybrane: {{count}}",
       "tether": "Tethering",
       "tetherConnected": "{{camera}} podłączony",
-      "tetherTitle": "Fotografowanie z podłączonym aparatem: zdjęcia z aparatu przez USB trafiają prosto do tej biblioteki"
+      "tetherTitle": "Fotografowanie z podłączonym aparatem: zdjęcia z aparatu przez USB trafiają prosto do tej biblioteki",
+      "windowClose": "Zamknij okno",
+      "windowMaximize": "Zmaksymalizuj okno",
+      "windowMinimize": "Zminimalizuj okno",
+      "windowRestore": "Przywróć okno"
     },
     "catalogExport": {
       "cancelled": "Anulowano eksport katalogu „{{name}}”; nic nie utworzono",

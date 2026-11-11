@@ -2,7 +2,7 @@ import '../../i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import StudioBrowser from './StudioBrowser';
-import { ownsPanelShortcut, focusWorkspaceControl } from './workspaceInteractions';
+import { ownsPanelShortcut, focusWorkspaceControl, topEdgeDragsWindow } from './workspaceInteractions';
 import { type ImageFile } from '../ui/AppProperties';
 
 beforeEach(() =>
@@ -55,6 +55,15 @@ describe('workspace focus ownership', () => {
     const inner = document.createElement('button');
     viewer.append(inner);
     expect(ownsPanelShortcut(inner)).toBe(false);
+  });
+});
+describe('top edge as title bar', () => {
+  it('drags the window when the bars are hidden on every desktop platform, not in the full screen', () => {
+    for (const p of ['macos', 'windows', 'linux']) {
+      expect(topEdgeDragsWindow(p, false)).toBe(true);
+      expect(topEdgeDragsWindow(p, true)).toBe(false);
+    }
+    expect(topEdgeDragsWindow('', false)).toBe(false);
   });
 });
 describe('filmstrip selection reveal', () => {

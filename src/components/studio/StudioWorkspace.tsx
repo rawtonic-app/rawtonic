@@ -96,7 +96,12 @@ import { AutoStackDialogHost } from './AutoStackDialog';
 import UnaddedFolderBanner from '../session/UnaddedFolderBanner';
 import type { StackMark } from '../../store/useStackStore';
 import { PerfProfiler } from '../../hooks/usePerformanceDiagnostics';
-import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from './workspaceInteractions';
+import {
+  clearLibrarySelection,
+  focusWorkspaceControl,
+  reselectForDevelop,
+  topEdgeDragsWindow
+} from './workspaceInteractions';
 import { registerAppCommands, runAppCommand } from '../../utils/appCommands';
 import ViewerInfoOverlay from './ViewerInfoOverlay';
 import { LoupeFaces } from './StudioEyes';
@@ -1193,8 +1198,8 @@ export default function StudioWorkspace(props: Props) {
           label={t('studio.workspace.edges.showBars')}
           hint={hint('toggle_all_panels')}
           onShow={() => showPanels(['bars'])}
-          // Stands in for the hidden top bar as the window's title bar.
-          dragRegion={osPlatform === 'macos' && !isWindowFullScreen}
+          // Stands in for the hidden top bar as the window's title bar (all platforms).
+          dragRegion={topEdgeDragsWindow(osPlatform, isWindowFullScreen)}
         />
       )}
       <div className="studio-body">

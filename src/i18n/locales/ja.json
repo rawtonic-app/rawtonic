@@ -1498,7 +1498,11 @@
       "picked_other": "採用 {{count}}",
       "tether": "テザー",
       "tetherConnected": "{{camera}} 接続中",
-      "tetherTitle": "テザー撮影：USB 接続したカメラの写真がこのライブラリに直接入ります"
+      "tetherTitle": "テザー撮影：USB 接続したカメラの写真がこのライブラリに直接入ります",
+      "windowClose": "ウィンドウを閉じる",
+      "windowMaximize": "ウィンドウを最大化",
+      "windowMinimize": "ウィンドウを最小化",
+      "windowRestore": "ウィンドウを元に戻す"
     },
     "catalogExport": {
       "cancelled": "カタログ「{{name}}」の書き出しをキャンセルしました。何も作成されていません",

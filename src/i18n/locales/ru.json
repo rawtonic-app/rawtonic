@@ -1665,7 +1665,11 @@
       "picked_other": "отобрано: {{count}}",
       "tether": "Тетеринг",
       "tetherConnected": "{{camera}} подключена",
-      "tetherTitle": "Съёмка с подключением: фото с камеры по USB сразу попадают в эту библиотеку"
+      "tetherTitle": "Съёмка с подключением: фото с камеры по USB сразу попадают в эту библиотеку",
+      "windowClose": "Закрыть окно",
+      "windowMaximize": "Развернуть окно",
+      "windowMinimize": "Свернуть окно",
+      "windowRestore": "Восстановить окно"
     },
     "catalogExport": {
       "cancelled": "Экспорт каталога «{{name}}» отменён; ничего не создано",

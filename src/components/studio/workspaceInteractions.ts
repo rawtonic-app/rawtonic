@@ -48,3 +48,12 @@ export function reselectForDevelop(path: string) {
   if (library.multiSelectedPaths.length > 0) return;
   library.setLibrary({ multiSelectedPaths: [path], libraryActivePath: path, selectionAnchorPath: path });
 }
+
+/**
+ * With the bars hidden (Tab) the top edge strip is the window's only title
+ * bar: it drags and double-click-maximizes the window on macOS, Windows and
+ * Linux alike, except in the system full screen (and in an unknown platform).
+ */
+export function topEdgeDragsWindow(osPlatform: string, isWindowFullScreen: boolean): boolean {
+  return ['macos', 'windows', 'linux'].includes(osPlatform) && !isWindowFullScreen;
+}
