@@ -1,5 +1,7 @@
 //! Run each format in a fresh process under /usr/bin/time -l.
-//! Synthetic 36 MP RGB8; includes source generation, excludes decode/render.
+//! Peak RSS comes from time, not the printed encode timer.
+//! Synthetic 36 MP RGB8; RSS includes generation/input/encoder, excludes RAW/GPU.
+//! Optional decoder verification adds decode memory: do not use it for peak-RSS comparisons.
 use image::{DynamicImage, Rgb, RgbImage};
 use rawtonic_engine::output_color_space::OutputColorSpace;
 use rawtonic_export::export_processing::{TiffBitDepth, encode_image_to_bytes};
@@ -69,7 +71,7 @@ fn main() {
         assert_eq!(decoded.to_rgb8(), image.to_rgb8());
         println!("libjxl_decoded_pixels_identical=true");
     }
-    if std::env::args().any(|arg| arg == "--verify") {
+    if std::env::args().any(|arg| arg == "--verify-rust-reader") {
         let decoder = jxl_oxide::integration::JxlDecoder::new(std::io::Cursor::new(bytes)).unwrap();
         let decoded = DynamicImage::from_decoder(decoder).unwrap();
         assert_eq!(decoded.to_rgb8(), image.to_rgb8());

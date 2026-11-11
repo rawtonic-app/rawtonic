@@ -1650,7 +1650,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires a GPU; run explicitly on native QA hosts"]
-    fn mixed_master_copy_batch_matches_single_exports() {
+    fn queued_master_and_copy_recipe_renders_match_single_exports() {
         use rawtonic_engine::{
             output_color_space::OutputColorSpace, recipe_versions::RecipeVersions,
         };
