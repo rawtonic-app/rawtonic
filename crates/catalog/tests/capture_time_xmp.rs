@@ -224,6 +224,24 @@ fn lightroom_s_edited_capture_time_imports_as_a_correction_and_equal_ones_do_not
     assert!(!lib.metadata(&id).unwrap().iptc.contains_key("dateCreated"));
     assert_eq!(sha256(&photo), camera_file);
 
+    // Imported, shifted once more in Rawtonic, then reset: Lightroom's
+    // mirrored IPTC Date Created goes with the first correction.
+    let (more, more_id, more_photo) = import(&d.path().join("more"), "A.ORF", Some(&shifted));
+    more.record_facts(&more_id, &facts("2020-10-18 13:34:44"))
+        .unwrap();
+    let imported = time("2020-10-18 15:34:44", None, None).unwrap();
+    let later = time("2020-10-18 16:34:44", None, None).unwrap();
+    set(&more, &more_id, Some(imported), Some(later.clone()));
+    more.write_pending_xmp().unwrap();
+    assert!(
+        sidecar(&more_photo)
+            .contains("<photoshop:DateCreated>2020-10-18T16:34:44</photoshop:DateCreated>")
+    );
+    set(&more, &more_id, Some(later), None);
+    more.write_pending_xmp().unwrap();
+    assert_eq!(stated(&more_photo), None);
+    assert!(!sidecar(&more_photo).contains("DateCreated"));
+
     // Equal to the file's time (Capture One's `Z` after local time): none.
     let (c1, c1_id, _) = import(&d.path().join("c1"), "B.CR3", Some(C1_KEYWORDS));
     c1.record_facts(&c1_id, &facts("2019-01-24 12:29:49"))

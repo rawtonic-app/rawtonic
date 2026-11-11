@@ -524,11 +524,11 @@ pub(crate) fn adopt_sidecar(
 }
 
 /// Drops the library's IPTC Date Created of asset `id` when it holds the
-/// correction being removed (`removed`): read from a sidecar the correction
-/// came from (Lightroom writes it beside its edited capture time) or from
-/// one the library wrote, it is that correction, not a date of its own, and
-/// the sidecar writer then removes it with the correction's other date. An
-/// IPTC Date Created of another value stays.
+/// correction being replaced or removed (`removed`): read from a sidecar
+/// the correction came from (Lightroom writes it beside its edited capture
+/// time) or from one the library wrote, it is that correction, not a date
+/// of its own; while a correction is set it owns `photoshop:DateCreated`,
+/// and a reset removes it. An IPTC Date Created of another value stays.
 fn forget_mirrored_date(conn: &Connection, id: &str, removed: &CaptureTime) -> Result<()> {
     let data: Option<String> = conn
         .query_row("SELECT data FROM metadata WHERE asset_id=?", [id], |r| {
@@ -663,6 +663,11 @@ impl Library {
             return Ok(conflicts);
         }
         for (change, new) in checked {
+            // The correction being replaced or removed: an IPTC Date
+            // Created mirroring it is no date of its own.
+            if let Some(replaced) = &change.expected {
+                forget_mirrored_date(&tx, &change.asset_id, replaced)?;
+            }
             match new {
                 Some(time) => tx.execute(
                     "INSERT INTO capture_overrides(asset_id,captured,subsec,offset) VALUES(?,?,?,?)
@@ -670,15 +675,10 @@ impl Library {
                         subsec=excluded.subsec,offset=excluded.offset",
                     params![change.asset_id, time.local, time.subsec, time.offset],
                 )?,
-                None => {
-                    if let Some(removed) = &change.expected {
-                        forget_mirrored_date(&tx, &change.asset_id, removed)?;
-                    }
-                    tx.execute(
-                        "DELETE FROM capture_overrides WHERE asset_id=?",
-                        [&change.asset_id],
-                    )?
-                }
+                None => tx.execute(
+                    "DELETE FROM capture_overrides WHERE asset_id=?",
+                    [&change.asset_id],
+                )?,
             };
             // The XMP sidecar follows (`capture_write`); one changed
             // elsewhere stays a conflict.

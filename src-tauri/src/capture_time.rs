@@ -741,7 +741,8 @@ mod tests {
 
     #[test]
     fn use_xmp_brings_what_the_photograph_shows_to_the_sidecar_s_time() {
-        use crate::xmp_review::{XmpChoice, resolve, undo};
+        use crate::xmp_review::{XmpChoice, session_xmp_resolve, session_xmp_undo};
+        use tauri::async_runtime::block_on;
         let temp = tempfile::tempdir().unwrap();
         let lib = Library::create(
             &temp.path().join("Job"),
@@ -783,7 +784,16 @@ mod tests {
 
         // Use XMP: no correction, and the photograph shows (and exports)
         // the file's own time again.
-        let report = resolve(&lib, std::slice::from_ref(&b_path), XmpChoice::Xmp).unwrap();
+        // Through the commands, as the session bar runs them (the library's
+        // write lock held while the catalog works, not while the editor
+        // sidecar is written).
+        let directory = library.to_string_lossy().into_owned();
+        let report = block_on(session_xmp_resolve(
+            directory.clone(),
+            vec![b_path.clone()],
+            XmpChoice::Xmp,
+        ))
+        .unwrap();
         assert_eq!(report.read, std::slice::from_ref(&b_path));
         assert_eq!(lib.capture_override(&id).unwrap(), None);
         assert_eq!(shown()["DateTimeOriginal"], "2026-10-30 23:45:00");
@@ -799,11 +809,62 @@ mod tests {
         );
 
         // Its undo brings the correction back, there too.
-        let undone = undo(&lib, &report.undo);
+        let undone = block_on(session_xmp_undo(directory, report.undo.clone())).unwrap();
         assert!(undone.failed.is_empty(), "{:?}", undone.failed);
         assert_eq!(lib.capture_override(&id).unwrap(), Some(corrected));
         assert_eq!(shown()["DateTimeOriginal"], "2026-10-31 00:45:00");
         assert_eq!(sha256(&b), hash, "the camera file is never written");
+    }
+
+    #[test]
+    fn use_xmp_compares_with_the_file_s_whole_time_also_in_an_older_library() {
+        use crate::xmp_review::{XmpChoice, session_xmp_resolve};
+        use rawtonic_metadata::{CaptureWrite, XmpDateTime};
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(
+            &temp.path().join("Job"),
+            "Job",
+            rawtonic_catalog::Mode::Session,
+        )
+        .unwrap();
+        let b = camera_jpeg(&lib, "B.jpg", "2026:10:30 23:45:00");
+        let id = lib.add_asset(&b).unwrap().id;
+        // Facts read before schema 28: whole seconds only.
+        let mut facts = rawtonic_ingest::capture::capture_facts(&b).unwrap();
+        facts.captured_subsec = None;
+        facts.captured_offset = None;
+        lib.record_facts(&id, &facts).unwrap();
+        lib.sync_xmp(&id).unwrap();
+        // Another editor moves the frame by .30 s within its second.
+        let xmp = b.with_extension("xmp");
+        let text = std::fs::read_to_string(&xmp).unwrap();
+        let moved = rawtonic_metadata::merge_xmp(
+            Some(&text),
+            &rawtonic_metadata::Metadata {
+                capture: CaptureWrite::Set(
+                    XmpDateTime::parse("2026-10-30T23:45:00.35+02:00").unwrap(),
+                ),
+                ..rawtonic_metadata::read_xmp(&text).unwrap().0
+            },
+            None,
+        )
+        .unwrap();
+        std::fs::write(&xmp, moved).unwrap();
+        assert!(lib.sync_xmp(&id).is_err(), "a conflict");
+        let report = tauri::async_runtime::block_on(session_xmp_resolve(
+            lib.directory.to_string_lossy().into_owned(),
+            vec![b.to_string_lossy().into_owned()],
+            XmpChoice::Xmp,
+        ))
+        .unwrap();
+        assert_eq!(report.read.len(), 1);
+        // The file says .05: .35 is a correction.
+        assert_eq!(
+            lib.capture_override(&id).unwrap(),
+            Some(CaptureTime::new("2026-10-30 23:45:00", Some("35"), Some("+02:00")).unwrap())
+        );
+        let shown = crate::exif_processing::read_rrexif_sidecar(&b).unwrap();
+        assert_eq!(shown["SubSecTimeOriginal"], "35");
     }
 
     #[test]
