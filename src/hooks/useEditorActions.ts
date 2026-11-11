@@ -1689,7 +1689,11 @@ export function useEditorActions() {
   const handleCopyAdjustments = useCallback(
     async (pathOrEvent?: string | SyntheticEvent, { quick = false }: { quick?: boolean } = {}) => {
       const pathOverride = typeof pathOrEvent === 'string' ? pathOrEvent : undefined;
-      const source = await settingsSource(pathOverride);
+      const libraryPath =
+        useUIStore.getState().activeView === 'library'
+          ? useLibraryStore.getState().libraryActivePath || useLibraryStore.getState().multiSelectedPaths[0]
+          : undefined;
+      const source = await settingsSource(pathOverride ?? libraryPath);
       if (!source) return;
       const copy = (choice: SettingsChoice) => {
         rememberChoice(choice, source.path);
