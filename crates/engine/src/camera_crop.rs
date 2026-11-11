@@ -106,18 +106,24 @@ pub fn recipe_values(crop: CameraCrop) -> (Value, Value) {
     )
 }
 
-/// Starts a new recipe (`is_new_recipe`) of the RAW at `source` as a new
-/// edit: the render, sharpening and frame versions
-/// (`image_processing::apply_render_default`), then the camera's crop of
-/// the frame it develops (`source_frame::requested`). Both together, since
-/// the crop alone would make the recipe an edit and its versions would be
-/// skipped. Saved edits keep their own crop (and versions); files without
-/// another camera frame get only the versions.
+/// Starts a new recipe (`is_new_recipe`) of the photo at `source` as a new
+/// edit: every version the editor's new edit starts with
+/// (`image_processing::start_new_edit`), then the camera's crop of the
+/// frame it develops (`source_frame::requested`). Both together, since the
+/// crop alone would make the recipe an edit and its versions would be
+/// skipped. Every batch edit of a never-edited photo starts here, so it
+/// gets the edit the photo opened first gets. Saved edits keep their own
+/// crop (and versions); files without another camera frame get only the
+/// versions.
 pub fn apply_default(adjustments: &mut Value, source: &std::path::Path) {
     if !crate::image_processing::is_new_recipe(adjustments) {
         return;
     }
-    start_new_edit(adjustments, &crops(&source.to_string_lossy()));
+    start_new_edit(
+        adjustments,
+        &crops(&source.to_string_lossy()),
+        crate::formats::is_raw_file(source),
+    );
 }
 
 /// Starts a new edit from already-read RAW bytes, without reopening its path.
@@ -128,7 +134,7 @@ pub fn apply_default_from_source(adjustments: &mut Value, source: &rawler::rawso
     let crops: Vec<_> = (0..=crate::source_frame::VERSION)
         .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(source, version))
         .collect();
-    start_new_edit(adjustments, &crops);
+    start_new_edit(adjustments, &crops, true);
 }
 
 /// The part of the developed frame the camera's own image (a RAW's
@@ -153,12 +159,12 @@ pub fn initial_crop(adjustments: &Value, crops: &[Option<CameraCrop>]) -> Option
 }
 
 /// `apply_default` with the file's `crops` (`crops`).
-fn start_new_edit(adjustments: &mut Value, crops: &[Option<CameraCrop>]) {
+fn start_new_edit(adjustments: &mut Value, crops: &[Option<CameraCrop>], is_raw: bool) {
     if !crate::image_processing::is_new_recipe(adjustments) {
         return;
     }
     let crop = initial_crop(adjustments, crops);
-    crate::image_processing::apply_render_default(adjustments);
+    crate::image_processing::start_new_edit(adjustments, is_raw);
     let Some(crop) = crop else {
         return;
     };
@@ -186,7 +192,7 @@ mod tests {
         // set too (the crop alone would make it an edit without them).
         for new in [json!({}), Value::Null] {
             let mut recipe = new;
-            start_new_edit(&mut recipe, &[Some(crop); 4]);
+            start_new_edit(&mut recipe, &[Some(crop); 4], true);
             assert_eq!(
                 recipe["renderVersion"],
                 json!(crate::image_processing::RENDER_VERSION)
@@ -201,7 +207,11 @@ mod tests {
         }
         // A Reset's recipe keeps its frame and takes that frame's crop.
         let mut reset = json!({crate::source_frame::KEY: 0});
-        start_new_edit(&mut reset, &[None, Some(crop), Some(crop), Some(crop)]);
+        start_new_edit(
+            &mut reset,
+            &[None, Some(crop), Some(crop), Some(crop)],
+            true,
+        );
         assert_eq!(reset[crate::source_frame::KEY], json!(0));
         assert!(reset.get("crop").is_none());
         assert_eq!(
@@ -210,7 +220,7 @@ mod tests {
         );
         // An edit keeps its own crop (none) and versions.
         let mut edited = json!({"exposure": 1.0});
-        start_new_edit(&mut edited, &[Some(crop); 4]);
+        start_new_edit(&mut edited, &[Some(crop); 4], true);
         assert_eq!(edited, json!({"exposure": 1.0}));
         // Not a RAW: only the versions, the file is never read.
         let mut other = json!({});
@@ -224,6 +234,33 @@ mod tests {
                 json!(4000.0 / 2248.0)
             )
         );
+    }
+
+    /// Every batch writer (paste, preset, style, Auto, spots, set values)
+    /// starts a never-edited RAW here: with every version the editor's new
+    /// edit saves (its pinned recipe), the camera's lens versions aside
+    /// (they need its data); a non-RAW without the RAW-only ones.
+    #[test]
+    fn a_new_edit_starts_with_every_version_of_the_editors_new_edit() {
+        let new_edit: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/new-edit-recipe.raw.json"))
+                .unwrap();
+        let mut raw = json!({});
+        apply_default(&mut raw, std::path::Path::new("/offline/never-opened.NEF"));
+        for (key, value) in new_edit.as_object().unwrap() {
+            if key.ends_with("Version")
+                && key != "cameraCaVersion"
+                && key != "cameraGeometryVersion"
+            {
+                assert_eq!(raw.get(key), Some(value), "{key}");
+            }
+        }
+        let mut other = json!({});
+        apply_default(&mut other, std::path::Path::new("/offline/scan.png"));
+        assert_eq!(other["toneVersion"], new_edit["toneVersion"]);
+        for key in ["aiDenoiseVersion", "fringeVersion", "autoCaVersion"] {
+            assert!(other.get(key).is_none(), "{key}");
+        }
     }
 
     #[test]
