@@ -33,6 +33,12 @@ pub struct Report {
 /// installation has none of its own yet. Errors are reported, never fatal.
 pub fn carry_over(app: &tauri::AppHandle) -> Report {
     let mut report = Report::default();
+    // A QA build (own identifier) starts empty: it must never inherit a
+    // working configuration or library from the former identity.
+    if cfg!(feature = "qa-control") {
+        report.messages.push("QA build: identity carry-over skipped".to_string());
+        return report;
+    }
     let path = app.path();
     let mut directories: Vec<PathBuf> = [path.app_config_dir(), path.app_data_dir()]
         .into_iter()

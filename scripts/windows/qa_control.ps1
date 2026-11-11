@@ -33,7 +33,10 @@ function Invoke-Qa([string]$Method, $Params = @{}) {
     $script:QaId++
     $line = @{ id = $script:QaId; method = $Method; params = $Params } | ConvertTo-Json -Depth 20 -Compress
     $script:QaWriter.WriteLine($line)
-    $reply = $script:QaReader.ReadLine() | ConvertFrom-Json
+    $text = $script:QaReader.ReadLine()
+    if ([string]::IsNullOrEmpty($text)) { throw "${Method}: the app closed the QA connection" }
+    $reply = $text | ConvertFrom-Json
+    if ($null -eq $reply -or $reply.id -ne $script:QaId) { throw "${Method}: malformed or out-of-order reply: $text" }
     if ($null -ne $reply.error) { throw "${Method}: $($reply.error)" }
     $reply.result
 }
