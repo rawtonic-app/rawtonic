@@ -142,7 +142,7 @@ describe('Lens correction tool', () => {
     const diffraction = () => screen.getByRole('checkbox', { name: 'Diffraction correction' });
     fireEvent.click(diffraction());
     expect(current.diffractionCorrection).toBe(true);
-    expect(current.diffractionVersion).toBe(2);
+    expect(current.diffractionVersion).toBe(3);
     fireEvent.click(diffraction());
     expect(current.diffractionCorrection).toBeUndefined();
     expect(current.diffractionVersion).toBeUndefined();

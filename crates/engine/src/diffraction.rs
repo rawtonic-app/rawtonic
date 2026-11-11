@@ -29,12 +29,13 @@ const MAX_AMOUNT: f32 = 1.2;
 const ONSET: (f32, f32) = (0.35, 0.55);
 
 /// `adjustments.diffractionVersion`, written when the correction is switched
-/// on. `2`: a body without FocalPlaneXResolution takes its crop factor from
+/// on. `3`: includes Sigma FP2 and Sony DSC-HX200V (2026-11-11).
+/// `2` excludes these bodies. A body without FocalPlaneXResolution takes its crop factor from
 /// the whole bundled database. Missing (`1`, recipes from before
 /// 2026-10-18): without the camera entries that update added
 /// (`lens_correction::CAMERAS_ADDED_2026_10_18`), so those renders stay as
 /// they were.
-pub const VERSION: u64 = 2;
+pub const VERSION: u64 = 3;
 pub const VERSION_KEY: &str = "diffractionVersion";
 
 /// The shader flag for a recipe that asks for the correction: its version
@@ -46,7 +47,13 @@ pub(crate) fn requested_flag(
     if !enabled {
         return 0.0;
     }
-    if version.whole_database() { 2.0 } else { 1.0 }
+    if version.get() >= 3 {
+        3.0
+    } else if version.whole_database() {
+        2.0
+    } else {
+        1.0
+    }
 }
 
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
@@ -74,6 +81,7 @@ pub fn airy_sigma(f_number: f32, pitch_um: f32) -> Option<f32> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Sigmas {
     pub current: Option<f32>,
+    pub v2: Option<f32>,
     pub v1: Option<f32>,
 }
 
@@ -89,6 +97,11 @@ pub(crate) fn sigmas_for_path(path: &str) -> Sigmas {
     if let Some(facts) = crate::source_facts::registered(path) {
         return Sigmas {
             current: facts.diffraction_sigma,
+            v2: if facts.diffraction_v2_differs {
+                facts.diffraction_sigma_v2
+            } else {
+                facts.diffraction_sigma
+            },
             v1: if facts.diffraction_v1_differs {
                 facts.diffraction_sigma_v1
             } else {
@@ -101,6 +114,7 @@ pub(crate) fn sigmas_for_path(path: &str) -> Sigmas {
     }
     let none = Sigmas {
         current: None,
+        v2: None,
         v1: None,
     };
     let sigmas = (|| {
@@ -152,10 +166,19 @@ pub(crate) fn sigmas_for_path(path: &str) -> Sigmas {
         let sigma = |pitch_um: Option<f32>| airy_sigma(f_number, pitch_um?);
         Some(Sigmas {
             current: sigma(from_focal_plane.or_else(|| from_database(&[]))),
-            v1: sigma(
+            v2: sigma(
                 from_focal_plane
-                    .or_else(|| from_database(crate::lens_correction::CAMERAS_ADDED_2026_10_18)),
+                    .or_else(|| from_database(crate::lens_correction::CAMERAS_ADDED_2026_11_11)),
             ),
+            v1: sigma(from_focal_plane.or_else(|| {
+                from_database(
+                    &[
+                        crate::lens_correction::CAMERAS_ADDED_2026_10_18,
+                        crate::lens_correction::CAMERAS_ADDED_2026_11_11,
+                    ]
+                    .concat(),
+                )
+            })),
         })
     })()
     .unwrap_or(none);
@@ -177,8 +200,10 @@ pub fn apply(global: &mut GlobalAdjustments, path: &str) {
         return;
     }
     let sigmas = sigmas_for_path(path);
-    let sigma = if requested > 1.5 {
+    let sigma = if requested > 2.5 {
         sigmas.current
+    } else if requested > 1.5 {
+        sigmas.v2
     } else {
         sigmas.v1
     };
@@ -200,6 +225,10 @@ mod tests {
                 .global
                 .sharpen_falloff[2]
         };
+        assert_eq!(
+            flag(serde_json::json!({"diffractionCorrection": true, "diffractionVersion": 3})),
+            3.0
+        );
         assert_eq!(flag(serde_json::json!({})), 0.0);
         assert_eq!(flag(serde_json::json!({"diffractionVersion": 2})), 0.0);
         assert_eq!(

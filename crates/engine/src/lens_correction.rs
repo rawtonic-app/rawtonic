@@ -1387,6 +1387,10 @@ pub const CAMERAS_ADDED_2026_10_18: &[(&str, &str)] = &[
     ("Panasonic", "DC-ZS300"),
 ];
 
+/// Bodies newly covered by the 2026-11-11 database; older diffraction versions exclude them.
+pub const CAMERAS_ADDED_2026_11_11: &[(&str, &str)] =
+    &[("Sigma", "Sigma FP2"), ("Sony", "DSC-HX200V")];
+
 fn is_excluded(camera: &Camera, excluded: &[(&str, &str)]) -> bool {
     excluded.iter().any(|(maker, model)| {
         camera.maker.iter().any(|name| name.value == *maker)
@@ -1650,9 +1654,49 @@ mod tests {
             });
         assert_eq!(
             (rows.len(), format!("{fingerprint:016x}")),
-            (1057, "54ec57bdc4d10421".to_string()),
+            (1059, "7e1de23d6a6d09ee".to_string()),
             "the bundled database's camera table changed: give diffraction a new version first"
         );
+    }
+
+    #[test]
+    fn earlier_diffraction_versions_keep_their_camera_table() {
+        let mut db = embedded_lens_db();
+        for (maker, model) in CAMERAS_ADDED_2026_11_11 {
+            assert!(camera_crop_factor(&db, maker, model).is_some());
+            assert_eq!(
+                camera_crop_factor_without(&db, maker, model, CAMERAS_ADDED_2026_11_11),
+                None
+            );
+        }
+        db.cameras
+            .retain(|camera| !is_excluded(camera, CAMERAS_ADDED_2026_11_11));
+        let mut rows: Vec<_> = db
+            .cameras
+            .iter()
+            .map(|camera| {
+                let names = |ns: &[MultiName]| {
+                    ns.iter()
+                        .map(|n| n.value.as_str())
+                        .collect::<Vec<_>>()
+                        .join("|")
+                };
+                format!(
+                    "{}\t{}\t{}",
+                    names(&camera.maker),
+                    names(&camera.model),
+                    camera.cropfactor
+                )
+            })
+            .collect();
+        rows.sort();
+        let hash = rows
+            .join("\n")
+            .bytes()
+            .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+                (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+            });
+        assert_eq!((rows.len(), hash), (1057, 0x54ec57bdc4d10421));
     }
 
     use super::*;
@@ -1887,6 +1931,27 @@ mod tests {
         assert_eq!(without_model_code("RF 50mm F1.4"), None);
         assert_eq!(without_model_code("XF 18mm F2 R"), None);
         assert_eq!(without_model_code("EF 70-200mm"), None);
+    }
+
+    #[test]
+    fn november_database_additions_resolve() {
+        let db = embedded_lens_db();
+        assert_eq!(camera_crop_factor(&db, "Sigma", "Sigma FP2"), Some(1.0));
+        for (maker, model) in [
+            ("Nikon", "Nikkor Z 24-70mm f/2.8 S II"),
+            ("Nikon", "Nikkor Z 24mm f/1.8 S"),
+            ("Fujifilm", "GF63mmF2.8 R WR"),
+            ("Tamron", "70-300mm F/4.5-6.3 Di III RXD"),
+            ("OM Digital Solutions", "OM 12-45mm F4.0"),
+            ("OM Digital Solutions", "OM 40-150mm F4.0-5.6 R"),
+            ("OM Digital Solutions", "OM 75-300mm F4.8-6.7 II"),
+            ("OM Digital Solutions", "OM 14-42mm F3.5-5.6 EZ"),
+        ] {
+            assert!(
+                find_lens_exact(&db, maker, model).is_some(),
+                "{maker} {model}"
+            );
+        }
     }
 
     #[test]
