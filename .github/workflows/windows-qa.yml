@@ -7,6 +7,7 @@
 name: Windows QA build
 on:
   workflow_dispatch:
+  push: {branches: [nielsfranke/wqa-windows-qa]} # TEMP proof run, remove before ship
 jobs:
   qa-build:
     runs-on: windows-2025
