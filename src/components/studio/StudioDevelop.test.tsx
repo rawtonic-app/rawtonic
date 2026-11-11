@@ -1894,6 +1894,20 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     expect(adjustments().hsl.reds.hue).toBe(9);
   });
 
+  it("names the reset of a layer's group, which changes only that layer", async () => {
+    const { historyStepName } = await import('./historyLabels');
+    const { default: i18n } = await import('i18next');
+    mount();
+    openLayersTab();
+    fireEvent.click(screen.getByRole('button', { name: 'New linear gradient layer' }));
+    openGroups();
+    edit('Brightness', -0.25);
+    expect(adjustments().masks[0].adjustments.brightness).toBe(-0.25);
+    fireEvent.click(screen.getByText('Exposure', { selector: '.studio-tool-name' }), { altKey: true });
+    expect(adjustments().masks[0].adjustments.brightness).toBe(0);
+    expect(historyStepName(step(), i18n.t.bind(i18n))).toBe('Reset Exposure');
+  });
+
   it('a reset of values already at their defaults names no step', async () => {
     const { historyStepName } = await import('./historyLabels');
     const { default: i18n } = await import('i18next');
