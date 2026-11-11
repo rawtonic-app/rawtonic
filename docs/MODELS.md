@@ -63,6 +63,7 @@ weights tensor by tensor.
 | `sdxl_vae_encoder_fp16_coreml_*`, `sdxl_vae_decoder_fp16_coreml_*` (Core ML packages) | Moebius's image encoder and decoder | SDXL-VAE-FP16-Fix (huggingface.co/madebyollin/sdxl-vae-fp16-fix, revision 207b116, `diffusion_pytorch_model.safetensors` SHA-256 1b909373…), the SDXL VAE (Stability AI, `stabilityai/sdxl-vae`, card `license: mit`) fine-tuned to run in fp16; the Moebius authors ship its fp16 cast as PixelHacker's VAE (all 248 tensors equal). Converted by `convert_moebius_coreml.py` (fp16, macOS 13). Not the SD 1.x VAE (CreativeML OpenRAIL-M): scaling factor 0.13025 checked. | MIT (model cards) | In the pack since 2026-10-27 |
 | `moebius_unet_fp16w.onnx`, `sdxl_vae_encoder_fp16w.onnx`, `sdxl_vae_decoder_fp16w.onnx` | Remove, holes thicker than 205 px (Windows and Linux, on a GPU provider) | The same Moebius checkpoint and SDXL VAE fp16-fix as the Core ML rows, exported by `convert_moebius_coreml.py --onnx --no-coreml` (opset 17; weights stored as fp16 and cast to fp32 in the graph, so the networks compute in fp32; tensors beyond fp16's range stay fp32; reproducible: same SHA-256 in two exports). Share `moebius_embeddings.bin` with the Core ML programs. | Apache-2.0 (Moebius), MIT (VAE), as above | In the pack since 2026-10-27 (`pack-2026-10-27b`) |
 | `superres_compact_x2.onnx` | Super Resolution (export option, 2× enlargement; Windows, Linux, and macOS without the Core ML files) | Rawtonic's export of Philip Hofmann's 2xBHI_small_compact_pretrain (github.com/Phhofm/models release `2xBHI_small_compact_pretrain`, `.pth` SHA-256 17135b91…9ddc; release notes: "License: CC-BY-4.0", Compact network, L1 + MS-SSIM losses only, trained on his BHI_small tiles (CC BY 4.0 card) bicubic-downsampled) by `scripts/models/export_superres.py`. **Changed from the author's release:** the four right-angle rotations of each 512² tile are enlarged and averaged inside the graph and clamped to 0..1; weights unchanged, fp32, 2.4 MB; reproducible in the pack environment (`build_model_pack.py` SUPERRES_EXPORT: same SHA-256 in two exports); equal to PyTorch (max difference 0). Tiles of 512 px with 24 px of context join into exactly the whole-tile result (`crates/superres/tests/real_model.rs`). | CC BY 4.0 (Philip Hofmann) | In `pack-2026-11-09` (user OK 2026-11-09) |
+| `superres_compact_x2_cpu.onnx` | Super Resolution on ONNX Runtime CPU | Same Philip Hofmann weights and four-rotation average as the ONNX row above. Changed conversion: each rotation runs through the network separately, reducing the CPU batch size from four to one; fp32, exported with `export_superres.py --cpu-only`, pinned SHA-256 40bf5c36…d7a1. Missing conversion falls back to the original graph. | CC BY 4.0 (Philip Hofmann) | In `pack-2026-11-12` |
 | `superres_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Super Resolution on macOS (fast path) | The same graph converted by `export_superres.py` (ML program, fp16 computation, macOS 13; reproducible). Max difference to fp32 0.003, mean 0.0002 of the 0..1 range on five 512² tiles; 24 → 96 MP in 5.5 s on CPU+GPU of an M5 Pro (117 tiles, 45 ms each; Neural Engine slower, 768/1024 px tiles slower); the app's export through it scores as the PyTorch reference on the comparison set (PSNR 32.57, LPIPS 0.1335). Changed from the author's release as the ONNX row. | CC BY 4.0 (Philip Hofmann) | In `pack-2026-11-09` |
 | `face_detection_yunet_2023mar.onnx` | People masks (faces) | YuNet 2023mar (Wu, Peng and Yu), OpenCV Zoo `models/face_detection_yunet` at commit f12e127 (Git LFS object), unchanged; `LICENSE` in that folder: MIT, © 2020 Shiqi Yu. Trained on WIDER FACE (residual risk under Training data). | MIT | In the pack since 2026-10-09 |
 | `face_mesh_v2.onnx` | People masks (eyes, brows, lips, teeth) | MediaPipe Face Mesh V2 (Google), the `face_landmarks_detector.tflite` of `face_landmarker.task` (float16, version 1, storage.googleapis.com/mediapipe-models), converted by `scripts/models/export_faces.py` (tf2onnx, checked against the TFLite interpreter, reproducible: same SHA-256 in two exports). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
@@ -870,7 +871,7 @@ other load). Two builds produced the same encoder bytes.
 
 ## Hosting
 
-The pack is the release `pack-2026-11-09` of
+The pack is the release `pack-2026-11-12` of
 [github.com/rawtonic-app/models](https://github.com/rawtonic-app/models)
 (README, `models.json`, `licenses/`), public together with Rawtonic. The app
 downloads `MODEL_PACK_URL/<file>`
@@ -881,13 +882,30 @@ for QA builds), use
 `scripts/models/install_models.sh [--runtime] [--cuda] [cc.rawtonic.editor|cc.rawtonic.qa]`
 (needs `gh`).
 
+The published [pack-2026-11-12 release](https://github.com/rawtonic-app/models/releases/tag/pack-2026-11-12)
+was built with `build_model_pack.py --previous` from pack-2026-11-09. All 75 prior
+manifest entries (file, size, SHA-256 and credits) are unchanged; only the CPU
+conversion was added. The three separately attached license texts are also
+unchanged. All 80 uploaded assets, including the new manifest, were verified
+against GitHub's SHA-256 digests. [Model repository PR #6](https://github.com/rawtonic-app/models/pull/6) records the
+[published manifest](https://github.com/rawtonic-app/models/releases/download/pack-2026-11-12/models.json).
+
+On an Apple M5 Pro laptop (24 GiB RAM, macOS 27.0.1), forced CPU inference
+on the same 117 tiles of a 6000×4000 float32 image took 460.896 → 145.915 s
+(mean 3.939 → 1.247 s per tile; ONNX Runtime Python 1.31.1, model inference
+only, one before/after run). Maximum absolute difference: 0.00000232
+in 0..1, within the existing SR tile tolerance 0.01. The native CPU graph
+regression uses the tighter tolerance 0.00001 (ONNX Runtime 1.30.0; measured
+maximum 0.00000048). Windows tries CUDA/WebGPU then CPU, with no DirectML
+provider; this improves the CPU fallback, with no Windows timing claim.
+
 A new pack is a new release (new tag): build it with
 `build_model_pack.py`, upload every top-level file as an asset, then change
 `MODEL_PACK_URL`, the SHA-256 constants and `install_models.sh`'s tag in one
 commit. `build_model_pack.py --previous DIR` carries an earlier pack's
 files (downloaded with `gh release download`) over unchanged, checked
 against its `models.json`, and builds only what it lacks; that keeps the
-files older builds load. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
+files older builds load. `pack-2026-11-12` adds the sequential CPU Super Resolution conversion to `pack-2026-11-09`, preserving every existing asset. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
 model (ONNX and Core ML, with its CC BY 4.0 license text as an asset; built that way). `pack-2026-11-07` is `pack-2026-10-27b` plus ONNX Runtime 1.30.0
 for Apple silicon (built that way). `pack-2026-10-27b` is `pack-2026-10-27` plus
 Moebius and the SDXL VAE fp16-fix as ONNX models for Windows and Linux

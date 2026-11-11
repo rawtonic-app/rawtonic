@@ -42,6 +42,11 @@ const OUTPUT: &str = "enlarged";
 pub const ONNX_FILE: &str = "superres_compact_x2.onnx";
 pub const ONNX_SHA256: &str = "088990646244e01a74c12460dda5a86547d967299d70b4e58afd4904abecd0d8";
 
+/// Sequential four-rotation conversion, for the CPU provider only.
+pub const CPU_ONNX_FILE: &str = "superres_compact_x2_cpu.onnx";
+pub const CPU_ONNX_SHA256: &str =
+    "40bf5c362bad13ca57c1e4493f66f9ab5f2ce7f57156e1d20a77aad7322cd7a1";
+
 /// The same graph as a Core ML program (fp16; largest difference to the
 /// ONNX model 0.003, mean 0.0002 of the 0..1 range), macOS's fast path.
 #[cfg(target_os = "macos")]
@@ -86,12 +91,45 @@ impl Model {
     /// The ONNX model on ONNX Runtime: a GPU provider when one works, else
     /// the CPU.
     pub fn onnx(path: &Path) -> Result<Self> {
+        let cpu_path = path.with_file_name(CPU_ONNX_FILE);
+        let forced = rawtonic_onnx::forced_provider();
+        let cpu_only = forced == Some(rawtonic_onnx::Provider::Cpu)
+            || (forced.is_none() && !rawtonic_onnx::settings().gpu);
+        if cpu_only && let Some(cpu) = Self::optional_cpu(&cpu_path) {
+            return Ok(cpu);
+        }
+        let model = rawtonic_onnx::Model::load(path, rawtonic_onnx::ModelKind::SuperResolution)?;
+        if !cpu_only
+            && model.provider() == rawtonic_onnx::Provider::Cpu
+            && let Some(cpu) = Self::optional_cpu(&cpu_path)
+        {
+            return Ok(cpu);
+        }
         Ok(Self {
-            backend: Backend::Onnx(rawtonic_onnx::Model::load(
+            backend: Backend::Onnx(model),
+        })
+    }
+
+    /// Loads a known CPU conversion directly, without probing GPU providers
+    /// or building a session for the original graph first.
+    pub fn cpu(path: &Path) -> Result<Self> {
+        Ok(Self {
+            backend: Backend::Onnx(rawtonic_onnx::Model::load_on(
                 path,
                 rawtonic_onnx::ModelKind::SuperResolution,
+                &[rawtonic_onnx::Provider::Cpu],
+                &[],
             )?),
         })
+    }
+
+    fn optional_cpu(path: &Path) -> Option<Self> {
+        // Older packs and an unusable optional conversion keep the original graph.
+        if verified(path, CPU_ONNX_SHA256) {
+            Self::cpu(path).ok()
+        } else {
+            None
+        }
     }
 
     /// The Core ML program of the model pack (`CORE_ML_PACKAGE`).
@@ -134,6 +172,11 @@ impl Model {
             );
         }
         Self::onnx(&path)
+    }
+
+    /// Whether this model uses the ONNX Runtime CPU provider.
+    pub fn uses_cpu(&self) -> bool {
+        matches!(&self.backend, Backend::Onnx(model) if model.provider() == rawtonic_onnx::Provider::Cpu)
     }
 
     pub fn backend_name(&self) -> String {
