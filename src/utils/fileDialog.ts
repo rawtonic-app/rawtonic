@@ -1,4 +1,4 @@
-import { open, type OpenDialogOptions } from '@tauri-apps/plugin-dialog';
+import { open, save, type OpenDialogOptions, type SaveDialogOptions } from '@tauri-apps/plugin-dialog';
 
 /**
  * The native open dialog, with a seam for QA builds: the QA control channel
@@ -14,4 +14,14 @@ export async function openDialog(options: OpenDialogOptions): Promise<string | s
     if (answer !== undefined) return answer;
   }
   return open(options);
+}
+
+/** The native save dialog, with the same QA seam: `dialog.answer` queues the file path it returns. */
+export async function saveDialog(options: SaveDialogOptions): Promise<string | null> {
+  if (import.meta.env.VITE_RAWTONIC_QA === '1') {
+    const { takeDialogAnswer } = await import('../qa/dialogAnswers');
+    const answer = takeDialogAnswer(options);
+    if (answer !== undefined) return typeof answer === 'string' ? answer : null;
+  }
+  return save(options);
 }

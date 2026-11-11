@@ -1,0 +1,65 @@
+# A portable Windows x64 QA build for automated GUI tests (docs/DEVELOPMENT.md,
+# "Windows QA build"): `qa-control` feature, the QA bridge in the webview, its
+# own app identifier so it never touches a user's settings or library. No
+# installer, no signing, no scan. Only on demand (workflow_dispatch): a tag
+# push never builds it and the release workflow does not know it. Private: the
+# result is a short-lived Actions artifact, never attached to a release.
+name: Windows QA build
+on:
+  workflow_dispatch:
+jobs:
+  qa-build:
+    runs-on: windows-2025
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      CI: "true"
+      RAWTONIC_BUNDLE_ONNX: "1"
+      # The webview bridge (src/qa/qaControl.ts); without it every state.get times out.
+      VITE_RAWTONIC_QA: "1"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Rust toolchains
+        run: |
+          rustup toolchain install 1.98.1 1.98 --profile minimal --no-self-update
+          rustc --version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-qa
+      - run: npm ci
+      # --no-bundle: only the executable; the folder is assembled below the
+      # way the portable zip of the release is (exe, resources\, lensfun_db\).
+      - name: Build the QA executable
+        run: |
+          $cfg = Join-Path $env:RUNNER_TEMP 'qa-config.json'
+          [IO.File]::WriteAllText($cfg, (@{ identifier = 'cc.rawtonic.qa'; productName = 'Rawtonic QA' } | ConvertTo-Json))
+          npm run tauri -- build --no-bundle --ci --config $cfg --features qa-control -- --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Assemble the portable QA folder
+        run: |
+          $dir = 'qa-out\RawtonicQA'
+          New-Item -ItemType Directory $dir | Out-Null
+          Copy-Item target\release\rawtonic-app.exe $dir
+          Copy-Item src-tauri\resources "$dir\resources" -Recurse
+          Copy-Item src-tauri\lensfun_db "$dir\lensfun_db" -Recurse
+          Copy-Item scripts\windows\qa_control.ps1, scripts\windows\qa_click.ps1 $dir
+          foreach ($need in 'resources\onnxruntime.dll', 'resources\onnxruntime_providers_webgpu.dll', 'lensfun_db') {
+            if (-not (Test-Path (Join-Path $dir $need))) { Write-Error "the QA folder lacks $need"; exit 1 }
+          }
+          "commit $env:GITHUB_SHA" | Set-Content "$dir\QA-BUILD.txt"
+          Compress-Archive -Path $dir -DestinationPath qa-out\RawtonicQA-portable.zip -CompressionLevel Optimal
+          Remove-Item $dir -Recurse
+          Get-ChildItem qa-out | ForEach-Object { "{0}: {1} bytes" -f $_.Name, $_.Length }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-qa-portable
+          path: qa-out/RawtonicQA-portable.zip
+          retention-days: 3
