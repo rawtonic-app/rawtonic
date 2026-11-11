@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Copy Settings in the Library uses the active photo after another photo is deselected.
+
 - **A corrected capture time now travels in the XMP sidecar.** *Shift Capture Time* writes the corrected time as `exif:DateTimeOriginal` and `photoshop:DateCreated` (with fraction of a second and UTC offset when known; no offset is invented) into the photo's XMP sidecar, so Lightroom, Capture One and other libraries see it, as with Lightroom's Edit Capture Time; *Back to the time in the file* and Undo remove exactly the dates Rawtonic wrote. The other way round, a sidecar whose capture time differs from the file's — for example after Lightroom's Edit Capture Time — becomes the photo's capture-time correction when it is imported or read with *Use XMP*; equal times change nothing. Sidecars of photos without a correction are written byte for byte as before, and your photo files are never changed.
 - **Faster lossless JPEG XL exports.** A synthetic 36 MP RGB image encoded in about 2.3 seconds instead of 143 seconds on the test laptop, with identical decoded pixels and a 72% larger file. Memory use remains above the export budget; lossy JPEG XL is unchanged.
 
