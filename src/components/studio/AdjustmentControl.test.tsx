@@ -371,6 +371,46 @@ describe('Lightroom keyboard steps and travel', () => {
     expect(change).toHaveBeenLastCalledWith(4500);
   });
 
+  it('key steps stop at the range ends, in the field and on the slider', () => {
+    const contrast = vi.fn();
+    render(<AdjustmentControl label="Contrast" value={95} onChange={contrast} />);
+    press(field('Contrast'), 'ArrowUp', { shiftKey: true });
+    expect(contrast).toHaveBeenLastCalledWith(100);
+    press(screen.getByRole('slider', { name: 'Contrast' }), 'ArrowRight', { shiftKey: true });
+    expect(contrast).toHaveBeenCalledTimes(1);
+    cleanup();
+    const exposure = vi.fn();
+    render(
+      <AdjustmentControl
+        label="Exposure"
+        value={-4.9}
+        min={-5}
+        max={5}
+        step={0.01}
+        keys={EXPOSURE_KEYS}
+        onChange={exposure}
+      />
+    );
+    press(field('Exposure'), 'ArrowDown', { shiftKey: true });
+    expect(exposure).toHaveBeenLastCalledWith(-5);
+    cleanup();
+    const kelvin = vi.fn();
+    render(
+      <AdjustmentControl
+        label="Temperature"
+        value={49900}
+        min={2000}
+        max={50000}
+        step={50}
+        keys={KELVIN_KEYS}
+        scale={KELVIN_SCALE}
+        onChange={kelvin}
+      />
+    );
+    press(screen.getByRole('slider', { name: 'Temperature' }), 'ArrowRight', { shiftKey: true });
+    expect(kelvin).toHaveBeenLastCalledWith(50000);
+  });
+
   it('a focused whole-unit slider steps 5 / Shift 20 / Alt 1', () => {
     const change = vi.fn();
     render(<AdjustmentControl label="Clarity" value={0} onChange={change} />);

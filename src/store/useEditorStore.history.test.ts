@@ -139,3 +139,21 @@ it('settles a drag in progress on undo and drops it on a photo switch', () => {
   vi.advanceTimersByTime(1000);
   expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 40]);
 });
+
+it('makes each key press its own undo step and a held key one step', () => {
+  // Separate presses (a value-field or slider arrow), half a second or more apart.
+  edit(1);
+  vi.advanceTimersByTime(600);
+  edit(2);
+  vi.advanceTimersByTime(600);
+  expect(state().history).toHaveLength(3);
+  // A held key repeats about every 33 ms: one step for the whole hold.
+  for (let value = 3; value <= 12; value++) {
+    edit(value);
+    vi.advanceTimersByTime(33);
+  }
+  vi.advanceTimersByTime(600);
+  expect(state().history).toHaveLength(4);
+  state().undo();
+  expect(state().adjustments.relightSkinReflections).toBe(2);
+});

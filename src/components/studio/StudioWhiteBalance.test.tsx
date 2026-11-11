@@ -141,4 +141,24 @@ describe('white balance', () => {
       last = KELVIN_SCALE.toTrack(k);
     }
   });
+  it('keeps the Kelvin track monotonic, reversible and As Shot exactly reachable', () => {
+    const start = KELVIN_SCALE.toTrack(2000);
+    const end = KELVIN_SCALE.toTrack(50000);
+    // Every one of the slider's 1000 positions maps to a Kelvin in order and back.
+    let last = 0;
+    for (let i = 0; i <= 1000; i++) {
+      const position = start + ((end - start) * i) / 1000;
+      const kelvin = KELVIN_SCALE.fromTrack(position);
+      expect(kelvin).toBeGreaterThanOrEqual(last);
+      last = kelvin;
+      expect(Math.abs(KELVIN_SCALE.toTrack(kelvin) - position)).toBeLessThan((end - start) / 1000);
+    }
+    expect(KELVIN_SCALE.fromTrack(start)).toBe(2000);
+    expect(KELVIN_SCALE.fromTrack(end)).toBe(50000);
+    // Any whole As Shot Kelvin (the Cat CR3's 4040 K among them) is a track
+    // position of its own: dragging back or resetting lands on it exactly.
+    for (let kelvin = 2000; kelvin <= 50000; kelvin += 1) {
+      if (KELVIN_SCALE.fromTrack(KELVIN_SCALE.toTrack(kelvin)) !== kelvin) throw new Error(`${kelvin} K not reachable`);
+    }
+  });
 });
