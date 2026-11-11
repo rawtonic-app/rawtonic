@@ -228,6 +228,7 @@ fn measures_of(facts: Option<&SourceFacts>) -> Option<DecodeMeasures> {
     facts.map(|facts| DecodeMeasures {
         noise_level: facts.noise_level,
         image_key: facts.measured_image_key(),
+        airlight: facts.airlight,
     })
 }
 
@@ -672,6 +673,7 @@ impl SourceData {
         if let Some(measures) = measures {
             facts.noise_level = measures.noise_level;
             facts.set_image_key(measures.image_key);
+            facts.airlight = measures.airlight;
         }
         SourceData {
             facts: Some(facts),
@@ -2438,6 +2440,7 @@ mod tests {
         let own = DecodeMeasures {
             noise_level: Some(0.01),
             image_key: Some([0.1, 0.6, 0.3]),
+            airlight: Some(0.4),
         };
         write(
             &photo,

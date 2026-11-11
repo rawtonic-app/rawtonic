@@ -420,6 +420,33 @@ fn dehaze_version_2_compiles_only_where_dehaze_is_lowered() {
 }
 
 #[test]
+fn dehaze_version_3_compiles_only_where_dehaze_is_used() {
+    let features = |profile: serde_json::Value| {
+        preview_features(&get_all_adjustments_from_json(&profile, true, Some(1)))
+            & (DEHAZE_V2_FEATURE | DEHAZE_V3_FEATURE)
+    };
+    // Both directions adapt to the airlight; version 3 never compiles
+    // version 2's code.
+    for dehaze in [-30, 30] {
+        assert_eq!(
+            features(json!({"dehaze": dehaze, "dehazeVersion": 3})),
+            DEHAZE_V3_FEATURE
+        );
+        let mut layer = local_profile(json!({"dehaze": dehaze}));
+        layer["dehazeVersion"] = json!(3);
+        assert_eq!(features(layer), DEHAZE_V3_FEATURE);
+        let used = get_all_adjustments_from_json(
+            &json!({"dehaze": dehaze, "dehazeVersion": 3}),
+            true,
+            Some(1),
+        );
+        assert!(needs_feature_pipeline(&used));
+    }
+    assert_eq!(features(json!({"dehazeVersion": 3})), 0);
+    assert_eq!(features(json!({"dehaze": -30, "dehazeVersion": 2})), DEHAZE_V2_FEATURE);
+}
+
+#[test]
 fn variant_table_allocates_only_the_pages_in_use() {
     let table = variant_table::<std::sync::OnceLock<usize>>();
     assert!(table.get(RAW_DEFAULT_PREVIEW_FEATURES).is_none());
@@ -16056,6 +16083,10 @@ fn chunk_test_render(
     if let Some(mode) = profile["testTonemapperMode"].as_u64() {
         adjustments.uniforms.global.tonemapper_mode = mode as u32;
     }
+    // A measured airlight as the photo's (airlight.rs; not a recipe key).
+    if let Some(level) = profile["testAirlight"].as_f64() {
+        adjustments.uniforms.global.airlight = level as f32;
+    }
     let mask = masked(ImageBuffer::from_fn(width, height, |x, y| {
         Luma([((x * 3 + y * 7) % 256) as u8])
     }));
@@ -21613,6 +21644,75 @@ fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
             t.len()
         );
     }
+}
+
+/// Dehaze of version 3: the key alone changes nothing; lowering veils
+/// towards the photo's airlight, so on a photo whose airlight is low a light
+/// grey above it darkens while black rises (version 2 lifts every tone
+/// towards white); on a photo with near-white areas it lifts as version 2
+/// does; raised Dehaze darkens a tone near the airlight less than version 1.
+#[test]
+#[ignore = "requires a native GPU; Dehaze version 3 response"]
+fn dehaze_version_3_veils_towards_the_airlight() {
+    let context = context();
+    // Linear sRGB, 256 px each: near-black, mid grey, light grey.
+    let source = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(768, 512, |x, _| {
+        image::Rgb(match x / 256 {
+            0 => [0.004, 0.004, 0.004],
+            1 => [0.12, 0.12, 0.12],
+            _ => [0.6, 0.6, 0.6],
+        })
+    }));
+    let render = |extra: serde_json::Value| {
+        let mut profile = json!({"renderVersion": 3});
+        profile
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        chunk_test_render(
+            &context,
+            &source,
+            &profile,
+            false,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        )
+        .unwrap()
+        .into_rgb16()
+    };
+    type Image = image::ImageBuffer<image::Rgb<u16>, Vec<u16>>;
+    let g = |img: &Image, x: u32| f64::from(img.get_pixel(x, 256)[1]);
+    let neutral = render(json!({"testAirlight": 0.05}));
+    assert_eq!(
+        neutral.as_raw(),
+        render(json!({"dehazeVersion": 3, "testAirlight": 0.05})).as_raw(),
+        "the key alone changes nothing"
+    );
+    let low = render(json!({"dehaze": -100, "dehazeVersion": 3, "testAirlight": 0.05}));
+    let white = render(json!({"dehaze": -100, "dehazeVersion": 3, "testAirlight": 1.5}));
+    let v2 = render(json!({"dehaze": -100, "dehazeVersion": 2, "testAirlight": 0.05}));
+    println!(
+        "black / grey / light: neutral {} {} {}, v3 low air {} {} {}, v3 white air {} {} {}, v2 {} {} {}",
+        g(&neutral, 128), g(&neutral, 384), g(&neutral, 640),
+        g(&low, 128), g(&low, 384), g(&low, 640),
+        g(&white, 128), g(&white, 384), g(&white, 640),
+        g(&v2, 128), g(&v2, 384), g(&v2, 640)
+    );
+    assert!(g(&low, 640) < g(&neutral, 640), "a light grey above a low airlight darkens");
+    assert!(g(&low, 128) > g(&neutral, 128), "black rises");
+    assert!(
+        g(&low, 128) < g(&low, 384) && g(&low, 384) < g(&low, 640),
+        "the tones keep their order"
+    );
+    assert!(g(&v2, 640) > g(&neutral, 640), "version 2 lifts it");
+    assert!(g(&white, 640) > g(&neutral, 640), "with a white airlight it rises");
+    // Raised: the light grey sits near a low airlight, so it darkens less.
+    let raised = |version: u64| {
+        render(json!({"dehaze": 60, "dehazeVersion": version, "testAirlight": 0.05}))
+    };
+    let (r1, r3) = (raised(1), raised(3));
+    println!("raised light grey: v1 {} v3 {}", g(&r1, 640), g(&r3, 640));
+    assert!(g(&r3, 640) > g(&r1, 640), "raised darkens a tone near the airlight less");
 }
 
 /// Lowered Dehaze of version 2 (`dehazeVersion`): the key alone and raised

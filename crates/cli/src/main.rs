@@ -1022,6 +1022,7 @@ fn decode(path: &std::path::Path, repeats: u32, fast: bool) -> Result<()> {
     let bytes = std::fs::read(path).with_context(|| format!("Read {}", path.display()))?;
     let mut timings = Vec::new();
     let mut size = (0, 0);
+    let mut measures = None;
     for _ in 0..repeats {
         let now = Instant::now();
         let image = rawtonic_rawdecode::raw_processing::develop_raw_image(
@@ -1033,6 +1034,9 @@ fn decode(path: &std::path::Path, repeats: u32, fast: bool) -> Result<()> {
         )?;
         timings.push(now.elapsed().as_secs_f64() * 1000.0);
         size = (image.width(), image.height());
+        if measures.is_none() && !fast {
+            measures = Some(rawtonic_engine::image_loader::DecodeMeasures::of(&image));
+        }
     }
     timings.sort_by(f64::total_cmp);
     print(serde_json::json!({
@@ -1043,6 +1047,11 @@ fn decode(path: &std::path::Path, repeats: u32, fast: bool) -> Result<()> {
         "repeats": repeats,
         "fast_demosaic": fast,
         "decode_ms": {"median": timings[timings.len() / 2], "min": timings[0], "max": timings[timings.len() - 1]},
+        // What renders read from the decode (image_loader::DecodeMeasures),
+        // measured outside the timing.
+        "noise_level": measures.and_then(|m| m.noise_level),
+        "image_key": measures.and_then(|m| m.image_key),
+        "airlight": measures.and_then(|m| m.airlight),
         "measures": "rawdecode only: file bytes in memory to oriented linear RGB (CPU demosaic, system allocator); excludes file read, GPU develop, encoding and the app's mimalloc tuning",
     }))
 }

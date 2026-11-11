@@ -705,10 +705,13 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * is the amount. Photo-wide (layers follow it). */
   structureVersion?: number;
   /** Dehaze response (crates/engine/src/image_processing.rs
-   * `DEHAZE_VERSION`): 2 = lowering lays a veil as Camera Raw's negative
-   * Dehaze does (blacks rise too, local contrast keeps falling to −100);
-   * 1 or missing on recipes that lowered Dehaze before it = the first
-   * response. Raising is the same in both. Photo-wide (layers follow it). */
+   * `DEHAZE_VERSION`): 3 = as 2, but the veil goes towards the photo's own
+   * airlight (measured once on the decode; below white on frames without
+   * near-white areas) and raising fades its darkening relative to it;
+   * 2 = lowering lays a veil as Camera Raw's negative Dehaze does (blacks
+   * rise too, local contrast keeps falling to −100); 1 or missing on recipes
+   * that lowered Dehaze before it = the first response. Raising is the same
+   * in 1 and 2. Photo-wide (layers follow it). */
   dehazeVersion?: number;
   /** Edge-fringe pass (crates/engine/src/edge_fringe.rs `VERSION`): 1 =
    * colour along strong luminance edges that neither side explains
@@ -1525,8 +1528,9 @@ export const VIBRANCE_VERSION = 2;
 /** The Structure response new edits start with (notes: benchmark-results/atf7-slider-travel-2026-11-08,
  * benchmark-results/atf9-clarity-texture-halo-2026-11-09). */
 export const STRUCTURE_VERSION = 3;
-/** The Dehaze response new edits start with (notes: benchmark-results/atf1-dehaze-negative-2026-11-10). */
-export const DEHAZE_VERSION = 2;
+/** The Dehaze response new edits start with (notes: benchmark-results/atf1-dehaze-negative-2026-11-10,
+ * benchmark-results/dhz3-dehaze-airlight-2026-11-12). */
+export const DEHAZE_VERSION = 3;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md):
  * 5 = version 4's pass computed on the GPU; 6 = 7 × 7 windows on moderately noisy photos too. */

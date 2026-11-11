@@ -500,6 +500,7 @@ mod decoded_cache_tests {
         let measures = |level| DecodeMeasures {
             noise_level: Some(level),
             image_key: Some([0.1, level, 0.05]),
+            airlight: Some(level),
         };
         // Two decodes of one file for two recipes.
         cache.insert(

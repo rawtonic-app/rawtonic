@@ -17,6 +17,7 @@ pub mod gamut;
 pub mod gpu_demosaic;
 pub mod highlight_reconstruction;
 pub mod hot_pixels;
+pub mod airlight;
 pub mod image_key;
 pub mod mosaic_denoise;
 pub mod multi_exposure;

@@ -62,7 +62,7 @@ pub mod warp_gpu;
 pub mod white_balance_estimate;
 
 use rawtonic_rawdecode::{
-    camera_exposure, capture_info, color_calibration, dng_color, dng_opcodes, image_key,
+    airlight, camera_exposure, capture_info, color_calibration, dng_color, dng_opcodes, image_key,
     noise_level, raw_processing, unit_calibration,
 };
 use rawtonic_runtime::allocator;
