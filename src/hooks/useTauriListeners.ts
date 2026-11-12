@@ -1,4 +1,3 @@
-import { pathKey } from '../utils/pathKey';
 import { useEffect, useRef } from 'react';
 import { UnlistenFn, listen } from '@tauri-apps/api/event';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
@@ -19,7 +18,7 @@ import { useUIStore } from '../store/useUIStore';
 import { useActivityStore } from '../store/useActivityStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { followPathMoves } from '../utils/pathKeyedState';
-import { libraryImageIndex } from '../utils/libraryIndex';
+import { libraryImageIndex, libraryImagePath } from '../utils/libraryIndex';
 import { setMergeStateFor } from './useProductivityActions';
 import { cancelQuitRequest, confirmQuitWithUnsaved, handleQuitRequest } from '../utils/quit';
 import { recountAfterFileOperation } from '../utils/offline';
@@ -506,9 +505,7 @@ export function useTauriListeners({
         // Batch operations can publish the canonical Windows path while the
         // grid was listed through its plain spelling. Update that visible tile.
         const images = useLibraryStore.getState().imageList;
-        const path = libraryImageIndex(images).has(emittedPath)
-          ? emittedPath
-          : (images.find((image) => pathKey(image.path) === pathKey(emittedPath))?.path ?? emittedPath);
+        const path = libraryImagePath(images, emittedPath);
 
         if (thumbnailPath && previewPath) {
           thumbnailBuffer.current[path] = convertFileSrc(thumbnailPath.replace(/\\/g, '/'));
