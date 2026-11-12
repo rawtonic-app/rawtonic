@@ -100,6 +100,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory probe-out | Out-Null
           Copy-Item target\release\examples\compile_probe.exe, crates\gpu\examples\compile_probe_round*.txt probe-out
+          # Code-shape candidates of a round (`src=`), on probe branches only.
+          Copy-Item crates\gpu\examples\compile_probe_round*.wgsl probe-out -ErrorAction SilentlyContinue
           # The GPU tests as one executable, for runs on the test machines.
           $tests = cargo test --release --locked -p rawtonic-gpu --lib --no-run --message-format=json | ConvertFrom-Json | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.executable -and $_.target.name -eq 'rawtonic_gpu' } | Select-Object -Last 1
           if (-not $tests) { Write-Error "no GPU test executable"; exit 1 }

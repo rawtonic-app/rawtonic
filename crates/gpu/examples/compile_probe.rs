@@ -47,7 +47,8 @@
 //!
 //! Every candidate gets a unique nonce in its module, so the driver's own
 //! on-disk shader cache never answers it (clear it anyway for a cold run).
-//! Lines starting with `#` are skipped. A candidate is stopped after
+//! `COMPILE_PROBE_SIZE_ONLY=1` reports only the inlined size (no device, so
+//! it runs anywhere). Lines starting with `#` are skipped. A candidate is stopped after
 //! `COMPILE_PROBE_TIMEOUT` seconds (default 300).
 
 use std::io::Write as _;
@@ -291,6 +292,13 @@ fn one(line: &str) -> Result<String, String> {
         report_inlining(&module);
     }
     let functions = module.functions.len();
+    // COMPILE_PROBE_SIZE_ONLY=1: the module's size without a compile (any
+    // system; the size does not depend on the driver).
+    if std::env::var("COMPILE_PROBE_SIZE_ONLY").is_ok() {
+        return Ok(format!(
+            "{{\"inlined_exprs\":{inlined},\"functions\":{functions},\"folded_ifs\":{folded}}}"
+        ));
+    }
 
     let (spirv, marked) = if spec.spirv {
         let (words, marked) = match &spec.spvfile {
