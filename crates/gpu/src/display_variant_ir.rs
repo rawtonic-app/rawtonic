@@ -76,6 +76,11 @@ impl DisplayShader {
     }
 
     #[cfg(test)]
+    pub(crate) fn bindings_for_test(&self) -> &[u32] {
+        &self.bindings
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_passthrough(&self, on: bool) {
         self.passthrough
             .store(on, std::sync::atomic::Ordering::Relaxed);

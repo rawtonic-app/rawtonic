@@ -9072,6 +9072,39 @@ fn display_variants_passed_through_render_the_same_pixels() {
 }
 
 #[test]
+#[ignore = "writes a display variant's SPIR-V as the app passes it through, for the compile probe (DUMP_SPIRV_DIR)"]
+fn dump_display_variant_spirv() {
+    let Ok(dir) = std::env::var("DUMP_SPIRV_DIR") else {
+        println!("SKIP (not a pass): DUMP_SPIRV_DIR unset");
+        return;
+    };
+    let context = context();
+    let processor = GpuProcessor::new(context, 64, 64).unwrap();
+    for features in [
+        RAW_DEFAULT_PREVIEW_FEATURES,
+        RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE,
+    ] {
+        let words = processor
+            .display_shader
+            .variant_spirv(&variant_constants(features, true, true, false, false))
+            .unwrap();
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        std::fs::write(format!("{dir}/app{features}.spv"), bytes).unwrap();
+    }
+    std::fs::write(
+        format!("{dir}/app-bindings.txt"),
+        processor
+            .display_shader
+            .bindings_for_test()
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+    )
+    .unwrap();
+}
+
+#[test]
 fn effects_compile_only_where_a_recipe_has_them() {
     let features = |profile: serde_json::Value| {
         preview_features(&get_all_adjustments_from_json(&profile, true, Some(1))) & EFFECTS_FEATURE

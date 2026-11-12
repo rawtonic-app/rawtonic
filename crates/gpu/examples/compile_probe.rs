@@ -27,6 +27,10 @@
 //! - `spv`: with `spirv`, writer options as wgpu-hal sets them: `nodebug`,
 //!   `halflags`, `caps`, `bufrestrict`, `imgrestrict`, `zeronative`, or `hal`
 //!   for all.
+//! - `spvfile`: with `spirv`, pass this SPIR-V file through instead;
+//!   `ranks=b,b,…`: the layout's bindings numbered as wgpu-hal does (rank
+//!   among these WGSL bindings), for SPIR-V written that way.
+//! - `spv=cache`: compile through an empty pipeline cache, as the app does.
 //! - `noinline`: with `spirv`, mark these functions (or `all` but the entry
 //!   point) DontInline: whether the driver compiles each once.
 //!
@@ -140,6 +144,8 @@ struct Spec {
     spirv: bool,
     noinline: Vec<String>,
     spv: Vec<String>,
+    spvfile: Option<String>,
+    ranks: Vec<u32>,
 }
 
 fn parse(line: &str) -> Result<Spec, String> {
@@ -154,6 +160,8 @@ fn parse(line: &str) -> Result<Spec, String> {
         spirv: false,
         noinline: vec![],
         spv: vec![],
+        spvfile: None,
+        ranks: vec![],
     };
     for word in line.split_whitespace().skip(1) {
         match word.split_once('=') {
@@ -162,6 +170,13 @@ fn parse(line: &str) -> Result<Spec, String> {
             Some(("src", v)) => spec.src = Some(v.to_string()),
             Some(("noinline", v)) => spec.noinline = v.split(',').map(String::from).collect(),
             Some(("spv", v)) => spec.spv = v.split(',').map(String::from).collect(),
+            Some(("spvfile", v)) => spec.spvfile = Some(v.to_string()),
+            Some(("ranks", v)) => {
+                spec.ranks = v
+                    .split(',')
+                    .map(|b| b.parse().map_err(|_| "ranks"))
+                    .collect::<Result<_, _>>()?
+            }
             Some(("set", v)) => {
                 for pair in v.split(',') {
                     let (k, v) = pair.split_once(':').ok_or("set K:V")?;
@@ -256,7 +271,21 @@ fn one(line: &str) -> Result<String, String> {
     let functions = module.functions.len();
 
     let (spirv, marked) = if spec.spirv {
-        let (words, marked) = spirv_words(&module, spec.unchecked, &spec.noinline, &spec.spv)?;
+        let (words, marked) = match &spec.spvfile {
+            // `spvfile`: SPIR-V written elsewhere (e.g. as the app writes it,
+            // test `dump_display_variant_spirv`), passed through as is.
+            Some(path) => {
+                let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+                let words = bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_le_bytes(*c))
+                    .collect();
+                (words, 0)
+            }
+            None => spirv_words(&module, spec.unchecked, &spec.noinline, &spec.spv)?,
+        };
         // COMPILE_PROBE_DUMP=DIR keeps the SPIR-V (for spirv-val / spirv-dis)
         // and stops there.
         if let Ok(dir) = std::env::var("COMPILE_PROBE_DUMP") {
@@ -300,13 +329,29 @@ fn one(line: &str) -> Result<String, String> {
     // `spv=explicit` without `spirv`: wgpu's own path with the probe's
     // explicit layout instead of the derived one.
     let layout = if spec.spirv || knob_set(&spec.spv, "explicit") {
-        Some(layout_for(&device, &module)?)
+        Some(layout_for(&device, &module, &spec.ranks)?)
     } else {
         None
     };
     let shader_descriptor = wgpu::ShaderModuleDescriptor {
         label: Some("probe"),
         source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(module)),
+    };
+    // `spv=cache`: through an (empty) pipeline cache, as the app compiles.
+    let cache = if knob_set(&spec.spv, "cache") {
+        if !device.features().contains(wgpu::Features::PIPELINE_CACHE) {
+            return Err("the device keeps no pipeline cache".into());
+        }
+        // SAFETY: no data is passed in.
+        Some(unsafe {
+            device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                label: Some("probe"),
+                data: None,
+                fallback: true,
+            })
+        })
+    } else {
+        None
     };
     let private_before = memory::private_bytes();
     let sampler = memory::Sampler::start();
@@ -343,7 +388,7 @@ fn one(line: &str) -> Result<String, String> {
         module: &shader,
         entry_point: Some("main"),
         compilation_options: Default::default(),
-        cache: None,
+        cache: cache.as_ref(),
     });
     let pipeline_ms = pipeline_started.elapsed().as_secs_f64() * 1000.0;
     let peak_sampled = sampler.stop();
@@ -500,6 +545,7 @@ fn knob_set(knobs: &[String], name: &str) -> bool {
 fn layout_for(
     device: &wgpu::Device,
     module: &naga::Module,
+    ranks: &[u32],
 ) -> Result<wgpu::PipelineLayout, String> {
     use naga::{AddressSpace, ImageClass, ImageDimension, TypeInner};
     let mut entries = vec![];
@@ -571,7 +617,19 @@ fn layout_for(
             other => return Err(format!("binding type {:?}", other.0)),
         };
         entries.push(wgpu::BindGroupLayoutEntry {
-            binding: binding.binding,
+            // `ranks`: the layout as wgpu-hal numbers Vulkan bindings (each
+            // WGSL binding's rank among these), for SPIR-V written so.
+            binding: if ranks.is_empty() {
+                binding.binding
+            } else {
+                let mut sorted = ranks.to_vec();
+                sorted.sort_unstable();
+                sorted
+                    .iter()
+                    .position(|b| *b == binding.binding)
+                    .ok_or_else(|| format!("binding {} not in ranks", binding.binding))?
+                    as u32
+            },
             visibility: wgpu::ShaderStages::COMPUTE,
             ty,
             count: None,

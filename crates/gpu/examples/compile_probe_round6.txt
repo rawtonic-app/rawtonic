@@ -1,0 +1,7 @@
+# WCC2 round 6 (G76): the app passed 4145 through as SPIR-V and still took 98 s / 12.4 GB (WGT9), the probe 6.5 s / 2.5 GB. The app's SPIR-V is byte-for-byte what DisplayShader::variant_spirv writes (app4145.spv / app4113.spv beside this file); the app also compiles through a pipeline cache.
+pt_4145 features=4145 dce spirv
+pt_4145_cache features=4145 dce spirv spv=cache
+appfile_4145 features=4145 dce spirv spvfile=app4145.spv ranks=0,1,2,3,4,5,6,7,8,9,17,18,19,20,21,22,23,10,11,12,13,16,14,24,26,27,28
+appfile_4145_cache features=4145 dce spirv spvfile=app4145.spv ranks=0,1,2,3,4,5,6,7,8,9,17,18,19,20,21,22,23,10,11,12,13,16,14,24,26,27,28 spv=cache
+wgpu_4145_cache features=4145 dce spv=cache
+appfile_4113_cache features=4113 dce spirv spvfile=app4113.spv ranks=0,1,2,3,4,5,6,7,8,9,17,18,19,20,21,22,23,10,11,12,13,16,14,24,26,27,28 spv=cache
