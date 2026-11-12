@@ -1443,6 +1443,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       if (importAfterCreate) {
         setImportAfterCreate(false);
         openImport();
+      } else if (addAfterLibrary) {
+        // Straight on to the import review in the same open dialog: closing
+        // it first would queue a close event that dismisses the review.
+        const paths = addAfterLibrary;
+        setAddAfterLibrary(null);
+        openIngest(paths);
       } else setForm(null);
     } catch (e) {
       setError(String(e));
@@ -1514,7 +1520,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!form && !session && !busy) setAddAfterLibrary(null);
   }, [form, session, busy]);
   useEffect(() => {
-    if (!session || !addAfterLibrary || busy || (form && form !== 'create')) return;
+    // An opened library (Open… in the create dialog, which stays open):
+    // the import review replaces the dialog's content without closing it.
+    if (!session || !addAfterLibrary || busy || form !== 'create') return;
     const paths = addAfterLibrary;
     setAddAfterLibrary(null);
     openIngest(paths);
