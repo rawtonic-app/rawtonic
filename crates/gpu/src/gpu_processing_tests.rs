@@ -498,6 +498,12 @@ fn variant_table_allocates_only_the_pages_in_use() {
     }
 }
 
+/// `features` without the tone-version-5 bit, which every keyless recipe of
+/// these tests (tone version 1) has (`TONE_V5_FEATURE`).
+fn no_tone_v5(features: usize) -> usize {
+    features & !TONE_V5_FEATURE
+}
+
 #[test]
 fn preview_features_preserve_global_and_local_effects() {
     for expected in 0..PREVIEW_PIPELINE_COUNT {
@@ -557,8 +563,9 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & (DEHAZE_V2_FEATURE | DEHAZE_V3_FEATURE) != 0 {
             continue;
         }
-        // Effects likewise (`effects_compile_only_where_a_recipe_has_them`).
-        if expected & EFFECTS_FEATURE != 0 {
+        // Effects likewise (`effects_compile_only_where_a_recipe_has_them`),
+        // and tone version 5 (`tone_version_5_compiles_only_for_its_recipes`).
+        if expected & (EFFECTS_FEATURE | TONE_V5_FEATURE) != 0 {
             continue;
         }
         let mut effects = json!({});
@@ -654,12 +661,16 @@ fn preview_features_preserve_global_and_local_effects() {
             // Response 8 needs a measured noise level.
             adjustments.global.noise_level = 0.01;
         }
-        assert_eq!(preview_features(&adjustments), expected, "{profile}");
+        assert_eq!(
+            no_tone_v5(preview_features(&adjustments)),
+            expected,
+            "{profile}"
+        );
         if expected & 8 != 0 {
             // Stale entries beyond mask_count must not affect the current image.
             adjustments.mask_count = 0;
             assert_eq!(
-                preview_features(&adjustments),
+                no_tone_v5(preview_features(&adjustments)),
                 expected
                     & (RELIGHT_PREVIEW_FEATURE
                         | RELIGHT_RANGE2_FEATURE
@@ -674,7 +685,7 @@ fn preview_features_preserve_global_and_local_effects() {
             // Without noise reduction the refinements change nothing.
             adjustments.global.color_noise_reduction = 0.0;
             assert_eq!(
-                preview_features(&adjustments),
+                no_tone_v5(preview_features(&adjustments)),
                 expected & !(16 | REFINED_NR_PREVIEW_FEATURE)
             );
         }
@@ -692,7 +703,7 @@ fn preview_features_preserve_global_and_local_effects() {
     ] {
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         assert_eq!(
-            preview_features(&adjustments) & PRESENCE_V3_FEATURE != 0,
+            no_tone_v5(preview_features(&adjustments)) & PRESENCE_V3_FEATURE != 0,
             on,
             "{profile}"
         );
@@ -700,7 +711,10 @@ fn preview_features_preserve_global_and_local_effects() {
     let mut layer = local_profile(json!({"clarity": 40}));
     layer["clarityVersion"] = json!(3);
     let adjustments = get_all_adjustments_from_json(&layer, true, Some(1));
-    assert_ne!(preview_features(&adjustments) & PRESENCE_V3_FEATURE, 0);
+    assert_ne!(
+        no_tone_v5(preview_features(&adjustments)) & PRESENCE_V3_FEATURE,
+        0
+    );
     assert!(needs_feature_pipeline(&adjustments));
     // Opposing layers do not cancel everywhere: their bitmap coverage differs.
     let mut profile = local_profile(json!({"sharpness":-50,"lumaNoiseReduction":20}));
@@ -708,23 +722,23 @@ fn preview_features_preserve_global_and_local_effects() {
     profile["highlights"] = json!(-10);
     profile["curves"] = custom_curve();
     let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
-    assert_eq!(preview_features(&adjustments), 31);
+    assert_eq!(no_tone_v5(preview_features(&adjustments)), 31);
 }
 
 #[test]
 fn preview_curve_bypass_matches_shader_identity_contract() {
     let mut adjustments = get_all_adjustments_from_json(&local_profile(json!({})), true, Some(1));
-    assert_eq!(preview_features(&adjustments), 8);
+    assert_eq!(no_tone_v5(preview_features(&adjustments)), 8);
     // Zero/one point curves are disabled in the shader, regardless of their data.
     adjustments.mask_adjustments[0].luma_curve_count = 1;
     adjustments.mask_adjustments[0].luma_curve[0].y = 42.0;
-    assert_eq!(preview_features(&adjustments), 8);
+    assert_eq!(no_tone_v5(preview_features(&adjustments)), 8);
     adjustments.mask_adjustments[0].luma_curve_count = 2;
-    assert_eq!(preview_features(&adjustments), 12);
+    assert_eq!(no_tone_v5(preview_features(&adjustments)), 12);
     // Do not treat approximate endpoints as identity: luma interpolation uses them.
     adjustments.mask_count = 0;
     adjustments.global.luma_curve[1].y = 254.99;
-    assert_eq!(preview_features(&adjustments), 4);
+    assert_eq!(no_tone_v5(preview_features(&adjustments)), 4);
 }
 
 #[test]
@@ -6187,9 +6201,9 @@ fn version_5_exports_render_their_specialized_variant_within_rounding() {
                 if raw && tonemapper == 3 {
                     adjustments.global.profile_curve[15][3] = 2.0;
                 }
-                // The display variant's features with the effects code
-                // exports always keep (`EFFECTS_FEATURE`).
-                let features = preview_features(&adjustments) | EFFECTS_FEATURE;
+                // The display variant's features with the effects and
+                // tone-version-5 code exports always keep.
+                let features = preview_features(&adjustments) | EFFECTS_FEATURE | TONE_V5_FEATURE;
                 assert!(std::ptr::eq(
                     processor
                         .export_pipeline(&adjustments, MainOutput::Deferred)
@@ -8897,6 +8911,9 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
             "masks":(0..4).map(|i| local_mask(&format!("m{i}"), json!({"curves":custom_curve(),"highlights":30})))
                 .collect::<Vec<_>>()}),
         relight_portrait_profile(4),
+        // Tone version 5 keeps its own copy of the tone stage.
+        json!({"contrast":30,"shadows":20,"whites":-15,"toneVersion":5}),
+        json!({"contrast":30,"shadows":20,"whites":-15,"toneVersion":18}),
     ] {
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         let features = preview_features(&adjustments);
@@ -8913,7 +8930,7 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
                     (!with_effects).then_some(&*processor.display_shader),
                     &processor.preview_layout,
                     if with_effects {
-                        features | EFFECTS_FEATURE
+                        features | EFFECTS_FEATURE | TONE_V5_FEATURE
                     } else {
                         features
                     },
@@ -8968,7 +8985,7 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 9);
+    assert_eq!(checked, 11);
 }
 
 #[test]
@@ -8991,6 +9008,26 @@ fn effects_compile_only_where_a_recipe_has_them() {
     // Exports keep the code whatever the recipe holds.
     let plain = get_all_adjustments_from_json(&json!({}), true, Some(1));
     assert_ne!(export_features(&plain) & EFFECTS_FEATURE, 0);
+}
+
+#[test]
+fn tone_version_5_compiles_only_for_its_recipes() {
+    let features = |profile: serde_json::Value| {
+        preview_features(&get_all_adjustments_from_json(&profile, true, Some(1))) & TONE_V5_FEATURE
+    };
+    assert_eq!(
+        features(json!({"contrast": 30, "toneVersion": 5})),
+        TONE_V5_FEATURE
+    );
+    assert_eq!(
+        features(json!({"contrast": 30, "toneVersion": 1})),
+        TONE_V5_FEATURE
+    );
+    assert_eq!(features(json!({"contrast": 30, "toneVersion": 6})), 0);
+    assert_eq!(features(json!({"contrast": 30, "toneVersion": 18})), 0);
+    // Exports keep the code whatever the recipe holds.
+    let new = get_all_adjustments_from_json(&json!({"toneVersion": 18}), true, Some(1));
+    assert_ne!(export_features(&new) & TONE_V5_FEATURE, 0);
 }
 
 #[test]

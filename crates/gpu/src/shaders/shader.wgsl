@@ -95,6 +95,10 @@ override MIXER_PROBES: bool = false;
 // code for a first preview (each of glow and halation carries the complete
 // tone stage); exports and the general shader keep them (the default).
 override ENABLE_EFFECTS: bool = true;
+// Tone version 5 and older (`apply_tonal_adjustments_v5`): left out of display
+// variants of recipes with a newer tone version (gpu_processing.rs
+// `TONE_V5_FEATURE`); exports and the general shader keep it (the default).
+override TONE_V5: bool = true;
 const MIXER_INPUT_PROBE: u32 = 2u;
 const BW_INPUT_PROBE: u32 = 3u;
 const SHARPEN_VIEW_MASK: u32 = 0x40000004u;
@@ -9267,7 +9271,9 @@ fn apply_glow_bloom(
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
     if (adjustments.global.tone_version < 5.5) {
-        blurred_linear = apply_tonal_adjustments_v5(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+        if (TONE_V5) {
+            blurred_linear = apply_tonal_adjustments_v5(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+        }
     } else if (WHITES_V12 && adjustments.global.tone_version > 11.5) {
         blurred_linear = apply_tonal_adjustments_v12(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
     } else {
@@ -10149,7 +10155,9 @@ fn apply_halation(
     blurred_linear = apply_linear_exposure(blurred_linear, exp);
     blurred_linear = apply_filmic_exposure(blurred_linear, bright);
     if (adjustments.global.tone_version < 5.5) {
-        blurred_linear = apply_tonal_adjustments_v5(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+        if (TONE_V5) {
+            blurred_linear = apply_tonal_adjustments_v5(blurred_linear, blurred_color_input_space, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
+        }
     } else if (WHITES_V12 && adjustments.global.tone_version > 11.5) {
         blurred_linear = apply_tonal_adjustments_v12(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp));
     } else {
@@ -10749,7 +10757,9 @@ fn main(
             scene_blacks = max(t_blacks, -2.5);
         }
         if (adjustments.global.tone_version < 5.5) {
-            composite_rgb_linear = apply_tonal_adjustments_v5(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, scene_blacks, exposure_gain);
+            if (TONE_V5) {
+                composite_rgb_linear = apply_tonal_adjustments_v5(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, scene_blacks, exposure_gain);
+            }
         } else if (SHADOWS_V13 && adjustments.global.tone_version > 12.5) {
             composite_rgb_linear = apply_tonal_adjustments_v13(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, scene_blacks, exposure_gain);
         } else if (WHITES_V12 && adjustments.global.tone_version > 11.5) {

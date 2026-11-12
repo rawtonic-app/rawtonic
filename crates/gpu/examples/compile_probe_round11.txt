@@ -1,0 +1,7 @@
+# WCC2 round 11 (G76): what the tone stage of variant 4145 costs AMD's Windows Vulkan compiler, piece by piece (stubs; 4145 itself 55.6 s / 5.1 GB in round 10). Measured: tone 8.4 s, gain 28.0 s, slope 21.4 s, cr_curve_level 47.3 s, profile_curve_value 52.8 s, cr_whites 43.6 s.
+s_tone features=4145 dce stub=apply_tonal_adjustments
+s_gain features=4145 dce stub=camera_raw_shadows_blacks_gain
+s_slope features=4145 dce stub=camera_raw_level_slope_black
+s_curvelevel features=4145 dce stub=cr_curve_level
+s_profilecurve features=4145 dce stub=profile_curve_value
+s_whites features=4145 dce stub=cr_whites

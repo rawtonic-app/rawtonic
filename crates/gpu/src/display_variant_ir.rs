@@ -84,12 +84,26 @@ pub(crate) fn fold(module: &mut Module) -> usize {
         .map(|(_, f)| f)
         .chain(module.entry_points.iter_mut().map(|e| &mut e.function));
     for function in functions {
-        fold_block(
-            &snapshot,
-            &function.expressions,
-            &mut function.body,
-            &mut count,
-        );
+        // Repeated while it removes code: naga lowers `A && B` (B evaluated
+        // at run time) to `var t; if (A) { t = B; } else { t = false; }`
+        // and `if (t)`, so `if (SHADOWS_V13 && …)` is decided only once the
+        // folded `if (A)` leaves `t` a single known value (`decided_locals`);
+        // without that each tone variant kept the code of tone versions 12
+        // and 13 (44k of 128k inlined expressions in variant 4145).
+        loop {
+            let known = decided_locals(&snapshot, function);
+            let before = count;
+            fold_block(
+                &snapshot,
+                &known,
+                &function.expressions,
+                &mut function.body,
+                &mut count,
+            );
+            if count == before {
+                break;
+            }
+        }
         // A name keeps its expression alive through compaction: drop the
         // names of expressions only the removed code computed (a `let` of a
         // removed call would keep that function), keep every other.
@@ -164,25 +178,107 @@ fn literal(
 }
 
 /// The value of a condition when the constants decide it.
-fn decide(module: &Module, arena: &Arena<Expression>, handle: Handle<Expression>) -> Option<bool> {
+/// The short-circuit temporaries naga makes for `&&`/`||` (unnamed local
+/// variables without an initializer) that every remaining store sets to the
+/// same decided value: loading one gives that value.
+fn decided_locals(
+    module: &Module,
+    function: &naga::Function,
+) -> std::collections::HashMap<Handle<naga::LocalVariable>, bool> {
+    fn stores(
+        module: &Module,
+        known: &std::collections::HashMap<Handle<naga::LocalVariable>, bool>,
+        arena: &Arena<Expression>,
+        block: &Block,
+        out: &mut std::collections::HashMap<Handle<naga::LocalVariable>, Vec<Option<bool>>>,
+    ) {
+        for statement in block.iter() {
+            match statement {
+                Statement::Store { pointer, value } => {
+                    if let Expression::LocalVariable(var) = arena[*pointer] {
+                        out.entry(var)
+                            .or_default()
+                            .push(decide(module, known, arena, *value));
+                    }
+                }
+                Statement::Block(inner) => stores(module, known, arena, inner, out),
+                Statement::If { accept, reject, .. } => {
+                    stores(module, known, arena, accept, out);
+                    stores(module, known, arena, reject, out);
+                }
+                Statement::Loop {
+                    body, continuing, ..
+                } => {
+                    stores(module, known, arena, body, out);
+                    stores(module, known, arena, continuing, out);
+                }
+                Statement::Switch { cases, .. } => {
+                    for case in cases {
+                        stores(module, known, arena, &case.body, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let empty = std::collections::HashMap::new();
+    let mut all = std::collections::HashMap::new();
+    stores(
+        module,
+        &empty,
+        &function.expressions,
+        &function.body,
+        &mut all,
+    );
+    all.into_iter()
+        .filter(|(var, _)| {
+            let local = &function.local_variables[*var];
+            local.name.is_none() && local.init.is_none()
+        })
+        .filter_map(|(var, values)| {
+            let first = (*values.first()?)?;
+            values
+                .iter()
+                .all(|v| *v == Some(first))
+                .then_some((var, first))
+        })
+        .collect()
+}
+
+fn decide(
+    module: &Module,
+    known: &std::collections::HashMap<Handle<naga::LocalVariable>, bool>,
+    arena: &Arena<Expression>,
+    handle: Handle<Expression>,
+) -> Option<bool> {
     use naga::BinaryOperator as B;
     if let Some(Literal::Bool(b)) = literal(module, arena, handle) {
         return Some(b);
     }
     match arena[handle] {
+        Expression::Load { pointer } => match arena[pointer] {
+            Expression::LocalVariable(var) => known.get(&var).copied(),
+            _ => None,
+        },
         Expression::Unary {
             op: naga::UnaryOperator::LogicalNot,
             expr,
-        } => decide(module, arena, expr).map(|b| !b),
+        } => decide(module, known, arena, expr).map(|b| !b),
         // Conditions are pure expressions: a decided side decides `&&`/`||`
         // whatever the other one is.
         Expression::Binary { op, left, right } => match op {
-            B::LogicalAnd => match (decide(module, arena, left), decide(module, arena, right)) {
+            B::LogicalAnd => match (
+                decide(module, known, arena, left),
+                decide(module, known, arena, right),
+            ) {
                 (Some(false), _) | (_, Some(false)) => Some(false),
                 (Some(true), Some(true)) => Some(true),
                 _ => None,
             },
-            B::LogicalOr => match (decide(module, arena, left), decide(module, arena, right)) {
+            B::LogicalOr => match (
+                decide(module, known, arena, left),
+                decide(module, known, arena, right),
+            ) {
                 (Some(true), _) | (_, Some(true)) => Some(true),
                 (Some(false), Some(false)) => Some(false),
                 _ => None,
@@ -197,23 +293,29 @@ fn decide(module: &Module, arena: &Arena<Expression>, handle: Handle<Expression>
     }
 }
 
-fn fold_block(module: &Module, arena: &Arena<Expression>, block: &mut Block, count: &mut usize) {
+fn fold_block(
+    module: &Module,
+    known: &std::collections::HashMap<Handle<naga::LocalVariable>, bool>,
+    arena: &Arena<Expression>,
+    block: &mut Block,
+    count: &mut usize,
+) {
     for (statement, span) in std::mem::take(block).span_into_iter() {
         let statement = match statement {
             Statement::If {
                 condition,
                 mut accept,
                 mut reject,
-            } => match decide(module, arena, condition) {
+            } => match decide(module, known, arena, condition) {
                 Some(taken) => {
                     *count += 1;
                     let mut kept = if taken { accept } else { reject };
-                    fold_block(module, arena, &mut kept, count);
+                    fold_block(module, known, arena, &mut kept, count);
                     Statement::Block(kept)
                 }
                 None => {
-                    fold_block(module, arena, &mut accept, count);
-                    fold_block(module, arena, &mut reject, count);
+                    fold_block(module, known, arena, &mut accept, count);
+                    fold_block(module, known, arena, &mut reject, count);
                     Statement::If {
                         condition,
                         accept,
@@ -222,7 +324,7 @@ fn fold_block(module: &Module, arena: &Arena<Expression>, block: &mut Block, cou
                 }
             },
             Statement::Block(mut inner) => {
-                fold_block(module, arena, &mut inner, count);
+                fold_block(module, known, arena, &mut inner, count);
                 Statement::Block(inner)
             }
             Statement::Loop {
@@ -230,8 +332,8 @@ fn fold_block(module: &Module, arena: &Arena<Expression>, block: &mut Block, cou
                 mut continuing,
                 break_if,
             } => {
-                fold_block(module, arena, &mut body, count);
-                fold_block(module, arena, &mut continuing, count);
+                fold_block(module, known, arena, &mut body, count);
+                fold_block(module, known, arena, &mut continuing, count);
                 Statement::Loop {
                     body,
                     continuing,
@@ -243,7 +345,7 @@ fn fold_block(module: &Module, arena: &Arena<Expression>, block: &mut Block, cou
                 mut cases,
             } => {
                 for case in &mut cases {
-                    fold_block(module, arena, &mut case.body, count);
+                    fold_block(module, known, arena, &mut case.body, count);
                 }
                 Statement::Switch { selector, cases }
             }

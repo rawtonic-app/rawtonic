@@ -1,0 +1,8 @@
+# WCC2 round 10 (G76): display variants as the app would now compile them through wgpu (dce = the app's fold, now also through naga's && / || temporaries; tone version 5 left out of newer recipes' variants). Inlined sizes on Metal: 4113 39.7k, 17 37.9k, 4145 58.0k, 36915 59.6k, 36919 60.8k, 36927 60.9k, legacy-tone 4145 72.5k (was 128k).
+v4113 features=4113 dce
+v17 features=17 dce
+v4145 features=4145 dce
+v36915 features=36915 dce
+v36919 features=36919 dce
+v36927 features=36927 dce
+v4145_tone5 features=8392753 dce
