@@ -6,6 +6,7 @@ describe('platform shortcut labels', () => {
     expect(platformLabel('Export (⇧⌘E), Auto (⌘L), Alt/Option-click', platform)).toBe(
       'Export (Ctrl+Shift+E), Auto (Ctrl+L), Alt-click'
     );
+    expect(platformLabel('Preferences (⌘,)', platform)).toBe('Preferences (Ctrl+,)');
     expect(platformLabel('Reference (⇧Return, ⌘Return)', platform)).toBe('Reference (Shift+Return, Ctrl+Return)');
   });
   it('preserves Mac labels', () => {
