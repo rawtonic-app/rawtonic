@@ -1,6 +1,6 @@
 # The experimental, unsigned Windows x64 downloads: the NSIS installer
 # (per-user), the MSI (per-machine) and a portable zip, built as the private
-# Windows build does it (`tauri build`, ONNX Runtime bundled, no DXC, static
+# Windows build does it (`tauri build`, ONNX Runtime and DXC bundled, static
 # VC runtime with dynamic UCRT), scanned with Microsoft Defender, then each
 # installed (or unpacked) on a fresh runner, tried in a headless export and
 # uninstalled. Runs on demand and for version tags; the downloads and
@@ -127,8 +127,9 @@ jobs:
           foreach ($need in 'resources\onnxruntime.dll', 'resources\onnxruntime_providers_webgpu.dll', 'lensfun_db') {
             if (-not (Test-Path (Join-Path $root $need))) { Write-Error "the portable folder lacks $need"; exit 1 }
           }
-          $dxc = Get-ChildItem $root -Recurse -Include dxcompiler.dll, dxil.dll
-          if ($dxc) { Write-Error "DXC must not be bundled: $dxc"; exit 1 }
+          # The pinned DirectX Shader Compiler beside the WebGPU plugin (gap G76).
+          & pwsh -NoProfile -File scripts\windows\check_dxc.ps1 -Root $root
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           # Every VC++ runtime import is bundled and at least the toolset's version (gap G76).
           & pwsh -NoProfile -File scripts\windows\check_vc_runtime.ps1 -Root $root
           if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -262,6 +263,13 @@ jobs:
       run:
         shell: pwsh
     steps:
+      # Only the check scripts and their pins; before the download, since a
+      # checkout cleans the workspace.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/windows
+            src-tauri/windows
       - uses: actions/download-artifact@v4
         with:
           name: windows-installer
@@ -325,8 +333,9 @@ jobs:
           foreach ($dll in 'onnxruntime.dll', 'onnxruntime_providers_webgpu.dll') {
             if (-not (Test-Path "$dir\resources\$dll")) { Write-Error "$dll not installed"; exit 1 }
           }
-          $dxc = Get-ChildItem $dir -Recurse -Include dxcompiler.dll, dxil.dll
-          if ($dxc) { Write-Error "DXC must not be bundled: $dxc"; exit 1 }
+          # The installed copy carries the pinned DirectX Shader Compiler (gap G76).
+          & pwsh -NoProfile -File scripts\windows\check_dxc.ps1 -Root $dir
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           $log = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter gpu-warmup.log -ErrorAction SilentlyContinue |
             Select-Object -First 1
           if ($log) { Write-Error "an installer ran the GPU warm-up: $($log.FullName)"; exit 1 }

@@ -233,6 +233,12 @@ pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
             )));
         }
     }
+    // Windows: the DirectX Shader Compiler for the WebGPU plugin beside it,
+    // before the environment registers that plugin (gap G76; `dxc`).
+    #[cfg(windows)]
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        crate::dxc::prepare(dir);
+    }
     let version = check_library(path)?;
     // `ort` loads this file from now on; its one environment is created
     // here and kept for the life of the process (`environment`).

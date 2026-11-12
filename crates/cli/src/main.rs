@@ -8,7 +8,11 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use rawtonic_catalog::{Library, Mode};
 use rawtonic_recipe::geometry;
-use std::{path::PathBuf, sync::atomic::AtomicBool, time::Instant};
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::AtomicBool,
+    time::Instant,
+};
 
 mod fingerprint;
 mod search_bench;
@@ -432,9 +436,27 @@ fn with_face_retouch(
     Ok(recipe)
 }
 
+/// The app's file of GPU check verdicts for a model folder: beside it in
+/// the app's data folder (`ai_processing::configure_acceleration`).
+fn gpu_checks_file(models: &Path) -> Option<PathBuf> {
+    Some(models.parent()?.join("ai-gpu-checks.tsv"))
+}
+
 /// The app's model folder: --models, $RAWTONIC_MODELS, then the installed
-/// app's (cc.rawtonic.editor).
+/// app's (cc.rawtonic.editor). Models loaded from it use the app's GPU
+/// check verdicts too, so the CLI picks the provider the app picks and its
+/// exports stay the app's (a device accepted before speed was compared
+/// stays accepted, rawtonic-onnx `check`).
 fn models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
+    let models = resolve_models_dir(models)?;
+    rawtonic_onnx::configure(rawtonic_onnx::Settings {
+        checks_file: gpu_checks_file(&models),
+        ..rawtonic_onnx::settings()
+    });
+    Ok(models)
+}
+
+fn resolve_models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
     models
         .or_else(|| std::env::var_os("RAWTONIC_MODELS").map(PathBuf::from))
         .or_else(|| {
@@ -1678,6 +1700,23 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The CLI reads the app's GPU verdicts, so it loads models on the
+    /// provider the app uses (and keeps devices accepted before).
+    #[test]
+    fn the_cli_uses_the_apps_gpu_check_verdicts() {
+        let data = Path::new("/data/cc.rawtonic.editor");
+        assert_eq!(
+            gpu_checks_file(&data.join("models")),
+            Some(data.join("ai-gpu-checks.tsv"))
+        );
+        let models = models_dir(Some(data.join("models"))).unwrap();
+        assert_eq!(models, data.join("models"));
+        assert_eq!(
+            rawtonic_onnx::settings().checks_file,
+            Some(data.join("ai-gpu-checks.tsv"))
+        );
+    }
 
     /// The build script's Windows main-thread stack is the render stack.
     #[test]

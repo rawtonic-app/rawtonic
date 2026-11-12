@@ -161,6 +161,7 @@ tauri-build = { version = "2.6", features = [] }
 sha2 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "rustls"] }
 hex = "0.4"
+flate2 = { workspace = true }
 
 
 [[test]]

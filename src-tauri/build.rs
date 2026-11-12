@@ -239,6 +239,162 @@ fn bundle_vc_runtime(dest: &Path, target_arch: &str) {
     }
 }
 
+/// The DirectX Shader Compiler pins (`windows/dxc.sha256`): the release
+/// zip's URL and hash, and each file's hash by its path in the zip.
+struct DxcPins {
+    url: String,
+    zip: (String, String),
+    files: Vec<(String, String)>,
+}
+
+fn dxc_pins() -> DxcPins {
+    let text = include_str!("windows/dxc.sha256");
+    let mut url = None;
+    let mut zip = None;
+    let mut files = Vec::new();
+    for line in text.lines() {
+        if let Some(u) = line.strip_prefix("# url ") {
+            url = Some(u.trim().to_string());
+            continue;
+        }
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        let (hash, name) = line
+            .split_once("  ")
+            .unwrap_or_else(|| panic!("bad line in windows/dxc.sha256: {line}"));
+        let entry = (name.trim().to_string(), hash.to_string());
+        if name.ends_with(".zip") {
+            zip = Some(entry);
+        } else {
+            files.push(entry);
+        }
+    }
+    DxcPins {
+        url: url.expect("no url in windows/dxc.sha256"),
+        zip: zip.expect("no zip in windows/dxc.sha256"),
+        files,
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
+}
+
+/// One stored or deflated member of a zip archive (no zip64: the DXC
+/// release zip is 26 MB). Every result is checked against its pinned hash,
+/// so a misread archive fails the build instead of shipping.
+fn zip_member(archive: &[u8], wanted: &str) -> Option<Vec<u8>> {
+    let u16_at = |at: usize| {
+        Some(u16::from_le_bytes(
+            archive.get(at..at + 2)?.try_into().ok()?,
+        ))
+    };
+    let u32_at = |at: usize| {
+        Some(u32::from_le_bytes(
+            archive.get(at..at + 4)?.try_into().ok()?,
+        ))
+    };
+    // End of central directory: the last "PK\5\6" (a comment may follow it).
+    let eocd = (0..archive.len().saturating_sub(21))
+        .rev()
+        .find(|&i| archive[i..].starts_with(b"PK\x05\x06"))?;
+    let count = u16_at(eocd + 10)? as usize;
+    let mut at = u32_at(eocd + 16)? as usize;
+    for _ in 0..count {
+        if u32_at(at)? != 0x0201_4b50 {
+            return None;
+        }
+        let method = u16_at(at + 10)?;
+        let compressed = u32_at(at + 20)? as usize;
+        let size = u32_at(at + 24)? as usize;
+        let name_len = u16_at(at + 28)? as usize;
+        let skip = name_len + u16_at(at + 30)? as usize + u16_at(at + 32)? as usize;
+        let local = u32_at(at + 42)? as usize;
+        let name = archive.get(at + 46..at + 46 + name_len)?;
+        at += 46 + skip;
+        if name != wanted.as_bytes() {
+            continue;
+        }
+        if u32_at(local)? != 0x0403_4b50 {
+            return None;
+        }
+        let start = local + 30 + u16_at(local + 26)? as usize + u16_at(local + 28)? as usize;
+        let data = archive.get(start..start + compressed)?;
+        let mut out = Vec::with_capacity(size);
+        match method {
+            0 => out.extend_from_slice(data),
+            8 => {
+                flate2::read::DeflateDecoder::new(data)
+                    .read_to_end(&mut out)
+                    .ok()?;
+            }
+            _ => return None,
+        }
+        return (out.len() == size).then_some(out);
+    }
+    None
+}
+
+/// Bundles `dxcompiler.dll` and `dxil.dll` into `dest` (resources\, beside
+/// ONNX Runtime's WebGPU plugin, where Dawn's Direct3D 12 backend looks for
+/// them; rawtonic-onnx `dxc` also loads them by full path): from
+/// Microsoft's official release zip, every file checked against
+/// `windows/dxc.sha256`. Gap G76: without them the plugin fails on
+/// Direct3D 12 and every model runs on the CPU.
+fn bundle_dxc(dest: &Path, target_arch: &str) {
+    println!("cargo:rerun-if-changed=windows/dxc.sha256");
+    let arch = match target_arch {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        other => panic!("No DirectX Shader Compiler for {other}"),
+    };
+    let pins = dxc_pins();
+    let wanted: Vec<(String, &str, &str)> = pins
+        .files
+        .iter()
+        .filter_map(|(path, hash)| {
+            let name = path.strip_prefix(&format!("bin/{arch}/"))?;
+            Some((path.clone(), name, hash.as_str()))
+        })
+        .collect();
+    assert_eq!(
+        wanted.len(),
+        2,
+        "windows/dxc.sha256 must pin dxcompiler.dll and dxil.dll for {arch}"
+    );
+    let current = |name: &str, hash: &str| verify_sha256(&dest.join(name), hash).unwrap_or(false);
+    if wanted.iter().all(|(_, name, hash)| current(name, hash)) {
+        return;
+    }
+    println!(
+        "cargo:warning=Downloading the DirectX Shader Compiler: {}",
+        pins.url
+    );
+    let mut archive = Vec::new();
+    reqwest::blocking::get(&pins.url)
+        .and_then(|r| r.error_for_status())
+        .and_then(|mut r| r.copy_to(&mut archive))
+        .unwrap_or_else(|e| panic!("Cannot download {}: {e}", pins.url));
+    let got = sha256_hex(&archive);
+    if got != pins.zip.1 {
+        panic!("{} has SHA-256 {got}, pinned {}", pins.zip.0, pins.zip.1);
+    }
+    for (path, name, hash) in wanted {
+        let bytes = zip_member(&archive, &path)
+            .unwrap_or_else(|| panic!("{path} not readable in {}", pins.zip.0));
+        let got = sha256_hex(&bytes);
+        if got != hash {
+            panic!("{path} has SHA-256 {got}, pinned {hash}");
+        }
+        // Never a half-written DLL under its real name.
+        let partial = dest.join(format!("{name}.partial"));
+        fs::write(&partial, &bytes).unwrap_or_else(|e| panic!("Cannot write {name}: {e}"));
+        fs::rename(&partial, dest.join(name))
+            .unwrap_or_else(|e| panic!("Cannot bundle {name}: {e}"));
+    }
+}
+
 fn main() {
     link_main_stack();
     println!("cargo:rerun-if-env-changed=RAWTONIC_BUNDLE_ONNX");
@@ -401,6 +557,7 @@ fn main() {
 
     if target_os == "windows" {
         bundle_vc_runtime(&dest_dir, &target_arch);
+        bundle_dxc(&dest_dir, &target_arch);
     }
 
     if target_os == "android" {
