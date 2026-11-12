@@ -4,7 +4,7 @@
 //! photograph twice.
 #![cfg(windows)]
 use rawtonic_catalog::{Library, Mode, layout::database_name};
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 use serde_json::json;
 use std::fs;
 
@@ -32,25 +32,37 @@ fn a_catalog_with_verbatim_folders_finds_its_photographs_under_plain_paths() {
         .unwrap();
         id
     };
-    // What the earlier app wrote: the folder's path verbatim, its id from that
-    // spelling, a recorded drive; and a folder with no photograph yet.
-    {
+    // What the earlier app wrote: the folder's and its drive's paths verbatim,
+    // its id from that spelling; a photograph moved to the system Trash; a
+    // folder with no photograph yet.
+    let recorded: Option<String> = {
         let db = Connection::open(catalog.join(database_name(Mode::Catalog))).unwrap();
-        let verbatim = format!(r"\\?\{}", shoot.display());
+        let drive = db
+            .query_row("SELECT volume_id FROM roots WHERE external=1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         db.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
         db.execute(
-            "UPDATE roots SET id='external-old', path=?, volume_id='disk-1', volume_path=? WHERE external=1",
-            params![verbatim, format!(r"\\?\{}", &root.display().to_string()[..3])],
+            "UPDATE roots SET id='external-old', path=?, volume_path='\\\\?\\' || volume_path WHERE external=1",
+            [format!(r"\\?\{}", shoot.display())],
         )
         .unwrap();
         db.execute("UPDATE assets SET root_id='external-old'", [])
             .unwrap();
         db.execute(
+            "UPDATE assets SET trashed=1, missing=1 WHERE rel_path='b.jpg'",
+            [],
+        )
+        .unwrap();
+        db.execute(
             "INSERT INTO roots(id,path,external) VALUES('external-empty',?,1)",
             [format!(r"\\?\{}", empty.display())],
         )
         .unwrap();
-    }
+        drive
+    };
+    fs::remove_file(&trashed).unwrap();
     let lib = Library::open(&catalog).unwrap();
     let found = lib
         .asset_at(&photo)
@@ -87,11 +99,7 @@ fn a_catalog_with_verbatim_folders_finds_its_photographs_under_plain_paths() {
         .iter()
         .find(|row| row.0 == shoot.display().to_string())
         .unwrap();
-    assert_eq!(
-        shoot_row.1.as_deref(),
-        Some("disk-1"),
-        "the recorded drive is kept"
-    );
+    assert_eq!(shoot_row.1, recorded, "the recorded drive is kept");
     let state: (i64, i64) = db
         .query_row(
             "SELECT trashed,missing FROM assets WHERE rel_path='b.jpg'",
