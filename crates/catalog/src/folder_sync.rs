@@ -449,6 +449,9 @@ impl Library {
         folders.extend(roots.into_iter().map(PathBuf::from));
         folders.extend(self.manifest.outside_folders());
         folders.retain(|folder| !self.in_output_folder(folder));
+        // Stored roots may use a symlink or a plain Windows drive prefix.
+        // Compare them in the same namespace as the selected scan folder.
+        let mut folders: Vec<_> = folders.iter().map(|p| resolve_moved(p)).collect();
         folders.sort();
         let mut topmost: Vec<PathBuf> = Vec::new();
         for folder in folders {
@@ -467,7 +470,15 @@ impl Library {
         let rows = query.query_map([], |r| {
             Ok(Known {
                 id: r.get(0)?,
-                path: self.join_root(r.get(2)?, r.get(3)?, r.get(1)?),
+                path: {
+                    let path = self.join_root(r.get(2)?, r.get(3)?, r.get(1)?);
+                    // Keep the recorded filename: canonicalizing the file itself
+                    // erases a case-only rename on case-insensitive volumes.
+                    match (path.parent(), path.file_name()) {
+                        (Some(parent), Some(name)) => resolve_moved(parent).join(name),
+                        _ => path,
+                    }
+                },
                 size: r.get::<_, i64>(4)? as u64,
                 mtime: r.get(5)?,
                 fingerprint: r.get(6)?,
@@ -486,7 +497,7 @@ impl Library {
             .collect::<rusqlite::Result<_>>()?;
         Ok(Anchors {
             directory: self.directory.clone(),
-            roots: roots.into_iter().map(PathBuf::from).collect(),
+            roots: roots.iter().map(|p| resolve_moved(Path::new(p))).collect(),
             there: HashMap::new(),
         })
     }

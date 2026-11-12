@@ -809,3 +809,61 @@ fn a_failed_addition_still_reports_the_moves_and_removals_applied() {
     assert!(lib.asset(&b).is_err());
     assert!(lib.asset_at(&capture.join("N.ARW")).unwrap().is_none());
 }
+
+#[cfg(unix)]
+#[test]
+fn synchronize_through_a_symlink_finds_new_photos() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonical().unwrap();
+    let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+    let folder = root.join("Photos");
+    photo(&folder.join("A.ARW"), 1);
+    lib.add_asset(&folder.join("A.ARW")).unwrap();
+    let alias = root.join("alias");
+    std::os::unix::fs::symlink(&folder, &alias).unwrap();
+    rusqlite::Connection::open(lib.directory.join("catalog.sqlite"))
+        .unwrap()
+        .execute(
+            "UPDATE roots SET path=?1 WHERE external=1",
+            [alias.to_str().unwrap()],
+        )
+        .unwrap();
+    photo(&folder.join("B.ARW"), 2);
+    for selected in [None, Some(alias.as_path()), Some(folder.as_path())] {
+        let plan = scan(&lib, selected);
+        assert!(plan.errors.is_empty(), "{plan:#?}");
+        assert_eq!(plan.new_files.len(), 1, "{plan:#?}");
+        assert!(plan.new_files[0].path.ends_with("B.ARW"));
+        assert!(plan.copies.is_empty(), "{plan:#?}");
+        assert!(plan.removed.is_empty(), "{plan:#?}");
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn synchronize_plain_windows_root_finds_new_photos() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonical().unwrap();
+    let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+    let folder = root.join("Photos");
+    photo(&folder.join("A.ARW"), 1);
+    lib.add_asset(&folder.join("A.ARW")).unwrap();
+    let plain = folder
+        .to_string_lossy()
+        .strip_prefix(r"\\?\")
+        .unwrap()
+        .to_owned();
+    rusqlite::Connection::open(lib.directory.join("catalog.sqlite"))
+        .unwrap()
+        .execute("UPDATE roots SET path=?1 WHERE external=1", [&plain])
+        .unwrap();
+    photo(&folder.join("B.ARW"), 2);
+    for selected in [Path::new(&plain), folder.as_path()] {
+        let plan = scan(&lib, Some(selected));
+        assert!(plan.errors.is_empty(), "{plan:#?}");
+        assert_eq!(plan.new_files.len(), 1, "{plan:#?}");
+        assert!(plan.new_files[0].path.ends_with("B.ARW"));
+        assert!(plan.copies.is_empty(), "{plan:#?}");
+        assert!(plan.removed.is_empty(), "{plan:#?}");
+    }
+}
