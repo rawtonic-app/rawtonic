@@ -1731,6 +1731,23 @@ mod private_preview_tests {
     }
 
     #[test]
+    fn preview_without_exif_gets_orientation_without_changing_jpeg_pixels() {
+        let image = DynamicImage::new_rgb8(7, 3);
+        let mut jpeg = Cursor::new(Vec::new());
+        image.write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+        let jpeg = jpeg.into_inner();
+        assert!(!jpeg.windows(6).any(|bytes| bytes == b"Exif\0\0"));
+        let raw = raf_with_jpeg(&jpeg);
+        let preview = priority_embedded_jpeg(&raw).unwrap();
+        assert_eq!(exif_orientation(&preview), Some(1));
+        assert_eq!(
+            image::load_from_memory(&preview).unwrap().to_rgb8(),
+            image::load_from_memory(&jpeg).unwrap().to_rgb8()
+        );
+        assert_eq!(raf_embedded_jpeg(&raw), Some(jpeg.as_slice()));
+    }
+
+    #[test]
     fn raf_preview_bounds_and_missing_orientation_are_safe() {
         let image = DynamicImage::new_rgb8(7, 3);
         let mut jpeg = Cursor::new(Vec::new());
