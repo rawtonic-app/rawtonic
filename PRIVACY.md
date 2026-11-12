@@ -191,3 +191,7 @@ counters.
 RAW sample uploads to Rawtonic are not part of this version.
 
 Questions: open an issue at https://github.com/rawtonic-app/rawtonic.
+
+The local app log keeps the current session and four previous sessions
+(`app.log`, `app.1.log` through `app.4.log`). These archives stay on your
+computer; reports include only the scrubbed tail shown in the review dialog.
