@@ -82,6 +82,7 @@ LINUX_DIR=${RAWTONIC_LINUX_DIR:-rawtonic-release}
 LINUX_CACHE=${RAWTONIC_LINUX_CACHE:-$LINUX_DIR/cache}
 LINUX_LOCK=${RAWTONIC_LINUX_LOCK:-}
 LINUX_PHOTOS=${RAWTONIC_LINUX_PHOTOS:-}
+SYMBOLS_REPO=${RAWTONIC_SYMBOLS_REPO:-}
 read -ra SSH <<< "${RAWTONIC_LINUX_SSH:-}"
 # Remote paths go into command lines on the host unquoted: allow only plain ones.
 for v in "$LINUX_DIR" "$LINUX_CACHE" "$LINUX_LOCK" "$LINUX_PHOTOS" "${RAWTONIC_LINUX_CACHE_SEED:-}"; do
@@ -133,7 +134,7 @@ describe() {
     relay) echo "cargo run --release of a scratch crate on $WT/crates/contribute: send one report to the build's relay and delete it";;
     linux) echo "git archive SHA | ${SSH[*]:-ssh HOST} tar -x -C $LINUX_DIR/$VERSION/src; ${SSH[*]:-ssh HOST} 'flock ${LINUX_LOCK:-LOCK} chrt --other 0 packaging/linux/build-appimage.sh $LINUX_CACHE' (scripts/release/linux.sh build); copy AppImage + .zsync back";;
     linux-smoke) echo "scripts/release/linux.sh smoke on the host: relay string, zsync info, xvfb-run host exports vs the previous AppImage, ubuntu:22.04 ubuntu:24.04 debian:12 fedora:42 container exports";;
-    windows) echo "git push origin SHA:refs/heads/$BUILD_BRANCH; gh workflow run windows-installer.yml --ref $BUILD_BRANCH; wait; gh run download -n windows-installer, windows-defender; sha256 -c; log has '<kind> WARP refused cleanly'/'<kind> uninstaller exit 0' per nsis/msi/portable; Defender verdicts (MSI must be clean); relay string (7z on the Linux host); copy setup.exe, .msi, -portable.zip, SHA256SUMS-windows.txt; delete $BUILD_BRANCH";;
+    windows) echo "git push origin SHA:refs/heads/$BUILD_BRANCH; gh workflow run windows-installer.yml --ref $BUILD_BRANCH; wait; gh run download -n windows-installer, windows-defender; sha256 -c; log has '<kind> WARP refused cleanly'/'<kind> uninstaller exit 0' per nsis/msi/portable; Defender verdicts (MSI must be clean); relay string (7z on the Linux host); copy setup.exe, .msi, -portable.zip, SHA256SUMS-windows.txt; gh run download -n windows-symbols → release symbols-$TAG in \$RAWTONIC_SYMBOLS_REPO (private); delete $BUILD_BRANCH";;
     creds) echo "count every signing credential value (except the public identity hash) in $LOGS and the built apps: must be 0; gitleaks dir $LOGS";;
     sums) echo "LGPL tarballs (previous release or pinned URL, SHA-256 against scripts/tether/build_libgphoto2.sh); shasum -a 256 * > $ASSETS/SHA256SUMS.txt";;
     notes) echo "python3 scripts/release/notes.py: CHANGELOG section $VERSION + the previous release's install/feedback text → $WORK/notes.md";;
@@ -496,7 +497,37 @@ st_windows() {
     < "$w/artifact/$exe" > "$w/relay.txt" || fail "relay string check"
   echo "relay strings in rawtonic-app.exe: $(cat "$w/relay.txt")"; [ "$(cat "$w/relay.txt")" -ge 1 ] || fail "no relay address"
   mkdir -p "$ASSETS"; cp "$w/artifact/$exe" "$w/artifact/$msi" "$w/artifact/$zip" "$w/artifact/SHA256SUMS-windows.txt" "$ASSETS/"
+  windows_symbols "$id" "$w" "$zip"
   git -C "$REPO_ROOT" push -q origin --delete "$BUILD_BRANCH" && echo "deleted $BUILD_BRANCH" || echo "note: $BUILD_BRANCH not deleted"
+}
+
+# The release's rawtonic-app.exe and its PDB (artifact windows-symbols), for
+# symbolizing crash reports (docs/DEVELOPMENT.md): checked to be the executable
+# the downloads carry, then kept as a release of the private repository
+# $RAWTONIC_SYMBOLS_REPO (never a public asset); without it only in WORK.
+windows_symbols() {
+  local id=$1 w=$2 zip=$3 sum inner
+  rm -rf "$w/symbols"
+  gh run download "$id" -R "$GH_REPO" -n windows-symbols -D "$w/symbols" || fail "download the symbols"
+  [ -f "$w/symbols/rawtonic_app.pdb" ] || fail "no rawtonic_app.pdb in the symbols"
+  sum=$(shasum -a 256 "$w/symbols/rawtonic-app.exe" | cut -d' ' -f1)
+  inner=$(unzip -p "$w/artifact/$zip" Rawtonic/rawtonic-app.exe | shasum -a 256 | cut -d' ' -f1)
+  [ "$sum" = "$inner" ] || fail "the symbols' rawtonic-app.exe is not the one in $zip"
+  (cd "$w/symbols" && rm -f "../windows-symbols.zip" && zip -q -9 "../windows-symbols.zip" rawtonic-app.exe rawtonic_app.pdb SYMBOLS.txt) || fail "zip the symbols"
+  if [ -z "$SYMBOLS_REPO" ]; then
+    echo "WARNING: RAWTONIC_SYMBOLS_REPO not set: the Windows symbols stay only in $w/windows-symbols.zip"
+    return 0
+  fi
+  [ "$(gh repo view "$SYMBOLS_REPO" --json visibility -q .visibility)" = PRIVATE ] || fail "$SYMBOLS_REPO is not private"
+  local stag="symbols-$TAG" asset="$w/rawtonic-$VERSION-windows-symbols.zip"
+  cp "$w/windows-symbols.zip" "$asset"
+  if gh release view "$stag" -R "$SYMBOLS_REPO" >/dev/null 2>&1; then
+    gh release upload "$stag" -R "$SYMBOLS_REPO" --clobber "$asset" || fail "upload the symbols"
+  else
+    gh release create "$stag" -R "$SYMBOLS_REPO" --title "Windows symbols $VERSION" \
+      --notes "rawtonic-app.exe and rawtonic_app.pdb of $VERSION (sha256 of the executable $sum)." "$asset" || fail "store the symbols"
+  fi
+  echo "Windows symbols kept as $SYMBOLS_REPO release $stag"
 }
 
 st_creds() {

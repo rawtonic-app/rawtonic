@@ -58,21 +58,10 @@ Function RawtonicPrivacyLeave
   WriteRegDWORD HKCU "Software\Rawtonic Project\Rawtonic" "PrivacyNoticeShown" 1
 FunctionEnd
 
-; After an install or update, fill the app's GPU pipeline cache so the first
-; launch does not wait for shader compiles (src-tauri/src/gpu_warmup.rs).
-; The installer runs as the installing user (installMode currentUser, not
-; elevated), so the cache lands in that user's %LOCALAPPDATA%. The app ends
-; the warm-up itself within 120 s; its outcome never fails the install.
+; The install runs no GPU warm-up: on a Radeon 680M the MSI's took over two
+; minutes behind a busy cursor (notes: parity-gaps/G76). The app's first start
+; compiles the pipelines and shows that it does.
 !macro NSIS_HOOK_POSTINSTALL
   ; A silent install shows no page, so the legacy key is cleaned here too.
   Call RawtonicMoveLegacyKey
-  DetailPrint "Preparing the GPU shaders for the first start..."
-  ClearErrors
-  ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --warm-gpu-cache' $0
-  ${If} ${Errors}
-    DetailPrint "GPU shader warm-up skipped: it could not be started."
-  ${Else}
-    DetailPrint "GPU shader warm-up ended (exit code $0)."
-  ${EndIf}
-  ClearErrors
 !macroend

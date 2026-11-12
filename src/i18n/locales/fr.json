@@ -967,7 +967,7 @@
     }
   },
   "errors": {
-    "gpuStartFailed": "Rawtonic n'a pas pu démarrer le processeur graphique : les photos ne peuvent être ni développées ni exportées. Mettez à jour le pilote graphique et redémarrez Rawtonic. Détails : {{details}}",
+    "gpuStartFailed": "Rawtonic n'a pas pu démarrer le processeur graphique : les photos ne peuvent être ni développées ni exportées. Réinitialisez les réglages graphiques et réessayez ; si cela ne suffit pas, mettez à jour le pilote graphique. Détails : {{details}}",
     "operationFailed": "L’opération n’a pas pu être terminée."
   },
   "gpuBackend": {
@@ -980,7 +980,13 @@
     "leftOutKept": "{{crashed}} a planté au démarrage de Rawtonic le {{date}}, y compris lors du nouvel essai. {{avoided}} est laissé de côté jusqu'à ce que vous reveniez au choix automatique.",
     "none": "aucun processeur graphique",
     "openGl": "Le traitement utilise OpenGL, comme réglé dans Préférences → Traitement. Des versions antérieures de Rawtonic passaient d'elles-mêmes à OpenGL après un plantage graphique au démarrage ; « Auto » est recommandé.",
+    "openGlUnavailable": "OpenGL n'est pas utilisé sur cet ordinateur : avec plusieurs pilotes graphiques, il arrête Rawtonic. Le traitement est maintenant réglé sur Auto (Préférences → Traitement).",
     "openPreferences": "Ouvrir les Préférences",
+    "prepared": "Graphismes préparés pour cet ordinateur en {{seconds}} s",
+    "preparing": "Préparation des graphismes pour cet ordinateur",
+    "preparingDetail": "Rawtonic compile ses shaders de traitement pour ce processeur graphique et ce pilote. Cela se produit après une installation ou une mise à jour du pilote et peut prendre quelques minutes ; Développement affiche les photos dès que c'est terminé.",
+    "resetAndRetry": "Réinitialiser les réglages graphiques et réessayer",
+    "resetFailed": "Impossible de réinitialiser les réglages graphiques : {{details}}",
     "unknownBackend": "Le moteur graphique",
     "useAutomatic": "Revenir au choix automatique",
     "useAutomaticFailed": "La modification n'a pas pu être enregistrée."
@@ -2324,7 +2330,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile.",
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",

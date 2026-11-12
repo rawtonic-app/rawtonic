@@ -26,7 +26,7 @@ Before running it, write the release's section under `## Unreleased` in `CHANGEL
 | `gui` | `scripts/release/gui_smoke.py`, below | this Mac |
 | `relay` | an optimized build of `rawtonic-contribute` sends one report to the build's relay and deletes it | this Mac, network |
 | `linux`, `linux-smoke` | `git archive` of the commit to the Linux host, `packaging/linux/build-appimage.sh` under the host's build lock; relay address, update information, host exports (`xvfb-run`) byte-compared with the previous AppImage, exports in fresh Ubuntu 22.04/24.04, Debian 12 and Fedora 42 containers (`scripts/release/linux.sh`) | Linux host over SSH |
-| `windows` | pushes `release-build/VERSION` at the commit (the workflow takes branches, not SHAs), `gh workflow run windows-installer.yml`, waits, requires a green run whose log shows the WARP refusal (or an export) and `uninstaller exit 0`, downloads and checks the installer, relay address in the unpacked `rawtonic-app.exe` (7z on the Linux host); deletes the branch | GitHub runner |
+| `windows` | pushes `release-build/VERSION` at the commit (the workflow takes branches, not SHAs), `gh workflow run windows-installer.yml`, waits, requires a green run whose log shows the WARP refusal (or an export) and `uninstaller exit 0`, downloads and checks the installer, relay address in the unpacked `rawtonic-app.exe` (7z on the Linux host), keeps the executable's symbols privately (`RAWTONIC_SYMBOLS_REPO`); deletes the branch | GitHub runner |
 | `creds` | every signing credential value (not the identity hash, which codesign prints and is public) counted in all logs, the apps and the notes: must be 0; `gitleaks dir` on the logs | this Mac |
 | `sums` | LGPL source tarballs (from the previous release, else the pinned URL) checked against the pins in `scripts/tether/build_libgphoto2.sh`; `SHA256SUMS.txt` | this Mac |
 | `notes` | `scripts/release/notes.py`: intro, Highlights, Fixes, Changes to existing edits and Known gaps from the CHANGELOG section; warning, Install, camera-library sources and Feedback from the previous release's notes with the version swapped; the SHA-256 list | this Mac |
@@ -50,6 +50,7 @@ Machine-specific values come from the environment or from `~/.config/rawtonic/re
 
 | Variable | Meaning |
 |---|---|
+| `RAWTONIC_SYMBOLS_REPO` | a **private** GitHub repository (`owner/name`) where the `windows` stage keeps each release's `rawtonic-app.exe` and `rawtonic_app.pdb` as release `symbols-vVERSION` (it refuses a public one); unset: the zip stays only in the work folder (DEVELOPMENT.md, Symbolizing a Windows crash report) |
 | `RAWTONIC_SIGNING_ENV` | file exporting `APPLE_SIGNING_IDENTITY`, `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH` (or the Apple ID trio); default `~/.config/rawtonic/signing.env` (DEVELOPMENT.md, macOS release signing) |
 | `RAWTONIC_RELEASE_WORK` | work folder; each version gets `WORK/VERSION` (worktrees, assets, logs, state); default `~/rawtonic-release-work` |
 | `RAWTONIC_BUILD_LOCK` | command prefix for heavy builds on this Mac (a shared build lock), optional |

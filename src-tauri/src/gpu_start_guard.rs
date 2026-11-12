@@ -108,6 +108,20 @@ pub(crate) fn clean_exit() {
     }
 }
 
+/// The user asked to quit: the start flag goes as at a clean exit, so a
+/// process that ends during its first compile after the window was closed
+/// (G76: a close 60 s into a 62–69 s cold compile left a fallback) is not
+/// taken for a crash. Should the quit be cancelled, a crash later in this
+/// start is not recorded either; the next start's own flag covers its own.
+pub(crate) fn quit_requested() {
+    if let Some(path) = FLAG_PATH.get()
+        && path.exists()
+    {
+        log::info!("Quit requested while the GPU starts: not a start crash if it ends now.");
+    }
+    clean_exit();
+}
+
 fn exit_with(gate: &Mutex<bool>, path: &Path) {
     let mut exiting = gate
         .lock()
@@ -218,6 +232,9 @@ pub(crate) enum Notice {
     /// OpenGL is the preference, perhaps from an earlier version's silent
     /// switch after a crash.
     OpenGlPreference,
+    /// OpenGL was the preference where it is not used (Windows, macOS):
+    /// this start changed it to Automatic.
+    OpenGlUnavailable,
 }
 
 /// The outcome for this start.
@@ -235,12 +252,20 @@ fn normalized(preference: Option<&str>) -> Option<String> {
 }
 
 /// The guard's step for this start: `crash` is what the flag says about the
-/// previous start, `preference` the processing backend preference.
+/// previous start, `preference` the processing backend preference, `usable`
+/// the backends a device may start on here.
+///
+/// It never leaves out every usable backend: that start would have no GPU
+/// for certain, worse than the risk of another crash. When the left-out set
+/// covers them all, this start leaves out only the newest crash's backends
+/// (G76: a kill during a start had left out Vulkan, a second one DX12, and
+/// the start after fell to a backend that cannot work).
 pub(crate) fn decide(
     state: &GuardState,
     crash: Option<&StartCrash>,
     preference: Option<&str>,
     gl_compiled: bool,
+    usable: Backends,
     today: &str,
 ) -> Decision {
     let preference = normalized(preference);
@@ -273,7 +298,7 @@ pub(crate) fn decide(
             notice = Some(Notice::FellBack {
                 crashed: next.crashed.clone(),
                 stage: crash.stage.clone(),
-                avoid: next.avoid.clone(),
+                avoid: String::new(),
                 kept: next.step == Step::Kept,
             });
         }
@@ -292,10 +317,10 @@ pub(crate) fn decide(
             }
         }
     }
-    let avoid = match next.step {
-        Step::FellBack | Step::Kept => parse(&next.avoid),
-        Step::Clean | Step::Retrying => Backends::empty(),
-    };
+    let avoid = never_all(current_avoid(&next), &next, usable);
+    if let Some(Notice::FellBack { avoid: shown, .. }) = &mut notice {
+        *shown = names(avoid);
+    }
     if !next.gl_checked {
         next.gl_checked = true;
         if notice.is_none() && gl_compiled && preference.as_deref() == Some("gl") {
@@ -315,6 +340,34 @@ pub(crate) fn current_avoid(state: &GuardState) -> Backends {
     match state.step {
         Step::FellBack | Step::Kept => parse(&state.avoid),
         Step::Clean | Step::Retrying => Backends::empty(),
+    }
+}
+
+/// `avoid`, unless it leaves none of `usable`: then only the newest crash's
+/// backends, or nothing when those are all of them too (`decide`).
+pub(crate) fn never_all(avoid: Backends, state: &GuardState, usable: Backends) -> Backends {
+    if usable.is_empty() || !(usable - avoid).is_empty() {
+        return avoid;
+    }
+    let newest = parse(&state.crashed) & usable;
+    if (usable - newest).is_empty() {
+        Backends::empty()
+    } else {
+        newest
+    }
+}
+
+/// What a headless run (an export from a script, the GPU warm-up) leaves
+/// out: the guard's current set, read only. Such a run neither writes the
+/// flag nor moves the guard on, so its caller ending it (a time limit,
+/// Ctrl+C) never counts as a start crash, and it never uses up the window
+/// start's notice or retry.
+pub(crate) fn for_headless_run(config_dir: &Path, usable: Backends) -> Decision {
+    let state = read_state(&state_path(config_dir));
+    Decision {
+        avoid: never_all(current_avoid(&state), &state, usable),
+        notice: None,
+        next: state,
     }
 }
 
@@ -341,6 +394,7 @@ pub(crate) fn at_start(
     config_dir: &Path,
     preference: Option<&str>,
     gl_compiled: bool,
+    usable: Backends,
     today: &str,
     alive: impl Fn(u32) -> bool,
 ) -> (Decision, Vec<String>) {
@@ -355,14 +409,14 @@ pub(crate) fn at_start(
             );
             return (
                 Decision {
-                    avoid: current_avoid(&state),
+                    avoid: never_all(current_avoid(&state), &state, usable),
                     notice: None,
                     next: state,
                 },
                 log,
             );
         }
-        FlagCheck::Clean => decide(&state, None, preference, gl_compiled, today),
+        FlagCheck::Clean => decide(&state, None, preference, gl_compiled, usable, today),
         FlagCheck::Crashed(crash) => {
             let _ = std::fs::remove_file(&flag);
             log.push(format!(
@@ -374,7 +428,7 @@ pub(crate) fn at_start(
                     names(crash.backends)
                 }
             ));
-            decide(&state, Some(&crash), preference, gl_compiled, today)
+            decide(&state, Some(&crash), preference, gl_compiled, usable, today)
         }
     };
     if decision.next != state
@@ -383,6 +437,18 @@ pub(crate) fn at_start(
         log.push(format!("Could not save the GPU start state: {error}"));
     }
     match decision.next.step {
+        Step::FellBack | Step::Kept if decision.avoid != parse(&decision.next.avoid) => {
+            log.push(format!(
+                "GPU backends left out after crashes: {}, which is every usable one; this start \
+                 leaves out only {} (the newest crash)",
+                decision.next.avoid,
+                if decision.avoid.is_empty() {
+                    "none".to_string()
+                } else {
+                    names(decision.avoid)
+                }
+            ))
+        }
         Step::FellBack | Step::Kept => log.push(format!(
             "GPU backends left out at this start after a crash: {} ({})",
             decision.next.avoid,
@@ -416,7 +482,14 @@ mod tests {
 
     /// Runs one start: the flag's crash (if any) against the saved state.
     fn start(state: &GuardState, crashed: Option<Backends>, preference: Option<&str>) -> Decision {
-        decide(state, crashed.map(crash).as_ref(), preference, true, TODAY)
+        decide(
+            state,
+            crashed.map(crash).as_ref(),
+            preference,
+            true,
+            Backends::all() - Backends::NOOP,
+            TODAY,
+        )
     }
 
     #[test]
@@ -526,7 +599,14 @@ mod tests {
         assert!(first.next.gl_checked);
         assert_eq!(start(&first.next, None, Some("gl")).notice, None);
         // Not where OpenGL is not built in, and not for another choice.
-        let mac = decide(&GuardState::default(), None, Some("gl"), false, TODAY);
+        let mac = decide(
+            &GuardState::default(),
+            None,
+            Some("gl"),
+            false,
+            Backends::METAL,
+            TODAY,
+        );
         assert_eq!(mac.notice, None);
         let other = start(&GuardState::default(), None, Some("vulkan"));
         assert_eq!(other.notice, None);
@@ -594,6 +674,110 @@ mod tests {
         assert!(flag.exists());
     }
 
+    /// Windows: Vulkan and DX12 are all a device may start on.
+    const WINDOWS: Backends = Backends::VULKAN.union(Backends::DX12);
+
+    fn windows_start(state: &GuardState, crashed: Option<Backends>) -> Decision {
+        decide(
+            state,
+            crashed.map(crash).as_ref(),
+            None,
+            false,
+            WINDOWS,
+            TODAY,
+        )
+    }
+
+    #[test]
+    fn every_usable_backend_is_never_left_out() {
+        // G76: a kill during a start left out Vulkan, a second one DX12.
+        let first = windows_start(&GuardState::default(), Some(Backends::VULKAN));
+        assert_eq!(first.avoid, Backends::VULKAN);
+        let second = windows_start(&first.next, Some(Backends::DX12));
+        // Both stay recorded, but this start leaves out only the newest crash.
+        assert_eq!(second.next.avoid, "vulkan,dx12");
+        assert_eq!(second.avoid, Backends::DX12);
+        assert!(
+            matches!(&second.notice, Some(Notice::FellBack { avoid, .. }) if avoid == "dx12"),
+            "{:?}",
+            second.notice
+        );
+        // A crash naming every usable backend (an adapter pick across both)
+        // leaves nothing out rather than everything.
+        let both = windows_start(&GuardState::default(), Some(WINDOWS));
+        assert_eq!(both.avoid, Backends::empty());
+        // Kept across starts, still never all.
+        let retry = windows_start(&second.next, None);
+        let kept = windows_start(&retry.next, Some(Backends::DX12));
+        assert_eq!(kept.next.step, Step::Kept);
+        assert_eq!(kept.avoid, Backends::DX12);
+        assert_eq!(windows_start(&kept.next, None).avoid, Backends::DX12);
+        // Elsewhere, with a backend left to start on, the whole set stays out.
+        let linux = decide(
+            &second.next,
+            None,
+            None,
+            true,
+            WINDOWS | Backends::GL,
+            TODAY,
+        );
+        assert_eq!(linux.next.step, Step::Retrying);
+        let linux_kept = decide(
+            &linux.next,
+            Some(&crash(Backends::DX12)),
+            None,
+            true,
+            WINDOWS | Backends::GL,
+            TODAY,
+        );
+        assert_eq!(linux_kept.avoid, WINDOWS);
+    }
+
+    #[test]
+    fn a_headless_run_follows_the_guard_but_never_writes_or_advances_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = windows_start(&GuardState::default(), Some(Backends::VULKAN)).next;
+        write_state(&state_path(dir.path()), &state).unwrap();
+        let flag = dir.path().join(FLAG_FILE);
+        std::fs::write(&flag, r#"{"pid":4242,"backends":"dx12","stage":"compile"}"#).unwrap();
+        let before = std::fs::read(state_path(dir.path())).unwrap();
+
+        let run = for_headless_run(dir.path(), WINDOWS);
+        assert_eq!(run.avoid, Backends::VULKAN);
+        assert_eq!(run.notice, None);
+        // Neither the state nor another start's flag changed: the window's
+        // next start still sees both.
+        assert_eq!(std::fs::read(state_path(dir.path())).unwrap(), before);
+        assert!(flag.exists());
+        // Nothing recorded: nothing left out.
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(
+            for_headless_run(empty.path(), WINDOWS).avoid,
+            Backends::empty()
+        );
+        assert!(!empty.path().join(STATE_FILE).exists());
+    }
+
+    #[test]
+    fn the_g76_chain_starts_on_vulkan_again() {
+        let dir = tempfile::tempdir().unwrap();
+        // The state the Lenovo had: Vulkan left out after a kill, then a
+        // start that ended while compiling on DX12.
+        let state = windows_start(&GuardState::default(), Some(Backends::VULKAN)).next;
+        write_state(&state_path(dir.path()), &state).unwrap();
+        std::fs::write(
+            dir.path().join(FLAG_FILE),
+            r#"{"pid":4242,"backends":"dx12","stage":"compile"}"#,
+        )
+        .unwrap();
+        let (decision, log) = at_start(dir.path(), None, false, WINDOWS, TODAY, |_| false);
+        assert_eq!(decision.avoid, Backends::DX12);
+        assert!(
+            log.iter().any(|line| line.contains("every usable one")),
+            "{log:?}"
+        );
+    }
+
     #[test]
     fn at_start_saves_the_state_clears_the_flag_and_logs_what_happened() {
         let dir = tempfile::tempdir().unwrap();
@@ -602,7 +786,7 @@ mod tests {
             r#"{"pid":4242,"backends":"vulkan","stage":"compile"}"#,
         )
         .unwrap();
-        let (decision, log) = at_start(dir.path(), None, true, TODAY, |_| false);
+        let (decision, log) = at_start(dir.path(), None, true, Backends::all(), TODAY, |_| false);
         assert_eq!(decision.avoid, Backends::VULKAN);
         assert!(!dir.path().join(FLAG_FILE).exists());
         assert_eq!(read_state(&state_path(dir.path())), decision.next);
@@ -614,9 +798,9 @@ mod tests {
         assert!(log.iter().any(|line| line.contains("left out")), "{log:?}");
 
         // The next start retries; a third clears the state.
-        let (retry, _) = at_start(dir.path(), None, true, TODAY, |_| false);
+        let (retry, _) = at_start(dir.path(), None, true, Backends::all(), TODAY, |_| false);
         assert_eq!(retry.avoid, Backends::empty());
-        let (clean, _) = at_start(dir.path(), None, true, TODAY, |_| false);
+        let (clean, _) = at_start(dir.path(), None, true, Backends::all(), TODAY, |_| false);
         assert_eq!(clean.next.step, Step::Clean);
         assert_eq!(read_state(&state_path(dir.path())).step, Step::Clean);
     }

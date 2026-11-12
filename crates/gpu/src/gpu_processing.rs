@@ -1955,11 +1955,16 @@ fn display_pipeline(
     ),
     String,
 > {
-    let shader = create_shader(
-        device,
-        "Display Shader",
-        include_str!("shaders/display.wgsl"),
-    )?;
+    // The display's own small shader never waits for the compile limit
+    // (`checked`): the main window is set up on the UI thread, which must
+    // not wait behind a processing compile (G76: a Radeon 680M's 70 s
+    // compile kept the window hidden and "Not Responding").
+    let shader = checked(device, "shader 'Display Shader'", || {
+        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Display Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/display.wgsl").into()),
+        })
+    })?;
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Display BGL"),
@@ -2024,7 +2029,7 @@ fn display_pipeline(
         immediate_size: 0,
     });
 
-    let pipeline = validated(device, "pipeline 'Display Pipeline'", || {
+    let pipeline = checked(device, "pipeline 'Display Pipeline'", || {
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Display Pipeline"),
             layout: Some(&pipeline_layout),
@@ -3902,6 +3907,8 @@ pub struct GpuProcessor {
     main_pipeline: BackgroundPipeline,
     /// Opens when the RAW default variant settles (see `StartGate`).
     start_gate: Arc<StartGate>,
+    /// Whether the start's pipelines are compiled ahead (`compiles_ahead`).
+    compiles_ahead: bool,
     /// The general pipelines (8-bit, high precision) with the luminance
     /// noise reduction's edge-preserving pass, compiled on first use.
     edge_pipelines: [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; MAIN_OUTPUTS],
@@ -5447,11 +5454,19 @@ fn high_precision_shader_source(source: &str) -> String {
 /// returns an invalid handle and only reports the failure to the uncaptured
 /// error handler, after which every dispatch silently writes nothing.
 /// Error scopes are per thread, so concurrent work elsewhere is not captured.
+/// Waits for a compile slot (`CompileLimit`) first.
 fn validated<T>(
     device: &wgpu::Device,
     what: &str,
     create: impl FnOnce() -> T,
 ) -> Result<T, String> {
+    let _slot = compile_slot();
+    checked(device, what, create)
+}
+
+/// `validated` without the compile limit, for small pipelines created on
+/// the UI thread (the window display).
+fn checked<T>(device: &wgpu::Device, what: &str, create: impl FnOnce() -> T) -> Result<T, String> {
     let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
     let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let started = std::time::Instant::now();
@@ -5474,30 +5489,129 @@ fn validated<T>(
     }
 }
 
+/// How many shader-module and pipeline creations may run at once: no limit
+/// unless the device's driver needs one (`device_start::compile_limit`) or
+/// `RAWTONIC_GPU_COMPILE_CONCURRENCY=N` sets one (it wins; 0 = no limit).
+/// G76/WMEM: AMD's Windows Vulkan driver committed 25–30 GB of private memory
+/// while our start compiled several pipelines at once on a Radeon 680M; one
+/// at a time it stayed at about 8 GB during the first compile and fell to
+/// 2 GB after, and the first display variant took as long (66.7 against
+/// 68.9 s).
+struct CompileLimit {
+    /// Running creations and the limit.
+    state: Mutex<(usize, Option<usize>)>,
+    freed: std::sync::Condvar,
+}
+
+static COMPILE_LIMIT: CompileLimit = CompileLimit {
+    state: Mutex::new((0, None)),
+    freed: std::sync::Condvar::new(),
+};
+
+fn env_compile_limit() -> Option<Option<usize>> {
+    let n = std::env::var("RAWTONIC_GPU_COMPILE_CONCURRENCY")
+        .ok()?
+        .trim()
+        .parse::<usize>()
+        .ok()?;
+    Some((n > 0).then_some(n))
+}
+
+/// Sets the limit for the device just started (`None`: no limit); the
+/// environment variable overrides it.
+pub fn set_compile_limit(limit: Option<usize>) {
+    let limit = env_compile_limit().unwrap_or(limit);
+    if let Some(n) = limit {
+        log::info!("GPU shader compiles run at most {n} at once");
+    }
+    let mut state = COMPILE_LIMIT
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    state.1 = limit;
+    COMPILE_LIMIT.freed.notify_all();
+}
+
+struct CompileSlot;
+
+impl Drop for CompileSlot {
+    fn drop(&mut self) {
+        let mut state = COMPILE_LIMIT
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        state.0 -= 1;
+        COMPILE_LIMIT.freed.notify_all();
+    }
+}
+
+fn compile_slot() -> CompileSlot {
+    let mut state = COMPILE_LIMIT
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    while state.1.is_some_and(|max| state.0 >= max) {
+        state = COMPILE_LIMIT
+            .freed
+            .wait(state)
+            .unwrap_or_else(|e| e.into_inner());
+    }
+    state.0 += 1;
+    CompileSlot
+}
+
+/// Whether a new processor compiles the pipelines a start may need ahead
+/// (`START_PREVIEW_FEATURES`, the general and the export pipelines) once the
+/// RAW default display variant is ready: not under a compile limit. On the
+/// driver that needs one, each of those compiles took about 20 s and
+/// committed up to 7 GB of private memory, one after the other for minutes
+/// after the first frame, and again at the next start when the app was
+/// ended before they reached the pipeline cache (G76/WGT2, Radeon 680M).
+/// There they compile when a photo or an export first needs them.
+fn compiles_ahead() -> bool {
+    COMPILE_LIMIT
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .1
+        .is_none()
+}
+
 /// Holds the pipelines compiled ahead back until the first display variant
 /// is ready, or until one of them is needed. On a cold NVIDIA driver cache
 /// (Linux) the compiles compete for the CPU with each other and with the
 /// library: the RAW default variant took 9.1 s beside them, 6.0 s alone (G56).
 #[derive(Default)]
 struct StartGate {
-    open: Mutex<bool>,
+    /// (open, cancelled)
+    open: Mutex<(bool, bool)>,
     opened: std::sync::Condvar,
 }
 
 impl StartGate {
     fn open(&self) {
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
-        if !*open {
-            *open = true;
+        if !open.0 {
+            open.0 = true;
             self.opened.notify_all();
         }
     }
 
-    fn wait(&self) {
+    /// Ends a wait without opening: its compile is never needed (the
+    /// owner of a pipeline with its own gate was dropped).
+    fn cancel(&self) {
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
-        while !*open {
+        open.1 = true;
+        self.opened.notify_all();
+    }
+
+    /// Whether the gate opened (false: cancelled first).
+    fn wait(&self) -> bool {
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        while !open.0 && !open.1 {
             open = self.opened.wait(open).unwrap_or_else(|e| e.into_inner());
         }
+        open.0
     }
 }
 
@@ -5519,7 +5633,9 @@ impl BackgroundPipeline {
         let device = device.clone();
         let start = Arc::clone(gate);
         rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
-            start.wait();
+            if !start.wait() {
+                return;
+            }
             let created = create(&device);
             if let Err(error) = &created {
                 log::error!("{error}");
@@ -5544,6 +5660,16 @@ impl BackgroundPipeline {
     }
 }
 
+/// A processor dropped before its gate opened (an export processor released
+/// under memory pressure, or one under a compile limit whose general
+/// pipelines were never needed) ends the compile threads still waiting,
+/// instead of leaving them holding the device.
+impl Drop for BackgroundPipeline {
+    fn drop(&mut self) {
+        self.gate.cancel();
+    }
+}
+
 /// Compiles display variant `features` on its own thread, once `gate`
 /// opens if one is given. The RAW default variant opens `start_gate` when it
 /// settles and logs its start and end (the first frame of a cold start
@@ -5562,8 +5688,10 @@ fn spawn_preview_compile(
     let first = features == RAW_DEFAULT_PREVIEW_FEATURES;
     let opens = first.then(|| Arc::clone(start_gate));
     rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
-        if let Some(gate) = gate {
-            gate.wait();
+        if let Some(gate) = gate
+            && !gate.wait()
+        {
+            return;
         }
         let started = std::time::Instant::now();
         if first {
@@ -6281,6 +6409,21 @@ impl GpuProcessor {
         // back until it is ready (notes: benchmark-results/
         // windows-gpu-vfio-2026-10-30/COLD-START-OPTIONS.md, B2/D).
         let start_gate = Arc::new(StartGate::default());
+        let ahead = compiles_ahead();
+        if !ahead && display_variants {
+            log::info!(
+                "GPU pipelines after the first display variant compile when first needed (compile limit)"
+            );
+        }
+        // Without compiles ahead each background pipeline has its own gate,
+        // opened only when a render waits for it.
+        let background_gate = || {
+            if ahead {
+                Arc::clone(&start_gate)
+            } else {
+                Arc::new(StartGate::default())
+            }
+        };
         // Display variants compile on demand off the render worker; the
         // common ones start with the processor (see the end of `new`).
         let preview_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>> =
@@ -6579,7 +6722,7 @@ impl GpuProcessor {
         // cold driver cache (NVIDIA/Linux: 16 s for each general pipeline)
         // does not hold the processor back; a render waits only for the
         // pipeline it needs (`BackgroundPipeline::wait`, `preview_pipeline`).
-        let main_pipeline = BackgroundPipeline::compile(device, &start_gate, {
+        let main_pipeline = BackgroundPipeline::compile(device, &background_gate(), {
             let module = shader_module.clone();
             let layout = pipeline_layout.clone();
             move |device| {
@@ -6632,7 +6775,7 @@ impl GpuProcessor {
             ),
         )?;
         // CPU-readback exports encode in their own pass (`render_window`).
-        let deferred_pipeline = BackgroundPipeline::compile(device, &start_gate, {
+        let deferred_pipeline = BackgroundPipeline::compile(device, &background_gate(), {
             let module = high_precision_shader.clone();
             let layout = high_precision_pipeline_layout.clone();
             move |device| {
@@ -6816,6 +6959,7 @@ impl GpuProcessor {
             main_bgl,
             main_pipeline,
             start_gate,
+            compiles_ahead: ahead,
             edge_pipelines: Default::default(),
             profile_pipelines: Default::default(),
             long_curve_pipelines: Default::default(),
@@ -6929,8 +7073,10 @@ impl GpuProcessor {
             processor.start_gate.open();
             return Ok(processor);
         }
-        for features in START_PREVIEW_FEATURES {
-            processor.compile_preview_variant_after_start(features);
+        if ahead {
+            for features in START_PREVIEW_FEATURES {
+                processor.compile_preview_variant_after_start(features);
+            }
         }
         Ok(processor)
     }
@@ -6953,10 +7099,13 @@ impl GpuProcessor {
         if !detail {
             self.detail_pipeline();
         }
+        // Under a compile limit nothing else is compiled ahead
+        // (`compiles_ahead`).
         detail
-            && START_PREVIEW_FEATURES.into_iter().all(settled)
-            && self.main_pipeline.get().is_some()
-            && self.deferred_pipeline.get().is_some()
+            && (!self.compiles_ahead
+                || (START_PREVIEW_FEATURES.into_iter().all(settled)
+                    && self.main_pipeline.get().is_some()
+                    && self.deferred_pipeline.get().is_some()))
     }
 
     fn relight_depth_view(

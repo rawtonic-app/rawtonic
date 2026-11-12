@@ -13,12 +13,22 @@
 //! UTC offset (EXIF OffsetTimeOriginal). A shift moves the wall time by
 //! calendar arithmetic (no time zone or daylight-saving conversion), keeps
 //! every fraction digit and the offset as written, and invents none.
+//!
+//! The correction leaves Rawtonic in the photograph's XMP sidecar, as
+//! Lightroom's Edit Capture Time does: `exif:DateTimeOriginal` and
+//! `photoshop:DateCreated` (`capture_write`, written by the sidecar writer
+//! with the library's other metadata), removed again on reset; the value
+//! the sidecar holds of the library's is `metadata.xmp_capture` (schema
+//! 27). A sidecar whose `exif:DateTimeOriginal` differs from the file's
+//! time (another editor's correction) becomes the library's correction
+//! when it is read (`adopt_sidecar`).
 use crate::CatalogError;
 use crate::Library;
 use crate::error::bail;
 use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rawtonic_metadata::{CaptureWrite, XmpDateTime};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -192,6 +202,34 @@ impl CaptureTime {
             .map_or(0, str::len)
             .max(self.subsec.as_deref().map_or(0, str::len));
         Ok(Shift::exact(nanos, digits))
+    }
+
+    /// This time as XMP writes it. An offset XMP cannot hold (not
+    /// `±HH:MM`) is left out rather than written malformed.
+    pub fn to_xmp(&self) -> XmpDateTime {
+        let (date, clock) = self
+            .local
+            .split_once(' ')
+            .unwrap_or((self.local.as_str(), "00:00:00"));
+        let mut value = XmpDateTime {
+            date: date.to_string(),
+            time: clock.to_string(),
+            fraction: self.subsec.clone(),
+            offset: self.offset.clone(),
+        };
+        if XmpDateTime::parse(&value.to_xmp()).as_ref() != Some(&value) {
+            value.offset = None;
+        }
+        value
+    }
+
+    /// A time from its XMP form.
+    pub fn from_xmp(value: &XmpDateTime) -> Result<Self, TimeError> {
+        Self::new(
+            &format!("{} {}", value.date, value.time),
+            value.fraction.as_deref(),
+            value.utc_offset(),
+        )
     }
 
     /// The fields of a photograph's EXIF map (`exif` of its editor state)
@@ -371,23 +409,196 @@ pub fn overlay(state: &mut Value, time: &CaptureTime) {
     }
 }
 
+/// Asset `id`'s corrected capture time, if it has one.
+pub(crate) fn override_of(conn: &Connection, id: &str) -> Result<Option<CaptureTime>> {
+    Ok(conn
+        .query_row(
+            "SELECT captured,subsec,offset FROM capture_overrides WHERE asset_id=?",
+            [id],
+            |r| {
+                Ok(CaptureTime {
+                    local: r.get(0)?,
+                    subsec: r.get(1)?,
+                    offset: r.get(2)?,
+                })
+            },
+        )
+        .optional()?)
+}
+
+/// What the next write of asset `id`'s XMP sidecar does with its corrected
+/// capture time, and the value of the library's the sidecar holds after it
+/// (`metadata.xmp_capture`): a correction is written; one reset removes
+/// the value the library put there or took from there; otherwise the
+/// sidecar's dates stay as they are.
+pub(crate) fn capture_write(conn: &Connection, id: &str) -> Result<(CaptureWrite, Option<String>)> {
+    if let Some(time) = override_of(conn, id)? {
+        let value = time.to_xmp();
+        let text = value.to_xmp();
+        return Ok((CaptureWrite::Set(value), Some(text)));
+    }
+    let owned: Option<String> = conn
+        .query_row(
+            "SELECT xmp_capture FROM metadata WHERE asset_id=?",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(match owned.as_deref().and_then(XmpDateTime::parse) {
+        Some(value) => (CaptureWrite::Remove(value), None),
+        None => (CaptureWrite::Keep, None),
+    })
+}
+
+/// Takes the capture time an XMP sidecar the library reads states
+/// (`stated`, its `exif:DateTimeOriginal`) as asset `id`'s correction: a
+/// time other than the file's (Lightroom's Edit Capture Time, or Rawtonic's
+/// own in a sidecar written by another library) becomes the correction,
+/// replacing the library's; the file's own time removes the library's
+/// correction (the sidecar is what the library takes). A sidecar without
+/// one leaves the correction as it is, and so does a photograph whose
+/// file was not read yet: the facts pass takes it then
+/// (`Library::adopt_sidecar_on_disk`). Only the catalog is written.
+pub(crate) fn adopt_sidecar(
+    conn: &Connection,
+    id: &str,
+    stated: Option<&XmpDateTime>,
+) -> Result<()> {
+    let Some(stated) = stated else {
+        return Ok(());
+    };
+    let Ok(time) = CaptureTime::from_xmp(stated) else {
+        return Ok(());
+    };
+    // The file's time with the fraction and offset it states (none known
+    // for photographs whose facts were read before schema 28: whole
+    // seconds then).
+    let camera: Option<CaptureTime> = conn
+        .query_row(
+            "SELECT capture_time,capture_subsec,capture_offset FROM assets WHERE id=?",
+            [id],
+            |r| {
+                Ok(r.get::<_, Option<String>>(0)?.map(|local| CaptureTime {
+                    local,
+                    subsec: r.get(1).ok().flatten(),
+                    offset: r.get(2).ok().flatten(),
+                }))
+            },
+        )
+        .optional()?
+        .flatten();
+    let Some(camera) = camera.filter(|c| !c.local.is_empty()) else {
+        return Ok(());
+    };
+    let current = override_of(conn, id)?;
+    if current
+        .as_ref()
+        .is_some_and(|c| c.to_xmp().same_moment(stated))
+    {
+        // The library's own correction, as it wrote it.
+        conn.execute(
+            "UPDATE metadata SET xmp_capture=? WHERE asset_id=?",
+            params![stated.to_xmp(), id],
+        )?;
+    } else if stated.same_moment(&camera.to_xmp()) {
+        // The file's time: no correction (equal times create none).
+        conn.execute("DELETE FROM capture_overrides WHERE asset_id=?", [id])?;
+        conn.execute(
+            "UPDATE metadata SET xmp_capture=NULL WHERE asset_id=?",
+            [id],
+        )?;
+    } else {
+        conn.execute(
+            "INSERT INTO capture_overrides(asset_id,captured,subsec,offset) VALUES(?,?,?,?)
+             ON CONFLICT(asset_id) DO UPDATE SET captured=excluded.captured,
+                subsec=excluded.subsec,offset=excluded.offset",
+            params![id, time.local, time.subsec, time.offset],
+        )?;
+        conn.execute(
+            "UPDATE metadata SET xmp_capture=? WHERE asset_id=?",
+            params![stated.to_xmp(), id],
+        )?;
+    }
+    Ok(())
+}
+
+/// Drops the library's IPTC Date Created of asset `id` when it holds the
+/// correction being replaced or removed (`removed`): read from a sidecar
+/// the correction came from (Lightroom writes it beside its edited capture
+/// time) or from one the library wrote, it is that correction, not a date
+/// of its own; while a correction is set it owns `photoshop:DateCreated`,
+/// and a reset removes it. An IPTC Date Created of another value stays.
+fn forget_mirrored_date(conn: &Connection, id: &str, removed: &CaptureTime) -> Result<()> {
+    let data: Option<String> = conn
+        .query_row("SELECT data FROM metadata WHERE asset_id=?", [id], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    let Some(data) = data else {
+        return Ok(());
+    };
+    let mut metadata: rawtonic_metadata::Metadata = serde_json::from_str(&data)?;
+    let mirrored = metadata
+        .iptc
+        .get("dateCreated")
+        .and_then(|value| XmpDateTime::parse(value))
+        .is_some_and(|value| value.same_moment(&removed.to_xmp()));
+    if mirrored {
+        metadata.iptc.remove("dateCreated");
+        conn.execute(
+            "UPDATE metadata SET data=? WHERE asset_id=?",
+            params![serde_json::to_string(&metadata)?, id],
+        )?;
+        conn.execute(
+            "UPDATE assets SET search_text=? WHERE id=?",
+            params![crate::search_text(&metadata), id],
+        )?;
+    }
+    Ok(())
+}
+
 impl Library {
     /// Asset `id`'s corrected capture time, if it has one.
     pub fn capture_override(&self, id: &str) -> Result<Option<CaptureTime>, CatalogError> {
-        Ok(self
-            .conn
+        Ok(override_of(&self.conn, id)?)
+    }
+
+    /// `adopt_sidecar` for a photograph whose file's time was just read for
+    /// the first time (the facts pass), from the XMP sidecar the library
+    /// adopted when it was added: read again only while it is that same
+    /// sidecar (its digest), and never over a correction the photograph
+    /// has. Anything unreadable is left for an explicit read (Use XMP).
+    pub(crate) fn adopt_sidecar_on_disk(
+        &self,
+        conn: &Connection,
+        id: &str,
+        photo: &std::path::Path,
+    ) -> Result<()> {
+        let row: Option<(Option<String>, Option<String>)> = conn
             .query_row(
-                "SELECT captured,subsec,offset FROM capture_overrides WHERE asset_id=?",
+                "SELECT xmp_hash,xmp_capture FROM metadata WHERE asset_id=?",
                 [id],
-                |r| {
-                    Ok(CaptureTime {
-                        local: r.get(0)?,
-                        subsec: r.get(1)?,
-                        offset: r.get(2)?,
-                    })
-                },
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .optional()?)
+            .optional()?;
+        let Some((Some(hash), None)) = row else {
+            return Ok(());
+        };
+        if override_of(conn, id)?.is_some() {
+            return Ok(());
+        }
+        let Ok(bytes) = std::fs::read(rawtonic_metadata::sidecar_path(photo)) else {
+            return Ok(());
+        };
+        if rawtonic_fs::sha256_hex(&bytes) != hash {
+            return Ok(());
+        }
+        let Ok(text) = std::str::from_utf8(&bytes) else {
+            return Ok(());
+        };
+        let stated = rawtonic_metadata::read_capture_time(text).unwrap_or_default();
+        adopt_sidecar(conn, id, stated.as_ref())
     }
 
     /// The corrected capture times of those of `ids` that have one.
@@ -452,6 +663,11 @@ impl Library {
             return Ok(conflicts);
         }
         for (change, new) in checked {
+            // The correction being replaced or removed: an IPTC Date
+            // Created mirroring it is no date of its own.
+            if let Some(replaced) = &change.expected {
+                forget_mirrored_date(&tx, &change.asset_id, replaced)?;
+            }
             match new {
                 Some(time) => tx.execute(
                     "INSERT INTO capture_overrides(asset_id,captured,subsec,offset) VALUES(?,?,?,?)
@@ -464,6 +680,12 @@ impl Library {
                     [&change.asset_id],
                 )?,
             };
+            // The XMP sidecar follows (`capture_write`); one changed
+            // elsewhere stays a conflict.
+            tx.execute(
+                "UPDATE metadata SET xmp_status='pending' WHERE asset_id=? AND xmp_status='synced'",
+                [&change.asset_id],
+            )?;
         }
         tx.commit()?;
         Ok(Vec::new())

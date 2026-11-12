@@ -43,6 +43,15 @@ pub struct XmpUndo {
     pub xmp_hash: Option<String>,
     pub xmp_status: String,
     pub from_camera: bool,
+    /// The corrected capture time before and after (the sidecar's
+    /// `exif:DateTimeOriginal` may set or remove it), and the value of the
+    /// library's the sidecar held before (`metadata.xmp_capture`).
+    #[serde(default)]
+    pub capture_before: Option<crate::capture_time::CaptureTime>,
+    #[serde(default)]
+    pub capture_after: Option<crate::capture_time::CaptureTime>,
+    #[serde(default)]
+    pub xmp_capture: Option<String>,
 }
 
 impl Library {
@@ -106,6 +115,7 @@ impl Library {
             Err(e) => return Err(e.into()),
         };
         let (mut metadata, _) = rawtonic_metadata::read_xmp(&text)?;
+        let stated = rawtonic_metadata::read_capture_time(&text)?;
         let carries_flag = rawtonic_metadata::carries_flag(&text)?;
         // Only a packet the sidecar writer can take back (an XMP packet with
         // an RDF root) replaces the library's metadata: well-formed XML that
@@ -119,12 +129,18 @@ impl Library {
         // connection commits meanwhile is either before (and kept in the
         // undo) or after, never overwritten from a stale read.
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-        let (before, xmp_hash, xmp_status, from_camera): (String, Option<String>, String, bool) =
-            tx.query_row(
-                "SELECT data,xmp_hash,xmp_status,from_camera FROM metadata WHERE asset_id=?",
-                [asset],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )?;
+        let (before, xmp_hash, xmp_status, from_camera, xmp_capture): (
+            String,
+            Option<String>,
+            String,
+            bool,
+            Option<String>,
+        ) = tx.query_row(
+            "SELECT data,xmp_hash,xmp_status,from_camera,xmp_capture FROM metadata WHERE asset_id=?",
+            [asset],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )?;
+        let capture_before = crate::capture_time::override_of(&tx, asset)?;
         if !carries_flag {
             metadata.flag = serde_json::from_str::<Metadata>(&before)?.flag;
         }
@@ -134,8 +150,16 @@ impl Library {
             "UPDATE metadata SET xmp_hash=?,xmp_publishing=NULL WHERE asset_id=?",
             params![rawtonic_fs::sha256_hex(text.as_bytes()), asset],
         )?;
+        // The sidecar's capture time too: with the existing rule (the
+        // photographer chose the sidecar), a different one replaces the
+        // library's correction.
+        crate::capture_time::adopt_sidecar(&tx, asset, stated.as_ref())?;
+        let capture_after = crate::capture_time::override_of(&tx, asset)?;
         tx.commit()?;
         Ok(XmpUndo {
+            capture_before,
+            capture_after,
+            xmp_capture,
             asset: asset.to_string(),
             before,
             after: serde_json::to_string(&metadata)?,
@@ -183,6 +207,27 @@ impl Library {
             "UPDATE assets SET search_text=? WHERE id=?",
             params![search_text(&before), undo.asset],
         )?;
+        // The correction as it was, unless it was changed since.
+        if undo.capture_before != undo.capture_after
+            && crate::capture_time::override_of(&tx, &undo.asset)? == undo.capture_after
+        {
+            match &undo.capture_before {
+                Some(time) => tx.execute(
+                    "INSERT INTO capture_overrides(asset_id,captured,subsec,offset) VALUES(?,?,?,?)
+                     ON CONFLICT(asset_id) DO UPDATE SET captured=excluded.captured,
+                        subsec=excluded.subsec,offset=excluded.offset",
+                    params![undo.asset, time.local, time.subsec, time.offset],
+                )?,
+                None => tx.execute(
+                    "DELETE FROM capture_overrides WHERE asset_id=?",
+                    [&undo.asset],
+                )?,
+            };
+            tx.execute(
+                "UPDATE metadata SET xmp_capture=? WHERE asset_id=?",
+                params![undo.xmp_capture, undo.asset],
+            )?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -219,7 +264,9 @@ impl Library {
                 .query_row("SELECT data FROM metadata WHERE asset_id=?", [asset], |r| {
                     r.get(0)
                 })?;
-        let metadata: Metadata = serde_json::from_str(&data)?;
+        let mut metadata: Metadata = serde_json::from_str(&data)?;
+        let (capture, owned) = crate::capture_time::capture_write(&self.conn, asset)?;
+        metadata.capture = capture;
         // The digest to be published is committed first (`xmp_publishing`,
         // its own statement outside any transaction), so a crash between
         // the publish and the commit of `xmp_hash` leaves a sidecar the next
@@ -254,11 +301,11 @@ impl Library {
                 // In sync only with the metadata written: an edit committed
                 // meanwhile (another connection) keeps the photograph pending.
                 self.conn.execute(
-                    "UPDATE metadata SET xmp_hash=?,
+                    "UPDATE metadata SET xmp_hash=?,xmp_capture=?,
                      xmp_publishing=CASE WHEN xmp_publishing=? THEN NULL ELSE xmp_publishing END,
                      xmp_status=CASE WHEN data=? THEN 'synced' ELSE xmp_status END
                      WHERE asset_id=?",
-                    params![hash, hash, data, asset],
+                    params![hash, owned, hash, data, asset],
                 )?;
                 Ok(())
             }

@@ -36,6 +36,14 @@ jobs:
       RAWTONIC_BUNDLE_ONNX: "1"
       # A release build never carries the QA bridge's frontend.
       VITE_RAWTONIC_QA: "0"
+      # Symbols for crash reports (docs/DEVELOPMENT.md, "Symbolizing a
+      # Windows crash report"): line tables into a PDB beside the executable,
+      # which keeps a pointer to it. The PDB is not in any download; it goes
+      # to the windows-symbols artifact and from there, per release, to the
+      # maintainers' private store (scripts/release.sh). Debug info does not
+      # change the generated code.
+      CARGO_PROFILE_RELEASE_STRIP: "none"
+      CARGO_PROFILE_RELEASE_DEBUG: "line-tables-only"
     defaults:
       run:
         shell: pwsh
@@ -138,6 +146,23 @@ jobs:
           name: windows-installer
           path: installer-out/
           retention-days: 14
+      # The executable and its PDB, matched by the PDB's GUID and age, for
+      # symbolizing the module+offset frames of a crash report. Not a
+      # download; scripts/release.sh keeps a release's copy privately.
+      - name: Collect the symbols
+        run: |
+          New-Item -ItemType Directory symbols-out | Out-Null
+          $pdb = @(Get-ChildItem target\release\rawtonic_app.pdb -ErrorAction SilentlyContinue)
+          if ($pdb.Count -ne 1) { Write-Error 'no rawtonic_app.pdb beside the release executable'; exit 1 }
+          Copy-Item target\release\rawtonic-app.exe, $pdb[0].FullName symbols-out\
+          $exeSum = (Get-FileHash symbols-out\rawtonic-app.exe -Algorithm SHA256).Hash.ToLower()
+          "version $env:VERSION`ncommit $env:GITHUB_SHA`nrawtonic-app.exe sha256 $exeSum" | Set-Content symbols-out\SYMBOLS.txt
+          Get-ChildItem symbols-out | ForEach-Object { "{0}: {1} bytes" -f $_.Name, $_.Length }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-symbols
+          path: symbols-out/
+          retention-days: 30
   # Microsoft Defender on a fresh runner, with signatures updated just before:
   # each download and the app executable inside them are scanned. Evidence,
   # not proof: users' PCs also use cloud protection, reputation (SmartScreen,
@@ -244,9 +269,9 @@ jobs:
             if ((Get-FileHash $name -Algorithm SHA256).Hash -ne $sum) { Write-Error "${name}: checksum mismatch"; exit 1 }
             "ok $name"
           }
-      # Silent install. Both installers run `rawtonic-app --warm-gpu-cache`
-      # afterwards (NSIS: src-tauri/windows/installer-hooks.nsh, MSI:
-      # msi-warmup.wxs); the runner has no GPU, only Windows' software DX12
+      # Silent install. No installer runs a GPU warm-up any more (G76: the
+      # first start compiles and shows it), so none may leave a
+      # gpu-warmup.log. The runner has no GPU, only Windows' software DX12
       # adapter (WARP). NSIS installs per user into a scratch folder, the MSI
       # per machine into Program Files (administrator; the runner is one).
       # The portable zip is unpacked into a folder with a space in its path.
@@ -278,8 +303,6 @@ jobs:
               $q = Start-Process "$nsisDir\uninstall.exe" -ArgumentList '/S' -PassThru -Wait
               for ($i = 0; $i -lt 60 -and (Test-Path "$nsisDir\rawtonic-app.exe"); $i++) { Start-Sleep 1 }
               if (Test-Path "$nsisDir\rawtonic-app.exe") { Write-Error 'the NSIS copy was not uninstalled'; exit 1 }
-              # The MSI's own warm-up must leave its log.
-              Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter gpu-warmup.log -ErrorAction SilentlyContinue | Remove-Item
               # NSIS leaves HKCU\Software\<publisher>\Rawtonic behind; the MSI must still go to Program Files.
               $watch.Restart()
               $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', "`"$env:RUNNER_TEMP\msi-install.log`"" -PassThru -Wait
@@ -299,12 +322,10 @@ jobs:
           }
           $dxc = Get-ChildItem $dir -Recurse -Include dxcompiler.dll, dxil.dll
           if ($dxc) { Write-Error "DXC must not be bundled: $dxc"; exit 1 }
-          if ($env:KIND -ne 'portable') {
-            $log = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter gpu-warmup.log -ErrorAction SilentlyContinue |
-              Select-Object -First 1
-            if (-not $log) { Write-Error 'the GPU warm-up left no log: the hook did not run'; exit 1 }
-            Get-Content $log.FullName
-          }
+          $log = Get-ChildItem $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter gpu-warmup.log -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if ($log) { Write-Error "an installer ran the GPU warm-up: $($log.FullName)"; exit 1 }
+          if ($env:KIND -ne 'portable' -and $watch.Elapsed.TotalSeconds -gt 90) { Write-Error "the $env:KIND install took $([math]::Round($watch.Elapsed.TotalSeconds)) s"; exit 1 }
           "INSTALL_DIR=$dir" >> $env:GITHUB_ENV
       # The publisher the signing policy names, in the executable's version
       # resource and wherever the installer records it.

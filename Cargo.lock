@@ -5496,6 +5496,7 @@ dependencies = [
 name = "rawtonic-contribute"
 version = "0.1.0"
 dependencies = [
+ "backtrace",
  "base64 0.23.1",
  "gethostname",
  "libc",
@@ -5561,6 +5562,7 @@ dependencies = [
  "rawtonic-recipe",
  "rawtonic-runtime",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

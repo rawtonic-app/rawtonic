@@ -23,6 +23,13 @@ use std::{
 pub struct CaptureFacts {
     /// Local time as the camera recorded it, `YYYY-MM-DD HH:MM:SS`.
     pub captured: Option<String>,
+    /// The fraction of a second beside it (EXIF SubSecTimeOriginal),
+    /// digits only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_subsec: Option<String>,
+    /// The UTC offset beside it (EXIF OffsetTimeOriginal), `±HH:MM`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_offset: Option<String>,
     pub make: Option<String>,
     /// Camera model.
     pub model: Option<String>,
@@ -79,6 +86,24 @@ impl CaptureFacts {
                 .as_ref()
                 .filter(|t| chrono::NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S").is_ok())
                 .cloned(),
+            // Beside a time only, in the forms XMP can state them.
+            captured_subsec: self
+                .captured_subsec
+                .as_deref()
+                .map(str::trim)
+                .filter(|f| (1..=9).contains(&f.len()) && f.bytes().all(|b| b.is_ascii_digit()))
+                .filter(|_| self.captured.is_some())
+                .map(str::to_string),
+            captured_offset: self
+                .captured_offset
+                .as_deref()
+                .map(|o| o.trim().trim_end_matches('\0').trim())
+                .filter(|o| {
+                    rawtonic_metadata::XmpDateTime::parse(&format!("2000-01-01T00:00:00{o}"))
+                        .is_some_and(|t| t.offset.as_deref() == Some(*o) && *o != "Z")
+                })
+                .filter(|_| self.captured.is_some())
+                .map(str::to_string),
             make: text(&self.make),
             model: text(&self.model),
             lens: text(&self.lens),
@@ -116,11 +141,14 @@ pub(crate) fn write_facts(
 ) -> Result<(bool, Option<u8>)> {
     let facts = facts.sanitized();
     let written = conn.execute(
-        "UPDATE assets SET capture_time=?,make=?,camera=?,lens=?,focal_length=?,aperture=?,iso=?,
-                exposure=?,source_type=?,exposure_mode=?,exposure_bias=?,sequence=?,facts_read=1
+        "UPDATE assets SET capture_time=?,capture_subsec=?,capture_offset=?,make=?,camera=?,lens=?,
+                focal_length=?,aperture=?,iso=?,exposure=?,source_type=?,exposure_mode=?,
+                exposure_bias=?,sequence=?,facts_read=1
          WHERE id=?",
         params![
             facts.captured,
+            facts.captured_subsec,
+            facts.captured_offset,
             facts.make.unwrap_or_default(),
             facts.model.unwrap_or_default(),
             facts.lens.unwrap_or_default(),
@@ -167,7 +195,20 @@ impl Library {
     /// Records what asset `id`'s file says about its capture. Returns
     /// whether the asset exists.
     pub fn record_facts(&self, id: &str, facts: &CaptureFacts) -> Result<bool, CatalogError> {
-        Ok(write_facts(&self.conn, id, facts)?.0)
+        let unread: bool = self
+            .conn
+            .query_row("SELECT facts_read=0 FROM assets WHERE id=?", [id], |r| {
+                r.get(0)
+            })
+            .optional()?
+            .unwrap_or(false);
+        let written = write_facts(&self.conn, id, facts)?.0;
+        // The file's time is known now: the adopted sidecar's capture time
+        // can be compared with it (`capture_time::adopt_sidecar`).
+        if written && unread {
+            self.adopt_sidecar_on_disk(&self.conn, id, &self.asset(id)?.path)?;
+        }
+        Ok(written)
     }
 
     /// Asset `id`'s capture facts, and whether its file was read for them.
@@ -176,7 +217,7 @@ impl Library {
             .conn
             .query_row(
                 "SELECT capture_time,make,camera,lens,focal_length,aperture,iso,exposure,facts_read,
-                        source_type,exposure_mode,exposure_bias,sequence
+                        source_type,exposure_mode,exposure_bias,sequence,capture_subsec,capture_offset
                  FROM assets WHERE id=?",
                 [id],
                 |r| {
@@ -186,6 +227,8 @@ impl Library {
                     Ok((
                         CaptureFacts {
                             captured: text(0)?,
+                            captured_subsec: text(13)?,
+                            captured_offset: text(14)?,
                             make: text(1)?,
                             model: text(2)?,
                             lens: text(3)?,
@@ -269,6 +312,9 @@ impl Library {
                 .unwrap_or(false);
             if unread {
                 let (written, rating) = write_facts(&tx, &id, &facts)?;
+                if written {
+                    self.adopt_sidecar_on_disk(&tx, &id, &path)?;
+                }
                 recorded += usize::from(written);
                 if let Some(rating) = rating {
                     rated.push((path, rating));

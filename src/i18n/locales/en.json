@@ -920,7 +920,7 @@
     }
   },
   "errors": {
-    "gpuStartFailed": "Rawtonic could not start the graphics processor, so photos cannot be developed or exported. Update the graphics driver and restart Rawtonic. Details: {{details}}",
+    "gpuStartFailed": "Rawtonic could not start the graphics processor, so photos cannot be developed or exported. Reset the graphics settings and retry; if that does not help, update the graphics driver. Details: {{details}}",
     "operationFailed": "The operation could not be completed."
   },
   "gpuBackend": {
@@ -933,7 +933,13 @@
     "leftOutKept": "{{crashed}} crashed while Rawtonic started on {{date}}, also when it was tried again. {{avoided}} is left out until you use automatic again.",
     "none": "no graphics processor",
     "openGl": "Processing uses OpenGL, as set in Preferences → Processing. Earlier versions of Rawtonic switched to OpenGL on their own after a graphics crash at start; Auto is recommended.",
+    "openGlUnavailable": "OpenGL is not used on this computer: with several graphics drivers it stops Rawtonic. Processing is set to Auto now (Preferences → Processing).",
     "openPreferences": "Open Preferences",
+    "prepared": "Graphics prepared for this computer in {{seconds}} s",
+    "preparing": "Preparing graphics for this computer",
+    "preparingDetail": "Rawtonic compiles its processing shaders for this graphics processor and driver. This happens after an install or a driver update and can take a few minutes; Develop shows photos as soon as it is done.",
+    "resetAndRetry": "Reset graphics settings and retry",
+    "resetFailed": "Could not reset the graphics settings: {{details}}",
     "unknownBackend": "The graphics backend",
     "useAutomatic": "Use automatic again",
     "useAutomaticFailed": "Could not save the change."
@@ -2191,7 +2197,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile.",
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",

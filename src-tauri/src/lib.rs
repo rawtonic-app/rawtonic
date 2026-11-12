@@ -406,10 +406,14 @@ fn start(args: Vec<String>) {
             }
 
             let config_dir = app_handle.path().app_config_dir().expect("Failed to get config dir");
-            let crash_flag_path = config_dir.join(gpu_start_guard::FLAG_FILE);
-
-            app.state::<state::gpu::GpuState>().set_crash_flag_path(crash_flag_path.clone());
-            gpu_start_guard::set_flag_path(crash_flag_path.clone());
+            // Only a start with a window writes the GPU start flag: a headless
+            // run (an export from a script) may be ended by its caller's time
+            // limit or Ctrl+C, which is no driver crash (G76).
+            if !is_headless {
+                let crash_flag_path = config_dir.join(gpu_start_guard::FLAG_FILE);
+                app.state::<state::gpu::GpuState>().set_crash_flag_path(crash_flag_path.clone());
+                gpu_start_guard::set_flag_path(crash_flag_path);
+            }
 
             // The settings are read and migrated here, once per run (`state::settings`).
             let mut settings: AppSettings = (*crate::state::settings::current(&app_handle)).clone();
@@ -423,25 +427,36 @@ fn start(args: Vec<String>) {
             // A crash while the GPU started last time: those backends are
             // left out of this start and the window says so; the processing
             // backend preference itself is never changed (`gpu_start_guard`).
-            let (guard, mut startup_messages) = gpu_start_guard::at_start(
-                &config_dir,
-                settings.processing_backend.as_deref(),
-                startup::GL_BACKEND_COMPILED,
-                &rawtonic_contribute::crash::utc_date(rawtonic_contribute::crash::now_secs()),
-                startup::process_alive,
-            );
-            app.state::<state::gpu::GpuState>().set_start_guard(guard.avoid, guard.notice);
+            // A headless run only follows what the guard leaves out.
+            let usable_backends = rawtonic_gpu::device_start::usable_backends();
+            let (guard, mut startup_messages) = if is_headless {
+                (gpu_start_guard::for_headless_run(&config_dir, usable_backends), Vec::new())
+            } else {
+                gpu_start_guard::at_start(
+                    &config_dir,
+                    settings.processing_backend.as_deref(),
+                    startup::GL_BACKEND_USABLE,
+                    usable_backends,
+                    &rawtonic_contribute::crash::utc_date(rawtonic_contribute::crash::now_secs()),
+                    startup::process_alive,
+                )
+            };
+            let mut gpu_notice = guard.notice;
             // Earlier builds switched to OpenGL after a supposed crash (also
-            // when two processes started together); without OpenGL in the
-            // build that left no GPU at all. Undo it.
-            if !startup::GL_BACKEND_COMPILED && settings.processing_backend.as_deref() == Some("gl") {
-                startup_messages.push("Processing backend 'gl' is not available in this build; using auto.".into());
+            // when two processes started together), and OpenGL could be
+            // chosen on Windows; where OpenGL is not used that left no GPU
+            // or a crash at start. The choice becomes Automatic, and the
+            // window says so once (the preference never changes silently).
+            if !startup::GL_BACKEND_USABLE && settings.processing_backend.as_deref() == Some("gl") {
+                startup_messages.push("Processing backend 'gl' is not available on this platform; using auto.".into());
                 settings.processing_backend = Some("auto".to_string());
                 let _ = crate::state::settings::update(&app_handle, |saved| {
                     saved.processing_backend = Some("auto".to_string());
                     Ok(())
                 });
+                gpu_notice = gpu_notice.or(Some(gpu_start_guard::Notice::OpenGlUnavailable));
             }
+            app.state::<state::gpu::GpuState>().set_start_guard(guard.avoid, gpu_notice);
 
             // Parsed off the start-up path; users of the database wait for it
             // (`global_lens_db`).
@@ -863,6 +878,7 @@ fn start(args: Vec<String>) {
             gpu_processing::gpu_start_error,
             gpu_processing::gpu_backend_status,
             gpu_processing::gpu_backend_use_automatic,
+            gpu_processing::gpu_first_display_ready,
             startup::frontend_log,
             collage::save_collage,
             proof_sheet::proof_sheet_preview,

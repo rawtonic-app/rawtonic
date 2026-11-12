@@ -767,7 +767,7 @@ fn export_processors_compile_no_display_variant_ahead() {
             })
             .collect::<Vec<_>>()
     };
-    let gate_open = |processor: &GpuProcessor| *processor.start_gate.open.lock().unwrap();
+    let gate_open = |processor: &GpuProcessor| processor.start_gate.open.lock().unwrap().0;
 
     let develop = create_processor(&ProcessorSlot::new(None), &context, 64, 64).unwrap();
     assert!(started(&develop).contains(&RAW_DEFAULT_PREVIEW_FEATURES));
@@ -19619,6 +19619,17 @@ fn gpu_warp_recipes() -> Vec<serde_json::Value> {
             (rawtonic_engine::manual_vignette::MIDPOINT_KEY): 20.0,
             "crop": {"x": 31.0, "y": 17.4, "width": 1800.0, "height": 1200.0},
             (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        // Lensfun profiles under their own conventions (convention 1): a
+        // PTLens profile at its own scale (model 4) and an even polynomial,
+        // each framed exactly, with poly3 lateral CA's linear radius term.
+        json!({"renderVersion": 7, "lensCorrectionMode": "auto", "lensDistortionParams": {
+            "k1": 0.012, "k2": -0.03, "k3": 0.01, "model": 4, "convention": 1,
+            "tca_vr": 1.0012, "tca_vb": 0.9991, "tca_vr1": 0.0006, "tca_vb1": -0.0004,
+            "tca_vr2": 0.0002, "tca_vb2": -0.0001, "vig_k1": -0.4, "vig_k2": 0.1},
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        json!({"renderVersion": 7, "lensCorrectionMode": "auto", "lensDistortionParams": {
+            "k1": -0.06, "k2": 0.01, "model": 0, "convention": 1, "tca_vr": 1.0004,
+            "tca_vb": 0.9997, "vig_k1": -0.3}, (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
         // A camera's exact framing about an off-centre distortion (Nikon Z's
         // optical centre, cameraGeometryVersion 8).
         json!({"renderVersion": 7, "lensCorrectionMode": "camera", "lensDistortionParams": {

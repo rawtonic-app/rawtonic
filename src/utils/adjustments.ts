@@ -446,7 +446,7 @@ export const withAiDenoiseVersion = <T extends Partial<Adjustments>>(
 };
 
 /** diffraction.rs VERSION for a request made now. */
-export const DIFFRACTION_VERSION = 2;
+export const DIFFRACTION_VERSION = 3;
 
 /** The diffraction correction's crop-factor lookup depends on its version,
  * so wherever the switch is copied (paste, presets) its version goes along:
@@ -574,6 +574,13 @@ export interface LensDistortionParams {
    * its half diagonal (Nikon Z's per-shot optical centre). */
   centre_x?: number;
   centre_y?: number;
+  /** Growth of the red and blue scales with the radius itself (lensfun's
+   * poly3 lateral CA linear term). */
+  tca_vr1?: number;
+  tca_vb1?: number;
+  /** How a lensfun profile was resolved: 1 = lensfun's own conventions
+   * (lens_correction/lensfun_profile.rs); absent = earlier resolutions. */
+  convention?: number;
 }
 
 /** The develop recipe as the frontend holds it. The keys of the sections in
@@ -1622,7 +1629,9 @@ export const autoCaOn = (adjustments: Partial<Adjustments>): boolean => {
     (Math.abs(value('tca_vr', 1) - 1) > 1e-6 ||
       Math.abs(value('tca_vb', 1) - 1) > 1e-6 ||
       Math.abs(value('tca_vr2', 0)) > 1e-9 ||
-      Math.abs(value('tca_vb2', 0)) > 1e-9);
+      Math.abs(value('tca_vb2', 0)) > 1e-9 ||
+      Math.abs(value('tca_vr1', 0)) > 1e-9 ||
+      Math.abs(value('tca_vb1', 0)) > 1e-9);
   if (!ownTca) return true;
   return version >= 3 && Math.abs((adjustments.lensTcaAmount ?? 100) - 100) < 1e-2;
 };

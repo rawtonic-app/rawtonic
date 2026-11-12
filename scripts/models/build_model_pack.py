@@ -300,6 +300,8 @@ SUPERRES_SHA256 = {
     "superres_coreml_model.mlmodel": "59668d6013f38bcd11e721b80379f2cb5d0e896b754095f08433d469988cb132",
     "superres_coreml_weight.bin": "1df839340b0df1bb953ec97b0e084008c3d44557483d6009fed732d635b3a5fe",
 }
+SUPERRES_CPU_SHA256 = {"superres_compact_x2_cpu.onnx": "40bf5c362bad13ca57c1e4493f66f9ab5f2ce7f57156e1d20a77aad7322cd7a1"}
+
 SUPERRES_EXPORT = [
     "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "coremltools==9.0",
     "--with", "numpy==2.2.6", "--with", "onnx==1.23.2", "--with", "onnxruntime==1.30.0",
@@ -640,6 +642,15 @@ def main() -> None:
             if name in carried:  # a group step builds all its files; carried ones stay
                 continue
             entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY)
+
+    if todo(SUPERRES_CPU_SHA256):
+        superres = args.cache / "superres-cpu"
+        subprocess.run(SUPERRES_EXPORT + [str(superres), "--cpu-only"], check=True)
+        for name, expected in SUPERRES_CPU_SHA256.items():
+            if name not in carried:
+                entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY | {
+                    "source": SUPERRES_ENTRY["source"] + "; CPU conversion runs the rotations sequentially (same weights and average)",
+                })
 
     if todo(FACES_SHA256):
         faces = args.cache / "faces-out"

@@ -107,3 +107,60 @@ fn enlarges_24_mp_and_tiles_join() {
     assert!(matches!(enlarged, DynamicImage::ImageRgb16(_)));
     println!("24 MP 16-bit in {:.2} s", start.elapsed().as_secs_f64());
 }
+
+/// The CPU conversion preserves the shipped four-rotation graph's output.
+#[test]
+#[ignore = "needs both installed ONNX models; run with RAWTONIC_AI_PROVIDER=cpu"]
+fn sequential_cpu_matches_original_graph() {
+    let dir = models().expect("SUPERRES_MODELS must name the installed models");
+    assert!(dir.join(rawtonic_superres::CPU_ONNX_FILE).is_file());
+    let original = rawtonic_onnx::Model::load_on(
+        &dir.join(rawtonic_superres::ONNX_FILE),
+        rawtonic_onnx::ModelKind::SuperResolution,
+        &[rawtonic_onnx::Provider::Cpu],
+        &[],
+    )
+    .unwrap();
+    let sequential = Model::cpu(&dir.join(rawtonic_superres::CPU_ONNX_FILE)).unwrap();
+    assert!(
+        sequential.uses_cpu(),
+        "force the CPU provider for this test"
+    );
+    let input = pattern(TILE as u32, TILE as u32);
+    let tile: Vec<f32> = (0..3)
+        .flat_map(|channel| input.pixels().map(move |p| p[channel]))
+        .collect();
+    let reference = original
+        .run(|session| {
+            let tensor = ort::value::Tensor::from_array(ndarray::Array4::from_shape_vec(
+                (1, 3, TILE, TILE),
+                tile.clone(),
+            )?)?;
+            let outputs = session.run(ort::inputs!["image" => tensor])?;
+            Ok(outputs["enlarged"].try_extract_tensor::<f32>()?.1.to_vec())
+        })
+        .unwrap();
+    let got = sequential.enlarge_tile(&tile).unwrap();
+    assert_eq!(got.len(), reference.len());
+    let worst = got
+        .iter()
+        .zip(&reference)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+    println!("sequential CPU vs original: max |difference| {worst:.8}; tolerance 0.00001");
+    // Float reordering only: tighter than the existing tile-equivalence tolerance (0.01).
+    assert!(worst < 1e-5, "CPU conversion changed the output: {worst}");
+}
+
+#[test]
+#[ignore = "needs an old model pack (SUPERRES_OLD_MODELS); force RAWTONIC_AI_PROVIDER=cpu"]
+fn cpu_legacy_pack_without_optional_conversion_still_runs() {
+    let dir =
+        std::path::PathBuf::from(std::env::var_os("SUPERRES_OLD_MODELS").expect("old pack path"));
+    assert!(!dir.join(rawtonic_superres::CPU_ONNX_FILE).exists());
+    let model = Model::onnx(&dir.join(rawtonic_superres::ONNX_FILE)).unwrap();
+    assert!(model.uses_cpu());
+    let output = model.enlarge_tile(&vec![0.0; 3 * TILE * TILE]).unwrap();
+    assert_eq!(output.len(), 3 * (TILE * SCALE).pow(2));
+    assert!(output.iter().all(|v| v.is_finite()));
+}

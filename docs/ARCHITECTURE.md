@@ -127,7 +127,12 @@ New Rust workspace crates isolate data and file safety.
   arithmetic keeping fraction digits and UTC offset; the editor state's EXIF map carries the correction on read and
   save; search uses the effective time; app glue `src-tauri/src/capture_time.rs` with preview/plan/apply commands,
   exports take it through `PinnedPhoto::capture` and `rawtonic_export::exif_processing::apply_corrected_capture_time`,
-  UI `CaptureTimeDialog`).
+  UI `CaptureTimeDialog`). The XMP sidecar carries it as `exif:DateTimeOriginal` + `photoshop:DateCreated`
+  (`capture_write` → `rawtonic_metadata::CaptureWrite`; `metadata.xmp_capture`, schema 27, is the value the library
+  owns there, so a reset removes only that); a sidecar's differing `exif:DateTimeOriginal` becomes the correction on
+  import, Use XMP, adopt and the first facts read (`adopt_sidecar`), compared with the file's whole time (facts keep its
+  fraction and offset, `assets.capture_subsec`/`capture_offset`, schema 28); Use XMP and its undo bring the `.rrdata`
+  EXIF along (`src-tauri/src/capture_time.rs::follow_correction`).
 - `session_move`: whether a whole session folder may move into a folder (G40: photos never move out of their session; a
   catalog is not moved this way) — not into itself or another library, no name clash, its database not open in another
   connection (an exclusive-lock probe); the move itself is one `fileops` step, app glue `src-tauri/src/session_move.rs`
@@ -531,14 +536,17 @@ equivalence tests).
 
 `gpu` (gpu_processing: GpuProcessor, shader variants + WGSL in `crates/gpu/src/shaders/`, readback, WgpuDisplay
 presentation, `GpuContext::headless`, GPU equivalence tests; `device_start`: the device with a backend fallback, Windows
-Vulkan/DX12 then OpenGL, every failure named, backends to leave out (`avoid`) and each step announced (`on_step`) for the
-app's start guard `src-tauri/src/gpu_start_guard.rs` (a flag naming backends and step while a device starts and its first
+Vulkan/DX12 and never OpenGL (`usable_backends`: wgpu's WGL backend panics on a context lock held over 1 s), every
+failure named, backends to leave out (`avoid`) and each step announced (`on_step`) for the app's start guard
+`src-tauri/src/gpu_start_guard.rs` (a flag naming backends and step while a windowed start's device starts and its first
 processor compiles; after a crash the next start leaves those backends out with a notice, the one after retries the
-choice once, a second crash keeps the fallback until Preferences → Processing → Use automatic again; state in the
-config folder's `gpu-start.json`, the processing backend preference is never changed; `RAWTONIC_TEST_CRASH` in
-`qa_crash.rs`, `qa-control` builds only); `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by
-adapter, driver and app version, filled ahead by `rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, run by
-the Windows installer's hook `src-tauri/windows/installer-hooks.nsh`));
+choice once, a second crash keeps the fallback until Preferences → Processing → Use automatic again; it never leaves
+out every usable backend (then only the newest crash's); headless runs follow it read-only and write no flag; state in
+the config folder's `gpu-start.json`, the processing backend preference is never changed silently; when no backend
+starts the window offers Reset graphics settings and retry; `RAWTONIC_TEST_CRASH` in `qa_crash.rs`, `qa-control`
+builds only); `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by adapter, driver and app version,
+filled by the first start (shown as "Preparing graphics" in the activity centre) or ahead by
+`rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, a QA/benchmark tool; no installer runs it));
 
 
 #### `export`

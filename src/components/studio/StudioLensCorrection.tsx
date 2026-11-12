@@ -6,6 +6,7 @@ import { isCurrentEditorImage, useEditorActions } from '../../hooks/useEditorAct
 import {
   CAMERA_CA_VERSION,
   CAMERA_GEOMETRY_VERSION,
+  DIFFRACTION_VERSION,
   INITIAL_ADJUSTMENTS,
   autoCaOn,
   type Adjustments
@@ -265,6 +266,9 @@ export default function StudioLensCorrection() {
               onChange={(e) => void chooseModel(e.target.value)}
             >
               <option value="">{adjustments.lensMaker ? t('studio.lens.chooseLens') : '—'}</option>
+              {adjustments.lensModel && !lenses.includes(adjustments.lensModel) && (
+                <option value={adjustments.lensModel}>{adjustments.lensModel}</option>
+              )}
               {lenses.map((lens) => (
                 <option key={lens} value={lens}>
                   {lens}
@@ -322,7 +326,7 @@ export default function StudioLensCorrection() {
               ...prev,
               diffractionCorrection: e.target.checked || undefined,
               // The current lookup (diffraction.rs VERSION) for a new request.
-              diffractionVersion: e.target.checked ? 2 : undefined
+              diffractionVersion: e.target.checked ? DIFFRACTION_VERSION : undefined
             }))
           }
         />

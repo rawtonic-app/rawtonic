@@ -16,6 +16,10 @@ export function restoreSnapshot(snapshot: Snapshot): boolean {
   // An edit still settling is its own step, before the restore.
   debouncedSetHistory.flush();
   updateAdjustments(() => restored);
+  // A restored comparison would show the same recipe on both sides.
+  // Keep a different snapshot selected as the fixed reference.
+  const compared = useEditorStore.getState().beforeSnapshot;
+  if (compared?.path === image.path && compared.id === snapshot.id) useEditorStore.setState({ beforeSnapshot: null });
   debouncedSetHistory.flush();
   const { history, historyIndex } = useEditorStore.getState();
   const step = history[historyIndex];

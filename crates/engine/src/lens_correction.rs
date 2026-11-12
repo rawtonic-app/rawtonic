@@ -4,6 +4,9 @@ use std::cmp::Ordering;
 use std::fs;
 use walkdir::WalkDir;
 
+mod lensfun_profile;
+pub use lensfun_profile::{CONVENTION, MODEL_PTLENS_UNSCALED};
+
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Distortion {
     #[serde(rename = "@model")]
@@ -192,6 +195,25 @@ pub struct LensDistortionParams {
     centre_x: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
     centre_y: f64,
+    /// Growth of the red and blue scales with the radius itself (relative
+    /// to the half diagonal): lensfun's poly3 lateral CA linear term
+    /// (`convention` 1; earlier resolutions fitted it into the others).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    tca_vr1: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    tca_vb1: f64,
+    /// How a lensfun database profile was resolved: absent (0) as
+    /// `Lens::get_distortion_params` (a PTLens fit mapping corner to corner,
+    /// lateral CA without its linear term, nearest aperture and distance,
+    /// the frame filled from eight points with a margin); 1 under lensfun's
+    /// own conventions (`Lens::profile_params`, 2026-11-12), framed by the
+    /// warp's exact fill (`image_processing::compute_lens_auto_crop_scale`).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    convention: u32,
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }
 
 /// The warp's tabulated radial distortion (lens model 2): an output radius
@@ -429,6 +451,9 @@ impl LensDistortionParams {
             table_radii: Vec::new(),
             centre_x: 0.0,
             centre_y: 0.0,
+            tca_vr1: 0.0,
+            tca_vb1: 0.0,
+            convention: 0,
         }
     }
 
@@ -485,6 +510,8 @@ impl LensDistortionParams {
             tca_vb: 1.0,
             tca_vr2: 0.0,
             tca_vb2: 0.0,
+            tca_vr1: 0.0,
+            tca_vb1: 0.0,
             ..self
         }
     }
@@ -506,6 +533,8 @@ impl LensDistortionParams {
             && (self.tca_vb - 1.0).abs() < 1e-12
             && self.tca_vr2.abs() < 1e-12
             && self.tca_vb2.abs() < 1e-12
+            && self.tca_vr1.abs() < 1e-12
+            && self.tca_vb1.abs() < 1e-12
             && is_unit_zoom(&self.zoom)
             && self.table.iter().all(|t| (t - 1.0).abs() < 1e-12)
     }
@@ -919,6 +948,9 @@ impl Lens {
             table_radii: Vec::new(),
             centre_x: 0.0,
             centre_y: 0.0,
+            tca_vr1: 0.0,
+            tca_vb1: 0.0,
+            convention: 0,
         })
     }
 }
@@ -1387,6 +1419,11 @@ pub const CAMERAS_ADDED_2026_10_18: &[(&str, &str)] = &[
     ("Panasonic", "DC-ZS300"),
 ];
 
+/// Bodies newly covered by Lensfun 52cf1a7b0e82e07e0ecaa3391ee5106a6dd1ee54
+/// (2026-11-11); older diffraction versions exclude them.
+pub const CAMERAS_ADDED_2026_11_11: &[(&str, &str)] =
+    &[("Sigma", "Sigma FP2"), ("Sony", "DSC-HX200V")];
+
 fn is_excluded(camera: &Camera, excluded: &[(&str, &str)]) -> bool {
     excluded.iter().any(|(maker, model)| {
         camera.maker.iter().any(|name| name.value == *maker)
@@ -1466,6 +1503,20 @@ pub fn find_lens_by_display_name<'a>(
     if let Some((name, lens)) = named.iter().find(|(name, _)| name == model) {
         return Some((name.clone(), lens));
     }
+    // A database rename or newly ambiguous short name must retain the
+    // identity saved by the earlier database, including its calibration crop.
+    if let Some(row) = previous_display_names()
+        .iter()
+        .find(|r| r[0] == maker && r[1] == model)
+    {
+        let crop = row[3].parse::<f32>().ok();
+        let mut matches = named.iter().filter(|(_, lens)| {
+            lens.get_canonical_model_name() == row[2] && lens.cropfactor == crop
+        });
+        if let (Some((name, lens)), None) = (matches.next(), matches.next()) {
+            return Some((name.clone(), *lens));
+        }
+    }
     let key = |name: &str| name.trim().to_lowercase();
     let wanted = key(model);
     if wanted.len() < 8 {
@@ -1480,6 +1531,20 @@ pub fn find_lens_by_display_name<'a>(
     }
 }
 
+// Display identities saved by the previously bundled Lensfun database
+// (43f9e001, adopted 2026-10-18), before later database renames.
+fn previous_display_names() -> &'static [[String; 4]] {
+    static NAMES: std::sync::OnceLock<Vec<[String; 4]>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        serde_json::from_str(include_str!("lensfun_display_names_2026_10_18.json"))
+            .expect("bundled lens name index")
+    })
+}
+
+/// The profile of the maker's lens shown as `model` for a shot, as a fresh
+/// lens choice resolves it: under lensfun's conventions
+/// (`Lens::profile_params`). Recipes keep the parameters they were resolved
+/// with (`lens_recipe`), so earlier resolutions render as before.
 pub fn resolve_lens_params(
     db: &LensDatabase,
     maker: &str,
@@ -1490,7 +1555,7 @@ pub fn resolve_lens_params(
     camera_crop: Option<f32>,
 ) -> Option<LensDistortionParams> {
     let (_, lens) = find_lens_by_display_name(db, maker, model)?;
-    lens.get_distortion_params(focal_length, aperture, distance, camera_crop)
+    lens.profile_params(focal_length, aperture, distance, camera_crop)
 }
 
 #[cfg(test)]
@@ -1619,16 +1684,14 @@ mod tests {
     /// `diffraction::VERSION` that keeps older recipes on the earlier table
     /// (as `CAMERAS_ADDED_2026_10_18`); then record the new fingerprint.
     /// notes: benchmark-results/lens-pinning-2026-10-31/REPORT.md.
-    #[test]
-    fn the_camera_crop_factors_diffraction_reads_are_those_its_versions_know() {
-        let mut rows: Vec<String> = super::embedded_lens_db()
+    fn camera_table_fingerprint(db: &LensDatabase) -> (usize, u64) {
+        let mut rows: Vec<_> = db
             .cameras
             .iter()
             .map(|camera| {
-                let names = |names: &[MultiName]| {
-                    names
-                        .iter()
-                        .map(|name| name.value.as_str())
+                let names = |ns: &[MultiName]| {
+                    ns.iter()
+                        .map(|n| n.value.as_str())
                         .collect::<Vec<_>>()
                         .join("|")
                 };
@@ -1641,18 +1704,38 @@ mod tests {
             })
             .collect();
         rows.sort();
-        // FNV-1a: stable across toolchains, unlike the std hasher.
-        let fingerprint = rows
+        // FNV-1a: stable across toolchains.
+        let hash = rows
             .join("\n")
             .bytes()
             .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
                 (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
             });
+        (rows.len(), hash)
+    }
+
+    #[test]
+    fn the_camera_crop_factors_diffraction_reads_are_those_its_versions_know() {
         assert_eq!(
-            (rows.len(), format!("{fingerprint:016x}")),
-            (1057, "54ec57bdc4d10421".to_string()),
+            camera_table_fingerprint(&embedded_lens_db()),
+            (1059, 0x7e1de23d6a6d09ee),
             "the bundled database's camera table changed: give diffraction a new version first"
         );
+    }
+
+    #[test]
+    fn earlier_diffraction_versions_keep_their_camera_table() {
+        let mut db = embedded_lens_db();
+        for (maker, model) in CAMERAS_ADDED_2026_11_11 {
+            assert!(camera_crop_factor(&db, maker, model).is_some());
+            assert_eq!(
+                camera_crop_factor_without(&db, maker, model, CAMERAS_ADDED_2026_11_11),
+                None
+            );
+        }
+        db.cameras
+            .retain(|camera| !is_excluded(camera, CAMERAS_ADDED_2026_11_11));
+        assert_eq!(camera_table_fingerprint(&db), (1057, 0x54ec57bdc4d10421));
     }
 
     use super::*;
@@ -1887,6 +1970,78 @@ mod tests {
         assert_eq!(without_model_code("RF 50mm F1.4"), None);
         assert_eq!(without_model_code("XF 18mm F2 R"), None);
         assert_eq!(without_model_code("EF 70-200mm"), None);
+    }
+
+    /// Rebuild the compatibility index from the previous bundled database:
+    /// LENSFUN_DIR=/path/to/old/db cargo test -p rawtonic-engine print_display_name_index -- --ignored --nocapture
+    /// Take the JSON between DISPLAY_NAME_INDEX markers; no files are written.
+    #[test]
+    #[ignore = "tool: requires LENSFUN_DIR pointing to the previous database"]
+    fn print_display_name_index() {
+        let db = load_lensfun_dir(std::path::Path::new(&std::env::var("LENSFUN_DIR").unwrap()));
+        let mut rows: Vec<_> = db
+            .lenses
+            .iter()
+            .map(|lens| {
+                let maker = lens.get_maker();
+                let siblings = lenses_for_maker(&db, &maker);
+                [
+                    maker,
+                    lens.get_display_name(&siblings),
+                    lens.get_canonical_model_name(),
+                    lens.cropfactor.map(|v| v.to_string()).unwrap_or_default(),
+                ]
+            })
+            .collect();
+        rows.sort();
+        println!(
+            "DISPLAY_NAME_INDEX\n{}\nDISPLAY_NAME_INDEX",
+            serde_json::to_string_pretty(&rows).unwrap()
+        );
+    }
+
+    #[test]
+    fn every_previous_display_name_keeps_its_lens_identity() {
+        let db = embedded_lens_db();
+        for row in previous_display_names() {
+            let (_, lens) = find_lens_by_display_name(&db, &row[0], &row[1])
+                .unwrap_or_else(|| panic!("lost saved choice: {} {}", row[0], row[1]));
+            assert_eq!(
+                lens.get_canonical_model_name(),
+                row[2],
+                "{} {}",
+                row[0],
+                row[1]
+            );
+            assert_eq!(
+                lens.cropfactor,
+                row[3].parse::<f32>().ok(),
+                "{} {}",
+                row[0],
+                row[1]
+            );
+        }
+    }
+
+    #[test]
+    fn november_database_additions_resolve() {
+        let db = embedded_lens_db();
+        assert_eq!(camera_crop_factor(&db, "Sigma", "Sigma FP2"), Some(1.0));
+        for (maker, model) in [
+            ("Nikon", "Nikkor Z 24-70mm f/2.8 S II"),
+            ("Nikon", "Nikkor Z 24mm f/1.8 S"),
+            ("Fujifilm", "GF63mmF2.8 R WR"),
+            ("Tamron", "70-300mm F/4.5-6.3 Di III RXD"),
+            ("OM Digital Solutions", "OM 12-45mm F4.0"),
+            ("OM Digital Solutions", "OM 40-150mm F4.0-5.6 R"),
+            ("OM Digital Solutions", "OM 75-300mm F4.8-6.7 II"),
+            ("OM Digital Solutions", "OM 14-42mm F3.5-5.6 EZ"),
+        ] {
+            assert!(
+                find_lens_exact(&db, maker, model).is_some(),
+                "{maker} {model}"
+            );
+        }
     }
 
     #[test]

@@ -5,8 +5,8 @@
 //! this file does not (NVIDIA evicting entries, its cache turned off). Notes:
 //! benchmark-results/windows-gpu-vfio-2026-10-30/COLD-START-OPTIONS.md (A).
 //!
-//! A warm-up run (`rawtonic-app --warm-gpu-cache`, run by the Windows
-//! installer) fills the file before the first launch: the app reads it as
+//! A warm-up run (`rawtonic-app --warm-gpu-cache`, a QA and benchmark tool;
+//! no installer runs it) fills the file before the first launch: the app reads it as
 //! its own, so that launch does not wait for the compiles (notes:
 //! COLD-START-OPTIONS.md, B1; W4 in RESULTS-2.md: variant 17 0.09 s instead
 //! of 10–13 s cold on NVIDIA/Windows).

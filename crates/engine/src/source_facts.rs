@@ -55,7 +55,8 @@ use crate::lens_correction::LensDistortionParams;
 /// 19: `camera_lens` at camera geometry version 9 (Fujifilm crop modes).
 /// 20: `camera_lens` at camera geometry version 10 (Fujifilm knots past the
 /// frame's corner on normal frames).
-pub const VERSION: u32 = 20;
+/// 21: diffraction version 3, keeping version 2 for older recipes.
+pub const VERSION: u32 = 21;
 
 /// The facts version from which `camera_lens_frames` is kept.
 const CAMERA_LENS_FRAMES: u32 = 18;
@@ -92,6 +93,10 @@ pub struct SourceFacts {
     pub diffraction_v1_differs: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diffraction_sigma_v1: Option<f32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub diffraction_v2_differs: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diffraction_sigma_v2: Option<f32>,
     /// `embedded_lens::params_for`: the camera's lens correction data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_lens: Option<LensDistortionParams>,
@@ -353,6 +358,10 @@ pub fn collect(path: &str) -> SourceFacts {
         image_key: None,
         image_key_median: None,
         diffraction_sigma: diffraction.current,
+        diffraction_v2_differs: diffraction.v2 != diffraction.current,
+        diffraction_sigma_v2: diffraction
+            .v2
+            .filter(|_| diffraction.v2 != diffraction.current),
         diffraction_v1_differs: diffraction.v1 != diffraction.current,
         diffraction_sigma_v1: diffraction
             .v1
@@ -520,6 +529,8 @@ mod tests {
             diffraction_sigma: None,
             diffraction_v1_differs: false,
             diffraction_sigma_v1: None,
+            diffraction_v2_differs: false,
+            diffraction_sigma_v2: None,
             camera_lens: None,
             camera_lens_geometry: Default::default(),
             camera_lens_frames: [(2, None)].into_iter().collect(),

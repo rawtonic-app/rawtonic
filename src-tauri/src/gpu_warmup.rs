@@ -1,26 +1,28 @@
 //! `rawtonic-app --warm-gpu-cache`: compiles the pipelines a start compiles
 //! ahead into the app's own pipeline cache file (`rawtonic_gpu::
-//! pipeline_cache`) and exits, without a window or webview. The Windows
-//! installer runs it after an install or update (`windows/installer-hooks.nsh`),
-//! as the installing user, so the first launch finds the file filled instead
-//! of waiting 7–9 s for the RAW default display variant on a cold NVIDIA
-//! driver cache (notes: benchmark-results/windows-gpu-vfio-2026-10-30/
-//! COLD-START-OPTIONS.md B1, RESULTS-2.md W2/W4).
+//! pipeline_cache`) and exits, without a window or webview. A tool for
+//! measuring and preparing machines (QA, benchmarks); no installer runs it
+//! any more (G76: on a Radeon 680M the MSI's run took over two minutes
+//! behind a busy cursor). The first start with a window compiles the same
+//! pipelines and shows that it does (`gpu_processing::first_display_ready`).
 //!
-//! The device starts exactly as the app's (`gpu_processing::
+//! The device starts as the app's (`gpu_processing::
 //! get_or_init_gpu_context`: the backend chosen in Preferences, the backend
-//! fallback, the same cache folder and file name). Where the backend keeps no
-//! pipeline cache (Metal, DX12, GL) there is nothing to fill and it exits
-//! after creating the device. Bounded by `LIMIT`; whatever compiled by then
-//! is in the file (each compile is written as it finishes). It logs to
-//! `gpu-warmup.log` beside `app.log`; it reads the backend choice from the
-//! settings file without the settings store's migrations and writes
-//! nothing but the cache file and that log (no photos, settings, app log or
-//! crash flag). Only the one-time carry-over from the former identity
-//! (`identity_migration`, a no-clobber copy) runs before it, as at every
-//! start: the warm-up's log folder must not make that look done. Exit code
-//! 0 when the file is filled or nothing was needed, 1 otherwise; the
-//! installer ignores it.
+//! fallback, the same cache folder and file name) and leaves out what the
+//! start guard leaves out; like every headless run it never writes the
+//! guard's flag or state (`gpu_start_guard::for_headless_run`), so ending
+//! it, by its time limit or otherwise, is never taken for a start crash.
+//! Where the backend keeps no pipeline cache (Metal, DX12) there is nothing
+//! to fill and it exits after creating the device. Bounded by `LIMIT`;
+//! whatever compiled by then is in the file (each compile is written as it
+//! finishes). It logs to `gpu-warmup.log` beside `app.log`; it reads the
+//! backend choice from the settings file without the settings store's
+//! migrations and writes nothing but the cache file and that log (no
+//! photos, settings, app log or crash flag). Only the one-time carry-over
+//! from the former identity (`identity_migration`, a no-clobber copy) runs
+//! before it, as at every start: the warm-up's log folder must not make
+//! that look done. Exit code 0 when the file is filled or nothing was
+//! needed, 1 otherwise.
 
 use std::time::{Duration, Instant};
 
@@ -38,8 +40,23 @@ pub fn start(app_handle: &tauri::AppHandle) {
         crate::app_settings::read_processing_backend(app_handle).as_deref(),
     );
     crate::startup::setup_logging(app_handle, "gpu-warmup.log");
+    if let Ok(config_dir) = app_handle.path().app_config_dir() {
+        let guard = crate::gpu_start_guard::for_headless_run(
+            &config_dir,
+            rawtonic_gpu::device_start::usable_backends(),
+        );
+        if !guard.avoid.is_empty() {
+            log::info!(
+                "GPU warm-up: left out after a crash at an earlier start: {}",
+                crate::gpu_start_guard::names(guard.avoid)
+            );
+        }
+        app_handle
+            .state::<crate::state::gpu::GpuState>()
+            .set_start_guard(guard.avoid, None);
+    }
     let started = Instant::now();
-    // A compile stuck in the driver must not hold the installer.
+    // A compile stuck in the driver must not hold the caller.
     let spawned = std::thread::Builder::new()
         .name("gpu-warmup-limit".into())
         .spawn(move || {

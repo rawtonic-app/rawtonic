@@ -148,7 +148,7 @@ export const CREDITS: Credit[] = [
   {
     name: '2xBHI_small_compact_pretrain',
     url: 'https://github.com/Phhofm/models/releases/tag/2xBHI_small_compact_pretrain',
-    what: 'Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile.',
+    what: 'Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion).',
     license: 'CC BY 4.0'
   },
   {

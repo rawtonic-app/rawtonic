@@ -967,7 +967,7 @@
     }
   },
   "errors": {
-    "gpuStartFailed": "O Rawtonic não conseguiu iniciar o processador gráfico, por isso não é possível revelar nem exportar fotos. Atualize o driver gráfico e reinicie o Rawtonic. Detalhes: {{details}}",
+    "gpuStartFailed": "O Rawtonic não conseguiu iniciar o processador gráfico, por isso não é possível revelar nem exportar fotos. Redefina as configurações gráficas e tente de novo; se não ajudar, atualize o driver gráfico. Detalhes: {{details}}",
     "operationFailed": "Não foi possível concluir a operação."
   },
   "gpuBackend": {
@@ -980,7 +980,13 @@
     "leftOutKept": "{{crashed}} falhou ao iniciar o Rawtonic em {{date}}, também na nova tentativa. {{avoided}} fica de fora até voltar à escolha automática.",
     "none": "nenhum processador gráfico",
     "openGl": "O processamento usa OpenGL, conforme definido em Preferências → Processamento. Versões anteriores do Rawtonic mudavam sozinhas para OpenGL após uma falha gráfica no início; recomenda-se «Auto».",
+    "openGlUnavailable": "O OpenGL não é usado neste computador: com vários drivers gráficos ele encerra o Rawtonic. O processamento está agora em Auto (Preferências → Processamento).",
     "openPreferences": "Abrir Preferências",
+    "prepared": "Gráficos preparados para este computador em {{seconds}} s",
+    "preparing": "Preparando os gráficos para este computador",
+    "preparingDetail": "O Rawtonic compila os shaders de processamento para este processador gráfico e driver. Isso acontece após uma instalação ou atualização do driver e pode levar alguns minutos; Revelação mostra as fotos assim que terminar.",
+    "resetAndRetry": "Redefinir as configurações gráficas e tentar de novo",
+    "resetFailed": "Não foi possível redefinir as configurações gráficas: {{details}}",
     "unknownBackend": "O backend gráfico",
     "useAutomatic": "Voltar à escolha automática",
     "useAutomaticFailed": "Não foi possível guardar a alteração."
@@ -2324,7 +2330,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile.",
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",

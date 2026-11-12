@@ -22,6 +22,7 @@ import {
   waitForPendingMetadataSave,
   writeRecipeRepair
 } from './useEditorActions';
+import { useUIStore } from '../store/useUIStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -1512,4 +1513,18 @@ describe('pasted version keys onto a never-edited open photo', () => {
       });
     await act(async () => {});
   });
+});
+
+it('copies the active Library photo after the stale editor photo is deselected', async () => {
+  useUIStore.setState({ activeView: 'library' });
+  select('/a.dng');
+  useLibraryStore.setState({ multiSelectedPaths: ['/a.dng', '/b.dng'], libraryActivePath: '/b.dng' });
+  useLibraryStore.setState({ multiSelectedPaths: ['/b.dng'] });
+  vi.mocked(invoke).mockResolvedValue({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } });
+  const { result } = renderHook(() => useEditorActions());
+  await act(async () => {
+    await result.current.handleCopyAdjustments(undefined, { quick: true });
+  });
+  expect(useEditorStore.getState().copiedFrom).toBe('/b.dng');
+  expect(useEditorStore.getState().copiedAdjustments?.exposure).toBe(1);
 });
