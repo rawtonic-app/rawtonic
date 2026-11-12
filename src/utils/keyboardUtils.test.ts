@@ -126,3 +126,12 @@ describe('the slash key on other layouts', () => {
     expect(press({ key: '7', code: 'Digit7' })).toEqual(['Digit7']);
   });
 });
+
+it('binds both Windows redo conventions and the export and settings shortcuts', () => {
+  const map = buildComboMap(null);
+  expect(map.get('ctrl+KeyY')).toEqual(['redo']);
+  expect(map.get('ctrl+shift+KeyZ')).toEqual(['redo']);
+  expect(map.get('ctrl+shift+KeyE')).toEqual(['toggle_export']);
+  for (const suffix of ['KeyC', 'shift+KeyC']) expect(map.get(`ctrl+${suffix}`)).toEqual(['copy_adjustments']);
+  for (const suffix of ['KeyV', 'shift+KeyV']) expect(map.get(`ctrl+${suffix}`)).toEqual(['paste_adjustments']);
+});

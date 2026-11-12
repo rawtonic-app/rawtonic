@@ -563,6 +563,7 @@
       "resetAdjustments_other": "Einstellungen bei {{count}} Bildern zurücksetzen",
       "shiftCaptureTime": "Aufnahmezeit verschieben…",
       "showExplorer": "Im Explorer anzeigen",
+      "showFileManager": "In der Dateiverwaltung anzeigen",
       "showFinder": "Im Finder zeigen",
       "virtualCopy": "Virtuelle Kopie"
     },
@@ -2404,6 +2405,7 @@
         "rotate_right": "90° im Uhrzeigersinn drehen",
         "select_all": "Alle Bilder auswählen",
         "select_none": "Auswahl aufheben",
+        "show_in_file_manager": "Im Explorer anzeigen",
         "show_in_finder": "Im Finder zeigen",
         "show_original": "Halten: ganzes Foto vorher",
         "spot_new_source": "Andere Quelle suchen",

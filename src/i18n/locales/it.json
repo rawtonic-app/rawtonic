@@ -599,6 +599,7 @@
       "resetAdjustments_other": "Ripristina Regolazioni su {{count}} Immagini",
       "shiftCaptureTime": "Sposta ora di scatto…",
       "showExplorer": "Mostra in Esplora File",
+      "showFileManager": "Mostra nel gestore file",
       "showFinder": "Mostra nel Finder",
       "virtualCopy": "Copia Virtuale"
     },
@@ -2540,6 +2541,7 @@
         "rotate_right": "Ruota 90° in senso orario",
         "select_all": "Seleziona tutte le immagini",
         "select_none": "Deseleziona tutto",
+        "show_in_file_manager": "Mostra in Esplora File",
         "show_in_finder": "Mostra nel Finder",
         "show_original": "Tenere premuto: tutta la foto prima",
         "spot_new_source": "Cerca un'altra sorgente",

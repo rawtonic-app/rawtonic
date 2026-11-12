@@ -599,6 +599,7 @@
       "resetAdjustments_other": "Restablir ajustaments a {{count}} imatges",
       "shiftCaptureTime": "Desplaça l'hora de captura…",
       "showExplorer": "Mostrar a l'Explorador de fitxers",
+      "showFileManager": "Mostra al gestor de fitxers",
       "showFinder": "Mostra al Finder",
       "virtualCopy": "Còpia virtual"
     },
@@ -2540,6 +2541,7 @@
         "rotate_right": "Girar 90° en sentit horari",
         "select_all": "Seleccionar totes les imatges",
         "select_none": "No seleccionis res",
+        "show_in_file_manager": "Mostrar a l'Explorador de fitxers",
         "show_in_finder": "Mostra al Finder",
         "show_original": "Mantenir: tota la foto abans",
         "spot_new_source": "Cerca una altra font",

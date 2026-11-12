@@ -1,13 +1,84 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Copy, Minus, Square, X } from 'lucide-react';
+import { Invokes } from '../components/ui/AppProperties';
+
+interface NativeButtonState {
+  hovered: boolean;
+  pressed: boolean;
+}
+
+/**
+ * Windows 11 snap layouts: a native overlay over the maximize button answers
+ * the system's hit test as a maximize button (src-tauri/src/snap_layout.rs).
+ * This keeps its place in physical pixels in step with layout, interface
+ * size and display scale, and returns the hover/pressed state the overlay
+ * takes from the webview.
+ */
+function useSnapLayoutButton(button: RefObject<HTMLButtonElement | null>, enabled: boolean): NativeButtonState {
+  const [state, setState] = useState<NativeButtonState>({ hovered: false, pressed: false });
+
+  useEffect(() => {
+    const element = button.current;
+    if (!enabled || !element) return;
+    let disposed = false;
+    let sent = '';
+    const report = () => {
+      if (disposed) return;
+      const box = element.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+      const rect = { x: box.left * scale, y: box.top * scale, width: box.width * scale, height: box.height * scale };
+      const modalOpen = !!document.querySelector('dialog[open], [aria-modal="true"]');
+      const key = JSON.stringify({ rect, modalOpen });
+      if (key === sent) return;
+      sent = key;
+      void invoke(Invokes.SetMaximizeButtonRect, { rect, modalOpen }).catch(console.error);
+    };
+    report();
+    const dialogs = new MutationObserver(report);
+    dialogs.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['open', 'aria-modal']
+    });
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    if (element.parentElement) observer.observe(element.parentElement);
+    observer.observe(document.documentElement);
+    // Also a display-scale change (another monitor), which resizes nothing in CSS pixels.
+    window.addEventListener('resize', report);
+    let unlisten: (() => void) | undefined;
+    void listen<NativeButtonState>('maximize-button-state', (event) => setState(event.payload))
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(console.error);
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      dialogs.disconnect();
+      window.removeEventListener('resize', report);
+      unlisten?.();
+      setState({ hovered: false, pressed: false });
+      void invoke(Invokes.SetMaximizeButtonRect, { rect: null }).catch(console.error);
+    };
+  }, [button, enabled]);
+
+  return state;
+}
 
 /** Windows and Linux window controls share the session bar instead of adding a second row. */
-export default function WindowControls() {
+export default function WindowControls({ snapLayouts = false }: { snapLayouts?: boolean }) {
   const { t } = useTranslation();
   const [appWindow] = useState(() => getCurrentWindow());
   const [isMaximized, setIsMaximized] = useState(false);
+  const maximizeButton = useRef<HTMLButtonElement>(null);
+  const native = useSnapLayoutButton(maximizeButton, snapLayouts);
 
   useEffect(() => {
     let disposed = false;
@@ -42,8 +113,12 @@ export default function WindowControls() {
         <Minus size={15} />
       </button>
       <button
+        ref={maximizeButton}
         aria-label={maximizeLabel}
         title={maximizeLabel}
+        className={
+          [native.hovered && 'is-hovered', native.pressed && 'is-pressed'].filter(Boolean).join(' ') || undefined
+        }
         onClick={() => void appWindow.toggleMaximize().catch(console.error)}
       >
         {isMaximized ? <Copy size={13} /> : <Square size={13} />}

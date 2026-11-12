@@ -99,9 +99,14 @@
   background: transparent;
   color: var(--studio-muted);
 }
-.studio-window-controls button:hover {
+.studio-window-controls button:hover,
+.studio-window-controls button.is-hovered {
   background: #ffffff10;
   color: var(--studio-text);
+}
+.studio-window-controls button:active,
+.studio-window-controls button.is-pressed {
+  background: #ffffff0a;
 }
 .studio-window-controls .studio-window-close:hover {
   background: #c42b35;
@@ -7407,4 +7412,27 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   font-size: 11px;
   pointer-events: none;
   white-space: nowrap;
+}
+
+/* Windows/Linux chrome follows the interface scale; Mac traffic lights keep
+   their native geometry. */
+.studio-app.custom-window-chrome .session-bar,
+.studio-app.linux-unified-chrome .session-bar {
+  zoom: var(--ui-scale, 1);
+}
+
+.studio-app.custom-window-chrome .studio-viewer-filename,
+.studio-app.linux-unified-chrome .studio-viewer-filename {
+  display: flex;
+}
+.studio-app.custom-window-chrome .studio-photo-name,
+.studio-app.linux-unified-chrome .studio-photo-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.studio-app.custom-window-chrome .studio-viewer-filename > .studio-muted,
+.studio-app.linux-unified-chrome .studio-viewer-filename > .studio-muted {
+  flex-shrink: 0;
+  white-space: pre;
 }

@@ -552,6 +552,7 @@
       "resetAdjustments_other": "이미지 {{count}}개의 조정값 초기화",
       "shiftCaptureTime": "촬영 시간 이동…",
       "showExplorer": "파일 탐색기에서 표시",
+      "showFileManager": "파일 관리자에서 표시",
       "showFinder": "Finder에서 보기",
       "virtualCopy": "가상 복사본"
     },
@@ -2313,6 +2314,7 @@
         "rotate_right": "90° 시계 방향 회전",
         "select_all": "모든 이미지 선택",
         "select_none": "선택 해제",
+        "show_in_file_manager": "파일 탐색기에서 표시",
         "show_in_finder": "Finder에서 보기",
         "show_original": "누르고 있기: 사진 전체 보정 전",
         "spot_new_source": "다른 소스 찾기",

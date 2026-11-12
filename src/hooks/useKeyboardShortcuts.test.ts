@@ -943,3 +943,10 @@ describe('Select All and value fields', () => {
     expect(useLibraryStore.getState().multiSelectedPaths).toHaveLength(3);
   });
 });
+
+it.each(['macos', 'windows'] as const)('opens Preferences on %s without a library', (osPlatform) => {
+  useSettingsStore.setState({ osPlatform });
+  useLibraryStore.setState({ rootPaths: [], sessionDirectory: null, imageList: [] });
+  press('Comma', ',', osPlatform === 'macos' ? { metaKey: true } : { ctrlKey: true });
+  expect(useUIStore.getState().isSettingsOpen).toBe(true);
+});

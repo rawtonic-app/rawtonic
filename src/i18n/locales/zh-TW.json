@@ -552,6 +552,7 @@
       "resetAdjustments_other": "重置 {{count}} 張影像的調整",
       "shiftCaptureTime": "調整拍攝時間…",
       "showExplorer": "在檔案資源管理器中顯示",
+      "showFileManager": "在檔案管理員中顯示",
       "showFinder": "在 Finder 中顯示",
       "virtualCopy": "虛擬副本"
     },
@@ -2313,6 +2314,7 @@
         "rotate_right": "順時針旋轉 90°",
         "select_all": "選擇所有影像",
         "select_none": "取消選取",
+        "show_in_file_manager": "在檔案資源管理器中顯示",
         "show_in_finder": "在 Finder 中顯示",
         "show_original": "按住：整張照片編輯前",
         "spot_new_source": "尋找其他來源",

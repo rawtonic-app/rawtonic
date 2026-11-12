@@ -563,6 +563,7 @@
       "resetAdjustments_other": "Reset adjustments on {{count}} photos",
       "shiftCaptureTime": "Shift Capture Time…",
       "showExplorer": "Show in file manager",
+      "showFileManager": "Show in file manager",
       "showFinder": "Show in Finder",
       "virtualCopy": "Virtual copy"
     },
@@ -2404,6 +2405,7 @@
         "rotate_right": "Rotate 90° clockwise",
         "select_all": "Select all photos",
         "select_none": "Select none",
+        "show_in_file_manager": "Show in file manager",
         "show_in_finder": "Show in Finder",
         "show_original": "Hold: whole photo before",
         "spot_new_source": "Find another source",

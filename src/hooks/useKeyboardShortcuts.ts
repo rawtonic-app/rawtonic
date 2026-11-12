@@ -1,3 +1,4 @@
+import { quickSettingsCopy } from '../utils/platformLabels';
 import { useSecondWindowStore } from '../store/useSecondWindowStore';
 import { toggleSecondWindow } from './useSecondWindow';
 import { useCallback, useEffect, useRef } from 'react';
@@ -394,9 +395,11 @@ export const useKeyboardShortcuts = ({
       },
       copy_adjustments: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleCopyAdjustments();
+          handleCopyAdjustments(undefined, {
+            quick: quickSettingsCopy(s.settings.osPlatform, s.ui.activeView, e.shiftKey)
+          });
         }
       },
       paste_adjustments: {

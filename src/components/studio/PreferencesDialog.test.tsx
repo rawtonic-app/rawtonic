@@ -40,9 +40,10 @@ it('moves the focus in, keeps Tab inside, makes the workspace inert and returns 
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'General' }));
 
   // The workspace behind is inert, the dialog and its ancestors are not.
-  expect(document.querySelector('header')!.hasAttribute('inert')).toBe(true);
-  expect(screen.getByText('Library').hasAttribute('inert')).toBe(true);
+  expect(!!document.querySelector('header')!.closest('[inert]')).toBe(true);
+  expect(!!screen.getByText('Library').closest('[inert]')).toBe(true);
   expect(dialog.closest('[inert]')).toBeNull();
+  expect(dialog.closest('main')).toBeNull();
 
   await user.tab();
   expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Name' }));

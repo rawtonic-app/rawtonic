@@ -101,6 +101,7 @@ mod series_match;
 mod session_bridge;
 mod session_folders;
 mod session_move;
+mod snap_layout;
 mod snapshots;
 mod spot_removal;
 mod stacks;
@@ -638,7 +639,11 @@ fn start(args: Vec<String>) {
 
             #[cfg(not(target_os = "macos"))]
             {
-                window_builder = window_builder.decorations(decorations).visible(false);
+                window_builder = window_builder
+                    .decorations(decorations)
+                    // Preserve a usable viewer between the two tool panels.
+                    .min_inner_size(1000.0, 600.0)
+                    .visible(false);
             }
 
             #[cfg(target_os = "macos")]
@@ -701,6 +706,15 @@ fn start(args: Vec<String>) {
                 } else {
                     let _ = window.center();
                 }
+
+                #[cfg(windows)]
+                startup::keep_window_on_screen(
+                    &window,
+                    (
+                        main_window_cfg.min_width.unwrap_or(0.0),
+                        main_window_cfg.min_height.unwrap_or(0.0),
+                    ),
+                );
 
                 let window_failsafe = window.clone();
                 tauri::async_runtime::spawn(async move {
@@ -797,6 +811,7 @@ fn start(args: Vec<String>) {
         .manage(state::library_files::LibraryQueue::default())
         .invoke_handler(tauri::generate_handler![
             window_customizer::set_window_full_screen,
+            snap_layout::set_maximize_button_rect,
             second_window::second_window_state,
             second_window::second_window_set_open,
             second_window::second_window_set_locked,

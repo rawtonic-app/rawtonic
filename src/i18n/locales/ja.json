@@ -552,6 +552,7 @@
       "resetAdjustments_other": "{{count}} 枚の画像の補正設定をリセット",
       "shiftCaptureTime": "撮影日時をずらす…",
       "showExplorer": "エクスプローラーで表示",
+      "showFileManager": "ファイルマネージャーで表示",
       "showFinder": "Finder で表示",
       "virtualCopy": "仮想コピー"
     },
@@ -2313,6 +2314,7 @@
         "rotate_right": "時計回りに90°回転",
         "select_all": "すべての画像を選択",
         "select_none": "選択を解除",
+        "show_in_file_manager": "エクスプローラーで表示",
         "show_in_finder": "Finderに表示",
         "show_original": "押し続ける: 写真全体を補正前で表示",
         "spot_new_source": "別のソースを探す",

@@ -953,3 +953,11 @@ it('shows the destination without a subfolder when the template renders empty fo
   await vi.waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith('export_naming_preview', expect.anything()));
   await vi.waitFor(() => expect(plan()).not.toContain('{title}'));
 });
+
+it('accepts a typed lossless JXL quality of 100', () => {
+  render(<StudioExport />);
+  fireEvent.change(screen.getByLabelText('Format'), { target: { value: 'jxl' } });
+  const input = screen.getByLabelText('JPEG XL quality') as HTMLInputElement;
+  fireEvent.change(input, { target: { value: '100' } });
+  expect(input.value).toBe('100');
+});

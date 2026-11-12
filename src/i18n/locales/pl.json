@@ -635,6 +635,7 @@
       "resetAdjustments_other": "Resetuj ustawienia w {{count}} obrazach",
       "shiftCaptureTime": "Przesuń czas wykonania…",
       "showExplorer": "Pokaż w eksploratorze plików",
+      "showFileManager": "Pokaż w menedżerze plików",
       "showFinder": "Pokaż w Finderze",
       "virtualCopy": "Kopia wirtualna"
     },
@@ -2675,6 +2676,7 @@
         "rotate_right": "Obróć o 90° w prawo",
         "select_all": "Zaznacz wszystkie obrazy",
         "select_none": "Odznacz wszystko",
+        "show_in_file_manager": "Pokaż w eksploratorze plików",
         "show_in_finder": "Pokaż w Finderze",
         "show_original": "Przytrzymaj: całe zdjęcie przed",
         "spot_new_source": "Znajdź inne źródło",

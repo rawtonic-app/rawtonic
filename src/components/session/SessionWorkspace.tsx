@@ -1993,6 +1993,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             </button>
           </div>
           <div className="session-welcome-existing">
+            <button onClick={() => useUIStore.getState().setUI({ isSettingsOpen: true })}>
+              {t('studio.workspace.preferences')}
+            </button>
             <button className="session-action" onClick={() => void openSession()}>
               <FolderOpen size={16} aria-hidden />
               {t('session.welcome.open')}

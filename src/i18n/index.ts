@@ -1,4 +1,6 @@
 import i18n from 'i18next';
+import { platform } from '@tauri-apps/plugin-os';
+import { platformResources } from '../utils/platformLabels';
 import { initReactI18next } from 'react-i18next';
 
 import en from './locales/en.json';
@@ -21,22 +23,32 @@ i18n.on('languageChanged', (lng) => {
   if (typeof document !== 'undefined') document.documentElement.lang = lng;
 });
 
+let osPlatform = 'macos';
+try {
+  osPlatform = platform();
+} catch {
+  // Preserve the original resource labels outside the native app.
+}
+
 i18n.use(initReactI18next).init({
-  resources: {
-    en: { translation: en },
-    de: { translation: de },
-    'zh-CN': { translation: zhCN },
-    'zh-TW': { translation: zhTW },
-    pl: { translation: pl },
-    es: { translation: es },
-    fr: { translation: fr },
-    it: { translation: it },
-    pt: { translation: pt },
-    ja: { translation: ja },
-    ko: { translation: ko },
-    ru: { translation: ru },
-    ca: { translation: ca }
-  },
+  resources: platformResources(
+    {
+      en: { translation: en },
+      de: { translation: de },
+      'zh-CN': { translation: zhCN },
+      'zh-TW': { translation: zhTW },
+      pl: { translation: pl },
+      es: { translation: es },
+      fr: { translation: fr },
+      it: { translation: it },
+      pt: { translation: pt },
+      ja: { translation: ja },
+      ko: { translation: ko },
+      ru: { translation: ru },
+      ca: { translation: ca }
+    },
+    osPlatform
+  ),
   lng: 'en',
   fallbackLng: 'en',
   returnEmptyString: false,
