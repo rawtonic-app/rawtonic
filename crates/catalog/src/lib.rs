@@ -441,7 +441,7 @@ impl Library {
         let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         Self::configure(&conn)?;
         migrations::upgrade(&conn)?;
-        Ok(Self {
+        let library = Self {
             directory,
             manifest,
             conn,
@@ -450,7 +450,106 @@ impl Library {
             markings: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             crash_after_publish: Default::default(),
-        })
+        };
+        library.plain_stored_paths()?;
+        Ok(library)
+    }
+
+    /// Libraries written on Windows before G77 store absolute paths in the
+    /// verbatim form the standard library canonicalized to (`\\?\C:\…`);
+    /// paths are plain now (`rawtonic_fs::canonicalize`), so those records
+    /// would no longer be found. Rewritten once, when the library opens:
+    /// external folders move to the plain spelling as a relocation does
+    /// (photograph ids, edits and albums kept; the root id follows the path),
+    /// keeping the drive they recorded; the hot folder and drive paths
+    /// follow; the drive cache's old rows go (a cache). Nothing elsewhere
+    /// has such paths, so this finds no rows there.
+    fn plain_stored_paths(&self) -> Result<()> {
+        const VERBATIM: &str = r"\\?\";
+        let plain = |text: &str| {
+            rawtonic_fs::simplified(Path::new(text))
+                .to_string_lossy()
+                .into_owned()
+        };
+        type Volume = (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let mut roots = self.conn.prepare(
+            "SELECT id,path,volume_id,volume_name,volume_path,volume_kind FROM roots
+             WHERE external=1 AND (substr(path,1,4)=?1 OR substr(volume_path,1,4)=?1)",
+        )?;
+        let roots: Vec<(String, String, Volume)> = roots
+            .query_map([VERBATIM], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    (r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?),
+                ))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let hot_folder: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT folder FROM hot_folder WHERE substr(folder,1,4)=?",
+                [VERBATIM],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let cached: i64 = self.conn.query_row(
+            "SELECT count(*) FROM folder_root_volumes WHERE substr(path,1,4)=?",
+            [VERBATIM],
+            |r| r.get(0),
+        )?;
+        if roots.is_empty() && hot_folder.is_none() && cached == 0 {
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        let mut moved = Vec::new();
+        let mut volumes = Vec::new();
+        for (id, path, (volume_id, name, volume_path, kind)) in roots {
+            let new_path = plain(&path);
+            let volume_path = volume_path.as_deref().map(plain);
+            let photos: Vec<(String, String)> = tx
+                .prepare("SELECT id,rel_path FROM assets WHERE root_id=?")?
+                .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            if photos.is_empty() {
+                // A folder with no photograph yet: only its record moves.
+                let new_id = external_root_key(Path::new(&new_path));
+                tx.execute(
+                    "UPDATE OR IGNORE roots SET id=?,path=?,volume_path=? WHERE id=?",
+                    params![new_id, new_path, volume_path, id],
+                )?;
+                continue;
+            }
+            for (photo, relative) in photos {
+                moved.push((photo, native_join(Path::new(&new_path), &relative)));
+            }
+            volumes.push((new_path, volume_id, name, volume_path, kind));
+        }
+        if !moved.is_empty() {
+            self.apply_places(&tx, &moved)?;
+        }
+        for (path, volume_id, name, volume_path, kind) in volumes {
+            tx.execute(
+                "UPDATE roots SET volume_id=coalesce(volume_id,?),volume_name=coalesce(volume_name,?),
+                 volume_path=coalesce(?,volume_path),volume_kind=coalesce(volume_kind,?)
+                 WHERE external=1 AND path=?",
+                params![volume_id, name, volume_path, kind, path],
+            )?;
+        }
+        if let Some(folder) = hot_folder {
+            tx.execute("UPDATE hot_folder SET folder=?", [plain(&folder)])?;
+        }
+        tx.execute(
+            "DELETE FROM folder_root_volumes WHERE substr(path,1,4)=?",
+            [VERBATIM],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     fn configure(conn: &Connection) -> Result<()> {

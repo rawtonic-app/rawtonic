@@ -890,8 +890,7 @@ mod windows {
         }
         let end = buffer.iter().position(|&c| c == 0).unwrap_or(0);
         // A long input went in extended-length (`\\?\`); the root is shown.
-        let root =
-            crate::simplified(&PathBuf::from(OsString::from_wide(&buffer[..end]))).to_path_buf();
+        let root = crate::simplified(&PathBuf::from(OsString::from_wide(&buffer[..end])));
         let (known, file_system, network) = volume_of_root(&root)?;
         // Unreadable details do not refuse the volume by themselves: free
         // space, asked separately and then required, decides whether a move

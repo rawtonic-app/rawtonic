@@ -5659,7 +5659,6 @@ name = "rawtonic-fs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dunce",
  "libc",
  "log",
  "serde",

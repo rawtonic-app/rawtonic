@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-dunce = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }

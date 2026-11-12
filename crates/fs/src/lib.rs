@@ -73,18 +73,74 @@ pub fn sha256_hex_read_while(
 /// see it, it differs from the same path picked in a dialog or listed from a
 /// plain folder, and a `/` appended to it (the frontend joins with `/`) makes
 /// it invalid (os error 123), because verbatim paths are not normalised. The
-/// verbatim form is kept only where the plain one would name another file
-/// or none (over 260 characters, reserved names such as `NUL`, trailing
-/// dots or spaces). Everywhere else is the same as the standard library;
-/// clippy refuses the standard one (`clippy.toml`).
+/// verbatim form is kept only where a name in it has no plain spelling
+/// (reserved names such as `NUL`, trailing dots or spaces), never for length
+/// alone: a library and everything below it keep one spelling, and long
+/// plain paths work (`std::fs` and [`wide_path`] extend them). Everywhere
+/// else the same as the standard library; clippy refuses that one
+/// (`clippy.toml`).
 pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
-    dunce::canonicalize(path)
+    #[allow(clippy::disallowed_methods)]
+    let real = fs::canonicalize(path)?;
+    Ok(simplified(&real))
 }
 
-/// `path` without a verbatim `\\?\` prefix where the plain form names the
-/// same file (see [`canonicalize`]); unchanged elsewhere and off Windows.
-pub fn simplified(path: &Path) -> &Path {
-    dunce::simplified(path)
+/// `path` without its verbatim prefix (`\\?\C:\…` → `C:\…`, `\\?\UNC\srv\…`
+/// → `\\srv\…`) when every name in it has a plain spelling (see
+/// [`canonicalize`]); unchanged otherwise and off Windows. For paths read
+/// back from older catalogs and from the system.
+pub fn simplified(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(plain) = plain_form(path) {
+        return plain;
+    }
+    path.to_path_buf()
+}
+
+#[cfg(windows)]
+fn plain_form(path: &Path) -> Option<PathBuf> {
+    use std::path::{Component, Prefix};
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return None;
+    };
+    let mut plain = match prefix.kind() {
+        Prefix::VerbatimDisk(letter) => PathBuf::from(format!("{}:\\", letter as char)),
+        Prefix::VerbatimUNC(server, share) => {
+            let mut root = std::ffi::OsString::from(r"\\");
+            root.push(server);
+            root.push(r"\");
+            root.push(share);
+            root.push(r"\");
+            PathBuf::from(root)
+        }
+        _ => return None,
+    };
+    for component in components {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(name) if plain_name(&name.to_string_lossy()) => plain.push(name),
+            _ => return None,
+        }
+    }
+    Some(plain)
+}
+
+/// Whether Win32 reads `name` as itself in a plain path (it drops trailing
+/// dots and spaces, maps device names and refuses some characters).
+#[cfg(windows)]
+fn plain_name(name: &str) -> bool {
+    const DEVICES: [&str; 22] = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    !name.is_empty()
+        && !name.ends_with(['.', ' '])
+        && !name.chars().any(|c| c < ' ' || "<>:\"/\\|?*".contains(c))
+        && !DEVICES
+            .iter()
+            .any(|device| stem.eq_ignore_ascii_case(device))
 }
 
 /// The last component of `path` as the volume stores it, where that can
@@ -403,6 +459,43 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn verbatim_paths_are_plain_unless_a_name_needs_the_verbatim_form() {
+        let long = "d".repeat(300);
+        let plain = |text: &str| simplified(Path::new(text)).to_string_lossy().into_owned();
+        assert_eq!(plain(r"\\?\C:\Photos\a.RAF"), r"C:\Photos\a.RAF");
+        assert_eq!(
+            plain(&format!(r"\\?\C:\{long}\a.RAF")),
+            format!(r"C:\{long}\a.RAF")
+        );
+        assert_eq!(plain(r"\\?\UNC\srv\share\a.RAF"), r"\\srv\share\a.RAF");
+        for kept in [
+            r"\\?\C:\Day \a.RAF",
+            r"\\?\C:\a.",
+            r"\\?\C:\x\NUL.txt",
+            r"\\?\C:\com1",
+        ] {
+            assert_eq!(plain(kept), kept);
+        }
+        assert_eq!(plain(r"C:\Photos"), r"C:\Photos");
+        // A library deeper than 260 characters keeps one spelling.
+        let dir = tempfile::tempdir().unwrap();
+        let deep = canonicalize(dir.path())
+            .unwrap()
+            .join(&long[..150])
+            .join(&long[..150]);
+        fs::create_dir_all(deep.join("Capture")).unwrap();
+        fs::write(deep.join("Capture").join("a.RAF"), b"x").unwrap();
+        let photo = canonicalize(deep.join("Capture").join("a.RAF")).unwrap();
+        assert!(
+            photo.starts_with(canonicalize(&deep).unwrap()),
+            "{}",
+            photo.display()
+        );
+        assert!(!photo.to_string_lossy().starts_with(r"\\?\"));
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn long_paths_are_given_the_extended_form() {
         let text = |path: &str| String::from_utf16(&wide_path(Path::new(path)).unwrap()).unwrap();
         let long = "d".repeat(250);
@@ -460,6 +553,11 @@ mod tests {
         fs::write(&joined, "y").unwrap();
         assert_eq!(fs::read_to_string(dir.path().join("b.xmp")).unwrap(), "y");
         assert_eq!(Path::new(&file).canonical().unwrap(), canonical);
+        // A path from an older catalog reads the same.
+        assert_eq!(
+            simplified(&PathBuf::from(format!(r"\\?\{}", canonical.display()))),
+            canonical
+        );
     }
 
     #[cfg(unix)]

@@ -4,7 +4,6 @@
 use super::PlatformTrash;
 use anyhow::{Context, Result, ensure};
 use rawtonic_fileops::SystemTrash;
-use rawtonic_fs::Canonical;
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::OsString,
@@ -171,12 +170,13 @@ fn bin_entries() -> Result<Vec<BinEntry>> {
     }
 }
 
+/// Verbatim on purpose: the entry's own name is joined literally, so
+/// `photo.txt.` stays itself instead of becoming its sibling `photo.txt`
+/// (a plain parent would let the identity check pass on the wrong file).
 fn canonical_entry(path: &Path) -> Result<PathBuf> {
-    Ok(path
-        .parent()
-        .context("Missing parent")?
-        .canonical()?
-        .join(path.file_name().context("Missing filename")?))
+    #[allow(clippy::disallowed_methods)]
+    let parent = fs::canonicalize(path.parent().context("Missing parent")?)?;
+    Ok(parent.join(path.file_name().context("Missing filename")?))
 }
 
 fn verified_item(path: &Path) -> Result<(IShellItem, PathBuf)> {
@@ -599,6 +599,7 @@ impl SystemTrash for PlatformTrash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rawtonic_fs::Canonical;
     use std::{collections::HashSet, fs};
 
     fn staged_fixture() -> (tempfile::TempDir, Receipt) {
@@ -949,7 +950,9 @@ mod tests {
     fn shell_entry_refuses_literal_names_that_resolve_to_another_entry() {
         let _apartment = Apartment::new().unwrap();
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonical().unwrap();
+        // Verbatim: only that form can hold names ending in a dot or space.
+        #[allow(clippy::disallowed_methods)]
+        let root = fs::canonicalize(temp.path()).unwrap();
         let literal = root.join("photo.txt.");
         let sibling = root.join("photo.txt");
         fs::write(&literal, b"literal").unwrap();
@@ -963,7 +966,9 @@ mod tests {
     fn shell_entry_refuses_normalized_parent_and_link_aliases() {
         let _apartment = Apartment::new().unwrap();
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonical().unwrap();
+        // Verbatim: only that form can hold names ending in a dot or space.
+        #[allow(clippy::disallowed_methods)]
+        let root = fs::canonicalize(temp.path()).unwrap();
         let literal = root.join("album ");
         let sibling = root.join("album");
         fs::create_dir(&literal).unwrap();

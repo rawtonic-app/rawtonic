@@ -191,7 +191,8 @@ impl Manifest {
             .map(|role| self.folder_setting(*role))
             .chain(self.former_folders.iter().map(String::as_str))
             .filter(|setting| is_absolute_setting(setting))
-            .map(PathBuf::from)
+            // Verbatim in manifests written on Windows before G77.
+            .map(|setting| rawtonic_fs::simplified(Path::new(setting)))
             .collect();
         folders.sort();
         folders.dedup();
@@ -215,7 +216,7 @@ impl Library {
     pub fn folder_path(&self, role: FolderRole) -> PathBuf {
         let setting = self.manifest.folder_setting(role);
         if is_absolute_setting(setting) {
-            PathBuf::from(setting)
+            rawtonic_fs::simplified(Path::new(setting))
         } else {
             self.directory.join(setting)
         }
