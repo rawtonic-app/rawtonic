@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **Windows with AMD graphics: the first tone slider waits about half as long.** On AMD's Windows Vulkan driver the first use of Contrast, Highlights or Whites waited about a minute while the driver prepared that view (once per computer); the view's tone code is now shaped so the driver compiles it in about half the time and memory (Radeon 680M: 54 → 28 s; raised Shadows 174 → 58 s). Exports are unchanged.
+
 - Adding an externally opened photo follows its library copy and refreshes library counts. The Navigator clears stale loose photos, and confirmed duplicates offer Show in library. Settings accept a UTF-8 BOM and snap interface sizes to the supported choices. Windows minimum-size correction is deferred and skips maximized windows and superseded resizes.
 
 - Edit With now groups renders with their originals in grid stacks, uses the render time for new files, and retries only unfinished photos after quitting. Windows adds handling for app execution aliases in Other… (native verification pending) and uses program display names in rendering and interruption notices.
