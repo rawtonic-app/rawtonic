@@ -585,15 +585,27 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
             .file_name()
             .map(|name| format!(r"Applications\{}", name.to_string_lossy()))
             .filter(|class| program_file && has_key(&format!(r"{class}\shell")));
-        if let Some(class) = handlers::progid_for(program, &progids(&extension)).or(registered) {
+        if let Some(class) = handlers::progid_for(program, &progids(&extension)) {
             for file in &handoff {
                 open_as(&class, file)?;
             }
-        } else if program_file {
-            start_program(program, &handoff)?;
-        } else {
+            return Ok(launched);
+        }
+        if !program_file {
             return Err(format!("{program} is not available."));
         }
+        // Such a registration can be stale: System32's `notepad.exe` has
+        // one whose command Windows 11 refuses ("not a valid Win32
+        // application"). Then the program file is started itself.
+        if let Some(class) = registered
+            && open_as(&class, &handoff[0]).is_ok()
+        {
+            for file in &handoff[1..] {
+                open_as(&class, file)?;
+            }
+            return Ok(launched);
+        }
+        start_program(program, &handoff)?;
         Ok(launched)
     })
 }
