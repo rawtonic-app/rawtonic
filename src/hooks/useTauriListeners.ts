@@ -1,3 +1,4 @@
+import { pathKey } from '../utils/pathKey';
 import { useEffect, useRef } from 'react';
 import { UnlistenFn, listen } from '@tauri-apps/api/event';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
@@ -501,7 +502,13 @@ export function useTauriListeners({
       }),
       listen<ThumbnailGeneratedPayload>('thumbnail-generated', (event) => {
         if (!isEffectActive) return;
-        const { path, thumbnailPath, previewPath, rating, is_edited, data } = event.payload;
+        const { path: emittedPath, thumbnailPath, previewPath, rating, is_edited, data } = event.payload;
+        // Batch operations can publish the canonical Windows path while the
+        // grid was listed through its plain spelling. Update that visible tile.
+        const images = useLibraryStore.getState().imageList;
+        const path = libraryImageIndex(images).has(emittedPath)
+          ? emittedPath
+          : (images.find((image) => pathKey(image.path) === pathKey(emittedPath))?.path ?? emittedPath);
 
         if (thumbnailPath && previewPath) {
           thumbnailBuffer.current[path] = convertFileSrc(thumbnailPath.replace(/\\/g, '/'));

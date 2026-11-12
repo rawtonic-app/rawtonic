@@ -2675,6 +2675,7 @@
         "rotate_right": "Повернуть на 90° по часовой стрелке",
         "select_all": "Выбрать все снимки",
         "select_none": "Снять выделение",
+        "show_in_file_manager": "Показать в проводнике",
         "show_in_finder": "Показать в Finder",
         "show_original": "Удерживать: всё фото до",
         "spot_new_source": "Найти другой источник",

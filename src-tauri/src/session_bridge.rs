@@ -459,6 +459,7 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
                 // The session's Output folders, current and former, whatever
                 // their names, and its own-data folders (G38).
                 || !lib.in_output_folder(e.path())
+                    && !e.path().starts_with(lib.folder_path(rawtonic_catalog::session_folders::FolderRole::Output))
                     && !e.file_name().to_string_lossy().starts_with('.')
                     && !matches!(
                         e.file_name().to_str(),
@@ -2325,6 +2326,22 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string()
+    }
+
+    #[test]
+    fn catalog_exports_are_not_automatically_registered_but_can_be_imported() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Catalog", Mode::Catalog).unwrap();
+        let source = lib.directory.join("Photos/A.jpg");
+        let export = lib.directory.join("Output/A.jpg");
+        fs::write(&source, b"source").unwrap();
+        fs::write(&export, b"export").unwrap();
+        index_folder(&lib).unwrap();
+        assert_eq!(lib.summary().unwrap().assets, 1);
+        assert!(lib.asset_at(&export).unwrap().is_none());
+        lib.add_asset(&export).unwrap();
+        index_folder(&lib).unwrap();
+        assert_eq!(lib.summary().unwrap().assets, 2);
     }
 
     #[test]

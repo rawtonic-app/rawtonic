@@ -2313,6 +2313,7 @@
         "rotate_right": "90° 시계 방향 회전",
         "select_all": "모든 이미지 선택",
         "select_none": "선택 해제",
+        "show_in_file_manager": "파일 탐색기에서 표시",
         "show_in_finder": "Finder에서 보기",
         "show_original": "누르고 있기: 사진 전체 보정 전",
         "spot_new_source": "다른 소스 찾기",

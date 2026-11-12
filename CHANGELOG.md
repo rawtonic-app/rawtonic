@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Windows and Linux show platform shortcut labels, scale the top bar with the interface, keep photo dimensions beside shortened filenames, and enforce a usable minimum window size. Plain Ctrl+C in Develop copies the remembered settings choice; Ctrl+Shift+C opens the picker. Catalog scans leave exports in Output out of the photo count, and thumbnail events update tiles listed through another Windows path spelling.
+
 - **Windows: the AI tools can use the graphics card.** ONNX Runtime's GPU plugin needs Microsoft's DirectX Shader Compiler on Direct3D 12, which Windows does not include, so the AI tools always ran on the processor. The installers and the portable zip now bring it (`dxcompiler.dll`, `dxil.dll`, Microsoft's release 1.8.2502) beside ONNX Runtime; if it is missing, the AI tools still run on the processor and the log says why.
 - **AI runs on the graphics card only where that is faster.** The one-time check of each AI model on the graphics card now also times it against the processor and keeps the faster one (on an integrated Radeon 680M, AI Subject took 14–19 s on the graphics card against 8.5 s on the processor). An AI Denoise tile that hangs on the graphics card no longer stops AI Denoise: after a time limit it goes on on the processor.
 

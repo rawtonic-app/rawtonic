@@ -638,7 +638,11 @@ fn start(args: Vec<String>) {
 
             #[cfg(not(target_os = "macos"))]
             {
-                window_builder = window_builder.decorations(decorations).visible(false);
+                window_builder = window_builder
+                    .decorations(decorations)
+                    // Preserve a usable viewer between the two tool panels.
+                    .min_inner_size(1000.0, 600.0)
+                    .visible(false);
             }
 
             #[cfg(target_os = "macos")]
