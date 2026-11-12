@@ -9,12 +9,13 @@
 //! as the app prepares a photo) and the outputs are compared
 //! (`bench::disagreement`).
 //!
-//! A GPU that is right but slower than the CPU is not used either: both
-//! runs are timed, and when the GPU's first run (which may include its
-//! shader compiles) was not faster it runs once more; only a warm run
-//! faster than the CPU's keeps the model on the GPU. An integrated Radeon
-//! 680M under Windows ran BiRefNet in 14–19 s on WebGPU against 8.5 s on
-//! the CPU, and AI Denoise stalled there (gap G76).
+//! A GPU that is right but not clearly faster than the CPU is not used
+//! either: both runs are timed, and when the GPU's first run (which may
+//! include its shader compiles) was not clearly faster it runs once more;
+//! only a GPU whose warm run takes at most 0.85× the CPU's time and whose
+//! first run at most 1.2× keeps the model (`speed_verdict`). An integrated
+//! Radeon 680M under Windows ran BiRefNet in 14–19 s on WebGPU against
+//! 8.5 s on the CPU, and AI Denoise stalled there (gap G76).
 //!
 //! The verdict is kept per model file, provider, device and plugin library,
 //! in memory and in `Settings::checks_file`, so the check costs one CPU run
@@ -74,14 +75,38 @@ impl Verdict {
     }
 }
 
-/// The speed verdict from the timed runs: the GPU only if its warm run beat
-/// the CPU's.
-pub(crate) fn speed_verdict(cpu: Duration, gpu: Duration) -> Verdict {
-    if gpu < cpu {
+/// A warm GPU run must take at most this share of the CPU's time: a few
+/// percent is within run-to-run noise, never a reason to move. The Radeon
+/// 680M's BiRefNet, warm 13.4 s against 14.0 s on the CPU (4 %), stays on
+/// the CPU (coordinator decision 2026-11-12, gap G76 WAIFC).
+const WARM_AT_MOST: f64 = 0.85;
+/// The first GPU run of a load (shader compiles included, which the
+/// photographer waits for after every start) may take at most this share
+/// of the CPU's time.
+const FIRST_AT_MOST: f64 = 1.2;
+
+/// The speed verdict from the timed runs: the GPU only if it is clearly
+/// faster warm (`WARM_AT_MOST`) and its first run is not much slower than
+/// the CPU (`FIRST_AT_MOST`). Without a warm run, the first run counts as
+/// warm too.
+pub(crate) fn speed_verdict(cpu: Duration, first: Duration, warm: Option<Duration>) -> Verdict {
+    let share = |gpu: Duration| gpu.as_secs_f64() / cpu.as_secs_f64().max(f64::MIN_POSITIVE);
+    let warm = warm.unwrap_or(first).min(first);
+    if share(warm) <= WARM_AT_MOST && share(first) <= FIRST_AT_MOST {
         Verdict::Faster
     } else {
         Verdict::Slower
     }
+}
+
+/// The GPU's times as shares of the CPU's, with the rule, for the log.
+fn margins(cpu: Duration, first: Duration, warm: Option<Duration>) -> String {
+    let share = |gpu: Duration| gpu.as_secs_f64() / cpu.as_secs_f64().max(f64::MIN_POSITIVE);
+    format!(
+        "warm {:.2}x, first {:.2}x the CPU; the GPU needs warm <= {WARM_AT_MOST}x and first <= {FIRST_AT_MOST}x",
+        share(warm.unwrap_or(first).min(first)),
+        share(first)
+    )
 }
 
 static VERDICTS: Mutex<Option<HashMap<String, Verdict>>> = Mutex::new(None);
@@ -251,8 +276,12 @@ where
                 let t = Instant::now();
                 let outputs = run(&mut gpu)?;
                 let first = t.elapsed();
-                // The first GPU run may include its shader compiles.
-                let warm = if speed_verdict(cpu, first) == Verdict::Slower && !stopped.stopped() {
+                // The first GPU run may include its shader compiles: time a
+                // warm one, unless the first was too slow to be accepted.
+                let warm = if speed_verdict(cpu, first, None) == Verdict::Slower
+                    && first.as_secs_f64() <= FIRST_AT_MOST * cpu.as_secs_f64()
+                    && !stopped.stopped()
+                {
                     let t = Instant::now();
                     run(&mut gpu)?;
                     Some(t.elapsed())
@@ -383,17 +412,18 @@ fn measure(
     if let Some(warm) = warm {
         times.push_str(&format!(", warm GPU {} ms", warm.as_millis()));
     }
+    times.push_str(&format!("; {}", margins(cpu.time, first, warm)));
     if let Some(why) = disagreement(kind, &compare(kind, &cpu.reference, &outputs)) {
         return Ok(Measured::Refused(
             Verdict::Differs,
             anyhow!("its output differs from the CPU's: {why}"),
         ));
     }
-    Ok(match speed_verdict(cpu.time, warm.unwrap_or(first)) {
+    Ok(match speed_verdict(cpu.time, first, warm) {
         Verdict::Faster => Measured::Faster(gpu),
         _ => Measured::Refused(
             Verdict::Slower,
-            anyhow!("it runs slower on this device than on the CPU ({times})"),
+            anyhow!("it is not clearly faster on this device than on the CPU"),
         ),
     })
 }
@@ -431,7 +461,7 @@ fn conclude(
         Err(e) => (Verdict::Differs, Err(e)),
     };
     let found = match &outcome {
-        Ok(_) => "matches the CPU and is faster".to_string(),
+        Ok(_) => "matches the CPU and is clearly faster".to_string(),
         Err(e) => format!("{e:#}"),
     };
     let mut kept = None;
@@ -827,10 +857,33 @@ mod tests {
         let GpuEnd::Ran(_, (_, _, warm)) = gpu_runs(
             || Ok(()),
             move |_: &mut ()| {
-                // The first run compiles: slower than the CPU's 20 ms.
+                // The first run compiles: 1.1x the CPU's 100 ms.
                 if counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                    std::thread::sleep(Duration::from_millis(40));
+                    std::thread::sleep(Duration::from_millis(110));
                 }
+                Ok(())
+            },
+            Duration::from_millis(100),
+            Duration::from_secs(5),
+            &Stop::new(),
+        )
+        .unwrap() else {
+            panic!("the runs did not finish");
+        };
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert!(warm.unwrap() < Duration::from_millis(85));
+    }
+
+    /// A first run beyond 1.2x the CPU is refused without a warm run.
+    #[test]
+    fn a_much_slower_first_gpu_run_needs_no_warm_run() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let counted = calls.clone();
+        let GpuEnd::Ran(_, (_, first, warm)) = gpu_runs(
+            || Ok(()),
+            move |_: &mut ()| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(60));
                 Ok(())
             },
             Duration::from_millis(20),
@@ -840,8 +893,12 @@ mod tests {
         .unwrap() else {
             panic!("the runs did not finish");
         };
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
-        assert!(warm.unwrap() < Duration::from_millis(20));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(warm, None);
+        assert_eq!(
+            speed_verdict(Duration::from_millis(20), first, warm),
+            Verdict::Slower
+        );
     }
 
     /// The app's first load of a model without a verdict uses the CPU and
@@ -914,12 +971,34 @@ mod tests {
     }
 
     #[test]
-    fn only_a_faster_warm_gpu_run_is_used() {
+    fn only_a_clearly_faster_gpu_is_used() {
         let ms = Duration::from_millis;
         // The 680M's BiRefNet (gap G76): 8.5 s on the CPU, 14-19 s warm.
-        assert_eq!(speed_verdict(ms(8_500), ms(14_000)), Verdict::Slower);
-        assert_eq!(speed_verdict(ms(8_500), ms(8_500)), Verdict::Slower);
-        assert_eq!(speed_verdict(ms(9_500), ms(730)), Verdict::Faster);
+        assert_eq!(
+            speed_verdict(ms(8_500), ms(19_000), Some(ms(14_000))),
+            Verdict::Slower
+        );
+        // WAIFC on the 680M: CPU 14.0 s, first 16.1 s, warm 13.4 s (4 %).
+        assert_eq!(
+            speed_verdict(ms(13_997), ms(16_095), Some(ms(13_402))),
+            Verdict::Slower
+        );
+        // RTX 3080 (WebGPU, Vulkan): 9.5 s on the CPU, 0.73 s.
+        assert_eq!(speed_verdict(ms(9_500), ms(730), None), Verdict::Faster);
+        // Clearly faster warm, but a first run the photographer waits for
+        // that is much slower than the CPU.
+        assert_eq!(
+            speed_verdict(ms(10_000), ms(13_000), Some(ms(5_000))),
+            Verdict::Slower
+        );
+        assert_eq!(
+            speed_verdict(ms(10_000), ms(12_000), Some(ms(8_500))),
+            Verdict::Faster
+        );
+        assert_eq!(
+            speed_verdict(ms(10_000), ms(11_000), Some(ms(8_600))),
+            Verdict::Slower
+        );
     }
 
     /// A faster GPU's session goes to the first model still on the CPU; a
