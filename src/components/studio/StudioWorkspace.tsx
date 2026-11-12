@@ -1382,8 +1382,8 @@ export default function StudioWorkspace(props: Props) {
                       {currentIndex >= 0
                         ? `${currentIndex + 1} / ${files.length}`
                         : t('studio.workspace.footer.photographs', {
-                            count: 0,
-                            n: '0'
+                            count: files.length,
+                            n: files.length.toLocaleString()
                           })}
                     </span>
                     <button

@@ -5,6 +5,7 @@
 - Trash refuses a photo whose file is also another hard-linked photo in the active library, and names the other photo before changing anything.
 
 - Synchronize Folder compares stored folder aliases consistently, so a root stored through a symlink does not classify existing photos as new copies. Regression coverage also checks plain and verbatim Windows drive paths.
+- Windows programmatic window resizes respect the current interface size. Develop retains the filmstrip count for externally opened photos, activity indicators stay clickable in narrow headers, and the privacy acknowledgement survives replacement of settings.
 
 - Photos passed at startup open in Develop after the remembered library finishes restoring. Windows/Linux interactive minimum window dimensions follow the interface size (100/112/125 %), capped to the monitor work area.
 

@@ -768,7 +768,17 @@ fn start(args: Vec<String>) {
                         {
                             let scale = window_for_handler.scale_factor().unwrap_or(1.0);
                             let logical = size.to_logical::<f64>(scale);
-                            if let Some(minimum) = startup::minimum_window_size(logical.width, logical.height) {
+                            // Read the current settings on every resize: Preferences can change
+                            // the interface size during this window's lifetime.
+                            let ui_scale = crate::state::settings::current(window_for_handler.app_handle()).ui_scale.unwrap_or(1.0);
+                            let available = window_for_handler.current_monitor().ok().flatten().map(|monitor| {
+                                let outer = window_for_handler.outer_size().unwrap_or(*size);
+                                let area = monitor.work_area().size;
+                                ((area.width.saturating_sub(outer.width.saturating_sub(size.width))) as f64 / scale,
+                                 (area.height.saturating_sub(outer.height.saturating_sub(size.height))) as f64 / scale)
+                            }).unwrap_or((f64::INFINITY, f64::INFINITY));
+                            let floor = startup::scaled_window_floor(ui_scale, available);
+                            if let Some(minimum) = startup::minimum_window_size(logical.width, logical.height, floor) {
                                 let _ = window_for_handler.set_size(minimum);
                                 return;
                             }

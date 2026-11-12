@@ -1235,6 +1235,12 @@ pub(crate) fn migrate_settings(settings: &mut AppSettings) -> bool {
 /// The settings store calls it once per run (`state::settings`).
 pub(crate) fn load_settings_file(path: &Path) -> Result<AppSettings, String> {
     let mut settings = read_settings_file(path)?;
+    if privacy_acknowledgement_path(path).is_file() {
+        settings.privacy_notice_seen = Some(true);
+    } else if settings.privacy_notice_seen == Some(true) {
+        rawtonic_fs::atomic_write(&privacy_acknowledgement_path(path), b"1\n")
+            .map_err(|e| e.to_string())?;
+    }
     if migrate_settings(&mut settings)
         && let Ok(json_string) = serde_json::to_string_pretty(&settings)
     {
@@ -1273,9 +1279,19 @@ fn take_frontend_snapshot(saved: &mut AppSettings, mut snapshot: AppSettings) {
     *saved = snapshot;
 }
 
+fn privacy_acknowledgement_path(settings: &Path) -> PathBuf {
+    settings.with_file_name("privacy-notice-acknowledged")
+}
+
 pub(crate) fn persist_settings_file(path: &Path, settings: &AppSettings) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?;
     may_replace_settings(path)?;
+    // Keep this acknowledgement outside snapshots: QA, migrations and older
+    // versions can rewrite settings without knowing this backend-owned flag.
+    if settings.privacy_notice_seen == Some(true) {
+        rawtonic_fs::atomic_write(&privacy_acknowledgement_path(path), b"1\n")
+            .map_err(|e| e.to_string())?;
+    }
     rawtonic_fs::atomic_write(path, json).map_err(|e| e.to_string())
 }
 
@@ -1853,5 +1869,49 @@ pub mod command {
         })
         .await
         .map_err(|e| e.to_string())?
+    }
+}
+
+#[cfg(test)]
+mod privacy_persistence_tests {
+    #[test]
+    fn acknowledgement_survives_settings_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let settings = super::AppSettings {
+            privacy_notice_seen: Some(true),
+            ..Default::default()
+        };
+        super::persist_settings_file(&path, &settings).unwrap();
+        super::persist_settings_file(&path, &super::AppSettings::default()).unwrap();
+        assert_eq!(
+            super::load_settings_file(&path)
+                .unwrap()
+                .privacy_notice_seen,
+            Some(true)
+        );
+    }
+}
+
+#[cfg(test)]
+mod privacy_migration_tests {
+    #[test]
+    fn existing_acknowledgement_moves_out_of_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, br#"{"privacyNoticeSeen":true}"#).unwrap();
+        assert_eq!(
+            super::load_settings_file(&path)
+                .unwrap()
+                .privacy_notice_seen,
+            Some(true)
+        );
+        std::fs::write(&path, b"{}").unwrap();
+        assert_eq!(
+            super::load_settings_file(&path)
+                .unwrap()
+                .privacy_notice_seen,
+            Some(true)
+        );
     }
 }
