@@ -480,6 +480,7 @@
       "undo": "실행 취소"
     },
     "editWith": {
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "failed": "다음으로 편집 실패: {{error}}",
       "generatedAreas": "생성된 영역이 있는 사진은 아직 다음으로 편집할 수 없습니다: {{names}}",
       "interrupted": "Rawtonic이 종료되어 {{app}}에서 편집이 중단되었습니다. 다시 시도하면 사진을 다시 렌더링합니다.",
@@ -488,7 +489,6 @@
       "openIn": "열 응용 프로그램",
       "recipe": "레시피",
       "rendering": "{{app}}용으로 렌더링 중…",
-      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "사진 {{total}}장 중 {{failed}}장을 렌더링할 수 없습니다.",
       "tiffAdobe": "TIFF 16비트 · Adobe RGB",
       "tiffProPhoto": "TIFF 16비트 · ProPhoto RGB"

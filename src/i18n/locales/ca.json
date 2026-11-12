@@ -514,6 +514,7 @@
       "undo": "Desfer"
     },
     "editWith": {
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "failed": "Edita amb ha fallat: {{error}}",
       "generatedAreas": "Edita amb encara no està disponible per a fotos amb zones generades: {{names}}",
       "interrupted": "«Edita amb» a {{app}} es va interrompre en sortir de Rawtonic. Torna-ho a provar per tornar a renderitzar les fotos.",
@@ -522,7 +523,6 @@
       "openIn": "Obre a",
       "recipe": "Recepta",
       "rendering": "S’està renderitzant per a {{app}}…",
-      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "No s’han pogut renderitzar {{failed}} de {{total}} fotos.",
       "tiffAdobe": "TIFF 16 bits · Adobe RGB",
       "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"

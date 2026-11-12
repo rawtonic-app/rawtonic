@@ -514,6 +514,7 @@
       "undo": "Deshacer"
     },
     "editWith": {
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "failed": "Error en Editar con: {{error}}",
       "generatedAreas": "Editar con aún no está disponible para fotos con zonas generadas: {{names}}",
       "interrupted": "«Editar con» en {{app}} se interrumpió al cerrar Rawtonic. Vuelve a intentarlo para renderizar las fotos de nuevo.",
@@ -522,7 +523,6 @@
       "openIn": "Abrir en",
       "recipe": "Receta",
       "rendering": "Renderizando para {{app}}…",
-      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "No se pudieron renderizar {{failed}} de {{total}} fotos.",
       "tiffAdobe": "TIFF 16 bits · Adobe RGB",
       "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"

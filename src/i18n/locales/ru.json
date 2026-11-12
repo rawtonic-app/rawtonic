@@ -537,6 +537,7 @@
       "undo": "Отменить"
     },
     "editWith": {
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "failed": "Ошибка «Редактировать в»: {{error}}",
       "generatedAreas": "«Редактировать в» пока недоступно для фото со сгенерированными областями: {{names}}",
       "interrupted": "«Редактировать в» {{app}} прервано при выходе из Rawtonic. Повторите попытку, чтобы снова отрисовать фотографии.",
@@ -545,7 +546,6 @@
       "openIn": "Открыть в",
       "recipe": "Рецепт",
       "rendering": "Рендеринг для {{app}}…",
-      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "Не удалось отрендерить фото: {{failed}} из {{total}}.",
       "tiffAdobe": "TIFF 16 бит · Adobe RGB",
       "tiffProPhoto": "TIFF 16 бит · ProPhoto RGB"

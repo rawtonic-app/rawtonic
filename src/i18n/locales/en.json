@@ -491,6 +491,7 @@
       "undo": "Undo"
     },
     "editWith": {
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "failed": "Edit With failed: {{error}}",
       "generatedAreas": "Edit With is not available for photos with generated areas yet: {{names}}",
       "interrupted": "Edit With in {{app}} was interrupted when Rawtonic quit. Try again to render the photos again.",
@@ -499,7 +500,6 @@
       "openIn": "Open in",
       "recipe": "Recipe",
       "rendering": "Rendering for {{app}}…",
-      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "{{failed}} of {{total}} photographs could not be rendered.",
       "tiffAdobe": "TIFF 16-bit · Adobe RGB",
       "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"

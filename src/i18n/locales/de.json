@@ -491,6 +491,7 @@
       "undo": "Rückgängig"
     },
     "editWith": {
+      "cancelled": "{{cancelled}} abgebrochen, {{rendered}} gerendert.",
       "failed": "Bearbeiten mit fehlgeschlagen: {{error}}",
       "generatedAreas": "„Bearbeiten mit“ ist für Fotos mit generierten Bereichen noch nicht verfügbar: {{names}}",
       "interrupted": "„Bearbeiten mit“ in {{app}} wurde beim Beenden von Rawtonic unterbrochen. „Erneut versuchen“ rendert die Fotos noch einmal.",
@@ -499,7 +500,6 @@
       "openIn": "Öffnen in",
       "recipe": "Rezept",
       "rendering": "Wird für {{app}} gerendert…",
-      "cancelled": "{{cancelled}} abgebrochen, {{rendered}} gerendert.",
       "someFailed": "{{failed}} von {{total}} Fotos konnten nicht gerendert werden.",
       "tiffAdobe": "TIFF 16 Bit · Adobe RGB",
       "tiffProPhoto": "TIFF 16 Bit · ProPhoto RGB"

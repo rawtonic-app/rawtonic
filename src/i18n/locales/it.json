@@ -514,6 +514,7 @@
       "undo": "Annulla"
     },
     "editWith": {
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "failed": "Modifica con non riuscito: {{error}}",
       "generatedAreas": "Modifica con non è ancora disponibile per le foto con aree generate: {{names}}",
       "interrupted": "«Modifica con» in {{app}} è stato interrotto alla chiusura di Rawtonic. Riprova per elaborare di nuovo le foto.",
@@ -522,7 +523,6 @@
       "openIn": "Apri in",
       "recipe": "Ricetta",
       "rendering": "Rendering per {{app}}…",
-      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "Impossibile eseguire il rendering di {{failed}} foto su {{total}}.",
       "tiffAdobe": "TIFF 16 bit · Adobe RGB",
       "tiffProPhoto": "TIFF 16 bit · ProPhoto RGB"
