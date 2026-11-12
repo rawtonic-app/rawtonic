@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::gpu_processing::{AnalyticsConfig, AnalyticsJob, GpuProcessorState};
 pub use crate::state::ai::{AiTaskGuard, AiTaskToken};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct WindowState {
     pub width: u32,
     pub height: u32,

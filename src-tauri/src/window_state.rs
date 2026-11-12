@@ -15,6 +15,21 @@ pub fn note(path: PathBuf, state: WindowState) {
     *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some((path, state));
 }
 
+/// Maximized events carry screen bounds, never a new restore placement.
+pub fn retain_normal_placement(state: &mut WindowState, normal: &mut Option<WindowState>) {
+    if state.maximized {
+        if let Some(saved) = normal {
+            state.width = saved.width;
+            state.height = saved.height;
+            state.x = saved.x;
+            state.y = saved.y;
+            state.scale_factor = saved.scale_factor;
+        }
+    } else {
+        *normal = Some(state.clone());
+    }
+}
+
 /// Writes the newest noted state, if any. The lock is held while writing,
 /// so a flush when quitting waits for a write in progress and the newest
 /// state is the one left on disk.
@@ -53,6 +68,16 @@ mod tests {
             scale_factor: Some(2.0),
             fullscreen: false,
         };
+        let mut normal = Some(state(50));
+        let mut maximized = state(0);
+        maximized.maximized = true;
+        maximized.width = 1280;
+        retain_normal_placement(&mut maximized, &mut normal);
+        assert_eq!(
+            (maximized.x, maximized.width, maximized.height),
+            (50, 1400, 900)
+        );
+        assert!(maximized.maximized);
         note(path.clone(), state(10));
         note(path.clone(), state(20));
         flush();
