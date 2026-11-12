@@ -180,6 +180,13 @@ describe('Session workspace keyboard flows', () => {
     await user.type(screen.getByLabelText('Project name'), 'Acme');
     await user.click(screen.getByRole('button', { name: 'Location' }));
     await user.click(screen.getByRole('button', { name: 'Create project' }));
+    act(() =>
+      useLibraryStore.setState({
+        imageList: [0, 1, 2].map((i) => ({ path: `/missing${i}.arw`, is_offline: true })) as ReturnType<
+          typeof useLibraryStore.getState
+        >['imageList']
+      })
+    );
     expect(await screen.findByRole('img', { name: '3 offline' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '2 XMP not updated' })).toBeTruthy();
   });
@@ -814,10 +821,13 @@ it('counts the same photographs as the loaded grid', async () => {
   await waitFor(() => expect(view.container.querySelector('.session-count-total')).toBeTruthy());
   act(() =>
     useLibraryStore.setState({
-      imageList: Array.from({ length: 8 }, (_, i) => ({ path: `/photo${i}.arw` })) as ReturnType<
+      imageList: Array.from({ length: 8 }, (_, i) => ({ path: `/photo${i}.arw`, is_offline: i === 0 })) as ReturnType<
         typeof useLibraryStore.getState
       >['imageList']
     })
   );
+  act(() => useLibraryStore.setState({ imageFlags: { '/photo0.arw': 1, '/other.arw': 1 } }));
   expect(view.container.querySelector('.session-count-total')?.textContent).toContain('8 photos');
+  expect(view.container.querySelector('.session-count-total')?.textContent).toContain('1 picked');
+  expect(screen.getByRole('img', { name: '1 offline' })).toBeTruthy();
 });

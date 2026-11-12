@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Windows/Linux shortcut tooltips include component-provided hints, Preferences accepts comma events without a physical key code, and an externally opened photo dismisses welcome. The photo count follows the loaded grid; Windows/Linux footer space favors readable dimensions and the close button has darker pressed feedback. Windows also clamps programmatic resizes below the logical window minimum.
+- Windows/Linux shortcut tooltips include component-provided hints, Preferences accepts comma events without a physical key code, and an externally opened photo dismisses welcome. The photo count follows the loaded grid; Windows/Linux footer space favors readable dimensions and the close button has darker pressed feedback. Windows also clamps programmatic resizes below the existing Windows/Linux 1000×600 logical window floor (a 960-pixel half-screen tile at 100% DPI is smaller than this minimum).
 
 - Preferences opens above the welcome screen, with a visible welcome entry; Windows snap-layout controls stay inactive behind modal dialogs.
 

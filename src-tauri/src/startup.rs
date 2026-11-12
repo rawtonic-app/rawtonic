@@ -10,6 +10,11 @@ use std::panic;
 use std::sync::{OnceLock, mpsc};
 use tauri::Manager;
 
+/// Windows/Linux floor requested for a usable two-panel Develop workspace.
+/// This deliberately cannot fit a 960px half-screen tile at 100% DPI.
+#[cfg(any(not(target_os = "macos"), test))]
+pub(crate) const MIN_WINDOW_SIZE: (f64, f64) = (1000.0, 600.0);
+
 enum LogMessage {
     Line(String),
     Flush(mpsc::SyncSender<()>),
@@ -1026,8 +1031,9 @@ mod work_area_tests {
 /// Also enforce the floor after Win32 resizes that bypass interactive tracking.
 #[cfg(any(windows, test))]
 pub(crate) fn minimum_window_size(width: f64, height: f64) -> Option<tauri::LogicalSize<f64>> {
-    (width < 1000.0 || height < 600.0)
-        .then(|| tauri::LogicalSize::new(width.max(1000.0), height.max(600.0)))
+    (width < MIN_WINDOW_SIZE.0 || height < MIN_WINDOW_SIZE.1).then(|| {
+        tauri::LogicalSize::new(width.max(MIN_WINDOW_SIZE.0), height.max(MIN_WINDOW_SIZE.1))
+    })
 }
 
 #[cfg(test)]

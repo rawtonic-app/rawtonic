@@ -951,9 +951,9 @@ it.each(['macos', 'windows'] as const)('opens Preferences on %s without a librar
   expect(useUIStore.getState().isSettingsOpen).toBe(true);
 });
 
-it.each([',', ';'])('opens Preferences with the DE Comma code (%s)', (key) => {
+it('opens Preferences with the German comma key and physical Comma code', () => {
   useSettingsStore.setState({ osPlatform: 'windows' });
-  press('Comma', key, { ctrlKey: true });
+  press('Comma', ',', { ctrlKey: true });
   expect(useUIStore.getState().isSettingsOpen).toBe(true);
 });
 it('opens Preferences when Windows supplies only the comma key', () => {

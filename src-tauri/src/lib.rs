@@ -642,7 +642,7 @@ fn start(args: Vec<String>) {
                 window_builder = window_builder
                     .decorations(decorations)
                     // Preserve a usable viewer between the two tool panels.
-                    .min_inner_size(1000.0, 600.0)
+                    .min_inner_size(startup::MIN_WINDOW_SIZE.0, startup::MIN_WINDOW_SIZE.1)
                     .visible(false);
             }
 
@@ -708,16 +708,14 @@ fn start(args: Vec<String>) {
                 }
 
                 #[cfg(not(target_os = "macos"))]
-                window.set_min_size(Some(tauri::LogicalSize::new(1000.0, 600.0)))?;
+                if let Err(error) = window.set_min_size(Some(tauri::LogicalSize::new(
+                    startup::MIN_WINDOW_SIZE.0, startup::MIN_WINDOW_SIZE.1,
+                ))) {
+                    log::warn!("Could not set the window minimum: {error}");
+                }
 
                 #[cfg(windows)]
-                startup::keep_window_on_screen(
-                    &window,
-                    (
-                        1000.0,
-                        600.0,
-                    ),
-                );
+                startup::keep_window_on_screen(&window, startup::MIN_WINDOW_SIZE);
 
                 let window_failsafe = window.clone();
                 tauri::async_runtime::spawn(async move {

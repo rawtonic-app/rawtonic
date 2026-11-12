@@ -121,7 +121,7 @@ import {
 } from '../../utils/sessionFolders';
 import type { FolderChange } from './SessionFoldersDialog';
 import { listenForAddFolder, type AddFolderDetail } from './addFolder';
-import { byPathKey } from '../../utils/pathKey';
+import { pathKey, byPathKey } from '../../utils/pathKey';
 
 /** The folder trees of a session's folders outside it (G38). */
 function sessionFolderTrees(paths: string[]): Promise<FolderTree[]> {
@@ -527,6 +527,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const summaryRequest = useRef(0);
   const selectedPhoto = useEditorStore((s) => s.selectedImage);
   const imageList = useLibraryStore((s) => s.imageList);
+  const imageFlags = useLibraryStore((s) => s.imageFlags);
+  const gridPicked = imageList.filter((image) => imageFlags[pathKey(image.path)] === 1).length;
+  const gridMissing = imageList.filter((image) => image.is_offline).length;
   const roots = useLibraryStore((s) => s.rootPaths);
 
   const navigate = useCallback(
@@ -1856,19 +1859,19 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   count: imageList.length,
                   formatted: imageList.length.toLocaleString()
                 })}
-                {session.picked > 0 && ` · ${t('session.bar.picked', { count: session.picked })}`}
+                {gridPicked > 0 && ` · ${t('session.bar.picked', { count: gridPicked })}`}
               </span>
-              {(session.missing ?? 0) > 0 && (
+              {gridMissing > 0 && (
                 <span
                   className="session-count-offline"
                   role="img"
-                  aria-label={t('offline.sessionCount', { count: session.missing })}
+                  aria-label={t('offline.sessionCount', { count: gridMissing })}
                   title={t('offline.sessionCountTitle')}
                 >
                   <span
                     className="session-count-status-text"
                     aria-hidden
-                  >{` · ${t('offline.sessionCount', { count: session.missing })}`}</span>
+                  >{` · ${t('offline.sessionCount', { count: gridMissing })}`}</span>
                 </span>
               )}
               <SessionXmpStatus
