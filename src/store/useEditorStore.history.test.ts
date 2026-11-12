@@ -139,3 +139,24 @@ it('settles a drag in progress on undo and drops it on a photo switch', () => {
   vi.advanceTimersByTime(1000);
   expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 40]);
 });
+
+it('makes each key press its own undo step, also quick taps, and a held key one step', () => {
+  // AdjustmentControl marks every key press as an interaction from key-down to key-up.
+  const press = (...values: number[]) => {
+    state().setEditor({ isSliderDragging: true });
+    for (const value of values) {
+      edit(value);
+      vi.advanceTimersByTime(33); // auto-repeat while held
+    }
+    state().setEditor({ isSliderDragging: false });
+  };
+  press(1);
+  vi.advanceTimersByTime(200);
+  press(2);
+  vi.advanceTimersByTime(200);
+  press(3, 4, 5, 6, 7, 8);
+  vi.advanceTimersByTime(600);
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 1, 2, 8]);
+  state().undo();
+  expect(state().adjustments.relightSkinReflections).toBe(2);
+});

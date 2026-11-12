@@ -27,6 +27,8 @@
 
 - **Super Resolution is faster on the CPU fallback.** On the laptop, inference for the same 24 MP tile set took 461 → 146 seconds (ONNX Runtime CPU, 117 tiles); complete export takes longer. CPU-only preparation downloads an additional 2.4 MB model conversion. GPU and Core ML keep their existing models; older installed packs remain usable.
 
+- **Each arrow-key press and each slider drag is its own Undo step.** Two quick taps of an arrow key on a slider or value field, or two short drags, used to merge into one step when they came less than half a second apart; now each is undone on its own, while a held key (auto-repeat) stays one step, as a drag does.
+
 ## 0.1.0-alpha.13 — 2026-11-11
 
 The thirteenth alpha. Exports can be enlarged 2× by an AI model (Super Resolution), a second window shows the photo live on a second display, and the import dialog shows real pixels at 100 % for a focus check, with ratings, before anything is copied; inserting a memory card opens it. For new edits, Whites, Shadows, Highlights, Blacks, Contrast, Structure, Clarity, Vibrance, Temperature and Tint, the colour mixer and lowered Dehaze were measured against Camera Raw and Capture One on a 48-photo slider atlas and refitted, AI Denoise keeps the shadows' level and colour, and Sharpening of RAW photos leaves the noise of even areas alone. Sliders step with the keys as in Lightroom, and Alt/Option-click on a group's name resets the group. Saved edits export as in alpha.12 (see *Changes to existing edits*).

@@ -163,6 +163,7 @@ export default memo(function AdjustmentControl({
   useEffect(
     () => () => {
       if (viewShown.current) optionViewCallback.current?.(false);
+      keyHold.current?.();
       if (frame.current !== null) cancelAnimationFrame(frame.current);
       if (active.current) {
         if (lastSent.current !== pending.current) callback.current(pending.current);
@@ -212,6 +213,25 @@ export default memo(function AdjustmentControl({
     update(defaultValue);
     end();
   };
+  // A key press is an interaction, as a drag is: it is one history step
+  // however long the key is held (auto-repeat), and the next press is the
+  // next step, however soon it follows. It ends when that key comes up, or
+  // with the window's focus.
+  const keyHold = useRef<(() => void) | null>(null);
+  const holdKey = (key: string) => {
+    if (keyHold.current) return;
+    const release = (event?: Event) => {
+      if (event instanceof globalThis.KeyboardEvent && event.key !== key) return;
+      window.removeEventListener('keyup', release, true);
+      window.removeEventListener('blur', release);
+      keyHold.current = null;
+      interactionCallback.current?.(false);
+    };
+    keyHold.current = release;
+    window.addEventListener('keyup', release, true);
+    window.addEventListener('blur', release);
+    interactionCallback.current?.(true);
+  };
   // One key press on the slider: its steps, from the value shown.
   const stepBy = (direction: 1 | -1, set: StepSet, shift: boolean, alt: boolean, from = local) => {
     const delta = stepOf(set, shift, alt);
@@ -222,6 +242,7 @@ export default memo(function AdjustmentControl({
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
+    holdKey(event.key);
     if (event.key === 'Home' || event.key === 'End') {
       update(event.key === 'Home' ? min : max);
       flush();
@@ -239,6 +260,7 @@ export default memo(function AdjustmentControl({
     if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
     event.preventDefault();
     event.stopPropagation();
+    holdKey(event.key);
     stepBy(event.key === 'ArrowUp' ? 1 : -1, keySteps.slider, event.shiftKey, event.altKey, pending.current);
   };
   useEffect(() => {
@@ -397,6 +419,7 @@ export default memo(function AdjustmentControl({
           e.stopPropagation();
           if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             e.preventDefault();
+            holdKey(e.key);
             const typed = Number(text.replace(',', '.'));
             stepBy(
               e.key === 'ArrowUp' ? 1 : -1,
