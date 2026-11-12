@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add Folder names the owning library and explains how to work on refused photos, without claiming they are already in the current catalog.
+
 - **Windows: the AI tools no longer crash the app on PCs with an old Visual C++ runtime.** Choosing Brush or another AI masking tool could close Rawtonic within seconds (access violation in `MSVCP140.dll`) where Windows only had an older Microsoft C++ runtime: ONNX Runtime needs a current one. The installers and the portable zip now bring the current runtime beside ONNX Runtime, without administrator rights or a separate install, and if an older one is still in use the AI tools say the AI runtime is unavailable instead of crashing.
 
 - Copy Settings in the Library uses the active photo after another photo is deselected.

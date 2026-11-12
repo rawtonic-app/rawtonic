@@ -50,7 +50,9 @@ it("in a catalog, adds the folder's photographs where they are, subfolders by de
   await screen.findByText('2 photos to add');
   expect(screen.getByText('4 files already in the catalog are skipped.')).toBeTruthy();
   expect(
-    screen.getByText('3 files belong to “Wedding Smith” and are not added: open that library to work on them.')
+    screen.getByText(
+      '3 files belong to “Wedding Smith” and cannot be added here. Open that library to work on these photos, or copy them into this library.'
+    )
   ).toBeTruthy();
   expect(screen.getByText(/nothing is copied, moved or written beside them/)).toBeTruthy();
 
@@ -200,3 +202,19 @@ it("shows no banner for the library's own folder or a project", () => {
   render(<UnaddedFolderBanner />);
   expect(invoke).not.toHaveBeenCalled();
 });
+
+it.each([0, 3])(
+  'ownership refusal with %i registered files never claims everything is cataloged',
+  async (registered) => {
+    vi.mocked(invoke).mockResolvedValue(
+      plan({ files: [], photographs: 0, registered, owned: [{ library: '/Other', name: 'Other Library', count: 6 }] })
+    );
+    dialog(true);
+    await screen.findByText(
+      '6 files belong to “Other Library” and cannot be added here. Open that library to work on these photos, or copy them into this library.'
+    );
+    expect(screen.queryByText('No new photos: everything here is in the catalog already.')).toBeNull();
+    expect(screen.queryByText('No new photos.')).toBeNull();
+    expect(screen.queryByText('3 files already in the catalog are skipped.') !== null).toBe(registered > 0);
+  }
+);
