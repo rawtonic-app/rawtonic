@@ -5552,8 +5552,10 @@
         "rejectThis": "Odrzuć to zdjęcie"
       },
       "footer": {
+        "addToLibrary": "Dodaj do biblioteki…",
         "copy": "Kopiuj",
         "copyAdjustments": "Kopiuj ustawienia",
+        "externalPhoto": "1 zdjęcie · poza biblioteką",
         "filmstrip": "Taśma zdjęć",
         "hideFilmstrip": "Ukryj taśmę zdjęć",
         "next": "Następne zdjęcie",

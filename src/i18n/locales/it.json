@@ -5355,8 +5355,10 @@
         "rejectThis": "Scarta questa foto"
       },
       "footer": {
+        "addToLibrary": "Aggiungi alla libreria…",
         "copy": "Copia",
         "copyAdjustments": "Copia regolazioni",
+        "externalPhoto": "1 foto · fuori dalla libreria",
         "filmstrip": "Striscia immagini",
         "hideFilmstrip": "Nascondi la striscia immagini",
         "next": "Foto successiva",

@@ -5022,8 +5022,10 @@
         "rejectThis": "排除此照片"
       },
       "footer": {
+        "addToLibrary": "添加到图库…",
         "copy": "复制",
         "copyAdjustments": "复制调整",
+        "externalPhoto": "1 张照片 · 不在图库中",
         "filmstrip": "胶片条",
         "hideFilmstrip": "隐藏胶片条",
         "next": "下一张照片",

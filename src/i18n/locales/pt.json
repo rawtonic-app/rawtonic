@@ -5355,8 +5355,10 @@
         "rejectThis": "Rejeitar esta foto"
       },
       "footer": {
+        "addToLibrary": "Adicionar à biblioteca…",
         "copy": "Copiar",
         "copyAdjustments": "Copiar ajustes",
+        "externalPhoto": "1 foto · fora da biblioteca",
         "filmstrip": "Tira de filme",
         "hideFilmstrip": "Ocultar a tira de filme",
         "next": "Próxima foto",

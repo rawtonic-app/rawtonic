@@ -1493,6 +1493,15 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setForm('ingest');
     void addSources(paths, true);
   };
+  const importExternal = useRef<(paths: string[]) => void>(() => {});
+  importExternal.current = (paths) => {
+    if (session && !importing) openIngest(paths);
+  };
+  useEffect(() => {
+    const open = (event: Event) => importExternal.current((event as CustomEvent<{ paths: string[] }>).detail.paths);
+    window.addEventListener('rawtonic:import-external-photo', open);
+    return () => window.removeEventListener('rawtonic:import-external-photo', open);
+  }, []);
   const extensions = () => {
     const types = useSettingsStore.getState().supportedTypes;
     return types ? [...types.raw, ...types.nonRaw] : FALLBACK_EXTENSIONS;

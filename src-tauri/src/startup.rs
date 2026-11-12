@@ -953,6 +953,19 @@ mod work_area_tests {
     }
 
     #[test]
+    fn resized_minimum_at_125_percent_moves_back_inside_work_area() {
+        assert_eq!(
+            fit_into_work_area(
+                rect(100, 100, 2526, 1504),
+                (0.0, 0.0),
+                FRAME,
+                &[(rect(0, 0, 2560, 1552), 1.25)]
+            ),
+            WorkAreaFit::Place(rect(34, 48, 2526, 1504))
+        );
+    }
+
+    #[test]
     fn a_window_inside_the_work_area_stays_as_it_is() {
         assert_eq!(fit(rect(100, 50, 1200, 800), &[LAPTOP]), WorkAreaFit::Keep);
         assert_eq!(fit(LAPTOP.0, &[LAPTOP]), WorkAreaFit::Keep);

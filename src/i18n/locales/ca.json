@@ -5355,8 +5355,10 @@
         "rejectThis": "Rebutja aquesta foto"
       },
       "footer": {
+        "addToLibrary": "Afegeix a la biblioteca…",
         "copy": "Copia",
         "copyAdjustments": "Copia els ajustaments",
+        "externalPhoto": "1 foto · fora de la biblioteca",
         "filmstrip": "Tira d'imatges",
         "hideFilmstrip": "Amaga la tira d'imatges",
         "next": "Foto següent",

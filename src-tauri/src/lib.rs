@@ -780,6 +780,7 @@ fn start(args: Vec<String>) {
                             let floor = startup::scaled_window_floor(ui_scale, available);
                             if let Some(minimum) = startup::minimum_window_size(logical.width, logical.height, floor) {
                                 let _ = window_for_handler.set_size(minimum);
+                                startup::keep_window_on_screen(&window_for_handler, (0.0, 0.0));
                                 return;
                             }
                         }
