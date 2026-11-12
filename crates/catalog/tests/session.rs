@@ -194,6 +194,6 @@ fn duplicate_candidates_filter_same_size_files_by_content_before_full_hashing() 
     std::fs::write(&loose, b"same-size-A").unwrap();
     assert_eq!(
         lib.content_candidates(&loose).unwrap(),
-        vec![matching.canonicalize().unwrap()]
+        vec![lib.directory.join("Capture/match.arw")]
     );
 }
