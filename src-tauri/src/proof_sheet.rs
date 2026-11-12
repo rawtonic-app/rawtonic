@@ -228,6 +228,7 @@ pub async fn queue_proof_sheet(
         library: request.library,
         pinned: None,
         edit_with: None,
+        edit_target: None,
         proof_sheet: Some(job),
     };
     let queued = crate::export_queue::enqueue(&app_handle, export).await;

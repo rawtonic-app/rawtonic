@@ -354,6 +354,8 @@ export enum Invokes {
   SetAppMenu = 'set_app_menu',
   SetAppMenuState = 'set_app_menu_state',
   AppMenuTextAction = 'app_menu_text_action',
+  OpenWithDescribe = 'open_with_describe',
+  OpenWithPick = 'open_with_pick',
   OpenWithApps = 'open_with_apps',
   OpenWithOpen = 'open_with_open',
   OpenWithPrefs = 'open_with_prefs',

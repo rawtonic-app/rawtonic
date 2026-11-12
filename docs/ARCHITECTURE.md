@@ -622,7 +622,7 @@ in `editor_preview.rs`, start-up services in `startup.rs`, merges in `merges.rs`
 With in `open_with.rs` (programs from LaunchServices on macOS and from the shell's association handlers on Windows,
 `open_with/windows_shell.rs` with its plain-data part in `open_with/handlers.rs`; disabled on Linux; Edit With queues one export per photo
 through the export queue, snapshotted at the click like any queued export, to `NAME_edit.<ext>` beside the original,
-registers each render stacked with its original via `catalog::derived` (`assets.stack` = the original's id) and watches
+registers each render via `catalog::derived` and groups it with the original in `catalog::stacks` (the grid stack), then watches
 it, so a save in the other program refreshes its thumbnail).
 
 There are no crate-root re-exports: import from the owning module (`crate::app_state::AppState`,

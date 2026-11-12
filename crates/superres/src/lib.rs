@@ -82,7 +82,14 @@ pub struct Model {
 }
 
 enum Backend {
-    Onnx(rawtonic_onnx::Model),
+    /// `model` is the original graph, on the provider ONNX Runtime picked
+    /// (it can move from the CPU to a GPU later, when the idle GPU check
+    /// finds the GPU faster). `cpu` is the sequential conversion, used
+    /// while `model` runs on the CPU.
+    Onnx {
+        model: rawtonic_onnx::Model,
+        cpu: Option<rawtonic_onnx::Model>,
+    },
     #[cfg(target_os = "macos")]
     CoreMl(rawtonic_denoise::coreml::CoreMlModel),
 }
@@ -96,17 +103,21 @@ impl Model {
         let cpu_only = forced == Some(rawtonic_onnx::Provider::Cpu)
             || (forced.is_none() && !rawtonic_onnx::settings().gpu);
         if cpu_only && let Some(cpu) = Self::optional_cpu(&cpu_path) {
-            return Ok(cpu);
+            return Ok(Self {
+                backend: Backend::Onnx {
+                    model: cpu,
+                    cpu: None,
+                },
+            });
         }
         let model = rawtonic_onnx::Model::load(path, rawtonic_onnx::ModelKind::SuperResolution)?;
-        if !cpu_only
-            && model.provider() == rawtonic_onnx::Provider::Cpu
-            && let Some(cpu) = Self::optional_cpu(&cpu_path)
-        {
-            return Ok(cpu);
-        }
+        let cpu = if model.provider() == rawtonic_onnx::Provider::Cpu {
+            Self::optional_cpu(&cpu_path)
+        } else {
+            None
+        };
         Ok(Self {
-            backend: Backend::Onnx(model),
+            backend: Backend::Onnx { model, cpu },
         })
     }
 
@@ -114,19 +125,39 @@ impl Model {
     /// or building a session for the original graph first.
     pub fn cpu(path: &Path) -> Result<Self> {
         Ok(Self {
-            backend: Backend::Onnx(rawtonic_onnx::Model::load_on(
-                path,
-                rawtonic_onnx::ModelKind::SuperResolution,
-                &[rawtonic_onnx::Provider::Cpu],
-                &[],
-            )?),
+            backend: Backend::Onnx {
+                model: Self::load_cpu_graph(path)?,
+                cpu: None,
+            },
         })
     }
 
-    fn optional_cpu(path: &Path) -> Option<Self> {
+    /// Adds the sequential CPU conversion to a model loaded on the CPU, so
+    /// the CPU runs it, while the original graph stays free to move to a
+    /// GPU in this session (the idle GPU check, rawtonic-onnx `check`).
+    pub fn attach_cpu_graph(&mut self, path: &Path) -> Result<()> {
+        if let Backend::Onnx { model, cpu } = &mut self.backend
+            && cpu.is_none()
+            && model.provider() == rawtonic_onnx::Provider::Cpu
+        {
+            *cpu = Some(Self::load_cpu_graph(path)?);
+        }
+        Ok(())
+    }
+
+    fn load_cpu_graph(path: &Path) -> Result<rawtonic_onnx::Model> {
+        rawtonic_onnx::Model::load_on(
+            path,
+            rawtonic_onnx::ModelKind::SuperResolution,
+            &[rawtonic_onnx::Provider::Cpu],
+            &[],
+        )
+    }
+
+    fn optional_cpu(path: &Path) -> Option<rawtonic_onnx::Model> {
         // Older packs and an unusable optional conversion keep the original graph.
         if verified(path, CPU_ONNX_SHA256) {
-            Self::cpu(path).ok()
+            Self::load_cpu_graph(path).ok()
         } else {
             None
         }
@@ -174,14 +205,22 @@ impl Model {
         Self::onnx(&path)
     }
 
-    /// Whether this model uses the ONNX Runtime CPU provider.
+    /// Whether this model uses the ONNX Runtime CPU provider now.
     pub fn uses_cpu(&self) -> bool {
-        matches!(&self.backend, Backend::Onnx(model) if model.provider() == rawtonic_onnx::Provider::Cpu)
+        matches!(&self.backend, Backend::Onnx { model, .. } if model.provider() == rawtonic_onnx::Provider::Cpu)
     }
 
     pub fn backend_name(&self) -> String {
         match &self.backend {
-            Backend::Onnx(model) => format!("ONNX Runtime ({})", model.provider()),
+            Backend::Onnx { model, cpu } => format!(
+                "ONNX Runtime ({})",
+                active_graph(
+                    model,
+                    cpu.as_ref(),
+                    model.provider() == rawtonic_onnx::Provider::Cpu
+                )
+                .provider()
+            ),
             #[cfg(target_os = "macos")]
             Backend::CoreMl(_) => "Core ML".to_string(),
         }
@@ -196,7 +235,12 @@ impl Model {
             input.len()
         );
         let values = match &self.backend {
-            Backend::Onnx(model) => model.run(|session| {
+            Backend::Onnx { model, cpu } => active_graph(
+                model,
+                cpu.as_ref(),
+                model.provider() == rawtonic_onnx::Provider::Cpu,
+            )
+            .run(|session| {
                 let array = Array4::from_shape_vec((1, 3, TILE, TILE), input.to_vec())?;
                 let outputs = session.run(ort::inputs![INPUT => Tensor::from_array(array)?])?;
                 let (_, data) = outputs[OUTPUT].try_extract_tensor::<f32>()?;
@@ -225,6 +269,15 @@ impl Model {
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<DynamicImage, String> {
         enlarge_with(image, &mut |tile| self.enlarge_tile(tile), cancelled)
+    }
+}
+
+/// The graph that runs a tile: the CPU conversion while the original graph
+/// is on the CPU, else the original (on a GPU, also after it moved there).
+fn active_graph<'a, T>(original: &'a T, cpu_graph: Option<&'a T>, original_on_cpu: bool) -> &'a T {
+    match cpu_graph {
+        Some(cpu) if original_on_cpu => cpu,
+        _ => original,
     }
 }
 
@@ -534,5 +587,15 @@ mod tests {
         let err = enlarge_with(source, &mut counting, &cancel_after_two).unwrap_err();
         assert!(err.contains("Export cancelled"), "{err}");
         assert_eq!(runs, 2);
+    }
+
+    #[test]
+    fn cpu_conversion_runs_only_while_the_original_is_on_the_cpu() {
+        let (original, cpu) = ("original", "cpu conversion");
+        assert_eq!(active_graph(&original, Some(&cpu), true), &cpu);
+        // The idle GPU check moved the original to a GPU: it runs again.
+        assert_eq!(active_graph(&original, Some(&cpu), false), &original);
+        // No conversion in the pack: the original runs wherever it is.
+        assert_eq!(active_graph(&original, None, true), &original);
     }
 }

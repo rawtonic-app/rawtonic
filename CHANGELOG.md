@@ -2,9 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
 - Adding an externally opened photo follows its library copy and refreshes library counts. The Navigator clears stale loose photos, and confirmed duplicates offer Show in library. Settings accept a UTF-8 BOM and snap interface sizes to the supported choices. Windows minimum-size correction is deferred and skips maximized windows and superseded resizes.
 
+- Edit With now groups renders with their originals in grid stacks, uses the render time for new files, and retries only unfinished photos after quitting. Windows adds handling for app execution aliases in Other… (native verification pending) and uses program display names in rendering and interruption notices.
+
 - Loose photos opened in Develop appear alone and highlighted in the filmstrip, with an explicit library status and an Add to library action that opens import for review. Returning to Library restores its photos. On Windows, when enforcing the interface minimum makes the window grow past the screen, it is moved back inside the monitor work area.
+
+- Super Resolution on Windows and Linux moves to the GPU in the same session once the idle GPU check finds it faster (the first session on a machine used to stay on the CPU until the next start, about 15 minutes for 24 MP on an RTX 3080 instead of 15–25 seconds). Measurement (8-bit output, RTX 3080, a 2048² crop compared with the CPU: at most 1/255 difference) is in the maintainers' notes, SRL report 2026-11-12.
 
 - **Windows: Open With and Edit With.** Both list the programs Windows offers for the file type (the recommended programs of Explorer's *Open with*, such as Photos and Paint, with their icons; the default first), plus *Other…* for any program file (`.exe`), which is remembered and offered from then on. Edit With renders the photos beside their originals as on the Mac, adds them to the library stacked with their originals, opens them in the program and picks up its saves. Paths with spaces and non-Latin letters work; a path of 260 characters or more is handed over in its short form where the volume has one.
 

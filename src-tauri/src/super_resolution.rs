@@ -81,11 +81,18 @@ async fn model(
         {
             Ok(_) => {
                 let cpu_path = models_dir.join(rawtonic_superres::CPU_ONNX_FILE);
-                match tokio::task::spawn_blocking(move || Model::cpu(&cpu_path)).await? {
-                    Ok(cpu) => model = cpu,
-                    Err(error) => log::warn!(
+                // Added beside the original graph, which stays free to move
+                // to a GPU in this session (the idle GPU check).
+                let (with_cpu, attached) = tokio::task::spawn_blocking(move || {
+                    let attached = model.attach_cpu_graph(&cpu_path);
+                    (model, attached)
+                })
+                .await?;
+                model = with_cpu;
+                if let Err(error) = attached {
+                    log::warn!(
                         "Optional Super Resolution CPU graph could not load; using the original graph: {error:#}"
-                    ),
+                    );
                 }
             }
             Err(error) => log::warn!(

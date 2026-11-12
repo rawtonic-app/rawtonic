@@ -97,6 +97,9 @@ pub struct ExportRequest {
     /// again (`take_interrupted_edits`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit_with: Option<EditWithRun>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Pinned library/metadata/output for crash recovery; removed after handoff.
+    pub edit_target: Option<crate::open_with::EditTarget>,
     /// Set on a proof sheet's job (`proof_sheet.rs`): its photos render into
     /// the app's cache, and once all are rendered the sheet is written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -108,8 +111,21 @@ pub struct ExportRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditWithRun {
+    /// Identity of one click, independent of repeated edits of the same photos.
+    #[serde(default)]
+    pub id: String,
     pub program: String,
     pub photos: Vec<String>,
+}
+
+/// An interrupted click, including finished renders to hand off without
+/// rendering those photographs a second time.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterruptedEditWith {
+    #[serde(flatten)]
+    pub run: EditWithRun,
+    pub completed: Vec<crate::open_with::EditTarget>,
 }
 
 /// The folder a stored proof sheet job renders its photos into.
@@ -276,6 +292,22 @@ pub(crate) fn queue_inspected<T: Clone>(
             seen.push(photos);
         }
         check(&seen)?;
+        for (request, id) in requests.iter_mut().zip(&ids) {
+            if request.edit_with.is_some() {
+                let photo: Option<PinnedPhoto> = on_queue(queue, |q| q.item_snapshot(id, 0))?
+                    .map(|snapshot| serde_json::from_str(&snapshot))
+                    .transpose()
+                    .map_err(|e| format!("Unreadable edit snapshot: {e}"))?;
+                if let Some(photo) = photo {
+                    request.edit_target = Some(crate::open_with::EditTarget {
+                        source: request.paths[0].clone(),
+                        target: request.output_folder_or_file.clone(),
+                        library: photo.owner,
+                        metadata: photo.metadata,
+                    });
+                }
+            }
+        }
         let values = requests
             .iter()
             .map(serde_json::to_value)
@@ -590,9 +622,11 @@ pub fn open(app: &AppHandle) {
 /// (interrupted, waiting or paused) end as cancelled, never resumed; the
 /// files they already rendered stay. Returns their Edit With runs, each
 /// once.
-fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<EditWithRun>> {
-    let mut runs = Vec::new();
-    for job in queue.jobs()? {
+fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedEditWith>> {
+    let jobs = queue.jobs()?;
+    let mut runs: Vec<InterruptedEditWith> = Vec::new();
+    let mut groups: Vec<EditWithRun> = Vec::new();
+    for job in &jobs {
         if !matches!(
             job.state,
             JobState::Interrupted | JobState::Queued | JobState::Paused
@@ -602,18 +636,87 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<EditWithRun>
         let Some(run) = edit_with_of(&job.request) else {
             continue;
         };
+        let paths: Vec<String> = queue
+            .items(&job.id)?
+            .into_iter()
+            .filter(|item| item.state != ItemState::Done)
+            .map(|item| item.path)
+            .collect();
         queue.cancel(&job.id)?;
-        if !runs.contains(&run) {
-            runs.push(run);
+        let index = groups
+            .iter()
+            .position(|group| group == &run)
+            .unwrap_or_else(|| {
+                groups.push(run.clone());
+                runs.push(InterruptedEditWith {
+                    run: EditWithRun {
+                        id: run.id.clone(),
+                        program: run.program.clone(),
+                        photos: Vec::new(),
+                    },
+                    completed: Vec::new(),
+                });
+                runs.len() - 1
+            });
+        for path in paths {
+            if !runs[index].run.photos.contains(&path) {
+                runs[index].run.photos.push(path);
+            }
+        }
+        for other in &jobs {
+            if other.done == other.total
+                && other.total > 0
+                && edit_with_of(&other.request).as_ref() == Some(&run)
+                && let Some(target) = other.request.get("editTarget")
+                && let Ok(target) =
+                    serde_json::from_value::<crate::open_with::EditTarget>(target.clone())
+                && !runs[index].completed.contains(&target)
+            {
+                runs[index].completed.push(target);
+            }
+        }
+    }
+    // Targets have been copied into the one-shot recovery notice. Old edit
+    // rows, including fully completed orphan clicks, must not hold history forever.
+    for job in jobs {
+        if job.state == JobState::Done && edit_with_of(&job.request).is_some() {
+            queue.remove(&job.id)?;
         }
     }
     Ok(runs)
 }
 
-/// The Edit With runs the last quit cut short (each handed out once), for
-/// "Try again".
-pub(crate) fn take_interrupted_edits(exports: &ExportState) -> Vec<EditWithRun> {
+/// The Edit With runs the last quit cut short (each handed out once).
+pub(crate) fn take_interrupted_edits(exports: &ExportState) -> Vec<InterruptedEditWith> {
     exports.take_interrupted_edits()
+}
+
+/// Keep finished edit jobs until their handoff succeeds: they carry the
+/// pinned target needed to recover a partial batch, including batches >50.
+fn prune_finished(queue: &ExportQueue) -> anyhow::Result<()> {
+    let protected: Vec<String> = queue
+        .jobs()?
+        .into_iter()
+        .filter(|job| job.state == JobState::Done && edit_with_of(&job.request).is_some())
+        .map(|job| job.id)
+        .collect();
+    queue.prune_done_except(KEEP_DONE, &protected)
+}
+
+pub(crate) fn handed_off(exports: &ExportState, targets: &[crate::open_with::EditTarget]) {
+    with_queue(exports, |q| {
+        for job in q.jobs()? {
+            if matches!(job.state, JobState::Done | JobState::Cancelled)
+                && job.request.get("editTarget").is_some_and(|value| {
+                    serde_json::from_value::<crate::open_with::EditTarget>(value.clone())
+                        .is_ok_and(|target| targets.contains(&target))
+                })
+            {
+                q.remove(&job.id)?;
+            }
+        }
+        prune_finished(q)
+    });
 }
 
 fn label_for(request: &ExportRequest) -> String {
@@ -894,7 +997,7 @@ fn kick(app: &AppHandle) {
                 break;
             };
             run_jobs(&app, &jobs).await;
-            with_queue(&exports, |q| q.prune_done(KEEP_DONE));
+            with_queue(&exports, prune_finished);
             notify(&app);
         }
         exports.runner_active.store(false, Ordering::SeqCst);
@@ -1316,6 +1419,7 @@ mod tests {
         };
         let (a, b, c) = (photo("A.NEF"), photo("B.NEF"), photo("C.NEF"));
         let run = EditWithRun {
+            id: "click".into(),
             program: "/Applications/Editor.app".into(),
             photos: vec![a.clone(), b.clone()],
         };
@@ -1337,7 +1441,8 @@ mod tests {
         })
         .unwrap();
         let runs = on_queue(&queue, end_interrupted_edits).unwrap();
-        assert_eq!(runs, [run]);
+        assert_eq!(runs[0].run, run);
+        assert!(runs[0].completed.is_empty());
         let state = |id: &str| on_queue(&queue, |q| q.job(id)).unwrap().state;
         // Neither render is resumed (nothing would hand it over)…
         assert_eq!(state(&ids[0]), JobState::Cancelled);
@@ -1346,6 +1451,87 @@ mod tests {
         assert_eq!(state(&ids[2]), JobState::Queued);
         // Offered once: the next start finds nothing more to end.
         assert!(on_queue(&queue, end_interrupted_edits).unwrap().is_empty());
+    }
+
+    #[test]
+    fn retry_does_not_render_photos_that_finished_before_quit() {
+        for finished_job in [true, false] {
+            let tmp = tempfile::tempdir().unwrap();
+            let a = tmp.path().join("A.NEF").to_string_lossy().into_owned();
+            let b = tmp.path().join("B.NEF").to_string_lossy().into_owned();
+            std::fs::write(&a, b"raw").unwrap();
+            std::fs::write(&b, b"raw").unwrap();
+            let run = EditWithRun {
+                id: "click".into(),
+                program: "Editor.exe".into(),
+                photos: vec![a.clone(), b.clone()],
+            };
+            let edit = |path: &String| ExportRequest {
+                edit_with: Some(run.clone()),
+                output_folder_or_file: format!("{path}.tif"),
+                is_explicit_file_path: true,
+                ..request(std::slice::from_ref(path), None)
+            };
+            let (_dir, queue) = test_queue();
+            let ids = queue_pinned(&queue, vec![edit(&a), edit(&b)]).unwrap();
+            on_queue(&queue, |q| {
+                q.start_next()?;
+                if finished_job {
+                    q.item_done(&ids[0], 0)?;
+                    q.finish(&ids[0], rawtonic_export::queue::RunEnd::Completed)?;
+                    q.start_next()?;
+                } else {
+                    // Published, but quit before item_done/job completion.
+                    let output = std::path::PathBuf::from(format!("{a}.tif"));
+                    q.item_started(&ids[0], 0, &output)?;
+                    std::fs::write(output, b"finished render")?;
+                }
+                q.recover()
+            })
+            .unwrap();
+            let recovered = on_queue(&queue, end_interrupted_edits).unwrap();
+            assert_eq!(recovered[0].run.photos, [b]);
+            assert_eq!(recovered[0].completed.len(), 1);
+            let target = &recovered[0].completed[0];
+            assert_eq!(target.source, a);
+            let render = std::path::Path::new(&target.target);
+            std::fs::write(render, b"finished render").unwrap();
+            let lib = rawtonic_catalog::Library::create(
+                &tmp.path().join("Catalog"),
+                "C",
+                rawtonic_catalog::Mode::Catalog,
+            )
+            .unwrap();
+            crate::open_with::link_render(&lib, &target.source, render, target.metadata.as_ref())
+                .unwrap();
+            assert_eq!(lib.stacks().unwrap()[0].members.len(), 2);
+            assert!(
+                on_queue(&queue, |q| q.job(&ids[0])).is_err() || !finished_job,
+                "startup releases the copied recovery row"
+            );
+        }
+    }
+
+    #[test]
+    fn a_leftover_edit_does_not_disable_export_history_pruning() {
+        let (_dir, queue) = test_queue();
+        on_queue(&queue, |q| {
+            let edit = serde_json::json!({"editWith": {"id":"old-click", "program":"Editor", "photos":["A.NEF"]}});
+            let leftover = q.enqueue("Edit", &edit, &["A.NEF".into()])?;
+            q.start_next()?; q.item_done(&leftover, 0)?; q.finish(&leftover, RunEnd::Completed)?;
+            for _ in 0..KEEP_DONE+3 {
+                let id = q.enqueue("Export", &serde_json::json!({}), &["B.NEF".into()])?;
+                q.start_next()?; q.item_done(&id, 0)?; q.finish(&id, RunEnd::Completed)?;
+            }
+            prune_finished(q)?;
+            assert_eq!(q.jobs()?.len(), KEEP_DONE+1);
+            assert!(q.job(&leftover).is_ok(), "only the edit itself is protected");
+            assert!(end_interrupted_edits(q)?.is_empty());
+            assert!(q.job(&leftover).is_err(), "startup releases an orphan edit");
+            prune_finished(q)?;
+            assert_eq!(q.jobs()?.len(), KEEP_DONE);
+            Ok(())
+        }).unwrap();
     }
 
     #[test]

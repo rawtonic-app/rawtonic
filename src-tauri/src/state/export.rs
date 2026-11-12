@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use rawtonic_export::queue::ExportQueue;
 
 use super::lock::lock_recover;
-use crate::export_queue::{EditWithRun, RunningJob};
+use crate::export_queue::{InterruptedEditWith, RunningJob};
 
 /// The export queue's state. Locks: `README.md` here.
 #[derive(Default)]
@@ -25,7 +25,7 @@ pub struct ExportState {
     /// Waiting jobs do not start (Hold queue, Cancel, a restart with jobs left).
     pub(crate) held: AtomicBool,
     /// The Edit With runs the last quit or crash cut short, offered once.
-    pub(crate) interrupted_edits: Mutex<Vec<EditWithRun>>,
+    pub(crate) interrupted_edits: Mutex<Vec<InterruptedEditWith>>,
     /// The cancel flag of the export task that runs now, if one does.
     pub task_token: Arc<Mutex<Option<Arc<AtomicBool>>>>,
 }
@@ -40,7 +40,7 @@ impl ExportState {
     }
 
     /// The interrupted Edit With runs, each handed out once.
-    pub(crate) fn take_interrupted_edits(&self) -> Vec<EditWithRun> {
+    pub(crate) fn take_interrupted_edits(&self) -> Vec<InterruptedEditWith> {
         std::mem::take(&mut *lock_recover(&self.interrupted_edits))
     }
 }
