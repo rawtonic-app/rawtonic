@@ -2479,7 +2479,7 @@
     },
     "processing": {
       "aiGpu": "KI auf der Grafikkarte",
-      "aiGpuDesc": "Führt KI-Masken, Stichwörter, Objektentfernung und KI-Entrauschen auf der Grafikkarte aus, wenn möglich (WebGPU; CUDA, falls installiert), sonst auf dem Prozessor. Ausschalten, wenn ein KI-Werkzeug Probleme macht.",
+      "aiGpuDesc": "Führt KI-Masken, Stichwörter, Objektentfernung und KI-Entrauschen auf der Grafikkarte aus (WebGPU; CUDA, falls installiert), wo sie dasselbe Ergebnis liefert und auf diesem Computer schneller ist als der Prozessor (einmal je KI-Modell gemessen), sonst auf dem Prozessor. Ausschalten, wenn ein KI-Werkzeug Probleme macht.",
       "aiGpuLabel": "GPU für KI verwenden",
       "alwaysDecodeRaw": "RAW immer decodieren",
       "alwaysDecodeRawDesc": "Erzwingt die vollständige RAW-Decodierung für Vorschaubilder, anstatt eingebettete JPEG-Vorschauen zu verwenden. Aktiviere diese Option, wenn sich die Vorschaubilder farblich oder im Kontrast vom geöffneten Bild unterscheiden.",

@@ -31,7 +31,9 @@ impl Onnx {
 impl Backend for Onnx {
     fn run(&self, input: &[f32]) -> Result<Vec<f32>> {
         let array = Array4::from_shape_vec((1, 8, TILE, TILE), input.to_vec())?;
-        self.model.run(|session| {
+        // Watched: a GPU tile that hangs moves the model to the CPU instead
+        // of stopping AI Denoise (gap G76).
+        self.model.run_watched(move |session| {
             let outputs = session
                 .run(ort::inputs!["raw_with_noise" => Tensor::from_array(array.clone())?])?;
             let out: Vec<f32> = outputs["denoised_raw"]

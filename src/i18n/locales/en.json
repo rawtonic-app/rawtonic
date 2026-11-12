@@ -2479,7 +2479,7 @@
     },
     "processing": {
       "aiGpu": "AI on the graphics card",
-      "aiGpuDesc": "Runs AI masks, tags, object removal and AI Denoise on the graphics card when it can (WebGPU; CUDA when installed), otherwise on the processor. Turn off if an AI tool misbehaves.",
+      "aiGpuDesc": "Runs AI masks, tags, object removal and AI Denoise on the graphics card (WebGPU; CUDA when installed) where it gives the same result and is faster than the processor on this computer, measured once per AI model; otherwise on the processor. Turn off if an AI tool misbehaves.",
       "aiGpuLabel": "Use the GPU for AI",
       "alwaysDecodeRaw": "Always Decode RAW",
       "alwaysDecodeRawDesc": "Force full RAW decoding for thumbnails instead of using embedded JPEG previews. Enable this if your thumbnails look different in color or contrast compared to the opened photo.",
