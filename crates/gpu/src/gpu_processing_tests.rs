@@ -2949,15 +2949,6 @@ fn sharpen_version_8_gates_flat_noise() {
     }
 }
 
-/// The adapter `context` uses, described.
-fn test_adapter_info() -> wgpu::AdapterInfo {
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-        .unwrap()
-        .get_info()
-}
-
 /// The default adapter of the backends `WGPU_BACKEND` names (all when unset),
 /// so a run can test DX12 where Vulkan is the default.
 pub(super) fn context() -> GpuContext {
@@ -2967,13 +2958,7 @@ pub(super) fn context() -> GpuContext {
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
     let limits = adapter.limits();
-    let mut features =
-        adapter.features() & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
-    // SPIR-V passthrough as the app's device has it on Vulkan
-    // (`processing_device_descriptor`).
-    if adapter.get_info().backend == wgpu::Backend::Vulkan {
-        features |= adapter.features() & wgpu::Features::PASSTHROUGH_SHADERS;
-    }
+    let features = adapter.features() & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         required_features: features,
         required_limits: limits.clone(),
@@ -8984,166 +8969,6 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
         checked += 1;
     }
     assert_eq!(checked, 9);
-}
-
-#[test]
-#[ignore = "requires a native Vulkan GPU with SPIR-V passthrough; display variants passed through against wgpu's path"]
-fn display_variants_passed_through_render_the_same_pixels() {
-    // Where display variants go to the driver as our own SPIR-V
-    // (`display_variant_ir::variant_spirv`), each frame must be the one
-    // wgpu's own path renders from the same folded module, byte for byte.
-    let context = context();
-    if !context
-        .device
-        .features()
-        .contains(wgpu::Features::PASSTHROUGH_SHADERS)
-    {
-        println!("SKIP (not a pass): the device has no SPIR-V passthrough");
-        return;
-    }
-    // As the app starts this driver: one compile at a time (AMD's Windows
-    // Vulkan driver took about 11.5 GB per wgpu-path variant and ran out of
-    // memory with several at once, WGT7), nothing compiled ahead.
-    set_compile_limit(crate::device_start::compile_limit(
-        &test_adapter_info(),
-        cfg!(target_os = "windows"),
-    ));
-    let (width, height) = (517, 389);
-    let view = input(&context, width, height, 31);
-    // One processor per path for every recipe.
-    let through_wgpu_processor = GpuProcessor::new(context.clone(), width, height).unwrap();
-    through_wgpu_processor.display_shader.set_passthrough(false);
-    let passthrough_processor = GpuProcessor::new(context.clone(), width, height).unwrap();
-    passthrough_processor.display_shader.set_passthrough(true);
-    let mut checked = 0;
-    for profile in [
-        json!({}),
-        json!({"sharpness":40,"colorNoiseReduction":25,"sharpenVersion":8}),
-        json!({"sharpness":40,"colorNoiseReduction":25,"contrast":30,"toneVersion":18}),
-        json!({"highlights":-40,"curves":custom_curve(),"lumaNoiseReduction":20}),
-        json!({"exposure":0.4,"contrast":25,"shadows":30,"whites":-20,"blacks":-10,
-            "clarity":20,"dehaze":15,"vibrance":20,"saturation":10}),
-        json!({"glowAmount":30,"halationAmount":20,"grainAmount":25,"contrast":20}),
-        curve_mask_stack(6, false),
-        relight_portrait_profile(4),
-    ] {
-        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
-        let features = preview_features(&adjustments);
-        let masks = generated_profile_masks(&profile, width, height);
-        let render = |passthrough: bool| {
-            let processor = if passthrough {
-                &passthrough_processor
-            } else {
-                &through_wgpu_processor
-            };
-            assert_eq!(
-                processor.display_shader.passes_through(&context.device),
-                passthrough
-            );
-            processor.preview_pipelines[features].get_or_init(|| {
-                create_preview_pipeline(
-                    &processor.context.device,
-                    &processor.preview_shader,
-                    Some(&processor.display_shader),
-                    &processor.preview_layout,
-                    features,
-                    true,
-                    true,
-                    false,
-                    false,
-                )
-                .unwrap()
-            });
-            processor
-                .run(
-                    &view,
-                    width,
-                    height,
-                    RenderRequest {
-                        adjustments: adjustments.clone(),
-                        mask_bitmaps: &masks,
-                        lut: None,
-                        roi: None,
-                    },
-                    true,
-                    RenderOutputPrecision::EightBit,
-                )
-                .unwrap();
-            read_texture_data_roi(
-                &context.device,
-                &context.queue,
-                &processor.test_working_texture(),
-                wgpu::Origin3d::ZERO,
-                wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                4,
-            )
-            .unwrap()
-        };
-        let through_wgpu = render(false);
-        let before = passthrough_processor.display_shader.passed_through();
-        let passed_through = render(true);
-        // The variant really went through as SPIR-V (a silent fallback to
-        // wgpu's path would compare wgpu with itself).
-        assert!(
-            passthrough_processor.display_shader.passed_through() > before
-                || passthrough_processor.preview_pipelines[features]
-                    .get()
-                    .is_some()
-                    && before > 0,
-            "{profile}: the passthrough processor did not pass its variant through"
-        );
-        assert_eq!(through_wgpu_processor.display_shader.passed_through(), 0);
-        let differing = through_wgpu
-            .iter()
-            .zip(&passed_through)
-            .filter(|(a, b)| a != b)
-            .count();
-        assert_eq!(
-            differing,
-            0,
-            "{}: {differing} bytes differ",
-            profile.to_string().chars().take(200).collect::<String>()
-        );
-        checked += 1;
-    }
-    assert_eq!(checked, 8);
-}
-
-#[test]
-#[ignore = "writes a display variant's SPIR-V as the app passes it through, for the compile probe (DUMP_SPIRV_DIR)"]
-fn dump_display_variant_spirv() {
-    let Ok(dir) = std::env::var("DUMP_SPIRV_DIR") else {
-        println!("SKIP (not a pass): DUMP_SPIRV_DIR unset");
-        return;
-    };
-    let context = context();
-    let processor = GpuProcessor::new(context, 64, 64).unwrap();
-    for features in [
-        RAW_DEFAULT_PREVIEW_FEATURES,
-        RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE,
-    ] {
-        let words = processor
-            .display_shader
-            .variant_spirv(&variant_constants(features, true, true, false, false))
-            .unwrap();
-        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
-        std::fs::write(format!("{dir}/app{features}.spv"), bytes).unwrap();
-    }
-    std::fs::write(
-        format!("{dir}/app-bindings.txt"),
-        processor
-            .display_shader
-            .bindings_for_test()
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(","),
-    )
-    .unwrap();
 }
 
 #[test]

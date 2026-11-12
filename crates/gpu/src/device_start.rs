@@ -148,16 +148,6 @@ pub fn compile_limit(info: &wgpu::AdapterInfo, windows: bool) -> Option<usize> {
     (windows && info.backend == wgpu::Backend::Vulkan && info.vendor == AMD).then_some(1)
 }
 
-/// Whether display variants go to the driver as our own SPIR-V
-/// (`gpu_processing::set_spirv_passthrough`): on AMD's Windows Vulkan driver,
-/// which compiled the tone variant 4145 in about 7 s that way and in about
-/// 133 s through wgpu's own Vulkan path (Radeon 680M, driver 25.10; notes:
-/// benchmark-results/wcc-amd-compile-2026-11-12). Elsewhere wgpu's path,
-/// unchanged.
-pub fn spirv_passthrough(info: &wgpu::AdapterInfo, windows: bool) -> bool {
-    compile_limit(info, windows).is_some()
-}
-
 /// Why the adapter cannot run the processing pipeline, if it cannot: WARP,
 /// found by its PCI ids (Microsoft vendor 0x1414, device 0x8C) on DX12.
 pub fn unsupported_adapter(info: &wgpu::AdapterInfo) -> Option<&'static str> {
@@ -249,19 +239,6 @@ pub fn start_device(
         &adapter.get_info(),
         cfg!(target_os = "windows"),
     ));
-    crate::gpu_processing::set_spirv_passthrough(spirv_passthrough(
-        &adapter.get_info(),
-        cfg!(target_os = "windows"),
-    ));
-    log::info!(
-        "GPU device features: SPIR-V passthrough {} (adapter {})",
-        device
-            .features()
-            .contains(wgpu::Features::PASSTHROUGH_SHADERS),
-        adapter
-            .features()
-            .contains(wgpu::Features::PASSTHROUGH_SHADERS)
-    );
     // A lost device otherwise shows only as the next resource's validation
     // error (WGT5: "Buffer … is invalid").
     device.set_device_lost_callback(|reason, message| {
@@ -403,21 +380,6 @@ mod tests {
             compile_limit(&adapter(Backend::Vulkan, 0x10de, 0x2206), true),
             None
         );
-    }
-
-    #[test]
-    fn only_amd_vulkan_on_windows_passes_spir_v_through() {
-        let amd = |backend| wgpu::AdapterInfo {
-            backend,
-            ..adapter(backend, 0x1002, 0x1681)
-        };
-        assert!(spirv_passthrough(&amd(Backend::Vulkan), true));
-        assert!(!spirv_passthrough(&amd(Backend::Dx12), true));
-        assert!(!spirv_passthrough(&amd(Backend::Vulkan), false));
-        assert!(!spirv_passthrough(
-            &adapter(Backend::Vulkan, 0x10de, 0x2206),
-            true
-        ));
     }
 
     #[test]

@@ -80,15 +80,6 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
     }
     // Used only once the app opens a cache file (`pipeline_cache::open`).
     required_features |= crate::pipeline_cache::device_features(adapter);
-    // Display variants as our own SPIR-V where the driver needs it
-    // (`display_variant_ir`, `set_spirv_passthrough`).
-    if adapter.get_info().backend == wgpu::Backend::Vulkan
-        && adapter
-            .features()
-            .contains(wgpu::Features::PASSTHROUGH_SHADERS)
-    {
-        required_features |= wgpu::Features::PASSTHROUGH_SHADERS;
-    }
     wgpu::DeviceDescriptor {
         label: Some("Processing Device"),
         required_features,
@@ -5636,12 +5627,6 @@ fn env_compile_limit() -> Option<Option<usize>> {
     Some((n > 0).then_some(n))
 }
 
-/// Whether display variants go to the driver as SPIR-V written by
-/// `display_variant_ir` (`device_start::spirv_passthrough`).
-pub fn set_spirv_passthrough(on: bool) {
-    crate::display_variant_ir::set_spirv_passthrough(on);
-}
-
 /// Sets the limit for the device just started (`None`: no limit); the
 /// environment variable overrides it.
 pub fn set_compile_limit(limit: Option<usize>) {
@@ -6097,38 +6082,6 @@ fn create_display_pipeline(
     label: &str,
     constants: &[(&str, f64)],
 ) -> Result<wgpu::ComputePipeline, String> {
-    if display.passes_through(device) {
-        match display.variant_spirv(constants).and_then(|words| {
-            // SAFETY: naga wrote and validated this SPIR-V from the shader
-            // whose bindings `pipeline_layout` describes; wgpu writes the
-            // same module for this backend itself otherwise.
-            validated(device, &format!("shader '{label}'"), || unsafe {
-                device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
-                    label: Some(label),
-                    entry_points: std::borrow::Cow::Owned(vec![
-                        wgpu::PassthroughShaderEntryPoint {
-                            name: "main".into(),
-                            workgroup_size: (8, 8, 1),
-                        },
-                    ]),
-                    spirv: Some(std::borrow::Cow::Owned(words)),
-                    ..Default::default()
-                })
-            })
-        }) {
-            Ok(shader) => {
-                match create_variant_pipeline(device, &shader, pipeline_layout, label, &[]) {
-                    Ok(pipeline) => {
-                        log::info!("GPU {label}: passed to the driver as SPIR-V");
-                        display.note_passed_through();
-                        return Ok(pipeline);
-                    }
-                    Err(error) => log::warn!("{label}: SPIR-V passthrough failed ({error})"),
-                }
-            }
-            Err(error) => log::warn!("{label}: SPIR-V passthrough failed ({error})"),
-        }
-    }
     let module = match display.variant_module(constants) {
         Ok(module) => module,
         Err(error) => {
@@ -6355,21 +6308,8 @@ impl GpuProcessor {
 
     /// Compiles display variant `features` on this thread the way display
     /// frames get it (`create_display_pipeline`: this processor's device,
-    /// layout, pipeline cache and passthrough choice), for measuring tools
+    /// layout and pipeline cache), for measuring tools
     /// (`examples/compile_probe.rs`); the pipeline is not kept.
-    #[doc(hidden)]
-    pub fn display_variant_spirv(&self, features: usize) -> Result<Vec<u32>, String> {
-        self.display_shader
-            .variant_spirv(&variant_constants(features, true, true, false, false))
-    }
-
-    /// The SPIR-V `compile_display_variant` passes through (when it does),
-    /// for measuring tools.
-    #[doc(hidden)]
-    pub fn display_variant_passes_through(&self) -> bool {
-        self.display_shader.passes_through(&self.context.device)
-    }
-
     #[doc(hidden)]
     pub fn compile_display_variant(&self, features: usize) -> Result<(), String> {
         create_preview_pipeline(
@@ -6416,6 +6356,7 @@ impl GpuProcessor {
         const MAX_MASK_BINDINGS: u32 = 1;
 
         let shader_module = create_shader(device, "Image Processing Shader", shader_source)?;
+        let display_shader = DisplayShader::new(shader_source);
 
         let mut bind_group_layout_entries = vec![
             wgpu::BindGroupLayoutEntry {
@@ -6659,18 +6600,13 @@ impl GpuProcessor {
             });
             entries
         };
-        let main_entries =
-            with_analytics_output(&bind_group_layout_entries, wgpu::TextureFormat::Rgba8Unorm);
         let main_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Main BGL"),
-            entries: &main_entries,
+            entries: &with_analytics_output(
+                &bind_group_layout_entries,
+                wgpu::TextureFormat::Rgba8Unorm,
+            ),
         });
-        // Display variants are written against this layout's bindings
-        // (`DisplayShader::variant_spirv`).
-        let display_shader = DisplayShader::new(
-            shader_source,
-            main_entries.iter().map(|entry| entry.binding).collect(),
-        );
         let encode_bgl = encode_bind_group_layout(device, &bind_group_layout_entries);
         // The detail pass writes the cache that the main pass reads.
         let mut detail_entries = bind_group_layout_entries.clone();

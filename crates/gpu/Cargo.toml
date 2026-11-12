@@ -25,7 +25,7 @@ rawtonic-fs = { path = "../fs", version = "0.1.0" }
 # Display variants compile from naga IR with decided branches removed
 # (display_variant_ir.rs); wgpu's own naga version.
 wgpu = { workspace = true, features = ["naga-ir"] }
-naga = { version = "30.0.1", features = ["wgsl-in", "spv-out"] }
+naga = { version = "30.0.1", features = ["wgsl-in"] }
 bytemuck = { workspace = true, features = ["derive"] }
 half = { workspace = true, features = ["bytemuck"] }
 image = { workspace = true }
@@ -38,3 +38,5 @@ pollster = { workspace = true }
 base64 = { workspace = true }
 rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-support"] }
 tempfile = { workspace = true }
+# compile_probe writes SPIR-V itself (its `spirv` candidates).
+naga = { version = "30.0.1", features = ["spv-out"] }
