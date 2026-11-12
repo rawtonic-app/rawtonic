@@ -206,9 +206,9 @@ it.each([
   ['C:\\Users\\test\\WindowsApps\\mspaint.exe', true]
 ] as const)(
   'retries unfinished photos for %s even when completed handoff fails: %s',
-  async (program, failCompleted) => {
+  async (selectedProgram, failCompleted) => {
     const { notify } = await import('../../activity/notify');
-    const run = { program, photos: [paths[0], paths[1]] };
+    const run = { program: selectedProgram, photos: [paths[0], paths[1]] };
     const completed = [{ source: '/s/A.NEF', target: '/s/A_edit.tif', library: '/s' }];
     mockInvoke.mockImplementation(async (command) => {
       if (command === 'edit_with_interrupted') return [{ ...run, completed }];
