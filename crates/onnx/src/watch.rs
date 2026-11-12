@@ -118,6 +118,26 @@ impl<S: Send + 'static> Slot<S> {
         )
     }
 
+    /// Takes `session` on `provider` (a GPU check found it faster) if the
+    /// model is on the CPU now; else gives it back.
+    pub(crate) fn adopt(&self, session: S, provider: Provider) -> Result<(), S> {
+        let mut current = self.current.lock().unwrap();
+        if current.provider != Provider::Cpu {
+            return Err(session);
+        }
+        log::info!(
+            "AI {}: on {provider} from now on (its check found it faster than the CPU)",
+            self.name
+        );
+        *current = Current {
+            session: Held::new(session),
+            provider,
+            runs: 0,
+            slowest: Duration::ZERO,
+        };
+        Ok(())
+    }
+
     /// The session now, without leaving a GPU on failure (benchmarks).
     pub(crate) fn session(&self) -> Arc<Held<S>> {
         self.snapshot().0

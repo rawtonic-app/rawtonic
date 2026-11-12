@@ -3262,6 +3262,9 @@ pub(crate) async fn apply_adjustments(
     browser_preview_uri: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Response, CommandError> {
+    // An edit renders: a GPU check of an AI model gives way (rawtonic-onnx
+    // `background`; it never times the GPU beside the render).
+    rawtonic_onnx::note_activity();
     let preview_channel: Option<tauri::ipc::Channel<Response>> =
         preview_channel.map(|id| id.channel_on(webview));
     #[cfg(feature = "performance-profiling")]

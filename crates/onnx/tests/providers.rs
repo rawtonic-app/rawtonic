@@ -152,3 +152,67 @@ fn cpu_models_survive_reload_and_shutdown() {
         }
     }
 }
+
+/// The app's way (`check_when_idle`): a model without a verdict loads on
+/// the CPU at once and its GPU check runs once nothing happens; a faster
+/// GPU then takes over the loaded model, and the next load uses the
+/// verdict. `AI_ONLY` picks the model (default BiRefNet).
+#[test]
+#[ignore = "needs ORT_DYLIB_PATH, a GPU plugin and AI_MODELS"]
+fn the_first_load_uses_the_cpu_and_a_later_one_the_idle_checks_verdict() {
+    let only = std::env::var("AI_ONLY").unwrap_or_else(|_| "birefnet".to_string());
+    let path = model_files(&models(), false)
+        .unwrap()
+        .into_iter()
+        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with(&only))
+        .expect("the model");
+    let kind = ModelKind::from_file_name(&path.file_name().unwrap().to_string_lossy()).unwrap();
+    let file = std::env::temp_dir().join(format!("rawtonic-idle-check-{}.tsv", std::process::id()));
+    rawtonic_onnx::configure(rawtonic_onnx::Settings {
+        gpu: true,
+        plugin_dirs: default_plugin_dirs(),
+        checks_file: Some(file.clone()),
+        check_when_idle: true,
+    });
+    let started = std::time::Instant::now();
+    let first =
+        Model::load_on(&path, kind, &[gpu(), Provider::Cpu], &default_plugin_dirs()).unwrap();
+    println!(
+        "first load: {} in {} ms",
+        first.provider(),
+        started.elapsed().as_millis()
+    );
+    assert_eq!(first.provider(), Provider::Cpu);
+    assert!(!file.exists(), "no verdict before the app was idle");
+    let waited = std::time::Instant::now();
+    let verdict = loop {
+        if let Ok(text) = std::fs::read_to_string(&file)
+            && let Some(line) = text.lines().next()
+        {
+            break line.split('\t').next().unwrap().to_string();
+        }
+        assert!(waited.elapsed().as_secs() < 900, "no verdict in 15 minutes");
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    };
+    // The verdict is written inside the same step that moves the model.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    println!(
+        "verdict after {} ms: {verdict}",
+        waited.elapsed().as_millis()
+    );
+    let second =
+        Model::load_on(&path, kind, &[gpu(), Provider::Cpu], &default_plugin_dirs()).unwrap();
+    println!("next load: {}", second.provider());
+    assert_eq!(
+        second.provider(),
+        if verdict == "faster" {
+            gpu()
+        } else {
+            Provider::Cpu
+        }
+    );
+    // The model loaded first took the check's GPU session if it was faster.
+    println!("first model now: {}", first.provider());
+    assert_eq!(first.provider(), second.provider());
+    std::fs::remove_file(&file).unwrap();
+}

@@ -985,6 +985,10 @@ pub(crate) async fn export_images_impl(
     completion_tx: Option<tokio::sync::oneshot::Sender<Result<(), usize>>>,
     max_jobs: Option<usize>,
 ) -> Result<(), String> {
+    // No AI model's GPU verdict changes while the export runs (a check
+    // finishing between two photos), so every photo of it uses the provider
+    // the first one used, also after a model was unloaded and loaded again.
+    let _same_ai_providers = rawtonic_onnx::hold_checks();
     let task_token = Arc::clone(&app_handle.state::<ExportState>().task_token);
     let cancellation_token = register_export_task(&task_token)?;
     let task_guard = ExportTaskGuard::with_app_handle(

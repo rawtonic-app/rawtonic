@@ -1292,6 +1292,9 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
                     processing.insert(path.clone());
                     path
                 };
+                // A GPU check of an AI model never times the CPU or the GPU
+                // beside a thumbnail (rawtonic-onnx `background`).
+                rawtonic_onnx::note_activity();
 
                 let gpu_context = crate::gpu_processing::get_or_init_gpu_context(
                     &app_clone.state::<crate::state::gpu::GpuState>(),
