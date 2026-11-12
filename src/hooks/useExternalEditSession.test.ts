@@ -65,7 +65,7 @@ it('can be pressed again when its waiting export was removed from the queue', as
   expect(exit).not.toHaveBeenCalled();
 });
 
-it('keeps a launch photo queued until remembered-library navigation has finished', () => {
+it('keeps a launch photo queued until remembered-library navigation has finished', async () => {
   useProcessStore.setState({
     externalEditSession: null,
     startupLibraryReady: false,
@@ -75,7 +75,19 @@ it('keeps a launch photo queued until remembered-library navigation has finished
   renderHook(() => useExternalEditSession(select));
   expect(select).not.toHaveBeenCalled();
   expect(useProcessStore.getState().initialFileToOpen).toBe('/outside/photo.ARW');
-  act(() => useProcessStore.setState({ startupLibraryReady: true }));
+  await act(async () => useProcessStore.setState({ startupLibraryReady: true }));
   expect(select).toHaveBeenCalledExactlyOnceWith('/outside/photo.ARW');
   expect(useProcessStore.getState().initialFileToOpen).toBeNull();
+});
+
+it('browses a folder launch without selecting an image or importing', async () => {
+  invoke.mockResolvedValue(true);
+  useProcessStore.setState({ externalEditSession: null, startupLibraryReady: true, initialFileToOpen: '/photos' });
+  const select = vi.fn();
+  const browse = vi.fn();
+  await act(async () => {
+    renderHook(() => useExternalEditSession(select, browse));
+  });
+  expect(browse).toHaveBeenCalledExactlyOnceWith('/photos');
+  expect(select).not.toHaveBeenCalled();
 });
