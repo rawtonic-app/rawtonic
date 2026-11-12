@@ -5674,6 +5674,7 @@ dependencies = [
  "half",
  "image",
  "log",
+ "naga",
  "pollster",
  "rawtonic-engine",
  "rawtonic-fs",

@@ -1,0 +1,6 @@
+# WCC round 2 (G76): display variants as the app now compiles them (dce = the app's folded IR; effects bit 2097152 off unless the recipe has glow/halation/grain).
+app_4113 features=4113 dce
+app_17 features=17 dce
+app_4113_effects features=2101265 dce
+app_all features=4194303 dce
+old_17 features=2097169

@@ -22,7 +22,10 @@ rawtonic-engine = { path = "../engine", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
 rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
 rawtonic-fs = { path = "../fs", version = "0.1.0" }
-wgpu = { workspace = true }
+# Display variants compile from naga IR with decided branches removed
+# (display_variant_ir.rs); wgpu's own naga version.
+wgpu = { workspace = true, features = ["naga-ir"] }
+naga = { version = "30.0.1", features = ["wgsl-in"] }
 bytemuck = { workspace = true, features = ["derive"] }
 half = { workspace = true, features = ["bytemuck"] }
 image = { workspace = true }

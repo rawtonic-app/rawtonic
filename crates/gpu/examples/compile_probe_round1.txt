@@ -1,0 +1,10 @@
+# WCC round 1 (G76): where AMD's Windows Vulkan compiler spends time and memory on display variant 4113.
+base_4113 features=4113
+base_4113_unchecked features=4113 unchecked
+dce_4113 features=4113 dce
+nofx_4113 features=4113 dce stub=apply_glow_bloom,apply_halation,apply_film_grain,apply_portable_grain,apply_grain_structure
+nofx_4113_unchecked features=4113 dce unchecked stub=apply_glow_bloom,apply_halation,apply_film_grain,apply_portable_grain,apply_grain_structure
+glow_only_4113 features=4113 dce stub=apply_halation,apply_film_grain,apply_portable_grain,apply_grain_structure
+nofx_nodetail_4113 features=4113 dce stub=apply_glow_bloom,apply_halation,apply_film_grain,apply_portable_grain,apply_grain_structure,detail_stage
+floor_4113 features=4113 dce stub=apply_glow_bloom,apply_halation,apply_film_grain,apply_portable_grain,apply_grain_structure,detail_stage,apply_hsl_panel_v2,apply_defringe,camera_raw_tonemap,encode_output
+nofx_0 features=0 dce stub=apply_glow_bloom,apply_halation,apply_film_grain,apply_portable_grain,apply_grain_structure

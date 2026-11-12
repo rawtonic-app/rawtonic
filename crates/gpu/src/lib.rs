@@ -4,6 +4,7 @@
 //! RapidRAW (commit a82251f, AGPL-3.0); no Tauri dependencies.
 
 pub mod device_start;
+mod display_variant_ir;
 pub mod gpu_processing;
 pub mod pipeline_cache;
 
