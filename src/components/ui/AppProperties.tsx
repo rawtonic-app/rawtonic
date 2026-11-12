@@ -172,6 +172,7 @@ export enum Invokes {
   GenerateMaskOverlay = 'generate_mask_overlay',
   SetWindowFullScreen = 'set_window_full_screen',
   SetMaximizeButtonRect = 'set_maximize_button_rect',
+  SetWindowMinimum = 'set_window_minimum',
   GenerateMaskThumbnails = 'generate_mask_thumbnails',
   GenerateUncroppedPreview = 'generate_uncropped_preview',
   GetFolderTree = 'get_folder_tree',

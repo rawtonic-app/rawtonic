@@ -784,10 +784,19 @@ export default function StudioNavigation({
   develop?: boolean;
 }) {
   const { t } = useTranslation();
-  const selectedImage = useEditorStore((s) => s.selectedImage);
-  const imageList = useLibraryStore((s) => s.imageList);
-  const image = develop || imageList.some((file) => file.path === selectedImage?.path) ? selectedImage : null;
-  const preview = useProcessStore((s) => (image ? s.thumbnails[image.path] : undefined));
+  const selectedPath = useEditorStore((s) => s.selectedImage?.path ?? null);
+  const activePath = useLibraryStore((s) => s.libraryActivePath);
+  // Develop shows its photograph, also a loose one. The Library shows its own
+  // selection (after a loose open or Show in library the Develop photograph
+  // can be outside the list), else Develop's photograph when it is listed.
+  const path = useLibraryStore((s) => {
+    if (develop) return selectedPath;
+    const listed = (candidate: string | null) =>
+      candidate !== null && s.imageList.some((file) => file.path === candidate);
+    return listed(activePath) ? activePath : listed(selectedPath) ? selectedPath : null;
+  });
+  const image = path ? { path } : null;
+  const preview = useProcessStore((s) => (path ? s.thumbnails[path] : undefined));
   const column = (
     <ToolColumn scope={develop ? 'develop:browse' : 'library'} className="studio-navigation">
       <ToolGroup key="navigator" title="Navigator" label={t('studio.library.navigator.title')}>
@@ -799,7 +808,8 @@ export default function StudioNavigation({
               alt={image ? sourceFileName(image.path) : undefined}
             />
           ) : (
-            <span>{t('studio.library.navigator.empty')}</span>
+            // A selected photograph whose thumbnail is still coming is not "no selection".
+            !image && <span>{t('studio.library.navigator.empty')}</span>
           )}
         </div>
         {image && <div className="studio-nav-caption">{sourceFileName(image.path)}</div>}

@@ -1070,6 +1070,38 @@ const REMOVED_KEYS: [&str; 4] = [
     "rawHighlightCompression",
 ];
 
+/// Warnings of reading the settings: the start reads them before
+/// `setup_logging` installs the logger, so they wait here until
+/// [`log_load_warnings`] writes them once to app.log.
+static LOAD_WARNINGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn warn_on_load(message: String) {
+    if log::max_level() >= log::LevelFilter::Warn {
+        log::warn!("{message}");
+    } else {
+        LOAD_WARNINGS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(message);
+    }
+}
+
+/// The settings warnings held back until the logger existed.
+pub(crate) fn take_load_warnings() -> Vec<String> {
+    std::mem::take(
+        &mut *LOAD_WARNINGS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
+}
+
+/// Writes the held-back settings warnings (after `setup_logging`).
+pub(crate) fn log_load_warnings() {
+    for message in take_load_warnings() {
+        log::warn!("{message}");
+    }
+}
+
 fn without_legacy_keys(mut settings: AppSettings) -> AppSettings {
     if let Some(value) = settings.ui_scale {
         let nearest = [1.0_f64, 1.12, 1.25]
@@ -1077,7 +1109,7 @@ fn without_legacy_keys(mut settings: AppSettings) -> AppSettings {
             .min_by(|a, b| (a - value).abs().total_cmp(&(b - value).abs()))
             .unwrap_or(1.0);
         if value != nearest {
-            log::warn!("Unsupported uiScale {value}; using {nearest}");
+            warn_on_load(format!("Unsupported uiScale {value}; using {nearest}"));
             settings.ui_scale = Some(nearest);
         }
     }
@@ -1152,10 +1184,10 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
                 "Settings file partly unreadable ({error}) and could not be kept: {e}"
             ));
         }
-        log::warn!(
+        warn_on_load(format!(
             "Settings file partly unreadable ({error}); kept as {} and those values reset",
             kept.display()
-        );
+        ));
         return Ok(settings);
     }
     // Named by its content: loading the same file again finds it kept.
@@ -1168,10 +1200,10 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
             "Settings file unreadable ({error}) and could not be kept: {e}"
         ));
     }
-    log::warn!(
+    warn_on_load(format!(
         "Settings file unreadable ({error}); kept as {} and starting from defaults",
         kept.display()
-    );
+    ));
     Ok(AppSettings::default())
 }
 
@@ -1383,6 +1415,18 @@ mod tests {
             };
             assert_eq!(without_legacy_keys(settings).ui_scale, Some(expected));
         }
+    }
+
+    #[test]
+    fn an_unsupported_interface_size_is_logged_once_when_the_logger_exists() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        fs::write(&path, r#"{"uiScale":2.75}"#).unwrap();
+        // No logger in tests (as before `setup_logging` at a start): held back.
+        assert_eq!(load_settings_file(&path).unwrap().ui_scale, Some(1.25));
+        let warning = "Unsupported uiScale 2.75; using 1.25".to_string();
+        assert!(take_load_warnings().contains(&warning));
+        assert!(!take_load_warnings().contains(&warning));
     }
 
     #[test]

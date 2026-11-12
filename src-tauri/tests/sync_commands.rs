@@ -188,6 +188,10 @@ const SYNC_COMMANDS: &[(&str, &str)] = &[
         "main-thread-only API: menu, window, quit or webview",
     ),
     (
+        "set_window_minimum",
+        "main-thread-only API: window state check and minimum set together",
+    ),
+    (
         "show_in_finder",
         "spawns the file manager or a background job and returns at once",
     ),

@@ -117,6 +117,7 @@ mod update_check;
 mod upright;
 mod window_capture;
 mod window_customizer;
+mod window_limits;
 mod window_state;
 mod xmp_review;
 
@@ -533,6 +534,7 @@ fn start(args: Vec<String>) {
             for message in &startup_messages {
                 log::warn!("{message}");
             }
+            app_settings::log_load_warnings();
             if !is_headless {
                 // Before the window and its webview: a cold start's first
                 // Develop frame waits for the display variant this compiles.
@@ -660,6 +662,9 @@ fn start(args: Vec<String>) {
 
             contribute::note_phase("window");
             let window = window_builder.build().expect("Failed to build window");
+            // Maximize onto the work area; the minimum never exceeds it.
+            #[cfg(windows)]
+            window_limits::install(&window, !decorations);
             #[cfg(all(feature = "performance-profiling", target_os = "macos"))]
             if let Ok(ns_window) = window.ns_window() {
                 performance::log_display_refresh(ns_window);
@@ -849,6 +854,7 @@ fn start(args: Vec<String>) {
         .invoke_handler(tauri::generate_handler![
             window_customizer::set_window_full_screen,
             snap_layout::set_maximize_button_rect,
+            window_limits::set_window_minimum,
             second_window::second_window_state,
             second_window::second_window_set_open,
             second_window::second_window_set_locked,

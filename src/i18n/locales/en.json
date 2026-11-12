@@ -1672,6 +1672,7 @@
       "withoutOriginal_other": "{{count}} new photos left out: their originals are not in the other catalog"
     },
     "create": {
+      "addAfterLibrary": "Add to library needs a project or catalog. Create one here, or open an existing one; the photo is added next.",
       "catalog": "Catalog",
       "catalogDescription": "Organize your collection in one catalog folder. Photos are copied into it by default; linking external folders is optional.",
       "catalogHint": "For your entire photo collection",

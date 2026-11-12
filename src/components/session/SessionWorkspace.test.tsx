@@ -843,3 +843,70 @@ it('counts the same photographs as the loaded grid', async () => {
   expect(view.container.querySelector('.session-count-total')?.textContent).toContain('9 photos');
   expect(view.container.querySelector('.session-count-total')?.textContent).toContain('2 picked');
 });
+
+it('offers to create or open a library for Add to library… without one, then adds the loose photo', async () => {
+  // As in a browser: close() queues the dialog's close event.
+  HTMLDialogElement.prototype.close = function () {
+    if (!this.hasAttribute('open')) return;
+    this.removeAttribute('open');
+    setTimeout(() => this.dispatchEvent(new Event('close')), 0);
+  };
+  const user = userEvent.setup();
+  render(
+    <ContextMenuProvider>
+      <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+    </ContextMenuProvider>
+  );
+  act(() => {
+    window.dispatchEvent(new CustomEvent('rawtonic:import-external-photo', { detail: { paths: ['/loose/a.raf'] } }));
+  });
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByRole('heading', { name: 'Create a project or catalog' })).toBeTruthy();
+  expect(within(dialog).getByRole('note').textContent).toContain('the photo is added next');
+  expect(within(dialog).getByRole('button', { name: 'Open a project or catalog' })).toBeTruthy();
+  await user.type(screen.getByLabelText('Project name'), 'Acme');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  await user.click(screen.getByRole('button', { name: 'Create project' }));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith('session_ingest_scan', expect.objectContaining({ paths: ['/loose/a.raf'] }))
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(screen.getByRole('heading', { name: 'Bring your photos in' })).toBeTruthy();
+  expect(screen.getByRole('dialog', { hidden: true }).hasAttribute('open')).toBe(true);
+});
+
+it('adds the loose photo after opening an existing library from that dialog', async () => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === 'session_open' ? summary : base(command, args)
+  );
+  HTMLDialogElement.prototype.close = function () {
+    if (!this.hasAttribute('open')) return;
+    this.removeAttribute('open');
+    setTimeout(() => this.dispatchEvent(new Event('close')), 0);
+  };
+  const user = userEvent.setup();
+  render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+  act(() => {
+    window.dispatchEvent(new CustomEvent('rawtonic:import-external-photo', { detail: { paths: ['/loose/a.raf'] } }));
+  });
+  await user.click(
+    within(await screen.findByRole('dialog')).getByRole('button', { name: 'Open a project or catalog' })
+  );
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith('session_ingest_scan', expect.objectContaining({ paths: ['/loose/a.raf'] }))
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(screen.getByRole('heading', { name: 'Bring your photos in' })).toBeTruthy();
+});
+
+it('forgets a pending Add to library… when the library dialog is cancelled', async () => {
+  const user = userEvent.setup();
+  render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+  act(() => {
+    window.dispatchEvent(new CustomEvent('rawtonic:import-external-photo', { detail: { paths: ['/loose/a.raf'] } }));
+  });
+  await user.click(await screen.findByRole('button', { name: 'Close' }));
+  await user.click(screen.getByRole('button', { name: 'Create a project' }));
+  expect(screen.queryByRole('note')).toBeNull();
+});

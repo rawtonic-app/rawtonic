@@ -1621,6 +1621,7 @@
       "withoutOriginal_other": "已略过 {{count}} 张新照片：其原始文件不在另一个目录中"
     },
     "create": {
+      "addAfterLibrary": "添加到图库需要一个项目或目录。在此创建一个，或打开已有的；随后将添加该照片。",
       "catalog": "目录",
       "catalogDescription": "在一个目录文件夹中整理你的收藏。默认会将照片复制到其中；链接外部文件夹为可选项。",
       "catalogHint": "容纳众多项目的图库",

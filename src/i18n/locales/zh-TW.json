@@ -1621,6 +1621,7 @@
       "withoutOriginal_other": "已略過 {{count}} 張新相片：其原始檔不在另一個目錄中"
     },
     "create": {
+      "addAfterLibrary": "加入圖庫需要一個專案或目錄。在此建立一個，或開啟現有的；隨後將加入該照片。",
       "catalog": "目錄",
       "catalogDescription": "在一個目錄資料夾中整理你的收藏。預設會將相片複製到其中；連結外部資料夾為選用。",
       "catalogHint": "容納眾多案子的圖庫",

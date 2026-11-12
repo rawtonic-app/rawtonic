@@ -1076,9 +1076,11 @@ pub(crate) fn scaled_window_floor(scale: f64, available: (f64, f64)) -> (f64, f6
     } else {
         1.0
     };
+    // Whole logical pixels, as `scaledMinimum` (useScaledMinimum.ts): a
+    // fractional cap would round the outer size past the work area.
     (
-        (1000.0 * scale).round().min(available.0),
-        (600.0 * scale).round().min(available.1),
+        (1000.0 * scale).round().min(available.0.floor()),
+        (600.0 * scale).round().min(available.1.floor()),
     )
 }
 
@@ -1098,6 +1100,15 @@ mod scaled_floor_tests {
         assert_eq!(
             super::scaled_window_floor(1.25, (1100.0, 700.0)),
             (1100.0, 700.0)
+        );
+        // The Lenovo of G76/WQG at 125 %: (2560 − 26, 1504 − 26) / 2.
+        assert_eq!(
+            super::scaled_window_floor(1.25, (1267.0, 739.0)),
+            (1250.0, 739.0)
+        );
+        assert_eq!(
+            super::scaled_window_floor(1.25, (1920.0, (1041.0 - 16.0) / 1.5)),
+            (1250.0, 683.0)
         );
         assert_eq!(
             super::scaled_window_floor(f64::NAN, (2000.0, 1200.0)),

@@ -450,7 +450,9 @@ export default function StudioWorkspace(props: Props) {
     showContextMenu(event.clientX, event.clientY, [
       {
         label: duplicatePath ? t('studio.workspace.footer.showInLibrary') : t('studio.workspace.footer.addToLibrary'),
-        disabled: !duplicatePath && !appCommandEnabled('import_photos'),
+        // Without a library the action offers to create or open one first
+        // (SessionWorkspace); with one, it waits while an import runs.
+        disabled: !duplicatePath && !!sessionDirectory && !appCommandEnabled('import_photos'),
         onClick: () =>
           duplicatePath
             ? showDuplicate()

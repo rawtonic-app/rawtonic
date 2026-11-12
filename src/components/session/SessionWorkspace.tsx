@@ -123,6 +123,7 @@ import {
 import type { FolderChange } from './SessionFoldersDialog';
 import { listenForAddFolder, type AddFolderDetail } from './addFolder';
 import { byPathKey } from '../../utils/pathKey';
+import { useCompactBar } from '../../window/useCompactBar';
 
 /** The folder trees of a session's folders outside it (G38). */
 function sessionFolderTrees(paths: string[]): Promise<FolderTree[]> {
@@ -446,6 +447,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [form, setForm] = useState<'create' | 'ingest' | 'hotfolder' | 'import' | null>(null);
+  /** Loose photos waiting for a library to be created or opened (Add to library…). */
+  const [addAfterLibrary, setAddAfterLibrary] = useState<string[] | null>(null);
+  const [barElement, setBarElement] = useState<HTMLDivElement | null>(null);
+  const compactBar = useCompactBar(barElement);
   const [importSource, setImportSource] = useState('');
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [relinks, setRelinks] = useState<Record<string, string>>({});
@@ -1438,6 +1443,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       if (importAfterCreate) {
         setImportAfterCreate(false);
         openImport();
+      } else if (addAfterLibrary) {
+        // Straight on to the import review in the same open dialog: closing
+        // it first would queue a close event that dismisses the review.
+        const paths = addAfterLibrary;
+        setAddAfterLibrary(null);
+        openIngest(paths);
       } else setForm(null);
     } catch (e) {
       setError(String(e));
@@ -1495,8 +1506,29 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   };
   const importExternal = useRef<(paths: string[]) => void>(() => {});
   importExternal.current = (paths) => {
-    if (session && !importing) openIngest(paths);
+    if (importing) return;
+    if (session) return openIngest(paths);
+    if (busy || form) return;
+    // No library yet: create or open one first, then add (addAfterLibrary).
+    setAddAfterLibrary(paths);
+    setCatalog(false);
+    setImportAfterCreate(false);
+    setForm('create');
   };
+  useEffect(() => {
+    // Dialog dismissed without a library: the photo is not added later.
+    if (!form && !session && !busy) setAddAfterLibrary(null);
+  }, [form, session, busy]);
+  useEffect(() => {
+    // An opened library (Open… in the create dialog, which stays open):
+    // the import review replaces the dialog's content without closing it.
+    if (!session || !addAfterLibrary || busy || form !== 'create') return;
+    const paths = addAfterLibrary;
+    setAddAfterLibrary(null);
+    openIngest(paths);
+    // openIngest is recreated each render; the trigger is the library arriving.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, addAfterLibrary, busy, form]);
   useEffect(() => {
     const open = (event: Event) => importExternal.current((event as CustomEvent<{ paths: string[] }>).detail.paths);
     window.addEventListener('rawtonic:import-external-photo', open);
@@ -1763,7 +1795,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       {/* One bar for the job (left), the workspace's modules (middle, filled
           by the studio) and the job's actions (right), like Lightroom's
           identity plate and module picker on a single row. */}
-      <div className="session-bar" data-tauri-drag-region={nativeTitlebar || undefined}>
+      <div
+        ref={setBarElement}
+        className={`session-bar${compactBar ? ' is-compact' : ''}`}
+        data-tauri-drag-region={nativeTitlebar || undefined}
+      >
         <div className="session-bar-start" data-tauri-drag-region={nativeTitlebar || undefined}>
           <span className="session-mark" title={t('session.bar.markTitle')} aria-hidden>
             <RawtonicMark size={18} />
@@ -2404,6 +2440,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 </label>
               </fieldset>
             )}
+            {addAfterLibrary && !session && (
+              <p className="session-create-description" role="note">
+                {t('session.create.addAfterLibrary')}
+              </p>
+            )}
             <p className="session-create-description">
               {catalog || importAfterCreate
                 ? t('session.create.catalogDescription')
@@ -2450,6 +2491,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             )}
             <div className="session-dialog-footer">
               <span>{t('session.create.originalsUntouched')}</span>
+              {addAfterLibrary && !session && (
+                <button type="button" className="session-action" disabled={busy} onClick={() => void openSession()}>
+                  <FolderOpen size={16} aria-hidden />
+                  {t('session.welcome.open')}
+                </button>
+              )}
               <button
                 type="submit"
                 className="session-action session-primary"
