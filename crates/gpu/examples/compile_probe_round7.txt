@@ -1,5 +1,0 @@
-# WCC2 round 7 (G76): the app passes 4145 through (WGT10) and still takes 99 s, the probe 6.6 s with the same SPIR-V. App device vs probe device, app layout and display path vs probe layout.
-pt_4145 features=4145 dce spirv
-appdev_4145 features=4145 dce spirv spv=appdevice
-proc_4145 features=4145 dce spv=proc
-proc_4113 features=4113 dce spv=proc

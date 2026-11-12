@@ -27,6 +27,12 @@
 //! - `spv`: with `spirv`, writer options as wgpu-hal sets them: `nodebug`,
 //!   `halflags`, `caps`, `bufrestrict`, `imgrestrict`, `zeronative`, or `hal`
 //!   for all.
+//! - Passthrough caution: wgpu-hal numbers Vulkan bindings densely over the
+//!   layout it is given. `spirv` writes its bindings that way for the
+//!   layout it makes (the module's bindings); `spvfile` with `ranks` is
+//!   correct only when the module's bindings are a gap-free prefix of
+//!   `ranks` — otherwise the shader reads other descriptors and the driver
+//!   compiles a broken pipeline fast (G76/WCC2 rounds 3–8, invalid).
 //! - `spvfile`: with `spirv`, pass this SPIR-V file through instead;
 //!   `ranks=b,b,…`: the layout's bindings numbered as wgpu-hal does (rank
 //!   among these WGSL bindings), for SPIR-V written that way.

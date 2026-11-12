@@ -1,4 +1,0 @@
-# WCC2 round 8 (G76): round 7's processor path took 182 s (4145) / 12 s (4113) where the app device alone was fast. Does the processor pass through (log lines on the console), does it hand over app4145.spv byte for byte, and what else compiles meanwhile?
-appfile_4145 features=4145 dce spirv spvfile=app4145.spv ranks=0,1,2,3,4,5,6,7,8,9,17,18,19,20,21,22,23,10,11,12,13,16,14,24,26,27,28
-proc_4145 features=4145 dce spv=proc spvfile=app4145.spv
-proc_4113 features=4113 dce spv=proc spvfile=app4113.spv

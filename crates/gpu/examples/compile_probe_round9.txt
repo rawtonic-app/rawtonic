@@ -1,5 +1,0 @@
-# WCC2 round 9 (G76): passthrough with bindings numbered as wgpu-hal numbers them (rounds 3-8 mismatched, invalid). Is correctly bound passthrough as slow as wgpu (expected ~100-140 s), and does DontInline help when bound correctly?
-wgpu_4145 features=4145 dce
-pt_4145 features=4145 dce spirv spv=hal
-ni_4145 features=4145 dce spirv spv=hal noinline=all
-nitone_4145 features=4145 dce spirv spv=hal noinline=apply_tonal_adjustments,apply_tonal_adjustments_v5,camera_raw_shadows_blacks_gain_unordered,camera_raw_shadows_blacks_gain,camera_raw_level_slope_black
