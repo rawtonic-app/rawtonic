@@ -539,7 +539,7 @@
       "none": "Ninguna aplicación abre estos archivos",
       "other": "Otra…",
       "reading": "Buscando aplicaciones…",
-      "unsupported": "Solo disponible en macOS"
+      "unsupported": "Aún no disponible en Linux"
     },
     "tagging": {
       "addTagTooltip": "Añadir etiqueta",
@@ -5355,8 +5355,10 @@
         "rejectThis": "Rechazar esta foto"
       },
       "footer": {
+        "addToLibrary": "Añadir a la biblioteca…",
         "copy": "Copiar",
         "copyAdjustments": "Copiar ajustes",
+        "externalPhoto": "1 foto · fuera de la biblioteca",
         "filmstrip": "Tira de imágenes",
         "hideFilmstrip": "Ocultar la tira de imágenes",
         "next": "Foto siguiente",

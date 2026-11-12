@@ -18,3 +18,9 @@ test pass does not establish native window behavior or text geometry.
 On macOS, smoke-check the native title bar, original shortcut notation, window
 restoration and the Develop footer at both interface scales. The new chrome
 CSS and minimum-size enforcement are scoped away from macOS.
+
+Interface size is loaded from the app configuration directory's `settings.json`
+on every fresh start (`uiScale`: `1`, `1.12`, or `1.25`), as well as through
+Preferences → Interface size. Close the app before editing the file and use
+the configuration directory for the executable being tested (QA builds have
+their own identifier and settings directory).

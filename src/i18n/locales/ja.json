@@ -505,7 +505,7 @@
       "none": "これらのファイルを開けるアプリケーションがありません",
       "other": "その他…",
       "reading": "アプリケーションを検索中…",
-      "unsupported": "macOS でのみ利用できます"
+      "unsupported": "Linux ではまだ利用できません"
     },
     "tagging": {
       "addTagTooltip": "タグを追加",
@@ -5022,8 +5022,10 @@
         "rejectThis": "この写真を不採用"
       },
       "footer": {
+        "addToLibrary": "ライブラリに追加…",
         "copy": "コピー",
         "copyAdjustments": "補正をコピー",
+        "externalPhoto": "1枚の写真 · ライブラリ外",
         "filmstrip": "フィルムストリップ",
         "hideFilmstrip": "フィルムストリップを隠す",
         "next": "次の写真",

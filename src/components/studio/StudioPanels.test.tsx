@@ -1,4 +1,5 @@
 import '../../i18n';
+import { registerAppCommands } from '../../utils/appCommands';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import StudioWorkspace from './StudioWorkspace';
@@ -309,4 +310,29 @@ it('names the open photograph in the Develop and Library footers by its file, on
     expect(view.container.querySelector<HTMLElement>('.studio-viewer-filename')?.title).toBe(path);
     view.unmount();
   }
+});
+
+it('shows a loose photo alone and highlighted, then restores the library on return', () => {
+  const files = [{ path: '/library/a.dng', is_raw: true } as ImageFile];
+  const { container } = workspace(files);
+  expect(container.querySelector('.studio-counter')?.textContent).toBe('1 photo · not in library');
+  const film = screen.getByRole('listbox', { name: 'Filmstrip' });
+  expect(film.querySelectorAll('[role="option"]')).toHaveLength(1);
+  expect(film.querySelector('.studio-photo-open')?.getAttribute('title')).toContain('current.dng');
+  expect(film.querySelector('.is-current')).not.toBeNull();
+  expect(film.textContent).not.toContain('a.dng');
+  fireEvent.contextMenu(film.querySelector('[role="option"]')!);
+  expect(screen.getByText('Add to library…').closest('button')?.disabled).toBe(true);
+  const unregister = registerAppCommands({ import_photos: { run: noop } });
+  const importing = vi.fn();
+  window.addEventListener('rawtonic:import-external-photo', importing);
+  fireEvent.contextMenu(film.querySelector('[role="option"]')!);
+  fireEvent.click(screen.getAllByText('Add to library…').at(-1)!);
+  expect(importing).toHaveBeenCalledOnce();
+  expect((importing.mock.calls[0][0] as CustomEvent).detail.paths).toEqual(['/qa/current.dng']);
+  window.removeEventListener('rawtonic:import-external-photo', importing);
+  unregister();
+  act(() => useUIStore.setState({ activeView: 'library' }));
+  expect(container.querySelector('.studio-library-footer')?.textContent).toContain('1');
+  expect(screen.getByRole('listbox').textContent).toContain('a.dng');
 });

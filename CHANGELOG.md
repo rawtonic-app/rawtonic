@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Loose photos opened in Develop appear alone and highlighted in the filmstrip, with an explicit library status and an Add to library action that opens import for review. Returning to Library restores its photos. On Windows, when enforcing the interface minimum makes the window grow past the screen, it is moved back inside the monitor work area.
+
+- **Windows: Open With and Edit With.** Both list the programs Windows offers for the file type (the recommended programs of Explorer's *Open with*, such as Photos and Paint, with their icons; the default first), plus *Other…* for any program file (`.exe`), which is remembered and offered from then on. Edit With renders the photos beside their originals as on the Mac, adds them to the library stacked with their originals, opens them in the program and picks up its saves. Paths with spaces and non-Latin letters work; a path of 260 characters or more is handed over in its short form where the volume has one.
+
 - Thumbnails, the Library loupe and the Develop fit view show capture sharpening at Radius up to 1 about as the export shows it scaled down (within about ±15 % per detail band). Before, Radius 0.5–1 sharpening was missing from every reduced view (its blur fell below one preview pixel) and high Detail softened them instead. Larger radii now show in thumbnails too but are still stronger than in the scaled export (up to about 1.3× at Detail 25, 2× at Detail 100). Exports are unchanged.
 
 - Trash refuses a photo whose file is also another hard-linked photo in the active library, and names the other photo before changing anything.

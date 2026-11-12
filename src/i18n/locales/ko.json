@@ -505,7 +505,7 @@
       "none": "이 파일을 여는 응용 프로그램이 없습니다",
       "other": "기타…",
       "reading": "응용 프로그램 찾는 중…",
-      "unsupported": "macOS에서만 사용할 수 있습니다"
+      "unsupported": "Linux에서는 아직 사용할 수 없습니다"
     },
     "tagging": {
       "addTagTooltip": "태그 추가",
@@ -5022,8 +5022,10 @@
         "rejectThis": "이 사진 거부"
       },
       "footer": {
+        "addToLibrary": "라이브러리에 추가…",
         "copy": "복사",
         "copyAdjustments": "조정 복사",
+        "externalPhoto": "사진 1장 · 라이브러리 외부",
         "filmstrip": "필름스트립",
         "hideFilmstrip": "필름스트립 숨기기",
         "next": "다음 사진",

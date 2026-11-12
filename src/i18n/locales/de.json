@@ -516,7 +516,7 @@
       "none": "Kein Programm öffnet diese Dateien",
       "other": "Andere…",
       "reading": "Programme werden gesucht…",
-      "unsupported": "Nur unter macOS verfügbar"
+      "unsupported": "Unter Linux noch nicht verfügbar"
     },
     "tagging": {
       "addTagTooltip": "Tag hinzufügen",
@@ -5157,8 +5157,10 @@
         "rejectThis": "Dieses Foto ablehnen"
       },
       "footer": {
+        "addToLibrary": "Zur Bibliothek hinzufügen…",
         "copy": "Kopieren",
         "copyAdjustments": "Anpassungen kopieren",
+        "externalPhoto": "1 Foto · nicht in der Bibliothek",
         "filmstrip": "Filmstreifen",
         "hideFilmstrip": "Filmstreifen ausblenden",
         "next": "Nächstes Foto",

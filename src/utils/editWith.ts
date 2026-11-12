@@ -19,15 +19,26 @@ export interface AppChoice {
 }
 
 export interface AppChoices {
-  /** False where the system cannot list programs (only macOS so far). */
+  /** False where the system cannot list programs (macOS and Windows can). */
   supported: boolean;
   apps: AppChoice[];
 }
 
 export interface OpenWithPrefs {
   recentApps: string[];
+  /** Program files picked with "Choose program…" (Windows). */
+  pickedApps?: string[];
   editRecipe: string | null;
 }
+
+/** A program's name from its id when the menu's name is not at hand: the
+ * bundle or program file without its extension (`/Applications/Preview.app`,
+ * `C:\\…\\Photoshop.exe`), or a Windows packaged app's name as it is. */
+export const programName = (program: string) =>
+  program
+    .split(/[\\/]/)
+    .pop()
+    ?.replace(/\.(app|exe)$/i, '') || program;
 
 /** An Edit With recipe: what the renders are exported with. */
 export interface EditRecipe {

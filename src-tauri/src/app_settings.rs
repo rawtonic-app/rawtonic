@@ -1353,6 +1353,14 @@ mod tests {
     use crate::state::settings::SettingsStore;
 
     #[test]
+    fn interface_size_edited_while_closed_is_read_on_next_start() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        fs::write(&path, r#"{"uiScale":1.25}"#).unwrap();
+        assert_eq!(load_settings_file(&path).unwrap().ui_scale, Some(1.25));
+    }
+
+    #[test]
     fn removed_raw_highlight_compression_is_ignored_and_not_saved() {
         for value in ["2.5", "10.0", "null"] {
             let temp = tempfile::tempdir().unwrap();
