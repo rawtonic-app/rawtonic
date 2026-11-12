@@ -174,8 +174,6 @@ it('says Edit With is not available for photographs with generated areas', async
   });
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
-    if (command === 'open_with_pick')
-      return { ...windowsApps.apps[1], path: 'D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe' };
     if (command === 'edit_with_apps') return apps;
   });
   render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
@@ -192,8 +190,6 @@ it("shows another Edit With failure's message, also one that starts like the gen
   vi.mocked(runEditWith).mockRejectedValueOnce({ code: 'internal', message: 'generated-areas: not the code' });
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
-    if (command === 'open_with_pick')
-      return { ...windowsApps.apps[1], path: 'D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe' };
     if (command === 'edit_with_apps') return apps;
   });
   render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
