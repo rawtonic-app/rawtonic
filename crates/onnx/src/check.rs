@@ -857,13 +857,14 @@ mod tests {
         let GpuEnd::Ran(_, (_, _, warm)) = gpu_runs(
             || Ok(()),
             move |_: &mut ()| {
-                // The first run compiles: 1.1x the CPU's 100 ms.
+                // The first run compiles: 1.1x the CPU's 300 ms. Leave 30 ms before the
+                // refusal threshold so scheduler jitter does not skip the warm run.
                 if counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                    std::thread::sleep(Duration::from_millis(110));
+                    std::thread::sleep(Duration::from_millis(330));
                 }
                 Ok(())
             },
-            Duration::from_millis(100),
+            Duration::from_millis(300),
             Duration::from_secs(5),
             &Stop::new(),
         )
@@ -871,7 +872,7 @@ mod tests {
             panic!("the runs did not finish");
         };
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
-        assert!(warm.unwrap() < Duration::from_millis(85));
+        assert!(warm.unwrap() < Duration::from_millis(255));
     }
 
     /// A first run beyond 1.2x the CPU is refused without a warm run.
