@@ -387,6 +387,7 @@ export function restoreLastSession(
   navigate: (summary: SessionSummary) => Promise<void>,
   setError: (message: string) => void
 ) {
+  // Launch photos wait until this navigation can no longer clear the editor.
   useProcessStore.getState().setProcess({ startupLibraryReady: false });
   const notice = 'session-restore';
   const slow = window.setTimeout(() => {
