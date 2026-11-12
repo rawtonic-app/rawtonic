@@ -5635,33 +5635,46 @@ fn sharpen_kernel_response(sigma: f32, reach: i32, f: f32) -> f32 {
 }
 
 // A reduced render's kernel when the scaled export kernel is narrow (σ'
-// below 1 px, where a sampled Gaussian's response departs from it): five taps per axis
-// (1, x, y relative to the centre; w = 1 when used) whose response equals
-// the export kernel's at the same scene frequencies (0, ¼ and ½ cycles per
-// reduced pixel). A sampled Gaussian of the same variance (`sharpen_sigma`)
-// has the right blur only for coarse detail: at Detail 100 the fine and
-// the wide band's coarse parts cancel and what is left was a third of the
-// export's.
+// below 1 px, where a sampled Gaussian's response departs from it): seven
+// taps per axis, x = 1 when used and (1, y, z, w) the taps from the centre
+// out. They keep the export kernel's variance at the reduced scale (its
+// response to coarse detail, where Detail's two bands nearly cancel and
+// the sign of what is left matters) and its response at ¼ and ½ cycle per
+// reduced pixel. A sampled Gaussian of the same variance (`sharpen_sigma`)
+// has the right response only for coarse detail: at Detail 100 a third of
+// the export's sharpening was left.
 fn sharpen_fir(sigma_full: f32, reach: i32, detail_scale: f32) -> vec4<f32> {
-    if (detail_scale >= 1.0
-        || sharpen_kernel_variance(sigma_full, reach) * detail_scale * detail_scale >= 1.0) {
-        return vec4<f32>(1.0, 0.0, 0.0, 0.0);
+    let v = sharpen_kernel_variance(sigma_full, reach) * detail_scale * detail_scale;
+    if (detail_scale >= 1.0 || v >= 1.0) {
+        return vec4<f32>(0.0);
     }
     let g1 = sharpen_kernel_response(sigma_full, reach, 0.25 * detail_scale);
     let g2 = sharpen_kernel_response(sigma_full, reach, 0.5 * detail_scale);
-    let c1 = (1.0 - g2) / 4.0;
-    let c0 = ((1.0 + g2) / 2.0 + g1) / 2.0;
-    let c2 = ((1.0 + g2) / 2.0 - g1) / 4.0;
-    return vec4<f32>(1.0, c1 / c0, c2 / c0, 1.0);
+    // c0 + 2 (c1 + c2 + c3) = 1, 2 (c1 + 4 c2 + 9 c3) = v,
+    // c0 - 2 c2 = g1, c0 - 2 c1 + 2 c2 - 2 c3 = g2.
+    let odd = (1.0 - g2) / 4.0;
+    let even = (1.0 + g2) / 2.0;
+    let c0 = (even + g1) / 2.0;
+    let c2 = (even - g1) / 4.0;
+    let c3 = (v - 8.0 * c2 - 2.0 * odd) / 16.0;
+    let c1 = odd - c3;
+    return vec4<f32>(1.0, c1 / c0, c2 / c0, c3 / c0);
 }
 
 // The weight at (x, y): `fir`'s taps when it is used, else `gaussian`.
 fn sharpen_weight(fir: vec4<f32>, gaussian: f32, x: i32, y: i32) -> f32 {
-    let ax = abs(x);
-    let ay = abs(y);
-    let tx = select(select(0.0, fir.z, ax == 2), select(fir.y, 1.0, ax == 0), ax <= 1);
-    let ty = select(select(0.0, fir.z, ay == 2), select(fir.y, 1.0, ay == 0), ay <= 1);
-    return select(gaussian, tx * ty, fir.w > 0.5);
+    return select(gaussian, sharpen_tap(fir, x) * sharpen_tap(fir, y), fir.x > 0.5);
+}
+
+fn sharpen_tap(fir: vec4<f32>, n: i32) -> f32 {
+    let a = abs(n);
+    return select(select(select(0.0, fir.w, a == 3), fir.z, a == 2), select(fir.y, 1.0, a == 0), a <= 1);
+}
+
+// The sum of `fir`'s weights over its 7 x 7 taps.
+fn sharpen_fir_sum(fir: vec4<f32>) -> f32 {
+    let line = 1.0 + 2.0 * (fir.y + fir.z + fir.w);
+    return line * line;
 }
 
 // The sharpening kernel's σ (`sigma_full` the full-resolution σ in pixels,
@@ -5805,13 +5818,12 @@ fn apply_sharpen(
     // pixels, so scaled-down previews show it smaller, as in Lightroom.
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
     let sigma = sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2);
-    let v1_fir = sharpen_fir(SHARPEN_RADIUS, 2, detail_scale);
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
     var blur_w = 0.0;
     for (var sy = -2; sy <= 2; sy = sy + 1) {
         for (var sx = -2; sx <= 2; sx = sx + 1) {
-            let w = sharpen_weight(v1_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy);
+            let w = exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma));
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
             blur_sum += sharpen_perc(load_input(c).rgb, is_raw) * w;
             blur_w += w;
@@ -5896,7 +5908,7 @@ fn apply_sharpen_extended(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 2, narrow_fir.w > 0.5 || wide_fir.w > 0.5));
+    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
     var wide_sum = 0.0;
     var wide_w = 0.0;
 
@@ -6056,7 +6068,7 @@ fn apply_sharpen_v2(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 2, narrow_fir.w > 0.5 || wide_fir.w > 0.5));
+    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
@@ -6195,7 +6207,7 @@ fn apply_sharpen_v4(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 2, narrow_fir.w > 0.5 || wide_fir.w > 0.5));
+    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
@@ -6245,8 +6257,11 @@ fn apply_sharpen_v4(
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
             for (var kx = -2; kx <= 2; kx = kx + 1) {
-                w_1 += sharpen_weight(fir_1, exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1)), kx, ky);
+                w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
             }
+        }
+        if (fir_1.x > 0.5) {
+            w_1 = sharpen_fir_sum(fir_1);
         }
         kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
     }
@@ -6372,7 +6387,7 @@ fn apply_sharpen_v5(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 2, narrow_fir.w > 0.5 || wide_fir.w > 0.5));
+    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
@@ -6422,8 +6437,11 @@ fn apply_sharpen_v5(
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
             for (var kx = -2; kx <= 2; kx = kx + 1) {
-                w_1 += sharpen_weight(fir_1, exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1)), kx, ky);
+                w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
             }
+        }
+        if (fir_1.x > 0.5) {
+            w_1 = sharpen_fir_sum(fir_1);
         }
         kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
     }
@@ -6579,7 +6597,7 @@ fn apply_sharpen_v7(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 2, narrow_fir.w > 0.5 || wide_fir.w > 0.5));
+    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
@@ -6629,8 +6647,11 @@ fn apply_sharpen_v7(
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
             for (var kx = -2; kx <= 2; kx = kx + 1) {
-                w_1 += sharpen_weight(fir_1, exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1)), kx, ky);
+                w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
             }
+        }
+        if (fir_1.x > 0.5) {
+            w_1 = sharpen_fir_sum(fir_1);
         }
         kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
     }
@@ -6772,7 +6793,7 @@ fn apply_sharpen_v8(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 2, narrow_fir.w > 0.5 || wide_fir.w > 0.5));
+    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     // The spreads are summed around this pixel's own value, not around 0:
@@ -6833,8 +6854,11 @@ fn apply_sharpen_v8(
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
             for (var kx = -2; kx <= 2; kx = kx + 1) {
-                w_1 += sharpen_weight(fir_1, exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1)), kx, ky);
+                w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
             }
+        }
+        if (fir_1.x > 0.5) {
+            w_1 = sharpen_fir_sum(fir_1);
         }
         kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
     }

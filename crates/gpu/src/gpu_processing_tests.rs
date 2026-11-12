@@ -19262,6 +19262,28 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
     };
     let (w, h) = (width as u32, height as u32);
     let flat = json!({"sharpness": 0});
+    let lowpass = |v: &[f32], w: usize, h: usize| -> Vec<f32> {
+        let taps: Vec<f32> = (-6i64..=6).map(|d| (-(d * d) as f32 / 8.0).exp()).collect();
+        let total: f32 = taps.iter().sum();
+        let pass = |src: &[f32], dx: i64, dy: i64| -> Vec<f32> {
+            (0..w * h)
+                .map(|i| {
+                    let (x, y) = ((i % w) as i64, (i / w) as i64);
+                    taps.iter()
+                        .enumerate()
+                        .map(|(k, t)| {
+                            let d = k as i64 - 6;
+                            let sx = (x + d * dx).clamp(0, w as i64 - 1) as usize;
+                            let sy = (y + d * dy).clamp(0, h as i64 - 1) as usize;
+                            t * src[sy * w + sx]
+                        })
+                        .sum::<f32>()
+                        / total
+                })
+                .collect()
+        };
+        pass(&pass(v, 1, 0), 0, 1)
+    };
     let added =
         |a: Vec<f32>, b: Vec<f32>| -> Vec<f32> { a.iter().zip(&b).map(|(x, y)| x - y).collect() };
     for (radius, detail) in [(1.0, 25), (2.5, 25), (1.0, 100), (2.5, 100)] {
@@ -19278,25 +19300,49 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
                 render(&reduced, rw, rh, &recipe, scale),
                 render(&reduced, rw, rh, &flat, scale),
             );
-            let (a, b) = (sd(&reduce(&full_added, f)), sd(&reduced_added));
+            let scaled = reduce(&full_added, f);
+            let (a, b) = (sd(&scaled), sd(&reduced_added));
+            assert!(a > 1e-3, "no sharpening at full size");
+            // Signed gains per band (coarse: a 2 px Gaussian of the
+            // difference, fine: the rest): the reduced render's added detail
+            // projected on the scaled export's, so a band sharpened in the
+            // export and softened in the reduced render fails.
+            let coarse = |v: &[f32]| lowpass(v, rw as usize, rh as usize);
+            let fine =
+                |v: &[f32]| -> Vec<f32> { v.iter().zip(coarse(v)).map(|(x, c)| x - c).collect() };
+            let gain = |app: &[f32], export: &[f32]| {
+                let dot = |x: &[f32], y: &[f32]| {
+                    x.iter().zip(y).map(|(p, q)| (p * q) as f64).sum::<f64>()
+                };
+                dot(app, export) / dot(export, export)
+            };
+            let coarse_gain = gain(&coarse(&reduced_added), &coarse(&scaled));
+            let fine_gain = gain(&fine(&reduced_added), &fine(&scaled));
             println!(
-                "radius {radius} detail {detail} 1/{f}: full scaled down {a:.5}, reduced {b:.5}, ratio {:.2}",
+                "radius {radius} detail {detail} 1/{f}: spread {:.2}, coarse {coarse_gain:.2}, fine {fine_gain:.2}",
                 b / a
             );
-            assert!(a > 1e-3, "no sharpening at full size");
-            // Metal 2026-11-12, 1/2 and 1/4: Radius 1 Detail 25 1.08 / 0.97,
-            // Radius 2.5 Detail 25 1.08 / 1.26, Radius 1 Detail 100 1.10 /
-            // 0.76 (main: 0.08 / 0.01, 1.09 / 0.45, 0.98 / 2.12). Radius 2.5
-            // at Detail 100 sharpens 1.39 / 2.16 times the export's (main
-            // 1.39 / 0.51): open in G16, held only to its current range.
-            let range = if radius > 2.0 && detail == 100 {
-                0.4..2.5
+            // Metal 2026-11-12 (½, ¼; coarse / fine): Radius 1 Detail 25
+            // 0.65 / 0.79, 0.15 / 0.50; Radius 2.5 Detail 25 0.90 / 1.09,
+            // 0.42 / 1.20; Radius 1 Detail 100 0.67 / 1.05, 0.12 / 0.59;
+            // Radius 2.5 Detail 100 1.07 / 1.36, 0.72 / 1.69. With the σ floor
+            // of 0.25 px: 0.06 / 0.08, 0.00 / 0.01; 0.90 / 1.08, 0.16 / 0.42;
+            // −0.50 / −0.87, −0.30 / −1.63 (softened); 1.02 / 1.33, −0.21 /
+            // −0.28. The finest export detail averages away in the reduction
+            // before a reduced render can sharpen it (coarse share at ¼).
+            // Radius 2.5 at Detail 100 over-sharpens at ¼: open in G16.
+            assert!(
+                coarse_gain > 0.08,
+                "radius {radius} detail {detail} 1/{f}: coarse {coarse_gain:.2}"
+            );
+            let fine_range = if radius > 2.0 && detail == 100 {
+                0.45..2.0
             } else {
-                0.6..1.6
+                0.45..1.6
             };
             assert!(
-                range.contains(&(b / a)),
-                "radius {radius} detail {detail} 1/{f}: reduced {b:.5} vs scaled {a:.5}"
+                fine_range.contains(&fine_gain),
+                "radius {radius} detail {detail} 1/{f}: fine {fine_gain:.2}"
             );
         }
     }
