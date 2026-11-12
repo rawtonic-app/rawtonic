@@ -519,22 +519,51 @@ fn open_as(class: &str, file: &Path) -> Result<(), String> {
     unsafe { ShellExecuteExW(&mut info) }.map_err(|e| format!("{}: {e}", file.display()))
 }
 
-/// Starts the program file `program` with `files` as its arguments.
+/// Starts the program file `program` with `files` as its arguments, in as
+/// many starts as the command-line limit needs.
 fn start_program(program: &str, files: &[PathBuf]) -> Result<(), String> {
-    Command::new(program)
-        .args(files)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(drop)
-        .map_err(|e| format!("{program} could not be started: {e}"))
+    let files: Vec<String> = files
+        .iter()
+        .map(|f| f.to_string_lossy().into_owned())
+        .collect();
+    for batch in handlers::command_batches(program, &files, handlers::MAX_COMMAND_LINE) {
+        Command::new(program)
+            .args(batch)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(drop)
+            .map_err(|e| format!("{program} could not be started: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Whether the classes have `key` (`Applications\editor.exe\shell`).
+fn has_key(key: &str) -> bool {
+    let mut opened = HKEY::default();
+    // SAFETY: a valid key name and out handle, closed below.
+    if unsafe {
+        RegOpenKeyExW(
+            HKEY_CLASSES_ROOT,
+            &HSTRING::from(key),
+            0,
+            KEY_READ,
+            &mut opened,
+        )
+    } != ERROR_SUCCESS
+    {
+        return false;
+    }
+    // SAFETY: the key opened above, closed once.
+    let _ = unsafe { RegCloseKey(opened) };
+    true
 }
 
 /// Opens `files` in `program`: through the shell with the program's ProgID
-/// for the first file's type (each file), or, for a program file without
-/// one (registered only by its file name, or picked by the user), by
-/// starting it with all files as arguments. `Picked` when the program is
+/// for the first file's type, or its `Applications\` registration (each
+/// file), or, for a program file without either (picked by the user), by
+/// starting it with the files as arguments. `Picked` when the program is
 /// not among the ones offered for the type.
 pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
     let first = files.first().ok_or("No files to open.")?;
@@ -550,7 +579,13 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
         } else {
             Launched::Picked
         };
-        if let Some(class) = handlers::progid_for(program, &progids(&extension)) {
+        // A program registered by its file name only (Explorer's
+        // `OpenWithList`) keeps its own command under `Applications\`.
+        let registered = Path::new(program)
+            .file_name()
+            .map(|name| format!(r"Applications\{}", name.to_string_lossy()))
+            .filter(|class| program_file && has_key(&format!(r"{class}\shell")));
+        if let Some(class) = handlers::progid_for(program, &progids(&extension)).or(registered) {
             for file in &handoff {
                 open_as(&class, file)?;
             }

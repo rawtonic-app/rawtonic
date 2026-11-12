@@ -155,6 +155,42 @@ pub fn progid_for(id: &str, progids: &[ProgId]) -> Option<String> {
         .map(|p| p.class.clone())
 }
 
+/// The longest command line Windows starts (`CreateProcess`: 32,767
+/// characters with its terminating NUL).
+pub const MAX_COMMAND_LINE: usize = 32_766;
+
+/// The characters an argument takes on a command line: quoted, with a
+/// space before it, and room for doubled backslashes before the quote.
+fn argument_len(arg: &str) -> usize {
+    let units = arg.encode_utf16().count();
+    let trailing = arg.chars().rev().take_while(|&c| c == '\\').count();
+    units + trailing + 3
+}
+
+/// The files of one start each, in order, so that no command line of
+/// `program` with its files is longer than `limit`: a large selection is
+/// handed over in several starts of the program. A file too long for any
+/// command line on its own gets a start of its own (and fails there).
+pub fn command_batches<'a>(program: &str, files: &'a [String], limit: usize) -> Vec<&'a [String]> {
+    let base = argument_len(program);
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut len = base;
+    for (i, file) in files.iter().enumerate() {
+        let arg = argument_len(file);
+        if i > start && len + arg > limit {
+            batches.push(&files[start..i]);
+            start = i;
+            len = base;
+        }
+        len += arg;
+    }
+    if start < files.len() {
+        batches.push(&files[start..]);
+    }
+    batches
+}
+
 /// A program file the user picked with "Choose program…": an absolute path
 /// to an `.exe`.
 pub fn is_program_file(program: &str) -> bool {
@@ -391,6 +427,32 @@ mod tests {
             .as_deref(),
             Some("TIFImage.Document")
         );
+    }
+
+    #[test]
+    fn a_large_selection_is_handed_over_in_starts_that_fit_the_command_line() {
+        let program = r"C:\Program Files\Viewer\viewer.exe".to_string();
+        // 200 photos with 170-character paths: 34,000 characters in one.
+        let files: Vec<String> = (0..200)
+            .map(|i| format!(r"D:\Fotos\{}\Größe {i:03}.tiff", "x".repeat(150)))
+            .collect();
+        let batches = command_batches(&program, &files, MAX_COMMAND_LINE);
+        assert!(batches.len() >= 2, "{}", batches.len());
+        assert_eq!(batches.concat(), files);
+        for batch in &batches {
+            let line: usize =
+                argument_len(&program) + batch.iter().map(|f| argument_len(f)).sum::<usize>();
+            assert!(line <= MAX_COMMAND_LINE, "{line}");
+        }
+        // A few files go in one start; nothing in none.
+        assert_eq!(
+            command_batches(&program, &files[..3], MAX_COMMAND_LINE).len(),
+            1
+        );
+        assert!(command_batches(&program, &[], MAX_COMMAND_LINE).is_empty());
+        // A file too long for any line still gets its own start.
+        let huge = vec!["a".repeat(40_000), "b".into()];
+        assert_eq!(command_batches(&program, &huge, MAX_COMMAND_LINE).len(), 2);
     }
 
     #[test]
