@@ -38,7 +38,9 @@
 //!   among these WGSL bindings), for SPIR-V written that way.
 //! - `spv=cache`: compile through an empty pipeline cache, as the app does.
 //! - `spv=proc`: the app's device start and a processor; the variant compiles
-//!   through the processor's display path. `spv=appdevice` (with `spirv`):
+//!   through the processor's display path (its own shader for `features`:
+//!   no stubs, source, constants or passthrough; no nonce, so clear the
+//!   driver's cache between runs). `spv=appdevice` (with `spirv`):
 //!   the probe's SPIR-V and layout on the app's device.
 //! - `noinline`: with `spirv`, mark these functions (or `all` but the entry
 //!   point) DontInline: whether the driver compiles each once.
@@ -311,11 +313,10 @@ fn one(line: &str) -> Result<String, String> {
         if let Ok(dir) = std::env::var("COMPILE_PROBE_DUMP") {
             let name = line.split_whitespace().next().unwrap_or("probe");
             let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
-            std::fs::write(
-                std::path::Path::new(&dir).join(format!("{name}.spv")),
-                bytes,
-            )
-            .map_err(|e| e.to_string())?;
+            dump(
+                &std::path::Path::new(&dir).join(format!("{name}.spv")),
+                &bytes,
+            )?;
             return Ok(format!("{{\"dumped\":true,\"noinline_marked\":{marked}}}"));
         }
         (Some(words), marked)
@@ -326,6 +327,23 @@ fn one(line: &str) -> Result<String, String> {
     // processor, the variant compiled through the processor's display path
     // (its layout, pipeline cache and passthrough choice).
     if knob_set(&spec.spv, "proc") {
+        // The processor compiles its own built-in shader for `features`:
+        // stubs, another source, extra constants or passthrough would be
+        // ignored there, so they are refused; without a nonce a repeated run
+        // can be answered by the driver's cache (clear it between runs).
+        if !spec.stubs.is_empty()
+            || spec.src.is_some()
+            || !spec.set.is_empty()
+            || spec.spirv
+            || spec.unchecked
+            || !spec.noinline.is_empty()
+        {
+            return Err(
+                "spv=proc compiles the processor's own shader for `features` only; \
+                 stub, src, set, spirv, unchecked and noinline do not apply"
+                    .into(),
+            );
+        }
         if log::set_logger(&StderrLog).is_ok() {
             log::set_max_level(log::LevelFilter::Info);
         }
@@ -654,6 +672,20 @@ impl log::Log for StderrLog {
         }
     }
     fn flush(&self) {}
+}
+
+/// Writes a dump through a temporary file published without overwriting:
+/// an existing dump of that name is an error, never replaced.
+fn dump(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write as _;
+    let mut temp =
+        rawtonic_fs::temp::file_for(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    temp.write_all(bytes)
+        .and_then(|()| temp.as_file().sync_all())
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    rawtonic_fs::no_clobber::persist(temp, path)
+        .map(|_| ())
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn knob_set(knobs: &[String], name: &str) -> bool {
