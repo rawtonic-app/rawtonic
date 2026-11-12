@@ -19,9 +19,12 @@ fn a_catalog_with_verbatim_folders_finds_its_photographs_under_plain_paths() {
     fs::create_dir_all(&empty).unwrap();
     let photo = shoot.join("a.jpg");
     fs::write(&photo, b"synthetic photograph").unwrap();
+    let trashed = shoot.join("b.jpg");
+    fs::write(&trashed, b"another synthetic photograph").unwrap();
     let id = {
         let lib = Library::create(&catalog, "Main", Mode::Catalog).unwrap();
         let id = lib.add_asset(&photo).unwrap().id;
+        lib.add_asset(&trashed).unwrap();
         lib.save_editor_state(
             &id,
             &json!({"version": 1, "adjustments": {"exposure": 0.7}}),
@@ -60,7 +63,7 @@ fn a_catalog_with_verbatim_folders_finds_its_photographs_under_plain_paths() {
         id,
         "not registered twice"
     );
-    assert_eq!(lib.assets(None).unwrap().len(), 1);
+    assert!(lib.asset_at(&trashed).unwrap().is_some_and(|a| a.id != id));
     assert_eq!(
         lib.editor_state(&id).unwrap().unwrap()["adjustments"]["exposure"],
         json!(0.7)
@@ -84,10 +87,24 @@ fn a_catalog_with_verbatim_folders_finds_its_photographs_under_plain_paths() {
         .iter()
         .find(|row| row.0 == shoot.display().to_string())
         .unwrap();
-    // The drive read now, or the recorded one when it cannot be read.
-    assert!(shoot_row.1.is_some(), "{rows:?}");
-    // A folder without photographs is dropped, as every relocation does.
-    assert!(!rows.iter().any(|row| row.0.contains("Empty")), "{rows:?}");
+    assert_eq!(
+        shoot_row.1.as_deref(),
+        Some("disk-1"),
+        "the recorded drive is kept"
+    );
+    let state: (i64, i64) = db
+        .query_row(
+            "SELECT trashed,missing FROM assets WHERE rel_path='b.jpg'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, (1, 1), "a trashed photograph stays trashed");
+    // A folder without photographs yet keeps its record, now plain.
+    assert!(
+        rows.iter().any(|row| row.0 == empty.display().to_string()),
+        "{rows:?}"
+    );
     // Opening again changes nothing.
     drop(db);
     let lib = Library::open(&catalog).unwrap();

@@ -459,11 +459,11 @@ impl Library {
     /// verbatim form the standard library canonicalized to (`\\?\C:\…`);
     /// paths are plain now (`rawtonic_fs::canonicalize`), so those records
     /// would no longer be found. Rewritten once, when the library opens:
-    /// external folders move to the plain spelling as a relocation does
-    /// (photograph ids, edits and albums kept; the root id follows the path),
-    /// keeping the drive they recorded; the hot folder and drive paths
-    /// follow; the drive cache's old rows go (a cache). Nothing elsewhere
-    /// has such paths, so this finds no rows there.
+    /// each external folder's record takes the plain spelling and the id
+    /// that spelling gives (its drive kept); its photographs' rows move to
+    /// it unchanged; the hot folder and drive paths follow; the drive cache's
+    /// old rows go (a cache). Nothing elsewhere has such paths, so this finds
+    /// no rows there.
     fn plain_stored_paths(&self) -> Result<()> {
         const VERBATIM: &str = r"\\?\";
         let plain = |text: &str| {
@@ -471,24 +471,12 @@ impl Library {
                 .to_string_lossy()
                 .into_owned()
         };
-        type Volume = (
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        );
         let mut roots = self.conn.prepare(
-            "SELECT id,path,volume_id,volume_name,volume_path,volume_kind FROM roots
+            "SELECT id,path,volume_path FROM roots
              WHERE external=1 AND (substr(path,1,4)=?1 OR substr(volume_path,1,4)=?1)",
         )?;
-        let roots: Vec<(String, String, Volume)> = roots
-            .query_map([VERBATIM], |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    (r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?),
-                ))
-            })?
+        let roots: Vec<(String, String, Option<String>)> = roots
+            .query_map([VERBATIM], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<rusqlite::Result<_>>()?;
         let hot_folder: Option<String> = self
             .conn
@@ -507,39 +495,52 @@ impl Library {
             return Ok(());
         }
         let tx = self.conn.unchecked_transaction()?;
-        let mut moved = Vec::new();
-        let mut volumes = Vec::new();
-        for (id, path, (volume_id, name, volume_path, kind)) in roots {
+        let columns: Vec<String> = tx
+            .prepare("SELECT name FROM pragma_table_info('roots') WHERE name NOT IN ('id','path','volume_path')")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        let columns = columns.join(",");
+        for (id, path, volume_path) in roots {
             let new_path = plain(&path);
             let volume_path = volume_path.as_deref().map(plain);
-            let photos: Vec<(String, String)> = tx
-                .prepare("SELECT id,rel_path FROM assets WHERE root_id=?")?
-                .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<rusqlite::Result<_>>()?;
-            if photos.is_empty() {
-                // A folder with no photograph yet: only its record moves.
-                let new_id = external_root_key(Path::new(&new_path));
+            let new_id = external_root_key(Path::new(&new_path));
+            // Only the folder's record changes: every photograph keeps its
+            // row as it is (trashed, missing, edits, albums), moved to the
+            // record under the new id.
+            let taken: bool =
+                tx.query_row("SELECT count(*) FROM roots WHERE id=?", [&new_id], |r| {
+                    r.get::<_, i64>(0)
+                })? > 0;
+            if !taken {
                 tx.execute(
-                    "UPDATE OR IGNORE roots SET id=?,path=?,volume_path=? WHERE id=?",
+                    &format!(
+                        "INSERT INTO roots(id,path,volume_path,{columns}) \
+                         SELECT ?,?,?,{columns} FROM roots WHERE id=?"
+                    ),
                     params![new_id, new_path, volume_path, id],
                 )?;
-                continue;
             }
-            for (photo, relative) in photos {
-                moved.push((photo, native_join(Path::new(&new_path), &relative)));
-            }
-            volumes.push((new_path, volume_id, name, volume_path, kind));
-        }
-        if !moved.is_empty() {
-            self.apply_places(&tx, &moved)?;
-        }
-        for (path, volume_id, name, volume_path, kind) in volumes {
             tx.execute(
-                "UPDATE roots SET volume_id=coalesce(volume_id,?),volume_name=coalesce(volume_name,?),
-                 volume_path=coalesce(?,volume_path),volume_kind=coalesce(volume_kind,?)
-                 WHERE external=1 AND path=?",
-                params![volume_id, name, volume_path, kind, path],
+                "UPDATE assets SET root_id=?1 WHERE root_id=?2 AND NOT EXISTS
+                 (SELECT 1 FROM assets b WHERE b.root_id=?1 AND b.rel_path=assets.rel_path)",
+                params![new_id, id],
             )?;
+            if new_id != id {
+                let left: i64 =
+                    tx.query_row("SELECT count(*) FROM assets WHERE root_id=?", [&id], |r| {
+                        r.get(0)
+                    })?;
+                if left == 0 {
+                    tx.execute("DELETE FROM roots WHERE id=?", [&id])?;
+                } else {
+                    // A photograph registered under both spellings stays on
+                    // its own record, found by the same plain path.
+                    tx.execute(
+                        "UPDATE roots SET path=?,volume_path=? WHERE id=?",
+                        params![new_path, volume_path, id],
+                    )?;
+                }
+            }
         }
         if let Some(folder) = hot_folder {
             tx.execute("UPDATE hot_folder SET folder=?", [plain(&folder)])?;
