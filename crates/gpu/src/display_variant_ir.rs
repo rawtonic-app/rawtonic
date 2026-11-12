@@ -78,10 +78,14 @@ impl DisplayShader {
     }
 
     /// `variant_module` as Vulkan SPIR-V, written as wgpu's Vulkan backend
-    /// writes it for a Vulkan 1.3 device: SPIR-V 1.6, indices and buffers
-    /// bounds-restricted, image loads unchecked (as wgpu with robust image
-    /// access; naga's image-load restriction writes SPIR-V that spirv-val
-    /// rejects), loops bounded, integer division checked.
+    /// writes it for a Vulkan 1.3 device without robust buffer or image
+    /// access: SPIR-V 1.6, indices, buffers and image loads bounds-restricted,
+    /// loops bounded, integer division checked. Image loads must stay
+    /// restricted: unchecked, the first frame on a Radeon 680M lost the device
+    /// (WGT5; the shader reads texels outside a tile's image at its edges).
+    /// spirv-val rejects one constant naga writes for that restriction
+    /// (OpConstantComposite of int into a uvec2); wgpu sends the same, and the
+    /// driver compiles it (WCC2 round 4).
     pub(crate) fn variant_spirv(&self, constants: &[(&str, f64)]) -> Result<Vec<u32>, String> {
         use naga::back::spv;
         use naga::proc::BoundsCheckPolicy as P;
@@ -93,7 +97,7 @@ impl DisplayShader {
             bounds_check_policies: naga::proc::BoundsCheckPolicies {
                 index: P::Restrict,
                 buffer: P::Restrict,
-                image_load: P::Unchecked,
+                image_load: P::Restrict,
                 binding_array: P::Unchecked,
             },
             ..Default::default()

@@ -2928,7 +2928,13 @@ pub(super) fn context() -> GpuContext {
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
     let limits = adapter.limits();
-    let features = adapter.features() & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+    let mut features =
+        adapter.features() & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+    // SPIR-V passthrough as the app's device has it on Vulkan
+    // (`processing_device_descriptor`).
+    if adapter.get_info().backend == wgpu::Backend::Vulkan {
+        features |= adapter.features() & wgpu::Features::PASSTHROUGH_SHADERS;
+    }
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         required_features: features,
         required_limits: limits.clone(),

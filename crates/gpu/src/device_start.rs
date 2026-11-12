@@ -253,6 +253,11 @@ pub fn start_device(
         &adapter.get_info(),
         cfg!(target_os = "windows"),
     ));
+    // A lost device otherwise shows only as the next resource's validation
+    // error (WGT5: "Buffer … is invalid").
+    device.set_device_lost_callback(|reason, message| {
+        log::error!("GPU device lost ({reason:?}): {message}");
+    });
     Ok(StartedDevice {
         instance,
         adapter,
