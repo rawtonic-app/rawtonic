@@ -1157,8 +1157,14 @@ mod resize_transition_tests {
 
 /// Classify OS launch paths before any image decode is requested.
 #[tauri::command]
-pub fn launch_path_is_directory(path: String) -> bool {
-    std::path::Path::new(&path).is_dir()
+pub async fn launch_path_is_directory(path: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || is_launch_directory(&path))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn is_launch_directory(path: &str) -> bool {
+    std::path::Path::new(path).is_dir()
 }
 
 #[cfg(test)]
@@ -1168,11 +1174,7 @@ mod launch_path_tests {
         let dir = tempfile::tempdir().unwrap();
         let image = dir.path().join("photo.tif");
         std::fs::write(&image, b"image").unwrap();
-        assert!(super::launch_path_is_directory(
-            dir.path().to_string_lossy().into_owned()
-        ));
-        assert!(!super::launch_path_is_directory(
-            image.to_string_lossy().into_owned()
-        ));
+        assert!(super::is_launch_directory(&dir.path().to_string_lossy()));
+        assert!(!super::is_launch_directory(&image.to_string_lossy()));
     }
 }
