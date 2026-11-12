@@ -1205,6 +1205,9 @@ fn start(args: Vec<String>) {
                 // saved its pending edits (app_quit.rs).
                 tauri::RunEvent::ExitRequested { api, code, .. } => {
                     api.prevent_exit();
+                    // A GPU check of an AI model running in the background
+                    // stops without a verdict.
+                    rawtonic_onnx::stop_checks();
                     contribute::clean_exit();
                     window_state::flush();
                     second_window::flush();
@@ -1227,6 +1230,7 @@ fn start(args: Vec<String>) {
                     std::process::exit(exit_code);
                 }
                 tauri::RunEvent::Exit => {
+                    rawtonic_onnx::stop_checks();
                     contribute::clean_exit();
                     window_state::flush();
                     second_window::flush();

@@ -7,7 +7,9 @@
 //! Windows, Vulkan on Linux, any GPU vendor) and, when its plugin and the
 //! user's own CUDA libraries are installed, NVIDIA's CUDA. A model is loaded
 //! on the first provider that accepts it and whose output matched the CPU's
-//! on that device (checked once per model and device, `check`); if a run on
+//! on that device and ran faster (checked once per model and device,
+//! `check`; in the app when it is idle, the model on the CPU until the
+//! verdict is known, `background`); if a run on
 //! the GPU later fails or returns non-finite values (`ensure_finite`), the
 //! model is loaded again on the CPU and the run repeated, so a broken driver
 //! costs time, not the tool. The CPU is always last.
@@ -26,10 +28,12 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
+use check::Plan;
 use ort::AsPointer;
 use ort::session::Session;
 use ort::session::builder::SessionBuilder;
 
+mod background;
 pub mod bench;
 mod check;
 mod dxc;
@@ -271,6 +275,10 @@ pub struct Settings {
     pub plugin_dirs: Vec<PathBuf>,
     /// Where the GPU checks' verdicts are kept (`None`: for this process).
     pub checks_file: Option<PathBuf>,
+    /// Check a GPU when the app is idle, the model on the CPU until its
+    /// verdict is known (the app), instead of before the model's first use
+    /// (the CLI, a forced provider).
+    pub check_when_idle: bool,
 }
 
 impl Default for Settings {
@@ -279,6 +287,7 @@ impl Default for Settings {
             gpu: true,
             plugin_dirs: default_plugin_dirs(),
             checks_file: None,
+            check_when_idle: false,
         }
     }
 }
@@ -308,6 +317,41 @@ pub fn configure(settings: Settings) {
 
 pub fn settings() -> Settings {
     SETTINGS.read().unwrap().clone().unwrap_or_default()
+}
+
+/// How a load checks a GPU: before use with a forced provider (it is
+/// being measured) or without `check_when_idle`, else when the app is idle.
+fn checks_for(settings: &Settings, forced: Option<Provider>) -> check::Checks {
+    if forced.is_none() && settings.check_when_idle {
+        check::Checks::Idle
+    } else {
+        check::Checks::Now
+    }
+}
+
+/// The photographer works now (an edit renders): a GPU check running in
+/// the background stops, and queued ones wait until the app is idle again.
+/// Model loads and runs note themselves.
+pub fn note_activity() {
+    check::CHECKS.activity();
+}
+
+/// While it lives, no GPU check runs or changes a verdict (`hold_checks`).
+#[must_use = "checks are held only while this lives"]
+pub struct ChecksHeld(#[allow(dead_code)] background::Busy<check::Job>);
+
+/// Holds the GPU checks for a batch (an export): when this returns, no
+/// verdict changes until the guard is dropped, so every model the batch
+/// loads, also again after a memory-pressure unload, gets the provider the
+/// first one got.
+pub fn hold_checks() -> ChecksHeld {
+    ChecksHeld(check::CHECKS.hold())
+}
+
+/// The app quits: a running GPU check stops without a verdict and none
+/// starts again.
+pub fn stop_checks() {
+    check::CHECKS.shut();
 }
 
 /// The providers to try for `kind`, best first, the CPU last.
@@ -652,7 +696,7 @@ fn is_termination(error: &anyhow::Error) -> bool {
 pub struct Model {
     kind: ModelKind,
     path: PathBuf,
-    state: watch::Slot<Session>,
+    state: Arc<watch::Slot<Session>>,
 }
 
 impl Model {
@@ -660,11 +704,13 @@ impl Model {
     /// accepts it.
     pub fn load(path: &Path, kind: ModelKind) -> Result<Self> {
         let settings = settings();
-        Self::load_on(
+        let forced = forced_provider();
+        Self::load_checked(
             path,
             kind,
-            &candidates(kind, &settings, forced_provider()),
+            &candidates(kind, &settings, forced),
             &settings.plugin_dirs,
+            checks_for(&settings, forced),
         )
     }
 
@@ -686,7 +732,7 @@ impl Model {
         Ok(Self {
             kind,
             path: path.to_path_buf(),
-            state: watch::Slot::new(kind.name(), session, Provider::Cpu),
+            state: Arc::new(watch::Slot::new(kind.name(), session, Provider::Cpu)),
         })
     }
 
@@ -702,47 +748,63 @@ impl Model {
     }
 
     /// Loads `path` on the first of `providers` that works and, for a GPU,
-    /// whose output matched the CPU's (`check`; the CPU only if listed).
+    /// whose output matched the CPU's and that ran faster (`check`; the CPU
+    /// only if listed). A GPU not checked yet is checked when the app is
+    /// idle (`Settings::check_when_idle`, meanwhile the next provider) or
+    /// before the model is used.
     pub fn load_on(
         path: &Path,
         kind: ModelKind,
         providers: &[Provider],
         dirs: &[PathBuf],
     ) -> Result<Self> {
-        Self::load_checked(path, kind, providers, dirs, true)
+        let checks = checks_for(&settings(), forced_provider());
+        Self::load_checked(path, kind, providers, dirs, checks)
     }
 
-    /// `load_on`, with the GPU check only when `checked` (benchmarks report
-    /// the GPU's output as it is).
+    /// `load_on` with `checks` (`Off`: benchmarks report the GPU's output
+    /// as it is).
     pub(crate) fn load_checked(
         path: &Path,
         kind: ModelKind,
         providers: &[Provider],
         dirs: &[PathBuf],
-        checked: bool,
+        checks: check::Checks,
     ) -> Result<Self> {
         // ONNX Runtime missing or broken: an error saying so, not a panic.
         ensure_runtime()?;
+        // A load is the photographer's work too: a running check gives way.
+        if checks != check::Checks::Off {
+            check::CHECKS.activity();
+        }
         let checks_file = settings().checks_file;
         let mut last_error = anyhow!("no provider to try");
+        // Checks queued for this load: the model waits for their verdicts.
+        let mut queued = Vec::new();
         for &provider in providers {
             let started = Instant::now();
             let attempt = if provider == Provider::Cpu {
                 session(path, kind, None).map(|s| (s, "CPU".to_string()))
             } else {
                 device(provider, dirs).and_then(|device| {
-                    // A known "differs" or "slower" needs no GPU session (its
-                    // creation alone compiles shaders).
-                    if checked
-                        && let Some(Err(e)) =
-                            check::prior(path, kind, &device, checks_file.as_ref())
-                    {
-                        return Err(e);
-                    }
-                    let mut gpu = session(path, kind, Some(&device))?;
-                    if checked {
-                        gpu = check::check(path, kind, gpu, &device, checks_file.as_ref())?;
-                    }
+                    let (known, key) = check::known(path, kind, &device, checks_file.as_ref());
+                    let cpu_after = providers.contains(&Provider::Cpu);
+                    let gpu = match check::plan(known, checks, cpu_after) {
+                        Plan::Use => session(path, kind, Some(&device))?,
+                        // A known "differs" or "slower" needs no GPU session
+                        // (its creation alone compiles shaders).
+                        Plan::Skip => {
+                            return Err(check::outcome(known.unwrap(), &key).unwrap_err());
+                        }
+                        Plan::CheckNow => check::check(path, kind, &device, checks_file.as_ref())?,
+                        // The first click does not wait for a measurement
+                        // (gap G76): the CPU now, the check when idle.
+                        Plan::Queue => {
+                            check::queue(path, kind, &device, checks_file.as_ref());
+                            queued.push(key);
+                            return Err(anyhow!("its check on this device has not run yet"));
+                        }
+                    };
                     Ok((gpu, device.label.clone()))
                 })
             };
@@ -753,10 +815,14 @@ impl Model {
                         kind.name(),
                         started.elapsed().as_millis()
                     );
+                    let state = Arc::new(watch::Slot::new(kind.name(), session, provider));
+                    for key in queued {
+                        check::wait_for(key, &state);
+                    }
                     return Ok(Self {
                         kind,
                         path: path.to_path_buf(),
-                        state: watch::Slot::new(kind.name(), session, provider),
+                        state,
                     });
                 }
                 Err(e) => {
@@ -774,6 +840,13 @@ impl Model {
         self.kind
     }
 
+    /// While any model runs, also background tagging on a few CPU threads,
+    /// no GPU check runs (`background`): it would compete with the run and
+    /// time the CPU too slow.
+    fn busy(&self) -> background::Busy<check::Job> {
+        check::CHECKS.busy()
+    }
+
     /// A new CPU session of this model, after a GPU failed.
     fn cpu_session(&self) -> Result<Session> {
         session(&self.path, self.kind, None)
@@ -788,6 +861,7 @@ impl Model {
         T: Send + 'static,
         F: Fn(&mut Session) -> Result<T> + Send + Sync + 'static,
     {
+        let _busy = self.busy();
         self.state
             .run_watched(f, is_termination, || self.cpu_session())
     }
@@ -800,6 +874,8 @@ impl Model {
     /// Runs `f` on the session where it is, never moving to the CPU (for
     /// benchmarks and tests).
     pub fn run_without_fallback<T>(&self, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
+        // Moebius runs this way too: a GPU check must not run beside it.
+        let _busy = self.busy();
         self.state.session().with(f)
     }
 
@@ -808,6 +884,7 @@ impl Model {
     /// runs again there; `f` should return an error for unusable output
     /// (`ensure_finite`).
     pub fn run<T>(&self, f: impl FnMut(&mut Session) -> Result<T>) -> Result<T> {
+        let _busy = self.busy();
         self.state.run(f, is_termination, || self.cpu_session())
     }
 }
@@ -821,6 +898,7 @@ mod tests {
             gpu,
             plugin_dirs: Vec::new(),
             checks_file: None,
+            check_when_idle: false,
         }
     }
 

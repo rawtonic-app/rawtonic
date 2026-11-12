@@ -113,8 +113,15 @@ pub fn bench_file(
         .to_string();
     let kind = ModelKind::from_file_name(&file)
         .ok_or_else(|| anyhow!("{file}: not a file of the model pack"))?;
-    let (cpu_model, cpu_load) =
-        timed(|| Model::load_checked(path, kind, &[Provider::Cpu], dirs, false))?;
+    let (cpu_model, cpu_load) = timed(|| {
+        Model::load_checked(
+            path,
+            kind,
+            &[Provider::Cpu],
+            dirs,
+            crate::check::Checks::Off,
+        )
+    })?;
     let inputs =
         cpu_model.run_without_fallback(|session| Ok(inputs_for(session, kind, picture)))??;
     let (cpu_outputs, cpu) = time_runs(&cpu_model, &inputs, runs, cpu_load)?;
@@ -133,7 +140,7 @@ pub fn bench_file(
         return Ok(report);
     }
     // Unchecked: the benchmark reports the GPU's output as it is.
-    let loaded = timed(|| Model::load_checked(path, kind, &[gpu], dirs, false));
+    let loaded = timed(|| Model::load_checked(path, kind, &[gpu], dirs, crate::check::Checks::Off));
     let (gpu_model, gpu_load) = match loaded {
         Ok(loaded) => loaded,
         Err(e) => {
@@ -199,6 +206,15 @@ pub(crate) enum Input {
 }
 
 pub(crate) fn run_once(session: &mut Session, inputs: &[(String, Input)]) -> Result<Vec<Output>> {
+    run_once_with(session, inputs, None)
+}
+
+/// `run_once` that `options` can stop (`RunOptions::terminate`).
+pub(crate) fn run_once_with(
+    session: &mut Session,
+    inputs: &[(String, Input)],
+    options: Option<&ort::session::RunOptions>,
+) -> Result<Vec<Output>> {
     let mut values: Vec<(String, DynValue)> = Vec::new();
     for (name, input) in inputs {
         let value = match input.clone() {
@@ -208,7 +224,10 @@ pub(crate) fn run_once(session: &mut Session, inputs: &[(String, Input)]) -> Res
         };
         values.push((name.clone(), value));
     }
-    let outputs = session.run(values)?;
+    let outputs = match options {
+        Some(options) => session.run_with_options(values, options)?,
+        None => session.run(values)?,
+    };
     let mut result = Vec::new();
     for (name, value) in outputs.iter() {
         let values = if let Ok((_, data)) = value.try_extract_tensor::<f32>() {

@@ -265,7 +265,9 @@ pub fn configure_acceleration(app_handle: &tauri::AppHandle, resources: &Path, g
         plugin_dirs
     );
     // A model runs on a GPU only after its output there matched the CPU's
-    // once; the verdicts are kept per device.
+    // and ran faster, measured once per device when the app is idle (the
+    // model on the CPU until then, so the first AI click never waits for
+    // the measurement, gap G76); the verdicts are kept per device.
     let checks_file = app_handle
         .path()
         .app_data_dir()
@@ -275,6 +277,7 @@ pub fn configure_acceleration(app_handle: &tauri::AppHandle, resources: &Path, g
         gpu,
         plugin_dirs,
         checks_file,
+        check_when_idle: true,
     });
 }
 
