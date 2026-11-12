@@ -155,6 +155,22 @@ pub fn progid_for(id: &str, progids: &[ProgId]) -> Option<String> {
         .map(|p| p.class.clone())
 }
 
+/// The `Applications\\<file name>` class that starts the program file
+/// `program` (Explorer's OpenWithList registration, which keeps the
+/// program's own command), only when that registration's program file
+/// (`executable`, `ASSOCSTR_EXECUTABLE` of the class) is this very file: a
+/// same-named copy elsewhere (another version, a portable copy) is not
+/// started instead.
+pub fn applications_class(
+    program: &str,
+    executable: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
+    let class = format!(r"Applications\{}", file_part(program)?);
+    executable(&class)
+        .is_some_and(|exe| same_id(&exe, program))
+        .then_some(class)
+}
+
 /// The longest command line Windows starts (`CreateProcess`: 32,767
 /// characters with its terminating NUL).
 pub const MAX_COMMAND_LINE: usize = 32_766;
@@ -427,6 +443,39 @@ mod tests {
             .as_deref(),
             Some("TIFImage.Document")
         );
+    }
+
+    #[test]
+    fn a_registration_by_file_name_starts_only_that_very_file() {
+        // Registry names are case-insensitive.
+        let registered = |class: &str| match class.to_lowercase().as_str() {
+            r"applications\editor.exe" => Some(r"C:\Program Files\Editor\Editor.exe".to_string()),
+            r"applications\photoviewer.dll" => {
+                Some(r"C:\Program Files\Windows Photo Viewer\PhotoViewer.dll".to_string())
+            }
+            _ => None,
+        };
+        assert_eq!(
+            applications_class(r"c:\program files\editor\editor.exe", &registered).as_deref(),
+            Some(r"Applications\editor.exe")
+        );
+        // A portable copy of the same name is not the registered program.
+        assert_eq!(
+            applications_class(r"D:\Portable\Editor.exe", &registered),
+            None
+        );
+        // A listed DLL handler registered so.
+        assert_eq!(
+            applications_class(
+                r"C:\Program Files\Windows Photo Viewer\PhotoViewer.dll",
+                &registered
+            )
+            .as_deref(),
+            Some(r"Applications\PhotoViewer.dll")
+        );
+        // No registration, or no file at all (a packaged app's name).
+        assert_eq!(applications_class(r"C:\Tools\Other.exe", &registered), None);
+        assert_eq!(applications_class("Windows-Fotoanzeige", &registered), None);
     }
 
     #[test]

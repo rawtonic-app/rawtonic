@@ -539,27 +539,6 @@ fn start_program(program: &str, files: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether the classes have `key` (`Applications\editor.exe\shell`).
-fn has_key(key: &str) -> bool {
-    let mut opened = HKEY::default();
-    // SAFETY: a valid key name and out handle, closed below.
-    if unsafe {
-        RegOpenKeyExW(
-            HKEY_CLASSES_ROOT,
-            &HSTRING::from(key),
-            0,
-            KEY_READ,
-            &mut opened,
-        )
-    } != ERROR_SUCCESS
-    {
-        return false;
-    }
-    // SAFETY: the key opened above, closed once.
-    let _ = unsafe { RegCloseKey(opened) };
-    true
-}
-
 /// Opens `files` in `program`: through the shell with the program's ProgID
 /// for the first file's type, or its `Applications\` registration (each
 /// file), or, for a program file without either (picked by the user), by
@@ -570,6 +549,7 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
     let extension = extension_of(first)?;
     let handoff: Vec<PathBuf> = files.iter().map(|f| handoff_path(f)).collect();
     let program_file = handlers::is_program_file(program) && Path::new(program).is_file();
+    let a_file = Path::new(program).is_absolute() && Path::new(program).is_file();
     shell_thread(|| {
         let offered = enumerate(&extension, ASSOC_FILTER_RECOMMENDED)?
             .iter()
@@ -579,24 +559,25 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
         } else {
             Launched::Picked
         };
-        // A program registered by its file name only (Explorer's
-        // `OpenWithList`) keeps its own command under `Applications\`.
-        let registered = Path::new(program)
-            .file_name()
-            .map(|name| format!(r"Applications\{}", name.to_string_lossy()))
-            .filter(|class| program_file && has_key(&format!(r"{class}\shell")));
         if let Some(class) = handlers::progid_for(program, &progids(&extension)) {
             for file in &handoff {
                 open_as(&class, file)?;
             }
             return Ok(launched);
         }
-        if !program_file {
-            return Err(format!("{program} is not available."));
-        }
-        // Such a registration can be stale: System32's `notepad.exe` has
-        // one whose command Windows 11 refuses ("not a valid Win32
-        // application"). Then the program file is started itself.
+        // A program registered by its file name only (Explorer's
+        // OpenWithList, also a DLL handler such as the old Photo Viewer)
+        // keeps its own command under `Applications\`. Such a registration
+        // can be stale: System32's `notepad.exe` has one whose command
+        // Windows 11 refuses ("not a valid Win32 application"); then a
+        // program file is started itself.
+        let registered = a_file
+            .then(|| {
+                handlers::applications_class(program, &|class| {
+                    assoc_string(class, ASSOCSTR_EXECUTABLE)
+                })
+            })
+            .flatten();
         if let Some(class) = registered
             && open_as(&class, &handoff[0]).is_ok()
         {
@@ -604,6 +585,9 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
                 open_as(&class, file)?;
             }
             return Ok(launched);
+        }
+        if !program_file {
+            return Err(format!("{program} is not available."));
         }
         start_program(program, &handoff)?;
         Ok(launched)
@@ -721,6 +705,20 @@ mod tests {
             assert!(!pids.is_empty(), "{} did not start", photos.name);
             stop(&pids);
         }
+
+        // What the registration by file name of System32's Notepad starts.
+        let system_notepad = format!(
+            r"{}\System32\notepad.exe",
+            std::env::var("SystemRoot").unwrap()
+        );
+        eprintln!(
+            "Applications class of {system_notepad}: {:?} (its program: {:?})",
+            handlers::applications_class(&system_notepad, &|class| assoc_string(
+                class,
+                ASSOCSTR_EXECUTABLE
+            )),
+            assoc_string(r"Applications\notepad.exe", ASSOCSTR_EXECUTABLE)
+        );
 
         let text = folder.join("Notiz Ü.txt");
         std::fs::write(&text, "Rawtonic").unwrap();
