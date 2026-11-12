@@ -81,7 +81,7 @@ export function showGpuBackendNotice(status: GpuBackendStatus): void {
 
 /** How long the first start's compile may take before it is shown. */
 export const PREPARING_SHOWN_AFTER_MS = 1500;
-const PREPARING_ID = 'gpu-preparing';
+export const PREPARING_ID = 'gpu-preparing';
 
 /**
  * The start's first shader compile as a running task in the activity centre
@@ -121,7 +121,7 @@ export async function watchGraphicsPreparation(
   notify.info(i18n.t('gpuBackend.prepared', { seconds }), { toastId: PREPARING_ID, autoClose: 6000 });
 }
 
-const COMPILING_ID = 'gpu-compiling';
+export const COMPILING_ID = 'gpu-compiling';
 
 /**
  * Any later shader compile (a new edit's or photo's processing variant, a

@@ -82,7 +82,7 @@ import { moduleOf, presentGroups, readModuleLayout } from '../../utils/panelLayo
 import { buildComboMap, fieldOwnsKey, normalizeCombo, shortcutHint } from '../../utils/keyboardUtils';
 import { swallowNextClick } from '../../utils/swallowClick';
 import { DEFAULT_BRUSH_SIZE } from '../../utils/brushSize';
-import type { FlagCounts } from '../../utils/culling';
+import { imageFlag, type FlagCounts } from '../../utils/culling';
 import { neighboursToPrepare, stepDirection } from '../../utils/photoStepping';
 import { useSessionBar } from '../session/sessionBar';
 import { openMaskingTools, useAiModelLifecycle } from '../../hooks/useAiMasking';
@@ -104,6 +104,7 @@ import {
 } from './workspaceInteractions';
 import { registerAppCommands, runAppCommand } from '../../utils/appCommands';
 import ViewerInfoOverlay from './ViewerInfoOverlay';
+import GraphicsPreparingNotice from './GraphicsPreparingNotice';
 import { LoupeFaces } from './StudioEyes';
 import { useIdleCursor } from './useIdleCursor';
 import { followPhotoFullScreen } from '../../utils/photoFullScreen';
@@ -857,7 +858,7 @@ export default function StudioWorkspace(props: Props) {
   );
   const sessionBar = useSessionBar(useShallow((s) => ({ center: s.center, end: s.end, mark: s.mark })));
   const imageFlags = useLibraryStore((s) => s.imageFlags);
-  const flag = selectedImage ? (imageFlags[selectedImage.path] ?? 0) : 0;
+  const flag = selectedImage ? imageFlag(imageFlags, selectedImage.path) : 0;
   const exporting = exportState.status === 'exporting';
   // Interrupted or waiting exports keep the Export dialog reachable.
   const activeExports = useProcessStore((s) => s.exportQueue.filter((job) => job.state !== 'done').length);
@@ -1148,6 +1149,7 @@ export default function StudioWorkspace(props: Props) {
           </MultiViewStage>
           {toolPopover && <StudioToolPopover x={toolPopover.x} y={toolPopover.y} onClose={closeToolPopover} />}
           {infoOverlay && (develop || isFullScreen) && <ViewerInfoOverlay />}
+          <GraphicsPreparingNotice />
           {quickAdjust && (
             // Capture One's Quick Adjust info box beside the pointer.
             <div
