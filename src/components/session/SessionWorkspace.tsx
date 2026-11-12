@@ -1,3 +1,4 @@
+import { imageFlag } from '../../utils/culling';
 import { buildComboMap, normalizeCombo } from '../../utils/keyboardUtils';
 import { withMovedLibrary, withRecentLibrary } from '../../utils/recentLibraries';
 import { validNamingTemplate, validSequenceStart, type NamePreview } from '../../utils/namingTemplates';
@@ -121,7 +122,7 @@ import {
 } from '../../utils/sessionFolders';
 import type { FolderChange } from './SessionFoldersDialog';
 import { listenForAddFolder, type AddFolderDetail } from './addFolder';
-import { pathKey, byPathKey } from '../../utils/pathKey';
+import { byPathKey } from '../../utils/pathKey';
 
 /** The folder trees of a session's folders outside it (G38). */
 function sessionFolderTrees(paths: string[]): Promise<FolderTree[]> {
@@ -528,8 +529,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const selectedPhoto = useEditorStore((s) => s.selectedImage);
   const imageList = useLibraryStore((s) => s.imageList);
   const imageFlags = useLibraryStore((s) => s.imageFlags);
-  const gridPicked = imageList.filter((image) => imageFlags[pathKey(image.path)] === 1).length;
-  const gridMissing = imageList.filter((image) => image.is_offline).length;
+  const gridPicked = useMemo(
+    () => imageList.filter((image) => imageFlag(imageFlags, image.path) === 1).length,
+    [imageList, imageFlags]
+  );
+  const gridMissing = useMemo(() => imageList.filter((image) => image.is_offline).length, [imageList]);
   const roots = useLibraryStore((s) => s.rootPaths);
 
   const navigate = useCallback(

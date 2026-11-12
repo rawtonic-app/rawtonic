@@ -830,4 +830,13 @@ it('counts the same photographs as the loaded grid', async () => {
   expect(view.container.querySelector('.session-count-total')?.textContent).toContain('8 photos');
   expect(view.container.querySelector('.session-count-total')?.textContent).toContain('1 picked');
   expect(screen.getByRole('img', { name: '1 offline' })).toBeTruthy();
+  act(() =>
+    useLibraryStore.setState({
+      imageList: [...useLibraryStore.getState().imageList, { path: '/photo0.arw?vc=copy' }] as ReturnType<
+        typeof useLibraryStore.getState
+      >['imageList']
+    })
+  );
+  expect(view.container.querySelector('.session-count-total')?.textContent).toContain('9 photos');
+  expect(view.container.querySelector('.session-count-total')?.textContent).toContain('2 picked');
 });
