@@ -43,15 +43,16 @@ pub(super) enum IdleJob {
 /// The display variants worth compiling ahead for a photo shown with
 /// display variant `features`, most likely first: the tone sliders with
 /// Highlights (Contrast, Shadows lowered, Whites raised, Blacks raised,
-/// Highlights lowered), then the same with a curve and a mask layer. Each
-/// covers the ones before it, and the photo's own features.
+/// Highlights lowered), then the same with a curve and a mask layer (each
+/// covers the ones before it, and the photo's own features), then the
+/// photo's features with the effects (glow, halation, grain).
 ///
-/// Raised Shadows, lowered Whites and lowered Blacks of the newer tone
-/// versions (`SHADOWS_V13_FEATURE`, `WHITES_V12_FEATURE`,
-/// `BLACKS_V16_FEATURE`) and the effects (`EFFECTS_FEATURE`) are left out:
-/// with them the variant is far larger (86k–207k against 60k inlined
-/// expressions, compile_probe round 12), which the driver compiles in a
-/// time growing faster than its size.
+/// Measured on a Radeon 680M (compile_probe round 12, AMD Windows Vulkan
+/// 25.10): 36915 (RAW default + sliders) 57 s, 36927 (+ curve, mask) 74 s,
+/// the RAW default with the effects 37 s at 2.8 GB. Raised Shadows, lowered
+/// Whites and lowered Blacks of the newer tone versions
+/// (`SHADOWS_V13_FEATURE`, `WHITES_V12_FEATURE`, `BLACKS_V16_FEATURE`) are
+/// left out: with raised Shadows the slider variant took 174 s at 14.9 GB.
 pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<usize> {
     let g = &adjustments.global;
     let lowered_highlights = if g.tonemapper_mode == 3
@@ -63,8 +64,9 @@ pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<us
     };
     let sliders = features | TONE_PREVIEW_FEATURE | 2 | lowered_highlights;
     let local = sliders | 4 | 8;
-    let mut plan = Vec::with_capacity(2);
-    for candidate in [sliders, local] {
+    let effects = features | EFFECTS_FEATURE;
+    let mut plan = Vec::with_capacity(3);
+    for candidate in [sliders, local, effects] {
         if candidate != features && !plan.contains(&candidate) {
             plan.push(candidate);
         }
@@ -363,12 +365,15 @@ mod tests {
         let raw = RAW_DEFAULT_PREVIEW_FEATURES;
         let newest = adjustments(crate::image_processing::TONE_VERSION as f32, 3);
         let sliders = raw | TONE_PREVIEW_FEATURE | 2 | HIGHLIGHTS_V14_FEATURE;
-        assert_eq!(idle_plan(raw, &newest), vec![sliders, sliders | 4 | 8]);
-        // The WCC2 ceiling's variants: 4113 → 36915, 36927.
-        assert_eq!(idle_plan(4113, &newest), vec![36915, 36927]);
+        assert_eq!(
+            idle_plan(raw, &newest),
+            vec![sliders, sliders | 4 | 8, raw | EFFECTS_FEATURE]
+        );
+        // The measured variants: 4113 → 36915, 36927, 2101265.
+        assert_eq!(idle_plan(4113, &newest), vec![36915, 36927, 2101265]);
         for planned in idle_plan(raw, &newest) {
             assert_eq!(planned & raw, raw, "a superset of the photo's features");
-            assert_eq!(planned & (EFFECTS_FEATURE | SHADOWS_V13_FEATURE), 0);
+            assert_eq!(planned & SHADOWS_V13_FEATURE, 0);
         }
     }
 
@@ -376,10 +381,11 @@ mod tests {
     fn plan_keeps_older_highlights_and_skips_the_photos_own_variant() {
         // Another look: Highlights keeps the version-13 code.
         let other_look = adjustments(crate::image_processing::TONE_VERSION as f32, 0);
-        assert_eq!(idle_plan(0, &other_look), vec![34, 46]);
-        // A photo already shown with the first superset plans only the second.
-        assert_eq!(idle_plan(34, &other_look), vec![46]);
-        assert_eq!(idle_plan(46, &other_look), Vec::<usize>::new());
+        let effects = EFFECTS_FEATURE;
+        assert_eq!(idle_plan(0, &other_look), vec![34, 46, effects]);
+        // A photo already shown with the first superset skips it.
+        assert_eq!(idle_plan(34, &other_look), vec![46, 34 | effects]);
+        assert_eq!(idle_plan(46 | effects, &other_look), Vec::<usize>::new());
     }
 
     /// Under a compile limit the shown photo plans its supersets, which
@@ -416,7 +422,7 @@ mod tests {
         let shown = preview_features(&photo);
         processor.preview_pipeline(&photo, true).unwrap();
         let plan = idle_plan(shown, &photo);
-        assert_eq!(plan.len(), 2);
+        assert_eq!(plan.len(), 3);
         let started = Instant::now();
         wait("the planned supersets", &|| {
             for &f in &plan {
