@@ -5514,7 +5514,7 @@ fn validated<T>(
     create: impl FnOnce() -> T,
 ) -> Result<T, String> {
     let _pending = PendingCompile::new();
-    let _slot = compile_slot();
+    let _slot = compile_slot(what);
     // Under a compile limit one creation can take minutes (65–90 s each on
     // a Radeon 680M, WFQ): its start is logged, so a log never goes silent
     // while the GPU work waits for it.
@@ -5593,7 +5593,9 @@ fn checked<T>(device: &wgpu::Device, what: &str, create: impl FnOnce() -> T) -> 
     // Driver compiles without a warm shader cache take seconds (NVIDIA on
     // Linux); a log line per slow compile shows where a first start waits.
     let elapsed = started.elapsed();
-    if elapsed >= std::time::Duration::from_millis(250) {
+    // Under a compile limit every creation's end is logged too, so a start
+    // without an end means it never returned (WFQ2).
+    if elapsed >= std::time::Duration::from_millis(250) || compile_limited() {
         log::info!(
             "GPU {what} took {:.2} s (ended +{:.2} s since start)",
             elapsed.as_secs_f64(),
@@ -5634,14 +5636,14 @@ fn env_compile_limit() -> Option<Option<usize>> {
     Some((n > 0).then_some(n))
 }
 
-/// Sets the limit for the device just started (`None`: no limit); the
-/// environment variable overrides it.
 /// Whether display variants go to the driver as SPIR-V written by
 /// `display_variant_ir` (`device_start::spirv_passthrough`).
 pub fn set_spirv_passthrough(on: bool) {
     crate::display_variant_ir::set_spirv_passthrough(on);
 }
 
+/// Sets the limit for the device just started (`None`: no limit); the
+/// environment variable overrides it.
 pub fn set_compile_limit(limit: Option<usize>) {
     let limit = env_compile_limit().unwrap_or(limit);
     if let Some(n) = limit {
@@ -5655,10 +5657,24 @@ pub fn set_compile_limit(limit: Option<usize>) {
     COMPILE_LIMIT.freed.notify_all();
 }
 
-struct CompileSlot;
+/// A held compile slot; `id` names it in `SLOT_HOLDERS`.
+struct CompileSlot {
+    id: u64,
+}
+
+/// What holds a compile slot and since when, for the log line of a compile
+/// that waits long for one (WFQ2: a preview stale for 14 min with the CPU
+/// idle and no compile logged — a creation waiting for its slot logs nothing
+/// else).
+static SLOT_HOLDERS: Mutex<Vec<(u64, String, std::time::Instant)>> = Mutex::new(Vec::new());
+static NEXT_SLOT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl Drop for CompileSlot {
     fn drop(&mut self) {
+        SLOT_HOLDERS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(id, ..)| *id != self.id);
         let mut state = COMPILE_LIMIT
             .state
             .lock()
@@ -5668,19 +5684,44 @@ impl Drop for CompileSlot {
     }
 }
 
-fn compile_slot() -> CompileSlot {
+/// Waits for a compile slot for `what`; every 10 s of waiting it logs what
+/// holds the slots.
+fn compile_slot(what: &str) -> CompileSlot {
+    let started = std::time::Instant::now();
     let mut state = COMPILE_LIMIT
         .state
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     while state.1.is_some_and(|max| state.0 >= max) {
-        state = COMPILE_LIMIT
+        let (next, timeout) = COMPILE_LIMIT
             .freed
-            .wait(state)
+            .wait_timeout(state, std::time::Duration::from_secs(10))
             .unwrap_or_else(|e| e.into_inner());
+        state = next;
+        if timeout.timed_out() && state.1.is_some_and(|max| state.0 >= max) {
+            let holders = SLOT_HOLDERS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .map(|(_, holder, since)| {
+                    format!("{holder} (for {:.0} s)", since.elapsed().as_secs_f64())
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            log::warn!(
+                "GPU {what}: waiting {:.0} s for a compile slot, held by: {holders}",
+                started.elapsed().as_secs_f64()
+            );
+        }
     }
     state.0 += 1;
-    CompileSlot
+    drop(state);
+    let id = NEXT_SLOT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    SLOT_HOLDERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((id, what.to_string(), std::time::Instant::now()));
+    CompileSlot { id }
 }
 
 /// Whether a new processor compiles the pipelines a start may need ahead
