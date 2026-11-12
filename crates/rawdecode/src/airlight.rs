@@ -75,7 +75,7 @@ pub fn measure(image: &DynamicImage) -> Option<f32> {
             let mut sum = [0.0f32; 3];
             for y in by * step..(by + 1) * step {
                 let row = &data[(y * width + bx * step) * 3..(y * width + (bx + 1) * step) * 3];
-                for px in row.chunks_exact(3) {
+                for px in row.as_chunks::<3>().0 {
                     for c in 0..3 {
                         if px[c].is_finite() {
                             sum[c] += px[c];
