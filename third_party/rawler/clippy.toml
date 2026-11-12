@@ -1,0 +1,2 @@
+# The vendored decoder keeps upstream code; the workspace clippy.toml rules
+# (rawtonic_fs paths) do not apply to it.

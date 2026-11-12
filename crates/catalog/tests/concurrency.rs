@@ -106,7 +106,9 @@ fn concurrent_short_lived_connections_never_deadlock() {
 #[test]
 fn concurrent_wal_reads_preserve_long_verbatim_and_literal_paths() {
     let temp = tempfile::tempdir().unwrap();
-    let mut directory = temp.path().canonicalize().unwrap();
+    // Verbatim on purpose: only a `\\?\` path can hold "literal. ".
+    #[allow(clippy::disallowed_methods)]
+    let mut directory = std::fs::canonicalize(temp.path()).unwrap();
     for _ in 0..5 {
         directory.push("a_long_directory_component_for_the_wal_path_regression");
     }

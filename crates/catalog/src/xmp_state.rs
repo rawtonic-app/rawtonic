@@ -5,6 +5,7 @@
 use crate::CatalogError;
 use crate::Library;
 use anyhow::Result;
+use rawtonic_fs::Canonical;
 use rusqlite::{OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -193,7 +194,7 @@ impl Library {
         folder: Option<&Path>,
         seen: &mut SidecarStamps,
     ) -> Result<XmpCheck, CatalogError> {
-        let folder = folder.map(|f| f.canonicalize().unwrap_or_else(|_| f.to_path_buf()));
+        let folder = folder.map(|f| f.canonical().unwrap_or_else(|_| f.to_path_buf()));
         let mut query = self.conn.prepare(&format!(
             "SELECT a.id,r.path,r.external,a.rel_path,m.xmp_hash,m.xmp_publishing
              FROM assets a JOIN roots r ON r.id=a.root_id JOIN metadata m ON m.asset_id=a.id

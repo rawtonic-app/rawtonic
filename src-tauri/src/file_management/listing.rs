@@ -9,6 +9,7 @@ use crate::image_processing::ImageMetadata;
 use crate::state::library::{LibraryState, PendingMetadata};
 use crate::state::lock::lock_recover;
 use crate::state::thumbnails::ThumbnailState;
+use rawtonic_fs::Canonical;
 use rawtonic_metadata::photo_ref::{self, CopyId, PhotoRef};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -496,7 +497,7 @@ pub(crate) fn match_disk_kind(disks: &Disks, canonical: &Path) -> Option<bool> {
 
 pub(crate) fn update_rotational_disk_flag(path: &str, app_handle: &AppHandle) {
     let state = app_handle.state::<LibraryState>();
-    let Ok(canonical) = Path::new(path).canonicalize() else {
+    let Ok(canonical) = Path::new(path).canonical() else {
         return;
     };
 

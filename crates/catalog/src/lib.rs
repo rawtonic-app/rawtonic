@@ -2,6 +2,7 @@
 pub mod portable;
 use crate::error::{bail, ensure};
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 use rawtonic_fs::atomic_write;
 use rawtonic_metadata::culling::{Flag, Rating, RatingOutOfRange};
 use rawtonic_metadata::{Metadata, labels};
@@ -327,7 +328,7 @@ impl Library {
     fn visible_assets_for_listing(&self, listed: Option<&Path>) -> &'static str {
         if self.manifest.mode == Mode::Session
             && listed
-                .and_then(|p| p.canonicalize().ok())
+                .and_then(|p| p.canonical().ok())
                 .is_some_and(|p| p.starts_with(self.directory.join("Trash")))
         {
             "a.trashed=0"
@@ -350,7 +351,7 @@ impl Library {
             "Library name must be 1–255 bytes"
         );
         fs::create_dir_all(directory)?;
-        let directory = directory.canonicalize()?;
+        let directory = directory.canonical()?;
         ensure!(
             LibraryLayout::at(&directory).is_none()
                 && !directory.join(database_name(mode)).exists(),
@@ -415,7 +416,7 @@ impl Library {
     }
 
     pub fn open(directory: &Path) -> Result<Self, CatalogError> {
-        let directory = directory.canonicalize()?;
+        let directory = directory.canonical()?;
         let manifest_path = LibraryLayout::at(&directory)
             .context("No Rawtonic session or catalog in this folder")?
             .manifest();
@@ -440,7 +441,7 @@ impl Library {
         let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         Self::configure(&conn)?;
         migrations::upgrade(&conn)?;
-        Ok(Self {
+        let library = Self {
             directory,
             manifest,
             conn,
@@ -449,7 +450,107 @@ impl Library {
             markings: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             crash_after_publish: Default::default(),
-        })
+        };
+        library.plain_stored_paths()?;
+        Ok(library)
+    }
+
+    /// Libraries written on Windows before G77 store absolute paths in the
+    /// verbatim form the standard library canonicalized to (`\\?\C:\…`);
+    /// paths are plain now (`rawtonic_fs::canonicalize`), so those records
+    /// would no longer be found. Rewritten once, when the library opens:
+    /// each external folder's record takes the plain spelling and the id
+    /// that spelling gives (its drive kept); its photographs' rows move to
+    /// it unchanged; the hot folder and drive paths follow; the drive cache's
+    /// old rows go (a cache). Nothing elsewhere has such paths, so this finds
+    /// no rows there.
+    fn plain_stored_paths(&self) -> Result<()> {
+        const VERBATIM: &str = r"\\?\";
+        let plain = |text: &str| {
+            rawtonic_fs::simplified(Path::new(text))
+                .to_string_lossy()
+                .into_owned()
+        };
+        let mut roots = self.conn.prepare(
+            "SELECT id,path,volume_path FROM roots
+             WHERE external=1 AND (substr(path,1,4)=?1 OR substr(volume_path,1,4)=?1)",
+        )?;
+        let roots: Vec<(String, String, Option<String>)> = roots
+            .query_map([VERBATIM], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let hot_folder: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT folder FROM hot_folder WHERE substr(folder,1,4)=?",
+                [VERBATIM],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let cached: i64 = self.conn.query_row(
+            "SELECT count(*) FROM folder_root_volumes WHERE substr(path,1,4)=?",
+            [VERBATIM],
+            |r| r.get(0),
+        )?;
+        if roots.is_empty() && hot_folder.is_none() && cached == 0 {
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        let columns: Vec<String> = tx
+            .prepare("SELECT name FROM pragma_table_info('roots') WHERE name NOT IN ('id','path','volume_path')")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        let columns = columns.join(",");
+        for (id, path, volume_path) in roots {
+            let new_path = plain(&path);
+            let volume_path = volume_path.as_deref().map(plain);
+            let new_id = external_root_key(Path::new(&new_path));
+            // Only the folder's record changes: every photograph keeps its
+            // row as it is (trashed, missing, edits, albums), moved to the
+            // record under the new id.
+            let taken: bool =
+                tx.query_row("SELECT count(*) FROM roots WHERE id=?", [&new_id], |r| {
+                    r.get::<_, i64>(0)
+                })? > 0;
+            if !taken {
+                tx.execute(
+                    &format!(
+                        "INSERT INTO roots(id,path,volume_path,{columns}) \
+                         SELECT ?,?,?,{columns} FROM roots WHERE id=?"
+                    ),
+                    params![new_id, new_path, volume_path, id],
+                )?;
+            }
+            tx.execute(
+                "UPDATE assets SET root_id=?1 WHERE root_id=?2 AND NOT EXISTS
+                 (SELECT 1 FROM assets b WHERE b.root_id=?1 AND b.rel_path=assets.rel_path)",
+                params![new_id, id],
+            )?;
+            if new_id != id {
+                let left: i64 =
+                    tx.query_row("SELECT count(*) FROM assets WHERE root_id=?", [&id], |r| {
+                        r.get(0)
+                    })?;
+                if left == 0 {
+                    tx.execute("DELETE FROM roots WHERE id=?", [&id])?;
+                } else {
+                    // A photograph registered under both spellings stays on
+                    // its own record, found by the same plain path.
+                    tx.execute(
+                        "UPDATE roots SET path=?,volume_path=? WHERE id=?",
+                        params![new_path, volume_path, id],
+                    )?;
+                }
+            }
+        }
+        if let Some(folder) = hot_folder {
+            tx.execute("UPDATE hot_folder SET folder=?", [plain(&folder)])?;
+        }
+        tx.execute(
+            "DELETE FROM folder_root_volumes WHERE substr(path,1,4)=?",
+            [VERBATIM],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     fn configure(conn: &Connection) -> Result<()> {
@@ -1856,9 +1957,7 @@ impl Library {
             "This photograph is not missing: its file is at {}",
             asset.path.display()
         );
-        let to = to
-            .canonicalize()
-            .context("The located file cannot be read")?;
+        let to = to.canonical().context("The located file cannot be read")?;
         ensure!(to.is_file(), "Locate a file, not a folder");
         ensure!(
             fingerprint(&to)? == asset.fingerprint,
@@ -1897,7 +1996,7 @@ impl Library {
     /// read; all relinks commit together.
     pub fn relink_folder(&self, from: &Path, to: &Path) -> Result<RelinkReport, CatalogError> {
         let to = to
-            .canonicalize()
+            .canonical()
             .context("The located folder cannot be read")?;
         ensure!(to.is_dir(), "Locate a folder");
         ensure!(
@@ -2587,14 +2686,16 @@ fn external_root_key(folder: &Path) -> String {
 }
 
 /// The canonical form of a path that may no longer (or not yet) exist: its
-/// nearest existing ancestor canonicalized, the rest appended unchanged.
+/// nearest existing ancestor canonicalized, the rest appended name by name
+/// (so a `/` the frontend joined with becomes the native separator).
 pub(crate) fn resolve_moved(path: &Path) -> PathBuf {
-    if let Ok(canonical) = path.canonicalize() {
+    if let Ok(canonical) = path.canonical() {
         return canonical;
     }
     for ancestor in path.ancestors().skip(1) {
-        if let Ok(canonical) = ancestor.canonicalize() {
-            return canonical.join(path.strip_prefix(ancestor).unwrap_or(path));
+        if let Ok(mut canonical) = ancestor.canonical() {
+            canonical.extend(path.strip_prefix(ancestor).unwrap_or(path).components());
+            return canonical;
         }
     }
     path.to_path_buf()

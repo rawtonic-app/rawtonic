@@ -5,6 +5,7 @@
 use rawtonic_catalog::duplicates::{DuplicateMember, Refusal, suggested_trash};
 use rawtonic_catalog::query::Rule;
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -56,7 +57,7 @@ fn group_names(lib: &Library) -> Vec<Vec<String>> {
                         .strip_prefix(lib.directory.join("Capture"))
                         .unwrap()
                         .to_string_lossy()
-                        .into_owned()
+                        .replace('\\', "/")
                 })
                 .collect();
             names.sort();
@@ -241,7 +242,7 @@ fn trashing_is_confirmed_against_the_files_as_they_are_now() {
 #[test]
 fn a_photograph_another_library_owns_is_named_and_never_trashed() {
     let d = tempfile::tempdir().unwrap();
-    let root = d.path().canonicalize().unwrap();
+    let root = d.path().canonical().unwrap();
     let scan = jpeg("e", b"scan");
     let project = Library::create(&root.join("PROJ"), "Wedding Smith", Mode::Session).unwrap();
     let theirs = project.directory.join("Capture/a.jpg");

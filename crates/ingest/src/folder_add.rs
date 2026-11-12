@@ -5,6 +5,7 @@
 //! skip, one import batch, background SHA-256 pass), so there is one way a
 //! photograph enters a catalog in place.
 
+use rawtonic_fs::Canonical;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -71,12 +72,12 @@ pub fn plan_folder_add(
         "A session keeps its photographs inside it: copy them into the session"
     );
     let folder = folder
-        .canonicalize()
+        .canonical()
         .with_context(|| format!("{} is not there", folder.display()))?;
     crate::error::ensure!(folder.is_dir(), "{} is not a folder", folder.display());
     let own = library
         .directory
-        .canonicalize()
+        .canonical()
         .unwrap_or_else(|_| library.directory.clone());
     let companions = library.companions_in(Some(&folder))?;
     let registered = RefCell::new(0usize);

@@ -24,6 +24,7 @@ use rawtonic_catalog::{
     stacks::Stack,
     subset::{read_manifest, snapshot_database},
 };
+use rawtonic_fs::Canonical;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -34,9 +35,11 @@ use std::{
 
 /// The other library, read through a snapshot of its database.
 pub struct Source {
+    /// Declared (so dropped) before the folder holding it: Windows cannot
+    /// remove a database file that is still open.
+    pub snapshot: Library,
     /// Holds the snapshot; removed when dropped.
     _temp: rawtonic_fs::staging::Staging,
-    pub snapshot: Library,
     /// The other library's folder.
     pub directory: PathBuf,
 }
@@ -48,7 +51,7 @@ pub fn open_source(target: &Library, other: &Path) -> Result<Source, IngestError
         "Import from Catalog brings photographs into a catalog; a session stays self-contained"
     );
     let other = other
-        .canonicalize()
+        .canonical()
         .with_context(|| format!("{} is not available", other.display()))?;
     ensure!(
         other != target.directory,
@@ -587,7 +590,7 @@ fn copy_originals(
     placed: &mut Placed,
 ) -> Result<Vec<(String, PathBuf)>> {
     let folder = folder
-        .canonicalize()
+        .canonical()
         .with_context(|| format!("{} is not available", folder.display()))?;
     ensure!(
         !folder.starts_with(&source.directory),

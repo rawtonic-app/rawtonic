@@ -20,6 +20,7 @@
 use anyhow::{Context, Result};
 pub use error::FileOpsError;
 use error::{bail, ensure, stopped};
+use rawtonic_fs::Canonical;
 use rawtonic_fs::rename_no_clobber;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -1687,7 +1688,7 @@ pub struct PurgePlan {
 /// moves or nothing does. Empty when `from` is empty.
 pub fn plan_move_contents(from: &Path, to: &Path) -> Result<Vec<Vec<Step>>, FileOpsError> {
     let real = |p: &Path| {
-        p.canonicalize()
+        p.canonical()
             .with_context(|| format!("{} is not available", p.display()))
     };
     let (from, to) = (real(from)?, real(to)?);
@@ -1753,7 +1754,7 @@ pub fn plan_purge(folder: &Path) -> Result<PurgePlan, FileOpsError> {
     );
     ensure!(meta.is_dir(), "{} is not a folder", folder.display());
     let real = folder
-        .canonicalize()
+        .canonical()
         .with_context(|| format!("Cannot resolve {}", folder.display()))?;
     ensure!(
         real == folder,
@@ -2766,13 +2767,18 @@ pub fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-#[cfg(not(unix))]
+/// Windows: the volume serial and file index. A spelling comparison would
+/// call two files one where a folder is case-sensitive (NTFS allows it per
+/// folder) or where the system folds case differently from Rust.
+#[cfg(windows)]
 pub fn same_file(a: &Path, b: &Path) -> bool {
-    // Case-only renames on case-insensitive volumes.
-    a.parent() == b.parent()
-        && a.file_name().map(|n| n.to_string_lossy().to_lowercase())
-            == b.file_name().map(|n| n.to_string_lossy().to_lowercase())
-        && exists(a)
+    same_file::is_same_file(a, b).unwrap_or(false)
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    let _ = (a, b);
+    false
 }
 
 /// The volume of `path`'s nearest existing ancestor.
@@ -3011,7 +3017,7 @@ mod tests {
     #[test]
     fn recovery_rolls_back_an_operation_a_crash_interrupted() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = dir.path().canonical().unwrap();
         for name in ["a", "b"] {
             fs::write(root.join(name), name).unwrap();
         }
@@ -3038,7 +3044,7 @@ mod tests {
     #[test]
     fn recovery_finishes_an_interrupted_undo_and_asks_for_a_sync() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = dir.path().canonical().unwrap();
         fs::create_dir(root.join("sub")).unwrap();
         // Undo had moved "b" back (it runs in reverse) but not "a".
         fs::write(root.join("sub/a"), "a").unwrap();
@@ -3138,7 +3144,7 @@ mod tests {
     #[test]
     fn recovery_reports_an_unrecorded_trash_step() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = dir.path().canonical().unwrap();
         // The file went to the system Trash, the crash came before its item
         // was journaled.
         let (journal, id) = journal_with(
@@ -3157,7 +3163,7 @@ mod tests {
     #[test]
     fn recovery_puts_an_interrupted_redo_back_to_undone() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = dir.path().canonical().unwrap();
         for name in ["a", "b"] {
             fs::write(root.join(name), name).unwrap();
         }
@@ -3200,7 +3206,7 @@ mod tests {
     #[test]
     fn recovery_puts_back_an_interrupted_purge_before_its_commit() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = dir.path().canonical().unwrap();
         let trash = root.join("Trash");
         fs::create_dir_all(trash.join("Capture")).unwrap();
         fs::write(trash.join("Capture/A.RAF"), "a").unwrap();
@@ -3258,7 +3264,7 @@ mod tests {
     #[test]
     fn recovery_finishes_a_committed_purge_a_crash_cut_short() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = dir.path().canonical().unwrap();
         let trash = root.join("Trash");
         fs::create_dir_all(trash.join("Capture")).unwrap();
         fs::write(trash.join("Capture/A.RAF"), "a").unwrap();
@@ -3316,7 +3322,7 @@ mod tests {
     #[test]
     fn a_committed_purge_never_deletes_outside_its_folder() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = dir.path().canonical().unwrap();
         let trash = root.join("Trash");
         fs::create_dir_all(&trash).unwrap();
         fs::write(root.join("A.RAF"), "original").unwrap();

@@ -1,4 +1,5 @@
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use rawtonic_ingest::transfer::{copy_library, verify};
 use serde_json::json;
 use std::{
@@ -22,7 +23,7 @@ fn catalog(root: &Path) -> (Library, String) {
 #[test]
 fn full_backup_restores_after_all_sources_disappear_and_moves_again() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let (lib, internal) = catalog(&root);
     let ext = root.join("external");
     fs::create_dir(&ext).unwrap();
@@ -157,7 +158,7 @@ fn failed_or_cancelled_copies_never_publish_and_never_overwrite() {
 #[test]
 fn missing_edit_resources_are_counted_and_kept_not_fatal() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let (lib, id) = catalog(&root);
     let looks = root.join("looks");
     fs::create_dir(&looks).unwrap();
@@ -363,7 +364,7 @@ fn a_restored_nested_photograph_is_stored_with_forward_slashes() {
 #[test]
 fn backups_carry_external_companions() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let (lib, _) = catalog(&root);
     let ext = root.join("external");
     fs::create_dir(&ext).unwrap();
@@ -436,7 +437,7 @@ fn modified(path: &Path) -> std::time::SystemTime {
 #[test]
 fn uppercase_external_xmp_is_copied_and_verified_with_the_photo() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let (lib, _) = catalog(&root);
     let ext = root.join("external");
     fs::create_dir(&ext).unwrap();

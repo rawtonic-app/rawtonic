@@ -12,6 +12,7 @@ use crate::CatalogError;
 use crate::Library;
 use crate::error::{bail, ensure};
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 use rawtonic_metadata::culling::Rating;
 use rawtonic_metadata::provenance::{AI_FACTS, RAW_ONLY};
 use rusqlite::{
@@ -1193,7 +1194,7 @@ impl<'a> Compiler<'a> {
     fn folder(&mut self, folder: &Path, below: bool) -> Result<String> {
         // Photographs are registered by their real place: a folder reached
         // through a symlink is the folder it points to.
-        let real = folder.canonicalize();
+        let real = folder.canonical();
         let folder = real.as_deref().unwrap_or(folder);
         let sep = self.sep;
         // Without trailing separators, but a root (`/`, `C:\`) as it is.
@@ -1786,7 +1787,7 @@ mod tests {
                 .unwrap()
         };
         let folder = |name: &str| {
-            let path = lib.directory.canonicalize().unwrap();
+            let path = lib.directory.canonical().unwrap();
             name.split('/')
                 .fold(path, |path, part| path.join(part))
                 .to_string_lossy()

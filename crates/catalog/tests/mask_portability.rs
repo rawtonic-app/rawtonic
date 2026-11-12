@@ -5,6 +5,7 @@
 //! back the same recipe byte for byte. The rendered comparison of such a
 //! copy is `crates/cli/tests/moved_session_masks.rs` (needs a RAW and a GPU).
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
@@ -173,10 +174,7 @@ fn every_mask_kind_reads_back_byte_identical_from_a_copied_session() {
     let lib = Library::open(&copy).unwrap();
     let asset = lib.asset(&asset.id).unwrap();
     assert!(!asset.missing);
-    assert_eq!(
-        asset.path,
-        copy.canonicalize().unwrap().join("Capture/A.ARW")
-    );
+    assert_eq!(asset.path, copy.canonical().unwrap().join("Capture/A.ARW"));
     let read = lib.recipe(&version).unwrap().unwrap();
     assert_eq!(
         serde_json::to_vec(&read).unwrap(),
@@ -207,6 +205,6 @@ fn every_mask_kind_reads_back_byte_identical_from_a_copied_session() {
     }
     assert_eq!(
         Path::new(state_there["adjustments"]["lutPath"].as_str().unwrap()),
-        copy.canonicalize().unwrap().join("resources/look.cube")
+        copy.canonical().unwrap().join("resources/look.cube")
     );
 }

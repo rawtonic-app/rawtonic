@@ -14,6 +14,7 @@ use crate::CatalogError;
 use crate::error::{bail, ensure};
 use crate::{Library, Manifest, Mode, layout::manifest_name, portable_relative, validate_relative};
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -190,7 +191,8 @@ impl Manifest {
             .map(|role| self.folder_setting(*role))
             .chain(self.former_folders.iter().map(String::as_str))
             .filter(|setting| is_absolute_setting(setting))
-            .map(PathBuf::from)
+            // Verbatim in manifests written on Windows before G77.
+            .map(|setting| rawtonic_fs::simplified(Path::new(setting)))
             .collect();
         folders.sort();
         folders.dedup();
@@ -214,7 +216,7 @@ impl Library {
     pub fn folder_path(&self, role: FolderRole) -> PathBuf {
         let setting = self.manifest.folder_setting(role);
         if is_absolute_setting(setting) {
-            PathBuf::from(setting)
+            rawtonic_fs::simplified(Path::new(setting))
         } else {
             self.directory.join(setting)
         }
@@ -308,10 +310,7 @@ impl Library {
         // really is, when the session folder is reached through a link (a
         // scan lists files under the path it walks, and leaves a folder only
         // when it is given that very path).
-        let walked = current
-            .is_dir()
-            .then(|| current.canonicalize().ok())
-            .flatten();
+        let walked = current.is_dir().then(|| current.canonical().ok()).flatten();
         path.starts_with(&current)
             || walked.as_ref().is_some_and(|real| path.starts_with(real))
             || self.path_in_output_folder(path)
@@ -340,7 +339,7 @@ impl Library {
                 } else {
                     self.directory.join(setting)
                 };
-                folder.canonicalize().unwrap_or(folder)
+                folder.canonical().unwrap_or(folder)
             })
             .find(|folder| path.starts_with(folder))
     }
@@ -370,7 +369,7 @@ impl Library {
             "Only a session's folders can be chosen; a catalog keeps its photographs where they are"
         );
         let real = folder
-            .canonicalize()
+            .canonical()
             .with_context(|| format!("{} is not available", folder.display()))?;
         ensure!(real.is_dir(), "{} is not a folder", folder.display());
         ensure!(

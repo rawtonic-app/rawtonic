@@ -481,11 +481,12 @@ fn find_conflicts(planned: &mut [PlannedPhoto]) {
 mod tests {
     use super::*;
     use rawtonic_catalog::{Library, Mode};
+    use rawtonic_fs::Canonical;
 
     fn session(root: &Path) -> (Library, PathBuf) {
         let dir = root.join("Job");
         let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
-        let capture = dir.canonicalize().unwrap().join("Capture");
+        let capture = dir.canonical().unwrap().join("Capture");
         (lib, capture)
     }
 
@@ -519,7 +520,7 @@ mod tests {
     #[test]
     fn a_derivatives_sidecar_stays_with_the_derivative() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().canonicalize().unwrap();
+        let dir = tmp.path().canonical().unwrap();
         write(
             &dir,
             &[
@@ -594,7 +595,7 @@ mod tests {
     #[test]
     fn a_raw_and_jpeg_sharing_an_xmp_are_renamed_as_a_pair() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().canonicalize().unwrap();
+        let dir = tmp.path().canonical().unwrap();
         write(&dir, &["A.NEF", "A.JPG", "A.xmp", "B.NEF"]);
         let paths = [dir.join("A.NEF"), dir.join("A.JPG"), dir.join("B.NEF")].map(|p| arg(&p));
         let plan = plan_rename(&paths, "Job");
@@ -674,7 +675,7 @@ mod tests {
     #[test]
     fn the_plan_shows_final_names_and_what_stops_them() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().canonicalize().unwrap();
+        let dir = tmp.path().canonical().unwrap();
         let names: Vec<String> = (1..=10).map(|i| format!("P{i}.NEF")).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         write(&dir, &refs);
@@ -789,7 +790,7 @@ mod tests {
     #[test]
     fn a_case_only_rename_is_not_a_conflict() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().canonicalize().unwrap();
+        let dir = tmp.path().canonical().unwrap();
         write(&dir, &["a.NEF", "a.NEF.rrdata"]);
         let plan = plan_rename(&[arg(&dir.join("a.NEF"))], "A");
         assert!(!plan.blocked(), "{plan:?}");
@@ -919,7 +920,7 @@ mod tests {
     #[test]
     fn the_previewed_counter_starts_where_asked_and_counts_a_pair_once() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().canonicalize().unwrap();
+        let dir = tmp.path().canonical().unwrap();
         write(&dir, &["A.NEF", "A.JPG", "B.NEF", "C.NEF"]);
         let paths = ["A.NEF", "A.JPG", "B.NEF", "C.NEF"].map(|n| arg(&dir.join(n)));
         let finals = |plan: &RenamePlan| -> Vec<String> {
@@ -952,7 +953,7 @@ mod tests {
     #[test]
     fn the_preview_marks_every_target_that_is_taken() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().canonicalize().unwrap();
+        let dir = tmp.path().canonical().unwrap();
         // A has an editor sidecar; a file already sits where it would go.
         write(
             &dir,
@@ -971,7 +972,7 @@ mod tests {
         // Renumbering files that are already numbered: the name of the next
         // one is held by it.
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().canonicalize().unwrap();
+        let dir = tmp.path().canonical().unwrap();
         write(&dir, &["Job_1.NEF", "Job_2.NEF"]);
         let paths = ["Job_1.NEF", "Job_2.NEF"].map(|n| arg(&dir.join(n)));
         let plan = plan_rename_with(&paths, "Job", 2, &mut PhotoFacts::default());

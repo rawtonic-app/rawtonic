@@ -1,4 +1,5 @@
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use std::fs;
 
 #[test]
@@ -261,7 +262,7 @@ fn a_renamed_companion_stays_its_photographs_companion() {
     let tmp = tempfile::tempdir().unwrap();
     // The library keeps resolved paths; on macOS the temp dir is behind the
     // /var -> /private/var link.
-    let dir = tmp.path().canonicalize().unwrap().join("Job");
+    let dir = tmp.path().canonical().unwrap().join("Job");
     let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
     let capture = dir.join("Capture");
     fs::write(capture.join("A.NEF"), b"raw").unwrap();

@@ -5,6 +5,7 @@
 //! its first 16 MiB) once.
 use crate::session_bridge::with_library;
 use rawtonic_catalog::{Collection, Field, Library, Rated, Rule, query::FacetValue};
+use rawtonic_fs::Canonical;
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
@@ -45,7 +46,7 @@ pub async fn session_search(
 /// the folder the grid lists (perhaps through a symlink); those outside it
 /// as they are.
 pub(crate) fn as_listed(paths: Vec<PathBuf>, listed: &Path) -> Vec<PathBuf> {
-    match listed.canonicalize() {
+    match listed.canonical() {
         Ok(real) if real != listed => paths
             .into_iter()
             .map(|path| match path.strip_prefix(&real) {
@@ -551,7 +552,7 @@ mod tests {
         std::fs::create_dir_all(real.join("Day 2")).unwrap();
         let alias = temp.path().join("alias");
         std::os::unix::fs::symlink(&real, &alias).unwrap();
-        let real = real.canonicalize().unwrap();
+        let real = real.canonical().unwrap();
         let other = temp.path().join("other/B.ARW");
         let mapped = block_on(session_paths_as_listed(
             vec![real.join("A.ARW"), real.join("Day 2/C.ARW"), other.clone()],

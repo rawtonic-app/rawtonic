@@ -18,6 +18,7 @@
 //! links never followed.
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Contents, HotFolderConfig, ImportKind, Library};
+use rawtonic_fs::Canonical;
 use rawtonic_ingest::hot_folder::{DEFAULT_SETTLE, HotFolder};
 use rawtonic_metadata::culling::Rating;
 use rawtonic_recipe::lens;
@@ -319,9 +320,9 @@ pub fn ingest_capture(
 /// Refuses folders the session itself writes into (they would feed back).
 fn check_folder(session: &Path, folder: &Path) -> Result<(PathBuf, PathBuf), String> {
     let folder = folder
-        .canonicalize()
+        .canonical()
         .map_err(|e| format!("The hot folder cannot be opened: {e}"))?;
-    let session = session.canonicalize().map_err(|e| e.to_string())?;
+    let session = session.canonical().map_err(|e| e.to_string())?;
     if !folder.is_dir() {
         return Err("The hot folder is not a folder.".into());
     }
@@ -634,7 +635,7 @@ fn leave_other_libraries(session: &Path) {
 
 fn resume(directory: String, app: AppHandle) -> Result<Option<HotFolderStatus>, String> {
     let session = Path::new(&directory)
-        .canonicalize()
+        .canonical()
         .map_err(|e| e.to_string())?;
     leave_other_libraries(&session);
     if let Ok(watch) = WATCH.lock()
@@ -668,7 +669,7 @@ pub async fn hot_folder_suspend(directory: Option<String>) -> Result<(), String>
 }
 
 fn suspend_for(directory: Option<String>) {
-    let session = directory.map(|d| Path::new(&d).canonicalize());
+    let session = directory.map(|d| Path::new(&d).canonical());
     match session {
         Some(Ok(session)) => {
             stop_watch_of(Some(&session));
@@ -708,7 +709,7 @@ pub async fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
 
 fn stop_and_forget(directory: Option<String>) -> Result<(), String> {
     let asked = directory
-        .map(|d| Path::new(&d).canonicalize().map_err(|e| e.to_string()))
+        .map(|d| Path::new(&d).canonical().map_err(|e| e.to_string()))
         .transpose()?;
     let stopped = stop_watch_of(asked.as_deref());
     let session = match (asked, stopped) {
@@ -806,7 +807,7 @@ mod tests {
                 last_capture: None,
             }))
             .unwrap();
-            dir.canonicalize().unwrap()
+            dir.canonical().unwrap()
         };
         let (a, b) = (make("A"), make("B"));
         let (b_watch, b_done) = fake_watch(b.to_str().unwrap());
@@ -1215,7 +1216,7 @@ mod tests {
         settings: CaptureSettings,
     ) -> HotFolderConfig {
         let config = HotFolderConfig {
-            folder: hot.canonicalize().unwrap(),
+            folder: hot.canonical().unwrap(),
             template: "{orig}".into(),
             include_subfolders: subfolders,
             settings: serde_json::to_value(settings).unwrap(),

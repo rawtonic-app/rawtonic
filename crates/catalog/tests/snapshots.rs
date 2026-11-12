@@ -1,6 +1,7 @@
 //! Named snapshots (G26, schema 12): kept beside a version's history, carried
 //! by the editor state the library hands out and adopted from sidecars.
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use serde_json::{Value, json};
 use std::fs;
 
@@ -176,7 +177,7 @@ fn the_editor_sidecar_carries_snapshots_into_a_library_built_again() {
         .add_snapshot(
             &version,
             "Mono",
-            json!({"saturation": -100, "lutPath": tmp.path().canonicalize().unwrap().join("resources/luts/a.cube").to_string_lossy()}),
+            json!({"saturation": -100, "lutPath": tmp.path().canonical().unwrap().join("resources/luts/a.cube").to_string_lossy()}),
         )
         .unwrap();
     // The derived sidecar the app writes is the state the library hands out.

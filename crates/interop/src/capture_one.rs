@@ -13,6 +13,7 @@
 //! counted; local adjustment layers are counted, not read.
 use crate::{Album, Develop, Library, NotRead, Photo, open_copy};
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 use rawtonic_metadata::Metadata;
 use rawtonic_metadata::culling::Rating;
 use rawtonic_metadata::labels::ColorLabel;
@@ -106,7 +107,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
     // Capture One has no global id for a variant: the session file and the
     // variant's id there stand in for one (`Photo::uid`).
     let origin = session_db
-        .canonicalize()
+        .canonical()
         .unwrap_or_else(|_| session_db.to_path_buf());
 
     let entities: HashMap<String, i64> = {

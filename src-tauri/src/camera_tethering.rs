@@ -15,6 +15,7 @@
 //! the photo is in the library. Nothing on the camera is deleted.
 use crate::hot_folder::{self, CaptureSettings, NextCapture, NextCaptureMetadata};
 use rawtonic_catalog::{ImportKind, Library};
+use rawtonic_fs::Canonical;
 use rawtonic_tether::client::{Client, Incoming};
 use rawtonic_tether::protocol::{
     CameraInfo, CameraStatus, Captured, ErrorKind, Event, Reply, Request, Setting, TetherError,
@@ -1023,7 +1024,7 @@ pub async fn tether_connect(
         check_template(&template)?;
         let settings = capture_settings(next_capture, metadata)?;
         let session = Path::new(&directory)
-            .canonicalize()
+            .canonical()
             .map_err(|e| e.to_string())?;
         drop(Library::open(&session).map_err(|e| format!("{e:#}"))?);
         let config = Arc::new(Mutex::new(CaptureConfig {
@@ -2456,7 +2457,7 @@ mod tests {
     fn session(root: &Path) -> PathBuf {
         let dir = root.join("Job");
         Library::create(&dir, "Job", Mode::Session).unwrap();
-        dir.canonicalize().unwrap()
+        dir.canonical().unwrap()
     }
 
     fn settings(rating: u8, keyword: &str) -> CaptureSettings {

@@ -1,6 +1,7 @@
 //! Catalog folders (where the registered photographs are, by drive) and the
 //! virtual copies a catalog keeps for photographs that may go offline.
 use rawtonic_catalog::{Library, Mode, Volume, folders};
+use rawtonic_fs::Canonical;
 use std::{fs, path::Path};
 
 fn photo(path: &Path, seed: u8) {
@@ -17,7 +18,7 @@ fn photo(path: &Path, seed: u8) {
 #[test]
 fn folders_follow_relinked_photographs_and_keep_missing_ones() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
     let card = root.join("Card/2026");
     photo(&card.join("A.NEF"), 1);
@@ -69,7 +70,7 @@ fn folders_follow_relinked_photographs_and_keep_missing_ones() {
 #[test]
 fn a_disconnected_drive_keeps_its_folders_under_its_name() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
     let mount = root.join("Card");
     photo(&mount.join("2026/A.NEF"), 1);
@@ -100,7 +101,7 @@ fn a_disconnected_drive_keeps_its_folders_under_its_name() {
 #[test]
 fn virtual_copies_are_kept_with_their_photograph() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
     let path = root.join("Card/A.NEF");
     photo(&path, 1);

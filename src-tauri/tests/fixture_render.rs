@@ -1,4 +1,5 @@
 //! Opt-in, headless GPU/export regression runner. Missing inputs are explicit SKIPs.
+use rawtonic_fs::Canonical;
 use serde::Deserialize;
 use std::{env, fs, path::Path, process::Command};
 
@@ -13,7 +14,7 @@ struct Fixture {
 fn inside(root: &Path, relative: &str) -> std::path::PathBuf {
     let path = root
         .join(relative)
-        .canonicalize()
+        .canonical()
         .expect("Fixture file missing");
     assert!(
         path.starts_with(root),
@@ -27,9 +28,7 @@ fn main() {
         println!("SKIP fixture_render: APP_FIXTURES is not set; no RAW/golden claim");
         return;
     };
-    let root = Path::new(&root)
-        .canonicalize()
-        .expect("Invalid APP_FIXTURES");
+    let root = Path::new(&root).canonical().expect("Invalid APP_FIXTURES");
     let fixtures: Vec<Fixture> = serde_json::from_slice(
         &fs::read(root.join("fixtures.json")).expect("APP_FIXTURES needs fixtures.json"),
     )

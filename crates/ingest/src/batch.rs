@@ -7,6 +7,7 @@ use crate::IngestError;
 use crate::{ImportResult, destination_folder};
 use anyhow::{Context, Result};
 use rawtonic_catalog::Library;
+use rawtonic_fs::Canonical;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -446,15 +447,15 @@ fn add_companion(
         && photo
             .destination
             .as_deref()
-            .and_then(|d| d.canonicalize().ok())
-            == photo.source.canonicalize().ok();
+            .and_then(|d| d.canonical().ok())
+            == photo.source.canonical().ok();
     let owner = match &photo.asset_id {
         Some(id) if in_place => Some(library.asset(id)?),
         _ => None,
     };
     // Only the file beside the RAW's own (a symlinked RAW resolves to
     // another folder), not registered and no content the library holds.
-    let resolved = companion.canonicalize()?;
+    let resolved = companion.canonical()?;
     let beside = owner
         .as_ref()
         .is_some_and(|owner| resolved.parent() == owner.path.parent());
@@ -761,7 +762,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         // Destinations are reported resolved (macOS's temporary folder is
         // under a link, /var → /private/var).
-        let base = d.path().canonicalize().unwrap();
+        let base = d.path().canonical().unwrap();
         let lib = Library::create(&base.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
         // A folder the catalog holds photographs of, elsewhere.
         let shoot = base.join("Drive/Shoots/2026");
@@ -909,7 +910,7 @@ mod tests {
         assert!(results.iter().all(|r| r.error.is_none()));
         assert_eq!(
             results[0].destination.as_deref(),
-            Some(a.canonicalize().unwrap().as_path())
+            Some(a.canonical().unwrap().as_path())
         );
         assert_eq!(lib.assets(None).unwrap().len(), 2);
         let b_asset = lib.asset_at(&b).unwrap().unwrap();
@@ -1450,7 +1451,7 @@ mod tests {
         let asset = lib.asset_at(&sources[0]).unwrap().unwrap();
         assert_eq!(
             lib.companion(&asset).unwrap(),
-            Some(sources[1].canonicalize().unwrap())
+            Some(sources[1].canonical().unwrap())
         );
         assert_eq!(results[1].companion_of, Some(asset.path.clone()));
         assert_eq!(lib.summary().unwrap().assets, 1);

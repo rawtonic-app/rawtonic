@@ -976,6 +976,7 @@ fn watch(app: &AppHandle, renders: &[EditTarget]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rawtonic_fs::Canonical;
 
     fn choice(path: &str, name: &str) -> AppChoice {
         AppChoice {
@@ -1247,7 +1248,7 @@ mod tests {
         use rawtonic_catalog::Mode;
         // One photograph in two catalogs, each with its own recipe and rating.
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         fs::create_dir(root.join("Photos")).unwrap();
         let source = root.join("Photos/A.jpg");
         fs::write(&source, b"jpeg").unwrap();
