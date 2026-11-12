@@ -282,6 +282,22 @@ pub fn portable_relative(path: &Path) -> Result<String, CatalogError> {
     Ok(names.join("/"))
 }
 
+/// The native path of the stored relative path `relative` (`assets.rel_path`,
+/// see `portable_relative`) in `base`: each `/`-separated name is pushed as
+/// a component, so the result uses the platform's separator throughout.
+/// `base.join("a/b")` would keep the `/` on Windows (`C:\lib\Photos/a.CR3`):
+/// a different string from the `C:\lib\Photos\a.CR3` a folder listing
+/// returns, so path-keyed state (flags, thumbnails) no longer matches, and
+/// invalid under a `\\?\` prefix, where Windows does not read `/` as a
+/// separator. Empty names (a doubled or trailing `/`) add nothing.
+pub fn native_join(base: &Path, relative: &str) -> PathBuf {
+    let mut path = base.to_path_buf();
+    for name in relative.split('/').filter(|name| !name.is_empty()) {
+        path.push(name);
+    }
+    path
+}
+
 pub fn fingerprint(path: &Path) -> Result<String, CatalogError> {
     let mut file = fs::File::open(path)?;
     let meta = file.metadata()?;
@@ -575,7 +591,7 @@ impl Library {
     pub fn asset(&self, id: &str) -> Result<Asset, CatalogError> {
         self.conn.query_row("SELECT a.id,a.rel_path,a.size,a.fingerprint,m.rating,m.label,m.flag,a.missing,r.path,r.external,a.mtime FROM assets a JOIN metadata m ON m.asset_id=a.id JOIN roots r ON r.id=a.root_id WHERE a.id=?", [id], |r| {
             let relative: String = r.get(1)?; let root: String = r.get(8)?; let external: bool = r.get(9)?;
-            Ok(Asset { id:r.get(0)?, path: if external { PathBuf::from(root).join(&relative) } else { self.directory.join(&relative) }, rel_path:relative, size:r.get::<_,i64>(2)? as u64, fingerprint:r.get(3)?, rating:r.get(4)?, label:r.get(5)?, flag:r.get(6)?, missing:r.get(7)?, mtime:r.get(10)? })
+            Ok(Asset { id:r.get(0)?, path: self.join_root(root, external, relative.clone()), rel_path:relative, size:r.get::<_,i64>(2)? as u64, fingerprint:r.get(3)?, rating:r.get(4)?, label:r.get(5)?, flag:r.get(6)?, missing:r.get(7)?, mtime:r.get(10)? })
         }).map_err(Into::into)
     }
 
@@ -650,11 +666,7 @@ impl Library {
             let relative: String = row.get(1)?;
             let root: String = row.get(2)?;
             let external: bool = row.get(3)?;
-            let path = if external {
-                PathBuf::from(root).join(relative)
-            } else {
-                self.directory.join(relative)
-            };
+            let path = self.join_root(root, external, relative);
             Ok((
                 path,
                 AssetIndexEntry {
@@ -678,11 +690,7 @@ impl Library {
             let relative: String = row.get(0)?;
             let root: String = row.get(1)?;
             let external: bool = row.get(2)?;
-            let path = if external {
-                PathBuf::from(root).join(relative)
-            } else {
-                self.directory.join(relative)
-            };
+            let path = self.join_root(root, external, relative);
             Ok((path, row.get(3)?))
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -752,11 +760,7 @@ impl Library {
             let root: String = r.get(1)?;
             let external: bool = r.get(2)?;
             let data: String = r.get(3)?;
-            let path = if external {
-                PathBuf::from(root).join(&relative)
-            } else {
-                self.directory.join(&relative)
-            };
+            let path = self.join_root(root, external, relative);
             Ok((path, data))
         })?;
         rows.map(|row| {
@@ -1262,11 +1266,7 @@ impl Library {
             let relative: String = row.get(0)?;
             let root: String = row.get(1)?;
             let external: bool = row.get(2)?;
-            let path = if external {
-                PathBuf::from(root).join(relative)
-            } else {
-                self.directory.join(relative)
-            };
+            let path = self.join_root(root, external, relative);
             if !paths.contains(&path) {
                 continue;
             }
@@ -1342,7 +1342,7 @@ impl Library {
             for relative in candidates.query_map(params![id, stem, lower, upper], |row| {
                 row.get::<_, String>(0)
             })? {
-                if base.join(relative?).with_extension("xmp") == sidecar {
+                if native_join(base, &relative?).with_extension("xmp") == sidecar {
                     count += 1;
                     if count > 1 {
                         return Ok(count);
@@ -1468,9 +1468,9 @@ impl Library {
     /// The absolute path of `relative` in a root.
     fn join_root(&self, root: String, external: bool, relative: String) -> PathBuf {
         if external {
-            PathBuf::from(root).join(relative)
+            native_join(Path::new(&root), &relative)
         } else {
-            self.directory.join(relative)
+            native_join(&self.directory, &relative)
         }
     }
 
@@ -1536,9 +1536,9 @@ impl Library {
             })?;
             for asset in assets {
                 let (id, relative, size) = asset?;
-                let file = target.join(&relative);
+                let file = native_join(&target, &relative);
                 if fs::metadata(&file).is_ok_and(|m| m.is_file() && m.len() as i64 == size) {
-                    moved.push((id, file, folder.join(&relative)));
+                    moved.push((id, file, native_join(folder, &relative)));
                 }
             }
         }

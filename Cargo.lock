@@ -5778,6 +5778,7 @@ dependencies = [
  "libloading 0.8.9",
  "log",
  "ort",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -211,6 +211,24 @@ pub fn notify_sharpen_view_ready(app_handle: &tauri::AppHandle) {
     });
 }
 
+/// Tells the window when shader compiles start and end (`gpu-compiling`,
+/// true or false), so a photo, an edit or a thumbnail waiting for one shows
+/// "Preparing graphics" instead of a panel that looks dead (WFQ: 65–90 s per
+/// compile on a Radeon 680M). `gpu_compiling` answers a window that starts
+/// listening while one runs.
+pub fn notify_compile_activity(app_handle: &tauri::AppHandle) {
+    let app_handle = app_handle.clone();
+    rawtonic_gpu::gpu_processing::on_compile_activity(move |running| {
+        use tauri::Emitter;
+        let _ = app_handle.emit("gpu-compiling", running);
+    });
+}
+
+#[tauri::command]
+pub fn gpu_compiling() -> bool {
+    rawtonic_gpu::gpu_processing::compiles_pending()
+}
+
 /// Presents onto the main window: its surface on the context's adapter, or,
 /// where that adapter cannot present to it, a new context from an adapter
 /// that can (the processor of the old one is dropped).

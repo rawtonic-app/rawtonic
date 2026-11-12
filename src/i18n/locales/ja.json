@@ -2121,6 +2121,7 @@
         "libjpeg-turbo": "JPEG export.",
         "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
         "MI-GAN": "Object removal (Picsart AI Research).",
+        "Microsoft Visual C++ runtime": "On Windows, the C++ runtime libraries ONNX Runtime needs, bundled beside it (Microsoft).",
         "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
         "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
         "NegPy": "Inspiration for the negative conversion.",

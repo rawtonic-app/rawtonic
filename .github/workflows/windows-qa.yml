@@ -35,6 +35,12 @@ jobs:
         with:
           key: windows-qa
       - run: npm ci
+      # Windows-only path behaviour the Unix gates cannot see (WFQ: flags
+      # keyed by `…\Photos/2026/…` lost after a restart).
+      - name: Windows path regression tests
+        run: |
+          cargo test -p rawtonic-catalog --locked --test portable_paths -- stored_path_is_read_back flags_and_assets_use_the_path
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # --no-bundle: only the executable; the folder is assembled below the
       # way the portable zip of the release is (exe, resources\, lensfun_db\).
       - name: Build the QA executable
@@ -54,6 +60,9 @@ jobs:
           foreach ($need in 'resources\onnxruntime.dll', 'resources\onnxruntime_providers_webgpu.dll', 'lensfun_db') {
             if (-not (Test-Path (Join-Path $dir $need))) { Write-Error "the QA folder lacks $need"; exit 1 }
           }
+          # Every VC++ runtime import is bundled and at least the toolset's version (gap G76).
+          & pwsh -NoProfile -File scripts\windows\check_vc_runtime.ps1 -Root $dir
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           "commit $env:GITHUB_SHA" | Set-Content "$dir\QA-BUILD.txt"
           Compress-Archive -Path $dir -DestinationPath qa-out\RawtonicQA-portable.zip -CompressionLevel Optimal
           Remove-Item $dir -Recurse

@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- **Each arrow-key press and each slider drag is its own Undo step.** Two quick taps of an arrow key on a slider or value field, or two short drags, used to merge into one step when they came less than half a second apart; now each is undone on its own, while a held key (auto-repeat) stays one step, as a drag does.
+- **Windows: the AI tools no longer crash the app on PCs with an old Visual C++ runtime.** Choosing Brush or another AI masking tool could close Rawtonic within seconds (access violation in `MSVCP140.dll`) where Windows only had an older Microsoft C++ runtime: ONNX Runtime needs a current one. The installers and the portable zip now bring the current runtime beside ONNX Runtime, without administrator rights or a separate install, and if an older one is still in use the AI tools say the AI runtime is unavailable instead of crashing.
 
 - Copy Settings in the Library uses the active photo after another photo is deselected.
+- **Windows: picks and rejects are there again after a restart.** The library names its photos `\\?\C:\…` on Windows, the folder shown after a restart lists them as `C:\…`: the Pick and Reject counters read 0 and the flags were not shown, although they were saved. Flags are now found under either form, and a rating or label changed in such a view shows at once. Star ratings, edits and your photo files were never affected.
+- **A long graphics compile is shown instead of a panel that looks dead.** On some graphics drivers (a Radeon 680M under Windows: 65–90 s) a new kind of edit, a newly opened photo or an edited photo's thumbnail waits for a shader compile. Every compile that takes longer than a moment now shows *Preparing graphics for this computer* in the activity centre and over the photo until it ends, and its start is written to the log; a thumbnail that cannot be made says why in the log.
 
 - **A corrected capture time now travels in the XMP sidecar.** *Shift Capture Time* writes the corrected time as `exif:DateTimeOriginal` and `photoshop:DateCreated` (with fraction of a second and UTC offset when known; no offset is invented) into the photo's XMP sidecar, so Lightroom, Capture One and other libraries see it, as with Lightroom's Edit Capture Time; *Back to the time in the file* and Undo remove exactly the dates Rawtonic wrote. The other way round, a sidecar whose capture time differs from the file's — for example after Lightroom's Edit Capture Time — becomes the photo's capture-time correction when it is imported or read with *Use XMP*; equal times change nothing. Sidecars of photos without a correction are written byte for byte as before, and your photo files are never changed.
 - **Faster lossless JPEG XL exports.** A synthetic 36 MP RGB image encoded in about 2.3 seconds instead of 143 seconds on the test laptop, with identical decoded pixels and a 72% larger file. Memory use remains above the export budget; lossy JPEG XL is unchanged.
@@ -24,6 +26,8 @@
 - **Crash reports from Windows name each frame by module and offset** (`rawtonic-app.exe+0x…`) instead of the misleading nearest export names (`onig_*`); each release's symbols are kept privately to resolve them.
 
 - **Super Resolution is faster on the CPU fallback.** On the laptop, inference for the same 24 MP tile set took 461 → 146 seconds (ONNX Runtime CPU, 117 tiles); complete export takes longer. CPU-only preparation downloads an additional 2.4 MB model conversion. GPU and Core ML keep their existing models; older installed packs remain usable.
+
+- **Each arrow-key press and each slider drag is its own Undo step.** Two quick taps of an arrow key on a slider or value field, or two short drags, used to merge into one step when they came less than half a second apart; now each is undone on its own, while a held key (auto-repeat) stays one step, as a drag does.
 
 ## 0.1.0-alpha.13 — 2026-11-11
 

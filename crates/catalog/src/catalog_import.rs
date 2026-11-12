@@ -313,7 +313,7 @@ impl Digests {
     fn normalize_within(&mut self, value: &mut Value, root: &Path, within: Option<&Path>) {
         rawtonic_metadata::resources::visit(value, &mut |path| {
             let file = match rawtonic_metadata::resources::relative(path) {
-                Some(relative) => root.join(relative),
+                Some(relative) => crate::native_join(root, &relative.to_string_lossy()),
                 None => PathBuf::from(path.as_str()),
             };
             let digest = self

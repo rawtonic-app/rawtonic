@@ -10,6 +10,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import type { AppSettings } from '../components/ui/AppProperties';
 
 import { COPY_MARKER, parsePhotoRef, sourceOf } from '../entities/photo/photoRef';
+import { byPathKey, pathKey } from './pathKey';
 
 const basePath = sourceOf;
 
@@ -57,6 +58,11 @@ export function remapPathKeys<T>(record: Record<string, T>, moves: Map<string, s
   return moved.size ? next : record;
 }
 
+/** `moves` for state kept under `pathKey` (the flags). */
+function keyMoves(moves: Map<string, string>): Map<string, string> {
+  return new Map([...moves].map(([from, to]) => [pathKey(from), pathKey(to)]));
+}
+
 /** `paths` at their new places, each once; the same array when none moved. */
 function remapPaths(paths: string[], moves: Map<string, string>): string[] {
   const next = paths.map((path) => movedPath(path, moves));
@@ -84,7 +90,7 @@ export function followPathMoves(pathMoves: PathMove[]): { openPhoto: string | nu
     const expanded = [...state.expandedFolders].map((path) => movedPath(path, moves));
     const expandedChanged = expanded.some((path) => !state.expandedFolders.has(path));
     return {
-      imageFlags: remapPathKeys(state.imageFlags, moves),
+      imageFlags: remapPathKeys(state.imageFlags, keyMoves(moves)),
       imageRatings: remapPathKeys(state.imageRatings, moves),
       selectionAnchorPath: move(state.selectionAnchorPath),
       multiSelectedPaths: remapPaths(state.multiSelectedPaths, moves),
@@ -153,7 +159,7 @@ export async function reloadSessionFlags() {
   }
   if (!flags || useLibraryStore.getState().sessionDirectory !== directory) return;
   useLibraryStore.getState().setLibrary((state) => {
-    const next = { ...flags };
+    const next = { ...byPathKey(flags) };
     for (const [path, flag] of Object.entries(state.imageFlags)) {
       if (before[path] !== flag) next[path] = flag;
     }

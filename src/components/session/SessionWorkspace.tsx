@@ -121,6 +121,7 @@ import {
 } from '../../utils/sessionFolders';
 import type { FolderChange } from './SessionFoldersDialog';
 import { listenForAddFolder, type AddFolderDetail } from './addFolder';
+import { byPathKey } from '../../utils/pathKey';
 
 /** The folder trees of a session's folders outside it (G38). */
 function sessionFolderTrees(paths: string[]): Promise<FolderTree[]> {
@@ -557,7 +558,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         sessionDirectory: root,
         sessionFolders: summary.folders ?? [],
         subfolderDefaultRoot,
-        imageFlags: flags,
+        imageFlags: byPathKey(flags),
         rootPaths: [root, ...outsideTrees.map((t) => t.path)],
         folderTrees: [tree, ...outsideTrees],
         expandedFolders: new Set([root])

@@ -5460,8 +5460,72 @@ fn validated<T>(
     what: &str,
     create: impl FnOnce() -> T,
 ) -> Result<T, String> {
+    let _pending = PendingCompile::new();
     let _slot = compile_slot();
+    // Under a compile limit one creation can take minutes (65–90 s each on
+    // a Radeon 680M, WFQ): its start is logged, so a log never goes silent
+    // while the GPU work waits for it.
+    if compile_limited() {
+        log::info!(
+            "GPU {what}: compile started (+{:.2} s since start)",
+            since_start()
+        );
+    }
     checked(device, what, create)
+}
+
+/// Shader-module and pipeline creations waiting for a compile slot or
+/// running, and who is told when the first starts and the last ends
+/// (`on_compile_activity`).
+static PENDING_COMPILES: Mutex<usize> = Mutex::new(0);
+static COMPILE_ACTIVITY: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+/// Calls `callback(true)` when a shader compile starts while none ran and
+/// `callback(false)` when the last one ends, so the window can show that
+/// graphics are being prepared while a photo, an edit or a thumbnail waits
+/// for a compile (minutes on some drivers, WFQ). Set once.
+pub fn on_compile_activity(callback: impl Fn(bool) + Send + Sync + 'static) {
+    let _ = COMPILE_ACTIVITY.set(Box::new(callback));
+}
+
+/// Whether a shader compile is waiting or running now.
+pub fn compiles_pending() -> bool {
+    *PENDING_COMPILES.lock().unwrap_or_else(|e| e.into_inner()) > 0
+}
+
+/// One creation counted in `PENDING_COMPILES` while it lives. The callback
+/// runs under the count's lock, so its calls never arrive out of order.
+struct PendingCompile;
+
+impl PendingCompile {
+    fn new() -> Self {
+        let mut pending = PENDING_COMPILES.lock().unwrap_or_else(|e| e.into_inner());
+        *pending += 1;
+        if *pending == 1
+            && let Some(callback) = COMPILE_ACTIVITY.get()
+        {
+            callback(true);
+        }
+        Self
+    }
+}
+
+impl Drop for PendingCompile {
+    fn drop(&mut self) {
+        let mut pending = PENDING_COMPILES.lock().unwrap_or_else(|e| e.into_inner());
+        *pending -= 1;
+        if *pending == 0
+            && let Some(callback) = COMPILE_ACTIVITY.get()
+        {
+            callback(false);
+        }
+    }
+}
+
+/// Whether shader compiles run under a limit (`CompileLimit`).
+fn compile_limited() -> bool {
+    !compiles_ahead()
 }
 
 /// `validated` without the compile limit, for small pipelines created on

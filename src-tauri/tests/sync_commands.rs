@@ -124,6 +124,10 @@ const SYNC_COMMANDS: &[(&str, &str)] = &[
         "pure computation on the arguments",
     ),
     (
+        "gpu_compiling",
+        "in-memory counter behind a short lock; no I/O",
+    ),
+    (
         "gpu_start_error",
         "in-memory state behind a short lock; no I/O",
     ),

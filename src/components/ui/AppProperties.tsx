@@ -178,6 +178,7 @@ export enum Invokes {
   GpuBackendStatus = 'gpu_backend_status',
   GpuBackendUseAutomatic = 'gpu_backend_use_automatic',
   GpuFirstDisplayReady = 'gpu_first_display_ready',
+  GpuCompiling = 'gpu_compiling',
   GetLogFilePath = 'get_log_file_path',
   GetPinnedFolderTrees = 'get_pinned_folder_trees',
   GetSupportedFileTypes = 'get_supported_file_types',
