@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Shortcut hints preserve file and tool names containing Mac key symbols; Windows/Linux reference hints say Enter. Linux uses neutral file-manager wording, and thumbnail path aliases are cached per library list.
+
 - Windows and Linux show platform shortcut labels, scale the top bar with the interface, keep photo dimensions beside shortened filenames, and enforce a usable minimum window size. Plain Ctrl+C in Develop copies the remembered settings choice; Ctrl+Shift+C opens the picker. Catalog scans leave exports in Output out of the photo count, and thumbnail events update tiles listed through another Windows path spelling.
 
 - **Windows: the AI tools can use the graphics card.** ONNX Runtime's GPU plugin needs Microsoft's DirectX Shader Compiler on Direct3D 12, which Windows does not include, so the AI tools always ran on the processor. The installers and the portable zip now bring it (`dxcompiler.dll`, `dxil.dll`, Microsoft's release 1.8.2502) beside ONNX Runtime; if it is missing, the AI tools still run on the processor and the log says why.
