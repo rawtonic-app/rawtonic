@@ -350,6 +350,8 @@ impl Default for BaseImageOptions {
 pub struct DecodeMeasures {
     pub noise_level: Option<f32>,
     pub image_key: Option<crate::image_key::ImageKey>,
+    /// Airlight level (airlight.rs) for lowered Dehaze version 3.
+    pub airlight: Option<f32>,
 }
 
 impl DecodeMeasures {
@@ -358,6 +360,7 @@ impl DecodeMeasures {
         Self {
             noise_level: crate::noise_level::measure(image),
             image_key: crate::image_key::measure(image),
+            airlight: crate::airlight::measure(image),
         }
     }
 
@@ -370,6 +373,10 @@ impl DecodeMeasures {
         if let Some(key) = self.image_key {
             crate::image_key::record(path, key);
             log::info!("Image key for '{path}': {key:?}");
+        }
+        if let Some(level) = self.airlight {
+            crate::airlight::record(path, level);
+            log::info!("Airlight for '{path}': {level:.5}");
         }
     }
 }

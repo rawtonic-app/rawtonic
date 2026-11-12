@@ -4,6 +4,7 @@
 //! and reporting a folder whose drive is away instead of making one.
 use rawtonic_catalog::session_folders::{FolderRole, outside_folders_of};
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -80,7 +81,7 @@ fn a_folder_inside_is_stored_relative_and_moves_with_the_session() {
     let lib = Library::open(&moved).unwrap();
     assert_eq!(
         lib.folder_path(FolderRole::Capture),
-        moved.canonicalize().unwrap().join("Shoot/Day 1")
+        moved.canonical().unwrap().join("Shoot/Day 1")
     );
     assert!(lib.session_folder(FolderRole::Capture).available);
 }
@@ -91,7 +92,7 @@ fn a_folder_outside_is_stored_absolute_and_holds_session_photographs() {
     let mut lib = session(tmp.path());
     let drive = tmp.path().join("CaptureDrive/Job");
     fs::create_dir_all(&drive).unwrap();
-    let drive = drive.canonicalize().unwrap();
+    let drive = drive.canonical().unwrap();
     let folder = lib.set_session_folder(FolderRole::Capture, &drive).unwrap();
     assert!(!folder.inside);
     assert_eq!(folder.stored, drive.to_str().unwrap());
@@ -140,7 +141,7 @@ fn a_photograph_moved_into_a_selects_folder_outside_keeps_its_record() {
     let mut lib = session(tmp.path());
     let selects = tmp.path().join("Share/Selects");
     fs::create_dir_all(&selects).unwrap();
-    let selects = selects.canonicalize().unwrap();
+    let selects = selects.canonical().unwrap();
     lib.set_session_folder(FolderRole::Selects, &selects)
         .unwrap();
     let photo = lib.directory.join("Capture/A.ARW");
@@ -282,7 +283,7 @@ fn a_folder_outside_left_behind_keeps_its_photographs_and_takes_an_undo_back() {
     let b = tmp.path().join("Drive/B");
     fs::create_dir_all(&a).unwrap();
     fs::create_dir_all(&b).unwrap();
-    let (a, b) = (a.canonicalize().unwrap(), b.canonicalize().unwrap());
+    let (a, b) = (a.canonical().unwrap(), b.canonical().unwrap());
     lib.set_session_folder(FolderRole::Capture, &a).unwrap();
     let kept = a.join("Kept.ARW");
     let moving = a.join("Moving.ARW");
@@ -330,7 +331,7 @@ fn synchronize_folder_covers_folders_outside_and_leaves_the_output_folder_out() 
     let mut lib = session(tmp.path());
     let drive = tmp.path().join("Drive/Capture");
     fs::create_dir_all(&drive).unwrap();
-    let drive = drive.canonicalize().unwrap();
+    let drive = drive.canonical().unwrap();
     lib.set_session_folder(FolderRole::Capture, &drive).unwrap();
     let delivered = lib.directory.join("Delivered");
     fs::create_dir(&delivered).unwrap();
@@ -367,7 +368,7 @@ fn an_output_folder_outside_is_never_scanned_now_or_after_it_changed() {
     let b = tmp.path().join("Share/B");
     fs::create_dir_all(&a).unwrap();
     fs::create_dir_all(&b).unwrap();
-    let (a, b) = (a.canonicalize().unwrap(), b.canonicalize().unwrap());
+    let (a, b) = (a.canonical().unwrap(), b.canonical().unwrap());
     lib.set_session_folder(FolderRole::Output, &a).unwrap();
     fs::write(a.join("Render.jpg"), b"render a").unwrap();
     // Synchronizing the Output folder itself is refused.
@@ -403,7 +404,7 @@ fn a_former_output_folder_under_a_scan_root_is_never_scanned() {
     let mut lib = session(tmp.path());
     let drive = tmp.path().join("Drive/Capture");
     fs::create_dir_all(&drive).unwrap();
-    let drive = drive.canonicalize().unwrap();
+    let drive = drive.canonical().unwrap();
     lib.set_session_folder(FolderRole::Capture, &drive).unwrap();
     let former = drive.join("Delivered");
     fs::create_dir(&former).unwrap();
@@ -418,7 +419,7 @@ fn a_former_output_folder_under_a_scan_root_is_never_scanned() {
 
     let elsewhere = tmp.path().join("Share/Output");
     fs::create_dir_all(&elsewhere).unwrap();
-    let elsewhere = elsewhere.canonicalize().unwrap();
+    let elsewhere = elsewhere.canonical().unwrap();
     lib.set_session_folder(FolderRole::Output, &elsewhere)
         .unwrap();
     assert_eq!(
@@ -675,7 +676,7 @@ fn photograph_folders_inside_an_output_folder_are_refused() {
     fs::write(deliveries.join("Export.jpg"), b"an export").unwrap();
     let elsewhere = tmp.path().join("Share/Output");
     fs::create_dir_all(&elsewhere).unwrap();
-    let elsewhere = elsewhere.canonicalize().unwrap();
+    let elsewhere = elsewhere.canonical().unwrap();
     lib.set_session_folder(FolderRole::Output, &elsewhere)
         .unwrap();
 
@@ -742,7 +743,7 @@ fn a_capture_folder_inside_an_output_folder_outside_is_refused() {
     let mut lib = session(tmp.path());
     let share = tmp.path().join("Share/Output");
     fs::create_dir_all(&share).unwrap();
-    let share = share.canonicalize().unwrap();
+    let share = share.canonical().unwrap();
     lib.set_session_folder(FolderRole::Output, &share).unwrap();
     let client = share.join("Client");
     fs::create_dir(&client).unwrap();

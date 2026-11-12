@@ -65,6 +65,8 @@ run() { # name command...
 legal() {
   cmp THIRD_PARTY_NOTICES.md src-tauri/resources/licenses/THIRD_PARTY_NOTICES.md &&
     cmp licenses/Adobe-DNG-Specification-Patent-License.txt src-tauri/resources/licenses/Adobe-DNG-Specification-Patent-License.txt &&
+    cmp licenses/DirectXShaderCompiler-NCSA.txt src-tauri/resources/licenses/DirectXShaderCompiler-NCSA.txt &&
+    cmp licenses/DirectXShaderCompiler-dxil-Microsoft.txt src-tauri/resources/licenses/DirectXShaderCompiler-dxil-Microsoft.txt &&
     python3 scripts/third_party_licenses.py --check
 }
 frontend_build() { npm run -s build >/dev/null; }

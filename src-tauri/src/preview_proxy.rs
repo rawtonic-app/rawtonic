@@ -228,6 +228,7 @@ fn measures_of(facts: Option<&SourceFacts>) -> Option<DecodeMeasures> {
     facts.map(|facts| DecodeMeasures {
         noise_level: facts.noise_level,
         image_key: facts.measured_image_key(),
+        airlight: facts.airlight,
     })
 }
 
@@ -672,6 +673,7 @@ impl SourceData {
         if let Some(measures) = measures {
             facts.noise_level = measures.noise_level;
             facts.set_image_key(measures.image_key);
+            facts.airlight = measures.airlight;
         }
         SourceData {
             facts: Some(facts),
@@ -987,12 +989,26 @@ fn register_facts(source: &Path, header: &Header) {
             if let Some(newer) = newest_base_look(source, facts.version) {
                 facts.base_look = Some(newer);
             }
+            // Likewise the airlight (facts version 22, Dehaze version 3).
+            if facts.airlight.is_none() {
+                facts.airlight = newest_airlight(source);
+            }
             source_facts::register(&path, facts)
         }
         None => log::info!(
             "The preview of {path} keeps no camera data (made before 2026-10-10): it renders offline without its base look and lens defaults until it is rebuilt"
         ),
     }
+}
+
+/// The airlight the newest facts of `source`'s previews keep, if any.
+fn newest_airlight(source: &Path) -> Option<f32> {
+    [ProxyKind::Full, ProxyKind::Standard]
+        .into_iter()
+        .filter_map(|kind| read_header(&proxy_path_of(source, kind)?)?.facts)
+        .filter(|facts| facts.airlight.is_some())
+        .max_by_key(|facts| facts.version)?
+        .airlight
 }
 
 /// The base look of the facts of `source`'s previews newer than `version`
@@ -2163,6 +2179,35 @@ mod tests {
     }
 
     #[test]
+    fn an_older_full_preview_does_not_drop_the_newer_airlight() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, NEW_EDIT, None).unwrap();
+        // A rebuilt Standard preview keeps the airlight; the 1:1 one is from
+        // before it (facts version 21).
+        rewrite_facts(&photo, ProxyKind::Standard, |facts| {
+            facts.airlight = Some(0.31)
+        });
+        rewrite_facts(&photo, ProxyKind::Full, |facts| {
+            facts.version = source_facts::VERSION - 1;
+            facts.airlight = None;
+        });
+        let key = photo.to_string_lossy().into_owned();
+        let away = dir.path().join("away.NEF");
+        fs::rename(&photo, &away).unwrap();
+        let airlight = || source_facts::registered(&key).and_then(|facts| facts.airlight);
+        prepare_offline(&photo);
+        assert_eq!(airlight(), Some(0.31));
+        source_facts::forget(&key);
+        read_kind(&photo, ProxyKind::Full, &settings);
+        assert_eq!(airlight(), Some(0.31));
+        fs::rename(&away, &photo).unwrap();
+        prepare_offline(&photo);
+    }
+
+    #[test]
     fn offline_photographs_render_with_the_file_facts_their_previews_keep() {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
@@ -2438,6 +2483,7 @@ mod tests {
         let own = DecodeMeasures {
             noise_level: Some(0.01),
             image_key: Some([0.1, 0.6, 0.3]),
+            airlight: Some(0.4),
         };
         write(
             &photo,

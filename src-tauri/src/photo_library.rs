@@ -5,6 +5,7 @@
 //! export take the answer as data (`library: Option<&Path>`); they do not
 //! know the layout.
 use rawtonic_catalog::layout::LibraryLayout;
+use rawtonic_fs::Canonical;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -54,11 +55,11 @@ pub(crate) fn library_of_str(path: &str) -> Option<PathBuf> {
 /// The form libraries record paths in: canonical, also for a file (or a
 /// drive) that is gone.
 fn registered_form(path: &Path) -> PathBuf {
-    if let Ok(canonical) = path.canonicalize() {
+    if let Ok(canonical) = path.canonical() {
         return canonical;
     }
     match (
-        path.parent().and_then(|p| p.canonicalize().ok()),
+        path.parent().and_then(|p| p.canonical().ok()),
         path.file_name(),
     ) {
         (Some(parent), Some(name)) => parent.join(name),
@@ -77,7 +78,7 @@ mod tests {
         let drive = dir.path().join("Drive/Capture");
         std::fs::create_dir_all(&session).unwrap();
         std::fs::create_dir_all(drive.join("Day 1")).unwrap();
-        let drive = drive.canonicalize().unwrap();
+        let drive = drive.canonical().unwrap();
         let photo = drive.join("Day 1/A.ARW");
         std::fs::write(&photo, b"a").unwrap();
         assert_eq!(library_of(&photo), None);

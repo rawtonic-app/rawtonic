@@ -103,13 +103,15 @@ export default function AddFolderDialog({
             <div className="studio-capture-time-preview" role="status" aria-live="polite">
               {shown ? (
                 <>
-                  <p>
-                    {!shown.files.length
-                      ? t('session.addFolder.nothing')
-                      : shown.photographs
-                        ? t('session.addFolder.toAdd', { count: shown.photographs })
-                        : t('session.addFolder.nothingNew')}
-                  </p>
+                  {(shown.files.length > 0 || shown.owned.length === 0) && (
+                    <p>
+                      {!shown.files.length && shown.registered > 0 && !shown.unreadable.length
+                        ? t('session.addFolder.nothing')
+                        : shown.photographs
+                          ? t('session.addFolder.toAdd', { count: shown.photographs })
+                          : t('session.addFolder.nothingNew')}
+                    </p>
+                  )}
                   {shown.companions > 0 && (
                     <p className="studio-help">{t('session.addFolder.companions', { count: shown.companions })}</p>
                   )}

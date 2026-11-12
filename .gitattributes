@@ -1,0 +1,7 @@
+# Text files are checked out with LF on every system, so a Windows clone
+# (core.autocrlf=true by default, also on the CI runners) builds the same
+# embedded shaders and test fixtures as macOS and Linux: CRLF changed the
+# WGSL sources (and their recorded function checks), XMP and SQL fixtures.
+# Rawtonic itself reads CRLF files from other programs (tested), it does not
+# depend on this.
+* text=auto eol=lf

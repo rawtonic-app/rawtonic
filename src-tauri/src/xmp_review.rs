@@ -290,6 +290,7 @@ pub async fn session_xmp_check(directory: String, folder: Option<String>) -> Res
 mod tests {
     use super::*;
     use rawtonic_catalog::Mode;
+    use rawtonic_fs::Canonical;
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -314,7 +315,7 @@ mod tests {
             lib.sync_xmp(&id).unwrap();
             meta.rating = 3;
             lib.set_metadata(&id, &meta).unwrap();
-            photos.push(photo.canonicalize().unwrap());
+            photos.push(photo.canonical().unwrap());
         }
         fs::rename(&photos[0], tmp.path().join("a-moved.nef")).unwrap();
         #[cfg(unix)]
@@ -447,7 +448,7 @@ mod tests {
         let photo = tmp.path().join("Capture/e.nef");
         fs::write(&photo, b"synthetic original").unwrap();
         let id = lib.add_asset(&photo).unwrap().id;
-        let photo = photo.canonicalize().unwrap();
+        let photo = photo.canonical().unwrap();
         let rrdata = photo.with_file_name("e.nef.rrdata");
         let edits = br#"{"version":1,"rating":4,"tags":[],"adjustments":{"exposure":1.25}}"#;
         fs::write(&rrdata, edits).unwrap();

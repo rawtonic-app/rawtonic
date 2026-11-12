@@ -1191,6 +1191,7 @@ pub fn export_queue_remove(job: String, app: AppHandle) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::export_processing::PinnedPhoto;
+    use rawtonic_fs::Canonical;
     use serde_json::json;
     use std::{sync::mpsc, thread, time::Duration};
 
@@ -1219,7 +1220,7 @@ mod tests {
     fn two_catalogs() -> TwoCatalogs {
         use rawtonic_catalog::{Library, Mode};
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         std::fs::create_dir_all(root.join("Photos")).unwrap();
         let source = root.join("Photos/A.jpg");
         std::fs::write(&source, b"jpeg").unwrap();

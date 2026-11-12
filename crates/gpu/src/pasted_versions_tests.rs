@@ -137,18 +137,19 @@ const CASES: &[Case] = &[
         values: SIGNED,
         exact: &[],
     },
-    // Raising Dehaze is the same in both versions.
+    // Raising Dehaze is the same in versions 1 and 2; version 3 adapts both
+    // directions to the photo's airlight (the charts': unknown).
     Case {
         key: "dehazeVersion",
         slider: "dehaze",
-        pairs: &[(2, 1), (1, 2)],
+        pairs: &[(2, 1), (1, 2), (3, 2), (2, 3)],
         values: &[-100.0, -50.0],
         exact: &[],
     },
     Case {
         key: "dehazeVersion",
         slider: "dehaze",
-        pairs: &[(2, 1), (1, 2)],
+        pairs: &[(2, 1), (1, 2), (3, 2), (2, 3)],
         values: &[50.0, 100.0],
         exact: &[(2, 1), (1, 2)],
     },
@@ -305,7 +306,7 @@ fn pasted_global_tool_leaves_the_layers_as_they_were() {
         ("structureVersion", "structure", 1, 3, 40.0, 50.0),
         ("clarityVersion", "clarity", 1, 3, 40.0, 50.0),
         ("vibranceVersion", "vibrance", 1, 2, 40.0, 50.0),
-        ("dehazeVersion", "dehaze", 1, 2, -30.0, -40.0),
+        ("dehazeVersion", "dehaze", 1, 3, -30.0, -40.0),
         ("temperatureVersion", "temperature", 1, 2, -30.0, 60.0),
         ("tintVersion", "tint", 1, 2, 30.0, 40.0),
         // (Raised Whites add up to 100 at most: values whose sums stay below.)

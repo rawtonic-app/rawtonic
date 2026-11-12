@@ -32,8 +32,10 @@ use ort::session::builder::SessionBuilder;
 
 pub mod bench;
 mod check;
+mod dxc;
 mod runtime;
 mod vc_runtime;
+mod watch;
 
 pub use runtime::{
     RUNTIME_UNAVAILABLE, RuntimeError, RuntimeErrorKind, ensure_runtime, environment, library_path,
@@ -646,17 +648,11 @@ fn is_termination(error: &anyhow::Error) -> bool {
     format!("{error:#}").contains("terminate flag")
 }
 
-struct Loaded {
-    session: Session,
-    provider: Provider,
-    runs: u32,
-}
-
 /// A loaded model: its session and the provider it runs on.
 pub struct Model {
     kind: ModelKind,
     path: PathBuf,
-    state: Mutex<Loaded>,
+    state: watch::Slot<Session>,
 }
 
 impl Model {
@@ -690,11 +686,7 @@ impl Model {
         Ok(Self {
             kind,
             path: path.to_path_buf(),
-            state: Mutex::new(Loaded {
-                session,
-                provider: Provider::Cpu,
-                runs: 0,
-            }),
+            state: watch::Slot::new(kind.name(), session, Provider::Cpu),
         })
     }
 
@@ -739,9 +731,17 @@ impl Model {
                 session(path, kind, None).map(|s| (s, "CPU".to_string()))
             } else {
                 device(provider, dirs).and_then(|device| {
+                    // A known "differs" or "slower" needs no GPU session (its
+                    // creation alone compiles shaders).
+                    if checked
+                        && let Some(Err(e)) =
+                            check::prior(path, kind, &device, checks_file.as_ref())
+                    {
+                        return Err(e);
+                    }
                     let mut gpu = session(path, kind, Some(&device))?;
                     if checked {
-                        check::check(path, kind, &mut gpu, &device, checks_file.as_ref())?;
+                        gpu = check::check(path, kind, gpu, &device, checks_file.as_ref())?;
                     }
                     Ok((gpu, device.label.clone()))
                 })
@@ -756,11 +756,7 @@ impl Model {
                     return Ok(Self {
                         kind,
                         path: path.to_path_buf(),
-                        state: Mutex::new(Loaded {
-                            session,
-                            provider,
-                            runs: 0,
-                        }),
+                        state: watch::Slot::new(kind.name(), session, provider),
                     });
                 }
                 Err(e) => {
@@ -778,58 +774,41 @@ impl Model {
         self.kind
     }
 
-    /// The provider the model runs on now.
+    /// A new CPU session of this model, after a GPU failed.
+    fn cpu_session(&self) -> Result<Session> {
+        session(&self.path, self.kind, None)
+    }
+
+    /// `run` that never waits for a hung GPU (`watch`): on a GPU, `f` runs
+    /// on a thread of its own, and a run that takes longer than its limit
+    /// is left behind with its session while the model, and every caller
+    /// waiting for it, moves to a new CPU session for good.
+    pub fn run_watched<T, F>(&self, f: F) -> Result<T>
+    where
+        T: Send + 'static,
+        F: Fn(&mut Session) -> Result<T> + Send + Sync + 'static,
+    {
+        self.state
+            .run_watched(f, is_termination, || self.cpu_session())
+    }
+
+    /// The provider the model runs on now (never waits for a run).
     pub fn provider(&self) -> Provider {
-        self.state.lock().unwrap().provider
+        self.state.provider()
     }
 
     /// Runs `f` on the session where it is, never moving to the CPU (for
     /// benchmarks and tests).
     pub fn run_without_fallback<T>(&self, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
-        f(&mut self.state.lock().unwrap().session)
+        self.state.session().with(f)
     }
 
     /// Runs `f` on the session. When it fails on a GPU (other than being
     /// stopped on purpose), the model moves to the CPU for good and `f`
     /// runs again there; `f` should return an error for unusable output
     /// (`ensure_finite`).
-    pub fn run<T>(&self, mut f: impl FnMut(&mut Session) -> Result<T>) -> Result<T> {
-        let mut state = self.state.lock().unwrap();
-        let started = Instant::now();
-        let result = f(&mut state.session);
-        state.runs += 1;
-        let provider = state.provider;
-        match result {
-            Ok(value) => {
-                if state.runs == 1 {
-                    log::info!(
-                        "AI {}: first run on {provider} in {} ms",
-                        self.kind.name(),
-                        started.elapsed().as_millis()
-                    );
-                }
-                Ok(value)
-            }
-            Err(e) if provider != Provider::Cpu && !is_termination(&e) => {
-                log::warn!(
-                    "AI {}: run on {provider} failed ({e:#}); using the CPU from now on",
-                    self.kind.name()
-                );
-                state.session = session(&self.path, self.kind, None)?;
-                state.provider = Provider::Cpu;
-                state.runs = 0;
-                let started = Instant::now();
-                let value = f(&mut state.session)?;
-                state.runs = 1;
-                log::info!(
-                    "AI {}: first run on CPU in {} ms",
-                    self.kind.name(),
-                    started.elapsed().as_millis()
-                );
-                Ok(value)
-            }
-            Err(e) => Err(e),
-        }
+    pub fn run<T>(&self, f: impl FnMut(&mut Session) -> Result<T>) -> Result<T> {
+        self.state.run(f, is_termination, || self.cpu_session())
     }
 }
 

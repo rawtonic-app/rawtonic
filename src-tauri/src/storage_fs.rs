@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Cache maintenance. Callers supply an owned root and a strict descendant,
 //! never a user-selected deletion path. Descendant links are never followed.
+use rawtonic_fs::Canonical;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -25,7 +26,7 @@ impl Drop for FileUse {
 }
 fn file_key(path: &Path) -> PathBuf {
     path.parent()
-        .and_then(|parent| parent.canonicalize().ok())
+        .and_then(|parent| parent.canonical().ok())
         .and_then(|parent| path.file_name().map(|name| parent.join(name)))
         .unwrap_or_else(|| path.to_path_buf())
 }
@@ -60,7 +61,7 @@ pub fn owned_directory(root: &Path, directory: &Path) -> io::Result<PathBuf> {
     // Derive the relative path before canonicalizing the root. Resolving the
     // candidate's parent first would hide a symlink through a sibling such
     // as <session>/.cache/link -> <session>/Capture.
-    let canonical_root = root.canonicalize()?;
+    let canonical_root = root.canonical()?;
     let relative = directory
         .strip_prefix(root)
         .or_else(|_| directory.strip_prefix(&canonical_root))
@@ -226,7 +227,7 @@ fn remove_owned_file(root: &Path, directory: &Path, name: &std::ffi::OsStr) -> i
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::OpenOptionsExt;
-    let root = root.canonicalize()?;
+    let root = root.canonical()?;
     let relative = directory.strip_prefix(&root).map_err(|_| refused())?;
     let mut handle: OwnedFd = fs::OpenOptions::new()
         .read(true)
@@ -265,7 +266,7 @@ fn remove_owned_file(root: &Path, directory: &Path, name: &std::ffi::OsStr) -> i
 #[cfg(windows)]
 fn remove_owned_file(root: &Path, directory: &Path, name: &std::ffi::OsStr) -> io::Result<()> {
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
-    let root = root.canonicalize()?;
+    let root = root.canonical()?;
     let relative = directory.strip_prefix(&root).map_err(|_| refused())?;
     let mut current = root.clone();
     let mut handles = Vec::new();
@@ -407,7 +408,7 @@ mod tests {
     use super::*;
     fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let cache = root.join("thumbnails");
         fs::create_dir(&cache).unwrap();
         (temp, root, cache)
@@ -554,7 +555,7 @@ mod tests {
     fn a_link_through_a_sibling_never_authorizes_a_photo_directory() {
         use std::os::unix::fs::symlink;
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let cache = root.join(".cache");
         let photos = root.join("Capture/subfolder");
         fs::create_dir_all(&cache).unwrap();
@@ -578,7 +579,7 @@ mod tests {
     #[test]
     fn active_reader_survives_clear_until_its_lease_ends() {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let cache = root.join("previews");
         fs::create_dir(&cache).unwrap();
         let path = cache.join("preview.rtpx");
@@ -601,7 +602,7 @@ mod tests {
     fn owned_root_aliases_and_canonical_descendants_work_together() {
         use std::os::unix::fs::symlink;
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let owned = root.join("owned");
         let alias = root.join("alias");
         fs::create_dir_all(owned.join("cache/nested")).unwrap();
@@ -616,7 +617,7 @@ mod tests {
     fn an_entry_pinned_after_listing_is_kept_even_above_the_limit() {
         use std::sync::atomic::AtomicUsize;
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let cache = root.join("cache");
         fs::create_dir(&cache).unwrap();
         let path = cache.join("just-used.jpg");
@@ -638,7 +639,7 @@ mod tests {
     #[test]
     fn an_unremovable_entry_does_not_prevent_evicting_other_files() {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let cache = root.join("cache");
         fs::create_dir(&cache).unwrap();
         let old = cache.join("old.jpg");
@@ -675,7 +676,7 @@ mod tests {
     fn marking_use_does_not_follow_a_link_to_an_original() {
         use std::os::unix::fs::symlink;
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let original = root.join("original.RAW");
         fs::write(&original, b"original").unwrap();
         let before = fs::metadata(&original).unwrap().modified().unwrap();

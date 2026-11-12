@@ -15,6 +15,7 @@ use crate::library_search::{FACTS_RECORDED, announcer};
 use crate::session_bridge::typed_with_library;
 use rawtonic_catalog::Library;
 use rawtonic_catalog::duplicates::{DuplicateMember, Refusal, suggested_trash};
+use rawtonic_fs::Canonical;
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
@@ -188,7 +189,7 @@ pub(crate) fn start_pass_if_needed(lib: &Library, rule: &rawtonic_catalog::Rule)
 /// current hash; returns the pass's number (its events carry it).
 #[tauri::command]
 pub fn duplicates_start(app: tauri::AppHandle, directory: String) -> Result<u64, CommandError> {
-    let directory = Path::new(&directory).canonicalize()?;
+    let directory = Path::new(&directory).canonical()?;
     Ok(start(app, directory)?)
 }
 

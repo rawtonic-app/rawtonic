@@ -192,11 +192,12 @@ pub fn apply_base_look(
     crate::camera_profile::apply(global, path, library);
     crate::diffraction::apply(global, path);
     let registered = || crate::source_facts::registered(path);
-    let (noise_level, image_key) = match measures {
-        Some(measures) => (measures.noise_level, measures.image_key),
+    let (noise_level, image_key, airlight) = match measures {
+        Some(measures) => (measures.noise_level, measures.image_key, measures.airlight),
         None => (
             crate::noise_level::for_path(path),
             crate::image_key::for_path(path),
+            crate::airlight::for_path(path),
         ),
     };
     global.noise_level = noise_level
@@ -208,6 +209,9 @@ pub fn apply_base_look(
     global.image_key = high;
     global.image_key_low = low;
     global.image_key_median = median;
+    global.airlight = airlight
+        .or_else(|| registered().and_then(|facts| facts.airlight))
+        .unwrap_or(0.0);
 }
 
 /// The DNG BaselineExposure that gives a linear DNG made from `path` (a
@@ -791,6 +795,7 @@ mod tests {
         let own = crate::image_loader::DecodeMeasures {
             noise_level: Some(0.01),
             image_key: Some([0.1, 0.6, 0.3]),
+            airlight: Some(0.4),
         };
         let mut global = GlobalAdjustments::default();
         super::apply_base_look(&mut global, path, Some(&own), None);

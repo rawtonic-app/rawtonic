@@ -21,6 +21,9 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+same-file = "1.0.6"
+
 [dev-dependencies]
 rawtonic-fs = { path = "../fs", version = "0.1.0", features = ["test-support"] }
 tempfile = { workspace = true }

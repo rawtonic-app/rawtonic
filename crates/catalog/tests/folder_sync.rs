@@ -1,5 +1,6 @@
 use rawtonic_catalog::folder_sync::{SyncAction, SyncOptions, SyncPlan, SyncProgress, is_photo};
 use rawtonic_catalog::{ImportKind, Library, Mode, Volume};
+use rawtonic_fs::Canonical;
 use serde_json::json;
 use std::{
     fs,
@@ -317,7 +318,7 @@ fn without_a_recorded_hash_a_move_is_only_probable() {
 #[test]
 fn photographs_on_a_disconnected_drive_are_unavailable_never_moved_or_removed() {
     let d = tempfile::tempdir().unwrap();
-    let root = d.path().canonicalize().unwrap();
+    let root = d.path().canonical().unwrap();
     let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
     let mount = root.join("Volumes/Photos");
     let folder = mount.join("2026");
@@ -560,7 +561,7 @@ fn a_hard_link_to_a_photograph_that_is_still_there_is_a_copy_not_a_move() {
 #[test]
 fn a_session_follows_moves_between_its_folders_and_stays_inside_itself() {
     let d = tempfile::tempdir().unwrap();
-    let root = d.path().canonicalize().unwrap();
+    let root = d.path().canonical().unwrap();
     let lib = session(&root);
     let capture = lib.directory.join("Capture");
     let selects = lib.directory.join("Selects");
@@ -632,7 +633,7 @@ fn a_session_follows_moves_between_its_folders_and_stays_inside_itself() {
 #[test]
 fn photographs_of_a_folder_that_is_not_there_are_never_removed_without_a_drive_identity() {
     let d = tempfile::tempdir().unwrap();
-    let root = d.path().canonicalize().unwrap();
+    let root = d.path().canonical().unwrap();
     let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
     // A share with photographs in a folder of it, and one with photographs
     // right at its mount point.
@@ -689,7 +690,7 @@ fn photographs_of_a_folder_that_is_not_there_are_never_removed_without_a_drive_i
 #[test]
 fn photographs_deleted_inside_a_library_folder_that_is_there_are_removed() {
     let d = tempfile::tempdir().unwrap();
-    let root = d.path().canonicalize().unwrap();
+    let root = d.path().canonical().unwrap();
     let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
     let photos = root.join("Photos");
     let names = ["A.ARW", "B.ARW", "Day/C.ARW", "Trip/D.ARW"];
@@ -734,7 +735,7 @@ fn photographs_deleted_inside_a_library_folder_that_is_there_are_removed() {
 #[test]
 fn a_scan_of_given_files_follows_their_moves_without_listing_folders() {
     let d = tempfile::tempdir().unwrap();
-    let root = d.path().canonicalize().unwrap();
+    let root = d.path().canonical().unwrap();
     let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
     let photos = root.join("Photos");
     photo(&photos.join("A.ARW"), 1);

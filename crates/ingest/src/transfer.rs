@@ -7,6 +7,7 @@ use crate::IngestError;
 use crate::error::ensure;
 use anyhow::{Context, Result};
 use rawtonic_catalog::{Library, Mode, layout, portable::ResourceUse};
+use rawtonic_fs::Canonical;
 use rawtonic_metadata::photo_ref;
 use rawtonic_metadata::resources;
 use serde::{Deserialize, Serialize};
@@ -139,7 +140,7 @@ pub fn verify(
         rawtonic_catalog::validate_relative(Path::new(relative))?;
         let path = folder.join(relative);
         ensure!(
-            path.canonicalize()?.starts_with(folder.canonicalize()?),
+            path.canonical()?.starts_with(folder.canonical()?),
             "Backup file escapes its folder"
         );
         ensure!(
@@ -179,11 +180,11 @@ pub fn copy_library(
         matches!(purpose, "transfer" | "backup" | "restore"),
         "Unknown copy purpose"
     );
-    let source = source.canonicalize()?;
+    let source = source.canonical()?;
     let parent = destination
         .parent()
         .context("Choose a destination parent")?
-        .canonicalize()?;
+        .canonical()?;
     let name = destination.file_name().context("Choose a folder name")?;
     rawtonic_naming::validate_component(
         name.to_str().context("Folder name must be valid Unicode")?,
@@ -207,7 +208,7 @@ pub fn copy_library(
     let stage = tempfile::Builder::new()
         .prefix(".rawtonic-copy-")
         .tempdir_in(&parent)?;
-    let stage_root = stage.path().canonicalize()?;
+    let stage_root = stage.path().canonical()?;
     let snapshot = if let Some(receipt) = &restore {
         // Never open the backup itself in SQLite: migration/checkpointing would
         // invalidate it. Copy only verified files, and check the copied bytes
@@ -532,7 +533,7 @@ impl<'a> ResourceCopier<'a> {
             return Ok(value.into());
         }
         let path = path
-            .canonicalize()
+            .canonical()
             .with_context(|| format!("Cannot read edit resource {}", path.display()))?;
         if let Some(value) = self.copied.get(&path) {
             return Ok(value.clone());

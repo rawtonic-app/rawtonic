@@ -1,0 +1,7 @@
+# Windows canonicalizes to verbatim paths (\\?\C:\…) that users must not see
+# and the frontend cannot extend; rawtonic_fs::canonicalize gives the plain
+# form wherever it names the same file (G77).
+disallowed-methods = [
+    { path = "std::fs::canonicalize", reason = "use rawtonic_fs::canonicalize (plain paths on Windows)" },
+    { path = "std::path::Path::canonicalize", reason = "use rawtonic_fs::Canonical::canonical (plain paths on Windows)" },
+]

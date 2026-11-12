@@ -587,6 +587,8 @@ impl VibranceVersion {
 
 /// Lowered Dehaze as a veil fitted to Camera Raw's (`dehazeVersion` 2).
 pub const VEIL_DEHAZE_VERSION: u64 = 2;
+/// Dehaze adapted to the photo's airlight (`dehazeVersion` 3).
+pub const AIRLIGHT_DEHAZE_VERSION: u64 = 3;
 
 /// `dehazeVersion` (`image_processing::DEHAZE_VERSION`): 1 when missing,
 /// never newer than this renderer knows.
@@ -615,6 +617,12 @@ impl DehazeVersion {
     /// Lowering Dehaze lays a veil (shader `apply_dehaze_lower_v2`).
     pub fn veil(self) -> bool {
         self.0 >= VEIL_DEHAZE_VERSION
+    }
+
+    /// Dehaze adapts to the photo's airlight (shader
+    /// `apply_dehaze_lower_v3`, `apply_dehaze_raise_v3`).
+    pub fn airlight(self) -> bool {
+        self.0 >= AIRLIGHT_DEHAZE_VERSION
     }
 }
 

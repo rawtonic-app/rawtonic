@@ -6,6 +6,7 @@ use rawtonic_catalog::{
     Library, Mode,
     catalog_import::{Choice, Side, Status},
 };
+use rawtonic_fs::Canonical;
 use rawtonic_ingest::{
     catalog_export::{self, export_catalog},
     catalog_import::{NewPhotos, Options, import, open_source, review},
@@ -64,7 +65,7 @@ fn world() -> (tempfile::TempDir, World) {
 /// just before the export.
 fn world_with(before_export: impl FnOnce(&Library, &[String])) -> (tempfile::TempDir, World) {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
     let shoot = root.join("Shoot");
     fs::create_dir_all(&shoot).unwrap();
@@ -743,7 +744,7 @@ fn a_failure_or_cancel_applies_nothing_and_takes_copies_back() {
 #[test]
 fn photographs_are_matched_by_sha256_never_by_name() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
     let here = root.join("Here");
     fs::create_dir_all(&here).unwrap();
@@ -1359,7 +1360,7 @@ fn the_common_state_advances_past_a_replaced_edit() {
 #[test]
 fn an_edits_only_return_from_an_exported_catalog_tells_each_side() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
     let shoot = root.join("Shoot");
     fs::create_dir_all(&shoot).unwrap();
@@ -1548,7 +1549,7 @@ fn the_losing_sides_work_is_kept() {
 #[test]
 fn a_new_photograph_without_its_original_is_left_out_not_refused() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
     let shoot = root.join("Shoot");
     fs::create_dir_all(&shoot).unwrap();
@@ -1595,7 +1596,7 @@ fn a_new_photograph_without_its_original_is_left_out_not_refused() {
 #[test]
 fn an_edits_only_photograph_is_matched_by_content_without_a_recorded_hash() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let project = Library::create(&root.join("Project"), "Project", Mode::Catalog).unwrap();
     let own = project.directory.join("Photos/a.arw");
     fs::create_dir_all(own.parent().unwrap()).unwrap();

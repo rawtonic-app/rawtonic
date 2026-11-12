@@ -3588,7 +3588,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 4194304;
+const PREVIEW_PIPELINE_COUNT: usize = 8388608;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3606,7 +3606,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Vibrance of vibrance version 2 65536, lowered Blacks of tone version 16
 /// 262144, colour mixer response 2 131072,
 /// Clarity or Structure version 3 524288, lowered Dehaze of dehaze version 2
-/// 1048576, glow, halation or grain 2097152.
+/// 1048576, glow, halation or grain 2097152, Dehaze of dehaze version 3
+/// 4194304.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3686,6 +3687,10 @@ const DEHAZE_V2_FEATURE: usize = 1048576;
 /// as compiled before; G76/WCC round 1, Radeon 680M). Exports keep the code
 /// (`export_features`), so their pixels stay as they were.
 const EFFECTS_FEATURE: usize = 2097152;
+/// Dehaze of dehaze version 3 (`DEHAZE_V3`, shader `apply_dehaze_lower_v3`,
+/// `apply_dehaze_raise_v3`), compiled only for recipes that use it for the
+/// same reason.
+const DEHAZE_V3_FEATURE: usize = 4194304;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
 /// low bits (detail, noise reduction, tone, relight) share a page.
@@ -5039,13 +5044,27 @@ fn presence_v3(adjustments: &AllAdjustments) -> bool {
 /// Whether the recipe lowers Dehaze with dehaze version 2's response, on the
 /// photo or a layer (`DEHAZE_V2`).
 fn dehaze_v2(adjustments: &AllAdjustments) -> bool {
-    DehazeVersion::from_uniform(adjustments.global.dehaze_version).veil()
+    let version = DehazeVersion::from_uniform(adjustments.global.dehaze_version);
+    version.veil()
+        && !version.airlight()
         && (adjustments.global.dehaze < 0.0
             || adjustments
                 .mask_adjustments
                 .iter()
                 .take(adjustments.mask_count as usize)
                 .any(|m| m.dehaze < 0.0))
+}
+
+/// Whether the recipe uses Dehaze with dehaze version 3's response, on the
+/// photo or a layer (`DEHAZE_V3`).
+fn dehaze_v3(adjustments: &AllAdjustments) -> bool {
+    DehazeVersion::from_uniform(adjustments.global.dehaze_version).airlight()
+        && (adjustments.global.dehaze != 0.0
+            || adjustments
+                .mask_adjustments
+                .iter()
+                .take(adjustments.mask_count as usize)
+                .any(|m| m.dehaze != 0.0))
 }
 
 /// The tone code a feature pipeline compiles, one bit each: lowered Whites
@@ -5267,6 +5286,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let hsl_v2 = hsl_v2(adjustments);
     let presence_v3 = presence_v3(adjustments);
     let dehaze_v2 = dehaze_v2(adjustments);
+    let dehaze_v3 = dehaze_v3(adjustments);
     // The shader applies each when its amount (with the layers') is above 0.
     let mut effects = g.glow_amount != 0.0 || g.halation_amount != 0.0 || g.grain_amount != 0.0;
     for m in adjustments
@@ -5308,6 +5328,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if presence_v3 { PRESENCE_V3_FEATURE } else { 0 }
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
         | if effects { EFFECTS_FEATURE } else { 0 }
+        | if dehaze_v3 { DEHAZE_V3_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -5386,8 +5407,8 @@ fn sharpen_level(adjustments: &AllAdjustments) -> usize {
 /// Whites of tone version 12, raised Shadows of tone version 13, lowered
 /// Highlights of tone version 14, Vibrance of vibrance version 2 or lowered
 /// Blacks of tone version 16, colour mixer response 2, Clarity or Structure
-/// version 3 or lowered Dehaze of dehaze version 2
-/// (`GpuProcessor::range2_pipelines`).
+/// version 3, lowered Dehaze of dehaze version 2 or Dehaze of dehaze
+/// version 3 (`GpuProcessor::range2_pipelines`).
 fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
     relight_range2(adjustments)
         || sharpen_level(adjustments) > 0
@@ -5396,6 +5417,7 @@ fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
         || hsl_v2(adjustments)
         || presence_v3(adjustments)
         || dehaze_v2(adjustments)
+        || dehaze_v3(adjustments)
 }
 
 /// The noise refinements with which the shader takes its default noise
@@ -5419,14 +5441,15 @@ type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>
     16]; 2]; MAIN_OUTPUTS];
 
 /// `GpuProcessor::range2_pipelines` for colour mixer response 2 (`HSL_V2`)
-/// Clarity or Structure version 3 (`PRESENCE_V3`) and lowered Dehaze of
-/// dehaze version 2 (`DEHAZE_V2`), one flat table on the
+/// Clarity or Structure version 3 (`PRESENCE_V3`), lowered Dehaze of
+/// dehaze version 2 (`DEHAZE_V2`) and Dehaze of dehaze version 3
+/// (`DEHAZE_V3`), one flat table on the
 /// heap: a further dimension of the inline table made
 /// `GpuProcessor` too large for a test thread's stack.
 type MixerFeaturePipelines = Box<[std::sync::OnceLock<Option<wgpu::ComputePipeline>>]>;
 
 /// The slots of `MixerFeaturePipelines`, one per index of `Range2Pipelines`.
-const MIXER_FEATURE_SLOTS: usize = MAIN_OUTPUTS * 2 * 16 * 3 * 4 * 2 * 2 * 2 * 2 * 2 * 2;
+const MIXER_FEATURE_SLOTS: usize = MAIN_OUTPUTS * 2 * 16 * 3 * 4 * 2 * 2 * 2 * 2 * 2 * 2 * 2;
 
 /// The slot in `MixerFeaturePipelines` of a `Range2Pipelines` index.
 #[allow(clippy::too_many_arguments)]
@@ -5442,8 +5465,9 @@ fn mixer_feature_slot(
     hsl: bool,
     presence: bool,
     dehaze: bool,
+    dehaze3: bool,
 ) -> usize {
-    (((((((((output * 2 + usize::from(vibrance)) * 16 + tone) * 3 + sharpen) * 4 + level) * 2
+    ((((((((((output * 2 + usize::from(vibrance)) * 16 + tone) * 3 + sharpen) * 4 + level) * 2
         + usize::from(long))
         * 2
         + usize::from(profile))
@@ -5454,7 +5478,9 @@ fn mixer_feature_slot(
         * 2
         + usize::from(presence))
         * 2
-        + usize::from(dehaze)
+        + usize::from(dehaze))
+        * 2
+        + usize::from(dehaze3)
 }
 
 /// Per mask layer: the curve data its table was built from, and whether the
@@ -6150,6 +6176,7 @@ fn variant_constants(
         ("PRESENCE_V3", ((features >> 19) & 1) as f64),
         ("DEHAZE_V2", ((features >> 20) & 1) as f64),
         ("ENABLE_EFFECTS", ((features >> 21) & 1) as f64),
+        ("DEHAZE_V3", ((features >> 22) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -8307,7 +8334,8 @@ impl GpuProcessor {
             let hsl = hsl_v2(adjustments);
             let presence = presence_v3(adjustments);
             let dehaze = dehaze_v2(adjustments);
-            let slot = if hsl || presence || dehaze {
+            let dehaze3 = dehaze_v3(adjustments);
+            let slot = if hsl || presence || dehaze || dehaze3 {
                 &self.mixer_feature_pipelines[mixer_feature_slot(
                     0,
                     vibrance_v2(adjustments),
@@ -8320,6 +8348,7 @@ impl GpuProcessor {
                     hsl,
                     presence,
                     dehaze,
+                    dehaze3,
                 )]
             } else {
                 &self.range2_pipelines[0][usize::from(vibrance_v2(adjustments))]
@@ -8778,8 +8807,9 @@ impl GpuProcessor {
         let hsl = hsl_v2(adjustments);
         let presence = presence_v3(adjustments);
         let dehaze = dehaze_v2(adjustments);
+        let dehaze3 = dehaze_v3(adjustments);
         let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-        let slot = if hsl || presence || dehaze {
+        let slot = if hsl || presence || dehaze || dehaze3 {
             &self.mixer_feature_pipelines[mixer_feature_slot(
                 output.index(),
                 vibrance,
@@ -8792,6 +8822,7 @@ impl GpuProcessor {
                 hsl,
                 presence,
                 dehaze,
+                dehaze3,
             )]
         } else {
             &self.range2_pipelines[output.index()][usize::from(vibrance)][tone][sharpen][level]
@@ -8819,6 +8850,7 @@ impl GpuProcessor {
                         ("HSL_V2", on(hsl)),
                         ("PRESENCE_V3", on(presence)),
                         ("DEHAZE_V2", on(dehaze)),
+                        ("DEHAZE_V3", on(dehaze3)),
                     ],
                 )
                 .inspect_err(|error| log::error!("Feature pipeline unavailable: {error}"))

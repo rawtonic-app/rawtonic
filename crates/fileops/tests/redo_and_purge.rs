@@ -1,5 +1,6 @@
 //! Redo of undone operations and emptying a folder (a session's Trash).
 use rawtonic_fileops::{Journal, NoSystemTrash, State, Step, SystemTrash, Target, plan_purge};
+use rawtonic_fs::Canonical;
 use rawtonic_fs::rename_no_clobber;
 use std::{
     cell::Cell,
@@ -41,7 +42,7 @@ impl SystemTrash for FolderTrash {
 
 fn setup() -> (tempfile::TempDir, PathBuf, Journal) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = dir.path().canonical().unwrap();
     let journal = Journal::open(&root.join("journal/file-operations.sqlite")).unwrap();
     (dir, root, journal)
 }

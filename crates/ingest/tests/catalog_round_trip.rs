@@ -8,6 +8,7 @@
 //! files are copied into a temporary folder, the originals never touched.
 //! `cargo test -p rawtonic-ingest --test catalog_round_trip -- --ignored --nocapture`
 use rawtonic_catalog::{Library, Mode, catalog_import::Side};
+use rawtonic_fs::Canonical;
 use rawtonic_ingest::{
     catalog_export::{self, export_catalog},
     catalog_import::{NewPhotos, Options, import, open_source, review},
@@ -59,7 +60,7 @@ fn edits_only_round_trip_on_raw_files() {
     raws.sort();
     assert!(raws.len() >= 6, "need six RAW files");
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let shoot = root.join("Shoot");
     fs::create_dir_all(&shoot).unwrap();
     let main = Library::create(&root.join("Studio"), "Studio", Mode::Catalog).unwrap();

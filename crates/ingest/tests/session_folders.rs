@@ -4,6 +4,7 @@
 //! nothing is written anywhere else.
 use rawtonic_catalog::session_folders::FolderRole;
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use rawtonic_ingest::{destination_folder, import_capture};
 use std::fs;
 use std::sync::atomic::AtomicBool;
@@ -14,7 +15,7 @@ fn a_capture_goes_to_a_capture_folder_outside_the_session() {
     let mut lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
     let drive = d.path().join("Drive/Job Capture");
     fs::create_dir_all(&drive).unwrap();
-    let drive = drive.canonicalize().unwrap();
+    let drive = drive.canonical().unwrap();
     lib.set_session_folder(FolderRole::Capture, &drive).unwrap();
     let source = d.path().join("A.ARW");
     fs::write(&source, b"capture").unwrap();

@@ -170,12 +170,13 @@ fn bin_entries() -> Result<Vec<BinEntry>> {
     }
 }
 
+/// Verbatim on purpose: the entry's own name is joined literally, so
+/// `photo.txt.` stays itself instead of becoming its sibling `photo.txt`
+/// (a plain parent would let the identity check pass on the wrong file).
 fn canonical_entry(path: &Path) -> Result<PathBuf> {
-    Ok(path
-        .parent()
-        .context("Missing parent")?
-        .canonicalize()?
-        .join(path.file_name().context("Missing filename")?))
+    #[allow(clippy::disallowed_methods)]
+    let parent = fs::canonicalize(path.parent().context("Missing parent")?)?;
+    Ok(parent.join(path.file_name().context("Missing filename")?))
 }
 
 fn verified_item(path: &Path) -> Result<(IShellItem, PathBuf)> {
@@ -598,11 +599,12 @@ impl SystemTrash for PlatformTrash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rawtonic_fs::Canonical;
     use std::{collections::HashSet, fs};
 
     fn staged_fixture() -> (tempfile::TempDir, Receipt) {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let original = root.join("photo.txt");
         fs::write(&original, b"synthetic photograph").unwrap();
         let receipt = Receipt {
@@ -653,7 +655,7 @@ mod tests {
         }
         for phase in ["partial", "published"] {
             let temp = tempfile::tempdir().unwrap();
-            let root = temp.path().canonicalize().unwrap();
+            let root = temp.path().canonical().unwrap();
             let original = root.join("synthetic-original.txt");
             fs::write(&original, b"untouched synthetic bytes").unwrap();
             let receipt = Receipt {
@@ -883,7 +885,7 @@ mod tests {
                 Some(directory) => tempfile::tempdir_in(directory).unwrap(),
                 None => tempfile::tempdir().unwrap(),
             };
-            let root = temp.path().canonicalize().unwrap();
+            let root = temp.path().canonical().unwrap();
             let original = root.join("rawtonic-recovery-probe.txt");
             fs::write(&original, b"synthetic photograph").unwrap();
             let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
@@ -939,7 +941,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("photo.txt");
         fs::write(&source, b"synthetic").unwrap();
-        let (_, plain) = verified_item(&source.canonicalize().unwrap()).unwrap();
+        let (_, plain) = verified_item(&source.canonical().unwrap()).unwrap();
         assert_eq!(plain, source);
         assert_eq!(fs::read(&source).unwrap(), b"synthetic");
     }
@@ -948,7 +950,9 @@ mod tests {
     fn shell_entry_refuses_literal_names_that_resolve_to_another_entry() {
         let _apartment = Apartment::new().unwrap();
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        // Verbatim: only that form can hold names ending in a dot or space.
+        #[allow(clippy::disallowed_methods)]
+        let root = fs::canonicalize(temp.path()).unwrap();
         let literal = root.join("photo.txt.");
         let sibling = root.join("photo.txt");
         fs::write(&literal, b"literal").unwrap();
@@ -962,7 +966,9 @@ mod tests {
     fn shell_entry_refuses_normalized_parent_and_link_aliases() {
         let _apartment = Apartment::new().unwrap();
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        // Verbatim: only that form can hold names ending in a dot or space.
+        #[allow(clippy::disallowed_methods)]
+        let root = fs::canonicalize(temp.path()).unwrap();
         let literal = root.join("album ");
         let sibling = root.join("album");
         fs::create_dir(&literal).unwrap();

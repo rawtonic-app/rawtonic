@@ -408,16 +408,20 @@ impl Lab {
     }
 }
 
+/// A chart, its upload hash, its measured image key and airlight.
+type Chart = (DynamicImage, u64, Option<[f32; 3]>, Option<f32>);
+
 /// The four charts, each with its upload hash and measured image key.
 struct Charts {
-    images: [(DynamicImage, u64, Option<[f32; 3]>); 4],
+    images: [Chart; 4],
 }
 
 impl Charts {
     fn new() -> Self {
         let keyed = |image: DynamicImage, hash: u64| {
             let key = rawtonic_rawdecode::image_key::measure(&image);
-            (image, hash, key)
+            let airlight = rawtonic_rawdecode::airlight::measure(&image);
+            (image, hash, key, airlight)
         };
         Charts {
             images: [
@@ -433,7 +437,7 @@ impl Charts {
 fn render(
     context: &GpuContext,
     slot: &GpuProcessorSlot,
-    chart: &(DynamicImage, u64, Option<[f32; 3]>),
+    chart: &Chart,
     recipe: &Value,
     camera_raw: bool,
 ) -> Lab {
@@ -444,7 +448,7 @@ fn render(
 fn render_with_masks(
     context: &GpuContext,
     slot: &GpuProcessorSlot,
-    (image, hash, key): &(DynamicImage, u64, Option<[f32; 3]>),
+    (image, hash, key, airlight): &Chart,
     recipe: &Value,
     camera_raw: bool,
     masks: &[Arc<MaskBitmap>],
@@ -459,6 +463,7 @@ fn render_with_masks(
     adjustments.global.image_key = high;
     adjustments.global.image_key_low = low;
     adjustments.global.image_key_median = median;
+    adjustments.global.airlight = airlight.unwrap_or(0.0);
     let output = process_and_get_dynamic_image_inner(
         context,
         slot,

@@ -76,6 +76,9 @@ override PRESENCE_V3: bool = false;
 // Lowered Dehaze of `dehazeVersion` 2 (`apply_dehaze_lower_v2`), for the
 // same reason (gpu_processing.rs `DEHAZE_V2_FEATURE`).
 override DEHAZE_V2: bool = false;
+// Dehaze of `dehazeVersion` 3 (`apply_dehaze_lower_v3`, `apply_dehaze_raise_v3`),
+// for the same reason (gpu_processing.rs `DEHAZE_V3_FEATURE`).
+override DEHAZE_V3: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -338,8 +341,15 @@ struct GlobalAdjustments {
     structure_version: u32,
     // The recipe's Dehaze (`dehazeVersion`): 2 lowers with
     // apply_dehaze_lower_v2, 1 with apply_dehaze; raising is apply_dehaze's
-    // in both.
+    // in both; 3 lowers with apply_dehaze_lower_v3 and raises relative to
+    // the airlight.
     dehaze_version: u32,
+    // The decode's airlight (airlight.rs, linear, before exposure and
+    // baseline); 0 = unknown.
+    airlight: f32,
+    _pad_airlight0: u32,
+    _pad_airlight1: u32,
+    _pad_airlight2: u32,
 }
 
 struct MaskAdjustments {
@@ -7004,6 +7014,104 @@ fn apply_dehaze_lower_v2(color: vec3<f32>, blurred_color_input_space: vec3<f32>,
     return gamut_floor(mix(vec3<f32>(get_luma(veiled)), veiled, keep));
 }
 
+// Dehaze of `dehazeVersion` 3 (image_processing.rs `DEHAZE_VERSION`): the
+// veil and raised Dehaze's darkening adapt to the photo's airlight, measured
+// once on the decode (airlight.rs), so preview, export and every crop agree
+// (notes: benchmark-results/dhz3-dehaze-airlight-2026-11-12). Camera Raw's
+// lowered Dehaze mixes towards a level estimated from the photo, below white
+// on frames without near-white areas, and darkens tones above it.
+//
+// The airlight level in the perceptual domain the veil works in: (offset,
+// per unit of the airlight's perceptual level) at a = 0.5 (xy) and a = 1
+// (zw), linear in a between and below; fitted on 64 frames against Camera
+// Raw at −50 and −100, the rule's form chosen on 200 held-out halves.
+const DEHAZE3_AIR: vec4<f32> = vec4<f32>(0.40, 0.76, 0.32, 0.72);
+// The level's range (the fit's: below it was not tried, above it is white).
+const DEHAZE3_AIR_RANGE: vec2<f32> = vec2<f32>(0.5, 1.0);
+// The airlight assumed when the photo's was not measured (the 64 frames'
+// median, linear).
+const DEHAZE3_AIR_UNKNOWN: f32 = 0.44;
+// Share of the distance to the airlight level the tones move by (linear,
+// quadratic): 0.216 at −50, 0.6 at −100 (the 64 frames' median tone bands
+// centred on Camera Raw's); tones above the level darken by it.
+const DEHAZE3_LIFT: vec2<f32> = vec2<f32>(0.264, 0.336);
+
+// The photo's airlight level (perceptual) for a slider share `a`: the
+// measured airlight follows the photo's Exposure, as the pixels it was
+// measured on do.
+fn dehaze3_air_level(a: f32) -> f32 {
+    let measured = adjustments.global.airlight;
+    let linear = select(DEHAZE3_AIR_UNKNOWN, measured, measured > 0.0) * exp2(adjustments.global.exposure);
+    let rule = mix(DEHAZE3_AIR.xy, DEHAZE3_AIR.zw, (a - 0.5) / 0.5);
+    return clamp(rule.x + rule.y * pow(linear, 0.4545), DEHAZE3_AIR_RANGE.x, DEHAZE3_AIR_RANGE.y);
+}
+
+fn apply_dehaze_lower_v3(color: vec3<f32>, blurred_color_input_space: vec3<f32>, is_raw: u32, amount: f32) -> vec3<f32> {
+    var blurred_linear: vec3<f32>;
+    if (is_raw == 1u) {
+        blurred_linear = blurred_color_input_space;
+    } else {
+        blurred_linear = srgb_to_linear(blurred_color_input_space);
+    }
+    let a = clamp(-amount * DEHAZE_SCALE, 0.0, 1.0);
+    let safe = gamut_floor(color);
+    let luma = max(get_luma(safe), 0.0001);
+    let blurred_luma = max(get_luma(max(blurred_linear, vec3<f32>(0.0))), 0.0001);
+    let offset = log2(luma / blurred_luma);
+    let darker = offset < 0.0;
+    let pull_law = select(DEHAZE2_PULL.xy, DEHAZE2_PULL.zw, darker);
+    let reach_law = select(DEHAZE2_REACH.xy, DEHAZE2_REACH.zw, darker);
+    let reach = max(reach_law.x + reach_law.y * a, DEHAZE2_REACH_MIN);
+    let pull = exp2(-a * (pull_law.x + pull_law.y * a) * reach * tanh(offset / reach));
+    let pulled = safe * pull;
+    let pulled_luma = max(luma * pull, 0.0001);
+    // Towards the airlight level in the perceptual domain, a monotone map
+    // (slope above 1 − lift); blacks rise less, as version 2's.
+    let p = pow(pulled_luma, 0.4545);
+    let pc = min(p, 1.0);
+    let air = dehaze3_air_level(a);
+    let lift = a * (DEHAZE3_LIFT.x + DEHAZE3_LIFT.y * a);
+    var d = lift * (air - pc);
+    if (pc < air) {
+        d *= mix(DEHAZE2_BLACK.x + DEHAZE2_BLACK.y * a, 1.0, smoothstep(0.0, DEHAZE2_BLACK_END, pc));
+    }
+    let veil_luma = pow(max(p + d, 0.0001), 2.2);
+    let gain_share = DEHAZE2_GAIN_SHARE * pulled_luma / (pulled_luma + DEHAZE2_ADD_LUMA);
+    let veiled = mix(pulled + vec3<f32>(veil_luma - pulled_luma), pulled * (veil_luma / pulled_luma), gain_share);
+    let keep = 1.0 - a * (DEHAZE2_FADE.x + DEHAZE2_FADE.y * a);
+    return gamut_floor(mix(vec3<f32>(get_luma(veiled)), veiled, keep));
+}
+
+// Raised Dehaze of `dehazeVersion` 3: `apply_dehaze`'s raising with the
+// darkening's fade towards white measured relative to the photo's airlight
+// level (at −50's rule), so frames without near-white areas keep their
+// brightest tones as Camera Raw does.
+fn apply_dehaze_raise_v3(color: vec3<f32>, blurred_color_input_space: vec3<f32>, is_raw: u32, amount: f32) -> vec3<f32> {
+    var blurred_linear: vec3<f32>;
+    if (is_raw == 1u) {
+        blurred_linear = blurred_color_input_space;
+    } else {
+        blurred_linear = srgb_to_linear(blurred_color_input_space);
+    }
+    let look_gain = select(1.0, CR_DEHAZE_RAISE, base_look_is_camera_raw());
+    let a = clamp(amount * DEHAZE_SCALE * look_gain, 0.0, 1.0);
+    let safe = gamut_floor(color);
+    let luma = max(get_luma(safe), 0.0001);
+    let blurred_luma = max(get_luma(max(blurred_linear, vec3<f32>(0.0))), 0.0001);
+    let regional_dark = max(min(blurred_linear.r, min(blurred_linear.g, blurred_linear.b)), 0.0);
+    let haze = clamp(regional_dark / 0.95, 0.0, 1.0);
+    let w = a * (1.0 + DEHAZE_LOCAL_HAZE * haze);
+    let t = pow(luma, 0.4545) / dehaze3_air_level(0.5);
+    let band = 2.0 * tanh(log2(luma / blurred_luma) * 0.5);
+    let ev = -DEHAZE_DARKEN_EV * w * (1.0 - smoothstep(0.3, 1.4, t));
+    let contrast = w * DEHAZE_LOCAL_CONTRAST;
+    let chroma = 1.0 + w * DEHAZE_CHROMA * select(1.0, CR_DEHAZE_CHROMA, base_look_is_camera_raw());
+    var result = safe * exp2(ev + band * contrast);
+    let result_luma = get_luma(result);
+    result = mix(vec3<f32>(result_luma), result, chroma);
+    return gamut_floor(result);
+}
+
 // Noise level assumed when the photo's own was not measured.
 const LUMA_NR_DEFAULT_NOISE: f32 = 0.004;
 const COLOR_NR_STRIDE_MIN: f32 = 3.0;
@@ -10605,6 +10713,13 @@ fn main(
     // the code they always had.
     if (DEHAZE_V2 && adjustments.global.dehaze_version >= 2u && t_dehaze < 0.0) {
         composite_rgb_linear = apply_dehaze_lower_v2(processed_rgb, structure_blurred, is_raw, t_dehaze);
+    }
+    if (DEHAZE_V3 && adjustments.global.dehaze_version >= 3u) {
+        if (t_dehaze < 0.0) {
+            composite_rgb_linear = apply_dehaze_lower_v3(processed_rgb, structure_blurred, is_raw, t_dehaze);
+        } else if (t_dehaze > 0.0) {
+            composite_rgb_linear = apply_dehaze_raise_v3(processed_rgb, structure_blurred, is_raw, t_dehaze);
+        }
     }
     let temperature_coupled = (adjustments.global.temperature_version & 0xffu) >= 2u;
     let tint_travel = ((adjustments.global.temperature_version >> 8u) & 0xffu) >= 2u;

@@ -4,6 +4,7 @@
 //! the session where and as it was.
 use rawtonic_catalog::{Library, Mode, session_move::plan_session_move};
 use rawtonic_fileops::{Journal, Step, SystemTrash, Target};
+use rawtonic_fs::Canonical;
 use rawtonic_fs::rename_no_clobber;
 use std::{
     cell::Cell,
@@ -54,7 +55,7 @@ struct World {
 impl World {
     fn new() -> Self {
         let home = tempfile::tempdir().unwrap();
-        let root = home.path().canonicalize().unwrap();
+        let root = home.path().canonical().unwrap();
         // `/dev/shm` is another file system than the temporary folder on
         // Linux (as on CI); elsewhere the copy move is forced below.
         let shm = Path::new("/dev/shm");
@@ -64,7 +65,7 @@ impl World {
             tempfile::tempdir().unwrap()
         };
         let jobs = root.join("Jobs");
-        let archive = other.path().canonicalize().unwrap().join("Archive");
+        let archive = other.path().canonical().unwrap().join("Archive");
         fs::create_dir_all(&jobs).unwrap();
         fs::create_dir_all(&archive).unwrap();
         let trash = FolderTrash {
@@ -334,6 +335,7 @@ fn a_session_that_does_not_fit_on_the_other_drive_is_not_moved() {
     // A sparse file far larger than any disk: the move refuses before
     // copying anything.
     let huge = fs::File::create(session.join("Capture/HUGE.NEF")).unwrap();
+    make_sparse(&huge);
     assert!(
         [50, 46, 43, 40]
             .into_iter()
@@ -378,3 +380,42 @@ fn snapshot_names(dir: &Path) -> Vec<PathBuf> {
     names.sort();
     names
 }
+
+/// NTFS allocates what `set_len` adds unless the file is marked sparse
+/// (`FSCTL_SET_SPARSE`); Unix file systems leave the hole unallocated.
+#[cfg(windows)]
+fn make_sparse(file: &fs::File) {
+    use std::os::windows::io::AsRawHandle;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn DeviceIoControl(
+            device: *mut std::ffi::c_void,
+            code: u32,
+            input: *const std::ffi::c_void,
+            input_len: u32,
+            output: *mut std::ffi::c_void,
+            output_len: u32,
+            returned: *mut u32,
+            overlapped: *mut std::ffi::c_void,
+        ) -> i32;
+    }
+    const FSCTL_SET_SPARSE: u32 = 0x0009_00C4;
+    let mut returned = 0u32;
+    // SAFETY: a valid open handle; no buffers; `returned` outlives the call.
+    let done = unsafe {
+        DeviceIoControl(
+            file.as_raw_handle(),
+            FSCTL_SET_SPARSE,
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_ne!(done, 0, "{}", std::io::Error::last_os_error());
+}
+
+#[cfg(not(windows))]
+fn make_sparse(_file: &fs::File) {}

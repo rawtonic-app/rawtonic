@@ -9,6 +9,7 @@ use crate::CatalogError;
 use crate::error::{bail, ensure};
 use crate::{Manifest, Mode, layout::database_name};
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 use rusqlite::{Connection, OpenFlags};
 use std::{fs, path::Path, path::PathBuf};
 
@@ -47,7 +48,7 @@ pub fn plan_session_move(session: &Path, destination: &Path) -> Result<SessionMo
 /// open itself.
 pub fn check_session_move(session: &Path, destination: &Path) -> Result<SessionMove, CatalogError> {
     let from = session
-        .canonicalize()
+        .canonical()
         .with_context(|| format!("{} is not available", session.display()))?;
     let manifest: Manifest = serde_json::from_slice(
         &fs::read(from.join(crate::layout::SESSION_MANIFEST))
@@ -65,7 +66,7 @@ pub fn check_session_move(session: &Path, destination: &Path) -> Result<SessionM
         destination.display()
     );
     let into = destination
-        .canonicalize()
+        .canonical()
         .with_context(|| format!("{} is not available", destination.display()))?;
     ensure!(
         !into.starts_with(&from),

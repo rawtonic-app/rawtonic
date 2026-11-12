@@ -1,11 +1,17 @@
-# Quality gates on Linux after every merge into main (and on demand). Before
-# a merge the same checks run locally: scripts/check.sh (which also runs
-# shellcheck when installed). macOS is checked there.
+# Quality gates on Linux after every merge into main (and on demand), and the
+# core and engine crate tests on Windows. Before a merge the same checks run
+# locally: scripts/check.sh (which also runs shellcheck when installed). macOS
+# is checked there.
 name: Quality gates
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Run only the Windows core job (for a branch under test)
+        type: boolean
+        default: false
 # Merges come in bursts; each run checks the whole of main, so a newer push
 # makes the older run redundant (every merge already passed scripts/check.sh).
 concurrency:
@@ -19,6 +25,7 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
 jobs:
   verify:
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-24.04
     steps:
       # The runner image's preinstalled SDKs we do not use, ~30 GB.
@@ -76,3 +83,42 @@ jobs:
       - run: sh scripts/ship_test.sh
       - if: always()
         run: df -h /
+  # The file-safety and core crates on Windows (G77): rename over existing or
+  # open files, sharing violations, read-only attributes, reserved names, long
+  # paths and the recycle bin behave differently there. GPU tests are
+  # #[ignore]d and stay out; the desktop crate is built by the Windows
+  # installer and QA workflows.
+  windows-core:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      # Function names in backtraces need a PDB on Windows (crash reports'
+      # first frame is tested); line tables are enough and stay small.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
+          rustc --version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-core
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.104
+      - name: Core and engine tests
+        run: >-
+          cargo nextest run --locked --no-fail-fast
+          -p rawtonic-fs -p rawtonic-fileops -p rawtonic-catalog -p rawtonic-ingest
+          -p rawtonic-metadata -p rawtonic-naming -p rawtonic-contribute -p rawtonic-interop
+          -p rawtonic-merge -p rawtonic-cli -p rawtonic-tether -p rawtonic-recipe
+          -p rawtonic-runtime -p rawtonic-rawdecode -p rawtonic-engine
+      - name: Doc tests
+        run: >-
+          cargo test --locked --doc
+          -p rawtonic-fs -p rawtonic-fileops -p rawtonic-catalog -p rawtonic-ingest
+          -p rawtonic-metadata -p rawtonic-naming

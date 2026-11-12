@@ -3,6 +3,7 @@
 //! ways of resolving a conflict.
 
 use rawtonic_catalog::{CatalogError, Library, Mode, XmpProblem};
+use rawtonic_fs::Canonical;
 use serde_json::json;
 use std::{fs, path::PathBuf};
 
@@ -319,7 +320,7 @@ fn unadopted_edit(external: &str) -> Fixture {
     let photo = tmp.path().join("Capture/e.arw");
     fs::write(&photo, b"synthetic original").unwrap();
     let id = lib.add_asset(&photo).unwrap().id;
-    let photo = photo.canonicalize().unwrap();
+    let photo = photo.canonical().unwrap();
     fs::write(
         photo.with_file_name("e.arw.rrdata"),
         br#"{"version":1,"rating":3,"tags":["color:red"],"adjustments":{"exposure":1.25}}"#,
