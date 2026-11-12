@@ -106,7 +106,7 @@
 }
 .studio-window-controls button:active,
 .studio-window-controls button.is-pressed {
-  background: #ffffff1c;
+  background: #ffffff0a;
 }
 .studio-window-controls .studio-window-close:hover {
   background: #c42b35;
