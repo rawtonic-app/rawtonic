@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Window restore bounds survive quitting maximized; the Library Navigator retains a loose photo when there is no listed Library selection. Windows maximize-button placement now refreshes after compact-bar and interface-style changes (native confirmation pending).
+
 - Cancelling individual Edit With renders is reported neutrally, separately from failed renders. The app keeps four previous session logs locally for support and crash diagnosis; crash reports still include only the scrubbed tail shown for review.
 
 - **Windows: Maximize at 125 % interface size on a small screen is a real maximize again.** Changing the window minimum while the window was maximized took it out of maximize at its maximized size, so on a 1280×752 work area at 125 % Maximize left a normal window hanging off the right edge (Close clipped) and Restore did nothing. The minimum now changes only in the normal window state (checked together with the change), the maximized window is the monitor's work area, and the minimum never exceeds it; if the top bar no longer fits, its actions become icons before the window controls are cut. Add to library… without a library offers to create or open one and then adds the photo; the Library Navigator follows the Library selection after a loose open or Show in library; an unsupported interface size in the settings file is written to app.log once at start. Native verification on the reporting laptop pending.

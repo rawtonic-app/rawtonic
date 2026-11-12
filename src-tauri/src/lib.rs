@@ -748,6 +748,10 @@ fn start(args: Vec<String>) {
                     }
                 });
 
+                let normal_placement = std::sync::Mutex::new(
+                    window_state_path.as_ref().and_then(|path| std::fs::read_to_string(path).ok())
+                        .and_then(|json| serde_json::from_str::<WindowState>(&json).ok())
+                );
                 let window_for_handler = window.clone();
 
                 window.on_window_event(move |event| match event {
@@ -826,6 +830,8 @@ fn start(args: Vec<String>) {
                             state.height = size.height;
                         }
 
+                        let mut normal = normal_placement.lock().unwrap_or_else(|e| e.into_inner());
+                        window_state::retain_normal_placement(&mut state, &mut normal);
                         if let Some(path) = &window_state_path {
                             window_state::note(path.clone(), state);
                         }

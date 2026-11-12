@@ -6,6 +6,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Copy, Minus, Square, X } from 'lucide-react';
 import { Invokes } from '../components/ui/AppProperties';
 
+/** DOM bounds already include CSS interface zoom; only display DPI remains. */
+export function physicalButtonRect(box: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>, scale: number) {
+  return { x: box.left * scale, y: box.top * scale, width: box.width * scale, height: box.height * scale };
+}
+
 interface NativeButtonState {
   hovered: boolean;
   pressed: boolean;
@@ -30,7 +35,7 @@ function useSnapLayoutButton(button: RefObject<HTMLButtonElement | null>, enable
       if (disposed) return;
       const box = element.getBoundingClientRect();
       const scale = window.devicePixelRatio || 1;
-      const rect = { x: box.left * scale, y: box.top * scale, width: box.width * scale, height: box.height * scale };
+      const rect = physicalButtonRect(box, scale);
       const modalOpen = !!document.querySelector('dialog[open], [aria-modal="true"]');
       const key = JSON.stringify({ rect, modalOpen });
       if (key === sent) return;
@@ -45,6 +50,12 @@ function useSnapLayoutButton(button: RefObject<HTMLButtonElement | null>, enable
       attributes: true,
       attributeFilter: ['open', 'aria-modal']
     });
+    // CSS zoom and compact-bar classes live on ancestors. Their content
+    // boxes need not resize when the drawn button moves.
+    const layout = new MutationObserver(report);
+    for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
+      layout.observe(ancestor, { attributes: true, attributeFilter: ['class', 'style'] });
+    }
     const observer = new ResizeObserver(report);
     observer.observe(element);
     if (element.parentElement) observer.observe(element.parentElement);
@@ -62,6 +73,7 @@ function useSnapLayoutButton(button: RefObject<HTMLButtonElement | null>, enable
       disposed = true;
       observer.disconnect();
       dialogs.disconnect();
+      layout.disconnect();
       window.removeEventListener('resize', report);
       unlisten?.();
       setState({ hovered: false, pressed: false });

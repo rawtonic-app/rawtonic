@@ -1,7 +1,7 @@
 import '../i18n';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import WindowControls from './WindowControls';
+import WindowControls, { physicalButtonRect } from './WindowControls';
 
 const win = vi.hoisted(() => ({
   isMaximized: vi.fn(),
@@ -100,8 +100,33 @@ it('places the snap-layouts overlay in physical pixels and draws its hover and p
       modalOpen: false
     })
   );
+  // Compacting or interface zoom may move the button without changing its
+  // ResizeObserver content box.
+  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+    left: 700,
+    top: 12,
+    width: 40,
+    height: 40
+  } as DOMRect);
+  document.body.classList.add('compact');
+  await waitFor(() =>
+    expect(ipc.invoke).toHaveBeenLastCalledWith('set_maximize_button_rect', {
+      rect: { x: 875, y: 15, width: 50, height: 50 },
+      modalOpen: false
+    })
+  );
+  document.body.classList.remove('compact');
   view.unmount();
   expect(ipc.invoke).toHaveBeenLastCalledWith('set_maximize_button_rect', { rect: null });
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+it('converts zoomed DOM bounds once at every interface size and display DPI', () => {
+  for (const zoom of [1, 1.12, 1.25, 1.5]) {
+    for (const dpi of [1, 1.5, 2]) {
+      const rect = physicalButtonRect({ left: 800 * zoom, top: 7 * zoom, width: 32 * zoom, height: 32 * zoom }, dpi);
+      expect(rect).toEqual({ x: 800 * zoom * dpi, y: 7 * zoom * dpi, width: 32 * zoom * dpi, height: 32 * zoom * dpi });
+    }
+  }
 });
