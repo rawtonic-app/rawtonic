@@ -164,6 +164,12 @@ export const CREDITS: Credit[] = [
     license: 'BSD-3-Clause'
   },
   {
+    name: 'Microsoft Visual C++ runtime',
+    url: 'https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist',
+    what: 'On Windows, the C++ runtime libraries ONNX Runtime needs, bundled beside it (Microsoft).',
+    license: 'Microsoft Visual Studio license terms (Distributable Code)'
+  },
+  {
     name: 'libgphoto2',
     url: 'http://www.gphoto.org/proj/libgphoto2/',
     what: 'Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.',

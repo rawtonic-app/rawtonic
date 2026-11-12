@@ -33,6 +33,7 @@ use ort::session::builder::SessionBuilder;
 pub mod bench;
 mod check;
 mod runtime;
+mod vc_runtime;
 
 pub use runtime::{
     RUNTIME_UNAVAILABLE, RuntimeError, RuntimeErrorKind, ensure_runtime, environment, library_path,
