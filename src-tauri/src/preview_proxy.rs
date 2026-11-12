@@ -1103,7 +1103,7 @@ pub fn write(
 ) -> Result<Proxy, String> {
     let (full_width, full_height) = full.dimensions();
     let reduced = if full_width.max(full_height) > size {
-        crate::image_processing::downscale_f32_image(full, size, size)
+        crate::image_processing::resample_f32_image(full, size, size)
     } else {
         full.clone()
     };

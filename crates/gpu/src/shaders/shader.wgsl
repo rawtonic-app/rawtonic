@@ -6869,8 +6869,13 @@ fn apply_sharpen_v8(
     // it shows after the photo's tone curve (`sharpen_v7_tone_weight`, so
     // bright flat areas, whose noise the curve's shoulder compresses, are
     // not read as detail), over the noise's spread: q³ / (1 + q³), half at
-    // SHARPEN_V8_GATE_HALF.
-    let noise = adjustments.global.noise_level * min(detail_scale, 1.0);
+    // SHARPEN_V8_GATE_HALF. Reduced renders keep the full-resolution level
+    // (`luma_nr_sigma`): scaled by `detail_scale` as white noise, the gate
+    // read correlated demosaiced noise as detail and reduced views showed up
+    // to 1.6× (Radius 2.5) and 2.8× (Radius 2.5, Detail 100) the sharpening
+    // of the export scaled down at ISO 6400–12800 (notes:
+    // benchmark-results/tpx-thumb-parity-2026-11-12, TPX2).
+    let noise = adjustments.global.noise_level;
     // What the mask view shows: the noise gate times Masking's.
     var view_gate = 1.0;
     if (noise > 0.0) {
@@ -7357,6 +7362,29 @@ fn luma_nr_residual(a: f32) -> vec2<f32> {
     if (!LUMA_PROFILE || adjustments.global.luma_noise_profile[0].x <= 0.0) { return LUMA_NR_RESIDUAL; }
     let t = clamp((0.5 - a) / 0.35, 0.0, 1.0);
     return mix(LUMA_NR_RESIDUAL, LUMA_NR_EVEN_RESIDUAL, t);
+}
+
+// The noise level the luminance noise reduction is set by: the photo's
+// full-resolution level (`measured`), also in reduced renders (previews,
+// thumbnails; `detail` = render pixels per photo pixel < 1). The export's
+// filter, seen at the reduced size, removed what it removed at full
+// resolution, and a reduced render must show the same. The level scaled by
+// `detail` (white noise averaged over 1/detail² pixels), as before, left
+// reduced views up to 2.9× the export's noise power per band at ISO
+// 6400–12800: demosaiced noise is correlated (measured on reduced frames
+// 0.5–0.86× the full level at 0.21–0.35 scale), and a reduced band holds
+// coarser scene detail that the filter's local energy test keeps (notes:
+// benchmark-results/tpx-thumb-parity-2026-11-12, TPX2). Exports are unchanged.
+fn luma_nr_sigma(measured: f32) -> f32 {
+    return max(measured, 1e-4);
+}
+
+// The share of the coarse band (1 − 2 px blur) a reduced render keeps: from
+// half size down that band holds photo frequencies below the coarsest the
+// export's filter touches (its 1 − 2 px band at full resolution), so it stays
+// as the export leaves it; between full and half size it fades towards that.
+fn luma_nr_reduced_coarse_keep(keep: f32, detail: f32) -> f32 {
+    return mix(keep, 1.0, clamp(-log2(max(detail, 1e-3)), 0.0, 1.0));
 }
 
 fn luma_nr_threshold(a: f32) -> f32 {
@@ -7911,7 +7939,7 @@ fn apply_noise_reduction_default(
     if (luma_a > 0.001) {
         let detail = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
         let measured = select(LUMA_NR_DEFAULT_NOISE, adjustments.global.noise_level, adjustments.global.noise_level > 0.0);
-        let sigma_n = max(measured * clamp(detail, 0.05, 1.0), 1e-4);
+        let sigma_n = luma_nr_sigma(measured);
         let k = luma_nr_threshold(luma_a) * sigma_n;
         let noise = vec2<f32>(
             k * LUMA_NR_BAND_NOISE_0 * LUMA_NR_BAND_WEIGHT_0,
@@ -7980,7 +8008,10 @@ fn apply_noise_reduction_default(
         let keep_own = signal / (signal + noise2 + vec2<f32>(1e-12));
         // Edges carry energy at every scale, noise mostly at the finest:
         // the finest band also stays where the coarser one stood out.
-        let keep_edges = vec2<f32>(max(keep_own.x, keep_own.y * keep_own.y * LUMA_NR_CROSS_SCALE), keep_own.y);
+        var keep_edges = vec2<f32>(max(keep_own.x, keep_own.y * keep_own.y * LUMA_NR_CROSS_SCALE), keep_own.y);
+        if (detail < 1.0) {
+            keep_edges.y = luma_nr_reduced_coarse_keep(keep_own.y, detail);
+        }
         // A uniform share of every band stays: switching between kept and
         // removed grain left smooth patches next to grainy ones.
         let residual = luma_nr_residual(luma_a);
@@ -8154,7 +8185,7 @@ fn apply_noise_reduction_refined(
     if (luma_a > 0.001) {
         let detail = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
         let measured = select(LUMA_NR_DEFAULT_NOISE, adjustments.global.noise_level, adjustments.global.noise_level > 0.0);
-        let sigma_n = max(measured * clamp(detail, 0.05, 1.0), 1e-4);
+        let sigma_n = luma_nr_sigma(measured);
         let refine = adjustments.global.noise_detail;
         // Factors only away from the defaults: exp2(0) is not exactly 1 on
         // every GPU, and default edits must render as before.
@@ -8229,7 +8260,10 @@ fn apply_noise_reduction_refined(
         let keep_own = signal / (signal + noise2 + vec2<f32>(1e-12));
         // Edges carry energy at every scale, noise mostly at the finest:
         // the finest band also stays where the coarser one stood out.
-        let keep_edges = vec2<f32>(max(keep_own.x, keep_own.y * keep_own.y * LUMA_NR_CROSS_SCALE), keep_own.y);
+        var keep_edges = vec2<f32>(max(keep_own.x, keep_own.y * keep_own.y * LUMA_NR_CROSS_SCALE), keep_own.y);
+        if (detail < 1.0) {
+            keep_edges.y = luma_nr_reduced_coarse_keep(keep_own.y, detail);
+        }
         // A uniform share of every band stays: switching between kept and
         // removed grain left smooth patches next to grainy ones.
         var residual = luma_nr_residual(luma_a);

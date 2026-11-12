@@ -534,7 +534,7 @@ pub(crate) fn develop_thumbnail(
             }
 
             let (base, gpu_scale) = if full_w > processing_dim || full_h > processing_dim {
-                let base = crate::image_processing::downscale_f32_image(
+                let base = crate::image_processing::resample_f32_image(
                     &coarse_rotated_image,
                     processing_dim,
                     processing_dim,
@@ -1112,7 +1112,8 @@ fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicI
 }
 
 pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Result<Vec<u8>> {
-    let thumbnail = crate::image_processing::thumbnail(image, target_width, target_width);
+    let thumbnail =
+        crate::image_processing::resample_display_image(image, target_width, target_width);
     let mut buf = Cursor::new(Vec::new());
     let mut encoder = JpegEncoder::new_with_quality(&mut buf, 75);
     encoder.encode_image(&thumbnail.to_rgb8())?;
