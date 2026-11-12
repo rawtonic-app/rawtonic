@@ -2540,6 +2540,7 @@
         "rotate_right": "Rotar 90° en sentido horario",
         "select_all": "Seleccionar todas las imágenes",
         "select_none": "No seleccionar nada",
+        "show_in_file_manager": "Mostrar en el Explorador de archivos",
         "show_in_finder": "Mostrar en el Finder",
         "show_original": "Mantener: toda la foto antes",
         "spot_new_source": "Buscar otra fuente",

@@ -2313,6 +2313,7 @@
         "rotate_right": "顺时针旋转 90°",
         "select_all": "选择所有图像",
         "select_none": "取消选择",
+        "show_in_file_manager": "在文件资源管理器中显示",
         "show_in_finder": "在访达中显示",
         "show_original": "按住：整张照片编辑前",
         "spot_new_source": "查找其他源",

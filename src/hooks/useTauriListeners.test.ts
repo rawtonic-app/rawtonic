@@ -808,3 +808,32 @@ it('keeps an undo step still pending when an Edit With render is decoded again',
   expect(history[historyIndex]).toEqual(adjustments);
   expect(historyIndex).toBe(2);
 });
+
+it('refreshes the visible Windows tile when a batch publishes a canonical path', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('requestAnimationFrame', (fn: () => void) => setTimeout(fn, 16));
+  vi.stubGlobal('cancelAnimationFrame', clearTimeout);
+  const path = 'C:\\Photos\\paste.dng';
+  useLibraryStore.setState({ imageList: [{ path } as ImageFile] });
+  useProcessStore.setState({ thumbnails: { [path]: 'old' } });
+  renderHook(() =>
+    useTauriListeners({
+      refreshAllFolderTrees: vi.fn(),
+      handleSelectSubfolder: vi.fn(),
+      refreshImageList: vi.fn(),
+      markGenerated: vi.fn()
+    })
+  );
+  act(() => {
+    callbacks.get('thumbnail-generated')!({
+      payload: {
+        path: `\\\\?\\${path}`,
+        thumbnailPath: '/new-small.jpg',
+        previewPath: '/new-medium.jpg',
+        is_edited: true
+      }
+    });
+    vi.advanceTimersByTime(20);
+  });
+  expect(useProcessStore.getState().thumbnails[path]).toBe('asset:///new-small.jpg');
+});

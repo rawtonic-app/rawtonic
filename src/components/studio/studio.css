@@ -7408,3 +7408,26 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   pointer-events: none;
   white-space: nowrap;
 }
+
+/* Windows/Linux chrome follows the interface scale; Mac traffic lights keep
+   their native geometry. */
+.studio-app.custom-window-chrome .session-bar,
+.studio-app.linux-unified-chrome .session-bar {
+  zoom: var(--ui-scale, 1);
+}
+
+.studio-app.custom-window-chrome .studio-viewer-filename,
+.studio-app.linux-unified-chrome .studio-viewer-filename {
+  display: flex;
+}
+.studio-app.custom-window-chrome .studio-photo-name,
+.studio-app.linux-unified-chrome .studio-photo-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.studio-app.custom-window-chrome .studio-viewer-filename > .studio-muted,
+.studio-app.linux-unified-chrome .studio-viewer-filename > .studio-muted {
+  flex-shrink: 0;
+  white-space: pre;
+}

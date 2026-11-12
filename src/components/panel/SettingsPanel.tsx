@@ -192,7 +192,13 @@ const KeybindRow = ({
 
   return (
     <div className="flex justify-between items-center py-2">
-      <Text variant={TextVariants.label}>{t(def.description as ParseKeys)}</Text>
+      <Text variant={TextVariants.label}>
+        {t(
+          (def.action === 'show_in_finder' && osPlatform !== 'macos'
+            ? 'settings.keybinds.actions.show_in_file_manager'
+            : def.description) as ParseKeys
+        )}
+      </Text>
       <div className="flex items-center gap-1">
         {isConflicting && <span className="text-yellow-400 text-xs">⚠</span>}
         <button onClick={() => onStartRecording(def.action)} className="flex items-center gap-1 flex-wrap shrink-0">
