@@ -9054,7 +9054,19 @@ fn display_variants_passed_through_render_the_same_pixels() {
             .unwrap()
         };
         let through_wgpu = render(false);
+        let before = passthrough_processor.display_shader.passed_through();
         let passed_through = render(true);
+        // The variant really went through as SPIR-V (a silent fallback to
+        // wgpu's path would compare wgpu with itself).
+        assert!(
+            passthrough_processor.display_shader.passed_through() > before
+                || passthrough_processor.preview_pipelines[features]
+                    .get()
+                    .is_some()
+                    && before > 0,
+            "{profile}: the passthrough processor did not pass its variant through"
+        );
+        assert_eq!(through_wgpu_processor.display_shader.passed_through(), 0);
         let differing = through_wgpu
             .iter()
             .zip(&passed_through)

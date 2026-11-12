@@ -35,6 +35,8 @@ pub(crate) struct DisplayShader {
     /// The bindings of the pipeline layout the variants are made for
     /// (group 0), in any order.
     bindings: Vec<u32>,
+    /// Pipelines made from passed-through SPIR-V (`note_passed_through`).
+    passed_through: std::sync::atomic::AtomicUsize,
 }
 
 /// Whether display variants of new processors are passed through as SPIR-V
@@ -60,6 +62,7 @@ impl DisplayShader {
         Arc::new(Self {
             source: source.into(),
             bindings,
+            passed_through: std::sync::atomic::AtomicUsize::new(0),
             parsed: OnceLock::new(),
             passthrough: std::sync::atomic::AtomicBool::new(
                 SPIRV_PASSTHROUGH.load(std::sync::atomic::Ordering::Relaxed),
@@ -85,6 +88,19 @@ impl DisplayShader {
             });
         }
         available
+    }
+
+    /// Counts a pipeline made from passed-through SPIR-V.
+    pub(crate) fn note_passed_through(&self) {
+        self.passed_through
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// How many pipelines were made from passed-through SPIR-V.
+    #[cfg(test)]
+    pub(crate) fn passed_through(&self) -> usize {
+        self.passed_through
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     #[cfg(test)]
