@@ -23,7 +23,7 @@
 use std::ffi::{CStr, CString, c_char};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock, Weak};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
 use ort::AsPointer;
@@ -35,6 +35,7 @@ mod check;
 mod dxc;
 mod runtime;
 mod vc_runtime;
+mod watch;
 
 pub use runtime::{
     RUNTIME_UNAVAILABLE, RuntimeError, RuntimeErrorKind, ensure_runtime, environment, library_path,
@@ -647,45 +648,11 @@ fn is_termination(error: &anyhow::Error) -> bool {
     format!("{error:#}").contains("terminate flag")
 }
 
-struct Loaded {
-    session: Session,
-    provider: Provider,
-    runs: u32,
-    /// The longest finished run of `run_watched`.
-    slowest: Duration,
-}
-
-impl Loaded {
-    fn new(session: Session, provider: Provider) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
-            session,
-            provider,
-            runs: 0,
-            slowest: Duration::ZERO,
-        }))
-    }
-}
-
-/// How long `run_watched` waits for a run on a GPU before it leaves it: a
-/// first run may compile shaders (BiRefNet's first WebGPU run on a Radeon
-/// 680M: 77 s), later ones get ten times the slowest so far, at least a
-/// minute (AI Denoise's tiles there: 8.4 s, then a stall of over 13 minutes
-/// without progress, gap G76).
-fn watch_limit(runs: u32, slowest: Duration) -> Duration {
-    if runs == 0 {
-        Duration::from_secs(300)
-    } else {
-        (slowest * 10).max(Duration::from_secs(60))
-    }
-}
-
 /// A loaded model: its session and the provider it runs on.
 pub struct Model {
     kind: ModelKind,
     path: PathBuf,
-    /// Replaced, not changed in place, when a GPU run hangs: the hung run
-    /// keeps the old one (`run_watched`).
-    state: Mutex<Arc<Mutex<Loaded>>>,
+    state: watch::Slot<Session>,
 }
 
 impl Model {
@@ -719,7 +686,7 @@ impl Model {
         Ok(Self {
             kind,
             path: path.to_path_buf(),
-            state: Mutex::new(Loaded::new(session, Provider::Cpu)),
+            state: watch::Slot::new(kind.name(), session, Provider::Cpu),
         })
     }
 
@@ -774,7 +741,7 @@ impl Model {
                     }
                     let mut gpu = session(path, kind, Some(&device))?;
                     if checked {
-                        check::check(path, kind, &mut gpu, &device, checks_file.as_ref())?;
+                        gpu = check::check(path, kind, gpu, &device, checks_file.as_ref())?;
                     }
                     Ok((gpu, device.label.clone()))
                 })
@@ -789,7 +756,7 @@ impl Model {
                     return Ok(Self {
                         kind,
                         path: path.to_path_buf(),
-                        state: Mutex::new(Loaded::new(session, provider)),
+                        state: watch::Slot::new(kind.name(), session, provider),
                     });
                 }
                 Err(e) => {
@@ -807,132 +774,41 @@ impl Model {
         self.kind
     }
 
-    fn current(&self) -> Arc<Mutex<Loaded>> {
-        self.state.lock().unwrap().clone()
+    /// A new CPU session of this model, after a GPU failed.
+    fn cpu_session(&self) -> Result<Session> {
+        session(&self.path, self.kind, None)
     }
 
-    /// `run` that never waits for a hung GPU: on a GPU, `f` runs on a thread
-    /// of its own, and a run that takes longer than `watch_limit` is left
-    /// behind with its session (it may never return; its memory stays
-    /// taken) while the model moves to a new CPU session for good and `f`
-    /// runs again there. Failures move to the CPU as in `run`.
+    /// `run` that never waits for a hung GPU (`watch`): on a GPU, `f` runs
+    /// on a thread of its own, and a run that takes longer than its limit
+    /// is left behind with its session while the model, and every caller
+    /// waiting for it, moves to a new CPU session for good.
     pub fn run_watched<T, F>(&self, f: F) -> Result<T>
     where
         T: Send + 'static,
         F: Fn(&mut Session) -> Result<T> + Send + Sync + 'static,
     {
-        let current = self.current();
-        let (provider, limit) = {
-            let state = current.lock().unwrap();
-            (state.provider, watch_limit(state.runs, state.slowest))
-        };
-        if provider == Provider::Cpu {
-            return self.run(|session| f(session));
-        }
-        let f = Arc::new(f);
-        let (done, result) = std::sync::mpsc::channel();
-        {
-            let current = current.clone();
-            let f = f.clone();
-            std::thread::Builder::new()
-                .name(format!("ai-{}", self.kind.name()))
-                .spawn(move || {
-                    let started = Instant::now();
-                    let value = f(&mut current.lock().unwrap().session);
-                    let _ = done.send((value, started.elapsed()));
-                })
-                .context("starting the AI run thread")?;
-        }
-        let why = match result.recv_timeout(limit) {
-            Ok((Ok(value), took)) => {
-                let mut state = current.lock().unwrap();
-                state.runs += 1;
-                state.slowest = state.slowest.max(took);
-                if state.runs == 1 {
-                    log::info!(
-                        "AI {}: first run on {provider} in {} ms",
-                        self.kind.name(),
-                        took.as_millis()
-                    );
-                }
-                return Ok(value);
-            }
-            Ok((Err(e), _)) if is_termination(&e) => return Err(e),
-            Ok((Err(e), _)) => format!("run on {provider} failed ({e:#})"),
-            Err(_) => format!(
-                "run on {provider} did not finish in {} s and is left behind",
-                limit.as_secs()
-            ),
-        };
-        log::warn!("AI {}: {why}; using the CPU from now on", self.kind.name());
-        let cpu = Loaded::new(session(&self.path, self.kind, None)?, Provider::Cpu);
-        *self.state.lock().unwrap() = cpu.clone();
-        let started = Instant::now();
-        let value = f(&mut cpu.lock().unwrap().session)?;
-        let mut state = cpu.lock().unwrap();
-        state.runs = 1;
-        log::info!(
-            "AI {}: first run on CPU in {} ms",
-            self.kind.name(),
-            started.elapsed().as_millis()
-        );
-        drop(state);
-        Ok(value)
+        self.state
+            .run_watched(f, is_termination, || self.cpu_session())
     }
 
-    /// The provider the model runs on now.
+    /// The provider the model runs on now (never waits for a run).
     pub fn provider(&self) -> Provider {
-        self.current().lock().unwrap().provider
+        self.state.provider()
     }
 
     /// Runs `f` on the session where it is, never moving to the CPU (for
     /// benchmarks and tests).
     pub fn run_without_fallback<T>(&self, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
-        f(&mut self.current().lock().unwrap().session)
+        self.state.session().with(f)
     }
 
     /// Runs `f` on the session. When it fails on a GPU (other than being
     /// stopped on purpose), the model moves to the CPU for good and `f`
     /// runs again there; `f` should return an error for unusable output
     /// (`ensure_finite`).
-    pub fn run<T>(&self, mut f: impl FnMut(&mut Session) -> Result<T>) -> Result<T> {
-        let current = self.current();
-        let mut state = current.lock().unwrap();
-        let started = Instant::now();
-        let result = f(&mut state.session);
-        state.runs += 1;
-        let provider = state.provider;
-        match result {
-            Ok(value) => {
-                if state.runs == 1 {
-                    log::info!(
-                        "AI {}: first run on {provider} in {} ms",
-                        self.kind.name(),
-                        started.elapsed().as_millis()
-                    );
-                }
-                Ok(value)
-            }
-            Err(e) if provider != Provider::Cpu && !is_termination(&e) => {
-                log::warn!(
-                    "AI {}: run on {provider} failed ({e:#}); using the CPU from now on",
-                    self.kind.name()
-                );
-                state.session = session(&self.path, self.kind, None)?;
-                state.provider = Provider::Cpu;
-                state.runs = 0;
-                let started = Instant::now();
-                let value = f(&mut state.session)?;
-                state.runs = 1;
-                log::info!(
-                    "AI {}: first run on CPU in {} ms",
-                    self.kind.name(),
-                    started.elapsed().as_millis()
-                );
-                Ok(value)
-            }
-            Err(e) => Err(e),
-        }
+    pub fn run<T>(&self, f: impl FnMut(&mut Session) -> Result<T>) -> Result<T> {
+        self.state.run(f, is_termination, || self.cpu_session())
     }
 }
 
@@ -946,15 +822,6 @@ mod tests {
             plugin_dirs: Vec::new(),
             checks_file: None,
         }
-    }
-
-    #[test]
-    fn a_gpu_run_gets_time_for_its_compile_then_ten_times_its_slowest() {
-        let s = Duration::from_secs;
-        assert_eq!(watch_limit(0, Duration::ZERO), s(300));
-        // AI Denoise's 8.4 s tiles on the 680M (gap G76).
-        assert_eq!(watch_limit(1, Duration::from_millis(8_400)), s(84));
-        assert_eq!(watch_limit(5, Duration::from_millis(30)), s(60));
     }
 
     #[test]

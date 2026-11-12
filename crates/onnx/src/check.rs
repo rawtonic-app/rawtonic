@@ -52,9 +52,13 @@ impl Verdict {
         }
     }
 
-    /// `ok` (written before the speed was compared) is not read back: such a
-    /// device is checked again, speed included.
+    /// `ok` was written before the speed was compared: such a device stays
+    /// in use as it was, so a model keeps the provider (and the output) it
+    /// had; only new checks compare speed.
     fn parse(tag: &str) -> Option<Self> {
+        if tag == "ok" {
+            return Some(Verdict::Faster);
+        }
         [Verdict::Faster, Verdict::Differs, Verdict::Slower]
             .into_iter()
             .find(|v| v.tag() == tag)
@@ -198,18 +202,68 @@ pub(crate) fn prior(
     verdict(&key, file).map(|known| outcome(known, &key))
 }
 
-/// `Ok` when `gpu` (a session of `path` on `device`) may be used: its
+/// How long the check's GPU runs may take together: a device that stalls
+/// (AI Denoise on a Radeon 680M under Windows stopped for over 13 minutes
+/// after one tile, gap G76) is left behind and refused instead of holding
+/// up the model's load.
+const CHECK_LIMIT: Duration = Duration::from_secs(300);
+
+/// The GPU's output and run times: the first run and, when that was not
+/// faster than `cpu`, a warm second one.
+type GpuRuns<O> = (O, Duration, Option<Duration>);
+
+/// Runs the check's GPU runs (`run` on `gpu`) on a thread of its own and
+/// waits at most `limit`; `Ok(None)` when they did not finish (the thread
+/// and session are left behind).
+fn gpu_runs<S, O>(
+    mut gpu: S,
+    run: impl Fn(&mut S) -> Result<O> + Send + 'static,
+    cpu: Duration,
+    limit: Duration,
+) -> Result<Option<(S, GpuRuns<O>)>>
+where
+    S: Send + 'static,
+    O: Send + 'static,
+{
+    let (done, result) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("ai-gpu-check".to_string())
+        .spawn(move || {
+            let runs = (|| {
+                let t = Instant::now();
+                let outputs = run(&mut gpu)?;
+                let first = t.elapsed();
+                // The first GPU run may include its shader compiles.
+                let warm = if speed_verdict(cpu, first) == Verdict::Slower {
+                    let t = Instant::now();
+                    run(&mut gpu)?;
+                    Some(t.elapsed())
+                } else {
+                    None
+                };
+                Ok::<_, anyhow::Error>((outputs, first, warm))
+            })();
+            let _ = done.send(runs.map(|runs| (gpu, runs)));
+        })
+        .map_err(|e| anyhow!("starting the GPU check: {e}"))?;
+    match result.recv_timeout(limit) {
+        Ok(runs) => runs.map(Some),
+        Err(_) => Ok(None),
+    }
+}
+
+/// `gpu` back when it (a session of `path` on `device`) may be used: its
 /// output matches the CPU's and a warm run is faster.
 pub(crate) fn check(
     path: &Path,
     kind: ModelKind,
-    gpu: &mut Session,
+    gpu: Session,
     device: &Device,
     file: Option<&PathBuf>,
-) -> Result<()> {
+) -> Result<Session> {
     let key = key(path, kind, device);
     if let Some(known) = verdict(&key, file) {
-        return outcome(known, &key);
+        return outcome(known, &key).map(|()| gpu);
     }
     let started = Instant::now();
     let mut times = String::new();
@@ -220,29 +274,33 @@ pub(crate) fn check(
         let reference = run_once(&mut cpu, &inputs)?;
         let cpu_time = t.elapsed();
         drop(cpu);
-        let t = Instant::now();
-        let outputs = run_once(gpu, &inputs)?;
-        let mut gpu_time = t.elapsed();
+        let run = move |gpu: &mut Session| run_once(gpu, &inputs);
+        let Some((gpu, (outputs, first, warm))) = gpu_runs(gpu, run, cpu_time, CHECK_LIMIT)? else {
+            times = format!("CPU {} ms", cpu_time.as_millis());
+            return Ok(Err((
+                Verdict::Slower,
+                anyhow!(
+                    "its runs on this device did not finish in {} s and were left behind",
+                    CHECK_LIMIT.as_secs()
+                ),
+            )));
+        };
         times = format!(
             "CPU {} ms, GPU {} ms",
             cpu_time.as_millis(),
-            gpu_time.as_millis()
+            first.as_millis()
         );
+        if let Some(warm) = warm {
+            times.push_str(&format!(", warm GPU {} ms", warm.as_millis()));
+        }
         if let Some(why) = disagreement(kind, &compare(kind, &reference, &outputs)) {
             return Ok(Err((
                 Verdict::Differs,
                 anyhow!("its output differs from the CPU's: {why}"),
             )));
         }
-        if speed_verdict(cpu_time, gpu_time) == Verdict::Slower {
-            // The first GPU run may include its shader compiles.
-            let t = Instant::now();
-            run_once(gpu, &inputs)?;
-            gpu_time = t.elapsed();
-            times.push_str(&format!(", warm GPU {} ms", gpu_time.as_millis()));
-        }
-        Ok(match speed_verdict(cpu_time, gpu_time) {
-            Verdict::Faster => Ok(()),
+        Ok(match speed_verdict(cpu_time, warm.unwrap_or(first)) {
+            Verdict::Faster => Ok(gpu),
             _ => Err((
                 Verdict::Slower,
                 anyhow!("it runs slower on this device than on the CPU ({times})"),
@@ -256,14 +314,14 @@ pub(crate) fn check(
         device.label,
         started.elapsed().as_millis(),
         match &result {
-            Ok(Ok(())) => "matches the CPU and is faster".to_string(),
+            Ok(Ok(_)) => "matches the CPU and is faster".to_string(),
             Ok(Err((_, e))) | Err(e) => format!("{e:#}"),
         }
     );
     match result {
-        Ok(Ok(())) => {
+        Ok(Ok(gpu)) => {
             record(key, Verdict::Faster, file);
-            Ok(())
+            Ok(gpu)
         }
         Ok(Err((verdict, e))) => {
             record(key, verdict, file);
@@ -376,16 +434,57 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Verdicts from before the speed comparison are checked again.
+    /// A device accepted before the speed comparison keeps its models.
     #[test]
-    fn an_old_ok_without_a_speed_comparison_is_not_read_back() {
+    fn an_old_ok_without_a_speed_comparison_stays_accepted() {
         let dir = tempfile_dir("old-ok");
         let file = dir.join("gpu-checks.tsv");
         std::fs::write(&file, "ok\ta | WebGPU\ndiffers\tb | WebGPU\n").unwrap();
         let verdicts = load_file(&file);
-        assert_eq!(verdicts.get("a | WebGPU"), None);
+        assert_eq!(verdicts.get("a | WebGPU"), Some(&Verdict::Faster));
         assert_eq!(verdicts.get("b | WebGPU"), Some(&Verdict::Differs));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_stalled_gpu_check_is_left_behind() {
+        let (_never, hang) = std::sync::mpsc::channel::<()>();
+        let hang = Mutex::new(hang);
+        let started = Instant::now();
+        let runs = gpu_runs(
+            (),
+            move |_: &mut ()| {
+                let _ = hang.lock().unwrap().recv();
+                Ok(())
+            },
+            Duration::from_millis(10),
+            Duration::from_millis(200),
+        )
+        .unwrap();
+        assert!(runs.is_none());
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_slow_first_gpu_run_is_timed_again_warm() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let counted = calls.clone();
+        let (_, (_, _, warm)) = gpu_runs(
+            (),
+            move |_: &mut ()| {
+                // The first run compiles: slower than the CPU's 20 ms.
+                if counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    std::thread::sleep(Duration::from_millis(40));
+                }
+                Ok(())
+            },
+            Duration::from_millis(20),
+            Duration::from_secs(5),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert!(warm.unwrap() < Duration::from_millis(20));
     }
 
     #[test]
