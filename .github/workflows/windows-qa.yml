@@ -63,6 +63,9 @@ jobs:
           # Every VC++ runtime import is bundled and at least the toolset's version (gap G76).
           & pwsh -NoProfile -File scripts\windows\check_vc_runtime.ps1 -Root $dir
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The pinned DirectX Shader Compiler beside the WebGPU plugin (gap G76).
+          & pwsh -NoProfile -File scripts\windows\check_dxc.ps1 -Root $dir
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           "commit $env:GITHUB_SHA" | Set-Content "$dir\QA-BUILD.txt"
           Compress-Archive -Path $dir -DestinationPath qa-out\RawtonicQA-portable.zip -CompressionLevel Optimal
           Remove-Item $dir -Recurse

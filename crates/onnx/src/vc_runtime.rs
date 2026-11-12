@@ -97,7 +97,7 @@ pub(crate) fn required_version(linker: Option<(u16, u16)>) -> (u16, u16) {
 pub(crate) use windows::prepare;
 
 #[cfg(windows)]
-mod windows {
+pub(crate) mod windows {
     use super::{CHECKED, FileVersion, LIBRARIES, linker_version, required_version};
     use std::ffi::OsString;
     use std::io::Read;
@@ -112,17 +112,17 @@ mod windows {
         LoadLibraryW,
     };
 
-    fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
+    pub(crate) fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
         s.encode_wide().chain(std::iter::once(0)).collect()
     }
 
-    fn loaded(name: &str) -> Option<HMODULE> {
+    pub(crate) fn loaded(name: &str) -> Option<HMODULE> {
         let name = wide(name.as_ref());
         let module = unsafe { GetModuleHandleW(name.as_ptr()) };
         (!module.is_null()).then_some(module)
     }
 
-    fn module_path(module: HMODULE) -> Option<PathBuf> {
+    pub(crate) fn module_path(module: HMODULE) -> Option<PathBuf> {
         let mut buffer = vec![0u16; 1024];
         loop {
             let n = unsafe { GetModuleFileNameW(module, buffer.as_mut_ptr(), buffer.len() as u32) }
@@ -137,7 +137,7 @@ mod windows {
         }
     }
 
-    fn file_version(path: &Path) -> Option<FileVersion> {
+    pub(crate) fn file_version(path: &Path) -> Option<FileVersion> {
         let path = wide(path.as_os_str());
         let size = unsafe { GetFileVersionInfoSizeW(path.as_ptr(), std::ptr::null_mut()) };
         if size == 0 {
@@ -165,6 +165,24 @@ mod windows {
         ))
     }
 
+    /// Loads the library at `path` (absolute) by its full path; its own
+    /// imports resolve from its folder first. Never unloaded.
+    pub(crate) fn load_by_path(path: &Path) -> std::io::Result<HMODULE> {
+        let wide_path = wide(path.as_os_str());
+        let module = unsafe {
+            LoadLibraryExW(
+                wide_path.as_ptr(),
+                std::ptr::null_mut(),
+                LOAD_WITH_ALTERED_SEARCH_PATH,
+            )
+        };
+        if module.is_null() {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(module)
+        }
+    }
+
     fn library_linker_version(library: &Path) -> Option<(u16, u16)> {
         let mut head = vec![0u8; 4096];
         let mut file = std::fs::File::open(library).ok()?;
@@ -186,19 +204,10 @@ mod windows {
                 if !bundled.is_file() || loaded(name).is_some() {
                     continue;
                 }
-                let path = wide(bundled.as_os_str());
-                let module = unsafe {
-                    LoadLibraryExW(
-                        path.as_ptr(),
-                        std::ptr::null_mut(),
-                        LOAD_WITH_ALTERED_SEARCH_PATH,
-                    )
-                };
-                if module.is_null() {
+                if let Err(e) = load_by_path(&bundled) {
                     return Err(format!(
-                        "the Visual C++ runtime {} could not be loaded: {}",
-                        bundled.display(),
-                        std::io::Error::last_os_error()
+                        "the Visual C++ runtime {} could not be loaded: {e}",
+                        bundled.display()
                     ));
                 }
             }

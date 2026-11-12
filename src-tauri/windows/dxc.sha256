@@ -1,0 +1,12 @@
+# The DirectX Shader Compiler the Windows builds bundle beside ONNX Runtime's
+# WebGPU plugin (gap G76): Dawn's Direct3D 12 backend needs dxcompiler.dll and
+# dxil.dll. Microsoft's official release v1.8.2502 (file version 1.8.2502.8),
+# the version the onnxruntime-ep-webgpu 0.4.0 wheel itself carries. Read by
+# src-tauri/build.rs (download, extraction) and scripts/windows/check_dxc.ps1
+# (CI); sha256sum format, one source for both.
+# url https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.8.2502/dxc_2025_02_20.zip
+70b1913a1bfce4a3e1a5311d16246f4ecdf3a3e613abec8aa529e57668426f85  dxc_2025_02_20.zip
+f79943b02f73b621421b58a569fd6ee120d0023fb6bfa23844ecad6b00d6a295  bin/x64/dxcompiler.dll
+62736e99aa534a942873f92b881a71b2cb6ad62b8d7481ea7a8ad8e9888a8056  bin/x64/dxil.dll
+add120337487e273af0d649446aa61ff0b90475dc1a31ffb2774e870d4ec6830  bin/arm64/dxcompiler.dll
+9b2ad850ea6ee3d621044f739231a22823c8bd759b34a2c34dc2f4c0d450a6a8  bin/arm64/dxil.dll

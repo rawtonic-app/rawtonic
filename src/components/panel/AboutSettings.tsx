@@ -164,6 +164,12 @@ export const CREDITS: Credit[] = [
     license: 'BSD-3-Clause'
   },
   {
+    name: 'DirectX Shader Compiler',
+    url: 'https://github.com/microsoft/DirectXShaderCompiler',
+    what: "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+    license: 'University of Illinois/NCSA (dxcompiler.dll), Microsoft Software License Terms (dxil.dll)'
+  },
+  {
     name: 'Microsoft Visual C++ runtime',
     url: 'https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist',
     what: 'On Windows, the C++ runtime libraries ONNX Runtime needs, bundled beside it (Microsoft).',

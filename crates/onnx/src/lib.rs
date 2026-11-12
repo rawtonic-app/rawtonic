@@ -32,6 +32,7 @@ use ort::session::builder::SessionBuilder;
 
 pub mod bench;
 mod check;
+mod dxc;
 mod runtime;
 mod vc_runtime;
 

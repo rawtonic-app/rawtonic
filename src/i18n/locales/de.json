@@ -2206,6 +2206,7 @@
         "Dawn": "WebGPU für KI-Modelle unter Windows und Linux im WebGPU-Plugin von ONNX Runtime (Google).",
         "Depth Anything 3 Base": "Relative Szenengeometrie und Kameraschätzung für Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Tiefenmasken.",
+        "DirectX Shader Compiler": "Unter Windows Microsofts Shader-Compiler (dxcompiler.dll, dxil.dll), mit dem das WebGPU-Plugin von ONNX Runtime die KI-Modelle auf der GPU ausführt (Microsoft).",
         "Lensfun database": "Objektivprofile für die automatische Objektivkorrektur (nur Daten, kein Lensfun-Code).",
         "libgphoto2": "Tether-Aufnahmen: kommuniziert in einem separaten Hilfsprozess per USB mit der Kamera (mit libltdl und unter Linux libusb; dynamisch gelinkt). Unter macOS über ImageCaptureCore.",
         "libgphoto2 Rust bindings": "Anbindung des Tether-Hilfsprozesses an libgphoto2 (RapidRAWs Fork von vibe-libgphoto2-rs).",
