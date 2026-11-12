@@ -5582,6 +5582,51 @@ fn sharpen_detail(l: f32, blur: f32, is_raw: u32) -> f32 {
 const SHARPEN_GAIN: f32 = 1.2;
 const FALLOFF_GAIN: f32 = 0.22;
 const SHARPEN_RADIUS: f32 = 0.6;
+
+// The sharpening kernel's σ (`sigma_full` the full-resolution σ in pixels)
+// in a render at `detail_scale` (render pixels per original pixel; 1 for
+// exports, which keep max(σ, 0.25) unchanged). A reduced render (preview,
+// thumbnail) blurs with a sampled Gaussian whose variance is the export
+// kernel's scaled to its pixels, so sharpening the reduced frame shows what
+// sharpening the full frame and scaling it down shows. A σ scaled directly
+// fell below the pixel: the kernel was the pixel itself and Radius 1 left a
+// 2070 px fit view unsharpened (notes: benchmark-results/
+// tpx-thumb-parity-2026-11-12).
+fn sharpen_sigma(sigma_full: f32, detail_scale: f32) -> f32 {
+    if (detail_scale >= 1.0) {
+        return max(sigma_full * detail_scale, 0.25);
+    }
+    // The sampled kernel's variance per axis at full resolution (taps to 3).
+    let q = exp(-1.0 / (2.0 * sigma_full * sigma_full));
+    let q4 = q * q * q * q;
+    let q9 = q4 * q4 * q;
+    let v = 2.0 * (q + 4.0 * q4 + 9.0 * q9) / (1.0 + 2.0 * (q + q4 + q9)) * detail_scale * detail_scale;
+    // From 0.6 px the sampled Gaussian's variance is σ² within 3 %.
+    if (v >= 0.36) {
+        return sqrt(v);
+    }
+    // Below, the σ whose taps at 1 and 2 px have variance v:
+    // v = 2 (q + 4 q⁴) / (1 + 2 q + 2 q⁴), solved for q by fixed point.
+    var t = v / (2.0 * (1.0 - v));
+    for (var i = 0; i < 3; i = i + 1) {
+        let t4 = t * t * t * t;
+        t = (v + (2.0 * v - 8.0) * t4) / (2.0 * (1.0 - v));
+    }
+    return sqrt(-1.0 / (2.0 * log(max(t, 1.0e-12))));
+}
+
+// The Detail band's wide kernel (2σ at full resolution) as 2σ'² for the
+// exponent: 8σ² for exports, in a reduced render the variance of the
+// full-resolution wide kernel scaled like the narrow one (`sharpen_sigma`);
+// twice the reduced σ was three times too wide there and took the fine
+// band back out.
+fn sharpen_wide_den(sigma_full: f32, sigma: f32, detail_scale: f32) -> f32 {
+    if (detail_scale >= 1.0) {
+        return 8.0 * sigma * sigma;
+    }
+    let wide = sharpen_sigma(2.0 * sigma_full, detail_scale);
+    return 2.0 * wide * wide;
+}
 const SHARPEN_PROGRESSION: f32 = 0.8;
 const SHARPEN_HALO_LIMIT: f32 = 0.08;
 const SHARPEN_THRESHOLD_SCALE: f32 = 0.01;
@@ -5693,7 +5738,7 @@ fn apply_sharpen(
     // Threshold keeps noise from being sharpened. The radius is in original
     // pixels, so scaled-down previews show it smaller, as in Lightroom.
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
-    let sigma = max(SHARPEN_RADIUS * detail_scale, 0.25);
+    let sigma = sharpen_sigma(SHARPEN_RADIUS, detail_scale);
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
     var blur_w = 0.0;
@@ -5769,7 +5814,8 @@ fn apply_sharpen_extended(
     // Raw, the radius moves the response between bands rather than scaling it.
     let radius_shape = select(sqrt(radius), radius, radius >= 1.0);
     let radius_gain = select(pow(radius, -0.75), pow(radius, -0.85), radius >= 1.0);
-    let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
+    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale);
+    let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale);
     let tilt = select(
         SHARPEN_DETAIL_TILT_LOW * detail,
         SHARPEN_DETAIL_TILT * pow(max(detail, 1e-6), SHARPEN_DETAIL_TILT_EXPONENT)
@@ -5797,7 +5843,7 @@ fn apply_sharpen_extended(
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
+                let w2 = exp(-f32(sx * sx + sy * sy) / wide_den);
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -5919,7 +5965,8 @@ fn apply_sharpen_v2(
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
     let radius_shape = select(sqrt(radius), radius, radius >= 1.0);
     let radius_gain = select(pow(radius, -0.75), pow(radius, -0.85), radius >= 1.0);
-    let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
+    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale);
+    let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale);
     let r = amount / 0.8;
     let detail_up = clamp(detail / 3.0, 0.0, 1.0);
     // Below Radius 1 the σ blur is nearly the pixel itself and the band
@@ -5953,7 +6000,7 @@ fn apply_sharpen_v2(
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
+                let w2 = exp(-f32(sx * sx + sy * sy) / wide_den);
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6054,7 +6101,8 @@ fn apply_sharpen_v4(
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
     let radius_shape = select(sqrt(radius), radius, radius >= 1.0);
     let radius_gain = select(pow(radius, -0.75), pow(radius, -0.85), radius >= 1.0);
-    let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
+    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale);
+    let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale);
     let r = amount / 0.8;
     let detail_up = clamp(detail / 3.0, 0.0, 1.0);
     // Below Radius 1 the σ blur is nearly the pixel itself and the band
@@ -6094,7 +6142,7 @@ fn apply_sharpen_v4(
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
+                let w2 = exp(-f32(sx * sx + sy * sy) / wide_den);
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6116,7 +6164,7 @@ fn apply_sharpen_v4(
     // and above Radius 1).
     var kernel_ratio = 1.0;
     if (radius < 1.0) {
-        let sigma_1 = max(SHARPEN_RADIUS * detail_scale, 0.25);
+        let sigma_1 = sharpen_sigma(SHARPEN_RADIUS, detail_scale);
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
             for (var kx = -2; kx <= 2; kx = kx + 1) {
@@ -6226,7 +6274,8 @@ fn apply_sharpen_v5(
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
     let radius_shape = select(sqrt(radius), radius, radius >= 1.0);
     let radius_gain = select(pow(radius, -0.75), pow(radius, -0.85), radius >= 1.0);
-    let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
+    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale);
+    let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale);
     let r = amount / 0.8;
     let detail_up = clamp(detail / 3.0, 0.0, 1.0);
     // Below Radius 1 the σ blur is nearly the pixel itself and the band
@@ -6266,7 +6315,7 @@ fn apply_sharpen_v5(
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
+                let w2 = exp(-f32(sx * sx + sy * sy) / wide_den);
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6288,7 +6337,7 @@ fn apply_sharpen_v5(
     // and above Radius 1).
     var kernel_ratio = 1.0;
     if (radius < 1.0) {
-        let sigma_1 = max(SHARPEN_RADIUS * detail_scale, 0.25);
+        let sigma_1 = sharpen_sigma(SHARPEN_RADIUS, detail_scale);
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
             for (var kx = -2; kx <= 2; kx = kx + 1) {
@@ -6428,7 +6477,8 @@ fn apply_sharpen_v7(
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
     let radius_shape = select(sqrt(radius), radius, radius >= 1.0);
     let radius_gain = select(pow(radius, -0.75), pow(radius, -0.85), radius >= 1.0);
-    let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
+    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale);
+    let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale);
     let r = amount / 0.8;
     let detail_up = clamp(detail / 3.0, 0.0, 1.0);
     // Below Radius 1 the σ blur is nearly the pixel itself and the band
@@ -6468,7 +6518,7 @@ fn apply_sharpen_v7(
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
+                let w2 = exp(-f32(sx * sx + sy * sy) / wide_den);
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6490,7 +6540,7 @@ fn apply_sharpen_v7(
     // and above Radius 1).
     var kernel_ratio = 1.0;
     if (radius < 1.0) {
-        let sigma_1 = max(SHARPEN_RADIUS * detail_scale, 0.25);
+        let sigma_1 = sharpen_sigma(SHARPEN_RADIUS, detail_scale);
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
             for (var kx = -2; kx <= 2; kx = kx + 1) {
@@ -6616,7 +6666,8 @@ fn apply_sharpen_v8(
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
     let radius_shape = select(sqrt(radius), radius, radius >= 1.0);
     let radius_gain = select(pow(radius, -0.75), pow(radius, -0.85), radius >= 1.0);
-    let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
+    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale);
+    let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale);
     let r = amount / 0.8;
     let detail_up = clamp(detail / 3.0, 0.0, 1.0);
     // Below Radius 1 the σ blur is nearly the pixel itself and the band
@@ -6665,7 +6716,7 @@ fn apply_sharpen_v8(
             blur_w += w;
             blur_w2 += w * w;
             if (tilt != 0.0) {
-                let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
+                let w2 = exp(-f32(sx * sx + sy * sy) / wide_den);
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6689,7 +6740,7 @@ fn apply_sharpen_v8(
     // and above Radius 1).
     var kernel_ratio = 1.0;
     if (radius < 1.0) {
-        let sigma_1 = max(SHARPEN_RADIUS * detail_scale, 0.25);
+        let sigma_1 = sharpen_sigma(SHARPEN_RADIUS, detail_scale);
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
             for (var kx = -2; kx <= 2; kx = kx + 1) {
