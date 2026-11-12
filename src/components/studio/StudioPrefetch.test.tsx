@@ -10,7 +10,7 @@ import { Panel, type AppSettings, type ImageFile, type SelectedImage } from '../
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
 
 const invoke = vi.hoisted(() => vi.fn(() => Promise.resolve(undefined)));
-vi.mock('@tauri-apps/api/core', () => ({ invoke, convertFileSrc: (path: string) => path }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke, isTauri: () => false, convertFileSrc: (path: string) => path }));
 vi.mock('../../utils/photoFullScreen', () => ({ followPhotoFullScreen: vi.fn(() => Promise.resolve()) }));
 vi.mock('./useQuickAdjust', () => ({ useQuickAdjust: vi.fn(() => null) }));
 vi.mock('../panel/Editor', () => ({ default: () => <div data-testid="native-viewer" /> }));
