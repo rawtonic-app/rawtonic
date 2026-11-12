@@ -214,9 +214,9 @@ impl Library {
 
     fn row_path(&self, relative: String, root: String, external: bool) -> PathBuf {
         if external {
-            PathBuf::from(root).join(relative)
+            crate::native_join(std::path::Path::new(&root), &relative)
         } else {
-            self.directory.join(relative)
+            crate::native_join(&self.directory, &relative)
         }
     }
 

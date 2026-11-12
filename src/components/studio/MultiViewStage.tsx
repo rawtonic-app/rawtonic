@@ -25,6 +25,7 @@ import {
 import { useMultiViewZoom } from './useMultiViewZoom';
 import { useEditAllSelected } from '../../hooks/useEditAllSelected';
 import { proofMarginPx } from '../../utils/viewerDisplay';
+import { imageFlag } from '../../utils/culling';
 import BrowserViewCell from './BrowserViewCell';
 import { PhotoEyesBadge } from './StudioEyes';
 import './multiView.css';
@@ -384,7 +385,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
 
   const controls = (path: string, isReference: boolean) => {
     const rating = imageRatings[path] || 0;
-    const flag = imageFlags[path] ?? 0;
+    const flag = imageFlag(imageFlags, path);
     const name = fileName(path);
     return (
       <div className="studio-mv-controls" role="group" aria-label={t('studio.multiView.controls', { name })}>

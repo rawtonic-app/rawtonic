@@ -15,6 +15,7 @@ import { editUndoOrder, nextUndoOrder, onNewEdit } from './undoOrder';
 import { registerWrittenSteps, travelKeptHistory } from './photoHistory';
 import { refreshStacks, type StackChange } from '../store/useStackStore';
 import { copyOf, sourceFileName, sourceOf } from '../entities/photo/photoRef';
+import { pathKey } from './pathKey';
 
 export type CullingValue = { kind: 'rating' | 'flag'; value: number } | { kind: 'color'; value: string | null };
 export interface CullingChange {
@@ -952,14 +953,18 @@ export function showCullingChanges(changes: CullingChange[]) {
     let imageRatings = state.imageRatings;
     let imageFlags = state.imageFlags;
     const colors = new Map<string, string | null>();
-    for (const { path, after } of changes) {
+    // The backend names the library's path (`\\?\C:\…` on Windows); the
+    // ratings and labels go to the photo as the view lists it.
+    const listed = new Map(state.imageList.map((image) => [pathKey(image.path), image.path]));
+    for (const { path: stored, after } of changes) {
+      const path = listed.get(pathKey(stored)) ?? stored;
       if (after.kind === 'rating') {
         if (imageRatings === state.imageRatings) imageRatings = { ...imageRatings };
         imageRatings[path] = after.value;
       }
       if (after.kind === 'flag') {
         if (imageFlags === state.imageFlags) imageFlags = { ...imageFlags };
-        imageFlags[path] = after.value;
+        imageFlags[pathKey(sourceOf(path))] = after.value;
       }
       if (after.kind === 'color') colors.set(path, after.value);
     }

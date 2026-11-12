@@ -2,7 +2,7 @@
 //! stores: a stored path is relative, uses `/` on every platform, and is
 //! the only form the catalogue ever queries or writes.
 use anyhow::Result;
-use rawtonic_catalog::{Library, Mode, Rule, portable_relative};
+use rawtonic_catalog::{Library, Mode, Rule, native_join, portable_relative};
 use serde_json::json;
 use std::{fs, path::Path};
 use tempfile::tempdir;
@@ -74,6 +74,82 @@ fn a_native_relative_path_is_stored_with_forward_slashes() {
     // On Unix a backslash is an ordinary character of a name.
     #[cfg(unix)]
     assert_refused("Cam\\A.RAF");
+}
+
+/// A stored path read back is native: the platform's separator only, the
+/// same string a folder listing gives (Windows QA WFQ: picks and rejects
+/// came back as `…\Photos/2026/…` keys after a restart and matched no
+/// photograph in the grid, which lists `…\Photos\2026\…`).
+#[test]
+fn a_stored_path_is_read_back_with_native_separators() {
+    let base = Path::new("Job");
+    assert_eq!(
+        native_join(base, "Capture/Day 2/A.RAF"),
+        base.join("Capture").join("Day 2").join("A.RAF")
+    );
+    assert_eq!(native_join(base, "A.RAF"), base.join("A.RAF"));
+    assert_eq!(
+        native_join(base, "Capture//A.RAF/"),
+        base.join("Capture").join("A.RAF")
+    );
+    #[cfg(windows)]
+    for base in [r"C:\Lib.catalog", r"\\?\C:\Users\Me\Lib.catalog"] {
+        let path = native_join(Path::new(base), "Photos/2026/11/11/A.CR3");
+        assert_eq!(
+            path.to_str().unwrap(),
+            format!(r"{base}\Photos\2026\11\11\A.CR3")
+        );
+    }
+}
+
+/// Flags, assets and searches key a photograph by the path a folder listing
+/// returns for it, after the library is closed and opened again.
+#[test]
+fn flags_and_assets_use_the_path_a_folder_listing_returns_after_reopening() {
+    let (_d, lib) = session(&["Photos/2026/11/11/A.CR3", "Photos/2026/11/11/B.ARW"]);
+    let ids: Vec<String> = lib
+        .assets(None)
+        .unwrap()
+        .into_iter()
+        .map(|a| a.id)
+        .collect();
+    lib.set_flags(&ids[..1], 1).unwrap();
+    lib.set_flags(&ids[1..], -1).unwrap();
+    let directory = lib.directory.clone();
+    drop(lib);
+    let lib = Library::open(&directory).unwrap();
+    let folder = ["Photos", "2026", "11", "11"]
+        .iter()
+        .fold(lib.directory.clone(), |path, part| path.join(part));
+    let mut listed: Vec<_> = fs::read_dir(&folder)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    listed.sort();
+    // Compared as text: the window keys flags by the path's string (JSON),
+    // and on Windows `Path` equality would take `/` for `\`.
+    let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
+    let listed: Vec<String> = listed.iter().map(|path| text(path)).collect();
+    let flags: std::collections::HashMap<String, i8> = lib
+        .flags()
+        .unwrap()
+        .into_iter()
+        .map(|(path, flag)| (text(&path), flag))
+        .collect();
+    assert_eq!(flags.get(&listed[0]), Some(&1), "{flags:?} vs {listed:?}");
+    assert_eq!(flags.get(&listed[1]), Some(&-1), "{flags:?} vs {listed:?}");
+    let mut assets: Vec<String> = lib
+        .assets(None)
+        .unwrap()
+        .into_iter()
+        .map(|a| text(&a.path))
+        .collect();
+    assets.sort();
+    assert_eq!(assets, listed);
+    for path in &listed {
+        let asset = lib.asset_at(std::path::Path::new(path)).unwrap().unwrap();
+        assert_eq!(text(&asset.path), *path);
+    }
 }
 
 fn assert_refused(path: &str) {
