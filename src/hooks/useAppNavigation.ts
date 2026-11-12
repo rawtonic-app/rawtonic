@@ -609,6 +609,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     handleSelectSubfolder,
     handleSelectAlbum,
     handleOpenFolder,
+    showFolder,
     handleNavBack,
     handleNavForward
   };

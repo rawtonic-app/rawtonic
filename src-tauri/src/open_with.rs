@@ -902,7 +902,7 @@ pub fn link_render(
     Ok(())
 }
 
-fn link_renders(items: &[EditTarget]) -> EditWithResult {
+pub(crate) fn link_renders(items: &[EditTarget]) -> EditWithResult {
     let mut result = EditWithResult {
         linked: 0,
         problems: Vec::new(),

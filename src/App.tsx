@@ -206,17 +206,23 @@ function App() {
     prevAdjustmentsRef
   };
 
-  const { handleBackToLibrary, handleImageSelect, handleSelectSubfolder, handleSelectAlbum, handleOpenFolder } =
-    useAppNavigation({
-      clearThumbnailQueue,
-      refs: navigationRefs
-    });
+  const {
+    handleBackToLibrary,
+    handleImageSelect,
+    handleSelectSubfolder,
+    handleSelectAlbum,
+    handleOpenFolder,
+    showFolder
+  } = useAppNavigation({
+    clearThumbnailQueue,
+    refs: navigationRefs
+  });
 
   const {
     externalEditSession,
     isFinishing: isExternalEditFinishing,
     finishExternalEdit
-  } = useExternalEditSession(handleImageSelect);
+  } = useExternalEditSession(handleImageSelect, showFolder);
 
   const {
     handleRate,

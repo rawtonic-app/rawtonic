@@ -1154,3 +1154,25 @@ mod resize_transition_tests {
         }
     }
 }
+
+/// Classify OS launch paths before any image decode is requested.
+#[tauri::command]
+pub fn launch_path_is_directory(path: String) -> bool {
+    std::path::Path::new(&path).is_dir()
+}
+
+#[cfg(test)]
+mod launch_path_tests {
+    #[test]
+    fn directory_launches_are_browse_targets_and_files_are_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("photo.tif");
+        std::fs::write(&image, b"image").unwrap();
+        assert!(super::launch_path_is_directory(
+            dir.path().to_string_lossy().into_owned()
+        ));
+        assert!(!super::launch_path_is_directory(
+            image.to_string_lossy().into_owned()
+        ));
+    }
+}

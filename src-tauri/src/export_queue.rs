@@ -629,7 +629,11 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
     for job in &jobs {
         if !matches!(
             job.state,
-            JobState::Interrupted | JobState::Queued | JobState::Paused
+            JobState::Interrupted
+                | JobState::Queued
+                | JobState::Paused
+                | JobState::Done
+                | JobState::Cancelled
         ) {
             continue;
         }
@@ -642,7 +646,12 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
             .filter(|item| item.state != ItemState::Done)
             .map(|item| item.path)
             .collect();
-        queue.cancel(&job.id)?;
+        if matches!(
+            job.state,
+            JobState::Interrupted | JobState::Queued | JobState::Paused
+        ) {
+            queue.cancel(&job.id)?;
+        }
         let index = groups
             .iter()
             .position(|group| group == &run)
@@ -676,10 +685,18 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
             }
         }
     }
+    // Repair completed renders before the Library lists them, even when the
+    // user does not choose Try again. Linking is idempotent after a partial quit.
+    for run in &runs {
+        let result = crate::open_with::link_renders(&run.completed);
+        for problem in result.problems {
+            log::warn!("Recovering Edit With: {problem}");
+        }
+    }
     // Targets have been copied into the one-shot recovery notice. Old edit
     // rows, including fully completed orphan clicks, must not hold history forever.
     for job in jobs {
-        if job.state == JobState::Done && edit_with_of(&job.request).is_some() {
+        if edit_with_of(&job.request).is_some_and(|run| groups.contains(&run)) {
             queue.remove(&job.id)?;
         }
     }
@@ -1445,8 +1462,8 @@ mod tests {
         assert!(runs[0].completed.is_empty());
         let state = |id: &str| on_queue(&queue, |q| q.job(id)).unwrap().state;
         // Neither render is resumed (nothing would hand it over)…
-        assert_eq!(state(&ids[0]), JobState::Cancelled);
-        assert_eq!(state(&ids[1]), JobState::Cancelled);
+        assert!(on_queue(&queue, |q| q.job(&ids[0])).is_err());
+        assert!(on_queue(&queue, |q| q.job(&ids[1])).is_err());
         // …while the plain export waits for Start as before.
         assert_eq!(state(&ids[2]), JobState::Queued);
         // Offered once: the next start finds nothing more to end.
@@ -1455,7 +1472,8 @@ mod tests {
 
     #[test]
     fn retry_does_not_render_photos_that_finished_before_quit() {
-        for finished_job in [true, false] {
+        for stage in 0..6 {
+            let finished_job = stage >= 2;
             let tmp = tempfile::tempdir().unwrap();
             let a = tmp.path().join("A.NEF").to_string_lossy().into_owned();
             let b = tmp.path().join("B.NEF").to_string_lossy().into_owned();
@@ -1466,20 +1484,38 @@ mod tests {
                 program: "Editor.exe".into(),
                 photos: vec![a.clone(), b.clone()],
             };
+            let catalog = tmp.path().join("Catalog");
+            let lib =
+                rawtonic_catalog::Library::create(&catalog, "C", rawtonic_catalog::Mode::Catalog)
+                    .unwrap();
             let edit = |path: &String| ExportRequest {
                 edit_with: Some(run.clone()),
                 output_folder_or_file: format!("{path}.tif"),
                 is_explicit_file_path: true,
-                ..request(std::slice::from_ref(path), None)
+                ..request(std::slice::from_ref(path), Some(&catalog))
             };
             let (_dir, queue) = test_queue();
             let ids = queue_pinned(&queue, vec![edit(&a), edit(&b)]).unwrap();
             on_queue(&queue, |q| {
+                if stage == 0 {
+                    return q.recover();
+                }
                 q.start_next()?;
                 if finished_job {
+                    std::fs::write(format!("{a}.tif"), b"finished render")?;
                     q.item_done(&ids[0], 0)?;
                     q.finish(&ids[0], rawtonic_export::queue::RunEnd::Completed)?;
-                    q.start_next()?;
+                    if stage >= 3 {
+                        q.start_next()?;
+                    }
+                    if stage == 4 {
+                        std::fs::write(format!("{b}.tif"), b"finished render")?;
+                        q.item_done(&ids[1], 0)?;
+                        q.finish(&ids[1], RunEnd::Completed)?;
+                    }
+                    if stage == 5 {
+                        q.finish(&ids[1], RunEnd::Cancelled)?;
+                    }
                 } else {
                     // Published, but quit before item_done/job completion.
                     let output = std::path::PathBuf::from(format!("{a}.tif"));
@@ -1490,20 +1526,33 @@ mod tests {
             })
             .unwrap();
             let recovered = on_queue(&queue, end_interrupted_edits).unwrap();
-            assert_eq!(recovered[0].run.photos, [b]);
-            assert_eq!(recovered[0].completed.len(), 1);
+            assert_eq!(
+                recovered[0].run.photos,
+                if stage == 0 {
+                    vec![a.clone(), b.clone()]
+                } else if stage == 4 {
+                    vec![]
+                } else {
+                    vec![b.clone()]
+                }
+            );
+            assert_eq!(
+                recovered[0].completed.len(),
+                if stage == 0 {
+                    0
+                } else if stage == 4 {
+                    2
+                } else {
+                    1
+                }
+            );
+            if stage == 0 {
+                continue;
+            }
             let target = &recovered[0].completed[0];
             assert_eq!(target.source, a);
             let render = std::path::Path::new(&target.target);
             std::fs::write(render, b"finished render").unwrap();
-            let lib = rawtonic_catalog::Library::create(
-                &tmp.path().join("Catalog"),
-                "C",
-                rawtonic_catalog::Mode::Catalog,
-            )
-            .unwrap();
-            crate::open_with::link_render(&lib, &target.source, render, target.metadata.as_ref())
-                .unwrap();
             assert_eq!(lib.stacks().unwrap()[0].members.len(), 2);
             assert!(
                 on_queue(&queue, |q| q.job(&ids[0])).is_err() || !finished_job,
@@ -1526,7 +1575,7 @@ mod tests {
             prune_finished(q)?;
             assert_eq!(q.jobs()?.len(), KEEP_DONE+1);
             assert!(q.job(&leftover).is_ok(), "only the edit itself is protected");
-            assert!(end_interrupted_edits(q)?.is_empty());
+            assert_eq!(end_interrupted_edits(q)?.len(), 1);
             assert!(q.job(&leftover).is_err(), "startup releases an orphan edit");
             prune_finished(q)?;
             assert_eq!(q.jobs()?.len(), KEEP_DONE);
