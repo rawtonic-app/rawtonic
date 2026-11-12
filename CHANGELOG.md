@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Windows: Open With and Edit With.** Both list the programs Windows offers for the file type (the recommended programs of Explorer's *Open with*, such as Photos and Paint, with their icons; the default first), plus *Other…* for any program file (`.exe`), which is remembered and offered from then on. Edit With renders the photos beside their originals as on the Mac, adds them to the library stacked with their originals, opens them in the program and picks up its saves. Paths with spaces and non-Latin letters work; a path of 260 characters or more is handed over in its short form where the volume has one.
+
 - Trash refuses a photo whose file is also another hard-linked photo in the active library, and names the other photo before changing anything.
 
 - Synchronize Folder compares stored folder aliases consistently, so a root stored through a symlink does not classify existing photos as new copies. Regression coverage also checks plain and verbatim Windows drive paths.

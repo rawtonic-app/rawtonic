@@ -562,7 +562,7 @@
       "none": "Нет программ, открывающих эти файлы",
       "other": "Другая…",
       "reading": "Поиск программ…",
-      "unsupported": "Доступно только в macOS"
+      "unsupported": "Пока недоступно в Linux"
     },
     "tagging": {
       "addTagTooltip": "Добавить тег",

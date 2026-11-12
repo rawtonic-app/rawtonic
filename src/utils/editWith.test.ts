@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { BUILT_IN_EDIT_RECIPES, chosenRecipe, editRecipes, editRequest, runEditWith, waitForJobs } from './editWith';
+import {
+  BUILT_IN_EDIT_RECIPES,
+  chosenRecipe,
+  editRecipes,
+  editRequest,
+  programName,
+  runEditWith,
+  waitForJobs
+} from './editWith';
 import { exportSettingsFromPreset } from './exportRecipes';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -46,6 +54,14 @@ beforeEach(() => {
   useProcessStore.setState({ exportQueue: [] });
   useLibraryStore.setState({ rootPaths: ['/s'] });
   useEditorStore.setState({ selectedImage: null });
+});
+
+describe('programName', () => {
+  it('names a program by its bundle or program file, or by a packaged app name', () => {
+    expect(programName('/Applications/Adobe Photoshop 2026/Adobe Photoshop 2026.app')).toBe('Adobe Photoshop 2026');
+    expect(programName('C:\\Program Files\\Tools\\Größe ändern.EXE')).toBe('Größe ändern');
+    expect(programName('Windows-Fotoanzeige')).toBe('Windows-Fotoanzeige');
+  });
 });
 
 describe('recipes', () => {

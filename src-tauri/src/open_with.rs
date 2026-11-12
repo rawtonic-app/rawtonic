@@ -11,8 +11,11 @@
 //! (`Library::set_derived_from`), opens them all in the program in one
 //! launch and watches them, so a save there refreshes the thumbnail.
 //!
-//! The programs offered for a file come from LaunchServices on macOS. Other
-//! systems report `supported: false` and the menus show the entries disabled.
+//! The programs offered for a file come from LaunchServices on macOS and
+//! from the shell's association handlers on Windows (`open_with/windows_shell.rs`),
+//! plus, there, the program files the user picked with "Choose program…".
+//! Other systems report `supported: false` and the menus show the entries
+//! disabled.
 use crate::export_queue::ExportRequest;
 use crate::ipc::{CommandError, ErrorCode};
 use crate::state::develop::{DevelopSession, Scope};
@@ -27,6 +30,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tauri::{AppHandle, Emitter, Manager};
+
+#[cfg(any(windows, test))]
+mod handlers;
+#[cfg(windows)]
+mod windows_shell;
 
 /// Programs remembered as recently used, newest first.
 const RECENT_APPS: usize = 5;
@@ -65,6 +73,10 @@ pub struct AppChoices {
 pub struct OpenWithPrefs {
     /// Application paths, newest first.
     pub recent_apps: Vec<String>,
+    /// Programs the user picked with "Choose program…" that the system does
+    /// not list for the files (Windows), newest first: offered in every
+    /// list while they exist.
+    pub picked_apps: Vec<String>,
     /// The Edit With recipe last used (an export preset id or a built-in one).
     pub edit_recipe: Option<String>,
 }
@@ -94,6 +106,17 @@ pub struct EditWithResult {
     pub linked: usize,
     /// Messages for renders that could not be registered or linked.
     pub problems: Vec<String>,
+}
+
+/// How `platform::open` started the program (Linux starts none, macOS
+/// opens listed programs only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub enum Launched {
+    /// A program the system lists for the files.
+    Listed,
+    /// A program file the user picked, started with the files.
+    Picked,
 }
 
 /// The default program first, then the recently used ones (newest first),
@@ -284,7 +307,7 @@ fn probe_file(app: &AppHandle, extension: &str) -> Result<PathBuf, String> {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::AppChoice;
+    use super::{AppChoice, Launched};
     use base64::Engine;
     use objc2::{AnyThread, rc::autoreleasepool};
     use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
@@ -294,6 +317,8 @@ mod platform {
     use std::{collections::HashSet, path::Path, process::Command};
 
     pub const SUPPORTED: bool = true;
+    /// Copies of an application in several places show once.
+    pub const ONE_PER_NAME: bool = true;
 
     fn url(path: &Path) -> Option<objc2::rc::Retained<NSURL>> {
         Some(NSURL::fileURLWithPath(&NSString::from_str(path.to_str()?)))
@@ -380,8 +405,24 @@ mod platform {
         })
     }
 
+    /// Programs picked with "Other…" are opened as listed ones (`open -a`)
+    /// and not offered separately.
+    pub fn describe(_program: &str) -> Option<AppChoice> {
+        None
+    }
+
+    /// An application bundle.
+    pub fn check(app: &str) -> Result<(), String> {
+        let path = Path::new(app);
+        if path.is_absolute() && path.is_dir() && path.extension().is_some_and(|e| e == "app") {
+            Ok(())
+        } else {
+            Err(format!("{app} is not an application."))
+        }
+    }
+
     /// Opens `files` in `app` in one launch.
-    pub fn open(app: &Path, files: &[std::path::PathBuf]) -> Result<(), String> {
+    pub fn open(app: &str, files: &[std::path::PathBuf]) -> Result<Launched, String> {
         let status = Command::new("/usr/bin/open")
             .arg("-a")
             .arg(app)
@@ -389,26 +430,38 @@ mod platform {
             .status()
             .map_err(|e| e.to_string())?;
         if status.success() {
-            Ok(())
+            Ok(Launched::Listed)
         } else {
-            Err(format!("{} could not open the files.", app.display()))
+            Err(format!("{app} could not open the files."))
         }
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+use windows_shell as platform;
+
+#[cfg(not(any(target_os = "macos", windows)))]
 mod platform {
-    use super::AppChoice;
+    use super::{AppChoice, Launched};
     use std::path::Path;
 
     pub const SUPPORTED: bool = false;
+    pub const ONE_PER_NAME: bool = true;
 
     pub fn apps_for(_files: &[&Path]) -> (Vec<AppChoice>, Option<String>) {
         (Vec::new(), None)
     }
 
-    pub fn open(_app: &Path, _files: &[std::path::PathBuf]) -> Result<(), String> {
-        Err("Open With is available on macOS only.".into())
+    pub fn describe(_program: &str) -> Option<AppChoice> {
+        None
+    }
+
+    pub fn check(_program: &str) -> Result<(), String> {
+        Err("Open With is not available on this system yet.".into())
+    }
+
+    pub fn open(_app: &str, _files: &[std::path::PathBuf]) -> Result<Launched, String> {
+        Err("Open With is not available on this system yet.".into())
     }
 }
 
@@ -435,21 +488,45 @@ fn choices(app: &AppHandle, files: Vec<PathBuf>) -> AppChoices {
             apps: Vec::new(),
         };
     }
-    let (apps, default) = platform::apps_for(&one_per_type(&files));
-    let recent = read_prefs(app).recent_apps;
-    // The default and the recent programs keep their exact copy; the
-    // others show once per name.
-    let (mut apps, others): (Vec<_>, Vec<_>) = apps.into_iter().partition(|choice| {
-        default.as_deref() == Some(choice.path.as_str()) || recent.contains(&choice.path)
-    });
-    let others: Vec<_> = one_per_name(others)
-        .into_iter()
-        .filter(|other| !apps.iter().any(|kept| kept.name == other.name))
-        .collect();
-    apps.extend(others);
+    let (mut apps, default) = platform::apps_for(&one_per_type(&files));
+    let prefs = read_prefs(app);
+    let recent = prefs.recent_apps;
+    add_picked(&mut apps, &prefs.picked_apps, &platform::describe);
+    let apps = if platform::ONE_PER_NAME {
+        // The default and the recent programs keep their exact copy; the
+        // others show once per name.
+        let (mut apps, others): (Vec<_>, Vec<_>) = apps.into_iter().partition(|choice| {
+            default.as_deref() == Some(choice.path.as_str()) || recent.contains(&choice.path)
+        });
+        let others: Vec<_> = one_per_name(others)
+            .into_iter()
+            .filter(|other| !apps.iter().any(|kept| kept.name == other.name))
+            .collect();
+        apps.extend(others);
+        apps
+    } else {
+        apps
+    };
     AppChoices {
         supported: true,
         apps: order_apps(apps, default.as_deref(), &recent),
+    }
+}
+
+/// Adds the programs of `picked` that `describe` knows (still there) and
+/// `apps` does not list yet.
+fn add_picked(
+    apps: &mut Vec<AppChoice>,
+    picked: &[String],
+    describe: &dyn Fn(&str) -> Option<AppChoice>,
+) {
+    for program in picked {
+        let listed = apps
+            .iter()
+            .any(|app| app.path.to_lowercase() == program.to_lowercase());
+        if !listed && let Some(choice) = describe(program) {
+            apps.push(choice);
+        }
     }
 }
 
@@ -472,25 +549,22 @@ pub async fn edit_with_apps(extension: String, app: AppHandle) -> Result<AppChoi
     .map_err(|e| e.to_string())?
 }
 
-fn checked_app(app: &str) -> Result<PathBuf, String> {
-    let path = PathBuf::from(app);
-    if path.is_absolute() && path.is_dir() && path.extension().is_some_and(|e| e == "app") {
-        Ok(path)
-    } else {
-        Err(format!("{app} is not an application."))
-    }
-}
-
 fn open_in(app: &AppHandle, program: &str, files: &[PathBuf]) -> Result<(), String> {
-    let program = checked_app(program)?;
+    platform::check(program)?;
     if let Some(missing) = files.iter().find(|file| !file.is_file()) {
         return Err(format!("{} is not available.", missing.display()));
     }
-    platform::open(&program, files)?;
-    let program = program.to_string_lossy().into_owned();
-    update_prefs(app, |prefs| {
-        remember_recent(&mut prefs.recent_apps, &program)
-    })
+    let launched = platform::open(program, files)?;
+    update_prefs(app, |prefs| remember_launch(prefs, program, launched))
+}
+
+/// `program` is the newest recent one; a picked program file is offered
+/// from now on.
+fn remember_launch(prefs: &mut OpenWithPrefs, program: &str, launched: Launched) {
+    remember_recent(&mut prefs.recent_apps, program);
+    if launched == Launched::Picked {
+        remember_recent(&mut prefs.picked_apps, program);
+    }
 }
 
 /// Opens the originals of `paths` in `program`; nothing is written or moved.
@@ -1032,6 +1106,34 @@ mod tests {
             remember_recent(&mut recent, app);
         }
         assert_eq!(recent, ["c", "f", "e", "d", "b"]);
+    }
+
+    #[test]
+    fn a_picked_program_is_remembered_and_offered_while_it_exists() {
+        let mut prefs = OpenWithPrefs::default();
+        // A listed program is recent only; a picked program file is offered
+        // from now on too.
+        remember_launch(&mut prefs, "Paint", Launched::Listed);
+        remember_launch(&mut prefs, r"C:\Tools\Editor.exe", Launched::Picked);
+        assert_eq!(prefs.recent_apps, [r"C:\Tools\Editor.exe", "Paint"]);
+        assert_eq!(prefs.picked_apps, [r"C:\Tools\Editor.exe"]);
+
+        let mut apps = vec![choice(r"C:\tools\editor.exe", "Editor (listed)")];
+        let picked = [
+            r"C:\Tools\Editor.exe".to_string(),
+            r"C:\Gone\Old.exe".to_string(),
+            r"D:\Bild\Größe.exe".to_string(),
+        ];
+        let describe =
+            |program: &str| (!program.contains("Gone")).then(|| choice(program, "described"));
+        add_picked(&mut apps, &picked, &describe);
+        let paths: Vec<_> = apps.iter().map(|a| a.path.as_str()).collect();
+        // Listed already (another case), gone, added.
+        assert_eq!(paths, [r"C:\tools\editor.exe", r"D:\Bild\Größe.exe"]);
+        // Older preferences without the list read as before.
+        let old: OpenWithPrefs =
+            serde_json::from_str(r#"{"recentApps": ["/A/Preview.app"]}"#).unwrap();
+        assert!(old.picked_apps.is_empty());
     }
 
     #[test]

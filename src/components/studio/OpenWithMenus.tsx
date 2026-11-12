@@ -13,6 +13,7 @@ import {
   chosenRecipe,
   editRecipes,
   photoWritesWritten,
+  programName,
   runEditWith,
   type AppChoice,
   type AppChoices,
@@ -20,14 +21,16 @@ import {
   type OpenWithPrefs
 } from '../../utils/editWith';
 
-/** Asks for any application ("Other…"). */
+/** Asks for any application ("Other…"): an application bundle on macOS, a
+ * program file on Windows. */
 async function pickApplication(title: string): Promise<string | null> {
+  const windows = useSettingsStore.getState().osPlatform === 'windows';
   const chosen = await openDialog({
     title,
-    defaultPath: '/Applications',
+    defaultPath: windows ? 'C:\\Program Files' : '/Applications',
     multiple: false,
     directory: false,
-    filters: [{ name: 'Applications', extensions: ['app'] }]
+    filters: windows ? [{ name: 'Programs', extensions: ['exe'] }] : [{ name: 'Applications', extensions: ['app'] }]
   });
   return typeof chosen === 'string' ? chosen : null;
 }
@@ -43,21 +46,17 @@ async function openPhotosWith(program: string, paths: string[], t: TFunction) {
   }
 }
 
-const programName = (program: string) =>
-  program
-    .split('/')
-    .pop()
-    ?.replace(/\.app$/, '') ?? program;
-
-/** Renders `paths` with `recipe` and opens the renders in `program`. */
+/** Renders `paths` with `recipe` and opens the renders in `program` (shown
+ * as `name`). */
 async function editPhotosWith(
   paths: string[],
   recipe: EditRecipe,
   program: string,
   t: TFunction,
-  onRendered?: () => void | Promise<void>
+  onRendered?: () => void | Promise<void>,
+  name = programName(program)
 ) {
-  const progress = notify.info(t('contextMenus.editWith.rendering', { app: programName(program) }), {
+  const progress = notify.info(t('contextMenus.editWith.rendering', { app: name }), {
     autoClose: false
   });
   try {
@@ -119,12 +118,12 @@ const recipeLabel = (recipe: EditRecipe, t: TFunction) =>
 
 /** The programs as plain menu entries (the menu bar's Open With / Edit With
  * show them in the window: its own menus cannot list programs). */
-function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string) => void): Option[] {
+function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string, name: string) => void): Option[] {
   if (!choices.supported) return [{ label: t('contextMenus.openWith.unsupported'), disabled: true }];
   const entry = (app: AppChoice): Option => ({
     icon: AppWindow,
     label: app.isDefault ? `${app.name} · ${t('contextMenus.openWith.default')}` : app.name,
-    onClick: () => onPick(app.path)
+    onClick: () => onPick(app.path, app.name)
   });
   const pinned = choices.apps.filter((app) => app.isDefault || app.isRecent);
   const others = choices.apps.filter((app) => !app.isDefault && !app.isRecent);
@@ -140,7 +139,7 @@ function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string
       onClick: () =>
         void pickApplication(t('contextMenus.openWith.chooseTitle'))
           .catch(() => null)
-          .then((path) => path && onPick(path))
+          .then((path) => path && onPick(path, programName(path)))
     }
   ];
 }
@@ -177,12 +176,12 @@ export async function editWithOptions(
       }))
     },
     { type: OPTION_SEPARATOR },
-    ...programOptions(choices, t, (program) => void editPhotosWith(paths, recipe, program, t, onRendered))
+    ...programOptions(choices, t, (program, name) => void editPhotosWith(paths, recipe, program, t, onRendered, name))
   ];
 }
 
 /** The programs, the default and recent ones first, then "Other…". */
-function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path: string): void }) {
+function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path: string, name: string): void }) {
   const { t } = useTranslation();
   if (choices === null) return <div className="rawtonic-menu-heading">{t('contextMenus.openWith.reading')}</div>;
   if (!choices.supported) return <div className="rawtonic-menu-heading">{t('contextMenus.openWith.unsupported')}</div>;
@@ -195,7 +194,7 @@ function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path:
       role="menuitem"
       className="rawtonic-menu-item"
       title={app.path}
-      onClick={() => onPick(app.path)}
+      onClick={() => onPick(app.path, app.name)}
     >
       <span className="flex items-center gap-2.5 min-w-0">
         {app.icon ? (
@@ -221,7 +220,7 @@ function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path:
         className="rawtonic-menu-item"
         onClick={async () => {
           const path = await pickApplication(t('contextMenus.openWith.chooseTitle')).catch(() => null);
-          if (path) onPick(path);
+          if (path) onPick(path, programName(path));
         }}
       >
         <span className="flex items-center gap-2.5 min-w-0">
@@ -300,9 +299,9 @@ export function EditWithSubMenu({
     invoke(Invokes.EditWithSetRecipe, { recipe: id }).catch(() => {});
   };
 
-  const pick = (program: string) => {
+  const pick = (program: string, name: string) => {
     hideContextMenu();
-    void editPhotosWith(paths, recipe, program, t, onRendered);
+    void editPhotosWith(paths, recipe, program, t, onRendered, name);
   };
 
   return (

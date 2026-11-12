@@ -76,10 +76,55 @@ it('opens with any program chosen by Other…', async () => {
   );
 });
 
+it('on Windows, Other… asks for a program file and Edit With names the program as the menu does', async () => {
+  const { notify } = await import('../../activity/notify');
+  useSettingsStore.setState({ osPlatform: 'windows' });
+  const windowsApps: AppChoices = {
+    supported: true,
+    apps: [
+      { path: 'Windows-Fotoanzeige', name: 'Windows-Fotoanzeige', isDefault: true, isRecent: false, icon: null },
+      {
+        path: 'C:\\Program Files\\WindowsApps\\Microsoft.Paint_11.2609.401.0_x64__8wekyb3d8bbwe\\PaintApp\\mspaint.exe',
+        name: 'Paint',
+        isDefault: false,
+        isRecent: false,
+        icon: null
+      }
+    ]
+  };
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'edit_with_apps' || command === 'open_with_apps') return windowsApps;
+  });
+  try {
+    render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Paint/ }));
+    await vi.waitFor(() => expect(notify.info).toHaveBeenCalledWith('Rendering for Paint…', expect.anything()));
+    expect(vi.mocked(runEditWith).mock.lastCall![2]).toBe(windowsApps.apps[1].path);
+    cleanup();
+
+    vi.mocked(open).mockResolvedValue('D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe');
+    render(<OpenWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Other…/ }));
+    await vi.waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('open_with_open', {
+        program: 'D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe',
+        paths
+      })
+    );
+    expect(vi.mocked(open).mock.lastCall![0]).toMatchObject({
+      defaultPath: 'C:\\Program Files',
+      filters: [{ extensions: ['exe'] }]
+    });
+  } finally {
+    useSettingsStore.setState({ osPlatform: '' });
+  }
+});
+
 it('says where Open With is not available', async () => {
   mockInvoke.mockResolvedValue({ supported: false, apps: [] });
   render(<OpenWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
-  expect(await screen.findByText('Available on macOS only')).toBeTruthy();
+  expect(await screen.findByText('Not available on Linux yet')).toBeTruthy();
   expect(screen.queryByRole('menuitem')).toBeNull();
 });
 

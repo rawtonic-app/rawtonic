@@ -516,7 +516,7 @@
       "none": "No program opens these files",
       "other": "Other…",
       "reading": "Looking for programs…",
-      "unsupported": "Available on macOS only"
+      "unsupported": "Not available on Linux yet"
     },
     "tagging": {
       "addTagTooltip": "Add tag",

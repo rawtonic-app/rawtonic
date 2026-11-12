@@ -539,7 +539,7 @@
       "none": "Nessuna applicazione apre questi file",
       "other": "Altro…",
       "reading": "Ricerca delle applicazioni…",
-      "unsupported": "Disponibile solo su macOS"
+      "unsupported": "Non ancora disponibile su Linux"
     },
     "tagging": {
       "addTagTooltip": "Aggiungi tag",

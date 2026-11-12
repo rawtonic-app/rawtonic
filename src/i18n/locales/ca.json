@@ -539,7 +539,7 @@
       "none": "Cap aplicació obre aquests fitxers",
       "other": "Altra…",
       "reading": "S’estan cercant aplicacions…",
-      "unsupported": "Només disponible a macOS"
+      "unsupported": "Encara no disponible a Linux"
     },
     "tagging": {
       "addTagTooltip": "Afegir etiqueta",
