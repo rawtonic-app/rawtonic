@@ -1,3 +1,4 @@
+import { fileManagerLabelKey } from '../utils/platformLabels';
 import { createElement, useCallback, useEffect } from 'react';
 import { stackKey, useStackStore } from '../store/useStackStore';
 import { invoke } from '@tauri-apps/api/core';
@@ -291,10 +292,7 @@ export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
       notify.error(ops('keptCopyTrashFailed', { name: fileName(path), error: String(err) }));
     }
   };
-  const showLabel =
-    useSettingsStore.getState().osPlatform === 'macos'
-      ? t('contextMenus.thumbnail.showFinder')
-      : t('contextMenus.thumbnail.showExplorer');
+  const showLabel = t(fileManagerLabelKey(useSettingsStore.getState().osPlatform));
   const rows = kept.copies.map((copy) =>
     createElement(
       'li',

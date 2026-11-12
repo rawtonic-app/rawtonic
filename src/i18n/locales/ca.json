@@ -599,6 +599,7 @@
       "resetAdjustments_other": "Restablir ajustaments a {{count}} imatges",
       "shiftCaptureTime": "Desplaça l'hora de captura…",
       "showExplorer": "Mostrar a l'Explorador de fitxers",
+      "showFileManager": "Mostra al gestor de fitxers",
       "showFinder": "Mostra al Finder",
       "virtualCopy": "Còpia virtual"
     },

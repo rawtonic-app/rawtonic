@@ -552,6 +552,7 @@
       "resetAdjustments_other": "이미지 {{count}}개의 조정값 초기화",
       "shiftCaptureTime": "촬영 시간 이동…",
       "showExplorer": "파일 탐색기에서 표시",
+      "showFileManager": "파일 관리자에서 표시",
       "showFinder": "Finder에서 보기",
       "virtualCopy": "가상 복사본"
     },

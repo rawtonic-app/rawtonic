@@ -552,6 +552,7 @@
       "resetAdjustments_other": "重置 {{count}} 张图像的调整",
       "shiftCaptureTime": "调整拍摄时间…",
       "showExplorer": "在文件资源管理器中显示",
+      "showFileManager": "在文件管理器中显示",
       "showFinder": "在访达中显示",
       "virtualCopy": "虚拟副本"
     },

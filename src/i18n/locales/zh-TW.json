@@ -552,6 +552,7 @@
       "resetAdjustments_other": "重置 {{count}} 張影像的調整",
       "shiftCaptureTime": "調整拍攝時間…",
       "showExplorer": "在檔案資源管理器中顯示",
+      "showFileManager": "在檔案管理員中顯示",
       "showFinder": "在 Finder 中顯示",
       "virtualCopy": "虛擬副本"
     },

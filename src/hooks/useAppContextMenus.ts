@@ -1,3 +1,4 @@
+import { fileManagerLabelKey } from '../utils/platformLabels';
 import { ComponentProps, useCallback, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -1168,10 +1169,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         {
           disabled: !isSingleSelection,
           icon: Folder,
-          label:
-            useSettingsStore.getState().osPlatform === 'macos'
-              ? t('contextMenus.thumbnail.showFinder')
-              : t('contextMenus.thumbnail.showExplorer'),
+          label: t(fileManagerLabelKey(useSettingsStore.getState().osPlatform)),
           onClick: () => {
             invoke(Invokes.ShowInFinder, { path: finalSelection[0] }).catch((err) =>
               notify.error(t('contextMenus.toasts.couldNotShowExplorer', { err }))

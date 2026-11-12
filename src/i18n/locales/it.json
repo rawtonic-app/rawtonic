@@ -599,6 +599,7 @@
       "resetAdjustments_other": "Ripristina Regolazioni su {{count}} Immagini",
       "shiftCaptureTime": "Sposta ora di scatto…",
       "showExplorer": "Mostra in Esplora File",
+      "showFileManager": "Mostra nel gestore file",
       "showFinder": "Mostra nel Finder",
       "virtualCopy": "Copia Virtuale"
     },

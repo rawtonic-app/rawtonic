@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { platformLabel, quickSettingsCopy } from './platformLabels';
+import { platformLabel, platformResources, quickSettingsCopy, fileManagerLabelKey } from './platformLabels';
 
 describe('platform shortcut labels', () => {
   it.each(['windows', 'linux'])('formats legacy translated hints on %s', (platform) => {
@@ -8,7 +8,7 @@ describe('platform shortcut labels', () => {
     );
     expect(platformLabel('Capture (⌘K / Ctrl+K)', platform)).toBe('Capture (Ctrl+K)');
     expect(platformLabel('Preferences (⌘,)', platform)).toBe('Preferences (Ctrl+,)');
-    expect(platformLabel('Reference (⇧Return, ⌘Return)', platform)).toBe('Reference (Shift+Return, Ctrl+Return)');
+    expect(platformLabel('Reference (⇧Return, ⌘Return)', platform)).toBe('Reference (Shift+Enter, Ctrl+Enter)');
   });
   it('preserves Mac labels', () => {
     const label = 'Export (⇧⌘E), Alt/Option-click';
@@ -35,4 +35,30 @@ it('formats hard-coded hints in every locale', async () => {
   };
   expect(Object.keys(locales)).toHaveLength(13);
   Object.values(locales).forEach(visit);
+});
+
+it.each(['windows', 'linux', 'macos'])('preserves interpolated names on %s', async (platform) => {
+  const { createInstance } = await import('i18next');
+  const instance = createInstance();
+  const resources = { en: { translation: { hint: '{{name}} (⌘Return), {{tool}}' } } };
+  await instance.init({
+    resources: platformResources(resources, platform),
+    lng: 'en',
+    interpolation: { escapeValue: false }
+  });
+  expect(instance.t(['hint'].join(''), { name: '⌘photo Option', tool: 'My Option', defaultValue: '' })).toBe(
+    platform === 'macos' ? '⌘photo Option (⌘Return), My Option' : '⌘photo Option (Ctrl+Enter), My Option'
+  );
+  expect(resources.en.translation.hint).toBe('{{name}} (⌘Return), {{tool}}');
+});
+
+it('uses neutral Linux wording in all 13 locales and keeps Mac/Windows keys', () => {
+  expect(fileManagerLabelKey('macos')).toBe('contextMenus.thumbnail.showFinder');
+  expect(fileManagerLabelKey('windows')).toBe('contextMenus.thumbnail.showExplorer');
+  expect(fileManagerLabelKey('linux')).toBe('contextMenus.thumbnail.showFileManager');
+  const locales = import.meta.glob('../i18n/locales/*.json', { eager: true, import: 'default' });
+  for (const locale of Object.values(locales)) {
+    const strings = locale as { contextMenus: { thumbnail: { showFileManager: string } } };
+    expect(strings.contextMenus.thumbnail.showFileManager.length).toBeGreaterThan(0);
+  }
 });
