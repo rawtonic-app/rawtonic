@@ -32,6 +32,9 @@ pub(crate) struct DisplayShader {
     /// Whether variants go to the driver as our own SPIR-V
     /// (`variant_spirv`): where `spirv_passthrough` says so.
     passthrough: std::sync::atomic::AtomicBool,
+    /// The bindings of the pipeline layout the variants are made for
+    /// (group 0), in any order.
+    bindings: Vec<u32>,
 }
 
 /// Whether display variants of new processors are passed through as SPIR-V
@@ -53,9 +56,10 @@ pub(crate) fn set_spirv_passthrough(on: bool) {
 }
 
 impl DisplayShader {
-    pub(crate) fn new(source: &str) -> Arc<Self> {
+    pub(crate) fn new(source: &str, bindings: Vec<u32>) -> Arc<Self> {
         Arc::new(Self {
             source: source.into(),
+            bindings,
             parsed: OnceLock::new(),
             passthrough: std::sync::atomic::AtomicBool::new(
                 SPIRV_PASSTHROUGH.load(std::sync::atomic::Ordering::Relaxed),
@@ -79,7 +83,10 @@ impl DisplayShader {
 
     /// `variant_module` as Vulkan SPIR-V, written as wgpu's Vulkan backend
     /// writes it for a Vulkan 1.3 device without robust buffer or image
-    /// access: SPIR-V 1.6, indices, buffers and image loads bounds-restricted,
+    /// access: with its binding numbers (wgpu-hal numbers a bind group's
+    /// Vulkan bindings 0, 1, 2 … in the order of the WGSL bindings; with the
+    /// WGSL numbers the first frame read the wrong resources and lost the
+    /// device, WGT5/WGT6), SPIR-V 1.6, indices, buffers and image loads bounds-restricted,
     /// loops bounded, integer division checked. Image loads must stay
     /// restricted: unchecked, the first frame on a Radeon 680M lost the device
     /// (WGT5; the shader reads texels outside a tile's image at its edges).
@@ -91,8 +98,28 @@ impl DisplayShader {
         use naga::proc::BoundsCheckPolicy as P;
         let module = self.variant_module(constants)?;
         let info = validate(&module)?;
+        let mut sorted = self.bindings.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        let binding_map = sorted
+            .iter()
+            .enumerate()
+            .map(|(vulkan, &binding)| {
+                (
+                    naga::ResourceBinding { group: 0, binding },
+                    spv::BindingInfo {
+                        descriptor_set: 0,
+                        binding: vulkan as u32,
+                        binding_array_size: None,
+                    },
+                )
+            })
+            .collect();
         let options = spv::Options {
             lang_version: (1, 6),
+            binding_map,
+            // A binding the layout lacks is an error, never a guess.
+            fake_missing_bindings: false,
             flags: spv::WriterFlags::LABEL_VARYINGS | spv::WriterFlags::FORCE_POINT_SIZE,
             bounds_check_policies: naga::proc::BoundsCheckPolicies {
                 index: P::Restrict,
@@ -345,7 +372,7 @@ mod tests {
 
     #[test]
     fn decided_branches_and_the_functions_only_they_call_are_removed() {
-        let shader = DisplayShader::new(SHADER);
+        let shader = DisplayShader::new(SHADER, (0..=28).collect());
         let without = shader
             .variant_module(&[("ENABLE_EFFECTS", 0.0), ("ENABLE_RELIGHT", 0.0)])
             .unwrap();
@@ -361,7 +388,7 @@ mod tests {
 
     #[test]
     fn variants_are_written_as_spir_v_without_the_removed_code() {
-        let shader = DisplayShader::new(SHADER);
+        let shader = DisplayShader::new(SHADER, (0..=28).collect());
         let words = shader
             .variant_spirv(&[("ENABLE_EFFECTS", 0.0), ("ENABLE_TONE", 1.0)])
             .unwrap();
@@ -369,6 +396,34 @@ mod tests {
         assert_eq!(words[1], 0x0001_0600, "SPIR-V 1.6");
         let with_effects = shader.variant_spirv(&[("ENABLE_EFFECTS", 1.0)]).unwrap();
         assert!(with_effects.len() > words.len());
+    }
+
+    #[test]
+    fn spir_v_bindings_are_numbered_as_wgpus_vulkan_layouts() {
+        let src = "@group(0) @binding(9) var<storage, read_write> c: array<u32>;
+            @group(0) @binding(0) var<storage, read_write> a: array<u32>;
+            @group(0) @binding(5) var<storage, read_write> b: array<u32>;
+            @compute @workgroup_size(8, 8, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+                a[id.x] = b[id.x] + c[id.x];
+            }";
+        let words = DisplayShader::new(src, vec![9, 0, 5, 7])
+            .variant_spirv(&[])
+            .unwrap();
+        // OpDecorate (71) target Binding (33) n, in instruction order.
+        let mut bindings = vec![];
+        let mut at = 5;
+        while at < words.len() {
+            let count = (words[at] >> 16) as usize;
+            if words[at] & 0xffff == 71 && words[at + 2] == 33 {
+                bindings.push(words[at + 3]);
+            }
+            at += count;
+        }
+        bindings.sort_unstable();
+        // Layout bindings 0, 5, 7, 9 are Vulkan bindings 0, 1, 2, 3.
+        assert_eq!(bindings, vec![0, 1, 3]);
+        let missing = DisplayShader::new(src, vec![0, 5]).variant_spirv(&[]);
+        assert!(missing.is_err());
     }
 
     #[test]
@@ -381,7 +436,7 @@ mod tests {
                 if (!ON || id.x == 7u) { out[1] = 2u; }
                 if (ON) { let kept = f(id.y); out[2] = kept; } else { let gone = f(id.z); out[3] = gone; }
             }";
-        let module = DisplayShader::new(src)
+        let module = DisplayShader::new(src, vec![0])
             .variant_module(&[("ON", 1.0)])
             .unwrap();
         let body = &module.entry_points[0].function.body;

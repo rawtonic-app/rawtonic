@@ -6311,7 +6311,6 @@ impl GpuProcessor {
         const MAX_MASK_BINDINGS: u32 = 1;
 
         let shader_module = create_shader(device, "Image Processing Shader", shader_source)?;
-        let display_shader = DisplayShader::new(shader_source);
 
         let mut bind_group_layout_entries = vec![
             wgpu::BindGroupLayoutEntry {
@@ -6555,13 +6554,18 @@ impl GpuProcessor {
             });
             entries
         };
+        let main_entries =
+            with_analytics_output(&bind_group_layout_entries, wgpu::TextureFormat::Rgba8Unorm);
         let main_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Main BGL"),
-            entries: &with_analytics_output(
-                &bind_group_layout_entries,
-                wgpu::TextureFormat::Rgba8Unorm,
-            ),
+            entries: &main_entries,
         });
+        // Display variants are written against this layout's bindings
+        // (`DisplayShader::variant_spirv`).
+        let display_shader = DisplayShader::new(
+            shader_source,
+            main_entries.iter().map(|entry| entry.binding).collect(),
+        );
         let encode_bgl = encode_bind_group_layout(device, &bind_group_layout_entries);
         // The detail pass writes the cache that the main pass reads.
         let mut detail_entries = bind_group_layout_entries.clone();
