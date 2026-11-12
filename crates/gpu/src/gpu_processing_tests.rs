@@ -554,7 +554,7 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         // Lowered Dehaze of version 2 likewise
         // (`dehaze_version_2_compiles_only_where_dehaze_is_lowered`).
-        if expected & DEHAZE_V2_FEATURE != 0 {
+        if expected & (DEHAZE_V2_FEATURE | DEHAZE_V3_FEATURE) != 0 {
             continue;
         }
         // Effects likewise (`effects_compile_only_where_a_recipe_has_them`).
