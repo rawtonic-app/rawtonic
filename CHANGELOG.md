@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Thumbnails, the Library loupe and the Develop fit view show capture sharpening as the export shows it scaled down. Radius 1 sharpening was missing from every reduced view (its blur fell below one preview pixel), and the Detail band cancelled the rest; exports are unchanged.
+- Thumbnails, the Library loupe and the Develop fit view show capture sharpening as the export shows it scaled down. Radius 0.5–1 sharpening was missing from every reduced view (its blur fell below one preview pixel) and high Detail softened them instead; exports are unchanged.
 
 - Trash refuses a photo whose file is also another hard-linked photo in the active library, and names the other photo before changing anything.
 
