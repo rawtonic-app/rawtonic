@@ -8,6 +8,7 @@ import { notify } from '../../activity/notify';
 import { Invokes, OPTION_HEADER, OPTION_SEPARATOR, type Option } from '../ui/AppProperties';
 import type { ExportPreset } from '../ui/ExportImportProperties';
 import { errorCode, errorMessage } from '../../shared/ipc/errors';
+import { refreshStacks } from '../../store/useStackStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import {
   chosenRecipe,
@@ -111,7 +112,9 @@ export async function offerInterruptedEditWith(t: TFunction) {
                 program: run.program
               });
               if (result.problems.length) throw new Error(result.problems.join('\n'));
+              await refreshStacks();
             }
+            if (!run.photos.length) return;
             const recipes = editRecipes(useSettingsStore.getState().appSettings?.exportPresets);
             const prefs = await invoke<OpenWithPrefs>(Invokes.OpenWithPrefs).catch(() => null);
             await editPhotosWith(

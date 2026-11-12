@@ -632,9 +632,12 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
         let Some(run) = edit_with_of(&job.request) else {
             continue;
         };
-        let Ok(paths) = serde_json::from_value::<Vec<String>>(job.request["paths"].clone()) else {
-            continue;
-        };
+        let paths: Vec<String> = queue
+            .items(&job.id)?
+            .into_iter()
+            .filter(|item| item.state != ItemState::Done)
+            .map(|item| item.path)
+            .collect();
         queue.cancel(&job.id)?;
         let index = groups
             .iter()
@@ -656,7 +659,8 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
             }
         }
         for other in &jobs {
-            if other.state == JobState::Done
+            if other.done == other.total
+                && other.total > 0
                 && edit_with_of(&other.request).as_ref() == Some(&run)
                 && let Some(target) = other.request.get("editTarget")
                 && let Ok(target) =
@@ -691,7 +695,7 @@ fn prune_finished(queue: &ExportQueue) -> anyhow::Result<()> {
 pub(crate) fn handed_off(exports: &ExportState, targets: &[crate::open_with::EditTarget]) {
     with_queue(exports, |q| {
         for job in q.jobs()? {
-            if job.state == JobState::Done
+            if matches!(job.state, JobState::Done | JobState::Cancelled)
                 && job.request.get("editTarget").is_some_and(|value| {
                     serde_json::from_value::<crate::open_with::EditTarget>(value.clone())
                         .is_ok_and(|target| targets.contains(&target))
@@ -1439,52 +1443,61 @@ mod tests {
 
     #[test]
     fn retry_does_not_render_photos_that_finished_before_quit() {
-        let tmp = tempfile::tempdir().unwrap();
-        let a = tmp.path().join("A.NEF").to_string_lossy().into_owned();
-        let b = tmp.path().join("B.NEF").to_string_lossy().into_owned();
-        std::fs::write(&a, b"raw").unwrap();
-        std::fs::write(&b, b"raw").unwrap();
-        let run = EditWithRun {
-            program: "Editor.exe".into(),
-            photos: vec![a.clone(), b.clone()],
-        };
-        let edit = |path: &String| ExportRequest {
-            edit_with: Some(run.clone()),
-            output_folder_or_file: format!("{path}.tif"),
-            is_explicit_file_path: true,
-            ..request(std::slice::from_ref(path), None)
-        };
-        let (_dir, queue) = test_queue();
-        let ids = queue_pinned(&queue, vec![edit(&a), edit(&b)]).unwrap();
-        on_queue(&queue, |q| {
-            q.start_next()?;
-            q.item_done(&ids[0], 0)?;
-            q.finish(&ids[0], rawtonic_export::queue::RunEnd::Completed)?;
-            q.start_next()?;
-            q.recover()
-        })
-        .unwrap();
-        let recovered = on_queue(&queue, end_interrupted_edits).unwrap();
-        assert_eq!(recovered[0].run.photos, [b]);
-        assert_eq!(recovered[0].completed.len(), 1);
-        let target = &recovered[0].completed[0];
-        assert_eq!(target.source, a);
-        let render = std::path::Path::new(&target.target);
-        std::fs::write(render, b"finished render").unwrap();
-        let lib = rawtonic_catalog::Library::create(
-            &tmp.path().join("Catalog"),
-            "C",
-            rawtonic_catalog::Mode::Catalog,
-        )
-        .unwrap();
-        crate::open_with::link_render(&lib, &target.source, render, target.metadata.as_ref())
+        for finished_job in [true, false] {
+            let tmp = tempfile::tempdir().unwrap();
+            let a = tmp.path().join("A.NEF").to_string_lossy().into_owned();
+            let b = tmp.path().join("B.NEF").to_string_lossy().into_owned();
+            std::fs::write(&a, b"raw").unwrap();
+            std::fs::write(&b, b"raw").unwrap();
+            let run = EditWithRun {
+                program: "Editor.exe".into(),
+                photos: vec![a.clone(), b.clone()],
+            };
+            let edit = |path: &String| ExportRequest {
+                edit_with: Some(run.clone()),
+                output_folder_or_file: format!("{path}.tif"),
+                is_explicit_file_path: true,
+                ..request(std::slice::from_ref(path), None)
+            };
+            let (_dir, queue) = test_queue();
+            let ids = queue_pinned(&queue, vec![edit(&a), edit(&b)]).unwrap();
+            on_queue(&queue, |q| {
+                q.start_next()?;
+                if finished_job {
+                    q.item_done(&ids[0], 0)?;
+                    q.finish(&ids[0], rawtonic_export::queue::RunEnd::Completed)?;
+                    q.start_next()?;
+                } else {
+                    // Published, but quit before item_done/job completion.
+                    let output = std::path::PathBuf::from(format!("{a}.tif"));
+                    q.item_started(&ids[0], 0, &output)?;
+                    std::fs::write(output, b"finished render")?;
+                }
+                q.recover()
+            })
             .unwrap();
-        assert_eq!(lib.stacks().unwrap()[0].members.len(), 2);
-        on_queue(&queue, prune_finished).unwrap();
-        assert!(
-            on_queue(&queue, |q| q.job(&ids[0])).is_ok(),
-            "keep recovery data until handoff"
-        );
+            let recovered = on_queue(&queue, end_interrupted_edits).unwrap();
+            assert_eq!(recovered[0].run.photos, [b]);
+            assert_eq!(recovered[0].completed.len(), 1);
+            let target = &recovered[0].completed[0];
+            assert_eq!(target.source, a);
+            let render = std::path::Path::new(&target.target);
+            std::fs::write(render, b"finished render").unwrap();
+            let lib = rawtonic_catalog::Library::create(
+                &tmp.path().join("Catalog"),
+                "C",
+                rawtonic_catalog::Mode::Catalog,
+            )
+            .unwrap();
+            crate::open_with::link_render(&lib, &target.source, render, target.metadata.as_ref())
+                .unwrap();
+            assert_eq!(lib.stacks().unwrap()[0].members.len(), 2);
+            on_queue(&queue, prune_finished).unwrap();
+            assert!(
+                on_queue(&queue, |q| q.job(&ids[0])).is_ok(),
+                "keep recovery data until handoff"
+            );
+        }
     }
 
     #[test]
