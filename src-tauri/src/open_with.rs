@@ -83,7 +83,7 @@ pub struct OpenWithPrefs {
 
 /// One render: the photograph (a virtual copy keeps its `?vc=`) and the
 /// file made from it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditTarget {
     pub source: String,
@@ -694,7 +694,7 @@ pub async fn edit_with_start(
 #[tauri::command]
 pub fn edit_with_interrupted(
     exports: tauri::State<'_, crate::state::export::ExportState>,
-) -> Vec<crate::export_queue::EditWithRun> {
+) -> Vec<crate::export_queue::InterruptedEditWith> {
     crate::export_queue::take_interrupted_edits(&exports)
 }
 
@@ -855,20 +855,48 @@ pub fn link_render(
         Some(asset) => asset,
         None => lib.add_asset(&file)?,
     };
-    anyhow::ensure!(
-        !lib.registered_ignoring_case(render)?,
-        "{} is already a photograph of the library",
-        render.display()
-    );
-    let edit = lib.add_asset(render)?;
-    lib.set_derived_from(&edit.id, &original.id)?;
     let top = lib.derived_from(&original.id)?.unwrap_or(original);
-    lib.group_stack(&[
-        rawtonic_catalog::stacks::Member::photo(&top.id),
-        rawtonic_catalog::stacks::Member::photo(&edit.id),
-    ])?;
-    if let Some(metadata) = metadata {
-        lib.set_metadata(&edit.id, metadata)?;
+    let existing = lib.asset_at(render)?;
+    let edit = match existing {
+        Some(edit) => {
+            anyhow::ensure!(
+                lib.derived_from(&edit.id)?
+                    .is_some_and(|parent| parent.id == top.id),
+                "{} is already a photograph of the library",
+                render.display()
+            );
+            edit
+        }
+        None => {
+            anyhow::ensure!(
+                !lib.registered_ignoring_case(render)?,
+                "{} is already registered",
+                render.display()
+            );
+            let edit = lib.add_asset(render)?;
+            lib.set_derived_from(&edit.id, &top.id)?;
+            if let Some(metadata) = metadata {
+                lib.set_metadata(&edit.id, metadata)?;
+            }
+            edit
+        }
+    };
+    let member = rawtonic_catalog::stacks::Member::photo(&top.id);
+    let added = rawtonic_catalog::stacks::Member::photo(&edit.id);
+    if let Some(before) = lib.stack_of(&member)? {
+        if !before.members.contains(&added) {
+            let mut after = before.clone();
+            after.members.push(added);
+            lib.restore_stacks(
+                &rawtonic_catalog::stacks::StackChange {
+                    before: vec![before],
+                    after: vec![after],
+                },
+                false,
+            )?;
+        }
+    } else {
+        lib.group_stack(&[member, added])?;
     }
     Ok(())
 }
@@ -934,6 +962,12 @@ pub async fn edit_with_finish(
         let result = link_renders(&items);
         watch(&app, &items);
         open_in(&app, &program, &renders)?;
+        if result.problems.is_empty() {
+            crate::export_queue::handed_off(
+                &app.state::<crate::state::export::ExportState>(),
+                &items,
+            );
+        }
         Ok(result)
     })
     .await
@@ -1396,6 +1430,45 @@ mod tests {
         assert!(!request.export_settings.preserve_timestamps);
         assert_eq!(lib.metadata(&edit.id).unwrap().rating, 4);
         assert_eq!(fs::read(&source).unwrap(), before);
+    }
+
+    #[test]
+    fn adding_a_render_preserves_an_expanded_stacks_top_and_order() {
+        use rawtonic_catalog::{
+            Mode,
+            stacks::{Member, StackChange},
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = Library::create(&tmp.path().join("S"), "S", Mode::Session).unwrap();
+        let a = tmp.path().join("S/Capture/A.NEF");
+        let b = tmp.path().join("S/Capture/B.NEF");
+        let render = tmp.path().join("S/Capture/A_edit.tif");
+        for path in [&a, &b, &render] {
+            fs::write(path, b"photo").unwrap();
+        }
+        let first = lib.add_asset(&a).unwrap();
+        let top = lib.add_asset(&b).unwrap();
+        lib.group_stack(&[Member::photo(&top.id), Member::photo(&first.id)])
+            .unwrap();
+        let before = lib.stacks().unwrap().remove(0);
+        let mut expanded = before.clone();
+        expanded.collapsed = false;
+        lib.restore_stacks(
+            &StackChange {
+                before: vec![before],
+                after: vec![expanded.clone()],
+            },
+            false,
+        )
+        .unwrap();
+        link_render(&lib, &a.to_string_lossy(), &render, None).unwrap();
+        // Recovery may repeat the link after the external launch failed.
+        link_render(&lib, &a.to_string_lossy(), &render, None).unwrap();
+        let stack = lib.stacks().unwrap().remove(0);
+        assert_eq!(stack.id, expanded.id);
+        assert!(!stack.collapsed);
+        assert_eq!(&stack.members[..2], expanded.members.as_slice());
+        assert_eq!(stack.members.len(), 3);
     }
 
     #[test]

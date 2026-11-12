@@ -2002,6 +2002,7 @@ pub async fn export_images(
             library,
             pinned: None,
             edit_with: None,
+            edit_target: None,
             proof_sheet: None,
         },
     )

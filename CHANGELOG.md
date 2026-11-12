@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Edit With now groups renders with their originals in grid stacks, uses the render time for new files, and retries only unfinished photos after quitting. Windows accepts app execution aliases in Other… and uses program display names in rendering and interruption notices.
+- Edit With now groups renders with their originals in grid stacks, uses the render time for new files, and retries only unfinished photos after quitting. Windows adds handling for app execution aliases in Other… (native verification pending) and uses program display names in rendering and interruption notices.
 
 - Loose photos opened in Develop appear alone and highlighted in the filmstrip, with an explicit library status and an Add to library action that opens import for review. Returning to Library restores its photos. On Windows, when enforcing the interface minimum makes the window grow past the screen, it is moved back inside the monitor work area.
 

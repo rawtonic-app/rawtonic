@@ -87,6 +87,7 @@ async function editPhotosWith(
 interface InterruptedEditWith {
   program: string;
   photos: string[];
+  completed?: { source: string; target: string; library?: string | null }[];
 }
 
 /** At start-up: each Edit With a quit or crash cut short waits under Needs
@@ -104,6 +105,13 @@ export async function offerInterruptedEditWith(t: TFunction) {
           label: t('activity.tryAgain'),
           settles: true,
           run: async () => {
+            if (run.completed?.length) {
+              const result = await invoke<{ problems: string[] }>(Invokes.EditWithFinish, {
+                items: run.completed,
+                program: run.program
+              });
+              if (result.problems.length) throw new Error(result.problems.join('\n'));
+            }
             const recipes = editRecipes(useSettingsStore.getState().appSettings?.exportPresets);
             const prefs = await invoke<OpenWithPrefs>(Invokes.OpenWithPrefs).catch(() => null);
             await editPhotosWith(

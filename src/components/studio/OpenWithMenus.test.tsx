@@ -203,8 +203,10 @@ it("shows another Edit With failure's message, also one that starts like the gen
 it('offers an Edit With a quit cut short again: Try again renders its photos for its program', async () => {
   const { notify } = await import('../../activity/notify');
   const run = { program: 'C:\\Users\\test\\WindowsApps\\mspaint.exe', photos: [paths[0], paths[1]] };
+  const completed = [{ source: '/s/A.NEF', target: '/s/A_edit.tif', library: '/s' }];
   mockInvoke.mockImplementation(async (command) => {
-    if (command === 'edit_with_interrupted') return [run];
+    if (command === 'edit_with_interrupted') return [{ ...run, completed }];
+    if (command === 'edit_with_finish') return { linked: 1, problems: [] };
     if (command === 'open_with_describe') return { path: run.program, name: 'Paint' };
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: 'builtin-tiff16-prophoto' };
   });
@@ -216,6 +218,11 @@ it('offers an Edit With a quit cut short again: Try again renders its photos for
   // Not a resume of the old jobs: a new Edit With of the same photographs,
   // with the program chosen then and the recipe chosen now.
   await options!.actions![0].run();
+  expect(mockInvoke).toHaveBeenCalledWith('edit_with_finish', { items: completed, program: run.program });
+  const finishCall = mockInvoke.mock.calls.findIndex(([command]) => command === 'edit_with_finish');
+  expect(mockInvoke.mock.invocationCallOrder[finishCall]).toBeLessThan(
+    vi.mocked(runEditWith).mock.invocationCallOrder.at(-1)!
+  );
   const [renderedPaths, recipe, program] = vi.mocked(runEditWith).mock.lastCall!;
   expect([renderedPaths, recipe.id, program]).toEqual([run.photos, 'builtin-tiff16-prophoto', run.program]);
   expect(mockInvoke.mock.calls.map((c) => c[0])).not.toContain('export_queue_resume');

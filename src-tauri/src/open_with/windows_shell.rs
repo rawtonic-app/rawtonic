@@ -448,8 +448,12 @@ pub fn describe(program: &str) -> Option<AppChoice> {
                 shell_thread(|| {
                     for extension in [".tif", ".jpg", ".png"] {
                         for (handler, _) in enumerate(extension, ASSOC_FILTER_RECOMMENDED)? {
-                            if handlers::program_file_name(&handler.id)
-                                .eq_ignore_ascii_case(&handlers::program_file_name(program))
+                            if handlers::same_id(&handler.id, program)
+                                || (is_alias(program)
+                                    && handlers::program_file_name(&handler.id)
+                                        .eq_ignore_ascii_case(&handlers::program_file_name(
+                                            program,
+                                        )))
                             {
                                 return Ok(Some(handler.name));
                             }
