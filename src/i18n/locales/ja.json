@@ -5039,7 +5039,9 @@
         "showFilmstrip": "フィルムストリップを表示",
         "stars_other": "星 {{count}}",
         "sync": "同期",
-        "syncSettings": "選択した写真に設定を同期（Option：前回の選択で）"
+        "syncSettings": "選択した写真に設定を同期（Option：前回の選択で）",
+        "externalPhoto": "1枚の写真 · ライブラリ外",
+        "addToLibrary": "ライブラリに追加…"
       },
       "grid": {
         "anyRating": "すべてのレーティング",

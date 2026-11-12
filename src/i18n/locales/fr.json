@@ -5380,7 +5380,9 @@
         "stars_many": "{{count}} étoiles",
         "stars_other": "{{count}} étoiles",
         "sync": "Synchro",
-        "syncSettings": "Synchroniser les réglages avec les photos sélectionnées (Option : comme la dernière fois)"
+        "syncSettings": "Synchroniser les réglages avec les photos sélectionnées (Option : comme la dernière fois)",
+        "externalPhoto": "1 photo · hors bibliothèque",
+        "addToLibrary": "Ajouter à la bibliothèque…"
       },
       "grid": {
         "anyRating": "Toutes les notes",

@@ -784,6 +784,11 @@ fn start(args: Vec<String>) {
                             }
                         }
 
+                        #[cfg(windows)]
+                        if !maximized && matches!(event, tauri::WindowEvent::Resized(_)) {
+                            startup::keep_window_on_screen(&window_for_handler, (0.0, 0.0));
+                        }
+
                         let mut state = WindowState {
                             width: 1280,
                             height: 720,

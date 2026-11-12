@@ -5581,7 +5581,9 @@
         "stars_many": "{{count}} gwiazdek",
         "stars_other": "{{count}} gwiazdki",
         "sync": "Synchr.",
-        "syncSettings": "Synchronizuj ustawienia z zaznaczonymi zdjęciami (Option: jak ostatnio)"
+        "syncSettings": "Synchronizuj ustawienia z zaznaczonymi zdjęciami (Option: jak ostatnio)",
+        "externalPhoto": "1 zdjęcie · poza biblioteką",
+        "addToLibrary": "Dodaj do biblioteki…"
       },
       "grid": {
         "anyRating": "Dowolna ocena",

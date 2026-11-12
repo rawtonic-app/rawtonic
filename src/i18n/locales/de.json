@@ -5178,7 +5178,9 @@
         "stars_one": "{{count}} Stern",
         "stars_other": "{{count}} Sterne",
         "sync": "Sync.",
-        "syncSettings": "Einstellungen mit den ausgewählten Fotos synchronisieren (Wahltaste: wie zuletzt gewählt)"
+        "syncSettings": "Einstellungen mit den ausgewählten Fotos synchronisieren (Wahltaste: wie zuletzt gewählt)",
+        "externalPhoto": "1 Foto · nicht in der Bibliothek",
+        "addToLibrary": "Zur Bibliothek hinzufügen…"
       },
       "grid": {
         "anyRating": "Alle Sterne",

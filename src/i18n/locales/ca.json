@@ -5380,7 +5380,9 @@
         "stars_many": "{{count}} estrelles",
         "stars_other": "{{count}} estrelles",
         "sync": "Sincronitza",
-        "syncSettings": "Sincronitza els ajustos amb les fotos seleccionades (Opció: com l’última vegada)"
+        "syncSettings": "Sincronitza els ajustos amb les fotos seleccionades (Opció: com l’última vegada)",
+        "externalPhoto": "1 foto · fora de la biblioteca",
+        "addToLibrary": "Afegeix a la biblioteca…"
       },
       "grid": {
         "anyRating": "Qualsevol valoració",

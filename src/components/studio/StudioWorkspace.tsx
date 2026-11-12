@@ -2,7 +2,16 @@ import { useScaledMinimum } from '../../window/useScaledMinimum';
 import { platformLabel } from '../../utils/platformLabels';
 import AppOverflowMenu from './AppOverflowMenu';
 import { useRecipeMenuCommands } from '../../hooks/useRecipeMenuCommands';
-import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode, type MouseEvent } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+  type MouseEvent
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
@@ -207,7 +216,7 @@ export function initialToolsWidth(): number {
 
 export default function StudioWorkspace(props: Props) {
   const {
-    files,
+    files: libraryFiles,
     onSelect,
     onOpen,
     onNavigate,
@@ -235,7 +244,7 @@ export default function StudioWorkspace(props: Props) {
     }))
   );
   const { handleSyncSettings: syncSettings, handlePasteFromPrevious: pasteFromPrevious } = useEditorActions();
-  const { hideContextMenu } = useContextMenu();
+  const { hideContextMenu, showContextMenu } = useContextMenu();
   const hideMenuRef = useRef(hideContextMenu);
   hideMenuRef.current = hideContextMenu;
   // Sync settings: the other selected photographs.
@@ -278,7 +287,8 @@ export default function StudioWorkspace(props: Props) {
           ? { x: rect.left, y: rect.bottom }
           : { x: event.clientX, y: event.clientY }
       );
-    } else onEditorContextMenu(event);
+    } else if (externalPhoto) externalContextMenu(event);
+    else onEditorContextMenu(event);
   };
   const {
     activeView,
@@ -381,6 +391,47 @@ export default function StudioWorkspace(props: Props) {
   useCompareSession();
   const exportState = useProcessStore((s) => s.exportState);
   const develop = activeView === 'editor';
+  const imageList = useLibraryStore((s) => s.imageList);
+  const externalPhoto =
+    develop &&
+    selectedImage &&
+    !libraryFiles.some((f) => f.path === selectedImage.path) &&
+    !imageList.some((f) => f.path === selectedImage.path);
+  const files = useMemo<ImageFile[]>(
+    () =>
+      externalPhoto && selectedImage
+        ? [
+            {
+              path: selectedImage.path,
+              is_raw: selectedImage.isRaw,
+              is_edited: false,
+              modified: 0,
+              rating: 0,
+              tags: null,
+              exif: selectedImage.exif,
+              is_virtual_copy: false,
+              is_cloud_placeholder: false,
+              group_id: null
+            }
+          ]
+        : libraryFiles,
+    [externalPhoto, selectedImage, libraryFiles]
+  );
+  const externalContextMenu = (event: MouseEvent) => {
+    event.preventDefault();
+    showContextMenu(event.clientX, event.clientY, [
+      {
+        label: t('studio.workspace.footer.addToLibrary'),
+        onClick: () =>
+          window.dispatchEvent(
+            new CustomEvent('rawtonic:import-external-photo', {
+              detail: { paths: selectedImage ? [selectedImage.path] : [] }
+            })
+          )
+      }
+    ]);
+  };
+
   // The Library's loupe (one large photograph beside the Library tools) and
   // its full screen show the photograph in the same native viewer as Develop
   // (utils/viewerMode).
@@ -1379,12 +1430,14 @@ export default function StudioWorkspace(props: Props) {
                       <ArrowLeft size={14} />
                     </button>
                     <span className="studio-counter footer-mid">
-                      {currentIndex >= 0
-                        ? `${currentIndex + 1} / ${files.length}`
-                        : t('studio.workspace.footer.photographs', {
-                            count: files.length,
-                            n: files.length.toLocaleString()
-                          })}
+                      {externalPhoto
+                        ? t('studio.workspace.footer.externalPhoto')
+                        : currentIndex >= 0
+                          ? `${currentIndex + 1} / ${files.length}`
+                          : t('studio.workspace.footer.photographs', {
+                              count: files.length,
+                              n: files.length.toLocaleString()
+                            })}
                     </span>
                     <button
                       aria-label={t('studio.workspace.footer.next')}
@@ -1485,7 +1538,12 @@ export default function StudioWorkspace(props: Props) {
               )}
               {film && (
                 <div className="studio-filmstrip">
-                  <StudioBrowser {...browserProps} film onSelect={props.onFilmSelect} />
+                  <StudioBrowser
+                    {...browserProps}
+                    film
+                    onContextMenu={externalPhoto ? externalContextMenu : onContextMenu}
+                    onSelect={externalPhoto ? () => {} : props.onFilmSelect}
+                  />
                 </div>
               )}
             </>
