@@ -638,13 +638,11 @@ it('clears the loose Develop photograph from the Library navigator', () => {
 
 it('keeps a library photo in the navigator during multi-selection', () => {
   useEditorStore.getState().setEditor({ selectedImage: { path: '/job/a.dng' } as SelectedImage });
-  useLibraryStore
-    .getState()
-    .setLibrary({
-      libraryActivePath: '/job/b.dng',
-      imageList: [{ path: '/job/a.dng' } as never],
-      multiSelectedPaths: ['/job/a.dng', '/job/b.dng']
-    });
+  useLibraryStore.getState().setLibrary({
+    libraryActivePath: '/job/b.dng',
+    imageList: [{ path: '/job/a.dng' } as never],
+    multiSelectedPaths: ['/job/a.dng', '/job/b.dng']
+  });
   const view = renderNavigation();
   expect(view.container.querySelector('.studio-nav-caption')?.textContent).toBe('a.dng');
 });
