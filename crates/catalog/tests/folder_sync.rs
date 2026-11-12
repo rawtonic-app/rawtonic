@@ -842,6 +842,14 @@ fn synchronize_through_a_symlink_finds_new_photos() {
     assert_eq!(applied.added.len(), 1);
     assert_eq!(lib.summary().unwrap().assets, 2);
     assert!(scan(&lib, Some(&folder)).is_empty());
+    fill(&lib);
+    fs::rename(folder.join("A.ARW"), folder.join("C.ARW")).unwrap();
+    let plan = scan(&lib, Some(&folder));
+    assert_eq!(plan.verified_moves.len(), 1);
+    let applied = lib.apply_folder_sync(&defaults(&plan)).unwrap();
+    assert_eq!(applied.moved.len(), 1);
+    assert!(applied.skipped.is_empty(), "{applied:#?}");
+    assert!(scan(&lib, Some(&alias)).is_empty());
 }
 
 #[cfg(windows)]

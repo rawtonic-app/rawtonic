@@ -361,6 +361,14 @@ fn case_only_rename(a: &Path, b: &Path) -> bool {
     a != b && a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
 }
 
+// Resolve folder aliases without erasing a recorded case-only filename change.
+fn resolved_parent(path: &Path) -> PathBuf {
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => resolve_moved(parent).join(name),
+        _ => path.to_path_buf(),
+    }
+}
+
 /// `path` is `folder` or below it.
 fn below(path: &Path, folder: &Path) -> bool {
     path.starts_with(folder)
@@ -470,15 +478,7 @@ impl Library {
         let rows = query.query_map([], |r| {
             Ok(Known {
                 id: r.get(0)?,
-                path: {
-                    let path = self.join_root(r.get(2)?, r.get(3)?, r.get(1)?);
-                    // Keep the recorded filename: canonicalizing the file itself
-                    // erases a case-only rename on case-insensitive volumes.
-                    match (path.parent(), path.file_name()) {
-                        (Some(parent), Some(name)) => resolve_moved(parent).join(name),
-                        _ => path,
-                    }
-                },
+                path: resolved_parent(&self.join_root(r.get(2)?, r.get(3)?, r.get(1)?)),
                 size: r.get::<_, i64>(4)? as u64,
                 mtime: r.get(5)?,
                 fingerprint: r.get(6)?,
@@ -1049,7 +1049,7 @@ impl Library {
         let asset = self
             .asset(id)
             .map_err(|_| "The photograph is no longer in the library".to_string())?;
-        if asset.path != from {
+        if resolved_parent(&asset.path) != from {
             return Err("The photograph moved in the library since the scan".into());
         }
         if from.is_file() && !same_file(from, to) {
@@ -1084,7 +1084,7 @@ impl Library {
         let asset = self
             .asset(id)
             .map_err(|_| "The photograph is no longer in the library".to_string())?;
-        if asset.path != path {
+        if resolved_parent(&asset.path) != path {
             return Err("The photograph moved in the library since the scan".into());
         }
         if path.is_file() {
