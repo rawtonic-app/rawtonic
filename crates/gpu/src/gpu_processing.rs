@@ -6353,6 +6353,26 @@ impl GpuProcessor {
         )
     }
 
+    /// Compiles display variant `features` on this thread the way display
+    /// frames get it (`create_display_pipeline`: this processor's device,
+    /// layout, pipeline cache and passthrough choice), for measuring tools
+    /// (`examples/compile_probe.rs`); the pipeline is not kept.
+    #[doc(hidden)]
+    pub fn compile_display_variant(&self, features: usize) -> Result<(), String> {
+        create_preview_pipeline(
+            &self.context.device,
+            &self.preview_shader,
+            Some(&self.display_shader),
+            &self.preview_layout,
+            features,
+            true,
+            true,
+            false,
+            false,
+        )
+        .map(|_| ())
+    }
+
     /// A processor for exports only (CPU readback): `new` without the
     /// display variants compiled ahead, which exports never use. A display
     /// render on it still compiles its variant on first use.

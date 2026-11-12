@@ -31,6 +31,9 @@
 //!   `ranks=b,b,…`: the layout's bindings numbered as wgpu-hal does (rank
 //!   among these WGSL bindings), for SPIR-V written that way.
 //! - `spv=cache`: compile through an empty pipeline cache, as the app does.
+//! - `spv=proc`: the app's device start and a processor; the variant compiles
+//!   through the processor's display path. `spv=appdevice` (with `spirv`):
+//!   the probe's SPIR-V and layout on the app's device.
 //! - `noinline`: with `spirv`, mark these functions (or `all` but the entry
 //!   point) DontInline: whether the driver compiles each once.
 //!
@@ -302,6 +305,12 @@ fn one(line: &str) -> Result<String, String> {
     } else {
         (None, 0)
     };
+    // `spv=proc`: the app's own device start (`GpuContext::headless`) and a
+    // processor, the variant compiled through the processor's display path
+    // (its layout, pipeline cache and passthrough choice).
+    if knob_set(&spec.spv, "proc") {
+        return through_processor(&spec, inlined, functions);
+    }
     let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
     if std::env::var("WGPU_BACKEND").is_err() {
         descriptor.backends = wgpu::Backends::VULKAN;
@@ -324,8 +333,18 @@ fn one(line: &str) -> Result<String, String> {
         }
         device_descriptor.required_features |= wgpu::Features::PASSTHROUGH_SHADERS;
     }
-    let (device, _queue) = pollster::block_on(adapter.request_device(&device_descriptor))
-        .map_err(|e| e.to_string())?;
+    // `spv=appdevice`: the device the app starts (`GpuContext::headless`)
+    // instead of the probe's own.
+    let app_context = if knob_set(&spec.spv, "appdevice") {
+        Some(rawtonic_gpu::gpu_processing::GpuContext::headless()?)
+    } else {
+        None
+    };
+    let (device, _queue) = match &app_context {
+        Some(context) => ((*context.device).clone(), (*context.queue).clone()),
+        None => pollster::block_on(adapter.request_device(&device_descriptor))
+            .map_err(|e| e.to_string())?,
+    };
     // `spv=explicit` without `spirv`: wgpu's own path with the probe's
     // explicit layout instead of the derived one.
     let layout = if spec.spirv || knob_set(&spec.spv, "explicit") {
@@ -535,6 +554,34 @@ fn spirv_words(
         }
     }
     Ok((words, marked))
+}
+
+/// `spv=proc`: see `one`.
+fn through_processor(spec: &Spec, inlined: usize, functions: usize) -> Result<String, String> {
+    use rawtonic_gpu::gpu_processing::{GpuContext, GpuProcessor};
+    let context = GpuContext::headless()?;
+    let adapter = format!(
+        "{:?}",
+        context
+            .device
+            .features()
+            .contains(wgpu::Features::PASSTHROUGH_SHADERS)
+    );
+    let processor = GpuProcessor::for_exports(context, 1808, 1356)?;
+    let private_before = memory::private_bytes();
+    let sampler = memory::Sampler::start();
+    let started = Instant::now();
+    processor.compile_display_variant(spec.features)?;
+    let pipeline_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let peak_sampled = sampler.stop();
+    let mb = |bytes: Option<usize>| bytes.map_or("null".to_string(), |b| (b >> 20).to_string());
+    let peak = memory::peak_private_bytes().map(|p| p.max(peak_sampled));
+    Ok(format!(
+        "{{\"pipeline_ms\":{pipeline_ms:.0},\"peak_mb\":{},\"before_mb\":{},\"inlined_exprs\":{inlined},\
+\"functions\":{functions},\"path\":\"processor\",\"device_passthrough\":{adapter}}}",
+        mb(peak),
+        mb(private_before),
+    ))
 }
 
 fn knob_set(knobs: &[String], name: &str) -> bool {
