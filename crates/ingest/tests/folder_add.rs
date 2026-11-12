@@ -3,6 +3,7 @@
 //! through the one Add path (`batch::add_batch`).
 
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use rawtonic_ingest::batch::{Medium, add_batch};
 use rawtonic_ingest::folder_add::{FolderPlan, plan_folder_add};
 use std::collections::BTreeMap;
@@ -172,7 +173,7 @@ fn files_inside_another_library_are_refused_with_its_name() {
     let planned = plan(&lib, d.path(), true);
     assert_eq!(
         planned.files,
-        vec![drive.join("loose/A.NEF").canonicalize().unwrap()]
+        vec![drive.join("loose/A.NEF").canonical().unwrap()]
     );
     assert_eq!(planned.owned.len(), 1);
     assert_eq!(planned.owned[0].name, "Wedding Smith");
@@ -333,7 +334,7 @@ fn copies_of_held_photographs_do_not_fill_the_limit() {
     let planned = plan_folder_add(&lib, &backup, true, supported, Some(raw), 2).unwrap();
     assert_eq!(
         planned.files,
-        vec![backup.join("Z_new.NEF").canonicalize().unwrap()]
+        vec![backup.join("Z_new.NEF").canonical().unwrap()]
     );
     assert_eq!(planned.registered, 4);
 }
@@ -360,6 +361,6 @@ fn unreadable_folders_are_reported() {
     }
     let planned = planned.unwrap();
     assert_eq!(planned.files.len(), 1);
-    assert_eq!(planned.unreadable, vec![locked.canonicalize().unwrap()]);
+    assert_eq!(planned.unreadable, vec![locked.canonical().unwrap()]);
     assert!(whole.unwrap_err().to_string().contains("cannot be read"));
 }

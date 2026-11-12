@@ -9,6 +9,7 @@
 //! new-edit recipe; `crates/export/tests/recipe_round_trip.rs` pins
 //! `is_new_recipe` on them.
 
+use rawtonic_fs::Canonical;
 use std::collections::HashSet;
 
 use rawtonic_catalog::{Library, Mode};
@@ -73,7 +74,7 @@ fn editor_states_copies_and_history_keep_their_recipes() {
 
         // The library listing reads the same state.
         let mut listed = None;
-        lib.visit_editor_states(&HashSet::from([source.canonicalize().unwrap()]), |_, s| {
+        lib.visit_editor_states(&HashSet::from([source.canonical().unwrap()]), |_, s| {
             listed = s
         })
         .unwrap();

@@ -22,6 +22,7 @@ use rawtonic_fileops::SystemTrash;
 use rawtonic_fileops::{
     CopyObserver, FileOpsError, Journal, KeptCopy, Operation, State, Step, Target,
 };
+use rawtonic_fs::Canonical;
 use rawtonic_metadata::photo_ref::{self, PhotoRef};
 use serde::Serialize;
 use std::{
@@ -1089,7 +1090,7 @@ pub struct TrashContents {
 /// session (its `session.json`), by its real path.
 fn session_trash_dir(session: &str) -> Result<PathBuf, String> {
     let dir = PathBuf::from(session)
-        .canonicalize()
+        .canonical()
         .map_err(|e| format!("Cannot open the session {session}: {e}"))?;
     if !dir.join(SESSION_MANIFEST).is_file() {
         return Err(format!("{} is not a session", dir.display()));
@@ -1262,7 +1263,7 @@ mod tests {
     fn session(root: &Path) -> PathBuf {
         let dir = root.join("Job");
         rawtonic_catalog::Library::create(&dir, "Job", rawtonic_catalog::Mode::Session).unwrap();
-        dir.canonicalize().unwrap()
+        dir.canonical().unwrap()
     }
 
     /// Only the copies a run left are offered, not those an earlier run
@@ -1482,7 +1483,7 @@ mod tests {
         fs::write(&photo, "a").unwrap();
         let sidecar = dir.join("Capture/A.RAF.rrdata");
         fs::write(&sidecar, "{}").unwrap();
-        let outside = tmp.path().canonicalize().unwrap().join("B.RAF");
+        let outside = tmp.path().canonical().unwrap().join("B.RAF");
         fs::write(&outside, "b").unwrap();
         let steps = plan_trash(&[vec![photo.clone(), sidecar.clone()], vec![outside.clone()]]);
         assert_eq!(
@@ -2125,7 +2126,7 @@ mod tests {
     #[test]
     fn summaries_of_a_folder_moved_to_another_drive_and_back_carry_its_move() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let (folder, archive) = (root.join("Shoot"), root.join("Archive"));
         fs::create_dir_all(folder.join("Day 1")).unwrap();
         fs::write(folder.join("Day 1/A.RAF"), "a").unwrap();
@@ -2196,7 +2197,7 @@ mod tests {
             Some(dir) => tempfile::tempdir_in(dir).unwrap(),
             None => tempfile::tempdir().unwrap(),
         };
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let lib = Library::create(
             &root.join("Catalog"),
             "Catalog",
@@ -2204,7 +2205,7 @@ mod tests {
         )
         .unwrap();
         let shoot = root.join("Shoot");
-        let archive = drive.path().canonicalize().unwrap().join("Archive");
+        let archive = drive.path().canonical().unwrap().join("Archive");
         fs::create_dir_all(&shoot).unwrap();
         fs::create_dir_all(&archive).unwrap();
         let files = ["A.NEF", "A.JPG", "A.NEF.rrdata"];
@@ -2284,7 +2285,7 @@ mod tests {
         };
         let file = tmp
             .path()
-            .canonicalize()
+            .canonical()
             .unwrap()
             .join("rawtonic-trash-test.txt");
         fs::write(&file, "x").unwrap();

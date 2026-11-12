@@ -561,7 +561,7 @@ pub async fn remove_lut(app_handle: AppHandle, path: String) -> Result<Vec<LutEn
 /// folder up to (not including) the LUT folder; a folder with anything
 /// left in it stays (`remove_dir` refuses it).
 fn remove_empty_packs(luts_dir: &Path, removed: &Path) {
-    let Ok(luts_dir) = std::fs::canonicalize(luts_dir) else {
+    let Ok(luts_dir) = rawtonic_fs::canonicalize(luts_dir) else {
         return;
     };
     let mut folder = removed.parent();
@@ -581,13 +581,13 @@ fn user_lut_file(luts_dir: &Path, path: &Path) -> Result<PathBuf, String> {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
         return Err("LUT file not found".to_string());
     };
-    let entry = std::fs::canonicalize(parent)
+    let entry = rawtonic_fs::canonicalize(parent)
         .map_err(|_| "LUT file not found".to_string())?
         .join(name);
     let kind = std::fs::symlink_metadata(&entry)
         .map_err(|_| "LUT file not found".to_string())?
         .file_type();
-    let dir = std::fs::canonicalize(luts_dir).map_err(|e| e.to_string())?;
+    let dir = rawtonic_fs::canonicalize(luts_dir).map_err(|e| e.to_string())?;
     if !entry.starts_with(&dir) || kind.is_dir() {
         return Err(
             "Access denied: Cannot remove files outside the user LUT directory".to_string(),

@@ -1,6 +1,7 @@
 //! Transitional adapter between the inherited renderer and the portable DB.
 use crate::ipc::CommandError;
 use rawtonic_catalog::{Library, Mode, Summary, session_for};
+use rawtonic_fs::Canonical;
 use rawtonic_metadata::photo_ref::{SIDECAR_SUFFIX, sidecar_name};
 use serde_json::Value;
 use std::{
@@ -79,11 +80,11 @@ pub(crate) fn copy_for_sidecar(sidecar: &Path) -> Option<(PathBuf, String)> {
 /// `source` in the form the library registers paths: canonical, also when
 /// the file (or its whole drive) is gone.
 fn registered_form(source: &Path) -> PathBuf {
-    if let Ok(path) = source.canonicalize() {
+    if let Ok(path) = source.canonical() {
         return path;
     }
     match (
-        source.parent().and_then(|p| p.canonicalize().ok()),
+        source.parent().and_then(|p| p.canonical().ok()),
         source.file_name(),
     ) {
         (Some(parent), Some(name)) => parent.join(name),
@@ -598,7 +599,7 @@ pub(crate) fn register_outside_folders(dir: &Path) {
         dir,
         rawtonic_catalog::session_folders::outside_folders_of(dir)
             .into_iter()
-            .map(|folder| folder.canonicalize().unwrap_or(folder))
+            .map(|folder| folder.canonical().unwrap_or(folder))
             .collect(),
     );
 }
@@ -1806,7 +1807,7 @@ pub(crate) fn companions_in_folder(folder: &Path) -> HashSet<PathBuf> {
     let Some(dir) = library_for(&folder.join("_")) else {
         return HashSet::new();
     };
-    let (Ok(lib), Ok(canonical)) = (Library::open(&dir), folder.canonicalize()) else {
+    let (Ok(lib), Ok(canonical)) = (Library::open(&dir), folder.canonical()) else {
         return HashSet::new();
     };
     let Ok(records) = lib.companion_records_in(&canonical) else {
@@ -1853,7 +1854,7 @@ pub(crate) fn companion_of(photo: &Path) -> Option<PathBuf> {
     // and only when that is the verified file (a photograph reached
     // through a link has its companion beside its target, not the link).
     let companion = photo.with_file_name(verified.file_name()?);
-    (companion.canonicalize().ok()? == verified).then_some(companion)
+    (companion.canonical().ok()? == verified).then_some(companion)
 }
 
 /// Which of `paths` (whose files are gone) a library holds, with the
@@ -2344,7 +2345,7 @@ mod tests {
         lib.set_session_folder(FolderRole::Output, &share).unwrap();
         assert_eq!(
             manifest_output(&lib),
-            share.canonicalize().unwrap().to_str().unwrap()
+            share.canonical().unwrap().to_str().unwrap()
         );
 
         let photos = session_photos(&lib).unwrap();
@@ -2777,7 +2778,7 @@ mod tests {
         let source = lib.directory.join("Capture/e.arw");
         fs::write(&source, b"original").unwrap();
         let id = lib.add_asset(&source).unwrap().id;
-        let source = source.canonicalize().unwrap();
+        let source = source.canonical().unwrap();
         // An edit that appeared beside it after it was registered.
         fs::write(
             source.with_file_name("e.arw.rrdata"),

@@ -446,6 +446,10 @@ mod tests {
     /// Error Reporting on (the default).
     #[cfg(windows)]
     #[test]
+    // The GitHub Windows runner writes no Application Error entry for any
+    // crashing process (a crashing pwsh neither; CI run 43132467361, G77).
+    #[ignore = "needs Windows Error Reporting's Application Error entries, which the GitHub \
+                Windows runner does not write (G77); run with --ignored on a Windows desktop"]
     fn a_crashing_child_is_found_in_the_application_log() {
         for (kind, code) in [
             ("access-violation", 0xC000_0005u32),

@@ -17,6 +17,7 @@ use crate::error::{bail, ensure};
 use anyhow::{Context, Result};
 use copy::Barrier;
 use rawtonic_catalog::{Contents, Library};
+use rawtonic_fs::Canonical;
 use rawtonic_naming::{Context as NamingContext, render};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -697,7 +698,7 @@ pub fn destination_folder(
             folder.to_path_buf()
         }
     };
-    let canonical = folder.canonicalize()?;
+    let canonical = folder.canonical()?;
     if let Ok(relative) = canonical.strip_prefix(&library.directory) {
         let first = relative
             .components()
@@ -720,7 +721,7 @@ pub fn destination_folder(
             .manifest
             .outside_folders()
             .into_iter()
-            .filter_map(|root| root.canonicalize().ok())
+            .filter_map(|root| root.canonical().ok())
             .find(|root| canonical.starts_with(root))
             .context("Photographs can only be copied into a folder of this session")?;
         ensure!(
@@ -740,7 +741,7 @@ pub fn destination_folder(
         .into_iter()
         .map(|record| record.path)
         .chain(roots.iter().cloned())
-        .filter_map(|root| root.canonicalize().ok())
+        .filter_map(|root| root.canonical().ok())
         .filter(|root| canonical.starts_with(root))
         .max_by_key(|root| root.components().count());
     let root = shown
@@ -1137,7 +1138,7 @@ pub(crate) fn import_pair(
         !records.is_empty()
             && path
                 .parent()
-                .and_then(|folder| folder.canonicalize().ok())
+                .and_then(|folder| folder.canonical().ok())
                 .zip(path.file_name())
                 .is_some_and(|(folder, name)| records.contains(&folder.join(name)))
     };
@@ -1203,7 +1204,7 @@ pub(crate) fn import_pair(
                 &mut barrier,
             )?;
             ensure!(
-                backup_folder.canonicalize()? != folder.canonicalize()?,
+                backup_folder.canonical()? != folder.canonical()?,
                 "Backup must be a different directory"
             );
             let kept = identical_file(backup_folder, &name, source, companion, &|_| false, |_| {

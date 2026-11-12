@@ -10,6 +10,7 @@ use crate::CatalogError;
 use crate::error::ensure;
 use crate::{Asset, Library, fingerprint};
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 use rusqlite::params;
 use std::{
     collections::HashMap,
@@ -215,7 +216,7 @@ impl Library {
 
     /// The asset whose companion `path` is (its recorded file).
     pub fn companion_owner(&self, path: &Path) -> Result<Option<Asset>, CatalogError> {
-        let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let path = path.canonical().unwrap_or_else(|_| path.to_path_buf());
         self.companion_records()?
             .into_iter()
             .find(|record| record.path == path && record.present())

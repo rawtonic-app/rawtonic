@@ -344,6 +344,23 @@ fn is_panic_machinery(function: &str) -> bool {
     .any(|marker| function.contains(marker))
 }
 
+/// How many frames from the top are the capture, the hook and the panic
+/// machinery: up to the end of the first run of machinery frames near the
+/// top (`std::panicking::try` further down is the thread's start).
+fn machinery_end(functions: &[&str]) -> usize {
+    functions
+        .iter()
+        .take(32)
+        .position(|function| is_panic_machinery(function))
+        .map_or(0, |first| {
+            first
+                + functions[first..]
+                    .iter()
+                    .take_while(|function| is_panic_machinery(function))
+                    .count()
+        })
+}
+
 /// A backtrace as `std::backtrace::Backtrace` prints it, reduced to
 /// `N: function (file.rs:line:column)` lines: paths become file names,
 /// frames without a symbol (stripped builds) and the panic machinery
@@ -377,17 +394,12 @@ pub fn reduce_backtrace(text: &str) -> Option<String> {
     // The capture and the hook come first, then the panic machinery: the
     // panicking code starts after the first run of machinery frames near
     // the top (`std::panicking::try` further down is the thread's start).
-    let skip = frames
-        .iter()
-        .take(32)
-        .position(|(function, _)| is_panic_machinery(function))
-        .map_or(0, |first| {
-            first
-                + frames[first..]
-                    .iter()
-                    .take_while(|(function, _)| is_panic_machinery(function))
-                    .count()
-        });
+    let skip = machinery_end(
+        &frames
+            .iter()
+            .map(|(function, _)| function.as_str())
+            .collect::<Vec<_>>(),
+    );
     let lines: Vec<String> = frames
         .into_iter()
         .skip(skip)
@@ -425,8 +437,15 @@ pub struct ModuleFrame {
 /// out, the module and offset are what symbolizes the frame later. `None`
 /// when no frame has a module.
 pub fn format_module_frames(frames: &[ModuleFrame]) -> Option<String> {
+    // With symbols (a debug build), the capture, hook and machinery go as
+    // they do elsewhere; without, no frame can be told apart and all stay.
+    let functions: Vec<&str> = frames
+        .iter()
+        .map(|frame| frame.function.as_deref().unwrap_or(""))
+        .collect();
     let lines: Vec<String> = frames
         .iter()
+        .skip(machinery_end(&functions))
         .filter_map(|frame| {
             let place = match (&frame.module, frame.offset) {
                 (Some(module), Some(offset)) => format!("{module}+0x{offset:x}"),
@@ -1319,6 +1338,47 @@ mod tests {
              2: rawtonic-app.exe+0xff rawtonic_gpu::device_start::start_device (device_start.rs:42)"
         );
         assert_eq!(format_module_frames(&[frame(None, None, None, None)]), None);
+        // With debug info, the capture, hook and panic machinery go: the
+        // first frame is the code that panicked.
+        let at = Some("x.rs:1");
+        let panicked = [
+            frame(
+                Some("a.exe"),
+                Some(1),
+                Some("backtrace::capture::Backtrace::new"),
+                at,
+            ),
+            frame(
+                Some("a.exe"),
+                Some(2),
+                Some("rawtonic_contribute::crash::capture_backtrace"),
+                at,
+            ),
+            frame(
+                Some("a.exe"),
+                Some(3),
+                Some("std::panicking::panic_with_hook"),
+                at,
+            ),
+            frame(
+                Some("a.exe"),
+                Some(4),
+                Some("core::panicking::panic_fmt"),
+                at,
+            ),
+            frame(Some("a.exe"), Some(5), Some("rawtonic_app::develop"), at),
+            frame(
+                Some("a.exe"),
+                Some(6),
+                Some("std::panicking::catch_unwind::do_call"),
+                at,
+            ),
+        ];
+        assert_eq!(
+            format_module_frames(&panicked).unwrap(),
+            "0: a.exe+0x5 rawtonic_app::develop (x.rs:1)\n\
+             1: a.exe+0x6 std::panicking::catch_unwind::do_call (x.rs:1)"
+        );
         let many = vec![frame(Some("a.dll"), Some(1), None, None); MAX_FRAMES + 10];
         assert_eq!(
             format_module_frames(&many).unwrap().lines().count(),

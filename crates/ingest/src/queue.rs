@@ -15,6 +15,7 @@ use rawtonic_catalog::{
     CatalogError, Library,
     ingest_jobs::{IngestJob, ItemState, JobState, SourceFile, SourceState},
 };
+use rawtonic_fs::Canonical;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -49,7 +50,7 @@ impl JobOptions {
             backup: options.backup.map(Into::into),
             folder: options
                 .folder
-                .map(|folder| library.stored(&folder.canonicalize()?))
+                .map(|folder| library.stored(&folder.canonical()?))
                 .transpose()?,
             roots: options.roots.to_vec(),
             album: options.album.map(Into::into),

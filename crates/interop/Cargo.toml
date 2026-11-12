@@ -12,6 +12,7 @@ workspace = true
 rusqlite = { workspace = true, features = ["bundled"] }
 flate2 = { workspace = true }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 tempfile = { workspace = true }

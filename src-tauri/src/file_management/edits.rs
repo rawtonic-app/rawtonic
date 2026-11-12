@@ -17,6 +17,7 @@ use crate::image_loader;
 use crate::image_processing::ImageMetadata;
 use crate::state::thumbnails::ThumbnailState;
 use image::DynamicImage;
+use rawtonic_fs::Canonical;
 use rawtonic_metadata::culling::Rating;
 use rawtonic_metadata::labels::EDITOR_TAG_PREFIX;
 use rawtonic_metadata::photo_ref::PhotoRef;
@@ -748,9 +749,9 @@ fn same_photograph(a: &str, b: &str) -> bool {
     let (a, _) = parse_virtual_path(a);
     let (b, _) = parse_virtual_path(b);
     a == b
-        || a.canonicalize()
+        || a.canonical()
             .ok()
-            .is_some_and(|a| b.canonicalize().ok() == Some(a))
+            .is_some_and(|a| b.canonical().ok() == Some(a))
 }
 
 #[tauri::command]
@@ -2189,7 +2190,7 @@ mod tests {
     fn rating_undo_preserves_reject_without_a_flag_receipt() {
         use rawtonic_catalog::{Library, Mode};
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = rawtonic_fs::canonicalize(temp.path()).unwrap();
         let lib = Library::create(&root, "Rating undo", Mode::Session).unwrap();
         let source = root.join("Capture/source.nef");
         fs::write(&source, b"synthetic original").unwrap();
@@ -2257,7 +2258,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         // The library and the resolved paths are canonical: on macOS the
         // temporary folder /var/… is /private/var/….
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let lib = Library::create(&root, "Undo move", Mode::Session).unwrap();
         let source = root.join("Capture/source.nef");
         fs::write(&source, b"synthetic original").unwrap();

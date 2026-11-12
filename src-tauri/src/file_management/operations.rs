@@ -3,6 +3,7 @@
 use super::add_to_album_blocking;
 use super::parse_virtual_path;
 use crate::image_processing::ImageMetadata;
+use rawtonic_fs::Canonical;
 use rawtonic_metadata::photo_ref::{self, PhotoRef};
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -663,10 +664,7 @@ fn plan_folder_move(
     if folder.parent() == Some(destination) {
         return Err("The folder is already in that folder.".to_string());
     }
-    let real = |p: &Path| {
-        p.canonicalize()
-            .map_err(|e| format!("{}: {e}", p.display()))
-    };
+    let real = |p: &Path| p.canonical().map_err(|e| format!("{}: {e}", p.display()));
     if real(destination)?.starts_with(real(folder)?) {
         return Err("A folder cannot be moved into itself.".to_string());
     }
@@ -728,7 +726,7 @@ fn folder_leaves_session(folder: &Path, destination: &Path) -> Result<Option<Pat
         return Ok(None);
     }
     let parent = folder
-        .canonicalize()
+        .canonical()
         .map_err(|e| format!("{}: {e}", folder.display()))?;
     let from = session_above(parent.parent().unwrap_or(Path::new("")))?;
     let to = session_above(destination)?;
@@ -739,7 +737,7 @@ fn folder_leaves_session(folder: &Path, destination: &Path) -> Result<Option<Pat
 /// places: a link may lead into or out of a session.
 fn session_above(folder: &Path) -> Result<Option<PathBuf>, String> {
     let real = folder
-        .canonicalize()
+        .canonical()
         .map_err(|e| format!("{}: {e}", folder.display()))?;
     Ok(real
         .ancestors()
@@ -1131,7 +1129,7 @@ mod tests {
     #[test]
     fn a_folder_move_is_one_step_and_refuses_what_cannot_move() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let (folder, dest) = (root.join("Shoot"), root.join("Archive"));
         write(&folder.join("Day 1/A.RAF"), "a");
         fs::create_dir(&dest).unwrap();
@@ -1185,7 +1183,7 @@ mod tests {
     #[test]
     fn photos_are_never_moved_out_of_their_session() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let job = root.join("Job");
         rawtonic_catalog::Library::create(&job, "Job", rawtonic_catalog::Mode::Session).unwrap();
         let photo = job.join("Capture/A.NEF");
@@ -1238,7 +1236,7 @@ mod tests {
     #[test]
     fn a_move_out_of_the_session_offers_the_whole_session() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let job = root.join("Job");
         rawtonic_catalog::Library::create(&job, "Job", rawtonic_catalog::Mode::Session).unwrap();
         let photo = job.join("Capture/A.NEF");
@@ -1335,7 +1333,7 @@ mod tests {
     #[test]
     fn clearing_sidecars_moves_them_to_the_trash_and_names_any_it_could_not() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         for name in [
             "a.jpg",
             "a.jpg.rrdata",
@@ -1423,7 +1421,7 @@ mod tests {
     #[test]
     fn photos_of_the_same_name_copied_together_both_arrive() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let (a, b, dest) = (
             root.join("A/photo.jpg"),
             root.join("B/photo.jpg"),
@@ -1455,7 +1453,7 @@ mod tests {
     #[test]
     fn copying_never_replaces_a_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let (a, dest) = (root.join("A/photo.jpg"), root.join("C"));
         write(&a, "a");
         write(&root.join("A/photo.jpg.rrdata"), "edits a");
@@ -1479,7 +1477,7 @@ mod tests {
     #[test]
     fn clearing_sidecars_leaves_session_photos_alone() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let session = root.join("Job");
         rawtonic_catalog::Library::create(&session, "Job", rawtonic_catalog::Mode::Session)
             .unwrap();
@@ -1512,7 +1510,7 @@ mod tests {
     #[test]
     fn a_copy_into_its_own_folder_takes_a_name_free_for_all_its_files() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let a = root.join("A/photo.jpg");
         write(&a, "a");
         write(&root.join("A/photo.jpg.rrdata"), "edits");

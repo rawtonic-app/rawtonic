@@ -283,6 +283,7 @@ fn copy_previews_from(
 mod tests {
     use super::*;
     use rawtonic_catalog::{Library, Mode};
+    use rawtonic_fs::Canonical;
     use std::fs;
 
     fn preview_bytes() -> Vec<u8> {
@@ -304,7 +305,7 @@ mod tests {
     #[test]
     fn standard_previews_go_with_the_exported_photographs() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let outside = root.join("app-previews");
         let bytes = preview_bytes();
         let session = Library::create(&root.join("Session"), "S", Mode::Session).unwrap();
@@ -373,7 +374,7 @@ mod tests {
     #[test]
     fn imported_edits_and_copies_reach_the_sidecars() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let lib = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
         let photo = root.join("Shoot/a.arw");
         fs::create_dir_all(photo.parent().unwrap()).unwrap();

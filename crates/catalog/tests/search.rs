@@ -1,6 +1,7 @@
 //! Library search and smart albums (G36/G37): every field, nested groups,
 //! facets, smart albums kept current, the capture-facts pass, migration.
 use rawtonic_catalog::{CaptureFacts, Field, Library, Mode, Rule, SMART};
+use rawtonic_fs::Canonical;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -926,12 +927,7 @@ fn a_smart_album_of_a_folder_moves_with_its_session() {
 fn a_folder_above_the_library_holds_its_photographs_with_subfolders() {
     let d = tempfile::tempdir().unwrap();
     let (lib, _) = library(d.path());
-    let above = d
-        .path()
-        .canonicalize()
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
+    let above = d.path().canonical().unwrap().to_string_lossy().into_owned();
     assert_eq!(
         found(
             &lib,
@@ -1222,6 +1218,9 @@ fn keywords_with_spaces_around_them_are_listed_as_they_select() {
     );
 }
 
+/// Unix only by nature: Windows drops a trailing space from a name given in
+/// the plain form the library uses (`Day ` is `Day`).
+#[cfg(not(windows))]
 #[test]
 fn folder_names_are_taken_verbatim() {
     let d = tempfile::tempdir().unwrap();

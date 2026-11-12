@@ -13,6 +13,7 @@ use crate::CatalogError;
 use crate::Library;
 use crate::error::{bail, ensure};
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
 use serde_json::Value;
@@ -407,7 +408,7 @@ impl Library {
         // given through a link into the library is inside it too.
         let resolved = path
             .parent()
-            .and_then(|folder| folder.canonicalize().ok())
+            .and_then(|folder| folder.canonical().ok())
             .zip(path.file_name())
             .map(|(folder, name)| folder.join(name));
         let path = resolved.as_deref().unwrap_or(path);

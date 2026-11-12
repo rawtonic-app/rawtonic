@@ -91,7 +91,7 @@ impl Library {
             self.conn
                 .query_row(
                     &format!("SELECT 1 FROM assets WHERE root_id='session' AND {fold}(rel_path)={fold}(?)"),
-                    [relative.to_string_lossy().as_ref()],
+                    [crate::portable_relative(relative)?.as_str()],
                     |_| Ok(()),
                 )
                 .optional()?

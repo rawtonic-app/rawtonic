@@ -1,5 +1,6 @@
 //! Both readers against small libraries built with the tables and columns
 //! of real ones (Lightroom Classic 14 catalog schema, Capture One 16 session).
+use rawtonic_fs::Canonical;
 use rawtonic_interop::{Develop, SmartRule, SmartRules, SmartValue, capture_one, lightroom};
 use rusqlite::Connection;
 use std::{fs, path::Path};
@@ -394,7 +395,7 @@ fn capture_one_session_variants_settings_and_albums() {
     let session = dir.path().join("Shoot");
     // A temporary folder may sit behind a symlink (`/tmp` on Linux PCs):
     // a photo's identity is the session file's real path.
-    let real_db = db.canonicalize().unwrap();
+    let real_db = db.canonical().unwrap();
     let before = fs::read(&db).unwrap();
     let lib = capture_one::read(&db).unwrap();
     assert_eq!(fs::read(&db).unwrap(), before, "session untouched");
@@ -475,7 +476,7 @@ fn capture_one_sessions_with_the_same_name_in_two_folders_stay_told_apart() {
         capture_one::read(&first_db).unwrap(),
         capture_one::read(&second_db).unwrap(),
     );
-    let real = |db: &Path| db.canonicalize().unwrap();
+    let real = |db: &Path| db.canonical().unwrap();
     // The same variant id in both sessions: both variants of DSCF0001.RAF.
     for (session, db) in [(&first, &first_db), (&second, &second_db)] {
         let uids: Vec<&str> = session

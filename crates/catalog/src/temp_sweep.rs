@@ -14,6 +14,7 @@
 use crate::CatalogError;
 use crate::Library;
 use anyhow::Result;
+use rawtonic_fs::Canonical;
 use rawtonic_fs::{staging, temp};
 use std::{
     fs,
@@ -75,7 +76,7 @@ impl Library {
             else {
                 continue;
             };
-            if let Ok(backup) = backup.canonicalize()
+            if let Ok(backup) = backup.canonical()
                 && !backups.contains(&backup)
             {
                 backups.push(backup);

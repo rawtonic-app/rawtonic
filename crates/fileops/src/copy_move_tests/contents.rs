@@ -2,6 +2,7 @@
 //! entry of the old folder moves into the new one through the journal,
 //! undoable, all or nothing.
 use super::*;
+use rawtonic_fs::Canonical;
 
 /// Every file below `dir` with its bytes, by path relative to `dir`.
 fn listing(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
@@ -27,7 +28,7 @@ fn listing(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 #[test]
 fn contents_move_on_one_volume_as_one_undoable_operation() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = dir.path().canonical().unwrap();
     let (from, to) = (root.join("Capture"), root.join("Day 1"));
     fs::create_dir_all(from.join("Sub")).unwrap();
     fs::create_dir(&to).unwrap();
@@ -91,7 +92,7 @@ fn contents_move_to_another_volume_verified_and_undoable() {
 #[test]
 fn contents_move_nothing_when_a_name_is_taken_or_the_target_is_inside() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = dir.path().canonical().unwrap();
     let (from, to) = (root.join("Capture"), root.join("New"));
     fs::create_dir_all(&from).unwrap();
     fs::create_dir_all(&to).unwrap();
@@ -119,7 +120,7 @@ fn contents_move_nothing_when_a_name_is_taken_or_the_target_is_inside() {
 #[test]
 fn an_empty_folder_plans_no_operation() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = dir.path().canonical().unwrap();
     fs::create_dir(root.join("a")).unwrap();
     fs::create_dir(root.join("b")).unwrap();
     assert!(

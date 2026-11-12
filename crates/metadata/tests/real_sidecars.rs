@@ -450,3 +450,20 @@ fn clearing_last_contact_field_keeps_foreign_contact_properties() {
     assert!(written.contains("other:Pager=\"123\""));
     assert!(!read(&written).iptc.contains_key("creatorEmail"));
 }
+
+/// Editors on Windows may write sidecars with CRLF line ends: they read as
+/// the same metadata, and a merge keeps what Rawtonic does not manage.
+#[test]
+fn sidecars_with_crlf_line_ends_read_and_merge_alike() {
+    for text in [LIGHTROOM, C1_KEYWORDS, C1_IPTC] {
+        assert!(!text.contains('\r'), "fixtures are checked out with LF");
+        let crlf = text.replace('\n', "\r\n");
+        assert_eq!(read(&crlf), read(text));
+        let mut meta = read(text);
+        meta.rating = 4;
+        let from_lf = read(&merge_xmp(Some(text), &meta, None).unwrap());
+        let from_crlf = read(&merge_xmp(Some(&crlf), &meta, None).unwrap());
+        assert_eq!(from_crlf, from_lf);
+        assert_eq!(from_crlf.rating, 4);
+    }
+}

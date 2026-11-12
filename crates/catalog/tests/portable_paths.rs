@@ -3,6 +3,7 @@
 //! the only form the catalogue ever queries or writes.
 use anyhow::Result;
 use rawtonic_catalog::{Library, Mode, Rule, native_join, portable_relative};
+use rawtonic_fs::Canonical;
 use serde_json::json;
 use std::{fs, path::Path};
 use tempfile::tempdir;
@@ -178,13 +179,13 @@ fn a_windows_native_backslash_path_is_stored_with_forward_slashes() {
     assert_eq!(stored(&lib), ["Capture/Cam1/A.RAF"]);
     let photo = lib
         .directory
-        .canonicalize()
+        .canonical()
         .unwrap()
         .join("Capture")
         .join("Cam1")
         .join("A.RAF");
     let nested = photo
-        .strip_prefix(lib.directory.canonicalize().unwrap())
+        .strip_prefix(lib.directory.canonical().unwrap())
         .unwrap();
     assert!(nested.to_str().unwrap().contains('\\'));
     assert_eq!(portable_relative(nested).unwrap(), "Capture/Cam1/A.RAF");
@@ -197,7 +198,7 @@ fn nested_photographs_are_stored_and_found_after_reopening() {
     let (d, lib) = session(&["Capture/A.RAF", "Capture/Day 2/B.RAF"]);
     assert_eq!(stored(&lib), ["Capture/A.RAF", "Capture/Day 2/B.RAF"]);
     // The folder rule takes the native path of the folder.
-    let capture = lib.directory.canonicalize().unwrap().join("Capture");
+    let capture = lib.directory.canonical().unwrap().join("Capture");
     assert_eq!(names(&lib, "is", &capture), ["A.RAF"]);
     assert_eq!(names(&lib, "contains", &capture).len(), 2);
     assert_eq!(names(&lib, "contains", &capture.join("Day 2")), ["B.RAF"]);
@@ -207,7 +208,7 @@ fn nested_photographs_are_stored_and_found_after_reopening() {
     fs::rename(d.path().join("Job"), &moved).unwrap();
     let lib = Library::open(&moved).unwrap();
     assert_eq!(stored(&lib), ["Capture/A.RAF", "Capture/Day 2/B.RAF"]);
-    let day = moved.canonicalize().unwrap().join("Capture").join("Day 2");
+    let day = moved.canonical().unwrap().join("Capture").join("Day 2");
     assert_eq!(names(&lib, "contains", &day), ["B.RAF"]);
 }
 
@@ -216,7 +217,7 @@ fn a_photograph_is_found_by_its_native_path() {
     let (_d, lib) = session(&["Capture/Day 2/A.RAF"]);
     let photo = lib
         .directory
-        .canonicalize()
+        .canonical()
         .unwrap()
         .join("Capture")
         .join("Day 2")
@@ -237,7 +238,7 @@ fn forgetting_and_offline_lookups_use_the_stored_form() {
     let (_d, lib) = session(&["Capture/Day 2/A.RAF", "Capture/B.RAF"]);
     let day = lib
         .directory
-        .canonicalize()
+        .canonical()
         .unwrap()
         .join("Capture")
         .join("Day 2");
@@ -315,13 +316,13 @@ fn move_rename_and_trash_keep_stored_paths_portable() -> Result<()> {
     let (_d, lib) = session(&["Capture/Day 2/A.RAF"]);
     let photo = lib
         .directory
-        .canonicalize()?
+        .canonical()?
         .join("Capture")
         .join("Day 2")
         .join("A.RAF");
     let target = lib
         .directory
-        .canonicalize()?
+        .canonical()?
         .join("Capture")
         .join("Day 3")
         .join("A.RAF");
@@ -384,7 +385,7 @@ fn an_unrepresentable_folder_rule_does_not_create_or_replace_an_album() -> Resul
 #[test]
 fn a_place_that_cannot_be_stored_rolls_the_move_back() -> Result<()> {
     let (d, lib) = session(&["Capture/A.RAF"]);
-    let directory = lib.directory.canonicalize()?;
+    let directory = lib.directory.canonical()?;
     let photo = directory.join("Capture").join("A.RAF");
     let before = lib.assets(None)?;
     let [before] = before.as_slice() else {

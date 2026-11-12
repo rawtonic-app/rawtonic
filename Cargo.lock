@@ -5646,6 +5646,7 @@ dependencies = [
  "rawtonic-fs",
  "rawtonic-runtime",
  "rusqlite",
+ "same-file",
  "serde",
  "serde_json",
  "tempfile",
@@ -5658,6 +5659,7 @@ name = "rawtonic-fs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dunce",
  "libc",
  "log",
  "serde",
@@ -5718,6 +5720,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "flate2",
+ "rawtonic-fs",
  "rawtonic-metadata",
  "roxmltree",
  "rusqlite",

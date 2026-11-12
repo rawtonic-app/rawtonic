@@ -1,4 +1,5 @@
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use serde_json::json;
 
 #[test]
@@ -56,7 +57,7 @@ fn invalid_batch_rolls_back_and_catalog_flags_resolve_external_paths() {
     assert!(lib.set_flags(std::slice::from_ref(&asset.id), 2).is_err());
     lib.set_flags(&[asset.id.clone(), asset.id], -1).unwrap();
     assert_eq!(
-        lib.flags().unwrap().get(&source.canonicalize().unwrap()),
+        lib.flags().unwrap().get(&source.canonical().unwrap()),
         Some(&-1)
     );
     assert_eq!(std::fs::read(source).unwrap(), b"external original");

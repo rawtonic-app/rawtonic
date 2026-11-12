@@ -1,5 +1,6 @@
 use proptest::prelude::*;
 use rawtonic_catalog::{Library, Mode, fingerprint, validate_relative};
+use rawtonic_fs::Canonical;
 use serde_json::json;
 use std::{fs, path::Path};
 
@@ -27,7 +28,7 @@ fn move_session_reopens_identical_identity_metadata_and_history() {
     let lib = Library::open(&moved).unwrap();
     assert_eq!(
         lib.asset(&asset.id).unwrap().path,
-        moved.join("Capture/DSC001.ARW").canonicalize().unwrap()
+        moved.join("Capture/DSC001.ARW").canonical().unwrap()
     );
     assert_eq!(lib.metadata(&asset.id).unwrap(), metadata);
     assert_eq!(lib.recipe(&version).unwrap(), Some(recipe));
@@ -97,7 +98,7 @@ fn catalog_can_reference_external_asset() {
     fs::write(&p, b"external").unwrap();
     let lib = Library::create(&tmp.path().join("Main.catalog"), "Main", Mode::Catalog).unwrap();
     let a = lib.add_asset(&p).unwrap();
-    assert_eq!(a.path, p.canonicalize().unwrap());
+    assert_eq!(a.path, p.canonical().unwrap());
     fs::remove_file(p).unwrap();
     assert_eq!(lib.verify_paths().unwrap(), 1);
 }

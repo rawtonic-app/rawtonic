@@ -9,6 +9,7 @@
 //! What a volume *is* to a caller stays with the caller: the catalog builds
 //! its volume identity (and relinks folders) from these facts, file
 //! operations plan moves between volumes with [`VolumeInfo`].
+use crate::Canonical;
 use anyhow::{Context, Result};
 use serde::Serialize;
 #[cfg(unix)]
@@ -147,7 +148,7 @@ pub fn volume_info(path: &Path) -> Result<VolumeInfo> {
         .find(|p| fs::symlink_metadata(p).is_ok())
         .with_context(|| format!("{} has no existing folder", path.display()))?;
     let real = existing
-        .canonicalize()
+        .canonical()
         .with_context(|| format!("Cannot resolve {}", existing.display()))?;
     let mount = mount_of(&real)?;
     let name = volume_name(&mount.mount_point);
@@ -708,6 +709,7 @@ use linux as imp;
 #[cfg(target_os = "linux")]
 mod linux {
     use super::Mount;
+    use crate::Canonical;
     use anyhow::{Context, Result};
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -718,7 +720,7 @@ mod linux {
 
     pub fn mount_of(path: &Path) -> Result<Mount> {
         let path = path
-            .canonicalize()
+            .canonical()
             .with_context(|| format!("Cannot resolve {}", path.display()))?;
         mount_table()
             .context("Cannot read the mount table")?
@@ -745,9 +747,9 @@ mod linux {
 
     /// The link name in `dir` (`/dev/disk/by-uuid`, `by-label`) pointing at `device`.
     pub(super) fn link_to(dir: &str, device: &Path) -> Option<String> {
-        let device = device.canonicalize().ok()?;
+        let device = device.canonical().ok()?;
         fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
-            (entry.path().canonicalize().ok()? == device)
+            (entry.path().canonical().ok()? == device)
                 .then(|| super::unescape(&entry.file_name().to_string_lossy(), true))
         })
     }
@@ -755,10 +757,10 @@ mod linux {
     /// The disk's `removable` attribute in sysfs (a partition's is its
     /// disk's).
     pub(super) fn removable(device: &Path) -> Option<bool> {
-        let name = device.canonicalize().ok()?.file_name()?.to_owned();
+        let name = device.canonical().ok()?.file_name()?.to_owned();
         let mut block = PathBuf::from("/sys/class/block")
             .join(name)
-            .canonicalize()
+            .canonical()
             .ok()?;
         if block.join("partition").exists() {
             block = block.parent()?.to_path_buf();
@@ -887,7 +889,9 @@ mod windows {
                 .with_context(|| format!("Cannot read the volume of {}", path.display()));
         }
         let end = buffer.iter().position(|&c| c == 0).unwrap_or(0);
-        let root = PathBuf::from(OsString::from_wide(&buffer[..end]));
+        // A long input went in extended-length (`\\?\`); the root is shown.
+        let root =
+            crate::simplified(&PathBuf::from(OsString::from_wide(&buffer[..end]))).to_path_buf();
         let (known, file_system, network) = volume_of_root(&root)?;
         // Unreadable details do not refuse the volume by themselves: free
         // space, asked separately and then required, decides whether a move
@@ -1117,7 +1121,7 @@ mod tests {
         let info = volume_info(&tmp.path().join("not/yet/there")).unwrap();
         assert!(
             tmp.path()
-                .canonicalize()
+                .canonical()
                 .unwrap()
                 .starts_with(&info.mount_point)
         );
@@ -1163,10 +1167,10 @@ mod tests {
     #[test]
     fn a_windows_folder_reports_its_mount_root_and_its_real_free_space() {
         let tmp = tempfile::tempdir().unwrap();
-        let existing = tmp.path().canonicalize().unwrap();
+        let existing = tmp.path().canonical().unwrap();
         let folder = existing.join("not").join("yet").join("there");
         let info = volume_info(&folder).unwrap();
-        let root = info.mount_point.canonicalize().unwrap();
+        let root = info.mount_point.canonical().unwrap();
         assert!(
             existing.starts_with(&root),
             "{info:?} is not its mount root"

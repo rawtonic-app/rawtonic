@@ -269,13 +269,15 @@ mod tests {
             PhotoRef::parse("/p/a.raf?vc=0f1e2d").sidecar_path(),
             dir.join("a.raf.0f1e2d.rrdata")
         );
+        // The path as the system writes it (`/p\\a.raf` on Windows).
+        let path = dir.join("a.raf");
         assert_eq!(
-            PhotoRef::of_path(&dir.join("a.raf"), Some("0f1e2d")).format(),
-            "/p/a.raf?vc=0f1e2d"
+            PhotoRef::of_path(&path, Some("0f1e2d")).format(),
+            format!("{}?vc=0f1e2d", path.display())
         );
         assert_eq!(
-            PhotoRef::of_path(&dir.join("a.raf"), None).format(),
-            "/p/a.raf"
+            PhotoRef::of_path(&path, None).format(),
+            path.display().to_string()
         );
     }
 

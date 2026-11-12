@@ -5,7 +5,9 @@
 //! colour values go through the platform's maths library and differ in the
 //! last bits between macOS and Linux. Each platform's bytes were recorded with
 //! the unchanged baseline renderer (`baseline`, test commit 444a77f2):
-//! macos-aarch64 on the Mac mini, linux-x86_64 on the Linux PC (2026-11-07).
+//! macos-aarch64 on the Mac mini, linux-x86_64 on the Linux PC (2026-11-07),
+//! windows-x86_64 on the GitHub Windows runner (2026-11-12, CI run
+//! 43122531368; the same bytes as linux-x86_64).
 //! A platform without a recording fails rather than passing unchecked.
 //!
 //! The fixture is stored compacted (see its `note`): [`expand`] restores
@@ -87,7 +89,7 @@ fn the_compacted_fixture_keeps_every_recorded_case() {
     );
     let slots: u64 = cases.iter().map(|c| c["maskCount"].as_u64().unwrap()).sum();
     assert_eq!(slots, 61);
-    for platform in ["linux-x86_64", "macos-aarch64"] {
+    for platform in ["linux-x86_64", "macos-aarch64", "windows-x86_64"] {
         let bytes: usize = cases
             .iter()
             .map(|c| c["maskUniformHex"][platform].as_str().unwrap().len() / 2)

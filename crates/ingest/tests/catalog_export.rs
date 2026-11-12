@@ -2,6 +2,7 @@
 //! and everything that is theirs; the source is never changed and a cancel
 //! or failure never leaves a half catalog.
 use rawtonic_catalog::{Library, Mode};
+use rawtonic_fs::Canonical;
 use rawtonic_ingest::catalog_export::{Options, export_catalog};
 use rawtonic_metadata::Metadata;
 use serde_json::json;
@@ -111,7 +112,7 @@ fn source(root: &Path) -> Source {
 #[test]
 fn exports_only_the_chosen_photographs_with_everything_that_is_theirs() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let src = source(&root);
     let originals: Vec<String> = src.files.iter().map(|f| sha(f)).collect();
     let source_db = sha(&src.lib.directory.join("catalog.sqlite"));
@@ -212,7 +213,7 @@ fn exports_only_the_chosen_photographs_with_everything_that_is_theirs() {
 #[test]
 fn originals_are_copied_verified_and_relative_so_the_catalog_folder_moves() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     // A session: the result is a catalog all the same.
     let session = Library::create(&root.join("Session"), "Session", Mode::Session).unwrap();
     let mut ids = Vec::new();
@@ -284,7 +285,7 @@ fn originals_are_copied_verified_and_relative_so_the_catalog_folder_moves() {
 #[test]
 fn folders_of_the_same_name_stay_apart() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let lib = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
     let mut ids = Vec::new();
     for day in ["2026/Day 1", "2025/Day 1"] {
@@ -319,7 +320,7 @@ fn folders_of_the_same_name_stay_apart() {
 #[test]
 fn cancel_or_failure_leaves_no_catalog_and_existing_folders_are_refused() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let src = source(&root);
     let to = root.join("Job");
     // Cancel while copying originals.
@@ -419,7 +420,7 @@ fn cancel_or_failure_leaves_no_catalog_and_existing_folders_are_refused() {
 #[test]
 fn the_next_export_removes_what_a_killed_export_left() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let src = source(&root);
     let killed = root.join(".rawtonic-export-KiLLed");
     fs::create_dir_all(killed.join("Photos/Shoot")).unwrap();
@@ -459,7 +460,7 @@ fn the_next_export_removes_what_a_killed_export_left() {
 #[test]
 fn an_offline_original_is_exported_by_reference_but_not_copied() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let src = source(&root);
     fs::rename(&src.files[1], root.join("away.arw")).unwrap();
     let to = root.join("Copy");
@@ -495,7 +496,7 @@ fn an_offline_original_is_exported_by_reference_but_not_copied() {
 #[test]
 fn own_photographs_go_edits_only_and_another_librarys_never_exported() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     // A session's photographs belong to it: a catalog referring to them
     // would edit them in the session's name. Without originals they go
     // edits only: at their place in the new catalog, without their file.
@@ -618,7 +619,7 @@ fn own_photographs_go_edits_only_and_another_librarys_never_exported() {
 #[test]
 fn an_exported_catalog_exports_again_with_its_resources() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let src = source(&root);
     let first = root.join("First");
     export_catalog(
@@ -659,7 +660,7 @@ fn an_exported_catalog_exports_again_with_its_resources() {
 #[test]
 fn a_fresh_export_has_no_xmp_waiting() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let main = Library::create(&root.join("Main"), "Main", Mode::Catalog).unwrap();
     let photos = main.directory.join("Photos");
     fs::create_dir_all(&photos).unwrap();

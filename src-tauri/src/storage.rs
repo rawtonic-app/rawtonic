@@ -2,6 +2,7 @@
 //! Preferences storage inventory and maintenance of explicit app-owned roots.
 use crate::state::develop::{DevelopSession, Scope};
 use crate::{app_state::AppState, storage_fs};
+use rawtonic_fs::Canonical;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -349,10 +350,8 @@ pub async fn storage_clear(
                 .as_deref()
                 .ok_or("No expected library directory")?;
             let current = &owned.root;
-            if Path::new(expected)
-                .canonicalize()
-                .map_err(|e| e.to_string())?
-                != current.canonicalize().map_err(|e| e.to_string())?
+            if Path::new(expected).canonical().map_err(|e| e.to_string())?
+                != current.canonical().map_err(|e| e.to_string())?
             {
                 return Err("The open library changed; refresh Storage before clearing".into());
             }
@@ -439,7 +438,7 @@ mod tests {
     #[test]
     fn webview_reads_refresh_lru_and_cannot_touch_an_original() {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let cache = root.join("thumbnails");
         fs::create_dir(&cache).unwrap();
         let key = "a".repeat(64);
@@ -463,7 +462,7 @@ mod tests {
     #[test]
     fn full_preview_clearing_preserves_standard_previews_and_other_session_data() {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let cache = root.join(".cache");
         fs::create_dir_all(cache.join("previews")).unwrap();
         let standard = cache.join("previews/a.rtpx");
@@ -510,7 +509,7 @@ mod tests {
     #[test]
     fn models_need_confirmation_and_are_removed_only_on_the_next_start() {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let models = root.join("models");
         fs::create_dir_all(models.join("compiled/weights")).unwrap();
         fs::write(models.join("network.onnx"), b"weights").unwrap();
@@ -549,7 +548,7 @@ mod tests {
     fn redirected_model_root_is_refused_and_pending_removal_is_preserved() {
         use std::os::unix::fs::symlink;
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let photographs = root.join("photographs");
         fs::create_dir(&photographs).unwrap();
         fs::write(photographs.join("original.RAW"), b"original").unwrap();

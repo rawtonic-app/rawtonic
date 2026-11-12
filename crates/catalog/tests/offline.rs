@@ -2,6 +2,7 @@
 //! library with their edits, metadata and albums; relinking finds them again
 //! without touching any file.
 use rawtonic_catalog::{Library, Mode, Volume};
+use rawtonic_fs::Canonical;
 use std::{fs, path::Path};
 
 fn bytes(seed: u8, len: usize) -> Vec<u8> {
@@ -91,7 +92,7 @@ fn a_vanished_folder_keeps_its_photographs_edits_and_albums() {
         offline.iter().all(|a| a.volume.is_none()),
         "the drive is there"
     );
-    let folder = tmp.path().canonicalize().unwrap().join("Card/2026");
+    let folder = tmp.path().canonical().unwrap().join("Card/2026");
     assert_eq!(lib.offline_in(&folder, false).unwrap().len(), 2);
     assert_eq!(lib.offline_in(&folder, true).unwrap().len(), 3);
     // A missing file is still found by its registered path.
@@ -119,7 +120,7 @@ fn locating_one_photograph_relinks_its_neighbours_and_touches_no_file() {
     assert_eq!(report.not_found, 0);
     assert_eq!(lib.verify_paths().unwrap(), 0);
     assert_eq!(lib.summary().unwrap().missing, 0);
-    let moved = moved.canonicalize().unwrap();
+    let moved = moved.canonical().unwrap();
     for (id, path) in ids.iter().zip(["Renamed.NEF", "B.NEF", "Day 2/C.NEF"]) {
         let asset = lib.asset(id).unwrap();
         assert_eq!(asset.path, moved.join(path));
@@ -184,7 +185,7 @@ fn a_present_photograph_or_a_place_another_one_holds_is_refused() {
     );
     assert_eq!(
         lib.asset(&other.id).unwrap().path,
-        copy.canonicalize().unwrap()
+        copy.canonical().unwrap()
     );
 }
 
@@ -218,7 +219,7 @@ fn session_photographs_relink_inside_the_session_only() {
 fn a_drive_mounted_elsewhere_is_followed_and_a_disconnected_one_is_named() {
     let tmp = tempfile::tempdir().unwrap();
     let (lib, ids) = catalog(tmp.path());
-    let mount = tmp.path().canonicalize().unwrap().join("Card");
+    let mount = tmp.path().canonical().unwrap().join("Card");
     let volume = Volume {
         kind: rawtonic_catalog::volume::VolumeKind::Local,
         id: "0A1B2C3D-0000-4000-8000-000000000001".into(),
@@ -242,7 +243,7 @@ fn a_drive_mounted_elsewhere_is_followed_and_a_disconnected_one_is_named() {
     );
 
     // Plugged in again under another mount point ("Photos 1").
-    let remounted = tmp.path().canonicalize().unwrap().join("Card 1");
+    let remounted = tmp.path().canonical().unwrap().join("Card 1");
     fs::rename(tmp.path().join("Unplugged"), &remounted).unwrap();
     // B was deleted meanwhile: it stays missing at its old place.
     fs::remove_file(remounted.join("2026/B.NEF")).unwrap();
@@ -306,7 +307,7 @@ fn an_older_database_is_migrated_with_its_photographs() {
 fn a_folder_lists_its_files_deleted_since_the_last_check() {
     let tmp = tempfile::tempdir().unwrap();
     let (lib, ids) = catalog(tmp.path());
-    let folder = tmp.path().canonicalize().unwrap().join("Card/2026");
+    let folder = tmp.path().canonical().unwrap().join("Card/2026");
     fs::remove_file(folder.join("B.NEF")).unwrap();
     // No verify_paths yet: the listing still sees B as offline.
     let offline = lib.offline_in(&folder, false).unwrap();
@@ -327,7 +328,7 @@ fn a_folder_lists_its_files_deleted_since_the_last_check() {
     fs::write(&photo, bytes(5, 1000)).unwrap();
     session.add_asset(&photo).unwrap();
     fs::remove_file(&photo).unwrap();
-    let dir = dir.canonicalize().unwrap();
+    let dir = dir.canonical().unwrap();
     assert_eq!(session.offline_in(&dir, true).unwrap().len(), 1);
     assert_eq!(
         session
@@ -355,14 +356,14 @@ fn a_folder_moved_since_the_last_check_is_relinked() {
     // No verify_paths: nothing is flagged missing yet (before the fix the
     // relink found nothing: "0 photographs relinked").
     assert_eq!(lib.summary().unwrap().missing, 0);
-    let folder = tmp.path().canonicalize().unwrap().join("Card/2026");
+    let folder = tmp.path().canonical().unwrap().join("Card/2026");
     let report = lib.relink_folder(&folder, &moved).unwrap();
     assert_eq!(report.relinked.len(), 3, "{report:?}");
-    let moved = moved.canonicalize().unwrap();
+    let moved = moved.canonical().unwrap();
     assert_eq!(lib.asset(&ids[2]).unwrap().path, moved.join("Day 2/C.NEF"));
     // Nearby photographs of a located one, too.
     fs::rename(&moved, tmp.path().join("Archive/Again")).unwrap();
-    let again = tmp.path().canonicalize().unwrap().join("Archive/Again");
+    let again = tmp.path().canonical().unwrap().join("Archive/Again");
     let report = lib.relink(&ids[0], &again.join("A.NEF"), true).unwrap();
     assert_eq!(report.relinked.len(), 3, "{report:?}");
     assert_eq!(lib.verify_paths().unwrap(), 0);
@@ -377,7 +378,7 @@ fn a_drive_whose_mount_point_folder_stays_is_named_as_disconnected() {
     let (lib, _) = catalog(tmp.path());
     // The drive was mounted on a folder (hdiutil -mountpoint, /mnt/photos on
     // Linux) that stays, empty, when it is unmounted.
-    let mount = tmp.path().canonicalize().unwrap().join("Card");
+    let mount = tmp.path().canonical().unwrap().join("Card");
     let volume = Volume {
         kind: rawtonic_catalog::volume::VolumeKind::Local,
         id: "0A1B2C3D-0000-4000-8000-000000000009".into(),

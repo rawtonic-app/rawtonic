@@ -4,6 +4,7 @@
 use super::PlatformTrash;
 use anyhow::{Context, Result, ensure};
 use rawtonic_fileops::SystemTrash;
+use rawtonic_fs::Canonical;
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::OsString,
@@ -174,7 +175,7 @@ fn canonical_entry(path: &Path) -> Result<PathBuf> {
     Ok(path
         .parent()
         .context("Missing parent")?
-        .canonicalize()?
+        .canonical()?
         .join(path.file_name().context("Missing filename")?))
 }
 
@@ -602,7 +603,7 @@ mod tests {
 
     fn staged_fixture() -> (tempfile::TempDir, Receipt) {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let original = root.join("photo.txt");
         fs::write(&original, b"synthetic photograph").unwrap();
         let receipt = Receipt {
@@ -653,7 +654,7 @@ mod tests {
         }
         for phase in ["partial", "published"] {
             let temp = tempfile::tempdir().unwrap();
-            let root = temp.path().canonicalize().unwrap();
+            let root = temp.path().canonical().unwrap();
             let original = root.join("synthetic-original.txt");
             fs::write(&original, b"untouched synthetic bytes").unwrap();
             let receipt = Receipt {
@@ -883,7 +884,7 @@ mod tests {
                 Some(directory) => tempfile::tempdir_in(directory).unwrap(),
                 None => tempfile::tempdir().unwrap(),
             };
-            let root = temp.path().canonicalize().unwrap();
+            let root = temp.path().canonical().unwrap();
             let original = root.join("rawtonic-recovery-probe.txt");
             fs::write(&original, b"synthetic photograph").unwrap();
             let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
@@ -939,7 +940,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("photo.txt");
         fs::write(&source, b"synthetic").unwrap();
-        let (_, plain) = verified_item(&source.canonicalize().unwrap()).unwrap();
+        let (_, plain) = verified_item(&source.canonical().unwrap()).unwrap();
         assert_eq!(plain, source);
         assert_eq!(fs::read(&source).unwrap(), b"synthetic");
     }
@@ -948,7 +949,7 @@ mod tests {
     fn shell_entry_refuses_literal_names_that_resolve_to_another_entry() {
         let _apartment = Apartment::new().unwrap();
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let literal = root.join("photo.txt.");
         let sibling = root.join("photo.txt");
         fs::write(&literal, b"literal").unwrap();
@@ -962,7 +963,7 @@ mod tests {
     fn shell_entry_refuses_normalized_parent_and_link_aliases() {
         let _apartment = Apartment::new().unwrap();
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp.path().canonical().unwrap();
         let literal = root.join("album ");
         let sibling = root.join("album");
         fs::create_dir(&literal).unwrap();

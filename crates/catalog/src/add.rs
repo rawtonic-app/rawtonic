@@ -11,6 +11,7 @@ use crate::{
     write_recipe,
 };
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 use rawtonic_metadata::Metadata;
 use rawtonic_metadata::photo_ref::PhotoRef;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -276,7 +277,7 @@ impl Library {
 
     fn place(&self, path: &Path) -> Result<Place> {
         let path = path
-            .canonicalize()
+            .canonical()
             .with_context(|| format!("Cannot read {}", path.display()))?;
         ensure!(path.is_file(), "{} is not a file", path.display());
         let (root, relative, root_path) = if let Ok(relative) = path.strip_prefix(&self.directory) {

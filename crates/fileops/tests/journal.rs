@@ -1,4 +1,5 @@
 use rawtonic_fileops::{Journal, State, Step, SystemTrash, Target};
+use rawtonic_fs::Canonical;
 use rawtonic_fs::rename_no_clobber;
 use std::{
     cell::Cell,
@@ -46,7 +47,7 @@ impl SystemTrash for FolderTrash {
 fn setup() -> (tempfile::TempDir, PathBuf, Journal) {
     let dir = tempfile::tempdir().unwrap();
     // Canonical, so that /var and /private/var do not differ on macOS.
-    let root = dir.path().canonicalize().unwrap();
+    let root = dir.path().canonical().unwrap();
     let journal = Journal::open(&root.join("journal/file-operations.sqlite")).unwrap();
     (dir, root, journal)
 }

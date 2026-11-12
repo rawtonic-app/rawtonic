@@ -25,6 +25,7 @@ use crate::error::ensure;
 use crate::transfer::{ResourceCopier, check, copy_file, flush_staged, walk};
 use anyhow::{Context, Result};
 use rawtonic_catalog::{Library, portable::ResourceUse};
+use rawtonic_fs::Canonical;
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -123,11 +124,11 @@ pub fn check_destination(
     source: &Path,
     destination: &Path,
 ) -> Result<(PathBuf, PathBuf), IngestError> {
-    let source = source.canonicalize()?;
+    let source = source.canonical()?;
     let parent = destination
         .parent()
         .context("Choose a destination folder")?
-        .canonicalize()
+        .canonical()
         .context("The destination folder is not there")?;
     let name = destination.file_name().context("Choose a folder name")?;
     rawtonic_naming::validate_component(
@@ -168,7 +169,7 @@ pub fn export_catalog(
     stage: impl FnOnce(&Path, &[Exported], &AtomicBool) -> Result<usize>,
 ) -> Result<Receipt, IngestError> {
     let (parent, destination) = check_destination(source, destination)?;
-    let source = source.canonicalize()?;
+    let source = source.canonical()?;
     let unique: HashSet<&String> = ids.iter().collect();
     ensure!(!unique.is_empty(), "Choose at least one photograph");
     check(cancel)?;
@@ -180,7 +181,7 @@ pub fn export_catalog(
         rawtonic_fs::staging::CATALOG_EXPORT,
         &format!("Export as Catalog from {}", source.display()),
     )?;
-    let stage_root = staged.path().canonicalize()?;
+    let stage_root = staged.path().canonical()?;
     let (catalog, source_stacks) = Library::subset_from(&source, &stage_root, &options.name, ids)?;
     catalog.check_integrity()?;
     // Photographs another library owns: their latest edit is there, so

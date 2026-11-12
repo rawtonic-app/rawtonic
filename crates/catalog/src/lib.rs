@@ -2,6 +2,7 @@
 pub mod portable;
 use crate::error::{bail, ensure};
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 use rawtonic_fs::atomic_write;
 use rawtonic_metadata::culling::{Flag, Rating, RatingOutOfRange};
 use rawtonic_metadata::{Metadata, labels};
@@ -327,7 +328,7 @@ impl Library {
     fn visible_assets_for_listing(&self, listed: Option<&Path>) -> &'static str {
         if self.manifest.mode == Mode::Session
             && listed
-                .and_then(|p| p.canonicalize().ok())
+                .and_then(|p| p.canonical().ok())
                 .is_some_and(|p| p.starts_with(self.directory.join("Trash")))
         {
             "a.trashed=0"
@@ -350,7 +351,7 @@ impl Library {
             "Library name must be 1–255 bytes"
         );
         fs::create_dir_all(directory)?;
-        let directory = directory.canonicalize()?;
+        let directory = directory.canonical()?;
         ensure!(
             LibraryLayout::at(&directory).is_none()
                 && !directory.join(database_name(mode)).exists(),
@@ -415,7 +416,7 @@ impl Library {
     }
 
     pub fn open(directory: &Path) -> Result<Self, CatalogError> {
-        let directory = directory.canonicalize()?;
+        let directory = directory.canonical()?;
         let manifest_path = LibraryLayout::at(&directory)
             .context("No Rawtonic session or catalog in this folder")?
             .manifest();
@@ -1856,9 +1857,7 @@ impl Library {
             "This photograph is not missing: its file is at {}",
             asset.path.display()
         );
-        let to = to
-            .canonicalize()
-            .context("The located file cannot be read")?;
+        let to = to.canonical().context("The located file cannot be read")?;
         ensure!(to.is_file(), "Locate a file, not a folder");
         ensure!(
             fingerprint(&to)? == asset.fingerprint,
@@ -1897,7 +1896,7 @@ impl Library {
     /// read; all relinks commit together.
     pub fn relink_folder(&self, from: &Path, to: &Path) -> Result<RelinkReport, CatalogError> {
         let to = to
-            .canonicalize()
+            .canonical()
             .context("The located folder cannot be read")?;
         ensure!(to.is_dir(), "Locate a folder");
         ensure!(
@@ -2587,14 +2586,16 @@ fn external_root_key(folder: &Path) -> String {
 }
 
 /// The canonical form of a path that may no longer (or not yet) exist: its
-/// nearest existing ancestor canonicalized, the rest appended unchanged.
+/// nearest existing ancestor canonicalized, the rest appended name by name
+/// (so a `/` the frontend joined with becomes the native separator).
 pub(crate) fn resolve_moved(path: &Path) -> PathBuf {
-    if let Ok(canonical) = path.canonicalize() {
+    if let Ok(canonical) = path.canonical() {
         return canonical;
     }
     for ancestor in path.ancestors().skip(1) {
-        if let Ok(canonical) = ancestor.canonicalize() {
-            return canonical.join(path.strip_prefix(ancestor).unwrap_or(path));
+        if let Ok(mut canonical) = ancestor.canonical() {
+            canonical.extend(path.strip_prefix(ancestor).unwrap_or(path).components());
+            return canonical;
         }
     }
     path.to_path_buf()

@@ -8,6 +8,7 @@
 //! and the copy move is asked for explicitly (`Step::other_volume`), which
 //! runs the same code.
 use super::*;
+use rawtonic_fs::Canonical;
 use std::cell::{Cell, RefCell};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -161,8 +162,8 @@ impl World {
         } else {
             tempfile::tempdir_in(shm).unwrap()
         };
-        let source = source_dir.path().canonicalize().unwrap().join("Capture");
-        let target = target_dir.path().canonicalize().unwrap().join("Archive");
+        let source = source_dir.path().canonical().unwrap().join("Capture");
+        let target = target_dir.path().canonical().unwrap().join("Archive");
         fs::create_dir_all(&source).unwrap();
         fs::create_dir_all(&target).unwrap();
         for (name, len) in FILES {

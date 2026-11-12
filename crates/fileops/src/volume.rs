@@ -7,6 +7,7 @@ use crate::FileOpsError;
 use crate::error::{bail, ensure, stopped};
 use crate::xattr;
 use anyhow::{Context, Result};
+use rawtonic_fs::Canonical;
 #[cfg(unix)]
 use rawtonic_fs::volume::volume_info;
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,7 @@ pub const SPACE_RESERVE: u64 = 64 * 1024 * 1024;
 /// on Windows, not `C:\Temp` in one program and `\\?\C:\Temp` in
 /// another), so it is compared by [`same_mount`], not by the path alone.
 pub(super) fn same_mount(a: &Path, b: &Path) -> bool {
-    match (a.canonicalize(), b.canonicalize()) {
+    match (a.canonical(), b.canonical()) {
         (Ok(x), Ok(y)) => x == y,
         _ => a == b,
     }
@@ -495,10 +496,10 @@ mod tests {
     fn a_windows_folders_mount_root_is_compared_by_identity() {
         use rawtonic_fs::volume::volume_info;
         let tmp = tempfile::tempdir().unwrap();
-        let existing = tmp.path().canonicalize().unwrap();
+        let existing = tmp.path().canonical().unwrap();
         let folder = existing.join("not").join("yet").join("there");
         let info = volume_info(&folder).unwrap();
-        let root = info.mount_point.canonicalize().unwrap();
+        let root = info.mount_point.canonical().unwrap();
         let child = folder.with_file_name("also");
         let child_volume = volume_info(&child).unwrap();
         assert!(same_mount(&child_volume.mount_point, &info.mount_point));
@@ -513,7 +514,7 @@ mod tests {
     #[test]
     fn windows_renames_never_replace_and_never_copy() {
         let tmp = tempfile::tempdir().unwrap();
-        let folder = tmp.path().canonicalize().unwrap();
+        let folder = tmp.path().canonical().unwrap();
         let (a, b, c) = (folder.join("a"), folder.join("b"), folder.join("c"));
         fs::write(&a, "a").unwrap();
         fs::write(&b, "b").unwrap();

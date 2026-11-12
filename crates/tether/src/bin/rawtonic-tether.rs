@@ -30,6 +30,7 @@
 //! a second helper writes FILE.2, and so on. It holds the camera's serial
 //! number and file names: keep it on the machine. RAWTONIC_TETHER_LV_EXPERIMENT
 //! names live-view experiments (`rawtonic_tether::experiment`).
+use rawtonic_fs::Canonical;
 use rawtonic_tether::camera::Driver;
 use rawtonic_tether::client::{Client, Incoming};
 use rawtonic_tether::experiment::LiveViewExperiment;
@@ -490,7 +491,7 @@ fn save_new(path: &Path, bytes: &[u8]) -> String {
 fn probe(args: &[String], mock: bool) -> Result<(), String> {
     let out = PathBuf::from(arg(args, "--out").ok_or("probe needs --out DIR")?);
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    let out = out.canonicalize().map_err(|e| e.to_string())?;
+    let out = out.canonical().map_err(|e| e.to_string())?;
     let shots: u32 = arg(args, "--shots")
         .and_then(|s| s.parse().ok())
         .unwrap_or(5);
@@ -758,7 +759,7 @@ fn photo(
 fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
     let out = PathBuf::from(arg(args, "--out").ok_or("liveview needs --out DIR")?);
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    let out = out.canonicalize().map_err(|e| e.to_string())?;
+    let out = out.canonical().map_err(|e| e.to_string())?;
     let span = Duration::from_secs_f64(
         arg(args, "--seconds")
             .and_then(|s| s.parse().ok())
