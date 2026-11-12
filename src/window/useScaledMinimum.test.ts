@@ -11,6 +11,8 @@ vi.mock('@tauri-apps/api/window', () => ({
   currentMonitor,
   getCurrentWindow: () => ({
     setMinSize,
+    isMaximized: async () => false,
+    isFullscreen: async () => false,
     outerPosition: async () => ({ x: 0, y: 0 }),
     setPosition: async () => {},
     onMoved: async (callback: () => void) => {

@@ -42,7 +42,13 @@ export function useScaledMinimum(scale: number, platform: string | null) {
           lastSize = key;
           return appWindow.setMinSize(new LogicalSize(width, height)).then(async () => {
             if (!reposition || !monitor || disposed || request !== generation) return;
-            const [position, size] = await Promise.all([appWindow.outerPosition(), appWindow.outerSize()]);
+            const [position, size, maximized, fullscreen] = await Promise.all([
+              appWindow.outerPosition(),
+              appWindow.outerSize(),
+              appWindow.isMaximized(),
+              appWindow.isFullscreen()
+            ]);
+            if (maximized || fullscreen) return;
             if (disposed || request !== generation) return;
             const fitted = fitMinimumPosition(position, size, monitor.workArea);
             if (fitted.x !== position.x || fitted.y !== position.y)
