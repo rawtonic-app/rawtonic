@@ -10616,6 +10616,8 @@ fn set_test_image_key(adjustments: &mut AllAdjustments, recipe: &serde_json::Val
     adjustments.global.image_key = recipe["imageKey"].as_f64().unwrap_or(0.0) as f32;
     adjustments.global.image_key_low = recipe["imageKeyLow"].as_f64().unwrap_or(0.0) as f32;
     adjustments.global.image_key_median = recipe["imageKeyMedian"].as_f64().unwrap_or(0.0) as f32;
+    // A measured airlight (airlight.rs), as the image key.
+    adjustments.global.airlight = recipe["testAirlight"].as_f64().unwrap_or(0.0) as f32;
 }
 
 /// A bright frame's image key (snow under an overcast sky): log2(p / 0.006)
@@ -21542,9 +21544,26 @@ fn dehaze_version_2_drag_render_time() {
     );
 }
 
+#[test]
+#[ignore = "requires a native GPU; Dehaze version 3 against version 2: GPU time of a preview render per drag step, lowered and raised"]
+fn dehaze_version_3_drag_render_time() {
+    for direction in [-1, 1] {
+        eprintln!("Dehaze {}", if direction < 0 { "lowered" } else { "raised" });
+        drag_render_times_of(
+            [2, 3],
+            |version, step| json!({ "dehaze": direction * (20 + 3 * step), "dehazeVersion": version, "testAirlight": 0.3 }),
+        );
+    }
+}
+
 /// Prints the GPU time of a preview render per drag step under versions 1
 /// and 2 of a tool (`recipe(version, step)`).
 fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
+    drag_render_times_of([1, 2], recipe);
+}
+
+/// [`version_drag_render_times`] for two given versions.
+fn drag_render_times_of(versions: [u64; 2], recipe: impl Fn(u64, i32) -> serde_json::Value) {
     // As `tone_version_6_shadows_drag_render_time`: a 2560 × 1707 colourful
     // frame, the slider dragged, blocks of ten steps alternated per version.
     let context = context();
@@ -21587,7 +21606,7 @@ fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
     // Each version's own display variant must be compiled before the
     // timing: until then the all-features variant renders its frames
     // (`preview_pipeline`), far slower than either.
-    for version in [1, 2] {
+    for version in versions {
         let adjustments = raw_look_adjustments(&recipe(version, 0), (3, 2.0));
         let features = preview_features(&adjustments);
         let _ = readback_pixels(
@@ -21615,7 +21634,7 @@ fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
     }
     let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     for block in 0..24 {
-        let version = 1 + (block % 2) as u64;
+        let version = versions[block % 2];
         for step in 0..10 {
             let recipe = recipe(version, step);
             let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
@@ -21630,17 +21649,18 @@ fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
                 ReadbackShader::Preview,
             );
             if step >= 2 && block >= 2 {
-                times[(version - 1) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+                times[block % 2].push(start.elapsed().as_secs_f64() * 1000.0);
             }
         }
     }
     for (k, t) in times.iter_mut().enumerate() {
         t.sort_by(|a, b| a.partial_cmp(b).unwrap());
         eprintln!(
-            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
-            1 + k,
+            "version {}: p50 {:.2} ms, p90 {:.2} ms, p95 {:.2} ms ({} renders)",
+            versions[k],
             t[t.len() / 2],
             t[t.len() * 9 / 10],
+            t[t.len() * 19 / 20],
             t.len()
         );
     }
