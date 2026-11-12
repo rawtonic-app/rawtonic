@@ -297,7 +297,9 @@ fn one(line: &str) -> Result<String, String> {
     }
     let (device, _queue) = pollster::block_on(adapter.request_device(&device_descriptor))
         .map_err(|e| e.to_string())?;
-    let layout = if spec.spirv {
+    // `spv=explicit` without `spirv`: wgpu's own path with the probe's
+    // explicit layout instead of the derived one.
+    let layout = if spec.spirv || knob_set(&spec.spv, "explicit") {
         Some(layout_for(&device, &module)?)
     } else {
         None
@@ -438,8 +440,11 @@ fn spirv_words(
         entry_point: "main".into(),
         shader_stage: naga::ShaderStage::Compute,
     };
+    // `noentry`: no per-pipeline options, as wgpu-hal writes a module that
+    // has no overrides left (its `ShaderModule::Raw` path).
+    let pipeline = (!knob_set(knobs, "noentry")).then_some(pipeline);
     let mut words =
-        spv::write_vec(module, &info, &options, Some(&pipeline)).map_err(|e| e.to_string())?;
+        spv::write_vec(module, &info, &options, pipeline.as_ref()).map_err(|e| e.to_string())?;
     if noinline.is_empty() {
         return Ok((words, 0));
     }
@@ -485,6 +490,10 @@ fn spirv_words(
         }
     }
     Ok((words, marked))
+}
+
+fn knob_set(knobs: &[String], name: &str) -> bool {
+    knobs.iter().any(|k| k == name)
 }
 
 /// A pipeline layout with one entry per global the module binds (group 0).

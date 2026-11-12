@@ -1,0 +1,6 @@
+# WCC2 round 5 (G76): round 4 found every writer option fast through passthrough (6.3-7.9 s) while wgpu's own path took 135 s (round 3 app_4145). Which part of wgpu's path?
+app_4145 features=4145 dce
+app_4145_explicit features=4145 dce spv=explicit
+pt_4145 features=4145 dce spirv
+pt_hal_noentry features=4145 dce spirv spv=hal,noentry
+app_4145_again features=4145 dce
