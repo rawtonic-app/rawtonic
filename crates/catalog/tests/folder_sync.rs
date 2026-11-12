@@ -850,11 +850,23 @@ fn synchronize_through_a_symlink_finds_new_photos() {
     assert_eq!(applied.moved.len(), 1);
     assert!(applied.skipped.is_empty(), "{applied:#?}");
     assert!(scan(&lib, Some(&alias)).is_empty());
+    fs::remove_file(folder.join("C.ARW")).unwrap();
+    let plan = scan(&lib, Some(&folder));
+    assert_eq!(plan.removed.len(), 1);
+    let missing = &plan.removed[0];
+    let applied = lib
+        .apply_folder_sync(&[SyncAction::Remove {
+            asset_id: missing.asset_id.clone(),
+            path: missing.path.clone(),
+        }])
+        .unwrap();
+    assert_eq!(applied.removed.len(), 1);
+    assert!(applied.skipped.is_empty(), "{applied:#?}");
 }
 
 #[cfg(windows)]
 #[test]
-fn synchronize_plain_windows_root_finds_new_photos() {
+fn synchronize_verbatim_windows_root_through_plain_paths_finds_new_photos() {
     let d = tempfile::tempdir().unwrap();
     let root = d.path().canonical().unwrap();
     let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
@@ -865,7 +877,10 @@ fn synchronize_plain_windows_root_finds_new_photos() {
     let verbatim = PathBuf::from(format!(r"\\?\{}", folder.display()));
     rusqlite::Connection::open(lib.directory.join("catalog.sqlite"))
         .unwrap()
-        .execute("UPDATE roots SET path=?1 WHERE external=1", [&plain])
+        .execute(
+            "UPDATE roots SET path=?1 WHERE external=1",
+            [verbatim.to_str().unwrap()],
+        )
         .unwrap();
     photo(&folder.join("B.ARW"), 2);
     for selected in [Path::new(&plain), verbatim.as_path()] {

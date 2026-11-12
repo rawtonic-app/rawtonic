@@ -1225,16 +1225,6 @@ pub fn trash_photos(
         }
         images.extend(extra);
     }
-    if let Some(directory) = crate::session_bridge::active_library_directory() {
-        crate::session_bridge::with_library_blocking(&directory, |lib| {
-            let registered: Vec<_> = lib
-                .index_entries()
-                .map_err(|e| e.to_string())?
-                .into_keys()
-                .collect();
-            rawtonic_fileops::refuse_shared_photos(&images, &registered).map_err(|e| e.to_string())
-        })?;
-    }
     // One group per photo; a shared XMP goes with the last of its photos.
     let all = associated_files(&images)?;
     let mut assigned: HashSet<PathBuf> = groups.iter().flatten().cloned().collect();
@@ -1253,6 +1243,22 @@ pub fn trash_photos(
             group.push(xmp);
         }
         groups.push(group);
+    }
+    let photos: Vec<_> = groups
+        .iter()
+        .flatten()
+        .filter(|path| is_supported_image_file(path))
+        .cloned()
+        .collect();
+    if let Some(directory) = crate::session_bridge::active_library_directory() {
+        crate::session_bridge::with_library_blocking(&directory, |lib| {
+            let registered: Vec<_> = lib
+                .index_entries()
+                .map_err(|e| e.to_string())?
+                .into_keys()
+                .collect();
+            rawtonic_fileops::refuse_shared_photos(&photos, &registered).map_err(|e| e.to_string())
+        })?;
     }
     if groups.is_empty() {
         return Err("Nothing to delete was found.".into());

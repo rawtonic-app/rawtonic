@@ -475,10 +475,20 @@ impl Library {
             "SELECT a.id,a.rel_path,r.path,r.external,a.size,a.mtime,a.fingerprint,a.sha256
              FROM assets a JOIN roots r ON r.id=a.root_id ORDER BY a.rowid",
         )?;
+        let mut parents = HashMap::<PathBuf, PathBuf>::new();
         let rows = query.query_map([], |r| {
             Ok(Known {
                 id: r.get(0)?,
-                path: resolved_parent(&self.join_root(r.get(2)?, r.get(3)?, r.get(1)?)),
+                path: {
+                    let path = self.join_root(r.get(2)?, r.get(3)?, r.get(1)?);
+                    match (path.parent(), path.file_name()) {
+                        (Some(parent), Some(name)) => parents
+                            .entry(parent.to_path_buf())
+                            .or_insert_with(|| resolve_moved(parent))
+                            .join(name),
+                        _ => path,
+                    }
+                },
                 size: r.get::<_, i64>(4)? as u64,
                 mtime: r.get(5)?,
                 fingerprint: r.get(6)?,
