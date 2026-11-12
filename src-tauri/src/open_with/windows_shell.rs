@@ -34,10 +34,14 @@ use windows::{
             DeleteDC, DeleteObject, GetDIBits, GetObjectW, HBITMAP,
         },
         Storage::FileSystem::{
-            GetFileVersionInfoSizeW, GetFileVersionInfoW, GetShortPathNameW, VerQueryValueW,
+            FILE_ATTRIBUTE_REPARSE_POINT, GetFileAttributesW, GetFileVersionInfoSizeW,
+            GetFileVersionInfoW, GetShortPathNameW, INVALID_FILE_ATTRIBUTES, VerQueryValueW,
         },
         System::{
-            Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize},
+            Com::{
+                CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+                CoTaskMemFree, CoUninitialize,
+            },
             Registry::{
                 HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, KEY_READ, RegCloseKey, RegEnumValueW,
                 RegOpenKeyExW,
@@ -47,8 +51,10 @@ use windows::{
             Shell::{
                 ASSOC_FILTER, ASSOC_FILTER_RECOMMENDED, ASSOCF_NOTRUNCATE, ASSOCSTR,
                 ASSOCSTR_EXECUTABLE, ASSOCSTR_FRIENDLYAPPNAME, AssocQueryStringW, ExtractIconExW,
-                IAssocHandler, SEE_MASK_CLASSNAME, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC,
-                SHAssocEnumHandlers, SHELLEXECUTEINFOW, SHLoadIndirectString, ShellExecuteExW,
+                FOS_FORCEFILESYSTEM, FOS_NODEREFERENCELINKS, FOS_PATHMUSTEXIST, FileOpenDialog,
+                IAssocHandler, IFileOpenDialog, SEE_MASK_CLASSNAME, SEE_MASK_FLAG_NO_UI,
+                SEE_MASK_NOASYNC, SHAssocEnumHandlers, SHELLEXECUTEINFOW, SHLoadIndirectString,
+                SIGDN_FILESYSPATH, ShellExecuteExW,
             },
             WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO, SW_SHOWNORMAL},
         },
@@ -383,16 +389,78 @@ pub fn apps_for(files: &[&Path]) -> (Vec<AppChoice>, Option<String>) {
     })
 }
 
+/// App execution aliases cannot be opened as ordinary files. Inspect
+/// their directory entry without following the reparse point.
+fn is_alias(program: &str) -> bool {
+    let Ok(path) = wide(Path::new(program)) else {
+        return false;
+    };
+    // SAFETY: a terminated path, no output buffer.
+    let attributes = unsafe { GetFileAttributesW(PCWSTR(path.as_ptr())) };
+    attributes != INVALID_FILE_ATTRIBUTES && attributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+}
+
+pub fn pick(title: &str) -> Result<Option<AppChoice>, String> {
+    shell_thread(|| {
+        // SAFETY: COM is initialized on this thread; owned interfaces and
+        // strings remain alive until the dialog is released.
+        unsafe {
+            let dialog: IFileOpenDialog =
+                CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)
+                    .map_err(|e| e.to_string())?;
+            dialog
+                .SetTitle(&HSTRING::from(title))
+                .map_err(|e| e.to_string())?;
+            // Do not request FILEMUSTEXIST: it validates by opening the
+            // target, which fails for an app execution alias.
+            dialog
+                .SetOptions(FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NODEREFERENCELINKS)
+                .map_err(|e| e.to_string())?;
+            if let Err(e) = dialog.Show(None) {
+                if e.code().0 as u32 == 0x800704c7 {
+                    return Ok(None);
+                }
+                return Err(e.to_string());
+            }
+            let item = dialog.GetResult().map_err(|e| e.to_string())?;
+            let path = take(
+                item.GetDisplayName(SIGDN_FILESYSPATH)
+                    .map_err(|e| e.to_string())?,
+            );
+            describe(&path)
+                .map(Some)
+                .ok_or_else(|| format!("{path} is not a program file."))
+        }
+    })
+}
+
 /// A program the user picked with "Choose program…", as a menu entry,
 /// while its file exists.
 pub fn describe(program: &str) -> Option<AppChoice> {
-    if !handlers::is_program_file(program) || !Path::new(program).is_file() {
+    if !handlers::is_program_file(program) || !(Path::new(program).is_file() || is_alias(program)) {
         return None;
     }
     let path = Path::new(program);
     Some(AppChoice {
         path: program.to_string(),
-        name: description(path).unwrap_or_else(|| handlers::program_file_name(program)),
+        name: description(path)
+            .or_else(|| {
+                shell_thread(|| {
+                    for extension in [".tif", ".jpg", ".png"] {
+                        for (handler, _) in enumerate(extension, ASSOC_FILTER_RECOMMENDED)? {
+                            if handlers::program_file_name(&handler.id)
+                                .eq_ignore_ascii_case(&handlers::program_file_name(program))
+                            {
+                                return Ok(Some(handler.name));
+                            }
+                        }
+                    }
+                    Ok(None)
+                })
+                .ok()
+                .flatten()
+            })
+            .unwrap_or_else(|| handlers::program_file_name(program)),
         is_default: false,
         is_recent: false,
         icon: file_icon(path, 0),
@@ -548,7 +616,9 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
     let first = files.first().ok_or("No files to open.")?;
     let extension = extension_of(first)?;
     let handoff: Vec<PathBuf> = files.iter().map(|f| handoff_path(f)).collect();
-    let program_file = handlers::is_program_file(program) && Path::new(program).is_file();
+    let alias = handlers::is_program_file(program) && is_alias(program);
+    let program_file =
+        handlers::is_program_file(program) && (Path::new(program).is_file() || alias);
     let a_file = Path::new(program).is_absolute() && Path::new(program).is_file();
     shell_thread(|| {
         let offered = enumerate(&extension, ASSOC_FILTER_RECOMMENDED)?
@@ -589,7 +659,24 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
         if !program_file {
             return Err(format!("{program} is not available."));
         }
-        start_program(program, &handoff)?;
+        if alias {
+            for file in &handoff {
+                let executable = HSTRING::from(program);
+                let arguments = HSTRING::from(format!("\"{}\"", file.display()));
+                let mut info = SHELLEXECUTEINFOW {
+                    cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+                    fMask: SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI,
+                    lpFile: PCWSTR(executable.as_ptr()),
+                    lpParameters: PCWSTR(arguments.as_ptr()),
+                    nShow: SW_SHOWNORMAL.0,
+                    ..Default::default()
+                };
+                // SAFETY: strings and info live for the complete shell call.
+                unsafe { ShellExecuteExW(&mut info) }.map_err(|e| e.to_string())?;
+            }
+        } else {
+            start_program(program, &handoff)?;
+        }
         Ok(launched)
     })
 }
@@ -618,6 +705,29 @@ mod tests {
         eprintln!("default {default:?}");
         assert!(!apps.is_empty());
         assert!(apps.iter().any(|a| a.icon.is_some()));
+    }
+
+    #[test]
+    #[ignore = "requires the Paint app execution alias installed and enabled"]
+    fn an_execution_alias_is_described_remembered_and_launched() {
+        let alias = format!(
+            r"{}\Microsoft\WindowsApps\mspaint.exe",
+            std::env::var("LOCALAPPDATA").unwrap()
+        );
+        assert!(is_alias(&alias));
+        let choice = describe(&alias).expect("an alias is a selectable program");
+        assert_ne!(choice.name.to_lowercase(), "mspaint");
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("Größe mit Leerzeichen.tiff");
+        image::RgbImage::from_pixel(1, 1, image::Rgb([255, 255, 255]))
+            .save(&file)
+            .unwrap();
+        let before = std::fs::read(&file).unwrap();
+        open(&alias, std::slice::from_ref(&file)).unwrap();
+        let pids = started_with(&handoff_path(&file));
+        assert!(!pids.is_empty());
+        stop(&pids);
+        assert_eq!(std::fs::read(&file).unwrap(), before);
     }
 
     /// The processes whose command line names `file`, after waiting up to

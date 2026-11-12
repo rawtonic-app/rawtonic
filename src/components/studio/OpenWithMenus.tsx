@@ -25,6 +25,7 @@ import {
  * program file on Windows. */
 async function pickApplication(title: string): Promise<string | null> {
   const windows = useSettingsStore.getState().osPlatform === 'windows';
+  if (windows) return (await invoke<AppChoice | null>(Invokes.OpenWithPick, { title }))?.path ?? null;
   const chosen = await openDialog({
     title,
     defaultPath: windows ? 'C:\\Program Files' : '/Applications',
@@ -33,6 +34,11 @@ async function pickApplication(title: string): Promise<string | null> {
     filters: windows ? [{ name: 'Programs', extensions: ['exe'] }] : [{ name: 'Applications', extensions: ['app'] }]
   });
   return typeof chosen === 'string' ? chosen : null;
+}
+
+async function displayName(program: string): Promise<string> {
+  const choice = await invoke<AppChoice | null>(Invokes.OpenWithDescribe, { program }).catch(() => null);
+  return choice?.name || programName(program);
 }
 
 /** Opens the originals of `paths` in `program`, once their pending edits
@@ -85,12 +91,11 @@ interface InterruptedEditWith {
 
 /** At start-up: each Edit With a quit or crash cut short waits under Needs
  * attention with Try again, which runs Edit With again on its photographs
- * with its program and the recipe chosen now. Its renders are never
- * resumed; files it already wrote stay, and the new run writes new names. */
+ * with its program and the recipe chosen now. Only unfinished photos are offered; finished files remain in place. */
 export async function offerInterruptedEditWith(t: TFunction) {
   const runs = await invoke<InterruptedEditWith[]>(Invokes.EditWithInterrupted).catch(() => null);
   for (const run of Array.isArray(runs) ? runs : []) {
-    notify.warn(t('contextMenus.editWith.interrupted', { app: programName(run.program) }), {
+    notify.warn(t('contextMenus.editWith.interrupted', { app: await displayName(run.program) }), {
       toastId: `edit-with-interrupted:${run.program}:${run.photos.join('\n')}`,
       source: 'export',
       paths: run.photos,
@@ -101,7 +106,14 @@ export async function offerInterruptedEditWith(t: TFunction) {
           run: async () => {
             const recipes = editRecipes(useSettingsStore.getState().appSettings?.exportPresets);
             const prefs = await invoke<OpenWithPrefs>(Invokes.OpenWithPrefs).catch(() => null);
-            await editPhotosWith(run.photos, chosenRecipe(recipes, prefs?.editRecipe), run.program, t);
+            await editPhotosWith(
+              run.photos,
+              chosenRecipe(recipes, prefs?.editRecipe),
+              run.program,
+              t,
+              undefined,
+              await displayName(run.program)
+            );
           }
         }
       ]
@@ -139,7 +151,7 @@ function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string
       onClick: () =>
         void pickApplication(t('contextMenus.openWith.chooseTitle'))
           .catch(() => null)
-          .then((path) => path && onPick(path, programName(path)))
+          .then(async (path) => path && onPick(path, await displayName(path)))
     }
   ];
 }
@@ -220,7 +232,7 @@ function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path:
         className="rawtonic-menu-item"
         onClick={async () => {
           const path = await pickApplication(t('contextMenus.openWith.chooseTitle')).catch(() => null);
-          if (path) onPick(path, programName(path));
+          if (path) onPick(path, await displayName(path));
         }}
       >
         <span className="flex items-center gap-2.5 min-w-0">

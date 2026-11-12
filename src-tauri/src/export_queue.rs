@@ -591,7 +591,8 @@ pub fn open(app: &AppHandle) {
 /// files they already rendered stay. Returns their Edit With runs, each
 /// once.
 fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<EditWithRun>> {
-    let mut runs = Vec::new();
+    let mut runs: Vec<EditWithRun> = Vec::new();
+    let mut groups: Vec<EditWithRun> = Vec::new();
     for job in queue.jobs()? {
         if !matches!(
             job.state,
@@ -603,8 +604,24 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<EditWithRun>
             continue;
         };
         queue.cancel(&job.id)?;
-        if !runs.contains(&run) {
-            runs.push(run);
+        // Each Edit With job contains one photo. Keep the click identity
+        // for grouping, but retry only this unfinished job's photos.
+        let paths: Vec<String> = serde_json::from_value(job.request["paths"].clone())?;
+        let index = groups
+            .iter()
+            .position(|group| group == &run)
+            .unwrap_or_else(|| {
+                groups.push(run.clone());
+                runs.push(EditWithRun {
+                    program: run.program.clone(),
+                    photos: Vec::new(),
+                });
+                runs.len() - 1
+            });
+        for path in paths {
+            if !runs[index].photos.contains(&path) {
+                runs[index].photos.push(path);
+            }
         }
     }
     Ok(runs)
@@ -1346,6 +1363,40 @@ mod tests {
         assert_eq!(state(&ids[2]), JobState::Queued);
         // Offered once: the next start finds nothing more to end.
         assert!(on_queue(&queue, end_interrupted_edits).unwrap().is_empty());
+    }
+
+    #[test]
+    fn retry_does_not_render_photos_that_finished_before_quit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = tmp.path().join("A.NEF").to_string_lossy().into_owned();
+        let b = tmp.path().join("B.NEF").to_string_lossy().into_owned();
+        std::fs::write(&a, b"raw").unwrap();
+        std::fs::write(&b, b"raw").unwrap();
+        let run = EditWithRun {
+            program: "Editor.exe".into(),
+            photos: vec![a.clone(), b.clone()],
+        };
+        let edit = |path: &String| ExportRequest {
+            edit_with: Some(run.clone()),
+            ..request(std::slice::from_ref(path), None)
+        };
+        let (_dir, queue) = test_queue();
+        let ids = queue_pinned(&queue, vec![edit(&a), edit(&b)]).unwrap();
+        on_queue(&queue, |q| {
+            q.start_next()?;
+            q.item_done(&ids[0], 0)?;
+            q.finish(&ids[0], rawtonic_export::queue::RunEnd::Completed)?;
+            q.start_next()?;
+            q.recover()
+        })
+        .unwrap();
+        assert_eq!(
+            on_queue(&queue, end_interrupted_edits).unwrap(),
+            [EditWithRun {
+                program: run.program,
+                photos: vec![b]
+            }]
+        );
     }
 
     #[test]

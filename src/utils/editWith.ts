@@ -1,3 +1,4 @@
+import { refreshStacks } from '../store/useStackStore';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import type { ExportPreset, ExportSettings } from '../components/ui/ExportImportProperties';
@@ -115,7 +116,8 @@ export function editRequest(recipe: EditRecipe) {
     destinationType: 'customFolder',
     subfolder: '',
     filenameTemplate: null,
-    exportMasks: false
+    exportMasks: false,
+    preserveTimestamps: false
   };
   return {
     paths: [] as string[],
@@ -199,5 +201,6 @@ export async function runEditWith(paths: string[], recipe: EditRecipe, program: 
   const counts = { rendered: rendered.length, failed: targets.length - rendered.length };
   if (!rendered.length) return { ...counts, linked: 0, problems: [] };
   const result = await invoke<EditWithResult>(Invokes.EditWithFinish, { items: rendered, program });
+  await refreshStacks();
   return { ...counts, ...result };
 }

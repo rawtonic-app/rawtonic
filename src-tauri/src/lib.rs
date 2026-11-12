@@ -1109,6 +1109,8 @@ fn start(args: Vec<String>) {
             file_management::duplicate_file,
             file_management::show_in_finder,
             open_with::open_with_apps,
+            open_with::open_with_describe,
+            open_with::open_with_pick,
             open_with::edit_with_apps,
             open_with::open_with_open,
             open_with::open_with_prefs,

@@ -530,6 +530,44 @@ fn add_picked(
     }
 }
 
+/// Resolve the same UI name for picked programs and interrupted runs.
+#[tauri::command]
+pub async fn open_with_describe(program: String) -> Option<AppChoice> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let files = [Path::new("probe.tif"), Path::new("probe.jpg")];
+        for file in files {
+            if let Some(choice) = platform::apps_for(&[file])
+                .0
+                .into_iter()
+                .find(|choice| choice.path.eq_ignore_ascii_case(&program))
+            {
+                return Some(choice);
+            }
+        }
+        platform::describe(&program)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Windows' generic picker tries to open aliases to validate them. Pick
+/// their path without dereferencing; launch validation happens at handoff.
+#[tauri::command]
+pub async fn open_with_pick(title: String) -> Result<Option<AppChoice>, String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || windows_shell::pick(&title))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = title;
+        Ok(None)
+    }
+}
+
 /// The programs that open the originals of `paths`.
 #[tauri::command]
 pub async fn open_with_apps(paths: Vec<String>, app: AppHandle) -> Result<AppChoices, String> {
@@ -684,10 +722,12 @@ struct Snapshotted {
 /// name can be reserved for it.
 fn plan_edits(
     paths: Vec<String>,
-    recipe: ExportRequest,
+    mut recipe: ExportRequest,
     queue: &Mutex<Option<rawtonic_export::queue::ExportQueue>>,
     generated: &dyn Fn(&serde_json::Value) -> bool,
 ) -> Result<(Vec<EditTarget>, Vec<String>), CommandError> {
+    // An edit is a newly rendered file, even for saved recipes that preserve dates.
+    recipe.export_settings.preserve_timestamps = false;
     let submitted = recipe.library.directory().map(Path::to_path_buf);
     let mut targets = plan_targets(paths, &recipe.output_format, &|original| {
         crate::session_bridge::culling_library_for(original, submitted.as_deref())
@@ -822,6 +862,11 @@ pub fn link_render(
     );
     let edit = lib.add_asset(render)?;
     lib.set_derived_from(&edit.id, &original.id)?;
+    let top = lib.derived_from(&original.id)?.unwrap_or(original);
+    lib.group_stack(&[
+        rawtonic_catalog::stacks::Member::photo(&top.id),
+        rawtonic_catalog::stacks::Member::photo(&edit.id),
+    ])?;
     if let Some(metadata) = metadata {
         lib.set_metadata(&edit.id, metadata)?;
     }
@@ -1313,9 +1358,11 @@ mod tests {
         let dir = tmp.path().join("S");
         let queue = Queue::new();
 
+        let mut recipe = tiff_recipe(None, Some(&dir));
+        recipe.export_settings.preserve_timestamps = true;
         let (targets, jobs) = plan_edits(
             vec![source.to_string_lossy().into_owned()],
-            tiff_recipe(None, Some(&dir)),
+            recipe,
             &queue.queue,
             &|_| false,
         )
@@ -1341,6 +1388,12 @@ mod tests {
 
         let edit = lib.asset_at(&render).unwrap().unwrap();
         assert_eq!(lib.derived_from(&edit.id).unwrap().unwrap().id, original.id);
+        let stacks = lib.stacks().unwrap();
+        assert_eq!(stacks.len(), 1);
+        assert_eq!(stacks[0].members.len(), 2);
+        assert_eq!(stacks[0].members[0].asset_id, original.id);
+        assert_eq!(stacks[0].members[1].asset_id, edit.id);
+        assert!(!request.export_settings.preserve_timestamps);
         assert_eq!(lib.metadata(&edit.id).unwrap().rating, 4);
         assert_eq!(fs::read(&source).unwrap(), before);
     }

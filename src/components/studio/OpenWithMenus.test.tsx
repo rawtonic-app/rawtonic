@@ -94,6 +94,8 @@ it('on Windows, Other… asks for a program file and Edit With names the program
   };
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'open_with_pick')
+      return { ...windowsApps.apps[1], path: 'D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe' };
     if (command === 'edit_with_apps' || command === 'open_with_apps') return windowsApps;
   });
   try {
@@ -112,10 +114,7 @@ it('on Windows, Other… asks for a program file and Edit With names the program
         paths
       })
     );
-    expect(vi.mocked(open).mock.lastCall![0]).toMatchObject({
-      defaultPath: 'C:\\Program Files',
-      filters: [{ extensions: ['exe'] }]
-    });
+    expect(mockInvoke).toHaveBeenCalledWith('open_with_pick', { title: expect.any(String) });
   } finally {
     useSettingsStore.setState({ osPlatform: '' });
   }
@@ -175,6 +174,8 @@ it('says Edit With is not available for photographs with generated areas', async
   });
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'open_with_pick')
+      return { ...windowsApps.apps[1], path: 'D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe' };
     if (command === 'edit_with_apps') return apps;
   });
   render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
@@ -191,6 +192,8 @@ it("shows another Edit With failure's message, also one that starts like the gen
   vi.mocked(runEditWith).mockRejectedValueOnce({ code: 'internal', message: 'generated-areas: not the code' });
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'open_with_pick')
+      return { ...windowsApps.apps[1], path: 'D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe' };
     if (command === 'edit_with_apps') return apps;
   });
   render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
@@ -203,9 +206,10 @@ it("shows another Edit With failure's message, also one that starts like the gen
 
 it('offers an Edit With a quit cut short again: Try again renders its photos for its program', async () => {
   const { notify } = await import('../../activity/notify');
-  const run = { program: '/Applications/Paint.app', photos: [paths[0], paths[1]] };
+  const run = { program: 'C:\\Users\\test\\WindowsApps\\mspaint.exe', photos: [paths[0], paths[1]] };
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'edit_with_interrupted') return [run];
+    if (command === 'open_with_describe') return { path: run.program, name: 'Paint' };
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: 'builtin-tiff16-prophoto' };
   });
   await offerInterruptedEditWith(i18n.t);
