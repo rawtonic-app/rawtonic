@@ -1,0 +1,10 @@
+# WCC3 round 12 (G76): (b) the ceiling of one call site for the Shadows/Blacks gain (`camera_raw_shadows_blacks_gain` as a loop over its anchors, `gl`) and also for Whites (`cr_whites_gain`, `gw`), compile time only; (a) what the supersets a background compile would prepare cost. The .wgsl files exist on the probe branch only (nielsfranke/wcc3-probe12). Run with COMPILE_PROBE_TIMEOUT=600 from the artifact folder.
+r12_4145 features=4145 dce
+r12_gl_4145 features=4145 dce src=compile_probe_round12_gainloop.wgsl
+r12_gw_4145 features=4145 dce src=compile_probe_round12_gainwhites.wgsl
+r12_gw_36927 features=36927 dce src=compile_probe_round12_gainwhites.wgsl
+r12_gw_53299 features=53299 dce src=compile_probe_round12_gainwhites.wgsl
+r12_gw_323647 features=323647 dce src=compile_probe_round12_gainwhites.wgsl
+r12_E features=2101265 dce
+r12_gw_E features=2101265 dce src=compile_probe_round12_gainwhites.wgsl
+r12_53299 features=53299 dce
