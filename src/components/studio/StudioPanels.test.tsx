@@ -1,4 +1,5 @@
 import '../../i18n';
+import { registerAppCommands } from '../../utils/appCommands';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import StudioWorkspace from './StudioWorkspace';
@@ -320,6 +321,7 @@ it('shows a loose photo alone and highlighted, then restores the library on retu
   expect(film.querySelector('.studio-photo-open')?.getAttribute('title')).toContain('current.dng');
   expect(film.querySelector('.is-current')).not.toBeNull();
   expect(film.textContent).not.toContain('a.dng');
+  const unregister = registerAppCommands({ import_photos: { run: noop } });
   const importing = vi.fn();
   window.addEventListener('rawtonic:import-external-photo', importing);
   fireEvent.contextMenu(film.querySelector('[role="option"]')!);
@@ -327,6 +329,7 @@ it('shows a loose photo alone and highlighted, then restores the library on retu
   expect(importing).toHaveBeenCalledOnce();
   expect((importing.mock.calls[0][0] as CustomEvent).detail.paths).toEqual(['/qa/current.dng']);
   window.removeEventListener('rawtonic:import-external-photo', importing);
+  unregister();
   act(() => useUIStore.setState({ activeView: 'library' }));
   expect(container.querySelector('.studio-library-footer')?.textContent).toContain('1');
   expect(screen.getByRole('listbox').textContent).toContain('a.dng');

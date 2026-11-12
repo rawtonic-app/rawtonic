@@ -113,7 +113,7 @@ import {
   reselectForDevelop,
   topEdgeDragsWindow
 } from './workspaceInteractions';
-import { registerAppCommands, runAppCommand } from '../../utils/appCommands';
+import { appCommandEnabled, registerAppCommands, runAppCommand } from '../../utils/appCommands';
 import ViewerInfoOverlay from './ViewerInfoOverlay';
 import GraphicsPreparingNotice from './GraphicsPreparingNotice';
 import { LoupeFaces } from './StudioEyes';
@@ -287,8 +287,7 @@ export default function StudioWorkspace(props: Props) {
           ? { x: rect.left, y: rect.bottom }
           : { x: event.clientX, y: event.clientY }
       );
-    } else if (externalPhoto) externalContextMenu(event);
-    else onEditorContextMenu(event);
+    } else onEditorContextMenu(event);
   };
   const {
     activeView,
@@ -422,6 +421,7 @@ export default function StudioWorkspace(props: Props) {
     showContextMenu(event.clientX, event.clientY, [
       {
         label: t('studio.workspace.footer.addToLibrary'),
+        disabled: !appCommandEnabled('import_photos'),
         onClick: () =>
           window.dispatchEvent(
             new CustomEvent('rawtonic:import-external-photo', {
