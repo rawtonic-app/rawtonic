@@ -827,6 +827,8 @@ export function normalizeCombo(event: KeyboardEvent, osPlatform?: string, librar
   if (event.shiftKey) parts.push('shift');
   if (event.altKey) parts.push('alt');
   let code = isMacDelete ? 'Delete' : event.code;
+  // Defensively accept punctuation events that omit the physical code.
+  if (!code && event.key === ',') code = 'Comma';
   if (event.key && /^[a-zA-Z]$/.test(event.key)) {
     code = `Key${event.key.toUpperCase()}`;
   } else if (/^Numpad[0-9]$/.test(code)) {

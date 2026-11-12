@@ -1,3 +1,4 @@
+import { useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useActivityStore } from '../../store/useActivityStore';
 import { appCommand, runAppCommand } from '../../utils/appCommands';
@@ -81,6 +82,7 @@ const backend = (command: string, created: SessionSummary): unknown =>
 afterEach(() => cleanup());
 beforeEach(() => {
   cleanup();
+  useEditorStore.setState({ selectedImage: null });
   vi.clearAllMocks();
   localStorage.clear();
   useSettingsStore.setState({ appSettings: null });
@@ -178,6 +180,13 @@ describe('Session workspace keyboard flows', () => {
     await user.type(screen.getByLabelText('Project name'), 'Acme');
     await user.click(screen.getByRole('button', { name: 'Location' }));
     await user.click(screen.getByRole('button', { name: 'Create project' }));
+    act(() =>
+      useLibraryStore.setState({
+        imageList: [0, 1, 2].map((i) => ({ path: `/missing${i}.arw`, is_offline: true })) as ReturnType<
+          typeof useLibraryStore.getState
+        >['imageList']
+      })
+    );
     expect(await screen.findByRole('img', { name: '3 offline' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '2 XMP not updated' })).toBeTruthy();
   });
@@ -788,4 +797,46 @@ it('keeps offline recents after a failed open and never records the failed attem
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Error: Drive is disconnected'));
   expect(navigate).not.toHaveBeenCalled();
   expect(useSettingsStore.getState().appSettings?.recentLibraries).toEqual(['/offline/Session']);
+});
+
+it('hides welcome when a launch file opens without a library', () => {
+  const view = render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+  expect(view.container.querySelector('.session-welcome')).toBeTruthy();
+  act(() =>
+    useEditorStore.setState({
+      selectedImage: { path: '/photo.arw', width: 6000, height: 4000 } as NonNullable<
+        ReturnType<typeof useEditorStore.getState>['selectedImage']
+      >
+    })
+  );
+  expect(view.container.querySelector('.session-welcome')).toBeNull();
+});
+it('counts the same photographs as the loaded grid', async () => {
+  const user = userEvent.setup();
+  const view = render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+  await user.click(screen.getByRole('button', { name: 'Create a project' }));
+  await user.type(screen.getByLabelText('Project name'), 'Acme');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  await user.click(screen.getByRole('button', { name: 'Create project' }));
+  await waitFor(() => expect(view.container.querySelector('.session-count-total')).toBeTruthy());
+  act(() =>
+    useLibraryStore.setState({
+      imageList: Array.from({ length: 8 }, (_, i) => ({ path: `/photo${i}.arw`, is_offline: i === 0 })) as ReturnType<
+        typeof useLibraryStore.getState
+      >['imageList']
+    })
+  );
+  act(() => useLibraryStore.setState({ imageFlags: { '/photo0.arw': 1, '/other.arw': 1 } }));
+  expect(view.container.querySelector('.session-count-total')?.textContent).toContain('8 photos');
+  expect(view.container.querySelector('.session-count-total')?.textContent).toContain('1 picked');
+  expect(screen.getByRole('img', { name: '1 offline' })).toBeTruthy();
+  act(() =>
+    useLibraryStore.setState({
+      imageList: [...useLibraryStore.getState().imageList, { path: '/photo0.arw?vc=copy' }] as ReturnType<
+        typeof useLibraryStore.getState
+      >['imageList']
+    })
+  );
+  expect(view.container.querySelector('.session-count-total')?.textContent).toContain('9 photos');
+  expect(view.container.querySelector('.session-count-total')?.textContent).toContain('2 picked');
 });

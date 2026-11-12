@@ -1,3 +1,4 @@
+import { imageFlag } from '../../utils/culling';
 import { buildComboMap, normalizeCombo } from '../../utils/keyboardUtils';
 import { withMovedLibrary, withRecentLibrary } from '../../utils/recentLibraries';
 import { validNamingTemplate, validSequenceStart, type NamePreview } from '../../utils/namingTemplates';
@@ -525,7 +526,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const ingestSize = useIngestDialogSize();
   const restored = useRef(false);
   const summaryRequest = useRef(0);
+  const selectedPhoto = useEditorStore((s) => s.selectedImage);
   const imageList = useLibraryStore((s) => s.imageList);
+  const imageFlags = useLibraryStore((s) => s.imageFlags);
+  const gridPicked = useMemo(
+    () => imageList.filter((image) => imageFlag(imageFlags, image.path) === 1).length,
+    [imageList, imageFlags]
+  );
+  const gridMissing = useMemo(() => imageList.filter((image) => image.is_offline).length, [imageList]);
   const roots = useLibraryStore((s) => s.rootPaths);
 
   const navigate = useCallback(
@@ -1852,22 +1860,22 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             >
               <span className="session-count-total">
                 {t('session.bar.photos', {
-                  count: session.assets,
-                  formatted: session.assets.toLocaleString()
+                  count: imageList.length,
+                  formatted: imageList.length.toLocaleString()
                 })}
-                {session.picked > 0 && ` · ${t('session.bar.picked', { count: session.picked })}`}
+                {gridPicked > 0 && ` · ${t('session.bar.picked', { count: gridPicked })}`}
               </span>
-              {(session.missing ?? 0) > 0 && (
+              {gridMissing > 0 && (
                 <span
                   className="session-count-offline"
                   role="img"
-                  aria-label={t('offline.sessionCount', { count: session.missing })}
+                  aria-label={t('offline.sessionCount', { count: gridMissing })}
                   title={t('offline.sessionCountTitle')}
                 >
                   <span
                     className="session-count-status-text"
                     aria-hidden
-                  >{` · ${t('offline.sessionCount', { count: session.missing })}`}</span>
+                  >{` · ${t('offline.sessionCount', { count: gridMissing })}`}</span>
                 </span>
               )}
               <SessionXmpStatus
@@ -1944,7 +1952,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           onClose={() => setTetherOpen(false)}
         />
       )}
-      {!session && imageList.length === 0 && roots.length === 0 && (
+      {!session && imageList.length === 0 && roots.length === 0 && !selectedPhoto && (
         <div className="session-welcome">
           <RawtonicMark size={48} />
           <h1>{t('session.welcome.title')}</h1>

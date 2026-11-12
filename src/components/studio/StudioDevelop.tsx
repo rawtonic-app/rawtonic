@@ -1,3 +1,4 @@
+import { platformLabel } from '../../utils/platformLabels';
 import { cropResetValues } from '../../utils/cameraCrop';
 import { useToolBeforeHold } from '../../hooks/useToolBeforeHold';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -760,7 +761,7 @@ export default function StudioDevelop() {
   const appSettings = useSettingsStore((s) => s.appSettings);
   const handleSettingsChange = useSettingsStore((s) => s.handleSettingsChange);
   const setAppSettings = useSettingsStore((s) => s.setAppSettings);
-  const isMac = useSettingsStore((s) => s.osPlatform === 'macos');
+  const osPlatform = useSettingsStore((s) => s.osPlatform);
   const maskDisplay = maskDisplayOf(appSettings);
   const maskDisplayLabel = t('studio.develop.maskOverlay.currentMode', {
     mode: t(`studio.develop.maskOverlay.modes.${maskDisplay}`)
@@ -1073,7 +1074,7 @@ export default function StudioDevelop() {
             className="studio-tool-auto"
             disabled={!panelsReady}
             aria-label={t('studio.develop.whiteBalance.auto')}
-            title={t('studio.develop.whiteBalance.autoTitle', { shortcut: '⌘⇧U' })}
+            title={t('studio.develop.whiteBalance.autoTitle', { shortcut: platformLabel('⌘⇧U', osPlatform) })}
             onClick={(e) => {
               e.preventDefault();
               void handleAutoWhiteBalance();
@@ -1254,7 +1255,7 @@ export default function StudioDevelop() {
                   <div className="studio-inline">
                     <label
                       title={t('studio.develop.maskOverlay.showMaskTitle', {
-                        key: isMac ? '⌥M' : 'Alt+M'
+                        key: platformLabel('⌥M', osPlatform)
                       })}
                     >
                       {t('studio.develop.maskOverlay.showMask')}
@@ -1399,7 +1400,7 @@ export default function StudioDevelop() {
                     type="button"
                     className="studio-tool-auto"
                     disabled={!panelsReady}
-                    title={t('studio.develop.auto.title', { shortcut: '⌘L' })}
+                    title={t('studio.develop.auto.title', { shortcut: platformLabel('⌘L', osPlatform) })}
                     onClick={(e) => {
                       e.preventDefault();
                       handleAutoAdjustments();

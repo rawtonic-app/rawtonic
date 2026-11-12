@@ -10,6 +10,11 @@ use std::panic;
 use std::sync::{OnceLock, mpsc};
 use tauri::Manager;
 
+/// Windows/Linux floor requested for a usable two-panel Develop workspace.
+/// This deliberately cannot fit a 960px half-screen tile at 100% DPI.
+#[cfg(any(not(target_os = "macos"), test))]
+pub(crate) const MIN_WINDOW_SIZE: (f64, f64) = (1000.0, 600.0);
+
 enum LogMessage {
     Line(String),
     Flush(mpsc::SyncSender<()>),
@@ -1020,5 +1025,30 @@ mod work_area_tests {
     #[test]
     fn no_monitor_known_changes_nothing() {
         assert_eq!(fit(rect(0, -62, 1800, 1125), &[]), WorkAreaFit::Keep);
+    }
+}
+
+/// Also enforce the floor after Win32 resizes that bypass interactive tracking.
+#[cfg(any(windows, test))]
+pub(crate) fn minimum_window_size(width: f64, height: f64) -> Option<tauri::LogicalSize<f64>> {
+    (width < MIN_WINDOW_SIZE.0 || height < MIN_WINDOW_SIZE.1).then(|| {
+        tauri::LogicalSize::new(width.max(MIN_WINDOW_SIZE.0), height.max(MIN_WINDOW_SIZE.1))
+    })
+}
+
+#[cfg(test)]
+mod minimum_size_tests {
+    #[test]
+    fn clamps_logical_client_dimensions_without_shrinking_other_axis() {
+        for (width, height, expected) in [
+            (150.0, 100.0, (1000.0, 600.0)),
+            (600.0, 350.0, (1000.0, 600.0)),
+            (1200.0, 350.0, (1200.0, 600.0)),
+        ] {
+            let size = super::minimum_window_size(width, height).unwrap();
+            assert_eq!((size.width, size.height), expected);
+        }
+        assert!(super::minimum_window_size(1000.0, 600.0).is_none());
+        assert!(super::minimum_window_size(1440.0, 900.0).is_none());
     }
 }

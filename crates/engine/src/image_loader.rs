@@ -816,7 +816,11 @@ pub fn priority_embedded_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
         use little_exif::{exif_tag::ExifTag, filetype::FileExtension, metadata::Metadata};
         // Some camera previews contain no EXIF segment at all. little_exif
         // reports that as an error, so start a new segment in this copy.
-        let mut metadata = Metadata::new_from_vec(&jpeg, FileExtension::JPEG).unwrap_or_default();
+        let mut metadata = if jpeg.windows(6).any(|bytes| bytes == b"Exif\0\0") {
+            Metadata::new_from_vec(&jpeg, FileExtension::JPEG).unwrap_or_default()
+        } else {
+            Metadata::new()
+        };
         metadata.set_tag(ExifTag::Orientation(vec![orientation]));
         metadata.write_to_vec(&mut jpeg, FileExtension::JPEG).ok()?;
     }
@@ -1724,6 +1728,23 @@ mod private_preview_tests {
                 "orientation metadata must not re-encode camera JPEG pixels"
             );
         }
+    }
+
+    #[test]
+    fn preview_without_exif_gets_orientation_without_changing_jpeg_pixels() {
+        let image = DynamicImage::new_rgb8(7, 3);
+        let mut jpeg = Cursor::new(Vec::new());
+        image.write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+        let jpeg = jpeg.into_inner();
+        assert!(!jpeg.windows(6).any(|bytes| bytes == b"Exif\0\0"));
+        let raw = raf_with_jpeg(&jpeg);
+        let preview = priority_embedded_jpeg(&raw).unwrap();
+        assert_eq!(exif_orientation(&preview), Some(1));
+        assert_eq!(
+            image::load_from_memory(&preview).unwrap().to_rgb8(),
+            image::load_from_memory(&jpeg).unwrap().to_rgb8()
+        );
+        assert_eq!(raf_embedded_jpeg(&raw), Some(jpeg.as_slice()));
     }
 
     #[test]

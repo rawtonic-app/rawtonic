@@ -7436,3 +7436,27 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   flex-shrink: 0;
   white-space: pre;
 }
+
+/* Keep the destructive control's pressed feedback distinct on Windows/Linux. */
+.studio-app.custom-window-chrome .studio-window-close:active,
+.studio-app.linux-unified-chrome .studio-window-close:active {
+  background: #a5252d;
+}
+.studio-app.custom-window-chrome .studio-viewer-filename,
+.studio-app.linux-unified-chrome .studio-viewer-filename {
+  flex-basis: auto;
+  max-width: none;
+}
+.studio-app.custom-window-chrome .studio-photo-name,
+.studio-app.linux-unified-chrome .studio-photo-name {
+  flex: 0 1 auto;
+}
+
+.studio-app.custom-window-chrome .studio-viewer-footer > .studio-viewer-side:first-child,
+.studio-app.linux-unified-chrome .studio-viewer-footer > .studio-viewer-side:first-child {
+  flex: 1 1 auto;
+}
+.studio-app.custom-window-chrome .studio-viewer-footer > .studio-viewer-side.is-end,
+.studio-app.linux-unified-chrome .studio-viewer-footer > .studio-viewer-side.is-end {
+  flex: 0 0 auto;
+}
