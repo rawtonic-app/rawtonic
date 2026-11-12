@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Thumbnails, the Library loupe, the Standard preview and the Develop fit view are reduced from the photo with the export's Lanczos filter instead of an area average: unedited, they now carry 0.8–1.3× the fine detail of the export scaled to the same size (before 0.13–1.0×; the fit view looked softer than the export). In these reduced views, Luminance noise reduction and the noise gate of capture sharpening now work from the photo's full-resolution noise level. Before, the views kept up to 3–7× the export's luminance noise at high ISO and showed up to 3× the export's sharpening at Radius 2.5. Colour noise reduction in reduced views still differs from the export (open). Exports are unchanged.
+
 - Loose photos opened in Develop appear alone and highlighted in the filmstrip, with an explicit library status and an Add to library action that opens import for review. Returning to Library restores its photos. On Windows, when enforcing the interface minimum makes the window grow past the screen, it is moved back inside the monitor work area.
 
 - **Windows: Open With and Edit With.** Both list the programs Windows offers for the file type (the recommended programs of Explorer's *Open with*, such as Photos and Paint, with their icons; the default first), plus *Other…* for any program file (`.exe`), which is remembered and offered from then on. Edit With renders the photos beside their originals as on the Mac, adds them to the library stacked with their originals, opens them in the program and picks up its saves. Paths with spaces and non-Latin letters work; a path of 260 characters or more is handed over in its short form where the volume has one.

@@ -7,7 +7,6 @@ pub mod avif_container;
 pub mod exif_processing;
 pub mod export_processing;
 pub mod file_export;
-pub mod lanczos;
 pub mod normalize;
 pub mod output;
 pub mod output_sharpening;

@@ -1,4 +1,5 @@
-//! Lanczos3 resizing of export renders with the arithmetic of the image
+//! Lanczos3 resizing (export renders, reduced display bases:
+//! `image_processing::resample_f32_image`) with the arithmetic of the image
 //! crate's `imageops::resize` (the same bytes), its rows in parallel.
 //!
 //! The image crate resizes on one thread and reads every tap through

@@ -1002,7 +1002,7 @@ pub fn apply_export_geometry(
             if target_w != src_w || target_h != src_h {
                 // The target already preserves the aspect ratio to a whole pixel.
                 // Fitting it again can shrink the requested edge (2048 -> 2047).
-                image = crate::lanczos::resize_exact(&image, target_w, target_h);
+                image = rawtonic_engine::lanczos::resize_exact(&image, target_w, target_h);
             }
             if let Some(sharpening) = &export_settings.output_sharpening {
                 crate::output_sharpening::apply(&mut image, sharpening);
@@ -1025,7 +1025,7 @@ pub fn apply_export_geometry(
         }
         Some(geometry) => {
             if geometry.photo_w != src_w || geometry.photo_h != src_h {
-                image = crate::lanczos::resize_exact(&image, geometry.photo_w, geometry.photo_h);
+                image = rawtonic_engine::lanczos::resize_exact(&image, geometry.photo_w, geometry.photo_h);
             }
             if let Some(sharpening) = &export_settings.output_sharpening {
                 crate::output_sharpening::apply(&mut image, sharpening);

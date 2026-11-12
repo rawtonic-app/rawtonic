@@ -525,6 +525,84 @@ pub fn downscale_f32_image(image: &DynamicImage, nwidth: u32, nheight: u32) -> D
     downscale_f32(image, nwidth, nheight, true)
 }
 
+/// `image` reduced to fit `nwidth` x `nheight` (aspect kept, as
+/// [`downscale_f32_image`]) with the export's Lanczos3 filter
+/// ([`crate::lanczos`]), in the linear light the photograph is decoded in,
+/// negative ringing clamped to zero. For the reduced copies the display
+/// renders instead of the photograph (fit view, Library loupe, Standard
+/// preview, thumbnails): they must show what the export shows at that size,
+/// and the export is resized with this filter. The area average of
+/// [`downscale_f32_image`] keeps only 0.3–0.7 of the power between 0.2 and
+/// 0.5 cycles per pixel that the export resized to the same size keeps,
+/// and two such reductions in a row (fit view: to its headroom, then to the
+/// view) keep less still (notes: benchmark-results/tpx-thumb-parity-2026-11-12).
+/// Never enlarges.
+pub fn resample_f32_image(image: &DynamicImage, nwidth: u32, nheight: u32) -> DynamicImage {
+    let (width, height) = image.dimensions();
+    if nwidth == 0 || nheight == 0 || (nwidth >= width && nheight >= height) {
+        return image.clone();
+    }
+    let ratio = (nwidth as f32 / width as f32).min(nheight as f32 / height as f32);
+    let new_w = (width as f32 * ratio).round() as u32;
+    let new_h = (height as f32 * ratio).round() as u32;
+    if new_w == 0 || new_h == 0 {
+        return image.clone();
+    }
+    let rgb = match image {
+        DynamicImage::ImageRgb32F(_) => std::borrow::Cow::Borrowed(image),
+        other => std::borrow::Cow::Owned(DynamicImage::ImageRgb32F(other.to_rgb32f())),
+    };
+    let mut out = match crate::lanczos::resize_exact(&rgb, new_w, new_h) {
+        DynamicImage::ImageRgb32F(buffer) => buffer,
+        other => other.to_rgb32f(),
+    };
+    for v in out.iter_mut() {
+        *v = v.max(0.0);
+    }
+    DynamicImage::ImageRgb32F(out)
+}
+
+/// A rendered sRGB image (8 or 16 bit) reduced to fit `nwidth` x `nheight`
+/// as [`resample_f32_image`] does (Lanczos3 in linear light), returned as
+/// 8-bit sRGB: the grid tile reduced from the rendered thumbnail, as the
+/// export would be at that size. Float images are taken as they are
+/// ([`thumbnail`]: their encoding is not known here). Never enlarges.
+pub fn resample_display_image(image: &DynamicImage, nwidth: u32, nheight: u32) -> DynamicImage {
+    if matches!(
+        image,
+        DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_)
+    ) {
+        return thumbnail(image, nwidth, nheight);
+    }
+    let (width, height) = image.dimensions();
+    if nwidth == 0 || nheight == 0 || (nwidth >= width && nheight >= height) {
+        return image.clone();
+    }
+    let mut linear = image.to_rgb32f();
+    for v in linear.iter_mut() {
+        *v = if *v <= 0.04045 {
+            *v / 12.92
+        } else {
+            ((*v + 0.055) / 1.055).powf(2.4)
+        };
+    }
+    let reduced = resample_f32_image(&DynamicImage::ImageRgb32F(linear), nwidth, nheight);
+    let reduced = reduced.as_rgb32f().expect("resample_f32_image returns RGB f32");
+    let mut out = image::RgbImage::new(reduced.width(), reduced.height());
+    for (o, p) in out.pixels_mut().zip(reduced.pixels()) {
+        *o = image::Rgb(p.0.map(|v| {
+            let v = v.clamp(0.0, 1.0);
+            let e = if v <= 0.003_130_8 {
+                v * 12.92
+            } else {
+                1.055 * v.powf(1.0 / 2.4) - 0.055
+            };
+            (e * 255.0).round() as u8
+        }));
+    }
+    DynamicImage::ImageRgb8(out)
+}
+
 /// [`downscale_f32_image`] that keeps negative channels (wide-gamut colours
 /// outside the working space) instead of clamping them to zero: the scope
 /// render's copy must develop like the frames it describes.
@@ -10795,6 +10873,82 @@ mod render_version_tests {
         let (t1, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(1));
         let (t2, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(2));
         assert_eq!(t1.to_rgba32f().as_raw(), t2.to_rgba32f().as_raw());
+    }
+}
+
+#[cfg(test)]
+mod resample_tests {
+    use super::{downscale_f32_image, resample_display_image, resample_f32_image};
+    use image::{DynamicImage, GenericImageView, Rgb32FImage, RgbImage};
+
+    /// Vertical stripes of `cycles` per output pixel after reducing `factor`×.
+    fn stripes(width: u32, height: u32, factor: f32, cycles: f32) -> DynamicImage {
+        let mut image = Rgb32FImage::new(width, height);
+        for (x, _, p) in image.enumerate_pixels_mut() {
+            let v = 0.25
+                + 0.2 * (2.0 * std::f32::consts::PI * cycles * x as f32 / factor).sin();
+            *p = image::Rgb([v, v, v]);
+        }
+        DynamicImage::ImageRgb32F(image)
+    }
+
+    fn row_spread(image: &DynamicImage) -> f32 {
+        let rgb = image.to_rgb32f();
+        let y = rgb.height() / 2;
+        let row: Vec<f32> = (8..rgb.width() - 8).map(|x| rgb.get_pixel(x, y)[1]).collect();
+        let mean = row.iter().sum::<f32>() / row.len() as f32;
+        (row.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / row.len() as f32).sqrt()
+    }
+
+    #[test]
+    fn reduced_copies_keep_the_detail_the_export_resize_keeps() {
+        // Detail at 0.35 cycles per view pixel, reduced as the fit view is
+        // (to 1.25× the view as headroom, then to the view; 2.9× in all, a
+        // 6000 px photo in a 2070 px view): two area averages keep 0.62 of
+        // its contrast, the export's Lanczos filter 0.93.
+        let source = stripes(1740, 64, 2.9, 0.35);
+        let full = 0.2 / 2f32.sqrt();
+        let chain = |reduce: fn(&DynamicImage, u32, u32) -> DynamicImage| {
+            reduce(&reduce(&source, 750, 750), 600, 600)
+        };
+        let lanczos = row_spread(&chain(resample_f32_image)) / full;
+        let area = row_spread(&chain(downscale_f32_image)) / full;
+        println!("contrast kept: lanczos {lanczos:.2}, area {area:.2}");
+        assert!(lanczos > 0.9, "lanczos keeps {lanczos:.2}");
+        assert!(area < 0.75, "area keeps {area:.2}");
+        let reduced = resample_f32_image(&source, 600, 600);
+        assert_eq!(reduced.dimensions(), (600, 22));
+        assert!(reduced.as_rgb32f().is_some());
+    }
+
+    #[test]
+    fn reduced_copies_clamp_ringing_and_never_enlarge() {
+        // A bright line on black rings below zero with Lanczos; the copy
+        // keeps no negative values (as the area average).
+        let mut image = Rgb32FImage::new(64, 16);
+        for y in 0..16 {
+            image.put_pixel(32, y, image::Rgb([8.0, 8.0, 8.0]));
+        }
+        let source = DynamicImage::ImageRgb32F(image);
+        let reduced = resample_f32_image(&source, 20, 20);
+        assert!(reduced.to_rgb32f().iter().all(|v| *v >= 0.0));
+        assert_eq!(resample_f32_image(&source, 128, 128).dimensions(), (64, 16));
+    }
+
+    #[test]
+    fn display_tiles_are_reduced_in_linear_light() {
+        // Alternating black and white columns reduced 2×: the linear-light
+        // mean is 0.5, sRGB 188 (an sRGB-value average would give 128).
+        let mut image = RgbImage::new(64, 8);
+        for (x, _, p) in image.enumerate_pixels_mut() {
+            let v = if x % 2 == 0 { 0 } else { 255 };
+            *p = image::Rgb([v, v, v]);
+        }
+        let tile = resample_display_image(&DynamicImage::ImageRgb8(image), 32, 32);
+        assert_eq!(tile.dimensions(), (32, 4));
+        let rgb = tile.as_rgb8().expect("8-bit tile");
+        let centre = rgb.get_pixel(16, 2)[0];
+        assert!((180..=196).contains(&centre), "centre {centre}");
     }
 }
 

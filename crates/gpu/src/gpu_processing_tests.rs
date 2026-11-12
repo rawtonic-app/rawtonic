@@ -19217,7 +19217,12 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
             .collect()
     };
     let context = context();
-    let render = |values: &[f32], w: u32, h: u32, recipe: &serde_json::Value, scale: f32| {
+    let render = |values: &[f32],
+                  w: u32,
+                  h: u32,
+                  recipe: &serde_json::Value,
+                  scale: f32,
+                  noise_level: f32| {
         let data: Vec<f16> = values
             .iter()
             .flat_map(|&v| {
@@ -19233,6 +19238,7 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
         let view = input_from(&context, w, h, &data);
         let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(1));
         adjustments.global.detail_scale = scale;
+        adjustments.global.noise_level = noise_level;
         let (pixels, ..) = processor
             .run(
                 &view,
@@ -19286,19 +19292,49 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
     };
     let added =
         |a: Vec<f32>, b: Vec<f32>| -> Vec<f32> { a.iter().zip(&b).map(|(x, y)| x - y).collect() };
-    for (radius, detail) in [(1.0, 25), (2.5, 25), (1.0, 100), (2.5, 100)] {
-        let recipe = json!({"sharpness": 60, "sharpenRadius": radius, "sharpenDetail": detail,
+    // Sharpening response 8 reads the photo's noise level: the same frame
+    // with demosaic-like noise (white noise blurred by 0.7 px, spread
+    // `NOISE` in the square-root encoding the level is measured in) and
+    // that level, as the decode measures it, at every size.
+    const NOISE: f32 = 0.012;
+    let grain = blur(
+        &(0..width * height)
+            .map(|_| random() - 0.5)
+            .collect::<Vec<f32>>(),
+        0.7,
+    );
+    let grain_sd = sd(&grain);
+    let noisy: Vec<f32> = full
+        .iter()
+        .zip(&grain)
+        .map(|(v, g)| (v.sqrt() + NOISE * g / grain_sd).max(0.0).powi(2))
+        .collect();
+    for (radius, detail, v8) in [
+        (1.0, 25, false),
+        (2.5, 25, false),
+        (1.0, 100, false),
+        (2.5, 100, false),
+        (1.0, 25, true),
+        (2.5, 25, true),
+    ] {
+        let mut recipe = json!({"sharpness": 60, "sharpenRadius": radius, "sharpenDetail": detail,
             "sharpnessThreshold": 0});
+        let (frame, level) = if v8 {
+            recipe["sharpenVersion"] = json!(8);
+            (&noisy, NOISE)
+        } else {
+            (&full, 0.0)
+        };
         let full_added = added(
-            render(&full, w, h, &recipe, 1.0),
-            render(&full, w, h, &flat, 1.0),
+            render(frame, w, h, &recipe, 1.0, level),
+            render(frame, w, h, &flat, 1.0, level),
         );
         for f in [2usize, 4] {
-            let reduced = reduce(&full, f);
+            let reduced = reduce(frame, f);
             let (rw, rh, scale) = (w / f as u32, h / f as u32, 1.0 / f as f32);
             let reduced_added = added(
-                render(&reduced, rw, rh, &recipe, scale),
-                render(&reduced, rw, rh, &flat, scale),
+                render(&reduced, rw, rh, &recipe, scale, level),
+                render(&reduced, rw, rh, &flat, scale, level),
             );
             let scaled = reduce(&full_added, f);
             let (a, b) = (sd(&scaled), sd(&reduced_added));
@@ -19319,7 +19355,7 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
             let coarse_gain = gain(&coarse(&reduced_added), &coarse(&scaled));
             let fine_gain = gain(&fine(&reduced_added), &fine(&scaled));
             println!(
-                "radius {radius} detail {detail} 1/{f}: spread {:.2}, coarse {coarse_gain:.2}, fine {fine_gain:.2}",
+                "radius {radius} detail {detail} v8 {v8} 1/{f}: spread {:.2}, coarse {coarse_gain:.2}, fine {fine_gain:.2}",
                 b / a
             );
             // Metal 2026-11-12 (½, ¼; coarse / fine): Radius 1 Detail 25
@@ -19333,16 +19369,23 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
             // Radius 2.5 at Detail 100 over-sharpens at ¼: open in G16.
             assert!(
                 coarse_gain > 0.08,
-                "radius {radius} detail {detail} 1/{f}: coarse {coarse_gain:.2}"
+                "radius {radius} detail {detail} v8 {v8} 1/{f}: coarse {coarse_gain:.2}"
             );
-            let fine_range = if radius > 2.0 && detail == 100 {
+            // Response 8 on the noisy frame, (½, ¼; coarse / fine): Radius 1
+            // 0.68 / 1.16, 0.17 / 0.93; Radius 2.5 0.96 / 1.09, 0.54 / 1.14.
+            // With the noise level scaled by detail_scale as white noise (the
+            // gate before TPX2) the demosaic-like noise passed as detail:
+            // 0.57 / 1.30, 0.10 / 1.08; 1.06 / 1.18, 0.67 / 1.36 (fails).
+            let fine_range = if v8 {
+                0.75..1.25
+            } else if radius > 2.0 && detail == 100 {
                 0.45..2.0
             } else {
                 0.45..1.6
             };
             assert!(
                 fine_range.contains(&fine_gain),
-                "radius {radius} detail {detail} 1/{f}: fine {fine_gain:.2}"
+                "radius {radius} detail {detail} v8 {v8} 1/{f}: fine {fine_gain:.2}"
             );
         }
     }
