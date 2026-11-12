@@ -5356,6 +5356,7 @@
       },
       "footer": {
         "addToLibrary": "Ajouter à la bibliothèque…",
+        "alreadyInLibrary": "Déjà dans la bibliothèque sous {{name}}",
         "copy": "Copier",
         "copyAdjustments": "Copier les réglages",
         "externalPhoto": "1 photo · hors bibliothèque",
@@ -5378,13 +5379,12 @@
         "selected_many": "{{n}} sélectionnées",
         "selected_other": "{{n}} sélectionnées",
         "showFilmstrip": "Afficher la bande de film",
+        "showInLibrary": "Afficher dans la bibliothèque",
         "stars_one": "{{count}} étoile",
         "stars_many": "{{count}} étoiles",
         "stars_other": "{{count}} étoiles",
         "sync": "Synchro",
-        "syncSettings": "Synchroniser les réglages avec les photos sélectionnées (Option : comme la dernière fois)",
-        "alreadyInLibrary": "Déjà dans la bibliothèque sous {{name}}",
-        "showInLibrary": "Afficher dans la bibliothèque"
+        "syncSettings": "Synchroniser les réglages avec les photos sélectionnées (Option : comme la dernière fois)"
       },
       "grid": {
         "anyRating": "Toutes les notes",

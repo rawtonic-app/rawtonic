@@ -5356,6 +5356,7 @@
       },
       "footer": {
         "addToLibrary": "Afegeix a la biblioteca…",
+        "alreadyInLibrary": "Ja a la biblioteca com a {{name}}",
         "copy": "Copia",
         "copyAdjustments": "Copia els ajustaments",
         "externalPhoto": "1 foto · fora de la biblioteca",
@@ -5378,13 +5379,12 @@
         "selected_many": "{{n}} seleccionades",
         "selected_other": "{{n}} seleccionades",
         "showFilmstrip": "Mostra la tira d'imatges",
+        "showInLibrary": "Mostra a la biblioteca",
         "stars_one": "{{count}} estrella",
         "stars_many": "{{count}} estrelles",
         "stars_other": "{{count}} estrelles",
         "sync": "Sincronitza",
-        "syncSettings": "Sincronitza els ajustos amb les fotos seleccionades (Opció: com l’última vegada)",
-        "alreadyInLibrary": "Ja a la biblioteca com a {{name}}",
-        "showInLibrary": "Mostra a la biblioteca"
+        "syncSettings": "Sincronitza els ajustos amb les fotos seleccionades (Opció: com l’última vegada)"
       },
       "grid": {
         "anyRating": "Qualsevol valoració",

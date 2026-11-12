@@ -5023,6 +5023,7 @@
       },
       "footer": {
         "addToLibrary": "ライブラリに追加…",
+        "alreadyInLibrary": "ライブラリに {{name}} として登録済み",
         "copy": "コピー",
         "copyAdjustments": "補正をコピー",
         "externalPhoto": "1枚の写真 · ライブラリ外",
@@ -5039,11 +5040,10 @@
         "rate_other": "星 {{count}} つを付ける",
         "selected_other": "{{n}} 枚選択",
         "showFilmstrip": "フィルムストリップを表示",
+        "showInLibrary": "ライブラリに表示",
         "stars_other": "星 {{count}}",
         "sync": "同期",
-        "syncSettings": "選択した写真に設定を同期（Option：前回の選択で）",
-        "alreadyInLibrary": "ライブラリに {{name}} として登録済み",
-        "showInLibrary": "ライブラリに表示"
+        "syncSettings": "選択した写真に設定を同期（Option：前回の選択で）"
       },
       "grid": {
         "anyRating": "すべてのレーティング",

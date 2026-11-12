@@ -5158,6 +5158,7 @@
       },
       "footer": {
         "addToLibrary": "Zur Bibliothek hinzufügen…",
+        "alreadyInLibrary": "Bereits in der Bibliothek als {{name}}",
         "copy": "Kopieren",
         "copyAdjustments": "Anpassungen kopieren",
         "externalPhoto": "1 Foto · nicht in der Bibliothek",
@@ -5177,12 +5178,11 @@
         "selected_one": "{{n}} ausgewählt",
         "selected_other": "{{n}} ausgewählt",
         "showFilmstrip": "Filmstreifen einblenden",
+        "showInLibrary": "In Bibliothek anzeigen",
         "stars_one": "{{count}} Stern",
         "stars_other": "{{count}} Sterne",
         "sync": "Sync.",
-        "syncSettings": "Einstellungen mit den ausgewählten Fotos synchronisieren (Wahltaste: wie zuletzt gewählt)",
-        "alreadyInLibrary": "Bereits in der Bibliothek als {{name}}",
-        "showInLibrary": "In Bibliothek anzeigen"
+        "syncSettings": "Einstellungen mit den ausgewählten Fotos synchronisieren (Wahltaste: wie zuletzt gewählt)"
       },
       "grid": {
         "anyRating": "Alle Sterne",
