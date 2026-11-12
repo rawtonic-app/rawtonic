@@ -4139,9 +4139,10 @@ mod preview_memory_tests {
         }
         let reduced = shared_preview_at_resolution(&original, 6);
         assert_eq!(reduced.dimensions(), (6, 4));
+        // Reduced as the export resizes (TPX2), not area-averaged.
         assert_eq!(
             reduced.as_bytes(),
-            downscale_f32_image(&original, 6, 6).as_bytes()
+            resample_f32_image(&original, 6, 6).as_bytes()
         );
     }
     #[test]
