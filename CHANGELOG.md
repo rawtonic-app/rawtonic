@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Thumbnails, the Library loupe and the Develop fit view show capture sharpening as the export shows it scaled down. Radius 1 sharpening was missing from every reduced view (its blur fell below one preview pixel), and the Detail band cancelled the rest; exports are unchanged.
+
 - Trash refuses a photo whose file is also another hard-linked photo in the active library, and names the other photo before changing anything.
 
 - Synchronize Folder compares stored folder aliases consistently, so a root stored through a symlink does not classify existing photos as new copies. Regression coverage also checks plain and verbatim Windows drive paths.

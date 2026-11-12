@@ -19158,6 +19158,124 @@ mod portable_grain_reference {
 
 #[test]
 #[ignore = "requires a native GPU adapter"]
+fn sharpening_at_quarter_size_shows_the_full_size_sharpening_scaled_down() {
+    // A textured frame (detail from 2 to 30 px) at full size and reduced
+    // 4 × 4 by averaging, as previews and thumbnails are: the reduced
+    // render at detail_scale 0.25 sharpens about as much as the full-size
+    // render shows after the same reduction (notes:
+    // benchmark-results/tpx-thumb-parity-2026-11-12). Before the kernel's
+    // variance was scaled, the 0.25 px floor left Radius 1 unsharpened.
+    let (width, height) = (1024usize, 768usize);
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let mut random = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 40) as f32 / (1u64 << 24) as f32
+    };
+    let blur = |field: &[f32], sigma: f32| -> Vec<f32> {
+        let reach = (3.0 * sigma).ceil() as i64;
+        let taps: Vec<f32> = (-reach..=reach)
+            .map(|d| (-(d * d) as f32 / (2.0 * sigma * sigma)).exp())
+            .collect();
+        let total: f32 = taps.iter().sum();
+        let pass = |src: &[f32], dx: i64, dy: i64| -> Vec<f32> {
+            (0..width * height)
+                .map(|i| {
+                    let (x, y) = ((i % width) as i64, (i / width) as i64);
+                    taps.iter()
+                        .enumerate()
+                        .map(|(k, w)| {
+                            let d = k as i64 - reach;
+                            let sx = (x + d * dx).clamp(0, width as i64 - 1) as usize;
+                            let sy = (y + d * dy).clamp(0, height as i64 - 1) as usize;
+                            w * src[sy * width + sx]
+                        })
+                        .sum::<f32>()
+                        / total
+                })
+                .collect()
+        };
+        pass(&pass(field, 1, 0), 0, 1)
+    };
+    let white: Vec<f32> = (0..width * height).map(|_| random() - 0.5).collect();
+    let (fine, coarse) = (blur(&white, 1.0), blur(&white, 6.0));
+    let full: Vec<f32> = fine
+        .iter()
+        .zip(&coarse)
+        .map(|(f, c)| (0.18 * (1.0 + 2.5 * f + 6.0 * c)).max(0.01))
+        .collect();
+    let reduce = |v: &[f32]| -> Vec<f32> {
+        (0..width / 4 * (height / 4))
+            .map(|i| {
+                let (x, y) = (i % (width / 4) * 4, i / (width / 4) * 4);
+                (0..16).map(|k| v[(y + k / 4) * width + x + k % 4]).sum::<f32>() / 16.0
+            })
+            .collect()
+    };
+    let quarter = reduce(&full);
+    let context = context();
+    let render = |values: &[f32], w: u32, h: u32, recipe: &serde_json::Value, scale: f32| {
+        let data: Vec<f16> = values
+            .iter()
+            .flat_map(|&v| [f16::from_f32(v), f16::from_f32(v), f16::from_f32(v), f16::ONE])
+            .collect();
+        let processor = GpuProcessor::new(context.clone(), w, h).unwrap();
+        let view = input_from(&context, w, h, &data);
+        let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(1));
+        adjustments.global.detail_scale = scale;
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                w,
+                h,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels
+                .chunks(4)
+                .map(|p| p[1] as f32 / 65535.0)
+                .collect::<Vec<f32>>(),
+            _ => unreachable!(),
+        }
+    };
+    let sd = |v: &[f32]| {
+        let m = v.iter().sum::<f32>() / v.len() as f32;
+        (v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / v.len() as f32).sqrt()
+    };
+    let (w, h) = (width as u32, height as u32);
+    let flat = json!({"sharpness": 0});
+    for radius in [1.0, 2.5] {
+        let recipe = json!({"sharpness": 60, "sharpenRadius": radius, "sharpnessThreshold": 0});
+        let added = |a: Vec<f32>, b: Vec<f32>| -> Vec<f32> {
+            a.iter().zip(&b).map(|(x, y)| x - y).collect()
+        };
+        let full_added = reduce(&added(render(&full, w, h, &recipe, 1.0), render(&full, w, h, &flat, 1.0)));
+        let reduced_added = added(
+            render(&quarter, w / 4, h / 4, &recipe, 0.25),
+            render(&quarter, w / 4, h / 4, &flat, 0.25),
+        );
+        let (a, b) = (sd(&full_added), sd(&reduced_added));
+        println!("radius {radius}: full scaled down {a:.5}, quarter {b:.5}, ratio {:.2}", b / a);
+        assert!(a > 1e-3, "no sharpening at full size");
+        // Metal 2026-11-12: 0.56 (Radius 1) and 0.89 (Radius 2.5); 0.01 and
+        // 0.87 with the σ floor of 0.25 px. The finest detail of the frame
+        // (1 px) averages away in the reduction before the reduced render
+        // can sharpen it.
+        assert!((0.4..1.6).contains(&(b / a)), "radius {radius}: quarter {b:.5} vs scaled {a:.5}");
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU adapter"]
 fn film_grain_at_half_size_is_the_full_size_grain_scaled_down() {
     // A flat mid-grey at full and at half size: film grain (`grainVersion`
     // 3) reads the tile over each pixel's footprint, so the half-size
