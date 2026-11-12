@@ -816,7 +816,11 @@ pub fn priority_embedded_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
         use little_exif::{exif_tag::ExifTag, filetype::FileExtension, metadata::Metadata};
         // Some camera previews contain no EXIF segment at all. little_exif
         // reports that as an error, so start a new segment in this copy.
-        let mut metadata = Metadata::new_from_vec(&jpeg, FileExtension::JPEG).unwrap_or_default();
+        let mut metadata = if jpeg.windows(6).any(|bytes| bytes == b"Exif\0\0") {
+            Metadata::new_from_vec(&jpeg, FileExtension::JPEG).unwrap_or_default()
+        } else {
+            Metadata::new()
+        };
         metadata.set_tag(ExifTag::Orientation(vec![orientation]));
         metadata.write_to_vec(&mut jpeg, FileExtension::JPEG).ok()?;
     }

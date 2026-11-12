@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Windows/Linux shortcut tooltips include component-provided hints, Preferences accepts comma events without a physical key code, and an externally opened photo dismisses welcome. The photo count follows the loaded grid; Windows/Linux footer space favors readable dimensions and the close button has darker pressed feedback. Windows also clamps programmatic resizes below the logical window minimum.
+
 - Preferences opens above the welcome screen, with a visible welcome entry; Windows snap-layout controls stay inactive behind modal dialogs.
 
 - Shortcut hints preserve file and tool names containing Mac key symbols; Windows/Linux reference hints say Enter. Linux uses neutral file-manager wording, and thumbnail path aliases are cached per library list.

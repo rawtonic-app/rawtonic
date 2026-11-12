@@ -1,3 +1,4 @@
+import { useSettingsStore } from '../../store/useSettingsStore';
 import '../../i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
@@ -703,4 +704,12 @@ describe('workspace keyboard accessibility', () => {
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     expect(document.activeElement).toBe(viewer);
   });
+});
+
+it.each(['windows', 'linux'])('renders platform tooltips on %s', (osPlatform) => {
+  useSettingsStore.setState({ osPlatform });
+  workspace();
+  const titles = Array.from(document.querySelectorAll('[title]'), (node) => node.getAttribute('title'));
+  expect(titles.join(' ')).toContain('Ctrl+Z');
+  expect(titles.join(' ')).not.toMatch(/[⌘⇧⌥]/);
 });

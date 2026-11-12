@@ -1,3 +1,4 @@
+import { platformLabel } from '../../utils/platformLabels';
 import AppOverflowMenu from './AppOverflowMenu';
 import { useRecipeMenuCommands } from '../../hooks/useRecipeMenuCommands';
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode, type MouseEvent } from 'react';
@@ -351,7 +352,7 @@ export default function StudioWorkspace(props: Props) {
   const withShortcut = (label: string, shortcut: string | null | undefined) =>
     t('studio.workspace.withShortcut', {
       label,
-      shortcut: shortcut ?? t('studio.workspace.noKey')
+      shortcut: shortcut ? platformLabel(shortcut, osPlatform) : t('studio.workspace.noKey')
     });
   const {
     currentFolderPath,
@@ -1353,7 +1354,7 @@ export default function StudioWorkspace(props: Props) {
                   <div className="studio-toolbar-divider" />
                   {/* Capture One keeps Reset at the right of its tool bar. */}
                   <button
-                    title={t('studio.workspace.viewer.resetAllTitle')}
+                    title={platformLabel(t('studio.workspace.viewer.resetAllTitle'), osPlatform)}
                     aria-label={t('studio.workspace.viewer.resetAll')}
                     disabled={!panelsReady}
                     onClick={() => readyNow() && onReset(selectedImage ? [selectedImage.path] : [])}

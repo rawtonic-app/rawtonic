@@ -525,6 +525,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const ingestSize = useIngestDialogSize();
   const restored = useRef(false);
   const summaryRequest = useRef(0);
+  const selectedPhoto = useEditorStore((s) => s.selectedImage);
   const imageList = useLibraryStore((s) => s.imageList);
   const roots = useLibraryStore((s) => s.rootPaths);
 
@@ -1852,8 +1853,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             >
               <span className="session-count-total">
                 {t('session.bar.photos', {
-                  count: session.assets,
-                  formatted: session.assets.toLocaleString()
+                  count: imageList.length,
+                  formatted: imageList.length.toLocaleString()
                 })}
                 {session.picked > 0 && ` · ${t('session.bar.picked', { count: session.picked })}`}
               </span>
@@ -1944,7 +1945,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           onClose={() => setTetherOpen(false)}
         />
       )}
-      {!session && imageList.length === 0 && roots.length === 0 && (
+      {!session && imageList.length === 0 && roots.length === 0 && !selectedPhoto && (
         <div className="session-welcome">
           <RawtonicMark size={48} />
           <h1>{t('session.welcome.title')}</h1>

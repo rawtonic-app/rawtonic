@@ -1022,3 +1022,27 @@ mod work_area_tests {
         assert_eq!(fit(rect(0, -62, 1800, 1125), &[]), WorkAreaFit::Keep);
     }
 }
+
+/// Also enforce the floor after Win32 resizes that bypass interactive tracking.
+#[cfg(any(windows, test))]
+pub(crate) fn minimum_window_size(width: f64, height: f64) -> Option<tauri::LogicalSize<f64>> {
+    (width < 1000.0 || height < 600.0)
+        .then(|| tauri::LogicalSize::new(width.max(1000.0), height.max(600.0)))
+}
+
+#[cfg(test)]
+mod minimum_size_tests {
+    #[test]
+    fn clamps_logical_client_dimensions_without_shrinking_other_axis() {
+        for (width, height, expected) in [
+            (150.0, 100.0, (1000.0, 600.0)),
+            (600.0, 350.0, (1000.0, 600.0)),
+            (1200.0, 350.0, (1200.0, 600.0)),
+        ] {
+            let size = super::minimum_window_size(width, height).unwrap();
+            assert_eq!((size.width, size.height), expected);
+        }
+        assert!(super::minimum_window_size(1000.0, 600.0).is_none());
+        assert!(super::minimum_window_size(1440.0, 900.0).is_none());
+    }
+}

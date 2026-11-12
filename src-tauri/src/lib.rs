@@ -707,12 +707,15 @@ fn start(args: Vec<String>) {
                     let _ = window.center();
                 }
 
+                #[cfg(not(target_os = "macos"))]
+                window.set_min_size(Some(tauri::LogicalSize::new(1000.0, 600.0)))?;
+
                 #[cfg(windows)]
                 startup::keep_window_on_screen(
                     &window,
                     (
-                        main_window_cfg.min_width.unwrap_or(0.0),
-                        main_window_cfg.min_height.unwrap_or(0.0),
+                        1000.0,
+                        600.0,
                     ),
                 );
 
@@ -758,6 +761,19 @@ fn start(args: Vec<String>) {
                             || window_for_handler.is_fullscreen().unwrap_or(false)
                         {
                             return;
+                        }
+
+                        // Win32 MoveWindow can bypass the native tracking minimum.
+                        #[cfg(windows)]
+                        if !maximized
+                            && let tauri::WindowEvent::Resized(size) = event
+                        {
+                            let scale = window_for_handler.scale_factor().unwrap_or(1.0);
+                            let logical = size.to_logical::<f64>(scale);
+                            if let Some(minimum) = startup::minimum_window_size(logical.width, logical.height) {
+                                let _ = window_for_handler.set_size(minimum);
+                                return;
+                            }
                         }
 
                         let mut state = WindowState {
