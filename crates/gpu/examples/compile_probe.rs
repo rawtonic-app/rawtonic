@@ -1,6 +1,6 @@
 //! Measures what one compute-pipeline compile of the image-processing shader
-//! costs the GPU driver: wall time and the process's peak private memory
-//! (Windows: commit charge; elsewhere: peak resident size). A tool for
+//! costs the GPU driver: wall time and, on Windows, the process's peak
+//! private memory (commit charge; `null` on other systems). A tool for
 //! finding where a driver's compiler spends its time (G76/WCC: the Radeon
 //! 680M's Windows Vulkan driver took ~70 s and ~7 GB for one display
 //! variant), not part of the app.
@@ -10,7 +10,7 @@
 //! Each line of SPECS_FILE is one candidate, compiled in its own child
 //! process (clean peak memory, no in-process reuse):
 //!
-//! `NAME features=N [dce] [unchecked] [stub=f1,f2] [src=FILE] [set=K:V,K:V] [export]`
+//! `NAME features=N [dce] [unchecked] [stub=f1,f2] [src=FILE] [set=K:V,K:V] [export] [spirv] [noinline=all|f1,f2]`
 //!
 //! - `features`: display variant bits as `create_preview_pipeline` sets them
 //!   (with `export`: as an export pipeline, i.e. without prepared layers).
@@ -21,6 +21,11 @@
 //!   argument (or a zero value): what a variant without that stage costs.
 //! - `src`: another WGSL file instead of the built-in shader.wgsl.
 //! - `set`: extra override constants.
+//! - `spirv`: write the SPIR-V here (naga, as wgpu's Vulkan backend does) and
+//!   hand it to the driver as is (Vulkan only; the pipeline layout is made
+//!   from the module's bindings).
+//! - `noinline`: with `spirv`, mark these functions (or `all` but the entry
+//!   point) DontInline: whether the driver compiles each once.
 //!
 //! Every candidate gets a unique nonce in its module, so the driver's own
 //! on-disk shader cache never answers it (clear it anyway for a cold run).
@@ -129,6 +134,8 @@ struct Spec {
     stubs: Vec<String>,
     src: Option<String>,
     set: Vec<(String, f64)>,
+    spirv: bool,
+    noinline: Vec<String>,
 }
 
 fn parse(line: &str) -> Result<Spec, String> {
@@ -140,12 +147,15 @@ fn parse(line: &str) -> Result<Spec, String> {
         stubs: vec![],
         src: None,
         set: vec![],
+        spirv: false,
+        noinline: vec![],
     };
     for word in line.split_whitespace().skip(1) {
         match word.split_once('=') {
             Some(("features", v)) => spec.features = v.parse().map_err(|_| "features")?,
             Some(("stub", v)) => spec.stubs = v.split(',').map(String::from).collect(),
             Some(("src", v)) => spec.src = Some(v.to_string()),
+            Some(("noinline", v)) => spec.noinline = v.split(',').map(String::from).collect(),
             Some(("set", v)) => {
                 for pair in v.split(',') {
                     let (k, v) = pair.split_once(':').ok_or("set K:V")?;
@@ -156,6 +166,7 @@ fn parse(line: &str) -> Result<Spec, String> {
             None if word == "dce" => spec.dce = true,
             None if word == "unchecked" => spec.unchecked = true,
             None if word == "export" => spec.export = true,
+            None if word == "spirv" => spec.spirv = true,
             _ => return Err(format!("unknown word {word}")),
         }
     }
@@ -238,6 +249,24 @@ fn one(line: &str) -> Result<String, String> {
     let inlined = inlined_size(&module);
     let functions = module.functions.len();
 
+    let (spirv, marked) = if spec.spirv {
+        let (words, marked) = spirv_words(&module, spec.unchecked, &spec.noinline)?;
+        // COMPILE_PROBE_DUMP=DIR keeps the SPIR-V (for spirv-val / spirv-dis)
+        // and stops there.
+        if let Ok(dir) = std::env::var("COMPILE_PROBE_DUMP") {
+            let name = line.split_whitespace().next().unwrap_or("probe");
+            let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+            std::fs::write(
+                std::path::Path::new(&dir).join(format!("{name}.spv")),
+                bytes,
+            )
+            .map_err(|e| e.to_string())?;
+            return Ok(format!("{{\"dumped\":true,\"noinline_marked\":{marked}}}"));
+        }
+        (Some(words), marked)
+    } else {
+        (None, 0)
+    };
     let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
     if std::env::var("WGPU_BACKEND").is_err() {
         descriptor.backends = wgpu::Backends::VULKAN;
@@ -249,10 +278,24 @@ fn one(line: &str) -> Result<String, String> {
     }))
     .map_err(|e| e.to_string())?;
     let adapter_info = adapter.get_info();
-    let (device, _queue) = pollster::block_on(adapter.request_device(
-        &rawtonic_gpu::gpu_processing::processing_device_descriptor(&adapter),
-    ))
-    .map_err(|e| e.to_string())?;
+    let mut device_descriptor =
+        rawtonic_gpu::gpu_processing::processing_device_descriptor(&adapter);
+    if spec.spirv {
+        if !adapter
+            .features()
+            .contains(wgpu::Features::PASSTHROUGH_SHADERS)
+        {
+            return Err("the adapter has no SPIR-V passthrough".into());
+        }
+        device_descriptor.required_features |= wgpu::Features::PASSTHROUGH_SHADERS;
+    }
+    let (device, _queue) = pollster::block_on(adapter.request_device(&device_descriptor))
+        .map_err(|e| e.to_string())?;
+    let layout = if spec.spirv {
+        Some(layout_for(&device, &module)?)
+    } else {
+        None
+    };
     let shader_descriptor = wgpu::ShaderModuleDescriptor {
         label: Some("probe"),
         source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(module)),
@@ -260,7 +303,20 @@ fn one(line: &str) -> Result<String, String> {
     let private_before = memory::private_bytes();
     let sampler = memory::Sampler::start();
     let started = Instant::now();
-    let shader = if spec.unchecked {
+    let shader = if let Some(words) = spirv {
+        // SAFETY: a measurement; the pipeline is never dispatched.
+        unsafe {
+            device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
+                label: Some("probe"),
+                entry_points: std::borrow::Cow::Owned(vec![wgpu::PassthroughShaderEntryPoint {
+                    name: "main".into(),
+                    workgroup_size: (8, 8, 1),
+                }]),
+                spirv: Some(std::borrow::Cow::Owned(words)),
+                ..Default::default()
+            })
+        }
+    } else if spec.unchecked {
         // SAFETY: a measurement; the pipeline is never dispatched.
         unsafe {
             device.create_shader_module_trusted(
@@ -275,7 +331,7 @@ fn one(line: &str) -> Result<String, String> {
     let pipeline_started = Instant::now();
     let _pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("probe"),
-        layout: None,
+        layout: layout.as_ref(),
         module: &shader,
         entry_point: Some("main"),
         compilation_options: Default::default(),
@@ -283,18 +339,198 @@ fn one(line: &str) -> Result<String, String> {
     });
     let pipeline_ms = pipeline_started.elapsed().as_secs_f64() * 1000.0;
     let peak_sampled = sampler.stop();
-    let peak = memory::peak_private_bytes().max(peak_sampled);
+    let mb = |bytes: Option<usize>| bytes.map_or("null".to_string(), |b| (b >> 20).to_string());
+    let peak = memory::peak_private_bytes().map(|p| p.max(peak_sampled));
     Ok(format!(
         "{{\"pipeline_ms\":{pipeline_ms:.0},\"shader_ms\":{shader_ms:.0},\"peak_mb\":{},\"before_mb\":{},\
-\"inlined_exprs\":{inlined},\"functions\":{functions},\"folded_ifs\":{folded},\"adapter\":{},\"driver\":{}}}",
-        peak >> 20,
-        private_before >> 20,
+\"inlined_exprs\":{inlined},\"functions\":{functions},\"folded_ifs\":{folded},\"noinline_marked\":{marked},\"adapter\":{},\"driver\":{}}}",
+        mb(peak),
+        mb(private_before),
         json_str(&adapter_info.name),
         json_str(&format!(
             "{:?} {} {}",
             adapter_info.backend, adapter_info.driver, adapter_info.driver_info
         )),
     ))
+}
+
+/// The module as wgpu's Vulkan backend writes it (SPIR-V 1.6, index bounds
+/// restricted; buffers and images unchecked as with robust access), with the
+/// functions in `noinline` (or every one for `all`) marked DontInline.
+/// Returns the words and how many functions were marked.
+fn spirv_words(
+    module: &naga::Module,
+    unchecked: bool,
+    noinline: &[String],
+) -> Result<(Vec<u32>, usize), String> {
+    use naga::back::spv;
+    use naga::proc::BoundsCheckPolicy as P;
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(module)
+    .map_err(|e| format!("{e:?}"))?;
+    let mut options = spv::Options {
+        lang_version: (1, 6),
+        // DEBUG: OpName for the functions, so `noinline` can name them.
+        flags: spv::WriterFlags::DEBUG | spv::WriterFlags::LABEL_VARYINGS,
+        ..Default::default()
+    };
+    options.bounds_check_policies = naga::proc::BoundsCheckPolicies {
+        index: if unchecked { P::Unchecked } else { P::Restrict },
+        buffer: P::Unchecked,
+        image_load: P::Unchecked,
+        binding_array: P::Unchecked,
+    };
+    if unchecked {
+        options.force_loop_bounding = false;
+    }
+    let pipeline = spv::PipelineOptions {
+        entry_point: "main".into(),
+        shader_stage: naga::ShaderStage::Compute,
+    };
+    let mut words =
+        spv::write_vec(module, &info, &options, Some(&pipeline)).map_err(|e| e.to_string())?;
+    if noinline.is_empty() {
+        return Ok((words, 0));
+    }
+    // Instruction walk: OpName (5) gives id → name, OpEntryPoint (15) the
+    // entry's id, OpFunction (54) has its control mask in word 3.
+    const DONT_INLINE: u32 = 0x2;
+    let mut names = std::collections::HashMap::new();
+    let mut entry = None;
+    let mut functions = vec![];
+    let mut at = 5;
+    while at < words.len() {
+        let count = (words[at] >> 16) as usize;
+        let opcode = words[at] & 0xffff;
+        if count == 0 {
+            return Err("malformed SPIR-V".into());
+        }
+        match opcode {
+            5 => {
+                let bytes: Vec<u8> = words[at + 2..at + count]
+                    .iter()
+                    .flat_map(|w| w.to_le_bytes())
+                    .take_while(|b| *b != 0)
+                    .collect();
+                names.insert(words[at + 1], String::from_utf8_lossy(&bytes).into_owned());
+            }
+            15 => entry = Some(words[at + 2]),
+            54 => functions.push(at),
+            _ => {}
+        }
+        at += count;
+    }
+    let all = noinline.iter().any(|n| n == "all");
+    let mut marked = 0;
+    for at in functions {
+        let id = words[at + 2];
+        if Some(id) == entry {
+            continue;
+        }
+        let named = names.get(&id).is_some_and(|n| noinline.contains(n));
+        if all || named {
+            words[at + 3] |= DONT_INLINE;
+            marked += 1;
+        }
+    }
+    Ok((words, marked))
+}
+
+/// A pipeline layout with one entry per global the module binds (group 0).
+fn layout_for(
+    device: &wgpu::Device,
+    module: &naga::Module,
+) -> Result<wgpu::PipelineLayout, String> {
+    use naga::{AddressSpace, ImageClass, ImageDimension, TypeInner};
+    let mut entries = vec![];
+    for (_, global) in module.global_variables.iter() {
+        let Some(binding) = &global.binding else {
+            continue;
+        };
+        if binding.group != 0 {
+            return Err("bindings outside group 0".into());
+        }
+        let ty = match (global.space, &module.types[global.ty].inner) {
+            (AddressSpace::Uniform, _) => wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            (AddressSpace::Storage { access }, _) => wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage {
+                    read_only: !access.contains(naga::StorageAccess::STORE),
+                },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            (_, TypeInner::Sampler { comparison }) => wgpu::BindingType::Sampler(if *comparison {
+                wgpu::SamplerBindingType::Comparison
+            } else {
+                wgpu::SamplerBindingType::Filtering
+            }),
+            (
+                _,
+                TypeInner::Image {
+                    dim,
+                    arrayed,
+                    class,
+                },
+            ) => {
+                let view_dimension = match (dim, arrayed) {
+                    (ImageDimension::D1, _) => wgpu::TextureViewDimension::D1,
+                    (ImageDimension::D2, false) => wgpu::TextureViewDimension::D2,
+                    (ImageDimension::D2, true) => wgpu::TextureViewDimension::D2Array,
+                    (ImageDimension::D3, _) => wgpu::TextureViewDimension::D3,
+                    (ImageDimension::Cube, false) => wgpu::TextureViewDimension::Cube,
+                    (ImageDimension::Cube, true) => wgpu::TextureViewDimension::CubeArray,
+                };
+                match class {
+                    ImageClass::Storage { format, access } => wgpu::BindingType::StorageTexture {
+                        access: if access.contains(naga::StorageAccess::LOAD) {
+                            wgpu::StorageTextureAccess::ReadWrite
+                        } else {
+                            wgpu::StorageTextureAccess::WriteOnly
+                        },
+                        format: match format {
+                            naga::StorageFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
+                            naga::StorageFormat::Rgba16Float => wgpu::TextureFormat::Rgba16Float,
+                            naga::StorageFormat::Rgba32Float => wgpu::TextureFormat::Rgba32Float,
+                            naga::StorageFormat::R32Float => wgpu::TextureFormat::R32Float,
+                            naga::StorageFormat::R32Uint => wgpu::TextureFormat::R32Uint,
+                            other => return Err(format!("storage format {other:?}")),
+                        },
+                        view_dimension,
+                    },
+                    _ => wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension,
+                        multisampled: false,
+                    },
+                }
+            }
+            other => return Err(format!("binding type {:?}", other.0)),
+        };
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: binding.binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty,
+            count: None,
+        });
+    }
+    let group = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("probe"),
+        entries: &entries,
+    });
+    Ok(
+        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("probe"),
+            bind_group_layouts: &[Some(&group)],
+            immediate_size: 0,
+        }),
+    )
 }
 
 /// Folds every `if` whose condition the (now constant) overrides decide.
@@ -565,24 +801,25 @@ mod memory {
         unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) };
         c
     }
-    pub fn private_bytes() -> usize {
-        counters().private_usage
+    pub fn private_bytes() -> Option<usize> {
+        Some(counters().private_usage)
     }
     /// Peak commit charge of the process so far (Task Manager's peak of
     /// "Commit size", the figure the G76 measurements used).
-    pub fn peak_private_bytes() -> usize {
-        counters().peak_pagefile_usage
+    pub fn peak_private_bytes() -> Option<usize> {
+        Some(counters().peak_pagefile_usage)
     }
     pub use super::sampler::Sampler;
 }
 
 #[cfg(not(windows))]
 mod memory {
-    pub fn private_bytes() -> usize {
-        0
+    /// Not measured here: reported as `null`, never as 0.
+    pub fn private_bytes() -> Option<usize> {
+        None
     }
-    pub fn peak_private_bytes() -> usize {
-        0
+    pub fn peak_private_bytes() -> Option<usize> {
+        None
     }
     pub use super::sampler::Sampler;
 }
@@ -605,7 +842,10 @@ mod sampler {
                 let (stop, peak) = (Arc::clone(&stop), Arc::clone(&peak));
                 std::thread::spawn(move || {
                     while !stop.load(Ordering::Relaxed) {
-                        peak.fetch_max(super::memory::private_bytes(), Ordering::Relaxed);
+                        peak.fetch_max(
+                            super::memory::private_bytes().unwrap_or(0),
+                            Ordering::Relaxed,
+                        );
                         std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                 })
