@@ -1025,7 +1025,11 @@ pub fn apply_export_geometry(
         }
         Some(geometry) => {
             if geometry.photo_w != src_w || geometry.photo_h != src_h {
-                image = rawtonic_engine::lanczos::resize_exact(&image, geometry.photo_w, geometry.photo_h);
+                image = rawtonic_engine::lanczos::resize_exact(
+                    &image,
+                    geometry.photo_w,
+                    geometry.photo_h,
+                );
             }
             if let Some(sharpening) = &export_settings.output_sharpening {
                 crate::output_sharpening::apply(&mut image, sharpening);

@@ -587,7 +587,9 @@ pub fn resample_display_image(image: &DynamicImage, nwidth: u32, nheight: u32) -
         };
     }
     let reduced = resample_f32_image(&DynamicImage::ImageRgb32F(linear), nwidth, nheight);
-    let reduced = reduced.as_rgb32f().expect("resample_f32_image returns RGB f32");
+    let reduced = reduced
+        .as_rgb32f()
+        .expect("resample_f32_image returns RGB f32");
     let mut out = image::RgbImage::new(reduced.width(), reduced.height());
     for (o, p) in out.pixels_mut().zip(reduced.pixels()) {
         *o = image::Rgb(p.0.map(|v| {
@@ -10885,8 +10887,7 @@ mod resample_tests {
     fn stripes(width: u32, height: u32, factor: f32, cycles: f32) -> DynamicImage {
         let mut image = Rgb32FImage::new(width, height);
         for (x, _, p) in image.enumerate_pixels_mut() {
-            let v = 0.25
-                + 0.2 * (2.0 * std::f32::consts::PI * cycles * x as f32 / factor).sin();
+            let v = 0.25 + 0.2 * (2.0 * std::f32::consts::PI * cycles * x as f32 / factor).sin();
             *p = image::Rgb([v, v, v]);
         }
         DynamicImage::ImageRgb32F(image)
@@ -10895,7 +10896,9 @@ mod resample_tests {
     fn row_spread(image: &DynamicImage) -> f32 {
         let rgb = image.to_rgb32f();
         let y = rgb.height() / 2;
-        let row: Vec<f32> = (8..rgb.width() - 8).map(|x| rgb.get_pixel(x, y)[1]).collect();
+        let row: Vec<f32> = (8..rgb.width() - 8)
+            .map(|x| rgb.get_pixel(x, y)[1])
+            .collect();
         let mean = row.iter().sum::<f32>() / row.len() as f32;
         (row.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / row.len() as f32).sqrt()
     }
