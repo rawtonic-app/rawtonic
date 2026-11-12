@@ -1,4 +1,5 @@
-//! Lanczos3 resizing of export renders with the arithmetic of the image
+//! Lanczos3 resizing (export renders, reduced display bases:
+//! `image_processing::resample_f32_image`) with the arithmetic of the image
 //! crate's `imageops::resize` (the same bytes), its rows in parallel.
 //!
 //! The image crate resizes on one thread and reads every tap through
@@ -99,11 +100,13 @@ impl Sample for f32 {
 
 /// `image::imageops::resize` with `FilterType::Lanczos3` of an image of
 /// `C` interleaved channels: the vertical pass first, into `f32`, then the
-/// horizontal one.
+/// horizontal one. Results are clamped to 0 ..= `ceiling` (the image
+/// crate's: the sample type's maximum, 1.0 for floats).
 fn resize_channels<S: Sample, const C: usize>(
     pixels: &[S],
     (width, height): (u32, u32),
     (new_width, new_height): (u32, u32),
+    ceiling: f32,
 ) -> Vec<S> {
     let row = width as usize * C;
     let rows = taps(height, new_height);
@@ -139,8 +142,8 @@ fn resize_channels<S: Sample, const C: usize>(
                     // The image crate's `clamp`: NaN passes.
                     let clamped = if sum < 0.0 {
                         0.0
-                    } else if sum > S::MAX {
-                        S::MAX
+                    } else if sum > ceiling {
+                        ceiling
                     } else {
                         sum
                     };
@@ -164,6 +167,28 @@ where
         image.as_raw(),
         image.dimensions(),
         (new_width, new_height),
+        <P::Subpixel as Sample>::MAX,
+    );
+    ImageBuffer::from_raw(new_width, new_height, pixels).expect("resized buffer size")
+}
+
+/// [`resize_exact`] of a scene-linear float image without the image crate's
+/// clamp at 1.0: values above white (highlights a RAW decode keeps for
+/// Exposure and Highlights to bring back) stay; negative ringing still
+/// clamps to 0. The same taps and sums otherwise.
+pub fn resize_scene_linear(
+    image: &image::Rgb32FImage,
+    new_width: u32,
+    new_height: u32,
+) -> image::Rgb32FImage {
+    if (new_width, new_height) == image.dimensions() {
+        return image.clone();
+    }
+    let pixels = resize_channels::<f32, 3>(
+        image.as_raw(),
+        image.dimensions(),
+        (new_width, new_height),
+        f32::INFINITY,
     );
     ImageBuffer::from_raw(new_width, new_height, pixels).expect("resized buffer size")
 }

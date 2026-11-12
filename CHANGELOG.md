@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Thumbnails, the Library loupe, the Standard preview and the Develop fit view are reduced from the photo with the export's Lanczos filter instead of an area average: unedited, they now carry 0.8–1.3× the fine detail of the export scaled to the same size (before 0.13–1.0×; the fit view looked softer than the export). In these reduced views, Luminance noise reduction and the noise gate of capture sharpening now work from the photo's full-resolution noise level. Before, the views kept up to 3–7× the export's luminance noise at high ISO and showed up to 3× the export's sharpening at Radius 2.5. Colour noise reduction in reduced views still differs from the export (open). Exports are unchanged.
+
 - **Windows with AMD graphics: the first Contrast, Highlights or curve edit no longer waits after a few idle minutes.** On AMD's Windows Vulkan driver the first use of such a slider waited 40–45 s on a Radeon 680M while the driver prepared that view (once per computer). Once a photo is shown, the app now prepares the likely next views (tone sliders, curve, mask, effects, raised Shadows) while nothing else happens, one at a time and always after anything you are waiting for, and shows nothing while it does. Measured on a Radeon 680M after 4 minutes idle: Contrast, Highlights and a curve point were then instant; touching Contrast while such a preparation was still running waited 16.7 s; Exposure drags stayed at 30–76 frames per second.
 
 - Edit With offers recovery even when quitting during the final render or before handoff, and repairs completed renders’ stacks at restart. Launching with a folder opens it for browsing in the Library.

@@ -29,6 +29,7 @@ pub mod icc_profile;
 pub mod image_loader;
 pub mod image_processing;
 pub mod input_profile;
+pub mod lanczos;
 pub mod lateral_ca;
 pub mod lens_blur;
 pub mod lens_correction;

@@ -19,12 +19,12 @@ use crate::image_processing::RenderRequest;
 use crate::image_processing::apply_coarse_rotation;
 use crate::image_processing::apply_flip;
 use crate::image_processing::apply_geometry_warp;
-use crate::image_processing::downscale_f32_image;
 use crate::image_processing::get_or_init_gpu_context;
 use crate::image_processing::process_and_get_dynamic_image;
 use crate::image_processing::resolve_tonemapper_override;
 use crate::image_processing::resolve_tonemapper_override_from_handle;
 use crate::image_processing::warp_image_geometry;
+use crate::image_processing::{downscale_f32_image, resample_f32_image};
 use crate::image_processing::{
     get_all_adjustments_from_json, get_all_adjustments_with_masks, mask_definitions_from_json,
 };
@@ -417,7 +417,7 @@ fn build_reduced_preview_base(
     let width = ((full_width as f32 * scale).round() as u32).max(1);
     let height = ((full_height as f32 * scale).round() as u32).max(1);
     let reduced = if width < source.width() || height < source.height() {
-        Cow::Owned(downscale_f32_image(source, width, height))
+        Cow::Owned(resample_f32_image(source, width, height))
     } else {
         Cow::Borrowed(source)
     };
@@ -560,7 +560,7 @@ pub(crate) fn shared_preview_at_resolution(
     preview_dim: u32,
 ) -> Arc<DynamicImage> {
     if source.width() > preview_dim || source.height() > preview_dim {
-        Arc::new(downscale_f32_image(source, preview_dim, preview_dim))
+        Arc::new(resample_f32_image(source, preview_dim, preview_dim))
     } else {
         Arc::clone(source)
     }
@@ -3419,7 +3419,7 @@ pub(crate) async fn generate_uncropped_preview(
                 let settings = crate::state::settings::current(&app_handle);
                 let target_dim = (settings.editor_preview_resolution.unwrap_or(1920) as f32) as u32;
 
-                let downscaled = downscale_f32_image(&blurred_image, target_dim, target_dim);
+                let downscaled = resample_f32_image(&blurred_image, target_dim, target_dim);
                 share_lateral_ca(&blurred_image, &downscaled, &adjustments_clone);
 
                 if cache.len() > 5 {
@@ -4139,9 +4139,10 @@ mod preview_memory_tests {
         }
         let reduced = shared_preview_at_resolution(&original, 6);
         assert_eq!(reduced.dimensions(), (6, 4));
+        // Reduced as the export resizes (TPX2), not area-averaged.
         assert_eq!(
             reduced.as_bytes(),
-            downscale_f32_image(&original, 6, 6).as_bytes()
+            resample_f32_image(&original, 6, 6).as_bytes()
         );
     }
     #[test]
