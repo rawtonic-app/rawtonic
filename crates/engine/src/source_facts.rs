@@ -56,7 +56,8 @@ use crate::lens_correction::LensDistortionParams;
 /// 20: `camera_lens` at camera geometry version 10 (Fujifilm knots past the
 /// frame's corner on normal frames).
 /// 21: diffraction version 3, keeping version 2 for older recipes.
-pub const VERSION: u32 = 21;
+/// 22: `airlight` (Dehaze of dehaze version 3).
+pub const VERSION: u32 = 22;
 
 /// The facts version from which `camera_lens_frames` is kept.
 const CAMERA_LENS_FRAMES: u32 = 18;
@@ -84,6 +85,9 @@ pub struct SourceFacts {
     /// Its median (version 6 on; kept apart so older headers still parse).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_key_median: Option<f32>,
+    /// `airlight::for_path` (measured on the decode; version 22 on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub airlight: Option<f32>,
     /// `diffraction` Airy σ in pixels.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diffraction_sigma: Option<f32>,
@@ -318,6 +322,7 @@ pub fn collect(path: &str) -> SourceFacts {
         if let Some(key) = crate::image_key::for_path(path) {
             found.set_image_key(Some(key));
         }
+        found.airlight = crate::airlight::for_path(path).or(found.airlight);
         return found;
     }
     let source = std::path::Path::new(path);
@@ -357,6 +362,7 @@ pub fn collect(path: &str) -> SourceFacts {
         noise_level: crate::noise_level::for_path(path),
         image_key: None,
         image_key_median: None,
+        airlight: crate::airlight::for_path(path),
         diffraction_sigma: diffraction.current,
         diffraction_v2_differs: diffraction.v2 != diffraction.current,
         diffraction_sigma_v2: diffraction
@@ -526,6 +532,7 @@ mod tests {
             noise_level: Some(0.012),
             image_key: Some([0.01, 0.21]),
             image_key_median: Some(0.05),
+            airlight: Some(0.3),
             diffraction_sigma: None,
             diffraction_v1_differs: false,
             diffraction_sigma_v1: None,

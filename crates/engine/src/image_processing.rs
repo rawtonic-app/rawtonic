@@ -4687,9 +4687,17 @@ pub struct GlobalAdjustments {
     /// against an edge-aware base (shader `apply_structure_v3`), older ones
     /// against the plain small blur.
     pub structure_version: u32,
-    /// The recipe's Dehaze (`dehaze_version`): 2 lowers as a veil (shader
-    /// `apply_dehaze_lower_v2`), 1 with the first response.
+    /// The recipe's Dehaze (`dehaze_version`): 3 veils towards the photo's
+    /// airlight (shader `apply_dehaze_lower_v3`) and fades raised Dehaze's
+    /// darkening relative to it, 2 lowers as a veil (`apply_dehaze_lower_v2`),
+    /// 1 with the first response.
     pub dehaze_version: u32,
+    /// The decode's airlight (airlight.rs: dark channel's 99.9th percentile,
+    /// linear, before exposure and baseline); 0 = unknown. Dehaze version 3
+    /// adapts to it.
+    pub airlight: f32,
+    /// Keeps the struct a multiple of 16 bytes, as the shader's.
+    pub _pad_airlight: [u32; 3],
 }
 
 // The shader's struct is a multiple of 16 bytes; a different length here
@@ -5682,6 +5690,8 @@ fn get_global_adjustments_resolved(
         vibrance_version: versions.vibrance.uniform(),
         structure_version: versions.structure.uniform(),
         dehaze_version: versions.dehaze.uniform(),
+        airlight: 0.0,
+        _pad_airlight: [0; 3],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -7615,8 +7625,13 @@ pub const DEHAZE_VERSION_KEY: &str = "dehazeVersion";
 /// them −100 still misses the atlas's amber bound in one tone band (median
 /// 2.5 L*; notes: benchmark-results/atf1-dehaze-negative-2026-11-10,
 /// parity-gaps/G06-presence.md). Raising Dehaze is the same in both.
+/// 3 (2026-11-12) adapts to the photo's airlight (`airlight.rs`, measured
+/// once on the decode): lowering veils towards a level from it (below white
+/// on frames without near-white areas, darkening tones above it) instead of
+/// lifting towards white, and raising fades its darkening relative to it
+/// (task DHZ3, notes: benchmark-results/dhz3-dehaze-airlight-2026-11-12).
 /// Recipes without the key keep version 1.
-pub const DEHAZE_VERSION: u64 = 2;
+pub const DEHAZE_VERSION: u64 = 3;
 
 /// The recipe key naming the Clarity response it was made with.
 pub const CLARITY_VERSION_KEY: &str = "clarityVersion";
@@ -8512,13 +8527,18 @@ mod vibrance_version_tests {
     use serde_json::json;
 
     /// The shader's `GlobalAdjustments` ends with `vibrance_version`,
-    /// `structure_version` and `dehaze_version` and is rounded up to 16 bytes
+    /// `structure_version`, `dehaze_version` and `airlight` with its padding
+    /// and is rounded up to 16 bytes
     /// (it holds vec4s); the Rust struct must be exactly as long, or every
     /// field of `AllAdjustments` after it moves.
     #[test]
     fn global_adjustments_match_the_shader_layout() {
         use super::GlobalAdjustments;
-        let shader_end = std::mem::offset_of!(GlobalAdjustments, dehaze_version) + 4;
+        let shader_end = std::mem::offset_of!(GlobalAdjustments, _pad_airlight) + 12;
+        assert_eq!(
+            std::mem::offset_of!(GlobalAdjustments, airlight),
+            std::mem::offset_of!(GlobalAdjustments, dehaze_version) + 4
+        );
         assert_eq!(
             std::mem::offset_of!(GlobalAdjustments, structure_version),
             std::mem::offset_of!(GlobalAdjustments, vibrance_version) + 4
@@ -8905,6 +8925,7 @@ mod dehaze_version_tests {
         assert_eq!(version(json!({"dehaze": -40})), 1);
         assert_eq!(version(json!({"dehaze": -40, "dehazeVersion": 1})), 1);
         assert_eq!(version(json!({"dehaze": -40, "dehazeVersion": 2})), 2);
+        assert_eq!(version(json!({"dehaze": -40, "dehazeVersion": 3})), 3);
         // A newer version than this renderer knows renders with its newest.
         assert_eq!(version(json!({"dehazeVersion": 9})), DEHAZE_VERSION as u32);
         for raw in [true, false] {

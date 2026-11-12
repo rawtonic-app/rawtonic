@@ -420,6 +420,36 @@ fn dehaze_version_2_compiles_only_where_dehaze_is_lowered() {
 }
 
 #[test]
+fn dehaze_version_3_compiles_only_where_dehaze_is_used() {
+    let features = |profile: serde_json::Value| {
+        preview_features(&get_all_adjustments_from_json(&profile, true, Some(1)))
+            & (DEHAZE_V2_FEATURE | DEHAZE_V3_FEATURE)
+    };
+    // Both directions adapt to the airlight; version 3 never compiles
+    // version 2's code.
+    for dehaze in [-30, 30] {
+        assert_eq!(
+            features(json!({"dehaze": dehaze, "dehazeVersion": 3})),
+            DEHAZE_V3_FEATURE
+        );
+        let mut layer = local_profile(json!({"dehaze": dehaze}));
+        layer["dehazeVersion"] = json!(3);
+        assert_eq!(features(layer), DEHAZE_V3_FEATURE);
+        let used = get_all_adjustments_from_json(
+            &json!({"dehaze": dehaze, "dehazeVersion": 3}),
+            true,
+            Some(1),
+        );
+        assert!(needs_feature_pipeline(&used));
+    }
+    assert_eq!(features(json!({"dehazeVersion": 3})), 0);
+    assert_eq!(
+        features(json!({"dehaze": -30, "dehazeVersion": 2})),
+        DEHAZE_V2_FEATURE
+    );
+}
+
+#[test]
 fn variant_table_allocates_only_the_pages_in_use() {
     let table = variant_table::<std::sync::OnceLock<usize>>();
     assert!(table.get(RAW_DEFAULT_PREVIEW_FEATURES).is_none());
@@ -524,7 +554,7 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         // Lowered Dehaze of version 2 likewise
         // (`dehaze_version_2_compiles_only_where_dehaze_is_lowered`).
-        if expected & DEHAZE_V2_FEATURE != 0 {
+        if expected & (DEHAZE_V2_FEATURE | DEHAZE_V3_FEATURE) != 0 {
             continue;
         }
         // Effects likewise (`effects_compile_only_where_a_recipe_has_them`).
@@ -10589,6 +10619,8 @@ fn set_test_image_key(adjustments: &mut AllAdjustments, recipe: &serde_json::Val
     adjustments.global.image_key = recipe["imageKey"].as_f64().unwrap_or(0.0) as f32;
     adjustments.global.image_key_low = recipe["imageKeyLow"].as_f64().unwrap_or(0.0) as f32;
     adjustments.global.image_key_median = recipe["imageKeyMedian"].as_f64().unwrap_or(0.0) as f32;
+    // A measured airlight (airlight.rs), as the image key.
+    adjustments.global.airlight = recipe["testAirlight"].as_f64().unwrap_or(0.0) as f32;
 }
 
 /// A bright frame's image key (snow under an overcast sky): log2(p / 0.006)
@@ -16056,6 +16088,10 @@ fn chunk_test_render(
     if let Some(mode) = profile["testTonemapperMode"].as_u64() {
         adjustments.uniforms.global.tonemapper_mode = mode as u32;
     }
+    // A measured airlight as the photo's (airlight.rs; not a recipe key).
+    if let Some(level) = profile["testAirlight"].as_f64() {
+        adjustments.uniforms.global.airlight = level as f32;
+    }
     let mask = masked(ImageBuffer::from_fn(width, height, |x, y| {
         Luma([((x * 3 + y * 7) % 256) as u8])
     }));
@@ -21511,9 +21547,29 @@ fn dehaze_version_2_drag_render_time() {
     );
 }
 
+#[test]
+#[ignore = "requires a native GPU; Dehaze version 3 against version 2: GPU time of a preview render per drag step, lowered and raised"]
+fn dehaze_version_3_drag_render_time() {
+    for direction in [-1, 1] {
+        eprintln!(
+            "Dehaze {}",
+            if direction < 0 { "lowered" } else { "raised" }
+        );
+        drag_render_times_of(
+            [2, 3],
+            |version, step| json!({ "dehaze": direction * (20 + 3 * step), "dehazeVersion": version, "testAirlight": 0.3 }),
+        );
+    }
+}
+
 /// Prints the GPU time of a preview render per drag step under versions 1
 /// and 2 of a tool (`recipe(version, step)`).
 fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
+    drag_render_times_of([1, 2], recipe);
+}
+
+/// [`version_drag_render_times`] for two given versions.
+fn drag_render_times_of(versions: [u64; 2], recipe: impl Fn(u64, i32) -> serde_json::Value) {
     // As `tone_version_6_shadows_drag_render_time`: a 2560 × 1707 colourful
     // frame, the slider dragged, blocks of ten steps alternated per version.
     let context = context();
@@ -21556,7 +21612,7 @@ fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
     // Each version's own display variant must be compiled before the
     // timing: until then the all-features variant renders its frames
     // (`preview_pipeline`), far slower than either.
-    for version in [1, 2] {
+    for version in versions {
         let adjustments = raw_look_adjustments(&recipe(version, 0), (3, 2.0));
         let features = preview_features(&adjustments);
         let _ = readback_pixels(
@@ -21584,7 +21640,7 @@ fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
     }
     let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     for block in 0..24 {
-        let version = 1 + (block % 2) as u64;
+        let version = versions[block % 2];
         for step in 0..10 {
             let recipe = recipe(version, step);
             let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
@@ -21599,20 +21655,107 @@ fn version_drag_render_times(recipe: impl Fn(u64, i32) -> serde_json::Value) {
                 ReadbackShader::Preview,
             );
             if step >= 2 && block >= 2 {
-                times[(version - 1) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+                times[block % 2].push(start.elapsed().as_secs_f64() * 1000.0);
             }
         }
     }
     for (k, t) in times.iter_mut().enumerate() {
         t.sort_by(|a, b| a.partial_cmp(b).unwrap());
         eprintln!(
-            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
-            1 + k,
+            "version {}: p50 {:.2} ms, p90 {:.2} ms, p95 {:.2} ms ({} renders)",
+            versions[k],
             t[t.len() / 2],
             t[t.len() * 9 / 10],
+            t[t.len() * 19 / 20],
             t.len()
         );
     }
+}
+
+/// Dehaze of version 3: the key alone changes nothing; lowering veils
+/// towards the photo's airlight, so on a photo whose airlight is low a light
+/// grey above it darkens while black rises (version 2 lifts every tone
+/// towards white); on a photo with near-white areas it lifts as version 2
+/// does; raised Dehaze darkens a tone near the airlight less than version 1.
+#[test]
+#[ignore = "requires a native GPU; Dehaze version 3 response"]
+fn dehaze_version_3_veils_towards_the_airlight() {
+    let context = context();
+    // Linear sRGB, 256 px each: near-black, mid grey, light grey.
+    let source = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(768, 512, |x, _| {
+        image::Rgb(match x / 256 {
+            0 => [0.004, 0.004, 0.004],
+            1 => [0.12, 0.12, 0.12],
+            _ => [0.6, 0.6, 0.6],
+        })
+    }));
+    let render = |extra: serde_json::Value| {
+        let mut profile = json!({"renderVersion": 3});
+        profile
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        chunk_test_render(
+            &context,
+            &source,
+            &profile,
+            false,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        )
+        .unwrap()
+        .into_rgb16()
+    };
+    type Image = image::ImageBuffer<image::Rgb<u16>, Vec<u16>>;
+    let g = |img: &Image, x: u32| f64::from(img.get_pixel(x, 256)[1]);
+    let neutral = render(json!({"testAirlight": 0.05}));
+    assert_eq!(
+        neutral.as_raw(),
+        render(json!({"dehazeVersion": 3, "testAirlight": 0.05})).as_raw(),
+        "the key alone changes nothing"
+    );
+    let low = render(json!({"dehaze": -100, "dehazeVersion": 3, "testAirlight": 0.05}));
+    let white = render(json!({"dehaze": -100, "dehazeVersion": 3, "testAirlight": 1.5}));
+    let v2 = render(json!({"dehaze": -100, "dehazeVersion": 2, "testAirlight": 0.05}));
+    println!(
+        "black / grey / light: neutral {} {} {}, v3 low air {} {} {}, v3 white air {} {} {}, v2 {} {} {}",
+        g(&neutral, 128),
+        g(&neutral, 384),
+        g(&neutral, 640),
+        g(&low, 128),
+        g(&low, 384),
+        g(&low, 640),
+        g(&white, 128),
+        g(&white, 384),
+        g(&white, 640),
+        g(&v2, 128),
+        g(&v2, 384),
+        g(&v2, 640)
+    );
+    assert!(
+        g(&low, 640) < g(&neutral, 640),
+        "a light grey above a low airlight darkens"
+    );
+    assert!(g(&low, 128) > g(&neutral, 128), "black rises");
+    assert!(
+        g(&low, 128) < g(&low, 384) && g(&low, 384) < g(&low, 640),
+        "the tones keep their order"
+    );
+    assert!(g(&v2, 640) > g(&neutral, 640), "version 2 lifts it");
+    assert!(
+        g(&white, 640) > g(&neutral, 640),
+        "with a white airlight it rises"
+    );
+    // Raised: the light grey sits near a low airlight, so it darkens less.
+    let raised = |version: u64| {
+        render(json!({"dehaze": 60, "dehazeVersion": version, "testAirlight": 0.05}))
+    };
+    let (r1, r3) = (raised(1), raised(3));
+    println!("raised light grey: v1 {} v3 {}", g(&r1, 640), g(&r3, 640));
+    assert!(
+        g(&r3, 640) > g(&r1, 640),
+        "raised darkens a tone near the airlight less"
+    );
 }
 
 /// Lowered Dehaze of version 2 (`dehazeVersion`): the key alone and raised
