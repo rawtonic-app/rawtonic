@@ -48,8 +48,14 @@ function useSnapLayoutButton(button: RefObject<HTMLButtonElement | null>, enable
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['open', 'aria-modal', 'class', 'style']
+      attributeFilter: ['open', 'aria-modal']
     });
+    // CSS zoom and compact-bar classes live on ancestors. Their content
+    // boxes need not resize when the drawn button moves.
+    const layout = new MutationObserver(report);
+    for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
+      layout.observe(ancestor, { attributes: true, attributeFilter: ['class', 'style'] });
+    }
     const observer = new ResizeObserver(report);
     observer.observe(element);
     if (element.parentElement) observer.observe(element.parentElement);
@@ -67,6 +73,7 @@ function useSnapLayoutButton(button: RefObject<HTMLButtonElement | null>, enable
       disposed = true;
       observer.disconnect();
       dialogs.disconnect();
+      layout.disconnect();
       window.removeEventListener('resize', report);
       unlisten?.();
       setState({ hovered: false, pressed: false });
