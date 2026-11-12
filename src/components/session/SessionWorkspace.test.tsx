@@ -1,3 +1,4 @@
+import { useProcessStore } from '../../store/useProcessStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useActivityStore } from '../../store/useActivityStore';
@@ -437,6 +438,7 @@ describe('restoring the last session', () => {
       );
       const navigate = vi.fn(async () => {});
       const restored = restoreLastSession(navigate, vi.fn());
+      expect(useProcessStore.getState().startupLibraryReady).toBe(false);
       await act(async () => {
         vi.advanceTimersByTime(SLOW_RESTORE_MS + 10);
       });
@@ -450,6 +452,7 @@ describe('restoring the last session', () => {
       });
       expect(restoring()).toBeUndefined();
       expect(navigate).toHaveBeenCalledWith(summary);
+      expect(useProcessStore.getState().startupLibraryReady).toBe(true);
     } finally {
       vi.useRealTimers();
     }

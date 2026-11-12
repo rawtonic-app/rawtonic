@@ -387,6 +387,8 @@ export function restoreLastSession(
   navigate: (summary: SessionSummary) => Promise<void>,
   setError: (message: string) => void
 ) {
+  // Launch photos wait until this navigation can no longer clear the editor.
+  useProcessStore.getState().setProcess({ startupLibraryReady: false });
   const notice = 'session-restore';
   const slow = window.setTimeout(() => {
     void invoke<string | null>(Invokes.SessionLastDirectory)
@@ -421,7 +423,8 @@ export function restoreLastSession(
         toastId: RESTORE_FAILED_NOTICE,
         autoClose: false
       });
-    });
+    })
+    .finally(() => useProcessStore.getState().setProcess({ startupLibraryReady: true }));
 }
 
 /** Whether the open library is another one than the library a camera was

@@ -110,6 +110,7 @@ interface ProcessState {
   copiedFilePaths: Array<string>;
   isCopied: boolean;
   isPasted: boolean;
+  startupLibraryReady: boolean;
   initialFileToOpen: string | null;
   externalEditSession: ExternalEditSession | null;
   activeAiTasks: Record<string, AiTask>;
@@ -145,6 +146,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
   copiedFilePaths: [],
   isCopied: false,
   isPasted: false,
+  startupLibraryReady: false,
   initialFileToOpen: null,
   externalEditSession: null,
   activeAiTasks: {},
