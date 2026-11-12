@@ -3579,7 +3579,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 8388608;
+const PREVIEW_PIPELINE_COUNT: usize = 16777216;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3598,7 +3598,7 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// 262144, colour mixer response 2 131072,
 /// Clarity or Structure version 3 524288, lowered Dehaze of dehaze version 2
 /// 1048576, glow, halation or grain 2097152, Dehaze of dehaze version 3
-/// 4194304.
+/// 4194304, tone version 5 or older 8388608.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3682,6 +3682,13 @@ const EFFECTS_FEATURE: usize = 2097152;
 /// `apply_dehaze_raise_v3`), compiled only for recipes that use it for the
 /// same reason.
 const DEHAZE_V3_FEATURE: usize = 4194304;
+/// A recipe of tone version 5 or older (shader `TONE_V5`, the tone stage
+/// `apply_tonal_adjustments_v5`): every newer recipe's display variant leaves
+/// that copy of the tone stage out — 14k of the 72k inlined expressions of
+/// the Contrast variant 4145, which AMD's Windows Vulkan driver compiles in a
+/// time growing faster than its size (G76/WCC2). Exports keep the code
+/// (`export_features`).
+const TONE_V5_FEATURE: usize = 8388608;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
 /// low bits (detail, noise reduction, tone, relight) share a page.
@@ -5320,6 +5327,8 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
         | if effects { EFFECTS_FEATURE } else { 0 }
         | if dehaze_v3 { DEHAZE_V3_FEATURE } else { 0 }
+        // The tone version is photo-wide; layers render with it too.
+        | if g.tone_version < 5.5 { TONE_V5_FEATURE } else { 0 }
         // The refinements are photo-wide; layers' noise reduction reads them
         // too (shader `apply_noise_reduction`).
         | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
@@ -5416,7 +5425,7 @@ fn needs_feature_pipeline(adjustments: &AllAdjustments) -> bool {
 const DEFAULT_NOISE_DETAIL: [f32; 4] = [0.5, 0.0, 0.5, 0.5];
 
 /// The variant an export compiles: the curves, tone, relight, refined
-/// noise reduction and effects code stay in even where idle (see
+/// noise reduction, effects and tone-version-5 code stay in even where idle (see
 /// `LUMA_NR_EDGE_NOISE_START` for why idle code matters).
 fn export_features(adjustments: &AllAdjustments) -> usize {
     preview_features(adjustments)
@@ -5425,6 +5434,7 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
         | RELIGHT_PREVIEW_FEATURE
         | REFINED_NR_PREVIEW_FEATURE
         | EFFECTS_FEATURE
+        | TONE_V5_FEATURE
 }
 
 /// `GpuProcessor::range2_pipelines`.
@@ -5707,6 +5717,15 @@ fn compile_slot(what: &str) -> CompileSlot {
         .unwrap_or_else(|e| e.into_inner())
         .push((id, what.to_string(), std::time::Instant::now()));
     CompileSlot { id }
+}
+
+/// The fold display variants get (`display_variant_ir::fold`), for
+/// measuring tools (`examples/compile_probe.rs`): removes the code the
+/// module's (already applied) constants rule out; returns how many `if`s it
+/// decided.
+#[doc(hidden)]
+pub fn fold_decided_branches(module: &mut naga::Module) -> usize {
+    crate::display_variant_ir::fold(module)
 }
 
 /// Whether a new processor compiles the pipelines a start may need ahead
@@ -6171,6 +6190,7 @@ fn variant_constants(
         ("DEHAZE_V2", ((features >> 20) & 1) as f64),
         ("ENABLE_EFFECTS", ((features >> 21) & 1) as f64),
         ("DEHAZE_V3", ((features >> 22) & 1) as f64),
+        ("TONE_V5", ((features >> 23) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -8593,9 +8613,10 @@ impl GpuProcessor {
         }
         // From `renderVersion` 5 the variant of the recipe's own features,
         // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`), with
-        // the effects code they always had (`EFFECTS_FEATURE`).
+        // the effects and tone-version-5 code they always had
+        // (`EFFECTS_FEATURE`, `TONE_V5_FEATURE`).
         let features = if adjustments.specialized_export {
-            preview_features(adjustments) | EFFECTS_FEATURE
+            preview_features(adjustments) | EFFECTS_FEATURE | TONE_V5_FEATURE
         } else {
             // Metal may reassociate active neighbourhood operations when
             // unrelated branches are removed. Their full general pipeline

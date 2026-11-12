@@ -228,6 +228,8 @@ fn constants(spec: &Spec) -> naga::back::PipelineConstants {
         ("PRESENCE_V3", ((f >> 19) & 1) as f64),
         ("DEHAZE_V2", ((f >> 20) & 1) as f64),
         ("ENABLE_EFFECTS", ((f >> 21) & 1) as f64),
+        ("DEHAZE_V3", ((f >> 22) & 1) as f64),
+        ("TONE_V5", ((f >> 23) & 1) as f64),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
@@ -263,7 +265,11 @@ fn one(line: &str) -> Result<String, String> {
     )
     .map_err(|e| e.to_string())?;
     let mut module = module.into_owned();
-    let folded = if spec.dce { fold(&mut module) } else { 0 };
+    let folded = if spec.dce {
+        rawtonic_gpu::gpu_processing::fold_decided_branches(&mut module)
+    } else {
+        0
+    };
     for name in &spec.stubs {
         stub(&mut module, name)?;
     }
@@ -271,6 +277,11 @@ fn one(line: &str) -> Result<String, String> {
     naga::compact::compact(&mut module, naga::compact::KeepUnused::No);
     validate(&module)?;
     let inlined = inlined_size(&module);
+    // COMPILE_PROBE_REPORT=1: the largest inlined calls (main's direct
+    // calls and the most-repeated functions) on stderr.
+    if std::env::var("COMPILE_PROBE_REPORT").is_ok() {
+        report_inlining(&module);
+    }
     let functions = module.functions.len();
 
     let (spirv, marked) = if spec.spirv {
@@ -750,140 +761,6 @@ fn layout_for(
     )
 }
 
-/// Folds every `if` whose condition the (now constant) overrides decide.
-fn fold(module: &mut naga::Module) -> usize {
-    let snapshot = module.clone();
-    let mut count = 0;
-    let functions = module
-        .functions
-        .iter_mut()
-        .map(|(_, f)| f)
-        .chain(module.entry_points.iter_mut().map(|e| &mut e.function));
-    for function in functions {
-        fold_block(
-            &snapshot,
-            &function.expressions,
-            &mut function.body,
-            &mut count,
-        );
-        // Names keep expressions alive through compaction (a `let` inside a
-        // removed branch would keep its call); they only matter to debuggers.
-        function.named_expressions.clear();
-    }
-    count
-}
-
-fn literal(
-    module: &naga::Module,
-    arena: &naga::Arena<naga::Expression>,
-    handle: naga::Handle<naga::Expression>,
-) -> Option<naga::Literal> {
-    match arena[handle] {
-        naga::Expression::Literal(l) => Some(l),
-        naga::Expression::Constant(c) => {
-            literal(module, &module.global_expressions, module.constants[c].init)
-        }
-        _ => None,
-    }
-}
-
-fn decide(
-    module: &naga::Module,
-    arena: &naga::Arena<naga::Expression>,
-    handle: naga::Handle<naga::Expression>,
-) -> Option<bool> {
-    use naga::{BinaryOperator as B, Expression as E};
-    if let Some(naga::Literal::Bool(b)) = literal(module, arena, handle) {
-        return Some(b);
-    }
-    match arena[handle] {
-        E::Unary {
-            op: naga::UnaryOperator::LogicalNot,
-            expr,
-        } => decide(module, arena, expr).map(|b| !b),
-        E::Binary { op, left, right } => match op {
-            B::LogicalAnd => match (decide(module, arena, left), decide(module, arena, right)) {
-                (Some(false), _) | (_, Some(false)) => Some(false),
-                (Some(true), Some(true)) => Some(true),
-                _ => None,
-            },
-            B::LogicalOr => match (decide(module, arena, left), decide(module, arena, right)) {
-                (Some(true), _) | (_, Some(true)) => Some(true),
-                (Some(false), Some(false)) => Some(false),
-                _ => None,
-            },
-            B::Equal | B::NotEqual => {
-                let equal = literal(module, arena, left)? == literal(module, arena, right)?;
-                Some(equal == (op == B::Equal))
-            }
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn fold_block(
-    module: &naga::Module,
-    arena: &naga::Arena<naga::Expression>,
-    block: &mut naga::Block,
-    count: &mut usize,
-) {
-    use naga::Statement as S;
-    for (statement, span) in std::mem::take(block).span_into_iter() {
-        let statement = match statement {
-            S::If {
-                condition,
-                mut accept,
-                mut reject,
-            } => match decide(module, arena, condition) {
-                Some(taken) => {
-                    *count += 1;
-                    let mut kept = if taken { accept } else { reject };
-                    fold_block(module, arena, &mut kept, count);
-                    S::Block(kept)
-                }
-                None => {
-                    fold_block(module, arena, &mut accept, count);
-                    fold_block(module, arena, &mut reject, count);
-                    S::If {
-                        condition,
-                        accept,
-                        reject,
-                    }
-                }
-            },
-            S::Block(mut inner) => {
-                fold_block(module, arena, &mut inner, count);
-                S::Block(inner)
-            }
-            S::Loop {
-                mut body,
-                mut continuing,
-                break_if,
-            } => {
-                fold_block(module, arena, &mut body, count);
-                fold_block(module, arena, &mut continuing, count);
-                S::Loop {
-                    body,
-                    continuing,
-                    break_if,
-                }
-            }
-            S::Switch {
-                selector,
-                mut cases,
-            } => {
-                for case in &mut cases {
-                    fold_block(module, arena, &mut case.body, count);
-                }
-                S::Switch { selector, cases }
-            }
-            other => other,
-        };
-        block.push(statement, span);
-    }
-}
-
 /// Replaces `name`'s body with a return of its first argument when that has
 /// the result's type, else of a zero value.
 fn stub(module: &mut naga::Module, name: &str) -> Result<(), String> {
@@ -948,6 +825,76 @@ fn add_nonce(module: &mut naga::Module) {
         },
         naga::Span::UNDEFINED,
     );
+}
+
+fn report_inlining(module: &naga::Module) {
+    fn calls(block: &naga::Block, out: &mut Vec<naga::Handle<naga::Function>>) {
+        use naga::Statement as S;
+        for statement in block.iter() {
+            match statement {
+                S::Call { function, .. } => out.push(*function),
+                S::Block(b) => calls(b, out),
+                S::If { accept, reject, .. } => {
+                    calls(accept, out);
+                    calls(reject, out);
+                }
+                S::Loop {
+                    body, continuing, ..
+                } => {
+                    calls(body, out);
+                    calls(continuing, out);
+                }
+                S::Switch { cases, .. } => cases.iter().for_each(|c| calls(&c.body, out)),
+                _ => {}
+            }
+        }
+    }
+    let mut size = std::collections::HashMap::new();
+    for (handle, function) in module.functions.iter() {
+        let mut callees = vec![];
+        calls(&function.body, &mut callees);
+        let total = function.expressions.len() + callees.iter().map(|c| size[c]).sum::<usize>();
+        size.insert(handle, total);
+    }
+    let mut instances = std::collections::HashMap::<naga::Handle<naga::Function>, usize>::new();
+    fn count(
+        module: &naga::Module,
+        block: &naga::Block,
+        n: &mut std::collections::HashMap<naga::Handle<naga::Function>, usize>,
+        calls: &dyn Fn(&naga::Block, &mut Vec<naga::Handle<naga::Function>>),
+    ) {
+        let mut callees = vec![];
+        calls(block, &mut callees);
+        for c in callees {
+            *n.entry(c).or_default() += 1;
+            count(module, &module.functions[c].body, n, calls);
+        }
+    }
+    count(
+        module,
+        &module.entry_points[0].function.body,
+        &mut instances,
+        &calls,
+    );
+    let name =
+        |h: naga::Handle<naga::Function>| module.functions[h].name.clone().unwrap_or_default();
+    let mut direct = vec![];
+    calls(&module.entry_points[0].function.body, &mut direct);
+    let mut rows: Vec<_> = direct.iter().map(|c| (size[c], name(*c))).collect();
+    rows.sort_by(|a, b| b.cmp(a));
+    eprintln!("main's direct calls (inlined size):");
+    for (s, n) in rows.iter().take(15) {
+        eprintln!("  {s:>7} {n}");
+    }
+    let mut rows: Vec<_> = instances
+        .iter()
+        .map(|(h, k)| (module.functions[*h].expressions.len() * k, *k, name(*h)))
+        .collect();
+    rows.sort_by(|a, b| b.cmp(a));
+    eprintln!("own size x instances:");
+    for (t, k, n) in rows.iter().take(15) {
+        eprintln!("  {t:>7} x{k:<4} {n}");
+    }
 }
 
 /// Expressions of `main` with every call inlined (what a compiler that
