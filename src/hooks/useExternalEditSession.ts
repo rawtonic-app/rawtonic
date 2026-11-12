@@ -18,6 +18,7 @@ import { photoWritesAndStepsSettled } from '../utils/photoWrites';
  * the result to the caller-provided output path and exits the app.
  */
 export function useExternalEditSession(handleImageSelect: (path: string) => void) {
+  const startupLibraryReady = useProcessStore((state) => state.startupLibraryReady);
   const initialFileToOpen = useProcessStore((state) => state.initialFileToOpen);
   const externalEditSession = useProcessStore((state) => state.externalEditSession);
   const exportQueue = useProcessStore((state) => state.exportQueue);
@@ -33,10 +34,10 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
   });
 
   useEffect(() => {
-    if (!initialFileToOpen) return;
+    if (!initialFileToOpen || !startupLibraryReady) return;
     useProcessStore.getState().setProcess({ initialFileToOpen: null });
     handleImageSelectRef.current(initialFileToOpen);
-  }, [initialFileToOpen]);
+  }, [initialFileToOpen, startupLibraryReady]);
 
   useEffect(() => {
     if (!externalEditSession) return;

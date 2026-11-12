@@ -1,3 +1,4 @@
+import { useScaledMinimum } from '../../window/useScaledMinimum';
 import { platformLabel } from '../../utils/platformLabels';
 import AppOverflowMenu from './AppOverflowMenu';
 import { useRecipeMenuCommands } from '../../hooks/useRecipeMenuCommands';
@@ -310,6 +311,7 @@ export default function StudioWorkspace(props: Props) {
   // takes what is left. The viewer itself is never scaled, so the native
   // display below the webview keeps its placement.
   const uiScale = useSettingsStore((s) => s.appSettings?.uiScale ?? 1);
+  useScaledMinimum(uiScale, osPlatform);
   const autoAdvance = useSettingsStore((s) => s.appSettings?.autoAdvance === true);
   const toggleAutoAdvance = () => {
     const { appSettings, handleSettingsChange } = useSettingsStore.getState();

@@ -1,5 +1,5 @@
-import { act, renderHook } from '@testing-library/react';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const { invoke, exit } = vi.hoisted(() => ({ invoke: vi.fn(), exit: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
@@ -8,6 +8,8 @@ vi.mock('@tauri-apps/plugin-process', () => ({ exit }));
 import { useExternalEditSession } from './useExternalEditSession';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
 import { useEditorStore } from '../store/useEditorStore';
+
+afterEach(cleanup);
 
 const job = (id: string, state: ExportJob['state']): ExportJob => ({
   id,
@@ -61,4 +63,19 @@ it('can be pressed again when its waiting export was removed from the queue', as
   act(() => useProcessStore.setState({ exportQueue: [job('batch', 'running')] }));
   expect(result.current.isFinishing).toBe(false);
   expect(exit).not.toHaveBeenCalled();
+});
+
+it('keeps a launch photo queued until remembered-library navigation has finished', () => {
+  useProcessStore.setState({
+    externalEditSession: null,
+    startupLibraryReady: false,
+    initialFileToOpen: '/outside/photo.ARW'
+  });
+  const select = vi.fn();
+  renderHook(() => useExternalEditSession(select));
+  expect(select).not.toHaveBeenCalled();
+  expect(useProcessStore.getState().initialFileToOpen).toBe('/outside/photo.ARW');
+  act(() => useProcessStore.setState({ startupLibraryReady: true }));
+  expect(select).toHaveBeenCalledExactlyOnceWith('/outside/photo.ARW');
+  expect(useProcessStore.getState().initialFileToOpen).toBeNull();
 });
