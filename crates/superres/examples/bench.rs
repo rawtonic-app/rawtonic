@@ -119,7 +119,13 @@ fn main() -> anyhow::Result<()> {
         );
     }
     if let Some(path) = args.get(3).filter(|p| p.as_str() != "-") {
-        std::fs::write(path, raw)?;
+        // No-clobber: never overwrites a file (QA tools follow the same rule as the app).
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?
+            .write_all(raw)?;
     }
     Ok(())
 }
