@@ -134,7 +134,7 @@ describe('the no-relay fallbacks', () => {
     expect(crash).toContain('Rawtonic quit unexpectedly on 2026-10-23 at `decode.rs:12:5`.');
     expect(crash).toContain('rawdecode::open');
     expect(crash).toContain('x');
-    const previous = crashPayload(record, { includeBacktrace: true, logTail: record.logTail });
+    const previous = crashPayload(record, { includeBacktrace: true, logTail: record.logTail ?? null });
     expect(previous.logTail).toBe(record.logTail);
     expect(reportMarkdown(JSON.stringify(previous))).toContain(record.logTail!);
   });

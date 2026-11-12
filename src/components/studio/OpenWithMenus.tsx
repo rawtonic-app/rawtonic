@@ -115,10 +115,6 @@ export async function offerInterruptedEditWith(t: TFunction) {
                   items: run.completed,
                   program: run.program
                 });
-                if (result.cancelled > 0)
-                  notify.info(
-                    t('contextMenus.editWith.cancelled', { cancelled: result.cancelled, rendered: result.rendered })
-                  );
                 if (result.problems.length)
                   notify.warn(t('contextMenus.editWith.notLinked', { error: result.problems.join('\n') }));
               } catch (error) {
