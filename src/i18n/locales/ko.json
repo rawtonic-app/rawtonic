@@ -488,6 +488,7 @@
       "openIn": "열 응용 프로그램",
       "recipe": "레시피",
       "rendering": "{{app}}용으로 렌더링 중…",
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "사진 {{total}}장 중 {{failed}}장을 렌더링할 수 없습니다.",
       "tiffAdobe": "TIFF 16비트 · Adobe RGB",
       "tiffProPhoto": "TIFF 16비트 · ProPhoto RGB"

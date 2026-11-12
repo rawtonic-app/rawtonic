@@ -154,7 +154,7 @@ describe('runEditWith', () => {
     useLibraryStore.setState({ sessionDirectory: '/s' });
     const paths = targets.map((t) => t.source);
     const result = await runEditWith(paths, BUILT_IN_EDIT_RECIPES[0], '/Applications/Preview.app');
-    expect(result).toEqual({ rendered: 2, failed: 1, linked: 2, problems: [] });
+    expect(result).toEqual({ rendered: 2, cancelled: 0, failed: 1, linked: 2, problems: [] });
     expect(invoke).toHaveBeenCalledWith('stacks_list', { directory: '/s' });
     const calls = vi.mocked(invoke).mock.calls;
     // The program goes with the jobs: a quit offers this Edit With again.
@@ -166,6 +166,19 @@ describe('runEditWith', () => {
       'edit_with_finish',
       { items: [targets[0], targets[2]], program: '/Applications/Preview.app' }
     ]);
+  });
+
+  it('counts a cancelled row neutrally while opening the two completed renders', async () => {
+    const targets = ['a', 'b', 'c'].map((name) => ({ source: `/${name}.NEF`, target: `/${name}_edit.tiff` }));
+    started(targets, ['j1', 'j2', 'j3'], [job('j1', 'done'), job('j2', 'cancelled'), job('j3', 'done')]);
+    expect(
+      await runEditWith(
+        targets.map((t) => t.source),
+        BUILT_IN_EDIT_RECIPES[0],
+        '/P.app'
+      )
+    ).toEqual({ rendered: 2, cancelled: 1, failed: 0, linked: 2, problems: [] });
+    expect(invoke).toHaveBeenCalledWith('edit_with_finish', { items: [targets[0], targets[2]], program: '/P.app' });
   });
 
   it('starts only once the pending edits are saved, and not when they could not be', async () => {
@@ -247,7 +260,7 @@ describe('runEditWith', () => {
   it('opens nothing when no render was made', async () => {
     started([{ source: '/a.NEF', target: '/a_edit.tiff' }], ['j1'], [job('j1', 'cancelled')]);
     const result = await runEditWith(['/a.NEF'], BUILT_IN_EDIT_RECIPES[0], '/Applications/Preview.app');
-    expect(result.rendered).toBe(0);
+    expect(result).toMatchObject({ rendered: 0, cancelled: 1, failed: 0 });
     expect(vi.mocked(invoke).mock.calls.map((c) => c[0])).not.toContain('edit_with_finish');
   });
 });

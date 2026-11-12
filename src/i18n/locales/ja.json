@@ -488,6 +488,7 @@
       "openIn": "開くアプリケーション",
       "recipe": "レシピ",
       "rendering": "{{app}} 用にレンダリング中…",
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "{{total}} 枚中 {{failed}} 枚の写真をレンダリングできませんでした。",
       "tiffAdobe": "TIFF 16 ビット · Adobe RGB",
       "tiffProPhoto": "TIFF 16 ビット · ProPhoto RGB"

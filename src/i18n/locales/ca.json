@@ -522,6 +522,7 @@
       "openIn": "Obre a",
       "recipe": "Recepta",
       "rendering": "S’està renderitzant per a {{app}}…",
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "No s’han pogut renderitzar {{failed}} de {{total}} fotos.",
       "tiffAdobe": "TIFF 16 bits · Adobe RGB",
       "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"

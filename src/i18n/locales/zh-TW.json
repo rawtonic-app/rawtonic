@@ -488,6 +488,7 @@
       "openIn": "打開於",
       "recipe": "配方",
       "rendering": "正在為 {{app}} 算圖…",
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "{{total}} 張照片中有 {{failed}} 張無法算圖。",
       "tiffAdobe": "TIFF 16 位元 · Adobe RGB",
       "tiffProPhoto": "TIFF 16 位元 · ProPhoto RGB"

@@ -545,6 +545,7 @@
       "openIn": "Открыть в",
       "recipe": "Рецепт",
       "rendering": "Рендеринг для {{app}}…",
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "Не удалось отрендерить фото: {{failed}} из {{total}}.",
       "tiffAdobe": "TIFF 16 бит · Adobe RGB",
       "tiffProPhoto": "TIFF 16 бит · ProPhoto RGB"

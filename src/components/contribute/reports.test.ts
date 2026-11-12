@@ -133,6 +133,10 @@ describe('the no-relay fallbacks', () => {
     const crash = reportMarkdown(JSON.stringify(crashPayload(record, { includeBacktrace: true, logTail: 'x' })));
     expect(crash).toContain('Rawtonic quit unexpectedly on 2026-10-23 at `decode.rs:12:5`.');
     expect(crash).toContain('rawdecode::open');
+    expect(crash).toContain('x');
+    const previous = crashPayload(record, { includeBacktrace: true, logTail: record.logTail });
+    expect(previous.logTail).toBe(record.logTail);
+    expect(reportMarkdown(JSON.stringify(previous))).toContain(record.logTail!);
   });
 
   it('fits GitHub links within the limit, dropping the oldest log lines first', () => {

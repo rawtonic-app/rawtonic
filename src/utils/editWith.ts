@@ -145,7 +145,7 @@ const settled = (state: ExportJob['state']) => state !== 'queued' && state !== '
  * job's last seen state counts, so one the queue dropped after it finished
  * (it keeps only the latest finished jobs) is still known as done; one
  * removed while still waiting counts as not done. */
-export function waitForJobs(jobs: string[]): Promise<Set<string>> {
+export function waitForJobs(jobs: string[], cancelled = new Set<string>()): Promise<Set<string>> {
   return new Promise((resolve) => {
     const seen = new Map<string, ExportJob['state']>();
     let stop: (() => void) | null = null;
@@ -157,6 +157,7 @@ export function waitForJobs(jobs: string[]): Promise<Set<string>> {
         if (!jobs.includes(job.id)) continue;
         present.add(job.id);
         seen.set(job.id, job.state);
+        if (job.state === 'cancelled') cancelled.add(job.id);
       }
       const finished = jobs.every((id) => {
         const state = seen.get(id);
@@ -175,6 +176,7 @@ export function waitForJobs(jobs: string[]): Promise<Set<string>> {
 
 export interface EditWithRun extends EditWithResult {
   rendered: number;
+  cancelled: number;
   failed: number;
 }
 
@@ -196,9 +198,14 @@ export async function runEditWith(paths: string[], recipe: EditRecipe, program: 
     recipe: request,
     program
   });
-  const done = await waitForJobs(jobs);
+  const cancelled = new Set<string>();
+  const done = await waitForJobs(jobs, cancelled);
   const rendered = targets.filter((_, i) => done.has(jobs[i]));
-  const counts = { rendered: rendered.length, failed: targets.length - rendered.length };
+  const counts = {
+    rendered: rendered.length,
+    cancelled: cancelled.size,
+    failed: targets.length - rendered.length - cancelled.size
+  };
   if (!rendered.length) return { ...counts, linked: 0, problems: [] };
   const result = await invoke<EditWithResult>(Invokes.EditWithFinish, { items: rendered, program });
   await refreshStacks();

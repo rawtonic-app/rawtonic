@@ -499,6 +499,7 @@
       "openIn": "Open in",
       "recipe": "Recipe",
       "rendering": "Rendering for {{app}}…",
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "someFailed": "{{failed}} of {{total}} photographs could not be rendered.",
       "tiffAdobe": "TIFF 16-bit · Adobe RGB",
       "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"

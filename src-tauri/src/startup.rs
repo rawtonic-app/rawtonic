@@ -90,7 +90,49 @@ pub(crate) fn install_early_panic_hook() {
     }));
 }
 
-/// Logs to `file_name` in the app's log folder (replaced on each start).
+/// Preserve four completed sessions. Each archive is published atomically;
+/// failure leaves the active log untouched and disables file logging this run.
+fn rotate_logs(path: &std::path::Path) -> anyhow::Result<()> {
+    for index in (1..=4).rev() {
+        let source = if index == 1 {
+            path.to_path_buf()
+        } else {
+            path.with_file_name(format!("app.{}.log", index - 1))
+        };
+        let bytes = match fs::read(&source) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        rawtonic_fs::atomic_write(&path.with_file_name(format!("app.{index}.log")), bytes)?;
+    }
+    rawtonic_fs::atomic_write(path, b"")
+}
+
+#[cfg(test)]
+mod log_rotation_tests {
+    use super::*;
+
+    #[test]
+    fn keeps_four_previous_sessions_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.log");
+        for run in 0..7 {
+            rawtonic_fs::atomic_write(&path, format!("session {run}")).unwrap();
+            rotate_logs(&path).unwrap();
+            assert_eq!(fs::read_to_string(&path).unwrap(), "");
+        }
+        for index in 1..=4 {
+            assert_eq!(
+                fs::read_to_string(dir.path().join(format!("app.{index}.log"))).unwrap(),
+                format!("session {}", 7 - index)
+            );
+        }
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 5);
+    }
+}
+
+/// Logs to `file_name` in the app's log folder (four previous sessions retained).
 pub(crate) fn setup_logging(app_handle: &tauri::AppHandle, file_name: &str) {
     let log_dir = match app_handle.path().app_log_dir() {
         Ok(dir) => dir,
@@ -106,12 +148,15 @@ pub(crate) fn setup_logging(app_handle: &tauri::AppHandle, file_name: &str) {
 
     let log_file_path = log_dir.join(file_name);
 
-    let log_file = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&log_file_path)
-        .ok();
+    let log_file = rotate_logs(&log_file_path)
+        .map_err(|error| eprintln!("Failed to rotate logs: {error:#}"))
+        .ok()
+        .and_then(|()| {
+            fs::OpenOptions::new()
+                .append(true)
+                .open(&log_file_path)
+                .ok()
+        });
 
     let var = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     let level: log::LevelFilter = var.parse().unwrap_or(log::LevelFilter::Info);
