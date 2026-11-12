@@ -1,6 +1,6 @@
 import i18n from 'i18next';
 import { platform } from '@tauri-apps/plugin-os';
-import { platformLabel } from '../utils/platformLabels';
+import { platformResources } from '../utils/platformLabels';
 import { initReactI18next } from 'react-i18next';
 
 import en from './locales/en.json';
@@ -23,22 +23,16 @@ i18n.on('languageChanged', (lng) => {
   if (typeof document !== 'undefined') document.documentElement.lang = lng;
 });
 
-i18n
-  .use({
-    type: 'postProcessor',
-    name: 'platformLabels',
-    process(value: string) {
-      try {
-        return platformLabel(value, platform());
-      } catch {
-        return value;
-      }
-    }
-  })
-  .use(initReactI18next)
-  .init({
-    postProcess: ['platformLabels'],
-    resources: {
+let osPlatform = 'macos';
+try {
+  osPlatform = platform();
+} catch {
+  // Preserve the original resource labels outside the native app.
+}
+
+i18n.use(initReactI18next).init({
+  resources: platformResources(
+    {
       en: { translation: en },
       de: { translation: de },
       'zh-CN': { translation: zhCN },
@@ -53,10 +47,12 @@ i18n
       ru: { translation: ru },
       ca: { translation: ca }
     },
-    lng: 'en',
-    fallbackLng: 'en',
-    returnEmptyString: false,
-    interpolation: {
-      escapeValue: false
-    }
-  });
+    osPlatform
+  ),
+  lng: 'en',
+  fallbackLng: 'en',
+  returnEmptyString: false,
+  interpolation: {
+    escapeValue: false
+  }
+});

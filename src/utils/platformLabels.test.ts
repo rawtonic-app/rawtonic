@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { platformLabel, quickSettingsCopy } from './platformLabels';
+import { platformLabel, platformResources, quickSettingsCopy } from './platformLabels';
 
 describe('platform shortcut labels', () => {
   it.each(['windows', 'linux'])('formats legacy translated hints on %s', (platform) => {
@@ -8,7 +8,7 @@ describe('platform shortcut labels', () => {
     );
     expect(platformLabel('Capture (⌘K / Ctrl+K)', platform)).toBe('Capture (Ctrl+K)');
     expect(platformLabel('Preferences (⌘,)', platform)).toBe('Preferences (Ctrl+,)');
-    expect(platformLabel('Reference (⇧Return, ⌘Return)', platform)).toBe('Reference (Shift+Return, Ctrl+Return)');
+    expect(platformLabel('Reference (⇧Return, ⌘Return)', platform)).toBe('Reference (Shift+Enter, Ctrl+Enter)');
   });
   it('preserves Mac labels', () => {
     const label = 'Export (⇧⌘E), Alt/Option-click';
@@ -35,4 +35,19 @@ it('formats hard-coded hints in every locale', async () => {
   };
   expect(Object.keys(locales)).toHaveLength(13);
   Object.values(locales).forEach(visit);
+});
+
+it.each(['windows', 'linux', 'macos'])('preserves interpolated names on %s', async (platform) => {
+  const { createInstance } = await import('i18next');
+  const instance = createInstance();
+  const resources = { en: { translation: { hint: '{{name}} (⌘Return), {{tool}}' } } };
+  await instance.init({
+    resources: platformResources(resources, platform),
+    lng: 'en',
+    interpolation: { escapeValue: false }
+  });
+  expect(instance.t('hint', { name: '⌘photo Option', tool: 'My Option' })).toBe(
+    platform === 'macos' ? '⌘photo Option (⌘Return), My Option' : '⌘photo Option (Ctrl+Enter), My Option'
+  );
+  expect(resources.en.translation.hint).toBe('{{name}} (⌘Return), {{tool}}');
 });

@@ -10,6 +10,7 @@ export function platformLabel(label: string, platform: string): string {
       return [...parts, key].filter(Boolean).join('+');
     })
     .replace(/\b(Ctrl(?:\+[A-Za-z0-9]+)+) \/ \1\b/g, '$1')
+    .replace(/\bReturn\b/g, 'Enter')
     .replace(/Alt\/Option/g, 'Alt')
     .replace(/Alt \(Alt\)/g, 'Alt')
     .replace(/Alt \(Option\)/g, 'Alt')
@@ -20,4 +21,16 @@ export function platformLabel(label: string, platform: string): string {
  * on Shift+copy, in the Library, and on macOS. */
 export function quickSettingsCopy(platform: string, view: string, shift: boolean): boolean {
   return (platform === 'windows' || platform === 'linux') && view === 'editor' && !shift;
+}
+
+/** Transform only bundled resources, before i18next inserts names and paths. */
+export function platformResources<T>(resources: T, platform: string): T {
+  if (typeof resources === 'string') return platformLabel(resources, platform) as T;
+  if (Array.isArray(resources)) return resources.map((value) => platformResources(value, platform)) as T;
+  if (resources && typeof resources === 'object') {
+    return Object.fromEntries(
+      Object.entries(resources).map(([key, value]) => [key, platformResources(value, platform)])
+    ) as T;
+  }
+  return resources;
 }
