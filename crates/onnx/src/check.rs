@@ -616,12 +616,14 @@ pub(crate) enum Checks {
     Idle,
 }
 
-pub(crate) fn plan(known: Option<Verdict>, checks: Checks) -> Plan {
+/// `cpu_after`: the load may fall back to the CPU. A GPU-only load (Moebius)
+/// has nothing to run on meanwhile, so it checks before use.
+pub(crate) fn plan(known: Option<Verdict>, checks: Checks, cpu_after: bool) -> Plan {
     match (checks, known) {
         (Checks::Off, _) | (_, Some(Verdict::Faster)) => Plan::Use,
         (_, Some(Verdict::Differs | Verdict::Slower)) => Plan::Skip,
-        (Checks::Now, None) => Plan::CheckNow,
-        (Checks::Idle, None) => Plan::Queue,
+        (Checks::Idle, None) if cpu_after => Plan::Queue,
+        (Checks::Now | Checks::Idle, None) => Plan::CheckNow,
     }
 }
 
@@ -847,14 +849,16 @@ mod tests {
     /// known verdict decides without a check.
     #[test]
     fn a_load_without_a_verdict_goes_to_the_cpu_and_queues_the_check() {
-        assert_eq!(plan(None, Checks::Idle), Plan::Queue);
-        assert_eq!(plan(None, Checks::Now), Plan::CheckNow);
-        assert_eq!(plan(None, Checks::Off), Plan::Use);
+        assert_eq!(plan(None, Checks::Idle, true), Plan::Queue);
+        // Without a CPU to fall back to (Moebius), the check runs first.
+        assert_eq!(plan(None, Checks::Idle, false), Plan::CheckNow);
+        assert_eq!(plan(None, Checks::Now, true), Plan::CheckNow);
+        assert_eq!(plan(None, Checks::Off, true), Plan::Use);
         for checks in [Checks::Idle, Checks::Now] {
-            assert_eq!(plan(Some(Verdict::Faster), checks), Plan::Use);
+            assert_eq!(plan(Some(Verdict::Faster), checks, true), Plan::Use);
             // A GPU whose output differed stays off, also from the queue.
-            assert_eq!(plan(Some(Verdict::Differs), checks), Plan::Skip);
-            assert_eq!(plan(Some(Verdict::Slower), checks), Plan::Skip);
+            assert_eq!(plan(Some(Verdict::Differs), checks, true), Plan::Skip);
+            assert_eq!(plan(Some(Verdict::Slower), checks, true), Plan::Skip);
         }
     }
 
@@ -867,7 +871,10 @@ mod tests {
         let file = dir.join("ai-gpu-checks.tsv");
         let key = format!("committed-{}.onnx | WebGPU", std::process::id());
         let stopped_key = format!("stopped-{}.onnx | WebGPU", std::process::id());
-        assert_eq!(plan(verdict(&key, Some(&file)), Checks::Idle), Plan::Queue);
+        assert_eq!(
+            plan(verdict(&key, Some(&file)), Checks::Idle, true),
+            Plan::Queue
+        );
         let started = Instant::now();
         let stop = Stop::new();
         let gpu = conclude(
@@ -881,7 +888,10 @@ mod tests {
             |_, gpu| Some(gpu),
         );
         assert!(gpu.is_some_and(|r| r.is_err()));
-        assert_eq!(plan(verdict(&key, Some(&file)), Checks::Idle), Plan::Skip);
+        assert_eq!(
+            plan(verdict(&key, Some(&file)), Checks::Idle, true),
+            Plan::Skip
+        );
         assert_eq!(load_file(&file).get(&key), Some(&Verdict::Slower));
         let stop = Stop::new();
         stop.stop();

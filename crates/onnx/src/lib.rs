@@ -788,7 +788,8 @@ impl Model {
             } else {
                 device(provider, dirs).and_then(|device| {
                     let (known, key) = check::known(path, kind, &device, checks_file.as_ref());
-                    let gpu = match check::plan(known, checks) {
+                    let cpu_after = providers.contains(&Provider::Cpu);
+                    let gpu = match check::plan(known, checks, cpu_after) {
                         Plan::Use => session(path, kind, Some(&device))?,
                         // A known "differs" or "slower" needs no GPU session
                         // (its creation alone compiles shaders).

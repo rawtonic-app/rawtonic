@@ -988,7 +988,8 @@ pub(crate) async fn export_images_impl(
     // No AI model's GPU verdict changes while the export runs (a check
     // finishing between two photos), so every photo of it uses the provider
     // the first one used, also after a model was unloaded and loaded again.
-    let _same_ai_providers = rawtonic_onnx::hold_checks();
+    // Moved into the export task below and held until its workers end.
+    let same_ai_providers = rawtonic_onnx::hold_checks();
     let task_token = Arc::clone(&app_handle.state::<ExportState>().task_token);
     let cancellation_token = register_export_task(&task_token)?;
     let task_guard = ExportTaskGuard::with_app_handle(
@@ -1073,6 +1074,7 @@ pub(crate) async fn export_images_impl(
 
     let _export_task = tokio::spawn(async move {
         let _task_guard = task_guard;
+        let _same_ai_providers = same_ai_providers;
         load_denoise_models(&app_handle, photos.denoise_models.clone()).await;
         let settings = crate::state::settings::current(&app_handle);
         let targets = Arc::new(targets);
