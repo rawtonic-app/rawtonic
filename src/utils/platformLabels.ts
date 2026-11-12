@@ -2,7 +2,6 @@
 export function platformLabel(label: string, platform: string): string {
   if (platform !== 'windows' && platform !== 'linux') return label;
   return label
-    .replace(/⌘K \/ Ctrl\+K/g, 'Ctrl+K')
     .replace(/([⇧⌥⌃⌘]+)(,|[^\s)。,;]+)?/g, (_, modifiers: string, key = '') => {
       const parts = [];
       if (modifiers.includes('⌘') || modifiers.includes('⌃')) parts.push('Ctrl');
@@ -10,6 +9,7 @@ export function platformLabel(label: string, platform: string): string {
       if (modifiers.includes('⌥')) parts.push('Alt');
       return [...parts, key].filter(Boolean).join('+');
     })
+    .replace(/\b(Ctrl(?:\+[A-Za-z0-9]+)+) \/ \1\b/g, '$1')
     .replace(/Alt\/Option/g, 'Alt')
     .replace(/Alt \(Alt\)/g, 'Alt')
     .replace(/Alt \(Option\)/g, 'Alt')
