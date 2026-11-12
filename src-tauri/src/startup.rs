@@ -1064,8 +1064,8 @@ pub(crate) fn scaled_window_floor(scale: f64, available: (f64, f64)) -> (f64, f6
         1.0
     };
     (
-        (1000.0 * scale).min(available.0),
-        (600.0 * scale).min(available.1),
+        (1000.0 * scale).round().min(available.0),
+        (600.0 * scale).round().min(available.1),
     )
 }
 
@@ -1076,7 +1076,11 @@ mod scaled_floor_tests {
         for scale in [1.0, 1.12, 1.25] {
             let floor = super::scaled_window_floor(scale, (2000.0, 1200.0));
             let size = super::minimum_window_size(300.0, 200.0, floor).unwrap();
-            assert_eq!((size.width, size.height), (1000.0 * scale, 600.0 * scale));
+            assert!(super::minimum_window_size(size.width, size.height, floor).is_none());
+            assert_eq!(
+                (size.width, size.height),
+                ((1000.0 * scale).round(), (600.0 * scale).round())
+            );
         }
         assert_eq!(
             super::scaled_window_floor(1.25, (1100.0, 700.0)),
