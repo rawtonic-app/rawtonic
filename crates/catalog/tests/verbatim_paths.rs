@@ -86,7 +86,8 @@ fn a_catalog_with_verbatim_folders_finds_its_photographs_under_plain_paths() {
         .unwrap();
     // The drive read now, or the recorded one when it cannot be read.
     assert!(shoot_row.1.is_some(), "{rows:?}");
-    assert!(rows.iter().any(|row| row.0 == empty.display().to_string()));
+    // A folder without photographs is dropped, as every relocation does.
+    assert!(!rows.iter().any(|row| row.0.contains("Empty")), "{rows:?}");
     // Opening again changes nothing.
     drop(db);
     let lib = Library::open(&catalog).unwrap();
