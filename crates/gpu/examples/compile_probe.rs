@@ -447,10 +447,38 @@ fn spirv_words(
     )
     .validate(module)
     .map_err(|e| format!("{e:?}"))?;
+    // Vulkan bindings as wgpu-hal numbers them for the layout `layout_for`
+    // makes (the module's bindings, densely in WGSL order). Rounds 3–8 wrote
+    // the WGSL numbers instead: with gaps among the used bindings the shader
+    // then read other or missing descriptors, and the driver compiled that
+    // broken pipeline fast — those passthrough timings are invalid.
+    let mut used: Vec<u32> = module
+        .global_variables
+        .iter()
+        .filter_map(|(_, g)| g.binding.as_ref().map(|b| b.binding))
+        .collect();
+    used.sort_unstable();
+    used.dedup();
+    let binding_map = used
+        .iter()
+        .enumerate()
+        .map(|(vulkan, &binding)| {
+            (
+                naga::ResourceBinding { group: 0, binding },
+                spv::BindingInfo {
+                    descriptor_set: 0,
+                    binding: vulkan as u32,
+                    binding_array_size: None,
+                },
+            )
+        })
+        .collect();
     let mut options = spv::Options {
         lang_version: (1, 6),
         // DEBUG: OpName for the functions, so `noinline` can name them.
         flags: spv::WriterFlags::DEBUG | spv::WriterFlags::LABEL_VARYINGS,
+        binding_map,
+        fake_missing_bindings: false,
         ..Default::default()
     };
     options.bounds_check_policies = naga::proc::BoundsCheckPolicies {
