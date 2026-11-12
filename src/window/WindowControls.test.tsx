@@ -77,12 +77,29 @@ it('places the snap-layouts overlay in physical pixels and draws its hover and p
   } as DOMRect);
   const view = setup(false, true);
   expect(ipc.invoke).toHaveBeenCalledWith('set_maximize_button_rect', {
-    rect: { x: 1000, y: 5, width: 40, height: 40 }
+    rect: { x: 1000, y: 5, width: 40, height: 40 },
+    modalOpen: false
   });
   const button = screen.getByRole('button', { name: 'Maximize window' });
   await waitFor(() => expect(ipc.listeners.has('maximize-button-state')).toBe(true));
   act(() => ipc.listeners.get('maximize-button-state')!({ payload: { hovered: true, pressed: true } }));
   expect(button.className).toBe('is-hovered is-pressed');
+  const modal = document.createElement('dialog');
+  modal.setAttribute('open', '');
+  document.body.append(modal);
+  await waitFor(() =>
+    expect(ipc.invoke).toHaveBeenLastCalledWith('set_maximize_button_rect', {
+      rect: { x: 1000, y: 5, width: 40, height: 40 },
+      modalOpen: true
+    })
+  );
+  modal.remove();
+  await waitFor(() =>
+    expect(ipc.invoke).toHaveBeenLastCalledWith('set_maximize_button_rect', {
+      rect: { x: 1000, y: 5, width: 40, height: 40 },
+      modalOpen: false
+    })
+  );
   view.unmount();
   expect(ipc.invoke).toHaveBeenLastCalledWith('set_maximize_button_rect', { rect: null });
   vi.unstubAllGlobals();

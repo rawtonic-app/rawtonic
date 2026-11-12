@@ -103,6 +103,13 @@ beforeEach(() => {
 });
 
 describe('Session workspace keyboard flows', () => {
+  it('opens Preferences from welcome without a library', async () => {
+    useUIStore.setState({ isSettingsOpen: false });
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Preferences' }));
+    expect(useUIStore.getState().isSettingsOpen).toBe(true);
+    useUIStore.setState({ isSettingsOpen: false });
+  });
   it("suggests today's local date in the project name", async () => {
     const user = userEvent.setup();
     render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);

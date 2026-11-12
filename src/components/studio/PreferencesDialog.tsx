@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useModalFocus } from '../../hooks/useModalFocus';
@@ -11,7 +12,7 @@ export default function PreferencesDialog({ children }: { children: ReactNode })
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   useModalFocus(ref, true);
-  return (
+  return createPortal(
     <div
       ref={ref}
       className="studio-settings"
@@ -21,6 +22,7 @@ export default function PreferencesDialog({ children }: { children: ReactNode })
       tabIndex={-1}
     >
       {children}
-    </div>
+    </div>,
+    document.querySelector('.studio-app') ?? document.body
   );
 }

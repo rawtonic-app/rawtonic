@@ -376,3 +376,10 @@ describe('table-driven view and flag keys', () => {
     stop();
   });
 });
+
+it('opens Preferences from the menu with no library', () => {
+  useLibraryStore.setState({ rootPaths: [], sessionDirectory: null, imageList: [] });
+  expect(menuCommandEnabled('open_settings')).toBe(true);
+  choose('open_settings');
+  expect(useUIStore.getState().isSettingsOpen).toBe(true);
+});
