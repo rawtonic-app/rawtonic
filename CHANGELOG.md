@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Edit With now groups renders with their originals in grid stacks, uses the render time for new files, and retries only unfinished photos after quitting. Windows adds handling for app execution aliases in Other… (native verification pending) and uses program display names in rendering and interruption notices.
+
 - Loose photos opened in Develop appear alone and highlighted in the filmstrip, with an explicit library status and an Add to library action that opens import for review. Returning to Library restores its photos. On Windows, when enforcing the interface minimum makes the window grow past the screen, it is moved back inside the monitor work area.
 
 - Super Resolution on Windows and Linux moves to the GPU in the same session once the idle GPU check finds it faster (the first session on a machine used to stay on the CPU until the next start, about 15 minutes for 24 MP on an RTX 3080 instead of 15–25 seconds). Measurement (8-bit output, RTX 3080, a 2048² crop compared with the CPU: at most 1/255 difference) is in the maintainers' notes, SRL report 2026-11-12.

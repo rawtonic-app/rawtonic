@@ -592,11 +592,18 @@ impl ExportQueue {
 
     /// Removes finished jobs beyond the newest `keep`.
     pub fn prune_done(&self, keep: usize) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM jobs WHERE state='done' AND id NOT IN
-               (SELECT id FROM jobs WHERE state='done' ORDER BY seq DESC LIMIT ?)",
-            [keep as i64],
-        )?;
+        self.prune_done_except(keep, &[])
+    }
+
+    /// Retains explicitly protected jobs in addition to the latest `keep`
+    /// finished jobs. A pending handoff must not suspend ordinary history pruning.
+    pub fn prune_done_except(&self, keep: usize, protected: &[String]) -> Result<()> {
+        let ids = self.ids("SELECT id FROM jobs WHERE state='done' ORDER BY seq DESC")?;
+        let tx = self.conn.unchecked_transaction()?;
+        for id in ids.iter().filter(|id| !protected.contains(id)).skip(keep) {
+            tx.execute("DELETE FROM jobs WHERE id=?", [id])?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
