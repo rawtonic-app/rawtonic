@@ -46,7 +46,7 @@ it.each(['windows', 'linux', 'macos'])('preserves interpolated names on %s', asy
     lng: 'en',
     interpolation: { escapeValue: false }
   });
-  expect(instance.t(['hint'].join(''), { name: '⌘photo Option', tool: 'My Option' })).toBe(
+  expect(instance.t(['hint'].join(''), { name: '⌘photo Option', tool: 'My Option', defaultValue: '' })).toBe(
     platform === 'macos' ? '⌘photo Option (⌘Return), My Option' : '⌘photo Option (Ctrl+Enter), My Option'
   );
   expect(resources.en.translation.hint).toBe('{{name}} (⌘Return), {{tool}}');
