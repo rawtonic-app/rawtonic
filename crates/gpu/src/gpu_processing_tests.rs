@@ -2919,6 +2919,15 @@ fn sharpen_version_8_gates_flat_noise() {
     }
 }
 
+/// The adapter `context` uses, described.
+fn test_adapter_info() -> wgpu::AdapterInfo {
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        .unwrap()
+        .get_info()
+}
+
 /// The default adapter of the backends `WGPU_BACKEND` names (all when unset),
 /// so a run can test DX12 where Vulkan is the default.
 pub(super) fn context() -> GpuContext {
@@ -8962,8 +8971,20 @@ fn display_variants_passed_through_render_the_same_pixels() {
         println!("SKIP (not a pass): the device has no SPIR-V passthrough");
         return;
     }
+    // As the app starts this driver: one compile at a time (AMD's Windows
+    // Vulkan driver took about 11.5 GB per wgpu-path variant and ran out of
+    // memory with several at once, WGT7), nothing compiled ahead.
+    set_compile_limit(crate::device_start::compile_limit(
+        &test_adapter_info(),
+        cfg!(target_os = "windows"),
+    ));
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
+    // One processor per path for every recipe.
+    let through_wgpu_processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    through_wgpu_processor.display_shader.set_passthrough(false);
+    let passthrough_processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    passthrough_processor.display_shader.set_passthrough(true);
     let mut checked = 0;
     for profile in [
         json!({}),
@@ -8980,8 +9001,11 @@ fn display_variants_passed_through_render_the_same_pixels() {
         let features = preview_features(&adjustments);
         let masks = generated_profile_masks(&profile, width, height);
         let render = |passthrough: bool| {
-            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
-            processor.display_shader.set_passthrough(passthrough);
+            let processor = if passthrough {
+                &passthrough_processor
+            } else {
+                &through_wgpu_processor
+            };
             assert_eq!(
                 processor.display_shader.passes_through(&context.device),
                 passthrough
