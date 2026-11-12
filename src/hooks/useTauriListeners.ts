@@ -411,7 +411,16 @@ export function useTauriListeners({
       const folders = new Set(ingestFolders);
       ingestFolders.clear();
       const { currentFolderPath } = useLibraryStore.getState();
-      if (isEffectActive && currentFolderPath && folders.size) await refs.current.refreshImageList();
+      const shown = currentFolderPath?.replaceAll('\\', '/').replace(/\/$/, '');
+      if (
+        isEffectActive &&
+        shown &&
+        [...folders].some((folder) => {
+          const destination = folder.replaceAll('\\', '/');
+          return destination === shown || destination.startsWith(shown + '/');
+        })
+      )
+        await refs.current.refreshImageList();
     }, INGEST_LIST_REFRESH_MS);
     const refreshIngestTree = throttleAsync(
       () => isEffectActive && refs.current.refreshAllFolderTrees(),
@@ -679,12 +688,9 @@ export function useTauriListeners({
             .getState()
             .setExportState({ status: Status.Idle, denoising: [], selecting: [], progress: { current: 0, total: 0 } });
       }),
-      listen<{ source: string; destination: string | null; skipped: boolean; error: string | null }>(
-        'hot-folder-imported',
-        (event) => {
-          if (isEffectActive) showCapture(event.payload, false);
-        }
-      ),
+      listen<{ destination: string | null; skipped: boolean; error: string | null }>('hot-folder-imported', (event) => {
+        if (isEffectActive) showCapture(event.payload, false);
+      }),
       // A tethered capture is shown at once, in Develop too (Capture One
       // follows the newest capture in its viewer).
       listen<{

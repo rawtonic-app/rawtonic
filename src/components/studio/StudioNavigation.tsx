@@ -785,8 +785,8 @@ export default function StudioNavigation({
 }) {
   const { t } = useTranslation();
   const selectedImage = useEditorStore((s) => s.selectedImage);
-  const activePath = useLibraryStore((s) => s.libraryActivePath);
-  const image = develop || selectedImage?.path === activePath ? selectedImage : null;
+  const imageList = useLibraryStore((s) => s.imageList);
+  const image = develop || imageList.some((file) => file.path === selectedImage?.path) ? selectedImage : null;
   const preview = useProcessStore((s) => (image ? s.thumbnails[image.path] : undefined));
   const column = (
     <ToolColumn scope={develop ? 'develop:browse' : 'library'} className="studio-navigation">

@@ -588,7 +588,7 @@ it('shows ingested photographs in the grid as they arrive, listing the folder ag
   imported('/jobs/Acme/Capture/D.ARW', { error: 'disk full' });
   imported('/jobs/Acme/Selects/E.ARW');
   await act(() => vi.advanceTimersByTimeAsync(2000));
-  expect(refreshImageList).toHaveBeenCalledTimes(listed + 1);
+  expect(refreshImageList).toHaveBeenCalledTimes(listed);
 });
 
 it('shows a tethered capture at once: selected in the Library, opened when Develop is showing', async () => {

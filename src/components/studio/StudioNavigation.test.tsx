@@ -597,7 +597,7 @@ describe("the navigator's photograph", () => {
         exif: null
       } as unknown as SelectedImage
     });
-    useLibraryStore.getState().setLibrary({ libraryActivePath: path });
+    useLibraryStore.getState().setLibrary({ libraryActivePath: path, imageList: [{ path } as never] });
     const view = renderNavigation();
     const caption = view.container.querySelector('.studio-nav-caption')!.textContent;
     const alt = view.container.querySelector('.studio-navigator img')?.getAttribute('alt');
@@ -634,4 +634,17 @@ it('clears the loose Develop photograph from the Library navigator', () => {
     </ContextMenuProvider>
   );
   expect(view.container.querySelector('.studio-nav-caption')).toBeNull();
+});
+
+it('keeps a library photo in the navigator during multi-selection', () => {
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/job/a.dng' } as SelectedImage });
+  useLibraryStore
+    .getState()
+    .setLibrary({
+      libraryActivePath: '/job/b.dng',
+      imageList: [{ path: '/job/a.dng' } as never],
+      multiSelectedPaths: ['/job/a.dng', '/job/b.dng']
+    });
+  const view = renderNavigation();
+  expect(view.container.querySelector('.studio-nav-caption')?.textContent).toBe('a.dng');
 });
