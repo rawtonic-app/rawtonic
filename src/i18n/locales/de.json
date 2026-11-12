@@ -1672,6 +1672,7 @@
       "withoutOriginal_other": "{{count}} neue Fotos ausgelassen: ihre Originale sind nicht im anderen Katalog"
     },
     "create": {
+      "addAfterLibrary": "Zum Hinzufügen braucht es ein Projekt oder einen Katalog. Legen Sie hier eines an oder öffnen Sie ein vorhandenes; danach wird das Foto hinzugefügt.",
       "catalog": "Katalog",
       "catalogDescription": "Verwalte deine Sammlung in einem Katalogordner. Fotos werden standardmäßig hineinkopiert; externe Ordner kannst du optional verknüpfen.",
       "catalogHint": "Für deine gesamte Fotosammlung",

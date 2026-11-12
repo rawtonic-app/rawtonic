@@ -7460,3 +7460,33 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-app.linux-unified-chrome .studio-viewer-footer > .studio-viewer-side.is-end {
   flex: 0 0 auto;
 }
+
+/* The top bar no longer fits (a small logical screen at a large interface
+   size, useCompactBar): actions become icons and the library count goes,
+   so the window controls at its end stay on screen. Their names stay for
+   assistive technology and in the tooltips. */
+.studio-app .session-bar.is-compact {
+  gap: 8px;
+  padding-right: 6px;
+}
+.studio-app .session-bar.is-compact .session-bar-end {
+  gap: 6px;
+}
+.studio-app .session-bar.is-compact .session-count {
+  display: none;
+}
+.studio-app .session-bar.is-compact .session-bar-end > .session-action {
+  padding: 5px 8px;
+}
+.studio-app .session-bar.is-compact .session-bar-end > .session-action > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.studio-app .session-bar.is-compact .studio-window-controls {
+  margin-left: 2px;
+  padding-left: 4px;
+}

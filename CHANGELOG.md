@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **Windows: Maximize at 125 % interface size on a small screen is a real maximize again.** Changing the window minimum while the window was maximized took it out of maximize at its maximized size, so on a 1280×752 work area at 125 % Maximize left a normal window hanging off the right edge (Close clipped) and Restore did nothing. The minimum now changes only in the normal window state (checked together with the change), the maximized window is the monitor's work area, and the minimum never exceeds it; if the top bar no longer fits, its actions become icons before the window controls are cut. Add to library… without a library offers to create or open one and then adds the photo; the Library Navigator follows the Library selection after a loose open or Show in library; an unsupported interface size in the settings file is written to app.log once at start. Native verification on the reporting laptop pending.
+
 - **Windows with AMD graphics: the first tone slider waits about half as long.** On AMD's Windows Vulkan driver the first use of Contrast, Highlights or Whites waited about a minute while the driver prepared that view (once per computer); the view's tone code is now shaped so the driver compiles it in about half the time and memory (Radeon 680M: 54 → 28 s; raised Shadows 174 → 58 s). Exports are unchanged.
 
 - Adding an externally opened photo follows its library copy and refreshes library counts. The Navigator clears stale loose photos, and confirmed duplicates offer Show in library. Settings accept a UTF-8 BOM and snap interface sizes to the supported choices. Windows minimum-size correction is deferred and skips maximized windows and superseded resizes.

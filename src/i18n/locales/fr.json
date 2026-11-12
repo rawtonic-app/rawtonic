@@ -1763,6 +1763,7 @@
       "withoutOriginal_other": "{{count}} nouvelles photos laissées de côté : leurs originaux ne sont pas dans l’autre catalogue"
     },
     "create": {
+      "addAfterLibrary": "L'ajout nécessite un projet ou un catalogue. Créez-en un ici ou ouvrez-en un existant ; la photo y sera ensuite ajoutée.",
       "catalog": "Catalogue",
       "catalogDescription": "Organisez votre collection dans un dossier de catalogue. Par défaut, les photos y sont copiées ; lier des dossiers externes est facultatif.",
       "catalogHint": "Une bibliothèque pour de nombreuses missions",

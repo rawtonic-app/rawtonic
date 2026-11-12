@@ -1763,6 +1763,7 @@
       "withoutOriginal_other": "{{count}} fotos novas deixadas de fora: os originais não estão no outro catálogo"
     },
     "create": {
+      "addAfterLibrary": "Para adicionar é necessário um projeto ou catálogo. Crie um aqui ou abra um existente; a foto será adicionada em seguida.",
       "catalog": "Catálogo",
       "catalogDescription": "Organize sua coleção em uma pasta de catálogo. Por padrão, as fotos são copiadas para ela; vincular pastas externas é opcional.",
       "catalogHint": "Uma biblioteca para muitos trabalhos",

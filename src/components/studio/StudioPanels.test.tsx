@@ -328,17 +328,25 @@ it('shows a loose photo alone and highlighted, then restores the library on retu
   expect(film.querySelector('.studio-photo-open')?.getAttribute('title')).toContain('current.dng');
   expect(film.querySelector('.is-current')).not.toBeNull();
   expect(film.textContent).not.toContain('a.dng');
-  fireEvent.contextMenu(film.querySelector('[role="option"]')!);
-  expect(screen.getByText('Add to library…').closest('button')?.disabled).toBe(true);
-  const unregister = registerAppCommands({ import_photos: { run: noop } });
   const importing = vi.fn();
   window.addEventListener('rawtonic:import-external-photo', importing);
+  // No library: the action stays available and offers to create or open one.
   fireEvent.contextMenu(film.querySelector('[role="option"]')!);
+  expect(screen.getAllByText('Add to library…').at(-1)!.closest('button')?.disabled).toBe(false);
   fireEvent.click(screen.getAllByText('Add to library…').at(-1)!);
   expect(importing).toHaveBeenCalledOnce();
   expect((importing.mock.calls[0][0] as CustomEvent).detail.paths).toEqual(['/qa/current.dng']);
+  // A library that is busy (import unavailable) waits.
+  act(() => useLibraryStore.getState().setLibrary({ sessionDirectory: '/library' }));
+  fireEvent.contextMenu(film.querySelector('[role="option"]')!);
+  expect(screen.getAllByText('Add to library…').at(-1)!.closest('button')?.disabled).toBe(true);
+  const unregister = registerAppCommands({ import_photos: { run: noop } });
+  fireEvent.contextMenu(film.querySelector('[role="option"]')!);
+  fireEvent.click(screen.getAllByText('Add to library…').at(-1)!);
+  expect(importing).toHaveBeenCalledTimes(2);
   window.removeEventListener('rawtonic:import-external-photo', importing);
   unregister();
+  act(() => useLibraryStore.getState().setLibrary({ sessionDirectory: null }));
   act(() => useUIStore.setState({ activeView: 'library' }));
   expect(container.querySelector('.studio-library-footer')?.textContent).toContain('1');
   expect(screen.getByRole('listbox').textContent).toContain('a.dng');

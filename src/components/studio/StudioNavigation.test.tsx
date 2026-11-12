@@ -646,3 +646,24 @@ it('keeps a library photo in the navigator during multi-selection', () => {
   const view = renderNavigation();
   expect(view.container.querySelector('.studio-nav-caption')?.textContent).toBe('a.dng');
 });
+
+it('follows the Library selection after a loose open and Show in library', () => {
+  act(() =>
+    useProcessStore.setState({
+      thumbnails: { ...useProcessStore.getState().thumbnails, '/library/Fuji_XM5.RAF': 'asset://thumb.jpg' }
+    })
+  );
+  // Develop still holds the loose photograph; Show in library selected its library copy.
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/loose/Fuji_XM5.RAF' } as SelectedImage });
+  useLibraryStore.getState().setLibrary({
+    libraryActivePath: '/library/Fuji_XM5.RAF',
+    imageList: [{ path: '/library/other.dng' } as never, { path: '/library/Fuji_XM5.RAF' } as never],
+    multiSelectedPaths: ['/library/Fuji_XM5.RAF']
+  });
+  const view = renderNavigation();
+  expect(view.container.querySelector('.studio-nav-caption')?.textContent).toBe('Fuji_XM5.RAF');
+  expect(view.container.querySelector('.studio-navigator img')?.getAttribute('alt')).toBe('Fuji_XM5.RAF');
+  // Selecting another library photo moves the Navigator with it.
+  act(() => useLibraryStore.getState().setLibrary({ libraryActivePath: '/library/other.dng' }));
+  expect(view.container.querySelector('.studio-nav-caption')?.textContent).toBe('other.dng');
+});

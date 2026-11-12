@@ -1854,6 +1854,7 @@
       "withoutOriginal_other": "Pominięte nowe zdjęcia — ich oryginałów nie ma w drugim katalogu: {{count}}"
     },
     "create": {
+      "addAfterLibrary": "Dodanie wymaga projektu lub katalogu. Utwórz go tutaj albo otwórz istniejący; potem zdjęcie zostanie dodane.",
       "catalog": "Katalog",
       "catalogDescription": "Uporządkuj swoją kolekcję w jednym folderze katalogu. Domyślnie zdjęcia są do niego kopiowane; łączenie folderów zewnętrznych jest opcjonalne.",
       "catalogHint": "Biblioteka na wiele zleceń",

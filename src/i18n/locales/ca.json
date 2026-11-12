@@ -1763,6 +1763,7 @@
       "withoutOriginal_other": "{{count}} fotos noves omeses: els seus originals no són a l’altre catàleg"
     },
     "create": {
+      "addAfterLibrary": "Per afegir-la cal un projecte o un catàleg. Creeu-ne un aquí o obriu-ne un d'existent; després s'hi afegirà la foto.",
       "catalog": "Catàleg",
       "catalogDescription": "Organitza la teva col·lecció en una carpeta de catàleg. Per defecte, les fotos s'hi copien; enllaçar carpetes externes és opcional.",
       "catalogHint": "Una biblioteca per a molts encàrrecs",
