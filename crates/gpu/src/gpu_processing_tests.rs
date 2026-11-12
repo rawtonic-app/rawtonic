@@ -19158,11 +19158,11 @@ mod portable_grain_reference {
 
 #[test]
 #[ignore = "requires a native GPU adapter"]
-fn sharpening_at_quarter_size_shows_the_full_size_sharpening_scaled_down() {
+fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
     // A textured frame (detail from 2 to 30 px) at full size and reduced
-    // 4 × 4 by averaging, as previews and thumbnails are: the reduced
-    // render at detail_scale 0.25 sharpens about as much as the full-size
-    // render shows after the same reduction (notes:
+    // 2 × 2 and 4 × 4 by averaging, as previews and thumbnails are: the
+    // reduced render at detail_scale 0.5 / 0.25 sharpens about as much as
+    // the full-size render shows after the same reduction (notes:
     // benchmark-results/tpx-thumb-parity-2026-11-12). Before the kernel's
     // variance was scaled, the 0.25 px floor left Radius 1 unsharpened.
     let (width, height) = (1024usize, 768usize);
@@ -19205,18 +19205,17 @@ fn sharpening_at_quarter_size_shows_the_full_size_sharpening_scaled_down() {
         .zip(&coarse)
         .map(|(f, c)| (0.18 * (1.0 + 2.5 * f + 6.0 * c)).max(0.01))
         .collect();
-    let reduce = |v: &[f32]| -> Vec<f32> {
-        (0..width / 4 * (height / 4))
+    let reduce = |v: &[f32], f: usize| -> Vec<f32> {
+        (0..width / f * (height / f))
             .map(|i| {
-                let (x, y) = (i % (width / 4) * 4, i / (width / 4) * 4);
-                (0..16)
-                    .map(|k| v[(y + k / 4) * width + x + k % 4])
+                let (x, y) = (i % (width / f) * f, i / (width / f) * f);
+                (0..f * f)
+                    .map(|k| v[(y + k / f) * width + x + k % f])
                     .sum::<f32>()
-                    / 16.0
+                    / (f * f) as f32
             })
             .collect()
     };
-    let quarter = reduce(&full);
     let context = context();
     let render = |values: &[f32], w: u32, h: u32, recipe: &serde_json::Value, scale: f32| {
         let data: Vec<f16> = values
@@ -19263,33 +19262,43 @@ fn sharpening_at_quarter_size_shows_the_full_size_sharpening_scaled_down() {
     };
     let (w, h) = (width as u32, height as u32);
     let flat = json!({"sharpness": 0});
-    for radius in [1.0, 2.5] {
-        let recipe = json!({"sharpness": 60, "sharpenRadius": radius, "sharpnessThreshold": 0});
-        let added = |a: Vec<f32>, b: Vec<f32>| -> Vec<f32> {
-            a.iter().zip(&b).map(|(x, y)| x - y).collect()
-        };
-        let full_added = reduce(&added(
+    let added =
+        |a: Vec<f32>, b: Vec<f32>| -> Vec<f32> { a.iter().zip(&b).map(|(x, y)| x - y).collect() };
+    for (radius, detail) in [(1.0, 25), (2.5, 25), (1.0, 100), (2.5, 100)] {
+        let recipe = json!({"sharpness": 60, "sharpenRadius": radius, "sharpenDetail": detail,
+            "sharpnessThreshold": 0});
+        let full_added = added(
             render(&full, w, h, &recipe, 1.0),
             render(&full, w, h, &flat, 1.0),
-        ));
-        let reduced_added = added(
-            render(&quarter, w / 4, h / 4, &recipe, 0.25),
-            render(&quarter, w / 4, h / 4, &flat, 0.25),
         );
-        let (a, b) = (sd(&full_added), sd(&reduced_added));
-        println!(
-            "radius {radius}: full scaled down {a:.5}, quarter {b:.5}, ratio {:.2}",
-            b / a
-        );
-        assert!(a > 1e-3, "no sharpening at full size");
-        // Metal 2026-11-12: 0.56 (Radius 1) and 0.89 (Radius 2.5); 0.01 and
-        // 0.87 with the σ floor of 0.25 px. The finest detail of the frame
-        // (1 px) averages away in the reduction before the reduced render
-        // can sharpen it.
-        assert!(
-            (0.4..1.6).contains(&(b / a)),
-            "radius {radius}: quarter {b:.5} vs scaled {a:.5}"
-        );
+        for f in [2usize, 4] {
+            let reduced = reduce(&full, f);
+            let (rw, rh, scale) = (w / f as u32, h / f as u32, 1.0 / f as f32);
+            let reduced_added = added(
+                render(&reduced, rw, rh, &recipe, scale),
+                render(&reduced, rw, rh, &flat, scale),
+            );
+            let (a, b) = (sd(&reduce(&full_added, f)), sd(&reduced_added));
+            println!(
+                "radius {radius} detail {detail} 1/{f}: full scaled down {a:.5}, reduced {b:.5}, ratio {:.2}",
+                b / a
+            );
+            assert!(a > 1e-3, "no sharpening at full size");
+            // Metal 2026-11-12, 1/2 and 1/4: Radius 1 Detail 25 1.08 / 0.97,
+            // Radius 2.5 Detail 25 1.08 / 1.26, Radius 1 Detail 100 1.10 /
+            // 0.76 (main: 0.08 / 0.01, 1.09 / 0.45, 0.98 / 2.12). Radius 2.5
+            // at Detail 100 sharpens 1.39 / 2.16 times the export's (main
+            // 1.39 / 0.51): open in G16, held only to its current range.
+            let range = if radius > 2.0 && detail == 100 {
+                0.4..2.5
+            } else {
+                0.6..1.6
+            };
+            assert!(
+                range.contains(&(b / a)),
+                "radius {radius} detail {detail} 1/{f}: reduced {b:.5} vs scaled {a:.5}"
+            );
+        }
     }
 }
 
