@@ -563,6 +563,7 @@
       "resetAdjustments_other": "Reset adjustments on {{count}} photos",
       "shiftCaptureTime": "Shift Capture Time…",
       "showExplorer": "Show in file manager",
+      "showFileManager": "Show in file manager",
       "showFinder": "Show in Finder",
       "virtualCopy": "Virtual copy"
     },

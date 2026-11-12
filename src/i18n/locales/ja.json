@@ -552,6 +552,7 @@
       "resetAdjustments_other": "{{count}} 枚の画像の補正設定をリセット",
       "shiftCaptureTime": "撮影日時をずらす…",
       "showExplorer": "エクスプローラーで表示",
+      "showFileManager": "ファイルマネージャーで表示",
       "showFinder": "Finder で表示",
       "virtualCopy": "仮想コピー"
     },

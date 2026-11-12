@@ -599,6 +599,7 @@
       "resetAdjustments_other": "Réinitialiser les ajustements sur {{count}} images",
       "shiftCaptureTime": "Décaler l'heure de prise de vue…",
       "showExplorer": "Afficher dans l'explorateur",
+      "showFileManager": "Afficher dans le gestionnaire de fichiers",
       "showFinder": "Afficher dans le Finder",
       "virtualCopy": "Copie virtuelle"
     },

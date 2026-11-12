@@ -635,6 +635,7 @@
       "resetAdjustments_other": "Сбросить настройки для {{count}} изображений",
       "shiftCaptureTime": "Сдвиг времени съёмки…",
       "showExplorer": "Показать в проводнике",
+      "showFileManager": "Показать в файловом менеджере",
       "showFinder": "Показать в Finder",
       "virtualCopy": "Виртуальная копия"
     },

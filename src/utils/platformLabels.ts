@@ -34,3 +34,9 @@ export function platformResources<T>(resources: T, platform: string): T {
   }
   return resources;
 }
+
+export function fileManagerLabelKey(platform: string): string {
+  if (platform === 'macos') return 'contextMenus.thumbnail.showFinder';
+  if (platform === 'linux') return 'contextMenus.thumbnail.showFileManager';
+  return 'contextMenus.thumbnail.showExplorer';
+}

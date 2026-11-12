@@ -635,6 +635,7 @@
       "resetAdjustments_other": "Resetuj ustawienia w {{count}} obrazach",
       "shiftCaptureTime": "Przesuń czas wykonania…",
       "showExplorer": "Pokaż w eksploratorze plików",
+      "showFileManager": "Pokaż w menedżerze plików",
       "showFinder": "Pokaż w Finderze",
       "virtualCopy": "Kopia wirtualna"
     },

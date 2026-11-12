@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { platformLabel, platformResources, quickSettingsCopy } from './platformLabels';
+import { platformLabel, platformResources, quickSettingsCopy, fileManagerLabelKey } from './platformLabels';
 
 describe('platform shortcut labels', () => {
   it.each(['windows', 'linux'])('formats legacy translated hints on %s', (platform) => {
@@ -50,4 +50,15 @@ it.each(['windows', 'linux', 'macos'])('preserves interpolated names on %s', asy
     platform === 'macos' ? '⌘photo Option (⌘Return), My Option' : '⌘photo Option (Ctrl+Enter), My Option'
   );
   expect(resources.en.translation.hint).toBe('{{name}} (⌘Return), {{tool}}');
+});
+
+it('uses neutral Linux wording in all 13 locales and keeps Mac/Windows keys', () => {
+  expect(fileManagerLabelKey('macos')).toBe('contextMenus.thumbnail.showFinder');
+  expect(fileManagerLabelKey('windows')).toBe('contextMenus.thumbnail.showExplorer');
+  expect(fileManagerLabelKey('linux')).toBe('contextMenus.thumbnail.showFileManager');
+  const locales = import.meta.glob('../i18n/locales/*.json', { eager: true, import: 'default' });
+  for (const locale of Object.values(locales)) {
+    const strings = locale as { contextMenus: { thumbnail: { showFileManager: string } } };
+    expect(strings.contextMenus.thumbnail.showFileManager.length).toBeGreaterThan(0);
+  }
 });
