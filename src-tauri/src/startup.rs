@@ -1030,10 +1030,13 @@ mod work_area_tests {
 
 /// Also enforce the floor after Win32 resizes that bypass interactive tracking.
 #[cfg(any(windows, test))]
-pub(crate) fn minimum_window_size(width: f64, height: f64) -> Option<tauri::LogicalSize<f64>> {
-    (width < MIN_WINDOW_SIZE.0 || height < MIN_WINDOW_SIZE.1).then(|| {
-        tauri::LogicalSize::new(width.max(MIN_WINDOW_SIZE.0), height.max(MIN_WINDOW_SIZE.1))
-    })
+pub(crate) fn minimum_window_size(
+    width: f64,
+    height: f64,
+    minimum: (f64, f64),
+) -> Option<tauri::LogicalSize<f64>> {
+    (width < minimum.0 || height < minimum.1)
+        .then(|| tauri::LogicalSize::new(width.max(minimum.0), height.max(minimum.1)))
 }
 
 #[cfg(test)]
@@ -1045,10 +1048,43 @@ mod minimum_size_tests {
             (600.0, 350.0, (1000.0, 600.0)),
             (1200.0, 350.0, (1200.0, 600.0)),
         ] {
-            let size = super::minimum_window_size(width, height).unwrap();
+            let size = super::minimum_window_size(width, height, super::MIN_WINDOW_SIZE).unwrap();
             assert_eq!((size.width, size.height), expected);
         }
-        assert!(super::minimum_window_size(1000.0, 600.0).is_none());
-        assert!(super::minimum_window_size(1440.0, 900.0).is_none());
+        assert!(super::minimum_window_size(1000.0, 600.0, super::MIN_WINDOW_SIZE).is_none());
+        assert!(super::minimum_window_size(1440.0, 900.0, super::MIN_WINDOW_SIZE).is_none());
+    }
+}
+
+#[cfg(any(windows, test))]
+pub(crate) fn scaled_window_floor(scale: f64, available: (f64, f64)) -> (f64, f64) {
+    let scale = if scale.is_finite() {
+        scale.max(1.0)
+    } else {
+        1.0
+    };
+    (
+        (1000.0 * scale).min(available.0),
+        (600.0 * scale).min(available.1),
+    )
+}
+
+#[cfg(test)]
+mod scaled_floor_tests {
+    #[test]
+    fn resize_uses_current_scale_and_work_area() {
+        for scale in [1.0, 1.12, 1.25] {
+            let floor = super::scaled_window_floor(scale, (2000.0, 1200.0));
+            let size = super::minimum_window_size(300.0, 200.0, floor).unwrap();
+            assert_eq!((size.width, size.height), (1000.0 * scale, 600.0 * scale));
+        }
+        assert_eq!(
+            super::scaled_window_floor(1.25, (1100.0, 700.0)),
+            (1100.0, 700.0)
+        );
+        assert_eq!(
+            super::scaled_window_floor(f64::NAN, (2000.0, 1200.0)),
+            (1000.0, 600.0)
+        );
     }
 }
