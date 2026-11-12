@@ -19330,13 +19330,40 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
             render(frame, w, h, &flat, 1.0, level),
         );
         for f in [2usize, 4] {
-            let reduced = reduce(frame, f);
+            // Response 8 cases reduce as the app does (the export's
+            // Lanczos3, `resample_f32_image`), frame and reference alike:
+            // the gate weighs the noise the reduction leaves.
+            let lanczos = |v: &[f32]| -> Vec<f32> {
+                let image = image::Rgb32FImage::from_fn(w, h, |x, y| {
+                    let g = v[y as usize * width + x as usize];
+                    image::Rgb([g, g, g])
+                });
+                crate::image_processing::resample_f32_image(
+                    &image::DynamicImage::ImageRgb32F(image),
+                    w / f as u32,
+                    h / f as u32,
+                )
+                .to_rgb32f()
+                .pixels()
+                .map(|p| p[1])
+                .collect()
+            };
+            let reduced = if v8 { lanczos(frame) } else { reduce(frame, f) };
             let (rw, rh, scale) = (w / f as u32, h / f as u32, 1.0 / f as f32);
             let reduced_added = added(
                 render(&reduced, rw, rh, &recipe, scale, level),
                 render(&reduced, rw, rh, &flat, scale, level),
             );
-            let scaled = reduce(&full_added, f);
+            let scaled = if v8 {
+                // The added detail is signed: the export's sharpened render
+                // and its plain one, each reduced, then subtracted.
+                added(
+                    lanczos(&render(frame, w, h, &recipe, 1.0, level)),
+                    lanczos(&render(frame, w, h, &flat, 1.0, level)),
+                )
+            } else {
+                reduce(&full_added, f)
+            };
             let (a, b) = (sd(&scaled), sd(&reduced_added));
             assert!(a > 1e-3, "no sharpening at full size");
             // Signed gains per band (coarse: a 2 px Gaussian of the
@@ -19371,13 +19398,14 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
                 coarse_gain > 0.08,
                 "radius {radius} detail {detail} v8 {v8} 1/{f}: coarse {coarse_gain:.2}"
             );
-            // Response 8 on the noisy frame, (½, ¼; coarse / fine): Radius 1
-            // 0.68 / 1.16, 0.17 / 0.93; Radius 2.5 0.96 / 1.09, 0.54 / 1.14.
-            // With the noise level scaled by detail_scale as white noise (the
-            // gate before TPX2) the demosaic-like noise passed as detail:
-            // 0.57 / 1.30, 0.10 / 1.08; 1.06 / 1.18, 0.67 / 1.36 (fails).
+            // Response 8 on the noisy frame, reduced with Lanczos3 (½, ¼;
+            // coarse / fine): Radius 1 0.72 / 1.23, 0.18 / 1.27; Radius 2.5
+            // 0.96 / 1.08, 0.52 / 1.35. With the noise level scaled by
+            // detail_scale as white noise (the gate before TPX2) the
+            // demosaic-like noise passed as detail: 0.59 / 1.38, 0.10 / 1.49;
+            // 1.04 / 1.16, 0.66 / 1.60 (fails).
             let fine_range = if v8 {
-                0.75..1.25
+                0.75..1.4
             } else if radius > 2.0 && detail == 100 {
                 0.45..2.0
             } else {

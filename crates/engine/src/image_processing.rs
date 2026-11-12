@@ -549,13 +549,11 @@ pub fn resample_f32_image(image: &DynamicImage, nwidth: u32, nheight: u32) -> Dy
         return image.clone();
     }
     let rgb = match image {
-        DynamicImage::ImageRgb32F(_) => std::borrow::Cow::Borrowed(image),
-        other => std::borrow::Cow::Owned(DynamicImage::ImageRgb32F(other.to_rgb32f())),
+        DynamicImage::ImageRgb32F(buffer) => std::borrow::Cow::Borrowed(buffer),
+        other => std::borrow::Cow::Owned(other.to_rgb32f()),
     };
-    let mut out = match crate::lanczos::resize_exact(&rgb, new_w, new_h) {
-        DynamicImage::ImageRgb32F(buffer) => buffer,
-        other => other.to_rgb32f(),
-    };
+    let mut out = crate::lanczos::resize_scene_linear(&rgb, new_w, new_h);
+    // NaN as the area average leaves it: 0.
     for v in out.iter_mut() {
         *v = v.max(0.0);
     }
@@ -10925,7 +10923,7 @@ mod resample_tests {
     }
 
     #[test]
-    fn reduced_copies_clamp_ringing_and_never_enlarge() {
+    fn reduced_copies_keep_highlights_clamp_ringing_and_never_enlarge() {
         // A bright line on black rings below zero with Lanczos; the copy
         // keeps no negative values (as the area average).
         let mut image = Rgb32FImage::new(64, 16);
@@ -10935,6 +10933,21 @@ mod resample_tests {
         let source = DynamicImage::ImageRgb32F(image);
         let reduced = resample_f32_image(&source, 20, 20);
         assert!(reduced.to_rgb32f().iter().all(|v| *v >= 0.0));
+        // Above white stays above white (a RAW's highlights): the line's
+        // energy is kept, not clipped at 1.0.
+        let peak = reduced.to_rgb32f().iter().fold(0.0f32, |m, v| m.max(*v));
+        assert!(peak > 2.0, "peak {peak}");
+        let mut bright = Rgb32FImage::new(60, 30);
+        for p in bright.pixels_mut() {
+            *p = image::Rgb([3.0, 1.5, 0.2]);
+        }
+        let reduced = resample_f32_image(&DynamicImage::ImageRgb32F(bright), 20, 20);
+        for p in reduced.to_rgb32f().pixels() {
+            assert!(
+                (p[0] - 3.0).abs() < 1e-4 && (p[1] - 1.5).abs() < 1e-4,
+                "{p:?}"
+            );
+        }
         assert_eq!(resample_f32_image(&source, 128, 128).dimensions(), (64, 16));
     }
 
