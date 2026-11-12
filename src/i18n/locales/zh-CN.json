@@ -5023,6 +5023,7 @@
       },
       "footer": {
         "addToLibrary": "添加到图库…",
+        "alreadyInLibrary": "已在图库中，名称为 {{name}}",
         "copy": "复制",
         "copyAdjustments": "复制调整",
         "externalPhoto": "1 张照片 · 不在图库中",
@@ -5039,6 +5040,7 @@
         "rate_other": "评为 {{count}} 星",
         "selected_other": "已选 {{n}} 张",
         "showFilmstrip": "显示胶片条",
+        "showInLibrary": "在图库中显示",
         "stars_other": "{{count}} 星",
         "sync": "同步",
         "syncSettings": "将设置同步到选定照片（Option：按上次选择）"

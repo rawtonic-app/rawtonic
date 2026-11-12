@@ -5158,6 +5158,7 @@
       },
       "footer": {
         "addToLibrary": "Add to library…",
+        "alreadyInLibrary": "Already in library as {{name}}",
         "copy": "Copy",
         "copyAdjustments": "Copy adjustments",
         "externalPhoto": "1 photo · not in library",
@@ -5177,6 +5178,7 @@
         "selected_one": "{{n}} selected",
         "selected_other": "{{n}} selected",
         "showFilmstrip": "Show filmstrip",
+        "showInLibrary": "Show in library",
         "stars_one": "{{count}} star",
         "stars_other": "{{count}} stars",
         "sync": "Sync",

@@ -5356,6 +5356,7 @@
       },
       "footer": {
         "addToLibrary": "Añadir a la biblioteca…",
+        "alreadyInLibrary": "Ya en la biblioteca como {{name}}",
         "copy": "Copiar",
         "copyAdjustments": "Copiar ajustes",
         "externalPhoto": "1 foto · fuera de la biblioteca",
@@ -5378,6 +5379,7 @@
         "selected_many": "{{n}} seleccionadas",
         "selected_other": "{{n}} seleccionadas",
         "showFilmstrip": "Mostrar la tira de imágenes",
+        "showInLibrary": "Mostrar en la biblioteca",
         "stars_one": "{{count}} estrella",
         "stars_many": "{{count}} estrellas",
         "stars_other": "{{count}} estrellas",

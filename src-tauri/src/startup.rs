@@ -1105,3 +1105,52 @@ mod scaled_floor_tests {
         );
     }
 }
+
+/// A resize correction belongs only to a settled normal-window resize.
+#[cfg(any(windows, test))]
+pub(crate) fn correct_normal_resize(
+    maximized: bool,
+    fullscreen: bool,
+    minimized: bool,
+    expected: tauri::PhysicalSize<u32>,
+    current: Option<tauri::PhysicalSize<u32>>,
+) -> bool {
+    !maximized && !fullscreen && !minimized && current == Some(expected)
+}
+
+#[cfg(test)]
+mod resize_transition_tests {
+    #[test]
+    fn native_window_transitions_supersede_minimum_corrections() {
+        for scale in [1.0, 1.12, 1.25] {
+            let size = tauri::PhysicalSize::new((1000.0 * scale) as u32, (600.0 * scale) as u32);
+            assert!(super::correct_normal_resize(
+                false,
+                false,
+                false,
+                size,
+                Some(size)
+            ));
+            for flags in [
+                (true, false, false),
+                (false, true, false),
+                (false, false, true),
+            ] {
+                assert!(!super::correct_normal_resize(
+                    flags.0,
+                    flags.1,
+                    flags.2,
+                    size,
+                    Some(size)
+                ));
+            }
+            assert!(!super::correct_normal_resize(
+                false,
+                false,
+                false,
+                size,
+                Some(tauri::PhysicalSize::new(2560, 1530))
+            ));
+        }
+    }
+}

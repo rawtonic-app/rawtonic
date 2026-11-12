@@ -396,6 +396,25 @@ export default function StudioWorkspace(props: Props) {
     selectedImage &&
     !libraryFiles.some((f) => f.path === selectedImage.path) &&
     !imageList.some((f) => f.path === selectedImage.path);
+  const [duplicatePath, setDuplicatePath] = useState<string | null>(null);
+  const sessionDirectory = useLibraryStore((s) => s.sessionDirectory);
+  useEffect(() => {
+    let active = true;
+    setDuplicatePath(null);
+    if (externalPhoto && selectedImage && sessionDirectory)
+      void invoke<{ files: { duplicatePath: string | null }[] }>(Invokes.SessionIngestScan, {
+        directory: sessionDirectory,
+        paths: [selectedImage.path],
+        resolveDuplicates: true
+      })
+        .then((scan) => {
+          if (active) setDuplicatePath(scan.files[0]?.duplicatePath ?? null);
+        })
+        .catch(console.error);
+    return () => {
+      active = false;
+    };
+  }, [externalPhoto, selectedImage?.path, sessionDirectory]);
   const files = useMemo<ImageFile[]>(
     () =>
       externalPhoto && selectedImage
@@ -416,18 +435,30 @@ export default function StudioWorkspace(props: Props) {
         : libraryFiles,
     [externalPhoto, selectedImage, libraryFiles]
   );
+  const showDuplicate = () => {
+    if (!duplicatePath) return;
+    const path = duplicatePath;
+    void Promise.resolve(onNavigate(path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))))).then(
+      () => {
+        useLibraryStore.getState().setLibrary({ libraryActivePath: path, multiSelectedPaths: [path] });
+        useUIStore.getState().setUI({ activeView: 'library' });
+      }
+    );
+  };
   const externalContextMenu = (event: MouseEvent) => {
     event.preventDefault();
     showContextMenu(event.clientX, event.clientY, [
       {
-        label: t('studio.workspace.footer.addToLibrary'),
-        disabled: !appCommandEnabled('import_photos'),
+        label: duplicatePath ? t('studio.workspace.footer.showInLibrary') : t('studio.workspace.footer.addToLibrary'),
+        disabled: !duplicatePath && !appCommandEnabled('import_photos'),
         onClick: () =>
-          window.dispatchEvent(
-            new CustomEvent('rawtonic:import-external-photo', {
-              detail: { paths: selectedImage ? [selectedImage.path] : [] }
-            })
-          )
+          duplicatePath
+            ? showDuplicate()
+            : window.dispatchEvent(
+                new CustomEvent('rawtonic:import-external-photo', {
+                  detail: { paths: selectedImage ? [selectedImage.path] : [] }
+                })
+              )
       }
     ]);
   };
@@ -1430,14 +1461,23 @@ export default function StudioWorkspace(props: Props) {
                       <ArrowLeft size={14} />
                     </button>
                     <span className="studio-counter footer-mid">
-                      {externalPhoto
-                        ? t('studio.workspace.footer.externalPhoto')
-                        : currentIndex >= 0
-                          ? `${currentIndex + 1} / ${files.length}`
-                          : t('studio.workspace.footer.photographs', {
-                              count: files.length,
-                              n: files.length.toLocaleString()
-                            })}
+                      {externalPhoto ? (
+                        duplicatePath ? (
+                          <button onClick={showDuplicate}>
+                            {t('studio.workspace.footer.alreadyInLibrary', { name: sourceFileName(duplicatePath) })} ·{' '}
+                            {t('studio.workspace.footer.showInLibrary')}
+                          </button>
+                        ) : (
+                          t('studio.workspace.footer.externalPhoto')
+                        )
+                      ) : currentIndex >= 0 ? (
+                        `${currentIndex + 1} / ${files.length}`
+                      ) : (
+                        t('studio.workspace.footer.photographs', {
+                          count: files.length,
+                          n: files.length.toLocaleString()
+                        })
+                      )}
                     </span>
                     <button
                       aria-label={t('studio.workspace.footer.next')}

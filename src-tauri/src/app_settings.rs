@@ -1071,6 +1071,16 @@ const REMOVED_KEYS: [&str; 4] = [
 ];
 
 fn without_legacy_keys(mut settings: AppSettings) -> AppSettings {
+    if let Some(value) = settings.ui_scale {
+        let nearest = [1.0_f64, 1.12, 1.25]
+            .into_iter()
+            .min_by(|a, b| (a - value).abs().total_cmp(&(b - value).abs()))
+            .unwrap_or(1.0);
+        if value != nearest {
+            log::warn!("Unsupported uiScale {value}; using {nearest}");
+            settings.ui_scale = Some(nearest);
+        }
+    }
     for key in REMOVED_KEYS {
         settings.unknown.remove(key);
     }
@@ -1122,14 +1132,17 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
             return Err(format!("Settings file could not be read: {e}"));
         }
     };
-    let error = match serde_json::from_slice(&content) {
+    let json = content
+        .strip_prefix(&[0xef, 0xbb, 0xbf])
+        .unwrap_or(&content);
+    let error = match serde_json::from_slice(json) {
         Ok(settings) => return Ok(without_legacy_keys(settings)),
         Err(error) => error,
     };
     // One value this release cannot read (another release's shape, a hand
     // edit) resets only itself: the file is still kept below, and the
     // other settings stay.
-    if let Some(settings) = settings_without_unreadable_values(&content) {
+    if let Some(settings) = settings_without_unreadable_values(json) {
         let digest = rawtonic_fs::sha256_hex(&content);
         let kept = path.with_file_name(format!("settings.unreadable-{}.json", &digest[..16]));
         let already_kept = fs::read(&kept).is_ok_and(|existing| existing == content);
@@ -1351,6 +1364,26 @@ fn reserve_update_check_when(
 mod tests {
     use super::*;
     use crate::state::settings::SettingsStore;
+
+    #[test]
+    fn bom_settings_keep_values_without_quarantine() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        fs::write(&path, b"\xef\xbb\xbf{\"uiScale\":1.12}").unwrap();
+        assert_eq!(load_settings_file(&path).unwrap().ui_scale, Some(1.12));
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn interface_sizes_snap_to_offered_values() {
+        for (value, expected) in [(3.0, 1.25), (0.1, 1.0), (1.11, 1.12), (1.24, 1.25)] {
+            let settings = AppSettings {
+                ui_scale: Some(value),
+                ..Default::default()
+            };
+            assert_eq!(without_legacy_keys(settings).ui_scale, Some(expected));
+        }
+    }
 
     #[test]
     fn interface_size_edited_while_closed_is_read_on_next_start() {

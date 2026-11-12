@@ -5023,6 +5023,7 @@
       },
       "footer": {
         "addToLibrary": "라이브러리에 추가…",
+        "alreadyInLibrary": "라이브러리에 {{name}} 이름으로 있음",
         "copy": "복사",
         "copyAdjustments": "조정 복사",
         "externalPhoto": "사진 1장 · 라이브러리 외부",
@@ -5039,6 +5040,7 @@
         "rate_other": "별 {{count}}개로 평가",
         "selected_other": "{{n}}장 선택됨",
         "showFilmstrip": "필름스트립 표시",
+        "showInLibrary": "라이브러리에 표시",
         "stars_other": "별 {{count}}개",
         "sync": "동기화",
         "syncSettings": "선택한 사진에 설정 동기화 (Option: 지난번 선택대로)"

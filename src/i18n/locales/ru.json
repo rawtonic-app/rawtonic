@@ -5553,6 +5553,7 @@
       },
       "footer": {
         "addToLibrary": "Добавить в библиотеку…",
+        "alreadyInLibrary": "Уже в библиотеке как {{name}}",
         "copy": "Копировать",
         "copyAdjustments": "Копировать настройки",
         "externalPhoto": "1 фото · вне библиотеки",
@@ -5578,6 +5579,7 @@
         "selected_many": "{{n}} выбрано",
         "selected_other": "{{n}} выбрано",
         "showFilmstrip": "Показать ленту кадров",
+        "showInLibrary": "Показать в библиотеке",
         "stars_one": "{{count}} звезда",
         "stars_few": "{{count}} звезды",
         "stars_many": "{{count}} звёзд",

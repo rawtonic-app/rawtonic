@@ -1,4 +1,6 @@
 import '../../i18n';
+import { invoke } from '@tauri-apps/api/core';
+import { useLibraryStore } from '../../store/useLibraryStore';
 import { registerAppCommands } from '../../utils/appCommands';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -11,6 +13,11 @@ import { readModuleLayout } from '../../utils/panelLayout';
 import { PEEK_HOLD_MS, PEEK_LEAVE_MS } from './useEdgePeek';
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
 
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue({ files: [] }),
+  isTauri: () => false,
+  convertFileSrc: (path: string) => path
+}));
 vi.mock('../panel/Editor', () => ({ default: () => null }));
 vi.mock('./StudioDevelop', () => ({
   default: () => null,
@@ -335,4 +342,13 @@ it('shows a loose photo alone and highlighted, then restores the library on retu
   act(() => useUIStore.setState({ activeView: 'library' }));
   expect(container.querySelector('.studio-library-footer')?.textContent).toContain('1');
   expect(screen.getByRole('listbox').textContent).toContain('a.dng');
+});
+
+it('offers the confirmed library duplicate instead of Add', async () => {
+  useLibraryStore.getState().setLibrary({ sessionDirectory: '/library' });
+  vi.mocked(invoke).mockResolvedValueOnce({ files: [{ duplicatePath: '/library/existing.dng' }] });
+  const view = workspace([]);
+  await act(async () => {});
+  expect(view.container.querySelector('.studio-counter')?.textContent).toContain('Already in library as existing.dng');
+  expect(screen.getByText(/Show in library/)).toBeTruthy();
 });

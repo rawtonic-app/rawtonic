@@ -766,6 +766,18 @@ fn start(args: Vec<String>) {
                         if !maximized
                             && let tauri::WindowEvent::Resized(size) = event
                         {
+                            // WM_SIZE may arrive before IsZoomed changes. Check the
+                            // settled native state before correcting a programmatic resize.
+                            let expected = *size;
+                            let window_for_handler = window_for_handler.clone();
+                            tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            if !startup::correct_normal_resize(
+                                window_for_handler.is_maximized().unwrap_or(false),
+                                window_for_handler.is_fullscreen().unwrap_or(false),
+                                window_for_handler.is_minimized().unwrap_or(false),
+                                expected, window_for_handler.inner_size().ok()) { return; }
+                            let size = &expected;
                             let scale = window_for_handler.scale_factor().unwrap_or(1.0);
                             let logical = size.to_logical::<f64>(scale);
                             // Read the current settings on every resize: Preferences can change
@@ -781,8 +793,8 @@ fn start(args: Vec<String>) {
                             if let Some(minimum) = startup::minimum_window_size(logical.width, logical.height, floor) {
                                 let _ = window_for_handler.set_size(minimum);
                                 startup::keep_window_on_screen(&window_for_handler, (0.0, 0.0));
-                                return;
                             }
+                            });
                         }
 
                         let mut state = WindowState {
