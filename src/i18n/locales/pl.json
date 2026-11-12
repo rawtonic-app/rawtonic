@@ -562,7 +562,7 @@
       "none": "Żaden program nie otwiera tych plików",
       "other": "Inny…",
       "reading": "Wyszukiwanie programów…",
-      "unsupported": "Dostępne tylko w systemie macOS"
+      "unsupported": "Jeszcze niedostępne w systemie Linux"
     },
     "tagging": {
       "addTagTooltip": "Dodaj tag",

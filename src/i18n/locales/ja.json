@@ -505,7 +505,7 @@
       "none": "これらのファイルを開けるアプリケーションがありません",
       "other": "その他…",
       "reading": "アプリケーションを検索中…",
-      "unsupported": "macOS でのみ利用できます"
+      "unsupported": "Linux ではまだ利用できません"
     },
     "tagging": {
       "addTagTooltip": "タグを追加",

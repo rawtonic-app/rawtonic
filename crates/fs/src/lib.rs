@@ -225,7 +225,7 @@ pub fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
 /// system stops at 260 characters (os error 3), and our paths are plain
 /// (see [`canonicalize`]). Verbatim and device paths are passed as they are.
 #[cfg(windows)]
-pub(crate) fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
+pub fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
     use std::os::windows::ffi::OsStrExt;
     let mut text: Vec<u16> = path.as_os_str().encode_wide().collect();
     if text.contains(&0) {

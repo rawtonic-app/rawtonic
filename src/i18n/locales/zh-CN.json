@@ -505,7 +505,7 @@
       "none": "没有可打开这些文件的应用程序",
       "other": "其他…",
       "reading": "正在查找应用程序…",
-      "unsupported": "仅在 macOS 上可用"
+      "unsupported": "Linux 上尚不可用"
     },
     "tagging": {
       "addTagTooltip": "添加标签",
