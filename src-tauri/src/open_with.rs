@@ -1586,8 +1586,14 @@ mod tests {
         );
         // Its keywords as the export embeds them (`copy_metadata`).
         assert_eq!(got.keywords, ["print", "ai-tag"]);
-        // A render never takes over a photograph registered at its name.
-        assert!(link_render(&lib, &source.to_string_lossy(), &render, None).is_err());
+        // Recovery of the same derived render is idempotent and keeps its metadata.
+        link_render(&lib, &source.to_string_lossy(), &render, None).unwrap();
+        assert_eq!(lib.metadata(&edit.id).unwrap(), got);
+        // A different photograph registered at the name is never taken over.
+        let unrelated = capture.join("unrelated.tif");
+        fs::write(&unrelated, b"photo").unwrap();
+        lib.add_asset(&unrelated).unwrap();
+        assert!(link_render(&lib, &source.to_string_lossy(), &unrelated, None).is_err());
     }
 
     #[test]
