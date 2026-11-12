@@ -34,6 +34,7 @@ pub struct ButtonState {
 pub fn set_maximize_button_rect(
     window: tauri::WebviewWindow,
     rect: Option<ButtonRect>,
+    modal_open: Option<bool>,
 ) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -44,7 +45,7 @@ pub fn set_maximize_button_rect(
             let _ = app.emit(BUTTON_STATE_EVENT, ButtonState { hovered, pressed });
         });
         // Outward rounding: the whole button answers, never less.
-        let rect = rect.map(|r| {
+        let rect = active_button_rect(rect, modal_open.unwrap_or(false)).map(|r| {
             let (left, top) = (r.x.floor(), r.y.floor());
             win32::Rect {
                 x: left as i32,
@@ -65,10 +66,34 @@ pub fn set_maximize_button_rect(
     }
     #[cfg(not(windows))]
     {
-        let _ = (window, rect);
+        let _ = (window, rect, modal_open);
         Ok(())
     }
 }
 
 #[cfg(windows)]
 mod win32;
+
+/// A modal owns the entire client area, including the maximize button.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn active_button_rect(rect: Option<ButtonRect>, modal_open: bool) -> Option<ButtonRect> {
+    rect.filter(|_| !modal_open)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn modal_hides_overlay_until_closed() {
+        let rect = Some(ButtonRect {
+            x: 1.0,
+            y: 2.0,
+            width: 32.0,
+            height: 32.0,
+        });
+        assert!(active_button_rect(rect, false).is_some());
+        assert!(active_button_rect(rect, true).is_none());
+        assert!(active_button_rect(rect, false).is_some());
+        assert!(active_button_rect(None, false).is_none());
+    }
+}

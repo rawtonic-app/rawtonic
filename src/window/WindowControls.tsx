@@ -31,12 +31,20 @@ function useSnapLayoutButton(button: RefObject<HTMLButtonElement | null>, enable
       const box = element.getBoundingClientRect();
       const scale = window.devicePixelRatio || 1;
       const rect = { x: box.left * scale, y: box.top * scale, width: box.width * scale, height: box.height * scale };
-      const key = JSON.stringify(rect);
+      const modalOpen = !!document.querySelector('dialog[open], [aria-modal="true"]');
+      const key = JSON.stringify({ rect, modalOpen });
       if (key === sent) return;
       sent = key;
-      void invoke(Invokes.SetMaximizeButtonRect, { rect }).catch(console.error);
+      void invoke(Invokes.SetMaximizeButtonRect, { rect, modalOpen }).catch(console.error);
     };
     report();
+    const dialogs = new MutationObserver(report);
+    dialogs.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['open', 'aria-modal']
+    });
     const observer = new ResizeObserver(report);
     observer.observe(element);
     if (element.parentElement) observer.observe(element.parentElement);
@@ -53,6 +61,7 @@ function useSnapLayoutButton(button: RefObject<HTMLButtonElement | null>, enable
     return () => {
       disposed = true;
       observer.disconnect();
+      dialogs.disconnect();
       window.removeEventListener('resize', report);
       unlisten?.();
       setState({ hovered: false, pressed: false });

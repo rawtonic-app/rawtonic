@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preferences opens above the welcome screen, with a visible welcome entry; Windows snap-layout controls stay inactive behind modal dialogs.
+
 - Shortcut hints preserve file and tool names containing Mac key symbols; Windows/Linux reference hints say Enter. Linux uses neutral file-manager wording, and thumbnail path aliases are cached per library list.
 
 - Windows and Linux show platform shortcut labels, scale the top bar with the interface, keep photo dimensions beside shortened filenames, and enforce a usable minimum window size. Plain Ctrl+C in Develop copies the remembered settings choice; Ctrl+Shift+C opens the picker. Catalog scans leave exports in Output out of the photo count, and thumbnail events update tiles listed through another Windows path spelling.
