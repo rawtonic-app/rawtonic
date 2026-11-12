@@ -874,6 +874,8 @@ impl Model {
     /// Runs `f` on the session where it is, never moving to the CPU (for
     /// benchmarks and tests).
     pub fn run_without_fallback<T>(&self, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
+        // Moebius runs this way too: a GPU check must not run beside it.
+        let _busy = self.busy();
         self.state.session().with(f)
     }
 
