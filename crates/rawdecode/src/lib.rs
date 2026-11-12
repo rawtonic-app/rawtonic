@@ -3,6 +3,7 @@
 //! defaults need. Derived from RapidRAW (commit a82251f, AGPL-3.0); no Tauri,
 //! catalog or develop-model dependencies.
 
+pub mod airlight;
 pub mod black_bias;
 pub mod camera_crop;
 pub mod camera_exposure;
@@ -17,7 +18,6 @@ pub mod gamut;
 pub mod gpu_demosaic;
 pub mod highlight_reconstruction;
 pub mod hot_pixels;
-pub mod airlight;
 pub mod image_key;
 pub mod mosaic_denoise;
 pub mod multi_exposure;

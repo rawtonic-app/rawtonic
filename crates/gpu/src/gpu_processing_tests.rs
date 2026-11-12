@@ -443,7 +443,10 @@ fn dehaze_version_3_compiles_only_where_dehaze_is_used() {
         assert!(needs_feature_pipeline(&used));
     }
     assert_eq!(features(json!({"dehazeVersion": 3})), 0);
-    assert_eq!(features(json!({"dehaze": -30, "dehazeVersion": 2})), DEHAZE_V2_FEATURE);
+    assert_eq!(
+        features(json!({"dehaze": -30, "dehazeVersion": 2})),
+        DEHAZE_V2_FEATURE
+    );
 }
 
 #[test]
@@ -21548,7 +21551,10 @@ fn dehaze_version_2_drag_render_time() {
 #[ignore = "requires a native GPU; Dehaze version 3 against version 2: GPU time of a preview render per drag step, lowered and raised"]
 fn dehaze_version_3_drag_render_time() {
     for direction in [-1, 1] {
-        eprintln!("Dehaze {}", if direction < 0 { "lowered" } else { "raised" });
+        eprintln!(
+            "Dehaze {}",
+            if direction < 0 { "lowered" } else { "raised" }
+        );
         drag_render_times_of(
             [2, 3],
             |version, step| json!({ "dehaze": direction * (20 + 3 * step), "dehazeVersion": version, "testAirlight": 0.3 }),
@@ -21713,26 +21719,43 @@ fn dehaze_version_3_veils_towards_the_airlight() {
     let v2 = render(json!({"dehaze": -100, "dehazeVersion": 2, "testAirlight": 0.05}));
     println!(
         "black / grey / light: neutral {} {} {}, v3 low air {} {} {}, v3 white air {} {} {}, v2 {} {} {}",
-        g(&neutral, 128), g(&neutral, 384), g(&neutral, 640),
-        g(&low, 128), g(&low, 384), g(&low, 640),
-        g(&white, 128), g(&white, 384), g(&white, 640),
-        g(&v2, 128), g(&v2, 384), g(&v2, 640)
+        g(&neutral, 128),
+        g(&neutral, 384),
+        g(&neutral, 640),
+        g(&low, 128),
+        g(&low, 384),
+        g(&low, 640),
+        g(&white, 128),
+        g(&white, 384),
+        g(&white, 640),
+        g(&v2, 128),
+        g(&v2, 384),
+        g(&v2, 640)
     );
-    assert!(g(&low, 640) < g(&neutral, 640), "a light grey above a low airlight darkens");
+    assert!(
+        g(&low, 640) < g(&neutral, 640),
+        "a light grey above a low airlight darkens"
+    );
     assert!(g(&low, 128) > g(&neutral, 128), "black rises");
     assert!(
         g(&low, 128) < g(&low, 384) && g(&low, 384) < g(&low, 640),
         "the tones keep their order"
     );
     assert!(g(&v2, 640) > g(&neutral, 640), "version 2 lifts it");
-    assert!(g(&white, 640) > g(&neutral, 640), "with a white airlight it rises");
+    assert!(
+        g(&white, 640) > g(&neutral, 640),
+        "with a white airlight it rises"
+    );
     // Raised: the light grey sits near a low airlight, so it darkens less.
     let raised = |version: u64| {
         render(json!({"dehaze": 60, "dehazeVersion": version, "testAirlight": 0.05}))
     };
     let (r1, r3) = (raised(1), raised(3));
     println!("raised light grey: v1 {} v3 {}", g(&r1, 640), g(&r3, 640));
-    assert!(g(&r3, 640) > g(&r1, 640), "raised darkens a tone near the airlight less");
+    assert!(
+        g(&r3, 640) > g(&r1, 640),
+        "raised darkens a tone near the airlight less"
+    );
 }
 
 /// Lowered Dehaze of version 2 (`dehazeVersion`): the key alone and raised

@@ -87,7 +87,9 @@ pub fn measure(image: &DynamicImage) -> Option<f32> {
         }
     }
     // Local minimum over a square window (separable).
-    let radius = ((WINDOW_SHARE * w.max(h) as f32 - 1.0) / 2.0).round().max(0.0) as usize;
+    let radius = ((WINDOW_SHARE * w.max(h) as f32 - 1.0) / 2.0)
+        .round()
+        .max(0.0) as usize;
     let mut rows = vec![0.0f32; w * h];
     for y in 0..h {
         for x in 0..w {
@@ -121,7 +123,11 @@ mod tests {
         // A grey frame at 0.2 with a few pixel-sized white spots: the local
         // minimum removes them.
         let image = Rgb32FImage::from_fn(3000, 2000, |x, y| {
-            let v = if x % 400 == 7 && y % 300 == 5 { 1.0 } else { 0.2 };
+            let v = if x % 400 == 7 && y % 300 == 5 {
+                1.0
+            } else {
+                0.2
+            };
             image::Rgb([v, v, v])
         });
         let level = measure(&DynamicImage::ImageRgb32F(image)).unwrap();
