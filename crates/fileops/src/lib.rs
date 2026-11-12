@@ -1857,6 +1857,36 @@ fn exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
+/// Refuse to trash a photo whose inode is also another registered photo.
+/// A rename removes just one name, but the surviving photo still shares its
+/// bytes and must be named to the user before any operation starts.
+pub fn refuse_shared_photos(sources: &[PathBuf], registered: &[PathBuf]) -> Result<()> {
+    for source in sources {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if std::fs::metadata(source)?.nlink() < 2 {
+                continue;
+            }
+        }
+        for other in registered {
+            if source != other && same_file(source, other) {
+                // Symlink/prefix spellings of the same name are not a second
+                // hard link. Canonicalization preserves distinct hard-link names.
+                if source.canonical()? == other.canonical()? {
+                    continue;
+                }
+                anyhow::bail!(
+                    "{} shares its file with {}; nothing was trashed",
+                    source.display(),
+                    other.display()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate(steps: &[Step]) -> Result<()> {
     let mut sources = HashSet::new();
     let mut targets = HashSet::new();
@@ -2857,6 +2887,30 @@ pub(crate) mod crash {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trash_refuses_another_registered_hard_link_and_names_it() {
+        let d = tempfile::tempdir().unwrap();
+        let source = d.path().join("A.RAW");
+        let other = d.path().join("B.RAW");
+        fs::write(&source, b"photo").unwrap();
+        fs::hard_link(&source, &other).unwrap();
+        let error = refuse_shared_photos(
+            std::slice::from_ref(&source),
+            &[source.clone(), other.clone()],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("B.RAW"));
+        assert_eq!(fs::read(&source).unwrap(), b"photo");
+        assert_eq!(fs::read(&other).unwrap(), b"photo");
+        refuse_shared_photos(std::slice::from_ref(&source), std::slice::from_ref(&source)).unwrap();
+        // Moving just one name keeps the other hard link and its bytes.
+        let trash = d.path().join("Trash.RAW");
+        rawtonic_fs::rename_no_clobber(&source, &trash).unwrap();
+        assert!(!source.exists());
+        assert_eq!(fs::read(&other).unwrap(), b"photo");
+        assert_eq!(fs::read(&trash).unwrap(), b"photo");
+    }
 
     #[test]
     fn copy_journal_records_keep_their_existing_object_shape() {

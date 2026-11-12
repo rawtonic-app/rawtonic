@@ -837,6 +837,11 @@ fn synchronize_through_a_symlink_finds_new_photos() {
         assert!(plan.copies.is_empty(), "{plan:#?}");
         assert!(plan.removed.is_empty(), "{plan:#?}");
     }
+    let plan = scan(&lib, Some(&alias));
+    let applied = lib.apply_folder_sync(&defaults(&plan)).unwrap();
+    assert_eq!(applied.added.len(), 1);
+    assert_eq!(lib.summary().unwrap().assets, 2);
+    assert!(scan(&lib, Some(&folder)).is_empty());
 }
 
 #[cfg(windows)]
@@ -848,17 +853,14 @@ fn synchronize_plain_windows_root_finds_new_photos() {
     let folder = root.join("Photos");
     photo(&folder.join("A.ARW"), 1);
     lib.add_asset(&folder.join("A.ARW")).unwrap();
-    let plain = folder
-        .to_string_lossy()
-        .strip_prefix(r"\\?\")
-        .unwrap()
-        .to_owned();
+    let plain = folder.to_string_lossy().into_owned();
+    let verbatim = PathBuf::from(format!(r"\\?\{}", folder.display()));
     rusqlite::Connection::open(lib.directory.join("catalog.sqlite"))
         .unwrap()
         .execute("UPDATE roots SET path=?1 WHERE external=1", [&plain])
         .unwrap();
     photo(&folder.join("B.ARW"), 2);
-    for selected in [Path::new(&plain), folder.as_path()] {
+    for selected in [Path::new(&plain), verbatim.as_path()] {
         let plan = scan(&lib, Some(selected));
         assert!(plan.errors.is_empty(), "{plan:#?}");
         assert_eq!(plan.new_files.len(), 1, "{plan:#?}");
