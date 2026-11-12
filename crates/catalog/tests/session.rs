@@ -179,3 +179,21 @@ fn xmp_ownership_is_scoped_to_the_exact_folder_and_complete_stem() {
     );
     assert!(!bare.with_extension("xmp").exists());
 }
+
+#[test]
+fn duplicate_candidates_filter_same_size_files_by_content_before_full_hashing() {
+    let temp = tempfile::tempdir().unwrap();
+    let lib = Library::create(temp.path(), "Candidates", Mode::Session).unwrap();
+    let matching = temp.path().join("Capture/match.arw");
+    let different = temp.path().join("Capture/different.arw");
+    std::fs::write(&matching, b"same-size-A").unwrap();
+    std::fs::write(&different, b"same-size-B").unwrap();
+    lib.add_asset(&matching).unwrap();
+    lib.add_asset(&different).unwrap();
+    let loose = temp.path().join("copy.arw");
+    std::fs::write(&loose, b"same-size-A").unwrap();
+    assert_eq!(
+        lib.content_candidates(&loose).unwrap(),
+        vec![lib.directory.join("Capture/match.arw")]
+    );
+}

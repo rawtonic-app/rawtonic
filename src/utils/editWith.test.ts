@@ -52,7 +52,7 @@ const job = (id: string, state: ExportJob['state']) => ({ id, state }) as Export
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   useProcessStore.setState({ exportQueue: [] });
-  useLibraryStore.setState({ rootPaths: ['/s'] });
+  useLibraryStore.setState({ rootPaths: ['/s'], sessionDirectory: null });
   useEditorStore.setState({ selectedImage: null });
 });
 
@@ -141,6 +141,7 @@ describe('runEditWith', () => {
         return { targets, jobs };
       }
       if (command === 'edit_with_finish') return { linked: 2, problems: [] };
+      if (command === 'stacks_list') return [];
     });
 
   it('renders each photograph, then links and opens only the renders that were made', async () => {
@@ -150,9 +151,11 @@ describe('runEditWith', () => {
       { source: '/s/Capture/C.NEF', target: '/s/Capture/C_edit.tiff' }
     ];
     started(targets, ['j1', 'j2', 'j3'], [job('j1', 'done'), job('j2', 'failed'), job('j3', 'done')]);
+    useLibraryStore.setState({ sessionDirectory: '/s' });
     const paths = targets.map((t) => t.source);
     const result = await runEditWith(paths, BUILT_IN_EDIT_RECIPES[0], '/Applications/Preview.app');
     expect(result).toEqual({ rendered: 2, failed: 1, linked: 2, problems: [] });
+    expect(invoke).toHaveBeenCalledWith('stacks_list', { directory: '/s' });
     const calls = vi.mocked(invoke).mock.calls;
     // The program goes with the jobs: a quit offers this Edit With again.
     expect(calls[0]).toEqual([
@@ -247,4 +250,9 @@ describe('runEditWith', () => {
     expect(result.rendered).toBe(0);
     expect(vi.mocked(invoke).mock.calls.map((c) => c[0])).not.toContain('edit_with_finish');
   });
+});
+
+it('Edit With gives a saved recipe a new file time instead of its capture date', () => {
+  const recipe = editRecipes([preset({ preserveTimestamps: true })]).at(-1)!;
+  expect(editRequest(recipe).exportSettings.preserveTimestamps).toBe(false);
 });

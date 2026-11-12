@@ -837,3 +837,32 @@ it('refreshes the visible Windows tile when a batch publishes a canonical path',
   });
   expect(useProcessStore.getState().thumbnails[path]).toBe('asset:///new-small.jpg');
 });
+
+it('adopts the library destination of the open loose photograph after ingest', async () => {
+  const handleImageSelect = vi.fn();
+  const handleSelectSubfolder = vi.fn();
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/loose/a.dng' } as never });
+  useUIStore.getState().setUI({ activeView: 'editor' });
+  renderHook(() =>
+    useTauriListeners({
+      refreshAllFolderTrees: vi.fn(),
+      refreshImageList: vi.fn(),
+      handleSelectSubfolder,
+      handleImageSelect,
+      markGenerated: vi.fn()
+    })
+  );
+  await act(async () =>
+    callbacks.get('session-ingest-imported')!({
+      payload: {
+        source: '/loose/a.dng',
+        destination: '/library/Photos/a.dng',
+        skipped: false,
+        error: null
+      }
+    })
+  );
+  expect(handleSelectSubfolder).toHaveBeenCalledWith('/library/Photos', false, undefined, true, true);
+  expect(handleImageSelect).toHaveBeenCalledWith('/library/Photos/a.dng', true);
+  expect(useLibraryStore.getState().libraryActivePath).toBe('/library/Photos/a.dng');
+});

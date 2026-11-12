@@ -94,6 +94,8 @@ it('on Windows, Other… asks for a program file and Edit With names the program
   };
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'open_with_pick')
+      return { ...windowsApps.apps[1], path: 'D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe' };
     if (command === 'edit_with_apps' || command === 'open_with_apps') return windowsApps;
   });
   try {
@@ -112,10 +114,7 @@ it('on Windows, Other… asks for a program file and Edit With names the program
         paths
       })
     );
-    expect(vi.mocked(open).mock.lastCall![0]).toMatchObject({
-      defaultPath: 'C:\\Program Files',
-      filters: [{ extensions: ['exe'] }]
-    });
+    expect(mockInvoke).toHaveBeenCalledWith('open_with_pick', { title: expect.any(String) });
   } finally {
     useSettingsStore.setState({ osPlatform: '' });
   }
@@ -201,22 +200,40 @@ it("shows another Edit With failure's message, also one that starts like the gen
   expect(text).not.toContain('not available for photos with generated areas');
 });
 
-it('offers an Edit With a quit cut short again: Try again renders its photos for its program', async () => {
-  const { notify } = await import('../../activity/notify');
-  const run = { program: '/Applications/Paint.app', photos: [paths[0], paths[1]] };
-  mockInvoke.mockImplementation(async (command) => {
-    if (command === 'edit_with_interrupted') return [run];
-    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: 'builtin-tiff16-prophoto' };
-  });
-  await offerInterruptedEditWith(i18n.t);
-  expect(vi.mocked(notify.warn)).toHaveBeenCalledTimes(1);
-  const [title, options] = vi.mocked(notify.warn).mock.lastCall!;
-  expect(title).toBe('Edit With in Paint was interrupted when Rawtonic quit. Try again to render the photos again.');
-  expect(options).toMatchObject({ paths: run.photos, source: 'export' });
-  // Not a resume of the old jobs: a new Edit With of the same photographs,
-  // with the program chosen then and the recipe chosen now.
-  await options!.actions![0].run();
-  const [renderedPaths, recipe, program] = vi.mocked(runEditWith).mock.lastCall!;
-  expect([renderedPaths, recipe.id, program]).toEqual([run.photos, 'builtin-tiff16-prophoto', run.program]);
-  expect(mockInvoke.mock.calls.map((c) => c[0])).not.toContain('export_queue_resume');
-});
+it.each([
+  ['/Applications/Paint.app', false],
+  ['C:\\Users\\test\\WindowsApps\\mspaint.exe', false],
+  ['C:\\Users\\test\\WindowsApps\\mspaint.exe', true]
+] as const)(
+  'retries unfinished photos for %s even when completed handoff fails: %s',
+  async (selectedProgram, failCompleted) => {
+    const { notify } = await import('../../activity/notify');
+    const run = { program: selectedProgram, photos: [paths[0], paths[1]] };
+    const completed = [{ source: '/s/A.NEF', target: '/s/A_edit.tif', library: '/s' }];
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === 'edit_with_interrupted') return [{ ...run, completed }];
+      if (command === 'edit_with_finish') {
+        if (failCompleted) throw new Error('finished file moved');
+        return { linked: 1, problems: [] };
+      }
+      if (command === 'open_with_describe') return { path: run.program, name: 'Paint' };
+      if (command === 'open_with_prefs') return { recentApps: [], editRecipe: 'builtin-tiff16-prophoto' };
+    });
+    await offerInterruptedEditWith(i18n.t);
+    expect(vi.mocked(notify.warn)).toHaveBeenCalledTimes(1);
+    const [title, options] = vi.mocked(notify.warn).mock.lastCall!;
+    expect(title).toBe('Edit With in Paint was interrupted when Rawtonic quit. Try again to render the photos again.');
+    expect(options).toMatchObject({ paths: run.photos, source: 'export' });
+    // Not a resume of the old jobs: a new Edit With of the same photographs,
+    // with the program chosen then and the recipe chosen now.
+    await options!.actions![0].run();
+    expect(mockInvoke).toHaveBeenCalledWith('edit_with_finish', { items: completed, program: run.program });
+    const finishCall = mockInvoke.mock.calls.findIndex(([command]) => command === 'edit_with_finish');
+    expect(mockInvoke.mock.invocationCallOrder[finishCall]).toBeLessThan(
+      vi.mocked(runEditWith).mock.invocationCallOrder.at(-1)!
+    );
+    const [renderedPaths, recipe, program] = vi.mocked(runEditWith).mock.lastCall!;
+    expect([renderedPaths, recipe.id, program]).toEqual([run.photos, 'builtin-tiff16-prophoto', run.program]);
+    expect(mockInvoke.mock.calls.map((c) => c[0])).not.toContain('export_queue_resume');
+  }
+);

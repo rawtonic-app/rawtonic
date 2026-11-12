@@ -33,6 +33,8 @@ mod preview_tests;
 
 #[path = "camera_cover.rs"]
 pub mod camera_cover;
+#[path = "idle_compiles.rs"]
+mod idle_compiles;
 #[path = "multi_view.rs"]
 pub mod multi_view;
 #[path = "preview_layers.rs"]
@@ -3962,12 +3964,15 @@ pub struct GpuProcessor {
     detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 5],
     detail_compilation: [std::sync::OnceLock<()>; 5],
     preview_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
-    preview_compilation: VariantTable<std::sync::OnceLock<()>>,
+    preview_compilation: Arc<VariantTable<std::sync::OnceLock<()>>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
     preview_failed: Arc<VariantTable<std::sync::atomic::AtomicBool>>,
     /// Display variants that read the layer sums (`LAYER_SUMS`), by features.
     layer_sum_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
-    layer_sum_compilation: VariantTable<std::sync::OnceLock<()>>,
+    layer_sum_compilation: Arc<VariantTable<std::sync::OnceLock<()>>>,
+    /// Under a compile limit: the display variants compiled in idle time
+    /// (`idle_compiles`).
+    idle_compiles: Option<idle_compiles::IdleCompilesOwner>,
     /// Display variants with the sharpening view (`create_sharpen_view_pipeline`),
     /// by features, compiled off the render worker on first use.
     sharpen_view_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
@@ -5514,8 +5519,22 @@ fn validated<T>(
     what: &str,
     create: impl FnOnce() -> T,
 ) -> Result<T, String> {
+    // An idle compile holds its slot already and shows nothing
+    // (`idle_compiles`).
+    if idle_compiles::BACKGROUND_COMPILE.with(std::cell::Cell::get) {
+        return checked(device, what, create);
+    }
+    idle_compiles::compile_activity();
     let _pending = PendingCompile::new();
     let _slot = compile_slot(what);
+    // Its end counts too: idle compiles wait for quiet after it.
+    struct Ended;
+    impl Drop for Ended {
+        fn drop(&mut self) {
+            idle_compiles::compile_activity();
+        }
+    }
+    let _ended = Ended;
     // Under a compile limit one creation can take minutes (65–90 s each on
     // a Radeon 680M, WFQ): its start is logged, so a log never goes silent
     // while the GPU work waits for it.
@@ -5717,6 +5736,26 @@ fn compile_slot(what: &str) -> CompileSlot {
         .unwrap_or_else(|e| e.into_inner())
         .push((id, what.to_string(), std::time::Instant::now()));
     CompileSlot { id }
+}
+
+/// A compile slot for an idle compile (`idle_compiles`), only while no other
+/// compile waits for one or runs: those go first. `None` if one does.
+fn background_compile_slot(what: &str) -> Option<CompileSlot> {
+    let mut state = COMPILE_LIMIT
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if compiles_pending() || state.0 > 0 || state.1.is_some_and(|max| state.0 >= max) {
+        return None;
+    }
+    state.0 += 1;
+    drop(state);
+    let id = NEXT_SLOT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    SLOT_HOLDERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((id, what.to_string(), std::time::Instant::now()));
+    Some(CompileSlot { id })
 }
 
 /// The fold display variants get (`display_variant_ir::fold`), for
@@ -6683,7 +6722,8 @@ impl GpuProcessor {
             Arc::new(variant_table());
         let preview_failed: Arc<VariantTable<std::sync::atomic::AtomicBool>> =
             Arc::new(variant_table());
-        let preview_compilation: VariantTable<std::sync::OnceLock<()>> = variant_table();
+        let preview_compilation: Arc<VariantTable<std::sync::OnceLock<()>>> =
+            Arc::new(variant_table());
         if display_variants {
             preview_compilation[RAW_DEFAULT_PREVIEW_FEATURES].get_or_init(|| {
                 spawn_preview_compile(
@@ -7230,7 +7270,9 @@ impl GpuProcessor {
             preview_compilation,
             preview_failed,
             layer_sum_pipelines: Arc::new(variant_table()),
-            layer_sum_compilation: variant_table(),
+            layer_sum_compilation: Arc::new(variant_table()),
+            idle_compiles: (display_variants && !ahead)
+                .then(|| idle_compiles::IdleCompilesOwner(idle_compiles::IdleCompiles::new())),
             sharpen_view_pipelines: Arc::new(variant_table()),
             sharpen_view_compilation: variant_table(),
             preview_shader: shader_module,
@@ -8264,11 +8306,33 @@ impl GpuProcessor {
         }
     }
 
+    /// What an idle compile needs (`idle_compiles`).
+    fn idle_target(&self) -> idle_compiles::IdleTarget {
+        idle_compiles::IdleTarget {
+            device: Arc::clone(&self.context.device),
+            shader: self.preview_shader.clone(),
+            display: Arc::clone(&self.display_shader),
+            layout: self.preview_layout.clone(),
+            pipelines: Arc::clone(&self.preview_pipelines),
+            compilation: Arc::clone(&self.preview_compilation),
+            failed: Arc::clone(&self.preview_failed),
+            layer_sums: Arc::clone(&self.layer_sum_pipelines),
+            layer_sum_compilation: Arc::clone(&self.layer_sum_compilation),
+        }
+    }
+
+    /// The display variant for `adjustments`; `on_screen`: a frame for the
+    /// window (its features plan the idle compiles, `idle_compiles`).
     fn preview_pipeline(
         &self,
         adjustments: &AllAdjustments,
+        on_screen: bool,
     ) -> Result<&wgpu::ComputePipeline, String> {
         let features = preview_features(adjustments);
+        let idle = self.idle_compiles.as_ref().map(|owner| &owner.0);
+        if let Some(idle) = idle {
+            idle.frame();
+        }
         #[cfg(test)]
         if self
             .force_legacy_curves
@@ -8317,8 +8381,30 @@ impl GpuProcessor {
         // and only one with the noise passes this recipe needs (the
         // variants have them all): the first frame of a noisy photo must
         // not differ from the next.
+        let served = || {
+            self.preview_pipelines
+                .supersets(features)
+                .any(|pipeline| pipeline.get().is_some())
+        };
+        // Under a compile limit a frame may wait for the idle compile that
+        // runs now (a superset of its features) instead of queueing its own
+        // behind it; shown as a compile the photo waits for.
+        let mut waits_for_idle = None;
         if !general_display && self.preview_pipelines[features].get().is_none() {
-            self.compile_preview_variant(features);
+            match idle {
+                // A compiled superset serves the frame: its own variant
+                // compiles in idle time, not in the slot the next slider
+                // may need (a minute on the driver with a compile limit).
+                Some(idle) if served() => {
+                    idle.later(idle_compiles::IdleJob::Display(features), || {
+                        self.idle_target()
+                    });
+                }
+                Some(idle) if idle.covering(features).is_some() => {
+                    waits_for_idle = Some(PendingCompile::new());
+                }
+                _ => self.compile_preview_variant(features),
+            }
             // Another photo than a default RAW: the compiles held back at
             // start may serve it sooner.
             if features != RAW_DEFAULT_PREVIEW_FEATURES {
@@ -8339,7 +8425,20 @@ impl GpuProcessor {
                 })
                 .filter(|_| !general_display)
             {
+                if on_screen && let Some(idle) = idle {
+                    idle.plan(features, adjustments, || self.idle_target());
+                }
                 return Ok(pipeline);
+            }
+            // The idle compile ended without serving this frame (it
+            // failed): the frame's own variant compiles now.
+            if waits_for_idle.is_some()
+                && idle.is_some_and(|idle| idle.covering(features).is_none())
+                && !served()
+            {
+                waits_for_idle = None;
+                self.compile_preview_variant(features);
+                continue;
             }
             if let Some(general) = self.compiled_general_pipeline(adjustments) {
                 return general;
@@ -8423,6 +8522,15 @@ impl GpuProcessor {
     fn layer_sum_pipeline(&self, features: usize) -> Option<&wgpu::ComputePipeline> {
         if let Some(pipeline) = self.layer_sum_pipelines[features].get() {
             return Some(pipeline);
+        }
+        // Under a compile limit in idle time (`idle_compiles`): it would
+        // hold the compile slot for as long as a display variant.
+        if let Some(idle) = &self.idle_compiles {
+            idle.0
+                .later(idle_compiles::IdleJob::LayerSums(features), || {
+                    self.idle_target()
+                });
+            return None;
         }
         self.layer_sum_compilation[features].get_or_init(|| {
             let pipelines = Arc::clone(&self.layer_sum_pipelines);
@@ -9178,7 +9286,7 @@ impl GpuProcessor {
         } else {
             // A 16-bit render needs no 8-bit pipeline (nor waits for one).
             let pipeline = if display_shader && !force_full_preparation && !force_general_pipeline {
-                self.preview_pipeline(&request.adjustments)?
+                self.preview_pipeline(&request.adjustments, output_to_display)?
             } else if !output_to_display && !force_full_preparation && !force_general_pipeline {
                 self.export_pipeline(&request.adjustments, MainOutput::EightBit)?
             } else {

@@ -1105,3 +1105,76 @@ mod scaled_floor_tests {
         );
     }
 }
+
+/// A resize correction belongs only to a settled normal-window resize.
+#[cfg(any(windows, test))]
+pub(crate) fn correct_normal_resize(
+    maximized: bool,
+    fullscreen: bool,
+    minimized: bool,
+    expected: tauri::PhysicalSize<u32>,
+    current: Option<tauri::PhysicalSize<u32>>,
+) -> bool {
+    !maximized && !fullscreen && !minimized && current == Some(expected)
+}
+
+#[cfg(test)]
+mod resize_transition_tests {
+    #[test]
+    fn native_window_transitions_supersede_minimum_corrections() {
+        for scale in [1.0, 1.12, 1.25] {
+            let size = tauri::PhysicalSize::new((1000.0 * scale) as u32, (600.0 * scale) as u32);
+            assert!(super::correct_normal_resize(
+                false,
+                false,
+                false,
+                size,
+                Some(size)
+            ));
+            for flags in [
+                (true, false, false),
+                (false, true, false),
+                (false, false, true),
+            ] {
+                assert!(!super::correct_normal_resize(
+                    flags.0,
+                    flags.1,
+                    flags.2,
+                    size,
+                    Some(size)
+                ));
+            }
+            assert!(!super::correct_normal_resize(
+                false,
+                false,
+                false,
+                size,
+                Some(tauri::PhysicalSize::new(2560, 1530))
+            ));
+        }
+    }
+}
+
+/// Classify OS launch paths before any image decode is requested.
+#[tauri::command]
+pub async fn launch_path_is_directory(path: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || is_launch_directory(&path))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn is_launch_directory(path: &str) -> bool {
+    std::path::Path::new(path).is_dir()
+}
+
+#[cfg(test)]
+mod launch_path_tests {
+    #[test]
+    fn directory_launches_are_browse_targets_and_files_are_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("photo.tif");
+        std::fs::write(&image, b"image").unwrap();
+        assert!(super::is_launch_directory(&dir.path().to_string_lossy()));
+        assert!(!super::is_launch_directory(&image.to_string_lossy()));
+    }
+}

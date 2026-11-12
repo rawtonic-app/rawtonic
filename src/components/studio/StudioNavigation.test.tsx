@@ -597,6 +597,7 @@ describe("the navigator's photograph", () => {
         exif: null
       } as unknown as SelectedImage
     });
+    useLibraryStore.getState().setLibrary({ libraryActivePath: path, imageList: [{ path } as never] });
     const view = renderNavigation();
     const caption = view.container.querySelector('.studio-nav-caption')!.textContent;
     const alt = view.container.querySelector('.studio-navigator img')?.getAttribute('alt');
@@ -616,4 +617,32 @@ describe("the navigator's photograph", () => {
   it('shows the physical file of a virtual copy, not its ?vc= suffix', () => {
     expect(navigatorName('/job/Capture/A.RAF?vc=abc123')).toEqual({ caption: 'A.RAF', alt: 'A.RAF' });
   });
+});
+
+it('clears the loose Develop photograph from the Library navigator', () => {
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/loose/outside.dng' } as SelectedImage });
+  useLibraryStore.getState().setLibrary({ libraryActivePath: '/job/Capture/selected.dng' });
+  const view = render(
+    <ContextMenuProvider>
+      <StudioNavigation develop onNavigate={vi.fn()} folderActions={actions} />
+    </ContextMenuProvider>
+  );
+  expect(view.container.querySelector('.studio-nav-caption')?.textContent).toBe('outside.dng');
+  view.rerender(
+    <ContextMenuProvider>
+      <StudioNavigation onNavigate={vi.fn()} folderActions={actions} />
+    </ContextMenuProvider>
+  );
+  expect(view.container.querySelector('.studio-nav-caption')).toBeNull();
+});
+
+it('keeps a library photo in the navigator during multi-selection', () => {
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/job/a.dng' } as SelectedImage });
+  useLibraryStore.getState().setLibrary({
+    libraryActivePath: '/job/b.dng',
+    imageList: [{ path: '/job/a.dng' } as never],
+    multiSelectedPaths: ['/job/a.dng', '/job/b.dng']
+  });
+  const view = renderNavigation();
+  expect(view.container.querySelector('.studio-nav-caption')?.textContent).toBe('a.dng');
 });

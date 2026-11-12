@@ -17,7 +17,10 @@ import { photoWritesAndStepsSettled } from '../utils/photoWrites';
  * Opens the requested image in the editor and, for edit sessions, exports
  * the result to the caller-provided output path and exits the app.
  */
-export function useExternalEditSession(handleImageSelect: (path: string) => void) {
+export function useExternalEditSession(
+  handleImageSelect: (path: string) => void,
+  showFolder: (path: string) => void = () => {}
+) {
   const startupLibraryReady = useProcessStore((state) => state.startupLibraryReady);
   const initialFileToOpen = useProcessStore((state) => state.initialFileToOpen);
   const externalEditSession = useProcessStore((state) => state.externalEditSession);
@@ -28,6 +31,8 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
    * batch queued before it may finish first). */
   const [finishJob, setFinishJob] = useState<string | null>(null);
 
+  const showFolderRef = useRef(showFolder);
+  showFolderRef.current = showFolder;
   const handleImageSelectRef = useRef(handleImageSelect);
   useEffect(() => {
     handleImageSelectRef.current = handleImageSelect;
@@ -36,7 +41,10 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
   useEffect(() => {
     if (!initialFileToOpen || !startupLibraryReady) return;
     useProcessStore.getState().setProcess({ initialFileToOpen: null });
-    handleImageSelectRef.current(initialFileToOpen);
+    void invoke<boolean>(Invokes.LaunchPathIsDirectory, { path: initialFileToOpen }).then((directory) => {
+      if (directory === true) showFolderRef.current(initialFileToOpen);
+      else handleImageSelectRef.current(initialFileToOpen);
+    });
   }, [initialFileToOpen, startupLibraryReady]);
 
   useEffect(() => {

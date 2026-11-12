@@ -811,6 +811,8 @@ pub struct IngestCandidate {
     /// The library already holds a file with this content (same size and
     /// content fingerprint); the import would skip it as a duplicate.
     pub duplicate: bool,
+    /// Confirmed library copy; resolved only on explicit request.
+    pub duplicate_path: Option<PathBuf>,
     /// On a memory card or on a drive (decides copy or add for a catalog).
     pub medium: rawtonic_ingest::batch::Medium,
 }
@@ -836,6 +838,7 @@ const SCAN_LIMIT: usize = 20_000;
 pub async fn session_ingest_scan(
     directory: Option<String>,
     paths: Vec<String>,
+    resolve_duplicates: Option<bool>,
 ) -> Result<IngestScan, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
@@ -844,24 +847,42 @@ pub async fn session_ingest_scan(
             |path| crate::formats::is_supported_image_file(path),
             SCAN_LIMIT,
         );
-        let duplicates = match directory {
-            Some(directory) => Library::open(Path::new(&directory))
-                .map_err(rawtonic_ingest::IngestError::from)
-                .and_then(|lib| rawtonic_ingest::batch::known_in_library(&lib, &files))
-                .unwrap_or_else(|e| {
-                    log::warn!("Import: duplicates not checked: {e}");
-                    vec![false; files.len()]
-                }),
-            None => vec![false; files.len()],
-        };
+        let library = directory
+            .as_ref()
+            .map(|path| Library::open(Path::new(path)))
+            .transpose()
+            .map_err(|e| e.to_string())?;
+        let duplicates = library
+            .as_ref()
+            .map(|lib| rawtonic_ingest::batch::known_in_library(lib, &files))
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| vec![false; files.len()]);
         let files = files
             .into_iter()
             .zip(duplicates)
-            .map(|(path, duplicate)| IngestCandidate {
-                size: fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
-                medium: rawtonic_ingest::batch::source_medium(&path),
-                path,
-                duplicate,
+            .map(|(path, duplicate)| {
+                let duplicate_path = if duplicate && resolve_duplicates == Some(true) {
+                    rawtonic_ingest::sha256(&path).ok().and_then(|hash| {
+                        library
+                            .as_ref()?
+                            .content_candidates(&path)
+                            .ok()?
+                            .into_iter()
+                            .find(|candidate| {
+                                rawtonic_ingest::sha256(candidate).is_ok_and(|other| other == hash)
+                            })
+                    })
+                } else {
+                    None
+                };
+                IngestCandidate {
+                    duplicate_path,
+                    size: fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+                    medium: rawtonic_ingest::batch::source_medium(&path),
+                    path,
+                    duplicate,
+                }
             })
             .collect();
         Ok(IngestScan { files, truncated })

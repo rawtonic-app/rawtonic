@@ -24,10 +24,36 @@ pub(crate) struct DisplayShader {
     parsed: OnceLock<Result<(Module, naga::valid::ModuleInfo), String>>,
 }
 
+/// The tone gains display variants compile instead of shader.wgsl's
+/// (`shaders/display_tone_gains.wgsl`): one call site of the unordered gain
+/// each, far less for a compiler that inlines every call (G76/WCC3). The
+/// functions they replace are renamed and dropped as unused; exports never
+/// see this source. A source without them is left as it is.
+const DISPLAY_TONE_GAINS: &str = include_str!("shaders/display_tone_gains.wgsl");
+const REPLACED_TONE_GAINS: [&str; 2] = ["camera_raw_shadows_blacks_gain", "cr_whites_gain"];
+
+fn with_display_tone_gains(source: &str) -> String {
+    let definition = |name: &str| format!("fn {name}(");
+    if !REPLACED_TONE_GAINS
+        .iter()
+        .all(|name| source.matches(&definition(name)).count() == 1)
+    {
+        return source.into();
+    }
+    let mut source = REPLACED_TONE_GAINS
+        .iter()
+        .fold(source.to_string(), |source, name| {
+            source.replace(&definition(name), &format!("fn {name}_shared("))
+        });
+    source.push('\n');
+    source.push_str(DISPLAY_TONE_GAINS);
+    source
+}
+
 impl DisplayShader {
     pub(crate) fn new(source: &str) -> Arc<Self> {
         Arc::new(Self {
-            source: source.into(),
+            source: with_display_tone_gains(source).into(),
             parsed: OnceLock::new(),
         })
     }
@@ -382,6 +408,67 @@ mod tests {
         assert!(has_function(&with, "apply_glow_bloom"));
         assert!(has_function(&with, "apply_film_grain"));
         assert!(with.overrides.is_empty() && without.overrides.is_empty());
+    }
+
+    #[test]
+    fn display_variants_take_the_tone_gains_with_one_call_site() {
+        let shader = DisplayShader::new(SHADER);
+        let module = shader
+            .variant_module(&[("ENABLE_EFFECTS", 0.0), ("ENABLE_RELIGHT", 0.0)])
+            .unwrap();
+        for name in REPLACED_TONE_GAINS {
+            assert!(has_function(&module, name), "{name}");
+            assert!(!has_function(&module, &format!("{name}_shared")), "{name}");
+        }
+        // Each calls its unordered gain from one place.
+        for (gain, unordered) in [
+            (
+                "camera_raw_shadows_blacks_gain",
+                "camera_raw_shadows_blacks_gain_unordered",
+            ),
+            ("cr_whites_gain", "cr_whites_gain_unordered"),
+        ] {
+            let (_, function) = module
+                .functions
+                .iter()
+                .find(|(_, f)| f.name.as_deref() == Some(gain))
+                .unwrap();
+            let calls = function
+                .expressions
+                .iter()
+                .filter(|(_, e)| matches!(e, naga::Expression::CallResult(_)))
+                .count();
+            let target = module
+                .functions
+                .iter()
+                .find(|(_, f)| f.name.as_deref() == Some(unordered))
+                .map(|(handle, _)| handle)
+                .unwrap();
+            let to_unordered = count_calls(&function.body, target);
+            assert_eq!(to_unordered, 1, "{gain}: {calls} calls in all");
+        }
+        // A source without them stays as it is (exports never use this).
+        assert_eq!(with_display_tone_gains("fn other() {}"), "fn other() {}");
+    }
+
+    fn count_calls(block: &naga::Block, target: naga::Handle<naga::Function>) -> usize {
+        block
+            .iter()
+            .map(|statement| match statement {
+                Statement::Call { function, .. } => usize::from(*function == target),
+                Statement::Block(b) => count_calls(b, target),
+                Statement::If { accept, reject, .. } => {
+                    count_calls(accept, target) + count_calls(reject, target)
+                }
+                Statement::Loop {
+                    body, continuing, ..
+                } => count_calls(body, target) + count_calls(continuing, target),
+                Statement::Switch { cases, .. } => {
+                    cases.iter().map(|c| count_calls(&c.body, target)).sum()
+                }
+                _ => 0,
+            })
+            .sum()
     }
 
     #[test]

@@ -766,6 +766,18 @@ fn start(args: Vec<String>) {
                         if !maximized
                             && let tauri::WindowEvent::Resized(size) = event
                         {
+                            // WM_SIZE may arrive before IsZoomed changes. Check the
+                            // settled native state before correcting a programmatic resize.
+                            let expected = *size;
+                            let window_for_handler = window_for_handler.clone();
+                            tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            if !startup::correct_normal_resize(
+                                window_for_handler.is_maximized().unwrap_or(false),
+                                window_for_handler.is_fullscreen().unwrap_or(false),
+                                window_for_handler.is_minimized().unwrap_or(false),
+                                expected, window_for_handler.inner_size().ok()) { return; }
+                            let size = &expected;
                             let scale = window_for_handler.scale_factor().unwrap_or(1.0);
                             let logical = size.to_logical::<f64>(scale);
                             // Read the current settings on every resize: Preferences can change
@@ -781,8 +793,8 @@ fn start(args: Vec<String>) {
                             if let Some(minimum) = startup::minimum_window_size(logical.width, logical.height, floor) {
                                 let _ = window_for_handler.set_size(minimum);
                                 startup::keep_window_on_screen(&window_for_handler, (0.0, 0.0));
-                                return;
                             }
+                            });
                         }
 
                         let mut state = WindowState {
@@ -957,6 +969,7 @@ fn start(args: Vec<String>) {
             lut_processing::import_luts,
             lut_processing::remove_lut,
             startup::frontend_ready,
+            startup::launch_path_is_directory,
             editor_preview::cancel_thumbnail_generation,
             editor_preview::update_wgpu_transform,
             camera_preview::show_camera_preview,
@@ -1109,6 +1122,8 @@ fn start(args: Vec<String>) {
             file_management::duplicate_file,
             file_management::show_in_finder,
             open_with::open_with_apps,
+            open_with::open_with_describe,
+            open_with::open_with_pick,
             open_with::edit_with_apps,
             open_with::open_with_open,
             open_with::open_with_prefs,

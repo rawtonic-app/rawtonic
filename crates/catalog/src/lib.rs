@@ -1824,6 +1824,20 @@ impl Library {
         Ok(None)
     }
 
+    /// Present, visible photographs matching a source's cheap content key.
+    /// Only these candidates need full hashing to confirm a duplicate.
+    pub fn content_candidates(&self, path: &Path) -> Result<Vec<PathBuf>, CatalogError> {
+        let size = i64::try_from(fs::metadata(path)?.len())?;
+        let fingerprint = fingerprint(path)?;
+        let ids: Vec<String> = self.conn.prepare(&format!(
+            "SELECT a.id FROM assets a WHERE a.size=? AND a.fingerprint=? AND a.missing=0 AND {}", self.visible_assets()
+        ))?.query_map(params![size, fingerprint], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        ids.iter()
+            .map(|id| self.asset(id).map(|asset| asset.path))
+            .collect()
+    }
+
     /// Size and content fingerprint (`fingerprint`) of every registered
     /// photograph and recorded companion (a RAW's JPEG), in one query: a
     /// cheap test whether a file is already in the library before importing
