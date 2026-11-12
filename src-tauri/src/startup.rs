@@ -1165,3 +1165,27 @@ mod resize_transition_tests {
         }
     }
 }
+
+/// Classify OS launch paths before any image decode is requested.
+#[tauri::command]
+pub async fn launch_path_is_directory(path: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || is_launch_directory(&path))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn is_launch_directory(path: &str) -> bool {
+    std::path::Path::new(path).is_dir()
+}
+
+#[cfg(test)]
+mod launch_path_tests {
+    #[test]
+    fn directory_launches_are_browse_targets_and_files_are_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("photo.tif");
+        std::fs::write(&image, b"image").unwrap();
+        assert!(super::is_launch_directory(&dir.path().to_string_lossy()));
+        assert!(!super::is_launch_directory(&image.to_string_lossy()));
+    }
+}
