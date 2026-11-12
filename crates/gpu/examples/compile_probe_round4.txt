@@ -1,0 +1,9 @@
+# WCC2 round 4 (G76): which of wgpu-hal's SPIR-V writer options makes the tone variant 4145 slow on AMD's Windows Vulkan driver (round 3: passthrough 6.5 s, through wgpu 135 s). imgrestrict writes SPIR-V that spirv-val rejects (OpConstantComposite int/uint).
+pt_4145 features=4145 dce spirv
+hal_4145 features=4145 dce spirv spv=hal
+k_nodebug features=4145 dce spirv spv=nodebug
+k_halflags features=4145 dce spirv spv=halflags
+k_caps features=4145 dce spirv spv=caps
+k_bufrestrict features=4145 dce spirv spv=bufrestrict
+k_imgrestrict features=4145 dce spirv spv=imgrestrict
+k_zeronative features=4145 dce spirv spv=zeronative

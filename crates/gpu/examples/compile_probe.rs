@@ -24,6 +24,9 @@
 //! - `spirv`: write the SPIR-V here (naga, as wgpu's Vulkan backend does) and
 //!   hand it to the driver as is (Vulkan only; the pipeline layout is made
 //!   from the module's bindings).
+//! - `spv`: with `spirv`, writer options as wgpu-hal sets them: `nodebug`,
+//!   `halflags`, `caps`, `bufrestrict`, `imgrestrict`, `zeronative`, or `hal`
+//!   for all.
 //! - `noinline`: with `spirv`, mark these functions (or `all` but the entry
 //!   point) DontInline: whether the driver compiles each once.
 //!
@@ -136,6 +139,7 @@ struct Spec {
     set: Vec<(String, f64)>,
     spirv: bool,
     noinline: Vec<String>,
+    spv: Vec<String>,
 }
 
 fn parse(line: &str) -> Result<Spec, String> {
@@ -149,6 +153,7 @@ fn parse(line: &str) -> Result<Spec, String> {
         set: vec![],
         spirv: false,
         noinline: vec![],
+        spv: vec![],
     };
     for word in line.split_whitespace().skip(1) {
         match word.split_once('=') {
@@ -156,6 +161,7 @@ fn parse(line: &str) -> Result<Spec, String> {
             Some(("stub", v)) => spec.stubs = v.split(',').map(String::from).collect(),
             Some(("src", v)) => spec.src = Some(v.to_string()),
             Some(("noinline", v)) => spec.noinline = v.split(',').map(String::from).collect(),
+            Some(("spv", v)) => spec.spv = v.split(',').map(String::from).collect(),
             Some(("set", v)) => {
                 for pair in v.split(',') {
                     let (k, v) = pair.split_once(':').ok_or("set K:V")?;
@@ -250,7 +256,7 @@ fn one(line: &str) -> Result<String, String> {
     let functions = module.functions.len();
 
     let (spirv, marked) = if spec.spirv {
-        let (words, marked) = spirv_words(&module, spec.unchecked, &spec.noinline)?;
+        let (words, marked) = spirv_words(&module, spec.unchecked, &spec.noinline, &spec.spv)?;
         // COMPILE_PROBE_DUMP=DIR keeps the SPIR-V (for spirv-val / spirv-dis)
         // and stops there.
         if let Ok(dir) = std::env::var("COMPILE_PROBE_DUMP") {
@@ -362,6 +368,7 @@ fn spirv_words(
     module: &naga::Module,
     unchecked: bool,
     noinline: &[String],
+    knobs: &[String],
 ) -> Result<(Vec<u32>, usize), String> {
     use naga::back::spv;
     use naga::proc::BoundsCheckPolicy as P;
@@ -385,6 +392,47 @@ fn spirv_words(
     };
     if unchecked {
         options.force_loop_bounding = false;
+    }
+    // `spv=` knobs: the options wgpu-hal's Vulkan backend writes with
+    // (`hal` = all of them), one at a time to find what a driver reacts to.
+    let knob = |name: &str| knobs.iter().any(|k| k == name || k == "hal");
+    if knob("nodebug") && noinline.iter().all(|n| n == "all") {
+        options.flags.remove(spv::WriterFlags::DEBUG);
+    }
+    if knob("halflags") {
+        // (wgpu-hal maps every binding to itself instead of faking missing
+        // ones: the same decorations.)
+        options.flags |= spv::WriterFlags::FORCE_POINT_SIZE;
+    }
+    if knob("caps") {
+        options.capabilities = Some(
+            [
+                spv::Capability::Shader,
+                spv::Capability::Matrix,
+                spv::Capability::Sampled1D,
+                spv::Capability::Image1D,
+                spv::Capability::ImageQuery,
+                spv::Capability::DerivativeControl,
+                spv::Capability::StorageImageExtendedFormats,
+                spv::Capability::SampledCubeArray,
+                spv::Capability::DotProductInputAllKHR,
+                spv::Capability::DotProductInput4x8BitKHR,
+                spv::Capability::DotProductInput4x8BitPackedKHR,
+                spv::Capability::DotProductKHR,
+                spv::Capability::Int8,
+            ]
+            .into_iter()
+            .collect(),
+        );
+    }
+    if knob("bufrestrict") {
+        options.bounds_check_policies.buffer = P::Restrict;
+    }
+    if knob("imgrestrict") {
+        options.bounds_check_policies.image_load = P::Restrict;
+    }
+    if knob("zeronative") {
+        options.zero_initialize_workgroup_memory = spv::ZeroInitializeWorkgroupMemoryMode::Native;
     }
     let pipeline = spv::PipelineOptions {
         entry_point: "main".into(),
