@@ -253,6 +253,15 @@ pub fn start_device(
         &adapter.get_info(),
         cfg!(target_os = "windows"),
     ));
+    log::info!(
+        "GPU device features: SPIR-V passthrough {} (adapter {})",
+        device
+            .features()
+            .contains(wgpu::Features::PASSTHROUGH_SHADERS),
+        adapter
+            .features()
+            .contains(wgpu::Features::PASSTHROUGH_SHADERS)
+    );
     // A lost device otherwise shows only as the next resource's validation
     // error (WGT5: "Buffer … is invalid").
     device.set_device_lost_callback(|reason, message| {

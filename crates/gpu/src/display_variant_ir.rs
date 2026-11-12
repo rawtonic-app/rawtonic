@@ -69,10 +69,22 @@ impl DisplayShader {
 
     /// Whether this shader's variants go to `device` as our own SPIR-V.
     pub(crate) fn passes_through(&self, device: &wgpu::Device) -> bool {
-        self.passthrough.load(std::sync::atomic::Ordering::Relaxed)
-            && device
-                .features()
-                .contains(wgpu::Features::PASSTHROUGH_SHADERS)
+        if !self.passthrough.load(std::sync::atomic::Ordering::Relaxed) {
+            return false;
+        }
+        let available = device
+            .features()
+            .contains(wgpu::Features::PASSTHROUGH_SHADERS);
+        if !available {
+            static SAID: std::sync::Once = std::sync::Once::new();
+            SAID.call_once(|| {
+                log::warn!(
+                    "GPU display variants: SPIR-V passthrough wanted, but the device has no \
+                     PASSTHROUGH_SHADERS feature; compiling through wgpu"
+                );
+            });
+        }
+        available
     }
 
     #[cfg(test)]

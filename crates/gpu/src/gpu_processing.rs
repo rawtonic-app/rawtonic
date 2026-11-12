@@ -6051,7 +6051,10 @@ fn create_display_pipeline(
         }) {
             Ok(shader) => {
                 match create_variant_pipeline(device, &shader, pipeline_layout, label, &[]) {
-                    Ok(pipeline) => return Ok(pipeline),
+                    Ok(pipeline) => {
+                        log::info!("GPU {label}: passed to the driver as SPIR-V");
+                        return Ok(pipeline);
+                    }
                     Err(error) => log::warn!("{label}: SPIR-V passthrough failed ({error})"),
                 }
             }
