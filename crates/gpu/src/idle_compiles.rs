@@ -45,14 +45,17 @@ pub(super) enum IdleJob {
 /// Highlights (Contrast, Shadows lowered, Whites raised, Blacks raised,
 /// Highlights lowered), then the same with a curve and a mask layer (each
 /// covers the ones before it, and the photo's own features), then the
-/// photo's features with the effects (glow, halation, grain).
+/// photo's features with the effects (glow, halation, grain), then the
+/// tone sliders with raised Shadows of the newer tone versions
+/// (`SHADOWS_V13_FEATURE`).
 ///
 /// Measured on a Radeon 680M (compile_probe round 12, AMD Windows Vulkan
-/// 25.10): 36915 (RAW default + sliders) 57 s, 36927 (+ curve, mask) 74 s,
-/// the RAW default with the effects 37 s at 2.8 GB. Raised Shadows, lowered
-/// Whites and lowered Blacks of the newer tone versions
-/// (`SHADOWS_V13_FEATURE`, `WHITES_V12_FEATURE`, `BLACKS_V16_FEATURE`) are
-/// left out: with raised Shadows the slider variant took 174 s at 14.9 GB.
+/// 25.10; display variants with the one-call-site tone gains): the RAW
+/// default with the sliders, curve and mask 37.9 s at 3.0 GB, with the
+/// effects 37 s at 2.8 GB, the sliders with raised Shadows 58 s at 5.4 GB.
+/// Lowered Whites and Blacks of the newer tone versions
+/// (`WHITES_V12_FEATURE`, `BLACKS_V16_FEATURE`) are left out: with all
+/// three the variant took 131 s at 11.1 GB.
 pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<usize> {
     let g = &adjustments.global;
     let lowered_highlights = if g.tonemapper_mode == 3
@@ -65,8 +68,13 @@ pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<us
     let sliders = features | TONE_PREVIEW_FEATURE | 2 | lowered_highlights;
     let local = sliders | 4 | 8;
     let effects = features | EFFECTS_FEATURE;
-    let mut plan = Vec::with_capacity(3);
-    for candidate in [sliders, local, effects] {
+    let raised_shadows = if ToneVersion::from_uniform(g.tone_version).shadows_midtone_cut() {
+        sliders | SHADOWS_V13_FEATURE
+    } else {
+        sliders
+    };
+    let mut plan = Vec::with_capacity(4);
+    for candidate in [sliders, local, effects, raised_shadows] {
         if candidate != features && !plan.contains(&candidate) {
             plan.push(candidate);
         }
@@ -367,13 +375,18 @@ mod tests {
         let sliders = raw | TONE_PREVIEW_FEATURE | 2 | HIGHLIGHTS_V14_FEATURE;
         assert_eq!(
             idle_plan(raw, &newest),
-            vec![sliders, sliders | 4 | 8, raw | EFFECTS_FEATURE]
+            vec![
+                sliders,
+                sliders | 4 | 8,
+                raw | EFFECTS_FEATURE,
+                sliders | SHADOWS_V13_FEATURE
+            ]
         );
-        // The measured variants: 4113 → 36915, 36927, 2101265.
-        assert_eq!(idle_plan(4113, &newest), vec![36915, 36927, 2101265]);
+        // The measured variants: 4113 → 36915, 36927, 2101265, 53299.
+        assert_eq!(idle_plan(4113, &newest), vec![36915, 36927, 2101265, 53299]);
         for planned in idle_plan(raw, &newest) {
             assert_eq!(planned & raw, raw, "a superset of the photo's features");
-            assert_eq!(planned & SHADOWS_V13_FEATURE, 0);
+            assert_eq!(planned & (WHITES_V12_FEATURE | BLACKS_V16_FEATURE), 0);
         }
     }
 
@@ -381,11 +394,22 @@ mod tests {
     fn plan_keeps_older_highlights_and_skips_the_photos_own_variant() {
         // Another look: Highlights keeps the version-13 code.
         let other_look = adjustments(crate::image_processing::TONE_VERSION as f32, 0);
-        let effects = EFFECTS_FEATURE;
-        assert_eq!(idle_plan(0, &other_look), vec![34, 46, effects]);
+        let (effects, shadows) = (EFFECTS_FEATURE, SHADOWS_V13_FEATURE);
+        assert_eq!(
+            idle_plan(0, &other_look),
+            vec![34, 46, effects, 34 | shadows]
+        );
         // A photo already shown with the first superset skips it.
-        assert_eq!(idle_plan(34, &other_look), vec![46, 34 | effects]);
-        assert_eq!(idle_plan(46 | effects, &other_look), Vec::<usize>::new());
+        assert_eq!(
+            idle_plan(34, &other_look),
+            vec![46, 34 | effects, 34 | shadows]
+        );
+        let all = 46 | effects | shadows;
+        assert_eq!(idle_plan(all, &other_look), Vec::<usize>::new());
+        // Tone versions before raised Shadows' newer response plan no
+        // separate variant for it.
+        let old = adjustments(6.0, 0);
+        assert_eq!(idle_plan(34, &old), vec![46, 34 | effects]);
     }
 
     /// Under a compile limit the shown photo plans its supersets, which
@@ -422,7 +446,7 @@ mod tests {
         let shown = preview_features(&photo);
         processor.preview_pipeline(&photo, true).unwrap();
         let plan = idle_plan(shown, &photo);
-        assert_eq!(plan.len(), 3);
+        assert_eq!(plan.len(), 4);
         let started = Instant::now();
         wait("the planned supersets", &|| {
             for &f in &plan {
