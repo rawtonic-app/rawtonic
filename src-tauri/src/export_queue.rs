@@ -629,11 +629,7 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
     for job in &jobs {
         if !matches!(
             job.state,
-            JobState::Interrupted
-                | JobState::Queued
-                | JobState::Paused
-                | JobState::Done
-                | JobState::Cancelled
+            JobState::Interrupted | JobState::Queued | JobState::Paused | JobState::Done
         ) {
             continue;
         }
@@ -696,7 +692,9 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
     // Targets have been copied into the one-shot recovery notice. Old edit
     // rows, including fully completed orphan clicks, must not hold history forever.
     for job in jobs {
-        if edit_with_of(&job.request).is_some_and(|run| groups.contains(&run)) {
+        if edit_with_of(&job.request)
+            .is_some_and(|run| job.state == JobState::Cancelled || groups.contains(&run))
+        {
             queue.remove(&job.id)?;
         }
     }
@@ -1530,7 +1528,7 @@ mod tests {
                 recovered[0].run.photos,
                 if stage == 0 {
                     vec![a.clone(), b.clone()]
-                } else if stage == 4 {
+                } else if stage >= 4 {
                     vec![]
                 } else {
                     vec![b.clone()]
