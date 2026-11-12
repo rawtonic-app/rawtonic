@@ -868,7 +868,7 @@ pub async fn session_ingest_scan(
             .into_iter()
             .zip(duplicates)
             .map(|(path, duplicate)| {
-                let duplicate_path = if duplicate {
+                let duplicate_path = if duplicate && resolve_duplicates == Some(true) {
                     rawtonic_ingest::sha256(&path).ok().and_then(|hash| {
                         assets
                             .iter()
