@@ -98,6 +98,7 @@ pub struct ExportRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit_with: Option<EditWithRun>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Pinned library/metadata/output for crash recovery; removed after handoff.
     pub edit_target: Option<crate::open_with::EditTarget>,
     /// Set on a proof sheet's job (`proof_sheet.rs`): its photos render into
     /// the app's cache, and once all are rendered the sheet is written.
@@ -110,6 +111,9 @@ pub struct ExportRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditWithRun {
+    /// Identity of one click, independent of repeated edits of the same photos.
+    #[serde(default)]
+    pub id: String,
     pub program: String,
     pub photos: Vec<String>,
 }
@@ -646,6 +650,7 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
                 groups.push(run.clone());
                 runs.push(InterruptedEditWith {
                     run: EditWithRun {
+                        id: run.id.clone(),
                         program: run.program.clone(),
                         photos: Vec::new(),
                     },
@@ -671,6 +676,13 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
             }
         }
     }
+    // Targets have been copied into the one-shot recovery notice. Old edit
+    // rows, including fully completed orphan clicks, must not hold history forever.
+    for job in jobs {
+        if job.state == JobState::Done && edit_with_of(&job.request).is_some() {
+            queue.remove(&job.id)?;
+        }
+    }
     Ok(runs)
 }
 
@@ -682,14 +694,13 @@ pub(crate) fn take_interrupted_edits(exports: &ExportState) -> Vec<InterruptedEd
 /// Keep finished edit jobs until their handoff succeeds: they carry the
 /// pinned target needed to recover a partial batch, including batches >50.
 fn prune_finished(queue: &ExportQueue) -> anyhow::Result<()> {
-    if !queue
+    let protected: Vec<String> = queue
         .jobs()?
-        .iter()
-        .any(|job| job.state == JobState::Done && edit_with_of(&job.request).is_some())
-    {
-        queue.prune_done(KEEP_DONE)?;
-    }
-    Ok(())
+        .into_iter()
+        .filter(|job| job.state == JobState::Done && edit_with_of(&job.request).is_some())
+        .map(|job| job.id)
+        .collect();
+    queue.prune_done_except(KEEP_DONE, &protected)
 }
 
 pub(crate) fn handed_off(exports: &ExportState, targets: &[crate::open_with::EditTarget]) {
@@ -1408,6 +1419,7 @@ mod tests {
         };
         let (a, b, c) = (photo("A.NEF"), photo("B.NEF"), photo("C.NEF"));
         let run = EditWithRun {
+            id: "click".into(),
             program: "/Applications/Editor.app".into(),
             photos: vec![a.clone(), b.clone()],
         };
@@ -1450,6 +1462,7 @@ mod tests {
             std::fs::write(&a, b"raw").unwrap();
             std::fs::write(&b, b"raw").unwrap();
             let run = EditWithRun {
+                id: "click".into(),
                 program: "Editor.exe".into(),
                 photos: vec![a.clone(), b.clone()],
             };
@@ -1492,12 +1505,33 @@ mod tests {
             crate::open_with::link_render(&lib, &target.source, render, target.metadata.as_ref())
                 .unwrap();
             assert_eq!(lib.stacks().unwrap()[0].members.len(), 2);
-            on_queue(&queue, prune_finished).unwrap();
             assert!(
-                on_queue(&queue, |q| q.job(&ids[0])).is_ok(),
-                "keep recovery data until handoff"
+                on_queue(&queue, |q| q.job(&ids[0])).is_err() || !finished_job,
+                "startup releases the copied recovery row"
             );
         }
+    }
+
+    #[test]
+    fn a_leftover_edit_does_not_disable_export_history_pruning() {
+        let (_dir, queue) = test_queue();
+        on_queue(&queue, |q| {
+            let edit = serde_json::json!({"editWith": {"id":"old-click", "program":"Editor", "photos":["A.NEF"]}});
+            let leftover = q.enqueue("Edit", &edit, &["A.NEF".into()])?;
+            q.start_next()?; q.item_done(&leftover, 0)?; q.finish(&leftover, RunEnd::Completed)?;
+            for _ in 0..KEEP_DONE+3 {
+                let id = q.enqueue("Export", &serde_json::json!({}), &["B.NEF".into()])?;
+                q.start_next()?; q.item_done(&id, 0)?; q.finish(&id, RunEnd::Completed)?;
+            }
+            prune_finished(q)?;
+            assert_eq!(q.jobs()?.len(), KEEP_DONE+1);
+            assert!(q.job(&leftover).is_ok(), "only the edit itself is protected");
+            assert!(end_interrupted_edits(q)?.is_empty());
+            assert!(q.job(&leftover).is_err(), "startup releases an orphan edit");
+            prune_finished(q)?;
+            assert_eq!(q.jobs()?.len(), KEEP_DONE);
+            Ok(())
+        }).unwrap();
     }
 
     #[test]

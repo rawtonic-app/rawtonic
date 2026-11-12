@@ -93,7 +93,8 @@ interface InterruptedEditWith {
 
 /** At start-up: each Edit With a quit or crash cut short waits under Needs
  * attention with Try again, which runs Edit With again on its photographs
- * with its program and the recipe chosen now. Only unfinished photos are offered; finished files remain in place. */
+ * with its program and the recipe chosen now. Finished renders are handed
+ * off as they are; only unfinished photographs are rendered again. */
 export async function offerInterruptedEditWith(t: TFunction) {
   const runs = await invoke<InterruptedEditWith[]>(Invokes.EditWithInterrupted).catch(() => null);
   for (const run of Array.isArray(runs) ? runs : []) {
@@ -107,11 +108,16 @@ export async function offerInterruptedEditWith(t: TFunction) {
           settles: true,
           run: async () => {
             if (run.completed?.length) {
-              const result = await invoke<{ problems: string[] }>(Invokes.EditWithFinish, {
-                items: run.completed,
-                program: run.program
-              });
-              if (result.problems.length) throw new Error(result.problems.join('\n'));
+              try {
+                const result = await invoke<{ problems: string[] }>(Invokes.EditWithFinish, {
+                  items: run.completed,
+                  program: run.program
+                });
+                if (result.problems.length)
+                  notify.warn(t('contextMenus.editWith.notLinked', { error: result.problems.join('\n') }));
+              } catch (error) {
+                notify.error(t('contextMenus.editWith.failed', { error: errorMessage(error) }));
+              }
               await refreshStacks();
             }
             if (!run.photos.length) return;

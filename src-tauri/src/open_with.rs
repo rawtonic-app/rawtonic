@@ -666,6 +666,7 @@ pub async fn edit_with_start(
     // Kept with each job: a quit ends them, and the next start offers this
     // Edit With again (`export_queue::take_interrupted_edits`).
     recipe.edit_with = Some(crate::export_queue::EditWithRun {
+        id: uuid::Uuid::new_v4().to_string(),
         program,
         photos: paths.clone(),
     });
