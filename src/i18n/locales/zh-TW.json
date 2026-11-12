@@ -480,6 +480,7 @@
       "undo": "復原"
     },
     "editWith": {
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "failed": "編輯失敗：{{error}}",
       "generatedAreas": "含有生成區域的照片暫不支援編輯方式：{{names}}",
       "interrupted": "結束 Rawtonic 時，在 {{app}} 中的「用其他應用程式編輯」被中斷。重試可再次算繪這些照片。",

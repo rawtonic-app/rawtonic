@@ -514,6 +514,7 @@
       "undo": "Annuler"
     },
     "editWith": {
+      "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "failed": "Échec de Modifier avec : {{error}}",
       "generatedAreas": "Modifier avec n’est pas encore disponible pour les photos comportant des zones générées : {{names}}",
       "interrupted": "« Modifier avec » dans {{app}} a été interrompu à la fermeture de Rawtonic. Réessayez pour rendre à nouveau les photos.",

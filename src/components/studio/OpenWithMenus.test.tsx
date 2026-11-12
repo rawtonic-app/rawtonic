@@ -16,7 +16,7 @@ vi.mock('../../activity/notify', () => ({
 }));
 vi.mock('../../utils/editWith', async (original) => ({
   ...(await original<typeof import('../../utils/editWith')>()),
-  runEditWith: vi.fn(async () => ({ rendered: 2, failed: 0, linked: 2, problems: [] }))
+  runEditWith: vi.fn(async () => ({ rendered: 2, cancelled: 0, failed: 0, linked: 2, problems: [] }))
 }));
 const mockInvoke = vi.mocked(invoke);
 
@@ -163,6 +163,19 @@ it('edits the selection with the remembered recipe in the chosen program', async
   expect(renderedPaths).toEqual(paths);
   expect(recipe.id).toBe('jpg');
   expect(program).toBe('/System/Applications/Preview.app');
+});
+
+it('reports a cancelled batch row as information without a failure', async () => {
+  const { notify } = await import('../../activity/notify');
+  vi.mocked(runEditWith).mockResolvedValueOnce({ rendered: 2, cancelled: 1, failed: 0, linked: 2, problems: [] });
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'edit_with_apps') return apps;
+  });
+  render(<EditWithSubMenu paths={['/a.NEF', '/b.NEF', '/c.NEF']} hideContextMenu={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Preview/ }));
+  await vi.waitFor(() => expect(notify.info).toHaveBeenCalledWith('1 cancelled, 2 rendered.'));
+  expect(notify.error).not.toHaveBeenCalled();
 });
 
 it('says Edit With is not available for photographs with generated areas', async () => {
