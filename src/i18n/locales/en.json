@@ -5157,8 +5157,10 @@
         "rejectThis": "Reject this photo"
       },
       "footer": {
+        "addToLibrary": "Add to library…",
         "copy": "Copy",
         "copyAdjustments": "Copy adjustments",
+        "externalPhoto": "1 photo · not in library",
         "filmstrip": "Filmstrip",
         "hideFilmstrip": "Hide filmstrip",
         "next": "Next photo",
@@ -5178,9 +5180,7 @@
         "stars_one": "{{count}} star",
         "stars_other": "{{count}} stars",
         "sync": "Sync",
-        "syncSettings": "Sync settings to the selected photos (Option: as last chosen)",
-        "externalPhoto": "1 photo · not in library",
-        "addToLibrary": "Add to library…"
+        "syncSettings": "Sync settings to the selected photos (Option: as last chosen)"
       },
       "grid": {
         "anyRating": "Any rating",

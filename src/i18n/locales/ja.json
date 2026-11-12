@@ -5022,8 +5022,10 @@
         "rejectThis": "この写真を不採用"
       },
       "footer": {
+        "addToLibrary": "ライブラリに追加…",
         "copy": "コピー",
         "copyAdjustments": "補正をコピー",
+        "externalPhoto": "1枚の写真 · ライブラリ外",
         "filmstrip": "フィルムストリップ",
         "hideFilmstrip": "フィルムストリップを隠す",
         "next": "次の写真",
@@ -5039,9 +5041,7 @@
         "showFilmstrip": "フィルムストリップを表示",
         "stars_other": "星 {{count}}",
         "sync": "同期",
-        "syncSettings": "選択した写真に設定を同期（Option：前回の選択で）",
-        "externalPhoto": "1枚の写真 · ライブラリ外",
-        "addToLibrary": "ライブラリに追加…"
+        "syncSettings": "選択した写真に設定を同期（Option：前回の選択で）"
       },
       "grid": {
         "anyRating": "すべてのレーティング",

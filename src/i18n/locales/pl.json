@@ -5552,8 +5552,10 @@
         "rejectThis": "Odrzuć to zdjęcie"
       },
       "footer": {
+        "addToLibrary": "Dodaj do biblioteki…",
         "copy": "Kopiuj",
         "copyAdjustments": "Kopiuj ustawienia",
+        "externalPhoto": "1 zdjęcie · poza biblioteką",
         "filmstrip": "Taśma zdjęć",
         "hideFilmstrip": "Ukryj taśmę zdjęć",
         "next": "Następne zdjęcie",
@@ -5581,9 +5583,7 @@
         "stars_many": "{{count}} gwiazdek",
         "stars_other": "{{count}} gwiazdki",
         "sync": "Synchr.",
-        "syncSettings": "Synchronizuj ustawienia z zaznaczonymi zdjęciami (Option: jak ostatnio)",
-        "externalPhoto": "1 zdjęcie · poza biblioteką",
-        "addToLibrary": "Dodaj do biblioteki…"
+        "syncSettings": "Synchronizuj ustawienia z zaznaczonymi zdjęciami (Option: jak ostatnio)"
       },
       "grid": {
         "anyRating": "Dowolna ocena",

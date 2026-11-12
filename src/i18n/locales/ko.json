@@ -5022,8 +5022,10 @@
         "rejectThis": "이 사진 거부"
       },
       "footer": {
+        "addToLibrary": "라이브러리에 추가…",
         "copy": "복사",
         "copyAdjustments": "조정 복사",
+        "externalPhoto": "사진 1장 · 라이브러리 외부",
         "filmstrip": "필름스트립",
         "hideFilmstrip": "필름스트립 숨기기",
         "next": "다음 사진",
@@ -5039,9 +5041,7 @@
         "showFilmstrip": "필름스트립 표시",
         "stars_other": "별 {{count}}개",
         "sync": "동기화",
-        "syncSettings": "선택한 사진에 설정 동기화 (Option: 지난번 선택대로)",
-        "externalPhoto": "사진 1장 · 라이브러리 외부",
-        "addToLibrary": "라이브러리에 추가…"
+        "syncSettings": "선택한 사진에 설정 동기화 (Option: 지난번 선택대로)"
       },
       "grid": {
         "anyRating": "모든 별점",

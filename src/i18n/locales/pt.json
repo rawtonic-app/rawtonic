@@ -5355,8 +5355,10 @@
         "rejectThis": "Rejeitar esta foto"
       },
       "footer": {
+        "addToLibrary": "Adicionar à biblioteca…",
         "copy": "Copiar",
         "copyAdjustments": "Copiar ajustes",
+        "externalPhoto": "1 foto · fora da biblioteca",
         "filmstrip": "Tira de filme",
         "hideFilmstrip": "Ocultar a tira de filme",
         "next": "Próxima foto",
@@ -5380,9 +5382,7 @@
         "stars_many": "{{count}} estrelas",
         "stars_other": "{{count}} estrelas",
         "sync": "Sincronizar",
-        "syncSettings": "Sincronizar definições com as fotos selecionadas (Opção: como da última vez)",
-        "externalPhoto": "1 foto · fora da biblioteca",
-        "addToLibrary": "Adicionar à biblioteca…"
+        "syncSettings": "Sincronizar definições com as fotos selecionadas (Opção: como da última vez)"
       },
       "grid": {
         "anyRating": "Qualquer classificação",
