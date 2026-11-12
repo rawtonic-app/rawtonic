@@ -14,7 +14,7 @@ import { createSubMask } from '../../utils/maskUtils';
 import { registerSliderDraftRenderer } from '../../utils/sliderDraft';
 import { kindOf } from '../../utils/maskKinds';
 import { Mask, SubMaskMode, ToolType } from '../panel/right/Masks';
-import { Panel, type SelectedImage } from '../ui/AppProperties';
+import { Panel, type ImageFile, type SelectedImage } from '../ui/AppProperties';
 
 // The viewer stands in for the canvas: a surface that reports right-clicks.
 vi.mock('../panel/Editor', () => ({
@@ -89,7 +89,7 @@ const workspace = (onEditorContextMenu = vi.fn()) => {
   render(
     <div className="studio-app">
       <StudioWorkspace
-        files={[]}
+        files={[{ path: '/qa/photo.dng', is_raw: true } as ImageFile]}
         flagCounts={{ all: 0, picked: 0, rejected: 0, unflagged: 0 }}
         transformWrapperRef={{ current: null }}
         onSelect={noop}
