@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Edit With now groups renders with their originals in grid stacks, uses the render time for new files, and retries only unfinished photos after quitting. Windows accepts app execution aliases in Other… and uses program display names in rendering and interruption notices.
+
 - Loose photos opened in Develop appear alone and highlighted in the filmstrip, with an explicit library status and an Add to library action that opens import for review. Returning to Library restores its photos. On Windows, when enforcing the interface minimum makes the window grow past the screen, it is moved back inside the monitor work area.
 
 - **Windows: Open With and Edit With.** Both list the programs Windows offers for the file type (the recommended programs of Explorer's *Open with*, such as Photos and Paint, with their icons; the default first), plus *Other…* for any program file (`.exe`), which is remembered and offered from then on. Edit With renders the photos beside their originals as on the Mac, adds them to the library stacked with their originals, opens them in the program and picks up its saves. Paths with spaces and non-Latin letters work; a path of 260 characters or more is handed over in its short form where the volume has one.
