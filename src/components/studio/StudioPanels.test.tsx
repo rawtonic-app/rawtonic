@@ -321,11 +321,13 @@ it('shows a loose photo alone and highlighted, then restores the library on retu
   expect(film.querySelector('.studio-photo-open')?.getAttribute('title')).toContain('current.dng');
   expect(film.querySelector('.is-current')).not.toBeNull();
   expect(film.textContent).not.toContain('a.dng');
+  fireEvent.contextMenu(film.querySelector('[role="option"]')!);
+  expect(screen.getByText('Add to library…').closest('button')?.disabled).toBe(true);
   const unregister = registerAppCommands({ import_photos: { run: noop } });
   const importing = vi.fn();
   window.addEventListener('rawtonic:import-external-photo', importing);
   fireEvent.contextMenu(film.querySelector('[role="option"]')!);
-  fireEvent.click(screen.getByText('Add to library…'));
+  fireEvent.click(screen.getAllByText('Add to library…').at(-1)!);
   expect(importing).toHaveBeenCalledOnce();
   expect((importing.mock.calls[0][0] as CustomEvent).detail.paths).toEqual(['/qa/current.dng']);
   window.removeEventListener('rawtonic:import-external-photo', importing);
