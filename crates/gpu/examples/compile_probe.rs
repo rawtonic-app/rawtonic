@@ -309,6 +309,9 @@ fn one(line: &str) -> Result<String, String> {
     // processor, the variant compiled through the processor's display path
     // (its layout, pipeline cache and passthrough choice).
     if knob_set(&spec.spv, "proc") {
+        if log::set_logger(&StderrLog).is_ok() {
+            log::set_max_level(log::LevelFilter::Info);
+        }
         return through_processor(&spec, inlined, functions);
     }
     let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
@@ -568,6 +571,31 @@ fn through_processor(spec: &Spec, inlined: usize, functions: usize) -> Result<St
             .contains(wgpu::Features::PASSTHROUGH_SHADERS)
     );
     let processor = GpuProcessor::for_exports(context, 1808, 1356)?;
+    // What the processor hands the driver, against a SPIR-V file written
+    // elsewhere (`spvfile`, e.g. the app's dump).
+    let words = processor.display_variant_spirv(spec.features)?;
+    let same_as_file = match &spec.spvfile {
+        Some(path) => {
+            let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+            let file: Vec<u32> = bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_le_bytes(*c))
+                .collect();
+            if file != words {
+                let first = file.iter().zip(&words).position(|(a, b)| a != b);
+                eprintln!(
+                    "processor SPIR-V differs from {path}: {} vs {} words, first difference at word {first:?}",
+                    words.len(),
+                    file.len()
+                );
+            }
+            (file == words).to_string()
+        }
+        None => "null".into(),
+    };
+    let passes_through = processor.display_variant_passes_through();
     let private_before = memory::private_bytes();
     let sampler = memory::Sampler::start();
     let started = Instant::now();
@@ -578,10 +606,27 @@ fn through_processor(spec: &Spec, inlined: usize, functions: usize) -> Result<St
     let peak = memory::peak_private_bytes().map(|p| p.max(peak_sampled));
     Ok(format!(
         "{{\"pipeline_ms\":{pipeline_ms:.0},\"peak_mb\":{},\"before_mb\":{},\"inlined_exprs\":{inlined},\
-\"functions\":{functions},\"path\":\"processor\",\"device_passthrough\":{adapter}}}",
+\"functions\":{functions},\"path\":\"processor\",\"device_passthrough\":{adapter},\
+\"passes_through\":{passes_through},\"spirv_words\":{},\"same_as_file\":{same_as_file}}}",
         mb(peak),
         mb(private_before),
+        words.len(),
     ))
+}
+
+/// The app's log lines (`rawtonic*` targets) on stderr, for `spv=proc`.
+struct StderrLog;
+
+impl log::Log for StderrLog {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Info && metadata.target().starts_with("rawtonic")
+    }
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("[{}] {}", record.level(), record.args());
+        }
+    }
+    fn flush(&self) {}
 }
 
 fn knob_set(knobs: &[String], name: &str) -> bool {

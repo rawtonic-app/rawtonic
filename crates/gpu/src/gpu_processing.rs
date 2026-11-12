@@ -6358,6 +6358,19 @@ impl GpuProcessor {
     /// layout, pipeline cache and passthrough choice), for measuring tools
     /// (`examples/compile_probe.rs`); the pipeline is not kept.
     #[doc(hidden)]
+    pub fn display_variant_spirv(&self, features: usize) -> Result<Vec<u32>, String> {
+        self.display_shader
+            .variant_spirv(&variant_constants(features, true, true, false, false))
+    }
+
+    /// The SPIR-V `compile_display_variant` passes through (when it does),
+    /// for measuring tools.
+    #[doc(hidden)]
+    pub fn display_variant_passes_through(&self) -> bool {
+        self.display_shader.passes_through(&self.context.device)
+    }
+
+    #[doc(hidden)]
     pub fn compile_display_variant(&self, features: usize) -> Result<(), String> {
         create_preview_pipeline(
             &self.context.device,
