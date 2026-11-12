@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Adding an externally opened photo follows its library copy and refreshes library counts. The Navigator clears stale loose photos, and confirmed duplicates offer Show in library. Settings accept a UTF-8 BOM and snap interface sizes to the supported choices. Windows minimum-size correction waits for native maximize and restore transitions to settle.
+
 - Loose photos opened in Develop appear alone and highlighted in the filmstrip, with an explicit library status and an Add to library action that opens import for review. Returning to Library restores its photos. On Windows, when enforcing the interface minimum makes the window grow past the screen, it is moved back inside the monitor work area.
 
 - **Windows: Open With and Edit With.** Both list the programs Windows offers for the file type (the recommended programs of Explorer's *Open with*, such as Photos and Paint, with their icons; the default first), plus *Other…* for any program file (`.exe`), which is remembered and offered from then on. Edit With renders the photos beside their originals as on the Mac, adds them to the library stacked with their originals, opens them in the program and picks up its saves. Paths with spaces and non-Latin letters work; a path of 260 characters or more is handed over in its short form where the volume has one.

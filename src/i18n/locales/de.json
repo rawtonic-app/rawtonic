@@ -5180,7 +5180,9 @@
         "stars_one": "{{count}} Stern",
         "stars_other": "{{count}} Sterne",
         "sync": "Sync.",
-        "syncSettings": "Einstellungen mit den ausgewählten Fotos synchronisieren (Wahltaste: wie zuletzt gewählt)"
+        "syncSettings": "Einstellungen mit den ausgewählten Fotos synchronisieren (Wahltaste: wie zuletzt gewählt)",
+        "alreadyInLibrary": "Bereits in der Bibliothek als {{name}}",
+        "showInLibrary": "In Bibliothek anzeigen"
       },
       "grid": {
         "anyRating": "Alle Sterne",

@@ -5041,7 +5041,9 @@
         "showFilmstrip": "顯示膠片條",
         "stars_other": "{{count}} 星",
         "sync": "同步",
-        "syncSettings": "將設定同步到選取的照片（Option：依上次選擇）"
+        "syncSettings": "將設定同步到選取的照片（Option：依上次選擇）",
+        "alreadyInLibrary": "已在圖庫中，名稱為 {{name}}",
+        "showInLibrary": "在圖庫中顯示"
       },
       "grid": {
         "anyRating": "任意星級",

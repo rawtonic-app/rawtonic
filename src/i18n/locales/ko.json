@@ -5041,7 +5041,9 @@
         "showFilmstrip": "필름스트립 표시",
         "stars_other": "별 {{count}}개",
         "sync": "동기화",
-        "syncSettings": "선택한 사진에 설정 동기화 (Option: 지난번 선택대로)"
+        "syncSettings": "선택한 사진에 설정 동기화 (Option: 지난번 선택대로)",
+        "alreadyInLibrary": "라이브러리에 {{name}} 이름으로 있음",
+        "showInLibrary": "라이브러리에 표시"
       },
       "grid": {
         "anyRating": "모든 별점",

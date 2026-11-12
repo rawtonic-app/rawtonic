@@ -5041,7 +5041,9 @@
         "showFilmstrip": "显示胶片条",
         "stars_other": "{{count}} 星",
         "sync": "同步",
-        "syncSettings": "将设置同步到选定照片（Option：按上次选择）"
+        "syncSettings": "将设置同步到选定照片（Option：按上次选择）",
+        "alreadyInLibrary": "已在图库中，名称为 {{name}}",
+        "showInLibrary": "在图库中显示"
       },
       "grid": {
         "anyRating": "任意星级",

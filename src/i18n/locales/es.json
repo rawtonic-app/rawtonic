@@ -5382,7 +5382,9 @@
         "stars_many": "{{count}} estrellas",
         "stars_other": "{{count}} estrellas",
         "sync": "Sincronizar",
-        "syncSettings": "Sincronizar ajustes con las fotos seleccionadas (Opción: como la última vez)"
+        "syncSettings": "Sincronizar ajustes con las fotos seleccionadas (Opción: como la última vez)",
+        "alreadyInLibrary": "Ya en la biblioteca como {{name}}",
+        "showInLibrary": "Mostrar en la biblioteca"
       },
       "grid": {
         "anyRating": "Cualquier valoración",

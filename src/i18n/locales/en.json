@@ -5180,7 +5180,9 @@
         "stars_one": "{{count}} star",
         "stars_other": "{{count}} stars",
         "sync": "Sync",
-        "syncSettings": "Sync settings to the selected photos (Option: as last chosen)"
+        "syncSettings": "Sync settings to the selected photos (Option: as last chosen)",
+        "alreadyInLibrary": "Already in library as {{name}}",
+        "showInLibrary": "Show in library"
       },
       "grid": {
         "anyRating": "Any rating",

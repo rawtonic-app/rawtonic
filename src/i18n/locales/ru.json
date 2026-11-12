@@ -5583,7 +5583,9 @@
         "stars_many": "{{count}} звёзд",
         "stars_other": "{{count}} звезды",
         "sync": "Синхр.",
-        "syncSettings": "Синхронизировать настройки с выбранными фото (Option: как в прошлый раз)"
+        "syncSettings": "Синхронизировать настройки с выбранными фото (Option: как в прошлый раз)",
+        "alreadyInLibrary": "Уже в библиотеке как {{name}}",
+        "showInLibrary": "Показать в библиотеке"
       },
       "grid": {
         "anyRating": "Любой рейтинг",

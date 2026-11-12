@@ -411,7 +411,7 @@ export function useTauriListeners({
       const folders = new Set(ingestFolders);
       ingestFolders.clear();
       const { currentFolderPath } = useLibraryStore.getState();
-      if (isEffectActive && currentFolderPath && folders.has(currentFolderPath)) await refs.current.refreshImageList();
+      if (isEffectActive && currentFolderPath && folders.size) await refs.current.refreshImageList();
     }, INGEST_LIST_REFRESH_MS);
     const refreshIngestTree = throttleAsync(
       () => isEffectActive && refs.current.refreshAllFolderTrees(),
@@ -423,12 +423,26 @@ export function useTauriListeners({
       // photograph as it finishes (`batch-write-settled` in src-tauri); the
       // webview's own form follows its photographs, never on a timer.
       batchWriteSettledListener(),
-      listen<{ destination: string | null; skipped: boolean; error: string | null }>(
+      listen<{ source: string; destination: string | null; skipped: boolean; error: string | null }>(
         'session-ingest-imported',
         (event) => {
           if (!isEffectActive) return;
           const { destination, skipped, error } = event.payload;
-          if (!destination || skipped || error) return;
+          if (!destination || error) return;
+          const source = event.payload.source;
+          const shown = useEditorStore.getState().selectedImage;
+          if (source && shown?.path === source && destination !== source) {
+            void Promise.resolve(
+              refs.current.handleSelectSubfolder(parentFolder(destination), false, undefined, true, true)
+            ).then(() => {
+              if (useEditorStore.getState().selectedImage?.path !== source) return;
+              useLibraryStore
+                .getState()
+                .setLibrary({ multiSelectedPaths: [destination], libraryActivePath: destination });
+              refs.current.handleImageSelect?.(destination, true);
+            });
+          }
+          if (skipped) return;
           ingestFolders.add(parentFolder(destination));
           refreshIngestList();
           refreshIngestTree();
@@ -665,9 +679,12 @@ export function useTauriListeners({
             .getState()
             .setExportState({ status: Status.Idle, denoising: [], selecting: [], progress: { current: 0, total: 0 } });
       }),
-      listen<{ destination: string | null; skipped: boolean; error: string | null }>('hot-folder-imported', (event) => {
-        if (isEffectActive) showCapture(event.payload, false);
-      }),
+      listen<{ source: string; destination: string | null; skipped: boolean; error: string | null }>(
+        'hot-folder-imported',
+        (event) => {
+          if (isEffectActive) showCapture(event.payload, false);
+        }
+      ),
       // A tethered capture is shown at once, in Develop too (Capture One
       // follows the newest capture in its viewer).
       listen<{
