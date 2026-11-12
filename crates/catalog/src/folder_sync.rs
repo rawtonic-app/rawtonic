@@ -361,6 +361,14 @@ fn case_only_rename(a: &Path, b: &Path) -> bool {
     a != b && a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
 }
 
+// Resolve folder aliases without erasing a recorded case-only filename change.
+fn resolved_parent(path: &Path) -> PathBuf {
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => resolve_moved(parent).join(name),
+        _ => path.to_path_buf(),
+    }
+}
+
 /// `path` is `folder` or below it.
 fn below(path: &Path, folder: &Path) -> bool {
     path.starts_with(folder)
@@ -449,6 +457,9 @@ impl Library {
         folders.extend(roots.into_iter().map(PathBuf::from));
         folders.extend(self.manifest.outside_folders());
         folders.retain(|folder| !self.in_output_folder(folder));
+        // Stored roots may use a symlink or a plain Windows drive prefix.
+        // Compare them in the same namespace as the selected scan folder.
+        let mut folders: Vec<_> = folders.iter().map(|p| resolve_moved(p)).collect();
         folders.sort();
         let mut topmost: Vec<PathBuf> = Vec::new();
         for folder in folders {
@@ -464,10 +475,20 @@ impl Library {
             "SELECT a.id,a.rel_path,r.path,r.external,a.size,a.mtime,a.fingerprint,a.sha256
              FROM assets a JOIN roots r ON r.id=a.root_id ORDER BY a.rowid",
         )?;
+        let mut parents = HashMap::<PathBuf, PathBuf>::new();
         let rows = query.query_map([], |r| {
             Ok(Known {
                 id: r.get(0)?,
-                path: self.join_root(r.get(2)?, r.get(3)?, r.get(1)?),
+                path: {
+                    let path = self.join_root(r.get(2)?, r.get(3)?, r.get(1)?);
+                    match (path.parent(), path.file_name()) {
+                        (Some(parent), Some(name)) => parents
+                            .entry(parent.to_path_buf())
+                            .or_insert_with(|| resolve_moved(parent))
+                            .join(name),
+                        _ => path,
+                    }
+                },
                 size: r.get::<_, i64>(4)? as u64,
                 mtime: r.get(5)?,
                 fingerprint: r.get(6)?,
@@ -486,7 +507,7 @@ impl Library {
             .collect::<rusqlite::Result<_>>()?;
         Ok(Anchors {
             directory: self.directory.clone(),
-            roots: roots.into_iter().map(PathBuf::from).collect(),
+            roots: roots.iter().map(|p| resolve_moved(Path::new(p))).collect(),
             there: HashMap::new(),
         })
     }
@@ -1038,7 +1059,7 @@ impl Library {
         let asset = self
             .asset(id)
             .map_err(|_| "The photograph is no longer in the library".to_string())?;
-        if asset.path != from {
+        if resolved_parent(&asset.path) != from {
             return Err("The photograph moved in the library since the scan".into());
         }
         if from.is_file() && !same_file(from, to) {
@@ -1073,7 +1094,7 @@ impl Library {
         let asset = self
             .asset(id)
             .map_err(|_| "The photograph is no longer in the library".to_string())?;
-        if asset.path != path {
+        if resolved_parent(&asset.path) != path {
             return Err("The photograph moved in the library since the scan".into());
         }
         if path.is_file() {

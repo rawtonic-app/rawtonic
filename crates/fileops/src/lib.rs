@@ -1857,6 +1857,75 @@ fn exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
+#[cfg(windows)]
+fn hard_link_count(path: &Path) -> std::io::Result<u32> {
+    use std::os::windows::io::AsRawHandle;
+    // BY_HANDLE_FILE_INFORMATION, all fields DWORD or FILETIME (two DWORDs).
+    #[repr(C)]
+    #[derive(Default)]
+    struct Information {
+        _attributes: u32,
+        _creation: [u32; 2],
+        _access: [u32; 2],
+        _write: [u32; 2],
+        _volume: u32,
+        _size_high: u32,
+        _size_low: u32,
+        links: u32,
+        _index_high: u32,
+        _index_low: u32,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(
+            handle: *mut std::ffi::c_void,
+            information: *mut Information,
+        ) -> i32;
+    }
+    let file = std::fs::File::open(path)?;
+    let mut information = Information::default();
+    // SAFETY: the file owns a live handle and the writable structure matches
+    // the Win32 layout for the duration of the call.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(information.links)
+}
+
+/// Refuse to trash a photo whose inode is also another registered photo.
+/// A rename removes just one name, but the surviving photo still shares its
+/// bytes and must be named to the user before any operation starts.
+pub fn refuse_shared_photos(sources: &[PathBuf], registered: &[PathBuf]) -> Result<()> {
+    for source in sources {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if std::fs::metadata(source)?.nlink() < 2 {
+                continue;
+            }
+        }
+        #[cfg(windows)]
+        if hard_link_count(source)? == 1 {
+            continue;
+        }
+        for other in registered {
+            if source != other && same_file(source, other) {
+                // Symlink/prefix spellings of the same name are not a second
+                // hard link. Canonicalization preserves distinct hard-link names.
+                if source.canonical()? == other.canonical()? {
+                    continue;
+                }
+                anyhow::bail!(
+                    "{} shares its file with {}; nothing was trashed",
+                    source.display(),
+                    other.display()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate(steps: &[Step]) -> Result<()> {
     let mut sources = HashSet::new();
     let mut targets = HashSet::new();
@@ -2857,6 +2926,34 @@ pub(crate) mod crash {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trash_refuses_another_registered_hard_link_and_names_it() {
+        let d = tempfile::tempdir().unwrap();
+        let source = d.path().join("A.RAW");
+        let other = d.path().join("B.RAW");
+        fs::write(&source, b"photo").unwrap();
+        #[cfg(windows)]
+        assert_eq!(hard_link_count(&source).unwrap(), 1);
+        fs::hard_link(&source, &other).unwrap();
+        #[cfg(windows)]
+        assert_eq!(hard_link_count(&source).unwrap(), 2);
+        let error = refuse_shared_photos(
+            std::slice::from_ref(&source),
+            &[source.clone(), other.clone()],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("B.RAW"));
+        assert_eq!(fs::read(&source).unwrap(), b"photo");
+        assert_eq!(fs::read(&other).unwrap(), b"photo");
+        refuse_shared_photos(std::slice::from_ref(&source), std::slice::from_ref(&source)).unwrap();
+        // Moving just one name keeps the other hard link and its bytes.
+        let trash = d.path().join("Trash.RAW");
+        rawtonic_fs::rename_no_clobber(&source, &trash).unwrap();
+        assert!(!source.exists());
+        assert_eq!(fs::read(&other).unwrap(), b"photo");
+        assert_eq!(fs::read(&trash).unwrap(), b"photo");
+    }
 
     #[test]
     fn copy_journal_records_keep_their_existing_object_shape() {

@@ -809,3 +809,86 @@ fn a_failed_addition_still_reports_the_moves_and_removals_applied() {
     assert!(lib.asset(&b).is_err());
     assert!(lib.asset_at(&capture.join("N.ARW")).unwrap().is_none());
 }
+
+#[cfg(unix)]
+#[test]
+fn synchronize_through_a_symlink_finds_new_photos() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonical().unwrap();
+    let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+    let folder = root.join("Photos");
+    photo(&folder.join("A.ARW"), 1);
+    lib.add_asset(&folder.join("A.ARW")).unwrap();
+    let alias = root.join("alias");
+    std::os::unix::fs::symlink(&folder, &alias).unwrap();
+    rusqlite::Connection::open(lib.directory.join("catalog.sqlite"))
+        .unwrap()
+        .execute(
+            "UPDATE roots SET path=?1 WHERE external=1",
+            [alias.to_str().unwrap()],
+        )
+        .unwrap();
+    photo(&folder.join("B.ARW"), 2);
+    for selected in [None, Some(alias.as_path()), Some(folder.as_path())] {
+        let plan = scan(&lib, selected);
+        assert!(plan.errors.is_empty(), "{plan:#?}");
+        assert_eq!(plan.new_files.len(), 1, "{plan:#?}");
+        assert!(plan.new_files[0].path.ends_with("B.ARW"));
+        assert!(plan.copies.is_empty(), "{plan:#?}");
+        assert!(plan.removed.is_empty(), "{plan:#?}");
+    }
+    let plan = scan(&lib, Some(&alias));
+    let applied = lib.apply_folder_sync(&defaults(&plan)).unwrap();
+    assert_eq!(applied.added.len(), 1);
+    assert_eq!(lib.summary().unwrap().assets, 2);
+    assert!(scan(&lib, Some(&folder)).is_empty());
+    fill(&lib);
+    fs::rename(folder.join("A.ARW"), folder.join("C.ARW")).unwrap();
+    let plan = scan(&lib, Some(&folder));
+    assert_eq!(plan.verified_moves.len(), 1);
+    let applied = lib.apply_folder_sync(&defaults(&plan)).unwrap();
+    assert_eq!(applied.moved.len(), 1);
+    assert!(applied.skipped.is_empty(), "{applied:#?}");
+    assert!(scan(&lib, Some(&alias)).is_empty());
+    fs::remove_file(folder.join("C.ARW")).unwrap();
+    let plan = scan(&lib, Some(&folder));
+    assert_eq!(plan.removed.len(), 1);
+    let missing = &plan.removed[0];
+    let applied = lib
+        .apply_folder_sync(&[SyncAction::Remove {
+            asset_id: missing.asset_id.clone(),
+            path: missing.path.clone(),
+        }])
+        .unwrap();
+    assert_eq!(applied.removed.len(), 1);
+    assert!(applied.skipped.is_empty(), "{applied:#?}");
+}
+
+#[cfg(windows)]
+#[test]
+fn synchronize_verbatim_windows_root_through_plain_paths_finds_new_photos() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonical().unwrap();
+    let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+    let folder = root.join("Photos");
+    photo(&folder.join("A.ARW"), 1);
+    lib.add_asset(&folder.join("A.ARW")).unwrap();
+    let plain = folder.to_string_lossy().into_owned();
+    let verbatim = PathBuf::from(format!(r"\\?\{}", folder.display()));
+    rusqlite::Connection::open(lib.directory.join("catalog.sqlite"))
+        .unwrap()
+        .execute(
+            "UPDATE roots SET path=?1 WHERE external=1",
+            [verbatim.to_str().unwrap()],
+        )
+        .unwrap();
+    photo(&folder.join("B.ARW"), 2);
+    for selected in [Path::new(&plain), verbatim.as_path()] {
+        let plan = scan(&lib, Some(selected));
+        assert!(plan.errors.is_empty(), "{plan:#?}");
+        assert_eq!(plan.new_files.len(), 1, "{plan:#?}");
+        assert!(plan.new_files[0].path.ends_with("B.ARW"));
+        assert!(plan.copies.is_empty(), "{plan:#?}");
+        assert!(plan.removed.is_empty(), "{plan:#?}");
+    }
+}
