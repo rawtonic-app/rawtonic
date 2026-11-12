@@ -36,7 +36,7 @@ import {
   resetGraphicsAndRetry,
   showGpuBackendNotice,
   watchGraphicsPreparation,
-  createCompileActivity
+  followCompiles
 } from '../components/panel/gpuBackend';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
@@ -315,7 +315,7 @@ export function useTauriListeners({
 
   useEffect(() => {
     let isEffectActive = true;
-    const compileActivity = createCompileActivity();
+    const compiles = followCompiles();
 
     const flushThumbnailBatch = () => {
       flushHandle.current = null;
@@ -833,7 +833,7 @@ export function useTauriListeners({
         if (isEffectActive) showGpuStartError(event.payload);
       }),
       listen<boolean>('gpu-compiling', (event) => {
-        if (isEffectActive) compileActivity(event.payload);
+        if (isEffectActive) compiles.event(event.payload);
       })
     ];
     // The GPU may have failed before this window listened: asked once the
@@ -849,10 +849,7 @@ export function useTauriListeners({
     // So is any later compile; one running before the window listened is
     // asked once the listeners are registered.
     Promise.all(listeners)
-      .then(() => invoke<boolean>(Invokes.GpuCompiling))
-      .then((running) => {
-        if (isEffectActive && running) compileActivity(true);
-      })
+      .then(() => compiles.ask())
       .catch(() => {});
     // A backend left out after a crash at an earlier start is said, with
     // the one used instead (it answers once the GPU started or failed).
@@ -864,7 +861,7 @@ export function useTauriListeners({
 
     return () => {
       isEffectActive = false;
-      compileActivity(false);
+      compiles.event(false);
       refreshIngestList.cancel();
       refreshIngestTree.cancel();
       if (flushHandle.current !== null) {

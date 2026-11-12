@@ -8,7 +8,7 @@ import en from '../../i18n/locales/en.json';
 import { Invokes, type AppSettings } from '../ui/AppProperties';
 import { useActivityStore } from '../../store/useActivityStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
-import { createCompileActivity, resetGraphicsAndRetry, watchGraphicsPreparation } from './gpuBackend';
+import { createCompileActivity, followCompiles, resetGraphicsAndRetry, watchGraphicsPreparation } from './gpuBackend';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'windows' }));
@@ -57,6 +57,29 @@ describe('Preparing graphics for a later compile', () => {
     activity(true);
     await vi.advanceTimersByTimeAsync(1600);
     expect(compiling()?.status).toBe('running');
+  });
+
+  it('is shown for a compile running before the window listened', async () => {
+    vi.useFakeTimers();
+    const compiles = followCompiles(() => Promise.resolve(true), 1500);
+    await compiles.ask();
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(compiling()?.status).toBe('running');
+    compiles.event(false);
+    expect(compiling()).toBeUndefined();
+  });
+
+  it('drops an answer older than a compile event (review WPF r1)', async () => {
+    vi.useFakeTimers();
+    let answer: (running: boolean) => void = () => {};
+    const compiles = followCompiles(() => new Promise<boolean>((resolve) => (answer = resolve)), 1500);
+    const asked = compiles.ask();
+    // The compile ends while the question is under way.
+    compiles.event(false);
+    answer(true);
+    await asked;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(compiling()).toBeUndefined();
   });
 
   it('is not shown twice while the first start says it already', async () => {

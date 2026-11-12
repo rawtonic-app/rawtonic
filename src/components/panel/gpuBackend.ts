@@ -166,6 +166,32 @@ export function createCompileActivity(shownAfterMs = PREPARING_SHOWN_AFTER_MS) {
 }
 
 /**
+ * `createCompileActivity` fed by the `gpu-compiling` events (`event`) and,
+ * once the window listens, by whether a compile runs already (`ask`,
+ * `gpu_compiling`). An event that arrives after the question was asked is
+ * newer than its answer, which is then dropped: a compile that ended
+ * meanwhile would otherwise stay shown.
+ */
+export function followCompiles(
+  running: () => Promise<boolean> = () => invoke<boolean>(Invokes.GpuCompiling),
+  shownAfterMs = PREPARING_SHOWN_AFTER_MS
+) {
+  const activity = createCompileActivity(shownAfterMs);
+  let events = 0;
+  return {
+    event(compiling: boolean) {
+      events++;
+      activity(compiling);
+    },
+    async ask() {
+      const asked = events;
+      const compiling = await running();
+      if (compiling && events === asked) activity(true);
+    }
+  };
+}
+
+/**
  * "Reset graphics settings and retry": nothing left out after a crash, the
  * processing backend back to Auto, then a relaunch once every setting is
  * written. A failure stays in the activity centre.
