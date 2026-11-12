@@ -80,6 +80,15 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
     }
     // Used only once the app opens a cache file (`pipeline_cache::open`).
     required_features |= crate::pipeline_cache::device_features(adapter);
+    // Display variants as our own SPIR-V where the driver needs it
+    // (`display_variant_ir`, `set_spirv_passthrough`).
+    if adapter.get_info().backend == wgpu::Backend::Vulkan
+        && adapter
+            .features()
+            .contains(wgpu::Features::PASSTHROUGH_SHADERS)
+    {
+        required_features |= wgpu::Features::PASSTHROUGH_SHADERS;
+    }
     wgpu::DeviceDescriptor {
         label: Some("Processing Device"),
         required_features,
@@ -5601,6 +5610,12 @@ fn env_compile_limit() -> Option<Option<usize>> {
 
 /// Sets the limit for the device just started (`None`: no limit); the
 /// environment variable overrides it.
+/// Whether display variants go to the driver as SPIR-V written by
+/// `display_variant_ir` (`device_start::spirv_passthrough`).
+pub fn set_spirv_passthrough(on: bool) {
+    crate::display_variant_ir::set_spirv_passthrough(on);
+}
+
 pub fn set_compile_limit(limit: Option<usize>) {
     let limit = env_compile_limit().unwrap_or(limit);
     if let Some(n) = limit {
@@ -6015,6 +6030,34 @@ fn create_display_pipeline(
     label: &str,
     constants: &[(&str, f64)],
 ) -> Result<wgpu::ComputePipeline, String> {
+    if display.passes_through(device) {
+        match display.variant_spirv(constants).and_then(|words| {
+            // SAFETY: naga wrote and validated this SPIR-V from the shader
+            // whose bindings `pipeline_layout` describes; wgpu writes the
+            // same module for this backend itself otherwise.
+            validated(device, &format!("shader '{label}'"), || unsafe {
+                device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
+                    label: Some(label),
+                    entry_points: std::borrow::Cow::Owned(vec![
+                        wgpu::PassthroughShaderEntryPoint {
+                            name: "main".into(),
+                            workgroup_size: (8, 8, 1),
+                        },
+                    ]),
+                    spirv: Some(std::borrow::Cow::Owned(words)),
+                    ..Default::default()
+                })
+            })
+        }) {
+            Ok(shader) => {
+                match create_variant_pipeline(device, &shader, pipeline_layout, label, &[]) {
+                    Ok(pipeline) => return Ok(pipeline),
+                    Err(error) => log::warn!("{label}: SPIR-V passthrough failed ({error})"),
+                }
+            }
+            Err(error) => log::warn!("{label}: SPIR-V passthrough failed ({error})"),
+        }
+    }
     let module = match display.variant_module(constants) {
         Ok(module) => module,
         Err(error) => {

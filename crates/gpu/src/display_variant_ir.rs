@@ -13,6 +13,13 @@
 //!
 //! Only display variants take this path; exports and the general pipelines
 //! compile the shader as before, so their code is unchanged.
+//!
+//! On that driver the folded variants are also handed over as SPIR-V written
+//! here (`variant_spirv`, wgpu's SPIR-V passthrough) instead of through
+//! wgpu's own Vulkan path: the tone variant 4145 compiled in 6.3–7.9 s at
+//! 2.5 GB that way, whatever writer options wgpu-hal would set, and in
+//! 132–135 s at 11.6 GB through wgpu, reproducibly (G76/WCC2 rounds 3–5; the
+//! cause inside wgpu's path is not found).
 
 use std::sync::{Arc, OnceLock};
 
@@ -22,6 +29,27 @@ use naga::{Arena, Block, Expression, Handle, Literal, Module, Statement};
 pub(crate) struct DisplayShader {
     source: Arc<str>,
     parsed: OnceLock<Result<(Module, naga::valid::ModuleInfo), String>>,
+    /// Whether variants go to the driver as our own SPIR-V
+    /// (`variant_spirv`): where `spirv_passthrough` says so.
+    passthrough: std::sync::atomic::AtomicBool,
+}
+
+/// Whether display variants of new processors are passed through as SPIR-V
+/// (`set_spirv_passthrough`, from the device start).
+static SPIRV_PASSTHROUGH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Sets whether display variants are passed through as SPIR-V on devices
+/// that allow it; `RAWTONIC_GPU_SPIRV_PASSTHROUGH=0`/`1` overrides.
+pub(crate) fn set_spirv_passthrough(on: bool) {
+    let on = match std::env::var("RAWTONIC_GPU_SPIRV_PASSTHROUGH").as_deref() {
+        Ok("0") => false,
+        Ok("1") => true,
+        _ => on,
+    };
+    if on {
+        log::info!("GPU display variants are passed to the driver as SPIR-V");
+    }
+    SPIRV_PASSTHROUGH.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 impl DisplayShader {
@@ -29,7 +57,52 @@ impl DisplayShader {
         Arc::new(Self {
             source: source.into(),
             parsed: OnceLock::new(),
+            passthrough: std::sync::atomic::AtomicBool::new(
+                SPIRV_PASSTHROUGH.load(std::sync::atomic::Ordering::Relaxed),
+            ),
         })
+    }
+
+    /// Whether this shader's variants go to `device` as our own SPIR-V.
+    pub(crate) fn passes_through(&self, device: &wgpu::Device) -> bool {
+        self.passthrough.load(std::sync::atomic::Ordering::Relaxed)
+            && device
+                .features()
+                .contains(wgpu::Features::PASSTHROUGH_SHADERS)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_passthrough(&self, on: bool) {
+        self.passthrough
+            .store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// `variant_module` as Vulkan SPIR-V, written as wgpu's Vulkan backend
+    /// writes it for a Vulkan 1.3 device: SPIR-V 1.6, indices and buffers
+    /// bounds-restricted, image loads unchecked (as wgpu with robust image
+    /// access; naga's image-load restriction writes SPIR-V that spirv-val
+    /// rejects), loops bounded, integer division checked.
+    pub(crate) fn variant_spirv(&self, constants: &[(&str, f64)]) -> Result<Vec<u32>, String> {
+        use naga::back::spv;
+        use naga::proc::BoundsCheckPolicy as P;
+        let module = self.variant_module(constants)?;
+        let info = validate(&module)?;
+        let options = spv::Options {
+            lang_version: (1, 6),
+            flags: spv::WriterFlags::LABEL_VARYINGS | spv::WriterFlags::FORCE_POINT_SIZE,
+            bounds_check_policies: naga::proc::BoundsCheckPolicies {
+                index: P::Restrict,
+                buffer: P::Restrict,
+                image_load: P::Unchecked,
+                binding_array: P::Unchecked,
+            },
+            ..Default::default()
+        };
+        let pipeline = spv::PipelineOptions {
+            entry_point: "main".into(),
+            shader_stage: naga::ShaderStage::Compute,
+        };
+        spv::write_vec(&module, &info, &options, Some(&pipeline)).map_err(|e| e.to_string())
     }
 
     /// The shader module of a variant: `constants` applied and the code they
@@ -280,6 +353,18 @@ mod tests {
         assert!(has_function(&with, "apply_glow_bloom"));
         assert!(has_function(&with, "apply_film_grain"));
         assert!(with.overrides.is_empty() && without.overrides.is_empty());
+    }
+
+    #[test]
+    fn variants_are_written_as_spir_v_without_the_removed_code() {
+        let shader = DisplayShader::new(SHADER);
+        let words = shader
+            .variant_spirv(&[("ENABLE_EFFECTS", 0.0), ("ENABLE_TONE", 1.0)])
+            .unwrap();
+        assert_eq!(words[0], 0x0723_0203, "SPIR-V magic");
+        assert_eq!(words[1], 0x0001_0600, "SPIR-V 1.6");
+        let with_effects = shader.variant_spirv(&[("ENABLE_EFFECTS", 1.0)]).unwrap();
+        assert!(with_effects.len() > words.len());
     }
 
     #[test]

@@ -8942,6 +8942,106 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
 }
 
 #[test]
+#[ignore = "requires a native Vulkan GPU with SPIR-V passthrough; display variants passed through against wgpu's path"]
+fn display_variants_passed_through_render_the_same_pixels() {
+    // Where display variants go to the driver as our own SPIR-V
+    // (`display_variant_ir::variant_spirv`), each frame must be the one
+    // wgpu's own path renders from the same folded module, byte for byte.
+    let context = context();
+    if !context
+        .device
+        .features()
+        .contains(wgpu::Features::PASSTHROUGH_SHADERS)
+    {
+        println!("SKIP (not a pass): the device has no SPIR-V passthrough");
+        return;
+    }
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 31);
+    let mut checked = 0;
+    for profile in [
+        json!({}),
+        json!({"sharpness":40,"colorNoiseReduction":25,"sharpenVersion":8}),
+        json!({"sharpness":40,"colorNoiseReduction":25,"contrast":30,"toneVersion":18}),
+        json!({"highlights":-40,"curves":custom_curve(),"lumaNoiseReduction":20}),
+        json!({"exposure":0.4,"contrast":25,"shadows":30,"whites":-20,"blacks":-10,
+            "clarity":20,"dehaze":15,"vibrance":20,"saturation":10}),
+        json!({"glowAmount":30,"halationAmount":20,"grainAmount":25,"contrast":20}),
+        curve_mask_stack(6, false),
+        relight_portrait_profile(4),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let features = preview_features(&adjustments);
+        let masks = generated_profile_masks(&profile, width, height);
+        let render = |passthrough: bool| {
+            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            processor.display_shader.set_passthrough(passthrough);
+            assert_eq!(
+                processor.display_shader.passes_through(&context.device),
+                passthrough
+            );
+            processor.preview_pipelines[features].get_or_init(|| {
+                create_preview_pipeline(
+                    &processor.context.device,
+                    &processor.preview_shader,
+                    Some(&processor.display_shader),
+                    &processor.preview_layout,
+                    features,
+                    true,
+                    true,
+                    false,
+                    false,
+                )
+                .unwrap()
+            });
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: adjustments.clone(),
+                        mask_bitmaps: &masks,
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d::ZERO,
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                4,
+            )
+            .unwrap()
+        };
+        let through_wgpu = render(false);
+        let passed_through = render(true);
+        let differing = through_wgpu
+            .iter()
+            .zip(&passed_through)
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            differing,
+            0,
+            "{}: {differing} bytes differ",
+            profile.to_string().chars().take(200).collect::<String>()
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 8);
+}
+
+#[test]
 fn effects_compile_only_where_a_recipe_has_them() {
     let features = |profile: serde_json::Value| {
         preview_features(&get_all_adjustments_from_json(&profile, true, Some(1))) & EFFECTS_FEATURE
