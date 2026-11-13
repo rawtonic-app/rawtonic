@@ -5890,6 +5890,14 @@ pub fn wait_for_running_compiles(what: &str) {
     }
 }
 
+/// Whether shader compiles run under a limit (AMD's Windows Vulkan driver,
+/// `device_start::compile_limit`): there one compile commits 4–6 GB of
+/// private memory, so work that allocates much waits for compiles
+/// (`wait_for_running_compiles`) or gives its memory back sooner.
+pub fn compiles_limited() -> bool {
+    compile_limited()
+}
+
 /// A compile slot for an idle compile (`idle_compiles`), only while no other
 /// compile waits for one or runs: those go first. `None` if one does.
 fn background_compile_slot(what: &str) -> Option<CompileSlot> {
