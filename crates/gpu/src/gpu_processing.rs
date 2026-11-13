@@ -41,6 +41,7 @@ pub mod multi_view;
 mod preview_layers;
 #[path = "processor_turns.rs"]
 mod processor_turns;
+pub use idle_compiles::{IdleCompileMemoryGuard, set_idle_compile_memory_guard};
 pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
 use preview_layers::{
@@ -5767,6 +5768,14 @@ pub fn fold_decided_branches(module: &mut naga::Module) -> usize {
     crate::display_variant_ir::fold(module)
 }
 
+/// The source display variants compile (`display_variant_ir::DisplayShader`:
+/// shader.wgsl with its display-only reshapes), for measuring tools
+/// (`examples/compile_probe.rs`).
+#[doc(hidden)]
+pub fn display_shader_source(source: &str) -> String {
+    crate::display_variant_ir::display_source(source)
+}
+
 /// Whether a new processor compiles the pipelines a start may need ahead
 /// (`START_PREVIEW_FEATURES`, the general and the export pipelines) once the
 /// RAW default display variant is ready: not under a compile limit. On the
@@ -8392,14 +8401,13 @@ impl GpuProcessor {
         let mut waits_for_idle = None;
         if !general_display && self.preview_pipelines[features].get().is_none() {
             match idle {
-                // A compiled superset serves the frame: its own variant
-                // compiles in idle time, not in the slot the next slider
-                // may need (a minute on the driver with a compile limit).
-                Some(idle) if served() => {
-                    idle.later(idle_compiles::IdleJob::Display(features), || {
-                        self.idle_target()
-                    });
-                }
+                // A compiled superset serves the frame, and keeps serving
+                // it: its own variant is not compiled at all. In idle time
+                // those compiles held the slot for 23–126 s each after every
+                // slider move, and the next edit's compile waited behind
+                // them (G76/WGT14: Blacks 220 s, with repeated memory
+                // pressure on a 15 GB Radeon 680M laptop).
+                Some(_) if served() => {}
                 Some(idle) if idle.covering(features).is_some() => {
                     waits_for_idle = Some(PendingCompile::new());
                 }

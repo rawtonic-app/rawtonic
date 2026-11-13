@@ -32,28 +32,103 @@ pub(crate) struct DisplayShader {
 const DISPLAY_TONE_GAINS: &str = include_str!("shaders/display_tone_gains.wgsl");
 const REPLACED_TONE_GAINS: [&str; 2] = ["camera_raw_shadows_blacks_gain", "cr_whites_gain"];
 
-fn with_display_tone_gains(source: &str) -> String {
+/// The tone stage display variants compile (`shaders/display_tone_stage.wgsl`):
+/// shader.wgsl's `apply_tonal_adjustments` and its copies for tone versions
+/// 12 and 13 as one function, which every caller reaches (G76/WCC4).
+const DISPLAY_TONE_STAGE: &str = include_str!("shaders/display_tone_stage.wgsl");
+const REPLACED_TONE_STAGE: &str = "apply_tonal_adjustments";
+
+/// The callers' branches to the tone stage's version-12 and -13 copies that
+/// the display source drops (the merged stage takes their versions inside),
+/// with how often each occurs in shader.wgsl: the photo's tone stage (13
+/// and 12), glow's and halation's (12).
+const DROPPED_TONE_ARMS: [(&str, &str, usize); 2] = [
+    (
+        "SHADOWS_V13 && adjustments.global.tone_version > 12.5",
+        "apply_tonal_adjustments_v13(",
+        1,
+    ),
+    (
+        "WHITES_V12 && adjustments.global.tone_version > 11.5",
+        "apply_tonal_adjustments_v12(",
+        3,
+    ),
+];
+
+/// Renames shader.wgsl's definitions of `names` to `NAME_shared` (dropped
+/// as unused) and appends `replacement`; `None` when a definition is not
+/// there exactly once.
+fn replace_functions(source: &str, names: &[&str], replacement: &str) -> Option<String> {
     let definition = |name: &str| format!("fn {name}(");
-    if !REPLACED_TONE_GAINS
+    if !names
         .iter()
         .all(|name| source.matches(&definition(name)).count() == 1)
     {
-        return source.into();
+        return None;
     }
-    let mut source = REPLACED_TONE_GAINS
-        .iter()
-        .fold(source.to_string(), |source, name| {
-            source.replace(&definition(name), &format!("fn {name}_shared("))
-        });
+    let mut source = names.iter().fold(source.to_string(), |source, name| {
+        source.replace(&definition(name), &format!("fn {name}_shared("))
+    });
     source.push('\n');
-    source.push_str(DISPLAY_TONE_GAINS);
-    source
+    source.push_str(replacement);
+    Some(source)
+}
+
+/// Drops every `} else if (CONDITION) {` arm whose one statement calls
+/// `callee`, keeping the `}` that closes the arm before it; `None` unless it
+/// dropped `expected` arms.
+fn drop_arms(source: &str, condition: &str, callee: &str, expected: usize) -> Option<String> {
+    let opening = format!("}} else if ({condition}) {{\n");
+    let mut out = String::with_capacity(source.len());
+    let mut rest = source;
+    let mut dropped = 0;
+    while let Some(at) = rest.find(&opening) {
+        let after = &rest[at + opening.len()..];
+        let line_end = after.find('\n')?;
+        if !after[..line_end].contains(callee) {
+            return None;
+        }
+        // Up to the arm's closing `}`, which then closes the arm before.
+        let next = &after[line_end + 1..];
+        let close = next.len() - next.trim_start_matches(' ').len();
+        if !next[close..].starts_with('}') {
+            return None;
+        }
+        out.push_str(&rest[..at]);
+        rest = &next[close..];
+        dropped += 1;
+    }
+    out.push_str(rest);
+    (dropped == expected).then_some(out)
+}
+
+/// The tone stage as one function: `None` when shader.wgsl no longer has
+/// the shape this expects.
+fn with_display_tone_stage(source: &str) -> Option<String> {
+    let source = DROPPED_TONE_ARMS
+        .iter()
+        .try_fold(source.to_string(), |source, (condition, callee, n)| {
+            drop_arms(&source, condition, callee, *n)
+        })?;
+    replace_functions(&source, &[REPLACED_TONE_STAGE], DISPLAY_TONE_STAGE)
+}
+
+fn with_display_tone_gains(source: &str) -> String {
+    replace_functions(source, &REPLACED_TONE_GAINS, DISPLAY_TONE_GAINS)
+        .unwrap_or_else(|| source.into())
+}
+
+/// The source display variants compile from `source` (shader.wgsl).
+/// A source of another shape gets only the reshapes that fit it.
+pub(crate) fn display_source(source: &str) -> String {
+    let source = with_display_tone_gains(source);
+    with_display_tone_stage(&source).unwrap_or(source)
 }
 
 impl DisplayShader {
     pub(crate) fn new(source: &str) -> Arc<Self> {
         Arc::new(Self {
-            source: with_display_tone_gains(source).into(),
+            source: display_source(source).into(),
             parsed: OnceLock::new(),
         })
     }
@@ -449,6 +524,55 @@ mod tests {
         }
         // A source without them stays as it is (exports never use this).
         assert_eq!(with_display_tone_gains("fn other() {}"), "fn other() {}");
+    }
+
+    /// With every tone version's code, a display variant keeps one tone
+    /// stage, reached from the photo's tone stage, glow and halation; a
+    /// shader.wgsl of another shape fails here instead of losing the
+    /// reshape unnoticed.
+    #[test]
+    fn display_variants_take_one_tone_stage() {
+        let source = display_source(SHADER);
+        assert!(source.contains("fn apply_tonal_adjustments_shared("));
+        assert!(!source.contains("= apply_tonal_adjustments_v12("));
+        assert!(!source.contains("= apply_tonal_adjustments_v13("));
+        let shader = DisplayShader::new(SHADER);
+        for effects in [0.0, 1.0] {
+            let module = shader
+                .variant_module(&[
+                    ("ENABLE_TONE", 1.0),
+                    ("WHITES_V12", 1.0),
+                    ("SHADOWS_V13", 1.0),
+                    ("BLACKS_V16", 1.0),
+                    ("ENABLE_EFFECTS", effects),
+                ])
+                .unwrap();
+            for gone in [
+                "apply_tonal_adjustments_v12",
+                "apply_tonal_adjustments_v13",
+                "apply_tonal_adjustments_shared",
+                "whites_v10_lower",
+                "whites_v12_lower",
+                "shadows_v13_gain",
+            ] {
+                assert!(!has_function(&module, gone), "{gone}");
+            }
+            let (stage, _) = module
+                .functions
+                .iter()
+                .find(|(_, f)| f.name.as_deref() == Some("apply_tonal_adjustments"))
+                .unwrap();
+            let calls: usize = module
+                .functions
+                .iter()
+                .map(|(_, f)| count_calls(&f.body, stage))
+                .sum::<usize>()
+                + count_calls(&module.entry_points[0].function.body, stage);
+            // The photo's; with the effects glow's and halation's too.
+            assert_eq!(calls, if effects > 0.0 { 3 } else { 1 });
+        }
+        // A source of another shape keeps its tone stage as it is.
+        assert_eq!(with_display_tone_stage("fn other() {}"), None);
     }
 
     fn count_calls(block: &naga::Block, target: naga::Handle<naga::Function>) -> usize {

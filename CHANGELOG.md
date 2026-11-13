@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **Windows with AMD graphics: every Basic-panel edit is instant after five idle minutes, also when edits add up.** Moving Clarity, Whites or Blacks after Contrast and Highlights needed a view of all those edits at once, which the views prepared in idle time did not cover (Radeon 680M: 86, 97 and 220 s). Once a photo is shown the app now prepares, after the tone sliders, one view for every Basic-panel edit together (all tone sliders in both directions, curve, mask, Clarity, Structure, Dehaze, Vibrance, colour mixer); its tone code is no longer repeated per tone version, so that view compiles in 36 s at 4.3 GB (all tone directions were 131 s at 11 GB). Measured on a Radeon 680M after 5 minutes idle: every Basic edit in both directions, a curve point, the colour mixer and a brush stroke updated within 0.34 s, Exposure drags ran at 135–182 frames per second, no memory pressure. A view that already serves an edit is no longer followed by compiles of narrower views, which held the GPU for minutes after editing. Idle preparation waits while an export runs (an export had waited 20 s behind one), while the app uses more than 60 % of the computer's memory, or while memory runs short. Exports are unchanged.
+
 - Windows restore placement is read from the native normal rectangle and retained when reopening maximized; maximize-button clicks capture their release across snap-flyout dismissal. Session log lines are flushed individually without waiting on a console reader (Lenovo verification pending).
 
 - The Develop Adjust column now fills its panel through explicit flex sizing at every interface size, addressing a suspected cause of unreachable tools on Windows; native wheel and scrollbar confirmation is pending.
