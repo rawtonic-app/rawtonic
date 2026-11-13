@@ -145,8 +145,14 @@ pub(super) struct IdleTarget {
 
 #[derive(Default)]
 struct Queue {
-    /// The features the plan was made for.
-    planned: Option<usize>,
+    /// The plan made last (`idle_plan`), the key that decides whether a
+    /// shown photo replaces it: its features alone are not, since the plan
+    /// also follows the recipe's look and response versions (a photo with
+    /// the same features but Dehaze 2 instead of 3 needs another `basic`).
+    /// The device, shader source and compile limit the plan compiles for
+    /// are the processor's, which owns this queue (one per processor, only
+    /// under a compile limit), so they never change under one key.
+    planned: Option<Vec<usize>>,
     /// The planned supersets (replaced when another photo is shown).
     plan: VecDeque<IdleJob>,
     /// Layer-sum variants that frames need (the per-layer loop serves them
@@ -156,6 +162,19 @@ struct Queue {
     running: Option<IdleJob>,
     worker: bool,
     cancelled: bool,
+}
+
+impl Queue {
+    /// Replaces the planned supersets with `plan` unless it is the plan
+    /// made last; whether it did.
+    fn replan(&mut self, plan: Vec<usize>) -> bool {
+        if self.planned.as_ref() == Some(&plan) {
+            return false;
+        }
+        self.plan = plan.iter().copied().map(IdleJob::Display).collect();
+        self.planned = Some(plan);
+        true
+    }
 }
 
 pub(super) struct IdleCompiles {
@@ -194,14 +213,9 @@ impl IdleCompiles {
         target: impl FnOnce() -> IdleTarget,
     ) {
         let mut queue = self.lock();
-        if queue.cancelled || queue.planned == Some(features) {
+        if queue.cancelled || !queue.replan(idle_plan(features, adjustments)) {
             return;
         }
-        queue.planned = Some(features);
-        queue.plan = idle_plan(features, adjustments)
-            .into_iter()
-            .map(IdleJob::Display)
-            .collect();
         self.start(&mut queue, target);
     }
 
@@ -527,6 +541,47 @@ mod tests {
         assert_ne!(features & HSL_V2_FEATURE, 0, "the mixer moved: {all}");
         assert_ne!(features & 4, 0, "a curve: {all}");
         assert!(covered(&all), "{all}");
+    }
+
+    /// A photo shown with the features of the one before but other response
+    /// versions (here Dehaze 2 against 3, Dehaze at 0 on both, so neither
+    /// sets a Dehaze bit) replaces the plan; the same plan again does not.
+    #[test]
+    fn a_photo_with_the_same_features_but_other_versions_replans() {
+        let mut dehaze_3 = adjustments(crate::image_processing::TONE_VERSION as f32, 3);
+        dehaze_3.global.dehaze_version = 3;
+        let mut dehaze_2 = dehaze_3;
+        dehaze_2.global.dehaze_version = 2;
+        let features = preview_features(&dehaze_3);
+        assert_eq!(features, preview_features(&dehaze_2));
+        let (plan_3, plan_2) = (
+            idle_plan(features, &dehaze_3),
+            idle_plan(features, &dehaze_2),
+        );
+        assert_ne!(plan_3, plan_2);
+        let planned = |queue: &Queue| {
+            queue
+                .plan
+                .iter()
+                .map(|job| match job {
+                    IdleJob::Display(features) => *features,
+                    IdleJob::LayerSums(_) => unreachable!(),
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut queue = Queue::default();
+        assert!(queue.replan(plan_3.clone()));
+        assert_eq!(planned(&queue), plan_3);
+        // The worker took the first job; the same photo again keeps the rest.
+        queue.plan.pop_front();
+        assert!(!queue.replan(plan_3.clone()));
+        assert_eq!(planned(&queue), plan_3[1..]);
+        assert!(queue.replan(plan_2.clone()));
+        assert_eq!(planned(&queue), plan_2);
+        // A look change (Camera Raw to AgX) with the same features too.
+        let agx = adjustments(crate::image_processing::TONE_VERSION as f32, 1);
+        assert_eq!(preview_features(&agx), features);
+        assert!(queue.replan(idle_plan(features, &agx)));
     }
 
     #[test]
