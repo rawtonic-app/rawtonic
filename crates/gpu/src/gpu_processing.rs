@@ -11658,12 +11658,22 @@ pub fn gpu_scoped<T>(device: &wgpu::Device, work: impl FnOnce() -> T) -> Result<
     let internal = pollster::block_on(internal.pop());
     let validation = pollster::block_on(validation.pop());
     let memory = pollster::block_on(memory.pop());
-    // On a lost device every object is invalid: the errors name whichever
-    // one failed first ("Buffer … is invalid"), not why.
-    if crate::device_start::device_lost() {
+    scoped_result(
+        value,
+        memory.or(validation).or(internal),
+        crate::device_start::device_lost(),
+    )
+}
+
+/// `gpu_scoped`'s result: `value`, or the error the scopes caught; on a lost
+/// device always the device-lost error, since every object is then invalid
+/// and the caught error names whichever failed first ("Buffer … is
+/// invalid"), not why.
+fn scoped_result<T>(value: T, error: Option<wgpu::Error>, device_lost: bool) -> Result<T, String> {
+    if device_lost {
         return Err(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST.to_string());
     }
-    match memory.or(validation).or(internal) {
+    match error {
         Some(error) => {
             log::error!("GPU render failed: {error}");
             Err(match error {

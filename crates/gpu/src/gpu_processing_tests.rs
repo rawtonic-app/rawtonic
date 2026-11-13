@@ -8989,6 +8989,26 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
 }
 
 #[test]
+fn renders_on_a_lost_device_fail_with_the_device_lost_error() {
+    let invalid = || wgpu::Error::Validation {
+        source: Box::new(std::io::Error::other("lost")),
+        description: "Buffer with 'LUT shaper (none)' label is invalid".into(),
+    };
+    let lost = rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST;
+    assert_eq!(
+        scoped_result((), Some(invalid()), true),
+        Err(lost.to_string())
+    );
+    assert_eq!(scoped_result((), None, true), Err(lost.to_string()));
+    let other = scoped_result((), Some(invalid()), false).unwrap_err();
+    assert!(
+        other.contains("could not render") && other != lost,
+        "{other}"
+    );
+    assert_eq!(scoped_result(7, None, false), Ok(7));
+}
+
+#[test]
 #[ignore = "requires a native GPU; work on a lost device fails instead of panicking"]
 fn a_lost_device_fails_its_renders_instead_of_panicking() {
     // WGT16 (G76/WCC6): after 'GPU device lost: Out of memory' an export
