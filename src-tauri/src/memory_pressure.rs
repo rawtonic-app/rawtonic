@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Tells the app when the system runs short of memory (`ai_lifecycle` then
-//! drops the AI models).
+//! drops the AI models), and holds the GPU's idle compiles while memory is
+//! short (`guard_idle_compiles`).
 //!
 //! macOS: the kernel's memory pressure notifications (a libdispatch
 //! memory-pressure source, the mechanism behind `NSProcessInfo`'s and
@@ -70,6 +71,84 @@ pub fn level_now() -> Option<Level> {
     } else {
         Some(Level::Warn)
     }
+}
+
+/// Share of the physical memory above which the app's private memory holds
+/// the GPU's idle compiles: one display variant's compile committed up to
+/// 5–6 GB on AMD's Windows Vulkan driver, and with the AI models loaded a
+/// 15 GB laptop reached 13.8 GB and repeated memory pressure (G76/WGT14).
+const IDLE_COMPILE_PRIVATE_SHARE: f64 = 0.6;
+/// How long after the last memory pressure seen idle compiles stay held.
+const IDLE_COMPILE_PRESSURE_HOLD: Duration = Duration::from_secs(60);
+
+/// Holds the GPU's idle compiles (`rawtonic_gpu::gpu_processing::
+/// set_idle_compile_memory_guard`) while the app's private memory (Private
+/// Bytes on Windows, resident memory elsewhere) is above
+/// `IDLE_COMPILE_PRIVATE_SHARE` of the physical memory, while the system is
+/// short of memory (`level_now`) and for `IDLE_COMPILE_PRESSURE_HOLD`
+/// after. Idle compiles run only under a compile limit (AMD's Windows Vulkan
+/// driver), so elsewhere this is never asked.
+pub fn guard_idle_compiles() {
+    let state = std::sync::Mutex::new((sysinfo::System::new(), None::<std::time::Instant>));
+    rawtonic_gpu::gpu_processing::set_idle_compile_memory_guard(Box::new(move || {
+        let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+        let (system, last_pressure) = &mut *state;
+        let level = level_now();
+        let now = std::time::Instant::now();
+        if level.is_some() {
+            *last_pressure = Some(now);
+        }
+        system.refresh_memory();
+        let private = sysinfo::get_current_pid().ok().and_then(|pid| {
+            system.refresh_processes_specifics(
+                sysinfo::ProcessesToUpdate::Some(&[pid]),
+                false,
+                sysinfo::ProcessRefreshKind::nothing().with_memory(),
+            );
+            system.process(pid).map(|process| {
+                if cfg!(windows) {
+                    // PrivateUsage: the commit charge (Private Bytes).
+                    process.virtual_memory()
+                } else {
+                    process.memory()
+                }
+            })
+        });
+        idle_compile_verdict(
+            private,
+            system.total_memory(),
+            level,
+            last_pressure.map(|at| now.duration_since(at)),
+        )
+    }));
+}
+
+/// Whether an idle compile may start: `Err` names why not.
+fn idle_compile_verdict(
+    private: Option<u64>,
+    total: u64,
+    level: Option<Level>,
+    since_pressure: Option<Duration>,
+) -> Result<(), String> {
+    const GB: f64 = 1e9;
+    if let Some(level) = level {
+        return Err(format!("memory pressure ({level:?})"));
+    }
+    if let Some(since) = since_pressure.filter(|since| *since < IDLE_COMPILE_PRESSURE_HOLD) {
+        return Err(format!("memory pressure {:.0} s ago", since.as_secs_f64()));
+    }
+    if let Some(private) = private
+        && total > 0
+        && private as f64 > IDLE_COMPILE_PRIVATE_SHARE * total as f64
+    {
+        return Err(format!(
+            "private memory {:.1} GB above {:.0} % of {:.1} GB",
+            private as f64 / GB,
+            IDLE_COMPILE_PRIVATE_SHARE * 100.0,
+            total as f64 / GB
+        ));
+    }
+    Ok(())
 }
 
 /// Available memory below which the system counts as short of memory: a
@@ -252,6 +331,24 @@ mod tests {
         // Recovered, then low again.
         assert_eq!(low.update(3 * GB, total), None);
         assert_eq!(low.update(GB / 4, total), Some(Level::Critical));
+    }
+
+    #[test]
+    fn idle_compiles_wait_for_private_memory_and_pressure() {
+        let total = 15 * GB;
+        let ok = idle_compile_verdict(Some(8 * GB), total, None, None);
+        assert_eq!(ok, Ok(()));
+        // Above 60 % of the physical memory.
+        let high = idle_compile_verdict(Some(10 * GB), total, None, None);
+        assert!(high.unwrap_err().starts_with("private memory"));
+        // Under pressure, and for a minute after it.
+        assert!(idle_compile_verdict(Some(GB), total, Some(Level::Warn), None).is_err());
+        let after = Some(Duration::from_secs(20));
+        assert!(idle_compile_verdict(Some(GB), total, None, after).is_err());
+        let later = Some(IDLE_COMPILE_PRESSURE_HOLD);
+        assert_eq!(idle_compile_verdict(Some(GB), total, None, later), Ok(()));
+        // Unknown readings do not hold.
+        assert_eq!(idle_compile_verdict(None, 0, None, None), Ok(()));
     }
 
     #[test]

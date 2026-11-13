@@ -41,6 +41,7 @@ pub mod multi_view;
 mod preview_layers;
 #[path = "processor_turns.rs"]
 mod processor_turns;
+pub use idle_compiles::{IdleCompileMemoryGuard, set_idle_compile_memory_guard};
 pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
 use preview_layers::{
@@ -5765,6 +5766,14 @@ fn background_compile_slot(what: &str) -> Option<CompileSlot> {
 #[doc(hidden)]
 pub fn fold_decided_branches(module: &mut naga::Module) -> usize {
     crate::display_variant_ir::fold(module)
+}
+
+/// The source display variants compile (`display_variant_ir::DisplayShader`:
+/// shader.wgsl with its display-only reshapes), for measuring tools
+/// (`examples/compile_probe.rs`).
+#[doc(hidden)]
+pub fn display_shader_source(source: &str) -> String {
+    crate::display_variant_ir::display_source(source)
 }
 
 /// Whether a new processor compiles the pipelines a start may need ahead

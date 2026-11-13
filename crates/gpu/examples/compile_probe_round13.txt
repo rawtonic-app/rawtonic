@@ -1,0 +1,14 @@
+# WCC4 round 13 (G76): display variants as the app compiles them (`display`: shader.wgsl with the display-only reshapes, #756's one-call-site tone gains and WCC4's one tone stage), through wgpu. The idle plan's chain (sliders → basic → effects) and the WGT14 slider sums. Before (round 12, `gw` = #756's display source, same driver): 36927 37858/2963, 323647 130717/11090, 2101265 23859/1713 (ms / peak MB). Run with COMPILE_PROBE_TIMEOUT=600 from the artifact folder, VkCache cleared.
+# Drift check against round 12's r12_4145 (53998/5125): the plain shader, unchanged.
+r13_plain_4145 features=4145 dce
+# The idle plan for a new RAW edit (RAW default 4113).
+r13_sliders features=36915 dce display
+r13_basic features=5238847 dce display
+r13_effects features=2101265 dce display
+# Tone directions alone and together (round 12: 323647 = 130.7 s / 11.1 GB).
+r13_whites_low features=12337 dce display
+r13_shadows_up features=20529 dce display
+r13_alltone features=323647 dce display
+# WGT14's sums: Contrast + Highlights −30 + Clarity +40 (+ Whites −30, + Blacks −30).
+r13_seq_clarity features=561203 dce display
+r13_seq_blacks features=831539 dce display

@@ -569,6 +569,8 @@ fn start(args: Vec<String>) {
             if !is_headless {
                 // Masking models: unloaded when idle or short of memory.
                 ai_lifecycle::start(&app_handle);
+                // GPU idle compiles: held while memory is short.
+                memory_pressure::guard_idle_compiles();
                 export_processing::release_processor_under_pressure(&app_handle);
                 // Roll back file operations a crash interrupted.
                 file_operations::recover(&app_handle);

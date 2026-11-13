@@ -10,7 +10,7 @@
 //! Each line of SPECS_FILE is one candidate, compiled in its own child
 //! process (clean peak memory, no in-process reuse):
 //!
-//! `NAME features=N [dce] [unchecked] [stub=f1,f2] [src=FILE] [set=K:V,K:V] [export] [spirv] [noinline=all|f1,f2]`
+//! `NAME features=N [dce] [display] [unchecked] [stub=f1,f2] [src=FILE] [set=K:V,K:V] [export] [spirv] [noinline=all|f1,f2]`
 //!
 //! - `features`: display variant bits as `create_preview_pipeline` sets them
 //!   (with `export`: as an export pipeline, i.e. without prepared layers).
@@ -20,6 +20,9 @@
 //! - `stub`: replace these functions' bodies with `return` of their first
 //!   argument (or a zero value): what a variant without that stage costs.
 //! - `src`: another WGSL file instead of the built-in shader.wgsl.
+//! - `display`: the source as display variants compile it (the app's
+//!   `DisplayShader`: its display-only reshapes of shader.wgsl). Use it with
+//!   `dce` to measure what the app compiles.
 //! - `set`: extra override constants.
 //! - `spirv`: write the SPIR-V here (naga, as wgpu's Vulkan backend does) and
 //!   hand it to the driver as is (Vulkan only; the pipeline layout is made
@@ -150,6 +153,7 @@ struct Spec {
     dce: bool,
     unchecked: bool,
     export: bool,
+    display: bool,
     stubs: Vec<String>,
     src: Option<String>,
     set: Vec<(String, f64)>,
@@ -166,6 +170,7 @@ fn parse(line: &str) -> Result<Spec, String> {
         dce: false,
         unchecked: false,
         export: false,
+        display: false,
         stubs: vec![],
         src: None,
         set: vec![],
@@ -199,6 +204,7 @@ fn parse(line: &str) -> Result<Spec, String> {
             None if word == "dce" => spec.dce = true,
             None if word == "unchecked" => spec.unchecked = true,
             None if word == "export" => spec.export = true,
+            None if word == "display" => spec.display = true,
             None if word == "spirv" => spec.spirv = true,
             _ => return Err(format!("unknown word {word}")),
         }
@@ -255,6 +261,13 @@ fn one(line: &str) -> Result<String, String> {
     let source = match &spec.src {
         Some(path) => std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?,
         None => include_str!("../src/shaders/shader.wgsl").to_string(),
+    };
+    // `display`: the source display variants compile (with their reshaped
+    // tone code), as the app's `DisplayShader` makes it.
+    let source = if spec.display {
+        rawtonic_gpu::gpu_processing::display_shader_source(&source)
+    } else {
+        source
     };
     let module = naga::front::wgsl::parse_str(&source).map_err(|e| e.emit_to_string(&source))?;
     let validate = |m: &naga::Module| {
