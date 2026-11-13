@@ -6201,9 +6201,8 @@ fn version_5_exports_render_their_specialized_variant_within_rounding() {
                 if raw && tonemapper == 3 {
                     adjustments.global.profile_curve[15][3] = 2.0;
                 }
-                // The display variant's features with the effects and
-                // tone-version-5 code exports always keep.
-                let features = preview_features(&adjustments) | EFFECTS_FEATURE | TONE_V5_FEATURE;
+                // The display variant's features.
+                let features = preview_features(&adjustments);
                 assert!(std::ptr::eq(
                     processor
                         .export_pipeline(&adjustments, MainOutput::Deferred)
@@ -8986,6 +8985,146 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
         checked += 1;
     }
     assert_eq!(checked, 11);
+}
+
+#[test]
+#[ignore = "requires a native GPU; folded export variants against the whole shader"]
+fn export_variants_from_folded_ir_render_the_same_bytes() {
+    // An export variant compiles from shader.wgsl with the branches its
+    // constants and its tone bits decide removed, and from `renderVersion` 5
+    // with the effects and tone-version-5 code only where the recipe has
+    // them (`export_pipeline`, G76/WCC6); its export must be the one the
+    // whole shader renders with the variant exports compiled before, byte
+    // for byte, in 8 and 16 bits.
+    let context = context();
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 31);
+    // The WGT16 edit: Basic, presence, curve, mixer and a brush layer, at
+    // the versions a new edit gets.
+    let many = json!({"renderVersion":5,"toneVersion":18,"clarityVersion":3,
+        "dehazeVersion":3,"vibranceVersion":2,"hslVersion":2,
+        "exposure":0.4,"contrast":25,"highlights":-40,"shadows":30,"whites":-20,
+        "blacks":-10,"clarity":20,"structure":15,"dehaze":15,"vibrance":20,
+        "curves":custom_curve(),"hsl":{"reds":{"hue":12}},
+        "masks":[local_mask("brush", json!({"exposure":0.6}))]});
+    let mut checked = 0;
+    for (profile, raw) in [
+        (json!({}), true),
+        (json!({"renderVersion":5}), true),
+        (
+            json!({"renderVersion":5,"sharpness":40,"colorNoiseReduction":25}),
+            true,
+        ),
+        (
+            json!({"exposure":0.4,"contrast":25,"shadows":30,"whites":-20,"blacks":-10,
+            "clarity":20,"dehaze":15,"vibrance":20,"saturation":10}),
+            true,
+        ),
+        (
+            json!({"renderVersion":5,"contrast":30,"shadows":20,"whites":-15,"toneVersion":5}),
+            true,
+        ),
+        (
+            json!({"renderVersion":5,"glowAmount":30,"halationAmount":20,"grainAmount":25}),
+            true,
+        ),
+        (many.clone(), true),
+        (many, false),
+        (
+            local_profile(json!({"renderVersion":5,"highlights":-20,"lumaNoiseReduction":15})),
+            true,
+        ),
+    ] {
+        let adjustments =
+            get_all_adjustments_from_json(&profile, raw, Some(if raw { 3 } else { 0 }));
+        let features =
+            export_variant(&adjustments).unwrap_or_else(|| panic!("{profile}: no export variant"));
+        // The variant exports compiled before.
+        let before = if adjustments.specialized_export {
+            features | EFFECTS_FEATURE | TONE_V5_FEATURE
+        } else {
+            features
+        };
+        let masks = generated_profile_masks(&profile, width, height);
+        let render = |folded: bool, precision| {
+            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            if !folded {
+                // The reference: the whole shader with the variant's
+                // constants, as export variants compiled before.
+                for output in [
+                    MainOutput::EightBit,
+                    MainOutput::SixteenBit,
+                    MainOutput::Deferred,
+                ] {
+                    let (shader, layout) = processor.main_module(output);
+                    let pipeline = create_preview_pipeline(
+                        &processor.context.device,
+                        shader,
+                        None,
+                        layout,
+                        before,
+                        true,
+                        false,
+                        false,
+                        output == MainOutput::Deferred,
+                    )
+                    .unwrap();
+                    let table = match output {
+                        MainOutput::EightBit => &processor.export_pipelines,
+                        MainOutput::SixteenBit => &processor.high_precision_export_pipelines,
+                        MainOutput::Deferred => &processor.deferred_export_pipelines,
+                    };
+                    table[features].set(Some(pipeline)).unwrap();
+                }
+            }
+            let (pixels, ..) = processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: adjustments.clone(),
+                        mask_bitmaps: &masks,
+                        lut: None,
+                        roi: None,
+                    },
+                    false,
+                    precision,
+                )
+                .unwrap();
+            let used = [
+                &processor.export_pipelines,
+                &processor.high_precision_export_pipelines,
+                &processor.deferred_export_pipelines,
+            ]
+            .iter()
+            .any(|table| matches!(table[features].get(), Some(Some(_))));
+            assert!(
+                used,
+                "{profile}: the export did not take variant {features}"
+            );
+            match pixels {
+                RenderedPixels::U8(bytes) => bytes.into_iter().map(u32::from).collect::<Vec<_>>(),
+                RenderedPixels::U16(words) => words.into_iter().map(u32::from).collect::<Vec<_>>(),
+            }
+        };
+        for precision in [
+            RenderOutputPrecision::EightBit,
+            RenderOutputPrecision::SixteenBit,
+        ] {
+            let whole = render(false, precision);
+            let folded = render(true, precision);
+            let differing = whole.iter().zip(&folded).filter(|(a, b)| a != b).count();
+            assert_eq!(
+                differing,
+                0,
+                "{features} {precision:?}: {differing} values differ ({})",
+                profile.to_string().chars().take(200).collect::<String>()
+            );
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, 9);
 }
 
 #[test]

@@ -23,6 +23,9 @@
 //! - `display`: the source as display variants compile it (the app's
 //!   `DisplayShader`: its display-only reshapes of shader.wgsl). Use it with
 //!   `dce` to measure what the app compiles.
+//! - `exportsrc`: the source export variants compile (the app's
+//!   `ExportShaders`: the tone arms the variant's bits decide written as
+//!   decided). Use it with `export dce` to measure what an export compiles.
 //! - `set`: extra override constants.
 //! - `spirv`: write the SPIR-V here (naga, as wgpu's Vulkan backend does) and
 //!   hand it to the driver as is (Vulkan only; the pipeline layout is made
@@ -154,6 +157,7 @@ struct Spec {
     unchecked: bool,
     export: bool,
     display: bool,
+    exportsrc: bool,
     stubs: Vec<String>,
     src: Option<String>,
     set: Vec<(String, f64)>,
@@ -171,6 +175,7 @@ fn parse(line: &str) -> Result<Spec, String> {
         unchecked: false,
         export: false,
         display: false,
+        exportsrc: false,
         stubs: vec![],
         src: None,
         set: vec![],
@@ -205,6 +210,7 @@ fn parse(line: &str) -> Result<Spec, String> {
             None if word == "unchecked" => spec.unchecked = true,
             None if word == "export" => spec.export = true,
             None if word == "display" => spec.display = true,
+            None if word == "exportsrc" => spec.exportsrc = true,
             None if word == "spirv" => spec.spirv = true,
             _ => return Err(format!("unknown word {word}")),
         }
@@ -266,6 +272,8 @@ fn one(line: &str) -> Result<String, String> {
     // tone code), as the app's `DisplayShader` makes it.
     let source = if spec.display {
         rawtonic_gpu::gpu_processing::display_shader_source(&source)
+    } else if spec.exportsrc {
+        rawtonic_gpu::gpu_processing::export_shader_source(&source, spec.features)
     } else {
         source
     };

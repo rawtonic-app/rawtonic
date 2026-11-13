@@ -11,8 +11,13 @@
 //! without the glow, halation and grain code it never runs (`ENABLE_EFFECTS`;
 //! G76/WCC round 1, `examples/compile_probe.rs`).
 //!
-//! Only display variants take this path; exports and the general pipelines
-//! compile the shader as before, so their code is unchanged.
+//! Display variants also compile a reshaped source (`display_source`).
+//! Export variants take only the fold, of shader.wgsl as it is
+//! (`DisplayShader::exact`): a branch their constants decide is decided, so
+//! the driver gets the same math without the code it would drop anyway
+//! (G76/WCC6: the Radeon 680M compiled a many-feature export variant for
+//! 438 s and 52 GB before its device was lost). The general pipelines
+//! compile the shader as before.
 
 use std::sync::{Arc, OnceLock};
 
@@ -118,6 +123,86 @@ fn with_display_tone_gains(source: &str) -> String {
         .unwrap_or_else(|| source.into())
 }
 
+/// The callers' arms to the tone stage's version-13 and version-12 copies
+/// as shader.wgsl writes them, what an export variant with the arm's
+/// feature bit writes instead, and how often each occurs (the photo's tone
+/// stage, and glow's and halation's for version 12). The bit implies the
+/// arm's tone version (`shadows_v13`/`whites_v12` of gpu_processing.rs set
+/// it only from tone version 13/12 on), so the run-time test always passes
+/// in such a variant; without it the fold could not decide the arm and the
+/// variant kept every copy of the tone stage.
+const DECIDED_TONE_ARMS: [(&str, &str, usize); 2] = [
+    (
+        "SHADOWS_V13 && adjustments.global.tone_version > 12.5",
+        "SHADOWS_V13",
+        1,
+    ),
+    (
+        "WHITES_V12 && adjustments.global.tone_version > 11.5",
+        "WHITES_V12",
+        3,
+    ),
+];
+
+/// The source an export variant compiles: `source` with the tone arms its
+/// bits decide written as decided (`DECIDED_TONE_ARMS`; `[shadows_v13,
+/// whites_v12]`). `None` when shader.wgsl no longer has that shape.
+fn export_source(source: &str, decided: [bool; 2]) -> Option<String> {
+    DECIDED_TONE_ARMS.iter().zip(decided).try_fold(
+        source.to_string(),
+        |source, ((condition, decided_condition, n), decided)| {
+            if !decided {
+                return Some(source);
+            }
+            (source.matches(condition).count() == *n)
+                .then(|| source.replace(condition, decided_condition))
+        },
+    )
+}
+
+/// `export_source` for a variant's `[shadows_v13, whites_v12]` bits, or
+/// `source` itself when it has another shape.
+pub(crate) fn export_variant_source(source: &str, decided: [bool; 2]) -> String {
+    export_source(source, decided).unwrap_or_else(|| source.into())
+}
+
+/// The parsed sources export variants compile, by output precision and the
+/// tone arms their bits decide, each made on first use (`export_source`).
+pub(crate) struct ExportShaders {
+    sources: [Arc<str>; 2],
+    shaders: [[OnceLock<Arc<DisplayShader>>; 4]; 2],
+}
+
+impl ExportShaders {
+    /// From the 8-bit and the high-precision shader source.
+    pub(crate) fn new(eight_bit: &str, high_precision: &str) -> Self {
+        Self {
+            sources: [eight_bit.into(), high_precision.into()],
+            shaders: Default::default(),
+        }
+    }
+
+    /// The shader of an export variant: `high_precision` output, and whether
+    /// its bits hold raised Shadows of tone version 13 and lowered Whites of
+    /// tone version 12. A source of another shape is only folded.
+    pub(crate) fn get(
+        &self,
+        high_precision: bool,
+        shadows_v13: bool,
+        whites_v12: bool,
+    ) -> &DisplayShader {
+        let precision = usize::from(high_precision);
+        let slot = usize::from(shadows_v13) * 2 + usize::from(whites_v12);
+        self.shaders[precision][slot].get_or_init(|| {
+            let source = &self.sources[precision];
+            if export_source(source, [true, true]).is_none() {
+                log::warn!("Export variants: the tone arms are not decided (shader shape)");
+            }
+            DisplayShader::exact(&export_variant_source(source, [shadows_v13, whites_v12]))
+        })
+    }
+}
+
 /// The source display variants compile from `source` (shader.wgsl).
 /// A source of another shape gets only the reshapes that fit it.
 pub(crate) fn display_source(source: &str) -> String {
@@ -127,8 +212,14 @@ pub(crate) fn display_source(source: &str) -> String {
 
 impl DisplayShader {
     pub(crate) fn new(source: &str) -> Arc<Self> {
+        Self::exact(&display_source(source))
+    }
+
+    /// `source` as it is, without the display-only reshapes: what export
+    /// variants compile, folded (`variant_module`).
+    pub(crate) fn exact(source: &str) -> Arc<Self> {
         Arc::new(Self {
-            source: display_source(source).into(),
+            source: source.into(),
             parsed: OnceLock::new(),
         })
     }

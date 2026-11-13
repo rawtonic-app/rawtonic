@@ -9,7 +9,7 @@ use std::num::NonZero;
 
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
-use crate::display_variant_ir::DisplayShader;
+use crate::display_variant_ir::{DisplayShader, ExportShaders};
 use crate::image_processing::{
     AllAdjustments, MAX_MASKS, Point, SHARPEN_VIEW_MASK, boxed_uniforms, is_sharpen_view,
 };
@@ -3982,6 +3982,10 @@ pub struct GpuProcessor {
     /// The same shader as naga IR, from which display variants compile
     /// without the code their constants rule out (`display_variant_ir`).
     display_shader: Arc<DisplayShader>,
+    /// The 8-bit and the high-precision shader as naga IR without the
+    /// display-only reshapes: export variants compile from it with the
+    /// branches their constants decide removed (`export_pipeline`).
+    export_shaders: ExportShaders,
     preview_layout: wgpu::PipelineLayout,
     /// `None` records a variant that failed validation; exports use the general pipeline.
     export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
@@ -5443,6 +5447,30 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
         | TONE_V5_FEATURE
 }
 
+/// The specialized variant an export of `adjustments` compiles, or `None`
+/// for the general pipeline.
+fn export_variant(adjustments: &crate::image_processing::PreparedAdjustments) -> Option<usize> {
+    // Curve tables have no specialized export variant.
+    if adjustments.global.region_curve_active[1] != 0 {
+        return None;
+    }
+    // From `renderVersion` 5 the variant of the recipe's own features,
+    // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`). The
+    // effects and tone-version-5 code only where the recipe has them
+    // (`EFFECTS_FEATURE`, `TONE_V5_FEATURE`): kept idle, they made the
+    // WGT16 edit's variant 288k inlined expressions, which the Radeon 680M
+    // compiled for 438 s into 52 GB until its device was lost (G76/WCC6).
+    if adjustments.specialized_export {
+        return Some(preview_features(adjustments));
+    }
+    // Metal may reassociate active neighbourhood operations when
+    // unrelated branches are removed. Their full general pipeline
+    // keeps older recipes' exports exact; specialize only those
+    // without these operations.
+    let features = export_features(adjustments);
+    (features & ((1 << 0) | (1 << 1) | (1 << 4)) == 0).then_some(features)
+}
+
 /// `GpuProcessor::range2_pipelines`.
 type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
     16]; 2]; MAIN_OUTPUTS];
@@ -5774,6 +5802,20 @@ pub fn fold_decided_branches(module: &mut naga::Module) -> usize {
 #[doc(hidden)]
 pub fn display_shader_source(source: &str) -> String {
     crate::display_variant_ir::display_source(source)
+}
+
+/// The source export variant `features` compiles (`ExportShaders`: the
+/// tone arms its bits decide written as decided), for measuring tools
+/// (`examples/compile_probe.rs`).
+#[doc(hidden)]
+pub fn export_shader_source(source: &str, features: usize) -> String {
+    crate::display_variant_ir::export_variant_source(
+        source,
+        [
+            features & SHADOWS_V13_FEATURE != 0,
+            features & WHITES_V12_FEATURE != 0,
+        ],
+    )
 }
 
 /// Whether a new processor compiles the pipelines a start may need ahead
@@ -7069,14 +7111,16 @@ impl GpuProcessor {
                 bind_group_layouts: &[Some(&high_precision_bgl)],
                 immediate_size: 0,
             });
+        let high_precision_source = high_precision_shader_source(shader_source).replace(
+            "override HIGH_PRECISION_OUTPUT: u32 = 0u;",
+            "override HIGH_PRECISION_OUTPUT: u32 = 1u;",
+        );
         let high_precision_shader = create_shader(
             device,
             "High Precision Image Processing Shader",
-            &high_precision_shader_source(shader_source).replace(
-                "override HIGH_PRECISION_OUTPUT: u32 = 0u;",
-                "override HIGH_PRECISION_OUTPUT: u32 = 1u;",
-            ),
+            &high_precision_source,
         )?;
+        let export_shaders = ExportShaders::new(shader_source, &high_precision_source);
         // CPU-readback exports encode in their own pass (`render_window`).
         let deferred_pipeline = BackgroundPipeline::compile(device, &background_gate(), {
             let module = high_precision_shader.clone();
@@ -7286,6 +7330,7 @@ impl GpuProcessor {
             sharpen_view_compilation: variant_table(),
             preview_shader: shader_module,
             display_shader,
+            export_shaders,
             preview_layout: pipeline_layout,
             export_pipelines: variant_table(),
             high_precision_export_pipelines: variant_table(),
@@ -8723,26 +8768,8 @@ impl GpuProcessor {
         adjustments: &crate::image_processing::PreparedAdjustments,
         output: MainOutput,
     ) -> Result<&wgpu::ComputePipeline, String> {
-        // Curve tables have no specialized export variant.
-        if adjustments.global.region_curve_active[1] != 0 {
+        let Some(features) = export_variant(adjustments) else {
             return self.general_pipeline(adjustments, output);
-        }
-        // From `renderVersion` 5 the variant of the recipe's own features,
-        // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`), with
-        // the effects and tone-version-5 code they always had
-        // (`EFFECTS_FEATURE`, `TONE_V5_FEATURE`).
-        let features = if adjustments.specialized_export {
-            preview_features(adjustments) | EFFECTS_FEATURE | TONE_V5_FEATURE
-        } else {
-            // Metal may reassociate active neighbourhood operations when
-            // unrelated branches are removed. Their full general pipeline
-            // keeps older recipes' exports exact; specialize only those
-            // without these operations.
-            let features = export_features(adjustments);
-            if features & ((1 << 0) | (1 << 1) | (1 << 4)) != 0 {
-                return self.general_pipeline(adjustments, output);
-            }
-            features
         };
         let pipelines = match output {
             MainOutput::EightBit => &self.export_pipelines,
@@ -8750,12 +8777,20 @@ impl GpuProcessor {
             MainOutput::Deferred => &self.deferred_export_pipelines,
         };
         let (shader, layout) = self.main_module(output);
+        // The variant folded (`display_variant_ir`): the same math as the
+        // whole shader with these constants, far less for a driver that
+        // inlines every call before it drops decided code (G76/WCC6).
+        let folded = self.export_shaders.get(
+            output.high_precision(),
+            features & SHADOWS_V13_FEATURE != 0,
+            features & WHITES_V12_FEATURE != 0,
+        );
         match pipelines[features]
             .get_or_init(|| {
                 create_preview_pipeline(
                     &self.context.device,
                     shader,
-                    None,
+                    Some(folded),
                     layout,
                     features,
                     true,
