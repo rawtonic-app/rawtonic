@@ -224,6 +224,25 @@ pub fn notify_compile_activity(app_handle: &tauri::AppHandle) {
     });
 }
 
+/// Under a compile limit holds the AI models' GPU checks while a shader
+/// compile waits or runs, idle compiles included: a check runs a model on
+/// the CPU and on the GPU, and on a Radeon 680M one ran 59 s beside the
+/// Glow compile, which took 66 s instead of ~42 s at 11.7 GB with Memory
+/// pressure Critical (G76/WSMOKE14). A running check stops and runs again
+/// when the app is idle. Without a compile limit compiles are short and
+/// nothing is held.
+pub fn hold_ai_checks_during_compiles() {
+    static HELD: std::sync::Mutex<Option<rawtonic_onnx::ChecksHeld>> = std::sync::Mutex::new(None);
+    rawtonic_gpu::gpu_processing::on_compile_work(|working| {
+        let mut held = lock_recover(&HELD);
+        if !working {
+            *held = None;
+        } else if rawtonic_gpu::gpu_processing::compiles_limited() && held.is_none() {
+            *held = Some(rawtonic_onnx::hold_checks());
+        }
+    });
+}
+
 #[tauri::command]
 pub fn gpu_compiling() -> bool {
     rawtonic_gpu::gpu_processing::compiles_pending()

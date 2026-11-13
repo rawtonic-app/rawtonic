@@ -52,6 +52,7 @@ mod face_eyes;
 mod file_management;
 mod file_operations;
 mod folder_sync;
+mod gpu_idle_helper;
 mod gpu_processing;
 mod gpu_start_guard;
 mod gpu_warmup;
@@ -173,6 +174,10 @@ fn use_render_stack_for_async_runtime() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The idle compiles' helper process does its one job and nothing else.
+    if let Some(code) = gpu_idle_helper::run_if_asked() {
+        std::process::exit(code);
+    }
     #[cfg(feature = "performance-profiling")]
     performance::mark_application_start();
     gpu_processing::mark_process_start();
@@ -352,6 +357,8 @@ fn start(args: Vec<String>) {
             let carried_over = identity_migration::carry_over(app.handle());
             gpu_processing::notify_sharpen_view_ready(app.handle());
             gpu_processing::notify_compile_activity(app.handle());
+            gpu_processing::hold_ai_checks_during_compiles();
+            gpu_idle_helper::register();
             if matches!(launch_req, LaunchRequest::WarmGpuCache) {
                 gpu_warmup::start(app.handle());
                 return Ok(());

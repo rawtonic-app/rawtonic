@@ -120,13 +120,27 @@ pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<us
 /// would then compile its own variant cold (G76/WCC7 review: tens of
 /// seconds and 4–6 GB on a Radeon 680M). That entry is compiled even when a
 /// superset covers it (`covered_is_enough`).
+///
+/// Last, `basic` with Glow (`glow_features`): Glow turned on after Basic-panel
+/// edits waited 66 s for that variant on a Radeon 680M (G76/WSMOKE14; 60 s /
+/// 4.7 GB alone, probe round 16); compiled ahead, the first Glow frame and
+/// a Glow export find it. Halation and Grain are not planned.
 pub(super) fn planned_jobs(features: usize, adjustments: &AllAdjustments) -> (Vec<usize>, usize) {
     let mut plan = idle_plan(features, adjustments);
     let exact = export_display_features(adjustments);
-    if !plan.contains(&exact) {
-        plan.push(exact);
+    for entry in [exact, glow_features(features, adjustments)] {
+        if !plan.contains(&entry) {
+            plan.push(entry);
+        }
     }
     (plan, exact)
+}
+
+/// `planned_jobs`' last entry: every Basic-panel edit with Glow, the
+/// variant an edited photo with Glow renders and exports with
+/// (`export_display_features`).
+fn glow_features(features: usize, adjustments: &AllAdjustments) -> usize {
+    basic_features(features, adjustments) | GLOW_FEATURE
 }
 
 /// Whether a compiled superset makes the planned display variant
@@ -276,11 +290,30 @@ pub(super) struct IdleCompiles {
 
 impl IdleCompiles {
     pub(super) fn new() -> Arc<Self> {
-        Arc::new(Self {
+        let this = Arc::new(Self {
             queue: Mutex::new(Queue::default()),
             changed: Condvar::new(),
             last_frame_ms: AtomicU64::new(0),
-        })
+        });
+        let mut live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+        live.retain(|idle| idle.strong_count() > 0);
+        live.push(Arc::downgrade(&this));
+        this
+    }
+
+    /// Adds the deferred variant of the shown photo's export variant to a
+    /// plan that lacks it (`plan_deferred_exports`).
+    fn want_deferred(&self) {
+        let mut queue = self.lock();
+        let Some(exact) = queue.exact else {
+            return;
+        };
+        if queue.cancelled || queue.deferred {
+            return;
+        }
+        queue.deferred = true;
+        queue.plan.push_back(IdleJob::Deferred(exact));
+        self.changed.notify_all();
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Queue> {
@@ -420,7 +453,7 @@ impl IdleCompiles {
                 };
                 slot
             };
-            let job = {
+            let (job, planned) = {
                 let mut queue = self.lock();
                 if queue.cancelled {
                     queue.worker = false;
@@ -432,33 +465,83 @@ impl IdleCompiles {
                 // Already compiled or compiling; a planned superset also
                 // when a compiled one covers it, unless exports render with
                 // it.
-                let claimed = match job {
+                let needless = match job {
                     IdleJob::Display(features) => {
-                        (planned
+                        planned
                             && covered_is_enough(features, queue.exact, || {
                                 target
                                     .pipelines
                                     .supersets(features)
                                     .any(|p| p.get().is_some())
-                            }))
-                            || target.compilation[features].set(()).is_err()
+                            })
                     }
-                    IdleJob::LayerSums(features) => {
-                        target.layer_sum_compilation[features].set(()).is_err()
-                    }
-                    IdleJob::Deferred(features) => {
-                        target.deferred.get(features).is_some() || target.deferred.failed(features)
-                    }
+                    _ => false,
                 };
-                if claimed {
+                if needless || !Self::unclaimed(&target, job) {
                     continue;
                 }
                 queue.running = Some(job);
-                job
+                (job, planned)
             };
-            self.compile(&target, job);
+            let work = CompileWork::new();
+            // In a helper process first, which a compile or an export that
+            // waits for the slot stops (`idle_compile_child`); the job is
+            // claimed only when it compiles here.
+            let helped = super::idle_compile_child::compile_in_helper(&target, job, || {
+                self.lock().cancelled
+            });
+            match helped {
+                super::idle_compile_child::Helped::Stopped => {
+                    let mut queue = self.lock();
+                    queue.running = None;
+                    if planned {
+                        queue.plan.push_front(job);
+                    } else {
+                        queue.later.push_front(job);
+                    }
+                    drop(queue);
+                    drop(work);
+                    drop(slot);
+                    continue;
+                }
+                super::idle_compile_child::Helped::Compiled(cache) => {
+                    if Self::claim(&target, job) {
+                        super::idle_compile_child::HELPER_CACHE
+                            .with(|helper| *helper.borrow_mut() = Some(cache));
+                        self.compile(&target, job);
+                        super::idle_compile_child::HELPER_CACHE
+                            .with(|helper| *helper.borrow_mut() = None);
+                    }
+                }
+                super::idle_compile_child::Helped::Unavailable => {
+                    if Self::claim(&target, job) {
+                        self.compile(&target, job);
+                    }
+                }
+            }
+            drop(work);
             drop(slot);
             self.lock().running = None;
+        }
+    }
+
+    /// Whether nobody compiled or claimed `job` yet.
+    fn unclaimed(target: &IdleTarget, job: IdleJob) -> bool {
+        match job {
+            IdleJob::Display(features) => target.compilation[features].get().is_none(),
+            IdleJob::LayerSums(features) => target.layer_sum_compilation[features].get().is_none(),
+            IdleJob::Deferred(features) => {
+                target.deferred.get(features).is_none() && !target.deferred.failed(features)
+            }
+        }
+    }
+
+    /// Claims `job` for this worker: `false` when another compile has it.
+    fn claim(target: &IdleTarget, job: IdleJob) -> bool {
+        match job {
+            IdleJob::Display(features) => target.compilation[features].set(()).is_ok(),
+            IdleJob::LayerSums(features) => target.layer_sum_compilation[features].set(()).is_ok(),
+            IdleJob::Deferred(_) => Self::unclaimed(target, job),
         }
     }
 
@@ -538,6 +621,21 @@ impl IdleCompiles {
             started.elapsed().as_secs_f64(),
             since_start()
         );
+    }
+}
+
+/// The idle queues of the processors alive (`plan_deferred_exports`).
+static LIVE: Mutex<Vec<std::sync::Weak<IdleCompiles>>> = Mutex::new(Vec::new());
+
+/// The photographer picked an export that renders with a deferred display
+/// variant (16-bit TIFF in the export dialog): from now on the idle plans
+/// hold it, and the shown photo's plan gets it now, so the export does not
+/// compile it (G76/WSMOKE14: the dialog's estimate compiled it for 39 s).
+pub(super) fn plan_deferred_exports() {
+    super::deferred_display::note_deferred_export();
+    let live = LIVE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    for idle in live.iter().filter_map(std::sync::Weak::upgrade) {
+        idle.want_deferred();
     }
 }
 
@@ -672,6 +770,53 @@ mod tests {
                 .contains(&export_display_features(&unedited))
         );
         check(&unedited);
+    }
+
+    /// Glow turned on after Basic-panel edits renders and exports with
+    /// `basic` and Glow, planned last (G76/WSMOKE14: 66 s for it on a
+    /// Radeon 680M when Glow was first used); an edit with Glow already has
+    /// no extra entry.
+    #[test]
+    fn glow_after_basic_edits_is_planned() {
+        let shown = new_raw_edit(serde_json::json!({}));
+        let opened = preview_features(&shown);
+        let (jobs, _) = planned_jobs(opened, &shown);
+        let edit = serde_json::json!({"contrast": 25, "clarity": 20, "glowAmount": 30});
+        let glow = export_display_features(&new_raw_edit(edit.clone()));
+        assert_eq!(jobs.last(), Some(&glow));
+        assert_eq!(glow, idle_plan(opened, &shown)[1] | GLOW_FEATURE);
+        let features = preview_features(&new_raw_edit(edit));
+        assert_eq!(glow & features, features, "it serves the Glow frame");
+        let with_glow = new_raw_edit(serde_json::json!({"glowAmount": 30}));
+        let (jobs, _) = planned_jobs(preview_features(&with_glow), &with_glow);
+        assert_eq!(jobs.iter().filter(|&&job| job == glow).count(), 1);
+    }
+
+    /// A 16-bit export picked in the export dialog adds the deferred variant
+    /// of the shown photo's export variant to its plan, once (G76/WSMOKE14).
+    #[test]
+    fn a_sixteen_bit_pick_plans_the_deferred_variant() {
+        let idle = IdleCompiles::new();
+        idle.want_deferred();
+        assert!(
+            idle.lock().plan.is_empty(),
+            "no photo shown, nothing planned"
+        );
+        let shown = new_raw_edit(serde_json::json!({}));
+        let jobs = planned_jobs(preview_features(&shown), &shown);
+        let exact = jobs.1;
+        assert!(idle.lock().replan(jobs, false));
+        idle.want_deferred();
+        idle.want_deferred();
+        let queue = idle.lock();
+        assert_eq!(queue.plan.back(), Some(&IdleJob::Deferred(exact)));
+        let deferred = queue
+            .plan
+            .iter()
+            .filter(|job| matches!(job, IdleJob::Deferred(_)))
+            .count();
+        assert_eq!(deferred, 1);
+        assert!(queue.deferred);
     }
 
     #[test]
@@ -883,6 +1028,138 @@ mod tests {
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         assert!(processor.preview_pipelines[features].get().is_none());
         drop(processor);
+        set_compile_limit(None);
+    }
+
+    /// The helper process of `idle_compiles_in_a_helper_give_way` (this test
+    /// binary started again with `RAWTONIC_TEST_IDLE_HELPER`): a slow one
+    /// only sleeps, a real one compiles its job. Without the variable it
+    /// does nothing.
+    #[test]
+    #[ignore = "helper process of idle_compiles_in_a_helper_give_way"]
+    fn idle_helper_process() {
+        let Ok(spec) = std::env::var("RAWTONIC_TEST_IDLE_HELPER") else {
+            return;
+        };
+        let mut parts = spec.splitn(3, '|');
+        let (mode, job, folder) = (
+            parts.next().unwrap(),
+            parts.next().unwrap(),
+            parts.next().unwrap(),
+        );
+        if mode == "slow" {
+            std::thread::sleep(Duration::from_secs(120));
+            std::process::exit(1);
+        }
+        let result = super::super::compile_in_helper_process(job, std::path::Path::new(folder));
+        std::process::exit(i32::from(result.is_err()));
+    }
+
+    /// Under a compile limit idle compiles run in a helper process: a frame
+    /// that needs another variant than the running job stops the helper at
+    /// once instead of waiting for it (G76/WCC11: 17–39 s on a Radeon 680M),
+    /// and the job compiles in a later idle time through the helper's
+    /// pipeline cache.
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit and idle helper, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::idle_compiles_in_a_helper_give_way"]
+    fn idle_compiles_in_a_helper_give_way() {
+        use super::super::idle_compile_child::{DONE, STOPS};
+        use super::super::preview_tests::get_all_adjustments_from_json;
+        use std::sync::atomic::AtomicBool;
+        use std::time::Instant;
+        static SLOW: AtomicBool = AtomicBool::new(true);
+        struct Eprint;
+        impl log::Log for Eprint {
+            fn enabled(&self, _: &log::Metadata) -> bool {
+                true
+            }
+            fn log(&self, record: &log::Record) {
+                if record.target().starts_with("rawtonic") {
+                    eprintln!("[{}] {}", record.level(), record.args());
+                }
+            }
+            fn flush(&self) {}
+        }
+        let _ = log::set_logger(&Eprint);
+        log::set_max_level(log::LevelFilter::Info);
+        let exe = std::env::current_exe().unwrap();
+        super::super::set_idle_compile_helper(Box::new(move |job, folder| {
+            let mode = if SLOW.load(Ordering::SeqCst) {
+                "slow"
+            } else {
+                "real"
+            };
+            std::process::Command::new(&exe)
+                .args([
+                    "--exact",
+                    "gpu_processing::idle_compiles::tests::idle_helper_process",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env(
+                    "RAWTONIC_TEST_IDLE_HELPER",
+                    format!("{mode}|{job}|{}", folder.display()),
+                )
+                .stdout(std::process::Stdio::null())
+                .spawn()
+        }));
+        let cache = tempfile::tempdir().unwrap();
+        let context = GpuContext::headless_with_pipeline_cache(Some(cache.path())).unwrap();
+        set_compile_limit(Some(1));
+        let processor = GpuProcessor::new(context, 256, 256).unwrap();
+        let idle = Arc::clone(&processor.idle_compiles.as_ref().unwrap().0);
+        let recipe = |extra: serde_json::Value| {
+            let mut recipe =
+                serde_json::Value::Object(crate::image_processing::new_edit_responses(true));
+            recipe
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            get_all_adjustments_from_json(&recipe, true, Some(3))
+        };
+        let wait = |what: &str, seconds: u64, done: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(seconds);
+            while !done() {
+                assert!(Instant::now() < deadline, "{what}");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        let photo = recipe(serde_json::json!({}));
+        let shown = preview_features(&photo);
+        processor.preview_pipeline(&photo, true).unwrap();
+        let plan = idle_plan(shown, &photo);
+        wait("an idle helper starts", 60, &|| {
+            idle.lock().running.is_some()
+        });
+        let running = idle.lock().running;
+        assert_eq!(running, Some(IdleJob::Display(plan[0])));
+        // Glow is in no running job: its frame compiles its own variant.
+        let glow = recipe(serde_json::json!({"glowAmount": 30}));
+        assert_ne!(preview_features(&glow) & plan[0], preview_features(&glow));
+        let started = Instant::now();
+        // Not on screen: the shown photo's plan stays.
+        processor.preview_pipeline(&glow, false).unwrap();
+        let waited = started.elapsed();
+        assert!(STOPS.load(Ordering::SeqCst) >= 1, "the helper was stopped");
+        assert!(
+            waited < Duration::from_secs(60),
+            "the Glow frame waited {waited:?} (the slow helper runs 120 s)"
+        );
+        // The stopped job compiles again in idle time, now in a real helper,
+        // and serves the Contrast frame.
+        SLOW.store(false, Ordering::SeqCst);
+        wait("the first planned superset", 300, &|| {
+            processor.preview_pipelines[plan[0]].get().is_some()
+        });
+        assert!(DONE.load(Ordering::SeqCst) >= 1, "a helper compiled it");
+        let contrast = recipe(serde_json::json!({"contrast": 20}));
+        assert_eq!(
+            preview_features(&contrast) & plan[0],
+            preview_features(&contrast)
+        );
+        drop(processor);
+        // The worker stops its helper and ends before the process does.
+        wait("the idle worker ends", 30, &|| !idle.lock().worker);
         set_compile_limit(None);
     }
 

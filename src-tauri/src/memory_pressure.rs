@@ -112,6 +112,8 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
         let since_export =
             crate::state::lock::lock_recover(&exports.last_run_end).map(|ended| ended.elapsed());
         export_hold(since_export)?;
+        // Masking models nobody uses now go before the compile, not beside it.
+        crate::ai_lifecycle::before_idle_compile(&app);
         let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
         let (system, last_pressure) = &mut *state;
         let level = level_now();
