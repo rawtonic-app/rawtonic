@@ -13,7 +13,8 @@
 //! pixel, `GpuProcessor::preview_pipeline`), so one compile serves Contrast,
 //! Highlights, a curve and a mask at once. A frame a superset serves keeps
 //! rendering with it; its own variant is not compiled (in idle time those
-//! compiles held the slot for minutes after the edits, G76/WGT14). Layer-sum
+//! compiles held the slot for minutes after the edits, G76/WGT14), except
+//! the one its exports render with (`planned_jobs`, G76/WCC7). Layer-sum
 //! variants a frame needs follow in idle time (`IdleCompiles::later`).
 //!
 //! Idle compiles show nothing (they are not counted in `compiles_pending`):
@@ -102,6 +103,35 @@ pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<us
     plan
 }
 
+/// What `IdleCompiles::plan` queues for a photo shown with display variant
+/// `features`: `idle_plan`, then the display variant its exports render
+/// with under a compile limit (`export_display_features`) if the plan lacks
+/// it, and that variant. A frame keeps rendering with any compiled superset
+/// of its features, so after Glow is turned off, or on a photo shown after
+/// another one's wider variant, no planned entry may compile; an export
+/// would then compile its own variant cold (G76/WCC7 review: tens of
+/// seconds and 4–6 GB on a Radeon 680M). That entry is compiled even when a
+/// superset covers it (`covered_is_enough`).
+pub(super) fn planned_jobs(features: usize, adjustments: &AllAdjustments) -> (Vec<usize>, usize) {
+    let mut plan = idle_plan(features, adjustments);
+    let exact = export_display_features(adjustments);
+    if !plan.contains(&exact) {
+        plan.push(exact);
+    }
+    (plan, exact)
+}
+
+/// Whether a compiled superset makes the planned display variant
+/// `features` needless (`covered`: one is compiled); never for the one
+/// exports render with (`exact`).
+fn covered_is_enough(
+    features: usize,
+    exact: Option<usize>,
+    covered: impl FnOnce() -> bool,
+) -> bool {
+    exact != Some(features) && covered()
+}
+
 /// `idle_plan`'s first entry: `features` with the tone sliders and
 /// Highlights.
 fn sliders_features(features: usize, adjustments: &AllAdjustments) -> usize {
@@ -186,6 +216,9 @@ struct Queue {
     /// are the processor's, which owns this queue (one per processor, only
     /// under a compile limit), so they never change under one key.
     planned: Option<Vec<usize>>,
+    /// The planned display variant exports of the shown photo render with
+    /// (`planned_jobs`): compiled even when a compiled superset covers it.
+    exact: Option<usize>,
     /// The planned supersets (replaced when another photo is shown).
     plan: VecDeque<IdleJob>,
     /// Layer-sum variants that frames need (the per-layer loop serves them
@@ -200,12 +233,13 @@ struct Queue {
 impl Queue {
     /// Replaces the planned supersets with `plan` unless it is the plan
     /// made last; whether it did.
-    fn replan(&mut self, plan: Vec<usize>) -> bool {
-        if self.planned.as_ref() == Some(&plan) {
+    fn replan(&mut self, (plan, exact): (Vec<usize>, usize)) -> bool {
+        if self.planned.as_ref() == Some(&plan) && self.exact == Some(exact) {
             return false;
         }
         self.plan = plan.iter().copied().map(IdleJob::Display).collect();
         self.planned = Some(plan);
+        self.exact = Some(exact);
         true
     }
 }
@@ -246,7 +280,7 @@ impl IdleCompiles {
         target: impl FnOnce() -> IdleTarget,
     ) {
         let mut queue = self.lock();
-        if queue.cancelled || !queue.replan(idle_plan(features, adjustments)) {
+        if queue.cancelled || !queue.replan(planned_jobs(features, adjustments)) {
             return;
         }
         self.start(&mut queue, target);
@@ -373,14 +407,17 @@ impl IdleCompiles {
                     continue;
                 };
                 // Already compiled or compiling; a planned superset also
-                // when a compiled one covers it.
+                // when a compiled one covers it, unless exports render with
+                // it.
                 let claimed = match job {
                     IdleJob::Display(features) => {
                         (planned
-                            && target
-                                .pipelines
-                                .supersets(features)
-                                .any(|p| p.get().is_some()))
+                            && covered_is_enough(features, queue.exact, || {
+                                target
+                                    .pipelines
+                                    .supersets(features)
+                                    .any(|p| p.get().is_some())
+                            }))
                             || target.compilation[features].set(()).is_err()
                     }
                     IdleJob::LayerSums(features) => {
@@ -538,6 +575,43 @@ mod tests {
         assert_eq!(export(glow), plan[1] | EFFECTS_FEATURE);
     }
 
+    /// A wider compiled variant keeps serving the frames after Glow is
+    /// turned off, or on the next photo, so no other planned entry
+    /// compiles; the variant exports render with still does (Codex review
+    /// of G76/WCC7).
+    #[test]
+    fn the_export_variant_compiles_although_a_wider_one_serves_the_frames() {
+        let edit = serde_json::json!({"exposure": 0.4, "contrast": 25, "highlights": -40,
+            "clarity": 20, "vibrance": 20});
+        let mut glow = edit.clone();
+        glow["glowAmount"] = serde_json::json!(30);
+        let compiled = export_display_features(&new_raw_edit(glow));
+        let check = |adjustments: &AllAdjustments| {
+            let features = preview_features(adjustments);
+            let (plan, exact) = planned_jobs(features, adjustments);
+            assert_eq!(exact, export_display_features(adjustments));
+            assert!(plan.contains(&exact));
+            // The Glow variant covers every entry, the export's too ...
+            assert!(plan.iter().all(|&p| compiled & p == p), "{plan:?}");
+            // ... yet only the export's is compiled.
+            let compiles = plan
+                .iter()
+                .filter(|&&p| !covered_is_enough(p, Some(exact), || compiled & p == p))
+                .collect::<Vec<_>>();
+            assert_eq!(compiles, vec![&exact]);
+        };
+        // Glow turned off: the Basic entry.
+        check(&new_raw_edit(edit));
+        // Another, unedited photo: its own variant (not an `idle_plan`
+        // entry).
+        let unedited = new_raw_edit(serde_json::json!({}));
+        assert!(
+            !idle_plan(preview_features(&unedited), &unedited)
+                .contains(&export_display_features(&unedited))
+        );
+        check(&unedited);
+    }
+
     #[test]
     fn plan_climbs_from_the_tone_sliders_to_every_basic_edit() {
         let shown = new_raw_edit(serde_json::json!({}));
@@ -638,18 +712,18 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let mut queue = Queue::default();
-        assert!(queue.replan(plan_3.clone()));
+        assert!(queue.replan((plan_3.clone(), 0)));
         assert_eq!(planned(&queue), plan_3);
         // The worker took the first job; the same photo again keeps the rest.
         queue.plan.pop_front();
-        assert!(!queue.replan(plan_3.clone()));
+        assert!(!queue.replan((plan_3.clone(), 0)));
         assert_eq!(planned(&queue), plan_3[1..]);
-        assert!(queue.replan(plan_2.clone()));
+        assert!(queue.replan((plan_2.clone(), 0)));
         assert_eq!(planned(&queue), plan_2);
         // A look change (Camera Raw to AgX) with the same features too.
         let agx = adjustments(crate::image_processing::TONE_VERSION as f32, 1);
         assert_eq!(preview_features(&agx), features);
-        assert!(queue.replan(idle_plan(features, &agx)));
+        assert!(queue.replan(planned_jobs(features, &agx)));
     }
 
     #[test]

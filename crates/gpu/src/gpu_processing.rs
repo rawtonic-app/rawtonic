@@ -9040,6 +9040,16 @@ impl GpuProcessor {
     /// global curve is sampled into a table (those export with the general
     /// pipeline, `export_variant`). Elsewhere exports keep their own variants
     /// and bytes.
+    ///
+    /// No `renderVersion` gates this, so existing edits take it too
+    /// (coordinator decision, G76/WCC7 option 1): a compile limit exists only
+    /// on AMD's Windows Vulkan driver, where no released build exported such
+    /// edits in a working state — the export variant compiled for minutes and
+    /// lost the device (G76/WGT16), and the folded export variant that
+    /// replaced it (WCC6) already differs from the unfolded one by a few
+    /// codes — so there are no saved export bytes there for a version key to
+    /// keep. Gating it everywhere instead would change new edits' exports on
+    /// every driver for no gain.
     fn exports_with_display_variant(
         &self,
         adjustments: &crate::image_processing::PreparedAdjustments,
