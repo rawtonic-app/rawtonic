@@ -1,0 +1,19 @@
+# WCC6 round 14 (G76): export variants. WGT16's edit (Samsung SRW: Basic panel, Clarity/Structure/Dehaze/Vibrance, a curve point, a mixer hue, a brush with Exposure; renderVersion 5) exports with variant 15724607, which the Radeon 680M compiled for ~438 s into 52 GB until 'GPU device lost: Out of memory'. Export variants compile without prepared layers (`export`). Inlined size (COMPILE_PROBE_SIZE_ONLY=1, any OS): today 288380, (b) fold 267235, (c) fold + display tone stage 143312, (b)+(e1) 123175, (b)+(e1)+(e2) 87754, (c)+(e1) 72133; round 13's display basic 65822 = 35.9 s / 4.3 GB. Run with COMPILE_PROBE_TIMEOUT=300 from the artifact folder, VkCache cleared. The last two lines are today's and (b) and are stopped at the timeout.
+# (b)+(e1)+(e2): fold; effects and tone-version-5 code only where the recipe has them; the tone arms its bits decide written as decided. The candidate for the app (byte identity on the preservation matrix).
+r14_e1e2 features=5238847 export dce exportsrc
+# (b)+(e1): without the decided tone arms.
+r14_e1 features=5238847 export dce
+# (b)+(e2): effects and tone-version-5 code kept as today.
+r14_e2 features=15724607 export dce exportsrc
+# (c): the display source (one tone stage; changes export bytes, not allowed), with and without (e1).
+r14_c features=15724607 export dce display
+r14_c_e1 features=5238847 export dce display
+# (d) estimate: a pass without any tone stage (what a split's first pass costs at least).
+r14_d_rest features=15724607 export dce stub=apply_tonal_adjustments,apply_tonal_adjustments_v12,apply_tonal_adjustments_v13
+# Similar variants: lowered Whites without raised Shadows; the RAW default export (today / candidate).
+r14_whites_e1e2 features=5222463 export dce exportsrc
+r14_rawdef_today features=10485777 export
+r14_rawdef_e1e2 features=17 export dce exportsrc
+# Stopped at the timeout (WGT16 in the app: ~438 s, 52 GB, device lost): (b) and today.
+r14_b features=15724607 export dce
+r14_a features=15724607 export

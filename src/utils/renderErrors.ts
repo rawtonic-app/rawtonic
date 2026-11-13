@@ -15,6 +15,12 @@ const KNOWN: Record<string, () => string> = {
   // rawtonic_runtime::gpu_memory::GPU_MEMORY_EXHAUSTED: still out of memory after the export's retries.
   'Not enough graphics memory for this photo. Close other programs that use the graphics card and export this photo again.':
     () => i18n.t('studio.export.errors.gpuMemory'),
+  // rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST: the graphics chip's device was lost (G76/WCC6).
+  'This photo could not be rendered on this graphics chip: it stopped responding (out of memory). Quit and reopen Rawtonic, then export this photo again.':
+    () => i18n.t('studio.export.errors.gpuDeviceLost'),
+  // rawtonic_runtime::gpu_memory::GPU_EXPORT_TOO_COMPLEX: an export variant over a compile-limited driver's ceiling (G76/WCC6).
+  "This photo's edits are too complex for this graphics chip's driver to export. Remove some edits (effects, local adjustments) and export it again, or export it on another computer.":
+    () => i18n.t('studio.export.errors.gpuTooComplex'),
   'Unreadable export request': () => i18n.t('studio.export.errors.unreadableRequest')
 };
 

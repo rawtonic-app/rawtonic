@@ -7,9 +7,10 @@ use image::Luma;
 use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Rgba};
 use std::num::NonZero;
 
+use rawtonic_rawdecode::gpu_util::create_buffer_init;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
-use crate::display_variant_ir::DisplayShader;
+use crate::display_variant_ir::{DisplayShader, ExportShaders};
 use crate::image_processing::{
     AllAdjustments, MAX_MASKS, Point, SHARPEN_VIEW_MASK, boxed_uniforms, is_sharpen_view,
 };
@@ -498,11 +499,14 @@ fn pyramid_pass(
 ) {
     let device = &context.device;
     let buffer = params.map(|params| {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Colour noise pyramid params"),
-            contents: bytemuck::bytes_of(params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        })
+        create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Colour noise pyramid params"),
+                contents: bytemuck::bytes_of(params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        )
     });
     let mut all: Vec<wgpu::BindGroupEntry> = entries
         .iter()
@@ -1134,11 +1138,14 @@ impl ChromaGpu {
         let packed_view = &self.packed_view;
         let energy_view = &self.energy_view;
         let device = &context.device;
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Colour noise params"),
-            contents: bytemuck::bytes_of(&params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        let buffer = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Colour noise params"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        );
         let group0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Chroma energy BG0"),
             layout: &pipelines.energy.get_bind_group_layout(0),
@@ -1254,11 +1261,14 @@ impl ChromaGpu {
                 _pad: 0.0,
                 profile: pyramid.profile(),
             };
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Colour noise level params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
+            let buffer = create_buffer_init(
+                device,
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("Colour noise level params"),
+                    contents: bytemuck::bytes_of(&params),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                },
+            );
             let coarser = if l == color_noise::LEVELS - 1 {
                 smoothed.as_ref().unwrap_or(&reconstruction.coarsest)
             } else {
@@ -3982,6 +3992,10 @@ pub struct GpuProcessor {
     /// The same shader as naga IR, from which display variants compile
     /// without the code their constants rule out (`display_variant_ir`).
     display_shader: Arc<DisplayShader>,
+    /// The 8-bit and the high-precision shader as naga IR without the
+    /// display-only reshapes: export variants compile from it with the
+    /// branches their constants decide removed (`export_pipeline`).
+    export_shaders: ExportShaders,
     preview_layout: wgpu::PipelineLayout,
     /// `None` records a variant that failed validation; exports use the general pipeline.
     export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
@@ -5444,6 +5458,62 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
         | TONE_V5_FEATURE
 }
 
+/// Under a compile limit, the inlined size (`display_variant_ir::
+/// inlined_size`) above which an export variant is not compiled. The Radeon
+/// 680M's Windows Vulkan driver compiled WGT16's unfolded export variant
+/// (288k) for 438 s into 52 GB until its device was lost and the app went
+/// down with it (G76/WCC6; probe round 14: folded with the recipe's own
+/// effects and tone arms 87.8k, 116 s / 9.3 GB; 143k, 142 s / 10.4 GB).
+const EXPORT_INLINED_CEILING: usize = 150_000;
+
+/// Whether a folded export variant (only made under a compile limit) of
+/// `inlined` size is refused, with a clear error (`GPU_EXPORT_TOO_COMPLEX`)
+/// instead of minutes of compiling that may lose the device.
+fn refuses_export(inlined: usize) -> bool {
+    inlined > EXPORT_INLINED_CEILING
+}
+
+/// The specialized variant an export of `adjustments` compiles, or `None`
+/// for the general pipeline; `folded` for a folded export variant
+/// (`GpuProcessor::export_pipeline`: only under a compile limit).
+fn export_variant(
+    adjustments: &crate::image_processing::PreparedAdjustments,
+    folded: bool,
+) -> Option<usize> {
+    // Curve tables have no specialized export variant.
+    if adjustments.global.region_curve_active[1] != 0 {
+        return None;
+    }
+    // From `renderVersion` 5 the variant of the recipe's own features,
+    // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`), with
+    // the effects and tone-version-5 code they always had
+    // (`EFFECTS_FEATURE`, `TONE_V5_FEATURE`). A folded variant has them
+    // only where the recipe does: kept idle, they made the WGT16 edit's
+    // variant 288k inlined expressions, which the Radeon 680M compiled for
+    // 438 s into 52 GB until its device was lost (G76/WCC6).
+    if adjustments.specialized_export {
+        let features = preview_features(adjustments);
+        return Some(if folded {
+            features
+        } else {
+            features | EFFECTS_FEATURE | TONE_V5_FEATURE
+        });
+    }
+    // Metal may reassociate active neighbourhood operations when
+    // unrelated branches are removed. Their full general pipeline
+    // keeps older recipes' exports exact; specialize only those
+    // without these operations. A folded variant takes the recipe's own
+    // features here too: with the code `export_features` keeps idle, an
+    // older recipe's RAW default variant was 184k inlined folded, over the
+    // ceiling, so it would be refused where unfolded it took about 98 s.
+    let features = if folded {
+        preview_features(adjustments)
+    } else {
+        export_features(adjustments)
+    };
+    (features & ((1 << 0) | (1 << 1) | (1 << 4)) == 0).then_some(features)
+}
+
 /// `GpuProcessor::range2_pipelines`.
 type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
     16]; 2]; MAIN_OUTPUTS];
@@ -5769,12 +5839,34 @@ pub fn fold_decided_branches(module: &mut naga::Module) -> usize {
     crate::display_variant_ir::fold(module)
 }
 
+/// `display_variant_ir::inlined_size`, for measuring tools
+/// (`examples/compile_probe.rs`): the expressions of `main` with every call
+/// inlined.
+#[doc(hidden)]
+pub fn inlined_size(module: &naga::Module) -> usize {
+    crate::display_variant_ir::inlined_size(module)
+}
+
 /// The source display variants compile (`display_variant_ir::DisplayShader`:
 /// shader.wgsl with its display-only reshapes), for measuring tools
 /// (`examples/compile_probe.rs`).
 #[doc(hidden)]
 pub fn display_shader_source(source: &str) -> String {
     crate::display_variant_ir::display_source(source)
+}
+
+/// The source export variant `features` compiles (`ExportShaders`: the
+/// tone arms its bits decide written as decided), for measuring tools
+/// (`examples/compile_probe.rs`).
+#[doc(hidden)]
+pub fn export_shader_source(source: &str, features: usize) -> String {
+    crate::display_variant_ir::export_variant_source(
+        source,
+        [
+            features & SHADOWS_V13_FEATURE != 0,
+            features & WHITES_V12_FEATURE != 0,
+        ],
+    )
 }
 
 /// Whether a new processor compiles the pipelines a start may need ahead
@@ -6150,7 +6242,28 @@ fn create_display_pipeline(
     label: &str,
     constants: &[(&str, f64)],
 ) -> Result<wgpu::ComputePipeline, String> {
-    let module = match display.variant_module(constants) {
+    compile_variant_module(
+        device,
+        shader_module,
+        display.variant_module(constants),
+        pipeline_layout,
+        label,
+        constants,
+    )
+}
+
+/// The pipeline of a variant's folded `module` (`DisplayShader::
+/// variant_module`), or of the whole shader with `constants` if that
+/// module could not be made.
+fn compile_variant_module(
+    device: &wgpu::Device,
+    shader_module: &wgpu::ShaderModule,
+    module: Result<naga::Module, String>,
+    pipeline_layout: &wgpu::PipelineLayout,
+    label: &str,
+    constants: &[(&str, f64)],
+) -> Result<wgpu::ComputePipeline, String> {
+    let module = match module {
         Ok(module) => module,
         Err(error) => {
             log::warn!("{label}: compiling the whole shader ({error})");
@@ -7070,14 +7183,16 @@ impl GpuProcessor {
                 bind_group_layouts: &[Some(&high_precision_bgl)],
                 immediate_size: 0,
             });
+        let high_precision_source = high_precision_shader_source(shader_source).replace(
+            "override HIGH_PRECISION_OUTPUT: u32 = 0u;",
+            "override HIGH_PRECISION_OUTPUT: u32 = 1u;",
+        );
         let high_precision_shader = create_shader(
             device,
             "High Precision Image Processing Shader",
-            &high_precision_shader_source(shader_source).replace(
-                "override HIGH_PRECISION_OUTPUT: u32 = 0u;",
-                "override HIGH_PRECISION_OUTPUT: u32 = 1u;",
-            ),
+            &high_precision_source,
         )?;
+        let export_shaders = ExportShaders::new(shader_source, &high_precision_source);
         // CPU-readback exports encode in their own pass (`render_window`).
         let deferred_pipeline = BackgroundPipeline::compile(device, &background_gate(), {
             let module = high_precision_shader.clone();
@@ -7191,17 +7306,23 @@ impl GpuProcessor {
         });
         let dummy_lut_view = dummy_lut_texture.create_view(&Default::default());
         let dummy_lut_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let no_lut_shaper = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("LUT shaper (none)"),
-            contents: bytemuck::cast_slice(&lut_shaper_data(None)),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let no_lut_shaper = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("LUT shaper (none)"),
+                contents: bytemuck::cast_slice(&lut_shaper_data(None)),
+                usage: wgpu::BufferUsages::STORAGE,
+            },
+        );
 
-        let no_film_grain = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Film grain tile (none)"),
-            contents: bytemuck::cast_slice(&[0u32; 4]),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let no_film_grain = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Film grain tile (none)"),
+                contents: bytemuck::cast_slice(&[0u32; 4]),
+                usage: wgpu::BufferUsages::STORAGE,
+            },
+        );
 
         let clamped_tile_width = max_width.min(TILE_SIZE + TILE_OVERLAP * 2);
         let clamped_tile_height = max_height.min(TILE_SIZE + TILE_OVERLAP * 2);
@@ -7287,6 +7408,7 @@ impl GpuProcessor {
             sharpen_view_compilation: variant_table(),
             preview_shader: shader_module,
             display_shader,
+            export_shaders,
             preview_layout: pipeline_layout,
             export_pipelines: variant_table(),
             high_precision_export_pipelines: variant_table(),
@@ -7947,21 +8069,27 @@ impl GpuProcessor {
             0,
             0,
         ];
-        let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Layer sums params"),
-            contents: bytemuck::cast_slice(&params),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
-        let layers_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Layer sums layers"),
-            // A binding cannot be empty (only the left-out layer is summed).
-            contents: bytemuck::cast_slice(if plan.layers.is_empty() {
-                &[[0.0f32; 4]][..]
-            } else {
-                &plan.layers
-            }),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let params_buffer = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Layer sums params"),
+                contents: bytemuck::cast_slice(&params),
+                usage: wgpu::BufferUsages::STORAGE,
+            },
+        );
+        let layers_buffer = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Layer sums layers"),
+                // A binding cannot be empty (only the left-out layer is summed).
+                contents: bytemuck::cast_slice(if plan.layers.is_empty() {
+                    &[[0.0f32; 4]][..]
+                } else {
+                    &plan.layers
+                }),
+                usage: wgpu::BufferUsages::STORAGE,
+            },
+        );
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Layer sums"),
             layout: &self.layer_sums_bgl,
@@ -8724,35 +8852,27 @@ impl GpuProcessor {
         adjustments: &crate::image_processing::PreparedAdjustments,
         output: MainOutput,
     ) -> Result<&wgpu::ComputePipeline, String> {
-        // Curve tables have no specialized export variant.
-        if adjustments.global.region_curve_active[1] != 0 {
+        // Folded only under a compile limit (AMD's Windows Vulkan driver):
+        // elsewhere the driver gets the whole shader with the variant's
+        // constants as before, because the folded module, the same math,
+        // still compiled to different bytes in 24 of 326 exports on NVIDIA
+        // Vulkan (1-7 codes in a few pixels) and 94 of 280 on Metal (G76/
+        // WCC6 preservation), and exports stay byte-identical across changes.
+        let folded = compile_limited();
+        let Some(features) = export_variant(adjustments, folded) else {
             return self.general_pipeline(adjustments, output);
-        }
-        // From `renderVersion` 5 the variant of the recipe's own features,
-        // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`), with
-        // the effects and tone-version-5 code they always had
-        // (`EFFECTS_FEATURE`, `TONE_V5_FEATURE`).
-        let features = if adjustments.specialized_export {
-            preview_features(adjustments) | EFFECTS_FEATURE | TONE_V5_FEATURE
-        } else {
-            // Metal may reassociate active neighbourhood operations when
-            // unrelated branches are removed. Their full general pipeline
-            // keeps older recipes' exports exact; specialize only those
-            // without these operations.
-            let features = export_features(adjustments);
-            if features & ((1 << 0) | (1 << 1) | (1 << 4)) != 0 {
-                return self.general_pipeline(adjustments, output);
-            }
-            features
         };
         let pipelines = match output {
             MainOutput::EightBit => &self.export_pipelines,
             MainOutput::SixteenBit => &self.high_precision_export_pipelines,
             MainOutput::Deferred => &self.deferred_export_pipelines,
         };
-        let (shader, layout) = self.main_module(output);
-        match pipelines[features]
-            .get_or_init(|| {
+        let slot = &pipelines[features];
+        let created = if folded {
+            self.folded_export_pipeline(slot, features, output)?
+        } else {
+            let (shader, layout) = self.main_module(output);
+            slot.get_or_init(|| {
                 create_preview_pipeline(
                     &self.context.device,
                     shader,
@@ -8764,15 +8884,15 @@ impl GpuProcessor {
                     false,
                     output == MainOutput::Deferred,
                 )
-                    .inspect_err(|error| {
-                        log::error!(
-                            "Specialized export variant {features} unavailable; using the general shader: {error}"
-                        )
-                    })
-                    .ok()
+                .inspect_err(|error| {
+                    log::error!(
+                        "Specialized export variant {features} unavailable; using the general shader: {error}"
+                    )
+                })
+                .ok()
             })
-            .as_ref()
-        {
+        };
+        match created.as_ref() {
             Some(pipeline) => Ok(pipeline),
             // The general pipeline with the noise passes the recipe needs.
             None if adjustments.specialized_export || needs_feature_pipeline(adjustments) => {
@@ -8780,6 +8900,57 @@ impl GpuProcessor {
             }
             None => self.plain_pipeline(output),
         }
+    }
+
+    /// Export variant `features` folded (`display_variant_ir`: without the
+    /// branches its constants and its tone bits decide), in `slot`; a
+    /// variant over `EXPORT_INLINED_CEILING` is refused with a clear error
+    /// instead of minutes of compiling that may lose the device.
+    fn folded_export_pipeline<'a>(
+        &self,
+        slot: &'a std::sync::OnceLock<Option<wgpu::ComputePipeline>>,
+        features: usize,
+        output: MainOutput,
+    ) -> Result<&'a Option<wgpu::ComputePipeline>, String> {
+        let (shader, layout) = self.main_module(output);
+        let constants =
+            variant_constants(features, true, false, false, output == MainOutput::Deferred);
+        let make_module = || {
+            self.export_shaders
+                .get(
+                    output.high_precision(),
+                    features & SHADOWS_V13_FEATURE != 0,
+                    features & WHITES_V12_FEATURE != 0,
+                )
+                .variant_module(&constants)
+        };
+        // Made before the slot's compile so that the size can refuse it.
+        let module = slot.get().is_none().then(make_module);
+        if let Some(Ok(module)) = &module {
+            let inlined = crate::display_variant_ir::inlined_size(module);
+            if refuses_export(inlined) {
+                log::error!(
+                    "Export variant {features}: {inlined} inlined expressions, over the compile limit's {EXPORT_INLINED_CEILING}; not compiled"
+                );
+                return Err(rawtonic_runtime::gpu_memory::GPU_EXPORT_TOO_COMPLEX.to_string());
+            }
+        }
+        Ok(slot.get_or_init(|| {
+            compile_variant_module(
+                &self.context.device,
+                shader,
+                module.unwrap_or_else(make_module),
+                layout,
+                &format!("Specialized image processing {features}"),
+                &constants,
+            )
+            .inspect_err(|error| {
+                log::error!(
+                    "Specialized export variant {features} unavailable; using the general shader: {error}"
+                )
+            })
+            .ok()
+        }))
     }
 
     /// The shader module and pipeline layout of `output`'s main pass.
@@ -9479,11 +9650,14 @@ impl GpuProcessor {
             .as_ref()
             .and_then(|lut| lut.shaper.as_ref())
             .map(|shaper| {
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("LUT shaper"),
-                    contents: bytemuck::cast_slice(&lut_shaper_data(Some(shaper))),
-                    usage: wgpu::BufferUsages::STORAGE,
-                })
+                create_buffer_init(
+                    device,
+                    &wgpu::util::BufferInitDescriptor {
+                        label: Some("LUT shaper"),
+                        contents: bytemuck::cast_slice(&lut_shaper_data(Some(shaper))),
+                        usage: wgpu::BufferUsages::STORAGE,
+                    },
+                )
             });
         let lut_shaper = lut_shaper.as_ref().unwrap_or(&self.no_lut_shaper);
         let film_grain =
@@ -9491,11 +9665,14 @@ impl GpuProcessor {
                 && request.adjustments.uniforms.global.grain_amount > 0.0
             {
                 self.film_grain_tile.get_or_init(|| {
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Film grain tile"),
-                        contents: bytemuck::cast_slice(&film_grain_tile_data()),
-                        usage: wgpu::BufferUsages::STORAGE,
-                    })
+                    create_buffer_init(
+                        device,
+                        &wgpu::util::BufferInitDescriptor {
+                            label: Some("Film grain tile"),
+                            contents: bytemuck::cast_slice(&film_grain_tile_data()),
+                            usage: wgpu::BufferUsages::STORAGE,
+                        },
+                    )
                 })
             } else {
                 &self.no_film_grain
@@ -11488,7 +11665,22 @@ pub fn gpu_scoped<T>(device: &wgpu::Device, work: impl FnOnce() -> T) -> Result<
     let internal = pollster::block_on(internal.pop());
     let validation = pollster::block_on(validation.pop());
     let memory = pollster::block_on(memory.pop());
-    match memory.or(validation).or(internal) {
+    scoped_result(
+        value,
+        memory.or(validation).or(internal),
+        crate::device_start::device_lost(),
+    )
+}
+
+/// `gpu_scoped`'s result: `value`, or the error the scopes caught; on a lost
+/// device always the device-lost error, since every object is then invalid
+/// and the caught error names whichever failed first ("Buffer … is
+/// invalid"), not why.
+fn scoped_result<T>(value: T, error: Option<wgpu::Error>, device_lost: bool) -> Result<T, String> {
+    if device_lost {
+        return Err(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST.to_string());
+    }
+    match error {
         Some(error) => {
             log::error!("GPU render failed: {error}");
             Err(match error {

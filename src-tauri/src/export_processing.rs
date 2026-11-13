@@ -1176,6 +1176,10 @@ pub(crate) async fn export_images_impl(
                             },
                             |target| planned.unpublished(target),
                             |again, wait| {
+                                // A lost device stays lost: no retry helps.
+                                if rawtonic_gpu::device_start::device_lost() {
+                                    return false;
+                                }
                                 log::warn!(
                                     "Export: the graphics card ran out of memory for {} recipe(s) of {image_path_str}; again in {wait:?}",
                                     again.len()
@@ -1231,7 +1235,10 @@ pub(crate) async fn export_images_impl(
         for handle in join_handles {
             match handle.await {
                 Ok(res) => results.extend(res),
-                Err(e) => results.push(Err(format!("Thread crashed: {}", e))),
+                Err(e) => results.push(Err(crashed_export_error(
+                    &e.to_string(),
+                    rawtonic_gpu::device_start::device_lost(),
+                ))),
             }
         }
 
@@ -1311,6 +1318,17 @@ pub(crate) async fn export_images_impl(
     });
 
     Ok(())
+}
+
+/// What an export whose thread panicked reports: after a lost GPU device
+/// the clear device-lost error (G76/WCC6: the panic named only an invalid
+/// buffer), otherwise the panic.
+fn crashed_export_error(panic: &str, device_lost: bool) -> String {
+    if device_lost {
+        rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST.to_string()
+    } else {
+        format!("Thread crashed: {panic}")
+    }
 }
 
 /// The recipes of `wanted` whose jobs admit the photo.
@@ -2696,7 +2714,8 @@ fn estimate_sizes(
 #[cfg(test)]
 mod tests {
     use super::{
-        ExportTarget, PhotoItem, PlannedFiles, export_in_turn, is_open_edit, plan_output_path,
+        ExportTarget, PhotoItem, PlannedFiles, crashed_export_error, export_in_turn, is_open_edit,
+        plan_output_path,
     };
 
     /// Exercise the app's layer export, including real PNG encoding and
@@ -3004,6 +3023,18 @@ mod tests {
         built_tx.send(()).unwrap();
         assert!(end.await);
         assert!(processor.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn an_export_crashed_after_a_lost_gpu_device_says_so() {
+        assert_eq!(
+            crashed_export_error("task 840 panicked", true),
+            rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST
+        );
+        assert_eq!(
+            crashed_export_error("task 840 panicked", false),
+            "Thread crashed: task 840 panicked"
+        );
     }
 
     /// Export threads run only on the time the editor's threads leave.

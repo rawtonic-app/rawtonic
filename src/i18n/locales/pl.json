@@ -3738,7 +3738,9 @@
       },
       "errors": {
         "batchFailed": "Nieudane eksporty: {{failed}} z {{total}}",
+        "gpuDeviceLost": "Nie udało się wyrenderować tego zdjęcia na tym układzie graficznym: przestał odpowiadać (brak pamięci). Zamknij i ponownie otwórz Rawtonic, a następnie wyeksportuj to zdjęcie jeszcze raz.",
         "gpuMemory": "Za mało pamięci graficznej dla tego zdjęcia. Zamknij inne programy korzystające z karty graficznej i wyeksportuj to zdjęcie ponownie.",
+        "gpuTooComplex": "Edycja tego zdjęcia jest zbyt złożona, aby sterownik tego układu graficznego mógł je wyeksportować. Usuń część edycji (efekty, korekty lokalne) i wyeksportuj je ponownie albo wyeksportuj je na innym komputerze.",
         "offline": "{{file}} jest offline: eksport wymaga pliku RAW.",
         "terminated": "Eksport został nieoczekiwanie przerwany.",
         "textureLimit": "Obraz ({{width}} × {{height}} px) jest większy, niż ta karta graficzna może wyrenderować ({{limit}} px na bok).",

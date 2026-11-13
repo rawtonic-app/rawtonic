@@ -3433,7 +3433,9 @@
       },
       "errors": {
         "batchFailed": "{{failed}} von {{total}} Exporten fehlgeschlagen",
+        "gpuDeviceLost": "Dieses Foto konnte auf diesem Grafikchip nicht gerendert werden: Er reagiert nicht mehr (Speicher voll). Beende Rawtonic, öffne es erneut und exportiere dieses Foto noch einmal.",
         "gpuMemory": "Nicht genug Grafikspeicher für dieses Foto. Schließe andere Programme, die die Grafikkarte nutzen, und exportiere dieses Foto erneut.",
+        "gpuTooComplex": "Die Bearbeitung dieses Fotos ist zu umfangreich, um sie mit dem Treiber dieses Grafikchips zu exportieren. Entferne einige Bearbeitungen (Effekte, lokale Korrekturen) und exportiere erneut, oder exportiere das Foto auf einem anderen Computer.",
         "offline": "{{file}} ist offline: Zum Exportieren wird die RAW-Datei benötigt.",
         "terminated": "Der Export wurde unerwartet beendet.",
         "textureLimit": "Das Bild ({{width}} × {{height}} px) ist größer, als diese Grafikkarte rendern kann ({{limit}} px pro Seite).",

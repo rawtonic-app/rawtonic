@@ -3339,7 +3339,9 @@
       },
       "errors": {
         "batchFailed": "{{total}} 個輸出中有 {{failed}} 個失敗",
+        "gpuDeviceLost": "無法在此顯示晶片上算繪這張照片：它已停止回應（記憶體不足）。請結束並重新開啟 Rawtonic，然後重新匯出這張照片。",
         "gpuMemory": "顯示記憶體不足，無法處理這張照片。請關閉其他使用顯示卡的程式，然後重新匯出這張照片。",
+        "gpuTooComplex": "這張照片的編輯過於複雜，此顯示晶片的驅動程式無法匯出。請移除部分編輯（效果、局部調整）後重新匯出，或在另一台電腦上匯出。",
         "offline": "{{file}} 處於離線狀態：輸出需要 RAW 檔案。",
         "terminated": "輸出意外停止。",
         "textureLimit": "影像（{{width}} × {{height}} px）超出此顯示卡可算繪的尺寸（每邊 {{limit}} px）。",

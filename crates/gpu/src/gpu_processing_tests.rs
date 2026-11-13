@@ -9164,6 +9164,275 @@ fn display_tone_stage_matches_exports_for_every_tone_version() {
 }
 
 #[test]
+fn renders_on_a_lost_device_fail_with_the_device_lost_error() {
+    let invalid = || wgpu::Error::Validation {
+        source: Box::new(std::io::Error::other("lost")),
+        description: "Buffer with 'LUT shaper (none)' label is invalid".into(),
+    };
+    let lost = rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST;
+    assert_eq!(
+        scoped_result((), Some(invalid()), true),
+        Err(lost.to_string())
+    );
+    assert_eq!(scoped_result((), None, true), Err(lost.to_string()));
+    let other = scoped_result((), Some(invalid()), false).unwrap_err();
+    assert!(
+        other.contains("could not render") && other != lost,
+        "{other}"
+    );
+    assert_eq!(scoped_result(7, None, false), Ok(7));
+}
+
+#[test]
+#[ignore = "requires a native GPU; work on a lost device fails instead of panicking"]
+fn a_lost_device_fails_its_renders_instead_of_panicking() {
+    // WGT16 (G76/WCC6): after 'GPU device lost: Out of memory' an export
+    // panicked creating a processor ('LUT shaper (none)' could not be
+    // mapped) and the app ended. A destroyed device is lost the same way.
+    let context = context();
+    // As the app does (`GpuContext::headless`, src-tauri gpu_processing):
+    // errors outside a scope are logged, not wgpu's default panic.
+    context
+        .device
+        .on_uncaptured_error(Arc::new(|err: wgpu::Error| {
+            log::error!("[wgpu-error] {err}")
+        }));
+    context.device.destroy();
+    let (width, height) = (64, 48);
+    let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        GpuProcessor::new(context.clone(), width, height)
+    }));
+    let processor = match made {
+        Ok(Ok(processor)) => processor,
+        // Failing to make one is a clear error too.
+        Ok(Err(_)) => return,
+        Err(_) => panic!("making a processor on a lost device panicked"),
+    };
+    let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let view = input(&context, width, height, 3);
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(
+                        &json!({"exposure":0.5}),
+                        true,
+                        Some(3),
+                    ),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::EightBit,
+            )
+            .map(|_| ())
+    }));
+    match rendered {
+        Ok(result) => assert!(result.is_err(), "a render on a lost device succeeded"),
+        Err(_) => panic!("rendering on a lost device panicked"),
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; folded export variants against the whole shader"]
+fn folded_export_variants_render_their_exports_within_rounding() {
+    // Under a compile limit an export variant compiles from shader.wgsl
+    // with the branches its constants and its tone bits decide removed, and
+    // with only the recipe's own features (`folded_export_pipeline`,
+    // G76/WCC6); it renders what exports compile elsewhere (the whole
+    // shader, with the code `export_variant` keeps idle there) within one
+    // code: dropping idle code moves rounding (an older recipe's RAW
+    // default: 4 values on NVIDIA here; real photos 24 of 326 on NVIDIA,
+    // 94 of 280 on Metal in preservation), which is why only compile limits
+    // fold. A wrongly decided branch would move far more.
+    let context = context();
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 31);
+    // The WGT16 edit: Basic, presence, curve, mixer and a brush layer, at
+    // the versions a new edit gets.
+    let many = json!({"renderVersion":5,"toneVersion":18,"clarityVersion":3,
+        "dehazeVersion":3,"vibranceVersion":2,"hslVersion":2,
+        "exposure":0.4,"contrast":25,"highlights":-40,"shadows":30,"whites":-20,
+        "blacks":-10,"clarity":20,"structure":15,"dehaze":15,"vibrance":20,
+        "curves":custom_curve(),"hsl":{"reds":{"hue":12}},
+        "masks":[local_mask("brush", json!({"exposure":0.6}))]});
+    let (mut checked, mut refused) = (0, Vec::new());
+    for (profile, raw) in [
+        (json!({}), true),
+        (json!({"renderVersion":5}), true),
+        (
+            json!({"renderVersion":5,"sharpness":40,"colorNoiseReduction":25}),
+            true,
+        ),
+        (
+            json!({"exposure":0.4,"contrast":25,"shadows":30,"whites":-20,"blacks":-10,
+            "clarity":20,"dehaze":15,"vibrance":20,"saturation":10}),
+            true,
+        ),
+        (
+            json!({"renderVersion":5,"contrast":30,"shadows":20,"whites":-15,"toneVersion":5}),
+            true,
+        ),
+        (
+            json!({"renderVersion":5,"glowAmount":30,"halationAmount":20,"grainAmount":25}),
+            true,
+        ),
+        (many.clone(), true),
+        (many, false),
+        (
+            {
+                let mut layered = local_profile(json!({"highlights":-20,"lumaNoiseReduction":15}));
+                layered["renderVersion"] = json!(5);
+                layered
+            },
+            true,
+        ),
+    ] {
+        let adjustments =
+            get_all_adjustments_from_json(&profile, raw, Some(if raw { 3 } else { 0 }));
+        let features = export_variant(&adjustments, true)
+            .unwrap_or_else(|| panic!("{profile}: no export variant"));
+        // The variant exports compile without a compile limit, whose slot
+        // the export takes here.
+        let before = export_variant(&adjustments, false).unwrap();
+        let masks = generated_profile_masks(&profile, width, height);
+        let render = |folded: bool, precision| {
+            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            for output in [
+                MainOutput::EightBit,
+                MainOutput::SixteenBit,
+                MainOutput::Deferred,
+            ] {
+                let table = match output {
+                    MainOutput::EightBit => &processor.export_pipelines,
+                    MainOutput::SixteenBit => &processor.high_precision_export_pipelines,
+                    MainOutput::Deferred => &processor.deferred_export_pipelines,
+                };
+                if folded {
+                    // Over the ceiling: refused, not compiled (checked by
+                    // `a_compile_limit_refuses_only_export_variants_over_the_ceiling`).
+                    match processor.folded_export_pipeline(&table[before], features, output) {
+                        Ok(made) => assert!(made.is_some(), "{profile}: folded variant {features}"),
+                        Err(error) => {
+                            assert_eq!(error, rawtonic_runtime::gpu_memory::GPU_EXPORT_TOO_COMPLEX);
+                            return None;
+                        }
+                    }
+                } else {
+                    // The reference: the whole shader with the variant's
+                    // constants, as exports compile it.
+                    let (shader, layout) = processor.main_module(output);
+                    let pipeline = create_preview_pipeline(
+                        &processor.context.device,
+                        shader,
+                        None,
+                        layout,
+                        before,
+                        true,
+                        false,
+                        false,
+                        output == MainOutput::Deferred,
+                    )
+                    .unwrap();
+                    table[before].set(Some(pipeline)).unwrap();
+                }
+            }
+            let (pixels, ..) = processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: adjustments.clone(),
+                        mask_bitmaps: &masks,
+                        lut: None,
+                        roi: None,
+                    },
+                    false,
+                    precision,
+                )
+                .unwrap();
+            let used = [
+                &processor.export_pipelines,
+                &processor.high_precision_export_pipelines,
+                &processor.deferred_export_pipelines,
+            ]
+            .iter()
+            .any(|table| matches!(table[before].get(), Some(Some(_))));
+            assert!(
+                used,
+                "{profile}: the export did not take variant {features}"
+            );
+            Some(match pixels {
+                RenderedPixels::U8(bytes) => bytes.into_iter().map(u32::from).collect::<Vec<_>>(),
+                RenderedPixels::U16(words) => words.into_iter().map(u32::from).collect::<Vec<_>>(),
+            })
+        };
+        for precision in [
+            RenderOutputPrecision::EightBit,
+            RenderOutputPrecision::SixteenBit,
+        ] {
+            let whole = render(false, precision).unwrap();
+            let Some(folded) = render(true, precision) else {
+                refused.push(profile.to_string());
+                break;
+            };
+            let worst = whole
+                .iter()
+                .zip(&folded)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(
+                worst <= 1,
+                "{features} {precision:?}: off by {worst} ({})",
+                profile.to_string().chars().take(200).collect::<String>()
+            );
+        }
+        checked += 1;
+    }
+    // None of these is over the ceiling.
+    assert_eq!(checked, 9);
+    assert!(refused.is_empty(), "{refused:?}");
+}
+
+#[test]
+fn a_compile_limit_refuses_only_export_variants_over_the_ceiling() {
+    // The size the export of WGT16's edit compiles (G76/WCC6: 87.8k
+    // inlined, 116 s / 9.3 GB on the Radeon 680M) stays below the ceiling;
+    // the same edit with glow kept every effect's tone stage (197k) and is
+    // refused (only compile limits fold export variants).
+    let shaders = crate::display_variant_ir::ExportShaders::new(
+        include_str!("shaders/shader.wgsl"),
+        &high_precision_shader_source(include_str!("shaders/shader.wgsl")),
+    );
+    let size = |features: usize| {
+        let module = shaders
+            .get(
+                false,
+                features & SHADOWS_V13_FEATURE != 0,
+                features & WHITES_V12_FEATURE != 0,
+            )
+            .variant_module(&variant_constants(features, true, false, false, false))
+            .unwrap();
+        crate::display_variant_ir::inlined_size(&module)
+    };
+    let edit = 5238847;
+    let with_effects = edit | EFFECTS_FEATURE | TONE_V5_FEATURE;
+    assert!(size(edit) < EXPORT_INLINED_CEILING, "{}", size(edit));
+    assert!(
+        size(with_effects) > EXPORT_INLINED_CEILING,
+        "{}",
+        size(with_effects)
+    );
+    assert!(!refuses_export(size(edit)));
+    assert!(refuses_export(size(with_effects)));
+}
+
+#[test]
 fn effects_compile_only_where_a_recipe_has_them() {
     let features = |profile: serde_json::Value| {
         preview_features(&get_all_adjustments_from_json(&profile, true, Some(1))) & EFFECTS_FEATURE
@@ -14069,11 +14338,14 @@ fn display_at_own_size_shows_whole_texels_between_device_pixels() {
             box_rect: [0.0; 4],
             split,
         };
-        let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::bytes_of(&transform),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        let uniforms = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::bytes_of(&transform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        );
         let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &layout,
@@ -14240,11 +14512,14 @@ fn display_split_shows_the_before_left_of_the_divider() {
             box_rect: [0.0; 4],
             split,
         };
-        let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::bytes_of(&transform),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        let uniforms = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::bytes_of(&transform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        );
         let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &layout,

@@ -23,6 +23,9 @@
 //! - `display`: the source as display variants compile it (the app's
 //!   `DisplayShader`: its display-only reshapes of shader.wgsl). Use it with
 //!   `dce` to measure what the app compiles.
+//! - `exportsrc`: the source export variants compile (the app's
+//!   `ExportShaders`: the tone arms the variant's bits decide written as
+//!   decided). Use it with `export dce` to measure what an export compiles.
 //! - `set`: extra override constants.
 //! - `spirv`: write the SPIR-V here (naga, as wgpu's Vulkan backend does) and
 //!   hand it to the driver as is (Vulkan only; the pipeline layout is made
@@ -154,6 +157,7 @@ struct Spec {
     unchecked: bool,
     export: bool,
     display: bool,
+    exportsrc: bool,
     stubs: Vec<String>,
     src: Option<String>,
     set: Vec<(String, f64)>,
@@ -171,6 +175,7 @@ fn parse(line: &str) -> Result<Spec, String> {
         unchecked: false,
         export: false,
         display: false,
+        exportsrc: false,
         stubs: vec![],
         src: None,
         set: vec![],
@@ -205,6 +210,7 @@ fn parse(line: &str) -> Result<Spec, String> {
             None if word == "unchecked" => spec.unchecked = true,
             None if word == "export" => spec.export = true,
             None if word == "display" => spec.display = true,
+            None if word == "exportsrc" => spec.exportsrc = true,
             None if word == "spirv" => spec.spirv = true,
             _ => return Err(format!("unknown word {word}")),
         }
@@ -266,6 +272,8 @@ fn one(line: &str) -> Result<String, String> {
     // tone code), as the app's `DisplayShader` makes it.
     let source = if spec.display {
         rawtonic_gpu::gpu_processing::display_shader_source(&source)
+    } else if spec.exportsrc {
+        rawtonic_gpu::gpu_processing::export_shader_source(&source, spec.features)
     } else {
         source
     };
@@ -298,7 +306,7 @@ fn one(line: &str) -> Result<String, String> {
     add_nonce(&mut module);
     naga::compact::compact(&mut module, naga::compact::KeepUnused::No);
     validate(&module)?;
-    let inlined = inlined_size(&module);
+    let inlined = rawtonic_gpu::gpu_processing::inlined_size(&module);
     // COMPILE_PROBE_REPORT=1: the largest inlined calls (main's direct
     // calls and the most-repeated functions) on stderr.
     if std::env::var("COMPILE_PROBE_REPORT").is_ok() {
@@ -954,43 +962,6 @@ fn report_inlining(module: &naga::Module) {
     for (t, k, n) in rows.iter().take(15) {
         eprintln!("  {t:>7} x{k:<4} {n}");
     }
-}
-
-/// Expressions of `main` with every call inlined (what a compiler that
-/// inlines everything starts from).
-fn inlined_size(module: &naga::Module) -> usize {
-    fn calls(block: &naga::Block, out: &mut Vec<naga::Handle<naga::Function>>) {
-        use naga::Statement as S;
-        for statement in block.iter() {
-            match statement {
-                S::Call { function, .. } => out.push(*function),
-                S::Block(b) => calls(b, out),
-                S::If { accept, reject, .. } => {
-                    calls(accept, out);
-                    calls(reject, out);
-                }
-                S::Loop {
-                    body, continuing, ..
-                } => {
-                    calls(body, out);
-                    calls(continuing, out);
-                }
-                S::Switch { cases, .. } => cases.iter().for_each(|c| calls(&c.body, out)),
-                _ => {}
-            }
-        }
-    }
-    let mut sizes = std::collections::HashMap::new();
-    for (handle, function) in module.functions.iter() {
-        let mut callees = vec![];
-        calls(&function.body, &mut callees);
-        let size = function.expressions.len() + callees.iter().map(|c| sizes[c]).sum::<usize>();
-        sizes.insert(handle, size);
-    }
-    let main = &module.entry_points[0].function;
-    let mut callees = vec![];
-    calls(&main.body, &mut callees);
-    main.expressions.len() + callees.iter().map(|c| sizes[c]).sum::<usize>()
 }
 
 #[cfg(windows)]
