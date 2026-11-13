@@ -118,6 +118,60 @@ fn with_display_tone_stage(source: &str) -> Option<String> {
     replace_functions(&source, &[REPLACED_TONE_STAGE], DISPLAY_TONE_STAGE)
 }
 
+/// The display source's switches for each effect (gpu_processing.rs
+/// `display_effect_constants`): shader.wgsl's `ENABLE_EFFECTS` is one for
+/// glow, halation and grain, which exports keep unchanged.
+const EFFECT_OVERRIDES: &str = "override ENABLE_GLOW: bool = true;\n\
+     override ENABLE_HALATION: bool = true;\n\
+     override ENABLE_GRAIN: bool = true;\n";
+
+/// shader.wgsl's glow and halation calls and its grain block (`if
+/// (ENABLE_EFFECTS)`), each of which the display source puts behind its
+/// own switch.
+const GLOW_BLOCK: &str =
+    "        if (t_glow > 0.0) {\n            processed_rgb = apply_glow_bloom(";
+const HALATION_BLOCK: &str =
+    "        if (t_halation > 0.0) {\n            processed_rgb = apply_halation(";
+const GRAIN_BLOCK: &str =
+    "    if (ENABLE_EFFECTS) {\n        if (adjustments.global.grain_amount > 0.0";
+
+/// Glow, halation and grain behind a switch each (`EFFECT_OVERRIDES`), so a
+/// display variant compiles only the effects its recipe has: with one
+/// switch Glow 30 on the WGT16 edit compiled halation and four grain
+/// versions too, 117.1k inlined expressions and 5.95 GB on a Radeon 680M
+/// against 77.0k and 4.69 GB (G76/WCC8, probe round 16; a copy of the tone
+/// stage with only Whites for glow, 67.7k, compiled into the same 4.69 GB,
+/// round 17, so glow keeps the display stage). Each switch only
+/// adds a condition decided by a constant around code that ran under
+/// `ENABLE_EFFECTS` already. `None` when shader.wgsl has another shape;
+/// the switches are declared either way (`display_source`).
+fn with_effects_apart(source: &str) -> Option<String> {
+    let mut source = source.to_string();
+    for (block, switch) in [
+        (GLOW_BLOCK, "ENABLE_GLOW"),
+        (HALATION_BLOCK, "ENABLE_HALATION"),
+    ] {
+        if source.matches(block).count() != 1 {
+            return None;
+        }
+        // `if (t > 0.0) {` → `if (SWITCH && t > 0.0) {`: the fold decides
+        // the condition when the switch is off.
+        let condition = block.trim_start().split(" {").next()?;
+        let inner = condition.strip_prefix("if (")?.strip_suffix(')')?;
+        source = source.replace(
+            block,
+            &block.replacen(condition, &format!("if ({switch} && {inner})"), 1),
+        );
+    }
+    if source.matches(GRAIN_BLOCK).count() != 1 {
+        return None;
+    }
+    Some(source.replace(
+        GRAIN_BLOCK,
+        &GRAIN_BLOCK.replace("ENABLE_EFFECTS", "ENABLE_EFFECTS && ENABLE_GRAIN"),
+    ))
+}
+
 fn with_display_tone_gains(source: &str) -> String {
     replace_functions(source, &REPLACED_TONE_GAINS, DISPLAY_TONE_GAINS)
         .unwrap_or_else(|| source.into())
@@ -206,7 +260,10 @@ impl ExportShaders {
 /// The source display variants compile from `source` (shader.wgsl).
 /// A source of another shape gets only the reshapes that fit it.
 pub(crate) fn display_source(source: &str) -> String {
-    let source = with_display_tone_gains(source);
+    let mut source = with_display_tone_gains(source);
+    source = with_effects_apart(&source).unwrap_or(source);
+    source.push('\n');
+    source.push_str(EFFECT_OVERRIDES);
     with_display_tone_stage(&source).unwrap_or(source)
 }
 
@@ -703,6 +760,41 @@ mod tests {
         }
         // A source of another shape keeps its tone stage as it is.
         assert_eq!(with_display_tone_stage("fn other() {}"), None);
+    }
+
+    /// Each effect behind its own switch: the code a Glow edit compiles
+    /// (G76/WCC8).
+    #[test]
+    fn display_variants_compile_only_their_effects() {
+        let source = display_source(SHADER);
+        assert!(source.contains("if (ENABLE_GLOW && t_glow > 0.0) {"));
+        assert!(source.contains("if (ENABLE_HALATION && t_halation > 0.0) {"));
+        assert!(source.contains("if (ENABLE_EFFECTS && ENABLE_GRAIN) {"));
+        let shader = DisplayShader::new(SHADER);
+        let module = |glow: f64, halation: f64, grain: f64| {
+            shader
+                .variant_module(&[
+                    ("ENABLE_TONE", 1.0),
+                    ("WHITES_V12", 1.0),
+                    ("TONE_V5", 0.0),
+                    ("ENABLE_EFFECTS", 1.0),
+                    ("ENABLE_GLOW", glow),
+                    ("ENABLE_HALATION", halation),
+                    ("ENABLE_GRAIN", grain),
+                ])
+                .unwrap()
+        };
+        let glow = module(1.0, 0.0, 0.0);
+        assert!(has_function(&glow, "apply_glow_bloom"));
+        for gone in ["apply_halation", "apply_film_grain", "apply_portable_grain"] {
+            assert!(!has_function(&glow, gone), "{gone}");
+        }
+        let all = module(1.0, 1.0, 1.0);
+        for kept in ["apply_glow_bloom", "apply_halation", "apply_film_grain"] {
+            assert!(has_function(&all, kept), "{kept}");
+        }
+        // Sources of another shape keep their code.
+        assert_eq!(with_effects_apart("fn other() {}"), None);
     }
 
     fn count_calls(block: &naga::Block, target: naga::Handle<naga::Function>) -> usize {

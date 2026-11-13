@@ -1520,6 +1520,9 @@ pub fn prepare_export_render(
     env: &RenderEnv,
     is_raw: bool,
 ) -> Result<PreparedExport, String> {
+    // Under a compile limit no shader compile runs beside the export's
+    // textures (G76/WCC8: 8.3 GB on a Radeon 680M).
+    rawtonic_gpu::gpu_processing::wait_for_running_compiles("export");
     let context = env.context;
     let mask_definitions = mask_definitions_from_json(js_adjustments);
     let tm_override = (env.tonemapper_override)(is_raw);

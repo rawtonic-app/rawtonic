@@ -79,8 +79,14 @@ pub(super) enum IdleJob {
 /// 2. `basic`: every Basic-panel edit the recipe's versions make: the tone
 ///    sliders in both directions (raised Shadows, lowered Whites and Blacks
 ///    of the newer tone versions), a curve, a mask layer, Clarity or
-///    Structure, Dehaze, Vibrance and the colour mixer;
-/// 3. the photo's features with the effects (glow, halation, grain).
+///    Structure, Dehaze, Vibrance and the colour mixer.
+///
+/// No entry with the effects (glow, halation, grain): the photo's features
+/// with all three compiled for 56 s into 7.0 GB of private memory on a
+/// Radeon 680M, the app's peak in idle time (G76/WGT20; the Basic-panel
+/// entry 5.4 GB), and after Basic-panel edits it covered no frame (an edit
+/// with Glow needs the edited features with glow). A recipe with an effect
+/// has its export's variant planned (`planned_jobs`), with that effect only.
 ///
 /// Edits add up: a photographer who moves Contrast, Highlights, Clarity,
 /// Whites and Blacks needs the variant of all five at once, which no single
@@ -93,9 +99,8 @@ pub(super) enum IdleJob {
 pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<usize> {
     let sliders = sliders_features(features, adjustments);
     let basic = basic_features(features, adjustments);
-    let effects = features | EFFECTS_FEATURE;
-    let mut plan = Vec::with_capacity(3);
-    for candidate in [sliders, basic, effects] {
+    let mut plan = Vec::with_capacity(2);
+    for candidate in [sliders, basic] {
         if candidate != features && !plan.contains(&candidate) {
             plan.push(candidate);
         }
@@ -544,7 +549,8 @@ mod tests {
     /// from its recipe alone (`export_display_features`), and in a normal
     /// session it is one the editor compiled: a photo's own variant before
     /// any Basic-panel edit, the planned Basic-panel superset after edits,
-    /// the planned effects entry for effects on an unedited photo (G76/WCC7).
+    /// and for an effect on an unedited photo its features with that effect
+    /// (`planned_jobs`; G76/WCC7, WCC8).
     #[test]
     fn exports_take_the_variant_the_editor_compiles() {
         let shown = new_raw_edit(serde_json::json!({}));
@@ -552,8 +558,16 @@ mod tests {
         let plan = idle_plan(opened, &shown);
         let export = |edits: serde_json::Value| export_display_features(&new_raw_edit(edits));
         assert_eq!(export(serde_json::json!({})), opened);
-        assert_eq!(export(serde_json::json!({"glowAmount": 30})), plan[2]);
-        assert_eq!(plan[2], opened | EFFECTS_FEATURE);
+        // Glow on an unedited photo: its own features with glow only, the
+        // entry `planned_jobs` adds.
+        let glow = new_raw_edit(serde_json::json!({"glowAmount": 30}));
+        assert_eq!(
+            export(serde_json::json!({"glowAmount": 30})),
+            opened | GLOW_FEATURE
+        );
+        let (jobs, exact) = planned_jobs(preview_features(&glow), &glow);
+        assert_eq!(exact, opened | GLOW_FEATURE);
+        assert!(jobs.contains(&exact));
         let edit = serde_json::json!({"exposure": 0.4, "contrast": 25, "highlights": -40,
             "shadows": 30, "whites": -20, "blacks": -10, "clarity": 20, "structure": 15,
             "dehaze": 15, "vibrance": 20, "hsl": {"reds": {"hue": 12}}});
@@ -572,7 +586,7 @@ mod tests {
         // (no planned variant covers it), with the effects.
         let mut glow = edit;
         glow["glowAmount"] = serde_json::json!(30);
-        assert_eq!(export(glow), plan[1] | EFFECTS_FEATURE);
+        assert_eq!(export(glow), plan[1] | GLOW_FEATURE);
     }
 
     /// A wider compiled variant keeps serving the frames after Glow is
@@ -628,7 +642,7 @@ mod tests {
             | DEHAZE_V3_FEATURE
             | VIBRANCE_V2_FEATURE
             | HSL_V2_FEATURE;
-        assert_eq!(plan, vec![sliders, basic, features | EFFECTS_FEATURE]);
+        assert_eq!(plan, vec![sliders, basic]);
         // Each covers the ones before it and the photo's own features.
         assert_eq!(basic & sliders, sliders);
         assert_eq!(sliders & features, features);
@@ -733,17 +747,13 @@ mod tests {
         let other_look = adjustments(crate::image_processing::TONE_VERSION as f32, 0);
         let (sh, wh, bl) = (SHADOWS_V13_FEATURE, WHITES_V12_FEATURE, BLACKS_V16_FEATURE);
         let basic = 46 | sh | wh | bl;
-        assert_eq!(idle_plan(0, &other_look), vec![34, basic, EFFECTS_FEATURE]);
+        assert_eq!(idle_plan(0, &other_look), vec![34, basic]);
         // A photo already shown with the first superset skips it.
-        assert_eq!(
-            idle_plan(34, &other_look),
-            vec![basic, 34 | EFFECTS_FEATURE]
-        );
-        let all = basic | EFFECTS_FEATURE;
-        assert_eq!(idle_plan(all, &other_look), Vec::<usize>::new());
+        assert_eq!(idle_plan(34, &other_look), vec![basic]);
+        assert_eq!(idle_plan(basic, &other_look), Vec::<usize>::new());
         // Tone version 6: none of the newer tone directions' code.
         let old = adjustments(6.0, 0);
-        assert_eq!(idle_plan(34, &old), vec![46, 34 | EFFECTS_FEATURE]);
+        assert_eq!(idle_plan(34, &old), vec![46]);
     }
 
     /// Under a compile limit the shown photo plans its supersets, which
@@ -779,7 +789,8 @@ mod tests {
         let shown = preview_features(&photo);
         processor.preview_pipeline(&photo, true).unwrap();
         let plan = idle_plan(shown, &photo);
-        assert_eq!(plan.len(), 3);
+        // Sliders and Basic panel; no all-effects entry (G76/WCC8).
+        assert_eq!(plan.len(), 2);
         let started = Instant::now();
         wait("the planned supersets", &|| {
             for &f in &plan {
