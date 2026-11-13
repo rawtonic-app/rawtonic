@@ -8889,9 +8889,8 @@ fn fallback_variant_matches_specialized_display() {
 #[ignore = "requires a native GPU; display variants without the effects code against those with it"]
 fn display_variants_from_folded_ir_render_the_same_pixels() {
     // A recipe renders its display variant without the effects it does not
-    // have (`GLOW_FEATURE`, `HALATION_FEATURE`, `GRAIN_FEATURE`), glow's and
-    // halation's tone stage with Whites only (`display_variant_ir`
-    // `effect_tone_stage`) and without every branch its constants decide;
+    // have (`GLOW_FEATURE`, `HALATION_FEATURE`, `GRAIN_FEATURE`) and without
+    // every branch its constants decide (`display_variant_ir`);
     // the frame must be the one the whole shader with all the effects code
     // renders, byte for byte, as display variants were compiled before.
     let context = context();
@@ -8915,8 +8914,7 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
         // Tone version 5 keeps its own copy of the tone stage.
         json!({"contrast":30,"shadows":20,"whites":-15,"toneVersion":5}),
         json!({"contrast":30,"shadows":20,"whites":-15,"toneVersion":18}),
-        // Each effect alone and together, on a tone edit (G76/WCC8): glow and
-        // halation read lowered Whites through their own tone stage.
+        // Each effect alone and together, on a tone edit (G76/WCC8).
         json!({"exposure":0.4,"contrast":25,"whites":-20,"glowAmount":30,"toneVersion":18}),
         json!({"exposure":0.4,"whites":25,"halationAmount":40,"toneVersion":18}),
         json!({"contrast":25,"grainAmount":30,"toneVersion":18}),

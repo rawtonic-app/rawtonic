@@ -118,79 +118,6 @@ fn with_display_tone_stage(source: &str) -> Option<String> {
     replace_functions(&source, &[REPLACED_TONE_STAGE], DISPLAY_TONE_STAGE)
 }
 
-/// Glow's and halation's call of the tone stage as shader.wgsl writes it
-/// (twice): Whites only, every other tone argument zero.
-const EFFECT_TONE_CALL: &str = "apply_tonal_adjustments(blurred_linear, blurred_color_input_space, 0.0, 0.0, is_raw, 0.0, 0.0, wh, 0.0, exp2(exp))";
-/// What display variants call there instead (`effect_tone_stage`).
-const EFFECT_TONE_DISPLAY_CALL: &str =
-    "apply_effect_tone(blurred_linear, blurred_color_input_space, is_raw, wh, exp2(exp))";
-/// The tone stage's parameters that `EFFECT_TONE_CALL` passes as zero.
-const EFFECT_TONE_ZEROS: [&str; 5] = [
-    "wide_luma_input_space",
-    "whites_offset_log",
-    "con",
-    "sh",
-    "bl_in",
-];
-
-/// The display tone stage (`DISPLAY_TONE_STAGE`) as glow and halation call
-/// it: the arguments `EFFECT_TONE_CALL` passes as zero become constants, so
-/// the fold drops the Contrast, Shadows and Blacks code it never runs.
-/// Glow and halation each inlined the whole stage: with Glow 30 on the
-/// WGT16 edit the display variant had 117.1k inlined expressions and its
-/// compile peaked at 5.95 GB on a Radeon 680M; with only the glow code
-/// (`GLOW_FEATURE`) 77.0k / 4.69 GB, and with this stage 67.9k against the
-/// edit's 65.8k without Glow (G76/WCC8, probe round 16). The same
-/// arithmetic for those arguments: every removed branch tests one of them
-/// against zero. `None` when the stage has another shape.
-fn effect_tone_stage(stage: &str) -> Option<String> {
-    let header = "fn apply_tonal_adjustments(";
-    let start = stage.find(header)?;
-    let open = start + stage[start..].find(") -> vec3<f32> {")? + ") -> vec3<f32> {".len();
-    let mut depth = 1usize;
-    let mut end = None;
-    for (i, c) in stage[open..].char_indices() {
-        match c {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = Some(open + i + 1);
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    let body = &stage[open..end?];
-    let blacks = "let bl = select(bl_in, 0.0, blacks_v9_active(bl_in, is_raw));";
-    if body.matches(blacks).count() != 1 {
-        return None;
-    }
-    let mut out = String::from(
-        "fn apply_effect_tone(\n    color: vec3<f32>,\n    blurred_color_input_space: vec3<f32>,\n    \
-         is_raw: u32,\n    wh: f32,\n    exposure_gain: f32\n) -> vec3<f32> {\n",
-    );
-    for zero in EFFECT_TONE_ZEROS {
-        out.push_str(&format!("    const {zero} = 0.0;\n"));
-    }
-    out.push_str(&body.replace(blacks, "const bl = 0.0;"));
-    out.push('\n');
-    Some(out)
-}
-
-/// Glow's and halation's tone stage calls `apply_effect_tone`
-/// (`effect_tone_stage`); `None` when the source has another shape.
-fn with_effect_tone_stage(source: &str) -> Option<String> {
-    if source.matches(EFFECT_TONE_CALL).count() != 2 {
-        return None;
-    }
-    let mut source = source.replace(EFFECT_TONE_CALL, EFFECT_TONE_DISPLAY_CALL);
-    source.push('\n');
-    source.push_str(&effect_tone_stage(DISPLAY_TONE_STAGE)?);
-    Some(source)
-}
-
 /// The display source's switches for each effect (gpu_processing.rs
 /// `display_effect_constants`): shader.wgsl's `ENABLE_EFFECTS` is one for
 /// glow, halation and grain, which exports keep unchanged.
@@ -212,7 +139,9 @@ const GRAIN_BLOCK: &str =
 /// display variant compiles only the effects its recipe has: with one
 /// switch Glow 30 on the WGT16 edit compiled halation and four grain
 /// versions too, 117.1k inlined expressions and 5.95 GB on a Radeon 680M
-/// against 77.0k and 4.69 GB (G76/WCC8, probe round 16). Each switch only
+/// against 77.0k and 4.69 GB (G76/WCC8, probe round 16; a copy of the tone
+/// stage with only Whites for glow, 67.7k, compiled into the same 4.69 GB,
+/// round 17, so glow keeps the display stage). Each switch only
 /// adds a condition decided by a constant around code that ran under
 /// `ENABLE_EFFECTS` already. `None` when shader.wgsl has another shape;
 /// the switches are declared either way (`display_source`).
@@ -335,10 +264,7 @@ pub(crate) fn display_source(source: &str) -> String {
     source = with_effects_apart(&source).unwrap_or(source);
     source.push('\n');
     source.push_str(EFFECT_OVERRIDES);
-    let Some(source) = with_display_tone_stage(&source) else {
-        return source;
-    };
-    with_effect_tone_stage(&source).unwrap_or(source)
+    with_display_tone_stage(&source).unwrap_or(source)
 }
 
 impl DisplayShader {
@@ -829,22 +755,18 @@ mod tests {
                 .map(|(_, f)| count_calls(&f.body, stage))
                 .sum::<usize>()
                 + count_calls(&module.entry_points[0].function.body, stage);
-            // The photo's only: glow and halation call their own stage
-            // (`effect_tone_stage`).
-            assert_eq!(calls, 1);
-            assert_eq!(has_function(&module, "apply_effect_tone"), effects > 0.0);
+            // The photo's; with the effects glow's and halation's too.
+            assert_eq!(calls, if effects > 0.0 { 3 } else { 1 });
         }
         // A source of another shape keeps its tone stage as it is.
         assert_eq!(with_display_tone_stage("fn other() {}"), None);
     }
 
-    /// Each effect behind its own switch, and glow's and halation's tone
-    /// stage with Whites only: the code a Glow edit compiles (G76/WCC8).
+    /// Each effect behind its own switch: the code a Glow edit compiles
+    /// (G76/WCC8).
     #[test]
     fn display_variants_compile_only_their_effects() {
         let source = display_source(SHADER);
-        assert!(!source.contains(EFFECT_TONE_CALL));
-        assert_eq!(source.matches(EFFECT_TONE_DISPLAY_CALL).count(), 2);
         assert!(source.contains("if (ENABLE_GLOW && t_glow > 0.0) {"));
         assert!(source.contains("if (ENABLE_HALATION && t_halation > 0.0) {"));
         assert!(source.contains("if (ENABLE_EFFECTS && ENABLE_GRAIN) {"));
@@ -871,13 +793,8 @@ mod tests {
         for kept in ["apply_glow_bloom", "apply_halation", "apply_film_grain"] {
             assert!(has_function(&all, kept), "{kept}");
         }
-        // The Whites-only stage: its Contrast and Shadows code is decided.
-        let none = module(0.0, 0.0, 0.0);
-        assert!(inlined_size(&glow) < inlined_size(&none) + 4000);
         // Sources of another shape keep their code.
         assert_eq!(with_effects_apart("fn other() {}"), None);
-        assert_eq!(with_effect_tone_stage("fn other() {}"), None);
-        assert_eq!(effect_tone_stage("fn other() {}"), None);
     }
 
     fn count_calls(block: &naga::Block, target: naga::Handle<naga::Function>) -> usize {
