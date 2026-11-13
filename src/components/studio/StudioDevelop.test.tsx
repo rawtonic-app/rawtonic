@@ -1922,3 +1922,37 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     expect(historyStepName(step(), i18n.t.bind(i18n))).toBeNull();
   });
 });
+
+// jsdom cannot lay out or perform native wheel/scrollbar scrolling. These
+// checks cover the height contract and event cancellation; Windows QA covers
+// the browser's actual scroll range and real mouse input.
+it('bounds the Adjust scroller through flex sizing at every interface scale', () => {
+  const css = readFileSync('src/components/studio/studio.css', 'utf8') as string;
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.append(style);
+  onTestFinished(() => style.remove());
+  const { container } = mount();
+  const panel = document.createElement('aside');
+  panel.className = 'studio-primary-panel is-develop';
+  container.before(panel);
+  panel.append(container);
+  onTestFinished(() => panel.remove());
+  for (const scale of [0.75, 0.875, 1, 1.125, 1.25, 1.5]) {
+    panel.style.setProperty('--ui-scale', String(scale));
+    expect(getComputedStyle(panel).display).toBe('flex');
+    expect(getComputedStyle(panel).flexDirection).toBe('column');
+    const develop = getComputedStyle(container.querySelector('.studio-develop')!);
+    expect(develop.flexGrow).toBe('1');
+    expect(develop.minHeight).toBe('0px');
+    const scroll = getComputedStyle(container.querySelector('.studio-tools-scroll')!);
+    expect(scroll.overflow).toBe('auto');
+    expect(scroll.minHeight).toBe('0px');
+    expect(scroll.flexGrow).toBe('1');
+  }
+  const slider = screen.getAllByRole('slider')[0];
+  slider.focus();
+  const before = useEditorStore.getState().adjustments;
+  expect(fireEvent.wheel(slider, { deltaY: 120, cancelable: true })).toBe(true);
+  expect(useEditorStore.getState().adjustments).toBe(before);
+});

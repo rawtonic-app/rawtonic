@@ -187,3 +187,22 @@ describe('dialog answers', () => {
     });
   });
 });
+
+it('reports Adjust scroll geometry and inert ancestors without changing scroll position', async () => {
+  document.body.innerHTML = '<aside inert><div class="studio-tools-scroll" style="overflow:auto"></div></aside>';
+  const scroll = document.querySelector('.studio-tools-scroll')!;
+  Object.defineProperties(scroll, { clientHeight: { value: 200 }, scrollHeight: { value: 1200 } });
+  scroll.scrollTop = 150;
+  const result = (await handleQaRequest('ui.scroll_metrics', {})) as { ancestors: Record<string, unknown>[] };
+  expect(result.ancestors[0]).toMatchObject({
+    clientHeight: 200,
+    scrollHeight: 1200,
+    scrollTop: 150,
+    overflow: 'auto',
+    inert: false
+  });
+  expect(result.ancestors[1]).toMatchObject({ tag: 'aside', inert: true });
+  expect(scroll.scrollTop).toBe(150);
+  document.body.innerHTML = '';
+  await expect(handleQaRequest('ui.scroll_metrics', {})).rejects.toThrow('not mounted');
+});
