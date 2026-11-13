@@ -9042,14 +9042,16 @@ impl GpuProcessor {
     /// and bytes.
     ///
     /// No `renderVersion` gates this, so existing edits take it too
-    /// (coordinator decision, G76/WCC7 option 1): a compile limit exists only
-    /// on AMD's Windows Vulkan driver, where no released build exported such
-    /// edits in a working state — the export variant compiled for minutes and
-    /// lost the device (G76/WGT16), and the folded export variant that
-    /// replaced it (WCC6) already differs from the unfolded one by a few
-    /// codes — so there are no saved export bytes there for a version key to
-    /// keep. Gating it everywhere instead would change new edits' exports on
-    /// every driver for no gain.
+    /// (coordinator decision, G76/WCC7 option 1). A compile limit exists only
+    /// on AMD's Windows Vulkan driver. Released builds (up to 0.1.0-alpha.13)
+    /// exported there with the unfolded export variant: a RAW default in
+    /// ~98 s, a many-feature edit not at all (compiled for minutes, then lost
+    /// the device, G76/WGT16). Those bytes were already given up, unreleased,
+    /// when folded export variants replaced it there (WCC6, coordinator
+    /// option A; they differ from the unfolded ones by a few codes), so no
+    /// recipe version can bring them back on that driver; a version key here
+    /// would keep only WCC6's unreleased folded bytes. Gating it everywhere
+    /// instead would change new edits' exports on every driver for no gain.
     fn exports_with_display_variant(
         &self,
         adjustments: &crate::image_processing::PreparedAdjustments,
