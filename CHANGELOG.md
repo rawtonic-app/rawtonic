@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- The Develop Adjust column now fills its panel through explicit flex sizing at every interface size, addressing a suspected cause of unreachable tools on Windows; native wheel and scrollbar confirmation is pending.
+
 - Window restore bounds survive quitting maximized; the Library Navigator retains a loose photo when there is no listed Library selection. Windows maximize-button placement now refreshes after compact-bar and interface-style changes (native confirmation pending).
 
 - Cancelling individual Edit With renders is reported neutrally, separately from failed renders. The app keeps four previous session logs locally for support and crash diagnosis; crash reports still include only the scrubbed tail shown for review.
