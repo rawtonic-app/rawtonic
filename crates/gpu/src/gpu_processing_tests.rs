@@ -9538,6 +9538,104 @@ fn exports_under_a_compile_limit_render_with_the_display_variant() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; 16-bit and long-curve exports under a compile limit against exports elsewhere"]
+fn other_exports_under_a_compile_limit_render_with_the_deferred_display_variant() {
+    // Under a compile limit the exports the 8-bit display variant does not
+    // serve (16-bit, a curve sampled into a table) render with the display
+    // variant's code in float output (`deferred_display_pipeline`, G76/
+    // WCC10): no export variant or general pipeline is compiled, the bytes
+    // depend on the recipe alone, and they stay close to the export
+    // elsewhere.
+    let context = context();
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 31);
+    let mut cases: Vec<(serde_json::Value, bool, RenderOutputPrecision)> = export_check_profiles()
+        .into_iter()
+        .map(|(profile, raw)| (profile, raw, RenderOutputPrecision::SixteenBit))
+        .collect();
+    let long = json!({"renderVersion":5,"exposure":0.2,
+        "curves":{"luma":twenty_point_curve(),"version":2}});
+    cases.push((long.clone(), true, RenderOutputPrecision::EightBit));
+    cases.push((long, true, RenderOutputPrecision::SixteenBit));
+    let (mut worst8, mut worst16) = (0u16, 0u16);
+    for (profile, raw, precision) in cases {
+        let adjustments =
+            get_all_adjustments_from_json(&profile, raw, Some(if raw { 3 } else { 0 }));
+        let masks = generated_profile_masks(&profile, width, height);
+        let render = |limited: bool| {
+            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            processor
+                .force_export_display
+                .store(limited, std::sync::atomic::Ordering::Relaxed);
+            let (pixels, ..) = processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: adjustments.clone(),
+                        mask_bitmaps: &masks,
+                        lut: None,
+                        roi: None,
+                    },
+                    false,
+                    precision,
+                )
+                .unwrap();
+            if limited {
+                let features = export_display_features(&adjustments);
+                assert!(
+                    processor.deferred_display.get(features).is_some(),
+                    "{profile}: deferred display variant {features} not used"
+                );
+                for table in [
+                    &processor.export_pipelines,
+                    &processor.high_precision_export_pipelines,
+                    &processor.deferred_export_pipelines,
+                ] {
+                    assert!(
+                        table.supersets(0).all(|slot| slot.get().is_none()),
+                        "{profile}: an export variant was compiled"
+                    );
+                }
+            }
+            match pixels {
+                RenderedPixels::U8(bytes) => bytes.into_iter().map(u16::from).collect::<Vec<_>>(),
+                RenderedPixels::U16(values) => values,
+            }
+        };
+        let elsewhere = render(false);
+        let limited = render(true);
+        assert_eq!(limited, render(true), "{profile}: not deterministic");
+        let worst = elsewhere
+            .iter()
+            .zip(&limited)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        let differing = elsewhere
+            .iter()
+            .zip(&limited)
+            .filter(|(a, b)| a != b)
+            .count();
+        println!(
+            "{precision:?} {}: worst {worst}, {differing} of {} values differ",
+            profile.to_string().chars().take(120).collect::<String>(),
+            elsewhere.len()
+        );
+        match precision {
+            RenderOutputPrecision::EightBit => worst8 = worst8.max(worst),
+            RenderOutputPrecision::SixteenBit => worst16 = worst16.max(worst),
+        }
+    }
+    println!("worst: 8-bit {worst8}, 16-bit {worst16}");
+    // NVIDIA Vulkan (RTX 3080): 8-bit 0 (long curves), 16-bit at most 9 of
+    // 65535 (one 8-bit level is 257), on up to 8598 of 804452 values.
+    assert!(worst8 <= 1, "8-bit off by {worst8}");
+    assert!(worst16 <= 32, "16-bit off by {worst16}");
+}
+
+#[test]
 #[ignore = "requires a native GPU; several outputs of one export under a compile limit"]
 fn several_outputs_under_a_compile_limit_match_their_own_exports() {
     // Under a compile limit each 8-bit output of a render for several

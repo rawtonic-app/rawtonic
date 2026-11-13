@@ -67,6 +67,9 @@ pub(super) enum IdleJob {
     Display(usize),
     /// The display variant of these features reading the layer sums.
     LayerSums(usize),
+    /// The display variant of these features with float output in deferred
+    /// mode: what 16-bit exports render with (`deferred_display`).
+    Deferred(usize),
 }
 
 /// The display variants worth compiling ahead for a photo shown with
@@ -209,6 +212,7 @@ pub(super) struct IdleTarget {
     pub(super) failed: Arc<VariantTable<std::sync::atomic::AtomicBool>>,
     pub(super) layer_sums: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
     pub(super) layer_sum_compilation: Arc<VariantTable<std::sync::OnceLock<()>>>,
+    pub(super) deferred: Arc<super::deferred_display::DeferredDisplay>,
 }
 
 #[derive(Default)]
@@ -224,6 +228,9 @@ struct Queue {
     /// The planned display variant exports of the shown photo render with
     /// (`planned_jobs`): compiled even when a compiled superset covers it.
     exact: Option<usize>,
+    /// Whether the plan holds the deferred variant of `exact`
+    /// (`deferred_display::set_idle_deferred_exports`).
+    deferred: bool,
     /// The planned supersets (replaced when another photo is shown).
     plan: VecDeque<IdleJob>,
     /// Layer-sum variants that frames need (the per-layer loop serves them
@@ -238,13 +245,23 @@ struct Queue {
 impl Queue {
     /// Replaces the planned supersets with `plan` unless it is the plan
     /// made last; whether it did.
-    fn replan(&mut self, (plan, exact): (Vec<usize>, usize)) -> bool {
-        if self.planned.as_ref() == Some(&plan) && self.exact == Some(exact) {
+    /// `deferred`: the plan ends with the deferred variant of `exact`
+    /// (`deferred_display::idle_deferred_exports`).
+    fn replan(&mut self, (plan, exact): (Vec<usize>, usize), deferred: bool) -> bool {
+        if self.planned.as_ref() == Some(&plan)
+            && self.exact == Some(exact)
+            && self.deferred == deferred
+        {
             return false;
         }
         self.plan = plan.iter().copied().map(IdleJob::Display).collect();
+        // Last: 16-bit exports of the photo render with it (G76/WCC10).
+        if deferred {
+            self.plan.push_back(IdleJob::Deferred(exact));
+        }
         self.planned = Some(plan);
         self.exact = Some(exact);
+        self.deferred = deferred;
         true
     }
 }
@@ -285,7 +302,8 @@ impl IdleCompiles {
         target: impl FnOnce() -> IdleTarget,
     ) {
         let mut queue = self.lock();
-        if queue.cancelled || !queue.replan(planned_jobs(features, adjustments)) {
+        let deferred = super::deferred_display::idle_deferred_exports();
+        if queue.cancelled || !queue.replan(planned_jobs(features, adjustments), deferred) {
             return;
         }
         self.start(&mut queue, target);
@@ -428,6 +446,9 @@ impl IdleCompiles {
                     IdleJob::LayerSums(features) => {
                         target.layer_sum_compilation[features].set(()).is_err()
                     }
+                    IdleJob::Deferred(features) => {
+                        target.deferred.get(features).is_some() || target.deferred.failed(features)
+                    }
                 };
                 if claimed {
                     continue;
@@ -445,6 +466,33 @@ impl IdleCompiles {
         let (features, layer_sums) = match job {
             IdleJob::Display(features) => (features, false),
             IdleJob::LayerSums(features) => (features, true),
+            IdleJob::Deferred(features) => {
+                let started = std::time::Instant::now();
+                log::info!(
+                    "GPU idle compile of deferred display variant {features}: started (+{:.2} s since start)",
+                    since_start()
+                );
+                let created = BACKGROUND_COMPILE.with(|background| {
+                    background.set(true);
+                    let created = target
+                        .deferred
+                        .compile(&target.device, features)
+                        .map(|_| ());
+                    background.set(false);
+                    created
+                });
+                if let Err(error) = created {
+                    log::error!(
+                        "Deferred display variant {features} unavailable; exports compile their own: {error}"
+                    );
+                }
+                log::info!(
+                    "GPU idle compile of deferred display variant {features}: ended after {:.2} s (+{:.2} s since start)",
+                    started.elapsed().as_secs_f64(),
+                    since_start()
+                );
+                return;
+            }
         };
         let started = std::time::Instant::now();
         log::info!(
@@ -721,23 +769,32 @@ mod tests {
                 .iter()
                 .map(|job| match job {
                     IdleJob::Display(features) => *features,
-                    IdleJob::LayerSums(_) => unreachable!(),
+                    IdleJob::LayerSums(_) | IdleJob::Deferred(_) => unreachable!(),
                 })
                 .collect::<Vec<_>>()
         };
         let mut queue = Queue::default();
-        assert!(queue.replan((plan_3.clone(), 0)));
+        assert!(queue.replan((plan_3.clone(), 0), false));
         assert_eq!(planned(&queue), plan_3);
         // The worker took the first job; the same photo again keeps the rest.
         queue.plan.pop_front();
-        assert!(!queue.replan((plan_3.clone(), 0)));
+        assert!(!queue.replan((plan_3.clone(), 0), false));
         assert_eq!(planned(&queue), plan_3[1..]);
-        assert!(queue.replan((plan_2.clone(), 0)));
+        assert!(queue.replan((plan_2.clone(), 0), false));
         assert_eq!(planned(&queue), plan_2);
         // A look change (Camera Raw to AgX) with the same features too.
         let agx = adjustments(crate::image_processing::TONE_VERSION as f32, 1);
         assert_eq!(preview_features(&agx), features);
-        assert!(queue.replan(planned_jobs(features, &agx)));
+        assert!(queue.replan(planned_jobs(features, &agx), false));
+        // 16-bit exports (G76/WCC10): the same plan with the deferred
+        // variant of its export entry last, and again without it.
+        let (plan, exact) = planned_jobs(features, &agx);
+        assert!(queue.replan((plan.clone(), exact), true));
+        assert_eq!(queue.plan.back(), Some(&IdleJob::Deferred(exact)));
+        assert_eq!(queue.plan.len(), plan.len() + 1);
+        assert!(!queue.replan((plan.clone(), exact), true));
+        assert!(queue.replan((plan, exact), false));
+        assert!(!queue.plan.contains(&IdleJob::Deferred(exact)));
     }
 
     #[test]
