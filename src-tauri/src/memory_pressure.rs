@@ -86,11 +86,29 @@ const IDLE_COMPILE_PRESSURE_HOLD: Duration = Duration::from_secs(60);
 /// Bytes on Windows, resident memory elsewhere) is above
 /// `IDLE_COMPILE_PRIVATE_SHARE` of the physical memory, while the system is
 /// short of memory (`level_now`) and for `IDLE_COMPILE_PRESSURE_HOLD`
-/// after. Idle compiles run only under a compile limit (AMD's Windows Vulkan
-/// driver), so elsewhere this is never asked.
-pub fn guard_idle_compiles() {
+/// after; and while an export runs or the export queue works through its
+/// jobs: a compile cannot be stopped midway, so one started in idle time
+/// made an export wait for the compile slot (G76/WQI: 20 s on a Radeon
+/// 680M). The AI models are loaded in this process, so their memory counts
+/// in the private memory. Idle compiles run only under a compile limit
+/// (AMD's Windows Vulkan driver), so elsewhere this is never asked.
+pub fn guard_idle_compiles(app: &tauri::AppHandle) {
+    use tauri::Manager as _;
+    let app = app.clone();
     let state = std::sync::Mutex::new((sysinfo::System::new(), None::<std::time::Instant>));
     rawtonic_gpu::gpu_processing::set_idle_compile_memory_guard(Box::new(move || {
+        let exports = app.state::<crate::state::export::ExportState>();
+        if exports
+            .runner_active
+            .load(std::sync::atomic::Ordering::SeqCst)
+            || exports
+                .task_token
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some()
+        {
+            return Err("an export runs".into());
+        }
         let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
         let (system, last_pressure) = &mut *state;
         let level = level_now();

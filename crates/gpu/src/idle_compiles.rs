@@ -39,7 +39,8 @@ const IDLE_POLL: Duration = Duration::from_millis(250);
 /// again.
 const MEMORY_HOLD_POLL: Duration = Duration::from_secs(2);
 
-/// Why memory does not allow an idle compile now (`Err`), asked before each.
+/// Why the app does not allow an idle compile now (`Err`: short of memory,
+/// an export runs), asked before each.
 pub type IdleCompileMemoryGuard = Box<dyn Fn() -> Result<(), String> + Send + Sync>;
 
 static MEMORY_GUARD: std::sync::OnceLock<IdleCompileMemoryGuard> = std::sync::OnceLock::new();
