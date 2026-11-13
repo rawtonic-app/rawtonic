@@ -1,0 +1,6 @@
+# WCC10 round 18 (G76): what a 16-bit export of the WGT16 edit would compile if it rendered with the display variant's code (display source, float output; `hp`), against today's folded 16-bit export variant (r14: 116.3 s / 9.3 GB). Inlined (COMPILE_PROBE_SIZE_ONLY=1): d16 5238847 65787, deferred 65791, Glow 7335999 deferred 76739; e16 87717.
+# Measured (Lenovo, Radeon 680M, AMD 25.10.37.03, VkCache cleared, 2026-11-13; ms / peak MB): r18_d16_basic 55300 / 4329, r18_dd_basic 46400 / 3760, r18_dd_glow 52300 / 4424.
+# Run with COMPILE_PROBE_TIMEOUT=300 from the artifact folder, VkCache cleared before the run (every line has a nonce). References: r17 basic 54.7 s / 4329 MB, glow 58.9 s / 4692 MB (8-bit display).
+r18_d16_basic features=5238847 dce display hp set=HIGH_PRECISION_OUTPUT:1
+r18_dd_basic features=5238847 dce display hp set=HIGH_PRECISION_OUTPUT:1,DEFER_OUTPUT:1
+r18_dd_glow features=7335999 dce display hp set=HIGH_PRECISION_OUTPUT:1,DEFER_OUTPUT:1

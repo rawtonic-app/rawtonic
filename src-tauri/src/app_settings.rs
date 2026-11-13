@@ -1307,11 +1307,23 @@ pub async fn save_settings(settings: AppSettings, app_handle: AppHandle) -> Resu
 fn save_settings_snapshot(settings: AppSettings, app_handle: &AppHandle) -> Result<(), String> {
     let cache_size = crate::state::settings::update(app_handle, |saved| {
         take_frontend_snapshot(saved, settings);
+        rawtonic_gpu::gpu_processing::set_idle_deferred_exports(has_sixteen_bit_recipe(saved));
         Ok(saved.image_cache_size.unwrap_or(5) as usize)
     })?;
     let develop = app_handle.state::<DevelopSession>();
     crate::state::lock::lock_recover(&develop.decoded_image_cache).set_capacity(cache_size);
     Ok(())
+}
+
+/// Whether an export recipe writes 16-bit TIFF (the Studio reads a missing
+/// depth as 16, `exportRecipes.ts`): under a compile limit the variant
+/// such exports render with then compiles in idle time
+/// (`rawtonic_gpu::gpu_processing::set_idle_deferred_exports`).
+pub(crate) fn has_sixteen_bit_recipe(settings: &AppSettings) -> bool {
+    settings.export_presets.iter().any(|preset| {
+        matches!(preset.file_format.to_lowercase().as_str(), "tif" | "tiff")
+            && preset.tiff_bit_depth != Some(8)
+    })
 }
 
 /// Frontend snapshots must never roll back the backend's throttle timestamp,
@@ -1841,6 +1853,30 @@ mod tests {
                 _ => assert_eq!(want, got, "{key}"),
             }
         }
+    }
+
+    /// A TIFF recipe is 16-bit unless it says 8 (the Studio's reading);
+    /// other formats never (G76/WCC10).
+    #[test]
+    fn sixteen_bit_recipes_are_tiff_recipes_not_set_to_8_bit() {
+        let mut settings = AppSettings {
+            export_presets: default_export_presets(),
+            ..Default::default()
+        };
+        assert!(!has_sixteen_bit_recipe(&settings));
+        let mut tiff = default_export_presets().remove(0);
+        tiff.file_format = "tiff".into();
+        tiff.tiff_bit_depth = Some(8);
+        settings.export_presets.push(tiff.clone());
+        assert!(!has_sixteen_bit_recipe(&settings));
+        tiff.tiff_bit_depth = None;
+        settings.export_presets.push(tiff.clone());
+        assert!(has_sixteen_bit_recipe(&settings));
+        settings.export_presets.pop();
+        tiff.tiff_bit_depth = Some(16);
+        tiff.file_format = "TIF".into();
+        settings.export_presets.push(tiff);
+        assert!(has_sixteen_bit_recipe(&settings));
     }
 
     #[test]

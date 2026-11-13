@@ -34,8 +34,11 @@ mod preview_tests;
 
 #[path = "camera_cover.rs"]
 pub mod camera_cover;
+#[path = "deferred_display.rs"]
+mod deferred_display;
 #[path = "idle_compiles.rs"]
 mod idle_compiles;
+pub use deferred_display::set_idle_deferred_exports;
 #[path = "multi_view.rs"]
 pub mod multi_view;
 #[path = "preview_layers.rs"]
@@ -4016,6 +4019,9 @@ pub struct GpuProcessor {
         VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     high_precision_shader: wgpu::ShaderModule,
     high_precision_layout: wgpu::PipelineLayout,
+    /// Under a compile limit the display variants exports render with in
+    /// float output (`deferred_display`, G76/WCC10).
+    deferred_display: Arc<deferred_display::DeferredDisplay>,
     high_precision_bgl: wgpu::BindGroupLayout,
     high_precision_pipeline: std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>,
     high_precision_tile: std::sync::OnceLock<HighPrecisionTile>,
@@ -7529,6 +7535,11 @@ impl GpuProcessor {
             preview_layout: pipeline_layout,
             export_pipelines: variant_table(),
             high_precision_export_pipelines: variant_table(),
+            deferred_display: deferred_display::DeferredDisplay::new(
+                &high_precision_source,
+                high_precision_shader.clone(),
+                high_precision_pipeline_layout.clone(),
+            ),
             high_precision_shader,
             high_precision_layout: high_precision_pipeline_layout,
             high_precision_bgl,
@@ -8575,6 +8586,7 @@ impl GpuProcessor {
             failed: Arc::clone(&self.preview_failed),
             layer_sums: Arc::clone(&self.layer_sum_pipelines),
             layer_sum_compilation: Arc::clone(&self.layer_sum_compilation),
+            deferred: Arc::clone(&self.deferred_display),
         }
     }
 
@@ -9186,6 +9198,48 @@ impl GpuProcessor {
         }
     }
 
+    /// Whether an export that does not render with the 8-bit display variant
+    /// (`exports_with_display_variant`: 16-bit, several outputs, a curve
+    /// sampled into a table) renders with the deferred display variant
+    /// (`deferred_display`): under a compile limit. Elsewhere exports keep
+    /// their own variants and bytes. No `renderVersion` gates it, for the
+    /// reason given at `exports_with_display_variant` (G76/WCC10, user
+    /// decision 2026-11-13).
+    fn exports_with_deferred_display(&self) -> bool {
+        #[cfg(test)]
+        let forced = self
+            .force_export_display
+            .load(std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(test))]
+        let forced = false;
+        forced || compile_limited()
+    }
+
+    /// The deferred display variant an export renders with
+    /// (`exports_with_deferred_display`), compiled here if this processor
+    /// has none yet (the driver's pipeline cache answers a module the
+    /// editor's idle compiles made); the export variant if it fails.
+    fn deferred_display_pipeline(
+        &self,
+        adjustments: &crate::image_processing::PreparedAdjustments,
+    ) -> Result<&wgpu::ComputePipeline, String> {
+        let features = export_display_features(adjustments);
+        log::info!("GPU export renders with deferred display variant {features}");
+        deferred_display::note_deferred_export();
+        match self
+            .deferred_display
+            .compile(&self.context.device, features)
+        {
+            Ok(pipeline) => Ok(pipeline),
+            Err(error) => {
+                log::error!(
+                    "Deferred display variant {features} unavailable for an export; using the export variant: {error}"
+                );
+                self.export_pipeline(adjustments, MainOutput::Deferred)
+            }
+        }
+    }
+
     /// Export variant `features` folded (`display_variant_ir`: without the
     /// branches its constants and its tone bits decide), in `slot`; a
     /// variant over `EXPORT_INLINED_CEILING` is refused with a clear error
@@ -9638,8 +9692,16 @@ impl GpuProcessor {
             && outputs.is_empty()
             && output_precision == RenderOutputPrecision::EightBit
             && self.exports_with_display_variant(&request.adjustments);
+        // Every other export under a compile limit renders with the display
+        // variant's code in float output (`deferred_display_pipeline`); it
+        // goes through the deferred path below (`own_output`).
+        let export_deferred_display = readback_shader == ReadbackShader::Export
+            && !output_to_display
+            && !export_display
+            && self.exports_with_deferred_display();
         let display_shader = output_to_display
             || export_display
+            || export_deferred_display
             || (matches!(
                 readback_shader,
                 ReadbackShader::Display | ReadbackShader::Preview
@@ -9737,6 +9799,8 @@ impl GpuProcessor {
             (
                 if force_full_preparation || force_general_pipeline {
                     self.general_pipeline(&request.adjustments, MainOutput::Deferred)?
+                } else if export_deferred_display {
+                    self.deferred_display_pipeline(&request.adjustments)?
                 } else {
                     self.export_pipeline(&request.adjustments, MainOutput::Deferred)?
                 },
@@ -9985,13 +10049,16 @@ impl GpuProcessor {
         let mut layer_sums_buffer = self.layer_sums_off.clone();
         if display_shader {
             let mut layers = prepare_layers(adjustments);
-            if export_display {
+            if export_display || export_deferred_display {
                 // Exports evaluate every curve exactly: the display's
-                // curve tables are approximations within a tolerance (and
-                // a recipe with a sampled global curve does not get here).
+                // curve tables are approximations within a tolerance. A
+                // global curve sampled into a table (> 16 points; only the
+                // deferred path) reads the export's own table
+                // (`update_curve_table`), as its general pipeline does.
                 for layer in &mut layers {
                     layer.set_curve_lut(false);
                 }
+                layers[0].set_curve_lut(request.adjustments.curve_table.is_some());
             } else {
                 self.update_curve_luts(&mut layers, adjustments.mask_count as usize);
                 layers[0].set_curve_lut(request.adjustments.curve_table.is_some());
@@ -10014,6 +10081,7 @@ impl GpuProcessor {
                 let specialised = enabled
                     && display_shader
                     && !export_display
+                    && !export_deferred_display
                     && !force_full_preparation
                     && !force_general_pipeline
                     && !test_override

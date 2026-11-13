@@ -23,6 +23,8 @@
 //! - `display`: the source as display variants compile it (the app's
 //!   `DisplayShader`: its display-only reshapes of shader.wgsl). Use it with
 //!   `dce` to measure what the app compiles.
+//! - `hp`: float output storage (the 16-bit and deferred renders' source);
+//!   with `set=HIGH_PRECISION_OUTPUT:1` (and `DEFER_OUTPUT:1`).
 //! - `exportsrc`: the source export variants compile (the app's
 //!   `ExportShaders`: the tone arms the variant's bits decide written as
 //!   decided). Use it with `export dce` to measure what an export compiles.
@@ -162,6 +164,7 @@ struct Spec {
     export: bool,
     display: bool,
     exportsrc: bool,
+    hp: bool,
     stubs: Vec<String>,
     src: Option<String>,
     set: Vec<(String, f64)>,
@@ -180,6 +183,7 @@ fn parse(line: &str) -> Result<Spec, String> {
         export: false,
         display: false,
         exportsrc: false,
+        hp: false,
         stubs: vec![],
         src: None,
         set: vec![],
@@ -215,6 +219,7 @@ fn parse(line: &str) -> Result<Spec, String> {
             None if word == "export" => spec.export = true,
             None if word == "display" => spec.display = true,
             None if word == "exportsrc" => spec.exportsrc = true,
+            None if word == "hp" => spec.hp = true,
             None if word == "spirv" => spec.spirv = true,
             _ => return Err(format!("unknown word {word}")),
         }
@@ -292,6 +297,13 @@ fn one(line: &str) -> Result<String, String> {
         rawtonic_gpu::gpu_processing::display_shader_source(&source)
     } else if spec.exportsrc {
         rawtonic_gpu::gpu_processing::export_shader_source(&source, spec.features)
+    } else {
+        source
+    };
+    // `hp`: float output storage, as 16-bit exports and deferred renders
+    // compile (gpu_processing `high_precision_shader_source`).
+    let source = if spec.hp {
+        source.replace("rgba8unorm, write>", "rgba32float, write>")
     } else {
         source
     };
