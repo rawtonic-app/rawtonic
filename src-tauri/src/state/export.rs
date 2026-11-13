@@ -28,6 +28,9 @@ pub struct ExportState {
     pub(crate) interrupted_edits: Mutex<Vec<InterruptedEditWith>>,
     /// The cancel flag of the export task that runs now, if one does.
     pub task_token: Arc<Mutex<Option<Arc<AtomicBool>>>>,
+    /// When the last export run ended: the GPU's idle compiles stay held a
+    /// while after it (`memory_pressure::guard_idle_compiles`).
+    pub(crate) last_run_end: Mutex<Option<std::time::Instant>>,
 }
 
 impl ExportState {

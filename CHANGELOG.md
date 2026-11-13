@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- **Windows with AMD graphics: exporting while a view is prepared needs less memory.** On AMD's Windows Vulkan driver an export now waits for a running view preparation before it sets up its graphics memory, and gives that memory back when the export ends, so it never adds to a later preparation (Radeon 680M: a Glow export right after turning Glow on peaked at 6.8 GB, the preparation alone at 5.8 GB). On other graphics drivers exports are unchanged.
+- **Windows with AMD graphics: exporting while a view is prepared needs less memory.** On AMD's Windows Vulkan driver an export now waits for a running view preparation before it sets up its graphics memory, gives that memory back when the export ends, so it never adds to a later preparation, and the editor prepares nothing in the background for a minute after an export, so a second export does not wait for it (Radeon 680M: a Glow export right after turning Glow on peaked at 6.8 GB, the preparation alone at 5.8 GB). On other graphics drivers exports are unchanged.
 
 - **Windows with AMD graphics: less memory while views are prepared.** On AMD's Windows Vulkan driver each view the editor prepares costs the graphics driver several gigabytes while it is compiled (Radeon 680M: the app peaked at 7.0 GB while idle and at 8.3 GB exporting a photo with Glow). The editor no longer prepares a view with every effect in idle time, a view with Glow, halation or grain now holds only the effects the photo uses, and an export waits for a running preparation before it allocates its own memory. The editor's views show the same pixels as before; exports on other graphics drivers are unchanged.
 

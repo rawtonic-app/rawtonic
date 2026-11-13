@@ -1268,6 +1268,11 @@ pub(crate) async fn export_images_impl(
                 "Released the exports' GPU processor after the run (memory pressure or compile limit)"
             );
         }
+        *crate::state::lock::lock_recover(
+            &app_handle
+                .state::<crate::state::export::ExportState>()
+                .last_run_end,
+        ) = Some(std::time::Instant::now());
         // Render and encode buffers of the last exports.
         crate::allocator::release_freed_memory();
         let errors: Vec<String> = results.into_iter().filter_map(Result::err).collect();

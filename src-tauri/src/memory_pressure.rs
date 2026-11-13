@@ -109,6 +109,9 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
         {
             return Err("an export runs".into());
         }
+        let since_export =
+            crate::state::lock::lock_recover(&exports.last_run_end).map(|ended| ended.elapsed());
+        export_hold(since_export)?;
         let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
         let (system, last_pressure) = &mut *state;
         let level = level_now();
@@ -139,6 +142,24 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
             last_pressure.map(|at| now.duration_since(at)),
         )
     }));
+}
+
+/// How long after an export run idle compiles stay held: on a Radeon 680M
+/// an idle compile (here the brush layer's layer-sum variant, 41.6 s at
+/// 5.7 GB) started 3 s after an export, and the next export waited 35 s
+/// for it at 6.24 GB (G76/WGT23). A photographer exporting again soon
+/// after must not meet one.
+const IDLE_COMPILE_EXPORT_HOLD: Duration = Duration::from_secs(60);
+
+/// `Err` while the last export run ended less than
+/// `IDLE_COMPILE_EXPORT_HOLD` ago.
+fn export_hold(since_export: Option<Duration>) -> Result<(), String> {
+    match since_export {
+        Some(since) if since < IDLE_COMPILE_EXPORT_HOLD => {
+            Err(format!("an export ended {:.0} s ago", since.as_secs_f64()))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Whether an idle compile may start: `Err` names why not.
@@ -336,6 +357,16 @@ mod tests {
     use super::*;
 
     const GB: u64 = 1 << 30;
+
+    /// Idle compiles wait a minute after an export run, so the next export
+    /// does not wait for one (G76/WGT23).
+    #[test]
+    fn idle_compiles_stay_held_a_minute_after_an_export() {
+        assert!(export_hold(None).is_ok());
+        assert!(export_hold(Some(Duration::from_secs(3))).is_err());
+        assert!(export_hold(Some(Duration::from_secs(59))).is_err());
+        assert!(export_hold(Some(IDLE_COMPILE_EXPORT_HOLD)).is_ok());
+    }
 
     #[test]
     fn low_available_memory_is_reported_once_until_it_recovers() {
