@@ -546,7 +546,11 @@ the config folder's `gpu-start.json`, the processing backend preference is never
 starts the window offers Reset graphics settings and retry; `RAWTONIC_TEST_CRASH` in `qa_crash.rs`, `qa-control`
 builds only); `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed by adapter, driver and app version,
 filled by the first start (shown as "Preparing graphics" in the activity centre) or ahead by
-`rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, a QA/benchmark tool; no installer runs it));
+`rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, a QA/benchmark tool; no installer runs it);
+under a compile limit (AMD's Windows Vulkan driver) display variants a photographer likely needs next compile in idle
+time (`idle_compiles.rs`), each in a helper process (`idle_compile_child.rs`; `rawtonic-app --gpu-idle-compile JOB
+FOLDER`, `src-tauri/src/gpu_idle_helper.rs`) that is killed when a compile or export waits for the slot; the app takes
+the finished variant through the pipeline cache the helper left).
 
 
 #### `export`
