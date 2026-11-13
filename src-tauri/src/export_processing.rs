@@ -814,8 +814,9 @@ const EXPORT_WORKER_GB: f64 = 2.0;
 const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
 
 /// Exports keep their GPU processor (its textures and compiled pipelines)
-/// between runs until the system runs short of memory; one that a render
-/// holds stays, and goes when its run ends (`release_after_run`).
+/// between runs until the system runs short of memory (under a compile
+/// limit not at all, `release_after_run`); one that a render holds stays,
+/// and goes when its run ends.
 pub(crate) fn release_processor_under_pressure(app_handle: &tauri::AppHandle) {
     let app_handle = app_handle.clone();
     crate::memory_pressure::watch(Arc::new(move |_| {
@@ -1024,6 +1025,11 @@ pub(crate) async fn export_images_impl(
         let app_handle = app_handle.clone();
         let context = context.clone();
         tokio::task::spawn_blocking(move || {
+            // Under a compile limit the processor's textures (~1 GB) are not
+            // made beside a running compile: WGT21's Glow 30 export peaked
+            // at 6.8 GB on a Radeon 680M, the Glow compile alone at 5.8 GB
+            // (G76/WCC9).
+            rawtonic_gpu::gpu_processing::wait_for_running_compiles("export processor");
             crate::gpu_processing::prewarm_gpu_processor(
                 &app_handle
                     .state::<crate::state::gpu::GpuState>()
@@ -1247,11 +1253,20 @@ pub(crate) async fn export_images_impl(
                 .state::<crate::state::gpu::GpuState>()
                 .export_processor,
             prewarm,
-            crate::memory_pressure::under_pressure,
+            // Under a compile limit the processor is not kept for the next
+            // run: every later compile (4–6 GB there) would come on top of
+            // its textures (G76/WCC9). The next run rebuilds it; its
+            // pipelines come from the pipeline cache.
+            || {
+                crate::memory_pressure::under_pressure()
+                    || rawtonic_gpu::gpu_processing::compiles_limited()
+            },
         )
         .await
         {
-            log::info!("Memory pressure: released the exports' GPU processor after the run");
+            log::info!(
+                "Released the exports' GPU processor after the run (memory pressure or compile limit)"
+            );
         }
         // Render and encode buffers of the last exports.
         crate::allocator::release_freed_memory();
