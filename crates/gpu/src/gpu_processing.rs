@@ -5501,8 +5501,15 @@ fn export_variant(
     // Metal may reassociate active neighbourhood operations when
     // unrelated branches are removed. Their full general pipeline
     // keeps older recipes' exports exact; specialize only those
-    // without these operations.
-    let features = export_features(adjustments);
+    // without these operations. A folded variant takes the recipe's own
+    // features here too: with the code `export_features` keeps idle, an
+    // older recipe's RAW default variant was 184k inlined folded, over the
+    // ceiling, so it would be refused where unfolded it took about 98 s.
+    let features = if folded {
+        preview_features(adjustments)
+    } else {
+        export_features(adjustments)
+    };
     (features & ((1 << 0) | (1 << 1) | (1 << 4)) == 0).then_some(features)
 }
 

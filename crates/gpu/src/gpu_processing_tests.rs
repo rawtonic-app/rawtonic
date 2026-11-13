@@ -6201,8 +6201,9 @@ fn version_5_exports_render_their_specialized_variant_within_rounding() {
                 if raw && tonemapper == 3 {
                     adjustments.global.profile_curve[15][3] = 2.0;
                 }
-                // The display variant's features.
-                let features = preview_features(&adjustments);
+                // The display variant's features with the effects and
+                // tone-version-5 code exports always keep.
+                let features = preview_features(&adjustments) | EFFECTS_FEATURE | TONE_V5_FEATURE;
                 assert!(std::ptr::eq(
                     processor
                         .export_pipeline(&adjustments, MainOutput::Deferred)
@@ -9042,16 +9043,16 @@ fn a_lost_device_fails_its_renders_instead_of_panicking() {
 
 #[test]
 #[ignore = "requires a native GPU; folded export variants against the whole shader"]
-fn export_variants_from_folded_ir_render_the_same_bytes() {
+fn folded_export_variants_render_their_exports_within_rounding() {
     // Under a compile limit an export variant compiles from shader.wgsl
-    // with the branches its constants and its tone bits decide removed,
-    // and from `renderVersion` 5 with the effects and tone-version-5 code
-    // only where the recipe has them (`folded_export_pipeline`, G76/WCC6).
-    // On these synthetic frames it renders the bytes of the whole shader
-    // with the variant exports compiled before, in 8 and 16 bits: a check
-    // of the fold's decisions. It is not a proof for every photo: on real
-    // photos the folded module compiled to a few codes' difference on
-    // NVIDIA and Metal (preservation), so only compile limits fold.
+    // with the branches its constants and its tone bits decide removed, and
+    // with only the recipe's own features (`folded_export_pipeline`,
+    // G76/WCC6); it renders what exports compile elsewhere (the whole
+    // shader, with the code `export_variant` keeps idle there) within one
+    // code: dropping idle code moves rounding (an older recipe's RAW
+    // default: 4 values on NVIDIA here; real photos 24 of 326 on NVIDIA,
+    // 94 of 280 on Metal in preservation), which is why only compile limits
+    // fold. A wrongly decided branch would move far more.
     let context = context();
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
@@ -9063,7 +9064,7 @@ fn export_variants_from_folded_ir_render_the_same_bytes() {
         "blacks":-10,"clarity":20,"structure":15,"dehaze":15,"vibrance":20,
         "curves":custom_curve(),"hsl":{"reds":{"hue":12}},
         "masks":[local_mask("brush", json!({"exposure":0.6}))]});
-    let mut checked = 0;
+    let (mut checked, mut refused) = (0, Vec::new());
     for (profile, raw) in [
         (json!({}), true),
         (json!({"renderVersion":5}), true),
@@ -9116,10 +9117,15 @@ fn export_variants_from_folded_ir_render_the_same_bytes() {
                     MainOutput::Deferred => &processor.deferred_export_pipelines,
                 };
                 if folded {
-                    let made = processor
-                        .folded_export_pipeline(&table[before], features, output)
-                        .unwrap();
-                    assert!(made.is_some(), "{profile}: folded variant {features}");
+                    // Over the ceiling: refused, not compiled (checked by
+                    // `a_compile_limit_refuses_only_export_variants_over_the_ceiling`).
+                    match processor.folded_export_pipeline(&table[before], features, output) {
+                        Ok(made) => assert!(made.is_some(), "{profile}: folded variant {features}"),
+                        Err(error) => {
+                            assert_eq!(error, rawtonic_runtime::gpu_memory::GPU_EXPORT_TOO_COMPLEX);
+                            return None;
+                        }
+                    }
                 } else {
                     // The reference: the whole shader with the variant's
                     // constants, as exports compile it.
@@ -9165,28 +9171,37 @@ fn export_variants_from_folded_ir_render_the_same_bytes() {
                 used,
                 "{profile}: the export did not take variant {features}"
             );
-            match pixels {
+            Some(match pixels {
                 RenderedPixels::U8(bytes) => bytes.into_iter().map(u32::from).collect::<Vec<_>>(),
                 RenderedPixels::U16(words) => words.into_iter().map(u32::from).collect::<Vec<_>>(),
-            }
+            })
         };
         for precision in [
             RenderOutputPrecision::EightBit,
             RenderOutputPrecision::SixteenBit,
         ] {
-            let whole = render(false, precision);
-            let folded = render(true, precision);
-            let differing = whole.iter().zip(&folded).filter(|(a, b)| a != b).count();
-            assert_eq!(
-                differing,
-                0,
-                "{features} {precision:?}: {differing} values differ ({})",
+            let whole = render(false, precision).unwrap();
+            let Some(folded) = render(true, precision) else {
+                refused.push(profile.to_string());
+                break;
+            };
+            let worst = whole
+                .iter()
+                .zip(&folded)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(
+                worst <= 1,
+                "{features} {precision:?}: off by {worst} ({})",
                 profile.to_string().chars().take(200).collect::<String>()
             );
         }
         checked += 1;
     }
+    // None of these is over the ceiling.
     assert_eq!(checked, 9);
+    assert!(refused.is_empty(), "{refused:?}");
 }
 
 #[test]
