@@ -52,7 +52,12 @@
 //!   processor (as exports get one, `GpuProcessor::for_exports`) on the same
 //!   device compiles the same variant through the app's pipeline cache (in a
 //!   fresh folder): what an export pays for a variant the display compiled
-//!   (`again_ms`, `again_peak_mb` sampled during it). `spv=appdevice` (with `spirv`):
+//!   (`again_ms`, `again_peak_mb` sampled during it). `spv=proc,keep`: the
+//!   app's pipeline cache in one folder every `keep` line shares (the system
+//!   temp folder's `compile_probe_cache_kept`, never removed), loaded before
+//!   and saved after the compile (`kept_cache_bytes`): whether a variant one
+//!   process compiled comes back fast in another (G76/WCC11: idle compiles
+//!   in a child process). `spv=appdevice` (with `spirv`):
 //!   the probe's SPIR-V and layout on the app's device.
 //! - `noinline`: with `spirv`, mark these functions (or `all` but the entry
 //!   point) DontInline: whether the driver compiles each once.
@@ -697,9 +702,16 @@ fn spirv_words(
 fn through_processor(spec: &Spec, inlined: usize, functions: usize) -> Result<String, String> {
     use rawtonic_gpu::gpu_processing::{GpuContext, GpuProcessor};
     let again = knob_set(&spec.spv, "again");
-    // `again`: the app's pipeline cache, in a folder of its own.
-    let cache_dir = again
-        .then(|| std::env::temp_dir().join(format!("compile_probe_cache_{}", std::process::id())));
+    let keep = knob_set(&spec.spv, "keep");
+    // `again`: the app's pipeline cache, in a folder of its own; `keep`: in
+    // one folder all `keep` lines share and nobody removes.
+    let cache_dir = if keep {
+        Some(std::env::temp_dir().join("compile_probe_cache_kept"))
+    } else {
+        again.then(|| {
+            std::env::temp_dir().join(format!("compile_probe_cache_{}", std::process::id()))
+        })
+    };
     if let Some(dir) = &cache_dir {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
@@ -711,6 +723,7 @@ fn through_processor(spec: &Spec, inlined: usize, functions: usize) -> Result<St
             .features()
             .contains(wgpu::Features::PASSTHROUGH_SHADERS)
     );
+    let processor_device = context.device.clone();
     let processor = GpuProcessor::for_exports(context.clone(), 1808, 1356)?;
     let private_before = memory::private_bytes();
     let sampler = memory::Sampler::start();
@@ -736,9 +749,16 @@ fn through_processor(spec: &Spec, inlined: usize, functions: usize) -> Result<St
     } else {
         String::new()
     };
-    if let Some(dir) = &cache_dir {
+    let kept_bytes = if keep {
+        rawtonic_gpu::pipeline_cache::save_now(&processor_device)
+            .map_or("null".to_string(), |(_, bytes)| bytes.to_string())
+    } else {
+        "null".to_string()
+    };
+    if let Some(dir) = cache_dir.as_ref().filter(|_| !keep) {
         let _ = std::fs::remove_dir_all(dir);
     }
+    let again_fields = format!("{again_fields},\"kept_cache_bytes\":{kept_bytes}");
     Ok(format!(
         "{{\"pipeline_ms\":{pipeline_ms:.0},\"peak_mb\":{},\"before_mb\":{},\"inlined_exprs\":{inlined},\
 \"functions\":{functions},\"path\":\"processor\",\"device_passthrough\":{adapter}{again_fields}}}",
