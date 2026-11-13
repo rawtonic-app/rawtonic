@@ -22,7 +22,7 @@ enum LogMessage {
 
 static LOG_WRITER: OnceLock<mpsc::Sender<LogMessage>> = OnceLock::new();
 
-/// Log lines are written to stderr and the log file on a thread of their
+/// Log lines are written to the log file on a thread of their
 /// own. A write can block: on the Linux PC's btrfs one waited ~0.9 s for
 /// metadata space right after preview proxies were written, and fern writes
 /// every output under a lock all logging threads share, so the preview
@@ -35,7 +35,6 @@ fn start_log_writer(file: Option<fs::File>) -> mpsc::Sender<LogMessage> {
     let spawned = std::thread::Builder::new()
         .name("log-writer".into())
         .spawn(move || {
-            let mut stderr = std::io::stderr();
             let mut file = file.map(std::io::BufWriter::new);
             while let Ok(message) = receiver.recv() {
                 // Write what is waiting, then flush once.
@@ -43,9 +42,11 @@ fn start_log_writer(file: Option<fs::File>) -> mpsc::Sender<LogMessage> {
                 while let Some(message) = next {
                     match message {
                         LogMessage::Line(line) => {
-                            let _ = stderr.write_all(line.as_bytes());
                             if let Some(file) = file.as_mut() {
                                 let _ = file.write_all(line.as_bytes());
+                                let _ = file.flush();
+                            } else {
+                                let _ = std::io::stderr().write_all(line.as_bytes());
                             }
                         }
                         LogMessage::Flush(done) => {
@@ -112,6 +113,49 @@ fn rotate_logs(path: &std::path::Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod log_rotation_tests {
     use super::*;
+
+    #[test]
+    fn lenovo_restore_clamps_normal_height_to_work_area() {
+        let normal = MonitorBounds {
+            x: 10,
+            y: 10,
+            width: 2540,
+            height: 1560,
+        };
+        let area = MonitorBounds {
+            x: 0,
+            y: 0,
+            width: 2560,
+            height: 1504,
+        };
+        assert_eq!(
+            fit_into_work_area(normal, (0.0, 0.0), (0, 0), &[(area, 2.0)]),
+            WorkAreaFit::Place(MonitorBounds {
+                x: 10,
+                y: 0,
+                width: 2540,
+                height: 1504
+            })
+        );
+    }
+
+    #[test]
+    fn line_reaches_disk_without_shutdown_or_explicit_flush() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("live.log");
+        rawtonic_fs::atomic_write(&path, b"").unwrap();
+        let file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let sender = start_log_writer(Some(file));
+        sender.send(LogMessage::Line("live line\n".into())).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while fs::read_to_string(&path).unwrap() != "live line\n" {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "log did not flush within one second"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 
     #[test]
     fn keeps_four_previous_sessions_in_order() {
@@ -588,6 +632,22 @@ pub(crate) fn frontend_ready(
         }
         #[cfg(any(windows, target_os = "linux"))]
         if is_first_run && should_maximize {
+            #[cfg(windows)]
+            if let Ok(hwnd) = window.hwnd() {
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    GetWindowPlacement, SetWindowPlacement, WINDOWPLACEMENT,
+                };
+                let hwnd = windows::Win32::Foundation::HWND(hwnd.0 as isize);
+                let mut placement = WINDOWPLACEMENT {
+                    length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+                    ..Default::default()
+                };
+                if unsafe { GetWindowPlacement(hwnd, &mut placement) }.is_ok() {
+                    placement.showCmd = 3;
+                    let _ = unsafe { SetWindowPlacement(hwnd, &placement) };
+                }
+            }
+            #[cfg(not(windows))]
             let _ = window.maximize();
         }
     }
