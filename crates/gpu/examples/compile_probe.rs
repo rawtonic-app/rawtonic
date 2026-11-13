@@ -252,7 +252,10 @@ fn constants(spec: &Spec) -> naga::back::PipelineConstants {
         ("HSL_V2", ((f >> 17) & 1) as f64),
         ("PRESENCE_V3", ((f >> 19) & 1) as f64),
         ("DEHAZE_V2", ((f >> 20) & 1) as f64),
-        ("ENABLE_EFFECTS", ((f >> 21) & 1) as f64),
+        (
+            "ENABLE_EFFECTS",
+            f64::from(u8::from(f & (1 << 21 | 1 << 24 | 1 << 25) != 0)),
+        ),
         ("DEHAZE_V3", ((f >> 22) & 1) as f64),
         ("TONE_V5", ((f >> 23) & 1) as f64),
     ]
@@ -261,6 +264,17 @@ fn constants(spec: &Spec) -> naga::back::PipelineConstants {
     .collect();
     if prepared {
         c.push(("MIXER_PROBES".into(), 1.0));
+    }
+    // The display source's switch for each effect (glow 21, halation 24,
+    // grain 25; `display_effect_constants`).
+    if spec.display {
+        for (name, bit) in [
+            ("ENABLE_GLOW", 21),
+            ("ENABLE_HALATION", 24),
+            ("ENABLE_GRAIN", 25),
+        ] {
+            c.push((name.into(), ((f >> bit) & 1) as f64));
+        }
     }
     c.extend(spec.set.iter().cloned());
     c.into_iter().collect()

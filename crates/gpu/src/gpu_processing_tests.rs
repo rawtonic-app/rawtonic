@@ -565,7 +565,7 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         // Effects likewise (`effects_compile_only_where_a_recipe_has_them`),
         // and tone version 5 (`tone_version_5_compiles_only_for_its_recipes`).
-        if expected & (EFFECTS_FEATURE | TONE_V5_FEATURE) != 0 {
+        if expected & (EFFECTS_FEATURES | TONE_V5_FEATURE) != 0 {
             continue;
         }
         let mut effects = json!({});
@@ -6203,7 +6203,7 @@ fn version_5_exports_render_their_specialized_variant_within_rounding() {
                 }
                 // The display variant's features with the effects and
                 // tone-version-5 code exports always keep.
-                let features = preview_features(&adjustments) | EFFECTS_FEATURE | TONE_V5_FEATURE;
+                let features = preview_features(&adjustments) | EFFECTS_FEATURES | TONE_V5_FEATURE;
                 assert!(std::ptr::eq(
                     processor
                         .export_pipeline(&adjustments, MainOutput::Deferred)
@@ -8888,11 +8888,12 @@ fn fallback_variant_matches_specialized_display() {
 #[test]
 #[ignore = "requires a native GPU; display variants without the effects code against those with it"]
 fn display_variants_from_folded_ir_render_the_same_pixels() {
-    // A recipe without glow, halation or grain renders its display variant
-    // without that code (`EFFECTS_FEATURE`) and without every branch its
-    // constants decide (`display_variant_ir`); the frame must be the one the
-    // whole shader with the effects code renders, byte for byte, as display
-    // variants were compiled before.
+    // A recipe renders its display variant without the effects it does not
+    // have (`GLOW_FEATURE`, `HALATION_FEATURE`, `GRAIN_FEATURE`), glow's and
+    // halation's tone stage with Whites only (`display_variant_ir`
+    // `effect_tone_stage`) and without every branch its constants decide;
+    // the frame must be the one the whole shader with all the effects code
+    // renders, byte for byte, as display variants were compiled before.
     let context = context();
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
@@ -8914,10 +8915,18 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
         // Tone version 5 keeps its own copy of the tone stage.
         json!({"contrast":30,"shadows":20,"whites":-15,"toneVersion":5}),
         json!({"contrast":30,"shadows":20,"whites":-15,"toneVersion":18}),
+        // Each effect alone and together, on a tone edit (G76/WCC8): glow and
+        // halation read lowered Whites through their own tone stage.
+        json!({"exposure":0.4,"contrast":25,"whites":-20,"glowAmount":30,"toneVersion":18}),
+        json!({"exposure":0.4,"whites":25,"halationAmount":40,"toneVersion":18}),
+        json!({"contrast":25,"grainAmount":30,"toneVersion":18}),
+        json!({"whites":-20,"glowAmount":30,"halationAmount":20,"grainAmount":25,
+            "toneVersion":18}),
+        json!({"whites":-15,"glowAmount":30,"toneVersion":5}),
+        json!({"contrast":20,"masks":[local_mask("g", json!({"glowAmount":40}))]}),
     ] {
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         let features = preview_features(&adjustments);
-        assert_eq!(features & EFFECTS_FEATURE, 0, "{profile}");
         let masks = generated_profile_masks(&profile, width, height);
         let render = |with_effects: bool| {
             let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
@@ -8930,7 +8939,7 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
                     (!with_effects).then_some(&*processor.display_shader),
                     &processor.preview_layout,
                     if with_effects {
-                        features | EFFECTS_FEATURE | TONE_V5_FEATURE
+                        features | EFFECTS_FEATURES | TONE_V5_FEATURE
                     } else {
                         features
                     },
@@ -9648,7 +9657,7 @@ fn a_compile_limit_refuses_only_export_variants_over_the_ceiling() {
         crate::display_variant_ir::inlined_size(&module)
     };
     let edit = 5238847;
-    let with_effects = edit | EFFECTS_FEATURE | TONE_V5_FEATURE;
+    let with_effects = edit | EFFECTS_FEATURES | TONE_V5_FEATURE;
     assert!(size(edit) < EXPORT_INLINED_CEILING, "{}", size(edit));
     assert!(
         size(with_effects) > EXPORT_INLINED_CEILING,
@@ -9662,23 +9671,33 @@ fn a_compile_limit_refuses_only_export_variants_over_the_ceiling() {
 #[test]
 fn effects_compile_only_where_a_recipe_has_them() {
     let features = |profile: serde_json::Value| {
-        preview_features(&get_all_adjustments_from_json(&profile, true, Some(1))) & EFFECTS_FEATURE
+        preview_features(&get_all_adjustments_from_json(&profile, true, Some(1))) & EFFECTS_FEATURES
     };
     assert_eq!(features(json!({})), 0);
     assert_eq!(features(json!({"sharpness": 40, "clarity": 20})), 0);
-    for effect in ["glowAmount", "halationAmount", "grainAmount"] {
-        assert_eq!(features(json!({ effect: 30 })), EFFECTS_FEATURE, "{effect}");
+    let effects = [
+        ("glowAmount", GLOW_FEATURE),
+        ("halationAmount", HALATION_FEATURE),
+        ("grainAmount", GRAIN_FEATURE),
+    ];
+    // Each its own bit (G76/WCC8).
+    for (effect, bit) in effects {
+        assert_eq!(features(json!({ effect: 30 })), bit, "{effect}");
     }
-    for effect in ["glowAmount", "halationAmount"] {
+    assert_eq!(
+        features(json!({"glowAmount": 30, "grainAmount": 10})),
+        GLOW_FEATURE | GRAIN_FEATURE
+    );
+    for (effect, bit) in &effects[..2] {
         assert_eq!(
-            features(local_profile(json!({ effect: 30 }))),
-            EFFECTS_FEATURE,
+            features(local_profile(json!({ *effect: 30 }))),
+            *bit,
             "layer {effect}"
         );
     }
-    // Exports keep the code whatever the recipe holds.
+    // Exports keep the code of all three whatever the recipe holds.
     let plain = get_all_adjustments_from_json(&json!({}), true, Some(1));
-    assert_ne!(export_features(&plain) & EFFECTS_FEATURE, 0);
+    assert_eq!(export_features(&plain) & EFFECTS_FEATURES, EFFECTS_FEATURES);
 }
 
 #[test]

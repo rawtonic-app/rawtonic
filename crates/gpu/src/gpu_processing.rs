@@ -3592,7 +3592,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 16777216;
+const PREVIEW_PIPELINE_COUNT: usize = 1 << 26;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3610,8 +3610,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Vibrance of vibrance version 2 65536, lowered Blacks of tone version 16
 /// 262144, colour mixer response 2 131072,
 /// Clarity or Structure version 3 524288, lowered Dehaze of dehaze version 2
-/// 1048576, glow, halation or grain 2097152, Dehaze of dehaze version 3
-/// 4194304, tone version 5 or older 8388608.
+/// 1048576, glow 2097152, Dehaze of dehaze version 3 4194304, tone version
+/// 5 or older 8388608, halation 16777216, grain 33554432.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3682,15 +3682,26 @@ const PRESENCE_V3_FEATURE: usize = 524288;
 /// `apply_dehaze_lower_v2`), compiled only for recipes that use it for the
 /// same reason.
 const DEHAZE_V2_FEATURE: usize = 1048576;
-/// Glow, halation or grain on the photo or a layer (shader `ENABLE_EFFECTS`).
-/// Glow and halation each carry the complete tone stage, so without them a
-/// display variant is far less code: on AMD's Windows Vulkan driver, which
-/// inlines every call before it drops unused code, the RAW default variant
-/// compiled in 8.1 s at 0.7 GB peak private memory instead of 63 s at 4.1 GB
-/// (both without the decided branches, `display_variant_ir`; 97 s at 7.8 GB
-/// as compiled before; G76/WCC round 1, Radeon 680M). Exports keep the code
-/// (`export_features`), so their pixels stay as they were.
-const EFFECTS_FEATURE: usize = 2097152;
+/// Glow on the photo or a layer (shader `ENABLE_GLOW`). Glow and halation
+/// each carry a tone stage, so without the effects a display variant is far
+/// less code: on AMD's Windows Vulkan driver, which inlines every call
+/// before it drops unused code, the RAW default variant compiled in 8.1 s at
+/// 0.7 GB peak private memory instead of 63 s at 4.1 GB (both without the
+/// decided branches, `display_variant_ir`; 97 s at 7.8 GB as compiled
+/// before; G76/WCC round 1, Radeon 680M). Each effect has its own bit
+/// (`HALATION_FEATURE`, `GRAIN_FEATURE`): with one bit for all three, Glow
+/// 30 on the WGT16 edit compiled glow, halation and four grain versions,
+/// 117.1k inlined expressions and 5.95 GB, against 77.0k and 4.69 GB with
+/// glow alone (G76/WCC8, probe round 16). Exports keep the code of all
+/// three (`export_features`, `EFFECTS_FEATURES`), so their pixels stay as
+/// they were.
+const GLOW_FEATURE: usize = 2097152;
+/// Halation on the photo or a layer (shader `ENABLE_HALATION`).
+const HALATION_FEATURE: usize = 16777216;
+/// Grain (shader `ENABLE_GRAIN`).
+const GRAIN_FEATURE: usize = 33554432;
+/// Every effect's bit: what export variants keep.
+const EFFECTS_FEATURES: usize = GLOW_FEATURE | HALATION_FEATURE | GRAIN_FEATURE;
 /// Dehaze of dehaze version 3 (`DEHAZE_V3`, shader `apply_dehaze_lower_v3`,
 /// `apply_dehaze_raise_v3`), compiled only for recipes that use it for the
 /// same reason.
@@ -3704,8 +3715,10 @@ const DEHAZE_V3_FEATURE: usize = 4194304;
 const TONE_V5_FEATURE: usize = 8388608;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
-/// low bits (detail, noise reduction, tone, relight) share a page.
-const VARIANT_PAGE_BITS: u32 = 9;
+/// low bits (detail, noise reduction, tone, relight, sharpening responses)
+/// share a page. 2^15 pages, as at 2^24 variants with 2^9 slots: the page
+/// array stays the size it was when the effects got a bit each (G76/WCC8).
+const VARIANT_PAGE_BITS: u32 = 11;
 const VARIANT_PAGE_SLOTS: usize = 1 << VARIANT_PAGE_BITS;
 const VARIANT_PAGES: usize = PREVIEW_PIPELINE_COUNT / VARIANT_PAGE_SLOTS;
 
@@ -5311,13 +5324,16 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let dehaze_v2 = dehaze_v2(adjustments);
     let dehaze_v3 = dehaze_v3(adjustments);
     // The shader applies each when its amount (with the layers') is above 0.
-    let mut effects = g.glow_amount != 0.0 || g.halation_amount != 0.0 || g.grain_amount != 0.0;
+    let mut glow = g.glow_amount != 0.0;
+    let mut halation = g.halation_amount != 0.0;
+    let grain = g.grain_amount != 0.0;
     for m in adjustments
         .mask_adjustments
         .iter()
         .take(adjustments.mask_count as usize)
     {
-        effects |= m.glow_amount != 0.0 || m.halation_amount != 0.0;
+        glow |= m.glow_amount != 0.0;
+        halation |= m.halation_amount != 0.0;
         sharpen |= m.sharpness != 0.0;
         highlights |= m.highlights != 0.0;
         curves |= m.luminance_curve_count >= 2
@@ -5350,7 +5366,9 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if hsl_v2 { HSL_V2_FEATURE } else { 0 }
         | if presence_v3 { PRESENCE_V3_FEATURE } else { 0 }
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
-        | if effects { EFFECTS_FEATURE } else { 0 }
+        | if glow { GLOW_FEATURE } else { 0 }
+        | if halation { HALATION_FEATURE } else { 0 }
+        | if grain { GRAIN_FEATURE } else { 0 }
         | if dehaze_v3 { DEHAZE_V3_FEATURE } else { 0 }
         // The tone version is photo-wide; layers render with it too.
         | if g.tone_version < 5.5 { TONE_V5_FEATURE } else { 0 }
@@ -5458,7 +5476,7 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
         | TONE_PREVIEW_FEATURE
         | RELIGHT_PREVIEW_FEATURE
         | REFINED_NR_PREVIEW_FEATURE
-        | EFFECTS_FEATURE
+        | EFFECTS_FEATURES
         | TONE_V5_FEATURE
 }
 
@@ -5512,7 +5530,7 @@ fn export_variant(
     // From `renderVersion` 5 the variant of the recipe's own features,
     // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`), with
     // the effects and tone-version-5 code they always had
-    // (`EFFECTS_FEATURE`, `TONE_V5_FEATURE`). A folded variant has them
+    // (`EFFECTS_FEATURES`, `TONE_V5_FEATURE`). A folded variant has them
     // only where the recipe does: kept idle, they made the WGT16 edit's
     // variant 288k inlined expressions, which the Radeon 680M compiled for
     // 438 s into 52 GB until its device was lost (G76/WCC6).
@@ -5521,7 +5539,7 @@ fn export_variant(
         return Some(if folded {
             features
         } else {
-            features | EFFECTS_FEATURE | TONE_V5_FEATURE
+            features | EFFECTS_FEATURES | TONE_V5_FEATURE
         });
     }
     // Metal may reassociate active neighbourhood operations when
@@ -5833,6 +5851,43 @@ fn compile_slot(what: &str) -> CompileSlot {
         .unwrap_or_else(|e| e.into_inner())
         .push((id, what.to_string(), std::time::Instant::now()));
     CompileSlot { id }
+}
+
+/// Under a compile limit, waits until no shader compile waits or runs (an
+/// idle compile, a frame's variant), for work that must not overlap one:
+/// an export calls it before it uploads the photo and makes its textures.
+/// On the Radeon 680M a display variant's compile commits 4–6 GB of private
+/// memory; the Glow 30 export of WGT20 made its textures (1.06 GB of GPU
+/// allocations) and then waited 50 s for an idle compile of its variant,
+/// 8.3 GB at the peak (G76/WCC8). After the wait its own variant is a
+/// pipeline-cache hit when the editor compiled it (`export_display_pipeline`).
+/// No wait without a compile limit.
+pub fn wait_for_running_compiles(what: &str) {
+    if !compile_limited() {
+        return;
+    }
+    let started = std::time::Instant::now();
+    let mut state = COMPILE_LIMIT
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // A compile that waits for a slot is not signalled on `freed` while it
+    // waits, so this looks again every 250 ms.
+    while state.0 > 0 || compiles_pending() {
+        state = COMPILE_LIMIT
+            .freed
+            .wait_timeout(state, std::time::Duration::from_millis(250))
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
+    }
+    drop(state);
+    let waited = started.elapsed();
+    if waited >= std::time::Duration::from_millis(250) {
+        log::info!(
+            "GPU {what} waited {:.1} s for running shader compiles",
+            waited.as_secs_f64()
+        );
+    }
 }
 
 /// A compile slot for an idle compile (`idle_compiles`), only while no other
@@ -6250,7 +6305,7 @@ fn create_preview_pipeline(
             display,
             pipeline_layout,
             &label,
-            &constants,
+            &[&constants[..], &display_effect_constants(features)[..]].concat(),
         ),
         None => create_variant_pipeline(device, shader_module, pipeline_layout, &label, &constants),
     }
@@ -6292,12 +6347,18 @@ fn compile_variant_module(
         Ok(module) => module,
         Err(error) => {
             log::warn!("{label}: compiling the whole shader ({error})");
+            // shader.wgsl has one switch for the effects (`ENABLE_EFFECTS`).
+            let constants: Vec<_> = constants
+                .iter()
+                .filter(|(name, _)| !display_effect_constants(0).iter().any(|(n, _)| n == name))
+                .copied()
+                .collect();
             return create_variant_pipeline(
                 device,
                 shader_module,
                 pipeline_layout,
                 label,
-                constants,
+                &constants,
             );
         }
     };
@@ -6330,6 +6391,7 @@ fn create_sharpen_view_pipeline(
 ) -> Result<wgpu::ComputePipeline, String> {
     let label = format!("Sharpening view {features}");
     let mut constants = variant_constants(features, true, true, false, false);
+    constants.extend(display_effect_constants(features));
     constants.push(("SHARPEN_VIEW", 1.0));
     create_display_pipeline(
         device,
@@ -6375,7 +6437,12 @@ fn variant_constants(
         ("HSL_V2", ((features >> 17) & 1) as f64),
         ("PRESENCE_V3", ((features >> 19) & 1) as f64),
         ("DEHAZE_V2", ((features >> 20) & 1) as f64),
-        ("ENABLE_EFFECTS", ((features >> 21) & 1) as f64),
+        // shader.wgsl's one switch for the three effects; display variants
+        // take each on its own (`display_effect_constants`).
+        (
+            "ENABLE_EFFECTS",
+            u8::from(features & EFFECTS_FEATURES != 0) as f64,
+        ),
         ("DEHAZE_V3", ((features >> 22) & 1) as f64),
         ("TONE_V5", ((features >> 23) & 1) as f64),
     ];
@@ -6389,6 +6456,23 @@ fn variant_constants(
         constants.push(("MIXER_PROBES", 1.0));
     }
     constants
+}
+
+/// The display source's switch for each effect (`display_variant_ir`
+/// `with_effects_apart`): shader.wgsl has one for all three, which exports
+/// keep, so their pixels stay as they were.
+fn display_effect_constants(features: usize) -> [(&'static str, f64); 3] {
+    [
+        ("ENABLE_GLOW", u8::from(features & GLOW_FEATURE != 0) as f64),
+        (
+            "ENABLE_HALATION",
+            u8::from(features & HALATION_FEATURE != 0) as f64,
+        ),
+        (
+            "ENABLE_GRAIN",
+            u8::from(features & GRAIN_FEATURE != 0) as f64,
+        ),
+    ]
 }
 
 fn create_variant_pipeline(
