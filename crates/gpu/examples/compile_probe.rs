@@ -46,7 +46,11 @@
 //! - `spv=proc`: the app's device start and a processor; the variant compiles
 //!   through the processor's display path (its own shader for `features`:
 //!   no stubs, source, constants or passthrough; no nonce, so clear the
-//!   driver's cache between runs). `spv=appdevice` (with `spirv`):
+//!   driver's cache between runs). `spv=proc,again`: then a second
+//!   processor (as exports get one, `GpuProcessor::for_exports`) on the same
+//!   device compiles the same variant through the app's pipeline cache (in a
+//!   fresh folder): what an export pays for a variant the display compiled
+//!   (`again_ms`, `again_peak_mb` sampled during it). `spv=appdevice` (with `spirv`):
 //!   the probe's SPIR-V and layout on the app's device.
 //! - `noinline`: with `spirv`, mark these functions (or `all` but the entry
 //!   point) DontInline: whether the driver compiles each once.
@@ -361,6 +365,8 @@ fn one(line: &str) -> Result<String, String> {
         // ignored there, so they are refused; without a nonce a repeated run
         // can be answered by the driver's cache (clear it between runs).
         if !spec.stubs.is_empty()
+            || spec.export
+            || !spec.dce
             || spec.src.is_some()
             || !spec.set.is_empty()
             || spec.spirv
@@ -368,8 +374,9 @@ fn one(line: &str) -> Result<String, String> {
             || !spec.noinline.is_empty()
         {
             return Err(
-                "spv=proc compiles the processor's own shader for `features` only; \
-                 stub, src, set, spirv, unchecked and noinline do not apply"
+                "spv=proc compiles the processor's own folded display variant for `features` \
+                 only (needs dce); export, stub, src, set, spirv, unchecked and noinline \
+                 do not apply"
                     .into(),
             );
         }
@@ -663,7 +670,14 @@ fn spirv_words(
 /// `spv=proc`: see `one`.
 fn through_processor(spec: &Spec, inlined: usize, functions: usize) -> Result<String, String> {
     use rawtonic_gpu::gpu_processing::{GpuContext, GpuProcessor};
-    let context = GpuContext::headless()?;
+    let again = knob_set(&spec.spv, "again");
+    // `again`: the app's pipeline cache, in a folder of its own.
+    let cache_dir = again
+        .then(|| std::env::temp_dir().join(format!("compile_probe_cache_{}", std::process::id())));
+    if let Some(dir) = &cache_dir {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let context = GpuContext::headless_with_pipeline_cache(cache_dir.as_deref())?;
     let adapter = format!(
         "{:?}",
         context
@@ -671,7 +685,7 @@ fn through_processor(spec: &Spec, inlined: usize, functions: usize) -> Result<St
             .features()
             .contains(wgpu::Features::PASSTHROUGH_SHADERS)
     );
-    let processor = GpuProcessor::for_exports(context, 1808, 1356)?;
+    let processor = GpuProcessor::for_exports(context.clone(), 1808, 1356)?;
     let private_before = memory::private_bytes();
     let sampler = memory::Sampler::start();
     let started = Instant::now();
@@ -680,9 +694,28 @@ fn through_processor(spec: &Spec, inlined: usize, functions: usize) -> Result<St
     let peak_sampled = sampler.stop();
     let mb = |bytes: Option<usize>| bytes.map_or("null".to_string(), |b| (b >> 20).to_string());
     let peak = memory::peak_private_bytes().map(|p| p.max(peak_sampled));
+    let again_fields = if again {
+        let second = GpuProcessor::for_exports(context, 1808, 1356)?;
+        let again_before = memory::private_bytes();
+        let sampler = memory::Sampler::start();
+        let started = Instant::now();
+        second.compile_display_variant(spec.features)?;
+        let again_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let again_peak = sampler.stop();
+        format!(
+            ",\"again_ms\":{again_ms:.0},\"again_peak_mb\":{},\"again_before_mb\":{}",
+            again_peak >> 20,
+            mb(again_before)
+        )
+    } else {
+        String::new()
+    };
+    if let Some(dir) = &cache_dir {
+        let _ = std::fs::remove_dir_all(dir);
+    }
     Ok(format!(
         "{{\"pipeline_ms\":{pipeline_ms:.0},\"peak_mb\":{},\"before_mb\":{},\"inlined_exprs\":{inlined},\
-\"functions\":{functions},\"path\":\"processor\",\"device_passthrough\":{adapter}}}",
+\"functions\":{functions},\"path\":\"processor\",\"device_passthrough\":{adapter}{again_fields}}}",
         mb(peak),
         mb(private_before),
     ))
