@@ -8401,14 +8401,13 @@ impl GpuProcessor {
         let mut waits_for_idle = None;
         if !general_display && self.preview_pipelines[features].get().is_none() {
             match idle {
-                // A compiled superset serves the frame: its own variant
-                // compiles in idle time, not in the slot the next slider
-                // may need (a minute on the driver with a compile limit).
-                Some(idle) if served() => {
-                    idle.later(idle_compiles::IdleJob::Display(features), || {
-                        self.idle_target()
-                    });
-                }
+                // A compiled superset serves the frame, and keeps serving
+                // it: its own variant is not compiled at all. In idle time
+                // those compiles held the slot for 23–126 s each after every
+                // slider move, and the next edit's compile waited behind
+                // them (G76/WGT14: Blacks 220 s, with repeated memory
+                // pressure on a 15 GB Radeon 680M laptop).
+                Some(_) if served() => {}
                 Some(idle) if idle.covering(features).is_some() => {
                     waits_for_idle = Some(PendingCompile::new());
                 }

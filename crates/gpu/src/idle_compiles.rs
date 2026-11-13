@@ -11,9 +11,10 @@
 //! Each is a superset of the photo's own features: a frame renders with the
 //! first compiled superset of its features (an idle feature changes no
 //! pixel, `GpuProcessor::preview_pipeline`), so one compile serves Contrast,
-//! Highlights, a curve and a mask at once. While a superset serves a frame,
-//! the frame's own variant is compiled here too, in idle time, instead of
-//! holding the compile slot for a minute right after the slider moved.
+//! Highlights, a curve and a mask at once. A frame a superset serves keeps
+//! rendering with it; its own variant is not compiled (in idle time those
+//! compiles held the slot for minutes after the edits, G76/WGT14). Layer-sum
+//! variants a frame needs follow in idle time (`IdleCompiles::later`).
 //!
 //! Idle compiles show nothing (they are not counted in `compiles_pending`):
 //! no photo waits for them. A frame that does wait for the running one
@@ -148,7 +149,8 @@ struct Queue {
     planned: Option<usize>,
     /// The planned supersets (replaced when another photo is shown).
     plan: VecDeque<IdleJob>,
-    /// Frames' own variants that a superset serves until then.
+    /// Layer-sum variants that frames need (the per-layer loop serves them
+    /// until then).
     later: VecDeque<IdleJob>,
     /// The job compiling now.
     running: Option<IdleJob>,
@@ -549,8 +551,7 @@ mod tests {
 
     /// Under a compile limit the shown photo plans its supersets, which
     /// compile in idle time; the first Contrast frame then renders at once
-    /// without a compile of its own, and its own variant follows in idle
-    /// time.
+    /// without a compile of its own and keeps rendering with the superset.
     #[test]
     #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::idle_compiles_serve_the_first_tone_slider"]
     fn idle_compiles_serve_the_first_tone_slider() {
@@ -613,9 +614,9 @@ mod tests {
             started.elapsed()
         );
         assert!(!compiles_pending(), "no compile of its own started");
-        wait("Contrast's own variant", &|| {
-            processor.preview_pipelines[features].get().is_some()
-        });
+        // The superset keeps serving it: its own variant never compiles.
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        assert!(processor.preview_pipelines[features].get().is_none());
         drop(processor);
         set_compile_limit(None);
     }
