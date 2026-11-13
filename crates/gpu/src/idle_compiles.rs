@@ -789,7 +789,8 @@ mod tests {
         let shown = preview_features(&photo);
         processor.preview_pipeline(&photo, true).unwrap();
         let plan = idle_plan(shown, &photo);
-        assert_eq!(plan.len(), 3);
+        // Sliders and Basic panel; no all-effects entry (G76/WCC8).
+        assert_eq!(plan.len(), 2);
         let started = Instant::now();
         wait("the planned supersets", &|| {
             for &f in &plan {

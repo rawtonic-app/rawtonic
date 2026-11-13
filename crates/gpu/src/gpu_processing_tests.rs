@@ -8994,7 +8994,7 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 11);
+    assert_eq!(checked, 17);
 }
 
 /// The display variants' rewritten tone stage (`display_tone_stage.wgsl`,
