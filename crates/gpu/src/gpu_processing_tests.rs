@@ -8994,6 +8994,13 @@ fn a_lost_device_fails_its_renders_instead_of_panicking() {
     // panicked creating a processor ('LUT shaper (none)' could not be
     // mapped) and the app ended. A destroyed device is lost the same way.
     let context = context();
+    // As the app does (`GpuContext::headless`, src-tauri gpu_processing):
+    // errors outside a scope are logged, not wgpu's default panic.
+    context
+        .device
+        .on_uncaptured_error(Arc::new(|err: wgpu::Error| {
+            log::error!("[wgpu-error] {err}")
+        }));
     context.device.destroy();
     let (width, height) = (64, 48);
     let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -9077,7 +9084,11 @@ fn export_variants_from_folded_ir_render_the_same_bytes() {
         (many.clone(), true),
         (many, false),
         (
-            local_profile(json!({"renderVersion":5,"highlights":-20,"lumaNoiseReduction":15})),
+            {
+                let mut layered = local_profile(json!({"highlights":-20,"lumaNoiseReduction":15}));
+                layered["renderVersion"] = json!(5);
+                layered
+            },
             true,
         ),
     ] {
