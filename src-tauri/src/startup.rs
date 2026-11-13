@@ -37,7 +37,7 @@ fn start_log_writer(file: Option<fs::File>) -> mpsc::Sender<LogMessage> {
         .spawn(move || {
             let mut file = file.map(std::io::BufWriter::new);
             while let Ok(message) = receiver.recv() {
-                // Write what is waiting, then flush once.
+                // Flush each line even while the queue stays busy.
                 let mut next = Some(message);
                 while let Some(message) = next {
                     match message {

@@ -16,6 +16,7 @@ pub fn note(path: PathBuf, state: WindowState) {
 }
 
 /// Maximized events carry screen bounds, never a new restore placement.
+#[cfg(any(not(windows), test))]
 pub fn retain_normal_placement(state: &mut WindowState, normal: &mut Option<WindowState>) {
     if state.maximized {
         if let Some(saved) = normal {
