@@ -9043,12 +9043,15 @@ fn a_lost_device_fails_its_renders_instead_of_panicking() {
 #[test]
 #[ignore = "requires a native GPU; folded export variants against the whole shader"]
 fn export_variants_from_folded_ir_render_the_same_bytes() {
-    // An export variant compiles from shader.wgsl with the branches its
-    // constants and its tone bits decide removed, and from `renderVersion` 5
-    // with the effects and tone-version-5 code only where the recipe has
-    // them (`export_pipeline`, G76/WCC6); its export must be the one the
-    // whole shader renders with the variant exports compiled before, byte
-    // for byte, in 8 and 16 bits.
+    // Under a compile limit an export variant compiles from shader.wgsl
+    // with the branches its constants and its tone bits decide removed,
+    // and from `renderVersion` 5 with the effects and tone-version-5 code
+    // only where the recipe has them (`folded_export_pipeline`, G76/WCC6).
+    // On these synthetic frames it renders the bytes of the whole shader
+    // with the variant exports compiled before, in 8 and 16 bits: a check
+    // of the fold's decisions. It is not a proof for every photo: on real
+    // photos the folded module compiled to a few codes' difference on
+    // NVIDIA and Metal (preservation), so only compile limits fold.
     let context = context();
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
@@ -9094,25 +9097,32 @@ fn export_variants_from_folded_ir_render_the_same_bytes() {
     ] {
         let adjustments =
             get_all_adjustments_from_json(&profile, raw, Some(if raw { 3 } else { 0 }));
-        let features =
-            export_variant(&adjustments).unwrap_or_else(|| panic!("{profile}: no export variant"));
-        // The variant exports compiled before.
-        let before = if adjustments.specialized_export {
-            features | EFFECTS_FEATURE | TONE_V5_FEATURE
-        } else {
-            features
-        };
+        let features = export_variant(&adjustments, true)
+            .unwrap_or_else(|| panic!("{profile}: no export variant"));
+        // The variant exports compile without a compile limit, whose slot
+        // the export takes here.
+        let before = export_variant(&adjustments, false).unwrap();
         let masks = generated_profile_masks(&profile, width, height);
         let render = |folded: bool, precision| {
             let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
-            if !folded {
-                // The reference: the whole shader with the variant's
-                // constants, as export variants compiled before.
-                for output in [
-                    MainOutput::EightBit,
-                    MainOutput::SixteenBit,
-                    MainOutput::Deferred,
-                ] {
+            for output in [
+                MainOutput::EightBit,
+                MainOutput::SixteenBit,
+                MainOutput::Deferred,
+            ] {
+                let table = match output {
+                    MainOutput::EightBit => &processor.export_pipelines,
+                    MainOutput::SixteenBit => &processor.high_precision_export_pipelines,
+                    MainOutput::Deferred => &processor.deferred_export_pipelines,
+                };
+                if folded {
+                    let made = processor
+                        .folded_export_pipeline(&table[before], features, output)
+                        .unwrap();
+                    assert!(made.is_some(), "{profile}: folded variant {features}");
+                } else {
+                    // The reference: the whole shader with the variant's
+                    // constants, as exports compile it.
                     let (shader, layout) = processor.main_module(output);
                     let pipeline = create_preview_pipeline(
                         &processor.context.device,
@@ -9126,12 +9136,7 @@ fn export_variants_from_folded_ir_render_the_same_bytes() {
                         output == MainOutput::Deferred,
                     )
                     .unwrap();
-                    let table = match output {
-                        MainOutput::EightBit => &processor.export_pipelines,
-                        MainOutput::SixteenBit => &processor.high_precision_export_pipelines,
-                        MainOutput::Deferred => &processor.deferred_export_pipelines,
-                    };
-                    table[features].set(Some(pipeline)).unwrap();
+                    table[before].set(Some(pipeline)).unwrap();
                 }
             }
             let (pixels, ..) = processor
@@ -9155,7 +9160,7 @@ fn export_variants_from_folded_ir_render_the_same_bytes() {
                 &processor.deferred_export_pipelines,
             ]
             .iter()
-            .any(|table| matches!(table[features].get(), Some(Some(_))));
+            .any(|table| matches!(table[before].get(), Some(Some(_))));
             assert!(
                 used,
                 "{profile}: the export did not take variant {features}"
@@ -9189,7 +9194,7 @@ fn a_compile_limit_refuses_only_export_variants_over_the_ceiling() {
     // The size the export of WGT16's edit compiles (G76/WCC6: 87.8k
     // inlined, 116 s / 9.3 GB on the Radeon 680M) stays below the ceiling;
     // the same edit with glow kept every effect's tone stage (197k) and is
-    // refused under a compile limit, never elsewhere.
+    // refused (only compile limits fold export variants).
     let shaders = crate::display_variant_ir::ExportShaders::new(
         include_str!("shaders/shader.wgsl"),
         &high_precision_shader_source(include_str!("shaders/shader.wgsl")),
@@ -9213,9 +9218,8 @@ fn a_compile_limit_refuses_only_export_variants_over_the_ceiling() {
         "{}",
         size(with_effects)
     );
-    assert!(!refuses_export(size(edit), true));
-    assert!(refuses_export(size(with_effects), true));
-    assert!(!refuses_export(size(with_effects), false));
+    assert!(!refuses_export(size(edit)));
+    assert!(refuses_export(size(with_effects)));
 }
 
 #[test]

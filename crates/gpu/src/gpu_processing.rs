@@ -5465,29 +5465,38 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
 /// effects and tone arms 87.8k, 116 s / 9.3 GB; 143k, 142 s / 10.4 GB).
 const EXPORT_INLINED_CEILING: usize = 150_000;
 
-/// Whether an export variant of `inlined` size is refused: only under a
-/// compile limit (`compile_limited`), and then with a clear error
-/// (`GPU_EXPORT_TOO_COMPLEX`) instead of minutes of compiling that may lose
-/// the device.
-fn refuses_export(inlined: usize, compile_limited: bool) -> bool {
-    compile_limited && inlined > EXPORT_INLINED_CEILING
+/// Whether a folded export variant (only made under a compile limit) of
+/// `inlined` size is refused, with a clear error (`GPU_EXPORT_TOO_COMPLEX`)
+/// instead of minutes of compiling that may lose the device.
+fn refuses_export(inlined: usize) -> bool {
+    inlined > EXPORT_INLINED_CEILING
 }
 
 /// The specialized variant an export of `adjustments` compiles, or `None`
-/// for the general pipeline.
-fn export_variant(adjustments: &crate::image_processing::PreparedAdjustments) -> Option<usize> {
+/// for the general pipeline; `folded` for a folded export variant
+/// (`GpuProcessor::export_pipeline`: only under a compile limit).
+fn export_variant(
+    adjustments: &crate::image_processing::PreparedAdjustments,
+    folded: bool,
+) -> Option<usize> {
     // Curve tables have no specialized export variant.
     if adjustments.global.region_curve_active[1] != 0 {
         return None;
     }
     // From `renderVersion` 5 the variant of the recipe's own features,
-    // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`). The
-    // effects and tone-version-5 code only where the recipe has them
-    // (`EFFECTS_FEATURE`, `TONE_V5_FEATURE`): kept idle, they made the
-    // WGT16 edit's variant 288k inlined expressions, which the Radeon 680M
-    // compiled for 438 s into 52 GB until its device was lost (G76/WCC6).
+    // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`), with
+    // the effects and tone-version-5 code they always had
+    // (`EFFECTS_FEATURE`, `TONE_V5_FEATURE`). A folded variant has them
+    // only where the recipe does: kept idle, they made the WGT16 edit's
+    // variant 288k inlined expressions, which the Radeon 680M compiled for
+    // 438 s into 52 GB until its device was lost (G76/WCC6).
     if adjustments.specialized_export {
-        return Some(preview_features(adjustments));
+        let features = preview_features(adjustments);
+        return Some(if folded {
+            features
+        } else {
+            features | EFFECTS_FEATURE | TONE_V5_FEATURE
+        });
     }
     // Metal may reassociate active neighbourhood operations when
     // unrelated branches are removed. Their full general pipeline
@@ -8835,7 +8844,14 @@ impl GpuProcessor {
         adjustments: &crate::image_processing::PreparedAdjustments,
         output: MainOutput,
     ) -> Result<&wgpu::ComputePipeline, String> {
-        let Some(features) = export_variant(adjustments) else {
+        // Folded only under a compile limit (AMD's Windows Vulkan driver):
+        // elsewhere the driver gets the whole shader with the variant's
+        // constants as before, because the folded module, the same math,
+        // still compiled to different bytes in 24 of 326 exports on NVIDIA
+        // Vulkan (1-7 codes in a few pixels) and 94 of 280 on Metal (G76/
+        // WCC6 preservation), and exports stay byte-identical across changes.
+        let folded = compile_limited();
+        let Some(features) = export_variant(adjustments, folded) else {
             return self.general_pipeline(adjustments, output);
         };
         let pipelines = match output {
@@ -8843,13 +8859,52 @@ impl GpuProcessor {
             MainOutput::SixteenBit => &self.high_precision_export_pipelines,
             MainOutput::Deferred => &self.deferred_export_pipelines,
         };
-        let (shader, layout) = self.main_module(output);
         let slot = &pipelines[features];
-        // The variant folded (`display_variant_ir`): the same math as the
-        // whole shader with these constants, far less for a driver that
-        // inlines every call before it drops decided code (G76/WCC6). Made
-        // here, before the slot's compile, so that a compile limit can
-        // refuse a variant too large for its driver (`refuses_export`).
+        let created = if folded {
+            self.folded_export_pipeline(slot, features, output)?
+        } else {
+            let (shader, layout) = self.main_module(output);
+            slot.get_or_init(|| {
+                create_preview_pipeline(
+                    &self.context.device,
+                    shader,
+                    None,
+                    layout,
+                    features,
+                    true,
+                    false,
+                    false,
+                    output == MainOutput::Deferred,
+                )
+                .inspect_err(|error| {
+                    log::error!(
+                        "Specialized export variant {features} unavailable; using the general shader: {error}"
+                    )
+                })
+                .ok()
+            })
+        };
+        match created.as_ref() {
+            Some(pipeline) => Ok(pipeline),
+            // The general pipeline with the noise passes the recipe needs.
+            None if adjustments.specialized_export || needs_feature_pipeline(adjustments) => {
+                self.general_pipeline(adjustments, output)
+            }
+            None => self.plain_pipeline(output),
+        }
+    }
+
+    /// Export variant `features` folded (`display_variant_ir`: without the
+    /// branches its constants and its tone bits decide), in `slot`; a
+    /// variant over `EXPORT_INLINED_CEILING` is refused with a clear error
+    /// instead of minutes of compiling that may lose the device.
+    fn folded_export_pipeline<'a>(
+        &self,
+        slot: &'a std::sync::OnceLock<Option<wgpu::ComputePipeline>>,
+        features: usize,
+        output: MainOutput,
+    ) -> Result<&'a Option<wgpu::ComputePipeline>, String> {
+        let (shader, layout) = self.main_module(output);
         let constants =
             variant_constants(features, true, false, false, output == MainOutput::Deferred);
         let make_module = || {
@@ -8861,42 +8916,33 @@ impl GpuProcessor {
                 )
                 .variant_module(&constants)
         };
+        // Made before the slot's compile so that the size can refuse it.
         let module = slot.get().is_none().then(make_module);
         if let Some(Ok(module)) = &module {
             let inlined = crate::display_variant_ir::inlined_size(module);
-            if refuses_export(inlined, compile_limited()) {
+            if refuses_export(inlined) {
                 log::error!(
                     "Export variant {features}: {inlined} inlined expressions, over the compile limit's {EXPORT_INLINED_CEILING}; not compiled"
                 );
                 return Err(rawtonic_runtime::gpu_memory::GPU_EXPORT_TOO_COMPLEX.to_string());
             }
         }
-        match slot
-            .get_or_init(|| {
-                compile_variant_module(
-                    &self.context.device,
-                    shader,
-                    module.unwrap_or_else(make_module),
-                    layout,
-                    &format!("Specialized image processing {features}"),
-                    &constants,
+        Ok(slot.get_or_init(|| {
+            compile_variant_module(
+                &self.context.device,
+                shader,
+                module.unwrap_or_else(make_module),
+                layout,
+                &format!("Specialized image processing {features}"),
+                &constants,
+            )
+            .inspect_err(|error| {
+                log::error!(
+                    "Specialized export variant {features} unavailable; using the general shader: {error}"
                 )
-                    .inspect_err(|error| {
-                        log::error!(
-                            "Specialized export variant {features} unavailable; using the general shader: {error}"
-                        )
-                    })
-                    .ok()
             })
-            .as_ref()
-        {
-            Some(pipeline) => Ok(pipeline),
-            // The general pipeline with the noise passes the recipe needs.
-            None if adjustments.specialized_export || needs_feature_pipeline(adjustments) => {
-                self.general_pipeline(adjustments, output)
-            }
-            None => self.plain_pipeline(output),
-        }
+            .ok()
+        }))
     }
 
     /// The shader module and pipeline layout of `output`'s main pass.

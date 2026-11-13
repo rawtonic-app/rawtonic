@@ -12,12 +12,12 @@
 //! G76/WCC round 1, `examples/compile_probe.rs`).
 //!
 //! Display variants also compile a reshaped source (`display_source`).
-//! Export variants take only the fold, of shader.wgsl as it is
-//! (`DisplayShader::exact`): a branch their constants decide is decided, so
-//! the driver gets the same math without the code it would drop anyway
-//! (G76/WCC6: the Radeon 680M compiled a many-feature export variant for
-//! 438 s and 52 GB before its device was lost). The general pipelines
-//! compile the shader as before.
+//! Under a compile limit export variants take only the fold, of shader.wgsl
+//! as it is (`ExportShaders`; G76/WCC6: the Radeon 680M compiled a
+//! many-feature export variant for 438 s and 52 GB before its device was
+//! lost). Elsewhere exports and the general pipelines compile the shader as
+//! before: the folded module, the same math, compiled to a few codes'
+//! difference in some exports on NVIDIA and Metal.
 
 use std::sync::{Arc, OnceLock};
 
