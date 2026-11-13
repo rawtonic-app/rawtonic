@@ -4071,6 +4071,10 @@ pub struct GpuProcessor {
     force_plain_noise_reduction: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     force_unprepared_layers: std::sync::atomic::AtomicBool,
+    /// Exports render as under a compile limit with the display variant
+    /// (`exports_with_display_variant`).
+    #[cfg(test)]
+    force_export_display: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     unprepared_layer_pipelines: VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>,
     #[cfg(test)]
@@ -5471,6 +5475,27 @@ const EXPORT_INLINED_CEILING: usize = 150_000;
 /// instead of minutes of compiling that may lose the device.
 fn refuses_export(inlined: usize) -> bool {
     inlined > EXPORT_INLINED_CEILING
+}
+
+/// Under a compile limit, the display variant an 8-bit export of
+/// `adjustments` renders with (`GpuProcessor::export_display_pipeline`): a
+/// photo without Basic-panel edits its own features (the variant it opens
+/// with), an edited one the idle plan's Basic-panel superset of them
+/// (`idle_compiles::basic_features`), which the editor compiles in idle time
+/// and frames outside the plan compile (`preview_pipeline`). So the export
+/// finds the editor's variant compiled instead of compiling an export
+/// variant: WGT16's edit exported with 87.8k inlined expressions for 116 s
+/// and 9.3 GB on the Radeon 680M (G76/WCC6), its display variant has 65.8k
+/// and is compiled before the click. A function of the recipe alone, never
+/// of what happens to be compiled, so an export's bytes do not depend on
+/// the session.
+fn export_display_features(adjustments: &AllAdjustments) -> usize {
+    let features = preview_features(adjustments);
+    if features & idle_compiles::BASIC_FEATURES == 0 {
+        features
+    } else {
+        idle_compiles::basic_features(features, adjustments)
+    }
 }
 
 /// The specialized variant an export of `adjustments` compiles, or `None`
@@ -7469,6 +7494,8 @@ impl GpuProcessor {
             #[cfg(test)]
             force_unprepared_layers: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
+            force_export_display: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
             unprepared_layer_pipelines: variant_table(),
             #[cfg(test)]
             legacy_curve_pipelines: variant_table(),
@@ -8528,6 +8555,15 @@ impl GpuProcessor {
         // runs now (a superset of its features) instead of queueing its own
         // behind it; shown as a compile the photo waits for.
         let mut waits_for_idle = None;
+        // Under a compile limit a frame no planned variant covers compiles
+        // the variant its export renders with (`export_display_features`, a
+        // superset): the export then compiles nothing, and the photo's later
+        // Basic-panel edits stay on it.
+        let own = if idle.is_some() {
+            export_display_features(adjustments)
+        } else {
+            features
+        };
         if !general_display && self.preview_pipelines[features].get().is_none() {
             match idle {
                 // A compiled superset serves the frame, and keeps serving
@@ -8540,7 +8576,7 @@ impl GpuProcessor {
                 Some(idle) if idle.covering(features).is_some() => {
                     waits_for_idle = Some(PendingCompile::new());
                 }
-                _ => self.compile_preview_variant(features),
+                _ => self.compile_preview_variant(own),
             }
             // Another photo than a default RAW: the compiles held back at
             // start may serve it sooner.
@@ -8574,13 +8610,13 @@ impl GpuProcessor {
                 && !served()
             {
                 waits_for_idle = None;
-                self.compile_preview_variant(features);
+                self.compile_preview_variant(own);
                 continue;
             }
             if let Some(general) = self.compiled_general_pipeline(adjustments) {
                 return general;
             }
-            if self.preview_failed[features].load(std::sync::atomic::Ordering::Acquire) {
+            if self.preview_failed[own].load(std::sync::atomic::Ordering::Acquire) {
                 return self.general_pipeline(adjustments, MainOutput::EightBit);
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
@@ -8902,6 +8938,150 @@ impl GpuProcessor {
         }
     }
 
+    /// An export render of the whole photo into each of `outputs`
+    /// (`render_window`): one main pass for all of them, except under a
+    /// compile limit, where each 8-bit output renders on its own with the
+    /// display variant as a single 8-bit export does
+    /// (`exports_with_display_variant`), so its bytes do not depend on the
+    /// recipes exported beside it. Pixels, width and height per output, in
+    /// `outputs` order.
+    #[allow(clippy::too_many_arguments)]
+    fn render_export_outputs(
+        &self,
+        input_texture_view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        request: RenderRequest,
+        chroma: Option<(&wgpu::TextureView, &wgpu::TextureView)>,
+        uploaded_masks: Option<&UploadedMasks>,
+        outputs: &[RenderOutput],
+    ) -> Result<Vec<(RenderedPixels, u32, u32)>, String> {
+        let run = |request: RenderRequest, outputs: &[RenderOutput]| {
+            self.render_window(
+                input_texture_view,
+                width,
+                height,
+                Roi {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height,
+                },
+                request,
+                false,
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Export,
+                chroma,
+                None,
+                uploaded_masks,
+                outputs,
+                false,
+            )
+        };
+        let alone = outputs
+            .iter()
+            .map(|output| {
+                output.precision == RenderOutputPrecision::EightBit
+                    && self.exports_with_display_variant(&request.adjustments)
+            })
+            .collect::<Vec<_>>();
+        let mut rendered: Vec<Option<(RenderedPixels, u32, u32)>> =
+            outputs.iter().map(|_| None).collect();
+        for (index, output) in outputs.iter().enumerate() {
+            if !alone[index] {
+                continue;
+            }
+            let mut adjustments = request.adjustments.clone();
+            adjustments.uniforms.global.output_space = output.output_space;
+            adjustments.uniforms.global.output_matrix = output.output_matrix;
+            let (pixels, out_w, out_h, _, _) = run(
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: request.mask_bitmaps,
+                    lut: request.lut.clone(),
+                    roi: request.roi,
+                },
+                &[],
+            )?;
+            let pixels = pixels
+                .into_iter()
+                .next()
+                .ok_or("An export render returned no pixels.")?;
+            rendered[index] = Some((pixels, out_w, out_h));
+        }
+        let shared: Vec<RenderOutput> = outputs
+            .iter()
+            .zip(&alone)
+            .filter(|(_, alone)| !**alone)
+            .map(|(output, _)| *output)
+            .collect();
+        if !shared.is_empty() {
+            let (pixels, out_w, out_h, _, _) = run(request, &shared)?;
+            let mut pixels = pixels.into_iter();
+            for (slot, _) in rendered
+                .iter_mut()
+                .zip(&alone)
+                .filter(|(_, alone)| !**alone)
+            {
+                let pixels = pixels
+                    .next()
+                    .ok_or("An export render returned too few outputs.")?;
+                *slot = Some((pixels, out_w, out_h));
+            }
+        }
+        rendered
+            .into_iter()
+            .map(|output| output.ok_or_else(|| "An export output was not rendered.".to_string()))
+            .collect()
+    }
+
+    /// Whether an 8-bit export of `adjustments` renders with the display
+    /// variant (`export_display_pipeline`): under a compile limit, unless a
+    /// global curve is sampled into a table (those export with the general
+    /// pipeline, `export_variant`). Elsewhere exports keep their own variants
+    /// and bytes.
+    fn exports_with_display_variant(
+        &self,
+        adjustments: &crate::image_processing::PreparedAdjustments,
+    ) -> bool {
+        #[cfg(test)]
+        let forced = self
+            .force_export_display
+            .load(std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(test))]
+        let forced = false;
+        (forced || compile_limited()) && adjustments.global.region_curve_active[1] == 0
+    }
+
+    /// The display variant an 8-bit export renders with under a compile
+    /// limit (`export_display_features`), compiled here if this processor
+    /// has none yet: a compile of the same module the editor's processor
+    /// made is answered by the pipeline cache. The Radeon 680M's driver
+    /// compiled WGT16's export variant for 116 s into 9.3 GB beside the
+    /// editor's 38 s for its display variant (G76/WGT18: 112 s to the file,
+    /// 11 GB peak); exports and display frames now share one. If it fails to
+    /// compile, the export variant renders.
+    fn export_display_pipeline(
+        &self,
+        adjustments: &crate::image_processing::PreparedAdjustments,
+    ) -> Result<&wgpu::ComputePipeline, String> {
+        let features = export_display_features(adjustments);
+        log::info!("GPU export renders with display variant {features}");
+        loop {
+            if let Some(pipeline) = self.preview_pipelines[features].get() {
+                return Ok(pipeline);
+            }
+            if self.preview_failed[features].load(std::sync::atomic::Ordering::Acquire) {
+                log::error!(
+                    "Display variant {features} unavailable for an export; using the export variant"
+                );
+                return self.export_pipeline(adjustments, MainOutput::EightBit);
+            }
+            self.compile_preview_variant(features);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
     /// Export variant `features` folded (`display_variant_ir`: without the
     /// branches its constants and its tone bits decide), in `slot`; a
     /// variant over `EXPORT_INLINED_CEILING` is refused with a clear error
@@ -8941,7 +9121,7 @@ impl GpuProcessor {
                 shader,
                 module.unwrap_or_else(make_module),
                 layout,
-                &format!("Specialized image processing {features}"),
+                &format!("Export variant {features}"),
                 &constants,
             )
             .inspect_err(|error| {
@@ -9346,7 +9526,16 @@ impl GpuProcessor {
             return Err(FLARE_WINDOW_ERROR.to_string());
         }
         let source_window = [window.x, window.y, width, height];
+        // Under a compile limit an 8-bit export renders with the editor's
+        // display variant (`export_display_pipeline`), its output written by
+        // the main pass as display frames write theirs.
+        let export_display = readback_shader == ReadbackShader::Export
+            && !output_to_display
+            && outputs.is_empty()
+            && output_precision == RenderOutputPrecision::EightBit
+            && self.exports_with_display_variant(&request.adjustments);
         let display_shader = output_to_display
+            || export_display
             || (matches!(
                 readback_shader,
                 ReadbackShader::Display | ReadbackShader::Preview
@@ -9408,6 +9597,7 @@ impl GpuProcessor {
         let outputs = if outputs.is_empty()
             && !output_to_display
             && readback_shader == ReadbackShader::Export
+            && !export_display
         {
             own_output = [RenderOutput {
                 precision: output_precision,
@@ -9465,7 +9655,9 @@ impl GpuProcessor {
             )
         } else {
             // A 16-bit render needs no 8-bit pipeline (nor waits for one).
-            let pipeline = if display_shader && !force_full_preparation && !force_general_pipeline {
+            let pipeline = if export_display && !force_full_preparation && !force_general_pipeline {
+                self.export_display_pipeline(&request.adjustments)?
+            } else if display_shader && !force_full_preparation && !force_general_pipeline {
                 self.preview_pipeline(&request.adjustments, output_to_display)?
             } else if !output_to_display && !force_full_preparation && !force_general_pipeline {
                 self.export_pipeline(&request.adjustments, MainOutput::EightBit)?
@@ -9689,8 +9881,17 @@ impl GpuProcessor {
         let mut layer_sums_buffer = self.layer_sums_off.clone();
         if display_shader {
             let mut layers = prepare_layers(adjustments);
-            self.update_curve_luts(&mut layers, adjustments.mask_count as usize);
-            layers[0].set_curve_lut(request.adjustments.curve_table.is_some());
+            if export_display {
+                // Exports evaluate every curve exactly: the display's
+                // curve tables are approximations within a tolerance (and
+                // a recipe with a sampled global curve does not get here).
+                for layer in &mut layers {
+                    layer.set_curve_lut(false);
+                }
+            } else {
+                self.update_curve_luts(&mut layers, adjustments.mask_count as usize);
+                layers[0].set_curve_lut(request.adjustments.curve_table.is_some());
+            }
             queue.write_buffer(
                 &self.prepared_layers_buffer,
                 0,
@@ -9708,6 +9909,7 @@ impl GpuProcessor {
                 let enabled = true;
                 let specialised = enabled
                     && display_shader
+                    && !export_display
                     && !force_full_preparation
                     && !force_general_pipeline
                     && !test_override
@@ -11615,26 +11817,16 @@ fn render_outputs(
 
     #[cfg(feature = "performance-profiling")]
     let run_stage = crate::performance::PerformanceStage::new("gpu_run");
-    let (pixels, out_w, out_h, _, _) = processor.render_window(
+    let rendered = processor.render_export_outputs(
         &cache.texture_view,
         cache.width,
         cache.height,
-        Roi {
-            x: 0,
-            y: 0,
-            width: cache.width,
-            height: cache.height,
-        },
         request,
-        false,
-        RenderOutputPrecision::EightBit,
-        ReadbackShader::Export,
         chroma.as_ref().map(|(packed, energy)| (packed, energy)),
-        None,
         kept.masks.as_deref(),
         outputs,
-        false,
     )?;
+    let (out_w, out_h) = rendered.first().map_or((0, 0), |r| (r.1, r.2));
     #[cfg(feature = "performance-profiling")]
     drop(run_stage);
     log::info!(
@@ -11645,9 +11837,9 @@ fn render_outputs(
         outputs.len(),
         start_time.elapsed()
     );
-    pixels
+    rendered
         .into_iter()
-        .map(|pixels| rendered_image(pixels, out_w, out_h))
+        .map(|(pixels, width, height)| rendered_image(pixels, width, height))
         .collect()
 }
 

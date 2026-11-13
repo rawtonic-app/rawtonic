@@ -90,18 +90,43 @@ pub(super) enum IdleJob {
 /// (G76/WCC4); without it each newer tone direction added a copy of the
 /// stage.
 pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<usize> {
+    let sliders = sliders_features(features, adjustments);
+    let basic = basic_features(features, adjustments);
+    let effects = features | EFFECTS_FEATURE;
+    let mut plan = Vec::with_capacity(3);
+    for candidate in [sliders, basic, effects] {
+        if candidate != features && !plan.contains(&candidate) {
+            plan.push(candidate);
+        }
+    }
+    plan
+}
+
+/// `idle_plan`'s first entry: `features` with the tone sliders and
+/// Highlights.
+fn sliders_features(features: usize, adjustments: &AllAdjustments) -> usize {
+    let g = &adjustments.global;
+    let tone = ToneVersion::from_uniform(g.tone_version);
+    features
+        | TONE_PREVIEW_FEATURE
+        | 2
+        | if g.tonemapper_mode == 3 && tone.highlights_edge_base() {
+            HIGHLIGHTS_V14_FEATURE
+        } else {
+            0
+        }
+}
+
+/// `idle_plan`'s second entry: `features` with every Basic-panel edit the
+/// recipe's versions make. Also the display variant an edited photo exports
+/// with under a compile limit (`gpu_processing::export_display_features`),
+/// so a change here changes those exports' bytes.
+pub(super) fn basic_features(features: usize, adjustments: &AllAdjustments) -> usize {
     let g = &adjustments.global;
     let tone = ToneVersion::from_uniform(g.tone_version);
     let bit = |on: bool, bit: usize| if on { bit } else { 0 };
-    let sliders = features
-        | TONE_PREVIEW_FEATURE
-        | 2
-        | bit(
-            g.tonemapper_mode == 3 && tone.highlights_edge_base(),
-            HIGHLIGHTS_V14_FEATURE,
-        );
     let dehaze = DehazeVersion::from_uniform(g.dehaze_version);
-    let basic = sliders
+    sliders_features(features, adjustments)
         | 4
         | 8
         | bit(tone.shadows_midtone_cut(), SHADOWS_V13_FEATURE)
@@ -118,16 +143,24 @@ pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<us
             VibranceVersion::from_uniform(g.vibrance_version).oklab(),
             VIBRANCE_V2_FEATURE,
         )
-        | bit(g.hsl[0].response > 0.5, HSL_V2_FEATURE);
-    let effects = features | EFFECTS_FEATURE;
-    let mut plan = Vec::with_capacity(3);
-    for candidate in [sliders, basic, effects] {
-        if candidate != features && !plan.contains(&candidate) {
-            plan.push(candidate);
-        }
-    }
-    plan
+        | bit(g.hsl[0].response > 0.5, HSL_V2_FEATURE)
 }
+
+/// The bits `basic_features` can add: a display variant with none of them
+/// shows no Basic-panel edit.
+pub(super) const BASIC_FEATURES: usize = TONE_PREVIEW_FEATURE
+    | 2
+    | 4
+    | 8
+    | HIGHLIGHTS_V14_FEATURE
+    | SHADOWS_V13_FEATURE
+    | WHITES_V12_FEATURE
+    | BLACKS_V16_FEATURE
+    | PRESENCE_V3_FEATURE
+    | DEHAZE_V3_FEATURE
+    | DEHAZE_V2_FEATURE
+    | VIBRANCE_V2_FEATURE
+    | HSL_V2_FEATURE;
 
 /// What the worker compiles with: the processor's display shader, layout
 /// and tables.
@@ -470,6 +503,41 @@ mod tests {
         *crate::image_processing::get_all_adjustments_from_json(&recipe, true, Some(3)).uniforms
     }
 
+    /// Under a compile limit an export renders with a display variant chosen
+    /// from its recipe alone (`export_display_features`), and in a normal
+    /// session it is one the editor compiled: a photo's own variant before
+    /// any Basic-panel edit, the planned Basic-panel superset after edits,
+    /// the planned effects entry for effects on an unedited photo (G76/WCC7).
+    #[test]
+    fn exports_take_the_variant_the_editor_compiles() {
+        let shown = new_raw_edit(serde_json::json!({}));
+        let opened = preview_features(&shown);
+        let plan = idle_plan(opened, &shown);
+        let export = |edits: serde_json::Value| export_display_features(&new_raw_edit(edits));
+        assert_eq!(export(serde_json::json!({})), opened);
+        assert_eq!(export(serde_json::json!({"glowAmount": 30})), plan[2]);
+        assert_eq!(plan[2], opened | EFFECTS_FEATURE);
+        let edit = serde_json::json!({"exposure": 0.4, "contrast": 25, "highlights": -40,
+            "shadows": 30, "whites": -20, "blacks": -10, "clarity": 20, "structure": 15,
+            "dehaze": 15, "vibrance": 20, "hsl": {"reds": {"hue": 12}}});
+        for edits in [
+            serde_json::json!({"contrast": 20}),
+            serde_json::json!({"shadows": 40}),
+            serde_json::json!({"whites": -30, "vibrance": 25}),
+            edit.clone(),
+        ] {
+            let features = preview_features(&new_raw_edit(edits.clone()));
+            let chosen = export(edits.clone());
+            assert_eq!(chosen, plan[1], "{edits}");
+            assert_eq!(chosen & features, features, "{edits}");
+        }
+        // Effects on an edited photo: the frame compiles the same superset
+        // (no planned variant covers it), with the effects.
+        let mut glow = edit;
+        glow["glowAmount"] = serde_json::json!(30);
+        assert_eq!(export(glow), plan[1] | EFFECTS_FEATURE);
+    }
+
     #[test]
     fn plan_climbs_from_the_tone_sliders_to_every_basic_edit() {
         let shown = new_raw_edit(serde_json::json!({}));
@@ -673,6 +741,62 @@ mod tests {
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         assert!(processor.preview_pipelines[features].get().is_none());
         drop(processor);
+        set_compile_limit(None);
+    }
+
+    /// Under a compile limit a frame no planned variant covers (effects on
+    /// an edited photo) compiles the variant its export renders with, and
+    /// the export then compiles nothing (G76/WCC7).
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_export_takes_the_variant_its_frame_compiled"]
+    fn an_export_takes_the_variant_its_frame_compiled() {
+        use super::super::preview_tests::{context, get_all_adjustments_from_json, input};
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let context = context();
+        let processor = GpuProcessor::new(context.clone(), 256, 256).unwrap();
+        let mut recipe =
+            serde_json::Value::Object(crate::image_processing::new_edit_responses(true));
+        recipe.as_object_mut().unwrap().extend(
+            serde_json::json!({"contrast": 20, "clarity": 25, "glowAmount": 30})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        let edit = get_all_adjustments_from_json(&recipe, true, Some(3));
+        let features = preview_features(&edit);
+        let exported = export_display_features(&edit);
+        assert_ne!(features, exported, "the export's variant is a superset");
+        processor.preview_pipeline(&edit, true).unwrap();
+        assert!(processor.preview_pipelines[exported].get().is_some());
+        assert!(processor.preview_pipelines[features].get().is_none());
+        let view = input(&context, 256, 256, 7);
+        let started = Instant::now();
+        processor
+            .run(
+                &view,
+                256,
+                256,
+                RenderRequest {
+                    adjustments: edit,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the export waited {:?}",
+            started.elapsed()
+        );
+        assert!(!compiles_pending(), "the export started a compile");
+        drop(processor);
+        // The idle worker ends after its quiet time; exiting while it still
+        // holds the device crashed the test process on NVIDIA's Linux driver.
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         set_compile_limit(None);
     }
 }

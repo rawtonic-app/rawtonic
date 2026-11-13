@@ -9399,6 +9399,233 @@ fn folded_export_variants_render_their_exports_within_rounding() {
     assert!(refused.is_empty(), "{refused:?}");
 }
 
+/// The recipes of `folded_export_variants_render_their_exports_within_rounding`
+/// and a local curve layer: profile and whether the photo is RAW.
+fn export_check_profiles() -> Vec<(serde_json::Value, bool)> {
+    let many = json!({"renderVersion":5,"toneVersion":18,"clarityVersion":3,
+        "dehazeVersion":3,"vibranceVersion":2,"hslVersion":2,
+        "exposure":0.4,"contrast":25,"highlights":-40,"shadows":30,"whites":-20,
+        "blacks":-10,"clarity":20,"structure":15,"dehaze":15,"vibrance":20,
+        "curves":custom_curve(),"hsl":{"reds":{"hue":12}},
+        "masks":[local_mask("brush", json!({"exposure":0.6}))]});
+    let mut glow = many.clone();
+    glow["glowAmount"] = json!(30);
+    vec![
+        (json!({}), true),
+        (json!({"renderVersion":5}), true),
+        (
+            json!({"renderVersion":5,"sharpness":40,"colorNoiseReduction":25}),
+            true,
+        ),
+        (
+            json!({"exposure":0.4,"contrast":25,"shadows":30,"whites":-20,"blacks":-10,
+            "clarity":20,"dehaze":15,"vibrance":20,"saturation":10}),
+            true,
+        ),
+        (
+            json!({"renderVersion":5,"contrast":30,"shadows":20,"whites":-15,"toneVersion":5}),
+            true,
+        ),
+        (
+            json!({"renderVersion":5,"glowAmount":30,"halationAmount":20,"grainAmount":25}),
+            true,
+        ),
+        (many.clone(), true),
+        (many, false),
+        (glow, true),
+        (
+            {
+                let mut layered = local_profile(json!({"highlights":-20,"lumaNoiseReduction":15}));
+                layered["renderVersion"] = json!(5);
+                layered
+            },
+            true,
+        ),
+        (
+            local_profile(json!({"curves":custom_curve(),"exposure":0.3})),
+            true,
+        ),
+    ]
+}
+
+#[test]
+#[ignore = "requires a native GPU; exports under a compile limit against exports elsewhere"]
+fn exports_under_a_compile_limit_render_with_the_display_variant() {
+    // Under a compile limit an 8-bit export renders with the display
+    // variant the editor compiles (`export_display_pipeline`, G76/WCC7):
+    // no export variant is compiled, the bytes depend on the recipe alone
+    // (two processors give the same), and they stay within rounding of
+    // the export elsewhere (display tone stage and gains, exact curves).
+    let context = context();
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 31);
+    let mut worst_overall = 0;
+    for (profile, raw) in export_check_profiles() {
+        let adjustments =
+            get_all_adjustments_from_json(&profile, raw, Some(if raw { 3 } else { 0 }));
+        let masks = generated_profile_masks(&profile, width, height);
+        let render = |display: bool| {
+            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            processor
+                .force_export_display
+                .store(display, std::sync::atomic::Ordering::Relaxed);
+            let (pixels, ..) = processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: adjustments.clone(),
+                        mask_bitmaps: &masks,
+                        lut: None,
+                        roi: None,
+                    },
+                    false,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            if display {
+                let features = export_display_features(&adjustments);
+                assert!(
+                    processor.preview_pipelines[features].get().is_some(),
+                    "{profile}: display variant {features} not used"
+                );
+                for table in [
+                    &processor.export_pipelines,
+                    &processor.deferred_export_pipelines,
+                ] {
+                    assert!(
+                        table.supersets(0).all(|slot| slot.get().is_none()),
+                        "{profile}: an export variant was compiled"
+                    );
+                }
+            }
+            match pixels {
+                RenderedPixels::U8(bytes) => bytes,
+                RenderedPixels::U16(_) => unreachable!(),
+            }
+        };
+        let elsewhere = render(false);
+        let limited = render(true);
+        assert_eq!(limited, render(true), "{profile}: not deterministic");
+        let worst = elsewhere
+            .iter()
+            .zip(&limited)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        let differing = elsewhere
+            .iter()
+            .zip(&limited)
+            .filter(|(a, b)| a != b)
+            .count();
+        println!(
+            "{}: worst {worst}, {differing} of {} values differ",
+            profile.to_string().chars().take(120).collect::<String>(),
+            elsewhere.len()
+        );
+        worst_overall = worst_overall.max(worst);
+    }
+    // NVIDIA Vulkan (RTX 3080): at most 1, on up to 30 of 804452 values.
+    assert!(worst_overall <= 1, "off by {worst_overall}");
+}
+
+#[test]
+#[ignore = "requires a native GPU; several outputs of one export under a compile limit"]
+fn several_outputs_under_a_compile_limit_match_their_own_exports() {
+    // Under a compile limit each 8-bit output of a render for several
+    // renders alone with the display variant (`render_export_outputs`), so
+    // it equals that output exported alone; 16-bit outputs share the main
+    // pass as before.
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 37);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    processor
+        .force_export_display
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let outputs = [
+        (OutputColorSpace::Srgb, RenderOutputPrecision::EightBit),
+        (
+            OutputColorSpace::AdobeRgb,
+            RenderOutputPrecision::SixteenBit,
+        ),
+        (OutputColorSpace::DisplayP3, RenderOutputPrecision::EightBit),
+        (OutputColorSpace::Srgb, RenderOutputPrecision::SixteenBit),
+    ];
+    let with_space = |mut all: crate::image_processing::PreparedAdjustments,
+                      space: OutputColorSpace| {
+        all.global.output_space = [space.shader_code(), 0, 0, 0];
+        all.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        all
+    };
+    for profile in [
+        json!({"renderVersion":5,"exposure":0.3,"contrast":20,"clarity":25,"sharpness":40}),
+        json!({"renderVersion":5,"glowAmount":30,"shadows":20}),
+    ] {
+        let base = get_all_adjustments_from_json(&profile, true, Some(3));
+        let request = |adjustments| RenderRequest {
+            adjustments,
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        };
+        let alone: Vec<RenderedPixels> = outputs
+            .iter()
+            .map(|&(space, precision)| {
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        request(with_space(base.clone(), space)),
+                        false,
+                        precision,
+                    )
+                    .unwrap()
+                    .0
+            })
+            .collect();
+        let render_outputs: Vec<RenderOutput> = outputs
+            .iter()
+            .map(|&(space, precision)| {
+                let global = with_space(base.clone(), space).global;
+                RenderOutput {
+                    precision,
+                    output_space: global.output_space,
+                    output_matrix: global.output_matrix,
+                }
+            })
+            .collect();
+        let together = processor
+            .render_export_outputs(
+                &view,
+                width,
+                height,
+                request(base.clone()),
+                None,
+                None,
+                &render_outputs,
+            )
+            .unwrap();
+        assert_eq!(together.len(), outputs.len());
+        for (index, ((pixels, w, h), expected)) in together.into_iter().zip(&alone).enumerate() {
+            assert_eq!((w, h), (width, height));
+            let same = match (&pixels, expected) {
+                (RenderedPixels::U8(a), RenderedPixels::U8(b)) => a == b,
+                (RenderedPixels::U16(a), RenderedPixels::U16(b)) => a == b,
+                _ => false,
+            };
+            assert!(
+                same,
+                "{profile}: output {index} differs from its own export"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_compile_limit_refuses_only_export_variants_over_the_ceiling() {
     // The size the export of WGT16's edit compiles (G76/WCC6: 87.8k
