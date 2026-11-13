@@ -42,6 +42,20 @@ describe('render errors', () => {
     ).toBe(
       'Nicht genug Grafikspeicher für dieses Foto. Schließe andere Programme, die die Grafikkarte nutzen, und exportiere dieses Foto erneut.'
     );
+    expect(
+      renderErrorMessage(
+        'This photo could not be rendered on this graphics chip: it stopped responding (out of memory). Quit and reopen Rawtonic, then export this photo again.'
+      )
+    ).toBe(
+      'Dieses Foto konnte auf diesem Grafikchip nicht gerendert werden: Er reagiert nicht mehr (Speicher voll). Beende Rawtonic, öffne es erneut und exportiere dieses Foto noch einmal.'
+    );
+    expect(
+      renderErrorMessage(
+        "This photo's edits are too complex for this graphics chip's driver to export. Remove some edits (effects, local adjustments) and export it again, or export it on another computer."
+      )
+    ).toBe(
+      'Die Bearbeitung dieses Fotos ist zu umfangreich, um sie mit dem Treiber dieses Grafikchips zu exportieren. Entferne einige Bearbeitungen (Effekte, lokale Korrekturen) und exportiere erneut, oder exportiere das Foto auf einem anderen Computer.'
+    );
     expect(renderErrorMessage('Unreadable export request')).toBe(
       'Die gespeicherten Einstellungen dieses Exports konnten nicht gelesen werden.'
     );

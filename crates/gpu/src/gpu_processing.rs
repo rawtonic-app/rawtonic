@@ -7,6 +7,7 @@ use image::Luma;
 use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Rgba};
 use std::num::NonZero;
 
+use rawtonic_rawdecode::gpu_util::create_buffer_init;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
 use crate::display_variant_ir::{DisplayShader, ExportShaders};
@@ -498,11 +499,14 @@ fn pyramid_pass(
 ) {
     let device = &context.device;
     let buffer = params.map(|params| {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Colour noise pyramid params"),
-            contents: bytemuck::bytes_of(params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        })
+        create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Colour noise pyramid params"),
+                contents: bytemuck::bytes_of(params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        )
     });
     let mut all: Vec<wgpu::BindGroupEntry> = entries
         .iter()
@@ -1134,11 +1138,14 @@ impl ChromaGpu {
         let packed_view = &self.packed_view;
         let energy_view = &self.energy_view;
         let device = &context.device;
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Colour noise params"),
-            contents: bytemuck::bytes_of(&params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        let buffer = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Colour noise params"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        );
         let group0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Chroma energy BG0"),
             layout: &pipelines.energy.get_bind_group_layout(0),
@@ -1254,11 +1261,14 @@ impl ChromaGpu {
                 _pad: 0.0,
                 profile: pyramid.profile(),
             };
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Colour noise level params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
+            let buffer = create_buffer_init(
+                device,
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("Colour noise level params"),
+                    contents: bytemuck::bytes_of(&params),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                },
+            );
             let coarser = if l == color_noise::LEVELS - 1 {
                 smoothed.as_ref().unwrap_or(&reconstruction.coarsest)
             } else {
@@ -5447,6 +5457,22 @@ fn export_features(adjustments: &AllAdjustments) -> usize {
         | TONE_V5_FEATURE
 }
 
+/// Under a compile limit, the inlined size (`display_variant_ir::
+/// inlined_size`) above which an export variant is not compiled. The Radeon
+/// 680M's Windows Vulkan driver compiled WGT16's unfolded export variant
+/// (288k) for 438 s into 52 GB until its device was lost and the app went
+/// down with it (G76/WCC6; probe round 14: folded with the recipe's own
+/// effects and tone arms 87.8k, 116 s / 9.3 GB; 143k, 142 s / 10.4 GB).
+const EXPORT_INLINED_CEILING: usize = 150_000;
+
+/// Whether an export variant of `inlined` size is refused: only under a
+/// compile limit (`compile_limited`), and then with a clear error
+/// (`GPU_EXPORT_TOO_COMPLEX`) instead of minutes of compiling that may lose
+/// the device.
+fn refuses_export(inlined: usize, compile_limited: bool) -> bool {
+    compile_limited && inlined > EXPORT_INLINED_CEILING
+}
+
 /// The specialized variant an export of `adjustments` compiles, or `None`
 /// for the general pipeline.
 fn export_variant(adjustments: &crate::image_processing::PreparedAdjustments) -> Option<usize> {
@@ -5794,6 +5820,14 @@ fn background_compile_slot(what: &str) -> Option<CompileSlot> {
 #[doc(hidden)]
 pub fn fold_decided_branches(module: &mut naga::Module) -> usize {
     crate::display_variant_ir::fold(module)
+}
+
+/// `display_variant_ir::inlined_size`, for measuring tools
+/// (`examples/compile_probe.rs`): the expressions of `main` with every call
+/// inlined.
+#[doc(hidden)]
+pub fn inlined_size(module: &naga::Module) -> usize {
+    crate::display_variant_ir::inlined_size(module)
 }
 
 /// The source display variants compile (`display_variant_ir::DisplayShader`:
@@ -6191,7 +6225,28 @@ fn create_display_pipeline(
     label: &str,
     constants: &[(&str, f64)],
 ) -> Result<wgpu::ComputePipeline, String> {
-    let module = match display.variant_module(constants) {
+    compile_variant_module(
+        device,
+        shader_module,
+        display.variant_module(constants),
+        pipeline_layout,
+        label,
+        constants,
+    )
+}
+
+/// The pipeline of a variant's folded `module` (`DisplayShader::
+/// variant_module`), or of the whole shader with `constants` if that
+/// module could not be made.
+fn compile_variant_module(
+    device: &wgpu::Device,
+    shader_module: &wgpu::ShaderModule,
+    module: Result<naga::Module, String>,
+    pipeline_layout: &wgpu::PipelineLayout,
+    label: &str,
+    constants: &[(&str, f64)],
+) -> Result<wgpu::ComputePipeline, String> {
+    let module = match module {
         Ok(module) => module,
         Err(error) => {
             log::warn!("{label}: compiling the whole shader ({error})");
@@ -7234,17 +7289,23 @@ impl GpuProcessor {
         });
         let dummy_lut_view = dummy_lut_texture.create_view(&Default::default());
         let dummy_lut_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let no_lut_shaper = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("LUT shaper (none)"),
-            contents: bytemuck::cast_slice(&lut_shaper_data(None)),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let no_lut_shaper = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("LUT shaper (none)"),
+                contents: bytemuck::cast_slice(&lut_shaper_data(None)),
+                usage: wgpu::BufferUsages::STORAGE,
+            },
+        );
 
-        let no_film_grain = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Film grain tile (none)"),
-            contents: bytemuck::cast_slice(&[0u32; 4]),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let no_film_grain = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Film grain tile (none)"),
+                contents: bytemuck::cast_slice(&[0u32; 4]),
+                usage: wgpu::BufferUsages::STORAGE,
+            },
+        );
 
         let clamped_tile_width = max_width.min(TILE_SIZE + TILE_OVERLAP * 2);
         let clamped_tile_height = max_height.min(TILE_SIZE + TILE_OVERLAP * 2);
@@ -7991,21 +8052,27 @@ impl GpuProcessor {
             0,
             0,
         ];
-        let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Layer sums params"),
-            contents: bytemuck::cast_slice(&params),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
-        let layers_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Layer sums layers"),
-            // A binding cannot be empty (only the left-out layer is summed).
-            contents: bytemuck::cast_slice(if plan.layers.is_empty() {
-                &[[0.0f32; 4]][..]
-            } else {
-                &plan.layers
-            }),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let params_buffer = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Layer sums params"),
+                contents: bytemuck::cast_slice(&params),
+                usage: wgpu::BufferUsages::STORAGE,
+            },
+        );
+        let layers_buffer = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Layer sums layers"),
+                // A binding cannot be empty (only the left-out layer is summed).
+                contents: bytemuck::cast_slice(if plan.layers.is_empty() {
+                    &[[0.0f32; 4]][..]
+                } else {
+                    &plan.layers
+                }),
+                usage: wgpu::BufferUsages::STORAGE,
+            },
+        );
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Layer sums"),
             layout: &self.layer_sums_bgl,
@@ -8777,26 +8844,42 @@ impl GpuProcessor {
             MainOutput::Deferred => &self.deferred_export_pipelines,
         };
         let (shader, layout) = self.main_module(output);
+        let slot = &pipelines[features];
         // The variant folded (`display_variant_ir`): the same math as the
         // whole shader with these constants, far less for a driver that
-        // inlines every call before it drops decided code (G76/WCC6).
-        let folded = self.export_shaders.get(
-            output.high_precision(),
-            features & SHADOWS_V13_FEATURE != 0,
-            features & WHITES_V12_FEATURE != 0,
-        );
-        match pipelines[features]
+        // inlines every call before it drops decided code (G76/WCC6). Made
+        // here, before the slot's compile, so that a compile limit can
+        // refuse a variant too large for its driver (`refuses_export`).
+        let constants =
+            variant_constants(features, true, false, false, output == MainOutput::Deferred);
+        let make_module = || {
+            self.export_shaders
+                .get(
+                    output.high_precision(),
+                    features & SHADOWS_V13_FEATURE != 0,
+                    features & WHITES_V12_FEATURE != 0,
+                )
+                .variant_module(&constants)
+        };
+        let module = slot.get().is_none().then(make_module);
+        if let Some(Ok(module)) = &module {
+            let inlined = crate::display_variant_ir::inlined_size(module);
+            if refuses_export(inlined, compile_limited()) {
+                log::error!(
+                    "Export variant {features}: {inlined} inlined expressions, over the compile limit's {EXPORT_INLINED_CEILING}; not compiled"
+                );
+                return Err(rawtonic_runtime::gpu_memory::GPU_EXPORT_TOO_COMPLEX.to_string());
+            }
+        }
+        match slot
             .get_or_init(|| {
-                create_preview_pipeline(
+                compile_variant_module(
                     &self.context.device,
                     shader,
-                    Some(folded),
+                    module.unwrap_or_else(make_module),
                     layout,
-                    features,
-                    true,
-                    false,
-                    false,
-                    output == MainOutput::Deferred,
+                    &format!("Specialized image processing {features}"),
+                    &constants,
                 )
                     .inspect_err(|error| {
                         log::error!(
@@ -9513,11 +9596,14 @@ impl GpuProcessor {
             .as_ref()
             .and_then(|lut| lut.shaper.as_ref())
             .map(|shaper| {
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("LUT shaper"),
-                    contents: bytemuck::cast_slice(&lut_shaper_data(Some(shaper))),
-                    usage: wgpu::BufferUsages::STORAGE,
-                })
+                create_buffer_init(
+                    device,
+                    &wgpu::util::BufferInitDescriptor {
+                        label: Some("LUT shaper"),
+                        contents: bytemuck::cast_slice(&lut_shaper_data(Some(shaper))),
+                        usage: wgpu::BufferUsages::STORAGE,
+                    },
+                )
             });
         let lut_shaper = lut_shaper.as_ref().unwrap_or(&self.no_lut_shaper);
         let film_grain =
@@ -9525,11 +9611,14 @@ impl GpuProcessor {
                 && request.adjustments.uniforms.global.grain_amount > 0.0
             {
                 self.film_grain_tile.get_or_init(|| {
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Film grain tile"),
-                        contents: bytemuck::cast_slice(&film_grain_tile_data()),
-                        usage: wgpu::BufferUsages::STORAGE,
-                    })
+                    create_buffer_init(
+                        device,
+                        &wgpu::util::BufferInitDescriptor {
+                            label: Some("Film grain tile"),
+                            contents: bytemuck::cast_slice(&film_grain_tile_data()),
+                            usage: wgpu::BufferUsages::STORAGE,
+                        },
+                    )
                 })
             } else {
                 &self.no_film_grain
@@ -11516,6 +11605,11 @@ pub fn gpu_scoped<T>(device: &wgpu::Device, work: impl FnOnce() -> T) -> Result<
     let internal = pollster::block_on(internal.pop());
     let validation = pollster::block_on(validation.pop());
     let memory = pollster::block_on(memory.pop());
+    // On a lost device every object is invalid: the errors name whichever
+    // one failed first ("Buffer … is invalid"), not why.
+    if crate::device_start::device_lost() {
+        return Err(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST.to_string());
+    }
     match memory.or(validation).or(internal) {
         Some(error) => {
             log::error!("GPU render failed: {error}");

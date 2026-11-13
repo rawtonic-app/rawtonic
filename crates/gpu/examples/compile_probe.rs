@@ -306,7 +306,7 @@ fn one(line: &str) -> Result<String, String> {
     add_nonce(&mut module);
     naga::compact::compact(&mut module, naga::compact::KeepUnused::No);
     validate(&module)?;
-    let inlined = inlined_size(&module);
+    let inlined = rawtonic_gpu::gpu_processing::inlined_size(&module);
     // COMPILE_PROBE_REPORT=1: the largest inlined calls (main's direct
     // calls and the most-repeated functions) on stderr.
     if std::env::var("COMPILE_PROBE_REPORT").is_ok() {
@@ -962,43 +962,6 @@ fn report_inlining(module: &naga::Module) {
     for (t, k, n) in rows.iter().take(15) {
         eprintln!("  {t:>7} x{k:<4} {n}");
     }
-}
-
-/// Expressions of `main` with every call inlined (what a compiler that
-/// inlines everything starts from).
-fn inlined_size(module: &naga::Module) -> usize {
-    fn calls(block: &naga::Block, out: &mut Vec<naga::Handle<naga::Function>>) {
-        use naga::Statement as S;
-        for statement in block.iter() {
-            match statement {
-                S::Call { function, .. } => out.push(*function),
-                S::Block(b) => calls(b, out),
-                S::If { accept, reject, .. } => {
-                    calls(accept, out);
-                    calls(reject, out);
-                }
-                S::Loop {
-                    body, continuing, ..
-                } => {
-                    calls(body, out);
-                    calls(continuing, out);
-                }
-                S::Switch { cases, .. } => cases.iter().for_each(|c| calls(&c.body, out)),
-                _ => {}
-            }
-        }
-    }
-    let mut sizes = std::collections::HashMap::new();
-    for (handle, function) in module.functions.iter() {
-        let mut callees = vec![];
-        calls(&function.body, &mut callees);
-        let size = function.expressions.len() + callees.iter().map(|c| sizes[c]).sum::<usize>();
-        sizes.insert(handle, size);
-    }
-    let main = &module.entry_points[0].function;
-    let mut callees = vec![];
-    calls(&main.body, &mut callees);
-    main.expressions.len() + callees.iter().map(|c| sizes[c]).sum::<usize>()
 }
 
 #[cfg(windows)]

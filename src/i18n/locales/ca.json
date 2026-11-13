@@ -3586,7 +3586,9 @@
       },
       "errors": {
         "batchFailed": "{{failed}} de {{total}} exportacions han fallat",
+        "gpuDeviceLost": "No s’ha pogut processar aquesta foto en aquest xip gràfic: ha deixat de respondre (sense memòria). Tanca i torna a obrir Rawtonic i exporta de nou aquesta foto.",
         "gpuMemory": "No hi ha prou memòria gràfica per a aquesta foto. Tanca altres programes que facin servir la targeta gràfica i torna a exportar aquesta foto.",
+        "gpuTooComplex": "Les edicions d’aquesta foto són massa complexes perquè el controlador d’aquest xip gràfic les exporti. Elimina algunes edicions (efectes, ajustos locals) i torna-la a exportar, o exporta-la en un altre ordinador.",
         "offline": "{{file}} està fora de línia: per exportar cal el fitxer RAW.",
         "terminated": "L'exportació s'ha aturat inesperadament.",
         "textureLimit": "La imatge ({{width}} × {{height}} px) és més gran del que aquesta targeta gràfica pot processar ({{limit}} px per costat).",

@@ -4,4 +4,6 @@
 disallowed-methods = [
     { path = "std::fs::canonicalize", reason = "use rawtonic_fs::canonicalize (plain paths on Windows)" },
     { path = "std::path::Path::canonicalize", reason = "use rawtonic_fs::Canonical::canonical (plain paths on Windows)" },
+    # It panics on a lost device (G76/WCC6: an export after 'GPU device lost').
+    { path = "wgpu::util::DeviceExt::create_buffer_init", reason = "use rawtonic_rawdecode::gpu_util::create_buffer_init (no panic on a lost device)" },
 ]

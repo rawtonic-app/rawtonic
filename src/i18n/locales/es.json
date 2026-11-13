@@ -3586,7 +3586,9 @@
       },
       "errors": {
         "batchFailed": "{{failed}} de {{total}} exportaciones fallaron",
+        "gpuDeviceLost": "No se pudo procesar esta foto en este chip gráfico: ha dejado de responder (sin memoria). Cierra y vuelve a abrir Rawtonic y exporta de nuevo esta foto.",
         "gpuMemory": "No hay suficiente memoria gráfica para esta foto. Cierra otros programas que usen la tarjeta gráfica y vuelve a exportar esta foto.",
+        "gpuTooComplex": "Las ediciones de esta foto son demasiado complejas para que el controlador de este chip gráfico las exporte. Quita algunas ediciones (efectos, ajustes locales) y vuelve a exportarla, o expórtala en otro ordenador.",
         "offline": "{{file}} está sin conexión: para exportar se necesita el archivo RAW.",
         "terminated": "La exportación se detuvo de forma inesperada.",
         "textureLimit": "La imagen ({{width}} × {{height}} px) es más grande de lo que esta tarjeta gráfica puede procesar ({{limit}} px por lado).",

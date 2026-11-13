@@ -16,6 +16,20 @@ pub const GPU_OUT_OF_MEMORY: &str = "The graphics card ran out of memory for thi
 /// (the app's `renderErrors.ts` translates it).
 pub const GPU_MEMORY_EXHAUSTED: &str = "Not enough graphics memory for this photo. Close other programs that use the graphics card and export this photo again.";
 
+/// What GPU work fails with once the graphics chip's device is lost (its
+/// driver reset it, e.g. out of memory; G76/WCC6: a Radeon 680M lost it
+/// compiling an export variant). Every later render on that device fails
+/// too, and the app makes no new device while it runs, so the photo is
+/// exported again after a restart (the app's `renderErrors.ts` translates
+/// it).
+pub const GPU_DEVICE_LOST: &str = "This photo could not be rendered on this graphics chip: it stopped responding (out of memory). Quit and reopen Rawtonic, then export this photo again.";
+
+/// What an export fails with when its shader variant is too large for a
+/// graphics driver that compiles under a limit (G76/WCC6: the Radeon 680M's
+/// Windows Vulkan driver took 438 s and 52 GB for one and lost its device).
+/// The app's `renderErrors.ts` translates it.
+pub const GPU_EXPORT_TOO_COMPLEX: &str = "This photo's edits are too complex for this graphics chip's driver to export. Remove some edits (effects, local adjustments) and export it again, or export it on another computer.";
+
 /// The waits before the retries: about 7.5 s at most per photo, so a card
 /// that stays full fails each photo in turn instead of stalling the batch.
 pub const RETRY_WAITS: [Duration; 3] = [

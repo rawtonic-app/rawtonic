@@ -243,6 +243,9 @@ pub fn start_device(
     // error (WGT5: "Buffer … is invalid").
     device.set_device_lost_callback(|reason, message| {
         log::error!("GPU device lost ({reason:?}): {message}");
+        if reason != wgpu::DeviceLostReason::Destroyed {
+            DEVICE_LOST.store(true, std::sync::atomic::Ordering::Release);
+        }
     });
     Ok(StartedDevice {
         instance,
@@ -251,6 +254,17 @@ pub fn start_device(
         device,
         queue,
     })
+}
+
+/// Whether a device this process started was lost other than by being
+/// dropped (its driver reset it; G76/WCC6: 'Out of memory' on a Radeon
+/// 680M). The app makes no new device while it runs, so it stays set.
+static DEVICE_LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the GPU device was lost (`DEVICE_LOST`): renders fail with
+/// `rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST` from then on.
+pub fn device_lost() -> bool {
+    DEVICE_LOST.load(std::sync::atomic::Ordering::Acquire)
 }
 
 #[cfg(test)]

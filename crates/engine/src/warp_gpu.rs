@@ -15,7 +15,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use wgpu::util::DeviceExt;
+use rawtonic_rawdecode::gpu_util::create_buffer_init;
 
 use crate::image_processing::{SourceRows, WarpUniforms};
 
@@ -568,11 +568,14 @@ impl<'a> Prepared<'a> {
         let (mut base, table_data) = params(u, source, out);
         base.flags |= flags;
         let init = |label, contents: &[u8], usage| {
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(label),
-                contents,
-                usage,
-            })
+            create_buffer_init(
+                device,
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some(label),
+                    contents,
+                    usage,
+                },
+            )
         };
         Ok(Self {
             device,
@@ -628,16 +631,19 @@ impl<'a> Prepared<'a> {
         dst_row0: u32,
     ) {
         let device = self.device;
-        let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Warp params"),
-            contents: bytemuck::bytes_of(&Params {
-                band_row0: row0,
-                band_rows: rows,
-                dst_row0,
-                ..self.base
-            }),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        let uniform = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Warp params"),
+                contents: bytemuck::bytes_of(&Params {
+                    band_row0: row0,
+                    band_rows: rows,
+                    dst_row0,
+                    ..self.base
+                }),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        );
         fn entry(binding: u32, buffer: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> {
             wgpu::BindGroupEntry {
                 binding,

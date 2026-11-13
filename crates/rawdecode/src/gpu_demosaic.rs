@@ -6,8 +6,8 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use crate::gpu_util::create_buffer_init;
 use rayon::prelude::*;
-use wgpu::util::DeviceExt;
 
 use crate::demosaic::{BORDER, Cancel, Cancelled, CfaPattern, DirectionalTables};
 
@@ -274,11 +274,14 @@ fn run(
     }
 
     let init = |label: &str, contents: &[u8], usage: wgpu::BufferUsages| {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents,
-            usage,
-        })
+        create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents,
+                usage,
+            },
+        )
     };
     let read = wgpu::BufferUsages::STORAGE;
     // The raw mosaic goes up as it is; the GPU pads and encodes it.

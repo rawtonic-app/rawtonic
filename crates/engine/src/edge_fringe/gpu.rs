@@ -12,8 +12,8 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use rawtonic_rawdecode::gpu_util::create_buffer_init;
 use rayon::prelude::*;
-use wgpu::util::DeviceExt;
 
 use super::{Plan, axial};
 
@@ -677,11 +677,14 @@ fn run(
                 half_stride: half_stride as u32,
                 ..base
             };
-            let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Edge fringe params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
+            let uniform = create_buffer_init(
+                device,
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("Edge fringe params"),
+                    contents: bytemuck::bytes_of(&params),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                },
+            );
             let bind_group = |input: usize| {
                 let order = [input, 1 - input, 2, 3, 4, 5, 6];
                 let mut entries = vec![

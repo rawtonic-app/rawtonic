@@ -3339,7 +3339,9 @@
       },
       "errors": {
         "batchFailed": "{{total}} 个导出中有 {{failed}} 个失败",
+        "gpuDeviceLost": "无法在此显卡芯片上渲染这张照片：它已停止响应（内存不足）。请退出并重新打开 Rawtonic，然后重新导出这张照片。",
         "gpuMemory": "显存不足，无法处理这张照片。请关闭其他使用显卡的程序，然后重新导出这张照片。",
+        "gpuTooComplex": "这张照片的编辑过于复杂，此显卡芯片的驱动程序无法导出。请移除部分编辑（效果、局部调整）后重新导出，或在另一台电脑上导出。",
         "offline": "{{file}} 处于离线状态：导出需要 RAW 文件。",
         "terminated": "导出意外停止。",
         "textureLimit": "图像（{{width}} × {{height}} px）超出了此显卡可渲染的尺寸（每边 {{limit}} px）。",

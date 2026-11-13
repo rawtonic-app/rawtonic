@@ -8988,6 +8988,52 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; work on a lost device fails instead of panicking"]
+fn a_lost_device_fails_its_renders_instead_of_panicking() {
+    // WGT16 (G76/WCC6): after 'GPU device lost: Out of memory' an export
+    // panicked creating a processor ('LUT shaper (none)' could not be
+    // mapped) and the app ended. A destroyed device is lost the same way.
+    let context = context();
+    context.device.destroy();
+    let (width, height) = (64, 48);
+    let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        GpuProcessor::new(context.clone(), width, height)
+    }));
+    let processor = match made {
+        Ok(Ok(processor)) => processor,
+        // Failing to make one is a clear error too.
+        Ok(Err(_)) => return,
+        Err(_) => panic!("making a processor on a lost device panicked"),
+    };
+    let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let view = input(&context, width, height, 3);
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(
+                        &json!({"exposure":0.5}),
+                        true,
+                        Some(3),
+                    ),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::EightBit,
+            )
+            .map(|_| ())
+    }));
+    match rendered {
+        Ok(result) => assert!(result.is_err(), "a render on a lost device succeeded"),
+        Err(_) => panic!("rendering on a lost device panicked"),
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; folded export variants against the whole shader"]
 fn export_variants_from_folded_ir_render_the_same_bytes() {
     // An export variant compiles from shader.wgsl with the branches its
@@ -9125,6 +9171,40 @@ fn export_variants_from_folded_ir_render_the_same_bytes() {
         checked += 1;
     }
     assert_eq!(checked, 9);
+}
+
+#[test]
+fn a_compile_limit_refuses_only_export_variants_over_the_ceiling() {
+    // The size the export of WGT16's edit compiles (G76/WCC6: 87.8k
+    // inlined, 116 s / 9.3 GB on the Radeon 680M) stays below the ceiling;
+    // the same edit with glow kept every effect's tone stage (197k) and is
+    // refused under a compile limit, never elsewhere.
+    let shaders = crate::display_variant_ir::ExportShaders::new(
+        include_str!("shaders/shader.wgsl"),
+        &high_precision_shader_source(include_str!("shaders/shader.wgsl")),
+    );
+    let size = |features: usize| {
+        let module = shaders
+            .get(
+                false,
+                features & SHADOWS_V13_FEATURE != 0,
+                features & WHITES_V12_FEATURE != 0,
+            )
+            .variant_module(&variant_constants(features, true, false, false, false))
+            .unwrap();
+        crate::display_variant_ir::inlined_size(&module)
+    };
+    let edit = 5238847;
+    let with_effects = edit | EFFECTS_FEATURE | TONE_V5_FEATURE;
+    assert!(size(edit) < EXPORT_INLINED_CEILING, "{}", size(edit));
+    assert!(
+        size(with_effects) > EXPORT_INLINED_CEILING,
+        "{}",
+        size(with_effects)
+    );
+    assert!(!refuses_export(size(edit), true));
+    assert!(refuses_export(size(with_effects), true));
+    assert!(!refuses_export(size(with_effects), false));
 }
 
 #[test]
@@ -14033,11 +14113,14 @@ fn display_at_own_size_shows_whole_texels_between_device_pixels() {
             box_rect: [0.0; 4],
             split,
         };
-        let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::bytes_of(&transform),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        let uniforms = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::bytes_of(&transform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        );
         let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &layout,
@@ -14204,11 +14287,14 @@ fn display_split_shows_the_before_left_of_the_divider() {
             box_rect: [0.0; 4],
             split,
         };
-        let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::bytes_of(&transform),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        let uniforms = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::bytes_of(&transform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        );
         let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &layout,

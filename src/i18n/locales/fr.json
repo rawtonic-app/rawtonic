@@ -3586,7 +3586,9 @@
       },
       "errors": {
         "batchFailed": "{{failed}} exportations sur {{total}} ont échoué",
+        "gpuDeviceLost": "Cette photo n’a pas pu être rendue sur cette puce graphique : elle ne répond plus (mémoire saturée). Quittez et rouvrez Rawtonic, puis exportez de nouveau cette photo.",
         "gpuMemory": "Mémoire graphique insuffisante pour cette photo. Fermez les autres programmes qui utilisent la carte graphique et exportez de nouveau cette photo.",
+        "gpuTooComplex": "Les retouches de cette photo sont trop complexes pour que le pilote de cette puce graphique puisse l’exporter. Supprimez certaines retouches (effets, réglages locaux) et exportez-la à nouveau, ou exportez-la sur un autre ordinateur.",
         "offline": "{{file}} est hors ligne : l'exportation nécessite le fichier RAW.",
         "terminated": "L'exportation s'est arrêtée de façon inattendue.",
         "textureLimit": "L'image ({{width}} × {{height}} px) dépasse ce que cette carte graphique peut rendre ({{limit}} px par côté).",
