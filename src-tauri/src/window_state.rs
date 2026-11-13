@@ -16,6 +16,7 @@ pub fn note(path: PathBuf, state: WindowState) {
 }
 
 /// Maximized events carry screen bounds, never a new restore placement.
+#[cfg(any(not(windows), test))]
 pub fn retain_normal_placement(state: &mut WindowState, normal: &mut Option<WindowState>) {
     if state.maximized {
         if let Some(saved) = normal {
@@ -27,6 +28,48 @@ pub fn retain_normal_placement(state: &mut WindowState, normal: &mut Option<Wind
         }
     } else {
         *normal = Some(state.clone());
+    }
+}
+
+/// Read the OS restore rectangle, including during WM_SIZE transitions where
+/// IsZoomed and the event geometry can describe different placements.
+#[cfg(windows)]
+pub fn native_normal_placement(window: &tauri::WebviewWindow, state: &mut WindowState) {
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowPlacement, WINDOWPLACEMENT};
+    let Ok(hwnd) = window.hwnd() else { return };
+    let mut placement = WINDOWPLACEMENT {
+        length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+        ..Default::default()
+    };
+    if unsafe {
+        GetWindowPlacement(
+            windows::Win32::Foundation::HWND(hwnd.0 as isize),
+            &mut placement,
+        )
+    }
+    .is_ok()
+    {
+        let rect = placement.rcNormalPosition;
+        // WINDOWPLACEMENT uses workspace coordinates, persisted state uses screen coordinates.
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+        };
+        let mut monitor = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        let native = windows::Win32::Foundation::HWND(hwnd.0 as isize);
+        let _ = unsafe {
+            GetMonitorInfoW(
+                MonitorFromWindow(native, MONITOR_DEFAULTTONEAREST),
+                &mut monitor,
+            )
+        };
+        state.x = rect.left + monitor.rcWork.left - monitor.rcMonitor.left;
+        state.y = rect.top + monitor.rcWork.top - monitor.rcMonitor.top;
+        state.width = (rect.right - rect.left).max(1) as u32;
+        state.height = (rect.bottom - rect.top).max(1) as u32;
+        state.maximized = placement.showCmd == 3;
     }
 }
 
@@ -54,6 +97,34 @@ pub fn flush() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lenovo_maximize_keeps_the_normal_rectangle() {
+        let mut normal = Some(WindowState {
+            x: 10,
+            y: 10,
+            width: 2540,
+            height: 1560,
+            maximized: false,
+            scale_factor: Some(2.0),
+            fullscreen: false,
+        });
+        let mut state = WindowState {
+            x: -13,
+            y: -13,
+            width: 2586,
+            height: 1530,
+            maximized: true,
+            scale_factor: Some(2.0),
+            fullscreen: false,
+        };
+        retain_normal_placement(&mut state, &mut normal);
+        assert_eq!(
+            (state.x, state.y, state.width, state.height),
+            (10, 10, 2540, 1560)
+        );
+        assert!(state.maximized);
+    }
 
     #[test]
     fn the_newest_state_is_written_once() {

@@ -498,6 +498,31 @@ export async function handleQaRequest(method: string, params: Params): Promise<u
       const max = typeof params.max === 'number' ? params.max : 4000;
       return squeeze((root as HTMLElement).innerText ?? root.textContent).slice(0, max);
     }
+    // Read-only geometry probe: real wheel/scrollbar actions remain native.
+    case 'ui.scroll_metrics': {
+      const root = document.querySelector('.studio-tools-scroll');
+      if (!root) throw new Error('Adjust scroll container is not mounted');
+      const ancestors = [];
+      for (let element: Element | null = root; element; element = element.parentElement) {
+        const style = getComputedStyle(element);
+        ancestors.push({
+          tag: element.tagName.toLowerCase(),
+          className: element.getAttribute('class'),
+          clientHeight: element.clientHeight,
+          scrollHeight: element.scrollHeight,
+          scrollTop: element.scrollTop,
+          inert: element.hasAttribute('inert'),
+          overflow: style.overflow,
+          overflowY: style.overflowY,
+          height: style.height,
+          minHeight: style.minHeight,
+          flex: style.flex,
+          zoom: style.zoom,
+          contain: style.contain
+        });
+      }
+      return { ready: useEditorStore.getState().selectedImage?.isReady ?? null, ancestors };
+    }
     case 'ui.viewport':
       return {
         width: innerWidth,
