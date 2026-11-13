@@ -4859,8 +4859,9 @@ fn display_cache_bytes(width: u32, height: u32, tile: u32, overlap: u32, blurs: 
 struct BlurTile {
     /// Photo size, the input region, whether the blurs read their whole
     /// radius at its edges (`PreparedAdjustments::whole_blur_radius`), how
-    /// far beyond the tile the large blur is read (`clarity_reach`) and
-    /// whether the blurs carry the mean log luminance (Clarity version 2).
+    /// far beyond the tile the large blur is read (`clarity_reach`),
+    /// whether the blurs carry the mean log luminance (Clarity version 2)
+    /// and whether the input is sRGB-encoded (that luminance linearises it).
     geometry: [u32; 9],
     views: [Option<wgpu::TextureView>; 5],
     /// The detail stage of this tile and the settings it was computed with.
@@ -10024,7 +10025,13 @@ impl GpuProcessor {
                     input_height,
                     u32::from(whole_blur_radius),
                     reach | (small_reach << 16),
-                    u32::from(log_alpha) | (u32::from(relative_log) << 1),
+                    // The mean log luminance linearises sRGB input
+                    // (`BlurParams::flags` bit 1), so one input texture
+                    // rendered as a RAW and as an sRGB image keeps a tile
+                    // for each.
+                    u32::from(log_alpha)
+                        | (u32::from(relative_log) << 1)
+                        | (u32::from(adjustments.global.is_raw_image != 1) << 2),
                 ];
                 let mut cache = blur_cache.lock().unwrap_or_else(|e| e.into_inner());
                 if cache.input.as_ref() != Some(input_texture_view) {

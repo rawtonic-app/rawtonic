@@ -8988,6 +8988,181 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
     assert_eq!(checked, 11);
 }
 
+/// The display variants' rewritten tone stage (`display_tone_stage.wgsl`,
+/// G76/WCC4) against the export path, which keeps shader.wgsl's: every tone
+/// version, every tone slider both ways, under every look, for a legacy
+/// recipe (no version keys: `renderVersion` 1, the general export shader,
+/// every other response at version 1) and a new one (every response at its
+/// newest, `renderVersion` current: the specialized export variant). A
+/// display frame must stay within one 8-bit code of the export, the
+/// tolerance display variants always had against exports (Metal may round a
+/// specialized variant's arithmetic differently, and the display tone gains
+/// `display_tone_gains.wgsl` reorder the gains' anchors, #756); the summary
+/// prints how many cases are byte-identical.
+#[test]
+#[ignore = "requires a native GPU; display tone stage against exports for every tone version and slider"]
+fn display_tone_stage_matches_exports_for_every_tone_version() {
+    use rawtonic_engine::image_processing::{
+        RENDER_VERSION, RENDER_VERSION_KEY, TONE_VERSION, TONE_VERSION_KEY, new_edit_responses,
+    };
+    let context = context();
+    let (width, height) = (193, 131);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 23);
+    let sliders: Vec<(&str, serde_json::Value)> = vec![
+        ("exposure+", json!({"exposure": 0.8})),
+        ("exposure-", json!({"exposure": -0.8})),
+        ("contrast+", json!({"contrast": 45})),
+        ("contrast-", json!({"contrast": -45})),
+        ("highlights+", json!({"highlights": 60})),
+        ("highlights-", json!({"highlights": -60})),
+        ("shadows+", json!({"shadows": 60})),
+        ("shadows-", json!({"shadows": -60})),
+        ("whites+", json!({"whites": 50})),
+        ("whites-", json!({"whites": -50})),
+        ("blacks+", json!({"blacks": 50})),
+        ("blacks-", json!({"blacks": -50})),
+        ("curve", json!({"curves": custom_curve()})),
+        ("clarity+", json!({"clarity": 40})),
+        ("clarity-", json!({"clarity": -40})),
+        ("dehaze+", json!({"dehaze": 35})),
+        ("dehaze-", json!({"dehaze": -35})),
+        // Edits add up: lowered Whites with raised Shadows reach both of the
+        // stage's version branches at once.
+        (
+            "all-a",
+            json!({"exposure":0.3,"contrast":30,"highlights":-40,"shadows":45,
+                "whites":-35,"blacks":-30,"clarity":25,"dehaze":15,"curves":custom_curve()}),
+        ),
+        (
+            "all-b",
+            json!({"exposure":-0.4,"contrast":-25,"highlights":35,"shadows":-40,
+                "whites":40,"blacks":30,"clarity":-20,"dehaze":-15}),
+        ),
+    ];
+    let looks = [
+        ("camera-raw", true, 3),
+        ("agx", true, 1),
+        ("standard", true, 2),
+        ("non-raw", false, 0),
+    ];
+    let recipe_sets = ["legacy", "new"];
+    // Per recipe set and slider: (cases, byte-identical, worst delta, where).
+    let mut summary: Vec<(usize, usize, u8, String)> =
+        vec![(0, 0, 0, String::new()); recipe_sets.len() * sliders.len()];
+    let mut failures = Vec::new();
+    for (set_index, recipe_set) in recipe_sets.into_iter().enumerate() {
+        for tone_version in 1..=TONE_VERSION {
+            for &(look, raw, mode) in &looks {
+                for (index, (slider, edit)) in sliders.iter().enumerate() {
+                    let mut recipe = match recipe_set {
+                        "new" => {
+                            let mut map = new_edit_responses(raw);
+                            map.insert(RENDER_VERSION_KEY.into(), json!(RENDER_VERSION));
+                            serde_json::Value::Object(map)
+                        }
+                        _ => json!({}),
+                    };
+                    recipe[TONE_VERSION_KEY] = json!(tone_version);
+                    for (key, value) in edit.as_object().unwrap() {
+                        recipe[key] = value.clone();
+                    }
+                    let mut adjustments = get_all_adjustments_from_json(&recipe, raw, Some(mode));
+                    assert_eq!(adjustments.specialized_export, recipe_set == "new");
+                    if mode == 3 {
+                        // As RAW files render under the Camera Raw look.
+                        adjustments.global.profile_curve[15][3] = 2.0;
+                    }
+                    prepare_preview_pipeline(&processor, preview_features(&adjustments));
+                    let render = |display: bool| {
+                        processor
+                            .run(
+                                &view,
+                                width,
+                                height,
+                                RenderRequest {
+                                    adjustments: adjustments.clone(),
+                                    mask_bitmaps: &[],
+                                    lut: None,
+                                    roi: None,
+                                },
+                                display,
+                                RenderOutputPrecision::EightBit,
+                            )
+                            .unwrap()
+                    };
+                    let (pixels, ..) = render(false);
+                    let RenderedPixels::U8(export) = pixels else {
+                        unreachable!()
+                    };
+                    let (_, w, h, x, y) = render(true);
+                    let display = read_texture_data_roi(
+                        &context.device,
+                        &context.queue,
+                        &processor.test_working_texture(),
+                        wgpu::Origin3d { x, y, z: 0 },
+                        wgpu::Extent3d {
+                            width: w,
+                            height: h,
+                            depth_or_array_layers: 1,
+                        },
+                        4,
+                    )
+                    .unwrap();
+                    assert_eq!(display.len(), export.len());
+                    let max_delta = display
+                        .iter()
+                        .zip(&export)
+                        .map(|(a, b)| a.abs_diff(*b))
+                        .max()
+                        .unwrap();
+                    let case = format!("{recipe_set} tone {tone_version} {look} {slider}");
+                    let entry = &mut summary[set_index * sliders.len() + index];
+                    entry.0 += 1;
+                    entry.1 += usize::from(max_delta == 0);
+                    if max_delta > entry.2 {
+                        entry.2 = max_delta;
+                        entry.3 = case.clone();
+                    }
+                    if max_delta > 1 {
+                        let differing = display
+                            .iter()
+                            .zip(&export)
+                            .filter(|(a, b)| a.abs_diff(**b) > 1)
+                            .count();
+                        failures.push(format!("{case}: delta {max_delta}, {differing} bytes > 1"));
+                    }
+                }
+            }
+        }
+    }
+    for (entry, (cases, identical, worst, at)) in summary.iter().enumerate() {
+        let (set, (slider, _)) = (
+            recipe_sets[entry / sliders.len()],
+            &sliders[entry % sliders.len()],
+        );
+        println!(
+            "display tone stage {set} {slider}: {cases} cases, {identical} byte-identical, worst delta {worst}{}",
+            if at.is_empty() {
+                String::new()
+            } else {
+                format!(" ({at})")
+            }
+        );
+    }
+    let cases: usize = summary.iter().map(|entry| entry.0).sum();
+    assert_eq!(
+        cases,
+        recipe_sets.len() * TONE_VERSION as usize * looks.len() * sliders.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "{} of {cases} cases beyond one code:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
 #[test]
 fn renders_on_a_lost_device_fail_with_the_device_lost_error() {
     let invalid = || wgpu::Error::Validation {
