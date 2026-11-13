@@ -1,0 +1,9 @@
+# WCC7 round 15 (G76): exports that reuse the display variant the editor compiled. WGT16's edit (Samsung SRW, renderVersion 5) shows with display variant 5238847 (= the idle plan's basic entry); with Glow 30 with 7335999. Inlined size (COMPILE_PROBE_SIZE_ONLY=1, any OS): display 5238847 65822 (round 13 basic: 35.9 s / 4.3 GB), display 7335999 117099, export 5238847 87754 (round 14: 116.3 s / 9.3 GB), export 7335999 153459 (refused by the 150k ceiling, WGT18).
+# Run with COMPILE_PROBE_TIMEOUT=300 from the artifact folder, VkCache cleared before the run. `spv=proc` lines have no nonce: clear VkCache between the lines too (or run each line on its own after a clear).
+# (a) the display variant through the app's processor, then a second (export) processor compiling the same variant through the app's pipeline cache: again_ms = what an export pays when the editor compiled it.
+r15_disp_edit_again features=5238847 dce display spv=proc,again
+r15_disp_glow_again features=7335999 dce display spv=proc,again
+# The Glow edit's display variant through wgpu with a nonce (its compile cost and peak on a fresh machine).
+r15_disp_glow features=7335999 dce display
+# (d) the Glow edit's folded export variant (153k, just over the ceiling): what a 16-bit export of it would cost, the basis for moving the ceiling.
+r15_exp_glow features=7335999 export dce exportsrc
