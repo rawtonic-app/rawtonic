@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Windows restore placement is read from the native normal rectangle and retained when reopening maximized; maximize-button clicks capture their release across snap-flyout dismissal. Session log lines are flushed individually without waiting on a console reader (Lenovo verification pending).
+
 - The Develop Adjust column now fills its panel through explicit flex sizing at every interface size, addressing a suspected cause of unreachable tools on Windows; native wheel and scrollbar confirmation is pending.
 
 - Window restore bounds survive quitting maximized; the Library Navigator retains a loose photo when there is no listed Library selection. Windows maximize-button placement now refreshes after compact-bar and interface-style changes (native confirmation pending).

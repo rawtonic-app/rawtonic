@@ -831,7 +831,12 @@ fn start(args: Vec<String>) {
                         }
 
                         let mut normal = normal_placement.lock().unwrap_or_else(|e| e.into_inner());
+                        #[cfg(windows)]
+                        window_state::native_normal_placement(&window_for_handler, &mut state);
+                        #[cfg(not(windows))]
                         window_state::retain_normal_placement(&mut state, &mut normal);
+                        #[cfg(windows)]
+                        { *normal = Some(state.clone()); }
                         if let Some(path) = &window_state_path {
                             window_state::note(path.clone(), state);
                         }

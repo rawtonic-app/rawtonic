@@ -14,16 +14,17 @@
 use std::cell::Cell;
 use std::sync::{Once, OnceLock};
 
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT, TrackMouseEvent,
+    ReleaseCapture, SetCapture, TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT, TrackMouseEvent,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GA_ROOT, GetAncestor, GetParent, HTMAXBUTTON,
-    HWND_TOP, IDC_ARROW, IsZoomed, LWA_ALPHA, LoadCursorW, RegisterClassW, SW_HIDE, SW_MAXIMIZE,
-    SW_RESTORE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SetLayeredWindowAttributes, SetWindowPos,
-    ShowWindow, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GA_ROOT, GetAncestor, GetCursorPos, GetParent,
+    GetWindowRect, HTMAXBUTTON, HWND_TOP, IDC_ARROW, IsZoomed, LWA_ALPHA, LoadCursorW,
+    RegisterClassW, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+    SetLayeredWindowAttributes, SetWindowPos, ShowWindow, WM_CANCELMODE, WM_CAPTURECHANGED,
+    WM_LBUTTONUP, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
     WM_NCRBUTTONDOWN, WM_NCRBUTTONUP, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED,
     WS_EX_NOACTIVATE,
 };
@@ -182,17 +183,30 @@ unsafe extern "system" fn window_proc(
                 set_state(true, PRESSED.get());
             }
         }
-        WM_NCMOUSELEAVE => set_state(false, false),
+        // The shell flyout can send LEAVE between a button down and up.
+        // Preserve the click until its release; cancellation is explicit.
+        WM_NCMOUSELEAVE => set_state(false, PRESSED.get()),
+        WM_CANCELMODE | WM_CAPTURECHANGED => set_state(false, false),
         // Handled here: DefWindowProc would run its own caption-button loop
         // and send the maximize command to this child window.
         WM_NCLBUTTONDOWN => {
             set_state(true, true);
+            let _ = unsafe { SetCapture(hwnd) };
             return LRESULT(0);
         }
-        WM_NCLBUTTONUP => {
+        WM_NCLBUTTONUP | WM_LBUTTONUP => {
             let was_pressed = PRESSED.get();
-            set_state(true, false);
-            if was_pressed {
+            let mut point = POINT::default();
+            let mut rect = RECT::default();
+            let inside = unsafe { GetCursorPos(&mut point) }.is_ok()
+                && unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok()
+                && point.x >= rect.left
+                && point.x < rect.right
+                && point.y >= rect.top
+                && point.y < rect.bottom;
+            set_state(inside, false);
+            let _ = unsafe { ReleaseCapture() };
+            if was_pressed && inside {
                 toggle_maximize(hwnd);
             }
             return LRESULT(0);
