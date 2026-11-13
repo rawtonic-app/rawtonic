@@ -16,7 +16,9 @@
 //! writes into a float tile, and a small encode pass per output writes it
 //! in 8 or 16 bits and its colour space, as every deferred export does. The
 //! WGT16 edit's variant is 65.8k inlined (Glow 76.7k), the size of its
-//! 8-bit display variant. The idle plan compiles it when the photographer's
+//! 8-bit display variant, and compiled in 46.4 s / 3.76 GB (Glow 52.3 s /
+//! 4.42 GB) on a Radeon 680M (probe round 18). WGT24 there: 16-bit TIFF
+//! exports after editing 3.4–4.5 s. The idle plan compiles it when the photographer's
 //! exports are 16-bit (`set_idle_deferred_exports`); a second processor
 //! that compiles the same module (the exports') is answered by the driver's
 //! pipeline cache (G76/WCC7 probe round 15: 140 ms).
@@ -116,9 +118,10 @@ static DEFERRED_EXPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 /// include a 16-bit one. Then, or after a 16-bit export (or Edit With)
 /// in this session, under a compile limit the variant those exports render
 /// with compiles in idle time after the display variants, so an export
-/// after editing finds it compiled: one more compile per edit, ~55 s and
-/// 4–5 GB on a Radeon 680M; without it the first such export compiles it
-/// (coordinator decision, G76/WCC10).
+/// after editing finds it compiled: one more compile per edit (Radeon
+/// 680M, probe round 18: the WGT16 edit's deferred variant 46.4 s / 3.76
+/// GB, with Glow 52.3 s / 4.42 GB); without it the first such export
+/// compiles it (coordinator decision, G76/WCC10).
 pub fn set_idle_deferred_exports(sixteen_bit_recipes: bool) {
     SIXTEEN_BIT_RECIPES.store(sixteen_bit_recipes, std::sync::atomic::Ordering::Relaxed);
 }
