@@ -42,6 +42,8 @@
       "unreadable_one": "{{count}} 枚の写真を比較できませんでした",
       "unreadable_other": "{{count}} 枚の写真を比較できませんでした"
     },
+    "duplicatesNotAdded_other": "カタログのフォルダ内の重複 {{count}} 件は追加されませんでした — カタログに登録済み(例: {{name}})",
+    "duplicatesNotAddedDetail": "内容がカタログ内の写真と同じです。「フォルダを同期」で追加することもできます。",
     "empty": {
       "attention": "対応が必要な項目はありません。",
       "done": "最近の結果はありません。",
@@ -1474,6 +1476,7 @@
       "cancel": "キャンセル",
       "companions_other": "{{count}} 個の JPEG がカタログ内の RAW に加わります。",
       "copy": "このプロジェクトにコピー…",
+      "duplicates_other": "重複 {{count}} 件をスキップしました — カタログに登録済み(例: {{name}})。",
       "failed": "フォルダーを読み込めませんでした: {{error}}",
       "intro": "写真は今の場所のまま追加されます。コピー、移動、横への書き込みは一切ありません。RAW+JPEG のペアは 1 枚の写真になり、XMP ファイルのレーティング、ラベル、キーワードが読み込まれます。",
       "nothing": "新しい写真はありません。ここにあるものはすべてカタログにあります。",
@@ -1998,8 +2001,9 @@
       "added_other": "{{count}} 枚を追加しました",
       "addedToAlbum": "{{name}} に追加済み",
       "albumAddFailed": "写真は読み込まれましたが、{{name}} に追加できませんでした: {{error}}",
+      "alreadyInLibrary_other": "{{count}} 枚はライブラリに登録済み",
       "companionsKept": "{{n}} 件の JPEG を RAW と一緒に保存",
-      "duplicatesSkipped_other": "重複 {{count}} 件をスキップ",
+      "duplicatesSkipped_other": "重複 {{count}} 件をスキップ — ライブラリに登録済み(例: {{name}})",
       "flagsFailed": "フラグを保存できませんでした: {{error}}",
       "flagsSavedRefreshFailed": "フラグを保存しましたが、プロジェクトの概要を更新できませんでした: {{error}}",
       "hotFolderFailed": "監視フォルダ: {{file}}: {{error}}",

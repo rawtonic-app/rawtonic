@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../ui/AppProperties';
+import { sourceFileName } from '../../entities/photo/photoRef';
 import type { FolderPlan } from './addFolder';
 
 function folderName(path: string) {
@@ -105,7 +106,7 @@ export default function AddFolderDialog({
                 <>
                   {(shown.files.length > 0 || shown.owned.length === 0) && (
                     <p>
-                      {!shown.files.length && shown.registered > 0 && !shown.unreadable.length
+                      {!shown.files.length && shown.registered + shown.duplicates > 0 && !shown.unreadable.length
                         ? t('session.addFolder.nothing')
                         : shown.photographs
                           ? t('session.addFolder.toAdd', { count: shown.photographs })
@@ -125,6 +126,14 @@ export default function AddFolderDialog({
                   )}
                   {shown.registered > 0 && (
                     <p className="studio-help">{t('session.addFolder.registered', { count: shown.registered })}</p>
+                  )}
+                  {shown.duplicates > 0 && (
+                    <p className="studio-help" title={shown.duplicateOf ?? undefined}>
+                      {t('session.addFolder.duplicates', {
+                        count: shown.duplicates,
+                        name: shown.duplicateOf ? sourceFileName(shown.duplicateOf) : ''
+                      })}
+                    </p>
                   )}
                   {shown.owned.map((owner) => (
                     <p key={owner.library} className="studio-help" title={owner.library}>

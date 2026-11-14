@@ -503,7 +503,13 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
 /// registered ones never edited adopt sidecars that appeared later (each in
 /// one transaction). A photograph whose sidecar cannot be read is left out
 /// and logged, so it is never registered without its edits.
-fn index_folder(lib: &Library) -> anyhow::Result<()> {
+///
+/// A catalog does not register a file whose content equals a photograph it
+/// holds (the one duplicate rule of import, Add Folder and this scan,
+/// `ingest::batch::add_batch`): the file is returned with the photograph it
+/// copies, for the activity panel; Synchronize Folder lists it (unticked) for
+/// whoever wants it anyway.
+fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
     let known = lib.index_entries()?;
     let mut new = Vec::new();
     for photo in session_photos(lib)? {
@@ -532,7 +538,7 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
         }
     }
     if new.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     // Renamed (or moved and renamed) while the session was closed: a file
     // with the content hash on record for a missing photograph is that
@@ -541,12 +547,27 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
     // Files that may be a missing photograph without proof (probable or
     // contested matches) are not registered: Synchronize Folder settles
     // them (they are listed meanwhile, as every file of the folder).
+    let mut duplicates = Vec::new();
     match follow_verified_moves(lib, &new) {
-        Ok(taken) => new.retain(|photo| !taken.contains(photo)),
+        Ok(taken) => {
+            new.retain(|photo| !taken.moved.contains(photo));
+            if lib.manifest.mode == rawtonic_catalog::Mode::Catalog {
+                new.retain(|photo| match taken.copies.get(photo) {
+                    Some(of) => {
+                        duplicates.push(SkippedDuplicate {
+                            path: photo.clone(),
+                            of: of.clone(),
+                        });
+                        false
+                    }
+                    None => true,
+                });
+            }
+        }
         Err(e) => log::warn!("Renamed photographs not followed: {e:#}"),
     }
     if new.is_empty() {
-        return Ok(());
+        return Ok(duplicates);
     }
     let _batch = lib.import_batch(rawtonic_catalog::ImportKind::Add);
     // A relink above may already have taken some of them.
@@ -554,7 +575,63 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
     for (path, error) in &report.failed {
         log::warn!("{} not added to the session: {error}", path.display());
     }
-    Ok(())
+    Ok(duplicates)
+}
+
+/// A file of the library's folder left out of the catalog because its
+/// content equals `of`, a photograph the catalog holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SkippedDuplicate {
+    path: PathBuf,
+    of: PathBuf,
+}
+
+/// Event: the opening scan left files out as duplicates
+/// ([`DuplicatesReport`]); the activity panel says so once.
+pub const DUPLICATES_SKIPPED: &str = "library-duplicates-skipped";
+
+/// What [`report_skipped_duplicates`] tells the webview.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DuplicatesReport {
+    /// The files left out, with the photograph each copies (name order).
+    files: Vec<DuplicateFile>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct DuplicateFile {
+    path: PathBuf,
+    of: PathBuf,
+}
+
+fn report_skipped_duplicates(app: &tauri::AppHandle, duplicates: &[SkippedDuplicate]) {
+    use tauri::Emitter;
+    if duplicates.is_empty() {
+        return;
+    }
+    log::info!(
+        "{} duplicate file(s) of the catalog's folder were not added",
+        duplicates.len()
+    );
+    let mut files: Vec<DuplicateFile> = duplicates
+        .iter()
+        .map(|d| DuplicateFile {
+            path: d.path.clone(),
+            of: d.of.clone(),
+        })
+        .collect();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let _ = app.emit(DUPLICATES_SKIPPED, DuplicatesReport { files });
+}
+
+/// What [`follow_verified_moves`] found among the new files.
+#[derive(Default)]
+struct FollowedFiles {
+    /// Places taken or left for the user (moves, probable and contested).
+    moved: HashSet<PathBuf>,
+    /// Files that are byte-for-byte copies of a photograph still there,
+    /// with it.
+    copies: std::collections::HashMap<PathBuf, PathBuf>,
 }
 
 /// Applies the verified moves among `new` (Synchronize Folder's, for these
@@ -562,7 +639,7 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
 /// left for the user (probable and contested moves). Lists no folder and
 /// hashes only files with the size and sampled fingerprint of a photograph
 /// of the library, so opening a library never reads the whole of it.
-fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashSet<PathBuf>> {
+fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<FollowedFiles> {
     use rawtonic_catalog::folder_sync::{SyncAction, SyncOptions};
     let never = std::sync::atomic::AtomicBool::new(false);
     let plan = lib.scan_files_sync(
@@ -590,7 +667,15 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashS
         after_relink(lib, &applied.relinked());
         taken.extend(applied.moved.into_iter().map(|(_, to)| to));
     }
-    Ok(taken)
+    let copies = plan
+        .copies
+        .iter()
+        .filter_map(|file| Some((file.path.clone(), file.copy_of.first()?.clone())))
+        .collect();
+    Ok(FollowedFiles {
+        moved: taken,
+        copies,
+    })
 }
 
 /// Registers the folders the session at `dir` keeps outside it (none for a
@@ -707,7 +792,8 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
         {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("session_index");
-            index_folder(&lib).map_err(|e| e.to_string())?;
+            let duplicates = index_folder(&lib).map_err(|e| e.to_string())?;
+            report_skipped_duplicates(&app, &duplicates);
         }
         {
             #[cfg(feature = "performance-profiling")]
@@ -2363,6 +2449,50 @@ mod tests {
         lib.add_asset(&export).unwrap();
         index_folder(&lib).unwrap();
         assert_eq!(lib.summary().unwrap().assets, 2);
+    }
+
+    /// DUPW: the scan of a catalog's folder follows the one duplicate rule:
+    /// a copy of a photograph the catalog holds, whatever its name, is left
+    /// out and reported; the same name with other content is a photograph;
+    /// Synchronize Folder still offers the copy.
+    #[test]
+    fn a_catalog_scan_leaves_out_copies_of_its_photographs() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Catalog", Mode::Catalog).unwrap();
+        let original = lib.directory.join("Photos/Canon_R6.CR3");
+        fs::write(&original, b"the original photograph").unwrap();
+        assert!(index_folder(&lib).unwrap().is_empty());
+        assert_eq!(lib.summary().unwrap().assets, 1);
+        // A byte-identical copy under a new name, made while closed.
+        let copy = lib.directory.join("Photos/Canon_R6_copy.CR3");
+        fs::copy(&original, &copy).unwrap();
+        // Another photograph that merely has a similar size.
+        let other = lib.directory.join("Photos/Other.CR3");
+        fs::write(&other, b"the original photographs").unwrap();
+        let skipped = index_folder(&lib).unwrap();
+        assert_eq!(
+            skipped,
+            vec![SkippedDuplicate {
+                path: copy.clone(),
+                of: original.clone()
+            }]
+        );
+        assert_eq!(lib.summary().unwrap().assets, 2);
+        assert!(lib.asset_at(&copy).unwrap().is_none());
+        assert!(lib.asset_at(&other).unwrap().is_some());
+        // Every opening says it again (the file is still there), and the
+        // copy is never registered by it.
+        assert_eq!(index_folder(&lib).unwrap().len(), 1);
+        assert_eq!(lib.summary().unwrap().assets, 2);
+        // A session keeps every file of its folder.
+        let temp2 = tempfile::tempdir().unwrap();
+        let session = Library::create(temp2.path(), "Session", Mode::Session).unwrap();
+        let a = session.directory.join("Capture/A.ARW");
+        fs::write(&a, b"shot").unwrap();
+        index_folder(&session).unwrap();
+        fs::copy(&a, session.directory.join("Capture/B.ARW")).unwrap();
+        assert!(index_folder(&session).unwrap().is_empty());
+        assert_eq!(session.summary().unwrap().assets, 2);
     }
 
     #[test]
