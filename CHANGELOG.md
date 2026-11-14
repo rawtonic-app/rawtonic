@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improvements
+
+- **Import: 100 % shows at once, and the real pixels of the part in view come first.** When Z or a click asks for 100 % in the import dialog's large view while a RAW's full-size pixels are still being made (cameras whose own JPEG is small: Fujifilm, Sony, Panasonic, Olympus), the view now shows the camera's preview enlarged to 100 % straight away, in the same place and framing (as Capture One does), then the real pixels of the part in view as soon as the render has them, then the whole photograph; each replaces the one before in place. The part in view has exactly the pixels of the whole render. Measured on a Mac mini M4 Pro shared with other builds: the enlarged preview within about 0.05–0.25 s, real pixels in view 0.5–1.5 s after Z on 24–40 MP RAWs shown a second before (whole view before: 1.0–2.0 s) and 3.2 s on an 81 MP ORF (before: 5.1 s); a Z right as a RAW appears still waits for its decode.
+
 ### Fixes
 
 - **A photo whose sidecar cannot be read no longer hides its identical copy at start.** When two byte-identical new files arrived in a catalog's folder and the first had an unreadable sidecar, both stayed out of the catalog. Now only the file with the unreadable sidecar is left out (and reported as before); the second is added, since it is a duplicate only of a photo that was added.

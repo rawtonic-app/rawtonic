@@ -1525,3 +1525,17 @@
   left: 0;
   cursor: nesw-resize;
 }
+/* The preview enlarged to the 100 % size while the real pixels are made,
+   and those of the part in view on top as soon as they are here. */
+.session-ingest-loupe-image img.session-ingest-loupe-enlarged,
+.session-ingest-loupe-image img.session-ingest-loupe-region {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+  object-fit: fill;
+}
+.session-ingest-loupe-image img.session-ingest-loupe-region {
+  image-rendering: pixelated;
+}

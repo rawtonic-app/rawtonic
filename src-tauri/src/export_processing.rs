@@ -215,14 +215,25 @@ pub(crate) fn load_export_base_image(
     }
 }
 
+/// A render of a region (x, y, width, height) of a prepared photograph.
+pub(crate) type RenderRegion<'a> = dyn Fn([u32; 4]) -> Result<DynamicImage, String> + 'a;
+
+/// What `render_unedited_full_size` hands its photograph's size and region
+/// render to before rendering all of it.
+pub(crate) type FirstRegion<'a> = dyn for<'r> Fn((u32, u32), &'r RenderRegion<'r>) + 'a;
+
 /// A photograph not in the library yet, rendered at full size as the app
 /// shows it unedited: the default recipe of a new photograph through the
 /// export render (GPU), from `bytes` already read from it (a card's file is
-/// read into memory, never mapped). For the import dialog's 100 % view.
+/// read into memory, never mapped). For the import dialog's 100 % view;
+/// once the photograph is ready to render, `first` may render a region of
+/// it (its size, and a render of a region within it): from the same decode
+/// and upload, the region's pixels are the whole render's there.
 pub(crate) fn render_unedited_full_size(
     app_handle: &tauri::AppHandle,
     path: &str,
     bytes: &[u8],
+    first: &FirstRegion,
 ) -> Result<DynamicImage, String> {
     let luts = app_handle.state::<crate::state::luts::LutState>();
     let develop = app_handle.state::<crate::state::develop::DevelopSession>();
@@ -238,20 +249,58 @@ pub(crate) fn render_unedited_full_size(
         load_lut: &load_lut,
         render_inputs: None,
     };
-    render_unedited_full_size_with_env(
-        path,
-        bytes,
-        &crate::state::settings::current(app_handle),
-        &env,
+    let unedited = decode_unedited(path, bytes, &crate::state::settings::current(app_handle))?;
+    let prepared = prepare_unedited(unedited, &env)?;
+    first(prepared.size(), &|region| {
+        render_prepared_unedited(&prepared, Some(region), &env)
+    });
+    render_prepared_unedited(&prepared, None, &env)
+}
+
+/// The size `render_unedited_full_size` renders the RAW in `bytes` at, from
+/// its header: the new recipe's crop (the camera's) of the developed frame,
+/// which the decode turns upright. None where the header tells nothing.
+pub(crate) fn unedited_size(path: &str, bytes: &[u8]) -> Option<(u32, u32)> {
+    let (adjustments, _) = rawtonic_export::normalize::new_edit_from_bytes(Path::new(path), bytes);
+    let source = rawler::rawsource::RawSource::new_from_slice(bytes).with_path(path);
+    let version = rawtonic_rawdecode::source_frame::effective(
+        &source,
+        rawtonic_engine::source_frame::requested(&adjustments),
+    );
+    let (w, h) = rawtonic_rawdecode::source_frame::frame(&source, version)?.size();
+    Some(
+        rawtonic_engine::image_processing::crop_rect(&adjustments[geometry::CROP.name()], w, h)
+            .map_or((w, h), |(_, _, cw, ch)| (cw, ch)),
     )
 }
 
+#[cfg(test)]
 fn render_unedited_full_size_with_env(
     path: &str,
     bytes: &[u8],
     settings: &crate::app_settings::AppSettings,
     env: &RenderEnv<'_>,
 ) -> Result<DynamicImage, String> {
+    let prepared = prepare_unedited(decode_unedited(path, bytes, settings)?, env)?;
+    render_prepared_unedited(&prepared, None, env)
+}
+
+/// A photograph not in the library yet, decoded for its unedited render
+/// (`prepare_unedited`): the default recipe of a new photograph and the
+/// source pixels, from the bytes only.
+pub(crate) struct UneditedSource {
+    path: String,
+    is_raw: bool,
+    adjustments: Value,
+    versions: rawtonic_engine::recipe_versions::RecipeVersions,
+    source: ExportSource,
+}
+
+pub(crate) fn decode_unedited(
+    path: &str,
+    bytes: &[u8],
+    settings: &crate::app_settings::AppSettings,
+) -> Result<UneditedSource, String> {
     let is_raw = is_raw_file(path);
     let (adjustments, normalized) =
         rawtonic_export::normalize::new_edit_from_bytes(Path::new(path), bytes);
@@ -278,23 +327,70 @@ fn render_unedited_full_size_with_env(
         crate::image_loader::load_base_image_measured(bytes, path, false, &options, None)
             .map_err(|e| e.to_string())?;
     let source = prepare_export_source(path, Arc::new(pristine), measures, &adjustments)?;
-    let export_settings: ExportSettings = serde_json::from_value(serde_json::json!({
+    Ok(UneditedSource {
+        path: path.to_string(),
+        is_raw,
+        adjustments,
+        versions,
+        source,
+    })
+}
+
+/// The export settings of the unedited render: an sRGB JPEG's pixels.
+fn unedited_export_settings() -> Result<ExportSettings, String> {
+    serde_json::from_value(serde_json::json!({
         "jpegQuality": 92,
         "tiffBitDepth": 16,
         "keepMetadata": false,
         "stripGps": true,
     }))
-    .map_err(|e| e.to_string())?;
-    process_image_for_export(
-        path,
-        source,
-        &adjustments,
-        &versions,
-        &export_settings,
+    .map_err(|e| e.to_string())
+}
+
+/// `unedited` transformed and uploaded for its renders
+/// (`render_prepared_unedited`), so a region of it and then all of it
+/// render from one decode, transform and upload.
+pub(crate) fn prepare_unedited(
+    unedited: UneditedSource,
+    env: &RenderEnv<'_>,
+) -> Result<PreparedExport, String> {
+    prepare_export_render(
+        &unedited.path,
+        unedited.source,
+        &unedited.adjustments,
+        &unedited.versions,
         env,
-        is_raw,
-        "jpeg",
+        unedited.is_raw,
     )
+}
+
+/// The unedited photograph `prepared` at full size, as the app shows it
+/// unedited (the export render of a new edit as a JPEG), all of it or only
+/// `region` (x, y, width, height within `prepared.size()`), whose pixels
+/// are those of the whole render there.
+pub(crate) fn render_prepared_unedited(
+    prepared: &PreparedExport,
+    region: Option<[u32; 4]>,
+    env: &RenderEnv<'_>,
+) -> Result<DynamicImage, String> {
+    let export_settings = unedited_export_settings()?;
+    let image = render_prepared_export_region(
+        prepared,
+        env,
+        "process_image_for_export",
+        render_output_precision("jpeg", &export_settings),
+        export_settings.color_space,
+        region.map(|[x, y, width, height]| rawtonic_gpu::gpu_processing::Roi {
+            x,
+            y,
+            width,
+            height,
+        }),
+    )?;
+    if region.is_some() {
+        return Ok(image);
+    }
+    apply_export_geometry_and_watermark(image, &export_settings).map(|(image, _)| image)
 }
 
 /// Loads the AI Denoise models these recipes use, once each; photos
@@ -2960,6 +3056,136 @@ mod tests {
         .unwrap();
         assert_eq!((full.width(), full.height()), (64, 48));
         assert_eq!(snapshot(), before_detached);
+    }
+
+    /// Measurement for the import dialog's 100 % view (notes:
+    /// benchmark-results/impd4-import-zoom): decode, whole render and a
+    /// viewport-sized region render of each RAW in
+    /// `RAWTONIC_IMPORT_REGION_FILES` (`:`-separated), and how the region's
+    /// pixels compare with the whole render's.
+    #[test]
+    #[ignore = "requires a GPU and private RAW copies"]
+    fn import_region_render_timings() {
+        use super::{RenderEnv, decode_unedited, prepare_unedited, render_prepared_unedited};
+        use rawtonic_gpu::gpu_processing::{GpuContext, GpuProcessorSlot};
+        use std::sync::Mutex;
+        use std::time::Instant;
+        let Ok(files) = std::env::var("RAWTONIC_IMPORT_REGION_FILES") else {
+            eprintln!("SKIP: RAWTONIC_IMPORT_REGION_FILES not set");
+            return;
+        };
+        let context = GpuContext::headless().expect("requires a GPU");
+        let processor = GpuProcessorSlot::new(None);
+        let cache = Mutex::new(None);
+        let env = RenderEnv {
+            context: &context,
+            processor: &processor,
+            image_cache: &cache,
+            tonemapper_override: &|_| None,
+            load_lut: &|_| None,
+            render_inputs: None,
+        };
+        let settings = crate::app_settings::AppSettings::default();
+        let (vw, vh) = (1920u32, 1200u32);
+        let ms = |started: Instant| started.elapsed().as_millis();
+        for (round, path) in files.split(':').enumerate().flat_map(|(i, p)| {
+            // The first file twice: its first render warms the pipelines.
+            if i == 0 {
+                vec![(0, p), (1, p)]
+            } else {
+                vec![(1, p)]
+            }
+        }) {
+            let bytes = std::fs::read(path).unwrap();
+            let started = Instant::now();
+            let unedited = decode_unedited(path, &bytes, &settings).unwrap();
+            let decode = ms(started);
+            let started = Instant::now();
+            let prepared = prepare_unedited(unedited, &env).unwrap();
+            let prepare = ms(started);
+            let (w, h) = prepared.size();
+            assert_eq!(super::unedited_size(path, &bytes), Some((w, h)), "{path}");
+            let (rw, rh) = (vw.min(w), vh.min(h));
+            let (rx, ry) = ((w - rw) / 2, (h - rh) / 2);
+            let started = Instant::now();
+            let region = render_prepared_unedited(&prepared, Some([rx, ry, rw, rh]), &env)
+                .unwrap()
+                .to_rgb8();
+            let region_ms = ms(started);
+            let started = Instant::now();
+            let full = render_prepared_unedited(&prepared, None, &env)
+                .unwrap()
+                .to_rgb8();
+            let full_ms = ms(started);
+            let started = Instant::now();
+            let whole = super::render_unedited_full_size_with_env(path, &bytes, &settings, &env)
+                .unwrap()
+                .to_rgb8();
+            let whole_ms = ms(started);
+            assert_eq!(full.dimensions(), (w, h));
+            assert!(whole == full, "the same render either way");
+            let (mut max, mut differing) = (0u8, 0usize);
+            for y in 0..rh {
+                for x in 0..rw {
+                    let a = full.get_pixel(rx + x, ry + y).0;
+                    let b = region.get_pixel(x, y).0;
+                    let d = (0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap();
+                    max = max.max(d);
+                    differing += usize::from(d > 0);
+                }
+            }
+            println!(
+                "IMPD4 round={round} file={} out={w}x{h} decode_ms={decode} prepare_ms={prepare} \
+                 region_ms={region_ms} full_after_region_ms={full_ms} whole_ms={whole_ms} \
+                 region_max={max} region_diff={differing}",
+                path.rsplit('/').next().unwrap(),
+            );
+        }
+    }
+
+    /// The size the import dialog's large view enlarges its preview to is
+    /// that of the 100 % view that replaces it, for each file in
+    /// `RAWTONIC_IMPORT_REGION_FILES` (renders and camera JPEGs alike).
+    #[test]
+    #[ignore = "requires a GPU and private RAW copies"]
+    fn import_full_size_dimensions_are_those_of_the_full_size_view() {
+        use super::{RenderEnv, render_unedited_full_size_with_env, unedited_size};
+        use rawtonic_gpu::gpu_processing::{GpuContext, GpuProcessorSlot};
+        use std::sync::Mutex;
+        let Ok(files) = std::env::var("RAWTONIC_IMPORT_REGION_FILES") else {
+            eprintln!("SKIP: RAWTONIC_IMPORT_REGION_FILES not set");
+            return;
+        };
+        let context = GpuContext::headless().expect("requires a GPU");
+        let processor = GpuProcessorSlot::new(None);
+        let cache = Mutex::new(None);
+        let env = RenderEnv {
+            context: &context,
+            processor: &processor,
+            image_cache: &cache,
+            tonemapper_override: &|_| None,
+            load_lut: &|_| None,
+            render_inputs: None,
+        };
+        let settings = crate::app_settings::AppSettings::default();
+        for path in files.split(':') {
+            let file = std::path::Path::new(path);
+            let predicted = crate::file_management::source_full_size_dimensions(file, &|bytes| {
+                unedited_size(path, bytes)
+            });
+            let (jpeg, source) = crate::file_management::source_full_size_jpeg(file, &|bytes| {
+                render_unedited_full_size_with_env(path, bytes, &settings, &env).ok()
+            })
+            .unwrap();
+            let view = image::load_from_memory(&jpeg).unwrap();
+            println!(
+                "IMPD4 size file={} source={source:?} predicted={predicted:?} view={}x{}",
+                path.rsplit('/').next().unwrap(),
+                view.width(),
+                view.height()
+            );
+            assert_eq!(predicted, Some((view.width(), view.height())), "{path}");
+        }
     }
 
     #[cfg(unix)]

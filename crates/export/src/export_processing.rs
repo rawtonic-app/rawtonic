@@ -1770,6 +1770,44 @@ pub fn render_prepared_export(
     output_precision: RenderOutputPrecision,
     color_space: OutputColorSpace,
 ) -> Result<DynamicImage, String> {
+    render_prepared_export_region(
+        prepared,
+        env,
+        debug_tag,
+        output_precision,
+        color_space,
+        None,
+    )
+}
+
+/// [`render_prepared_export`] of only `region` of the photo (within
+/// [`PreparedExport::size`]; `None`: all of it): the region's pixels are
+/// those of the whole render there, as the render keeps the whole photo's
+/// geometry.
+pub fn render_prepared_export_region(
+    prepared: &PreparedExport,
+    env: &RenderEnv,
+    debug_tag: &str,
+    output_precision: RenderOutputPrecision,
+    color_space: OutputColorSpace,
+    region: Option<rawtonic_gpu::gpu_processing::Roi>,
+) -> Result<DynamicImage, String> {
+    if let Some(region) = region {
+        let (width, height) = prepared.size();
+        if region.width == 0
+            || region.height == 0
+            || region
+                .x
+                .checked_add(region.width)
+                .is_none_or(|end| end > width)
+            || region
+                .y
+                .checked_add(region.height)
+                .is_none_or(|end| end > height)
+        {
+            return Err("The region lies outside the photograph.".to_string());
+        }
+    }
     let mut adjustments = prepared.adjustments.clone();
     set_output_color_space(&mut adjustments, color_space);
     if let Some(inputs) = env.render_inputs {
@@ -1804,7 +1842,7 @@ pub fn render_prepared_export(
             adjustments,
             mask_bitmaps,
             lut: prepared.lut.clone(),
-            roi: None,
+            roi: region,
         },
         debug_tag,
         output_precision,

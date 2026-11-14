@@ -6,7 +6,7 @@ import { applyReviewKey, reviewKey } from './ingestReview';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '../../utils/previews';
 import type { Medium } from './ingestMode';
-import IngestLoupe, { type LargePreview } from './IngestLoupe';
+import IngestLoupe, { type LargePreview, type RegionPreview, type Size, type ZoomFocus } from './IngestLoupe';
 
 /** Mirrors `session_bridge::IngestCandidate`. */
 export interface IngestCandidate {
@@ -83,6 +83,10 @@ interface Props {
   loadPreview?: (path: string) => Promise<LargePreview>;
   /** For tests; defaults to `loadIngestFullPreview`. */
   loadFullPreview?: (path: string) => Promise<LargePreview>;
+  /** For tests; the large view's `loadSize`, `loadRegion` and `cancelRegion`. */
+  loadFullSize?: (path: string) => Promise<Size | null>;
+  loadRegion?: (path: string, focus: ZoomFocus, view: Size) => Promise<RegionPreview | null>;
+  cancelRegion?: (path: string) => void;
 }
 
 const storedTileSize = () => {
@@ -109,7 +113,10 @@ export default function IngestPreviewGrid({
   onRatingsChange,
   loadThumbnail,
   loadPreview,
-  loadFullPreview
+  loadFullPreview,
+  loadFullSize,
+  loadRegion,
+  cancelRegion
 }: Props) {
   const { t } = useTranslation();
   const scroller = useRef<HTMLDivElement>(null);
@@ -336,6 +343,9 @@ export default function IngestPreviewGrid({
           thumbnail={thumbs[files[loupe].path]}
           load={loadPreview}
           loadFull={loadFullPreview}
+          loadSize={loadFullSize}
+          loadRegion={loadRegion}
+          cancelRegion={cancelRegion}
           onReview={(path, key) => onRatingsChange?.(applyReviewKey(key, path, selected, ratings).ratings)}
           onIndexChange={setLoupe}
           onToggle={(path) => {

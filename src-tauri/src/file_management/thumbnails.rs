@@ -983,11 +983,55 @@ pub(crate) fn source_full_size_jpeg(
     .flatten()
 }
 
+/// The width and height of a photograph from its bytes, if they tell.
+pub(crate) type SizeOfBytes<'a> = dyn Fn(&[u8]) -> Option<(u32, u32)> + 'a;
+
+/// The size of a RAW's import 100 % view (`source_full_size_jpeg`), from
+/// its header and embedded JPEG only, without decoding it: a full-size
+/// embedded JPEG's size, else `render_size` (the size the RAW renders at,
+/// `export_processing::unedited_size`; a CR3's full-size track has the
+/// camera's framing too). What the large view enlarges its preview to while
+/// those pixels are made, so they replace it in place. None for other files
+/// (their 100 % view is their own pixels, shown at once) or unreadable ones.
+pub(crate) fn source_full_size_dimensions(
+    path: &Path,
+    render_size: &SizeOfBytes,
+) -> Option<(u32, u32)> {
+    if !is_raw_file(path) || !path.is_file() || is_cloud_placeholder(path) {
+        return None;
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let bytes = read_import_source(path)?;
+        let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+        let params = rawler::decoders::RawDecodeParams::default();
+        let sensor_long = rawler::get_decoder(&source)
+            .ok()
+            .and_then(|decoder| decoder.raw_image(&source, &params, true).ok())
+            .map(|raw| {
+                let (w, h) = raw
+                    .crop_area
+                    .map_or((raw.width, raw.height), |area| (area.d.w, area.d.h));
+                u32::try_from(w.max(h)).unwrap_or(u32::MAX)
+            });
+        if let Some(jpeg) = image_loader::priority_embedded_jpeg(&bytes)
+            && let Ok((w, h)) =
+                image::ImageReader::with_format(Cursor::new(&jpeg), image::ImageFormat::Jpeg)
+                    .into_dimensions()
+            && embedded_is_full_size(w.max(h), sensor_long)
+        {
+            return Some((w, h));
+        }
+        render_size(&bytes)
+    }))
+    .ok()
+    .flatten()
+}
+
 /// A full-size view as a JPEG of high quality (a focus check must not show
 /// compression blocks; full chroma, so colour edges stay as rendered).
 /// libjpeg-turbo: about 2–2.5× faster than the `image` crate's encoder at
 /// 24–81 MP (notes: benchmark-results/impd3-import-100-2026-11-08).
-fn encode_full_size(image: &DynamicImage) -> Option<Vec<u8>> {
+pub(crate) fn encode_full_size(image: &DynamicImage) -> Option<Vec<u8>> {
     let rgb = image.to_rgb8();
     let mut compressor = turbojpeg::Compressor::new().ok()?;
     compressor.set_quality(92).ok()?;
