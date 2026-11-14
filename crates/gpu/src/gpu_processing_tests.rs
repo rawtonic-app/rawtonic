@@ -20059,7 +20059,11 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
         (v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / v.len() as f32).sqrt()
     };
     let (w, h) = (width as u32, height as u32);
-    let flat = json!({"sharpness": 0});
+    // Render version 5: the variant specialized for the recipe renders, with
+    // the reduced renders' kernels display frames and thumbnails have; the
+    // general high-precision pipelines, which export older recipes, keep
+    // 0.1.0-alpha.13's (`LEGACY_DETAIL_SCALE`).
+    let flat = json!({"sharpness": 0, "renderVersion": 5});
     let lowpass = |v: &[f32], w: usize, h: usize| -> Vec<f32> {
         let taps: Vec<f32> = (-6i64..=6).map(|d| (-(d * d) as f32 / 8.0).exp()).collect();
         let total: f32 = taps.iter().sum();
@@ -20110,7 +20114,7 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
         (2.5, 25, true),
     ] {
         let mut recipe = json!({"sharpness": 60, "sharpenRadius": radius, "sharpenDetail": detail,
-            "sharpnessThreshold": 0});
+            "sharpnessThreshold": 0, "renderVersion": 5});
         let (frame, level) = if v8 {
             recipe["sharpenVersion"] = json!(8);
             (&noisy, NOISE)
