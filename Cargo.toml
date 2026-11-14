@@ -39,6 +39,10 @@ image = "0.25.10"
 imageproc = { version = "0.27.0", default-features = false }
 jxl-encoder = "0.3.1"
 jxl-oxide = "0.12.6"
+# Lossless JPEG XL export (libjxl's fast-lossless method); its header is
+# spliced for wide spaces (export_processing.rs), so the version is exact.
+zune-jpegxl = "=0.5.2"
+zune-core = "0.5.3"
 kamadak-exif = "0.6.1"
 libc = "0.2.189"
 little_exif = "0.6.23"
@@ -97,6 +101,9 @@ strip = true
 [patch.crates-io]
 # Serialize the shared-handle Windows WAL lock transition (see patch note).
 libsqlite3-sys = { path = "vendor/libsqlite3-sys" }
+# jxl-oxide reads no ANS state for an empty Modular stream, as libjxl
+# (vendor/jxl-modular/RAWTONIC_PATCH.md).
+jxl-modular = { path = "vendor/jxl-modular" }
 little_exif = { path = "vendor/little_exif" }
 # No unmaintained macro crates (ADR 0005): `paste` (used by pulp, via
 # image -> exr) is served by its maintained successor pastey; glib-macros and

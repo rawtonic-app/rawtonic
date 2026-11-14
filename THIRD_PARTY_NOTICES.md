@@ -21,6 +21,10 @@ AVIF sources are decoded with [rav1d](https://github.com/memorysafety/rav1d) 1.1
 ## Local dependency patch
 `vendor/little_exif` contains little_exif 0.6.23, Copyright Tobias J. Prisching and contributors, MIT OR Apache-2.0; both license texts are preserved there. Only two dependencies were changed: quick-xml from 0.37.5 to 0.41.0 to remove known XML denial-of-service advisories, and the unmaintained `paste` macro crate for its maintained drop-in successor `pastey` 0.2 (MIT OR Apache-2.0; `use pastey::paste`) (ADR 0005). It is patched through the workspace Cargo.toml.
 
+`vendor/jxl-modular` contains jxl-modular 0.11.3, part of jxl-oxide 0.12.6 (Copyright Wonwoo Choi and contributors, MIT OR Apache-2.0; both license texts are preserved there). Rawtonic's correction, that a Modular stream without pixels reads no ANS state (as libjxl's decoder), is AGPL-3.0-or-later; see `RAWTONIC_PATCH.md` and `LICENSE_RAWTONIC_AGPL-3.0` in that directory. It is patched through the workspace Cargo.toml.
+
+Lossless JPEG XL exports are encoded with [zune-jpegxl](https://github.com/etemesi254/zune-image) 0.5.2 (Copyright Caleb Etemesi, MIT OR Apache-2.0 OR Zlib), a Rust port of libjxl's fast-lossless encoder (BSD-3-Clause, Copyright the JPEG XL Project Authors).
+
 More crates are patched the same way to keep unmaintained crates out of the build (ADR 0005):
 - `vendor/paste` is a Rawtonic stand-in under the `paste` 1.0.15 name for crates that still depend on `paste` (pulp, through image → exr). It contains no code of `paste`; it re-exports the macros of `pastey` 0.2 (Aditya Kumar and David Tolnay, MIT OR Apache-2.0; both license texts kept there).
 - `vendor/glib-macros` contains glib-macros 0.18.5 and `vendor/gtk3-macros` gtk3-macros 0.18.2 (Copyright the gtk-rs Project Developers, MIT; LICENSE and COPYRIGHT preserved), the proc-macro crates of the GTK 3 bindings Tauri uses on Linux. Both no longer depend on proc-macro-error (or its fork proc-macro-error2, also unmaintained): the few parts they used are reimplemented in each crate's `src/abort.rs` (MIT, like the crates); the changes are listed in their `RAWTONIC_PATCH.md`.
@@ -954,6 +958,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib |
 | zune-inflate | 0.2.54 | MIT OR Apache-2.0 OR Zlib |
 | zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib |
+| zune-jpegxl | 0.5.2 | MIT OR Apache-2.0 OR Zlib |
 ## Resolved npm dependencies (including build and test tools)
 
 | Package | Version | Declared license |
