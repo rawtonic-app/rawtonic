@@ -180,6 +180,23 @@ impl Default for DevelopSession {
 }
 
 impl DevelopSession {
+    /// Drops what rebuilds on demand without changing what the open
+    /// photograph shows: other photographs' decodes and preview bases and
+    /// the open one's full-resolution derived sources (exports, masks and
+    /// retouching build them again). Before an idle shader compile under a
+    /// compile limit, where one compile commits 4–5 GB and the app's own
+    /// memory decides whether the total stays within 6 GB on a 15 GB Radeon
+    /// 680M laptop (G76/WCC11, coordinator decision D6; WCC8 measured
+    /// about 0.38 GB).
+    pub fn release_rebuildable(&self) {
+        lock_recover(&self.decoded_image_cache).clear();
+        lock_recover(&self.reusable_previews).clear();
+        lock_recover(&self.patch_cache).clear();
+        *lock_recover(&self.full_warped_cache) = None;
+        *lock_recover(&self.patched_warped_cache) = None;
+        *lock_recover(&self.full_transformed_cache) = None;
+    }
+
     /// Drops what `scope` makes stale. Takes each cache's lock alone, one
     /// after the other; the caller holds none of this session's locks
     /// (except `cached_preview` for [`Scope::PreviewUpload`]).

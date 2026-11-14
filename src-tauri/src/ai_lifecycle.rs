@@ -333,8 +333,9 @@ pub(crate) fn footprint_mb() -> Option<f64> {
 }
 
 /// Masking models unused this long are dropped before an idle shader
-/// compile (`before_idle_compile`).
-const IDLE_COMPILE_UNLOAD: Duration = Duration::from_secs(60);
+/// compile (`before_idle_compile`; 60 s never fired in G76/WSMOKE15,
+/// coordinator decision WCC11 D6).
+const IDLE_COMPILE_UNLOAD: Duration = Duration::from_secs(20);
 
 /// Before an idle shader compile under a compile limit (AMD's Windows
 /// Vulkan driver, `memory_pressure::guard_idle_compiles`): drops the
@@ -342,8 +343,8 @@ const IDLE_COMPILE_UNLOAD: Duration = Duration::from_secs(60);
 /// an idle unload does (opening photos then loads them only after the next
 /// masking use). One compile there commits 4–5 GB on top of the app; with
 /// the Subject model loaded the export dialog's compile peaked at 7.6 GB on
-/// a 15 GB Radeon 680M laptop (G76/WSMOKE14; coordinator decision WCC11
-/// D4). The next masking use loads them again (~7 s there).
+/// a 15 GB Radeon 680M laptop (G76/WSMOKE14; coordinator decisions WCC11
+/// D4, D6). The next masking use loads them again (~7 s there).
 pub fn before_idle_compile(app: &tauri::AppHandle) {
     let ai_state = app.state::<AiState>();
     if ai_state

@@ -13,6 +13,11 @@ use crate::state::develop::DevelopSession;
 use crate::state::gpu::GpuState;
 use crate::state::lock::lock_recover;
 
+/// The program version the app's pipeline cache file is named for
+/// (`rawtonic_gpu::pipeline_cache`); the idle compile helper names its file
+/// the same way (`gpu_idle_helper`), so the app finds it.
+pub const PIPELINE_CACHE_BUILD: &str = env!("CARGO_PKG_VERSION");
+
 /// The processing context, created on first use. It is made without the
 /// window (the device and the first display variant start before the window
 /// exists, `start_early`); `attach_display` adds the window surface.
@@ -373,6 +378,19 @@ fn create_context(
     let info = adapter.get_info();
     log_adapter(&info);
     crate::contribute::note_gpu(&info);
+    // An integrated GPU shares the system's memory: where its shader
+    // compiles run under a limit (AMD's Windows Vulkan driver), the AI
+    // models' GPU check alone took a 15 GB Radeon 680M laptop to 10.6 GB
+    // with memory pressure, and the GPU was slower than the CPU every time
+    // (G76/WSMOKE15). The models stay on the CPU there.
+    if info.device_type == wgpu::DeviceType::IntegratedGpu
+        && rawtonic_gpu::gpu_processing::compiles_limited()
+    {
+        rawtonic_onnx::keep_models_on_cpu(&format!(
+            "{} is an integrated GPU whose shader compiles run under a limit",
+            info.name
+        ));
+    }
     let limits = adapter.limits();
 
     device.on_uncaptured_error(Arc::new(|err: wgpu::Error| {
@@ -386,7 +404,7 @@ fn create_context(
             &device,
             &info,
             &cache_dir.join("gpu-pipelines"),
-            env!("CARGO_PKG_VERSION"),
+            PIPELINE_CACHE_BUILD,
         );
     }
 

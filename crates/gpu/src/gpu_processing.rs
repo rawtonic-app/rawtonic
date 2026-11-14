@@ -117,6 +117,16 @@ impl GpuContext {
     pub fn headless_with_pipeline_cache(
         cache_dir: Option<&std::path::Path>,
     ) -> Result<Self, String> {
+        Self::headless_with_pipeline_cache_of(cache_dir, env!("CARGO_PKG_VERSION"))
+    }
+
+    /// [`Self::headless_with_pipeline_cache`] with the cache file named for
+    /// program version `build` (`pipeline_cache::open`): the app's idle
+    /// compile helper names it as the app does, so the app finds it.
+    pub fn headless_with_pipeline_cache_of(
+        cache_dir: Option<&std::path::Path>,
+        build: &str,
+    ) -> Result<Self, String> {
         let crate::device_start::StartedDevice {
             adapter,
             device,
@@ -127,7 +137,7 @@ impl GpuContext {
         log_adapter(&info);
         let limits = adapter.limits();
         if let Some(dir) = cache_dir {
-            crate::pipeline_cache::open(&device, &info, dir, env!("CARGO_PKG_VERSION"));
+            crate::pipeline_cache::open(&device, &info, dir, build);
         }
         device.on_uncaptured_error(Arc::new(|err: wgpu::Error| {
             log::error!("[wgpu-error] {}", err);

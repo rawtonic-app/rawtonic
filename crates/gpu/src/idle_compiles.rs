@@ -423,6 +423,18 @@ impl IdleCompiles {
                         .unwrap_or_else(|e| e.into_inner());
                     continue;
                 }
+                let slot = background_compile_slot("idle compile");
+                let Some(slot) = slot else {
+                    let queue = self.lock();
+                    let _ = self
+                        .changed
+                        .wait_timeout(queue, IDLE_POLL)
+                        .unwrap_or_else(|e| e.into_inner());
+                    continue;
+                };
+                // Asked with the slot held, so only right before a compile
+                // (the app's guard drops memory it can rebuild when it
+                // allows one).
                 match memory_allows() {
                     Ok(()) => {
                         if let Some(reason) = held.take() {
@@ -430,6 +442,7 @@ impl IdleCompiles {
                         }
                     }
                     Err(reason) => {
+                        drop(slot);
                         if held.is_none() {
                             log::warn!("GPU idle compiles held: {reason}");
                         }
@@ -442,15 +455,6 @@ impl IdleCompiles {
                         continue;
                     }
                 }
-                let slot = background_compile_slot("idle compile");
-                let Some(slot) = slot else {
-                    let queue = self.lock();
-                    let _ = self
-                        .changed
-                        .wait_timeout(queue, IDLE_POLL)
-                        .unwrap_or_else(|e| e.into_inner());
-                    continue;
-                };
                 slot
             };
             let (job, planned) = {
@@ -1031,6 +1035,11 @@ mod tests {
         set_compile_limit(None);
     }
 
+    /// The program version both sides of `idle_compiles_in_a_helper_give_way`
+    /// name their cache with, not this crate's (the app's differs from it:
+    /// G76/WSMOKE15, a helper whose file the app never found).
+    const TEST_BUILD: &str = "0.0.0-helper-test";
+
     /// The helper process of `idle_compiles_in_a_helper_give_way` (this test
     /// binary started again with `RAWTONIC_TEST_IDLE_HELPER`): a slow one
     /// only sleeps, a real one compiles its job. Without the variable it
@@ -1051,7 +1060,8 @@ mod tests {
             std::thread::sleep(Duration::from_secs(120));
             std::process::exit(1);
         }
-        let result = super::super::compile_in_helper_process(job, std::path::Path::new(folder));
+        let result =
+            super::super::compile_in_helper_process(job, std::path::Path::new(folder), TEST_BUILD);
         std::process::exit(i32::from(result.is_err()));
     }
 
@@ -1104,7 +1114,8 @@ mod tests {
                 .spawn()
         }));
         let cache = tempfile::tempdir().unwrap();
-        let context = GpuContext::headless_with_pipeline_cache(Some(cache.path())).unwrap();
+        let context =
+            GpuContext::headless_with_pipeline_cache_of(Some(cache.path()), TEST_BUILD).unwrap();
         set_compile_limit(Some(1));
         let processor = GpuProcessor::new(context, 256, 256).unwrap();
         let idle = Arc::clone(&processor.idle_compiles.as_ref().unwrap().0);

@@ -35,7 +35,11 @@ pub fn run_if_asked() -> Option<i32> {
             std::process::exit(3);
         });
     let folder = Path::new(&folder);
-    match rawtonic_gpu::gpu_processing::compile_in_helper_process(&job, folder) {
+    match rawtonic_gpu::gpu_processing::compile_in_helper_process(
+        &job,
+        folder,
+        crate::gpu_processing::PIPELINE_CACHE_BUILD,
+    ) {
         Ok(()) => Some(0),
         Err(error) => {
             let _ = std::fs::write(

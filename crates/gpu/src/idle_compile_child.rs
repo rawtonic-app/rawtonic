@@ -191,6 +191,16 @@ pub(super) fn compile_in_helper(
         ));
     }
     let cache = crate::pipeline_cache::foreign(&target.device, &folder, &name);
+    // What the helper left instead, for the log.
+    let found = std::fs::read_dir(&folder)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
     let _ = std::fs::remove_dir_all(&folder);
     match cache {
         Some(cache) => {
@@ -202,17 +212,22 @@ pub(super) fn compile_in_helper(
             );
             Helped::Compiled(cache)
         }
-        None => give_up(format!("the helper for {arg} left no pipeline cache")),
+        None => give_up(format!(
+            "the helper for {arg} left no pipeline cache {} (found: {})",
+            name.to_string_lossy(),
+            if found.is_empty() { "nothing" } else { &found }
+        )),
     }
 }
 
 /// The helper process's work (the app's headless mode): starts the device
 /// as the app does, compiles idle job `job` (`IdleJob::arg`) the way the
-/// app's idle compiles do, into a pipeline cache in `folder`, and writes
-/// it. `Err` says why not.
-pub fn compile_in_helper_process(job: &str, folder: &Path) -> Result<(), String> {
+/// app's idle compiles do, into a pipeline cache in `folder` named for
+/// program version `build` (the one the app opens its own cache with: the
+/// app looks for that name), and writes it. `Err` says why not.
+pub fn compile_in_helper_process(job: &str, folder: &Path, build: &str) -> Result<(), String> {
     let job = IdleJob::parse(job).ok_or_else(|| format!("unknown job '{job}'"))?;
-    let context = GpuContext::headless_with_pipeline_cache(Some(folder))?;
+    let context = GpuContext::headless_with_pipeline_cache_of(Some(folder), build)?;
     let device = Arc::clone(&context.device);
     if crate::pipeline_cache::file_name_of(&device).is_none() {
         return Err("no pipeline cache on this device".into());

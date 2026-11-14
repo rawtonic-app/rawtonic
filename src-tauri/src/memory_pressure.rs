@@ -90,8 +90,12 @@ const IDLE_COMPILE_PRESSURE_HOLD: Duration = Duration::from_secs(60);
 /// jobs: a compile cannot be stopped midway, so one started in idle time
 /// made an export wait for the compile slot (G76/WQI: 20 s on a Radeon
 /// 680M). The AI models are loaded in this process, so their memory counts
-/// in the private memory. Idle compiles run only under a compile limit
-/// (AMD's Windows Vulkan driver), so elsewhere this is never asked.
+/// in the private memory. Asked with the compile slot held, right before a
+/// compile: masking models unused for a while are unloaded first
+/// (`ai_lifecycle::before_idle_compile`), and when the compile may start
+/// the caches that rebuild on demand go (`DevelopSession::
+/// release_rebuildable`; G76/WCC11). Idle compiles run only under a compile
+/// limit (AMD's Windows Vulkan driver), so elsewhere this is never asked.
 pub fn guard_idle_compiles(app: &tauri::AppHandle) {
     use tauri::Manager as _;
     let app = app.clone();
@@ -137,12 +141,18 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
                 }
             })
         });
-        idle_compile_verdict(
+        let verdict = idle_compile_verdict(
             private,
             system.total_memory(),
             level,
             last_pressure.map(|at| now.duration_since(at)),
-        )
+        );
+        if verdict.is_ok() {
+            // The compile may start: what rebuilds on demand goes first.
+            app.state::<crate::state::develop::DevelopSession>()
+                .release_rebuildable();
+        }
+        verdict
     }));
 }
 
