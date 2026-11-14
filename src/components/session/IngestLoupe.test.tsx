@@ -414,6 +414,48 @@ describe('Reviewing before the import (IMPD)', () => {
     }
   });
 
+  it('closing the import view while a 100 % region is shown revokes its blob URL', async () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    try {
+      const user = userEvent.setup();
+      let finishRegion: (region: RegionPreview | null) => void = () => undefined;
+      const region = vi.fn(() => new Promise<RegionPreview | null>((resolve) => (finishRegion = resolve)));
+      const { unmount } = render(
+        <Harness
+          list={files(2)}
+          loadFullPreview={() => new Promise<LargePreview>(() => undefined)}
+          loadFullSize={async () => ({ width: 6000, height: 4000 })}
+          loadRegion={region}
+          cancelRegion={vi.fn()}
+        />
+      );
+      await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+      const fit = await waitFor(() =>
+        document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-placeholder)')!
+      );
+      Object.defineProperty(fit, 'naturalWidth', { value: 1620 });
+      Object.defineProperty(fit, 'naturalHeight', { value: 1080 });
+      fireEvent.load(fit);
+      await user.keyboard('z');
+      await waitFor(() => expect(region).toHaveBeenCalled());
+      await act(async () =>
+        finishRegion({
+          url: 'blob:region-open',
+          full: { width: 6000, height: 4000 },
+          rect: { x: 2344, y: 1544, width: 1312, height: 912 }
+        })
+      );
+      expect(document.querySelector('img.session-ingest-loupe-region')).toBeTruthy();
+      expect(revoked).not.toContain('blob:region-open');
+      unmount();
+      expect(revoked).toContain('blob:region-open');
+    } finally {
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
+
   it('stepping at 100 % to a photograph still being made shows its enlarged preview straight away, never the fit view', async () => {
     const user = userEvent.setup();
     const pending = new Promise<LargePreview>(() => undefined);

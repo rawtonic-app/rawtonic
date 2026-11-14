@@ -561,7 +561,10 @@
       "showExplorer": "エクスプローラーで表示",
       "showFileManager": "ファイルマネージャーで表示",
       "showFinder": "Finder で表示",
-      "virtualCopy": "仮想コピー"
+      "virtualCopy": "仮想コピー",
+      "xmpConflicts": "XMPの競合",
+      "xmpKeepLibrary": "選択した写真はライブラリを維持",
+      "xmpUseXmp": "選択した写真はXMPを使用"
     },
     "toasts": {
       "couldNotShowExplorer": "エクスプローラーでファイルを表示できませんでした: {{err}}",
@@ -2090,6 +2093,7 @@
       "keepLibraryFor": "{{name}} でライブラリを保持",
       "keepLibraryTitle": "ライブラリのレーティング、ラベル、キーワード、IPTC を XMP ファイルに書き込みます",
       "loading": "XMP ファイルを確認しています…",
+      "noneToResolve": "選択した写真に、ライブラリと異なるXMPファイルはありません。",
       "notResolved_other": "{{count}} 枚の写真は解決できませんでした:",
       "reason": {
         "changedElsewhere_other": "{{count}} 件の XMP ファイルがライブラリと異なります(ほかのプログラムで変更された、または Rawtonic が一度も読み込んでいないファイル)。選択しない限り上書きしません。ライブラリにはあなたの内容が保持されます。",

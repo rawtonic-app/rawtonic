@@ -561,7 +561,10 @@
       "showExplorer": "在文件资源管理器中显示",
       "showFileManager": "在文件管理器中显示",
       "showFinder": "在访达中显示",
-      "virtualCopy": "虚拟副本"
+      "virtualCopy": "虚拟副本",
+      "xmpConflicts": "XMP 冲突",
+      "xmpKeepLibrary": "所选照片保留资料库",
+      "xmpUseXmp": "所选照片使用 XMP"
     },
     "toasts": {
       "couldNotShowExplorer": "无法在文件资源管理器中显示文件：{{err}}",
@@ -2090,6 +2093,7 @@
       "keepLibraryFor": "为 {{name}} 保留图库",
       "keepLibraryTitle": "将图库的评级、标签、关键词和 IPTC 写入 XMP 文件",
       "loading": "正在检查 XMP 文件…",
+      "noneToResolve": "所选照片中没有与资料库不同的 XMP 文件。",
       "notResolved_other": "{{count}} 张照片未解决:",
       "reason": {
         "changedElsewhere_other": "{{count}} 个 XMP 文件与图库不同(被其他程序修改,或 Rawtonic 从未读取)。未经您选择不会覆盖;图库保留您的版本。",
