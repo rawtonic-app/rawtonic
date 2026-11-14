@@ -71,6 +71,7 @@ it('keeps a launch photo queued until remembered-library navigation has finished
     startupLibraryReady: false,
     initialFileToOpen: '/outside/photo.ARW'
   });
+  invoke.mockImplementation(async (command: string) => (command === 'launch_path_library' ? null : false));
   const select = vi.fn();
   renderHook(() => useExternalEditSession(select));
   expect(select).not.toHaveBeenCalled();
@@ -81,7 +82,7 @@ it('keeps a launch photo queued until remembered-library navigation has finished
 });
 
 it('browses a folder launch without selecting an image or importing', async () => {
-  invoke.mockResolvedValue(true);
+  invoke.mockImplementation(async (command: string) => (command === 'launch_path_library' ? null : true));
   useProcessStore.setState({ externalEditSession: null, startupLibraryReady: true, initialFileToOpen: '/photos' });
   const select = vi.fn();
   const browse = vi.fn();
@@ -89,5 +90,23 @@ it('browses a folder launch without selecting an image or importing', async () =
     renderHook(() => useExternalEditSession(select, browse));
   });
   expect(browse).toHaveBeenCalledExactlyOnceWith('/photos');
+  expect(select).not.toHaveBeenCalled();
+});
+
+it('opens a library the launch names as that library, not as a folder', async () => {
+  invoke.mockImplementation(async (command: string) => (command === 'launch_path_library' ? '/lib/Wedding' : true));
+  useProcessStore.setState({
+    externalEditSession: null,
+    startupLibraryReady: true,
+    initialFileToOpen: '/lib/Wedding/catalog.sqlite',
+    libraryToOpen: null
+  });
+  const select = vi.fn();
+  const browse = vi.fn();
+  await act(async () => {
+    renderHook(() => useExternalEditSession(select, browse));
+  });
+  expect(useProcessStore.getState().libraryToOpen).toBe('/lib/Wedding');
+  expect(browse).not.toHaveBeenCalled();
   expect(select).not.toHaveBeenCalled();
 });

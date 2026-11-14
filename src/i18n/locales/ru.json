@@ -650,7 +650,10 @@
       "showExplorer": "Показать в проводнике",
       "showFileManager": "Показать в файловом менеджере",
       "showFinder": "Показать в Finder",
-      "virtualCopy": "Виртуальная копия"
+      "virtualCopy": "Виртуальная копия",
+      "xmpConflicts": "Конфликты XMP",
+      "xmpKeepLibrary": "Оставить библиотеку для выбранных фото",
+      "xmpUseXmp": "Использовать XMP для выбранных фото"
     },
     "toasts": {
       "couldNotShowExplorer": "Не удалось показать файл в проводнике: {{err}}",
@@ -2434,6 +2437,7 @@
       "keepLibraryFor": "Оставить библиотеку для {{name}}",
       "keepLibraryTitle": "Записать рейтинг, метку, ключевые слова и IPTC из библиотеки в файл XMP",
       "loading": "Проверка файлов XMP…",
+      "noneToResolve": "Ни у одного из выбранных фото нет файла XMP, отличающегося от библиотеки.",
       "notResolved_one": "{{count}} фото не решено:",
       "notResolved_few": "{{count}} фото не решены:",
       "notResolved_many": "{{count}} фото не решены:",

@@ -650,7 +650,10 @@
       "showExplorer": "Pokaż w eksploratorze plików",
       "showFileManager": "Pokaż w menedżerze plików",
       "showFinder": "Pokaż w Finderze",
-      "virtualCopy": "Kopia wirtualna"
+      "virtualCopy": "Kopia wirtualna",
+      "xmpConflicts": "Konflikty XMP",
+      "xmpKeepLibrary": "Zachowaj bibliotekę dla zaznaczonych zdjęć",
+      "xmpUseXmp": "Użyj XMP dla zaznaczonych zdjęć"
     },
     "toasts": {
       "couldNotShowExplorer": "Nie można pokazać pliku w eksploratorze: {{err}}",
@@ -2434,6 +2437,7 @@
       "keepLibraryFor": "Zachowaj bibliotekę dla {{name}}",
       "keepLibraryTitle": "Zapisz ocenę, etykietę, słowa kluczowe i IPTC z biblioteki w pliku XMP",
       "loading": "Sprawdzanie plików XMP…",
+      "noneToResolve": "Żadne z zaznaczonych zdjęć nie ma pliku XMP różniącego się od biblioteki.",
       "notResolved_one": "{{count}} zdjęcie nie zostało rozwiązane:",
       "notResolved_few": "{{count}} zdjęcia nie zostały rozwiązane:",
       "notResolved_many": "{{count}} zdjęć nie zostało rozwiązanych:",

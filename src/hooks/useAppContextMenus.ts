@@ -49,6 +49,7 @@ import {
   Clock
 } from 'lucide-react';
 import { notify } from '../activity/notify';
+import { resolveXmpConflicts } from '../components/session/SessionXmpStatus';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { useTranslation } from 'react-i18next';
 import { changeLibraryAlbums } from '../components/studio/libraryAlbums';
@@ -1041,6 +1042,26 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           ]
         },
         previewsMenu(t, finalSelection),
+        // While some XMP file differs from the library: the choice of the
+        // status panel, for the selected photos (those without a changed
+        // file are skipped).
+        ...(sessionDirectory && useLibraryStore.getState().xmpPending > 0
+          ? [
+              {
+                label: t('contextMenus.thumbnail.xmpConflicts'),
+                submenu: [
+                  { label: t('contextMenus.thumbnail.xmpKeepLibrary'), keep: 'library' as const },
+                  { label: t('contextMenus.thumbnail.xmpUseXmp'), keep: 'xmp' as const }
+                ].map(({ label, keep }) => ({
+                  label,
+                  onClick: () =>
+                    void resolveXmpConflicts(sessionDirectory, finalSelection, keep).catch((e) =>
+                      notify.error(t('session.xmp.retryFailed', { error: String(e) }))
+                    )
+                }))
+              }
+            ]
+          : []),
         { type: OPTION_SEPARATOR },
         {
           label: copyLabel,

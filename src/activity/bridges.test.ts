@@ -321,9 +321,22 @@ it('says once, in the activity panel, that photos registered twice were merged a
     source: 'files',
     title: '2 photos were registered twice and have been merged — earlier edits are kept as snapshots',
     detail:
-      'Each file is one photo again; no photo file was changed. The catalog as it was is saved as catalog.sqlite.before-duplicate-repair-20261114.\nCanon_R6.CR3: flag, title taken from its other record\nNikon_Z6.NEF',
+      'Canon_R6.CR3, Nikon_Z6.NEF\nEach file is one photo again; no photo file was changed. The catalog as it was is saved as catalog.sqlite.before-duplicate-repair-20261114.\nCanon_R6.CR3: flag, title taken from its other record',
     paths: ['/Shoot/Canon_R6.CR3', '/Shoot/Nikon_Z6.NEF']
   });
+});
+
+it('names every merged photograph, not only the first few', async () => {
+  await vi.waitFor(() => expect(handlers.has('library-duplicates-merged')).toBe(true));
+  const files = Array.from({ length: 12 }, (_, i) => ({
+    path: `/Shoot/IMG_${i}.CR3`,
+    fields: i === 0 ? ['flag'] : []
+  }));
+  act(() => handlers.get('library-duplicates-merged')!({ payload: { files, backup: null } }));
+  const detail = entry('library:duplicates-merged')!.detail!;
+  // The names come first (the panel shows only a few lines); all are there.
+  expect(detail.split('\n')[0]).toBe(files.map((f) => f.path.split('/').pop()).join(', '));
+  expect(entry('library:duplicates-merged')!.paths).toHaveLength(12);
 });
 
 it('says once, not as a dialog, that the opening scan left copies of catalog photographs out', async () => {

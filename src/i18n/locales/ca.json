@@ -612,7 +612,10 @@
       "showExplorer": "Mostrar a l'Explorador de fitxers",
       "showFileManager": "Mostra al gestor de fitxers",
       "showFinder": "Mostra al Finder",
-      "virtualCopy": "Còpia virtual"
+      "virtualCopy": "Còpia virtual",
+      "xmpConflicts": "Conflictes d’XMP",
+      "xmpKeepLibrary": "Mantén la biblioteca per a les fotos seleccionades",
+      "xmpUseXmp": "Usa l’XMP per a les fotos seleccionades"
     },
     "toasts": {
       "couldNotShowExplorer": "No s'ha pogut mostrar el fitxer a l'explorador: {{err}}",
@@ -2306,6 +2309,7 @@
       "keepLibraryFor": "Conserva la biblioteca per a {{name}}",
       "keepLibraryTitle": "Escriu la valoració, l’etiqueta, les paraules clau i l’IPTC de la biblioteca al fitxer XMP",
       "loading": "S’estan comprovant els fitxers XMP…",
+      "noneToResolve": "Cap de les fotos seleccionades té un fitxer XMP diferent de la biblioteca.",
       "notResolved_one": "{{count}} foto no s’ha resolt:",
       "notResolved_many": "{{count}} fotos no s’han resolt:",
       "notResolved_other": "{{count}} fotos no s’han resolt:",

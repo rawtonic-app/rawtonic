@@ -561,7 +561,10 @@
       "showExplorer": "在檔案資源管理器中顯示",
       "showFileManager": "在檔案管理員中顯示",
       "showFinder": "在 Finder 中顯示",
-      "virtualCopy": "虛擬副本"
+      "virtualCopy": "虛擬副本",
+      "xmpConflicts": "XMP 衝突",
+      "xmpKeepLibrary": "所選照片保留資料庫",
+      "xmpUseXmp": "所選照片使用 XMP"
     },
     "toasts": {
       "couldNotShowExplorer": "無法在檔案資源管理器中顯示檔案：{{err}}",
@@ -2090,6 +2093,7 @@
       "keepLibraryFor": "為 {{name}} 保留圖庫",
       "keepLibraryTitle": "將圖庫的評等、標籤、關鍵字和 IPTC 寫入 XMP 檔案",
       "loading": "正在檢查 XMP 檔案…",
+      "noneToResolve": "所選照片中沒有與資料庫不同的 XMP 檔案。",
       "notResolved_other": "{{count}} 張照片未解決:",
       "reason": {
         "changedElsewhere_other": "{{count}} 個 XMP 檔案與圖庫不同(被其他程式修改,或 Rawtonic 從未讀取)。未經您選擇不會覆寫;圖庫保留您的版本。",

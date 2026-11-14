@@ -1255,6 +1255,33 @@ fn is_launch_directory(path: &str) -> bool {
     std::path::Path::new(path).is_dir()
 }
 
+/// The library a launch path names: a library's own folder, or one of the
+/// files it keeps its state in (its manifest or database, as when a catalog
+/// is double-clicked or handed over by file). Such a path opens that library
+/// like the recent list does (`session_open`), never as a plain folder.
+fn launch_library(path: &str) -> Option<std::path::PathBuf> {
+    use rawtonic_catalog::layout::{LibraryLayout, is_library_file};
+    let path = std::path::Path::new(path);
+    if path.is_dir() {
+        return LibraryLayout::at(path).map(LibraryLayout::into_directory);
+    }
+    let name = path.file_name()?.to_str()?;
+    if !is_library_file(name) {
+        return None;
+    }
+    LibraryLayout::at(path.parent()?).map(LibraryLayout::into_directory)
+}
+
+/// The library folder a launch path stands for, if it is one.
+#[tauri::command]
+pub async fn launch_path_library(path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launch_library(&path).map(|dir| dir.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod launch_path_tests {
     #[test]
@@ -1264,5 +1291,34 @@ mod launch_path_tests {
         std::fs::write(&image, b"image").unwrap();
         assert!(super::is_launch_directory(&dir.path().to_string_lossy()));
         assert!(!super::is_launch_directory(&image.to_string_lossy()));
+    }
+
+    #[test]
+    fn a_library_folder_or_its_files_open_the_library_not_a_folder() {
+        use rawtonic_catalog::{Library, Mode};
+        let dir = tempfile::tempdir().unwrap();
+        for (name, mode) in [("Session", Mode::Session), ("Catalog", Mode::Catalog)] {
+            let lib = Library::create(&dir.path().join(name), name, mode).unwrap();
+            let root = lib.directory.clone();
+            drop(lib);
+            let as_text = |p: &std::path::Path| p.to_string_lossy().into_owned();
+            // The folder, its manifest and its database.
+            for arg in [
+                root.clone(),
+                root.join(rawtonic_catalog::layout::manifest_name(mode)),
+                root.join(rawtonic_catalog::layout::database_name(mode)),
+            ] {
+                assert_eq!(super::launch_library(&as_text(&arg)), Some(root.clone()), "{arg:?}");
+            }
+            // A folder inside it and an ordinary file are not the library.
+            std::fs::create_dir_all(root.join("sub")).unwrap();
+            assert_eq!(super::launch_library(&as_text(&root.join("sub"))), None);
+        }
+        // A plain folder and a photo.
+        let plain = dir.path().join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::write(plain.join("a.nef"), b"x").unwrap();
+        assert_eq!(super::launch_library(&plain.to_string_lossy()), None);
+        assert_eq!(super::launch_library(&plain.join("a.nef").to_string_lossy()), None);
     }
 }

@@ -383,12 +383,16 @@ export default function IngestLoupe({
       setRegion(null);
     }
   }, [region, path, zoomed, fullReady]);
+  // The region on show, for the cleanup at unmount: a state update queued
+  // then is dropped, so its URL would never be revoked.
+  const regionUrl = useRef<string | null>(null);
+  useEffect(() => {
+    regionUrl.current = region?.url ?? null;
+  }, [region]);
   useEffect(
     () => () => {
-      setRegion((current) => {
-        if (current) URL.revokeObjectURL(current.url);
-        return null;
-      });
+      if (regionUrl.current) URL.revokeObjectURL(regionUrl.current);
+      regionUrl.current = null;
     },
     []
   );

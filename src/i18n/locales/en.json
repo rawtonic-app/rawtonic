@@ -574,7 +574,10 @@
       "showExplorer": "Show in file manager",
       "showFileManager": "Show in file manager",
       "showFinder": "Show in Finder",
-      "virtualCopy": "Virtual copy"
+      "virtualCopy": "Virtual copy",
+      "xmpConflicts": "XMP conflicts",
+      "xmpKeepLibrary": "Keep library for the selected photos",
+      "xmpUseXmp": "Use XMP for the selected photos"
     },
     "toasts": {
       "couldNotShowExplorer": "Could not show file in explorer: {{err}}",
@@ -2177,6 +2180,7 @@
       "keepLibraryFor": "Keep library for {{name}}",
       "keepLibraryTitle": "Write the library's rating, label, keywords and IPTC into the XMP file",
       "loading": "Checking XMP files…",
+      "noneToResolve": "None of the selected photos has an XMP file that differs from the library.",
       "notResolved_one": "{{count}} photo was not resolved:",
       "notResolved_other": "{{count}} photos were not resolved:",
       "reason": {

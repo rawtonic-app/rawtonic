@@ -561,7 +561,10 @@
       "showExplorer": "파일 탐색기에서 표시",
       "showFileManager": "파일 관리자에서 표시",
       "showFinder": "Finder에서 보기",
-      "virtualCopy": "가상 복사본"
+      "virtualCopy": "가상 복사본",
+      "xmpConflicts": "XMP 충돌",
+      "xmpKeepLibrary": "선택한 사진은 라이브러리 유지",
+      "xmpUseXmp": "선택한 사진은 XMP 사용"
     },
     "toasts": {
       "couldNotShowExplorer": "탐색기에서 파일을 표시할 수 없습니다: {{err}}",
@@ -2090,6 +2093,7 @@
       "keepLibraryFor": "{{name}}: 라이브러리 유지",
       "keepLibraryTitle": "라이브러리의 별점, 레이블, 키워드, IPTC를 XMP 파일에 씁니다",
       "loading": "XMP 파일 확인 중…",
+      "noneToResolve": "선택한 사진 중 라이브러리와 다른 XMP 파일이 있는 사진이 없습니다.",
       "notResolved_other": "사진 {{count}}장은 해결되지 않았습니다:",
       "reason": {
         "changedElsewhere_other": "XMP 파일 {{count}}개가 라이브러리와 다릅니다(다른 프로그램에서 변경되었거나 Rawtonic이 읽은 적 없음). 선택하지 않으면 덮어쓰지 않으며 라이브러리가 내 버전을 유지합니다.",
