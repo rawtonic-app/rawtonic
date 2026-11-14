@@ -6,6 +6,17 @@
 //! window; it is cut to the work area here, so the interface degrades
 //! (the top bar compacts) instead of the window leaving the screen.
 //!
+//! Measured on Windows 11 (2560×1600 at 200 %, work area 2560×1504,
+//! G76/WUX11): the maximized frameless window's rectangle is still
+//! -13,-13 2586×1530, the work area plus the invisible resize border on
+//! every side, as for any resizable window; its client area (tao's
+//! `WM_NCCALCSIZE`) is exactly the work area 0,0 2560×1504 and nothing is
+//! cut off. So the maximum answered here does not move the window's outer
+//! rectangle there; what a user sees is the work area either way.
+//!
+//! The same subclass tells Windows where the maximize button drawn in the
+//! toolbar is ([`hits_maximize_button`], `WM_GETTITLEBARINFOEX`).
+//!
 //! Installed as a window subclass in front of tao's own: tao fills the
 //! structure first (`DefSubclassProc`), then [`min_max_info`] adjusts it.
 #![cfg_attr(not(windows), allow(dead_code))] // the computation is tested everywhere
@@ -23,6 +34,30 @@ impl Bounds {
     fn size(self) -> (i32, i32) {
         (self.right - self.left, self.bottom - self.top)
     }
+
+    fn contains(self, (x, y): (i32, i32)) -> bool {
+        x >= self.left && x < self.right && y >= self.top && y < self.bottom
+    }
+}
+
+/// The screen point in a `WM_NCHITTEST` lParam: two signed 16-bit halves
+/// (a monitor left of or above the primary has negative coordinates).
+pub(crate) fn screen_point(lparam: isize) -> (i32, i32) {
+    let half = |value: isize| i32::from(value as u16 as i16);
+    (half(lparam & 0xffff), half((lparam >> 16) & 0xffff))
+}
+
+/// Whether the main window itself answers a hit test at `point` as its
+/// maximize button: inside the button the toolbar draws (`button`, screen
+/// pixels; `None` while it is not shown). The pointer's own hit tests go to
+/// the snap-layout overlay over the button (`snap_layout`); Windows 11's
+/// snap-layouts flyout asks the top window where its maximize button is.
+/// Without an answer it placed the flyout below a system-height title bar
+/// (54 px under the window's top at 200 %), over our taller button from
+/// interface size 125 %: the flyout then took the click meant for the
+/// button and covered the Preferences button beside it (G76/WUX11).
+pub(crate) fn hits_maximize_button(button: Option<Bounds>, point: (i32, i32)) -> bool {
+    button.is_some_and(|button| button.contains(point))
 }
 
 /// The three fields of `MINMAXINFO` this module answers, in physical pixels.
@@ -142,9 +177,14 @@ mod win32 {
     };
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
     use windows::Win32::UI::WindowsAndMessaging::{
-        IsZoomed, MINMAXINFO, WINDOWPOS, WM_GETMINMAXINFO, WM_SIZE, WM_SYSCOMMAND,
-        WM_WINDOWPOSCHANGED, WM_WINDOWPOSCHANGING,
+        HTMAXBUTTON, IsZoomed, MINMAXINFO, TITLEBARINFOEX, WINDOWPOS, WM_ERASEBKGND,
+        WM_GETMINMAXINFO, WM_GETTITLEBARINFOEX, WM_MOUSEMOVE, WM_NCHITTEST, WM_NCMOUSEMOVE,
+        WM_PAINT, WM_SETCURSOR, WM_SIZE, WM_SYSCOMMAND, WM_TIMER, WM_WINDOWPOSCHANGED,
+        WM_WINDOWPOSCHANGING,
     };
+
+    /// `TITLEBARINFOEX::rgrect`/`rgstate` index of the maximize button.
+    const MAXIMIZE_BUTTON: usize = 3;
 
     const SUBCLASS_ID: usize = 0x5257_4d4d;
 
@@ -233,6 +273,63 @@ mod win32 {
                 _ => {}
             }
         }
+        if (msg == WM_NCHITTEST || msg == WM_GETTITLEBARINFOEX)
+            && let Some(button) = crate::snap_layout::maximize_button_on_screen()
+        {
+            if msg == WM_NCHITTEST {
+                let point = super::screen_point(lparam.0);
+                if super::hits_maximize_button(Some(button), point) {
+                    if trace {
+                        log::info!(
+                            "window trace: top window hit test at {point:?} answered as the maximize button (was {})",
+                            result.0
+                        );
+                    }
+                    return LRESULT(HTMAXBUTTON as isize);
+                }
+            } else if lparam.0 != 0 {
+                // SAFETY: WM_GETTITLEBARINFOEX's lParam points at the caller's
+                // TITLEBARINFOEX; its size is checked before the write.
+                let info = unsafe { &mut *(lparam.0 as *mut TITLEBARINFOEX) };
+                if info.cbSize as usize >= std::mem::size_of::<TITLEBARINFOEX>() {
+                    info.rgrect[MAXIMIZE_BUTTON] = RECT {
+                        left: button.left,
+                        top: button.top,
+                        right: button.right,
+                        bottom: button.bottom,
+                    };
+                    // Shown and enabled (no STATE_SYSTEM_* flag).
+                    info.rgstate[MAXIMIZE_BUTTON] = 0;
+                    if trace {
+                        log::info!(
+                            "window trace: WM_GETTITLEBARINFOEX answered with the maximize button {button:?}, title bar {:?}",
+                            bounds(info.rcTitleBar)
+                        );
+                    }
+                }
+            }
+        }
+        if trace
+            && crate::snap_layout::maximize_button_hovered()
+            && !matches!(
+                msg,
+                WM_NCHITTEST
+                    | WM_SETCURSOR
+                    | WM_MOUSEMOVE
+                    | WM_NCMOUSEMOVE
+                    | WM_PAINT
+                    | WM_ERASEBKGND
+                    | WM_TIMER
+            )
+        {
+            // What Windows asks the top window while the pointer rests on
+            // the maximize button (the snap-layouts flyout's questions).
+            log::info!(
+                "window trace: top window message {msg:#x} ({:#x}, {:#x}) while the maximize button is hovered",
+                wparam.0,
+                lparam.0
+            );
+        }
         if msg == WM_GETMINMAXINFO && lparam.0 != 0 {
             // SAFETY: WM_GETMINMAXINFO's lParam points at the caller's MINMAXINFO.
             let info = unsafe { &mut *(lparam.0 as *mut MINMAXINFO) };
@@ -276,6 +373,41 @@ mod win32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// G76/WUX11 on the Lenovo (200 %): the button drawn at interface size
+    /// 125 % in the minimum window is 2357,17..2437,97 on screen; the click
+    /// went to 2398,58, the Preferences button's centre is 2085,58.
+    #[test]
+    fn the_top_window_answers_hit_tests_inside_the_drawn_maximize_button() {
+        let lparam = |x: i32, y: i32| ((y as u16 as isize) << 16) | (x as u16 as isize);
+        let button = Some(Bounds {
+            left: 2357,
+            top: 17,
+            right: 2437,
+            bottom: 97,
+        });
+        assert_eq!(screen_point(lparam(2398, 58)), (2398, 58));
+        assert!(hits_maximize_button(button, screen_point(lparam(2398, 58))));
+        // The whole drawn button, also below a system-height title bar (55).
+        assert!(hits_maximize_button(button, (2357, 17)));
+        assert!(hits_maximize_button(button, (2436, 96)));
+        for outside in [(2085, 58), (2356, 58), (2437, 58), (2398, 16), (2398, 97)] {
+            assert!(!hits_maximize_button(button, outside));
+        }
+        // No button shown (full screen, a modal dialog open).
+        assert!(!hits_maximize_button(None, (2398, 58)));
+        // A monitor left of and above the primary: negative coordinates.
+        assert_eq!(screen_point(lparam(-1500, -40)), (-1500, -40));
+        let left = Some(Bounds {
+            left: -1540,
+            top: -60,
+            right: -1460,
+            bottom: 20,
+        });
+        assert!(hits_maximize_button(left, screen_point(lparam(-1500, -40))));
+        // 64-bit lParams may carry set upper bits.
+        assert_eq!(screen_point(lparam(-1500, -40) | (-1 << 32)), (-1500, -40));
+    }
 
     fn rect(left: i32, top: i32, width: i32, height: i32) -> Bounds {
         Bounds {

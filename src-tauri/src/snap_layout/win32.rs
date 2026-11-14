@@ -21,8 +21,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GA_ROOT, GetAncestor, GetCursorPos, GetParent,
-    GetWindowRect, HTMAXBUTTON, HWND_TOP, IDC_ARROW, IsZoomed, LWA_ALPHA, LoadCursorW,
-    RegisterClassW, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+    GetWindowRect, HTMAXBUTTON, HWND_TOP, IDC_ARROW, IsWindowVisible, IsZoomed, LWA_ALPHA,
+    LoadCursorW, RegisterClassW, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
     SetLayeredWindowAttributes, SetWindowPos, ShowWindow, WM_CANCELMODE, WM_CAPTURECHANGED,
     WM_LBUTTONUP, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
     WM_NCRBUTTONDOWN, WM_NCRBUTTONUP, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED,
@@ -106,6 +106,21 @@ pub unsafe fn place(parent: isize, rect: Option<Rect>) -> windows::core::Result<
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
     }
+}
+
+/// The overlay's screen rectangle (left, top, right, bottom) while shown.
+pub fn on_screen() -> Option<(i32, i32, i32, i32)> {
+    let overlay = HWND(OVERLAY.get());
+    if overlay.0 == 0 || !unsafe { IsWindowVisible(overlay) }.as_bool() {
+        return None;
+    }
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(overlay, &mut rect) }.ok()?;
+    Some((rect.left, rect.top, rect.right, rect.bottom))
+}
+
+pub fn hovered() -> bool {
+    HOVERED.get()
 }
 
 unsafe fn create(parent: HWND) -> windows::core::Result<HWND> {
@@ -234,6 +249,14 @@ unsafe extern "system" fn window_proc(
             return LRESULT(0);
         }
         WM_NCRBUTTONDOWN | WM_NCRBUTTONUP => return LRESULT(0),
+        // What else Windows asks the button while the pointer rests on it.
+        _ if HOVERED.get() && crate::window_limits::trace() && msg != 0x20 => {
+            log::info!(
+                "window trace: maximize button message {msg:#x} ({:#x}, {:#x})",
+                wparam.0,
+                lparam.0
+            );
+        }
         _ => {}
     }
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
