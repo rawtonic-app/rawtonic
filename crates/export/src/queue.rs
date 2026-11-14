@@ -518,7 +518,10 @@ impl ExportQueue {
             // A job whose every photo is published was finished; the quit
             // only came before its end was recorded.
             let job = self.job(id)?;
-            let complete = job.total > 0 && job.done == job.total && job.failed == 0;
+            // A proof sheet's photos are all rendered before the sheet itself
+            // is written: that job stays interrupted, a resume writes the sheet.
+            let sheet = job.request.get("proofSheet").is_some_and(|v| !v.is_null());
+            let complete = !sheet && job.total > 0 && job.done == job.total && job.failed == 0;
             self.set_state(
                 id,
                 if complete {
@@ -917,6 +920,23 @@ mod tests {
         assert_eq!(job.state, JobState::Done);
         assert_eq!((job.done, job.total), (1, 1));
         assert!(q.retry(&job.id).is_err(), "a finished job is not resumed");
+    }
+
+    #[test]
+    fn recovery_keeps_a_proof_sheet_whose_renders_are_done_resumable() {
+        let (dir, q) = queue();
+        let request = json!({ "proofSheet": { "columns": 3 } });
+        let job = q.enqueue("Proof sheet", &request, &paths(1)).unwrap();
+        q.start_next().unwrap();
+        let staged = dir.path().join("staged.jpg");
+        std::fs::write(&staged, "jpeg").unwrap();
+        q.item_started(&job, 0, &staged).unwrap();
+        drop(q);
+        let q = ExportQueue::open(&dir.path().join("export-queue.sqlite")).unwrap();
+        let interrupted = q.recover().unwrap();
+        assert_eq!(interrupted.len(), 1, "the sheet is not written yet");
+        assert_eq!(interrupted[0].state, JobState::Interrupted);
+        q.retry(&job).unwrap();
     }
 
     #[test]
