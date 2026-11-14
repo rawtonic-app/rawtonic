@@ -1308,7 +1308,11 @@ mod launch_path_tests {
                 root.join(rawtonic_catalog::layout::manifest_name(mode)),
                 root.join(rawtonic_catalog::layout::database_name(mode)),
             ] {
-                assert_eq!(super::launch_library(&as_text(&arg)), Some(root.clone()), "{arg:?}");
+                assert_eq!(
+                    super::launch_library(&as_text(&arg)),
+                    Some(root.clone()),
+                    "{arg:?}"
+                );
             }
             // A folder inside it and an ordinary file are not the library.
             std::fs::create_dir_all(root.join("sub")).unwrap();
@@ -1319,6 +1323,9 @@ mod launch_path_tests {
         std::fs::create_dir_all(&plain).unwrap();
         std::fs::write(plain.join("a.nef"), b"x").unwrap();
         assert_eq!(super::launch_library(&plain.to_string_lossy()), None);
-        assert_eq!(super::launch_library(&plain.join("a.nef").to_string_lossy()), None);
+        assert_eq!(
+            super::launch_library(&plain.join("a.nef").to_string_lossy()),
+            None
+        );
     }
 }
