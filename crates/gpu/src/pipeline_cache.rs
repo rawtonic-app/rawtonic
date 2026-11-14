@@ -190,11 +190,11 @@ fn seed_file(path: &Path, data: Option<&[u8]>) -> bool {
 
 /// Makes `cache` (a helper's that started from `seed`'s data) `device`'s
 /// own cache and writes it soon: it holds every pipeline the app's held
-/// then and the helper's. Nothing compiled into the app's cache meanwhile
-/// that is not in it, apart from small pipelines a new processor made:
-/// under a compile limit (the only place helpers run) every shader variant
-/// compiles with a compile slot, and a compile waiting for the slot stops
-/// the helper (`slot_wanted`), so a helper that finished ran alone.
+/// then and the helper's. The caller makes sure nothing compiled into the
+/// app's cache meanwhile (`IdleCompiles::keep`): under a compile limit (the
+/// only place helpers run) a heavy compile waiting for the slot stops the
+/// helper (`slot_wanted`), and the small ones that run beside it are
+/// counted.
 pub(crate) fn adopt(device: &wgpu::Device, cache: wgpu::PipelineCache) {
     let Some(store) = for_device(device) else {
         return;

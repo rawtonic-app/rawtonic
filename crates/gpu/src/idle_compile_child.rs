@@ -19,7 +19,11 @@
 //! new one, and the app keeps it as its own cache file
 //! (`pipeline_cache::adopt`): the next launch finds the variant there when
 //! the driver's cache was cleared (G76/HCF; our file alone answered across
-//! processes in 80 ms on the 680M, probe round 19).
+//! processes in 80 ms on the 680M, probe round 19). Small pipelines compile
+//! in the app beside a helper (`CompileWeight`: a photo opened meanwhile);
+//! a helper's cache seeded before one lacks it, so the app then runs the
+//! helper once more from its cache of now, which the driver's own cache
+//! answers, and keeps that one (`IdleCompiles::keep`).
 //!
 //! A frame whose features the running job covers still waits for it
 //! (`IdleCompiles::covering`): its own compile would be that variant
@@ -71,6 +75,21 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+/// Pipelines the app compiled into its own cache beside idle helpers (the
+/// small ones, `CompileWeight`): a helper's cache seeded before one lacks
+/// it, so the app must not take that cache for its own (`kept`).
+static CACHE_ADDITIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Notes a pipeline compiled into the app's own cache (`CACHE_ADDITIONS`).
+pub(super) fn cache_added() {
+    CACHE_ADDITIONS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// `CACHE_ADDITIONS` now.
+pub(super) fn cache_additions() -> u64 {
+    CACHE_ADDITIONS.load(Ordering::SeqCst)
+}
+
 /// Sets how idle compiles start their helper process; once per process.
 /// Used only under a compile limit (idle compiles run nowhere else).
 pub fn set_idle_compile_helper(helper: IdleCompileHelper) {
@@ -83,10 +102,12 @@ pub fn set_idle_compile_helper(helper: IdleCompileHelper) {
 pub(super) enum Helped {
     /// The helper compiled it; compile it here through this cache. `seeded`:
     /// the helper started from the app's cache data, so this cache holds
-    /// the app's pipelines too (`pipeline_cache::adopt`).
+    /// the app's pipelines of then too (`pipeline_cache::adopt`); `mark`:
+    /// `cache_additions` then.
     Compiled {
         cache: wgpu::PipelineCache,
         seeded: bool,
+        mark: u64,
     },
     /// Stopped for a compile or export that waits for the slot, or because
     /// the idle compiles end.
@@ -158,6 +179,7 @@ pub(super) fn compile_in_helper(
         UNAVAILABLE.store(true, Ordering::Relaxed);
         Helped::Unavailable
     };
+    let mark = cache_additions();
     let seeded = crate::pipeline_cache::seed(&target.device, folder.path());
     let arg = job.arg();
     let started = Instant::now();
@@ -238,7 +260,11 @@ pub(super) fn compile_in_helper(
                 compile.map_or_else(|| "unknown".to_owned(), |s| format!("{s:.2} s")),
                 if seeded { "yes" } else { "no" }
             );
-            Helped::Compiled { cache, seeded }
+            Helped::Compiled {
+                cache,
+                seeded,
+                mark,
+            }
         }
         None => give_up(format!(
             "the helper for {arg} left no pipeline cache {} (found: {})",

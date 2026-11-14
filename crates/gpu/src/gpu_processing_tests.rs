@@ -858,6 +858,7 @@ fn invalid_shader_source_fails_processor_construction() {
             compilation_options: Default::default(),
             cache: None,
         },
+        CompileWeight::Tiny,
     )
     .unwrap_err();
     assert!(error.contains("Missing entry point"), "{error}");

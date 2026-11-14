@@ -281,6 +281,7 @@ impl ChromaPipelines {
                     },
                     cache: None,
                 },
+                CompileWeight::Tiny,
             )
         };
         let pipeline = |entry: &str| pipeline_of(&module, entry);
@@ -5645,14 +5646,126 @@ fn high_precision_shader_source(source: &str) -> String {
     source.replace("rgba8unorm, write>", "rgba32float, write>")
 }
 
+/// What a creation costs the driver under a compile limit (AMD's Windows
+/// Vulkan driver, `device_start::compile_limit`), which decides what it may
+/// run beside (`validated`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompileWeight {
+    /// A pipeline of the image-processing shader's `main`: tens of seconds
+    /// and 3–5 GB of private memory on a Radeon 680M. One at a time, idle
+    /// compiles included, and an idle compile in a helper process is stopped
+    /// for it (`compile_slot`).
+    Heavy,
+    /// The detail-cache pass and the display variants within the RAW default
+    /// one (`small_display_variant`): 2.7–7.5 s and about 0.5 GB there
+    /// (G76/WGT4, WSMOKE18). One at a time among themselves, beside a heavy
+    /// one: a photo opened while an idle compile runs in its helper neither
+    /// waits for it nor stops it (G76/COLD).
+    Small,
+    /// A shader module (no driver compile on Vulkan) or a pipeline of one of
+    /// the small shaders (blur, colour-noise pyramid, flare, layer sums):
+    /// 0.02–0.07 s each there. No limit.
+    Tiny,
+}
+
+impl CompileWeight {
+    /// The weight of a creation on this thread: small while it creates a
+    /// small display variant (`SMALL_VARIANT`).
+    fn here(self) -> Self {
+        if SMALL_VARIANT.with(std::cell::Cell::get) {
+            Self::Small
+        } else {
+            self
+        }
+    }
+}
+
+thread_local! {
+    /// Set while this thread creates a small display variant: its module
+    /// and pipeline are `CompileWeight::Small` whatever their own weight.
+    static SMALL_VARIANT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A never-edited RAW's adjustments as its first render makes them
+/// (`image_processing::start_new_edit`: every response at its newest):
+/// what `GpuProcessor::compile_ahead_for_new_raw` plans for before a photo
+/// is open. Of the camera's own values (base look, lens data) only the
+/// look's mode and the photo's measured noise decide a display feature: the
+/// mode is the one a RAW's base look gives, and the noise
+/// (sharpening response 8 needs one, `sharpen_v8`) the smallest there is:
+/// the RAW default display variant.
+fn new_raw_edit(tonemapper_override: Option<u32>) -> AllAdjustments {
+    let mut recipe = serde_json::json!({});
+    crate::image_processing::start_new_edit(&mut recipe, true);
+    let mut adjustments =
+        *crate::image_processing::get_all_adjustments_from_json(&recipe, true, tonemapper_override)
+            .uniforms;
+    adjustments.global.noise_level = adjustments.global.noise_level.max(f32::MIN_POSITIVE);
+    // A RAW's base look renders the Standard look as Camera Raw's
+    // (`baseline_exposure::BaseLook::apply`).
+    if adjustments.global.tonemapper_mode == crate::image_processing::tonemapper_mode_of("standard")
+    {
+        adjustments.global.tonemapper_mode = rawtonic_engine::baseline_exposure::CAMERA_RAW_MODE;
+    }
+    adjustments
+}
+
+/// Whether display variant `features` is within the RAW default one (a
+/// photo without the tone stage, a curve, masks, the newer responses or
+/// effects): the variants a never-edited photo opens with.
+fn small_display_variant(features: usize) -> bool {
+    features & !RAW_DEFAULT_PREVIEW_FEATURES == 0
+}
+
+/// `SMALL_VARIANT` while it lives.
+struct SmallVariant;
+
+impl SmallVariant {
+    fn new() -> Self {
+        SMALL_VARIANT.with(|small| small.set(true));
+        Self
+    }
+}
+
+impl Drop for SmallVariant {
+    fn drop(&mut self) {
+        SMALL_VARIANT.with(|small| small.set(false));
+    }
+}
+
+/// The one small compile that may run (`CompileWeight::Small`).
+static SMALL_SLOT: Mutex<()> = Mutex::new(());
+
+/// Heavy compiles waiting for a compile slot or running
+/// (`background_compile_slot`: an idle compile starts only without one).
+static HEAVY_PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts in `HEAVY_PENDING` while it lives.
+struct HeavyPending;
+
+impl HeavyPending {
+    fn new() -> Self {
+        HEAVY_PENDING.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for HeavyPending {
+    fn drop(&mut self) {
+        HEAVY_PENDING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Runs a shader-module or pipeline creation inside error scopes. wgpu otherwise
 /// returns an invalid handle and only reports the failure to the uncaptured
 /// error handler, after which every dispatch silently writes nothing.
 /// Error scopes are per thread, so concurrent work elsewhere is not captured.
-/// Waits for a compile slot (`CompileLimit`) first.
+/// Under a compile limit it waits for its turn first: a heavy creation for
+/// a compile slot (`CompileLimit`), a small one for the other small one.
 fn validated<T>(
     device: &wgpu::Device,
     what: &str,
+    weight: CompileWeight,
     create: impl FnOnce() -> T,
 ) -> Result<T, String> {
     // An idle compile holds its slot already and shows nothing
@@ -5660,7 +5773,21 @@ fn validated<T>(
     if idle_compiles::BACKGROUND_COMPILE.with(std::cell::Cell::get) {
         return checked(device, what, create);
     }
+    let weight = weight.here();
+    if weight != CompileWeight::Heavy && compile_limited() {
+        let _pending = PendingCompile::new();
+        let _slot = (weight == CompileWeight::Small)
+            .then(|| SMALL_SLOT.lock().unwrap_or_else(|e| e.into_inner()));
+        if weight == CompileWeight::Small {
+            log::info!(
+                "GPU {what}: compile started (+{:.2} s since start)",
+                since_start()
+            );
+        }
+        return checked(device, what, create);
+    }
     idle_compiles::compile_activity();
+    let _heavy = HeavyPending::new();
     let _pending = PendingCompile::new();
     let _slot = compile_slot(what);
     // Its end counts too: idle compiles wait for quiet after it.
@@ -6002,13 +6129,15 @@ pub fn compiles_limited() -> bool {
 }
 
 /// A compile slot for an idle compile (`idle_compiles`), only while no other
-/// compile waits for one or runs: those go first. `None` if one does.
+/// heavy compile waits for one or runs: those go first. `None` if one does.
 fn background_compile_slot(what: &str) -> Option<CompileSlot> {
     let mut state = COMPILE_LIMIT
         .state
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if compiles_pending() || state.0 > 0 || state.1.is_some_and(|max| state.0 >= max) {
+    // Small and tiny creations run beside it (`CompileWeight`).
+    let heavy = HEAVY_PENDING.load(std::sync::atomic::Ordering::SeqCst) > 0;
+    if heavy || state.0 > 0 || state.1.is_some_and(|max| state.0 >= max) {
         return None;
     }
     state.0 += 1;
@@ -6243,12 +6372,17 @@ fn create_shader(
     label: &str,
     source: &str,
 ) -> Result<wgpu::ShaderModule, String> {
-    validated(device, &format!("shader '{label}'"), || {
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
-        })
-    })
+    validated(
+        device,
+        &format!("shader '{label}'"),
+        CompileWeight::Tiny,
+        || {
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(label),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            })
+        },
+    )
 }
 
 /// Creates a pipeline through the device's pipeline cache when the app
@@ -6258,10 +6392,11 @@ fn create_shader(
 fn create_compute_pipeline(
     device: &wgpu::Device,
     descriptor: &wgpu::ComputePipelineDescriptor,
+    weight: CompileWeight,
 ) -> Result<wgpu::ComputePipeline, String> {
     let label = descriptor.label.unwrap_or("compute");
     if let Some(helper) = idle_compile_child::HELPER_CACHE.with(|cache| cache.borrow().clone()) {
-        return validated(device, &format!("pipeline '{label}'"), || {
+        return validated(device, &format!("pipeline '{label}'"), weight, || {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 cache: Some(&helper),
                 ..descriptor.clone()
@@ -6269,15 +6404,24 @@ fn create_compute_pipeline(
         });
     }
     let cache = crate::pipeline_cache::for_device(device);
-    let created = validated(device, &format!("pipeline '{label}'"), || match &cache {
-        Some(cache) => device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            cache: Some(&cache.current()),
-            ..descriptor.clone()
-        }),
-        None => device.create_compute_pipeline(descriptor),
-    });
+    let created = validated(
+        device,
+        &format!("pipeline '{label}'"),
+        weight,
+        || match &cache {
+            Some(cache) => device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                cache: Some(&cache.current()),
+                ..descriptor.clone()
+            }),
+            None => device.create_compute_pipeline(descriptor),
+        },
+    );
     if let Some(cache) = cache {
         cache.save_soon();
+        // Beside an idle helper, whose cache then lacks it.
+        if weight.here() != CompileWeight::Heavy {
+            idle_compile_child::cache_added();
+        }
     }
     created
 }
@@ -6427,6 +6571,8 @@ fn create_preview_pipeline(
         layer_sums,
         deferred,
     );
+    let _small = (display.is_some() && !layer_sums && !deferred && small_display_variant(features))
+        .then(SmallVariant::new);
     match display {
         Some(display) => create_display_pipeline(
             device,
@@ -6491,12 +6637,19 @@ fn compile_variant_module(
             );
         }
     };
-    let shader = validated(device, &format!("shader '{label}'"), || {
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(module)),
-        })
-    })?;
+    // With the variant's pipeline: heavy unless the variant is small
+    // (`SMALL_VARIANT`).
+    let shader = validated(
+        device,
+        &format!("shader '{label}'"),
+        CompileWeight::Heavy,
+        || {
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(label),
+                source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(module)),
+            })
+        },
+    )?;
     create_variant_pipeline(device, &shader, pipeline_layout, label, &[])
 }
 
@@ -6624,6 +6777,7 @@ fn create_variant_pipeline(
             },
             cache: None,
         },
+        CompileWeight::Heavy,
     )
 }
 
@@ -7156,6 +7310,7 @@ impl GpuProcessor {
                 compilation_options: Default::default(),
                 cache: None,
             },
+            CompileWeight::Tiny,
         )?;
 
         let v_blur_pipeline = create_compute_pipeline(
@@ -7168,6 +7323,7 @@ impl GpuProcessor {
                 compilation_options: Default::default(),
                 cache: None,
             },
+            CompileWeight::Tiny,
         )?;
 
         let blur_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -7271,6 +7427,7 @@ impl GpuProcessor {
                 compilation_options: Default::default(),
                 cache: None,
             },
+            CompileWeight::Tiny,
         )?;
 
         let flare_ghosts_pipeline = create_compute_pipeline(
@@ -7283,6 +7440,7 @@ impl GpuProcessor {
                 compilation_options: Default::default(),
                 cache: None,
             },
+            CompileWeight::Tiny,
         )?;
 
         let flare_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -7365,6 +7523,7 @@ impl GpuProcessor {
                 compilation_options: Default::default(),
                 cache: None,
             },
+            CompileWeight::Tiny,
         )?;
         let layer_sums_off = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Layer sums (none)"),
@@ -7394,6 +7553,7 @@ impl GpuProcessor {
                         },
                         cache: None,
                     },
+                    CompileWeight::Heavy,
                 )
             }
         });
@@ -7455,6 +7615,7 @@ impl GpuProcessor {
                         },
                         cache: None,
                     },
+                    CompileWeight::Heavy,
                 )
             }
         });
@@ -8600,6 +8761,7 @@ impl GpuProcessor {
                         },
                         cache: None,
                     },
+                    CompileWeight::Heavy,
                 )
             })
             .as_ref()
@@ -8690,6 +8852,33 @@ impl GpuProcessor {
         }
     }
 
+    /// Under a compile limit, starts what the first photo of a session
+    /// needs while the app still starts: the idle plan of a new RAW edit
+    /// (`new_raw_edit`, `idle_compiles::planned_jobs`), in its helper
+    /// process beside the RAW default display variant, and that edit's
+    /// detail-cache pass. `tonemapper_override`: the look Preferences set
+    /// for every RAW, if any. On a computer's first
+    /// session the plan started only 3 s after the first photo was shown,
+    /// so the minute or more a photographer spends in the Library first
+    /// (an import) was lost: Basic-panel edits right after opening waited
+    /// 15–44 s on a Radeon 680M, and the first Glow frame 6.5 s for two
+    /// detail-cache passes (G76/WSMOKE18). The first photo shown replaces
+    /// the plan if its own differs. Nothing without a compile limit.
+    pub fn compile_ahead_for_new_raw(&self, tonemapper_override: Option<u32>) {
+        let Some(idle) = &self.idle_compiles else {
+            return;
+        };
+        let adjustments = &new_raw_edit(tonemapper_override);
+        log::info!(
+            "GPU idle compiles planned at start for a new RAW edit (+{:.2} s since start)",
+            since_start()
+        );
+        idle.0.plan(preview_features(adjustments), adjustments, || {
+            self.idle_target()
+        });
+        self.detail_pipeline_for(sharpen_level(adjustments));
+    }
+
     /// What an idle compile needs (`idle_compiles`).
     fn idle_target(&self) -> idle_compiles::IdleTarget {
         idle_compiles::IdleTarget {
@@ -8715,7 +8904,7 @@ impl GpuProcessor {
     ) -> Result<&wgpu::ComputePipeline, String> {
         let features = preview_features(adjustments);
         let idle = self.idle_compiles.as_ref().map(|owner| &owner.0);
-        if let Some(idle) = idle {
+        if on_screen && let Some(idle) = idle {
             idle.frame();
         }
         #[cfg(test)]
@@ -9085,6 +9274,7 @@ impl GpuProcessor {
                             },
                             cache: None,
                         },
+                        CompileWeight::Small,
                     );
                     if let Err(error) = &created {
                         log::error!("Detail cache unavailable; computing it per frame: {error}");
@@ -9463,6 +9653,7 @@ impl GpuProcessor {
                 },
                 cache: None,
             },
+            CompileWeight::Heavy,
         )
     }
 

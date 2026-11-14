@@ -3,10 +3,12 @@
 //! On AMD's Windows Vulkan driver (the only one with a compile limit,
 //! `device_start::compile_limit`) the first use of a tone slider waited for
 //! its display variant: 56–74 s at 5–6 GB of private memory on a Radeon
-//! 680M, once per machine and driver (the pipeline cache keeps it). After
-//! the first photo is shown, this compiles the variants a photographer most
-//! likely needs next while the app is idle, one at a time and only when no
-//! other compile waits or runs, so the first slider use finds one ready.
+//! 680M, once per machine and driver (the pipeline cache keeps it). From
+//! the app's start (`GpuProcessor::compile_ahead_for_new_raw`: the plan of a new
+//! RAW edit, so the time in the Library counts) and for each photo shown,
+//! this compiles the variants a photographer most likely needs next while
+//! the app is idle, one at a time and only when no other heavy compile waits
+//! or runs, so the first slider use finds one ready.
 //!
 //! Each is a superset of the photo's own features: a frame renders with the
 //! first compiled superset of its features (an idle feature changes no
@@ -72,17 +74,20 @@ pub(super) enum IdleJob {
     Deferred(usize),
 }
 
-/// The display variants worth compiling ahead for a photo shown with
-/// display variant `features`, a chain of supersets, each covering the ones
-/// before it (a frame renders with the first compiled superset of its
-/// features):
+/// The display variant worth compiling ahead for a photo shown with
+/// display variant `features` (a frame renders with the first compiled
+/// superset of its features): `basic`, every Basic-panel edit the recipe's
+/// versions make: the tone sliders in both directions (raised Shadows,
+/// lowered Whites and Blacks of the newer tone versions), Highlights, a
+/// curve, a mask layer, Clarity or Structure, Dehaze, Vibrance and the
+/// colour mixer.
 ///
-/// 1. `sliders`: the tone sliders with Highlights (Contrast, Shadows
-///    lowered, Whites and Blacks raised, Highlights in both directions);
-/// 2. `basic`: every Basic-panel edit the recipe's versions make: the tone
-///    sliders in both directions (raised Shadows, lowered Whites and Blacks
-///    of the newer tone versions), a curve, a mask layer, Clarity or
-///    Structure, Dehaze, Vibrance and the colour mixer.
+/// Alone, without the smaller tone-sliders variant before it (24 s on a
+/// Radeon 680M, then 42 s for `basic`; G76/WHCF): on a computer's first
+/// session `basic` is then ready 42 s after its helper starts instead of
+/// 66 s, and it is the variant a photo that arrives edited shows with and
+/// every edited photo exports with (`export_display_features`). The sliders
+/// variant served only the tone edits made in those first 24 s (G76/COLD).
 ///
 /// No entry with the effects (glow, halation, grain): the photo's features
 /// with all three compiled for 56 s into 7.0 GB of private memory on a
@@ -100,15 +105,12 @@ pub(super) enum IdleJob {
 /// (G76/WCC4); without it each newer tone direction added a copy of the
 /// stage.
 pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<usize> {
-    let sliders = sliders_features(features, adjustments);
     let basic = basic_features(features, adjustments);
-    let mut plan = Vec::with_capacity(2);
-    for candidate in [sliders, basic] {
-        if candidate != features && !plan.contains(&candidate) {
-            plan.push(candidate);
-        }
+    if basic == features {
+        Vec::new()
+    } else {
+        vec![basic]
     }
-    plan
 }
 
 /// What `IdleCompiles::plan` queues for a photo shown with display variant
@@ -154,8 +156,8 @@ fn covered_is_enough(
     exact != Some(features) && covered()
 }
 
-/// `idle_plan`'s first entry: `features` with the tone sliders and
-/// Highlights.
+/// `features` with the tone sliders and Highlights (part of
+/// `basic_features`).
 fn sliders_features(features: usize, adjustments: &AllAdjustments) -> usize {
     let g = &adjustments.global;
     let tone = ToneVersion::from_uniform(g.tone_version);
@@ -169,7 +171,7 @@ fn sliders_features(features: usize, adjustments: &AllAdjustments) -> usize {
         }
 }
 
-/// `idle_plan`'s second entry: `features` with every Basic-panel edit the
+/// `idle_plan`'s entry: `features` with every Basic-panel edit the
 /// recipe's versions make. Also the display variant an edited photo exports
 /// with under a compile limit (`gpu_processing::export_display_features`),
 /// so a change here changes those exports' bytes.
@@ -284,7 +286,7 @@ pub(super) struct IdleCompiles {
     queue: Mutex<Queue>,
     changed: Condvar,
     /// Milliseconds since `since_start`'s start of the last frame rendered
-    /// with a display variant.
+    /// for the window with a display variant (0: none yet).
     last_frame_ms: AtomicU64,
 }
 
@@ -320,10 +322,13 @@ impl IdleCompiles {
         self.queue.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// A frame is rendering: idle compiles wait `IDLE_QUIET` after it.
+    /// A frame for the window is rendering: idle compiles wait `IDLE_QUIET`
+    /// after it. Thumbnails and other renders off the screen do not count:
+    /// an import's thumbnails kept idle compiles from starting for as long
+    /// as it ran, the time a computer's first session needs them (G76/COLD).
     pub(super) fn frame(&self) {
         self.last_frame_ms
-            .store(now_ms(), std::sync::atomic::Ordering::Relaxed);
+            .store(now_ms().max(1), std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Plans the supersets of `features` (a photo now shown with them),
@@ -388,13 +393,14 @@ impl IdleCompiles {
             .or_else(|| queue.later.pop_front().map(|job| (job, false)))
     }
 
-    /// Whether the app has been idle for `IDLE_QUIET`: no frame and no
-    /// compile waiting or running.
+    /// Whether the app has been idle for `IDLE_QUIET`: no frame for the
+    /// window and no heavy compile waiting or running. At once when there
+    /// was none yet (the app's start, `GpuProcessor::compile_ahead_for_new_raw`).
     fn idle(&self) -> bool {
-        let last_frame = self.last_frame_ms.load(Ordering::Relaxed);
         let quiet = IDLE_QUIET.as_millis() as u64;
-        now_ms().saturating_sub(last_frame) >= quiet
-            && now_ms().saturating_sub(LAST_COMPILE_MS.load(Ordering::Relaxed)) >= quiet
+        let quiet_since = |last: u64| last == 0 || now_ms().saturating_sub(last) >= quiet;
+        quiet_since(self.last_frame_ms.load(Ordering::Relaxed))
+            && quiet_since(LAST_COMPILE_MS.load(Ordering::Relaxed))
     }
 
     fn work(self: Arc<Self>, target: IdleTarget) {
@@ -508,32 +514,19 @@ impl IdleCompiles {
                     drop(slot);
                     continue;
                 }
-                super::idle_compile_child::Helped::Compiled { cache, seeded } => {
+                super::idle_compile_child::Helped::Compiled {
+                    cache,
+                    seeded,
+                    mark,
+                } => {
                     if Self::claim(&target, job) {
                         super::idle_compile_child::HELPER_CACHE
                             .with(|helper| *helper.borrow_mut() = Some(cache.clone()));
                         self.compile(&target, job);
                         super::idle_compile_child::HELPER_CACHE
                             .with(|helper| *helper.borrow_mut() = None);
-                        // The helper's cache (the app's, plus this job) is
-                        // the app's cache file from now on.
-                        if seeded {
-                            crate::pipeline_cache::adopt(&target.device, cache);
-                        }
-                        log::info!(
-                            "GPU idle compile of {}: {}",
-                            job.arg(),
-                            if seeded {
-                                "kept in the app's pipeline cache"
-                            } else {
-                                "not kept in the app's pipeline cache (the helper started empty)"
-                            }
-                        );
-                        #[cfg(test)]
-                        if seeded {
-                            super::idle_compile_child::ADOPTED
-                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        }
+                        let kept = self.keep(&target, job, cache, seeded, mark);
+                        log::info!("GPU idle compile of {}: {kept}", job.arg());
                     }
                 }
                 super::idle_compile_child::Helped::Unavailable => {
@@ -546,6 +539,50 @@ impl IdleCompiles {
             drop(slot);
             self.lock().running = None;
         }
+    }
+
+    /// Makes the cache a helper left for `job` the app's cache file (the
+    /// app's pipelines plus this job, `pipeline_cache::adopt`) and says
+    /// what became of it, for the log. Only a cache that holds every
+    /// pipeline of the app's: one seeded from it (`seeded`) with nothing
+    /// compiled into the app's since (`mark`). Otherwise (a photo was
+    /// opened while the helper ran: its detail pass, the RAW default
+    /// variant at the app's start) the helper runs once more from the
+    /// app's cache of now; the driver's own cache answers it without
+    /// compiling (0.5 s on a Radeon 680M, G76/WHCF run 2), and without one
+    /// it compiles again, in idle time as before. A helper stopped for an
+    /// edit, or passed again, leaves the job in the driver's cache alone
+    /// until a later session's helper keeps it.
+    fn keep(
+        &self,
+        target: &IdleTarget,
+        job: IdleJob,
+        cache: wgpu::PipelineCache,
+        seeded: bool,
+        mark: u64,
+    ) -> &'static str {
+        use super::idle_compile_child::{Helped, cache_additions, compile_in_helper};
+        if !seeded {
+            return "not kept in the app's pipeline cache (the helper started empty)";
+        }
+        let cache = if cache_additions() == mark {
+            cache
+        } else {
+            match compile_in_helper(target, job, || self.lock().cancelled) {
+                Helped::Compiled {
+                    cache,
+                    seeded: true,
+                    mark,
+                } if cache_additions() == mark => cache,
+                _ => {
+                    return "not kept in the app's pipeline cache (the app compiled beside the helper)";
+                }
+            }
+        };
+        crate::pipeline_cache::adopt(&target.device, cache);
+        #[cfg(test)]
+        super::idle_compile_child::ADOPTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        "kept in the app's pipeline cache"
     }
 
     /// Whether nobody compiled or claimed `job` yet.
@@ -675,12 +712,13 @@ fn now_ms() -> u64 {
     (since_start() * 1000.0) as u64
 }
 
-/// When the last compile other than an idle one ended (or started).
+/// When the last heavy compile other than an idle one ended (or started);
+/// 0: none yet.
 static LAST_COMPILE_MS: AtomicU64 = AtomicU64::new(0);
 
-/// Notes a compile other than an idle one (`validated`).
+/// Notes a heavy compile other than an idle one (`validated`).
 pub(super) fn compile_activity() {
-    LAST_COMPILE_MS.store(now_ms(), Ordering::Relaxed);
+    LAST_COMPILE_MS.store(now_ms().max(1), Ordering::Relaxed);
 }
 
 thread_local! {
@@ -691,6 +729,7 @@ thread_local! {
 
 #[cfg(test)]
 mod tests {
+    use super::super::new_raw_edit as new_raw_edit_at_start;
     use super::*;
 
     fn adjustments(tone_version: f32, tonemapper_mode: u32) -> AllAdjustments {
@@ -748,14 +787,14 @@ mod tests {
         ] {
             let features = preview_features(&new_raw_edit(edits.clone()));
             let chosen = export(edits.clone());
-            assert_eq!(chosen, plan[1], "{edits}");
+            assert_eq!(chosen, plan[0], "{edits}");
             assert_eq!(chosen & features, features, "{edits}");
         }
         // Effects on an edited photo: the frame compiles the same superset
         // (no planned variant covers it), with the effects.
         let mut glow = edit;
         glow["glowAmount"] = serde_json::json!(30);
-        assert_eq!(export(glow), plan[1] | GLOW_FEATURE);
+        assert_eq!(export(glow), plan[0] | GLOW_FEATURE);
     }
 
     /// A wider compiled variant keeps serving the frames after Glow is
@@ -807,7 +846,7 @@ mod tests {
         let edit = serde_json::json!({"contrast": 25, "clarity": 20, "glowAmount": 30});
         let glow = export_display_features(&new_raw_edit(edit.clone()));
         assert_eq!(jobs.last(), Some(&glow));
-        assert_eq!(glow, idle_plan(opened, &shown)[1] | GLOW_FEATURE);
+        assert_eq!(glow, idle_plan(opened, &shown)[0] | GLOW_FEATURE);
         let features = preview_features(&new_raw_edit(edit));
         assert_eq!(glow & features, features, "it serves the Glow frame");
         let with_glow = new_raw_edit(serde_json::json!({"glowAmount": 30}));
@@ -842,8 +881,31 @@ mod tests {
         assert!(queue.deferred);
     }
 
+    /// What the app plans at its start (`compile_ahead_for_new_raw`) is the
+    /// plan of the never-edited RAW opened later, so the first photo keeps
+    /// it (`Queue::replan`): the Basic-panel superset of the RAW default
+    /// variant the processor compiles at start, then that variant (its
+    /// exports') and Glow's — the variants a first session compiled for an
+    /// unedited RAW on the Radeon 680M (G76/WHCF, WSMOKE18: 5238847,
+    /// 7335999).
     #[test]
-    fn plan_climbs_from_the_tone_sliders_to_every_basic_edit() {
+    fn the_start_plans_what_a_new_raw_edit_plans() {
+        // Without a look set for every RAW in Preferences: the RAW look.
+        let at_start = new_raw_edit_at_start(None);
+        assert_eq!(at_start.global.tonemapper_mode, 3);
+        let features = preview_features(&at_start);
+        assert_eq!(features, RAW_DEFAULT_PREVIEW_FEATURES);
+        let (plan, exact) = planned_jobs(features, &at_start);
+        assert_eq!(exact, features);
+        assert_eq!(plan, vec![5238847, features, 5238847 | GLOW_FEATURE]);
+        // Response 8's detail-cache pass.
+        assert_eq!(sharpen_level(&at_start), 2);
+    }
+
+    /// One entry, every Basic-panel edit, first: no smaller tone-sliders
+    /// variant compiles before it (G76/COLD).
+    #[test]
+    fn plan_is_every_basic_edit_at_once() {
         let shown = new_raw_edit(serde_json::json!({}));
         let features = preview_features(&shown);
         let plan = idle_plan(features, &shown);
@@ -858,10 +920,8 @@ mod tests {
             | DEHAZE_V3_FEATURE
             | VIBRANCE_V2_FEATURE
             | HSL_V2_FEATURE;
-        assert_eq!(plan, vec![sliders, basic]);
-        // Each covers the ones before it and the photo's own features.
-        assert_eq!(basic & sliders, sliders);
-        assert_eq!(sliders & features, features);
+        assert_eq!(plan, vec![basic]);
+        assert_eq!(basic & features, features);
     }
 
     /// Every Basic-panel edit of a new RAW edit, alone and added up as a
@@ -948,6 +1008,7 @@ mod tests {
         queue.plan.pop_front();
         assert!(!queue.replan((plan_3.clone(), 0), false));
         assert_eq!(planned(&queue), plan_3[1..]);
+        assert!(planned(&queue).is_empty());
         assert!(queue.replan((plan_2.clone(), 0), false));
         assert_eq!(planned(&queue), plan_2);
         // A look change (Camera Raw to AgX) with the same features too.
@@ -972,9 +1033,9 @@ mod tests {
         let other_look = adjustments(crate::image_processing::TONE_VERSION as f32, 0);
         let (sh, wh, bl) = (SHADOWS_V13_FEATURE, WHITES_V12_FEATURE, BLACKS_V16_FEATURE);
         let basic = 46 | sh | wh | bl;
-        assert_eq!(idle_plan(0, &other_look), vec![34, basic]);
-        // A photo already shown with the first superset skips it.
+        assert_eq!(idle_plan(0, &other_look), vec![basic]);
         assert_eq!(idle_plan(34, &other_look), vec![basic]);
+        // A photo already shown with it plans nothing.
         assert_eq!(idle_plan(basic, &other_look), Vec::<usize>::new());
         // Tone version 6: none of the newer tone directions' code.
         let old = adjustments(6.0, 0);
@@ -1014,8 +1075,8 @@ mod tests {
         let shown = preview_features(&photo);
         processor.preview_pipeline(&photo, true).unwrap();
         let plan = idle_plan(shown, &photo);
-        // Sliders and Basic panel; no all-effects entry (G76/WCC8).
-        assert_eq!(plan.len(), 2);
+        // The Basic panel; no all-effects entry (G76/WCC8).
+        assert_eq!(plan.len(), 1);
         let started = Instant::now();
         wait("the planned supersets", &|| {
             for &f in &plan {
@@ -1052,6 +1113,92 @@ mod tests {
         assert!(processor.preview_pipelines[features].get().is_none());
         drop(processor);
         set_compile_limit(None);
+    }
+
+    /// Under a compile limit the app's start plans a new RAW edit's idle
+    /// compiles (G76/COLD): the Basic-panel variant compiles with no photo
+    /// shown, and the first Contrast frame of the photo opened later renders
+    /// at once. The RAW default variant and the detail-cache pass are small
+    /// compiles: they run while a heavy one holds the compile slot (an idle
+    /// helper's, here the test's).
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::the_start_compiles_the_basic_variant_before_a_photo_is_shown"]
+    fn the_start_compiles_the_basic_variant_before_a_photo_is_shown() {
+        use super::super::preview_tests::context;
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let wait = |what: &str, done: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(300);
+            while !done() {
+                assert!(Instant::now() < deadline, "{what} did not compile");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        let held = compile_slot("the test's heavy compile");
+        let processor = GpuProcessor::new(context(), 256, 256).unwrap();
+        let photo = super::super::new_raw_edit(None);
+        let shown = preview_features(&photo);
+        assert_eq!(shown, RAW_DEFAULT_PREVIEW_FEATURES);
+        wait("the RAW default variant beside a heavy compile", &|| {
+            processor.preview_pipelines[shown].get().is_some()
+        });
+        processor.detail_pipeline_for(sharpen_level(&photo));
+        wait("the detail-cache pass beside a heavy compile", &|| {
+            processor.detail_pipeline[sharpen_level(&photo)]
+                .get()
+                .is_some()
+        });
+        // Nothing heavy starts while the slot is held.
+        processor.compile_ahead_for_new_raw(None);
+        let (plan, _) = planned_jobs(shown, &photo);
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(processor.preview_pipelines[plan[0]].get().is_none());
+        assert!(
+            processor
+                .idle_compiles
+                .as_ref()
+                .unwrap()
+                .0
+                .lock()
+                .running
+                .is_none()
+        );
+        drop(held);
+        // No frame was rendered: the plan compiles without one.
+        wait("the planned variants", &|| {
+            plan.iter()
+                .all(|&f| processor.preview_pipelines[f].get().is_some())
+        });
+        let mut contrast = photo;
+        contrast.global.contrast = 0.2;
+        let features = preview_features(&contrast);
+        assert_eq!(features & plan[0], features);
+        let started = Instant::now();
+        processor.preview_pipeline(&contrast, true).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "the Contrast frame waited {:?}",
+            started.elapsed()
+        );
+        assert!(processor.preview_pipelines[features].get().is_none());
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    #[test]
+    fn small_variants_are_those_within_the_raw_default_one() {
+        for small in [0, 1, 16, 17, RAW_DEFAULT_PREVIEW_FEATURES] {
+            assert!(small_display_variant(small), "{small}");
+        }
+        for heavy in [
+            RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE,
+            RAW_DEFAULT_PREVIEW_FEATURES | GLOW_FEATURE,
+            2,
+            5238847,
+        ] {
+            assert!(!small_display_variant(heavy), "{heavy}");
+        }
     }
 
     /// The program version both sides of `idle_compiles_in_a_helper_give_way`
