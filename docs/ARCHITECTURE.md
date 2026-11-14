@@ -559,7 +559,9 @@ builds only); `pipeline_cache`: the app's own Vulkan pipeline cache file, keyed 
 filled by the first start (shown as "Preparing graphics" in the activity centre) or ahead by
 `rawtonic-app --warm-gpu-cache` (`src-tauri/src/gpu_warmup.rs`, a QA/benchmark tool; no installer runs it);
 under a compile limit (AMD's Windows Vulkan driver) display variants a photographer likely needs next compile in idle
-time (`idle_compiles.rs`), each in a helper process (`idle_compile_child.rs`; `rawtonic-app --gpu-idle-compile JOB
+time (`idle_compiles.rs`; from the app's start for a new RAW edit, `GpuProcessor::compile_ahead_for_new_raw`, then for
+each photo shown; small pipelines such as the RAW default variant and the detail pass compile beside one,
+`CompileWeight`), each in a helper process (`idle_compile_child.rs`; `rawtonic-app --gpu-idle-compile JOB
 FOLDER`, `src-tauri/src/gpu_idle_helper.rs`) that is killed when a compile or export waits for the slot; the app takes
 the finished variant through the pipeline cache the helper left).
 

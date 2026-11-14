@@ -3,10 +3,14 @@
 //! On AMD's Windows Vulkan driver (the only one with a compile limit,
 //! `device_start::compile_limit`) the first use of a tone slider waited for
 //! its display variant: 56–74 s at 5–6 GB of private memory on a Radeon
-//! 680M, once per machine and driver (the pipeline cache keeps it). After
-//! the first photo is shown, this compiles the variants a photographer most
-//! likely needs next while the app is idle, one at a time and only when no
-//! other compile waits or runs, so the first slider use finds one ready.
+//! 680M, once per machine and driver (the pipeline cache keeps it). From
+//! the app's start (`GpuProcessor::compile_ahead_for_new_raw`: the plan of a new
+//! RAW edit, so the time in the Library counts) and for each photo shown,
+//! this compiles the variants a photographer most likely needs next, one at
+//! a time and only when no other heavy compile waits or runs, so the first
+//! slider use finds one ready: in a helper process whenever no heavy compile
+//! ran for `IDLE_QUIET` (`idle_compile_child`), without one only while the
+//! app is idle.
 //!
 //! Each is a superset of the photo's own features: a frame renders with the
 //! first compiled superset of its features (an idle feature changes no
@@ -47,6 +51,23 @@ pub type IdleCompileMemoryGuard = Box<dyn Fn() -> Result<(), String> + Send + Sy
 
 static MEMORY_GUARD: std::sync::OnceLock<IdleCompileMemoryGuard> = std::sync::OnceLock::new();
 
+/// What the app gives back before a compile an export waits for
+/// (`set_before_export_compile`).
+static BEFORE_EXPORT_COMPILE: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+/// Sets what the app does right before the idle worker compiles the variant
+/// an export waits for (`export_of_shown_photo_starts`): give back the
+/// memory it can rebuild, as before an idle compile (the memory guard is
+/// not asked then: it holds idle compiles while an export runs). On a
+/// Radeon 680M the app held 2.45 GB while a 16-bit export waited for its
+/// helper (4.44 GB): 6.89 GB together (G76/WCOLD2). Once per process.
+pub fn set_before_export_compile(release: Box<dyn Fn() + Send + Sync>) {
+    if BEFORE_EXPORT_COMPILE.set(release).is_err() {
+        log::warn!("GPU idle compiles: the export release was already set");
+    }
+}
+
 /// Sets what the app checks before each idle compile (its private memory,
 /// the system's memory pressure); once per process. Without one, idle
 /// compiles do not wait for memory.
@@ -72,17 +93,20 @@ pub(super) enum IdleJob {
     Deferred(usize),
 }
 
-/// The display variants worth compiling ahead for a photo shown with
-/// display variant `features`, a chain of supersets, each covering the ones
-/// before it (a frame renders with the first compiled superset of its
-/// features):
+/// The display variant worth compiling ahead for a photo shown with
+/// display variant `features` (a frame renders with the first compiled
+/// superset of its features): `basic`, every Basic-panel edit the recipe's
+/// versions make: the tone sliders in both directions (raised Shadows,
+/// lowered Whites and Blacks of the newer tone versions), Highlights, a
+/// curve, a mask layer, Clarity or Structure, Dehaze, Vibrance and the
+/// colour mixer.
 ///
-/// 1. `sliders`: the tone sliders with Highlights (Contrast, Shadows
-///    lowered, Whites and Blacks raised, Highlights in both directions);
-/// 2. `basic`: every Basic-panel edit the recipe's versions make: the tone
-///    sliders in both directions (raised Shadows, lowered Whites and Blacks
-///    of the newer tone versions), a curve, a mask layer, Clarity or
-///    Structure, Dehaze, Vibrance and the colour mixer.
+/// Alone, without the smaller tone-sliders variant before it (24 s on a
+/// Radeon 680M, then 42 s for `basic`; G76/WHCF): on a computer's first
+/// session `basic` is then ready 42 s after its helper starts instead of
+/// 66 s, and it is the variant a photo that arrives edited shows with and
+/// every edited photo exports with (`export_display_features`). The sliders
+/// variant served only the tone edits made in those first 24 s (G76/COLD).
 ///
 /// No entry with the effects (glow, halation, grain): the photo's features
 /// with all three compiled for 56 s into 7.0 GB of private memory on a
@@ -100,35 +124,39 @@ pub(super) enum IdleJob {
 /// (G76/WCC4); without it each newer tone direction added a copy of the
 /// stage.
 pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<usize> {
-    let sliders = sliders_features(features, adjustments);
     let basic = basic_features(features, adjustments);
-    let mut plan = Vec::with_capacity(2);
-    for candidate in [sliders, basic] {
-        if candidate != features && !plan.contains(&candidate) {
-            plan.push(candidate);
-        }
+    if basic == features {
+        Vec::new()
+    } else {
+        vec![basic]
     }
-    plan
 }
 
 /// What `IdleCompiles::plan` queues for a photo shown with display variant
-/// `features`: `idle_plan`, then the display variant its exports render
-/// with under a compile limit (`export_display_features`) if the plan lacks
-/// it, and that variant. A frame keeps rendering with any compiled superset
-/// of its features, so after Glow is turned off, or on a photo shown after
-/// another one's wider variant, no planned entry may compile; an export
-/// would then compile its own variant cold (G76/WCC7 review: tens of
-/// seconds and 4–6 GB on a Radeon 680M). That entry is compiled even when a
-/// superset covers it (`covered_is_enough`).
+/// `features`, in this order:
 ///
-/// Last, `basic` with Glow (`glow_features`): Glow turned on after Basic-panel
-/// edits waited 66 s for that variant on a Radeon 680M (G76/WSMOKE14; 60 s /
-/// 4.7 GB alone, probe round 16); compiled ahead, the first Glow frame and
-/// a Glow export find it. Halation and Grain are not planned.
+/// 1. `basic` with Glow (`glow_features`), the variant that serves the
+///    frames: every Basic-panel edit and Glow render with it (an idle
+///    feature changes no pixel). First, because Glow turned on after
+///    Basic-panel edits has no smaller variant: it waited 66 s for this one
+///    on a Radeon 680M (G76/WSMOKE14), and 49 s in a computer's first
+///    session when it was planned after `basic` (G76/WCOLD1: the two took
+///    42 s and 46 s one after the other; this one alone is ready as soon as
+///    `basic` was, a few seconds later). Halation and Grain are not planned.
+/// 2. `idle_plan`'s `basic`, the variant an edited photo without Glow
+///    exports with, and
+/// 3. the variant the shown photo's exports render with now (`exact`,
+///    `export_display_features`).
+///
+/// A frame keeps rendering with any compiled superset of its features, so
+/// only the first entry is left out when a compiled superset covers it
+/// (`covered_is_enough`); the others are export variants, which an export
+/// would otherwise compile cold beside its textures (G76/WCC7 review: tens
+/// of seconds and 4–6 GB on a Radeon 680M).
 pub(super) fn planned_jobs(features: usize, adjustments: &AllAdjustments) -> (Vec<usize>, usize) {
-    let mut plan = idle_plan(features, adjustments);
+    let mut plan = vec![glow_features(features, adjustments)];
     let exact = export_display_features(adjustments);
-    for entry in [exact, glow_features(features, adjustments)] {
+    for entry in idle_plan(features, adjustments).into_iter().chain([exact]) {
         if !plan.contains(&entry) {
             plan.push(entry);
         }
@@ -136,7 +164,7 @@ pub(super) fn planned_jobs(features: usize, adjustments: &AllAdjustments) -> (Ve
     (plan, exact)
 }
 
-/// `planned_jobs`' last entry: every Basic-panel edit with Glow, the
+/// `planned_jobs`' first entry: every Basic-panel edit with Glow, the
 /// variant an edited photo with Glow renders and exports with
 /// (`export_display_features`).
 fn glow_features(features: usize, adjustments: &AllAdjustments) -> usize {
@@ -144,18 +172,20 @@ fn glow_features(features: usize, adjustments: &AllAdjustments) -> usize {
 }
 
 /// Whether a compiled superset makes the planned display variant
-/// `features` needless (`covered`: one is compiled); never for the one
-/// exports render with (`exact`).
+/// `features` needless (`covered`: one is compiled): only the one planned
+/// to serve the frames (`serving`, `planned_jobs`' first), never one
+/// exports render with.
 fn covered_is_enough(
     features: usize,
+    serving: Option<usize>,
     exact: Option<usize>,
     covered: impl FnOnce() -> bool,
 ) -> bool {
-    exact != Some(features) && covered()
+    serving == Some(features) && exact != Some(features) && covered()
 }
 
-/// `idle_plan`'s first entry: `features` with the tone sliders and
-/// Highlights.
+/// `features` with the tone sliders and Highlights (part of
+/// `basic_features`).
 fn sliders_features(features: usize, adjustments: &AllAdjustments) -> usize {
     let g = &adjustments.global;
     let tone = ToneVersion::from_uniform(g.tone_version);
@@ -169,7 +199,7 @@ fn sliders_features(features: usize, adjustments: &AllAdjustments) -> usize {
         }
 }
 
-/// `idle_plan`'s second entry: `features` with every Basic-panel edit the
+/// `idle_plan`'s entry: `features` with every Basic-panel edit the
 /// recipe's versions make. Also the display variant an edited photo exports
 /// with under a compile limit (`gpu_processing::export_display_features`),
 /// so a change here changes those exports' bytes.
@@ -252,6 +282,16 @@ struct Queue {
     later: VecDeque<IdleJob>,
     /// The job compiling now.
     running: Option<IdleJob>,
+    /// The variant an export that starts now renders with
+    /// (`IdleCompiles::export_starts`): the worker compiles it next, without
+    /// waiting for idle time or asking the memory guard, and the export
+    /// waits for it. Cleared when the worker is done with it.
+    export_job: Option<IdleJob>,
+    /// A frame waits for the planned variant at the front
+    /// (`IdleCompiles::covering`): the worker compiles it now, without
+    /// waiting for quiet or asking the memory guard (the frame would
+    /// compile a variant of that size in the app otherwise).
+    rush: bool,
     worker: bool,
     cancelled: bool,
 }
@@ -284,7 +324,7 @@ pub(super) struct IdleCompiles {
     queue: Mutex<Queue>,
     changed: Condvar,
     /// Milliseconds since `since_start`'s start of the last frame rendered
-    /// with a display variant.
+    /// for the window with a display variant (0: none yet).
     last_frame_ms: AtomicU64,
 }
 
@@ -320,10 +360,13 @@ impl IdleCompiles {
         self.queue.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// A frame is rendering: idle compiles wait `IDLE_QUIET` after it.
+    /// A frame for the window is rendering: idle compiles wait `IDLE_QUIET`
+    /// after it. Thumbnails and other renders off the screen do not count:
+    /// an import's thumbnails kept idle compiles from starting for as long
+    /// as it ran, the time a computer's first session needs them (G76/COLD).
     pub(super) fn frame(&self) {
         self.last_frame_ms
-            .store(now_ms(), std::sync::atomic::Ordering::Relaxed);
+            .store(now_ms().max(1), std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Plans the supersets of `features` (a photo now shown with them),
@@ -362,20 +405,66 @@ impl IdleCompiles {
         self.changed.notify_all();
     }
 
-    /// The display variant compiling now if it covers `features`: a frame
-    /// of those features renders with it once it is done.
+    /// The display variant compiling now if it covers `features`, or the
+    /// planned one the worker compiles next if that does: a frame of those
+    /// features renders with it once it is done, and waits for it instead
+    /// of compiling its own. The planned one compiles at once then
+    /// (`Queue::rush`): after Glow's own compile had stopped the helper, the
+    /// Contrast edit right behind it found no helper running yet and
+    /// compiled the whole variant in the app, 42 s at 5.9 GB on a Radeon
+    /// 680M (G76/WCOLD2).
     pub(super) fn covering(&self, features: usize) -> Option<usize> {
-        match self.lock().running {
-            Some(IdleJob::Display(running)) if running & features == features => Some(running),
+        let mut queue = self.lock();
+        let covers = |job: Option<IdleJob>| match job {
+            Some(IdleJob::Display(job)) if job & features == features => Some(job),
             _ => None,
+        };
+        if let Some(running) = covers(queue.running) {
+            return Some(running);
         }
+        if queue.running.is_some() || queue.cancelled || !queue.worker {
+            return None;
+        }
+        let next = covers(queue.export_job.or_else(|| queue.plan.front().copied()))?;
+        if !queue.rush {
+            queue.rush = true;
+            self.changed.notify_all();
+        }
+        Some(next)
     }
 
     /// Ends the worker after the compile it runs (if any); nothing new
     /// starts. A driver call cannot be stopped midway.
     pub(super) fn cancel(&self) {
-        self.lock().cancelled = true;
+        let mut queue = self.lock();
+        queue.cancelled = true;
+        queue.export_job = None;
+        drop(queue);
         self.changed.notify_all();
+    }
+
+    /// An export of the shown photo starts: the variant it renders with
+    /// (`deferred`: the deferred one of 16-bit exports and several outputs,
+    /// else the display variant) compiles next (`Queue::export_job`).
+    /// Whether the worker has it to look at.
+    fn export_starts(&self, deferred: bool) -> bool {
+        let mut queue = self.lock();
+        let Some(exact) = queue.exact else {
+            return false;
+        };
+        if queue.cancelled || !queue.worker {
+            return false;
+        }
+        let job = if deferred {
+            IdleJob::Deferred(exact)
+        } else {
+            IdleJob::Display(exact)
+        };
+        queue.plan.retain(|planned| *planned != job);
+        queue.export_job = Some(job);
+        drop(queue);
+        self.changed.notify_all();
+        true
     }
 
     /// The next job, and whether it is a planned superset (one a compiled
@@ -388,13 +477,22 @@ impl IdleCompiles {
             .or_else(|| queue.later.pop_front().map(|job| (job, false)))
     }
 
-    /// Whether the app has been idle for `IDLE_QUIET`: no frame and no
-    /// compile waiting or running.
+    /// Whether an idle compile may start: `IDLE_QUIET` after the last heavy
+    /// compile, and, where idle compiles run in this process (no helper),
+    /// after the last frame for the window: there a compile is one call
+    /// that nothing stops. A helper process is stopped the moment an edit
+    /// needs the slot and costs the frames nothing (Exposure 30–76 FPS
+    /// beside a compile on a Radeon 680M, G76/WGT12), so it does not wait
+    /// for the photographer to pause: while they edited, the Glow variant
+    /// never started and Glow then compiled for 49 s in the app
+    /// (G76/WCOLD1). At once when there was neither yet (the app's start,
+    /// `GpuProcessor::compile_ahead_for_new_raw`).
     fn idle(&self) -> bool {
-        let last_frame = self.last_frame_ms.load(Ordering::Relaxed);
         let quiet = IDLE_QUIET.as_millis() as u64;
-        now_ms().saturating_sub(last_frame) >= quiet
-            && now_ms().saturating_sub(LAST_COMPILE_MS.load(Ordering::Relaxed)) >= quiet
+        let quiet_since = |last: u64| last == 0 || now_ms().saturating_sub(last) >= quiet;
+        (super::idle_compile_child::idle_compiles_in_helpers()
+            || quiet_since(self.last_frame_ms.load(Ordering::Relaxed)))
+            && quiet_since(LAST_COMPILE_MS.load(Ordering::Relaxed))
     }
 
     fn work(self: Arc<Self>, target: IdleTarget) {
@@ -409,13 +507,17 @@ impl IdleCompiles {
                         queue.worker = false;
                         return;
                     }
-                    if !queue.plan.is_empty() || !queue.later.is_empty() {
+                    if !queue.plan.is_empty()
+                        || !queue.later.is_empty()
+                        || queue.export_job.is_some()
+                    {
                         break;
                     }
                     queue = self.changed.wait(queue).unwrap_or_else(|e| e.into_inner());
                 }
+                let urgent = queue.export_job.is_some() || queue.rush;
                 drop(queue);
-                if !self.idle() {
+                if !urgent && !self.idle() {
                     let queue = self.lock();
                     let _ = self
                         .changed
@@ -435,7 +537,10 @@ impl IdleCompiles {
                 // Asked with the slot held, so only right before a compile
                 // (the app's guard drops memory it can rebuild when it
                 // allows one).
-                match memory_allows() {
+                // An export waits for this compile before it makes its
+                // textures: the guard would hold it for that export.
+                let allowed = if urgent { Ok(()) } else { memory_allows() };
+                match allowed {
                     Ok(()) => {
                         if let Some(reason) = held.take() {
                             log::info!("GPU idle compiles resumed (held: {reason})");
@@ -463,41 +568,73 @@ impl IdleCompiles {
                     queue.worker = false;
                     return;
                 }
-                let Some((job, planned)) = Self::next(&mut queue) else {
+                // The slot is held from here on.
+                queue.rush = false;
+                // The variant an export waits for goes first.
+                let export = queue.export_job;
+                let next = match export {
+                    Some(job) => Some((job, true)),
+                    None => Self::next(&mut queue),
+                };
+                let Some((job, planned)) = next else {
                     continue;
                 };
-                // Already compiled or compiling; a planned superset also
-                // when a compiled one covers it, unless exports render with
-                // it.
+                // Already compiled or compiling; the planned superset that
+                // serves the frames also when a compiled one covers it.
                 let needless = match job {
                     IdleJob::Display(features) => {
                         planned
-                            && covered_is_enough(features, queue.exact, || {
-                                target
-                                    .pipelines
-                                    .supersets(features)
-                                    .any(|p| p.get().is_some())
-                            })
+                            && export.is_none()
+                            && covered_is_enough(
+                                features,
+                                queue
+                                    .planned
+                                    .as_ref()
+                                    .and_then(|plan| plan.first().copied()),
+                                queue.exact,
+                                || {
+                                    target
+                                        .pipelines
+                                        .supersets(features)
+                                        .any(|p| p.get().is_some())
+                                },
+                            )
                     }
                     _ => false,
                 };
                 if needless || !Self::unclaimed(&target, job) {
+                    // The export has what it waited for.
+                    queue.export_job = None;
                     continue;
                 }
                 queue.running = Some(job);
+                if export.is_some()
+                    && let Some(release) = BEFORE_EXPORT_COMPILE.get()
+                {
+                    drop(queue);
+                    release();
+                }
                 (job, planned)
             };
             let work = CompileWork::new();
             // In a helper process first, which a compile or an export that
             // waits for the slot stops (`idle_compile_child`); the job is
             // claimed only when it compiles here.
+            // Stopped too when an export waits for another variant
+            // (`export_starts`).
             let helped = super::idle_compile_child::compile_in_helper(&target, job, || {
-                self.lock().cancelled
+                let queue = self.lock();
+                queue.cancelled || queue.export_job.is_some_and(|export| export != job)
             });
             match helped {
                 super::idle_compile_child::Helped::Stopped => {
                     let mut queue = self.lock();
                     queue.running = None;
+                    // An edit's compile stopped the variant an export
+                    // waited for: the export goes on and compiles it.
+                    if queue.export_job == Some(job) {
+                        queue.export_job = None;
+                    }
                     if planned {
                         queue.plan.push_front(job);
                     } else {
@@ -508,32 +645,19 @@ impl IdleCompiles {
                     drop(slot);
                     continue;
                 }
-                super::idle_compile_child::Helped::Compiled { cache, seeded } => {
+                super::idle_compile_child::Helped::Compiled {
+                    cache,
+                    seeded,
+                    mark,
+                } => {
                     if Self::claim(&target, job) {
                         super::idle_compile_child::HELPER_CACHE
                             .with(|helper| *helper.borrow_mut() = Some(cache.clone()));
                         self.compile(&target, job);
                         super::idle_compile_child::HELPER_CACHE
                             .with(|helper| *helper.borrow_mut() = None);
-                        // The helper's cache (the app's, plus this job) is
-                        // the app's cache file from now on.
-                        if seeded {
-                            crate::pipeline_cache::adopt(&target.device, cache);
-                        }
-                        log::info!(
-                            "GPU idle compile of {}: {}",
-                            job.arg(),
-                            if seeded {
-                                "kept in the app's pipeline cache"
-                            } else {
-                                "not kept in the app's pipeline cache (the helper started empty)"
-                            }
-                        );
-                        #[cfg(test)]
-                        if seeded {
-                            super::idle_compile_child::ADOPTED
-                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        }
+                        let kept = self.keep(&target, job, cache, seeded, mark);
+                        log::info!("GPU idle compile of {}: {kept}", job.arg());
                     }
                 }
                 super::idle_compile_child::Helped::Unavailable => {
@@ -544,8 +668,56 @@ impl IdleCompiles {
             }
             drop(work);
             drop(slot);
-            self.lock().running = None;
+            let mut queue = self.lock();
+            queue.running = None;
+            if queue.export_job == Some(job) {
+                queue.export_job = None;
+            }
         }
+    }
+
+    /// Makes the cache a helper left for `job` the app's cache file (the
+    /// app's pipelines plus this job, `pipeline_cache::adopt`) and says
+    /// what became of it, for the log. Only a cache that holds every
+    /// pipeline of the app's: one seeded from it (`seeded`) with nothing
+    /// compiled into the app's since (`mark`). Otherwise (a photo was
+    /// opened while the helper ran: its detail pass, the RAW default
+    /// variant at the app's start) the helper runs once more from the
+    /// app's cache of now; the driver's own cache answers it without
+    /// compiling (0.5 s on a Radeon 680M, G76/WHCF run 2), and without one
+    /// it compiles again, in idle time as before. A helper stopped for an
+    /// edit, or passed again, leaves the job in the driver's cache alone
+    /// until a later session's helper keeps it.
+    fn keep(
+        &self,
+        target: &IdleTarget,
+        job: IdleJob,
+        cache: wgpu::PipelineCache,
+        seeded: bool,
+        mark: u64,
+    ) -> &'static str {
+        use super::idle_compile_child::{Helped, cache_additions, compile_in_helper};
+        if !seeded {
+            return "not kept in the app's pipeline cache (the helper started empty)";
+        }
+        let cache = if cache_additions() == mark {
+            cache
+        } else {
+            match compile_in_helper(target, job, || self.lock().cancelled) {
+                Helped::Compiled {
+                    cache,
+                    seeded: true,
+                    mark,
+                } if cache_additions() == mark => cache,
+                _ => {
+                    return "not kept in the app's pipeline cache (the app compiled beside the helper)";
+                }
+            }
+        };
+        crate::pipeline_cache::adopt(&target.device, cache);
+        #[cfg(test)]
+        super::idle_compile_child::ADOPTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        "kept in the app's pipeline cache"
     }
 
     /// Whether nobody compiled or claimed `job` yet.
@@ -647,6 +819,32 @@ impl IdleCompiles {
     }
 }
 
+/// An export of the shown photo starts under a compile limit, before it
+/// makes its textures (`export_of_shown_photo_starts`): the variant it
+/// renders with compiles now if it is not compiled, in its helper, and the
+/// export waits for it (`wait_for_running_compiles`). Picking 16-bit TIFF
+/// and exporting at once is the normal way to export: the deferred variant
+/// was then still waiting for idle time and the export compiled it itself
+/// beside its textures, 35.9–37.9 s at 7.2 GB of the app's memory on a
+/// Radeon 680M (G76/WSMOKE19, WCOLD1), against the helper's ~4.4 GB beside
+/// an app without them. Likewise the display variant of an 8-bit export
+/// made before idle time compiled it.
+pub(super) fn export_starts(deferred: bool) {
+    let live = LIVE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    for idle in live.iter().filter_map(std::sync::Weak::upgrade) {
+        idle.export_starts(deferred);
+    }
+}
+
+/// Whether an idle worker still has the variant an export waits for to
+/// compile or look at (`export_starts`).
+pub(super) fn export_awaits_variant() -> bool {
+    let live = LIVE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    live.iter()
+        .filter_map(std::sync::Weak::upgrade)
+        .any(|idle| idle.lock().export_job.is_some())
+}
+
 /// The idle queues of the processors alive (`plan_deferred_exports`).
 static LIVE: Mutex<Vec<std::sync::Weak<IdleCompiles>>> = Mutex::new(Vec::new());
 
@@ -675,12 +873,13 @@ fn now_ms() -> u64 {
     (since_start() * 1000.0) as u64
 }
 
-/// When the last compile other than an idle one ended (or started).
+/// When the last heavy compile other than an idle one ended (or started);
+/// 0: none yet.
 static LAST_COMPILE_MS: AtomicU64 = AtomicU64::new(0);
 
-/// Notes a compile other than an idle one (`validated`).
+/// Notes a heavy compile other than an idle one (`validated`).
 pub(super) fn compile_activity() {
-    LAST_COMPILE_MS.store(now_ms(), Ordering::Relaxed);
+    LAST_COMPILE_MS.store(now_ms().max(1), Ordering::Relaxed);
 }
 
 thread_local! {
@@ -691,6 +890,7 @@ thread_local! {
 
 #[cfg(test)]
 mod tests {
+    use super::super::new_raw_edit as new_raw_edit_at_start;
     use super::*;
 
     fn adjustments(tone_version: f32, tonemapper_mode: u32) -> AllAdjustments {
@@ -737,6 +937,8 @@ mod tests {
         let (jobs, exact) = planned_jobs(preview_features(&glow), &glow);
         assert_eq!(exact, opened | GLOW_FEATURE);
         assert!(jobs.contains(&exact));
+        // The Basic panel's variant with Glow serves the frames, first.
+        assert_eq!(jobs[0], plan[0] | GLOW_FEATURE);
         let edit = serde_json::json!({"exposure": 0.4, "contrast": 25, "highlights": -40,
             "shadows": 30, "whites": -20, "blacks": -10, "clarity": 20, "structure": 15,
             "dehaze": 15, "vibrance": 20, "hsl": {"reds": {"hue": 12}}});
@@ -748,51 +950,53 @@ mod tests {
         ] {
             let features = preview_features(&new_raw_edit(edits.clone()));
             let chosen = export(edits.clone());
-            assert_eq!(chosen, plan[1], "{edits}");
+            assert_eq!(chosen, plan[0], "{edits}");
             assert_eq!(chosen & features, features, "{edits}");
         }
         // Effects on an edited photo: the frame compiles the same superset
         // (no planned variant covers it), with the effects.
         let mut glow = edit;
         glow["glowAmount"] = serde_json::json!(30);
-        assert_eq!(export(glow), plan[1] | GLOW_FEATURE);
+        assert_eq!(export(glow), plan[0] | GLOW_FEATURE);
     }
 
-    /// A wider compiled variant keeps serving the frames after Glow is
-    /// turned off, or on the next photo, so no other planned entry
-    /// compiles; the variant exports render with still does (Codex review
-    /// of G76/WCC7).
+    /// The planned variant that serves the frames is left out when a
+    /// compiled superset covers it; the variants exports render with
+    /// compile all the same (Codex review of G76/WCC7): `basic` although
+    /// `basic` with Glow covers it, and the shown photo's own.
     #[test]
-    fn the_export_variant_compiles_although_a_wider_one_serves_the_frames() {
-        let edit = serde_json::json!({"exposure": 0.4, "contrast": 25, "highlights": -40,
-            "clarity": 20, "vibrance": 20});
-        let mut glow = edit.clone();
-        glow["glowAmount"] = serde_json::json!(30);
-        let compiled = export_display_features(&new_raw_edit(glow));
-        let check = |adjustments: &AllAdjustments| {
+    fn export_variants_compile_although_a_wider_one_serves_the_frames() {
+        let check = |adjustments: &AllAdjustments, compiled: usize| {
             let features = preview_features(adjustments);
             let (plan, exact) = planned_jobs(features, adjustments);
             assert_eq!(exact, export_display_features(adjustments));
             assert!(plan.contains(&exact));
-            // The Glow variant covers every entry, the export's too ...
-            assert!(plan.iter().all(|&p| compiled & p == p), "{plan:?}");
-            // ... yet only the export's is compiled.
-            let compiles = plan
-                .iter()
-                .filter(|&&p| !covered_is_enough(p, Some(exact), || compiled & p == p))
-                .collect::<Vec<_>>();
-            assert_eq!(compiles, vec![&exact]);
+            plan.iter()
+                .copied()
+                .filter(|&p| {
+                    !covered_is_enough(p, plan.first().copied(), Some(exact), || compiled & p == p)
+                })
+                .collect::<Vec<_>>()
         };
-        // Glow turned off: the Basic entry.
-        check(&new_raw_edit(edit));
-        // Another, unedited photo: its own variant (not an `idle_plan`
-        // entry).
+        let edit = new_raw_edit(serde_json::json!({"exposure": 0.4, "contrast": 25,
+            "highlights": -40, "clarity": 20, "vibrance": 20}));
         let unedited = new_raw_edit(serde_json::json!({}));
-        assert!(
-            !idle_plan(preview_features(&unedited), &unedited)
-                .contains(&export_display_features(&unedited))
+        let basic = export_display_features(&edit);
+        let glow = basic | GLOW_FEATURE;
+        // Nothing compiled: everything, the frames' variant first.
+        assert_eq!(check(&edit, 0), vec![glow, basic]);
+        assert_eq!(
+            check(&unedited, 0),
+            vec![glow, basic, preview_features(&unedited)]
         );
-        check(&unedited);
+        // A wider variant (Glow with halation) serves the frames: the
+        // export variants still compile.
+        let wider = glow | HALATION_FEATURE;
+        assert_eq!(check(&edit, wider), vec![basic]);
+        assert_eq!(
+            check(&unedited, wider),
+            vec![basic, preview_features(&unedited)]
+        );
     }
 
     /// Glow turned on after Basic-panel edits renders and exports with
@@ -806,8 +1010,8 @@ mod tests {
         let (jobs, _) = planned_jobs(opened, &shown);
         let edit = serde_json::json!({"contrast": 25, "clarity": 20, "glowAmount": 30});
         let glow = export_display_features(&new_raw_edit(edit.clone()));
-        assert_eq!(jobs.last(), Some(&glow));
-        assert_eq!(glow, idle_plan(opened, &shown)[1] | GLOW_FEATURE);
+        assert_eq!(jobs.first(), Some(&glow));
+        assert_eq!(glow, idle_plan(opened, &shown)[0] | GLOW_FEATURE);
         let features = preview_features(&new_raw_edit(edit));
         assert_eq!(glow & features, features, "it serves the Glow frame");
         let with_glow = new_raw_edit(serde_json::json!({"glowAmount": 30}));
@@ -842,8 +1046,31 @@ mod tests {
         assert!(queue.deferred);
     }
 
+    /// What the app plans at its start (`compile_ahead_for_new_raw`) is the
+    /// plan of the never-edited RAW opened later, so the first photo keeps
+    /// it (`Queue::replan`): the Basic-panel superset with Glow of the RAW
+    /// default variant the processor compiles at start, then the one
+    /// without Glow and that variant itself (export variants) — the
+    /// variants a first session compiled for an unedited RAW on the Radeon
+    /// 680M (G76/WHCF, WSMOKE18: 7335999, 5238847).
     #[test]
-    fn plan_climbs_from_the_tone_sliders_to_every_basic_edit() {
+    fn the_start_plans_what_a_new_raw_edit_plans() {
+        // Without a look set for every RAW in Preferences: the RAW look.
+        let at_start = new_raw_edit_at_start(None);
+        assert_eq!(at_start.global.tonemapper_mode, 3);
+        let features = preview_features(&at_start);
+        assert_eq!(features, RAW_DEFAULT_PREVIEW_FEATURES);
+        let (plan, exact) = planned_jobs(features, &at_start);
+        assert_eq!(exact, features);
+        assert_eq!(plan, vec![5238847 | GLOW_FEATURE, 5238847, features]);
+        // Response 8's detail-cache pass.
+        assert_eq!(sharpen_level(&at_start), 2);
+    }
+
+    /// One entry, every Basic-panel edit, first: no smaller tone-sliders
+    /// variant compiles before it (G76/COLD).
+    #[test]
+    fn plan_is_every_basic_edit_at_once() {
         let shown = new_raw_edit(serde_json::json!({}));
         let features = preview_features(&shown);
         let plan = idle_plan(features, &shown);
@@ -858,10 +1085,8 @@ mod tests {
             | DEHAZE_V3_FEATURE
             | VIBRANCE_V2_FEATURE
             | HSL_V2_FEATURE;
-        assert_eq!(plan, vec![sliders, basic]);
-        // Each covers the ones before it and the photo's own features.
-        assert_eq!(basic & sliders, sliders);
-        assert_eq!(sliders & features, features);
+        assert_eq!(plan, vec![basic]);
+        assert_eq!(basic & features, features);
     }
 
     /// Every Basic-panel edit of a new RAW edit, alone and added up as a
@@ -948,6 +1173,7 @@ mod tests {
         queue.plan.pop_front();
         assert!(!queue.replan((plan_3.clone(), 0), false));
         assert_eq!(planned(&queue), plan_3[1..]);
+        assert!(planned(&queue).is_empty());
         assert!(queue.replan((plan_2.clone(), 0), false));
         assert_eq!(planned(&queue), plan_2);
         // A look change (Camera Raw to AgX) with the same features too.
@@ -972,9 +1198,9 @@ mod tests {
         let other_look = adjustments(crate::image_processing::TONE_VERSION as f32, 0);
         let (sh, wh, bl) = (SHADOWS_V13_FEATURE, WHITES_V12_FEATURE, BLACKS_V16_FEATURE);
         let basic = 46 | sh | wh | bl;
-        assert_eq!(idle_plan(0, &other_look), vec![34, basic]);
-        // A photo already shown with the first superset skips it.
+        assert_eq!(idle_plan(0, &other_look), vec![basic]);
         assert_eq!(idle_plan(34, &other_look), vec![basic]);
+        // A photo already shown with it plans nothing.
         assert_eq!(idle_plan(basic, &other_look), Vec::<usize>::new());
         // Tone version 6: none of the newer tone directions' code.
         let old = adjustments(6.0, 0);
@@ -1014,8 +1240,8 @@ mod tests {
         let shown = preview_features(&photo);
         processor.preview_pipeline(&photo, true).unwrap();
         let plan = idle_plan(shown, &photo);
-        // Sliders and Basic panel; no all-effects entry (G76/WCC8).
-        assert_eq!(plan.len(), 2);
+        // The Basic panel; no all-effects entry (G76/WCC8).
+        assert_eq!(plan.len(), 1);
         let started = Instant::now();
         wait("the planned supersets", &|| {
             for &f in &plan {
@@ -1052,6 +1278,280 @@ mod tests {
         assert!(processor.preview_pipelines[features].get().is_none());
         drop(processor);
         set_compile_limit(None);
+    }
+
+    /// Under a compile limit the app's start plans a new RAW edit's idle
+    /// compiles (G76/COLD): the Basic-panel variant compiles with no photo
+    /// shown, and the first Contrast frame of the photo opened later renders
+    /// at once. The RAW default variant and the detail-cache pass are small
+    /// compiles: they run while a heavy one holds the compile slot (an idle
+    /// helper's, here the test's).
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::the_start_compiles_the_basic_variant_before_a_photo_is_shown"]
+    fn the_start_compiles_the_basic_variant_before_a_photo_is_shown() {
+        use super::super::preview_tests::context;
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let wait = |what: &str, done: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(300);
+            while !done() {
+                assert!(Instant::now() < deadline, "{what} did not compile");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        let held = compile_slot("the test's heavy compile");
+        let processor = GpuProcessor::new(context(), 256, 256).unwrap();
+        let photo = super::super::new_raw_edit(None);
+        let shown = preview_features(&photo);
+        assert_eq!(shown, RAW_DEFAULT_PREVIEW_FEATURES);
+        wait("the RAW default variant beside a heavy compile", &|| {
+            processor.preview_pipelines[shown].get().is_some()
+        });
+        processor.detail_pipeline_for(sharpen_level(&photo));
+        wait("the detail-cache pass beside a heavy compile", &|| {
+            processor.detail_pipeline[sharpen_level(&photo)]
+                .get()
+                .is_some()
+        });
+        // Nothing heavy starts while the slot is held.
+        processor.compile_ahead_for_new_raw(None);
+        let (plan, _) = planned_jobs(shown, &photo);
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(processor.preview_pipelines[plan[0]].get().is_none());
+        assert!(
+            processor
+                .idle_compiles
+                .as_ref()
+                .unwrap()
+                .0
+                .lock()
+                .running
+                .is_none()
+        );
+        drop(held);
+        // No frame was rendered: the plan compiles without one.
+        wait("the planned variants", &|| {
+            plan.iter()
+                .all(|&f| processor.preview_pipelines[f].get().is_some())
+        });
+        let mut contrast = photo;
+        contrast.global.contrast = 0.2;
+        let features = preview_features(&contrast);
+        assert_eq!(features & plan[0], features);
+        let started = Instant::now();
+        processor.preview_pipeline(&contrast, true).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "the Contrast frame waited {:?}",
+            started.elapsed()
+        );
+        assert!(processor.preview_pipelines[features].get().is_none());
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    /// An export that starts while an idle helper runs stops it (it asks
+    /// for the slot), unless the idle worker has the export's own variant to
+    /// compile: then the export waits for that (G76/WSMOKE19).
+    #[test]
+    #[ignore = "sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_export_waits_for_its_own_variant_instead_of_stopping_it"]
+    fn an_export_waits_for_its_own_variant_instead_of_stopping_it() {
+        set_compile_limit(Some(1));
+        let idle = IdleCompiles::new();
+        {
+            let mut queue = idle.lock();
+            queue.worker = true;
+            queue.exact = Some(7335999);
+        }
+        for own in [false, true] {
+            // The idle worker's slot while its helper runs.
+            let helper = compile_slot("an idle helper");
+            if own {
+                export_starts(true);
+                assert_eq!(idle.lock().export_job, Some(IdleJob::Deferred(7335999)));
+            }
+            let export = std::thread::spawn(|| wait_for_running_compiles("export"));
+            std::thread::sleep(Duration::from_millis(500));
+            assert!(!export.is_finished(), "the export waits for the helper");
+            assert_eq!(slot_wanted(), !own, "own: {own}");
+            // The worker is done with it.
+            idle.lock().export_job = None;
+            drop(helper);
+            export.join().unwrap();
+            assert!(!slot_wanted());
+        }
+        set_compile_limit(None);
+    }
+
+    /// Under a compile limit a 16-bit export picked and started at once
+    /// has its deferred variant compiled by the idle worker before the
+    /// export goes on to make its textures, without the idle wait
+    /// (G76/WSMOKE19).
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_export_right_after_a_sixteen_bit_pick_waits_for_its_variant"]
+    fn an_export_right_after_a_sixteen_bit_pick_waits_for_its_variant() {
+        use super::super::preview_tests::context;
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let processor = GpuProcessor::new(context(), 256, 256).unwrap();
+        let photo = super::super::new_raw_edit(None);
+        let shown = preview_features(&photo);
+        processor.preview_pipeline(&photo, true).unwrap();
+        let (plan, exact) = planned_jobs(shown, &photo);
+        let deadline = Instant::now() + Duration::from_secs(300);
+        while !plan
+            .iter()
+            .all(|&f| processor.preview_pipelines[f].get().is_some())
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the display plan did not compile"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(processor.deferred_display.get(exact).is_none());
+        // A frame just rendered: idle time is `IDLE_QUIET` away.
+        processor.preview_pipeline(&photo, true).unwrap();
+        export_of_shown_photo_starts(true);
+        wait_for_running_compiles("export");
+        assert!(
+            processor.deferred_display.get(exact).is_some(),
+            "the export went on without its deferred variant"
+        );
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    /// An export of the shown photo names the variant it renders with for
+    /// the worker to compile next (G76/WSMOKE19: 16-bit TIFF picked and
+    /// exported right away), taken out of the plan; without a shown photo
+    /// or a worker nothing waits.
+    #[test]
+    fn an_export_start_names_its_variant_for_the_worker() {
+        let idle = IdleCompiles::new();
+        assert!(!idle.export_starts(true), "no photo shown");
+        {
+            let mut queue = idle.lock();
+            queue.exact = Some(5238847);
+            queue.plan = [
+                IdleJob::Display(7335999),
+                IdleJob::Display(5238847),
+                IdleJob::Deferred(5238847),
+            ]
+            .into();
+        }
+        assert!(!idle.export_starts(true), "no worker");
+        idle.lock().worker = true;
+        assert!(idle.export_starts(true));
+        {
+            let queue = idle.lock();
+            assert_eq!(queue.export_job, Some(IdleJob::Deferred(5238847)));
+            assert_eq!(
+                queue.plan,
+                [IdleJob::Display(7335999), IdleJob::Display(5238847)]
+            );
+        }
+        // An 8-bit export: its display variant.
+        assert!(idle.export_starts(false));
+        {
+            let queue = idle.lock();
+            assert_eq!(queue.export_job, Some(IdleJob::Display(5238847)));
+            assert_eq!(queue.plan, [IdleJob::Display(7335999)]);
+        }
+        // A processor that ends no longer holds an export.
+        idle.cancel();
+        assert_eq!(idle.lock().export_job, None);
+        assert!(!idle.export_starts(true));
+    }
+
+    /// A frame waits for the planned variant that covers it even when the
+    /// worker has not started it yet, and has it
+    /// started at once (G76/WCOLD2: after Glow's own compile stopped the
+    /// helper, Contrast compiled the whole variant in the app).
+    #[test]
+    fn a_frame_waits_for_the_planned_variant_that_covers_it() {
+        let idle = IdleCompiles::new();
+        let contrast = RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE;
+        assert_eq!(idle.covering(contrast), None, "nothing planned");
+        {
+            let mut queue = idle.lock();
+            queue.worker = true;
+            queue.plan = [IdleJob::Display(7335999), IdleJob::Display(5238847)].into();
+        }
+        assert_eq!(idle.covering(contrast), Some(7335999));
+        assert!(idle.lock().rush, "the worker starts it now");
+        // Halation is in no planned variant: its frame compiles its own.
+        idle.lock().rush = false;
+        assert_eq!(idle.covering(contrast | HALATION_FEATURE), None);
+        assert!(!idle.lock().rush);
+        // A running job that does not cover the frame: not the next one's
+        // turn yet.
+        idle.lock().running = Some(IdleJob::Deferred(4113));
+        assert_eq!(idle.covering(contrast), None);
+        idle.lock().running = Some(IdleJob::Display(7335999));
+        assert_eq!(idle.covering(contrast), Some(7335999));
+    }
+
+    /// Under a compile limit a Basic-panel edit made before the planned
+    /// variant compiled waits for the idle worker to compile that one, at
+    /// once, instead of compiling its own beside it.
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_edit_before_the_plan_compiled_waits_for_the_planned_variant"]
+    fn an_edit_before_the_plan_compiled_waits_for_the_planned_variant() {
+        use super::super::preview_tests::context;
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let processor = GpuProcessor::new(context(), 256, 256).unwrap();
+        let photo = super::super::new_raw_edit(None);
+        processor.preview_pipeline(&photo, true).unwrap();
+        let (plan, _) = planned_jobs(preview_features(&photo), &photo);
+        let mut contrast = photo;
+        contrast.global.contrast = 0.2;
+        let features = preview_features(&contrast);
+        let own = export_display_features(&contrast);
+        assert_ne!(own, plan[0]);
+        // Right after the photo's frame: no idle time has passed.
+        let started = Instant::now();
+        let rendered_with: *const wgpu::ComputePipeline =
+            processor.preview_pipeline(&contrast, true).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(120),
+            "the Contrast frame waited {:?}",
+            started.elapsed()
+        );
+        // The planned variant rendered it. (Its own variant is the plan's
+        // next entry, which the worker may have begun by now: after a long
+        // wait on a cold driver cache the quiet time has passed. That made
+        // an earlier form of this test fail once on a Radeon 680M,
+        // G76/WCOLD3.)
+        let planned: *const wgpu::ComputePipeline = processor.preview_pipelines[plan[0]]
+            .get()
+            .expect("the planned variant compiled");
+        assert!(
+            std::ptr::eq(rendered_with, planned),
+            "the frame did not render with the planned variant"
+        );
+        assert!(processor.preview_pipelines[features].get().is_none());
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    #[test]
+    fn small_variants_are_those_within_the_raw_default_one() {
+        for small in [0, 1, 16, 17, RAW_DEFAULT_PREVIEW_FEATURES] {
+            assert!(small_display_variant(small), "{small}");
+        }
+        for heavy in [
+            RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE,
+            RAW_DEFAULT_PREVIEW_FEATURES | GLOW_FEATURE,
+            2,
+            5238847,
+        ] {
+            assert!(!small_display_variant(heavy), "{heavy}");
+        }
     }
 
     /// The program version both sides of `idle_compiles_in_a_helper_give_way`
@@ -1164,23 +1664,27 @@ mod tests {
         let photo = recipe(serde_json::json!({}));
         let shown = preview_features(&photo);
         processor.preview_pipeline(&photo, true).unwrap();
-        let plan = idle_plan(shown, &photo);
+        let (plan, _) = planned_jobs(shown, &photo);
         wait("an idle helper starts", 60, &|| {
             idle.lock().running.is_some()
         });
         let running = idle.lock().running;
         assert_eq!(running, Some(IdleJob::Display(plan[0])));
-        // Glow is in no running job: its frame compiles its own variant.
-        let glow = recipe(serde_json::json!({"glowAmount": 30}));
-        assert_ne!(preview_features(&glow) & plan[0], preview_features(&glow));
+        // Halation is in no planned variant: its frame compiles its own,
+        // which stops the helper.
+        let halation = recipe(serde_json::json!({"halationAmount": 30}));
+        assert_ne!(
+            preview_features(&halation) & plan[0],
+            preview_features(&halation)
+        );
         let started = Instant::now();
         // Not on screen: the shown photo's plan stays.
-        processor.preview_pipeline(&glow, false).unwrap();
+        processor.preview_pipeline(&halation, false).unwrap();
         let waited = started.elapsed();
         assert!(STOPS.load(Ordering::SeqCst) >= 1, "the helper was stopped");
         assert!(
             waited < Duration::from_secs(60),
-            "the Glow frame waited {waited:?} (the slow helper runs 120 s)"
+            "the halation frame waited {waited:?} (the slow helper runs 120 s)"
         );
         // The stopped job compiles again in idle time, now in a real helper,
         // and serves the Contrast frame.
