@@ -234,6 +234,17 @@ fn write_upright_recipes() {
             analysis_image(&image, 1400)
         };
         let segments = detect_segments(&gray, sw, sh, (sw as f64).hypot(sh as f64) * 0.02);
+        // The segments too (`$UP_SEG`), for tuning without decoding again.
+        if let Ok(dir) = std::env::var("UP_SEG") {
+            let list: Vec<[f64; 4]> = segments.iter().map(|s| [s.x1, s.y1, s.x2, s.y2]).collect();
+            let dump =
+                serde_json::json!({"path": path, "width": sw, "height": sh, "segments": list});
+            std::fs::write(
+                std::path::Path::new(&dir).join(format!("{n}_seg.json")),
+                dump.to_string(),
+            )
+            .unwrap();
+        }
         for (name, mode) in [
             ("auto", UprightMode::Auto),
             ("level", UprightMode::Level),

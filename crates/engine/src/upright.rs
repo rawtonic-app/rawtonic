@@ -452,30 +452,49 @@ pub fn upright_lines(
             .count()
     };
     let level = || -> Option<UprightResult> {
-        // Length-weighted median tilt of all near-axis segments.
-        let mut tilts: Vec<(f64, f64)> = verticals
-            .iter()
-            .map(|s| (s.tilt_from_vertical(), s.length()))
-            .chain(horizontals.iter().map(|s| (s.angle(), s.length())))
-            .collect();
-        if tilts.is_empty() {
-            return None;
-        }
-        tilts.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let total: f64 = tilts.iter().map(|t| t.1).sum();
-        let mut acc = 0.0;
-        let tilt = tilts.iter().find(|t| {
-            acc += t.1;
-            acc >= total / 2.0
-        })?;
+        // The camera's roll as Auto straighten measures it (horizon cluster,
+        // verticals' vanishing point seen from the centre; no answer without
+        // support or when they disagree). The length-weighted median tilt of
+        // all near-axis segments it replaces counted converging and receding
+        // lines and turned 8 of 20 photos with a hand-checked level further
+        // off; this one: median error 0.06° (Camera Raw's Level 0.31°),
+        // notes: benchmark-results/upf-upright-2026-11-14/REPORT.md.
+        // Analysed with the photo's up direction up: a turn by 90° keeps
+        // angles, so the tilt holds in sensor coordinates as well.
+        let tilt = if portrait_on_sensor {
+            let turned: Vec<Segment> = segments
+                .iter()
+                .map(|s| Segment {
+                    x1: height - s.y1,
+                    y1: s.x1,
+                    x2: height - s.y2,
+                    y2: s.x2,
+                })
+                .collect();
+            crate::auto_straighten::roll_tilt(&turned, height, width)
+        } else {
+            crate::auto_straighten::roll_tilt(segments, width, height)
+        }?;
         // Two parallel lines along the tilted verticals' direction (a vanishing
         // point at infinity): the guided correction rotates them upright.
-        let along = [-tilt.0.sin(), tilt.0.cos(), 0.0];
+        let along = [-tilt.tilt.sin(), tilt.tilt.cos(), 0.0];
+        let lines = lines_through(along, width, height, GuideOrientation::Vertical, "level");
+        let agreeing = segments
+            .iter()
+            .filter(|s| {
+                let deviation = if s.tilt_from_vertical().abs() < PI / 4.0 {
+                    s.tilt_from_vertical()
+                } else {
+                    s.angle()
+                };
+                (deviation - tilt.tilt).abs() < PI / 180.0
+            })
+            .count();
         Some(UprightResult {
-            lines: lines_through(along, width, height, GuideOrientation::Vertical, "level"),
+            lines,
             applied: "level",
             segments: segments.len(),
-            agreeing: tilts.len(),
+            agreeing,
         })
     };
     // The photo's verticals: the sensor's horizontal axis for a photo turned
@@ -767,6 +786,100 @@ mod tests {
         assert!(segments.is_empty());
         assert!(upright_lines(&segments, 200.0, 150.0, UprightMode::Vertical, false).is_none());
         assert!(upright_lines(&segments, 200.0, 150.0, UprightMode::Auto, false).is_none());
+        assert!(upright_lines(&segments, 200.0, 150.0, UprightMode::Level, false).is_none());
+    }
+
+    /// Segments of length `length` centred on `centres`, each pointing at
+    /// the vanishing point `vp`.
+    fn towards(vp: (f64, f64), centres: &[(f64, f64)], length: f64) -> Vec<Segment> {
+        centres
+            .iter()
+            .map(|&(cx, cy)| {
+                let (dx, dy) = (vp.0 - cx, vp.1 - cy);
+                let n = dx.hypot(dy);
+                let (ux, uy) = (dx / n * length / 2.0, dy / n * length / 2.0);
+                Segment {
+                    x1: cx - ux,
+                    y1: cy - uy,
+                    x2: cx + ux,
+                    y2: cy + uy,
+                }
+            })
+            .collect()
+    }
+
+    /// A building shot from below with a 1° roll: its verticals converge
+    /// above the frame, its floors recede to the right.
+    fn rolled_building(w: f64, h: f64, roll: f64) -> Vec<Segment> {
+        let (cx, cy) = (w / 2.0, h / 2.0);
+        let distance = 3.0 * w.hypot(h);
+        let vp = (cx + distance * roll.sin(), cy - distance * roll.cos());
+        let columns: Vec<(f64, f64)> = [0.12, 0.3, 0.46, 0.62, 0.8, 0.92]
+            .iter()
+            .map(|&f| (f * w, 0.56 * h))
+            .collect();
+        let mut segments = towards(vp, &columns, 0.62 * h);
+        let rows: Vec<(f64, f64)> = [0.19, 0.38, 0.62, 0.81]
+            .iter()
+            .map(|&f| (cx, f * h))
+            .collect();
+        segments.extend(towards((4.0 * w, 1.1 * h), &rows, 0.25 * w));
+        segments
+    }
+
+    fn level_tilt(result: &UprightResult) -> f64 {
+        let l = &result.lines[0];
+        (l.p2.x - l.p1.x).atan2(l.p2.y - l.p1.y)
+    }
+
+    #[test]
+    fn level_ignores_receding_horizontals_and_converging_lines() {
+        // The roll is the direction of the verticals' vanishing point from
+        // the centre, not the median tilt of all lines.
+        let (w, h) = (1200.0, 800.0);
+        let roll = 1f64.to_radians();
+        let segments = rolled_building(w, h, roll);
+        let result = upright_lines(&segments, w, h, UprightMode::Level, false).unwrap();
+        let tilt = level_tilt(&result);
+        assert!(
+            (tilt.abs() - roll).abs() < 0.1f64.to_radians(),
+            "{}",
+            tilt.to_degrees()
+        );
+    }
+
+    #[test]
+    fn level_reads_a_photo_turned_on_the_sensor_with_its_own_up() {
+        // The same building stored turned by 90° on the sensor (portrait).
+        let (w, h) = (1200.0, 800.0);
+        let roll = 1f64.to_radians();
+        let turned: Vec<Segment> = rolled_building(w, h, roll)
+            .iter()
+            .map(|s| Segment {
+                x1: s.y1,
+                y1: w - s.x1,
+                x2: s.y2,
+                y2: w - s.x2,
+            })
+            .collect();
+        let sideways = upright_lines(&turned, h, w, UprightMode::Level, true).unwrap();
+        let tilt = level_tilt(&sideways);
+        assert!(
+            (tilt.abs() - roll).abs() < 0.1f64.to_radians(),
+            "{}",
+            tilt.to_degrees()
+        );
+        // Read without the turn, the converging verticals look like
+        // horizontals and give another answer.
+        assert!(
+            upright_lines(&turned, h, w, UprightMode::Level, false).is_none_or(|r| (level_tilt(
+                &r
+            )
+            .abs()
+                - roll)
+                .abs()
+                > 0.3f64.to_radians())
+        );
     }
 }
 
@@ -864,5 +977,201 @@ mod diagnose_warp {
         let warped =
             crate::image_processing::apply_geometry_warp(&image, &adjustments, true).unwrap();
         warped.to_rgb8().save(out).unwrap();
+    }
+
+    /// `vp` moved away from the frame's centre to `1 / strength` of its
+    /// distance (homogeneous; strength 0 = at infinity in the same direction):
+    /// the guided correction through it corrects that share of the
+    /// convergence.
+    fn weakened(vp: [f64; 3], width: f64, height: f64, strength: f64) -> [f64; 3] {
+        if vp[2].abs() < 1e-12 {
+            return vp;
+        }
+        let (dx, dy) = (vp[0] / vp[2] - width / 2.0, vp[1] / vp[2] - height / 2.0);
+        [
+            strength * width / 2.0 + dx,
+            strength * height / 2.0 + dy,
+            strength,
+        ]
+    }
+
+    /// Share of the photo's frame (pixel guide `lines` of a `width` × `height`
+    /// photo) that the guided correction with Constrain crop keeps; 0 when the
+    /// lines give no correction.
+    fn frame_kept(lines: &[GuideLine], width: f64, height: f64) -> f64 {
+        let unit: Vec<GuideLine> = lines
+            .iter()
+            .map(|line| {
+                let mut line = line.clone();
+                for p in [&mut line.p1, &mut line.p2] {
+                    p.x /= width;
+                    p.y /= height;
+                }
+                line
+            })
+            .collect();
+        crate::guided_perspective::guided_homography(&unit, width, height, true)
+            .and_then(|r| frame_share(&r.forward_h, width, height))
+            .unwrap_or(0.0)
+    }
+
+    /// The share of the source frame the output frame shows under `forward_h`
+    /// (centred pixels of a `width` × `height` photo).
+    fn frame_share(forward_h: &[[f64; 3]; 3], width: f64, height: f64) -> Option<f64> {
+        let f = forward_h;
+        let det = f[0][0] * (f[1][1] * f[2][2] - f[1][2] * f[2][1])
+            - f[0][1] * (f[1][0] * f[2][2] - f[1][2] * f[2][0])
+            + f[0][2] * (f[1][0] * f[2][1] - f[1][1] * f[2][0]);
+        if det.abs() < 1e-15 {
+            return None;
+        }
+        let c = |r1: usize, c1: usize, r2: usize, c2: usize| {
+            f[r1][c1] * f[r2][c2] - f[r1][c2] * f[r2][c1]
+        };
+        let inverse = [
+            [
+                c(1, 1, 2, 2) / det,
+                -c(0, 1, 2, 2) / det,
+                c(0, 1, 1, 2) / det,
+            ],
+            [
+                -c(1, 0, 2, 2) / det,
+                c(0, 0, 2, 2) / det,
+                -c(0, 0, 1, 2) / det,
+            ],
+            [
+                c(1, 0, 2, 1) / det,
+                -c(0, 0, 2, 1) / det,
+                c(0, 0, 1, 1) / det,
+            ],
+        ];
+        let (hw, hh) = (width / 2.0, height / 2.0);
+        let mut corners = [(0.0, 0.0); 4];
+        for (corner, (x, y)) in corners
+            .iter_mut()
+            .zip([(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)])
+        {
+            let w = inverse[2][0] * x + inverse[2][1] * y + inverse[2][2];
+            if w.abs() < 1e-12 {
+                return None;
+            }
+            *corner = (
+                (inverse[0][0] * x + inverse[0][1] * y + inverse[0][2]) / w,
+                (inverse[1][0] * x + inverse[1][1] * y + inverse[1][2]) / w,
+            );
+        }
+        let twice: f64 = (0..4)
+            .map(|i| corners[i].0 * corners[(i + 1) % 4].1 - corners[(i + 1) % 4].0 * corners[i].1)
+            .sum();
+        Some(twice.abs() / 2.0 / (width * height))
+    }
+
+    /// Tool (notes: benchmark-results/upf-upright-2026-11-14): for the
+    /// segment dumps `$UP_SEG/<n>_seg.json` (the app's
+    /// `write_upright_recipes` with `UP_SEG`), prints the frame share
+    /// Constrain crop keeps for each mode and for Vertical / Full at fixed
+    /// strengths (TSV), and writes their recipes to `$UP_OUT` when set.
+    #[test]
+    #[ignore = "tool: needs UP_SEG"]
+    fn upright_strength_sweep() {
+        let dir = std::path::PathBuf::from(std::env::var("UP_SEG").unwrap());
+        let out = std::env::var("UP_OUT").ok().map(std::path::PathBuf::from);
+        let strengths = [1.0, 0.85, 0.7, 0.55, 0.4, 0.25, 0.0];
+        println!("n\tvariant\tkept");
+        let mut n = 0;
+        while let Ok(text) = std::fs::read_to_string(dir.join(format!("{n}_seg.json"))) {
+            let dump: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let (w, h) = (
+                dump["width"].as_f64().unwrap(),
+                dump["height"].as_f64().unwrap(),
+            );
+            let segments: Vec<Segment> = dump["segments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| Segment {
+                    x1: s[0].as_f64().unwrap(),
+                    y1: s[1].as_f64().unwrap(),
+                    x2: s[2].as_f64().unwrap(),
+                    y2: s[3].as_f64().unwrap(),
+                })
+                .collect();
+            let emit = |name: String, lines: &[GuideLine]| {
+                println!("{n}\t{name}\t{:.4}", frame_kept(lines, w, h));
+                if let Some(out) = &out {
+                    let unit: Vec<GuideLine> = lines
+                        .iter()
+                        .map(|l| {
+                            let mut l = l.clone();
+                            for p in [&mut l.p1, &mut l.p2] {
+                                p.x /= w;
+                                p.y /= h;
+                            }
+                            l
+                        })
+                        .collect();
+                    let recipe = serde_json::json!({"guidedPerspective": {"enabled": true,
+                        "lines": unit, "autoCrop": false, "upright": "tool"}});
+                    std::fs::write(out.join(format!("{n}_{name}.json")), recipe.to_string())
+                        .unwrap();
+                }
+            };
+            for (name, mode) in [
+                ("auto", UprightMode::Auto),
+                ("level", UprightMode::Level),
+                ("vertical", UprightMode::Vertical),
+                ("full", UprightMode::Full),
+            ] {
+                if let Some(result) = upright_lines(&segments, w, h, mode, false) {
+                    emit(format!("new_{name}"), &result.lines);
+                }
+            }
+            let diagonal = w.hypot(h);
+            let found = |vertical: bool| {
+                let set: Vec<Segment> = segments
+                    .iter()
+                    .filter(|s| {
+                        let d = if vertical {
+                            s.tilt_from_vertical()
+                        } else {
+                            s.angle()
+                        };
+                        d.abs() < 25f64.to_radians() && s.length() > 0.03 * diagonal
+                    })
+                    .copied()
+                    .collect();
+                (set.len() >= 2)
+                    .then(|| vanishing_point(&set))
+                    .flatten()
+                    .filter(|v| v.1 > 0.25 * diagonal)
+                    .map(|v| v.0)
+            };
+            if let Some(vp) = found(true) {
+                for &sv in &strengths {
+                    let lines = lines_through(
+                        weakened(vp, w, h, sv),
+                        w,
+                        h,
+                        GuideOrientation::Vertical,
+                        "vertical",
+                    );
+                    emit(format!("vertical_s{sv}"), &lines);
+                    if let (Some(hp), 1.0) = (found(false), sv) {
+                        for &sh in &strengths {
+                            let mut lines = lines.clone();
+                            lines.extend(lines_through(
+                                weakened(hp, w, h, sh),
+                                w,
+                                h,
+                                GuideOrientation::Horizontal,
+                                "horizontal",
+                            ));
+                            emit(format!("full_v{sv}_h{sh}"), &lines);
+                        }
+                    }
+                }
+            }
+            n += 1;
+        }
     }
 }
