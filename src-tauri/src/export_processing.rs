@@ -1021,6 +1021,20 @@ pub(crate) async fn export_images_impl(
 
     #[cfg(feature = "performance-profiling")]
     drop(context_stage);
+    // Under a compile limit the variant the shown photo's export renders
+    // with (the deferred display variant for a 16-bit export or several
+    // recipes rendered together, else its display variant) compiles in the
+    // idle compiles' helper before this export's textures exist, if it is
+    // not compiled yet: the wait below and the photo's own wait for it
+    // (G76/WSMOKE19: a 16-bit TIFF exported right after picking it compiled
+    // it beside the textures, 7.2 GB on a Radeon 680M).
+    rawtonic_gpu::gpu_processing::export_of_shown_photo_starts(
+        targets.len() > 1
+            || targets.iter().any(|target| {
+                render_output_precision(&target.output_format, &target.export_settings)
+                    != rawtonic_gpu::gpu_processing::RenderOutputPrecision::EightBit
+            }),
+    );
     let prewarm = {
         let app_handle = app_handle.clone();
         let context = context.clone();

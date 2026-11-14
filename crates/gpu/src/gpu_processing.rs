@@ -6095,30 +6095,19 @@ pub fn wait_for_running_compiles(what: &str) {
         return;
     }
     let started = std::time::Instant::now();
-    // The deferred variant planned for the shown photo's 16-bit exports
-    // compiles now, in its helper, before this export's textures exist
-    // (`idle_compiles::export_starts`).
-    let deferred = idle_compiles::export_starts();
     let mut state = COMPILE_LIMIT
         .state
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    // An idle compile in a helper process stops for it, unless it compiles
-    // what 16-bit exports render with (`export_waits_for_helper`).
-    let wants = ((state.0 > 0 || compiles_pending())
-        && !deferred
-        && !idle_compile_child::export_waits_for_helper())
-    .then(SlotWanted::new);
-    // Until the idle worker has taken the slot for that variant (it looks
-    // at once; the limit only guards against a worker that never does).
-    let awaits_deferred = || {
-        deferred
-            && started.elapsed() < std::time::Duration::from_secs(10)
-            && idle_compiles::export_awaits_deferred()
-    };
+    // An idle compile in a helper process stops for it, unless the idle
+    // worker compiles the variant this export renders with first
+    // (`export_of_shown_photo_starts`): then the export waits for that, and
+    // the worker stops any other helper itself.
+    let awaits_variant = idle_compiles::export_awaits_variant;
+    let wants = ((state.0 > 0 || compiles_pending()) && !awaits_variant()).then(SlotWanted::new);
     // A compile that waits for a slot is not signalled on `freed` while it
     // waits, so this looks again every 250 ms.
-    while state.0 > 0 || compiles_pending() || awaits_deferred() {
+    while state.0 > 0 || compiles_pending() || awaits_variant() {
         state = COMPILE_LIMIT
             .freed
             .wait_timeout(state, std::time::Duration::from_millis(250))
@@ -6134,6 +6123,20 @@ pub fn wait_for_running_compiles(what: &str) {
             waited.as_secs_f64()
         );
     }
+}
+
+/// An export of the photo shown in the editor starts: under a compile limit
+/// the variant it renders with (`deferred`: a 16-bit export or one of
+/// several outputs, `exports_with_deferred_display`; else the display
+/// variant) compiles now if it is not compiled, in the idle compiles'
+/// helper process, and `wait_for_running_compiles`, which the export calls
+/// before it makes its textures, waits for it (`idle_compiles::
+/// export_starts`). Nothing without a compile limit or a shown photo.
+pub fn export_of_shown_photo_starts(deferred: bool) {
+    if deferred {
+        deferred_display::note_deferred_export();
+    }
+    idle_compiles::export_starts(deferred);
 }
 
 /// Whether shader compiles run under a limit (AMD's Windows Vulkan driver,
@@ -8872,7 +8875,7 @@ impl GpuProcessor {
     /// needs while the app still starts: the idle plan of a new RAW edit
     /// (`new_raw_edit`, `idle_compiles::planned_jobs`), in its helper
     /// process beside the RAW default display variant, and that edit's
-    /// detail-cache pass. `tonemapper_override`: the look Preferences set
+    /// detail-cache passes. `tonemapper_override`: the look Preferences set
     /// for every RAW, if any. On a computer's first
     /// session the plan started only 3 s after the first photo was shown,
     /// so the minute or more a photographer spends in the Library first
@@ -8892,6 +8895,11 @@ impl GpuProcessor {
         idle.0.plan(preview_features(adjustments), adjustments, || {
             self.idle_target()
         });
+        // The detail-cache passes of a RAW: before its noise is measured
+        // (a preview: no response 8) and after. A first session compiled
+        // both when the first edit needed them (5.8–6.5 s on a Radeon 680M,
+        // G76/WSMOKE18, WCOLD1).
+        self.detail_pipeline_for(0);
         self.detail_pipeline_for(sharpen_level(adjustments));
     }
 
@@ -8998,7 +9006,15 @@ impl GpuProcessor {
                 // them (G76/WGT14: Blacks 220 s, with repeated memory
                 // pressure on a 15 GB Radeon 680M laptop).
                 Some(_) if served() => {}
-                Some(idle) if idle.covering(features).is_some() => {
+                // Only a frame with Basic-panel edits: its own compile
+                // would be a variant of that size. A frame without them
+                // (Glow on a never-edited photo) compiles its own small one
+                // (9–11 s on a Radeon 680M, G76/WSMOKE18) instead of
+                // waiting for the rest of a 45 s compile.
+                Some(idle)
+                    if features & idle_compiles::BASIC_FEATURES != 0
+                        && idle.covering(features).is_some() =>
+                {
                     waits_for_idle = Some(PendingCompile::new());
                 }
                 _ => self.compile_preview_variant(own),

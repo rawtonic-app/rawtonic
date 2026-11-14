@@ -97,29 +97,6 @@ pub fn idle_compiles_in_helpers() -> bool {
     HELPER.get().is_some() && !UNAVAILABLE.load(Ordering::Relaxed)
 }
 
-/// Whether a helper compiles a deferred display variant now
-/// (`IdleJob::Deferred`, what 16-bit exports render with): an export lets
-/// it finish (`export_waits_for_helper`).
-static DEFERRED_RUNNING: AtomicBool = AtomicBool::new(false);
-
-/// Whether an export that starts now waits for the running helper instead
-/// of stopping it: when it compiles a deferred display variant. That one is
-/// planned for the shown photo's 16-bit exports, usually this export's own
-/// (picked in the export dialog seconds before): stopped, the export
-/// compiled it again in the app, 35.9 s at 7.2 GB of the app's memory on a
-/// Radeon 680M (G76/WSMOKE19) instead of the rest of the helper's compile
-/// at 4.4 GB beside the app. Another export waits for it at most once per
-/// variant and computer (afterwards the pipeline cache answers the helper).
-pub(super) fn export_waits_for_helper() -> bool {
-    DEFERRED_RUNNING.load(Ordering::SeqCst)
-}
-
-/// Says that a helper compiles a deferred display variant (tests).
-#[cfg(test)]
-pub(super) fn set_deferred_running(running: bool) {
-    DEFERRED_RUNNING.store(running, Ordering::SeqCst);
-}
-
 /// Sets how idle compiles start their helper process; once per process.
 /// Used only under a compile limit (idle compiles run nowhere else).
 pub fn set_idle_compile_helper(helper: IdleCompileHelper) {
@@ -211,19 +188,6 @@ pub(super) fn compile_in_helper(
     };
     let mark = cache_additions();
     let seeded = crate::pipeline_cache::seed(&target.device, folder.path());
-    struct DeferredRunning(bool);
-    impl Drop for DeferredRunning {
-        fn drop(&mut self) {
-            if self.0 {
-                DEFERRED_RUNNING.store(false, Ordering::SeqCst);
-            }
-        }
-    }
-    let deferred = matches!(job, IdleJob::Deferred(_));
-    if deferred {
-        DEFERRED_RUNNING.store(true, Ordering::SeqCst);
-    }
-    let _deferred = DeferredRunning(deferred);
     let arg = job.arg();
     let started = Instant::now();
     let mut child = match helper(&arg, folder.path()) {
