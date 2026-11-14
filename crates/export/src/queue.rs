@@ -475,7 +475,8 @@ impl ExportQueue {
     /// After a restart: running jobs become interrupted; photos whose
     /// planned output exists are finished; the temporary files of the photos
     /// that were being written are removed (`rawtonic_fs::temp`; the
-    /// resumed job writes them anew). Returns the interrupted jobs.
+    /// resumed job writes them anew). A job whose every photo is published
+    /// ends as done. Returns the jobs left interrupted.
     pub fn recover(&self) -> Result<Vec<Job>> {
         // Jobs a quit or crash cut short while they were being queued.
         self.conn
@@ -514,9 +515,27 @@ impl ExportQueue {
                     ],
                 )?;
             }
-            self.set_state(id, JobState::Interrupted)?;
+            // A job whose every photo is published was finished; the quit
+            // only came before its end was recorded.
+            let job = self.job(id)?;
+            let complete = job.total > 0 && job.done == job.total && job.failed == 0;
+            self.set_state(
+                id,
+                if complete {
+                    JobState::Done
+                } else {
+                    JobState::Interrupted
+                },
+            )?;
         }
-        ids.iter().map(|id| self.job(id)).collect()
+        let mut interrupted = Vec::new();
+        for id in &ids {
+            let job = self.job(id)?;
+            if job.state == JobState::Interrupted {
+                interrupted.push(job);
+            }
+        }
+        Ok(interrupted)
     }
 
     /// Queues the photos of a failed, cancelled or interrupted job that did
@@ -881,6 +900,23 @@ mod tests {
         );
         assert!(q.recover().unwrap().is_empty(), "recovery runs once");
         assert_eq!(q.retry(&job).unwrap(), 2);
+    }
+
+    #[test]
+    fn recovery_ends_a_job_whose_every_output_exists_as_done() {
+        let (dir, q) = queue();
+        let job = q.enqueue("Export 1", &json!({}), &paths(1)).unwrap();
+        q.start_next().unwrap();
+        let published = dir.path().join("0.tif");
+        std::fs::write(&published, "tiff").unwrap();
+        q.item_started(&job, 0, &published).unwrap();
+        drop(q);
+        let q = ExportQueue::open(&dir.path().join("export-queue.sqlite")).unwrap();
+        assert!(q.recover().unwrap().is_empty(), "nothing was interrupted");
+        let job = q.job(&job).unwrap();
+        assert_eq!(job.state, JobState::Done);
+        assert_eq!((job.done, job.total), (1, 1));
+        assert!(q.retry(&job.id).is_err(), "a finished job is not resumed");
     }
 
     #[test]

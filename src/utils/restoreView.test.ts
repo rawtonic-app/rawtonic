@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LastFolderState } from '../components/ui/AppProperties';
 import { PREVIOUS_IMPORT_VIEW_ID } from './folderSync';
-import { isInside, samePath, savedView } from './restoreView';
+import { holdSavedView, isInside, samePath, savedView, savedViewHeld } from './restoreView';
 
 const state = (over: Partial<LastFolderState>): LastFolderState => ({
   currentFolderPath: null,
@@ -52,5 +52,16 @@ describe('saved library view', () => {
     expect(
       savedView(state({ currentFolderPath: 'Album: Missing', activeAlbumId: 'session-missing' }), dir, [dir])
     ).toBeNull();
+  });
+});
+
+describe('stand-in view', () => {
+  it('is not saved while shown, and the hold ends when the user goes elsewhere', () => {
+    holdSavedView('/lib', '/lib/Photos', 'session-missing');
+    expect(savedViewHeld('/lib', '/lib/Photos', null)).toBe(true);
+    expect(savedViewHeld('/lib', 'Album: Missing Photos', 'session-missing')).toBe(true);
+    expect(savedViewHeld('/lib', '/lib/Other', null)).toBe(false);
+    // Released for good: the stand-in is now an ordinary choice.
+    expect(savedViewHeld('/lib', 'Album: Missing Photos', 'session-missing')).toBe(false);
   });
 });

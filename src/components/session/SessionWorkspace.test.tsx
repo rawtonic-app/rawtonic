@@ -22,6 +22,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { notify, notify as toast } from '../../activity/notify';
 import { useUIStore } from '../../store/useUIStore';
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
+import { savedViewHeld } from '../../utils/restoreView';
 import { PHOTO_WRITES_SETTLED } from '../../utils/photoWrites';
 import { debouncedSave } from '../../hooks/useEditorActions';
 import type { Adjustments } from '../../utils/adjustments';
@@ -610,6 +611,61 @@ describe('restoring the last session', () => {
       expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
     });
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\day 2', true));
+  });
+
+  it('opens Missing Photos, highlighted, when no catalog folder is on disk, and keeps the saved folder', async () => {
+    const beta = { ...summary, directory: 'C:\\Users\\a\\catalog 3', manifest: { ...summary.manifest, name: 'Beta' } };
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let there = false;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === 'session_open' || command === 'session_summary') return beta;
+      if (command === 'library_flush') return [];
+      if (command === 'catalog_folders')
+        return {
+          catalog: true,
+          volumes: [{ folders: [{ path: 'D:\\Shots\\raws 9', exists: there, photos: 9 }], roots: [] }]
+        };
+      if (command === 'get_folder_tree') {
+        const path = (args as { path: string }).path;
+        if (!there && path.endsWith('raws 9')) throw new Error('gone');
+        return { path, name: 'x', isDir: true, children: [] };
+      }
+      if (command === 'session_offline') return [{ path: 'D:\\Shots\\raws 9\\a.nef' }];
+      return base(command, args);
+    });
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const onNavigate = vi.fn(async () => {});
+    const onSelectAlbum = vi.fn();
+    const saved = {
+      currentFolderPath: 'D:\\Shots\\raws 9',
+      expandedFolders: [],
+      activeAlbumId: null,
+      expandedAlbumGroups: [],
+      sessionDirectory: beta.directory
+    };
+    useSettingsStore.setState({
+      appSettings: { lastRootPath: null, recentLibraries: [beta.directory], lastFolderState: saved } as AppSettings
+    });
+    render(<SessionWorkspace onNavigate={onNavigate} onSelectAlbum={onSelectAlbum} />);
+    act(() => {
+      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+    });
+    await waitFor(() => expect(onSelectAlbum).toHaveBeenCalled());
+    expect(onSelectAlbum.mock.calls[0][0]).toBe('session-missing');
+    expect(info.mock.calls.filter((c) => String(c[0]).includes('showing Missing Photos'))).toHaveLength(1);
+    // Not the user's selection: the saved one is untouched and held back from saving.
+    expect(useSettingsStore.getState().appSettings?.lastFolderState).toEqual(saved);
+    expect(savedViewHeld(beta.directory, 'Album: Missing Photos', 'session-missing')).toBe(true);
+    // The folder is back: it is restored, nothing falls back.
+    there = true;
+    onNavigate.mockClear();
+    onSelectAlbum.mockClear();
+    act(() => {
+      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+    });
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\raws 9', true));
+    expect(onSelectAlbum).not.toHaveBeenCalled();
+    info.mockRestore();
   });
 
   it('stays quiet when the session opens quickly', async () => {

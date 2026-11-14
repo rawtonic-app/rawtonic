@@ -4,6 +4,10 @@
 
 ### Fixes
 
+- **A library whose folders are all missing opens on Missing Photos.** When the folder the Library was closed on and every catalog folder were gone from disk (drive away, folders renamed), the Library opened on an empty view with nothing highlighted. It now opens Missing Photos, highlighted, which lists what you are looking for; the folder you closed on stays your saved selection and is restored once it is back.
+
+- **An export that had finished before a quit is no longer reported as interrupted.** When the app was quit just after the last photo of an export was written, the next start logged "was interrupted: 1 of 1 photos exported" although the file was complete. Such an export is now recorded as finished; one with missing photos stays interrupted and can be resumed.
+
 - **Reopening a library returns to the source it was closed on.** The Library used to open on the library's own folder every time, which showed "No photos to display" when the photos lived in an added folder (reported on Windows after quitting on a folder). The app now reopens the folder, collection or Previous Import that was shown when the library was last open, with the same filter and sort; if that source is gone, the first folder of the catalog that is on disk is shown (a catalog whose own folder holds no photographs, because they stay in added folders, no longer opens on an empty view), else the library's own folder.
 
 - **Windows with AMD graphics: views prepared in idle time stay prepared when the driver's cache is cleared.** On AMD's Windows Vulkan driver the views the editor prepares in idle time (in a helper process) were kept only in the driver's own cache; when that cache was cleared (by a cleanup tool or a cache reset) every such view was compiled again, 39–45 s each on a Radeon 680M. They now go into the app's own cache file too, so the next start with the same driver finds them there (a driver update still starts a new cache). Such a helper now also ends at once when the app ends or is closed from the Task Manager, instead of running on for up to 15 minutes. Exports are unchanged.

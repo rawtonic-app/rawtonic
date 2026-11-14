@@ -61,9 +61,9 @@ import {
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSessionBar } from './sessionBar';
 import { SESSION_ALBUMS_CHANGED, openSessionAlbum, type SessionAlbum } from '../studio/StudioAlbums';
-import { isInside, savedView, type SavedView } from '../../utils/restoreView';
+import { holdSavedView, isInside, savedView, type SavedView } from '../../utils/restoreView';
 import { outermost, type CatalogFoldersView } from '../../utils/catalogFolders';
-import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from '../../utils/offline';
+import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, openMissingView, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
 import { requestAutoAdvance } from '../../utils/photoStepping';
 import { hotFolderCommand } from '../../utils/hotFolderCommands';
@@ -648,6 +648,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       const there = catalogFolders.filter((f) => f.exists).map((f) => f.path);
       const view = savedView(lastView, root, [...browseRoots, ...catalogFolders.map((f) => f.path)]);
       let folder = capture ?? root;
+      let missingFallback = false;
       if (view?.kind === 'folder' && (await folderExists(view.path))) folder = view.path;
       else {
         // A catalog whose own folder holds no photographs (they stay in the
@@ -655,10 +656,22 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         // is there, not on an empty view with nothing selected.
         const own = capture ?? root;
         const first = outermost(there)[0];
-        if (catalogFolders.length && first && !catalogFolders.some((f) => isInside(f.path, own) && f.photos > 0))
-          folder = first;
+        const ownHasPhotos = catalogFolders.some((f) => isInside(f.path, own) && f.photos > 0);
+        if (catalogFolders.length && first && !ownHasPhotos) folder = first;
+        // None of the catalog's folders is on disk (drive away, folders
+        // renamed): open Missing Photos, which lists what is being looked for
+        // (Lightroom's "?" folders), not an empty view with nothing selected.
+        // It is only a stand-in: the saved selection stays, so it is
+        // restored when the folders are back.
+        else if (catalogFolders.length && !first && !ownHasPhotos && onSelectAlbum && (!view || view.kind === 'folder'))
+          missingFallback = true;
       }
+      if (missingFallback) holdSavedView(root, folder, MISSING_VIEW_ID);
       await onNavigate(folder, true);
+      if (missingFallback && onSelectAlbum) {
+        console.info(`Library ${root}: no catalog folder is on disk; showing Missing Photos`);
+        await openMissingView(root, i18n.t('offline.missingView'), onSelectAlbum).catch(() => {});
+      }
       if (view && view.kind !== 'folder' && onSelectAlbum) {
         await reopenView(root, view, onSelectAlbum).catch(() => {});
       }

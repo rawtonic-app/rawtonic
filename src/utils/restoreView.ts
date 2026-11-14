@@ -50,3 +50,24 @@ export function savedView(
     return { kind: 'folder', path: folder };
   return null;
 }
+
+/** The views a library shows only as a stand-in for the saved one (its folder
+ * is not on disk): not saved as the last selection, so the saved folder is
+ * restored once it is back. Held until the user goes anywhere else. */
+let held: { directory: string; own: string; albumId: string } | null = null;
+
+export function holdSavedView(directory: string, own: string, albumId: string): void {
+  held = { directory, own, albumId };
+}
+
+/** Whether the state of the grid is still only the stand-in, so the caller
+ * must not save it. Releases the hold when the user went elsewhere. */
+export function savedViewHeld(sessionDirectory: string | null, folder: string | null, albumId: string | null): boolean {
+  if (!held) return false;
+  const standIn =
+    sessionDirectory !== null &&
+    samePath(sessionDirectory, held.directory) &&
+    (albumId === held.albumId || (albumId === null && folder !== null && samePath(folder, held.own)));
+  if (!standIn) held = null;
+  return standIn;
+}

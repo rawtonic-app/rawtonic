@@ -568,7 +568,7 @@ fn with_queue<T>(
 }
 
 /// Opens the queue at start-up and marks jobs a quit or crash cut short as
-/// interrupted (photos already written count as finished).
+/// interrupted (photos already written count as finished; a job with every photo written is done).
 pub fn open(app: &AppHandle) {
     let exports = app.state::<ExportState>();
     let path = match app.path().app_data_dir() {
