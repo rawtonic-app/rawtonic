@@ -637,6 +637,12 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       const capture = openableFolderPath(summary.folders, 'capture', await join(root, summary.manifest.capture));
       // Back to the source it was closed on (folder, collection, Previous
       // Import); the library's own folder when that is gone.
+      // Product decision (coordinator, G76): only sources the library itself
+      // lists are restored (its folders, added catalog folders, collections,
+      // Previous Import). A transient browse root (Show Folder, or the parent
+      // of an added folder) is not kept across opens (rootFolders is reset
+      // below) and the Folders panel would not list it: restoring it would
+      // show photos with nothing selected.
       const browseRoots = [root, ...outsideTrees.map((t) => t.path)];
       const view = savedView(lastView, root, [...browseRoots, ...(await addedFolders(lastView, root, browseRoots))]);
       let folder = capture ?? root;
