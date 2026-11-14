@@ -290,10 +290,12 @@ struct Queue {
     /// waiting for idle time or asking the memory guard, and the export
     /// waits for it. Cleared when the worker is done with it.
     export_job: Option<IdleJob>,
-    /// The variant a frame waits for that no planned variant covers
-    /// (`IdleCompiles::for_frame`): the worker compiles it next after an
-    /// export's, as it does that one. A newer frame's replaces it.
-    frame_job: Option<IdleJob>,
+    /// The variants frames wait for that no planned variant covers
+    /// (`IdleCompiles::for_frame`), each with when a frame last asked for
+    /// it (`now_ms`): the worker compiles them next after an export's, as
+    /// it does that one, in this order. One no frame asks for any more
+    /// moves to `later`.
+    frame_jobs: Vec<(IdleJob, u64)>,
     /// A frame waits for the planned variant at the front
     /// (`IdleCompiles::covering`): the worker compiles it now, without
     /// waiting for quiet or asking the memory guard (the frame would
@@ -304,6 +306,36 @@ struct Queue {
 }
 
 impl Queue {
+    /// When a frame last asked for frame job `job`, if it is one.
+    fn frame_asked(&mut self, job: IdleJob) -> Option<&mut u64> {
+        self.frame_jobs
+            .iter_mut()
+            .find_map(|(frame, asked)| (*frame == job).then_some(asked))
+    }
+
+    /// Moves the frame jobs no frame asked for within `AWAITED` to `later`
+    /// (the photographer set the effect back): they compile in idle time.
+    /// `now`: `now_ms`.
+    fn frames_moved_on(&mut self, now: u64) {
+        let waits = |asked: u64| now.saturating_sub(asked) < AWAITED.as_millis() as u64;
+        let (kept, moved): (Vec<_>, Vec<_>) = std::mem::take(&mut self.frame_jobs)
+            .into_iter()
+            .partition(|(_, asked)| waits(*asked));
+        self.frame_jobs = kept;
+        for (job, _) in moved {
+            if !self.later.contains(&job) {
+                self.later.push_front(job);
+            }
+        }
+    }
+
+    /// Whether the helper running `job` stops for a frame's variant: a
+    /// frame waits for another one, and none for `job` itself.
+    fn frame_goes_before(&mut self, job: IdleJob, now: u64) -> bool {
+        self.frames_moved_on(now);
+        !self.frame_jobs.is_empty() && self.frame_asked(job).is_none()
+    }
+
     /// Replaces the planned supersets with `plan` unless it is the plan
     /// made last; whether it did.
     /// `deferred`: the plan ends with the deferred variant of `exact`
@@ -443,17 +475,26 @@ impl IdleCompiles {
             Some(IdleJob::Display(job)) if job & features == features => Some(job),
             _ => None,
         };
+        let now = now_ms().max(1);
         if let Some(running) = covers(queue.running) {
-            self.awaited_ms.store(now_ms().max(1), Ordering::Relaxed);
+            self.awaited_ms.store(now, Ordering::Relaxed);
+            if let Some(asked) = queue.frame_asked(IdleJob::Display(running)) {
+                *asked = now;
+            }
             return Some(running);
         }
         if queue.cancelled || !queue.worker {
             return None;
         }
         // A frame's variant is next whatever runs now: the worker stops
-        // that for it (unless an export waits for it).
-        if let Some(frame) = covers(queue.frame_job) {
-            self.awaited_ms.store(now_ms().max(1), Ordering::Relaxed);
+        // that for it (unless an export or another frame waits for it).
+        if let Some((frame, asked)) = queue
+            .frame_jobs
+            .iter_mut()
+            .find_map(|(job, asked)| covers(Some(*job)).map(|job| (job, asked)))
+        {
+            *asked = now;
+            self.awaited_ms.store(now, Ordering::Relaxed);
             return Some(frame);
         }
         if queue.running.is_some() {
@@ -485,7 +526,8 @@ impl IdleCompiles {
     /// 6.7 GB of the app's memory on a Radeon 680M, with the window showing
     /// the old frame (G76/WSMOKE20); a helper commits about 4.4 GB beside
     /// an app that gave back what it can rebuild, and it stops the moment
-    /// the photographer moves on to another variant.
+    /// the photographer moves on to another variant. Several frames'
+    /// variants (the photo shown, a thumbnail) compile one after the other.
     pub(super) fn for_frame(
         self: &Arc<Self>,
         features: usize,
@@ -498,8 +540,12 @@ impl IdleCompiles {
         if queue.cancelled {
             return false;
         }
-        queue.frame_job = Some(IdleJob::Display(features));
-        self.awaited_ms.store(now_ms().max(1), Ordering::Relaxed);
+        let (job, now) = (IdleJob::Display(features), now_ms().max(1));
+        match queue.frame_asked(job) {
+            Some(asked) => *asked = now,
+            None => queue.frame_jobs.push((job, now)),
+        }
+        self.awaited_ms.store(now, Ordering::Relaxed);
         self.start(&mut queue, target);
         true
     }
@@ -507,14 +553,9 @@ impl IdleCompiles {
     /// Whether a frame or an export waits for `job` now: a frame asks
     /// `covering` every few milliseconds while it waits.
     fn awaited(&self, job: IdleJob) -> bool {
-        self.frame_waits() || self.lock().export_job == Some(job)
-    }
-
-    /// Whether a frame asked `covering` for the job that runs or runs next
-    /// within `AWAITED`.
-    fn frame_waits(&self) -> bool {
         let last = self.awaited_ms.load(Ordering::Relaxed);
-        last != 0 && now_ms().saturating_sub(last) < AWAITED.as_millis() as u64
+        (last != 0 && now_ms().saturating_sub(last) < AWAITED.as_millis() as u64)
+            || self.lock().export_job == Some(job)
     }
 
     /// Ends the worker after the compile it runs (if any); nothing new
@@ -523,7 +564,7 @@ impl IdleCompiles {
         let mut queue = self.lock();
         queue.cancelled = true;
         queue.export_job = None;
-        queue.frame_job = None;
+        queue.frame_jobs.clear();
         drop(queue);
         self.changed.notify_all();
     }
@@ -595,23 +636,15 @@ impl IdleCompiles {
                     if !queue.plan.is_empty()
                         || !queue.later.is_empty()
                         || queue.export_job.is_some()
-                        || queue.frame_job.is_some()
+                        || !queue.frame_jobs.is_empty()
                     {
                         break;
                     }
                     queue = self.changed.wait(queue).unwrap_or_else(|e| e.into_inner());
                 }
-                // A frame's variant nobody waits for any more (the
-                // photographer set the effect back) compiles in idle time.
-                if let Some(job) = queue.frame_job
-                    && !self.frame_waits()
-                {
-                    queue.frame_job = None;
-                    if !queue.later.contains(&job) {
-                        queue.later.push_front(job);
-                    }
-                }
-                let urgent = queue.export_job.is_some() || queue.frame_job.is_some() || queue.rush;
+                queue.frames_moved_on(now_ms());
+                let urgent =
+                    queue.export_job.is_some() || !queue.frame_jobs.is_empty() || queue.rush;
                 drop(queue);
                 if !urgent && !self.idle() {
                     let queue = self.lock();
@@ -680,7 +713,9 @@ impl IdleCompiles {
                 queue.rush = false;
                 // The variant an export waits for goes first, then a
                 // frame's.
-                let next = match (queue.export_job, queue.frame_job) {
+                queue.frames_moved_on(now_ms());
+                let frame = queue.frame_jobs.first().map(|(job, _)| *job);
+                let next = match (queue.export_job, frame) {
                     (Some(job), _) => Some((job, Source::Export)),
                     (None, Some(job)) => Some((job, Source::Frame)),
                     (None, None) => Self::next(&mut queue),
@@ -734,13 +769,12 @@ impl IdleCompiles {
             // (`export_starts`), and for an AI run the photographer asked
             // for unless a frame or an export waits for this job
             // (`memory_turns`). A frame's variant stops any other but an
-            // export's (`for_frame`).
+            // export's and another frame's still waited for (`for_frame`).
             let helped = super::idle_compile_child::compile_in_helper(&target, job, || {
-                let queue = self.lock();
+                let mut queue = self.lock();
                 if queue.cancelled
                     || queue.export_job.is_some_and(|export| export != job)
-                    || (queue.frame_job.is_some_and(|frame| frame != job)
-                        && queue.export_job != Some(job))
+                    || (queue.export_job != Some(job) && queue.frame_goes_before(job, now_ms()))
                 {
                     return true;
                 }
@@ -759,8 +793,9 @@ impl IdleCompiles {
                     match source {
                         Source::Export | Source::Plan => queue.plan.push_front(job),
                         Source::Later => queue.later.push_front(job),
-                        // Still the frame's: next again. A newer frame's
-                        // variant replaced it otherwise.
+                        // Still a frame's (`frame_jobs`): next again,
+                        // unless its frame moved on (`frames_moved_on`,
+                        // which requeued it for idle time).
                         Source::Frame => {}
                     }
                     drop(queue);
@@ -798,9 +833,7 @@ impl IdleCompiles {
             if queue.export_job == Some(job) {
                 queue.export_job = None;
             }
-            if queue.frame_job == Some(job) {
-                queue.frame_job = None;
-            }
+            queue.frame_jobs.retain(|(frame, _)| *frame != job);
         }
     }
 
@@ -809,7 +842,7 @@ impl IdleCompiles {
     fn served(queue: &mut Queue, job: IdleJob, source: Source) {
         match source {
             Source::Export => queue.export_job = None,
-            Source::Frame if queue.frame_job == Some(job) => queue.frame_job = None,
+            Source::Frame => queue.frame_jobs.retain(|(frame, _)| *frame != job),
             _ => {}
         }
     }
@@ -1643,25 +1676,41 @@ mod tests {
         let own = 7335999 | HALATION_FEATURE;
         // No helper is set in unit tests.
         assert!(!idle.for_frame(own, || unreachable!()));
-        assert_eq!(idle.lock().frame_job, None);
+        assert!(idle.lock().frame_jobs.is_empty());
+        let (planned, frame) = (IdleJob::Display(7335999), IdleJob::Display(own));
+        let asked = 1;
         {
             let mut queue = idle.lock();
             queue.worker = true;
-            queue.running = Some(IdleJob::Display(7335999));
-            queue.frame_job = Some(IdleJob::Display(own));
+            queue.running = Some(planned);
+            queue.frame_jobs = vec![(frame, asked)];
         }
-        assert!(!idle.frame_waits());
         assert_eq!(idle.covering(halation), Some(own));
-        assert!(idle.frame_waits());
         // Grain on top is another variant: that frame asks for its own.
         assert_eq!(idle.covering(halation | GRAIN_FEATURE), None);
-        // An export's variant is not stopped for the frame's, and the
-        // frame's job is given up when a newer frame's replaced it.
         let mut queue = idle.lock();
-        IdleCompiles::served(&mut queue, IdleJob::Display(5238847), Source::Frame);
-        assert_eq!(queue.frame_job, Some(IdleJob::Display(own)));
-        IdleCompiles::served(&mut queue, IdleJob::Display(own), Source::Frame);
-        assert_eq!(queue.frame_job, None);
+        let now = *queue.frame_asked(frame).unwrap();
+        assert!(now >= asked);
+        // The planned job's helper stops for the frame's; the frame's own
+        // helper does not stop for itself or for a second frame's.
+        assert!(queue.frame_goes_before(planned, now));
+        assert!(!queue.frame_goes_before(frame, now));
+        let grain = IdleJob::Display(own | GRAIN_FEATURE);
+        queue.frame_jobs.push((grain, now));
+        assert!(!queue.frame_goes_before(frame, now));
+        // A frame that moved on: its job compiles in idle time, and the
+        // helper running it stops for the frame that still waits.
+        *queue.frame_asked(grain).unwrap() = now + 10_000;
+        assert!(queue.frame_goes_before(frame, now + 10_000));
+        assert_eq!(queue.frame_jobs, vec![(grain, now + 10_000)]);
+        assert_eq!(queue.later, [frame]);
+        queue.frames_moved_on(now + 20_000);
+        assert!(queue.frame_jobs.is_empty());
+        assert_eq!(queue.later, [grain, frame]);
+        // A job served without a compile leaves the list.
+        queue.frame_jobs.push((frame, now));
+        IdleCompiles::served(&mut queue, frame, Source::Frame);
+        assert!(queue.frame_jobs.is_empty());
     }
 
     /// Under a compile limit a Basic-panel edit made before the planned

@@ -537,7 +537,7 @@ async fn sam_embeddings(
     cancel: Option<&Arc<AiTaskToken>>,
     asked: Option<&str>,
 ) -> Result<(ImageEmbeddings, Arc<image::DynamicImage>, bool), CommandError> {
-    let _encode = wait_turn(&ai_state.sam_encode_lock, cancel).await?;
+    let mut _encode = wait_turn(&ai_state.sam_encode_lock, cancel).await?;
     // Keyed by the photo actually loaded, not the caller's path: a
     // background encode that outlives a photo switch cannot file the new
     // photo's embedding under the old one. A selection asked for one photo
@@ -567,10 +567,21 @@ async fn sam_embeddings(
     if cancel.is_some_and(|t| t.is_cancelled()) {
         return Err(task_cancelled());
     }
-    let _turn = crate::ai_lifecycle::turn(asked.is_some()).await;
-    if cancel.is_some_and(|t| t.is_cancelled()) {
-        return Err(task_cancelled());
-    }
+    // As `auto_mask`: the wait for a turn is without the encode lock.
+    let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
+        drop(_encode);
+        let turn = crate::ai_lifecycle::turn(asked.is_some()).await;
+        _encode = wait_turn(&ai_state.sam_encode_lock, cancel).await?;
+        if let Some(embeddings) = cached() {
+            return Ok((embeddings, warped_image, source_is_raw));
+        }
+        if cancel.is_some_and(|t| t.is_cancelled()) {
+            return Err(task_cancelled());
+        }
+        Some(turn)
+    } else {
+        None
+    };
     let options = Arc::new(ort::session::RunOptions::new().map_err(|e| e.to_string())?);
     let watcher = cancel.map(|token| {
         let (token, options) = (token.clone(), options.clone());
@@ -814,7 +825,7 @@ async fn auto_mask(
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
     // Counts as running from here, so an idle unload waits for the load too.
     let _running = ai_state.lifecycle.run();
-    let _run = kind.lock(ai_state).lock().await;
+    let mut _run = kind.lock(ai_state).lock().await;
     // Keyed by the photo actually loaded, not the caller's path: a run that
     // outlives a photo switch cannot file one photo's mask under another.
     let loaded = crate::image_loader::original_image(&state.source).await?;
@@ -832,12 +843,24 @@ async fn auto_mask(
     if cancelled() {
         return Err(task_cancelled());
     }
-    // Not beside an idle shader compile where the two take turns (model
-    // load included); a cached mask above needs none.
-    let _turn = crate::ai_lifecycle::turn(download).await;
-    if cancelled() {
-        return Err(task_cancelled());
-    }
+    // Not beside an idle shader compile or an export where they take turns
+    // (model load included); a cached mask above needs none. The wait is
+    // without this kind's lock: a click must not queue behind a run made
+    // ahead that waits for a compile (the click stops that compile).
+    let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
+        drop(_run);
+        let turn = crate::ai_lifecycle::turn(download).await;
+        _run = kind.lock(ai_state).lock().await;
+        if let Some(mask) = cached_mask(ai_state, kind, &key) {
+            return Ok(Some(mask));
+        }
+        if cancelled() {
+            return Err(task_cancelled());
+        }
+        Some(turn)
+    } else {
+        None
+    };
     // The photo's warped image is made while a model that is not loaded yet
     // loads (Core ML loads on a worker thread): a first click waits for the
     // longer of the two instead of both. Only when the model will be there:
