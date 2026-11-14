@@ -116,6 +116,7 @@ export const useAppInitialization = ({
     expandedFolders,
     activeAlbumId,
     expandedAlbumGroups,
+    sessionDirectory,
     setSortCriteria,
     setFilterCriteria,
     setLibrary
@@ -127,6 +128,7 @@ export const useAppInitialization = ({
       expandedFolders: state.expandedFolders,
       activeAlbumId: state.activeAlbumId,
       expandedAlbumGroups: state.expandedAlbumGroups,
+      sessionDirectory: state.sessionDirectory,
       setSortCriteria: state.setSortCriteria,
       setFilterCriteria: state.setFilterCriteria,
       setLibrary: state.setLibrary
@@ -388,7 +390,8 @@ export const useAppInitialization = ({
       currentFolderPath: null,
       expandedFolders: [],
       activeAlbumId: null,
-      expandedAlbumGroups: []
+      expandedAlbumGroups: [],
+      sessionDirectory: null
     };
 
     const pathChanged = prevFolderState.currentFolderPath !== currentFolderPath;
@@ -397,18 +400,29 @@ export const useAppInitialization = ({
     const albumExpandedChanged =
       JSON.stringify(prevFolderState.expandedAlbumGroups || []) !== JSON.stringify(currentExpandedAlbums);
 
-    if (pathChanged || expandedChanged || albumChanged || albumExpandedChanged) {
+    const libraryChanged = (prevFolderState.sessionDirectory ?? null) !== (sessionDirectory ?? null);
+
+    if (pathChanged || expandedChanged || albumChanged || albumExpandedChanged || libraryChanged) {
       handleSettingsChange({
         ...appSettings,
         lastFolderState: {
           currentFolderPath,
           expandedFolders: currentExpanded,
           activeAlbumId,
-          expandedAlbumGroups: currentExpandedAlbums
+          expandedAlbumGroups: currentExpandedAlbums,
+          sessionDirectory
         }
       });
     }
-  }, [currentFolderPath, expandedFolders, activeAlbumId, expandedAlbumGroups, appSettings, handleSettingsChange]);
+  }, [
+    currentFolderPath,
+    expandedFolders,
+    activeAlbumId,
+    expandedAlbumGroups,
+    sessionDirectory,
+    appSettings,
+    handleSettingsChange
+  ]);
 
   useEffect(() => {
     if (!appSettings) return;

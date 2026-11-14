@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Reopening a library returns to the source it was closed on.** The Library used to open on the library's own folder every time, which showed "No photos to display" when the photos lived in an added folder (reported on Windows after quitting on a folder). The app now reopens the folder, collection or Previous Import that was shown when the library was last open, with the same filter and sort; if that source is gone, the first folder of the catalog that is on disk is shown (a catalog whose own folder holds no photographs, because they stay in added folders, no longer opens on an empty view), else the library's own folder.
+
 - **Windows with AMD graphics: views prepared in idle time stay prepared when the driver's cache is cleared.** On AMD's Windows Vulkan driver the views the editor prepares in idle time (in a helper process) were kept only in the driver's own cache; when that cache was cleared (by a cleanup tool or a cache reset) every such view was compiled again, 39–45 s each on a Radeon 680M. They now go into the app's own cache file too, so the next start with the same driver finds them there (a driver update still starts a new cache). Such a helper now also ends at once when the app ends or is closed from the Task Manager, instead of running on for up to 15 minutes. Exports are unchanged.
 
 ## 0.1.0-alpha.14 — 2026-11-14

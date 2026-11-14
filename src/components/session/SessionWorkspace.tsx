@@ -60,7 +60,9 @@ import {
 } from './nextCapture';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSessionBar } from './sessionBar';
-import { SESSION_ALBUMS_CHANGED } from '../studio/StudioAlbums';
+import { SESSION_ALBUMS_CHANGED, openSessionAlbum, type SessionAlbum } from '../studio/StudioAlbums';
+import { isInside, savedView, type SavedView } from '../../utils/restoreView';
+import { outermost, type CatalogFoldersView } from '../../utils/catalogFolders';
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
 import { requestAutoAdvance } from '../../utils/photoStepping';
@@ -69,7 +71,9 @@ import {
   FOLDER_SYNC_APPLIED,
   IMPORTS_CHANGED,
   OPEN_FOLDER_SYNC_EVENT,
+  PREVIOUS_IMPORT_VIEW_ID,
   SHOW_PREVIOUS_IMPORT,
+  previousImport,
   type OpenFolderSyncDetail
 } from '../../utils/folderSync';
 import IngestMetadata, { type ImportMetadata } from './IngestMetadata';
@@ -361,6 +365,8 @@ interface ImportReport {
 
 interface Props {
   onNavigate: (path: string | null, newRoot?: boolean) => Promise<void>;
+  /** Shows a collection or Previous Import (`useAppNavigation`). */
+  onSelectAlbum?: (id: string, name: string, paths: string[], preserveEditor?: boolean) => void | Promise<void>;
   nativeTitlebar?: boolean;
   windowControls?: ReactNode;
 }
@@ -428,6 +434,40 @@ export function restoreLastSession(
     .finally(() => useProcessStore.getState().setProcess({ startupLibraryReady: true }));
 }
 
+/** A catalog's folders (Add Folder keeps photos where they are), with
+ * whether each is on disk now. Empty for a session. */
+async function catalogFolderList(
+  directory: string,
+  roots: string[]
+): Promise<{ path: string; exists: boolean; photos: number }[]> {
+  const view = await invoke<CatalogFoldersView>(Invokes.CatalogFolders, { directory, roots }).catch(() => null);
+  return view?.catalog ? view.volumes.flatMap((volume) => volume.folders) : [];
+}
+
+async function folderExists(path: string): Promise<boolean> {
+  return invoke(Invokes.GetFolderTree, { path, expandedFolders: [], showImageCounts: false }).then(
+    () => true,
+    () => false
+  );
+}
+
+/** Opens a saved collection or Previous Import again; nothing happens (the
+ * library's folder stays shown) when it is gone or empty. */
+async function reopenView(
+  directory: string,
+  view: Exclude<SavedView, { kind: 'folder' }>,
+  select: NonNullable<Props['onSelectAlbum']>
+) {
+  if (view.kind === 'previousImport') {
+    const { paths } = await previousImport(directory);
+    if (paths.length) await select(PREVIOUS_IMPORT_VIEW_ID, i18n.t('studio.library.albums.previousImport'), paths);
+    return;
+  }
+  const albums = (await invoke<SessionAlbum[]>(Invokes.SessionAlbums, { directory })) ?? [];
+  const album = albums.find((a) => a.id === view.id && a.kind !== 'group');
+  if (album) await openSessionAlbum(directory, album, select);
+}
+
 /** Whether the open library is another one than the library a camera was
  * connected for. Not while no library is known yet (restoring, or this
  * view remounted): that is not leaving it. */
@@ -443,7 +483,7 @@ function localDateStamp(): string {
   );
 }
 
-export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
+export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitlebar = false, windowControls }: Props) {
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [form, setForm] = useState<'create' | 'ingest' | 'hotfolder' | 'import' | null>(null);
@@ -548,6 +588,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     async (summary: SessionSummary) => {
       summaryRequest.current++;
       const root = summary.directory;
+      // Read before the first navigation below saves the library's own folder
+      // over it: what the grid showed when this library was last open.
+      const lastView = useSettingsStore.getState().appSettings?.lastFolderState;
       // The session's own folders outside it are listed beside its tree.
       const outside = outsideFolders(summary.folders);
       const [tree, flags, outsideTrees] = await Promise.all([
@@ -590,7 +633,35 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       // (a configured folder whose parent was renamed is never made at its
       // old path: opening it would create exactly that folder again).
       const capture = openableFolderPath(summary.folders, 'capture', await join(root, summary.manifest.capture));
-      await onNavigate(capture ?? root, true);
+      // Back to the source it was closed on (folder, collection, Previous
+      // Import); the library's own folder when that is gone.
+      // Product decision (coordinator, G76): only sources the library itself
+      // lists are restored (its folders, added catalog folders, collections,
+      // Previous Import). A transient browse root (Show Folder, or the parent
+      // of an added folder) is not kept across opens (rootFolders is reset
+      // below) and the Folders panel would not list it: restoring it would
+      // show photos with nothing selected.
+      const browseRoots = [root, ...outsideTrees.map((t) => t.path)];
+      const catalogFolders = await catalogFolderList(root, browseRoots);
+      // A catalog folder gone from disk (renamed, drive away) is still a
+      // catalog folder but shows nothing: it is not restored.
+      const there = catalogFolders.filter((f) => f.exists).map((f) => f.path);
+      const view = savedView(lastView, root, [...browseRoots, ...catalogFolders.map((f) => f.path)]);
+      let folder = capture ?? root;
+      if (view?.kind === 'folder' && (await folderExists(view.path))) folder = view.path;
+      else {
+        // A catalog whose own folder holds no photographs (they stay in the
+        // folders that were added) opens on the first of those folders that
+        // is there, not on an empty view with nothing selected.
+        const own = capture ?? root;
+        const first = outermost(there)[0];
+        if (catalogFolders.length && first && !catalogFolders.some((f) => isInside(f.path, own) && f.photos > 0))
+          folder = first;
+      }
+      await onNavigate(folder, true);
+      if (view && view.kind !== 'folder' && onSelectAlbum) {
+        await reopenView(root, view, onSelectAlbum).catch(() => {});
+      }
       const current = useSettingsStore.getState();
       if (current.appSettings)
         void current.handleSettingsChange({
@@ -598,7 +669,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           recentLibraries: withRecentLibrary(current.appSettings.recentLibraries, root)
         });
     },
-    [onNavigate]
+    [onNavigate, onSelectAlbum]
   );
 
   useEffect(() => {
