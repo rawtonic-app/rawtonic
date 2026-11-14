@@ -469,3 +469,49 @@ fn virtual_copies_and_their_stacks_come_along() {
     assert_ne!(own.id, stack.id);
     lib.check_integrity().unwrap();
 }
+
+/// Three records of one folder that hold different files: the path lookup
+/// found each file in the oldest record holding it, so that row's cleared
+/// flag stays cleared, though an older record holds only another file.
+#[test]
+fn the_looked_up_row_is_found_per_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = rawtonic_fs::canonicalize(tmp.path()).unwrap();
+    let catalog = root.join("Main.catalog");
+    let folders: Vec<PathBuf> = ["old", "middle", "r"]
+        .iter()
+        .map(|n| root.join(n))
+        .collect();
+    for folder in &folders {
+        fs::create_dir_all(folder).unwrap();
+    }
+    fs::write(folders[0].join("b.jpg"), b"b").unwrap();
+    for folder in &folders[1..] {
+        fs::write(folder.join("a.jpg"), b"a").unwrap();
+    }
+    let (middle, kept) = {
+        let lib = Library::create(&catalog, "Main", Mode::Catalog).unwrap();
+        lib.add_asset(&folders[0].join("b.jpg")).unwrap();
+        // Looked up: the flag was cleared here.
+        let middle = lib.add_asset(&folders[1].join("a.jpg")).unwrap().id;
+        // Registering: an old flag.
+        let kept = lib.add_asset(&folders[2].join("a.jpg")).unwrap().id;
+        let mut meta = lib.metadata(&kept).unwrap();
+        meta.flag = 1;
+        lib.set_metadata(&kept, &meta).unwrap();
+        (middle, kept)
+    };
+    fs::write(folders[2].join("b.jpg"), b"b").unwrap();
+    database(&catalog)
+        .execute(
+            "UPDATE roots SET path=? WHERE external=1",
+            [folders[2].to_string_lossy().as_ref()],
+        )
+        .unwrap();
+    let lib = Library::open(&catalog).unwrap();
+    assert_eq!(rows(&catalog), 2, "a.jpg and b.jpg");
+    let a = lib.asset_at(&folders[2].join("a.jpg")).unwrap().unwrap();
+    assert_eq!(a.id, kept);
+    assert_eq!(lib.metadata(&kept).unwrap().flag, 0, "cleared on {middle}");
+    assert!(lib.asset_at(&folders[2].join("b.jpg")).unwrap().is_some());
+}

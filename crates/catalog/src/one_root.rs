@@ -150,12 +150,14 @@ impl Library {
                 .find(|(id, _)| *id == keeper)
                 .map(|(_, path)| path.clone())
                 .context("A record")?;
-            // The record the path lookup found before (`asset_at` compared
-            // the exact path; the oldest such record came first).
-            let looked_up = records
+            // The records the path lookup searched before: `asset_at`
+            // compared the exact path, and of those holding the file the
+            // oldest came first.
+            let exact: Vec<String> = records
                 .iter()
-                .find(|(_, p)| *p == path)
-                .map(|(id, _)| id.clone());
+                .filter(|(_, p)| *p == path)
+                .map(|(id, _)| id.clone())
+                .collect();
             // Each file's rows, oldest record first.
             let mut files: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
             for (record, _) in &records {
@@ -172,11 +174,10 @@ impl Library {
                 // Who held each field's latest value (see `Authority`).
                 let authority = Authority {
                     registering: hashed && in_keeper.is_some(),
-                    looked_up: looked_up.as_ref().and_then(|record| {
-                        rows.iter()
-                            .find(|(r, _)| r == record)
-                            .map(|(_, asset)| asset.clone())
-                    }),
+                    looked_up: rows
+                        .iter()
+                        .find(|(record, _)| exact.contains(record))
+                        .map(|(_, asset)| asset.clone()),
                 };
                 let kept = in_keeper.unwrap_or(&rows[0]).1.clone();
                 tx.execute(
