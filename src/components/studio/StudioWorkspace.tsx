@@ -740,7 +740,13 @@ export default function StudioWorkspace(props: Props) {
     if (selectedImage) {
       reselectForDevelop(selectedImage.path);
       useUIStore.getState().setUI({ activeView: 'editor' });
-    } else if (files[0]) onOpen(files[0].path);
+    } else {
+      // No photograph open (a loose one was closed on the way back to the
+      // Library): the Library's active photograph, else its first.
+      const active = useLibraryStore.getState().libraryActivePath;
+      const target = files.find((file) => file.path === active) ?? files[0];
+      if (target) onOpen(target.path);
+    }
   };
   // A press on the photograph while a context menu is open only closes the
   // menu (on its mouse down); the viewer must not also zoom or pan.

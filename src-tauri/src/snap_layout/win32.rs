@@ -90,6 +90,9 @@ pub unsafe fn place(parent: isize, rect: Option<Rect>) -> windows::core::Result<
         overlay = unsafe { create(parent)? };
         OVERLAY.set(overlay.0);
     }
+    if crate::window_limits::trace() {
+        log::info!("window trace: maximize button area {rect:?}");
+    }
     // HWND_TOP also keeps it above the webview's window, which sits in the
     // same sibling list.
     unsafe {
@@ -152,14 +155,14 @@ unsafe fn create(parent: HWND) -> windows::core::Result<HWND> {
 fn toggle_maximize(overlay: HWND) {
     unsafe {
         let top = GetAncestor(overlay, GA_ROOT);
-        let _ = ShowWindow(
-            top,
-            if IsZoomed(top).as_bool() {
-                SW_RESTORE
-            } else {
-                SW_MAXIMIZE
-            },
-        );
+        let zoomed = IsZoomed(top).as_bool();
+        let _ = ShowWindow(top, if zoomed { SW_RESTORE } else { SW_MAXIMIZE });
+        if crate::window_limits::trace() {
+            log::info!(
+                "window trace: maximize button toggled, zoomed {zoomed} -> {}",
+                IsZoomed(top).as_bool()
+            );
+        }
     }
 }
 
@@ -186,10 +189,18 @@ unsafe extern "system" fn window_proc(
         // The shell flyout can send LEAVE between a button down and up.
         // Preserve the click until its release; cancellation is explicit.
         WM_NCMOUSELEAVE => set_state(false, PRESSED.get()),
-        WM_CANCELMODE | WM_CAPTURECHANGED => set_state(false, false),
+        WM_CANCELMODE | WM_CAPTURECHANGED => {
+            if PRESSED.get() && crate::window_limits::trace() {
+                log::info!("window trace: maximize button press cancelled by {msg:#x}");
+            }
+            set_state(false, false);
+        }
         // Handled here: DefWindowProc would run its own caption-button loop
         // and send the maximize command to this child window.
         WM_NCLBUTTONDOWN => {
+            if crate::window_limits::trace() {
+                log::info!("window trace: maximize button press");
+            }
             set_state(true, true);
             let _ = unsafe { SetCapture(hwnd) };
             return LRESULT(0);
@@ -206,6 +217,17 @@ unsafe extern "system" fn window_proc(
                 && point.y < rect.bottom;
             set_state(inside, false);
             let _ = unsafe { ReleaseCapture() };
+            if crate::window_limits::trace() {
+                log::info!(
+                    "window trace: maximize button release {msg:#x}, pressed {was_pressed}, inside {inside}, pointer {},{} button {},{}..{},{}",
+                    point.x,
+                    point.y,
+                    rect.left,
+                    rect.top,
+                    rect.right,
+                    rect.bottom
+                );
+            }
             if was_pressed && inside {
                 toggle_maximize(hwnd);
             }

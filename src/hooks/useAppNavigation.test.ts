@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppNavigationProps, useAppNavigation } from './useAppNavigation';
+import { AppNavigationProps, selectionAfterLoosePhoto, useAppNavigation } from './useAppNavigation';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
 
@@ -133,6 +133,86 @@ it('keeps the last edit in the history when going back to the Library', () => {
   act(() => result.current.handleBackToLibrary());
   expect(history.flush).toHaveBeenCalled();
   expect(history.cancel).not.toHaveBeenCalled();
+});
+
+describe('a loose photograph (outside the Library) and the way back to the Library', () => {
+  const library = () =>
+    useLibraryStore.getState().setLibrary({
+      imageList: [file('/job/a.dng'), file('/job/b.dng'), file('/job/c.dng')] as never,
+      multiSelectedPaths: ['/job/b.dng', '/job/c.dng'],
+      libraryActivePath: '/job/c.dng',
+      selectionAnchorPath: '/job/b.dng'
+    });
+  const selection = () => {
+    const { multiSelectedPaths, libraryActivePath, selectionAnchorPath } = useLibraryStore.getState();
+    return { multiSelectedPaths, libraryActivePath, selectionAnchorPath };
+  };
+
+  it('gives the Library its selection back and closes the loose photograph', async () => {
+    library();
+    const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+    await act(async () => {
+      await result.current.handleImageSelect('/loose/Sony_Loose2.ARW');
+    });
+    // In Develop the loose photograph is the target of every action.
+    expect(selection().multiSelectedPaths).toEqual(['/loose/Sony_Loose2.ARW']);
+    act(() => result.current.handleBackToLibrary());
+    expect(selection()).toEqual({
+      multiSelectedPaths: ['/job/b.dng', '/job/c.dng'],
+      libraryActivePath: '/job/c.dng',
+      selectionAnchorPath: '/job/b.dng'
+    });
+    expect(useEditorStore.getState().selectedImage).toBeNull();
+  });
+
+  it('keeps the first selection when a second loose photograph follows the first', async () => {
+    library();
+    const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+    await act(async () => {
+      await result.current.handleImageSelect('/loose/one.ARW');
+    });
+    useEditorStore.getState().setEditor({ selectedImage: { path: '/loose/one.ARW' } as never });
+    await act(async () => {
+      await result.current.handleImageSelect('/loose/two.ARW');
+    });
+    useEditorStore.getState().setEditor({ selectedImage: { path: '/loose/two.ARW' } as never });
+    act(() => result.current.handleBackToLibrary());
+    expect(selection().libraryActivePath).toBe('/job/c.dng');
+    expect(useEditorStore.getState().selectedImage).toBeNull();
+  });
+
+  it('leaves a photograph of the Library open and active on the way back', async () => {
+    library();
+    const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+    useEditorStore.getState().setEditor({ selectedImage: { path: '/job/a.dng' } as never });
+    act(() => result.current.handleBackToLibrary());
+    expect(selection().libraryActivePath).toBe('/job/a.dng');
+    expect(useEditorStore.getState().selectedImage?.path).toBe('/job/a.dng');
+  });
+
+  it('restores only what the Library still lists', () => {
+    const listed = (path: string) => path !== '/job/gone.dng';
+    expect(
+      selectionAfterLoosePhoto(
+        {
+          multiSelectedPaths: ['/job/gone.dng', '/job/b.dng'],
+          libraryActivePath: '/job/gone.dng',
+          selectionAnchorPath: '/job/gone.dng'
+        },
+        listed
+      )
+    ).toEqual({
+      multiSelectedPaths: ['/job/b.dng'],
+      libraryActivePath: '/job/b.dng',
+      selectionAnchorPath: '/job/b.dng'
+    });
+    // Nothing was selected (or the photograph opened with no Library shown).
+    expect(selectionAfterLoosePhoto(null, listed)).toEqual({
+      multiSelectedPaths: [],
+      libraryActivePath: null,
+      selectionAnchorPath: null
+    });
+  });
 });
 
 it('finds the root folder a path is in, not one that merely shares its name prefix', async () => {

@@ -787,12 +787,13 @@ export default function StudioNavigation({
   const selectedPath = useEditorStore((s) => s.selectedImage?.path ?? null);
   const activePath = useLibraryStore((s) => s.libraryActivePath);
   // Develop shows its photograph, also a loose one. The Library shows its own
-  // selection, then the loose Develop photograph when it is outside the list.
+  // selection, else the Develop photograph when the Library lists it: never
+  // a loose photograph, which is not part of the Library (G76/WUX11).
   const path = useLibraryStore((s) => {
     if (develop) return selectedPath;
     const listed = (candidate: string | null) =>
       candidate !== null && s.imageList.some((file) => file.path === candidate);
-    return listed(activePath) ? activePath : selectedPath;
+    return listed(activePath) ? activePath : listed(selectedPath) ? selectedPath : null;
   });
   const image = path ? { path } : null;
   const preview = useProcessStore((s) => (path ? s.thumbnails[path] : undefined));

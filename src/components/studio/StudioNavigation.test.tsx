@@ -619,9 +619,9 @@ describe("the navigator's photograph", () => {
   });
 });
 
-it('keeps the loose Develop photograph in the Library navigator', () => {
+it('shows a loose Develop photograph in Develop only, never in the Library navigator', () => {
   useEditorStore.getState().setEditor({ selectedImage: { path: '/loose/outside.dng' } as SelectedImage });
-  useLibraryStore.getState().setLibrary({ libraryActivePath: '/job/Capture/selected.dng' });
+  useLibraryStore.getState().setLibrary({ libraryActivePath: '/loose/outside.dng', imageList: [] });
   const view = render(
     <ContextMenuProvider>
       <StudioNavigation develop onNavigate={vi.fn()} folderActions={actions} />
@@ -633,7 +633,15 @@ it('keeps the loose Develop photograph in the Library navigator', () => {
       <StudioNavigation onNavigate={vi.fn()} folderActions={actions} />
     </ContextMenuProvider>
   );
-  expect(view.container.querySelector('.studio-nav-caption')?.textContent).toBe('outside.dng');
+  expect(view.container.querySelector('.studio-nav-caption')).toBeNull();
+  // The Library's own photograph, once it is selected again.
+  act(() =>
+    useLibraryStore.getState().setLibrary({
+      libraryActivePath: '/job/Capture/selected.dng',
+      imageList: [{ path: '/job/Capture/selected.dng' } as never]
+    })
+  );
+  expect(view.container.querySelector('.studio-nav-caption')?.textContent).toBe('selected.dng');
 });
 
 it('keeps a library photo in the navigator during multi-selection', () => {
