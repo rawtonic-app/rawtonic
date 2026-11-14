@@ -1112,8 +1112,11 @@ mod diagnose_warp {
                         .collect();
                     let recipe = serde_json::json!({"guidedPerspective": {"enabled": true,
                         "lines": unit, "autoCrop": false, "upright": "tool"}});
-                    std::fs::write(out.join(format!("{n}_{name}.json")), recipe.to_string())
-                        .unwrap();
+                    rawtonic_fs::atomic_write(
+                        &out.join(format!("{n}_{name}.json")),
+                        recipe.to_string(),
+                    )
+                    .unwrap();
                 }
             };
             for (name, mode) in [

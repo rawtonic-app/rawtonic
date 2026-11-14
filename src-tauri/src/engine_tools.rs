@@ -239,8 +239,8 @@ fn write_upright_recipes() {
             let list: Vec<[f64; 4]> = segments.iter().map(|s| [s.x1, s.y1, s.x2, s.y2]).collect();
             let dump =
                 serde_json::json!({"path": path, "width": sw, "height": sh, "segments": list});
-            std::fs::write(
-                std::path::Path::new(&dir).join(format!("{n}_seg.json")),
+            rawtonic_fs::atomic_write(
+                &std::path::Path::new(&dir).join(format!("{n}_seg.json")),
                 dump.to_string(),
             )
             .unwrap();
@@ -265,7 +265,8 @@ fn write_upright_recipes() {
             println!("{path}\t{name}\tapplied {}", result.applied);
             let recipe = serde_json::json!({geometry::GUIDED_PERSPECTIVE.name(): {"enabled": true,
                 "lines": result.lines, "autoCrop": false, "upright": name}});
-            std::fs::write(out.join(format!("{n}_{name}.json")), recipe.to_string()).unwrap();
+            rawtonic_fs::atomic_write(&out.join(format!("{n}_{name}.json")), recipe.to_string())
+                .unwrap();
         }
     }
 }
