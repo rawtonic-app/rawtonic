@@ -1107,6 +1107,7 @@ pub(crate) fn import_pair(
                 None,
                 Some(ImportResult {
                     source: path.into(),
+                    duplicate_of: Some(asset.path.clone()),
                     destination: Some(asset.path),
                     asset_id: Some(asset.id),
                     skipped: true,

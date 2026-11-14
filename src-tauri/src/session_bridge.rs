@@ -566,6 +566,9 @@ fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
         }
         Err(e) => log::warn!("Renamed photographs not followed: {e:#}"),
     }
+    if lib.manifest.mode == rawtonic_catalog::Mode::Catalog {
+        duplicates.extend(copies_among(&mut new));
+    }
     if new.is_empty() {
         return Ok(duplicates);
     }
@@ -576,6 +579,43 @@ fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
         log::warn!("{} not added to the session: {error}", path.display());
     }
     Ok(duplicates)
+}
+
+/// Files of `new` with the content of an earlier one (name order) are
+/// removed from it and returned with that file: copies that arrive together
+/// are one photograph, as `add_batch` makes them one. Only files of the
+/// same size and sampled fingerprint are hashed.
+fn copies_among(new: &mut Vec<PathBuf>) -> Vec<SkippedDuplicate> {
+    use std::collections::HashMap;
+    new.sort();
+    let mut groups: HashMap<(u64, String), Vec<PathBuf>> = HashMap::new();
+    for path in new.iter() {
+        let key = fs::metadata(path)
+            .ok()
+            .map(|m| m.len())
+            .zip(rawtonic_catalog::fingerprint(path).ok());
+        if let Some(key) = key {
+            groups.entry(key).or_default().push(path.clone());
+        }
+    }
+    let mut copies = Vec::new();
+    for group in groups.into_values().filter(|group| group.len() > 1) {
+        let mut firsts: Vec<(String, PathBuf)> = Vec::new();
+        for path in group {
+            let Ok(hash) = rawtonic_ingest::sha256(&path) else {
+                continue;
+            };
+            match firsts.iter().find(|(known, _)| *known == hash) {
+                Some((_, of)) => copies.push(SkippedDuplicate {
+                    path,
+                    of: of.clone(),
+                }),
+                None => firsts.push((hash, path)),
+            }
+        }
+    }
+    new.retain(|path| !copies.iter().any(|copy| copy.path == *path));
+    copies
 }
 
 /// A file of the library's folder left out of the catalog because its
@@ -2484,6 +2524,19 @@ mod tests {
         // copy is never registered by it.
         assert_eq!(index_folder(&lib).unwrap().len(), 1);
         assert_eq!(lib.summary().unwrap().assets, 2);
+        // Copies that arrive together are one photograph: the first (in name
+        // order) is added, the others are duplicates of it.
+        let one = lib.directory.join("Photos/New_A.CR3");
+        let two = lib.directory.join("Photos/New_B.CR3");
+        fs::write(&one, b"a newly arrived photograph").unwrap();
+        fs::copy(&one, &two).unwrap();
+        let skipped = index_folder(&lib).unwrap();
+        assert!(skipped.contains(&SkippedDuplicate {
+            path: two.clone(),
+            of: one.clone()
+        }));
+        assert!(lib.asset_at(&one).unwrap().is_some());
+        assert!(lib.asset_at(&two).unwrap().is_none());
         // A session keeps every file of its folder.
         let temp2 = tempfile::tempdir().unwrap();
         let session = Library::create(temp2.path(), "Session", Mode::Session).unwrap();

@@ -1396,6 +1396,10 @@ mod tests {
             results[0]
         );
         assert!(results[1].skipped && results[1].companion_of.is_none());
+        assert!(
+            results[1].duplicate_of.is_some(),
+            "a JPEG the library holds is reported as a duplicate"
+        );
         assert_eq!(other.summary().unwrap().assets, 2);
         assert_eq!(names(&other.directory.join("Capture")), ["B.JPG", "B.NEF"]);
     }
