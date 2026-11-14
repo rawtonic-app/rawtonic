@@ -18,8 +18,8 @@ use crate::CatalogError;
 use crate::error::ensure;
 use crate::stacks::{Member, Stack};
 use crate::{
-    Library, Metadata, external_root_key, insert_root, portable_relative, prune_blobs,
-    valid_copy_id, write_metadata, write_recipe,
+    Library, Metadata, insert_root, portable_relative, prune_blobs, valid_copy_id, write_metadata,
+    write_recipe,
 };
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -924,6 +924,30 @@ impl Library {
             if let Some((target, "sha256")) = &found {
                 claimed.insert(target.clone());
             }
+            // A file this catalog holds already is that photograph (another
+            // row for one file is never added): the first of the other
+            // catalog's rows for it is compared with it, a further one is
+            // the same photograph again and brings nothing.
+            let found = match found {
+                Some(found) => Some(found),
+                None => match self.asset_at(&path)? {
+                    Some(here) if claimed.insert(here.id.clone()) => Some((here.id, "file")),
+                    Some(here) => {
+                        out.push(Incoming {
+                            id: asset.id,
+                            target: Some(here.id),
+                            matched_by: Some("file"),
+                            status: Status::Unchanged,
+                            changes: vec![],
+                            side: None,
+                            path,
+                            available,
+                        });
+                        continue;
+                    }
+                    None => None,
+                },
+            };
             let Some((target, by)) = found else {
                 out.push(Incoming {
                     id: asset.id,
@@ -1266,11 +1290,14 @@ fn add_new(tx: &Connection, lib: &Library, plan: &Plan) -> Result<()> {
          DELETE FROM temp.import_new;",
     )?;
     for (id, path) in &plan.new {
+        // The spelling the catalog registers (`asset_at`), so a file it holds
+        // under another spelling is found taken below.
+        let path = &crate::resolve_moved(path);
         let (root, rel) = match path.strip_prefix(&lib.directory) {
             Ok(relative) => ("session".to_string(), portable_relative(relative)?),
             Err(_) => {
                 let parent = path.parent().context("No parent")?;
-                let root = external_root_key(parent);
+                let root = crate::one_root::root_for(tx, parent)?;
                 insert_root(tx, &root, &parent.to_string_lossy())?;
                 (
                     root,
@@ -1282,6 +1309,10 @@ fn add_new(tx: &Connection, lib: &Library, plan: &Plan) -> Result<()> {
             "INSERT INTO temp.import_new(id,root,rel,missing) VALUES(?,?,?,?)",
             params![id, root, rel, !path.is_file()],
         )?;
+        log::info!(
+            "Import from Catalog adds {} as photograph {id} (record {root})",
+            path.display()
+        );
     }
     let taken: Option<String> = tx
         .query_row(

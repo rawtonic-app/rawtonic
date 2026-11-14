@@ -42,6 +42,9 @@
       "unreadable_one": "사진 {{count}}장을 비교할 수 없습니다",
       "unreadable_other": "사진 {{count}}장을 비교할 수 없습니다"
     },
+    "duplicatesMerged_other": "두 번 등록된 사진 {{count}}장을 합쳤습니다 — 이전 편집은 스냅숏으로 남아 있습니다",
+    "duplicatesMergedDetail": "이제 각 파일은 다시 사진 한 장입니다. 사진 파일은 바뀌지 않았습니다. 이전 카탈로그는 {{backup}}(으)로 저장되어 있습니다.",
+    "duplicatesMergedFields": "{{name}}: {{fields}}은(는) 다른 등록에서 가져왔습니다",
     "duplicatesNotAdded_other": "카탈로그 폴더의 중복 {{count}}개는 추가되지 않음 — 이미 카탈로그에 있음(예: {{name}})",
     "duplicatesNotAddedDetail": "내용이 카탈로그에 이미 있는 사진과 같습니다. ‘폴더 동기화’로 그래도 추가할 수 있습니다.",
     "empty": {

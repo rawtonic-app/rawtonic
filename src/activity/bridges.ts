@@ -381,6 +381,31 @@ export function syncSkippedDuplicates({ files }: SkippedDuplicates) {
   });
 }
 
+/** Mirrors `MergedReport` in src-tauri/src/session_bridge.rs. */
+export type MergedDuplicates = { files: { path: string; fields: string[] }[]; backup: string | null };
+
+/** Opening the catalog found files registered twice (two rows for one file)
+ * and merged each into one photo, keeping the other row's edit as a
+ * snapshot: said once, with the photos and where the catalog as it was is
+ * saved. */
+export function syncMergedDuplicates({ files, backup }: MergedDuplicates) {
+  if (files.length === 0) return;
+  useActivityStore.getState().report('done', {
+    id: 'library:duplicates-merged',
+    source: 'files',
+    title: i18n.t('activity.duplicatesMerged', { count: files.length }),
+    detail: `${i18n.t('activity.duplicatesMergedDetail', { backup: backup ? fileName(backup) : '' })}\n${files
+      .map(({ path, fields }) =>
+        fields.length > 0
+          ? i18n.t('activity.duplicatesMergedFields', { name: fileName(path), fields: fields.join(', ') })
+          : fileName(path)
+      )
+      .slice(0, 10)
+      .join('\n')}`,
+    paths: files.map((f) => f.path)
+  });
+}
+
 /** Tauri's `listen`, quiet without the native side (tests, `npm run dev`). */
 function listenSafely<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
   return Promise.resolve()
@@ -443,6 +468,7 @@ export function startActivityBridges(): () => void {
     listenSafely<DuplicatesProgress>(DUPLICATES_PROGRESS, syncDuplicatesProgress),
     listenSafely<LeftoversReport>('leftovers-removed', syncLeftovers),
     listenSafely<SkippedDuplicates>('library-duplicates-skipped', syncSkippedDuplicates),
+    listenSafely<MergedDuplicates>('library-duplicates-merged', syncMergedDuplicates),
     listenSafely<DuplicatesFinished>(DUPLICATES_FINISHED, syncDuplicatesFinished),
     // The eye check's background pass (`face_eyes`): progress and Cancel.
     listenSafely<{ done: number; total: number }>('eye-check-progress', ({ done, total }) => {
@@ -508,6 +534,12 @@ export function startActivityBridges(): () => void {
     .then(() => invoke<SkippedDuplicates | null>(Invokes.SessionMissedDuplicates))
     .then((missed) => {
       if (missed) syncSkippedDuplicates(missed);
+    })
+    .catch(() => {});
+  void Promise.all(listeners)
+    .then(() => invoke<MergedDuplicates | null>(Invokes.SessionMissedMergedDuplicates))
+    .then((missed) => {
+      if (missed) syncMergedDuplicates(missed);
     })
     .catch(() => {});
   return () => {

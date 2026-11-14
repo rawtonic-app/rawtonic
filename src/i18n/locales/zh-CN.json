@@ -42,6 +42,9 @@
       "unreadable_one": "{{count}} 张照片无法比较",
       "unreadable_other": "{{count}} 张照片无法比较"
     },
+    "duplicatesMerged_other": "{{count}} 张照片曾被登记两次，已合并 — 之前的编辑保留为快照",
+    "duplicatesMergedDetail": "每个文件重新只对应一张照片；照片文件均未改动。合并前的目录已保存为 {{backup}}。",
+    "duplicatesMergedFields": "{{name}}：{{fields}} 取自其另一条登记",
     "duplicatesNotAdded_other": "目录文件夹中的 {{count}} 个重复项未添加 — 目录中已有(例如 {{name}})",
     "duplicatesNotAddedDetail": "它们的内容与目录中已有的照片相同。仍可通过“同步文件夹”添加。",
     "empty": {

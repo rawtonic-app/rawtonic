@@ -42,6 +42,9 @@
       "unreadable_one": "{{count}} 枚の写真を比較できませんでした",
       "unreadable_other": "{{count}} 枚の写真を比較できませんでした"
     },
+    "duplicatesMerged_other": "二重に登録されていた写真 {{count}} 枚を統合しました — 以前の補正はスナップショットとして残っています",
+    "duplicatesMergedDetail": "各ファイルは再び 1 枚の写真になりました。写真ファイルは変更されていません。以前のカタログは {{backup}} として保存されています。",
+    "duplicatesMergedFields": "{{name}}：{{fields}} はもう一方の登録から引き継ぎました",
     "duplicatesNotAdded_other": "カタログのフォルダ内の重複 {{count}} 件は追加されませんでした — カタログに登録済み(例: {{name}})",
     "duplicatesNotAddedDetail": "内容がカタログ内の写真と同じです。「フォルダを同期」で追加することもできます。",
     "empty": {

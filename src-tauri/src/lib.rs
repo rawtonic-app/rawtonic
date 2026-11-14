@@ -906,6 +906,7 @@ fn start(args: Vec<String>) {
             session_bridge::session_summary,
             session_bridge::session_pending_xmp,
             session_bridge::session_missed_duplicates,
+            session_bridge::session_missed_merged_duplicates,
             session_bridge::session_write_pending_xmp,
             batch_journal::interrupted_batches,
             batch_journal::dismiss_interrupted_batch,

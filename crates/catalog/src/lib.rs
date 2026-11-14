@@ -38,6 +38,7 @@ pub mod image_hash;
 pub mod ingest_jobs;
 pub mod layout;
 mod migrations;
+pub mod one_root;
 pub mod query;
 pub mod session_folders;
 pub mod session_move;
@@ -452,6 +453,7 @@ impl Library {
             crash_after_publish: Default::default(),
         };
         library.plain_stored_paths()?;
+        library.merge_duplicate_roots()?;
         Ok(library)
     }
 
@@ -533,8 +535,10 @@ impl Library {
                 if left == 0 {
                     tx.execute("DELETE FROM roots WHERE id=?", [&id])?;
                 } else {
-                    // A photograph registered under both spellings stays on
-                    // its own record, found by the same plain path.
+                    // A photograph registered under both spellings: its
+                    // record takes the plain path too, and the two rows
+                    // become one photograph (`merge_duplicate_roots`, run
+                    // right after).
                     tx.execute(
                         "UPDATE roots SET path=?,volume_path=? WHERE id=?",
                         params![new_path, volume_path, id],
@@ -593,6 +597,21 @@ impl Library {
         )?;
         // Keywords are indexed trimmed as rules trim their values (Unicode
         // whitespace, `str::trim`), by the keyword triggers.
+        // A folder path's spelling-free form (`one_root::folder_key`).
+        conn.create_scalar_function(
+            one_root::FOLDER,
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(match ctx.get_raw(0) {
+                    rusqlite::types::ValueRef::Text(text) => {
+                        Some(one_root::folder_key(&String::from_utf8_lossy(text)))
+                    }
+                    _ => None,
+                })
+            },
+        )?;
         conn.create_scalar_function(
             "rawtonic_trim",
             1,
@@ -714,7 +733,31 @@ impl Library {
                 Err(_) => None,
             }
         } else {
-            self.conn.query_row("SELECT a.id FROM assets a JOIN roots r ON a.root_id=r.id WHERE r.external=1 AND r.path=? AND a.rel_path=?", params![path.parent().context("No parent")?.to_string_lossy().as_ref(),path.file_name().context("No filename")?.to_string_lossy().as_ref()], |r| r.get::<_, String>(0)).optional()?
+            {
+                // Any spelling of its folder (`folder_key`); the record
+                // registering picks (`root_for`) first.
+                let parent = path.parent().context("No parent")?;
+                let root = one_root::root_for(&self.conn, parent)?;
+                self.conn
+                    .query_row(
+                        &format!(
+                            "SELECT a.id FROM roots r JOIN assets a ON a.root_id=r.id AND a.rel_path=?2
+                             WHERE r.external=1 AND {folder}(r.path)={folder}(?1)
+                             ORDER BY r.id=?3 DESC, r.rowid LIMIT 1",
+                            folder = one_root::FOLDER
+                        ),
+                        params![
+                            parent.to_string_lossy().as_ref(),
+                            path.file_name()
+                                .context("No filename")?
+                                .to_string_lossy()
+                                .as_ref(),
+                            root
+                        ],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?
+            }
         };
         id.map(|id| self.asset(&id)).transpose()
     }
@@ -1673,7 +1716,7 @@ impl Library {
         } else if self.manifest.mode == Mode::Catalog || self.in_outside_folder(path) {
             let parent = path.parent().context("No parent")?;
             Some((
-                external_root_key(parent),
+                one_root::root_for(&self.conn, parent)?,
                 PathBuf::from(path.file_name().context("No filename")?),
                 parent.to_string_lossy().into_owned(),
             ))
@@ -2645,6 +2688,9 @@ fn insert_root(conn: &Connection, root: &str, root_path: &str) -> Result<()> {
         "INSERT OR IGNORE INTO roots(id,path,external) VALUES(?,?,?)",
         params![root, root_path, i32::from(external)],
     )?;
+    if added == 1 {
+        log::info!("Registered the folder {root_path} as record {root}");
+    }
     if added == 1
         && external
         && let Some(volume) = volume::volume_of(Path::new(root_path))
@@ -2685,7 +2731,7 @@ impl Library {
         );
         Ok(record_volume(
             &self.conn,
-            &external_root_key(&folder),
+            &one_root::root_for(&self.conn, &folder)?,
             volume,
         )?)
     }

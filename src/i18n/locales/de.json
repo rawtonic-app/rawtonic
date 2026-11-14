@@ -45,6 +45,10 @@
       "unreadable_one": "{{count}} Foto konnte nicht auf Duplikate verglichen werden",
       "unreadable_other": "{{count}} Fotos konnten nicht auf Duplikate verglichen werden"
     },
+    "duplicatesMerged_one": "{{count}} Foto war doppelt erfasst und wurde zusammengeführt – frühere Bearbeitungen bleiben als Schnappschüsse erhalten",
+    "duplicatesMerged_other": "{{count}} Fotos waren doppelt erfasst und wurden zusammengeführt – frühere Bearbeitungen bleiben als Schnappschüsse erhalten",
+    "duplicatesMergedDetail": "Jede Datei ist wieder ein Foto; an keiner Fotodatei wurde etwas geändert. Der Katalog wie zuvor ist als {{backup}} gesichert.",
+    "duplicatesMergedFields": "{{name}}: {{fields}} aus seinem anderen Eintrag übernommen",
     "duplicatesNotAdded_one": "{{count}} Duplikat im Katalogordner nicht hinzugefügt – schon im Katalog als {{name}}",
     "duplicatesNotAdded_other": "{{count}} Duplikate im Katalogordner nicht hinzugefügt – schon im Katalog, zum Beispiel als {{name}}",
     "duplicatesNotAddedDetail": "Ihr Inhalt gleicht einem Foto, das der Katalog schon enthält. Mit „Ordner synchronisieren“ lassen sie sich trotzdem hinzufügen.",

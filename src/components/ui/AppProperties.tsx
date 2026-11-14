@@ -82,6 +82,7 @@ export enum Invokes {
   SessionSummary = 'session_summary',
   SessionPendingXmp = 'session_pending_xmp',
   SessionMissedDuplicates = 'session_missed_duplicates',
+  SessionMissedMergedDuplicates = 'session_missed_merged_duplicates',
   SessionWritePendingXmp = 'session_write_pending_xmp',
   SessionSetFlag = 'session_set_flag',
   SessionOpen = 'session_open',
