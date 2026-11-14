@@ -524,6 +524,41 @@ fn keep_library_preserves_unheld_real_iptc_and_applies_explicit_core_and_extensi
     }
 }
 
+#[test]
+fn a_sidecar_the_library_never_read_is_listed_and_both_ways_out_work() {
+    // A library copied to another place: the catalog holds rating 4, the
+    // sidecar beside the photograph says 3 and was never adopted.
+    let f = unadopted_edit(&external_packet(3));
+    fs::remove_file(f.photo.with_file_name("e.arw.rrdata")).unwrap();
+    set_rating(&f, 4);
+    assert!(f.lib.sync_xmp(&f.id).is_err(), "catalog wins; no overwrite");
+    assert_eq!(state(&f), CONFLICT, "listed as a conflict to resolve");
+    // Nothing is written without the click.
+    assert!(
+        fs::read_to_string(&f.xmp)
+            .unwrap()
+            .contains(r#"Rating="3""#)
+    );
+    // Write the catalog's settings to the file.
+    f.lib.keep_library_xmp(&f.id).unwrap();
+    assert!(
+        fs::read_to_string(&f.xmp)
+            .unwrap()
+            .contains(r#"Rating="4""#)
+    );
+    assert_eq!(state(&f), None, "in sync afterwards");
+}
+
+#[test]
+fn reading_the_file_of_a_never_read_sidecar_adopts_its_settings() {
+    let f = unadopted_edit(&external_packet(3));
+    fs::remove_file(f.photo.with_file_name("e.arw.rrdata")).unwrap();
+    set_rating(&f, 4);
+    assert_eq!(state(&f), CONFLICT);
+    f.lib.use_xmp(&f.id).unwrap();
+    assert_eq!(f.lib.metadata(&f.id).unwrap().rating, 3);
+}
+
 /// A rating set while the sidecar holds another editor's older rating is
 /// the library's: it survives the quit, the next open's check and write of
 /// pending XMP, and the sidecar is neither replaced nor read back.

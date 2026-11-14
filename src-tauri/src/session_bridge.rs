@@ -651,15 +651,27 @@ pub const DUPLICATES_SKIPPED: &str = "library-duplicates-skipped";
 /// What [`report_skipped_duplicates`] tells the webview.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DuplicatesReport {
+pub struct DuplicatesReport {
     /// The files left out, with the photograph each copies (name order).
     files: Vec<DuplicateFile>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct DuplicateFile {
+pub struct DuplicateFile {
     path: PathBuf,
     of: PathBuf,
+}
+
+/// The last report no webview has picked up yet. A library that opens
+/// while the window starts (the last one, reopened) emits before the
+/// activity panel listens, so the panel asks for what it missed once its
+/// listener is there ([`session_missed_duplicates`]).
+static UNREAD_DUPLICATES: Mutex<Option<DuplicatesReport>> = Mutex::new(None);
+
+/// The report of the opening scan the panel has not seen, once.
+#[tauri::command]
+pub async fn session_missed_duplicates() -> Option<DuplicatesReport> {
+    crate::state::lock::lock_recover(&UNREAD_DUPLICATES).take()
 }
 
 fn report_skipped_duplicates(app: &tauri::AppHandle, duplicates: &[SkippedDuplicate]) {
@@ -679,7 +691,9 @@ fn report_skipped_duplicates(app: &tauri::AppHandle, duplicates: &[SkippedDuplic
         })
         .collect();
     files.sort_by(|a, b| a.path.cmp(&b.path));
-    let _ = app.emit(DUPLICATES_SKIPPED, DuplicatesReport { files });
+    let report = DuplicatesReport { files };
+    *crate::state::lock::lock_recover(&UNREAD_DUPLICATES) = Some(report.clone());
+    let _ = app.emit(DUPLICATES_SKIPPED, report);
 }
 
 /// Event: opening merged the rows of files registered twice
@@ -689,7 +703,7 @@ pub const DUPLICATES_MERGED: &str = "library-duplicates-merged";
 /// What [`report_merged_duplicates`] tells the webview.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MergedReport {
+pub struct MergedReport {
     /// The photographs whose rows were merged.
     files: Vec<MergedFile>,
     /// The catalog database as it was before (beside it).
@@ -698,10 +712,21 @@ struct MergedReport {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MergedFile {
+pub struct MergedFile {
     path: PathBuf,
     /// The metadata fields taken from the photograph's other record.
     fields: Vec<String>,
+}
+
+/// The merge report no webview has picked up yet (as
+/// [`UNREAD_DUPLICATES`]: a library reopened at start merges before the
+/// activity panel listens).
+static UNREAD_MERGED: Mutex<Option<MergedReport>> = Mutex::new(None);
+
+/// The merge report the panel has not seen, once.
+#[tauri::command]
+pub async fn session_missed_merged_duplicates() -> Option<MergedReport> {
+    crate::state::lock::lock_recover(&UNREAD_MERGED).take()
 }
 
 /// Says once what the library's repair of files registered twice merged
@@ -710,25 +735,24 @@ fn report_merged_duplicates(app: &tauri::AppHandle, lib: &Library) {
     use tauri::Emitter;
     match lib.take_duplicate_repair() {
         Ok(Some(repair)) if !repair.photos.is_empty() => {
-            let _ = app.emit(
-                DUPLICATES_MERGED,
-                MergedReport {
-                    files: repair
-                        .photos
-                        .into_iter()
-                        .map(|p| MergedFile {
-                            path: p.path,
-                            fields: p
-                                .taken
-                                .iter()
-                                .filter_map(|t| t.split(" <- ").next())
-                                .map(str::to_string)
-                                .collect(),
-                        })
-                        .collect(),
-                    backup: repair.backup,
-                },
-            );
+            let report = MergedReport {
+                files: repair
+                    .photos
+                    .into_iter()
+                    .map(|p| MergedFile {
+                        path: p.path,
+                        fields: p
+                            .taken
+                            .iter()
+                            .filter_map(|t| t.split(" <- ").next())
+                            .map(str::to_string)
+                            .collect(),
+                    })
+                    .collect(),
+                backup: repair.backup,
+            };
+            *crate::state::lock::lock_recover(&UNREAD_MERGED) = Some(report.clone());
+            let _ = app.emit(DUPLICATES_MERGED, report);
         }
         Ok(_) => {}
         Err(e) => log::warn!("Duplicate repair report not read: {e}"),
@@ -2275,6 +2299,15 @@ pub fn start_mount_watch(app: tauri::AppHandle) {
 pub struct CatalogFoldersView {
     pub catalog: bool,
     pub volumes: Vec<rawtonic_catalog::folders::VolumeFolders>,
+    /// Photographs copied into the catalog's own folder, by the folder they
+    /// are in (their counts; `volumes` lists only folders added in place).
+    pub internal: Vec<InternalFolder>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InternalFolder {
+    pub path: PathBuf,
+    pub photos: usize,
 }
 
 #[tauri::command]
@@ -2287,6 +2320,7 @@ pub async fn catalog_folders(
             return Ok(CatalogFoldersView {
                 catalog: false,
                 volumes: Vec::new(),
+                internal: Vec::new(),
             });
         }
         // As the Folders panel has them: it finds its trees by them.
@@ -2296,6 +2330,12 @@ pub async fn catalog_folders(
             volumes: lib
                 .folder_groups(&roots, &AppProbe)
                 .map_err(|e| e.to_string())?,
+            internal: lib
+                .internal_folder_counts()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(path, photos)| InternalFolder { path, photos })
+                .collect(),
         })
     })
     .await

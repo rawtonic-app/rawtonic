@@ -15,6 +15,8 @@ export interface FolderPlan {
   duplicates: number;
   /** The photograph the first duplicate copies. */
   duplicateOf?: string | null;
+  /** That first duplicate itself: the file left out. */
+  duplicateFile?: string | null;
   /** Folders that could not be read: their photos were left out. */
   unreadable: string[];
   owned: { library: string; name: string; count: number }[];

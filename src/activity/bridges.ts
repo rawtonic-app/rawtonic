@@ -527,6 +527,21 @@ export function startActivityBridges(): () => void {
       }
     )
   ];
+  // A library reopened at start scans before this listener exists: ask for
+  // the report it emitted meanwhile (the entry has one id, so a report seen
+  // both ways is still one).
+  void Promise.all(listeners)
+    .then(() => invoke<SkippedDuplicates | null>(Invokes.SessionMissedDuplicates))
+    .then((missed) => {
+      if (missed) syncSkippedDuplicates(missed);
+    })
+    .catch(() => {});
+  void Promise.all(listeners)
+    .then(() => invoke<MergedDuplicates | null>(Invokes.SessionMissedMergedDuplicates))
+    .then((missed) => {
+      if (missed) syncMergedDuplicates(missed);
+    })
+    .catch(() => {});
   return () => {
     for (const stop of stops) stop();
     for (const listener of listeners) void listener.then((stop) => stop());
