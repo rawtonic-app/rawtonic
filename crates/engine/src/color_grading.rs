@@ -19,6 +19,14 @@
 //!   global 1. x is the lightness after Balance, a logit shift.
 //! - Luminance acts like a tone curve per region: lifting is limited by the
 //!   headroom to white, lowering by the distance to black.
+//!
+//! `colorGradingVersion` 2 (`v2`, notes:
+//! benchmark-results/cg1-colour-grading-2026-11-15) refits what the slider
+//! atlas found off Camera Raw on 24 photographs: the Shadows and Highlights
+//! wheels get their own hue directions (which turn with lightness), ranges
+//! and Balance travel, lowering the Highlights luminance keeps white. The
+//! Midtones and Global wheels and the other luminances are version 1's.
+use crate::recipe_versions::ColorGradingVersion;
 use rawtonic_recipe::color;
 use serde_json::Value;
 
@@ -324,7 +332,15 @@ fn luminance_shift(region: usize, amount: f32, l: f32, grading: &Grading) -> f32
 }
 
 /// Oklab shift (dL, da, db) at display lightness `l`.
-pub fn shift(grading: &Grading, l: f32) -> [f32; 3] {
+pub fn shift(grading: &Grading, version: ColorGradingVersion, l: f32) -> [f32; 3] {
+    if version.per_wheel() {
+        v2::shift(grading, l)
+    } else {
+        shift_v1(grading, l)
+    }
+}
+
+fn shift_v1(grading: &Grading, l: f32) -> [f32; 3] {
     let t = &TINT;
     let x = shifted(l, grading.balance, t.balance);
     let tm = logistic((x - t.midtones[1]) / t.midtones[2]);
@@ -363,10 +379,139 @@ pub fn shift(grading: &Grading, l: f32) -> [f32; 3] {
     out
 }
 
+/// `colorGradingVersion` 2: what differs from the first response.
+mod v2 {
+    use super::*;
+
+    /// A Shadows or Highlights wheel.
+    pub(super) struct Wheel {
+        /// Balanced lightness (the weights' x) of the two hue tables;
+        /// between them the tint direction turns linearly, beyond them it
+        /// stays.
+        pub anchors: [f32; 2],
+        /// (da, db) per unit capacity at saturation 50, every 15 degrees of
+        /// Lightroom hue from 0, at the two anchors.
+        pub hue: [[[f32; 2]; 24]; 2],
+        /// Tint weights by balance-shifted lightness x = 0, 0.1 … 1, for
+        /// blending 0, 50 and 100.
+        pub weights: [[f32; 11]; 3],
+        /// Lightness change per unit colour shift.
+        pub lift: f32,
+        /// Balance: a logit shift of k · sign · (|balance| / 100)^q.
+        pub balance: [f32; 2],
+    }
+
+    /// Lowering the Highlights luminance: its own edge (offset and width
+    /// factor), gain, exponent of |l| / 50, exponents of the lightness and
+    /// of the room to white.
+    pub(super) struct HighlightsLowering {
+        pub offset: f32,
+        pub width_factor: f32,
+        pub gain: f32,
+        pub power: f32,
+        pub lightness: f32,
+        pub white_room: f32,
+    }
+
+    include!("color_grading_v2_tables.rs");
+
+    fn hue_vector(table: &[[f32; 2]; 24], hue: f32) -> [f32; 2] {
+        let x = hue.rem_euclid(360.0) / 15.0;
+        let i = (x as usize) % 24;
+        let f = x - x.floor();
+        let (a, b) = (table[i], table[(i + 1) % 24]);
+        [a[0] * (1.0 - f) + b[0] * f, a[1] * (1.0 - f) + b[1] * f]
+    }
+
+    fn balanced(l: f32, balance: f32, [k, q]: [f32; 2]) -> f32 {
+        let l = l.clamp(1.0e-4, 1.0 - 1.0e-4);
+        let travel = balance.signum() * (balance.abs() / 100.0).powf(q);
+        logistic((l / (1.0 - l)).ln() + k * if balance == 0.0 { 0.0 } else { travel })
+    }
+
+    /// (dL, da, db) of a Shadows or Highlights wheel at lightness `l`.
+    fn wheel_tint(model: &Wheel, wheel: &super::Wheel, grading: &Grading, l: f32) -> [f32; 3] {
+        let x = balanced(l, grading.balance, model.balance);
+        let scale =
+            table(&model.weights, grading.blending, x) * capacity(l) * wheel.saturation / 50.0;
+        let t = ((x - model.anchors[0]) / (model.anchors[1] - model.anchors[0])).clamp(0.0, 1.0);
+        let (dark, light) = (
+            hue_vector(&model.hue[0], wheel.hue),
+            hue_vector(&model.hue[1], wheel.hue),
+        );
+        let da = (dark[0] * (1.0 - t) + light[0] * t) * scale;
+        let db = (dark[1] * (1.0 - t) + light[1] * t) * scale;
+        [model.lift * da.hypot(db), da, db]
+    }
+
+    fn highlights_lowering(amount: f32, l: f32, grading: &Grading) -> f32 {
+        let (p, h) = (&LUMINANCE, &HIGHLIGHTS_LOWERING);
+        let x = shifted(l, grading.balance, p.balance);
+        let centre = by_blending(p.centre, grading.blending);
+        let width = by_blending(p.width, grading.blending) * h.width_factor;
+        -(amount.abs() / 50.0).powf(h.power)
+            * h.gain
+            * logistic((x - centre - h.offset) / width)
+            * l.max(0.0).powf(h.lightness)
+            * (1.0 - l).max(0.0).powf(h.white_room)
+    }
+
+    pub(super) fn shift(grading: &Grading, l: f32) -> [f32; 3] {
+        let t = &TINT;
+        let mut out = [0.0f32; 3];
+        for (model, wheel) in [
+            (&SHADOWS, &grading.shadows),
+            (&HIGHLIGHTS, &grading.highlights),
+        ] {
+            if wheel.saturation > 0.0 {
+                let tint = wheel_tint(model, wheel, grading, l);
+                for k in 0..3 {
+                    out[k] += tint[k];
+                }
+            }
+        }
+        // Midtones and Global as in the first response.
+        let x = shifted(l, grading.balance, t.balance);
+        let tm = logistic((x - t.midtones[1]) / t.midtones[2]);
+        let cap = capacity(l);
+        for (weight, wheel) in [
+            (
+                t.midtones[0] * (4.0 * tm * (1.0 - tm)).powf(t.midtones[3]),
+                &grading.midtones,
+            ),
+            (1.0, &grading.global),
+        ] {
+            if wheel.saturation > 0.0 {
+                let v = super::hue_vector(wheel.hue);
+                let scale = weight * cap * wheel.saturation / 50.0;
+                for k in 0..3 {
+                    out[k] += v[k] * scale;
+                }
+            }
+        }
+        for (region, wheel) in [
+            grading.shadows,
+            grading.midtones,
+            grading.highlights,
+            grading.global,
+        ]
+        .iter()
+        .enumerate()
+        {
+            out[0] += if region == 2 && wheel.luminance < 0.0 {
+                highlights_lowering(wheel.luminance, l, grading)
+            } else {
+                luminance_shift(region, wheel.luminance, l, grading)
+            };
+        }
+        out
+    }
+}
+
 /// The shader's grading table: (dL, da, db, 0) at L = i / (size − 1).
-pub fn lut(grading: &Grading) -> [[f32; 4]; GRADING_LUT_SIZE] {
+pub fn lut(grading: &Grading, version: ColorGradingVersion) -> [[f32; 4]; GRADING_LUT_SIZE] {
     std::array::from_fn(|i| {
-        let [dl, da, db] = shift(grading, i as f32 / (GRADING_LUT_SIZE - 1) as f32);
+        let [dl, da, db] = shift(grading, version, i as f32 / (GRADING_LUT_SIZE - 1) as f32);
         [dl, da, db, 0.0]
     })
 }
@@ -376,10 +521,15 @@ mod tests {
     /// Writes the grading response as JSON to `$GRADING_RESPONSE`: per
     /// region (shadows, midtones, highlights, global), the shift at
     /// saturation 50 for hues 0–355° in 5° steps and luminance ±50, at
-    /// display lightness 0, 0.1 … 1 (for fitting importers).
+    /// display lightness 0, 0.1 … 1 (for fitting importers);
+    /// `GRADING_VERSION` chooses the response (default: the newest).
     #[test]
     #[ignore = "tool: needs GRADING_RESPONSE"]
     fn write_grading_response() {
+        let version = ColorGradingVersion::of(&json!({
+            "colorGradingVersion": std::env::var("GRADING_VERSION")
+                .map_or(crate::image_processing::COLOR_GRADING_VERSION, |v| v.parse().unwrap())
+        }));
         let ls: Vec<f32> = (0..=10).map(|i| i as f32 / 10.0).collect();
         let mut regions = Vec::new();
         for region in 0..4 {
@@ -407,7 +557,7 @@ mod tests {
                         saturation: 50.0,
                         luminance: 0.0,
                     });
-                    ls.iter().map(|&l| shift(&g, l)).collect()
+                    ls.iter().map(|&l| shift(&g, version, l)).collect()
                 })
                 .collect();
             let lum: Vec<Vec<f32>> = [-50.0f32, 50.0]
@@ -418,7 +568,7 @@ mod tests {
                         saturation: 0.0,
                         luminance: amount,
                     });
-                    ls.iter().map(|&l| shift(&g, l)[0]).collect()
+                    ls.iter().map(|&l| shift(&g, version, l)[0]).collect()
                 })
                 .collect();
             regions.push(serde_json::json!({ "hues": hues, "luminance": lum }));
@@ -430,8 +580,38 @@ mod tests {
         .unwrap();
     }
 
+    /// Prints the time of one table per response (the work a wheel drag
+    /// adds per frame on the CPU; the shader is the same for both).
+    #[test]
+    #[ignore = "tool: timing"]
+    fn table_timing() {
+        let g = grading(json!({
+            "shadows": {"hue": 220, "saturation": 50, "luminance": -20},
+            "midtones": {"hue": 120, "saturation": 30, "luminance": 10},
+            "highlights": {"hue": 40, "saturation": 60, "luminance": -40},
+            "global": {"hue": 300, "saturation": 10, "luminance": 5},
+            "blending": 70, "balance": -30,
+        }));
+        for v in versions() {
+            let start = std::time::Instant::now();
+            let mut sum = 0.0f32;
+            for _ in 0..10_000 {
+                sum += std::hint::black_box(lut(std::hint::black_box(&g), v))[9][1];
+            }
+            eprintln!(
+                "colorGradingVersion {}: {:.2} µs per table ({sum})",
+                v.get(),
+                start.elapsed().as_secs_f64() * 100.0
+            );
+        }
+    }
+
     use super::*;
     use serde_json::json;
+
+    fn versions() -> [ColorGradingVersion; 2] {
+        [1, 2].map(|v| ColorGradingVersion::of(&json!({ "colorGradingVersion": v })))
+    }
 
     #[test]
     fn neutral_grading_is_detected() {
@@ -453,65 +633,156 @@ mod tests {
 
     #[test]
     fn blending_moves_the_shadow_and_highlight_edges() {
-        let shadows = |blending: f32| {
-            grading(json!({"shadows": {"hue": 0, "saturation": 50}, "blending": blending}))
-        };
-        // Blending 0 keeps the shadow tint out of the light tones, 100 lets
-        // it reach past the middle (Camera Raw).
-        assert!(chroma(shift(&shadows(0.0), 0.7)) < 0.002);
-        assert!(chroma(shift(&shadows(100.0), 0.7)) > 0.02);
-        assert!(chroma(shift(&shadows(0.0), 0.2)) > 0.03);
-        let highlights =
-            grading(json!({"highlights": {"hue": 40, "saturation": 50}, "blending": 0}));
-        assert!(chroma(shift(&highlights, 0.4)) < 0.002);
-        assert!(chroma(shift(&highlights, 0.85)) > 0.02);
+        for v in versions() {
+            let shadows = |blending: f32| {
+                grading(json!({"shadows": {"hue": 0, "saturation": 50}, "blending": blending}))
+            };
+            // Blending 0 keeps the shadow tint out of the light tones, 100
+            // lets it reach past the middle (Camera Raw).
+            assert!(chroma(shift(&shadows(0.0), v, 0.7)) < 0.002);
+            assert!(chroma(shift(&shadows(100.0), v, 0.7)) > 0.02);
+            assert!(chroma(shift(&shadows(0.0), v, 0.2)) > 0.03);
+            let highlights =
+                grading(json!({"highlights": {"hue": 40, "saturation": 50}, "blending": 0}));
+            assert!(chroma(shift(&highlights, v, 0.4)) < 0.002);
+            assert!(chroma(shift(&highlights, v, 0.85)) > 0.02);
+        }
     }
 
     #[test]
     fn balance_extends_the_highlight_tint_downwards() {
-        let at = |balance: f32| {
-            let g =
-                grading(json!({"highlights": {"hue": 40, "saturation": 50}, "balance": balance}));
-            chroma(shift(&g, 0.5))
-        };
-        assert!(at(100.0) > 2.0 * at(0.0));
-        assert!(at(-100.0) < 0.5 * at(0.0));
+        for v in versions() {
+            let at = |balance: f32| {
+                let g = grading(
+                    json!({"highlights": {"hue": 40, "saturation": 50}, "balance": balance}),
+                );
+                chroma(shift(&g, v, 0.5))
+            };
+            assert!(at(100.0) > 2.0 * at(0.0));
+            assert!(at(-100.0) < 0.5 * at(0.0));
+        }
     }
 
     #[test]
     fn hue_follows_lightrooms_wheel() {
-        // Hue 0 tints towards red (+a), 240 towards blue (−b).
-        let red = shift(
-            &grading(json!({"global": {"hue": 0, "saturation": 50}})),
-            0.5,
-        );
-        assert!(red[1] > 0.04 && red[2].abs() < red[1] * 0.3);
-        let blue = shift(
-            &grading(json!({"global": {"hue": 240, "saturation": 50}})),
-            0.5,
-        );
-        assert!(blue[2] < -0.03 && blue[0] < 0.0);
+        for v in versions() {
+            // Hue 0 tints towards red (+a), 240 towards blue (−b), on every
+            // wheel.
+            for wheel in ["shadows", "midtones", "highlights", "global"] {
+                let red = shift(
+                    &grading(json!({wheel: {"hue": 0, "saturation": 50}})),
+                    v,
+                    0.5,
+                );
+                assert!(red[1] > 0.0 && red[2].abs() < red[1] * 0.3, "{wheel}");
+                let blue = shift(
+                    &grading(json!({wheel: {"hue": 240, "saturation": 50}})),
+                    v,
+                    0.5,
+                );
+                assert!(blue[2] < 0.0 && blue[1].abs() < -blue[2] * 0.3, "{wheel}");
+            }
+            let red = shift(
+                &grading(json!({"global": {"hue": 0, "saturation": 50}})),
+                v,
+                0.5,
+            );
+            assert!(red[1] > 0.04);
+            let blue = shift(
+                &grading(json!({"global": {"hue": 240, "saturation": 50}})),
+                v,
+                0.5,
+            );
+            assert!(blue[2] < -0.03 && blue[0] < 0.0);
+        }
     }
 
     #[test]
     fn luminance_keeps_black_and_white() {
-        let up = grading(json!({"global": {"luminance": 100}}));
-        let down = grading(json!({"global": {"luminance": -100}}));
-        assert!(shift(&up, 0.5)[0] > 0.02);
-        assert!(shift(&down, 0.5)[0] < -0.02);
-        assert!(shift(&up, 1.0)[0].abs() < 1.0e-4);
-        assert!(shift(&down, 0.0)[0].abs() < 1.0e-4);
-        // Shadow luminance lifts the deepest tones most.
-        let shadows = grading(json!({"shadows": {"luminance": 100}}));
-        assert!(shift(&shadows, 0.1)[0] > shift(&shadows, 0.5)[0]);
+        for v in versions() {
+            let up = grading(json!({"global": {"luminance": 100}}));
+            let down = grading(json!({"global": {"luminance": -100}}));
+            assert!(shift(&up, v, 0.5)[0] > 0.02);
+            assert!(shift(&down, v, 0.5)[0] < -0.02);
+            assert!(shift(&up, v, 1.0)[0].abs() < 1.0e-4);
+            assert!(shift(&down, v, 0.0)[0].abs() < 1.0e-4);
+            // Shadow luminance lifts the deepest tones most.
+            let shadows = grading(json!({"shadows": {"luminance": 100}}));
+            assert!(shift(&shadows, v, 0.1)[0] > shift(&shadows, v, 0.5)[0]);
+        }
     }
 
     #[test]
     fn neutral_grading_has_an_empty_table() {
-        assert!(
-            lut(&Grading::default())
-                .iter()
-                .all(|row| row.iter().all(|v| *v == 0.0))
+        for v in versions() {
+            assert!(
+                lut(&Grading::default(), v)
+                    .iter()
+                    .all(|row| row.iter().all(|v| *v == 0.0))
+            );
+        }
+    }
+
+    /// Recipes without `colorGradingVersion` keep the first response bit for
+    /// bit (values of the table before version 2 existed).
+    #[test]
+    fn the_first_response_is_unchanged() {
+        let g = grading(json!({
+            "shadows": {"hue": 220, "saturation": 50, "luminance": -20},
+            "midtones": {"hue": 120, "saturation": 30, "luminance": 10},
+            "highlights": {"hue": 40, "saturation": 60, "luminance": -40},
+            "global": {"hue": 300, "saturation": 10, "luminance": 5},
+            "blending": 70, "balance": -30,
+        }));
+        let first = lut(&g, ColorGradingVersion::FIRST);
+        assert_eq!(first, lut(&g, ColorGradingVersion::of(&json!({}))));
+        for (i, row) in [0usize, 9, 20, 31].iter().zip(PINNED_FIRST) {
+            for k in 0..3 {
+                assert!(
+                    (first[*i][k] - row[k]).abs() < 2.0e-6,
+                    "entry {i}: {:?}",
+                    first[*i]
+                );
+            }
+        }
+    }
+
+    const PINNED_FIRST: [[f32; 3]; 4] = [
+        [4.306869e-5, 0.0, 0.0],
+        [-0.010716482, -0.014270613, -0.03625285],
+        [0.002296502, -0.031681065, -0.0033103623],
+        [-0.06727066, 0.0, 0.0],
+    ];
+
+    /// Version 2 moves what it was fitted for and leaves the Midtones and
+    /// Global wheels and the other luminances as they were.
+    #[test]
+    fn version_2_changes_shadows_highlights_and_balance_only() {
+        let [v1, v2] = versions();
+        for value in [
+            json!({"midtones": {"hue": 30, "saturation": 50, "luminance": -30}}),
+            json!({"global": {"hue": 210, "saturation": 80, "luminance": 40}}),
+            json!({"shadows": {"luminance": -60}, "highlights": {"luminance": 70}}),
+        ] {
+            let g = grading(value);
+            assert_eq!(lut(&g, v1), lut(&g, v2));
+        }
+        // The highlight tint is weaker in the light tones (Camera Raw's is).
+        let highlights = grading(json!({"highlights": {"hue": 120, "saturation": 50}}));
+        let (a, b) = (
+            chroma(shift(&highlights, v1, 0.85)),
+            chroma(shift(&highlights, v2, 0.85)),
         );
+        assert!(b < 0.9 * a && b > 0.6 * a, "{a} {b}");
+        // Lowering the Highlights luminance leaves white where it is.
+        let lowered = grading(json!({"highlights": {"luminance": -100}}));
+        assert!(shift(&lowered, v2, 1.0)[0].abs() < 1.0e-4);
+        assert!(shift(&lowered, v2, 0.97)[0].abs() < shift(&lowered, v1, 0.97)[0].abs());
+        // Balance −50 moves the shadow range less than half as far as −100.
+        let shadows = |balance: f32| {
+            grading(json!({"shadows": {"hue": 220, "saturation": 50}, "balance": balance}))
+        };
+        let reach = |balance: f32| chroma(shift(&shadows(balance), v2, 0.6));
+        assert!(reach(-50.0) - reach(0.0) < 0.5 * (reach(-100.0) - reach(0.0)));
     }
 }

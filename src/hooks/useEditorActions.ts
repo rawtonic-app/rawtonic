@@ -23,7 +23,7 @@ import {
   sameAdjustmentValue,
   withAiDenoiseVersion,
   withBwVersion,
-  withHslVersion,
+  withColourVersions,
   withDetailVersions,
   withWhiteBalanceVersions,
   withVibranceVersion,
@@ -1503,7 +1503,7 @@ export function useEditorActions() {
       const grain = withGrainStructure(photoFree);
       let adjustmentsToApply = asChosen
         ? grain
-        : withHslVersion(
+        : withColourVersions(
             withBwVersion(
               withVibranceVersion(
                 withDetailVersions(

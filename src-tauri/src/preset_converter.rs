@@ -786,6 +786,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             recipe_color::COLOR_GRADING.name().to_string(),
             Value::Object(color_grading_map),
         );
+        // Lightroom's wheel values: the response fitted to it.
+        adjustments.insert(
+            rawtonic_engine::image_processing::COLOR_GRADING_VERSION_KEY.to_string(),
+            json!(rawtonic_engine::image_processing::COLOR_GRADING_VERSION),
+        );
     }
 
     // Post-crop vignette style (1 highlight priority, 2 colour priority,

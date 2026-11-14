@@ -140,6 +140,7 @@ interface OldAdjustments {
   defringeVersion?: number;
   bwVersion?: number;
   hslVersion?: number;
+  colorGradingVersion?: number;
   sharpenVersion?: number;
   lumaNoiseVersion?: number;
   renderVersion?: number;
