@@ -85,6 +85,18 @@ override DEHAZE_V3: bool = false;
 // code is unchanged. `show_clipping` says what it shows: SHARPEN_VIEW_MASK
 // the Masking mask (white = sharpened), SHARPEN_VIEW_GREY the photo in grey.
 override SHARPEN_VIEW: bool = false;
+// Sharpening and luminance noise reduction in reduced renders as up to
+// 0.1.0-alpha.13: the kernels' σ and the noise level scaled directly with
+// `detail_scale` (σ floored at 0.25 px), without the reduced renders'
+// variance-matched kernels and full-resolution noise level (`sharpen_sigma`,
+// `sharpen_fir`, `luma_nr_sigma`). Set only for the general high-precision
+// pipelines (gpu_processing.rs `LEGACY_DETAIL`), which render the CPU
+// exports of recipes older than renderVersion 5. At full size the maths is
+// the same either way, but Metal compiled the newer expressions to other
+// bytes (±1 of 65,535 in 9–64 pixels of 24 MP 16-bit TIFFs, 72 of 120
+// saved-recipe exports; notes: parity-gaps/G16), and exports stay
+// byte-identical across changes.
+override LEGACY_DETAIL_SCALE: bool = false;
 // The colour mixer's and B&W mix's input probes (the targeted adjustment's
 // sample, `output_space.w` = MIXER_INPUT_PROBE or BW_INPUT_PROBE): compiled
 // only into display variants (gpu_processing.rs `variant_constants`), so
@@ -5817,7 +5829,7 @@ fn apply_sharpen(
     // Threshold keeps noise from being sharpened. The radius is in original
     // pixels, so scaled-down previews show it smaller, as in Lightroom.
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
-    let sigma = sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2);
+    let sigma = select(sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2), max(SHARPEN_RADIUS * detail_scale, 0.25), LEGACY_DETAIL_SCALE);
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
     var blur_w = 0.0;
@@ -5900,15 +5912,20 @@ fn apply_sharpen_extended(
         detail > 0.0,
     );
     let full_reach = sharpen_reach(radius, tilt, max(SHARPEN_RADIUS * radius_shape, 0.25));
-    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach);
+    let sigma = select(
+        sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach),
+        max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25),
+        LEGACY_DETAIL_SCALE,
+    );
     let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale, full_reach);
     let narrow_fir = sharpen_fir(SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
     let wide_fir = sharpen_fir(2.0 * SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
-    let reach = max(select(
+    let scaled_reach = select(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
+    );
+    let reach = select(max(scaled_reach, select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5)), scaled_reach, LEGACY_DETAIL_SCALE);
     var wide_sum = 0.0;
     var wide_w = 0.0;
 
@@ -5918,14 +5935,22 @@ fn apply_sharpen_extended(
     var blur_w = 0.0;
     for (var sy = -reach; sy <= reach; sy = sy + 1) {
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
-            let w = sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy);
+            let w = select(
+                sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy),
+                exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)),
+                LEGACY_DETAIL_SCALE,
+            );
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
             let p = sharpen_perc(load_input(c).rgb, is_raw);
             blur_sum += p * w;
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy);
+                let w2 = select(
+                    sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy),
+                    exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma)),
+                    LEGACY_DETAIL_SCALE,
+                );
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6060,15 +6085,20 @@ fn apply_sharpen_v2(
         detail > 0.0,
     ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up) * tilt_radius, detail >= 0.0);
     let full_reach = sharpen_reach(radius, tilt, max(SHARPEN_RADIUS * radius_shape, 0.25));
-    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach);
+    let sigma = select(
+        sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach),
+        max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25),
+        LEGACY_DETAIL_SCALE,
+    );
     let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale, full_reach);
     let narrow_fir = sharpen_fir(SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
     let wide_fir = sharpen_fir(2.0 * SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
-    let reach = max(select(
+    let scaled_reach = select(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
+    );
+    let reach = select(max(scaled_reach, select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5)), scaled_reach, LEGACY_DETAIL_SCALE);
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
@@ -6078,14 +6108,22 @@ fn apply_sharpen_v2(
     var wide_w = 0.0;
     for (var sy = -reach; sy <= reach; sy = sy + 1) {
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
-            let w = sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy);
+            let w = select(
+                sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy),
+                exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)),
+                LEGACY_DETAIL_SCALE,
+            );
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
             let p = sharpen_perc(load_input(c).rgb, is_raw);
             blur_sum += p * w;
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy);
+                let w2 = select(
+                    sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy),
+                    exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma)),
+                    LEGACY_DETAIL_SCALE,
+                );
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6199,15 +6237,20 @@ fn apply_sharpen_v4(
         detail > 0.0,
     ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up) * tilt_radius, detail >= 0.0);
     let full_reach = sharpen_reach(radius, tilt, max(SHARPEN_RADIUS * radius_shape, 0.25));
-    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach);
+    let sigma = select(
+        sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach),
+        max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25),
+        LEGACY_DETAIL_SCALE,
+    );
     let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale, full_reach);
     let narrow_fir = sharpen_fir(SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
     let wide_fir = sharpen_fir(2.0 * SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
-    let reach = max(select(
+    let scaled_reach = select(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
+    );
+    let reach = select(max(scaled_reach, select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5)), scaled_reach, LEGACY_DETAIL_SCALE);
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
@@ -6223,14 +6266,22 @@ fn apply_sharpen_v4(
     var m_w = 0.0;
     for (var sy = -reach; sy <= reach; sy = sy + 1) {
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
-            let w = sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy);
+            let w = select(
+                sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy),
+                exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)),
+                LEGACY_DETAIL_SCALE,
+            );
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
             let p = sharpen_perc(load_input(c).rgb, is_raw);
             blur_sum += p * w;
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy);
+                let w2 = select(
+                    sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy),
+                    exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma)),
+                    LEGACY_DETAIL_SCALE,
+                );
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6252,7 +6303,7 @@ fn apply_sharpen_v4(
     // and above Radius 1).
     var kernel_ratio = 1.0;
     if (radius < 1.0) {
-        let sigma_1 = sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2);
+        let sigma_1 = select(sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2), max(SHARPEN_RADIUS * detail_scale, 0.25), LEGACY_DETAIL_SCALE);
         let fir_1 = sharpen_fir(SHARPEN_RADIUS, 2, detail_scale);
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
@@ -6260,7 +6311,7 @@ fn apply_sharpen_v4(
                 w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
             }
         }
-        if (fir_1.x > 0.5) {
+        if (!LEGACY_DETAIL_SCALE && fir_1.x > 0.5) {
             w_1 = sharpen_fir_sum(fir_1);
         }
         kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
@@ -6379,15 +6430,20 @@ fn apply_sharpen_v5(
         detail > 0.0,
     ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up) * tilt_radius, detail >= 0.0);
     let full_reach = sharpen_reach(radius, tilt, max(SHARPEN_RADIUS * radius_shape, 0.25));
-    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach);
+    let sigma = select(
+        sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach),
+        max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25),
+        LEGACY_DETAIL_SCALE,
+    );
     let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale, full_reach);
     let narrow_fir = sharpen_fir(SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
     let wide_fir = sharpen_fir(2.0 * SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
-    let reach = max(select(
+    let scaled_reach = select(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
+    );
+    let reach = select(max(scaled_reach, select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5)), scaled_reach, LEGACY_DETAIL_SCALE);
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
@@ -6403,14 +6459,22 @@ fn apply_sharpen_v5(
     var m_w = 0.0;
     for (var sy = -reach; sy <= reach; sy = sy + 1) {
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
-            let w = sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy);
+            let w = select(
+                sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy),
+                exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)),
+                LEGACY_DETAIL_SCALE,
+            );
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
             let p = sharpen_perc(load_input(c).rgb, is_raw);
             blur_sum += p * w;
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy);
+                let w2 = select(
+                    sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy),
+                    exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma)),
+                    LEGACY_DETAIL_SCALE,
+                );
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6432,7 +6496,7 @@ fn apply_sharpen_v5(
     // and above Radius 1).
     var kernel_ratio = 1.0;
     if (radius < 1.0) {
-        let sigma_1 = sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2);
+        let sigma_1 = select(sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2), max(SHARPEN_RADIUS * detail_scale, 0.25), LEGACY_DETAIL_SCALE);
         let fir_1 = sharpen_fir(SHARPEN_RADIUS, 2, detail_scale);
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
@@ -6440,7 +6504,7 @@ fn apply_sharpen_v5(
                 w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
             }
         }
-        if (fir_1.x > 0.5) {
+        if (!LEGACY_DETAIL_SCALE && fir_1.x > 0.5) {
             w_1 = sharpen_fir_sum(fir_1);
         }
         kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
@@ -6589,15 +6653,20 @@ fn apply_sharpen_v7(
         detail > 0.0,
     ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up) * tilt_radius, detail >= 0.0);
     let full_reach = sharpen_reach(radius, tilt, max(SHARPEN_RADIUS * radius_shape, 0.25));
-    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach);
+    let sigma = select(
+        sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach),
+        max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25),
+        LEGACY_DETAIL_SCALE,
+    );
     let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale, full_reach);
     let narrow_fir = sharpen_fir(SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
     let wide_fir = sharpen_fir(2.0 * SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
-    let reach = max(select(
+    let scaled_reach = select(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
+    );
+    let reach = select(max(scaled_reach, select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5)), scaled_reach, LEGACY_DETAIL_SCALE);
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
@@ -6613,14 +6682,22 @@ fn apply_sharpen_v7(
     var m_w = 0.0;
     for (var sy = -reach; sy <= reach; sy = sy + 1) {
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
-            let w = sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy);
+            let w = select(
+                sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy),
+                exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)),
+                LEGACY_DETAIL_SCALE,
+            );
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
             let p = sharpen_perc(load_input(c).rgb, is_raw);
             blur_sum += p * w;
             blur_sq += p * p * w;
             blur_w += w;
             if (tilt != 0.0) {
-                let w2 = sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy);
+                let w2 = select(
+                    sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy),
+                    exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma)),
+                    LEGACY_DETAIL_SCALE,
+                );
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6642,7 +6719,7 @@ fn apply_sharpen_v7(
     // and above Radius 1).
     var kernel_ratio = 1.0;
     if (radius < 1.0) {
-        let sigma_1 = sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2);
+        let sigma_1 = select(sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2), max(SHARPEN_RADIUS * detail_scale, 0.25), LEGACY_DETAIL_SCALE);
         let fir_1 = sharpen_fir(SHARPEN_RADIUS, 2, detail_scale);
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
@@ -6650,7 +6727,7 @@ fn apply_sharpen_v7(
                 w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
             }
         }
-        if (fir_1.x > 0.5) {
+        if (!LEGACY_DETAIL_SCALE && fir_1.x > 0.5) {
             w_1 = sharpen_fir_sum(fir_1);
         }
         kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
@@ -6785,15 +6862,20 @@ fn apply_sharpen_v8(
         detail > 0.0,
     ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up) * tilt_radius, detail >= 0.0);
     let full_reach = sharpen_reach(radius, tilt, max(SHARPEN_RADIUS * radius_shape, 0.25));
-    let sigma = sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach);
+    let sigma = select(
+        sharpen_sigma(SHARPEN_RADIUS * radius_shape, detail_scale, full_reach),
+        max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25),
+        LEGACY_DETAIL_SCALE,
+    );
     let wide_den = sharpen_wide_den(SHARPEN_RADIUS * radius_shape, sigma, detail_scale, full_reach);
     let narrow_fir = sharpen_fir(SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
     let wide_fir = sharpen_fir(2.0 * SHARPEN_RADIUS * radius_shape, full_reach, detail_scale);
-    let reach = max(select(
+    let scaled_reach = select(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
         radius > 1.0,
-    ), select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5));
+    );
+    let reach = select(max(scaled_reach, select(0, 3, narrow_fir.x > 0.5 || wide_fir.x > 0.5)), scaled_reach, LEGACY_DETAIL_SCALE);
 
     let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     // The spreads are summed around this pixel's own value, not around 0:
@@ -6816,7 +6898,11 @@ fn apply_sharpen_v8(
     var m_w = 0.0;
     for (var sy = -reach; sy <= reach; sy = sy + 1) {
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
-            let w = sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy);
+            let w = select(
+                sharpen_weight(narrow_fir, exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)), sx, sy),
+                exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma)),
+                LEGACY_DETAIL_SCALE,
+            );
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
             let p = sharpen_perc(load_input(c).rgb, is_raw);
             blur_sum += p * w;
@@ -6825,7 +6911,11 @@ fn apply_sharpen_v8(
             blur_w += w;
             blur_w2 += w * w;
             if (tilt != 0.0) {
-                let w2 = sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy);
+                let w2 = select(
+                    sharpen_weight(wide_fir, exp(-f32(sx * sx + sy * sy) / wide_den), sx, sy),
+                    exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma)),
+                    LEGACY_DETAIL_SCALE,
+                );
                 wide_sum += p * w2;
                 wide_w += w2;
             }
@@ -6849,7 +6939,7 @@ fn apply_sharpen_v8(
     // and above Radius 1).
     var kernel_ratio = 1.0;
     if (radius < 1.0) {
-        let sigma_1 = sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2);
+        let sigma_1 = select(sharpen_sigma(SHARPEN_RADIUS, detail_scale, 2), max(SHARPEN_RADIUS * detail_scale, 0.25), LEGACY_DETAIL_SCALE);
         let fir_1 = sharpen_fir(SHARPEN_RADIUS, 2, detail_scale);
         var w_1 = 0.0;
         for (var ky = -2; ky <= 2; ky = ky + 1) {
@@ -6857,7 +6947,7 @@ fn apply_sharpen_v8(
                 w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
             }
         }
-        if (fir_1.x > 0.5) {
+        if (!LEGACY_DETAIL_SCALE && fir_1.x > 0.5) {
             w_1 = sharpen_fir_sum(fir_1);
         }
         kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
@@ -6875,7 +6965,7 @@ fn apply_sharpen_v8(
     // to 1.6× (Radius 2.5) and 2.8× (Radius 2.5, Detail 100) the sharpening
     // of the export scaled down at ISO 6400–12800 (notes:
     // benchmark-results/tpx-thumb-parity-2026-11-12, TPX2).
-    let noise = adjustments.global.noise_level;
+    let noise = select(adjustments.global.noise_level, adjustments.global.noise_level * min(detail_scale, 1.0), LEGACY_DETAIL_SCALE);
     // What the mask view shows: the noise gate times Masking's.
     var view_gate = 1.0;
     if (noise > 0.0) {
@@ -7939,7 +8029,7 @@ fn apply_noise_reduction_default(
     if (luma_a > 0.001) {
         let detail = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
         let measured = select(LUMA_NR_DEFAULT_NOISE, adjustments.global.noise_level, adjustments.global.noise_level > 0.0);
-        let sigma_n = luma_nr_sigma(measured);
+        let sigma_n = select(luma_nr_sigma(measured), max(measured * clamp(detail, 0.05, 1.0), 1e-4), LEGACY_DETAIL_SCALE);
         let k = luma_nr_threshold(luma_a) * sigma_n;
         let noise = vec2<f32>(
             k * LUMA_NR_BAND_NOISE_0 * LUMA_NR_BAND_WEIGHT_0,
@@ -8009,7 +8099,7 @@ fn apply_noise_reduction_default(
         // Edges carry energy at every scale, noise mostly at the finest:
         // the finest band also stays where the coarser one stood out.
         var keep_edges = vec2<f32>(max(keep_own.x, keep_own.y * keep_own.y * LUMA_NR_CROSS_SCALE), keep_own.y);
-        if (detail < 1.0) {
+        if (!LEGACY_DETAIL_SCALE && detail < 1.0) {
             keep_edges.y = luma_nr_reduced_coarse_keep(keep_own.y, detail);
         }
         // A uniform share of every band stays: switching between kept and
@@ -8185,7 +8275,7 @@ fn apply_noise_reduction_refined(
     if (luma_a > 0.001) {
         let detail = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
         let measured = select(LUMA_NR_DEFAULT_NOISE, adjustments.global.noise_level, adjustments.global.noise_level > 0.0);
-        let sigma_n = luma_nr_sigma(measured);
+        let sigma_n = select(luma_nr_sigma(measured), max(measured * clamp(detail, 0.05, 1.0), 1e-4), LEGACY_DETAIL_SCALE);
         let refine = adjustments.global.noise_detail;
         // Factors only away from the defaults: exp2(0) is not exactly 1 on
         // every GPU, and default edits must render as before.
@@ -8261,7 +8351,7 @@ fn apply_noise_reduction_refined(
         // Edges carry energy at every scale, noise mostly at the finest:
         // the finest band also stays where the coarser one stood out.
         var keep_edges = vec2<f32>(max(keep_own.x, keep_own.y * keep_own.y * LUMA_NR_CROSS_SCALE), keep_own.y);
-        if (detail < 1.0) {
+        if (!LEGACY_DETAIL_SCALE && detail < 1.0) {
             keep_edges.y = luma_nr_reduced_coarse_keep(keep_own.y, detail);
         }
         // A uniform share of every band stays: switching between kept and

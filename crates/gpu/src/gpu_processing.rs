@@ -6352,6 +6352,14 @@ pub(crate) enum MainOutput {
 
 const MAIN_OUTPUTS: usize = 3;
 
+/// The general high-precision pipelines' detail scaling (shader
+/// `LEGACY_DETAIL_SCALE`): they render the CPU exports of recipes older
+/// than renderVersion 5, which keep the sharpening and noise reduction
+/// code 0.1.0-alpha.13 compiled and so their bytes (notes:
+/// parity-gaps/G16). Display frames, thumbnails and specialized export
+/// variants keep the reduced renders' kernels and noise level.
+const LEGACY_DETAIL: (&str, f64) = ("LEGACY_DETAIL_SCALE", 1.0);
+
 impl MainOutput {
     fn index(self) -> usize {
         self as usize
@@ -7441,6 +7449,7 @@ impl GpuProcessor {
                                 ("DEFER_OUTPUT", 1.0),
                                 ("EDGE_NR", 0.0),
                                 ("LUMA_PROFILE", 0.0),
+                                LEGACY_DETAIL,
                             ],
                             ..Default::default()
                         },
@@ -9438,6 +9447,7 @@ impl GpuProcessor {
             .constants()
             .iter()
             .copied()
+            .chain(output.high_precision().then_some(LEGACY_DETAIL))
             .chain(constants.iter().copied())
             .collect();
         create_compute_pipeline(
