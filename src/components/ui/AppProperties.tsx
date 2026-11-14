@@ -465,6 +465,8 @@ export interface LastFolderState {
   expandedFolders: string[];
   activeAlbumId: string | null;
   expandedAlbumGroups: string[];
+  /** The library the view belongs to; a view is only restored in it. */
+  sessionDirectory?: string | null;
 }
 
 /** A lens saved in the settings for manual lens correction (`MyLens` in app_settings.rs). */
