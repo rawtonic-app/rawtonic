@@ -1186,6 +1186,30 @@ mod tests {
         set_compile_limit(None);
     }
 
+    /// An export that starts while an idle helper runs stops it (it asks
+    /// for the slot), except a helper that compiles the variant 16-bit
+    /// exports render with: the export waits for that one (G76/WSMOKE19).
+    #[test]
+    #[ignore = "sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_export_lets_a_deferred_helper_finish"]
+    fn an_export_lets_a_deferred_helper_finish() {
+        use super::super::idle_compile_child::set_deferred_running;
+        set_compile_limit(Some(1));
+        for deferred in [false, true] {
+            // The idle worker's slot while its helper runs.
+            let helper = compile_slot("an idle helper");
+            set_deferred_running(deferred);
+            let export = std::thread::spawn(|| wait_for_running_compiles("export"));
+            std::thread::sleep(Duration::from_millis(500));
+            assert!(!export.is_finished(), "the export waits for the helper");
+            assert_eq!(slot_wanted(), !deferred, "deferred: {deferred}");
+            set_deferred_running(false);
+            drop(helper);
+            export.join().unwrap();
+            assert!(!slot_wanted());
+        }
+        set_compile_limit(None);
+    }
+
     #[test]
     fn small_variants_are_those_within_the_raw_default_one() {
         for small in [0, 1, 16, 17, RAW_DEFAULT_PREVIEW_FEATURES] {

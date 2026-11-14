@@ -115,7 +115,14 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
         }
         let since_export =
             crate::state::lock::lock_recover(&exports.last_run_end).map(|ended| ended.elapsed());
-        export_hold(since_export)?;
+        // Only where an idle compile cannot be stopped: one in a helper
+        // process ends the moment an export needs the slot. Held there, the
+        // variant a 16-bit export renders with could not compile between a
+        // JPEG export and the TIFF export after it, which then compiled it
+        // itself (35.9 s, 7.2 GB on a Radeon 680M; G76/WSMOKE19).
+        if !rawtonic_gpu::gpu_processing::idle_compiles_in_helpers() {
+            export_hold(since_export)?;
+        }
         // Masking models nobody uses now go before the compile, not beside it.
         crate::ai_lifecycle::before_idle_compile(&app);
         let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -161,7 +168,8 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
     }));
 }
 
-/// How long after an export run idle compiles stay held: on a Radeon 680M
+/// How long after an export run idle compiles that run in the app (no
+/// helper process) stay held: on a Radeon 680M
 /// an idle compile (here the brush layer's layer-sum variant, 41.6 s at
 /// 5.7 GB) started 3 s after an export, and the next export waited 35 s
 /// for it at 6.24 GB (G76/WGT23). A photographer exporting again soon

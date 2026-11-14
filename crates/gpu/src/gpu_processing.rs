@@ -50,6 +50,7 @@ pub mod multi_view;
 mod preview_layers;
 #[path = "processor_turns.rs"]
 mod processor_turns;
+pub use idle_compile_child::idle_compiles_in_helpers;
 pub use idle_compiles::{IdleCompileMemoryGuard, set_idle_compile_memory_guard};
 pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
@@ -6098,8 +6099,11 @@ pub fn wait_for_running_compiles(what: &str) {
         .state
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    // An idle compile in a helper process stops for it.
-    let wants = (state.0 > 0 || compiles_pending()).then(SlotWanted::new);
+    // An idle compile in a helper process stops for it, unless it compiles
+    // what 16-bit exports render with (`export_waits_for_helper`).
+    let wants = ((state.0 > 0 || compiles_pending())
+        && !idle_compile_child::export_waits_for_helper())
+    .then(SlotWanted::new);
     // A compile that waits for a slot is not signalled on `freed` while it
     // waits, so this looks again every 250 ms.
     while state.0 > 0 || compiles_pending() {
