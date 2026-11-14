@@ -416,13 +416,22 @@ pub fn forced_provider() -> Option<Provider> {
 }
 
 /// Whether every model runs on ONNX Runtime's CPU provider in this process:
-/// `RAWTONIC_AI_PROVIDER=cpu`, or no forced provider and `keep_models_on_cpu`
-/// was called. The app uses it to keep the CPU path's memory down (one model
-/// at a time instead of both masking models).
+/// `RAWTONIC_AI_PROVIDER=cpu`, or no forced provider and either
+/// `keep_models_on_cpu` was called or the user turned GPU AI off
+/// (`Settings::gpu`; `candidates` then lists the CPU only). The app uses it
+/// to keep the CPU path's memory down (one model at a time instead of both
+/// masking models).
 pub fn models_run_on_cpu_only() -> bool {
-    match forced_provider() {
+    cpu_only_of(forced_provider(), models_kept_on_cpu(), settings().gpu)
+}
+
+fn cpu_only_of(forced: Option<Provider>, kept_on_cpu: bool, gpu: bool) -> bool {
+    match forced {
         Some(provider) => provider == Provider::Cpu,
-        None => models_kept_on_cpu(),
+        // Core ML loads first on macOS whatever the preference (the
+        // preference governs ONNX Runtime's GPU providers only), so there
+        // the preference alone does not make the CPU path.
+        None => kept_on_cpu || (!gpu && !cfg!(target_os = "macos")),
     }
 }
 
@@ -946,6 +955,16 @@ mod tests {
             checks_file: None,
             check_when_idle: false,
         }
+    }
+
+    #[test]
+    fn gpu_ai_off_in_preferences_is_the_cpu_path() {
+        assert_eq!(cpu_only_of(None, false, false), !cfg!(target_os = "macos"));
+        assert!(cpu_only_of(None, true, true));
+        assert!(!cpu_only_of(None, false, true));
+        // A forced provider wins over the preference.
+        assert!(!cpu_only_of(Some(Provider::WebGpu), false, false));
+        assert!(cpu_only_of(Some(Provider::Cpu), false, true));
     }
 
     #[test]
