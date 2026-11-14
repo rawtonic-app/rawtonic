@@ -561,6 +561,7 @@
       "title": "Połącz"
     },
     "openWith": {
+      "browse": "Wybierz program…",
       "chooseTitle": "Wybierz program",
       "default": "Domyślny",
       "failed": "Nie można otworzyć plików: {{error}}",
