@@ -61,8 +61,8 @@ import {
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSessionBar } from './sessionBar';
 import { SESSION_ALBUMS_CHANGED, openSessionAlbum, type SessionAlbum } from '../studio/StudioAlbums';
-import { samePath, savedView, type SavedView } from '../../utils/restoreView';
-import type { CatalogFoldersView } from '../../utils/catalogFolders';
+import { isInside, samePath, savedView, type SavedView } from '../../utils/restoreView';
+import { outermost, type CatalogFoldersView } from '../../utils/catalogFolders';
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
 import { requestAutoAdvance } from '../../utils/photoStepping';
@@ -434,16 +434,14 @@ export function restoreLastSession(
     .finally(() => useProcessStore.getState().setProcess({ startupLibraryReady: true }));
 }
 
-/** A catalog's folders outside the library's own (Add Folder keeps photos
- * where they are), where the saved view of this library may have been. */
-async function addedFolders(
-  last: LastFolderState | null | undefined,
+/** A catalog's folders (Add Folder keeps photos where they are), with
+ * whether each is on disk now. Empty for a session. */
+async function catalogFolderList(
   directory: string,
   roots: string[]
-): Promise<string[]> {
-  if (!last?.currentFolderPath || !last.sessionDirectory || !samePath(last.sessionDirectory, directory)) return [];
+): Promise<{ path: string; exists: boolean; photos: number }[]> {
   const view = await invoke<CatalogFoldersView>(Invokes.CatalogFolders, { directory, roots }).catch(() => null);
-  return view?.catalog ? view.volumes.flatMap((volume) => volume.folders.map((folder) => folder.path)) : [];
+  return view?.catalog ? view.volumes.flatMap((volume) => volume.folders) : [];
 }
 
 async function folderExists(path: string): Promise<boolean> {
@@ -644,9 +642,22 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       // below) and the Folders panel would not list it: restoring it would
       // show photos with nothing selected.
       const browseRoots = [root, ...outsideTrees.map((t) => t.path)];
-      const view = savedView(lastView, root, [...browseRoots, ...(await addedFolders(lastView, root, browseRoots))]);
+      const catalogFolders = await catalogFolderList(root, browseRoots);
+      // A catalog folder gone from disk (renamed, drive away) is still a
+      // catalog folder but shows nothing: it is not restored.
+      const there = catalogFolders.filter((f) => f.exists).map((f) => f.path);
+      const view = savedView(lastView, root, [...browseRoots, ...catalogFolders.map((f) => f.path)]);
       let folder = capture ?? root;
       if (view?.kind === 'folder' && (await folderExists(view.path))) folder = view.path;
+      else {
+        // A catalog whose own folder holds no photographs (they stay in the
+        // folders that were added) opens on the first of those folders that
+        // is there, not on an empty view with nothing selected.
+        const own = capture ?? root;
+        const first = outermost(there)[0];
+        if (catalogFolders.length && first && !catalogFolders.some((f) => isInside(f.path, own) && f.photos > 0))
+          folder = first;
+      }
       await onNavigate(folder, true);
       if (view && view.kind !== 'folder' && onSelectAlbum) {
         await reopenView(root, view, onSelectAlbum).catch(() => {});

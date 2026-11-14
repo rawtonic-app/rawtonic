@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- **Reopening a library returns to the source it was closed on.** The Library used to open on the library's own folder every time, which showed "No photos to display" when the photos lived in an added folder (reported on Windows after quitting on a folder). The app now reopens the folder, collection or Previous Import that was shown when the library was last open, with the same filter and sort; if that source is gone, the library's own folder is shown.
+- **Reopening a library returns to the source it was closed on.** The Library used to open on the library's own folder every time, which showed "No photos to display" when the photos lived in an added folder (reported on Windows after quitting on a folder). The app now reopens the folder, collection or Previous Import that was shown when the library was last open, with the same filter and sort; if that source is gone, the first folder of the catalog that is on disk is shown (a catalog whose own folder holds no photographs, because they stay in added folders, no longer opens on an empty view), else the library's own folder.
 
 ## 0.1.0-alpha.14 — 2026-11-14
 

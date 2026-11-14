@@ -551,13 +551,19 @@ describe('restoring the last session', () => {
     const beta = { ...summary, directory: 'C:\\Users\\a\\catalog 3', manifest: { ...summary.manifest, name: 'Beta' } };
     const base = vi.mocked(invoke).getMockImplementation()!;
     let folderThere = true;
+    let others: { path: string; exists: boolean; photos: number }[] = [];
     vi.mocked(invoke).mockImplementation(async (command, args) => {
       if (command === 'session_open' || command === 'session_summary') return beta;
       if (command === 'library_flush') return [];
       if (command === 'catalog_folders')
         return {
           catalog: true,
-          volumes: [{ folders: [{ path: '\\\\?\\C:\\Users\\a\\raws 9', exists: true }], roots: [] }]
+          volumes: [
+            {
+              folders: [{ path: '\\\\?\\C:\\Users\\a\\raws 9', exists: folderThere, photos: 9 }, ...others],
+              roots: []
+            }
+          ]
         };
       if (command === 'get_folder_tree') {
         const path = (args as { path: string }).path;
@@ -596,6 +602,14 @@ describe('restoring the last session', () => {
     });
     await waitFor(() => expect(onNavigate).toHaveBeenCalled());
     expect(onNavigate).not.toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true);
+    // Another catalog folder is there: the library opens on it, not on an empty view.
+    others = [{ path: 'D:\\Shots\\day 2', exists: true, photos: 4 }];
+    onNavigate.mockClear();
+    set();
+    act(() => {
+      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+    });
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\day 2', true));
   });
 
   it('stays quiet when the session opens quickly', async () => {
