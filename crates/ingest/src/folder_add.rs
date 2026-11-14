@@ -110,12 +110,9 @@ pub fn plan_folder_add(
         if !sizes.contains(&size) {
             return None;
         }
-        let Some(paths) = rawtonic_catalog::fingerprint(path)
+        let paths = rawtonic_catalog::fingerprint(path)
             .ok()
-            .and_then(|fp| by_content.get(&(size, fp)))
-        else {
-            return None;
-        };
+            .and_then(|fp| by_content.get(&(size, fp)))?;
         let hash = crate::sha256(path).ok()?;
         paths
             .iter()
