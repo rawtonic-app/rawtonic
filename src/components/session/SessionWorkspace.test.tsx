@@ -547,6 +547,57 @@ describe('restoring the last session', () => {
     expect(onSelectAlbum).not.toHaveBeenCalled();
   });
 
+  it('reopens a catalog on an added folder outside it (Windows paths), and on the library when the folder is gone', async () => {
+    const beta = { ...summary, directory: 'C:\\Users\\a\\catalog 3', manifest: { ...summary.manifest, name: 'Beta' } };
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let folderThere = true;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === 'session_open' || command === 'session_summary') return beta;
+      if (command === 'library_flush') return [];
+      if (command === 'catalog_folders')
+        return {
+          catalog: true,
+          volumes: [{ folders: [{ path: '\\\\?\\C:\\Users\\a\\raws 9', exists: true }], roots: [] }]
+        };
+      if (command === 'get_folder_tree') {
+        const path = (args as { path: string }).path;
+        if (path.endsWith('raws 9') && !folderThere) throw new Error('gone');
+        return { path, name: 'x', isDir: true, children: [] };
+      }
+      return base(command, args);
+    });
+    const onNavigate = vi.fn(async () => {});
+    const set = () =>
+      useSettingsStore.setState({
+        appSettings: {
+          lastRootPath: null,
+          recentLibraries: [beta.directory],
+          lastFolderState: {
+            currentFolderPath: 'C:\\Users\\a\\raws 9',
+            expandedFolders: [],
+            activeAlbumId: null,
+            expandedAlbumGroups: [],
+            sessionDirectory: '\\\\?\\C:\\Users\\a\\catalog 3'
+          }
+        } as AppSettings
+      });
+    set();
+    render(<SessionWorkspace onNavigate={onNavigate} />);
+    act(() => {
+      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+    });
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true));
+    // The folder is gone: the library's own folder.
+    folderThere = false;
+    onNavigate.mockClear();
+    set();
+    act(() => {
+      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+    });
+    await waitFor(() => expect(onNavigate).toHaveBeenCalled());
+    expect(onNavigate).not.toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true);
+  });
+
   it('stays quiet when the session opens quickly', async () => {
     vi.useFakeTimers();
     try {

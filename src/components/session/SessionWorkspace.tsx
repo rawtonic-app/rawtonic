@@ -42,7 +42,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { storedStudioLayout, useUIStore } from '../../store/useUIStore';
 import { refreshStacks } from '../../store/useStackStore';
-import { Invokes } from '../ui/AppProperties';
+import { Invokes, type LastFolderState } from '../ui/AppProperties';
 import RawtonicMark from '../ui/RawtonicMark';
 import FirstStartToolsSide from './FirstStartToolsSide';
 import type { FolderTree } from '../../utils/folderTree';
@@ -61,7 +61,8 @@ import {
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSessionBar } from './sessionBar';
 import { SESSION_ALBUMS_CHANGED, openSessionAlbum, type SessionAlbum } from '../studio/StudioAlbums';
-import { savedView, type SavedView } from '../../utils/restoreView';
+import { samePath, savedView, type SavedView } from '../../utils/restoreView';
+import type { CatalogFoldersView } from '../../utils/catalogFolders';
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
 import { requestAutoAdvance } from '../../utils/photoStepping';
@@ -433,6 +434,18 @@ export function restoreLastSession(
     .finally(() => useProcessStore.getState().setProcess({ startupLibraryReady: true }));
 }
 
+/** A catalog's folders outside the library's own (Add Folder keeps photos
+ * where they are), where the saved view of this library may have been. */
+async function addedFolders(
+  last: LastFolderState | null | undefined,
+  directory: string,
+  roots: string[]
+): Promise<string[]> {
+  if (!last?.currentFolderPath || !last.sessionDirectory || !samePath(last.sessionDirectory, directory)) return [];
+  const view = await invoke<CatalogFoldersView>(Invokes.CatalogFolders, { directory, roots }).catch(() => null);
+  return view?.catalog ? view.volumes.flatMap((volume) => volume.folders.map((folder) => folder.path)) : [];
+}
+
 async function folderExists(path: string): Promise<boolean> {
   return invoke(Invokes.GetFolderTree, { path, expandedFolders: [], showImageCounts: false }).then(
     () => true,
@@ -624,7 +637,8 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       const capture = openableFolderPath(summary.folders, 'capture', await join(root, summary.manifest.capture));
       // Back to the source it was closed on (folder, collection, Previous
       // Import); the library's own folder when that is gone.
-      const view = savedView(lastView, root, [root, ...outsideTrees.map((t) => t.path)]);
+      const browseRoots = [root, ...outsideTrees.map((t) => t.path)];
+      const view = savedView(lastView, root, [...browseRoots, ...(await addedFolders(lastView, root, browseRoots))]);
       let folder = capture ?? root;
       if (view?.kind === 'folder' && (await folderExists(view.path))) folder = view.path;
       await onNavigate(folder, true);
