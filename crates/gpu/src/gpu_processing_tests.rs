@@ -9254,7 +9254,9 @@ fn folded_export_variants_render_their_exports_within_rounding() {
     // code: dropping idle code moves rounding (an older recipe's RAW
     // default: 4 values on NVIDIA here; real photos 24 of 326 on NVIDIA,
     // 94 of 280 on Metal in preservation), which is why only compile limits
-    // fold. A wrongly decided branch would move far more.
+    // fold. A wrongly decided branch would move far more. Production never
+    // folds on Metal (no compile limit there); the tolerance per precision
+    // is documented where it is checked.
     let context = context();
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
@@ -9393,9 +9395,23 @@ fn folded_export_variants_render_their_exports_within_rounding() {
                 .map(|(a, b)| a.abs_diff(*b))
                 .max()
                 .unwrap();
+            let differing = whole.iter().zip(&folded).filter(|(a, b)| a != b).count();
+            // 8-bit: one code. 16-bit: dropping idle code moves the float
+            // rounding of long chains (curve, mixer, layers) by up to two
+            // of 65,535 codes on Metal (2026-11-14, M-series: the WGT16
+            // edit on a non-RAW photo, 17 of 804,452 values; every other
+            // recipe at most one, at most 0.36 % of the values), about
+            // 0.003 % of the range and far below the 8-bit step; a wrongly
+            // decided branch moves thousands. The share of values that
+            // differ at all stays small too.
+            let allowed = match precision {
+                RenderOutputPrecision::EightBit => 1,
+                RenderOutputPrecision::SixteenBit => 2,
+            };
             assert!(
-                worst <= 1,
-                "{features} {precision:?}: off by {worst} ({})",
+                worst <= allowed && differing * 100 <= whole.len(),
+                "{features} {precision:?}: off by {worst}, {differing} of {} differ ({})",
+                whole.len(),
                 profile.to_string().chars().take(200).collect::<String>()
             );
         }
@@ -20212,6 +20228,83 @@ fn sharpening_at_reduced_size_shows_the_full_size_sharpening_scaled_down() {
                 "radius {radius} detail {detail} v8 {v8} 1/{f}: fine {fine_gain:.2}"
             );
         }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU adapter"]
+fn old_recipes_16_bit_exports_keep_the_legacy_detail_kernels() {
+    // Recipes older than renderVersion 5 export through the general
+    // high-precision pipelines (CPU exports render deferred, then encode),
+    // which compile `LEGACY_DETAIL_SCALE`: the sharpening and luminance noise
+    // reduction expressions 0.1.0-alpha.13 compiled, so those exports stay
+    // byte-identical to that release (G16, #776; #752's reduced-view kernels
+    // had moved them by one code in a few pixels on Metal, which no
+    // renderVersion 5 recipe can show). At full size the two expression sets
+    // differ only by that rounding, so a byte test needs a reference from the
+    // very same compiler; instead this renders at half scale, where the
+    // legacy sigma floor and reach differ visibly from the reduced-view
+    // kernels. The renderVersion 5 recipe takes the specialized variant
+    // (reduced-view kernels); the renderVersion 4 recipe must not agree with
+    // it. Removing `LEGACY_DETAIL` from the deferred pipeline (plain case)
+    // or from `compile_general` (edge-preserving case, a noisy photo) makes
+    // the old recipe render the reduced-view kernels and fails the matching
+    // case (checked by removing each, 2026-11-14, Metal).
+    let context = context();
+    let (width, height) = (256u32, 192u32);
+    let view = input(&context, width, height, 17);
+    let render = |recipe: serde_json::Value, scale: f32, noise_level: f32| -> Vec<u16> {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let mut adjustments = get_all_adjustments_from_json(&recipe, true, Some(1));
+        adjustments.global.detail_scale = scale;
+        adjustments.global.noise_level = noise_level;
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let recipe = |version: u32| {
+        json!({"sharpness": 60, "sharpenRadius": 1.0, "sharpenDetail": 25,
+            "lumaNoiseReduction": 40, "renderVersion": version})
+    };
+    let mean_distance = |a: &[u16], b: &[u16]| -> f64 {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| x.abs_diff(*y) as f64)
+            .sum::<f64>()
+            / a.len() as f64
+    };
+    // Noise level 0: the plain deferred pipeline; 0.03 (above the edge
+    // pass's 0.005): the edge-preserving noise reduction pipeline.
+    for noise_level in [0.0, 0.03] {
+        let old = render(recipe(4), 0.5, noise_level);
+        assert_eq!(
+            old,
+            render(recipe(4), 0.5, noise_level),
+            "noise {noise_level}: the old recipe's export is not deterministic"
+        );
+        let current = render(recipe(5), 0.5, noise_level);
+        let distance = mean_distance(&old, &current);
+        println!("noise {noise_level}: old recipe vs current at 1/2: mean {distance:.2} of 65,535");
+        assert!(
+            distance > 1.0,
+            "noise {noise_level}: an old recipe's 16-bit export at half scale matches the reduced-view kernels (mean {distance:.2} of 65,535): LEGACY_DETAIL_SCALE is not set on the general pipelines"
+        );
     }
 }
 
