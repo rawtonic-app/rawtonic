@@ -169,7 +169,8 @@ export function missingFolders(view: CatalogFoldersView | null, offline: Offline
 export function volumeSections(
   view: CatalogFoldersView | null,
   trees: FolderTree[],
-  offline: OfflineFolder[]
+  offline: OfflineFolder[],
+  libraryDirectory?: string | null
 ): VolumeSection[] {
   if (!view?.catalog) return [];
   const missing = missingFolders(view, offline);
@@ -189,7 +190,10 @@ export function volumeSections(
         const clash = names.indexOf(names[index]) !== names.lastIndexOf(names[index]);
         return { ...node, label: clash ? labelOnVolume(top, volume.mount_point) : baseName(top) };
       });
-      return { volume, trees: withMissingFolders(tops, missing).map((tree) => withCatalogCounts(tree, folders)) };
+      return {
+        volume,
+        trees: withMissingFolders(tops, missing).map((tree) => withCatalogCounts(tree, folders, libraryDirectory))
+      };
     });
 }
 
@@ -201,11 +205,22 @@ export function volumeSections(
  * the catalog photographs in it and below it, whether or not its children
  * are loaded.
  */
-export function withCatalogCounts(node: FolderTree, folders: CatalogFolder[]): FolderTree {
+export function withCatalogCounts(
+  node: FolderTree,
+  folders: CatalogFolder[],
+  libraryDirectory?: string | null
+): FolderTree {
+  // The catalog's own folder holds photographs copied in; `folders` lists
+  // only the folders added in place, so its counts stay those of the disk.
+  if (libraryDirectory && (node.path === libraryDirectory || isBelow(node.path, libraryDirectory))) return node;
   const imageCount = folders
     .filter((folder) => folder.path === node.path || isBelow(folder.path, node.path))
     .reduce((sum, folder) => sum + folder.photos, 0);
-  return { ...node, imageCount, children: node.children?.map((child) => withCatalogCounts(child, folders)) };
+  return {
+    ...node,
+    imageCount,
+    children: node.children?.map((child) => withCatalogCounts(child, folders, libraryDirectory))
+  };
 }
 
 /** A size in decimal units, as the system's file manager shows it. */

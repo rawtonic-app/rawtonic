@@ -194,3 +194,12 @@ it('counts the photographs the catalog holds, not the files lying on disk', () =
   expect(disk.imageCount).toBe(3);
   expect(withCatalogCounts(node('/lib/Empty', [], { imageCount: 4 }), folders).imageCount).toBe(0);
 });
+
+it('keeps the disk counts of the catalog’s own folder, which the catalog list does not cover', () => {
+  const own = node('/lib/Main.catalog/Photos', [node('/lib/Main.catalog/Photos/Day', [], { imageCount: 4 })], {
+    imageCount: 4
+  });
+  const folders = [{ path: '/lib/Trip', photos: 2, offline: 0, exists: true }];
+  expect(withCatalogCounts(own, folders, '/lib/Main.catalog')).toBe(own);
+  expect(withCatalogCounts(own, folders).imageCount).toBe(0);
+});

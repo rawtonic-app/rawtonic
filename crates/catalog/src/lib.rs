@@ -2196,7 +2196,7 @@ impl Library {
 
     /// Every catalog folder (an external folder holding registered
     /// photographs, wherever they were found, followed or relinked to), with
-    /// how many photographs it holds, how many of those are missing (as of
+    /// how many photographs it holds (not those in Trash), how many of those are missing (as of
     /// the last check) and the drive it was registered on. In path order;
     /// nothing is read from disk.
     pub fn folders(&self) -> Result<Vec<FolderRecord>, CatalogError> {
@@ -2204,7 +2204,7 @@ impl Library {
             "SELECT r.path,r.volume_id,r.volume_name,r.volume_path,
                     count(a.id),coalesce(sum(a.missing),0),r.volume_kind
              FROM roots r JOIN assets a ON a.root_id=r.id
-             WHERE r.external=1 GROUP BY r.id ORDER BY r.path",
+             WHERE r.external=1 AND a.trashed=0 GROUP BY r.id ORDER BY r.path",
         )?;
         let rows = query.query_map([], |r| {
             Ok(FolderRecord {

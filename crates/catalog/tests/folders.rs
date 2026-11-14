@@ -33,6 +33,12 @@ fn folders_follow_relinked_photographs_and_keep_missing_ones() {
     let records = lib.folders().unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!((records[0].photos, records[0].missing), (2, 0));
+    // A photograph in Trash is not counted (the grid does not list it) and
+    // counts again when restored.
+    lib.set_trashed_at(&card.join("B.NEF"), true).unwrap();
+    assert_eq!(lib.folders().unwrap()[0].photos, 1);
+    lib.set_trashed_at(&card.join("B.NEF"), false).unwrap();
+    assert_eq!(lib.folders().unwrap()[0].photos, 2);
 
     // A moves to another folder outside Rawtonic and is relinked there; B is
     // deleted: its folder stays with one missing photograph.

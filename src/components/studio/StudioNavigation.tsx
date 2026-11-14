@@ -557,8 +557,8 @@ export function StudioFolders({ onNavigate, actions }: { onNavigate(path: string
   const catalog = !!catalogView?.catalog;
   const missing = useMemo(() => missingFolders(catalogView, offline), [catalogView, offline]);
   const sections = useMemo(
-    () => volumeSections(catalogView, [...trees, ...catalogTrees], offline),
-    [catalogView, trees, catalogTrees, offline]
+    () => volumeSections(catalogView, [...trees, ...catalogTrees], offline, sessionRoot),
+    [catalogView, trees, catalogTrees, offline, sessionRoot]
   );
   // A session's (or a plain folder list's) trees with its missing folders
   // at their place.
