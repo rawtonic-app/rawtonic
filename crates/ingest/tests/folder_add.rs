@@ -403,6 +403,11 @@ fn a_renamed_copy_is_a_duplicate_and_a_same_name_other_content_is_not() {
         Some(original.canonical().unwrap()),
         "names the photograph the catalog holds"
     );
+    assert_eq!(
+        planned.duplicate_file,
+        Some(second.join("Canon_R6_copy.CR3").canonical().unwrap()),
+        "names the file that is left out"
+    );
     // The folder itself is only registered, never a duplicate of itself.
     let again = plan(&lib, &first, true);
     assert_eq!((again.registered, again.duplicates), (1, 0));

@@ -2196,7 +2196,7 @@ impl Library {
 
     /// Every catalog folder (an external folder holding registered
     /// photographs, wherever they were found, followed or relinked to), with
-    /// how many photographs it holds, how many of those are missing (as of
+    /// how many photographs it holds (not those in Trash), how many of those are missing (as of
     /// the last check) and the drive it was registered on. In path order;
     /// nothing is read from disk.
     pub fn folders(&self) -> Result<Vec<FolderRecord>, CatalogError> {
@@ -2204,7 +2204,7 @@ impl Library {
             "SELECT r.path,r.volume_id,r.volume_name,r.volume_path,
                     count(a.id),coalesce(sum(a.missing),0),r.volume_kind
              FROM roots r JOIN assets a ON a.root_id=r.id
-             WHERE r.external=1 GROUP BY r.id ORDER BY r.path",
+             WHERE r.external=1 AND a.trashed=0 GROUP BY r.id ORDER BY r.path",
         )?;
         let rows = query.query_map([], |r| {
             Ok(FolderRecord {
@@ -2220,6 +2220,23 @@ impl Library {
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The photographs registered inside the catalog's own folder (copied
+    /// in), not in Trash, by the folder they are in (path order). Folders
+    /// holding none are absent; nothing is read from disk.
+    pub fn internal_folder_counts(&self) -> Result<Vec<(PathBuf, usize)>, CatalogError> {
+        let mut query = self.conn.prepare(
+            "SELECT a.rel_path FROM assets a JOIN roots r ON r.id=a.root_id
+             WHERE r.external=0 AND a.trashed=0",
+        )?;
+        let mut counts = std::collections::BTreeMap::<PathBuf, usize>::new();
+        for relative in query.query_map([], |r| r.get::<_, String>(0))? {
+            if let Some(folder) = self.join_root(String::new(), false, relative?).parent() {
+                *counts.entry(folder.to_path_buf()).or_default() += 1;
+            }
+        }
+        Ok(counts.into_iter().collect())
     }
 
     /// Records the editor state of the virtual copy `copy` of `asset` (a

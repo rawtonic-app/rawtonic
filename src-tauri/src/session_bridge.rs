@@ -651,15 +651,27 @@ pub const DUPLICATES_SKIPPED: &str = "library-duplicates-skipped";
 /// What [`report_skipped_duplicates`] tells the webview.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DuplicatesReport {
+pub struct DuplicatesReport {
     /// The files left out, with the photograph each copies (name order).
     files: Vec<DuplicateFile>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct DuplicateFile {
+pub struct DuplicateFile {
     path: PathBuf,
     of: PathBuf,
+}
+
+/// The last report no webview has picked up yet. A library that opens
+/// while the window starts (the last one, reopened) emits before the
+/// activity panel listens, so the panel asks for what it missed once its
+/// listener is there ([`session_missed_duplicates`]).
+static UNREAD_DUPLICATES: Mutex<Option<DuplicatesReport>> = Mutex::new(None);
+
+/// The report of the opening scan the panel has not seen, once.
+#[tauri::command]
+pub async fn session_missed_duplicates() -> Option<DuplicatesReport> {
+    crate::state::lock::lock_recover(&UNREAD_DUPLICATES).take()
 }
 
 fn report_skipped_duplicates(app: &tauri::AppHandle, duplicates: &[SkippedDuplicate]) {
@@ -679,7 +691,9 @@ fn report_skipped_duplicates(app: &tauri::AppHandle, duplicates: &[SkippedDuplic
         })
         .collect();
     files.sort_by(|a, b| a.path.cmp(&b.path));
-    let _ = app.emit(DUPLICATES_SKIPPED, DuplicatesReport { files });
+    let report = DuplicatesReport { files };
+    *crate::state::lock::lock_recover(&UNREAD_DUPLICATES) = Some(report.clone());
+    let _ = app.emit(DUPLICATES_SKIPPED, report);
 }
 
 /// What [`follow_verified_moves`] found among the new files.
@@ -2221,6 +2235,15 @@ pub fn start_mount_watch(app: tauri::AppHandle) {
 pub struct CatalogFoldersView {
     pub catalog: bool,
     pub volumes: Vec<rawtonic_catalog::folders::VolumeFolders>,
+    /// Photographs copied into the catalog's own folder, by the folder they
+    /// are in (their counts; `volumes` lists only folders added in place).
+    pub internal: Vec<InternalFolder>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InternalFolder {
+    pub path: PathBuf,
+    pub photos: usize,
 }
 
 #[tauri::command]
@@ -2233,6 +2256,7 @@ pub async fn catalog_folders(
             return Ok(CatalogFoldersView {
                 catalog: false,
                 volumes: Vec::new(),
+                internal: Vec::new(),
             });
         }
         // As the Folders panel has them: it finds its trees by them.
@@ -2242,6 +2266,12 @@ pub async fn catalog_folders(
             volumes: lib
                 .folder_groups(&roots, &AppProbe)
                 .map_err(|e| e.to_string())?,
+            internal: lib
+                .internal_folder_counts()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(path, photos)| InternalFolder { path, photos })
+                .collect(),
         })
     })
     .await

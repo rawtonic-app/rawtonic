@@ -321,3 +321,16 @@ it('says once, not as a dialog, that the opening scan left copies of catalog pho
   });
   expect(entry('library:duplicates-skipped')?.detail).toContain('Canon_R6_copy.CR3 = Canon_R6.CR3');
 });
+
+it('shows the duplicates report of a scan that ran before the panel listened', async () => {
+  vi.mocked(invoke).mockImplementation(async (command) =>
+    command === Invokes.SessionMissedDuplicates
+      ? { files: [{ path: '/cat/Photos/Nikon_Z6_copy.NEF', of: '/cat/Photos/Nikon_Z6.NEF' }] }
+      : undefined
+  );
+  stop();
+  resetActivityStore();
+  stop = startActivityBridges();
+  await vi.waitFor(() => expect(entry('library:duplicates-skipped')).toBeDefined());
+  expect(entry('library:duplicates-skipped')?.detail).toContain('Nikon_Z6_copy.NEF = Nikon_Z6.NEF');
+});
