@@ -499,6 +499,7 @@
       "title": "合并"
     },
     "openWith": {
+      "browse": "浏览程序…",
       "chooseTitle": "选择应用程序",
       "default": "默认",
       "failed": "无法打开文件：{{error}}",
