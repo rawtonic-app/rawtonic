@@ -15,6 +15,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { submitPhotoWrite } from './photoWrites';
 import type { ExportPreset } from '../components/ui/ExportImportProperties';
+import packaged from '../components/studio/fixtures/openWithPackaged.json';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const saves = vi.hoisted(() => ({ flush: vi.fn(async (): Promise<string[]> => []) }));
@@ -166,6 +167,15 @@ describe('runEditWith', () => {
       'edit_with_finish',
       { items: [targets[0], targets[2]], program: '/Applications/Preview.app' }
     ]);
+  });
+
+  it('hands the renders for a packaged program back by its id, as the Rust side reads them', async () => {
+    // a_packaged_program_crosses_ipc_as_the_frontend_sends_it reads the same file.
+    const { editWithFinish } = packaged;
+    started(editWithFinish.items, ['j1'], [job('j1', 'done')]);
+    const sources = editWithFinish.items.map((item) => item.source);
+    await runEditWith(sources, BUILT_IN_EDIT_RECIPES[0], editWithFinish.program);
+    expect(invoke).toHaveBeenCalledWith('edit_with_finish', editWithFinish);
   });
 
   it('counts a cancelled row neutrally while opening the two completed renders', async () => {

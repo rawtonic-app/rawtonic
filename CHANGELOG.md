@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Windows: Open With and Edit With offer the apps Windows itself offers, including Store apps such as Photos.** The submenus listed only the programs Explorer recommends for the file type (Paint, Snipping Tool, Windows Photo Viewer for a TIFF), so the Photos app was missing. They now list every app Windows offers for the type, the recommended ones first and, after a separator, the others from Explorer's *Choose another app* list, with their names and icons. A Store app opens the file through its own registration, as from Explorer, and Edit With picks up its saves as for any program (the render's file is watched, not the program). *Other…* is now *Browse for a program…*, the program file picker; programs used or picked before keep working.
+
 ## 0.1.0-alpha.14 — 2026-11-14
 
 The fourteenth alpha. Windows on AMD integrated graphics (a Radeon 680M with AMD's Vulkan driver) now works properly: exports of edited photos no longer crash the app, edits respond in about 0.1–0.4 s once their first views are prepared, a JPEG export after editing takes about 5 s instead of about 2 minutes and 16-bit TIFF exports no longer compile a view of their own, and Glow is ready after a few idle minutes. Windows also gets Open With and Edit With, window controls in the top bar with Windows 11's snap layouts, and a Maximize that fills the screen again. Thumbnails, the Library loupe and the Develop fit view now show sharpening and noise reduction closer to the export. For new edits, Dehaze adapts its veil to the photo, Blacks −100 darkens as far as Capture One's, and Lensfun lens profiles correct as Lensfun measured them. Super Resolution on Windows and Linux moves to the graphics card in the same session. Saved edits keep their look (see *Changes to existing edits*).

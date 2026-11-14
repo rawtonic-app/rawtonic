@@ -510,6 +510,7 @@
       "title": "Zusammenfügen"
     },
     "openWith": {
+      "browse": "Programm auswählen…",
       "chooseTitle": "Programm auswählen",
       "default": "Standard",
       "failed": "Die Dateien konnten nicht geöffnet werden: {{error}}",

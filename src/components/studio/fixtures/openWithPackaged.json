@@ -1,0 +1,28 @@
+{
+  "choices": {
+    "supported": true,
+    "apps": [
+      {
+        "path": "C:\\Program Files\\WindowsApps\\Microsoft.Paint_11.2609.401.0_x64__8wekyb3d8bbwe\\PaintApp\\mspaint.exe",
+        "name": "Paint",
+        "isDefault": true,
+        "isRecent": false,
+        "recommended": true,
+        "icon": null
+      },
+      {
+        "path": "Photos",
+        "name": "Photos",
+        "isDefault": false,
+        "isRecent": false,
+        "recommended": false,
+        "icon": null
+      }
+    ]
+  },
+  "openWithOpen": { "program": "Photos", "paths": ["C:\\Fotos\\Größe A.NEF", "C:\\Fotos\\B.NEF?vc=c1"] },
+  "editWithFinish": {
+    "items": [{ "source": "C:\\Fotos\\Größe A.NEF", "target": "C:\\Fotos\\Größe A_edit.tiff", "library": null }],
+    "program": "Photos"
+  }
+}

@@ -41,37 +41,47 @@ pub fn is_own(handler: &Handler, own_exe: Option<&Path>) -> bool {
     own.is_some() && file_name(&handler.id) == own
 }
 
-/// The handlers a menu offers: the recommended ones, without Rawtonic,
-/// each once.
+/// The handlers a menu offers: every handler the shell lists for the type
+/// (Explorer's "Open with" list and its "Choose another app" list), the
+/// recommended ones first, each in the shell's order; without Rawtonic,
+/// each once. A program listed both ways counts as recommended.
 pub fn offered(handlers: Vec<Handler>, own_exe: Option<&Path>) -> Vec<Handler> {
     let mut kept: Vec<Handler> = Vec::new();
     for handler in handlers {
-        if handler.recommended
-            && !handler.id.is_empty()
-            && !is_own(&handler, own_exe)
-            && !kept.iter().any(|k| same_id(&k.id, &handler.id))
-        {
-            kept.push(handler);
+        if handler.id.is_empty() || is_own(&handler, own_exe) {
+            continue;
+        }
+        match kept.iter_mut().find(|k| same_id(&k.id, &handler.id)) {
+            Some(k) => k.recommended |= handler.recommended,
+            None => kept.push(handler),
         }
     }
-    kept
+    let (mut recommended, others): (Vec<_>, Vec<_>) = kept.into_iter().partition(|h| h.recommended);
+    recommended.extend(others);
+    recommended
 }
 
 /// The handlers offered for every one of the file types (`per_type`, one
-/// list per type), in the first type's order.
+/// list per type), in the first type's order; recommended where every type
+/// recommends it.
 pub fn common(mut per_type: Vec<Vec<Handler>>) -> Vec<Handler> {
     if per_type.is_empty() {
         return Vec::new();
     }
     let first = per_type.remove(0);
-    first
+    let mut kept: Vec<Handler> = first
         .into_iter()
-        .filter(|h| {
-            per_type
-                .iter()
-                .all(|list| list.iter().any(|o| same_id(&o.id, &h.id)))
+        .filter_map(|mut h| {
+            for list in &per_type {
+                let other = list.iter().find(|o| same_id(&o.id, &h.id))?;
+                h.recommended &= other.recommended;
+            }
+            Some(h)
         })
-        .collect()
+        .collect();
+    // Recommended for every type first, as `offered` orders one type.
+    kept.sort_by_key(|h| !h.recommended);
+    kept
 }
 
 /// The id of the type's default program among `handlers`. `executable` is
@@ -119,6 +129,7 @@ pub fn choices(handlers: &[Handler], icon: &dyn Fn(&Handler) -> Option<String>) 
                 name,
                 is_default: false,
                 is_recent: false,
+                recommended: handler.recommended,
                 icon: icon(handler),
             }
         })
@@ -136,23 +147,41 @@ pub struct ProgId {
     pub friendly: Option<String>,
 }
 
-/// The ProgID that starts the handler `id`: the one whose program file is
-/// that id, else (a packaged app without a program file, whose handler id
-/// is its name) the one without a program file named so. The shell starts
-/// a program reliably through its ProgID (`ShellExecuteEx` with the class);
+/// The ProgID that starts the handler `id` (shown as `name`): the one whose
+/// program file is that id, else (a packaged app without a program file,
+/// whose handler id is its name) the one without a program file whose
+/// friendly name is the id, then the shown name. The shell starts a
+/// program reliably through its ProgID (`ShellExecuteEx` with the class);
 /// `IAssocHandler::Invoke` showed Windows' "Choose an app" dialog instead
-/// on Windows 11 (task WEW).
-pub fn progid_for(id: &str, progids: &[ProgId]) -> Option<String> {
+/// on Windows 11 (task WEW), so it is only the last resort.
+pub fn progid_for(id: &str, name: Option<&str>, progids: &[ProgId]) -> Option<String> {
+    let packaged_named = |wanted: &str| {
+        progids.iter().find(|p| {
+            p.executable.is_none()
+                && p.friendly
+                    .as_deref()
+                    .is_some_and(|friendly| same_id(friendly, wanted))
+        })
+    };
     progids
         .iter()
         .find(|p| p.executable.as_deref().is_some_and(|exe| same_id(exe, id)))
         .or_else(|| {
-            progids.iter().find(|p| {
-                p.executable.is_none()
-                    && p.friendly.as_deref().is_some_and(|name| same_id(name, id))
-            })
+            file_part(id)
+                .is_none()
+                .then(|| packaged_named(id))
+                .flatten()
+        })
+        .or_else(|| {
+            let name = name.filter(|n| !n.is_empty() && file_part(id).is_none())?;
+            packaged_named(name)
         })
         .map(|p| p.class.clone())
+}
+
+/// A handler that is no program file (a packaged app, known by its name).
+pub fn is_packaged(id: &str) -> bool {
+    !id.is_empty() && file_part(id).is_none()
 }
 
 /// The `Applications\\<file name>` class that starts the program file
@@ -294,11 +323,50 @@ mod tests {
                 "Windows-Fotoanzeige",
                 "Snipping Tool",
                 "Paint",
-                "Windows-Fotoanzeige"
+                "Windows-Fotoanzeige",
+                // Not recommended: after the recommended ones.
+                "Editor",
             ]
         );
         // Without knowing our own file, Rawtonic is not hidden by guesswork.
-        assert_eq!(offered(tif(), None).len(), 5);
+        assert_eq!(offered(tif(), None).len(), 6);
+    }
+
+    /// What the Lenovo (Windows 11, English) offered for `.tif` showed only
+    /// Paint, Snipping Tool and Windows Photo Viewer: the Photos app is a
+    /// handler Explorer offers under "Choose another app", not a
+    /// recommended one (task WEW4). Every handler is offered, the
+    /// recommended ones first in the shell's order, then the others in
+    /// theirs, each once.
+    #[test]
+    fn programs_the_shell_does_not_recommend_follow_the_recommended_ones() {
+        let photos = "Photos";
+        let handlers = vec![
+            handler(photos, "Photos", false),
+            handler(r"C:\Paint\mspaint.exe", "Paint", true),
+            handler(r"C:\Clipchamp\Clipchamp.exe", "Clipchamp", false),
+            handler(r"C:\Snip\SnippingTool.exe", "Snipping Tool", true),
+            // Listed twice by the shell: once recommended, once not.
+            handler(r"c:\clipchamp\clipchamp.exe", "Clipchamp", true),
+            handler("", "Nameless", true),
+        ];
+        let offered = offered(handlers, None);
+        let listed: Vec<_> = offered
+            .iter()
+            .map(|h| (h.name.as_str(), h.recommended))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("Paint", true),
+                ("Clipchamp", true),
+                ("Snipping Tool", true),
+                ("Photos", false),
+            ]
+        );
+        let choices = choices(&offered, &|_| None);
+        assert_eq!(choices[3].path, photos);
+        assert!(!choices[3].recommended && choices[0].recommended);
     }
 
     #[test]
@@ -316,6 +384,7 @@ mod tests {
                 "Snipping Tool",
                 "Paint",
                 "Windows-Fotoanzeige (PhotoViewer)",
+                "Editor",
             ]
         );
     }
@@ -373,6 +442,16 @@ mod tests {
             ]
         );
         assert!(common(Vec::new()).is_empty());
+        // Recommended only where every type recommends it, and then first.
+        let mut jpg = tif();
+        jpg[2].recommended = false; // Snipping Tool
+        let listed: Vec<_> = common(vec![tif(), jpg])
+            .into_iter()
+            .map(|h| (h.name, h.recommended))
+            .collect();
+        assert_eq!(listed[3], ("Windows-Fotoanzeige".to_string(), true));
+        assert_eq!(listed[4], ("Snipping Tool".to_string(), false));
+        assert_eq!(listed[5], ("Editor".to_string(), false));
     }
 
     /// `OpenWithProgids` of `.tiff` on the same VM.
@@ -406,7 +485,7 @@ mod tests {
     #[test]
     fn each_offered_handler_is_started_through_its_progid() {
         let progids = tiff_progids();
-        let class = |handler: &Handler| progid_for(&handler.id, &progids);
+        let class = |handler: &Handler| progid_for(&handler.id, Some(&handler.name), &progids);
         let offered = offered(
             tif(),
             Some(Path::new(
@@ -432,12 +511,36 @@ mod tests {
                     Some("AppXcesbfs704v2mjbts9dkr42s9vmrhxbkj".to_string())
                 ),
                 ("Windows-Fotoanzeige", Some("TIFImage.Document".to_string())),
+                ("Editor", None),
             ]
         );
+        // A packaged handler whose id is not its friendly name is found by
+        // the name it shows; a program file never by its name.
+        let mut progids = progids;
+        progids.push(ProgId {
+            class: "AppX43hnxtbyyps62jhe9sqpdzxn1790zetc".into(),
+            executable: None,
+            friendly: Some("Photos".into()),
+        });
+        assert_eq!(
+            progid_for(
+                "Microsoft.Windows.Photos_8wekyb3d8bbwe!App",
+                Some("Photos"),
+                &progids
+            )
+            .as_deref(),
+            Some("AppX43hnxtbyyps62jhe9sqpdzxn1790zetc")
+        );
+        assert_eq!(
+            progid_for(r"C:\Other\photos.exe", Some("Photos"), &progids),
+            None
+        );
+        assert!(is_packaged("Photos") && !is_packaged(r"C:\Other\photos.exe") && !is_packaged(""));
         // In another case.
         assert_eq!(
             progid_for(
                 r"c:\program files\windows photo viewer\photoviewer.dll",
+                None,
                 &progids
             )
             .as_deref(),

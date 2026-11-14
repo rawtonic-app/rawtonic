@@ -533,6 +533,7 @@
       "title": "Combinar"
     },
     "openWith": {
+      "browse": "Buscar un programa…",
       "chooseTitle": "Elegir una aplicación",
       "default": "Predeterminada",
       "failed": "No se pudieron abrir los archivos: {{error}}",

@@ -510,6 +510,7 @@
       "title": "Merge"
     },
     "openWith": {
+      "browse": "Browse for a program…",
       "chooseTitle": "Choose a program",
       "default": "Default",
       "failed": "Could not open the files: {{error}}",

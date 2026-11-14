@@ -533,6 +533,7 @@
       "title": "Unisci"
     },
     "openWith": {
+      "browse": "Cerca un programma…",
       "chooseTitle": "Scegli un’applicazione",
       "default": "Predefinita",
       "failed": "Impossibile aprire i file: {{error}}",

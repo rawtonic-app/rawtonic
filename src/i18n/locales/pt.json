@@ -533,6 +533,7 @@
       "title": "Mesclar"
     },
     "openWith": {
+      "browse": "Procurar um programa…",
       "chooseTitle": "Escolher uma aplicação",
       "default": "Predefinida",
       "failed": "Não foi possível abrir os ficheiros: {{error}}",

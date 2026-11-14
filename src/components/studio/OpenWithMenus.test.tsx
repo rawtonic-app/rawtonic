@@ -8,6 +8,7 @@ import { runEditWith, type AppChoices } from '../../utils/editWith';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { submitPhotoWrite } from '../../utils/photoWrites';
 import i18n from 'i18next';
+import packaged from './fixtures/openWithPackaged.json';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
@@ -76,7 +77,7 @@ it('opens with any program chosen by Other…', async () => {
   );
 });
 
-it('on Windows, Other… asks for a program file and Edit With names the program as the menu does', async () => {
+it('on Windows, Browse for a program… asks for a program file and Edit With names the program as the menu does', async () => {
   const { notify } = await import('../../activity/notify');
   useSettingsStore.setState({ osPlatform: 'windows' });
   const windowsApps: AppChoices = {
@@ -107,7 +108,7 @@ it('on Windows, Other… asks for a program file and Edit With names the program
 
     vi.mocked(open).mockResolvedValue('D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe');
     render(<OpenWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('menuitem', { name: /Other…/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Browse for a program…/ }));
     await vi.waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('open_with_open', {
         program: 'D:\\Tools\\Bild Bearbeiter\\Größe ändern.exe',
@@ -115,6 +116,25 @@ it('on Windows, Other… asks for a program file and Edit With names the program
       })
     );
     expect(mockInvoke).toHaveBeenCalledWith('open_with_pick', { title: expect.any(String) });
+  } finally {
+    useSettingsStore.setState({ osPlatform: '' });
+  }
+});
+
+it('on Windows lists the programs Windows offers without recommending them (Photos) after the others, and opens them by their id', async () => {
+  useSettingsStore.setState({ osPlatform: 'windows' });
+  const { choices, openWithOpen } = packaged;
+  mockInvoke.mockImplementation(async (command) => (command === 'open_with_apps' ? choices : undefined));
+  try {
+    const { container } = render(<OpenWithSubMenu paths={openWithOpen.paths} hideContextMenu={vi.fn()} />);
+    await screen.findByText('Photos');
+    const names = screen.getAllByRole('menuitem').map((item) => item.textContent);
+    expect(names).toEqual(['PaintDefault', 'Photos', 'Browse for a program…']);
+    // Default · separator · offered, not recommended · separator · browse.
+    expect(container.querySelectorAll('.rawtonic-menu-separator')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('menuitem', { name: /Photos/ }));
+    // The exact arguments the Rust side reads (a_packaged_program_crosses_ipc_as_the_frontend_sends_it).
+    await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('open_with_open', openWithOpen));
   } finally {
     useSettingsStore.setState({ osPlatform: '' });
   }
