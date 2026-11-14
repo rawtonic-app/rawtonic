@@ -373,7 +373,10 @@ export function syncSkippedDuplicates({ files }: SkippedDuplicates) {
     id: 'library:duplicates-skipped',
     source: 'files',
     title: i18n.t('activity.duplicatesNotAdded', { count: files.length, name: fileName(files[0].of) }),
-    detail: `${i18n.t('activity.duplicatesNotAddedDetail')}\n${files.map((f) => `${fileName(f.path)} = ${fileName(f.of)}`).slice(0, 10).join('\n')}`,
+    detail: `${i18n.t('activity.duplicatesNotAddedDetail')}\n${files
+      .map((f) => `${fileName(f.path)} = ${fileName(f.of)}`)
+      .slice(0, 10)
+      .join('\n')}`,
     paths: [...new Set(files.map((f) => f.of))]
   });
 }
