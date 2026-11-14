@@ -557,6 +557,7 @@ fn reading_the_file_of_a_never_read_sidecar_adopts_its_settings() {
     assert_eq!(state(&f), CONFLICT);
     f.lib.use_xmp(&f.id).unwrap();
     assert_eq!(f.lib.metadata(&f.id).unwrap().rating, 3);
+}
 
 /// A rating set while the sidecar holds another editor's older rating is
 /// the library's: it survives the quit, the next open's check and write of
