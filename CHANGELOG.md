@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Windows with AMD graphics: views prepared in idle time stay prepared after a driver update.** On AMD's Windows Vulkan driver the views the editor prepares in idle time (in a helper process) were kept only in the driver's own cache; when that cache was cleared (a driver update, a cleanup tool) every such view was compiled again, 39–45 s each on a Radeon 680M. They now go into the app's own cache file too, so the next start finds them there. Such a helper now also ends at once when the app ends or is closed from the Task Manager, instead of running on for up to 15 minutes. Exports are unchanged.
+
 ## 0.1.0-alpha.14 — 2026-11-14
 
 The fourteenth alpha. Windows on AMD integrated graphics (a Radeon 680M with AMD's Vulkan driver) now works properly: exports of edited photos no longer crash the app, edits respond in about 0.1–0.4 s once their first views are prepared, a JPEG export after editing takes about 5 s instead of about 2 minutes and 16-bit TIFF exports no longer compile a view of their own, and Glow is ready after a few idle minutes. Windows also gets Open With and Edit With, window controls in the top bar with Windows 11's snap layouts, and a Maximize that fills the screen again. Thumbnails, the Library loupe and the Develop fit view now show sharpening and noise reduction closer to the export. For new edits, Dehaze adapts its veil to the photo, Blacks −100 darkens as far as Capture One's, and Lensfun lens profiles correct as Lensfun measured them. Super Resolution on Windows and Linux moves to the graphics card in the same session. Saved edits keep their look (see *Changes to existing edits*).

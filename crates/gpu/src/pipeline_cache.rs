@@ -17,6 +17,14 @@
 //! carries its length and checksum: a torn or foreign file is ignored, and
 //! wgpu checks its own header (backend, adapter, driver cache UUID) before
 //! the driver sees the data.
+//!
+//! An idle compile in a helper process (`idle_compile_child`) starts from
+//! this cache's data (`seed`) and the app takes the helper's cache over as
+//! its own afterwards (`adopt`), so a variant a helper compiled is in this
+//! file too and the next launch finds it when the driver's cache is gone
+//! (G76/HCF). The file holds each pipeline of this build once: it grows
+//! only with the variants used, and a helper starts from at most
+//! `MAX_SEED` bytes.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -30,9 +38,13 @@ const MAX_BYTES: u64 = 512 << 20;
 /// Compiles finishing within this time are written together.
 const SAVE_DELAY: Duration = Duration::from_secs(2);
 const PREFIX: &str = "wgpu-pipelines-";
+/// A helper starts from the app's cache data only up to this size; beyond
+/// it the helper starts empty and its pipeline stays out of the file.
+const MAX_SEED: usize = 64 << 20;
 
 pub struct PipelineCache {
-    cache: wgpu::PipelineCache,
+    /// Replaced by a helper's cache that started from it (`adopt`).
+    cache: Mutex<wgpu::PipelineCache>,
     path: PathBuf,
     /// A save is scheduled; the length last written.
     state: Mutex<(bool, usize)>,
@@ -82,7 +94,7 @@ pub fn open(device: &wgpu::Device, info: &wgpu::AdapterInfo, dir: &Path, build: 
         loaded
     );
     let store = Arc::new(PipelineCache {
-        cache,
+        cache: Mutex::new(cache),
         path,
         state: Mutex::new((false, loaded)),
     });
@@ -136,6 +148,63 @@ pub(crate) fn foreign(
     })
 }
 
+/// Writes the data of `device`'s cache into `dir` under its file name
+/// (`file_name_of`), for an idle compile helper to start from, so that the
+/// cache it leaves holds the app's pipelines and its own (`adopt`). `None`
+/// without a cache, or when the data is larger than `MAX_SEED` or could not
+/// be written: the helper then starts empty, and its cache is used only to
+/// take its pipeline over (`false`).
+pub(crate) fn seed(device: &wgpu::Device, dir: &Path) -> bool {
+    let Some(cache) = for_device(device) else {
+        return false;
+    };
+    let Some(name) = cache.path.file_name() else {
+        return false;
+    };
+    seed_file(&dir.join(name), cache.current().get_data().as_deref())
+}
+
+/// Writes `data` (a cache's data) to `path` for a helper: `false` when it
+/// is not there or too large, or the write failed. Empty data needs no
+/// file (the helper starts empty all the same).
+fn seed_file(path: &Path, data: Option<&[u8]>) -> bool {
+    match data {
+        None => false,
+        Some([]) => true,
+        Some(data) if data.len() > MAX_SEED => {
+            log::info!(
+                "Pipeline cache of {} bytes: an idle compile helper starts empty",
+                data.len()
+            );
+            false
+        }
+        Some(data) => match write(path, data) {
+            Ok(()) => true,
+            Err(error) => {
+                log::warn!("Pipeline cache not passed to the helper: {error}");
+                false
+            }
+        },
+    }
+}
+
+/// Makes `cache` (a helper's that started from `seed`'s data) `device`'s
+/// own cache and writes it soon: it holds every pipeline the app's held
+/// then and the helper's. Nothing compiled into the app's cache meanwhile
+/// that is not in it, apart from small pipelines a new processor made:
+/// under a compile limit (the only place helpers run) every shader variant
+/// compiles with a compile slot, and a compile waiting for the slot stops
+/// the helper (`slot_wanted`), so a helper that finished ran alone.
+pub(crate) fn adopt(device: &wgpu::Device, cache: wgpu::PipelineCache) {
+    let Some(store) = for_device(device) else {
+        return;
+    };
+    *store.cache.lock().unwrap_or_else(|e| e.into_inner()) = cache;
+    // Written even if its length is the one last written.
+    store.state.lock().unwrap_or_else(|e| e.into_inner()).1 = 0;
+    store.save_soon();
+}
+
 /// The cache registered for `device`, if any.
 pub(crate) fn for_device(device: &wgpu::Device) -> Option<Arc<PipelineCache>> {
     let caches = CACHES.lock().unwrap_or_else(|e| e.into_inner());
@@ -146,8 +215,9 @@ pub(crate) fn for_device(device: &wgpu::Device) -> Option<Arc<PipelineCache>> {
 }
 
 impl PipelineCache {
-    pub(crate) fn wgpu(&self) -> &wgpu::PipelineCache {
-        &self.cache
+    /// The wgpu cache to create pipelines through now.
+    pub(crate) fn current(&self) -> wgpu::PipelineCache {
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Writes the cache shortly after a compile (several compiles finishing
@@ -169,7 +239,7 @@ impl PipelineCache {
     }
 
     fn save(&self) {
-        let Some(data) = self.cache.get_data() else {
+        let Some(data) = self.current().get_data() else {
             return;
         };
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -354,6 +424,49 @@ mod tests {
             .collect();
         assert_eq!(names, ["wgpu-pipelines-a.bin"]);
         assert_eq!(read(&dir.path().join("missing.bin")), None);
+    }
+
+    /// What an idle compile helper starts from (`seed`) is the app's data,
+    /// read back whole by the helper's `open`; data the helper cannot use is
+    /// not passed (G76/HCF).
+    #[test]
+    fn a_helper_starts_from_the_app_cache_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wgpu-pipelines-a.bin");
+        assert!(seed_file(&path, Some(b"app pipelines")));
+        assert_eq!(read(&path), Some(b"app pipelines".to_vec()));
+        // A cache without data yet: the helper starts empty, which is the
+        // app's cache all the same.
+        let empty = dir.path().join("wgpu-pipelines-empty.bin");
+        assert!(seed_file(&empty, Some(&[])));
+        assert!(!empty.exists());
+        // No data from the backend, or more than a helper starts from.
+        let none = dir.path().join("wgpu-pipelines-none.bin");
+        assert!(!seed_file(&none, None));
+        assert!(!seed_file(&none, Some(&vec![7; MAX_SEED + 1])));
+        assert!(!none.exists());
+        // Into a folder that is gone: not seeded, no panic.
+        assert!(!seed_file(
+            &dir.path().join("gone").join("wgpu-pipelines-a.bin"),
+            Some(b"x")
+        ));
+    }
+
+    /// A file of another format version (an older or newer build's) or of
+    /// another program is ignored, never handed to the driver.
+    #[test]
+    fn a_file_of_another_version_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wgpu-pipelines-a.bin");
+        let mut other = encode(b"pipelines");
+        other[..8].copy_from_slice(b"RTPLC000");
+        std::fs::write(&path, &other).unwrap();
+        assert_eq!(read(&path), None);
+        other[..8].copy_from_slice(b"RTPLC002");
+        std::fs::write(&path, &other).unwrap();
+        assert_eq!(read(&path), None);
+        std::fs::write(&path, encode(b"pipelines")).unwrap();
+        assert_eq!(read(&path), Some(b"pipelines".to_vec()));
     }
 
     #[test]

@@ -508,13 +508,32 @@ impl IdleCompiles {
                     drop(slot);
                     continue;
                 }
-                super::idle_compile_child::Helped::Compiled(cache) => {
+                super::idle_compile_child::Helped::Compiled { cache, seeded } => {
                     if Self::claim(&target, job) {
                         super::idle_compile_child::HELPER_CACHE
-                            .with(|helper| *helper.borrow_mut() = Some(cache));
+                            .with(|helper| *helper.borrow_mut() = Some(cache.clone()));
                         self.compile(&target, job);
                         super::idle_compile_child::HELPER_CACHE
                             .with(|helper| *helper.borrow_mut() = None);
+                        // The helper's cache (the app's, plus this job) is
+                        // the app's cache file from now on.
+                        if seeded {
+                            crate::pipeline_cache::adopt(&target.device, cache);
+                        }
+                        log::info!(
+                            "GPU idle compile of {}: {}",
+                            job.arg(),
+                            if seeded {
+                                "kept in the app's pipeline cache"
+                            } else {
+                                "not kept in the app's pipeline cache (the helper started empty)"
+                            }
+                        );
+                        #[cfg(test)]
+                        if seeded {
+                            super::idle_compile_child::ADOPTED
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
                     }
                 }
                 super::idle_compile_child::Helped::Unavailable => {
@@ -1116,6 +1135,13 @@ mod tests {
         let cache = tempfile::tempdir().unwrap();
         let context =
             GpuContext::headless_with_pipeline_cache_of(Some(cache.path()), TEST_BUILD).unwrap();
+        if crate::pipeline_cache::file_name_of(&context.device).is_none() {
+            // Helpers hand their pipeline over through a pipeline cache,
+            // which only Vulkan has (helpers run only under a compile limit,
+            // on AMD's Windows Vulkan driver).
+            eprintln!("SKIP: no pipeline cache on this backend, so no idle helpers");
+            return;
+        }
         set_compile_limit(Some(1));
         let processor = GpuProcessor::new(context, 256, 256).unwrap();
         let idle = Arc::clone(&processor.idle_compiles.as_ref().unwrap().0);
@@ -1163,6 +1189,20 @@ mod tests {
             processor.preview_pipelines[plan[0]].get().is_some()
         });
         assert!(DONE.load(Ordering::SeqCst) >= 1, "a helper compiled it");
+        // The helper started from the app's cache, and the app keeps the
+        // helper's cache (its pipelines and the job's) as its own file
+        // (G76/HCF), which a new cache reads back whole.
+        let device = Arc::clone(&processor.context.device);
+        if let Some(name) = crate::pipeline_cache::file_name_of(&device) {
+            assert!(
+                super::super::idle_compile_child::ADOPTED.load(Ordering::SeqCst) >= 1,
+                "the app kept a helper's cache"
+            );
+            let (path, length) = crate::pipeline_cache::save_now(&device).unwrap();
+            assert_eq!(path, cache.path().join(&name));
+            assert!(length > 0);
+            assert!(crate::pipeline_cache::foreign(&device, cache.path(), &name).is_some());
+        }
         let contrast = recipe(serde_json::json!({"contrast": 20}));
         assert_eq!(
             preview_features(&contrast) & plan[0],
