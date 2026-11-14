@@ -302,3 +302,22 @@ it('says once what an interrupted job left and was removed, and names staging fo
     detail: '/cat/Photos/.rawtonic-import-old'
   });
 });
+
+it('says once, not as a dialog, that the opening scan left copies of catalog photographs out', async () => {
+  await vi.waitFor(() => expect(handlers.has('library-duplicates-skipped')).toBe(true));
+  const send = () =>
+    act(() =>
+      handlers.get('library-duplicates-skipped')!({
+        payload: { files: [{ path: '/cat/Photos/Canon_R6_copy.CR3', of: '/cat/Photos/Canon_R6.CR3' }] }
+      })
+    );
+  send();
+  send();
+  expect(useActivityStore.getState().entries.filter((e) => e.id === 'library:duplicates-skipped')).toHaveLength(1);
+  expect(entry('library:duplicates-skipped')).toMatchObject({
+    status: 'done',
+    title: '1 duplicate in the catalog’s folder was not added — already in the catalog as Canon_R6.CR3',
+    paths: ['/cat/Photos/Canon_R6.CR3']
+  });
+  expect(entry('library:duplicates-skipped')?.detail).toContain('Canon_R6_copy.CR3 = Canon_R6.CR3');
+});

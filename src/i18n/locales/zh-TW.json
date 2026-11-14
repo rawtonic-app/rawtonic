@@ -42,6 +42,8 @@
       "unreadable_one": "{{count}} 張照片無法比較",
       "unreadable_other": "{{count}} 張照片無法比較"
     },
+    "duplicatesNotAdded_other": "目錄資料夾中的 {{count}} 個重複項目未加入 — 目錄中已有(例如 {{name}})",
+    "duplicatesNotAddedDetail": "它們的內容與目錄中已有的照片相同。仍可透過「同步資料夾」加入。",
     "empty": {
       "attention": "沒有需要處理的項目。",
       "done": "沒有最近的結果。",
@@ -1475,6 +1477,7 @@
       "cancel": "取消",
       "companions_other": "{{count}} 個 JPEG 將與目錄中已有的 RAW 合併。",
       "copy": "複製到此專案…",
+      "duplicates_other": "已略過 {{count}} 個重複項目 — 目錄中已有(例如 {{name}})。",
       "failed": "無法讀取資料夾：{{error}}",
       "intro": "照片在原位置加入：不會複製、移動或在其旁邊寫入任何內容。RAW+JPEG 成對的檔案作為一張照片加入；會讀取 XMP 檔案中的評等、標籤和關鍵字。",
       "nothing": "沒有新照片：這裡的一切都已在目錄中。",
@@ -1999,8 +2002,9 @@
       "added_other": "已加入 {{count}} 張照片",
       "addedToAlbum": "已加入 {{name}}",
       "albumAddFailed": "照片已匯入，但未加入 {{name}}：{{error}}",
+      "alreadyInLibrary_other": "{{count}} 張已在圖庫中",
       "companionsKept": "已將 {{n}} 個 JPEG 與其 RAW 一起保存",
-      "duplicatesSkipped_other": "已略過 {{count}} 個重複項目",
+      "duplicatesSkipped_other": "已略過 {{count}} 個重複項目 — 圖庫中已有(例如 {{name}})",
       "flagsFailed": "無法儲存旗標：{{error}}",
       "flagsSavedRefreshFailed": "旗標已儲存；無法重新整理專案摘要：{{error}}",
       "hotFolderFailed": "監看資料夾：{{file}}：{{error}}",
