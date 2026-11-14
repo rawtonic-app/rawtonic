@@ -557,4 +557,30 @@ fn reading_the_file_of_a_never_read_sidecar_adopts_its_settings() {
     assert_eq!(state(&f), CONFLICT);
     f.lib.use_xmp(&f.id).unwrap();
     assert_eq!(f.lib.metadata(&f.id).unwrap().rating, 3);
+
+/// A rating set while the sidecar holds another editor's older rating is
+/// the library's: it survives the quit, the next open's check and write of
+/// pending XMP, and the sidecar is neither replaced nor read back.
+#[test]
+fn a_rating_set_over_a_conflicting_sidecar_survives_a_relaunch() {
+    let f = synced();
+    fs::write(&f.xmp, external_packet(2)).unwrap();
+    set_rating(&f, 4);
+    assert!(f.lib.sync_xmp(&f.id).is_err());
+    let Fixture {
+        _tmp, lib, id, xmp, ..
+    } = f;
+    let directory = _tmp.path().to_path_buf();
+    drop(lib);
+    let lib = Library::open(&directory).unwrap();
+    let mut seen = Default::default();
+    lib.check_xmp_sidecars(None, &mut seen).unwrap();
+    let retry = lib.write_pending_xmp().unwrap();
+    assert_eq!(retry.written, 0);
+    assert_eq!(lib.metadata(&id).unwrap().rating, 4);
+    assert_eq!(lib.editor_state(&id).unwrap().unwrap()["rating"], json!(4));
+    assert_eq!(fs::read_to_string(&xmp).unwrap(), external_packet(2));
+    let listed = lib.xmp_unsynced().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].problem, Some(XmpProblem::ChangedElsewhere));
 }

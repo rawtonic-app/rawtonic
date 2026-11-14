@@ -4,7 +4,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import IngestPreviewGrid, { type IngestCandidate } from './IngestPreviewGrid';
-import { createLargePreviewCache, zoomOffset, type LargePreview } from './IngestLoupe';
+import {
+  createLargePreviewCache,
+  zoomOffset,
+  type LargePreview,
+  type RegionPreview,
+  type Size,
+  type ZoomFocus
+} from './IngestLoupe';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import type { AppSettings } from '../ui/AppProperties';
 
@@ -37,11 +44,17 @@ function Harness({
   list,
   loadPreview = largePreview,
   loadFullPreview,
+  loadFullSize,
+  loadRegion,
+  cancelRegion,
   onCancel
 }: {
   list: IngestCandidate[];
   loadPreview?: (path: string) => Promise<LargePreview>;
   loadFullPreview?: (path: string) => Promise<LargePreview>;
+  loadFullSize?: (path: string) => Promise<Size | null>;
+  loadRegion?: (path: string, focus: ZoomFocus, view: Size) => Promise<RegionPreview | null>;
+  cancelRegion?: (path: string) => void;
   onCancel?: () => void;
 }) {
   const [selected, setSelected] = useState(() => new Set(list.map((file) => file.path)));
@@ -58,6 +71,9 @@ function Harness({
         loadThumbnail={async (path) => `blob:thumb${path}`}
         loadPreview={loadPreview}
         loadFullPreview={loadFullPreview}
+        loadFullSize={loadFullSize}
+        loadRegion={loadRegion}
+        cancelRegion={cancelRegion}
         onSelectedChange={setSelected}
       />
     </dialog>
@@ -332,6 +348,122 @@ describe('Reviewing before the import (IMPD)', () => {
     await user.keyboard('{ArrowLeft}');
     expect(fullImage()?.getAttribute('src')).toBe(`blob:${path(0)}`);
     expect(full).toHaveBeenCalledTimes(3);
+  });
+
+  it('Z on a RAW still being made shows its preview enlarged at once, then the part in view, then all of it, in place (IMPD4)', async () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    try {
+      const user = userEvent.setup();
+      let finishFull: (preview: LargePreview) => void = () => undefined;
+      const full = vi.fn(() => new Promise<LargePreview>((resolve) => (finishFull = resolve)));
+      let finishRegion: (region: RegionPreview | null) => void = () => undefined;
+      const region = vi.fn(() => new Promise<RegionPreview | null>((resolve) => (finishRegion = resolve)));
+      const cancel = vi.fn();
+      render(
+        <Harness
+          list={files(2)}
+          loadFullPreview={full}
+          loadFullSize={async () => ({ width: 6000, height: 4000 })}
+          loadRegion={region}
+          cancelRegion={cancel}
+        />
+      );
+      await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+      const fit = await waitFor(() =>
+        document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-placeholder)')!
+      );
+      Object.defineProperty(fit, 'naturalWidth', { value: 1620 });
+      Object.defineProperty(fit, 'naturalHeight', { value: 1080 });
+      fireEvent.load(fit);
+      expect(region).not.toHaveBeenCalled();
+      await user.keyboard('z');
+      // At once: the large preview at the 100 % size around the centre.
+      const enlarged = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-enlarged');
+      await waitFor(() => expect(enlarged()).toBeTruthy());
+      expect(enlarged()!.getAttribute('src')).toBe(`blob:large${path(0)}`);
+      expect(enlarged()!.style.width).toBe('6000px');
+      expect(enlarged()!.style.transform).toBe('translate(-2600px, -1700px)');
+      expect(document.querySelector('.session-ingest-loupe-zoom')!.textContent).toBe('Loading 100 %…');
+      expect(region).toHaveBeenCalledWith(path(0), { x: 0.5, y: 0.5 }, { width: 800, height: 600 });
+      // The real pixels of the part in view, where they belong.
+      await act(async () =>
+        finishRegion({
+          url: 'blob:region0',
+          full: { width: 6000, height: 4000 },
+          rect: { x: 2344, y: 1544, width: 1312, height: 912 }
+        })
+      );
+      const part = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-region')!;
+      expect(part.getAttribute('src')).toBe('blob:region0');
+      expect(part.style.width).toBe('1312px');
+      expect(part.style.transform).toBe('translate(-256px, -156px)');
+      // Then all of it in the same place; the stand-ins go.
+      await act(async () => finishFull({ url: 'blob:full0', info: null, width: 6000, height: 4000 }));
+      const whole = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full')!;
+      expect(whole.getAttribute('src')).toBe('blob:full0');
+      expect(whole.style.transform).toBe('translate(-2600px, -1700px)');
+      expect(enlarged()).toBeNull();
+      expect(document.querySelector('img.session-ingest-loupe-region')).toBeNull();
+      expect(revoked).toContain('blob:region0');
+      expect(cancel).toHaveBeenCalledWith(path(0));
+      expect(region).toHaveBeenCalledTimes(1);
+    } finally {
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
+
+  it('stepping at 100 % to a photograph still being made shows its enlarged preview straight away, never the fit view', async () => {
+    const user = userEvent.setup();
+    const pending = new Promise<LargePreview>(() => undefined);
+    render(
+      <Harness
+        list={files(2)}
+        loadPreview={async (p) => ({ url: `blob:large${p}`, info: null, width: 1620, height: 1080 })}
+        loadFullPreview={async (p) =>
+          p === path(0) ? { url: 'blob:full0', info: null, width: 6000, height: 4000 } : pending
+        }
+        loadFullSize={async () => ({ width: 6000, height: 4000 })}
+        loadRegion={async () => null}
+        cancelRegion={() => undefined}
+      />
+    );
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    await user.keyboard('z');
+    await waitFor(() => expect(document.querySelector('img.session-ingest-loupe-full')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector('.session-ingest-loupe-count')!.textContent).toContain('1'));
+    await user.keyboard('{ArrowRight}');
+    expect(shownName()).toBe('DSC00001.ARW');
+    expect(document.querySelector('img.session-ingest-loupe-fit')).toBeNull();
+    const enlarged = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-enlarged')!;
+    expect(enlarged.getAttribute('src')).toBe(`blob:large${path(1)}`);
+    expect(enlarged.style.width).toBe('6000px');
+  });
+
+  it('never stands in a preview of another framing for the 100 % view (a portrait stored turned)', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        list={files(1)}
+        loadFullPreview={() => new Promise<LargePreview>(() => undefined)}
+        loadFullSize={async () => ({ width: 4000, height: 6000 })}
+        loadRegion={async () => null}
+        cancelRegion={() => undefined}
+      />
+    );
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    const fit = await waitFor(() =>
+      document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-placeholder)')!
+    );
+    Object.defineProperty(fit, 'naturalWidth', { value: 1620 });
+    Object.defineProperty(fit, 'naturalHeight', { value: 1080 });
+    fireEvent.load(fit);
+    await user.keyboard('z');
+    await act(async () => undefined);
+    expect(document.querySelector('img.session-ingest-loupe-enlarged')).toBeNull();
+    expect(document.querySelector('img.session-ingest-loupe-fit')).toBeTruthy();
+    expect(document.querySelector('.session-ingest-loupe-zoom')!.textContent).toBe('Loading 100 %…');
   });
 
   it('Z zooms around the pointer over the photo', async () => {
