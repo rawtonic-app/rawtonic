@@ -415,6 +415,17 @@ pub fn forced_provider() -> Option<Provider> {
         .and_then(|v| Provider::parse(&v))
 }
 
+/// Whether every model runs on ONNX Runtime's CPU provider in this process:
+/// `RAWTONIC_AI_PROVIDER=cpu`, or no forced provider and `keep_models_on_cpu`
+/// was called. The app uses it to keep the CPU path's memory down (one model
+/// at a time instead of both masking models).
+pub fn models_run_on_cpu_only() -> bool {
+    match forced_provider() {
+        Some(provider) => provider == Provider::Cpu,
+        None => models_kept_on_cpu(),
+    }
+}
+
 /// A GPU device a plugin offers.
 #[derive(Clone, Debug)]
 pub struct Device {

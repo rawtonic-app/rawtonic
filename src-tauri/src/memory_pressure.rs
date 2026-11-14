@@ -152,13 +152,22 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
             // the pages the allocator keeps committed per thread after
             // frees (mimalloc) go back to the system on every worker thread
             // (without waiting for busy ones) and this one.
-            app.state::<crate::state::develop::DevelopSession>()
-                .release_rebuildable();
-            rayon::spawn_broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
-            rawtonic_runtime::allocator::release_freed_memory();
+            release_rebuildable_memory(&app);
         }
         verdict
     }));
+}
+
+/// Drops the caches that rebuild on demand (`DevelopSession::
+/// release_rebuildable`) and returns the pages the allocator keeps committed
+/// per thread after frees (mimalloc) on every worker thread (without waiting
+/// for busy ones) and this one.
+pub fn release_rebuildable_memory(app: &tauri::AppHandle) {
+    use tauri::Manager as _;
+    app.state::<crate::state::develop::DevelopSession>()
+        .release_rebuildable();
+    rayon::spawn_broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
+    rawtonic_runtime::allocator::release_freed_memory();
 }
 
 /// How long after an export run idle compiles stay held: on a Radeon 680M
