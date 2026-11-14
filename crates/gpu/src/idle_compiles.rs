@@ -1514,17 +1514,24 @@ mod tests {
         assert_ne!(own, plan[0]);
         // Right after the photo's frame: no idle time has passed.
         let started = Instant::now();
-        processor.preview_pipeline(&contrast, true).unwrap();
+        let rendered_with: *const wgpu::ComputePipeline =
+            processor.preview_pipeline(&contrast, true).unwrap();
         assert!(
             started.elapsed() < Duration::from_secs(120),
             "the Contrast frame waited {:?}",
             started.elapsed()
         );
-        assert!(processor.preview_pipelines[plan[0]].get().is_some());
+        // The planned variant rendered it. (Its own variant is the plan's
+        // next entry, which the worker may have begun by now: after a long
+        // wait on a cold driver cache the quiet time has passed. That made
+        // an earlier form of this test fail once on a Radeon 680M,
+        // G76/WCOLD3.)
+        let planned: *const wgpu::ComputePipeline = processor.preview_pipelines[plan[0]]
+            .get()
+            .expect("the planned variant compiled");
         assert!(
-            processor.preview_pipelines[own].get().is_none()
-                && processor.preview_compilation[own].get().is_none(),
-            "the frame compiled its own variant"
+            std::ptr::eq(rendered_with, planned),
+            "the frame did not render with the planned variant"
         );
         assert!(processor.preview_pipelines[features].get().is_none());
         drop(processor);
