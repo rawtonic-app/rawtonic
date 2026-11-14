@@ -6095,6 +6095,10 @@ pub fn wait_for_running_compiles(what: &str) {
         return;
     }
     let started = std::time::Instant::now();
+    // The deferred variant planned for the shown photo's 16-bit exports
+    // compiles now, in its helper, before this export's textures exist
+    // (`idle_compiles::export_starts`).
+    let deferred = idle_compiles::export_starts();
     let mut state = COMPILE_LIMIT
         .state
         .lock()
@@ -6102,11 +6106,19 @@ pub fn wait_for_running_compiles(what: &str) {
     // An idle compile in a helper process stops for it, unless it compiles
     // what 16-bit exports render with (`export_waits_for_helper`).
     let wants = ((state.0 > 0 || compiles_pending())
+        && !deferred
         && !idle_compile_child::export_waits_for_helper())
     .then(SlotWanted::new);
+    // Until the idle worker has taken the slot for that variant (it looks
+    // at once; the limit only guards against a worker that never does).
+    let awaits_deferred = || {
+        deferred
+            && started.elapsed() < std::time::Duration::from_secs(10)
+            && idle_compiles::export_awaits_deferred()
+    };
     // A compile that waits for a slot is not signalled on `freed` while it
     // waits, so this looks again every 250 ms.
-    while state.0 > 0 || compiles_pending() {
+    while state.0 > 0 || compiles_pending() || awaits_deferred() {
         state = COMPILE_LIMIT
             .freed
             .wait_timeout(state, std::time::Duration::from_millis(250))

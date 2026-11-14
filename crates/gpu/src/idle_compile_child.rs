@@ -255,7 +255,7 @@ pub(super) fn compile_in_helper(
                 if wanted {
                     "a compile or an export waits for the slot; it runs again in idle time"
                 } else if stop() {
-                    "idle compiles end"
+                    "idle compiles end, or an export's variant goes first"
                 } else {
                     "time limit"
                 }

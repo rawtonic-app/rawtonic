@@ -254,6 +254,10 @@ struct Queue {
     later: VecDeque<IdleJob>,
     /// The job compiling now.
     running: Option<IdleJob>,
+    /// An export waits for the planned deferred variant, moved to the
+    /// front (`IdleCompiles::export_starts`): the worker compiles it now,
+    /// without waiting for idle time or asking the memory guard.
+    urgent: bool,
     worker: bool,
     cancelled: bool,
 }
@@ -379,8 +383,34 @@ impl IdleCompiles {
     /// Ends the worker after the compile it runs (if any); nothing new
     /// starts. A driver call cannot be stopped midway.
     pub(super) fn cancel(&self) {
-        self.lock().cancelled = true;
+        let mut queue = self.lock();
+        queue.cancelled = true;
+        queue.urgent = false;
+        drop(queue);
         self.changed.notify_all();
+    }
+
+    /// An export starts: the planned deferred variant, if one still waits
+    /// for idle time, compiles now (`Queue::urgent`). Whether one does.
+    fn export_starts(&self) -> bool {
+        let mut queue = self.lock();
+        if queue.cancelled || !queue.worker {
+            return false;
+        }
+        let Some(at) = queue
+            .plan
+            .iter()
+            .position(|job| matches!(job, IdleJob::Deferred(_)))
+        else {
+            return queue.urgent;
+        };
+        if let Some(job) = queue.plan.remove(at) {
+            queue.plan.push_front(job);
+        }
+        queue.urgent = true;
+        drop(queue);
+        self.changed.notify_all();
+        true
     }
 
     /// The next job, and whether it is a planned superset (one a compiled
@@ -420,8 +450,9 @@ impl IdleCompiles {
                     }
                     queue = self.changed.wait(queue).unwrap_or_else(|e| e.into_inner());
                 }
+                let urgent = queue.urgent;
                 drop(queue);
-                if !self.idle() {
+                if !urgent && !self.idle() {
                     let queue = self.lock();
                     let _ = self
                         .changed
@@ -441,7 +472,10 @@ impl IdleCompiles {
                 // Asked with the slot held, so only right before a compile
                 // (the app's guard drops memory it can rebuild when it
                 // allows one).
-                match memory_allows() {
+                // An export waits for this compile before it makes its
+                // textures: the guard would hold it for that export.
+                let allowed = if urgent { Ok(()) } else { memory_allows() };
+                match allowed {
                     Ok(()) => {
                         if let Some(reason) = held.take() {
                             log::info!("GPU idle compiles resumed (held: {reason})");
@@ -469,6 +503,8 @@ impl IdleCompiles {
                     queue.worker = false;
                     return;
                 }
+                // The slot is held from here on, which the export waits for.
+                queue.urgent = false;
                 let Some((job, planned)) = Self::next(&mut queue) else {
                     continue;
                 };
@@ -497,14 +533,20 @@ impl IdleCompiles {
             // In a helper process first, which a compile or an export that
             // waits for the slot stops (`idle_compile_child`); the job is
             // claimed only when it compiles here.
+            // Stopped too when an export waits for the deferred variant
+            // behind it (`export_starts`).
             let helped = super::idle_compile_child::compile_in_helper(&target, job, || {
-                self.lock().cancelled
+                let queue = self.lock();
+                queue.cancelled || (queue.urgent && !matches!(job, IdleJob::Deferred(_)))
             });
             match helped {
                 super::idle_compile_child::Helped::Stopped => {
                     let mut queue = self.lock();
                     queue.running = None;
-                    if planned {
+                    if planned && queue.urgent && !queue.plan.is_empty() {
+                        // Behind the variant an export waits for.
+                        queue.plan.insert(1, job);
+                    } else if planned {
                         queue.plan.push_front(job);
                     } else {
                         queue.later.push_front(job);
@@ -682,6 +724,36 @@ impl IdleCompiles {
             since_start()
         );
     }
+}
+
+/// An export starts under a compile limit, before it makes its textures
+/// (`wait_for_running_compiles`): a deferred display variant planned for
+/// the shown photo (a 16-bit export was picked, or the photographer keeps
+/// 16-bit recipes) that still waits for idle time compiles now, in its
+/// helper, and the export waits for it. Picking 16-bit TIFF and exporting
+/// at once is the normal way to export: without this the export compiled
+/// the variant itself beside its textures, 35.9 s at 7.2 GB of the app's
+/// memory on a Radeon 680M (G76/WSMOKE19), against the helper's ~4.4 GB
+/// beside an app without them. An export that does not need the variant
+/// waits for it too, once per variant and computer (the pipeline cache
+/// answers the helper afterwards). Whether one compiles or is about to.
+pub(super) fn export_starts() -> bool {
+    let live = LIVE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    // Every processor's, not only the first that has one.
+    let mut any = false;
+    for idle in live.iter().filter_map(std::sync::Weak::upgrade) {
+        any |= idle.export_starts();
+    }
+    any
+}
+
+/// Whether a deferred variant an export waits for has not started yet
+/// (`export_starts`).
+pub(super) fn export_awaits_deferred() -> bool {
+    let live = LIVE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    live.iter()
+        .filter_map(std::sync::Weak::upgrade)
+        .any(|idle| idle.lock().urgent)
 }
 
 /// The idle queues of the processors alive (`plan_deferred_exports`).
@@ -1208,6 +1280,80 @@ mod tests {
             assert!(!slot_wanted());
         }
         set_compile_limit(None);
+    }
+
+    /// Under a compile limit a 16-bit export picked and started at once
+    /// has its deferred variant compiled by the idle worker before the
+    /// export goes on to make its textures, without the idle wait
+    /// (G76/WSMOKE19).
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_export_right_after_a_sixteen_bit_pick_waits_for_its_variant"]
+    fn an_export_right_after_a_sixteen_bit_pick_waits_for_its_variant() {
+        use super::super::preview_tests::context;
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let processor = GpuProcessor::new(context(), 256, 256).unwrap();
+        let photo = super::super::new_raw_edit(None);
+        let shown = preview_features(&photo);
+        processor.preview_pipeline(&photo, true).unwrap();
+        let (plan, exact) = planned_jobs(shown, &photo);
+        let deadline = Instant::now() + Duration::from_secs(300);
+        while !plan
+            .iter()
+            .all(|&f| processor.preview_pipelines[f].get().is_some())
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the display plan did not compile"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(processor.deferred_display.get(exact).is_none());
+        // A frame just rendered: idle time is `IDLE_QUIET` away.
+        processor.preview_pipeline(&photo, true).unwrap();
+        plan_deferred_exports();
+        wait_for_running_compiles("export");
+        assert!(
+            processor.deferred_display.get(exact).is_some(),
+            "the export went on without its deferred variant"
+        );
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    /// An export that starts brings the planned deferred variant to the
+    /// front for the worker to compile at once (G76/WSMOKE19: 16-bit TIFF
+    /// picked and exported right away); a plan without one changes nothing.
+    #[test]
+    fn an_export_start_brings_the_deferred_variant_forward() {
+        let idle = IdleCompiles::new();
+        assert!(!idle.export_starts(), "no worker, nothing planned");
+        {
+            let mut queue = idle.lock();
+            queue.worker = true;
+            queue.plan = [IdleJob::Display(5238847), IdleJob::Display(7335999)].into();
+        }
+        assert!(!idle.export_starts());
+        assert!(!idle.lock().urgent);
+        idle.lock().plan.push_back(IdleJob::Deferred(7335999));
+        assert!(idle.export_starts());
+        {
+            let queue = idle.lock();
+            assert!(queue.urgent);
+            assert_eq!(
+                queue.plan,
+                [
+                    IdleJob::Deferred(7335999),
+                    IdleJob::Display(5238847),
+                    IdleJob::Display(7335999)
+                ]
+            );
+        }
+        // Processors that end no longer hold an export.
+        idle.cancel();
+        assert!(!idle.lock().urgent);
+        assert!(!idle.export_starts());
     }
 
     #[test]
