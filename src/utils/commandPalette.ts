@@ -79,10 +79,11 @@ export function overflowCommands(
   platform: string,
   t: Translate,
   keybinds?: Record<string, string[]> | null,
-  enabled = appCommandEnabled
+  enabled = appCommandEnabled,
+  historyLabels: Partial<Record<'undo' | 'redo', string>> = {}
 ): Option[] {
   if (!hasOverflowMenu(platform)) return [];
-  const built = buildMenuSpec(t, keybinds, enabled).spec.menus;
+  const built = buildMenuSpec(t, keybinds, enabled, 'Rawtonic', historyLabels).spec.menus;
   const convert = (nodes: MenuNode[]): Option[] =>
     nodes
       .flatMap((node): Option[] => {

@@ -60,6 +60,16 @@ export function textFieldFocused(command = 'undo'): boolean {
   return element instanceof HTMLElement && element.isContentEditable;
 }
 
+/** The Edit menu's Undo/Redo names ("Undo Import from Catalog"); a focused
+ * text field keeps its own history, so the plain label. Shared by the macOS
+ * menu bar and the ⋯ menu of Windows and Linux. */
+export function historyMenuLabels(t: Translate): { undo: string; redo: string } {
+  return {
+    undo: textFieldFocused('undo') ? t('appMenu.items.undo') : getUndoLabel(),
+    redo: textFieldFocused('redo') ? t('appMenu.items.redo') : getRedoLabel()
+  };
+}
+
 /** Help and About stay reachable behind a dialog (they open their own). */
 const ALWAYS_AVAILABLE = new Set(['about', 'website', 'report_problem', 'keyboard_shortcuts']);
 
@@ -122,10 +132,7 @@ export function useAppMenu(): void {
 
   useEffect(() => {
     if (!enabled) return;
-    const historyLabels = () => ({
-      undo: textFieldFocused('undo') ? t('appMenu.items.undo') : getUndoLabel(),
-      redo: textFieldFocused('redo') ? t('appMenu.items.redo') : getRedoLabel()
-    });
+    const historyLabels = () => historyMenuLabels(t as unknown as Translate);
     const dispatch: MenuDispatch = {
       menu: buildMenuSpec(t as unknown as Translate, keybinds, menuCommandEnabled, 'Rawtonic', historyLabels()),
       keys: [],
