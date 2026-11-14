@@ -64,6 +64,7 @@ pub fn start_early(app_handle: &tauri::AppHandle) {
                         crate::qa_crash::at("gpu-compile");
                     }
                     prewarm_gpu_processor_if(&gpu.processor, &context, || is_current(&gpu, &context));
+                    compile_ahead_for_new_raw(&gpu.processor, &app_handle);
                     // Up to the first display variant (at most 30 s).
                     after_first_display_variant();
                     if let Some(flag) = &flag {
@@ -83,6 +84,23 @@ pub fn start_early(app_handle: &tauri::AppHandle) {
         });
     if let Err(error) = spawned {
         log::warn!("GPU start thread unavailable: {error}");
+    }
+}
+
+/// Under a compile limit (AMD's Windows Vulkan driver), starts the idle
+/// compiles of a new RAW edit with the app instead of after the first photo
+/// is shown (`GpuProcessor::compile_ahead_for_new_raw`): on a computer's
+/// first session the Basic panel's variant compiles while the photographer
+/// is still in the Library (G76/COLD).
+fn compile_ahead_for_new_raw(slot: &GpuProcessorSlot, app_handle: &tauri::AppHandle) {
+    let look = crate::image_processing::resolve_tonemapper_override_from_handle(app_handle, true);
+    let processor = match slot.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    // It only plans and starts threads: nothing here waits for a compile.
+    if let Some(state) = processor.as_ref() {
+        state.processor.compile_ahead_for_new_raw(look);
     }
 }
 
