@@ -1088,22 +1088,21 @@ pub async fn session_ingest_full_preview(
         let started = std::time::Instant::now();
         let regions = crate::ingest_zoom::regions();
         // The view's region first when one is wanted (`session_ingest_full_region`).
-        let first =
-            |size: (u32, u32), region: &dyn Fn([u32; 4]) -> Result<image::DynamicImage, String>| {
-                regions.serve(&path, size, |rect| {
-                    let jpeg = region(rect)
-                        .map_err(|e| log::warn!("Import 100 % region of {path}: {e}"))
-                        .ok()
-                        .and_then(|image| crate::file_management::encode_full_size(&image));
-                    log::info!(
-                        "Import 100 % region of {path} ({} × {}) after {} ms",
-                        rect[2],
-                        rect[3],
-                        started.elapsed().as_millis()
-                    );
-                    jpeg
-                });
-            };
+        let first = |size: (u32, u32), region: &crate::export_processing::RenderRegion<'_>| {
+            regions.serve(&path, size, |rect| {
+                let jpeg = region(rect)
+                    .map_err(|e| log::warn!("Import 100 % region of {path}: {e}"))
+                    .ok()
+                    .and_then(|image| crate::file_management::encode_full_size(&image));
+                log::info!(
+                    "Import 100 % region of {path} ({} × {}) after {} ms",
+                    rect[2],
+                    rect[3],
+                    started.elapsed().as_millis()
+                );
+                jpeg
+            });
+        };
         let render = |bytes: &[u8]| {
             crate::export_processing::render_unedited_full_size(&app, &path, bytes, &first)
                 .map_err(|e| log::warn!("Import 100 % view of {path}: {e}"))

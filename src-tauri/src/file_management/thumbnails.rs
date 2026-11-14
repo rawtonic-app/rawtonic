@@ -983,6 +983,9 @@ pub(crate) fn source_full_size_jpeg(
     .flatten()
 }
 
+/// The width and height of a photograph from its bytes, if they tell.
+pub(crate) type SizeOfBytes<'a> = dyn Fn(&[u8]) -> Option<(u32, u32)> + 'a;
+
 /// The size of a RAW's import 100 % view (`source_full_size_jpeg`), from
 /// its header and embedded JPEG only, without decoding it: a full-size
 /// embedded JPEG's size, else `render_size` (the size the RAW renders at,
@@ -992,7 +995,7 @@ pub(crate) fn source_full_size_jpeg(
 /// (their 100 % view is their own pixels, shown at once) or unreadable ones.
 pub(crate) fn source_full_size_dimensions(
     path: &Path,
-    render_size: &dyn Fn(&[u8]) -> Option<(u32, u32)>,
+    render_size: &SizeOfBytes,
 ) -> Option<(u32, u32)> {
     if !is_raw_file(path) || !path.is_file() || is_cloud_placeholder(path) {
         return None;

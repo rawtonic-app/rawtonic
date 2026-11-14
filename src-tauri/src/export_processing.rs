@@ -215,6 +215,13 @@ pub(crate) fn load_export_base_image(
     }
 }
 
+/// A render of a region (x, y, width, height) of a prepared photograph.
+pub(crate) type RenderRegion<'a> = dyn Fn([u32; 4]) -> Result<DynamicImage, String> + 'a;
+
+/// What `render_unedited_full_size` hands its photograph's size and region
+/// render to before rendering all of it.
+pub(crate) type FirstRegion<'a> = dyn for<'r> Fn((u32, u32), &'r RenderRegion<'r>) + 'a;
+
 /// A photograph not in the library yet, rendered at full size as the app
 /// shows it unedited: the default recipe of a new photograph through the
 /// export render (GPU), from `bytes` already read from it (a card's file is
@@ -226,7 +233,7 @@ pub(crate) fn render_unedited_full_size(
     app_handle: &tauri::AppHandle,
     path: &str,
     bytes: &[u8],
-    first: &dyn Fn((u32, u32), &dyn Fn([u32; 4]) -> Result<DynamicImage, String>),
+    first: &FirstRegion,
 ) -> Result<DynamicImage, String> {
     let luts = app_handle.state::<crate::state::luts::LutState>();
     let develop = app_handle.state::<crate::state::develop::DevelopSession>();
@@ -267,6 +274,7 @@ pub(crate) fn unedited_size(path: &str, bytes: &[u8]) -> Option<(u32, u32)> {
     )
 }
 
+#[cfg(test)]
 fn render_unedited_full_size_with_env(
     path: &str,
     bytes: &[u8],
