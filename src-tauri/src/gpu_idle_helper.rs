@@ -42,8 +42,8 @@ pub fn run_if_asked() -> Option<i32> {
     ) {
         Ok(()) => Some(0),
         Err(error) => {
-            let _ = std::fs::write(
-                folder.join(rawtonic_gpu::gpu_processing::HELPER_ERROR_FILE),
+            let _ = rawtonic_fs::atomic_write(
+                &folder.join(rawtonic_gpu::gpu_processing::HELPER_ERROR_FILE),
                 error,
             );
             Some(1)

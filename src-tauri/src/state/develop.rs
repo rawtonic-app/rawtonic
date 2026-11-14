@@ -191,7 +191,8 @@ impl DevelopSession {
     pub fn release_rebuildable(&self) {
         lock_recover(&self.decoded_image_cache).clear();
         lock_recover(&self.reusable_previews).clear();
-        lock_recover(&self.patch_cache).clear();
+        // Not `patch_cache`: the webview sends AI patch, mask and relight
+        // bitmaps once and refers to them afterwards.
         *lock_recover(&self.full_warped_cache) = None;
         *lock_recover(&self.patched_warped_cache) = None;
         *lock_recover(&self.full_transformed_cache) = None;

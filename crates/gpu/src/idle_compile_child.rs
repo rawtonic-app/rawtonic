@@ -27,7 +27,7 @@
 use super::idle_compiles::{IdleJob, IdleTarget};
 use super::*;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Starts the helper process for job `job` (`IdleJob::arg`) writing its
@@ -38,7 +38,6 @@ pub type IdleCompileHelper =
 static HELPER: std::sync::OnceLock<IdleCompileHelper> = std::sync::OnceLock::new();
 /// Set after a helper failed: idle compiles run in this process from then on.
 static UNAVAILABLE: AtomicBool = AtomicBool::new(false);
-static NEXT_FOLDER: AtomicU64 = AtomicU64::new(0);
 
 /// What a helper that failed writes into its folder: why.
 pub const HELPER_ERROR_FILE: &str = "error.txt";
@@ -122,23 +121,30 @@ pub(super) fn compile_in_helper(
     let Some(name) = crate::pipeline_cache::file_name_of(&target.device) else {
         return Helped::Unavailable;
     };
-    let folder = std::env::temp_dir().join(format!(
-        "rawtonic-idle-compile-{}-{}",
-        std::process::id(),
-        NEXT_FOLDER.fetch_add(1, Ordering::Relaxed)
-    ));
+    // A folder of its own, made with a random name that no other process
+    // can have made first (private to this user on Unix); removed when it
+    // drops.
+    let folder = match tempfile::Builder::new()
+        .prefix("rawtonic-idle-compile-")
+        .tempdir()
+    {
+        Ok(folder) => folder,
+        Err(error) => {
+            log::warn!(
+                "GPU idle compiles run in the app from now on: no folder for the helper ({error})"
+            );
+            UNAVAILABLE.store(true, Ordering::Relaxed);
+            return Helped::Unavailable;
+        }
+    };
     let give_up = |why: String| {
         log::warn!("GPU idle compiles run in the app from now on: {why}");
         UNAVAILABLE.store(true, Ordering::Relaxed);
-        let _ = std::fs::remove_dir_all(&folder);
         Helped::Unavailable
     };
-    if let Err(error) = std::fs::create_dir_all(&folder) {
-        return give_up(format!("no folder for the helper ({error})"));
-    }
     let arg = job.arg();
     let started = Instant::now();
-    let mut child = match helper(&arg, &folder) {
+    let mut child = match helper(&arg, folder.path()) {
         Ok(child) => child,
         Err(error) => return give_up(format!("the helper did not start ({error})")),
     };
@@ -161,7 +167,6 @@ pub(super) fn compile_in_helper(
         if wanted || stop() || started.elapsed() >= LIMIT {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = std::fs::remove_dir_all(&folder);
             log::info!(
                 "GPU idle compile of {arg}: helper stopped after {:.2} s ({})",
                 started.elapsed().as_secs_f64(),
@@ -183,16 +188,17 @@ pub(super) fn compile_in_helper(
         std::thread::sleep(POLL);
     };
     if !status.success() {
-        let why = std::fs::read_to_string(folder.join(HELPER_ERROR_FILE)).unwrap_or_default();
+        let why =
+            std::fs::read_to_string(folder.path().join(HELPER_ERROR_FILE)).unwrap_or_default();
         return give_up(format!(
             "the helper for {arg} ended with {status}{}{}",
             if why.is_empty() { "" } else { ": " },
             why.trim()
         ));
     }
-    let cache = crate::pipeline_cache::foreign(&target.device, &folder, &name);
+    let cache = crate::pipeline_cache::foreign(&target.device, folder.path(), &name);
     // What the helper left instead, for the log.
-    let found = std::fs::read_dir(&folder)
+    let found = std::fs::read_dir(folder.path())
         .map(|entries| {
             entries
                 .flatten()
@@ -201,7 +207,7 @@ pub(super) fn compile_in_helper(
                 .join(", ")
         })
         .unwrap_or_default();
-    let _ = std::fs::remove_dir_all(&folder);
+    drop(folder);
     match cache {
         Some(cache) => {
             #[cfg(test)]
