@@ -51,6 +51,11 @@
       "unreadable_many": "No se pudieron comparar {{count}} fotos",
       "unreadable_other": "No se pudieron comparar {{count}} fotos"
     },
+    "duplicatesMerged_one": "{{count}} foto estaba registrada dos veces y se ha unido — las ediciones anteriores se conservan como instantáneas",
+    "duplicatesMerged_many": "{{count}} fotos estaban registradas dos veces y se han unido — las ediciones anteriores se conservan como instantáneas",
+    "duplicatesMerged_other": "{{count}} fotos estaban registradas dos veces y se han unido — las ediciones anteriores se conservan como instantáneas",
+    "duplicatesMergedDetail": "Cada archivo vuelve a ser una sola foto; no se ha cambiado ningún archivo de foto. El catálogo anterior se ha guardado como {{backup}}.",
+    "duplicatesMergedFields": "{{name}}: {{fields}} tomado de su otro registro",
     "duplicatesNotAdded_one": "{{count}} duplicado de la carpeta del catálogo no se añadió: ya está en el catálogo como {{name}}",
     "duplicatesNotAdded_many": "{{count}} duplicados de la carpeta del catálogo no se añadieron: ya están en el catálogo, por ejemplo como {{name}}",
     "duplicatesNotAdded_other": "{{count}} duplicados de la carpeta del catálogo no se añadieron: ya están en el catálogo, por ejemplo como {{name}}",

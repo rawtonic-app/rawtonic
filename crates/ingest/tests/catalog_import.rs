@@ -1680,3 +1680,59 @@ fn a_kept_edit_naming_a_missing_lut_is_not_kept_twice() {
     let other = w.main.primary_version(&w.ids[1]).unwrap();
     assert_eq!(w.main.snapshots(&other).unwrap().len(), 1);
 }
+
+/// A file this catalog holds is never registered a second time, also when
+/// the other catalog has a second row for it under another spelling of its
+/// folder (RATE: one file, three rows after imports on Windows).
+#[cfg(unix)]
+#[test]
+fn a_file_the_catalog_holds_is_never_added_again() {
+    let (_tmp, w) = world();
+    // The laptop has a's file a second time, under a link to its folder.
+    let link = w.root.join("Link");
+    std::os::unix::fs::symlink(w.root.join("Shoot"), &link).unwrap();
+    let card = w.root.join("Card");
+    fs::create_dir_all(&card).unwrap();
+    // Registered there from another file of the same name, its folder
+    // record then spelled as the link (a folder relinked there).
+    fs::write(card.join("a.arw"), b"another file").unwrap();
+    let second = w.laptop.add_asset(&card.join("a.arw")).unwrap().id;
+    w.laptop.save_editor_state(&second, &edit(2.0)).unwrap();
+    rusqlite::Connection::open(w.laptop.directory.join("catalog.sqlite"))
+        .unwrap()
+        .execute(
+            "UPDATE roots SET path=? WHERE id=(SELECT root_id FROM assets WHERE id=?)",
+            rusqlite::params![link.to_string_lossy().as_ref(), second],
+        )
+        .unwrap();
+    let before: i64 = rusqlite::Connection::open(w.main.directory.join("catalog.sqlite"))
+        .unwrap()
+        .query_row("SELECT count(*) FROM assets", [], |r| r.get(0))
+        .unwrap();
+
+    let source = open_source(&w.main, &w.laptop.directory).unwrap();
+    let seen = review(&w.main, &source).unwrap();
+    drop(source);
+    assert_eq!(seen.new, 0, "nothing new: the catalog holds that file");
+    assert!(seen.photos.iter().all(|p| p.id != second));
+    assert_eq!(
+        seen.unchanged, 3,
+        "a and b, and a's file again: the same photograph"
+    );
+    let receipt = import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(receipt.report.added, 0);
+    let after: i64 = rusqlite::Connection::open(w.main.directory.join("catalog.sqlite"))
+        .unwrap()
+        .query_row("SELECT count(*) FROM assets", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(after, before, "one file, one photograph");
+    assert_eq!(w.main.asset_at(&w.files[0]).unwrap().unwrap().id, w.ids[0]);
+    assert_eq!(exposure(&w.main, &w.ids[0]), json!(0.0), "a's own edit");
+}

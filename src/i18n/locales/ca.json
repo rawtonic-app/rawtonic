@@ -51,6 +51,11 @@
       "unreadable_many": "No s'han pogut comparar {{count}} fotos",
       "unreadable_other": "No s'han pogut comparar {{count}} fotos"
     },
+    "duplicatesMerged_one": "{{count}} foto estava registrada dues vegades i s’ha unit — les edicions anteriors es conserven com a instantànies",
+    "duplicatesMerged_many": "{{count}} fotos estaven registrades dues vegades i s’han unit — les edicions anteriors es conserven com a instantànies",
+    "duplicatesMerged_other": "{{count}} fotos estaven registrades dues vegades i s’han unit — les edicions anteriors es conserven com a instantànies",
+    "duplicatesMergedDetail": "Cada fitxer torna a ser una sola foto; no s’ha canviat cap fitxer de foto. El catàleg d’abans s’ha desat com a {{backup}}.",
+    "duplicatesMergedFields": "{{name}}: {{fields}} pres del seu altre registre",
     "duplicatesNotAdded_one": "{{count}} duplicat de la carpeta del catàleg no s’ha afegit: ja és al catàleg com a {{name}}",
     "duplicatesNotAdded_many": "{{count}} duplicats de la carpeta del catàleg no s’han afegit: ja són al catàleg, per exemple com a {{name}}",
     "duplicatesNotAdded_other": "{{count}} duplicats de la carpeta del catàleg no s’han afegit: ja són al catàleg, per exemple com a {{name}}",

@@ -51,6 +51,11 @@
       "unreadable_many": "{{count}} photos n'ont pas pu être comparées",
       "unreadable_other": "{{count}} photos n'ont pas pu être comparées"
     },
+    "duplicatesMerged_one": "{{count}} photo était enregistrée deux fois et a été fusionnée — les modifications antérieures sont gardées en instantanés",
+    "duplicatesMerged_many": "{{count}} photos étaient enregistrées deux fois et ont été fusionnées — les modifications antérieures sont gardées en instantanés",
+    "duplicatesMerged_other": "{{count}} photos étaient enregistrées deux fois et ont été fusionnées — les modifications antérieures sont gardées en instantanés",
+    "duplicatesMergedDetail": "Chaque fichier est de nouveau une seule photo ; aucun fichier photo n’a été modifié. Le catalogue d’avant est enregistré sous {{backup}}.",
+    "duplicatesMergedFields": "{{name}} : {{fields}} repris de son autre enregistrement",
     "duplicatesNotAdded_one": "{{count}} doublon du dossier du catalogue n’a pas été ajouté — déjà dans le catalogue sous le nom {{name}}",
     "duplicatesNotAdded_many": "{{count}} doublons du dossier du catalogue n’ont pas été ajoutés — déjà dans le catalogue, par exemple sous le nom {{name}}",
     "duplicatesNotAdded_other": "{{count}} doublons du dossier du catalogue n’ont pas été ajoutés — déjà dans le catalogue, par exemple sous le nom {{name}}",

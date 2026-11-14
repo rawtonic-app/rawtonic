@@ -45,6 +45,10 @@
       "unreadable_one": "{{count}} photo could not be compared for duplicates",
       "unreadable_other": "{{count}} photos could not be compared for duplicates"
     },
+    "duplicatesMerged_one": "{{count}} photo was registered twice and has been merged — earlier edits are kept as snapshots",
+    "duplicatesMerged_other": "{{count}} photos were registered twice and have been merged — earlier edits are kept as snapshots",
+    "duplicatesMergedDetail": "Each file is one photo again; no photo file was changed. The catalog as it was is saved as {{backup}}.",
+    "duplicatesMergedFields": "{{name}}: {{fields}} taken from its other record",
     "duplicatesNotAdded_one": "{{count}} duplicate in the catalog’s folder was not added — already in the catalog as {{name}}",
     "duplicatesNotAdded_other": "{{count}} duplicates in the catalog’s folder were not added — already in the catalog, for example as {{name}}",
     "duplicatesNotAddedDetail": "Their content equals a photo the catalog already holds. Synchronize Folder can still add them.",

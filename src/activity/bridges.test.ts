@@ -303,6 +303,29 @@ it('says once what an interrupted job left and was removed, and names staging fo
   });
 });
 
+it('says once, in the activity panel, that photos registered twice were merged and where the catalog was saved', async () => {
+  await vi.waitFor(() => expect(handlers.has('library-duplicates-merged')).toBe(true));
+  act(() =>
+    handlers.get('library-duplicates-merged')!({
+      payload: {
+        files: [
+          { path: '/Shoot/Canon_R6.CR3', fields: ['flag', 'title'] },
+          { path: '/Shoot/Nikon_Z6.NEF', fields: [] }
+        ],
+        backup: '/cat/catalog.sqlite.before-duplicate-repair-20261114'
+      }
+    })
+  );
+  expect(entry('library:duplicates-merged')).toMatchObject({
+    status: 'done',
+    source: 'files',
+    title: '2 photos were registered twice and have been merged — earlier edits are kept as snapshots',
+    detail:
+      'Each file is one photo again; no photo file was changed. The catalog as it was is saved as catalog.sqlite.before-duplicate-repair-20261114.\nCanon_R6.CR3: flag, title taken from its other record\nNikon_Z6.NEF',
+    paths: ['/Shoot/Canon_R6.CR3', '/Shoot/Nikon_Z6.NEF']
+  });
+});
+
 it('says once, not as a dialog, that the opening scan left copies of catalog photographs out', async () => {
   await vi.waitFor(() => expect(handlers.has('library-duplicates-skipped')).toBe(true));
   const send = () =>

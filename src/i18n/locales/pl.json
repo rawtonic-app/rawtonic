@@ -57,6 +57,12 @@
       "unreadable_many": "Nie udało się porównać {{count}} zdjęć",
       "unreadable_other": "Nie udało się porównać {{count}} zdjęcia"
     },
+    "duplicatesMerged_one": "{{count}} zdjęcie było zarejestrowane dwa razy i zostało scalone — wcześniejsze edycje zostały zachowane jako migawki",
+    "duplicatesMerged_few": "{{count}} zdjęcia były zarejestrowane dwa razy i zostały scalone — wcześniejsze edycje zostały zachowane jako migawki",
+    "duplicatesMerged_many": "{{count}} zdjęć było zarejestrowanych dwa razy i zostały scalone — wcześniejsze edycje zostały zachowane jako migawki",
+    "duplicatesMerged_other": "{{count}} zdjęcia było zarejestrowanych dwa razy i zostały scalone — wcześniejsze edycje zostały zachowane jako migawki",
+    "duplicatesMergedDetail": "Każdy plik jest znów jednym zdjęciem; żaden plik zdjęcia nie został zmieniony. Katalog sprzed zmiany zapisano jako {{backup}}.",
+    "duplicatesMergedFields": "{{name}}: {{fields}} przejęte z drugiego wpisu",
     "duplicatesNotAdded_one": "{{count}} duplikat z folderu katalogu nie został dodany — już w katalogu jako {{name}}",
     "duplicatesNotAdded_few": "{{count}} duplikaty z folderu katalogu nie zostały dodane — już w katalogu, na przykład jako {{name}}",
     "duplicatesNotAdded_many": "{{count}} duplikatów z folderu katalogu nie zostało dodanych — już w katalogu, na przykład jako {{name}}",

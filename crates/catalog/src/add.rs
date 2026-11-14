@@ -7,8 +7,7 @@
 use crate::CatalogError;
 use crate::error::ensure;
 use crate::{
-    Asset, Library, Mode, external_root_key, fingerprint, insert_root, search_text, write_metadata,
-    write_recipe,
+    Asset, Library, Mode, fingerprint, insert_root, search_text, write_metadata, write_recipe,
 };
 use anyhow::{Context, Result};
 use rawtonic_fs::Canonical;
@@ -293,7 +292,7 @@ impl Library {
             );
             let parent = path.parent().context("No parent")?;
             (
-                external_root_key(parent),
+                crate::one_root::root_for(&self.conn, parent)?,
                 PathBuf::from(path.file_name().context("No filename")?),
                 parent.to_string_lossy().into_owned(),
             )
@@ -477,6 +476,11 @@ impl Library {
                     params![id, batch_id],
                 )?;
             }
+            log::info!(
+                "Registered photograph {id}: {} in record {}",
+                asset.rel,
+                asset.root
+            );
             result.push((id, true));
         }
         tx.commit()?;

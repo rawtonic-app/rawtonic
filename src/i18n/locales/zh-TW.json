@@ -42,6 +42,9 @@
       "unreadable_one": "{{count}} 張照片無法比較",
       "unreadable_other": "{{count}} 張照片無法比較"
     },
+    "duplicatesMerged_other": "{{count}} 張照片曾被登錄兩次，已合併 — 先前的編輯保留為快照",
+    "duplicatesMergedDetail": "每個檔案重新只對應一張照片；照片檔案皆未變更。合併前的目錄已儲存為 {{backup}}。",
+    "duplicatesMergedFields": "{{name}}：{{fields}} 取自其另一筆登錄",
     "duplicatesNotAdded_other": "目錄資料夾中的 {{count}} 個重複項目未加入 — 目錄中已有(例如 {{name}})",
     "duplicatesNotAddedDetail": "它們的內容與目錄中已有的照片相同。仍可透過「同步資料夾」加入。",
     "empty": {

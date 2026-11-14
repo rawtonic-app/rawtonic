@@ -682,6 +682,59 @@ fn report_skipped_duplicates(app: &tauri::AppHandle, duplicates: &[SkippedDuplic
     let _ = app.emit(DUPLICATES_SKIPPED, DuplicatesReport { files });
 }
 
+/// Event: opening merged the rows of files registered twice
+/// ([`MergedReport`]); the activity panel says so once.
+pub const DUPLICATES_MERGED: &str = "library-duplicates-merged";
+
+/// What [`report_merged_duplicates`] tells the webview.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MergedReport {
+    /// The photographs whose rows were merged.
+    files: Vec<MergedFile>,
+    /// The catalog database as it was before (beside it).
+    backup: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MergedFile {
+    path: PathBuf,
+    /// The metadata fields taken from the photograph's other record.
+    fields: Vec<String>,
+}
+
+/// Says once what the library's repair of files registered twice merged
+/// (`Library::merge_duplicate_roots`, when it opened).
+fn report_merged_duplicates(app: &tauri::AppHandle, lib: &Library) {
+    use tauri::Emitter;
+    match lib.take_duplicate_repair() {
+        Ok(Some(repair)) if !repair.photos.is_empty() => {
+            let _ = app.emit(
+                DUPLICATES_MERGED,
+                MergedReport {
+                    files: repair
+                        .photos
+                        .into_iter()
+                        .map(|p| MergedFile {
+                            path: p.path,
+                            fields: p
+                                .taken
+                                .iter()
+                                .filter_map(|t| t.split(" <- ").next())
+                                .map(str::to_string)
+                                .collect(),
+                        })
+                        .collect(),
+                    backup: repair.backup,
+                },
+            );
+        }
+        Ok(_) => {}
+        Err(e) => log::warn!("Duplicate repair report not read: {e}"),
+    }
+}
+
 /// What [`follow_verified_moves`] found among the new files.
 #[derive(Default)]
 struct FollowedFiles {
@@ -845,6 +898,7 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
             let _stage = crate::performance::PerformanceStage::new("session_db_open");
             Library::open(Path::new(&directory)).map_err(|e| e.to_string())?
         };
+        report_merged_duplicates(&app, &lib);
         // Previews a catalog brought from another computer (G39).
         crate::preview_proxy::adopt_carried(&lib.directory);
         {

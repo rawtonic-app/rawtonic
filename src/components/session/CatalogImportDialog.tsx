@@ -39,7 +39,7 @@ export type ImportChange = 'edit' | 'copies' | 'metadata' | 'captureTime' | 'eye
 export interface IncomingPhoto {
   id: string;
   target: string | null;
-  matchedBy: 'id' | 'sha256' | null;
+  matchedBy: 'id' | 'sha256' | 'file' | null;
   status: 'new' | 'changed';
   changes: ImportChange[];
   /** Which catalog changed it since their last common state (the export or

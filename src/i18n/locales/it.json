@@ -51,6 +51,11 @@
       "unreadable_many": "{{count}} foto non sono state confrontate",
       "unreadable_other": "{{count}} foto non sono state confrontate"
     },
+    "duplicatesMerged_one": "{{count}} foto era registrata due volte ed è stata unita — le modifiche precedenti restano come istantanee",
+    "duplicatesMerged_many": "{{count}} foto erano registrate due volte e sono state unite — le modifiche precedenti restano come istantanee",
+    "duplicatesMerged_other": "{{count}} foto erano registrate due volte e sono state unite — le modifiche precedenti restano come istantanee",
+    "duplicatesMergedDetail": "Ogni file è di nuovo una sola foto; nessun file di foto è stato modificato. Il catalogo di prima è salvato come {{backup}}.",
+    "duplicatesMergedFields": "{{name}}: {{fields}} preso dall’altra registrazione",
     "duplicatesNotAdded_one": "{{count}} duplicato nella cartella del catalogo non aggiunto: già nel catalogo come {{name}}",
     "duplicatesNotAdded_many": "{{count}} duplicati nella cartella del catalogo non aggiunti: già nel catalogo, per esempio come {{name}}",
     "duplicatesNotAdded_other": "{{count}} duplicati nella cartella del catalogo non aggiunti: già nel catalogo, per esempio come {{name}}",
