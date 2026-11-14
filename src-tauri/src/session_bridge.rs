@@ -2161,6 +2161,15 @@ pub fn start_mount_watch(app: tauri::AppHandle) {
 pub struct CatalogFoldersView {
     pub catalog: bool,
     pub volumes: Vec<rawtonic_catalog::folders::VolumeFolders>,
+    /// Photographs copied into the catalog's own folder, by the folder they
+    /// are in (their counts; `volumes` lists only folders added in place).
+    pub internal: Vec<InternalFolder>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InternalFolder {
+    pub path: PathBuf,
+    pub photos: usize,
 }
 
 #[tauri::command]
@@ -2173,6 +2182,7 @@ pub async fn catalog_folders(
             return Ok(CatalogFoldersView {
                 catalog: false,
                 volumes: Vec::new(),
+                internal: Vec::new(),
             });
         }
         // As the Folders panel has them: it finds its trees by them.
@@ -2182,6 +2192,12 @@ pub async fn catalog_folders(
             volumes: lib
                 .folder_groups(&roots, &AppProbe)
                 .map_err(|e| e.to_string())?,
+            internal: lib
+                .internal_folder_counts()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(path, photos)| InternalFolder { path, photos })
+                .collect(),
         })
     })
     .await

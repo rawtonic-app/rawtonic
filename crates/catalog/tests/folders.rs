@@ -33,6 +33,15 @@ fn folders_follow_relinked_photographs_and_keep_missing_ones() {
     let records = lib.folders().unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!((records[0].photos, records[0].missing), (2, 0));
+    // The session-internal photograph is counted by its own folder, and
+    // leaves the count while in Trash.
+    let own = root.join("Main.catalog/Capture");
+    assert_eq!(lib.internal_folder_counts().unwrap(), [(own, 1)]);
+    lib.set_trashed_at(&root.join("Main.catalog/Capture/C.NEF"), true)
+        .unwrap();
+    assert!(lib.internal_folder_counts().unwrap().is_empty());
+    lib.set_trashed_at(&root.join("Main.catalog/Capture/C.NEF"), false)
+        .unwrap();
     // A photograph in Trash is not counted (the grid does not list it) and
     // counts again when restored.
     lib.set_trashed_at(&card.join("B.NEF"), true).unwrap();

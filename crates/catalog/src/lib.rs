@@ -2222,6 +2222,23 @@ impl Library {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// The photographs registered inside the catalog's own folder (copied
+    /// in), not in Trash, by the folder they are in (path order). Folders
+    /// holding none are absent; nothing is read from disk.
+    pub fn internal_folder_counts(&self) -> Result<Vec<(PathBuf, usize)>, CatalogError> {
+        let mut query = self.conn.prepare(
+            "SELECT a.rel_path FROM assets a JOIN roots r ON r.id=a.root_id
+             WHERE r.external=0 AND a.trashed=0",
+        )?;
+        let mut counts = std::collections::BTreeMap::<PathBuf, usize>::new();
+        for relative in query.query_map([], |r| r.get::<_, String>(0))? {
+            if let Some(folder) = self.join_root(String::new(), false, relative?).parent() {
+                *counts.entry(folder.to_path_buf()).or_default() += 1;
+            }
+        }
+        Ok(counts.into_iter().collect())
+    }
+
     /// Records the editor state of the virtual copy `copy` of `asset` (a
     /// version beside the primary one), so the copy stays listed and
     /// editable while the photograph is offline. The copy's own sidecar

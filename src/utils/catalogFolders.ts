@@ -43,6 +43,8 @@ export interface VolumeFolders {
 export interface CatalogFoldersView {
   catalog: boolean;
   volumes: VolumeFolders[];
+  /** Photographs copied into the catalog's own folder, by folder (absent in older answers). */
+  internal?: { path: string; photos: number }[];
 }
 
 /** A drive with its folder trees, ready to show. */
@@ -169,12 +171,11 @@ export function missingFolders(view: CatalogFoldersView | null, offline: Offline
 export function volumeSections(
   view: CatalogFoldersView | null,
   trees: FolderTree[],
-  offline: OfflineFolder[],
-  libraryDirectory?: string | null
+  offline: OfflineFolder[]
 ): VolumeSection[] {
   if (!view?.catalog) return [];
   const missing = missingFolders(view, offline);
-  const folders = view.volumes.flatMap((volume) => volume.folders);
+  const folders = [...view.volumes.flatMap((volume) => volume.folders), ...(view.internal ?? [])];
   const rank = (volume: VolumeFolders) => (volume.kind === 'startup' ? 0 : volume.kind === 'network' ? 2 : 1);
   return [...view.volumes]
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
@@ -192,7 +193,7 @@ export function volumeSections(
       });
       return {
         volume,
-        trees: withMissingFolders(tops, missing).map((tree) => withCatalogCounts(tree, folders, libraryDirectory))
+        trees: withMissingFolders(tops, missing).map((tree) => withCatalogCounts(tree, folders))
       };
     });
 }
@@ -205,21 +206,14 @@ export function volumeSections(
  * the catalog photographs in it and below it, whether or not its children
  * are loaded.
  */
-export function withCatalogCounts(
-  node: FolderTree,
-  folders: CatalogFolder[],
-  libraryDirectory?: string | null
-): FolderTree {
-  // The catalog's own folder holds photographs copied in; `folders` lists
-  // only the folders added in place, so its counts stay those of the disk.
-  if (libraryDirectory && (node.path === libraryDirectory || isBelow(node.path, libraryDirectory))) return node;
+export function withCatalogCounts(node: FolderTree, folders: Pick<CatalogFolder, 'path' | 'photos'>[]): FolderTree {
   const imageCount = folders
     .filter((folder) => folder.path === node.path || isBelow(folder.path, node.path))
     .reduce((sum, folder) => sum + folder.photos, 0);
   return {
     ...node,
     imageCount,
-    children: node.children?.map((child) => withCatalogCounts(child, folders, libraryDirectory))
+    children: node.children?.map((child) => withCatalogCounts(child, folders))
   };
 }
 
