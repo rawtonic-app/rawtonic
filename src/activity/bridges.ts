@@ -360,6 +360,52 @@ export function syncLeftovers({ tempFiles, folders, bytes, kept }: LeftoversRepo
     });
 }
 
+/** Mirrors `DuplicatesReport` in src-tauri/src/session_bridge.rs. */
+export type SkippedDuplicates = { files: { path: string; of: string }[] };
+
+/** The scan a catalog runs when it opens left files of its folder out
+ * because their content is a photograph it holds (the one duplicate rule of
+ * import, Add Folder and this scan): said once, with the photograph the
+ * first one copies and Show photos for the photographs they copy. */
+export function syncSkippedDuplicates({ files }: SkippedDuplicates) {
+  if (files.length === 0) return;
+  useActivityStore.getState().report('done', {
+    id: 'library:duplicates-skipped',
+    source: 'files',
+    title: i18n.t('activity.duplicatesNotAdded', { count: files.length, name: fileName(files[0].of) }),
+    detail: `${i18n.t('activity.duplicatesNotAddedDetail')}\n${files
+      .map((f) => `${fileName(f.path)} = ${fileName(f.of)}`)
+      .slice(0, 10)
+      .join('\n')}`,
+    paths: [...new Set(files.map((f) => f.of))]
+  });
+}
+
+/** Mirrors `MergedReport` in src-tauri/src/session_bridge.rs. */
+export type MergedDuplicates = { files: { path: string; fields: string[] }[]; backup: string | null };
+
+/** Opening the catalog found files registered twice (two rows for one file)
+ * and merged each into one photo, keeping the other row's edit as a
+ * snapshot: said once, with the photos and where the catalog as it was is
+ * saved. */
+export function syncMergedDuplicates({ files, backup }: MergedDuplicates) {
+  if (files.length === 0) return;
+  useActivityStore.getState().report('done', {
+    id: 'library:duplicates-merged',
+    source: 'files',
+    title: i18n.t('activity.duplicatesMerged', { count: files.length }),
+    detail: `${i18n.t('activity.duplicatesMergedDetail', { backup: backup ? fileName(backup) : '' })}\n${files
+      .map(({ path, fields }) =>
+        fields.length > 0
+          ? i18n.t('activity.duplicatesMergedFields', { name: fileName(path), fields: fields.join(', ') })
+          : fileName(path)
+      )
+      .slice(0, 10)
+      .join('\n')}`,
+    paths: files.map((f) => f.path)
+  });
+}
+
 /** Tauri's `listen`, quiet without the native side (tests, `npm run dev`). */
 function listenSafely<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
   return Promise.resolve()
@@ -421,6 +467,8 @@ export function startActivityBridges(): () => void {
     listenSafely('ai-model-download-finish', () => useActivityStore.getState().finish('download:ai-model')),
     listenSafely<DuplicatesProgress>(DUPLICATES_PROGRESS, syncDuplicatesProgress),
     listenSafely<LeftoversReport>('leftovers-removed', syncLeftovers),
+    listenSafely<SkippedDuplicates>('library-duplicates-skipped', syncSkippedDuplicates),
+    listenSafely<MergedDuplicates>('library-duplicates-merged', syncMergedDuplicates),
     listenSafely<DuplicatesFinished>(DUPLICATES_FINISHED, syncDuplicatesFinished),
     // The eye check's background pass (`face_eyes`): progress and Cancel.
     listenSafely<{ done: number; total: number }>('eye-check-progress', ({ done, total }) => {
@@ -479,6 +527,21 @@ export function startActivityBridges(): () => void {
       }
     )
   ];
+  // A library reopened at start scans before this listener exists: ask for
+  // the report it emitted meanwhile (the entry has one id, so a report seen
+  // both ways is still one).
+  void Promise.all(listeners)
+    .then(() => invoke<SkippedDuplicates | null>(Invokes.SessionMissedDuplicates))
+    .then((missed) => {
+      if (missed) syncSkippedDuplicates(missed);
+    })
+    .catch(() => {});
+  void Promise.all(listeners)
+    .then(() => invoke<MergedDuplicates | null>(Invokes.SessionMissedMergedDuplicates))
+    .then((missed) => {
+      if (missed) syncMergedDuplicates(missed);
+    })
+    .catch(() => {});
   return () => {
     for (const stop of stops) stop();
     for (const listener of listeners) void listener.then((stop) => stop());

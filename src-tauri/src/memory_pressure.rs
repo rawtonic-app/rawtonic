@@ -159,7 +159,7 @@ pub fn guard_idle_compiles(app_handle: &tauri::AppHandle) {
             // the pages the allocator keeps committed per thread after
             // frees (mimalloc) go back to the system on every worker thread
             // (without waiting for busy ones) and this one.
-            release_before_compile(&app);
+            release_rebuildable_memory(&app);
         }
         verdict
     }));
@@ -170,18 +170,24 @@ pub fn guard_idle_compiles(app_handle: &tauri::AppHandle) {
     let app = app_handle.clone();
     rawtonic_gpu::gpu_processing::set_before_export_compile(Box::new(move || {
         crate::ai_lifecycle::before_idle_compile(&app);
-        release_before_compile(&app);
+        release_rebuildable_memory(&app);
     }));
 }
 
-/// Gives back what rebuilds on demand before a shader compile in a helper
-/// process: the develop session's caches, and the pages the allocator keeps
-/// committed per thread after frees (mimalloc), on every worker thread
-/// (without waiting for busy ones) and this one.
-fn release_before_compile(app: &tauri::AppHandle) {
+/// Drops the caches that rebuild on demand (`DevelopSession::
+/// release_rebuildable`) and returns the pages the allocator keeps committed
+/// per thread after frees (mimalloc) on every worker thread (without waiting
+/// for busy ones) and this one.
+pub fn release_rebuildable_memory(app: &tauri::AppHandle) {
+    release_rebuildable_memory_keeping(app, false);
+}
+
+/// `release_rebuildable_memory`; `keep_warp` keeps the warped mask image
+/// (`DevelopSession::release_rebuildable`).
+pub fn release_rebuildable_memory_keeping(app: &tauri::AppHandle, keep_warp: bool) {
     use tauri::Manager as _;
     app.state::<crate::state::develop::DevelopSession>()
-        .release_rebuildable();
+        .release_rebuildable(keep_warp);
     rayon::spawn_broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
     rawtonic_runtime::allocator::release_freed_memory();
 }

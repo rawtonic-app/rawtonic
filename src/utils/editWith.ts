@@ -16,7 +16,23 @@ export interface AppChoice {
   name: string;
   isDefault: boolean;
   isRecent: boolean;
+  /** False for a program the system offers without recommending it
+   * (Windows' "Choose another app" list, e.g. the Photos app for TIFF):
+   * listed after the recommended ones. */
+  recommended?: boolean;
   icon: string | null;
+}
+
+/** The menu's groups of programs: the default and recent ones, the other
+ * recommended ones, then the ones the system offers without recommending. */
+export function programGroups(apps: AppChoice[]): AppChoice[][] {
+  const pinned = apps.filter((app) => app.isDefault || app.isRecent);
+  const rest = apps.filter((app) => !app.isDefault && !app.isRecent);
+  return [
+    pinned,
+    rest.filter((app) => app.recommended !== false),
+    rest.filter((app) => app.recommended === false)
+  ].filter((group) => group.length > 0);
 }
 
 export interface AppChoices {

@@ -63,6 +63,9 @@ pub struct LastFolderState {
     pub active_album_id: Option<String>,
     #[serde(default)]
     pub expanded_album_groups: Vec<String>,
+    /// The library the view belongs to; a view is only restored in it.
+    #[serde(default)]
+    pub session_directory: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

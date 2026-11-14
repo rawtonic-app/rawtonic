@@ -54,6 +54,9 @@ export enum Invokes {
   SessionIngestPreview = 'session_ingest_preview',
   SessionIngestCaptureInfo = 'session_ingest_capture_info',
   SessionIngestFullPreview = 'session_ingest_full_preview',
+  SessionIngestFullRegion = 'session_ingest_full_region',
+  SessionIngestFullRegionCancel = 'session_ingest_full_region_cancel',
+  SessionIngestFullSize = 'session_ingest_full_size',
   SessionIngestCards = 'session_ingest_cards',
   SessionEjectCard = 'session_eject_card',
   SessionIngestThumbnail = 'session_ingest_thumbnail',
@@ -78,6 +81,8 @@ export enum Invokes {
   LibraryImport = 'library_import',
   SessionSummary = 'session_summary',
   SessionPendingXmp = 'session_pending_xmp',
+  SessionMissedDuplicates = 'session_missed_duplicates',
+  SessionMissedMergedDuplicates = 'session_missed_merged_duplicates',
   SessionWritePendingXmp = 'session_write_pending_xmp',
   SessionSetFlag = 'session_set_flag',
   SessionOpen = 'session_open',
@@ -465,6 +470,8 @@ export interface LastFolderState {
   expandedFolders: string[];
   activeAlbumId: string | null;
   expandedAlbumGroups: string[];
+  /** The library the view belongs to; a view is only restored in it. */
+  sessionDirectory?: string | null;
 }
 
 /** A lens saved in the settings for manual lens correction (`MyLens` in app_settings.rs). */

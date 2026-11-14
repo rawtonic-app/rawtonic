@@ -21,8 +21,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GA_ROOT, GetAncestor, GetCursorPos, GetParent,
-    GetWindowRect, HTMAXBUTTON, HWND_TOP, IDC_ARROW, IsZoomed, LWA_ALPHA, LoadCursorW,
-    RegisterClassW, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+    GetWindowRect, HTMAXBUTTON, HWND_TOP, IDC_ARROW, IsWindowVisible, IsZoomed, LWA_ALPHA,
+    LoadCursorW, RegisterClassW, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
     SetLayeredWindowAttributes, SetWindowPos, ShowWindow, WM_CANCELMODE, WM_CAPTURECHANGED,
     WM_LBUTTONUP, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
     WM_NCRBUTTONDOWN, WM_NCRBUTTONUP, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_LAYERED,
@@ -90,6 +90,9 @@ pub unsafe fn place(parent: isize, rect: Option<Rect>) -> windows::core::Result<
         overlay = unsafe { create(parent)? };
         OVERLAY.set(overlay.0);
     }
+    if crate::window_limits::trace() {
+        log::info!("window trace: maximize button area {rect:?}");
+    }
     // HWND_TOP also keeps it above the webview's window, which sits in the
     // same sibling list.
     unsafe {
@@ -103,6 +106,17 @@ pub unsafe fn place(parent: isize, rect: Option<Rect>) -> windows::core::Result<
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
     }
+}
+
+/// The overlay's screen rectangle (left, top, right, bottom) while shown.
+pub fn on_screen() -> Option<(i32, i32, i32, i32)> {
+    let overlay = HWND(OVERLAY.get());
+    if overlay.0 == 0 || !unsafe { IsWindowVisible(overlay) }.as_bool() {
+        return None;
+    }
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(overlay, &mut rect) }.ok()?;
+    Some((rect.left, rect.top, rect.right, rect.bottom))
 }
 
 unsafe fn create(parent: HWND) -> windows::core::Result<HWND> {
@@ -152,14 +166,14 @@ unsafe fn create(parent: HWND) -> windows::core::Result<HWND> {
 fn toggle_maximize(overlay: HWND) {
     unsafe {
         let top = GetAncestor(overlay, GA_ROOT);
-        let _ = ShowWindow(
-            top,
-            if IsZoomed(top).as_bool() {
-                SW_RESTORE
-            } else {
-                SW_MAXIMIZE
-            },
-        );
+        let zoomed = IsZoomed(top).as_bool();
+        let _ = ShowWindow(top, if zoomed { SW_RESTORE } else { SW_MAXIMIZE });
+        if crate::window_limits::trace() {
+            log::info!(
+                "window trace: maximize button toggled, zoomed {zoomed} -> {}",
+                IsZoomed(top).as_bool()
+            );
+        }
     }
 }
 
@@ -186,10 +200,18 @@ unsafe extern "system" fn window_proc(
         // The shell flyout can send LEAVE between a button down and up.
         // Preserve the click until its release; cancellation is explicit.
         WM_NCMOUSELEAVE => set_state(false, PRESSED.get()),
-        WM_CANCELMODE | WM_CAPTURECHANGED => set_state(false, false),
+        WM_CANCELMODE | WM_CAPTURECHANGED => {
+            if PRESSED.get() && crate::window_limits::trace() {
+                log::info!("window trace: maximize button press cancelled by {msg:#x}");
+            }
+            set_state(false, false);
+        }
         // Handled here: DefWindowProc would run its own caption-button loop
         // and send the maximize command to this child window.
         WM_NCLBUTTONDOWN => {
+            if crate::window_limits::trace() {
+                log::info!("window trace: maximize button press");
+            }
             set_state(true, true);
             let _ = unsafe { SetCapture(hwnd) };
             return LRESULT(0);
@@ -206,6 +228,17 @@ unsafe extern "system" fn window_proc(
                 && point.y < rect.bottom;
             set_state(inside, false);
             let _ = unsafe { ReleaseCapture() };
+            if crate::window_limits::trace() {
+                log::info!(
+                    "window trace: maximize button release {msg:#x}, pressed {was_pressed}, inside {inside}, pointer {},{} button {},{}..{},{}",
+                    point.x,
+                    point.y,
+                    rect.left,
+                    rect.top,
+                    rect.right,
+                    rect.bottom
+                );
+            }
             if was_pressed && inside {
                 toggle_maximize(hwnd);
             }

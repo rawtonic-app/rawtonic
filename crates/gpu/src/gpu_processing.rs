@@ -10648,6 +10648,9 @@ impl GpuProcessor {
             });
         }
 
+        let whole_tile_inputs = !output_to_display
+            && readback_shader == ReadbackShader::Export
+            && request.roi.is_some();
         let start_tile_x = bounds.x / TILE_SIZE;
         let start_tile_y = bounds.y / TILE_SIZE;
         let end_tile_x = (bounds.x + bounds.width).div_ceil(TILE_SIZE);
@@ -10718,10 +10721,26 @@ impl GpuProcessor {
                     }
                 }
 
-                let input_x_start = (x_start as i32 - TILE_OVERLAP as i32).max(0) as u32;
-                let input_y_start = (y_start as i32 - TILE_OVERLAP as i32).max(0) as u32;
-                let input_x_end = (x_end + TILE_OVERLAP).min(width);
-                let input_y_end = (y_end + TILE_OVERLAP).min(height);
+                // An export's region reads each tile's input as the whole
+                // render does, and only its own pixels are rendered from it:
+                // its pixels (the dither, keyed on the input's coordinates,
+                // included) are those of the whole render. Other regions read
+                // from their own corner (display frames, previews; the
+                // windows of a large photo follow the tiles anyway).
+                let (read_x, read_y, read_x_end, read_y_end) = if whole_tile_inputs {
+                    (
+                        x_start_unclamped,
+                        y_start_unclamped,
+                        (x_start_unclamped + TILE_SIZE).min(width),
+                        (y_start_unclamped + TILE_SIZE).min(height),
+                    )
+                } else {
+                    (x_start, y_start, x_end, y_end)
+                };
+                let input_x_start = (read_x as i32 - TILE_OVERLAP as i32).max(0) as u32;
+                let input_y_start = (read_y as i32 - TILE_OVERLAP as i32).max(0) as u32;
+                let input_x_end = (read_x_end + TILE_OVERLAP).min(width);
+                let input_y_end = (read_y_end + TILE_OVERLAP).min(height);
                 let input_width = input_x_end - input_x_start;
                 let input_height = input_y_end - input_y_start;
 

@@ -61,6 +61,7 @@ mod hot_folder;
 mod identity_migration;
 mod image_loader;
 mod image_processing;
+mod ingest_zoom;
 mod inpainting;
 mod ipc;
 mod launch_request;
@@ -817,6 +818,9 @@ fn start(args: Vec<String>) {
                             }).unwrap_or((f64::INFINITY, f64::INFINITY));
                             let floor = startup::scaled_window_floor(ui_scale, available);
                             if let Some(minimum) = startup::minimum_window_size(logical.width, logical.height, floor) {
+                                if window_limits::trace() {
+                                    log::info!("window trace: resize {logical:?} below the floor {floor:?}, set to {minimum:?}");
+                                }
                                 let _ = window_for_handler.set_size(minimum);
                                 startup::keep_window_on_screen(&window_for_handler, (0.0, 0.0));
                             }
@@ -901,6 +905,8 @@ fn start(args: Vec<String>) {
             session_bridge::session_last,
             session_bridge::session_summary,
             session_bridge::session_pending_xmp,
+            session_bridge::session_missed_duplicates,
+            session_bridge::session_missed_merged_duplicates,
             session_bridge::session_write_pending_xmp,
             batch_journal::interrupted_batches,
             batch_journal::dismiss_interrupted_batch,
@@ -912,6 +918,9 @@ fn start(args: Vec<String>) {
             session_bridge::session_ingest_preview,
             session_bridge::session_ingest_capture_info,
             session_bridge::session_ingest_full_preview,
+            session_bridge::session_ingest_full_size,
+            session_bridge::session_ingest_full_region,
+            session_bridge::session_ingest_full_region_cancel,
             session_bridge::session_ingest_cards,
             session_bridge::session_eject_card,
             session_bridge::session_cancel_ingest,

@@ -21,6 +21,7 @@ import {
   SupportedTypes
 } from '../components/ui/AppProperties';
 import type { FolderTree } from '../utils/folderTree';
+import { savedViewHeld } from '../utils/restoreView';
 import { useTranslation } from 'react-i18next';
 
 type LibraryState = ReturnType<typeof useLibraryStore.getState>;
@@ -116,6 +117,7 @@ export const useAppInitialization = ({
     expandedFolders,
     activeAlbumId,
     expandedAlbumGroups,
+    sessionDirectory,
     setSortCriteria,
     setFilterCriteria,
     setLibrary
@@ -127,6 +129,7 @@ export const useAppInitialization = ({
       expandedFolders: state.expandedFolders,
       activeAlbumId: state.activeAlbumId,
       expandedAlbumGroups: state.expandedAlbumGroups,
+      sessionDirectory: state.sessionDirectory,
       setSortCriteria: state.setSortCriteria,
       setFilterCriteria: state.setFilterCriteria,
       setLibrary: state.setLibrary
@@ -380,6 +383,8 @@ export const useAppInitialization = ({
   useEffect(() => {
     if (isInitialMount.current || !appSettings) return;
     if (!currentFolderPath && !activeAlbumId) return;
+    // A stand-in view (the saved folder is not on disk) is not the user's selection.
+    if (savedViewHeld(sessionDirectory, currentFolderPath, activeAlbumId)) return;
 
     const currentExpanded = Array.from(expandedFolders);
     const currentExpandedAlbums = Array.from(expandedAlbumGroups);
@@ -388,7 +393,8 @@ export const useAppInitialization = ({
       currentFolderPath: null,
       expandedFolders: [],
       activeAlbumId: null,
-      expandedAlbumGroups: []
+      expandedAlbumGroups: [],
+      sessionDirectory: null
     };
 
     const pathChanged = prevFolderState.currentFolderPath !== currentFolderPath;
@@ -397,18 +403,29 @@ export const useAppInitialization = ({
     const albumExpandedChanged =
       JSON.stringify(prevFolderState.expandedAlbumGroups || []) !== JSON.stringify(currentExpandedAlbums);
 
-    if (pathChanged || expandedChanged || albumChanged || albumExpandedChanged) {
+    const libraryChanged = (prevFolderState.sessionDirectory ?? null) !== (sessionDirectory ?? null);
+
+    if (pathChanged || expandedChanged || albumChanged || albumExpandedChanged || libraryChanged) {
       handleSettingsChange({
         ...appSettings,
         lastFolderState: {
           currentFolderPath,
           expandedFolders: currentExpanded,
           activeAlbumId,
-          expandedAlbumGroups: currentExpandedAlbums
+          expandedAlbumGroups: currentExpandedAlbums,
+          sessionDirectory
         }
       });
     }
-  }, [currentFolderPath, expandedFolders, activeAlbumId, expandedAlbumGroups, appSettings, handleSettingsChange]);
+  }, [
+    currentFolderPath,
+    expandedFolders,
+    activeAlbumId,
+    expandedAlbumGroups,
+    sessionDirectory,
+    appSettings,
+    handleSettingsChange
+  ]);
 
   useEffect(() => {
     if (!appSettings) return;

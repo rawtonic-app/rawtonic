@@ -336,7 +336,9 @@ fn copies_of_held_photographs_do_not_fill_the_limit() {
         planned.files,
         vec![backup.join("Z_new.NEF").canonical().unwrap()]
     );
-    assert_eq!(planned.registered, 4);
+    // Three photographs' copies under other names are duplicates; the
+    // companion JPEG's copy is part of its photograph (registered).
+    assert_eq!((planned.duplicates, planned.registered), (3, 1));
 }
 
 /// Review r1: a folder that cannot be read is named, never passed over as
@@ -363,4 +365,50 @@ fn unreadable_folders_are_reported() {
     assert_eq!(planned.files.len(), 1);
     assert_eq!(planned.unreadable, vec![locked.canonical().unwrap()]);
     assert!(whole.unwrap_err().to_string().contains("cannot be read"));
+}
+
+/// DUPW: one duplicate rule. A file whose content equals a photograph the
+/// catalog holds is a duplicate, also under another name; the same name with
+/// other content is a photograph of its own; a file at the registered place
+/// is "registered", not a duplicate.
+#[test]
+fn a_renamed_copy_is_a_duplicate_and_a_same_name_other_content_is_not() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
+    let first = d.path().join("Drive/First");
+    let original = write(&first.join("Canon_R6.CR3"), b"the original photograph");
+    add(
+        &lib,
+        &plan(&lib, &first, true).files,
+        &AtomicBool::new(false),
+        |_| {},
+    );
+    let second = d.path().join("Drive/Second");
+    write(
+        &second.join("Canon_R6_copy.CR3"),
+        b"the original photograph",
+    );
+    // Same name as the registered photograph, other content.
+    write(&second.join("Canon_R6.CR3"), b"another photograph");
+    let planned = plan(&lib, &second, true);
+    assert_eq!(planned.duplicates, 1);
+    assert_eq!(planned.registered, 0);
+    assert_eq!(planned.photographs, 1);
+    assert_eq!(
+        planned.files,
+        vec![second.join("Canon_R6.CR3").canonical().unwrap()]
+    );
+    assert_eq!(
+        planned.duplicate_of,
+        Some(original.canonical().unwrap()),
+        "names the photograph the catalog holds"
+    );
+    assert_eq!(
+        planned.duplicate_file,
+        Some(second.join("Canon_R6_copy.CR3").canonical().unwrap()),
+        "names the file that is left out"
+    );
+    // The folder itself is only registered, never a duplicate of itself.
+    let again = plan(&lib, &first, true);
+    assert_eq!((again.registered, again.duplicates), (1, 0));
 }

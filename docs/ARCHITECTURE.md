@@ -199,7 +199,18 @@ New Rust workspace crates isolate data and file safety.
   one Undo step in the app); Keep current over a change there keeps the other catalog's edit as a snapshot, and metadata
   either choice leaves out of the photograph goes into the receipt and `import-reports/<time> <catalog id>.json`
   (`SetAside`). New photographs without their original in the other catalog (an edits-only export) are left out and
-  counted. App glue `catalog_subset.rs`, UI `CatalogImportDialog`.
+  counted. A file this catalog holds already (`asset_at`, any spelling of its path) is that photograph, never a new row
+  (`matched_by` `file`; a second incoming row for it is unchanged). App glue `catalog_subset.rs`, UI `CatalogImportDialog`.
+- `one_root`: one folder, one record; one file, one photograph (RATE). Every place that registers an external folder asks
+  `root_for`, which finds the folder's record by `folder_key` (no trailing separator; on Windows either separator and
+  any case) whatever its id (records keep their id when a folder is relinked or a catalog moved), else the id its
+  spelling hashes to; `asset_at` looks in the same record first. `Library::open` merges the records of a folder held
+  more than once (`merge_duplicate_roots`, after the Windows `plain_stored_paths` rewrite): a `VACUUM INTO` backup
+  `<database>.before-duplicate-repair-<date>` beside the database, then one transaction; of a file's rows the one in the
+  record whose id its path gives is kept (else the oldest record's), a metadata field it has no value for takes the
+  other's, the other's differing edit becomes the snapshot `Before duplicate repair` (its edit when the kept row has
+  none), albums are united, copies, snapshots and other rows move where the kept row has none; the report waits in
+  `.cache/duplicate-repair.json` until `session_open` emits `library-duplicates-merged` (activity panel, once).
 - `stacks`: stacks (G36, schema 22: `stacks` with the collapsed flag, `stack_members` with asset, copy and position —
   the lowest position is the top, so a top that leaves promotes the next; triggers dissolve a stack left with one member
   and drop a forgotten copy), each command one transaction returning the touched stacks before/after for undo

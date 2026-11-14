@@ -8,6 +8,7 @@ import {
   missingFolders,
   outermost,
   volumeSections,
+  withCatalogCounts,
   withMissingFolders,
   type CatalogFoldersView,
   type VolumeFolders
@@ -176,4 +177,30 @@ it('always shows one-root drive headings, startup first, then local drives and n
   expect(sections[3].volume.online).toBe(false);
   expect(sections[3].trees[0]).toMatchObject({ path: '/mnt/share/Jobs', missing: true });
   expect(volumes.map((volume) => volume.key)).toEqual(['share', 'z', 'sys', 'a']);
+});
+
+it('counts the photographs the catalog holds, not the files lying on disk', () => {
+  // Three files on disk, two registered: the third is a copy left out.
+  const disk = node('/lib/Trip', [node('/lib/Trip/Day 1', [], { imageCount: 3 })], { imageCount: 3 });
+  const folders = [
+    { path: '/lib/Trip/Day 1', photos: 2, offline: 0, exists: true },
+    { path: '/lib/Trip2/Day 1', photos: 5, offline: 0, exists: true },
+    { path: '/lib/Other', photos: 7, offline: 0, exists: true }
+  ];
+  const counted = withCatalogCounts(disk, folders);
+  expect(counted.imageCount).toBe(2);
+  expect(counted.children[0].imageCount).toBe(2);
+  // Not changed in place; a folder with none registered shows no badge.
+  expect(disk.imageCount).toBe(3);
+  expect(withCatalogCounts(node('/lib/Empty', [], { imageCount: 4 }), folders).imageCount).toBe(0);
+});
+
+it('counts photographs copied into the catalog’s own folder by the catalog, a skipped duplicate included out', () => {
+  // Three files on disk in Photos/Day, two registered.
+  const own = node('/lib/Main.catalog/Photos', [node('/lib/Main.catalog/Photos/Day', [], { imageCount: 3 })], {
+    imageCount: 3
+  });
+  const counted = withCatalogCounts(own, [{ path: '/lib/Main.catalog/Photos/Day', photos: 2 }]);
+  expect(counted.imageCount).toBe(2);
+  expect(counted.children[0].imageCount).toBe(2);
 });

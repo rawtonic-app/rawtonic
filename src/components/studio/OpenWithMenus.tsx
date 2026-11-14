@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { AppWindow, Check, FolderOpen } from 'lucide-react';
@@ -14,6 +14,7 @@ import {
   chosenRecipe,
   editRecipes,
   photoWritesWritten,
+  programGroups,
   programName,
   runEditWith,
   type AppChoice,
@@ -36,6 +37,13 @@ async function pickApplication(title: string): Promise<string | null> {
   });
   return typeof chosen === 'string' ? chosen : null;
 }
+
+/** "Other…": on Windows the program file picker, the last resort after the
+ * programs Windows itself offers. */
+const otherLabel = (t: TFunction) =>
+  useSettingsStore.getState().osPlatform === 'windows'
+    ? t('contextMenus.openWith.browse')
+    : t('contextMenus.openWith.other');
 
 async function displayName(program: string): Promise<string> {
   const choice = await invoke<AppChoice | null>(Invokes.OpenWithDescribe, { program }).catch(() => null);
@@ -156,17 +164,16 @@ function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string
     label: app.isDefault ? `${app.name} · ${t('contextMenus.openWith.default')}` : app.name,
     onClick: () => onPick(app.path, app.name)
   });
-  const pinned = choices.apps.filter((app) => app.isDefault || app.isRecent);
-  const others = choices.apps.filter((app) => !app.isDefault && !app.isRecent);
   return [
     ...(choices.apps.length ? [] : [{ label: t('contextMenus.openWith.none'), disabled: true }]),
-    ...pinned.map(entry),
-    ...(pinned.length && others.length ? [{ type: OPTION_SEPARATOR }] : []),
-    ...others.map(entry),
+    ...programGroups(choices.apps).flatMap((group, i) => [
+      ...(i > 0 ? [{ type: OPTION_SEPARATOR }] : []),
+      ...group.map(entry)
+    ]),
     { type: OPTION_SEPARATOR },
     {
       icon: FolderOpen,
-      label: t('contextMenus.openWith.other'),
+      label: otherLabel(t),
       onClick: () =>
         void pickApplication(t('contextMenus.openWith.chooseTitle'))
           .catch(() => null)
@@ -216,8 +223,6 @@ function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path:
   const { t } = useTranslation();
   if (choices === null) return <div className="rawtonic-menu-heading">{t('contextMenus.openWith.reading')}</div>;
   if (!choices.supported) return <div className="rawtonic-menu-heading">{t('contextMenus.openWith.unsupported')}</div>;
-  const pinned = choices.apps.filter((app) => app.isDefault || app.isRecent);
-  const others = choices.apps.filter((app) => !app.isDefault && !app.isRecent);
   const row = (app: AppChoice) => (
     <button
       key={app.path}
@@ -241,9 +246,12 @@ function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path:
   return (
     <>
       {choices.apps.length === 0 && <div className="rawtonic-menu-heading">{t('contextMenus.openWith.none')}</div>}
-      {pinned.map(row)}
-      {pinned.length > 0 && others.length > 0 && <div className="rawtonic-menu-separator" />}
-      {others.map(row)}
+      {programGroups(choices.apps).map((group, i) => (
+        <Fragment key={i}>
+          {i > 0 && <div className="rawtonic-menu-separator" />}
+          {group.map(row)}
+        </Fragment>
+      ))}
       <div className="rawtonic-menu-separator" />
       <button
         type="button"
@@ -256,7 +264,7 @@ function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path:
       >
         <span className="flex items-center gap-2.5 min-w-0">
           <FolderOpen size={14} className="shrink-0" />
-          <span className="truncate">{t('contextMenus.openWith.other')}</span>
+          <span className="truncate">{otherLabel(t)}</span>
         </span>
       </button>
     </>

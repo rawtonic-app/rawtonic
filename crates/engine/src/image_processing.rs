@@ -3495,11 +3495,7 @@ fn sample_bicubic_rgba(
 
 /// The region `apply_crop` keeps of an image of the given size, or `None`
 /// when it keeps the whole image.
-pub(crate) fn crop_rect(
-    crop_value: &Value,
-    img_w: u32,
-    img_h: u32,
-) -> Option<(u32, u32, u32, u32)> {
+pub fn crop_rect(crop_value: &Value, img_w: u32, img_h: u32) -> Option<(u32, u32, u32, u32)> {
     if crop_value.is_null() {
         return None;
     }

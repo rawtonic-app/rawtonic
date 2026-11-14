@@ -1706,6 +1706,43 @@ mod tests {
             assert_eq!(path, cache.path().join(&name));
             assert!(length > 0);
             assert!(crate::pipeline_cache::foreign(&device, cache.path(), &name).is_some());
+            // A NEW process that loads only that file (no helper folder, no
+            // app pipelines in memory) gets the planned variant from it
+            // without a compile: the file does not grow and the compile
+            // takes a fraction of the helper's (WHCF run 2 by hand: 0.07 s
+            // against 24–42 s).
+            let file = cache.path().join(&name);
+            let before = std::fs::metadata(&file).unwrap().len();
+            let job = IdleJob::Display(plan[0]).arg();
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "gpu_processing::idle_compiles::tests::idle_helper_process",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env(
+                    "RAWTONIC_TEST_IDLE_HELPER",
+                    format!("real|{job}|{}", cache.path().display()),
+                )
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "the new process compiled: {status}");
+            let seconds: f64 = std::fs::read_to_string(
+                cache
+                    .path()
+                    .join(super::super::idle_compile_child::HELPER_COMPILE_FILE),
+            )
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+            let after = std::fs::metadata(&file).unwrap().len();
+            eprintln!(
+                "new process: variant in {seconds:.2} s, cache file {before} -> {after} bytes"
+            );
+            assert_eq!(before, after, "the new process compiled the variant anew");
         }
         let contrast = recipe(serde_json::json!({"contrast": 20}));
         assert_eq!(

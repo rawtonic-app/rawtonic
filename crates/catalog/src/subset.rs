@@ -11,7 +11,7 @@
 use crate::CatalogError;
 use crate::error::ensure;
 use crate::{
-    Library, Manifest, Mode, SCHEMA_VERSION, external_root_key, insert_root, layout::database_name,
+    Library, Manifest, Mode, SCHEMA_VERSION, insert_root, layout::database_name,
     layout::manifest_name, prune_blobs,
 };
 use anyhow::{Context, Result};
@@ -198,7 +198,7 @@ impl Library {
             );
             let parent = path.parent().context("No parent")?;
             let name = path.file_name().context("No filename")?;
-            let root = external_root_key(parent);
+            let root = crate::one_root::root_for(&tx, parent)?;
             insert_root(&tx, &root, &parent.to_string_lossy())?;
             ensure!(
                 tx.execute(

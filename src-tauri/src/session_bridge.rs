@@ -503,7 +503,13 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
 /// registered ones never edited adopt sidecars that appeared later (each in
 /// one transaction). A photograph whose sidecar cannot be read is left out
 /// and logged, so it is never registered without its edits.
-fn index_folder(lib: &Library) -> anyhow::Result<()> {
+///
+/// A catalog does not register a file whose content equals a photograph it
+/// holds (the one duplicate rule of import, Add Folder and this scan,
+/// `ingest::batch::add_batch`): the file is returned with the photograph it
+/// copies, for the activity panel; Synchronize Folder lists it (unticked) for
+/// whoever wants it anyway.
+fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
     let known = lib.index_entries()?;
     let mut new = Vec::new();
     for photo in session_photos(lib)? {
@@ -532,7 +538,7 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
         }
     }
     if new.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     // Renamed (or moved and renamed) while the session was closed: a file
     // with the content hash on record for a missing photograph is that
@@ -541,20 +547,226 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
     // Files that may be a missing photograph without proof (probable or
     // contested matches) are not registered: Synchronize Folder settles
     // them (they are listed meanwhile, as every file of the folder).
+    let mut duplicates = Vec::new();
     match follow_verified_moves(lib, &new) {
-        Ok(taken) => new.retain(|photo| !taken.contains(photo)),
+        Ok(taken) => {
+            new.retain(|photo| !taken.moved.contains(photo));
+            if lib.manifest.mode == rawtonic_catalog::Mode::Catalog {
+                new.retain(|photo| match taken.copies.get(photo) {
+                    Some(of) => {
+                        duplicates.push(SkippedDuplicate {
+                            path: photo.clone(),
+                            of: of.clone(),
+                        });
+                        false
+                    }
+                    None => true,
+                });
+            }
+        }
         Err(e) => log::warn!("Renamed photographs not followed: {e:#}"),
     }
+    if lib.manifest.mode == rawtonic_catalog::Mode::Catalog {
+        duplicates.extend(copies_among(&mut new));
+    }
     if new.is_empty() {
-        return Ok(());
+        return Ok(duplicates);
     }
     let _batch = lib.import_batch(rawtonic_catalog::ImportKind::Add);
-    // A relink above may already have taken some of them.
-    let report = lib.add_files(&new)?;
-    for (path, error) in &report.failed {
-        log::warn!("{} not added to the session: {error}", path.display());
+    loop {
+        // A relink above may already have taken some of them.
+        let report = lib.add_files(&new)?;
+        for (path, error) in &report.failed {
+            log::warn!("{} not added to the session: {error}", path.display());
+        }
+        // A copy is a duplicate only of a photograph that was added: when
+        // the file it copies failed (an unreadable sidecar), the copy is
+        // judged on its own, among the others left in the same state.
+        let failed: HashSet<&Path> = report.failed.iter().map(|(p, _)| p.as_path()).collect();
+        let mut again: Vec<PathBuf> = Vec::new();
+        duplicates.retain(|d| {
+            let retry = failed.contains(d.of.as_path()) && new.contains(&d.of);
+            if retry {
+                again.push(d.path.clone());
+            }
+            !retry
+        });
+        if again.is_empty() {
+            return Ok(duplicates);
+        }
+        duplicates.extend(copies_among(&mut again));
+        new = again;
     }
-    Ok(())
+}
+
+/// Files of `new` with the content of an earlier one (name order) are
+/// removed from it and returned with that file: copies that arrive together
+/// are one photograph, as `add_batch` makes them one. Only files of the
+/// same size and sampled fingerprint are hashed.
+fn copies_among(new: &mut Vec<PathBuf>) -> Vec<SkippedDuplicate> {
+    use std::collections::HashMap;
+    new.sort();
+    let mut groups: HashMap<(u64, String), Vec<PathBuf>> = HashMap::new();
+    for path in new.iter() {
+        let key = fs::metadata(path)
+            .ok()
+            .map(|m| m.len())
+            .zip(rawtonic_catalog::fingerprint(path).ok());
+        if let Some(key) = key {
+            groups.entry(key).or_default().push(path.clone());
+        }
+    }
+    let mut copies = Vec::new();
+    for group in groups.into_values().filter(|group| group.len() > 1) {
+        let mut firsts: Vec<(String, PathBuf)> = Vec::new();
+        for path in group {
+            let Ok(hash) = rawtonic_ingest::sha256(&path) else {
+                continue;
+            };
+            match firsts.iter().find(|(known, _)| *known == hash) {
+                Some((_, of)) => copies.push(SkippedDuplicate {
+                    path,
+                    of: of.clone(),
+                }),
+                None => firsts.push((hash, path)),
+            }
+        }
+    }
+    new.retain(|path| !copies.iter().any(|copy| copy.path == *path));
+    copies
+}
+
+/// A file of the library's folder left out of the catalog because its
+/// content equals `of`, a photograph the catalog holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SkippedDuplicate {
+    path: PathBuf,
+    of: PathBuf,
+}
+
+/// Event: the opening scan left files out as duplicates
+/// ([`DuplicatesReport`]); the activity panel says so once.
+pub const DUPLICATES_SKIPPED: &str = "library-duplicates-skipped";
+
+/// What [`report_skipped_duplicates`] tells the webview.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicatesReport {
+    /// The files left out, with the photograph each copies (name order).
+    files: Vec<DuplicateFile>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DuplicateFile {
+    path: PathBuf,
+    of: PathBuf,
+}
+
+/// The last report no webview has picked up yet. A library that opens
+/// while the window starts (the last one, reopened) emits before the
+/// activity panel listens, so the panel asks for what it missed once its
+/// listener is there ([`session_missed_duplicates`]).
+static UNREAD_DUPLICATES: Mutex<Option<DuplicatesReport>> = Mutex::new(None);
+
+/// The report of the opening scan the panel has not seen, once.
+#[tauri::command]
+pub async fn session_missed_duplicates() -> Option<DuplicatesReport> {
+    crate::state::lock::lock_recover(&UNREAD_DUPLICATES).take()
+}
+
+fn report_skipped_duplicates(app: &tauri::AppHandle, duplicates: &[SkippedDuplicate]) {
+    use tauri::Emitter;
+    if duplicates.is_empty() {
+        return;
+    }
+    log::info!(
+        "{} duplicate file(s) of the catalog's folder were not added",
+        duplicates.len()
+    );
+    let mut files: Vec<DuplicateFile> = duplicates
+        .iter()
+        .map(|d| DuplicateFile {
+            path: d.path.clone(),
+            of: d.of.clone(),
+        })
+        .collect();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let report = DuplicatesReport { files };
+    *crate::state::lock::lock_recover(&UNREAD_DUPLICATES) = Some(report.clone());
+    let _ = app.emit(DUPLICATES_SKIPPED, report);
+}
+
+/// Event: opening merged the rows of files registered twice
+/// ([`MergedReport`]); the activity panel says so once.
+pub const DUPLICATES_MERGED: &str = "library-duplicates-merged";
+
+/// What [`report_merged_duplicates`] tells the webview.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergedReport {
+    /// The photographs whose rows were merged.
+    files: Vec<MergedFile>,
+    /// The catalog database as it was before (beside it).
+    backup: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergedFile {
+    path: PathBuf,
+    /// The metadata fields taken from the photograph's other record.
+    fields: Vec<String>,
+}
+
+/// The merge report no webview has picked up yet (as
+/// [`UNREAD_DUPLICATES`]: a library reopened at start merges before the
+/// activity panel listens).
+static UNREAD_MERGED: Mutex<Option<MergedReport>> = Mutex::new(None);
+
+/// The merge report the panel has not seen, once.
+#[tauri::command]
+pub async fn session_missed_merged_duplicates() -> Option<MergedReport> {
+    crate::state::lock::lock_recover(&UNREAD_MERGED).take()
+}
+
+/// Says once what the library's repair of files registered twice merged
+/// (`Library::merge_duplicate_roots`, when it opened).
+fn report_merged_duplicates(app: &tauri::AppHandle, lib: &Library) {
+    use tauri::Emitter;
+    match lib.take_duplicate_repair() {
+        Ok(Some(repair)) if !repair.photos.is_empty() => {
+            let report = MergedReport {
+                files: repair
+                    .photos
+                    .into_iter()
+                    .map(|p| MergedFile {
+                        path: p.path,
+                        fields: p
+                            .taken
+                            .iter()
+                            .filter_map(|t| t.split(" <- ").next())
+                            .map(str::to_string)
+                            .collect(),
+                    })
+                    .collect(),
+                backup: repair.backup,
+            };
+            *crate::state::lock::lock_recover(&UNREAD_MERGED) = Some(report.clone());
+            let _ = app.emit(DUPLICATES_MERGED, report);
+        }
+        Ok(_) => {}
+        Err(e) => log::warn!("Duplicate repair report not read: {e}"),
+    }
+}
+
+/// What [`follow_verified_moves`] found among the new files.
+#[derive(Default)]
+struct FollowedFiles {
+    /// Places taken or left for the user (moves, probable and contested).
+    moved: HashSet<PathBuf>,
+    /// Files that are byte-for-byte copies of a photograph still there,
+    /// with it.
+    copies: std::collections::HashMap<PathBuf, PathBuf>,
 }
 
 /// Applies the verified moves among `new` (Synchronize Folder's, for these
@@ -562,7 +774,7 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
 /// left for the user (probable and contested moves). Lists no folder and
 /// hashes only files with the size and sampled fingerprint of a photograph
 /// of the library, so opening a library never reads the whole of it.
-fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashSet<PathBuf>> {
+fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<FollowedFiles> {
     use rawtonic_catalog::folder_sync::{SyncAction, SyncOptions};
     let never = std::sync::atomic::AtomicBool::new(false);
     let plan = lib.scan_files_sync(
@@ -590,7 +802,15 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashS
         after_relink(lib, &applied.relinked());
         taken.extend(applied.moved.into_iter().map(|(_, to)| to));
     }
-    Ok(taken)
+    let copies = plan
+        .copies
+        .iter()
+        .filter_map(|file| Some((file.path.clone(), file.copy_of.first()?.clone())))
+        .collect();
+    Ok(FollowedFiles {
+        moved: taken,
+        copies,
+    })
 }
 
 /// Registers the folders the session at `dir` keeps outside it (none for a
@@ -702,12 +922,14 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
             let _stage = crate::performance::PerformanceStage::new("session_db_open");
             Library::open(Path::new(&directory)).map_err(|e| e.to_string())?
         };
+        report_merged_duplicates(&app, &lib);
         // Previews a catalog brought from another computer (G39).
         crate::preview_proxy::adopt_carried(&lib.directory);
         {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("session_index");
-            index_folder(&lib).map_err(|e| e.to_string())?;
+            let duplicates = index_folder(&lib).map_err(|e| e.to_string())?;
+            report_skipped_duplicates(&app, &duplicates);
         }
         {
             #[cfg(feature = "performance-profiling")]
@@ -960,12 +1182,30 @@ pub async fn session_ingest_full_preview(
 ) -> Result<tauri::ipc::Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let started = std::time::Instant::now();
+        let regions = crate::ingest_zoom::regions();
+        // The view's region first when one is wanted (`session_ingest_full_region`).
+        let first = |size: (u32, u32), region: &crate::export_processing::RenderRegion<'_>| {
+            regions.serve(&path, size, |rect| {
+                let jpeg = region(rect)
+                    .map_err(|e| log::warn!("Import 100 % region of {path}: {e}"))
+                    .ok()
+                    .and_then(|image| crate::file_management::encode_full_size(&image));
+                log::info!(
+                    "Import 100 % region of {path} ({} × {}) after {} ms",
+                    rect[2],
+                    rect[3],
+                    started.elapsed().as_millis()
+                );
+                jpeg
+            });
+        };
         let render = |bytes: &[u8]| {
-            crate::export_processing::render_unedited_full_size(&app, &path, bytes)
+            crate::export_processing::render_unedited_full_size(&app, &path, bytes, &first)
                 .map_err(|e| log::warn!("Import 100 % view of {path}: {e}"))
                 .ok()
         };
         let full = crate::file_management::source_full_size_jpeg(Path::new(&path), &render);
+        regions.finish(&path);
         if let Some((_, source)) = &full {
             log::info!(
                 "Import 100 % view from {source:?} in {} ms",
@@ -976,6 +1216,62 @@ pub async fn session_ingest_full_preview(
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// The size of a RAW's 100 % view in the import dialog
+/// (`session_ingest_full_preview`), read from its header: the large view
+/// enlarges its preview to it until those pixels arrive. None for other
+/// files and unreadable ones. Read-only.
+#[tauri::command]
+pub async fn session_ingest_full_size(path: String) -> Result<Option<(u32, u32)>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let started = std::time::Instant::now();
+        let size =
+            crate::file_management::source_full_size_dimensions(Path::new(&path), &|bytes| {
+                crate::export_processing::unedited_size(&path, bytes)
+            });
+        log::info!(
+            "Import 100 % size of {path}: {size:?} in {} ms",
+            started.elapsed().as_millis()
+        );
+        size
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The part of a RAW's 100 % view the import dialog's large view shows (a
+/// view of `view_width` × `view_height` image pixels centred at `focus_x`,
+/// `focus_y`, shares of the photograph), rendered by its running full-size
+/// render (`session_ingest_full_preview`) before the rest: six u32 (full
+/// width and height, the region's x, y, width, height), then its JPEG.
+/// Empty when that render does not make one (rendered whole first, not a
+/// render, or replaced by a newer wish or `session_ingest_full_region_cancel`).
+#[tauri::command]
+pub async fn session_ingest_full_region(
+    path: String,
+    focus_x: f64,
+    focus_y: f64,
+    view_width: u32,
+    view_height: u32,
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let view = crate::ingest_zoom::regions().wait(
+            &path,
+            (focus_x, focus_y),
+            (view_width, view_height),
+        );
+        tauri::ipc::Response::new(view.map(|view| view.to_bytes()).unwrap_or_default())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Drops the large view's wish for a region of `path`
+/// (`session_ingest_full_region`).
+#[tauri::command]
+pub fn session_ingest_full_region_cancel(path: String) {
+    crate::ingest_zoom::regions().cancel(&path);
 }
 
 /// ISO, shutter speed, aperture and focal length of a photograph to import,
@@ -2003,6 +2299,15 @@ pub fn start_mount_watch(app: tauri::AppHandle) {
 pub struct CatalogFoldersView {
     pub catalog: bool,
     pub volumes: Vec<rawtonic_catalog::folders::VolumeFolders>,
+    /// Photographs copied into the catalog's own folder, by the folder they
+    /// are in (their counts; `volumes` lists only folders added in place).
+    pub internal: Vec<InternalFolder>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InternalFolder {
+    pub path: PathBuf,
+    pub photos: usize,
 }
 
 #[tauri::command]
@@ -2015,6 +2320,7 @@ pub async fn catalog_folders(
             return Ok(CatalogFoldersView {
                 catalog: false,
                 volumes: Vec::new(),
+                internal: Vec::new(),
             });
         }
         // As the Folders panel has them: it finds its trees by them.
@@ -2024,6 +2330,12 @@ pub async fn catalog_folders(
             volumes: lib
                 .folder_groups(&roots, &AppProbe)
                 .map_err(|e| e.to_string())?,
+            internal: lib
+                .internal_folder_counts()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(path, photos)| InternalFolder { path, photos })
+                .collect(),
         })
     })
     .await
@@ -2363,6 +2675,92 @@ mod tests {
         lib.add_asset(&export).unwrap();
         index_folder(&lib).unwrap();
         assert_eq!(lib.summary().unwrap().assets, 2);
+    }
+
+    /// DUPW: the scan of a catalog's folder follows the one duplicate rule:
+    /// a copy of a photograph the catalog holds, whatever its name, is left
+    /// out and reported; the same name with other content is a photograph;
+    /// Synchronize Folder still offers the copy.
+    #[test]
+    fn a_catalog_scan_leaves_out_copies_of_its_photographs() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Catalog", Mode::Catalog).unwrap();
+        let original = lib.directory.join("Photos/Canon_R6.CR3");
+        fs::write(&original, b"the original photograph").unwrap();
+        assert!(index_folder(&lib).unwrap().is_empty());
+        assert_eq!(lib.summary().unwrap().assets, 1);
+        // A byte-identical copy under a new name, made while closed.
+        let copy = lib.directory.join("Photos/Canon_R6_copy.CR3");
+        fs::copy(&original, &copy).unwrap();
+        // Another photograph that merely has a similar size.
+        let other = lib.directory.join("Photos/Other.CR3");
+        fs::write(&other, b"the original photographs").unwrap();
+        let skipped = index_folder(&lib).unwrap();
+        assert_eq!(
+            skipped,
+            vec![SkippedDuplicate {
+                path: copy.clone(),
+                of: original.clone()
+            }]
+        );
+        assert_eq!(lib.summary().unwrap().assets, 2);
+        assert!(lib.asset_at(&copy).unwrap().is_none());
+        assert!(lib.asset_at(&other).unwrap().is_some());
+        // Every opening says it again (the file is still there), and the
+        // copy is never registered by it.
+        assert_eq!(index_folder(&lib).unwrap().len(), 1);
+        assert_eq!(lib.summary().unwrap().assets, 2);
+        // Copies that arrive together are one photograph: the first (in name
+        // order) is added, the others are duplicates of it.
+        let one = lib.directory.join("Photos/New_A.CR3");
+        let two = lib.directory.join("Photos/New_B.CR3");
+        fs::write(&one, b"a newly arrived photograph").unwrap();
+        fs::copy(&one, &two).unwrap();
+        let skipped = index_folder(&lib).unwrap();
+        assert!(skipped.contains(&SkippedDuplicate {
+            path: two.clone(),
+            of: one.clone()
+        }));
+        assert!(lib.asset_at(&one).unwrap().is_some());
+        assert!(lib.asset_at(&two).unwrap().is_none());
+        // A session keeps every file of its folder.
+        let temp2 = tempfile::tempdir().unwrap();
+        let session = Library::create(temp2.path(), "Session", Mode::Session).unwrap();
+        let a = session.directory.join("Capture/A.ARW");
+        fs::write(&a, b"shot").unwrap();
+        index_folder(&session).unwrap();
+        fs::copy(&a, session.directory.join("Capture/B.ARW")).unwrap();
+        assert!(index_folder(&session).unwrap().is_empty());
+        assert_eq!(session.summary().unwrap().assets, 2);
+    }
+
+    /// DUPW: an unreadable sidecar keeps back only its own file. A second,
+    /// byte-identical new file is a duplicate only of a photograph that was
+    /// added, so with the first one left out it is added itself.
+    #[test]
+    fn an_unreadable_sidecar_of_the_first_copy_does_not_hide_the_second() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Catalog", Mode::Catalog).unwrap();
+        let one = lib.directory.join("Photos/New_A.CR3");
+        let two = lib.directory.join("Photos/New_B.CR3");
+        let three = lib.directory.join("Photos/New_C.CR3");
+        fs::write(&one, b"a newly arrived photograph").unwrap();
+        fs::copy(&one, &two).unwrap();
+        fs::copy(&one, &three).unwrap();
+        fs::write(one.with_extension("CR3.rrdata"), b"{ not json").unwrap();
+        let skipped = index_folder(&lib).unwrap();
+        // A is reported (logged) and left out; B is the photograph, C its copy.
+        assert!(lib.asset_at(&one).unwrap().is_none());
+        assert!(lib.asset_at(&two).unwrap().is_some());
+        assert!(lib.asset_at(&three).unwrap().is_none());
+        assert_eq!(
+            skipped,
+            vec![SkippedDuplicate {
+                path: three.clone(),
+                of: two.clone()
+            }]
+        );
+        assert_eq!(lib.summary().unwrap().assets, 1);
     }
 
     #[test]

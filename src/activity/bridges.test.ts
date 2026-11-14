@@ -302,3 +302,71 @@ it('says once what an interrupted job left and was removed, and names staging fo
     detail: '/cat/Photos/.rawtonic-import-old'
   });
 });
+
+it('says once, in the activity panel, that photos registered twice were merged and where the catalog was saved', async () => {
+  await vi.waitFor(() => expect(handlers.has('library-duplicates-merged')).toBe(true));
+  act(() =>
+    handlers.get('library-duplicates-merged')!({
+      payload: {
+        files: [
+          { path: '/Shoot/Canon_R6.CR3', fields: ['flag', 'title'] },
+          { path: '/Shoot/Nikon_Z6.NEF', fields: [] }
+        ],
+        backup: '/cat/catalog.sqlite.before-duplicate-repair-20261114'
+      }
+    })
+  );
+  expect(entry('library:duplicates-merged')).toMatchObject({
+    status: 'done',
+    source: 'files',
+    title: '2 photos were registered twice and have been merged — earlier edits are kept as snapshots',
+    detail:
+      'Each file is one photo again; no photo file was changed. The catalog as it was is saved as catalog.sqlite.before-duplicate-repair-20261114.\nCanon_R6.CR3: flag, title taken from its other record\nNikon_Z6.NEF',
+    paths: ['/Shoot/Canon_R6.CR3', '/Shoot/Nikon_Z6.NEF']
+  });
+});
+
+it('says once, not as a dialog, that the opening scan left copies of catalog photographs out', async () => {
+  await vi.waitFor(() => expect(handlers.has('library-duplicates-skipped')).toBe(true));
+  const send = () =>
+    act(() =>
+      handlers.get('library-duplicates-skipped')!({
+        payload: { files: [{ path: '/cat/Photos/Canon_R6_copy.CR3', of: '/cat/Photos/Canon_R6.CR3' }] }
+      })
+    );
+  send();
+  send();
+  expect(useActivityStore.getState().entries.filter((e) => e.id === 'library:duplicates-skipped')).toHaveLength(1);
+  expect(entry('library:duplicates-skipped')).toMatchObject({
+    status: 'done',
+    title: '1 duplicate in the catalog’s folder was not added — already in the catalog as Canon_R6.CR3',
+    paths: ['/cat/Photos/Canon_R6.CR3']
+  });
+  expect(entry('library:duplicates-skipped')?.detail).toContain('Canon_R6_copy.CR3 = Canon_R6.CR3');
+});
+
+it('shows the duplicates report of a scan that ran before the panel listened', async () => {
+  vi.mocked(invoke).mockImplementation(async (command) =>
+    command === Invokes.SessionMissedDuplicates
+      ? { files: [{ path: '/cat/Photos/Nikon_Z6_copy.NEF', of: '/cat/Photos/Nikon_Z6.NEF' }] }
+      : undefined
+  );
+  stop();
+  resetActivityStore();
+  stop = startActivityBridges();
+  await vi.waitFor(() => expect(entry('library:duplicates-skipped')).toBeDefined());
+  expect(entry('library:duplicates-skipped')?.detail).toContain('Nikon_Z6_copy.NEF = Nikon_Z6.NEF');
+});
+
+it('shows the merge report of a library that opened before the panel listened', async () => {
+  vi.mocked(invoke).mockImplementation(async (command) =>
+    command === Invokes.SessionMissedMergedDuplicates
+      ? { files: [{ path: '/Shoot/Canon_R6.CR3', fields: [] }], backup: null }
+      : undefined
+  );
+  stop();
+  resetActivityStore();
+  stop = startActivityBridges();
+  await vi.waitFor(() => expect(entry('library:duplicates-merged')).toBeDefined());
+  expect(entry('library:duplicates-merged')?.detail).toContain('Canon_R6.CR3');
+});

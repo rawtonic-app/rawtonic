@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Ellipsis } from 'lucide-react';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSettingsStore } from '../../store/useSettingsStore';
-import { menuCommandEnabled } from '../../hooks/useAppMenu';
+import { historyMenuLabels, menuCommandEnabled } from '../../hooks/useAppMenu';
 import { hasOverflowMenu, overflowCommands } from '../../utils/commandPalette';
 import { type Translate } from '../../utils/appMenu';
 
@@ -25,7 +25,13 @@ export default function AppOverflowMenu() {
         showContextMenu(
           rect.left,
           rect.bottom,
-          overflowCommands(platform, t as unknown as Translate, keybinds, menuCommandEnabled)
+          overflowCommands(
+            platform,
+            t as unknown as Translate,
+            keybinds,
+            menuCommandEnabled,
+            historyMenuLabels(t as unknown as Translate)
+          )
         );
       }}
     >

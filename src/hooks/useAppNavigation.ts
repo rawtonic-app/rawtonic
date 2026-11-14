@@ -67,8 +67,32 @@ function closeEditorImage() {
   useEditorStore.getState().patchesSentToBackend.clear();
 }
 
+type LibrarySelection = {
+  multiSelectedPaths: string[];
+  libraryActivePath: string | null;
+  selectionAnchorPath: string | null;
+};
+
+/** The Library's selection when a loose photograph (one the Library does not
+ * list) leaves Develop for the Library: what was selected before it opened,
+ * as far as the Library still lists it. */
+export function selectionAfterLoosePhoto(before: LibrarySelection | null, listed: (path: string) => boolean) {
+  const multiSelectedPaths = (before?.multiSelectedPaths ?? []).filter(listed);
+  const keep = (path: string | null | undefined) => (path && listed(path) ? path : null);
+  const libraryActivePath = keep(before?.libraryActivePath) ?? multiSelectedPaths[0] ?? null;
+  return {
+    multiSelectedPaths: multiSelectedPaths.length ? multiSelectedPaths : libraryActivePath ? [libraryActivePath] : [],
+    libraryActivePath,
+    selectionAnchorPath: keep(before?.selectionAnchorPath) ?? libraryActivePath
+  };
+}
+
 export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationProps) {
   const libraryLoad = useRef<AbortController | null>(null);
+  /** Folder and album loads that came to their end (not aborted ones). */
+  const finishedLoads = useRef(new WeakSet<AbortController>());
+  /** The Library's selection from before a loose photograph opened. */
+  const selectionBeforeLoose = useRef<LibrarySelection | null>(null);
   useEffect(() => () => libraryLoad.current?.abort(), []);
   const {
     transformWrapperRef,
@@ -119,10 +143,30 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     debouncedSetHistory.flush();
 
     const lastActivePath = selectedImage?.path ?? null;
+    const { imageList } = useLibraryStore.getState();
+    const listed = (path: string) => imageList.some((file) => file.path === path);
 
-    setLibrary({ libraryActivePath: lastActivePath });
+    if (lastActivePath && !listed(lastActivePath)) {
+      // A loose photograph (opened from outside the Library) is not part of
+      // it: the Library comes back with the selection it had before, and
+      // the photograph is closed (its edits are saved above), so Navigator,
+      // Metadata and the loupe never show or change a photo the Library
+      // does not list (G76/WUX11).
+      setLibrary(selectionAfterLoosePhoto(selectionBeforeLoose.current, listed));
+      selectionBeforeLoose.current = null;
+      closeEditorImage();
+      selectedImagePathRef.current = null;
+      // The photograph may still have been loading: its loader no longer
+      // ends that state for a photo that is closed (useImageLoader), and
+      // the Library would wait for ever. A folder or album load under way
+      // keeps the state and ends it itself.
+      const load = libraryLoad.current;
+      if (!load || load.signal.aborted || finishedLoads.current.has(load)) setLibrary({ isViewLoading: false });
+    } else {
+      setLibrary({ libraryActivePath: lastActivePath });
+    }
     setUI({ activeView: 'library', slideDirection: 1 });
-  }, [cachedEditStateRef, transformWrapperRef]);
+  }, [cachedEditStateRef, transformWrapperRef, selectedImagePathRef]);
 
   const handleImageSelect = useCallback(
     async (path: string, openInEditor: boolean = true) => {
@@ -212,6 +256,19 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       }
 
       selectedImagePathRef.current = path;
+
+      const library = useLibraryStore.getState();
+      const listed = (candidate: string) => library.imageList.some((file) => file.path === candidate);
+      if (listed(path)) selectionBeforeLoose.current = null;
+      else if (!selectedImage || listed(selectedImage.path)) {
+        // A loose photograph takes the selection while it is in Develop;
+        // the Library gets its own back with handleBackToLibrary.
+        selectionBeforeLoose.current = {
+          multiSelectedPaths: library.multiSelectedPaths,
+          libraryActivePath: library.libraryActivePath,
+          selectionAnchorPath: library.selectionAnchorPath
+        };
+      }
 
       const newMultiSelectedPaths = multiSelectedPaths.includes(path) ? multiSelectedPaths : [path];
 
@@ -437,6 +494,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         console.error('Failed to load folder contents:', err);
         notify.error('Failed to load images from the selected folder.');
       } finally {
+        finishedLoads.current.add(load);
         if (!load.signal.aborted) useLibraryStore.getState().setLibrary({ isViewLoading: false });
       }
     },
@@ -495,6 +553,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         console.error('Failed to load album images:', err);
         notify.error(`Failed to load album: ${err}`);
       } finally {
+        finishedLoads.current.add(load);
         if (!load.signal.aborted) setLibrary({ isViewLoading: false });
       }
     },

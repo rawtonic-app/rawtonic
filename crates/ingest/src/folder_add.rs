@@ -40,9 +40,17 @@ pub struct FolderPlan {
     /// JPEGs (or HEIFs) that join a RAW the catalog holds already, beside
     /// them (the RAW is in `files` for the pairing, and skipped there).
     pub companions: usize,
-    /// Files the catalog holds already, at their place or as a copy of the
-    /// same content elsewhere (photographs or companions): skipped.
+    /// Files the catalog holds already at their place (photographs or
+    /// companions): skipped.
     pub registered: usize,
+    /// Files whose content equals a photograph the catalog holds at another
+    /// place (a copy, also under another name): duplicates, skipped like
+    /// `batch::add_batch` skips them.
+    pub duplicates: usize,
+    /// The photograph the first duplicate (in name order) is a copy of.
+    pub duplicate_of: Option<PathBuf>,
+    /// That first duplicate itself, so the summary can say which file was left out.
+    pub duplicate_file: Option<PathBuf>,
     /// Folders that could not be read (in whole or in part): their
     /// photographs were left out.
     pub unreadable: Vec<PathBuf>,
@@ -81,6 +89,7 @@ pub fn plan_folder_add(
         .unwrap_or_else(|_| library.directory.clone());
     let companions = library.companions_in(Some(&folder))?;
     let registered = RefCell::new(0usize);
+    let duplicates = RefCell::new(Vec::<(PathBuf, PathBuf)>::new());
     let owned = RefCell::new(BTreeMap::<PathBuf, (String, usize)>::new());
     // Which library's folder holds a folder, looked up once per folder.
     let owners = RefCell::new(HashMap::<PathBuf, Option<PathBuf>>::new());
@@ -98,30 +107,26 @@ pub fn plan_folder_add(
     }
     let sizes: std::collections::HashSet<u64> = by_content.keys().map(|(size, _)| *size).collect();
     let hashes = RefCell::new(HashMap::<PathBuf, Option<String>>::new());
-    let held = |path: &Path| -> bool {
-        let Ok(size) = fs::metadata(path).map(|m| m.len()) else {
-            return false;
-        };
+    let held = |path: &Path| -> Option<PathBuf> {
+        let size = fs::metadata(path).map(|m| m.len()).ok()?;
         if !sizes.contains(&size) {
-            return false;
+            return None;
         }
-        let Some(paths) = rawtonic_catalog::fingerprint(path)
+        let paths = rawtonic_catalog::fingerprint(path)
             .ok()
-            .and_then(|fp| by_content.get(&(size, fp)))
-        else {
-            return false;
-        };
-        let Ok(hash) = crate::sha256(path) else {
-            return false;
-        };
-        paths.iter().any(|known| {
-            hashes
-                .borrow_mut()
-                .entry(known.clone())
-                .or_insert_with(|| known.is_file().then(|| crate::sha256(known).ok()).flatten())
-                .as_deref()
-                == Some(hash.as_str())
-        })
+            .and_then(|fp| by_content.get(&(size, fp)))?;
+        let hash = crate::sha256(path).ok()?;
+        paths
+            .iter()
+            .find(|known| {
+                hashes
+                    .borrow_mut()
+                    .entry((*known).clone())
+                    .or_insert_with(|| known.is_file().then(|| crate::sha256(known).ok()).flatten())
+                    .as_deref()
+                    == Some(hash.as_str())
+            })
+            .cloned()
     };
     let take = |path: &Path| -> bool {
         if failure.borrow().is_some() || !accept(path) {
@@ -147,14 +152,21 @@ pub fn plan_folder_add(
                     *failure.borrow_mut() = Some(e.into());
                     return false;
                 }
-            }
-            || held(path)
-            // The content of a photograph's companion: part of it.
-            || crate::held_companion(library, path).is_ok_and(|held| held.is_some());
+            };
         if known {
             *registered.borrow_mut() += 1;
+            return false;
         }
-        !known
+        if let Some(of) = held(path) {
+            duplicates.borrow_mut().push((path.to_path_buf(), of));
+            return false;
+        }
+        // The content of a photograph's companion: part of it.
+        if crate::held_companion(library, path).is_ok_and(|held| held.is_some()) {
+            *registered.borrow_mut() += 1;
+            return false;
+        }
+        true
     };
     let (mut files, truncated, unreadable) = if subfolders {
         expand_sources_checked(std::slice::from_ref(&folder), take, limit)
@@ -188,7 +200,12 @@ pub fn plan_folder_add(
         .filter(|g| context.contains(&g.photo) && g.companion.is_some())
         .count();
     let photographs = groups.len() - context.len();
+    let mut duplicates = duplicates.into_inner();
+    duplicates.sort();
     Ok(FolderPlan {
+        duplicates: duplicates.len(),
+        duplicate_of: duplicates.first().map(|(_, of)| of.clone()),
+        duplicate_file: duplicates.first().map(|(file, _)| file.clone()),
         photographs,
         companions,
         unreadable,

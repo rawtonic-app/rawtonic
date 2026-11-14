@@ -42,6 +42,11 @@
       "unreadable_one": "{{count}} 张照片无法比较",
       "unreadable_other": "{{count}} 张照片无法比较"
     },
+    "duplicatesMerged_other": "{{count}} 张照片曾被登记两次，已合并 — 之前的编辑保留为快照",
+    "duplicatesMergedDetail": "每个文件重新只对应一张照片；照片文件均未改动。合并前的目录已保存为 {{backup}}。",
+    "duplicatesMergedFields": "{{name}}：{{fields}} 取自其另一条登记",
+    "duplicatesNotAdded_other": "目录文件夹中的 {{count}} 个重复项未添加 — 目录中已有(例如 {{name}})",
+    "duplicatesNotAddedDetail": "它们的内容与目录中已有的照片相同。仍可通过“同步文件夹”添加。",
     "empty": {
       "attention": "没有需要处理的项目。",
       "done": "没有最近的结果。",
@@ -499,6 +504,7 @@
       "title": "合并"
     },
     "openWith": {
+      "browse": "浏览程序…",
       "chooseTitle": "选择应用程序",
       "default": "默认",
       "failed": "无法打开文件：{{error}}",
@@ -1474,6 +1480,7 @@
       "cancel": "取消",
       "companions_other": "{{count}} 个 JPEG 将与目录中已有的 RAW 合并。",
       "copy": "复制到此项目…",
+      "duplicates_other": "已跳过 {{count}} 个重复项 — 例如 {{file}}(目录中已有 {{name}}).",
       "failed": "无法读取文件夹：{{error}}",
       "intro": "照片在原位置添加：不会复制、移动或在其旁边写入任何内容。RAW+JPEG 成对的文件作为一张照片添加；会读取 XMP 文件中的评级、标签和关键字。",
       "nothing": "没有新照片：这里的一切都已在目录中。",
@@ -1998,8 +2005,9 @@
       "added_other": "已添加 {{count}} 张照片",
       "addedToAlbum": "已添加到 {{name}}",
       "albumAddFailed": "照片已导入，但未添加到 {{name}}：{{error}}",
+      "alreadyInLibrary_other": "{{count}} 张已在图库中",
       "companionsKept": "已将 {{n}} 个 JPEG 与其 RAW 一起保存",
-      "duplicatesSkipped_other": "已跳过 {{count}} 个重复项",
+      "duplicatesSkipped_other": "已跳过 {{count}} 个重复项 — 例如 {{file}}(图库中已有 {{name}})",
       "flagsFailed": "无法保存旗标：{{error}}",
       "flagsSavedRefreshFailed": "旗标已保存；无法刷新项目摘要：{{error}}",
       "hotFolderFailed": "监视文件夹：{{file}}：{{error}}",
@@ -2072,8 +2080,8 @@
     "xmp": {
       "buttonTitle": "部分 XMP 文件未与图库同步。点击查看详情并重新写入。",
       "catchUp": "正在写入上次会话遗留的 XMP 文件",
-      "conflictHeading_other": "{{count}} 个 XMP 文件已被其他程序修改",
-      "conflictHint": "选择保留哪一方的元数据。无论哪种选择,你的编辑都保持不变。",
+      "conflictHeading_other": "{{count}} 个 XMP 文件与图库不同",
+      "conflictHint": "请选择保留哪一方:“保留图库”将图库的设置写入文件,“使用 XMP”将文件的设置读入图库。点击之前不会写入任何内容。无论选哪种,您的编辑都保持不变。",
       "count_other": "{{count}} 个 XMP 未更新",
       "explain": "你的编辑、评级和关键字已安全保存在图库中。读取 XMP 文件的其他程序还看不到这些更改。照片本身永远不会被修改。",
       "heading_other": "{{count}} 张照片的 XMP 文件不是最新的",
@@ -2084,7 +2092,7 @@
       "loading": "正在检查 XMP 文件…",
       "notResolved_other": "{{count}} 张照片未解决:",
       "reason": {
-        "changedElsewhere_other": "{{count}} 个 XMP 文件已被其他程序修改。Rawtonic 不会覆盖它们，图库保留你的版本。",
+        "changedElsewhere_other": "{{count}} 个 XMP 文件与图库不同(被其他程序修改,或 Rawtonic 从未读取)。未经您选择不会覆盖;图库保留您的版本。",
         "failed_other": "无法写入 {{count}} 个 XMP 文件：{{error}}",
         "offline_other": "{{count}} 张照片处于离线状态。重新连接驱动器后会更新其 XMP 文件。",
         "pending_other": "{{count}} 个 XMP 文件可以重新写入。",
@@ -2119,6 +2127,7 @@
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2139,7 +2148,8 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "图库数据库，包含 Rawtonic 对 Windows WAL 锁定的修复。",
-        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
