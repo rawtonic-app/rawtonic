@@ -21,7 +21,7 @@ import { applyInterfaceShade } from '../../utils/themes';
 import { panBy, toggleAt, type Zoom } from './secondViewZoom';
 import SecondViewFrames from './SecondViewFrames';
 import GlobalTooltip from '../ui/GlobalTooltip';
-import { useCompactBar } from '../../window/useCompactBar';
+import { useNeedsCompact } from '../../window/useNeedsCompact';
 
 /** The toolbar hides this long after the pointer last moved. */
 const TOOLBAR_IDLE_MS = 2000;
@@ -247,15 +247,17 @@ export default function SecondView() {
     if (start && !start.moved) toggleZoom([e.clientX * dpr(), e.clientY * dpr()]);
   };
 
-  const [toolbarElement, setToolbarElement] = useState<HTMLElement | null>(null);
+  const [rootElement, setRootElement] = useState<HTMLElement | null>(null);
+  const [fullToolbar, setFullToolbar] = useState<HTMLElement | null>(null);
   // Narrow window: no file name, the Lock button shows its icon only.
-  const compactToolbar = useCompactBar(toolbarElement);
+  const compactToolbar = useNeedsCompact(rootElement, fullToolbar);
   const zoomed = !!state.zoom;
   const hasPhoto = !!state.path;
   const cursor = !hasPhoto ? 'default' : zoomed ? (press.current?.moved ? 'grabbing' : 'grab') : 'zoom-in';
 
   return (
     <div
+      ref={setRootElement}
       className={clsx(
         'relative h-full w-full select-none overflow-hidden',
         (!hasPhoto || pageDraws) && 'bg-bg-primary'
@@ -281,10 +283,26 @@ export default function SecondView() {
         </div>
       )}
       <GlobalTooltip />
+      {/* The toolbar at full size, unseen: its width decides when it runs compact. */}
+      <div
+        ref={setFullToolbar}
+        aria-hidden
+        className="pointer-events-none invisible absolute left-0 top-0 flex items-center gap-1 whitespace-nowrap px-2 py-1 text-xs"
+      >
+        <span className="max-w-[24ch] truncate px-1">{fileName(state.path)}</span>
+        <span className="px-2">{t('secondView.fit')}</span>
+        <span className="px-2">{t('secondView.actualSize')}</span>
+        <span className="flex items-center gap-1 px-2">
+          <Lock size={13} />
+          {state.locked ? t('secondView.locked') : t('secondView.lock')}
+        </span>
+        <span className="p-1">
+          <Maximize size={13} />
+        </span>
+      </div>
       <div
         role="toolbar"
         aria-label={t('secondView.toolbar')}
-        ref={setToolbarElement}
         className={clsx(
           'absolute left-1/2 top-3 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 overflow-hidden whitespace-nowrap rounded-lg bg-bg-secondary/90 px-2 py-1 text-xs text-text-primary shadow-lg transition-opacity duration-200 [&>button]:shrink-0',
           toolbar ? 'opacity-100' : 'pointer-events-none opacity-0'
