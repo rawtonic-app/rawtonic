@@ -42,6 +42,8 @@
       "unreadable_one": "{{count}} 枚の写真を比較できませんでした",
       "unreadable_other": "{{count}} 枚の写真を比較できませんでした"
     },
+    "duplicatesNotAdded_other": "カタログのフォルダ内の重複 {{count}} 件は追加されませんでした — カタログに登録済み(例: {{name}})",
+    "duplicatesNotAddedDetail": "内容がカタログ内の写真と同じです。「フォルダを同期」で追加することもできます。",
     "empty": {
       "attention": "対応が必要な項目はありません。",
       "done": "最近の結果はありません。",
@@ -499,6 +501,7 @@
       "title": "結合"
     },
     "openWith": {
+      "browse": "プログラムを参照…",
       "chooseTitle": "アプリケーションを選択",
       "default": "デフォルト",
       "failed": "ファイルを開けませんでした: {{error}}",
@@ -1474,6 +1477,7 @@
       "cancel": "キャンセル",
       "companions_other": "{{count}} 個の JPEG がカタログ内の RAW に加わります。",
       "copy": "このプロジェクトにコピー…",
+      "duplicates_other": "重複 {{count}} 件をスキップしました — カタログに登録済み(例: {{name}})。",
       "failed": "フォルダーを読み込めませんでした: {{error}}",
       "intro": "写真は今の場所のまま追加されます。コピー、移動、横への書き込みは一切ありません。RAW+JPEG のペアは 1 枚の写真になり、XMP ファイルのレーティング、ラベル、キーワードが読み込まれます。",
       "nothing": "新しい写真はありません。ここにあるものはすべてカタログにあります。",
@@ -1998,8 +2002,9 @@
       "added_other": "{{count}} 枚を追加しました",
       "addedToAlbum": "{{name}} に追加済み",
       "albumAddFailed": "写真は読み込まれましたが、{{name}} に追加できませんでした: {{error}}",
+      "alreadyInLibrary_other": "{{count}} 枚はライブラリに登録済み",
       "companionsKept": "{{n}} 件の JPEG を RAW と一緒に保存",
-      "duplicatesSkipped_other": "重複 {{count}} 件をスキップ",
+      "duplicatesSkipped_other": "重複 {{count}} 件をスキップ — ライブラリに登録済み(例: {{name}})",
       "flagsFailed": "フラグを保存できませんでした: {{error}}",
       "flagsSavedRefreshFailed": "フラグを保存しましたが、プロジェクトの概要を更新できませんでした: {{error}}",
       "hotFolderFailed": "監視フォルダ: {{file}}: {{error}}",
@@ -2119,6 +2124,7 @@
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2139,7 +2145,8 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "ライブラリ用データベース。Windows の WAL ロック処理に Rawtonic 独自の修正を適用しています。",
-        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",

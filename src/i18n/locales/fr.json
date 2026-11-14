@@ -51,6 +51,10 @@
       "unreadable_many": "{{count}} photos n'ont pas pu être comparées",
       "unreadable_other": "{{count}} photos n'ont pas pu être comparées"
     },
+    "duplicatesNotAdded_one": "{{count}} doublon du dossier du catalogue n’a pas été ajouté — déjà dans le catalogue sous le nom {{name}}",
+    "duplicatesNotAdded_many": "{{count}} doublons du dossier du catalogue n’ont pas été ajoutés — déjà dans le catalogue, par exemple sous le nom {{name}}",
+    "duplicatesNotAdded_other": "{{count}} doublons du dossier du catalogue n’ont pas été ajoutés — déjà dans le catalogue, par exemple sous le nom {{name}}",
+    "duplicatesNotAddedDetail": "Leur contenu est identique à celui d’une photo que le catalogue contient déjà. « Synchroniser le dossier » permet de les ajouter quand même.",
     "empty": {
       "attention": "Rien ne requiert votre attention.",
       "done": "Aucun résultat récent.",
@@ -533,6 +537,7 @@
       "title": "Fusionner"
     },
     "openWith": {
+      "browse": "Rechercher un programme…",
       "chooseTitle": "Choisir une application",
       "default": "Par défaut",
       "failed": "Impossible d’ouvrir les fichiers : {{error}}",
@@ -1558,6 +1563,9 @@
       "companions_many": "{{count}} JPEG rejoignent leurs RAW déjà dans le catalogue.",
       "companions_other": "{{count}} JPEG rejoignent leurs RAW déjà dans le catalogue.",
       "copy": "Copier dans ce projet…",
+      "duplicates_one": "{{count}} doublon ignoré — déjà dans le catalogue sous le nom {{name}}.",
+      "duplicates_many": "{{count}} doublons ignorés — déjà dans le catalogue, par exemple sous le nom {{name}}.",
+      "duplicates_other": "{{count}} doublons ignorés — déjà dans le catalogue, par exemple sous le nom {{name}}.",
       "failed": "Le dossier n’a pas pu être lu : {{error}}",
       "intro": "Ses photos sont ajoutées là où elles sont : rien n’est copié, déplacé ni écrit à côté. Les paires RAW+JPEG entrent comme une seule photo ; les notes, libellés et mots-clés des fichiers XMP sont lus.",
       "nothing": "Aucune nouvelle photo : tout ce qui est ici est déjà dans le catalogue.",
@@ -2170,10 +2178,13 @@
       "added_other": "{{count}} photos ajoutées",
       "addedToAlbum": "ajoutées à {{name}}",
       "albumAddFailed": "Photos importées, mais pas ajoutées à {{name}} : {{error}}",
+      "alreadyInLibrary_one": "{{count}} déjà dans la bibliothèque",
+      "alreadyInLibrary_many": "{{count}} déjà dans la bibliothèque",
+      "alreadyInLibrary_other": "{{count}} déjà dans la bibliothèque",
       "companionsKept": "{{n}} JPEG conservés avec leurs RAW",
-      "duplicatesSkipped_one": "{{count}} doublon ignoré",
-      "duplicatesSkipped_many": "{{count}} doublons ignorés",
-      "duplicatesSkipped_other": "{{count}} doublons ignorés",
+      "duplicatesSkipped_one": "{{count}} doublon ignoré — déjà dans la bibliothèque sous le nom {{name}}",
+      "duplicatesSkipped_many": "{{count}} doublons ignorés — déjà dans la bibliothèque, par exemple {{name}}",
+      "duplicatesSkipped_other": "{{count}} doublons ignorés — déjà dans la bibliothèque, par exemple {{name}}",
       "flagsFailed": "Impossible d’enregistrer les marques : {{error}}",
       "flagsSavedRefreshFailed": "Marques enregistrées ; impossible d’actualiser le résumé du projet : {{error}}",
       "hotFolderFailed": "Dossier surveillé : {{file}} : {{error}}",
@@ -2343,6 +2354,7 @@
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2363,7 +2375,8 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Base de données de la photothèque, avec un correctif Rawtonic du verrouillage WAL sous Windows.",
-        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",

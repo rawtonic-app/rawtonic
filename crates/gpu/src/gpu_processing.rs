@@ -6271,7 +6271,7 @@ fn create_compute_pipeline(
     let cache = crate::pipeline_cache::for_device(device);
     let created = validated(device, &format!("pipeline '{label}'"), || match &cache {
         Some(cache) => device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            cache: Some(cache.wgpu()),
+            cache: Some(&cache.current()),
             ..descriptor.clone()
         }),
         None => device.create_compute_pipeline(descriptor),

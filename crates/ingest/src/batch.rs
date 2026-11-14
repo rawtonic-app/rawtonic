@@ -522,7 +522,9 @@ fn add_one(
                 && crate::sha256(path)? == hash
                 && let Some(asset) = library.asset_at(path)?
             {
-                return Ok(skipped(asset));
+                let mut result = skipped(asset);
+                result.duplicate_of = result.destination.clone();
+                return Ok(result);
             }
         }
     }
@@ -912,6 +914,10 @@ mod tests {
             results[0].destination.as_deref(),
             Some(a.canonical().unwrap().as_path())
         );
+        // One duplicate rule: the renamed copy is a duplicate of A.NEF (and
+        // says of which); the file already registered is not a duplicate.
+        assert_eq!(results[2].duplicate_of, results[0].destination);
+        assert_eq!(results[3].duplicate_of, None);
         assert_eq!(lib.assets(None).unwrap().len(), 2);
         let b_asset = lib.asset_at(&b).unwrap().unwrap();
         assert_eq!(b_asset.rating, 4, "XMP sidecar read");
@@ -1298,6 +1304,7 @@ mod tests {
         )
         .unwrap();
         assert!(again.iter().all(|r| r.skipped), "{again:?}");
+        assert!(again[0].duplicate_of.is_some(), "a copy is a duplicate");
         assert_eq!(again[1].destination, raw.companion);
         assert_eq!(names(&capture).len(), 4);
         assert_eq!(lib.summary().unwrap().assets, 2);
@@ -1389,6 +1396,10 @@ mod tests {
             results[0]
         );
         assert!(results[1].skipped && results[1].companion_of.is_none());
+        assert!(
+            results[1].duplicate_of.is_some(),
+            "a JPEG the library holds is reported as a duplicate"
+        );
         assert_eq!(other.summary().unwrap().assets, 2);
         assert_eq!(names(&other.directory.join("Capture")), ["B.JPG", "B.NEF"]);
     }

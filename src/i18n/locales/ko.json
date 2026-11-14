@@ -42,6 +42,8 @@
       "unreadable_one": "사진 {{count}}장을 비교할 수 없습니다",
       "unreadable_other": "사진 {{count}}장을 비교할 수 없습니다"
     },
+    "duplicatesNotAdded_other": "카탈로그 폴더의 중복 {{count}}개는 추가되지 않음 — 이미 카탈로그에 있음(예: {{name}})",
+    "duplicatesNotAddedDetail": "내용이 카탈로그에 이미 있는 사진과 같습니다. ‘폴더 동기화’로 그래도 추가할 수 있습니다.",
     "empty": {
       "attention": "확인이 필요한 항목이 없습니다.",
       "done": "최근 결과가 없습니다.",
@@ -499,6 +501,7 @@
       "title": "병합"
     },
     "openWith": {
+      "browse": "프로그램 찾아보기…",
       "chooseTitle": "응용 프로그램 선택",
       "default": "기본값",
       "failed": "파일을 열 수 없습니다: {{error}}",
@@ -1474,6 +1477,7 @@
       "cancel": "취소",
       "companions_other": "JPEG {{count}}개가 이미 카탈로그에 있는 RAW에 합쳐집니다.",
       "copy": "이 프로젝트에 복사…",
+      "duplicates_other": "중복 {{count}}개를 건너뜀 — 이미 카탈로그에 있음(예: {{name}}).",
       "failed": "폴더를 읽을 수 없습니다: {{error}}",
       "intro": "사진은 있는 자리에서 추가됩니다. 복사, 이동하거나 옆에 쓰는 것은 없습니다. RAW+JPEG 쌍은 사진 한 장이 되고, XMP 파일의 별점, 레이블, 키워드를 읽습니다.",
       "nothing": "새 사진이 없습니다. 여기 있는 것은 모두 이미 카탈로그에 있습니다.",
@@ -1998,8 +2002,9 @@
       "added_other": "사진 {{count}}장 추가됨",
       "addedToAlbum": "{{name}}에 추가됨",
       "albumAddFailed": "사진을 가져왔지만 {{name}}에 추가하지 못했습니다: {{error}}",
+      "alreadyInLibrary_other": "{{count}}장은 이미 라이브러리에 있음",
       "companionsKept": "JPEG {{n}}개를 RAW와 함께 보관",
-      "duplicatesSkipped_other": "중복 {{count}}개 건너뜀",
+      "duplicatesSkipped_other": "중복 {{count}}개 건너뜀 — 이미 라이브러리에 있음(예: {{name}})",
       "flagsFailed": "플래그를 저장할 수 없습니다: {{error}}",
       "flagsSavedRefreshFailed": "플래그를 저장했지만 프로젝트 요약을 새로 고칠 수 없습니다: {{error}}",
       "hotFolderFailed": "감시 폴더: {{file}}: {{error}}",
@@ -2119,6 +2124,7 @@
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2139,7 +2145,8 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "라이브러리 데이터베이스. Windows의 WAL 잠금 처리에 Rawtonic 수정 사항을 적용했습니다.",
-        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",

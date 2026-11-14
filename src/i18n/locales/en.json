@@ -45,6 +45,9 @@
       "unreadable_one": "{{count}} photo could not be compared for duplicates",
       "unreadable_other": "{{count}} photos could not be compared for duplicates"
     },
+    "duplicatesNotAdded_one": "{{count}} duplicate in the catalog’s folder was not added — already in the catalog as {{name}}",
+    "duplicatesNotAdded_other": "{{count}} duplicates in the catalog’s folder were not added — already in the catalog, for example as {{name}}",
+    "duplicatesNotAddedDetail": "Their content equals a photo the catalog already holds. Synchronize Folder can still add them.",
     "empty": {
       "attention": "Nothing needs your attention.",
       "done": "No recent results.",
@@ -510,6 +513,7 @@
       "title": "Merge"
     },
     "openWith": {
+      "browse": "Browse for a program…",
       "chooseTitle": "Choose a program",
       "default": "Default",
       "failed": "Could not open the files: {{error}}",
@@ -1496,6 +1500,8 @@
       "companions_one": "{{count}} JPEG joins its RAW already in the catalog.",
       "companions_other": "{{count}} JPEGs join their RAWs already in the catalog.",
       "copy": "Copy into this project…",
+      "duplicates_one": "{{count}} duplicate skipped — already in the catalog as {{name}}.",
+      "duplicates_other": "{{count}} duplicates skipped — already in the catalog, for example as {{name}}.",
       "failed": "The folder could not be read: {{error}}",
       "intro": "Its photos are added where they are: nothing is copied, moved or written beside them. RAW+JPEG pairs come in as one photo; ratings, labels and keywords in XMP sidecars are read.",
       "nothing": "No new photos: everything here is in the catalog already.",
@@ -2063,9 +2069,11 @@
       "added_other": "{{count}} photos added",
       "addedToAlbum": "added to {{name}}",
       "albumAddFailed": "Photos imported, but not added to {{name}}: {{error}}",
+      "alreadyInLibrary_one": "{{count}} already in the library",
+      "alreadyInLibrary_other": "{{count}} already in the library",
       "companionsKept": "{{n}} JPEGs kept with their RAWs",
-      "duplicatesSkipped_one": "{{count}} duplicate skipped",
-      "duplicatesSkipped_other": "{{count}} duplicates skipped",
+      "duplicatesSkipped_one": "{{count}} duplicate skipped — already in the library as {{name}}",
+      "duplicatesSkipped_other": "{{count}} duplicates skipped — already in the library, for example {{name}}",
       "flagsFailed": "Could not save flags: {{error}}",
       "flagsSavedRefreshFailed": "Flags saved; project summary could not refresh: {{error}}",
       "hotFolderFailed": "Hot folder: {{file}}: {{error}}",
@@ -2210,6 +2218,7 @@
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2230,7 +2239,8 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Library database, with a Rawtonic Windows WAL locking correction.",
-        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",

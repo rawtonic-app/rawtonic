@@ -55,6 +55,10 @@ pub struct AppChoice {
     /// The system's default program for the first file.
     pub is_default: bool,
     pub is_recent: bool,
+    /// Among the programs the system recommends for the files (on Windows
+    /// Explorer's "Open with" list); the others it offers (its "Choose
+    /// another app" list) follow them in their own group.
+    pub recommended: bool,
     /// A small PNG of the program's icon as a data URL.
     pub icon: Option<String>,
 }
@@ -120,7 +124,8 @@ pub enum Launched {
 }
 
 /// The default program first, then the recently used ones (newest first),
-/// then the others by name; each program once.
+/// then the recommended others by name, then the rest by name; each
+/// program once.
 pub fn order_apps(
     mut apps: Vec<AppChoice>,
     default: Option<&str>,
@@ -137,8 +142,10 @@ pub fn order_apps(
             (0, 0)
         } else if let Some(i) = recent.iter().position(|r| *r == app.path) {
             (1, i)
-        } else {
+        } else if app.recommended {
             (2, 0)
+        } else {
+            (3, 0)
         }
     };
     apps.sort_by(|a, b| {
@@ -364,6 +371,7 @@ mod platform {
             name,
             is_default: false,
             is_recent: false,
+            recommended: true,
         })
     }
 
@@ -1138,6 +1146,7 @@ mod tests {
             name: name.into(),
             is_default: false,
             is_recent: false,
+            recommended: true,
             icon: None,
         }
     }
@@ -1162,6 +1171,90 @@ mod tests {
         assert_eq!(names, ["Preview", "Paint", "Zed", "Browser", "editor"]);
         assert!(ordered[0].is_default && !ordered[0].is_recent);
         assert!(ordered[1].is_recent && ordered[2].is_recent && !ordered[3].is_recent);
+    }
+
+    /// The IPC contract for a packaged (Store) program such as Photos:
+    /// the menu entry the backend sends, and the arguments the frontend
+    /// sends back for it (`OpenWithMenus.test.tsx` asserts the same file),
+    /// read into the commands' parameter types (Tauri reads each argument
+    /// by its camelCase name).
+    #[test]
+    fn a_packaged_program_crosses_ipc_as_the_frontend_sends_it() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../src/components/studio/fixtures/openWithPackaged.json"
+        ))
+        .unwrap();
+        // What the backend lists for the Photos handler.
+        let photos = handlers::Handler {
+            id: "Photos".into(),
+            name: "Photos".into(),
+            recommended: false,
+        };
+        let listed = handlers::choices(std::slice::from_ref(&photos), &|_| None);
+        assert_eq!(
+            serde_json::to_value(&listed[0]).unwrap(),
+            fixture["choices"]["apps"][1]
+        );
+        let arg = |command: &str, name: &str| fixture[command][name].clone();
+        // open_with_open(program, paths)
+        let program: String = serde_json::from_value(arg("openWithOpen", "program")).unwrap();
+        let paths: Vec<String> = serde_json::from_value(arg("openWithOpen", "paths")).unwrap();
+        assert_eq!(program, photos.id);
+        assert_eq!(
+            original_files(&paths),
+            [
+                PathBuf::from(r"C:\Fotos\Größe A.NEF"),
+                PathBuf::from(r"C:\Fotos\B.NEF")
+            ]
+        );
+        // edit_with_finish(items, program)
+        let items: Vec<EditTarget> =
+            serde_json::from_value(arg("editWithFinish", "items")).unwrap();
+        let program: String = serde_json::from_value(arg("editWithFinish", "program")).unwrap();
+        assert_eq!(items[0].target, r"C:\Fotos\Größe A_edit.tiff");
+        assert_eq!(items[0].library, None);
+        // The id starts the packaged app through its registration.
+        let progids = [handlers::ProgId {
+            class: "AppX43hnxtbyyps62jhe9sqpdzxn1790zetc".into(),
+            executable: None,
+            friendly: Some("Photos".into()),
+        }];
+        assert_eq!(
+            handlers::progid_for(&program, Some(&photos.name), &progids).as_deref(),
+            Some("AppX43hnxtbyyps62jhe9sqpdzxn1790zetc")
+        );
+        // Remembered as a recent program by the same id.
+        let mut prefs = OpenWithPrefs::default();
+        remember_launch(&mut prefs, &program, Launched::Listed);
+        assert_eq!(prefs.recent_apps, ["Photos"]);
+        assert!(prefs.picked_apps.is_empty());
+    }
+
+    /// Windows: programs the shell offers without recommending them (the
+    /// Photos app for TIFF on the Lenovo, task WEW4) come after the
+    /// recommended ones, unless they are the default or recent.
+    #[test]
+    fn programs_not_recommended_come_after_the_recommended_ones() {
+        let other = |path: &str, name: &str| AppChoice {
+            recommended: false,
+            ..choice(path, name)
+        };
+        let apps = vec![
+            other("Photos", "Photos"),
+            choice(r"C:\Paint\mspaint.exe", "Paint"),
+            other(r"C:\Clip\Clipchamp.exe", "Clipchamp"),
+            choice(r"C:\Snip\SnippingTool.exe", "Snipping Tool"),
+            other("Gallery", "Gallery"),
+        ];
+        let recent = vec!["Gallery".to_string()];
+        let names: Vec<_> = order_apps(apps, None, &recent)
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(
+            names,
+            ["Gallery", "Paint", "Snipping Tool", "Clipchamp", "Photos"]
+        );
     }
 
     #[test]

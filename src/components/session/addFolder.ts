@@ -9,7 +9,12 @@ export interface FolderPlan {
   photographs: number;
   /** JPEGs joining a RAW the catalog holds (the RAW is in `files`). */
   companions: number;
+  /** Files the catalog holds at their place. */
   registered: number;
+  /** Files with the content of a photograph the catalog holds elsewhere. */
+  duplicates: number;
+  /** The photograph the first duplicate copies. */
+  duplicateOf?: string | null;
   /** Folders that could not be read: their photos were left out. */
   unreadable: string[];
   owned: { library: string; name: string; count: number }[];

@@ -16,6 +16,8 @@ const plan = (over: Partial<FolderPlan> = {}): FolderPlan => ({
   photographs: 2,
   companions: 0,
   registered: 0,
+  duplicates: 0,
+  duplicateOf: null,
   unreadable: [],
   owned: [],
   truncated: false,
@@ -71,6 +73,22 @@ it('in a catalog with nothing new, says so and only shows the folder', async () 
   fireEvent.click(screen.getByRole('button', { name: 'Show folder' }));
   expect(onShow).toHaveBeenCalled();
   expect(onAdd).not.toHaveBeenCalled();
+});
+
+it('says plainly that renamed copies are duplicates, naming the photograph they copy', async () => {
+  vi.mocked(invoke).mockResolvedValue(
+    plan({ files: [], photographs: 0, registered: 0, duplicates: 1, duplicateOf: '/Drive/Shoot/Canon_R6.CR3' })
+  );
+  dialog(true);
+  await screen.findByText('1 duplicate skipped — already in the catalog as Canon_R6.CR3.');
+  expect(screen.queryByText(/already in the catalog are skipped/)).toBeNull();
+  vi.mocked(invoke).mockResolvedValue(
+    plan({ files: [], photographs: 0, registered: 2, duplicates: 3, duplicateOf: '/Drive/Shoot/Canon_R6.CR3' })
+  );
+  cleanup();
+  dialog(true);
+  await screen.findByText('3 duplicates skipped — already in the catalog, for example as Canon_R6.CR3.');
+  expect(screen.getByText('2 files already in the catalog are skipped.')).toBeTruthy();
 });
 
 it('in a project, says the folder is only shown and offers the verified copy', () => {
