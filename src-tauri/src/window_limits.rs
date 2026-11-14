@@ -324,6 +324,15 @@ mod win32 {
 mod tests {
     use super::*;
 
+    fn rect(left: i32, top: i32, width: i32, height: i32) -> Bounds {
+        Bounds {
+            left,
+            top,
+            right: left + width,
+            bottom: top + height,
+        }
+    }
+
     /// The Lenovo of G76/WQG: 2560×1600 at 200 %, taskbar 96 px (work area
     /// 1280×752 logical). The 125 % minimum is 1250×750 logical, i.e.
     /// 2500×1500 client plus the 26 px frameless shadow frame.
