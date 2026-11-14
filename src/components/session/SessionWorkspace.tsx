@@ -42,7 +42,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { storedStudioLayout, useUIStore } from '../../store/useUIStore';
 import { refreshStacks } from '../../store/useStackStore';
-import { Invokes, type LastFolderState } from '../ui/AppProperties';
+import { Invokes } from '../ui/AppProperties';
 import RawtonicMark from '../ui/RawtonicMark';
 import FirstStartToolsSide from './FirstStartToolsSide';
 import type { FolderTree } from '../../utils/folderTree';
@@ -61,7 +61,7 @@ import {
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSessionBar } from './sessionBar';
 import { SESSION_ALBUMS_CHANGED, openSessionAlbum, type SessionAlbum } from '../studio/StudioAlbums';
-import { isInside, samePath, savedView, type SavedView } from '../../utils/restoreView';
+import { isInside, savedView, type SavedView } from '../../utils/restoreView';
 import { outermost, type CatalogFoldersView } from '../../utils/catalogFolders';
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
