@@ -68,9 +68,15 @@ describe('stand-in view', () => {
   it('saves a click on the library folder after the stand-in was shown', () => {
     holdSavedView('/lib', '/lib/Photos', 'session-missing');
     expect(savedViewHeld('/lib', '/lib/Photos', null)).toBe(true); // while opening
+    expect(savedViewHeld('/lib', '/lib/Photos', null)).toBe(true); // still, until the selection lands
     expect(savedViewHeld('/lib', 'Album: Missing Photos', 'session-missing')).toBe(true);
-    settleSavedView();
     expect(savedViewHeld('/lib', '/lib/Photos', null)).toBe(false); // the user's own click
     expect(savedViewHeld('/lib', 'Album: Missing Photos', 'session-missing')).toBe(false);
+  });
+
+  it('saves the library folder when the stand-in could not be opened', () => {
+    holdSavedView('/lib', '/lib/Photos', 'session-missing');
+    settleSavedView();
+    expect(savedViewHeld('/lib', '/lib/Photos', null)).toBe(false);
   });
 });

@@ -670,8 +670,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       await onNavigate(folder, true);
       if (missingFallback && onSelectAlbum) {
         console.info(`Library ${root}: no catalog folder is on disk; showing Missing Photos`);
-        await openMissingView(root, i18n.t('offline.missingView'), onSelectAlbum).catch(() => {});
-        settleSavedView();
+        await openMissingView(root, i18n.t('offline.missingView'), onSelectAlbum).catch(settleSavedView);
       }
       if (view && view.kind !== 'folder' && onSelectAlbum) {
         await reopenView(root, view, onSelectAlbum).catch(() => {});

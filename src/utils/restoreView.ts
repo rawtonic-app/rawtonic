@@ -54,15 +54,16 @@ export function savedView(
 /** The views a library shows only as a stand-in for the saved one (its folder
  * is not on disk): not saved as the last selection, so the saved folder is
  * restored once it is back. Held until the user goes anywhere else. The
- * library's own folder is let through only while the stand-in is being opened
- * (`settleSavedView` ends that); a click on it afterwards is the user's. */
+ * library's own folder is let through only until the stand-in has been seen
+ * (the selection is applied asynchronously); a click on it afterwards is the
+ * user's. */
 let held: { directory: string; own: string; albumId: string; opening: boolean } | null = null;
 
 export function holdSavedView(directory: string, own: string, albumId: string): void {
   held = { directory, own, albumId, opening: true };
 }
 
-/** The stand-in is shown (or could not be): the own folder is an ordinary choice again. */
+/** The stand-in could not be opened: the own folder is an ordinary choice again. */
 export function settleSavedView(): void {
   if (held) held.opening = false;
 }
@@ -72,6 +73,7 @@ export function settleSavedView(): void {
 export function savedViewHeld(sessionDirectory: string | null, folder: string | null, albumId: string | null): boolean {
   if (!held) return false;
   const here = sessionDirectory !== null && samePath(sessionDirectory, held.directory);
+  if (here && albumId === held.albumId) held.opening = false;
   const standIn =
     here &&
     (albumId === held.albumId || (held.opening && albumId === null && folder !== null && samePath(folder, held.own)));
