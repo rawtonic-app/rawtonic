@@ -817,6 +817,9 @@ fn start(args: Vec<String>) {
                             }).unwrap_or((f64::INFINITY, f64::INFINITY));
                             let floor = startup::scaled_window_floor(ui_scale, available);
                             if let Some(minimum) = startup::minimum_window_size(logical.width, logical.height, floor) {
+                                if window_limits::trace() {
+                                    log::info!("window trace: resize {logical:?} below the floor {floor:?}, set to {minimum:?}");
+                                }
                                 let _ = window_for_handler.set_size(minimum);
                                 startup::keep_window_on_screen(&window_for_handler, (0.0, 0.0));
                             }
