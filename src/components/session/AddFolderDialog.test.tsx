@@ -77,17 +77,33 @@ it('in a catalog with nothing new, says so and only shows the folder', async () 
 
 it('says plainly that renamed copies are duplicates, naming the photograph they copy', async () => {
   vi.mocked(invoke).mockResolvedValue(
-    plan({ files: [], photographs: 0, registered: 0, duplicates: 1, duplicateOf: '/Drive/Shoot/Canon_R6.CR3' })
+    plan({
+      files: [],
+      photographs: 0,
+      registered: 0,
+      duplicates: 1,
+      duplicateOf: '/Drive/Shoot/Canon_R6.CR3',
+      duplicateFile: '/Drive/Shoot/Canon_R6_copy.CR3'
+    })
   );
   dialog(true);
-  await screen.findByText('1 duplicate skipped — already in the catalog as Canon_R6.CR3.');
+  await screen.findByText('Canon_R6_copy.CR3 skipped as a duplicate — already in the catalog as Canon_R6.CR3.');
   expect(screen.queryByText(/already in the catalog are skipped/)).toBeNull();
   vi.mocked(invoke).mockResolvedValue(
-    plan({ files: [], photographs: 0, registered: 2, duplicates: 3, duplicateOf: '/Drive/Shoot/Canon_R6.CR3' })
+    plan({
+      files: [],
+      photographs: 0,
+      registered: 2,
+      duplicates: 3,
+      duplicateOf: '/Drive/Shoot/Canon_R6.CR3',
+      duplicateFile: '/Drive/Shoot/Canon_R6_copy.CR3'
+    })
   );
   cleanup();
   dialog(true);
-  await screen.findByText('3 duplicates skipped — already in the catalog, for example as Canon_R6.CR3.');
+  await screen.findByText(
+    '3 duplicates skipped — for example Canon_R6_copy.CR3, already in the catalog as Canon_R6.CR3.'
+  );
   expect(screen.getByText('2 files already in the catalog are skipped.')).toBeTruthy();
 });
 

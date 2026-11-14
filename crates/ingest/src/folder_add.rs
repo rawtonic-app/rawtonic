@@ -49,6 +49,8 @@ pub struct FolderPlan {
     pub duplicates: usize,
     /// The photograph the first duplicate (in name order) is a copy of.
     pub duplicate_of: Option<PathBuf>,
+    /// That first duplicate itself, so the summary can say which file was left out.
+    pub duplicate_file: Option<PathBuf>,
     /// Folders that could not be read (in whole or in part): their
     /// photographs were left out.
     pub unreadable: Vec<PathBuf>,
@@ -203,6 +205,7 @@ pub fn plan_folder_add(
     Ok(FolderPlan {
         duplicates: duplicates.len(),
         duplicate_of: duplicates.first().map(|(_, of)| of.clone()),
+        duplicate_file: duplicates.first().map(|(file, _)| file.clone()),
         photographs,
         companions,
         unreadable,

@@ -144,7 +144,7 @@ describe('SessionXmpStatus', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(reasonTexts()).toContain('1 XMP file could not be written: Read-only file system'));
     expect(reasonTexts()).toEqual([
-      "1 XMP file was changed by another program. Rawtonic doesn't overwrite it; the library keeps your version.",
+      "1 XMP file differs from the library (changed by another program, or never read by Rawtonic). Rawtonic doesn't overwrite it unless you choose; the library keeps your version.",
       '2 photos have the same name as another one (RAW and JPEG), so both would write the same XMP file.',
       '1 XMP file could not be written: Read-only file system'
     ]);
@@ -250,7 +250,7 @@ describe('SessionXmpStatus', () => {
     await user.click(screen.getByRole('button', { name: '3 XMP not updated' }));
     await waitFor(() => expect(reasonTexts()).toHaveLength(3));
     expect(reasonTexts()).toEqual([
-      "1 XMP file was changed by another program. Rawtonic doesn't overwrite it; the library keeps your version.",
+      "1 XMP file differs from the library (changed by another program, or never read by Rawtonic). Rawtonic doesn't overwrite it unless you choose; the library keeps your version.",
       '1 photo is offline. Its XMP file is updated when the drive is connected again.',
       '1 XMP file can be written again.'
     ]);
@@ -334,7 +334,7 @@ describe('SessionXmpStatus', () => {
     });
     render(<SessionXmpStatus directory="/job" count={3000} onChanged={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: '3000 XMP not updated' }));
-    const list = await screen.findByRole('list', { name: '3000 XMP files changed by another program' });
+    const list = await screen.findByRole('list', { name: '3000 XMP files differ from the library' });
     expect(within(list).getAllByRole('listitem').length).toBeLessThan(20);
     expect(within(list).queryByText('IMG_2500.ARW')).toBeNull();
     fireEvent.scroll(list.parentElement!, { target: { scrollTop: 2500 * 30 } });

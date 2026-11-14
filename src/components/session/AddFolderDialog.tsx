@@ -131,7 +131,8 @@ export default function AddFolderDialog({
                     <p className="studio-help" title={shown.duplicateOf ?? undefined}>
                       {t('session.addFolder.duplicates', {
                         count: shown.duplicates,
-                        name: shown.duplicateOf ? sourceFileName(shown.duplicateOf) : ''
+                        name: shown.duplicateOf ? sourceFileName(shown.duplicateOf) : '',
+                        file: shown.duplicateFile ? sourceFileName(shown.duplicateFile) : ''
                       })}
                     </p>
                   )}

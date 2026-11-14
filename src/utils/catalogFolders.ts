@@ -173,6 +173,7 @@ export function volumeSections(
 ): VolumeSection[] {
   if (!view?.catalog) return [];
   const missing = missingFolders(view, offline);
+  const folders = view.volumes.flatMap((volume) => volume.folders);
   const rank = (volume: VolumeFolders) => (volume.kind === 'startup' ? 0 : volume.kind === 'network' ? 2 : 1);
   return [...view.volumes]
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
@@ -188,8 +189,23 @@ export function volumeSections(
         const clash = names.indexOf(names[index]) !== names.lastIndexOf(names[index]);
         return { ...node, label: clash ? labelOnVolume(top, volume.mount_point) : baseName(top) };
       });
-      return { volume, trees: withMissingFolders(tops, missing) };
+      return { volume, trees: withMissingFolders(tops, missing).map((tree) => withCatalogCounts(tree, folders)) };
     });
+}
+
+/**
+ * `node` and its children with the photograph counts of the catalog: a
+ * catalog counts what it holds (Lightroom's Folders panel), not the files
+ * lying in the folder, so a copy left out as a duplicate or a file not
+ * added yet does not make the badge disagree with the grid. A folder counts
+ * the catalog photographs in it and below it, whether or not its children
+ * are loaded.
+ */
+export function withCatalogCounts(node: FolderTree, folders: CatalogFolder[]): FolderTree {
+  const imageCount = folders
+    .filter((folder) => folder.path === node.path || isBelow(folder.path, node.path))
+    .reduce((sum, folder) => sum + folder.photos, 0);
+  return { ...node, imageCount, children: node.children?.map((child) => withCatalogCounts(child, folders)) };
 }
 
 /** A size in decimal units, as the system's file manager shows it. */

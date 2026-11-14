@@ -226,7 +226,8 @@ function reportIngest(
         duplicates.length
           ? i18n.t('session.toasts.duplicatesSkipped', {
               count: duplicates.length,
-              name: sourceFileName(duplicates[0].duplicate_of ?? '')
+              name: sourceFileName(duplicates[0].duplicate_of ?? ''),
+              file: sourceFileName(duplicates[0].source)
             })
           : null,
         registered ? i18n.t('session.toasts.alreadyInLibrary', { count: registered }) : null,
