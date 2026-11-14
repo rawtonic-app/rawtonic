@@ -21,6 +21,7 @@ import {
   SupportedTypes
 } from '../components/ui/AppProperties';
 import type { FolderTree } from '../utils/folderTree';
+import { savedViewHeld } from '../utils/restoreView';
 import { useTranslation } from 'react-i18next';
 
 type LibraryState = ReturnType<typeof useLibraryStore.getState>;
@@ -382,6 +383,8 @@ export const useAppInitialization = ({
   useEffect(() => {
     if (isInitialMount.current || !appSettings) return;
     if (!currentFolderPath && !activeAlbumId) return;
+    // A stand-in view (the saved folder is not on disk) is not the user's selection.
+    if (savedViewHeld(sessionDirectory, currentFolderPath, activeAlbumId)) return;
 
     const currentExpanded = Array.from(expandedFolders);
     const currentExpandedAlbums = Array.from(expandedAlbumGroups);
