@@ -370,7 +370,12 @@ describe('Reviewing before the import (IMPD)', () => {
         />
       );
       await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
-      await waitFor(() => expect(document.querySelector('img.session-ingest-loupe-fit:not(.is-placeholder)')).toBeTruthy());
+      const fit = await waitFor(() =>
+        document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-placeholder)')!
+      );
+      Object.defineProperty(fit, 'naturalWidth', { value: 1620 });
+      Object.defineProperty(fit, 'naturalHeight', { value: 1080 });
+      fireEvent.load(fit);
       expect(region).not.toHaveBeenCalled();
       await user.keyboard('z');
       // At once: the large preview at the 100 % size around the centre.
@@ -407,6 +412,58 @@ describe('Reviewing before the import (IMPD)', () => {
       width.mockRestore();
       height.mockRestore();
     }
+  });
+
+  it('stepping at 100 % to a photograph still being made shows its enlarged preview straight away, never the fit view', async () => {
+    const user = userEvent.setup();
+    const pending = new Promise<LargePreview>(() => undefined);
+    render(
+      <Harness
+        list={files(2)}
+        loadPreview={async (p) => ({ url: `blob:large${p}`, info: null, width: 1620, height: 1080 })}
+        loadFullPreview={async (p) =>
+          p === path(0) ? { url: 'blob:full0', info: null, width: 6000, height: 4000 } : pending
+        }
+        loadFullSize={async () => ({ width: 6000, height: 4000 })}
+        loadRegion={async () => null}
+        cancelRegion={() => undefined}
+      />
+    );
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    await user.keyboard('z');
+    await waitFor(() => expect(document.querySelector('img.session-ingest-loupe-full')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector('.session-ingest-loupe-count')!.textContent).toContain('1'));
+    await user.keyboard('{ArrowRight}');
+    expect(shownName()).toBe('DSC00001.ARW');
+    expect(document.querySelector('img.session-ingest-loupe-fit')).toBeNull();
+    const enlarged = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-enlarged')!;
+    expect(enlarged.getAttribute('src')).toBe(`blob:large${path(1)}`);
+    expect(enlarged.style.width).toBe('6000px');
+  });
+
+  it('never stands in a preview of another framing for the 100 % view (a portrait stored turned)', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        list={files(1)}
+        loadFullPreview={() => new Promise<LargePreview>(() => undefined)}
+        loadFullSize={async () => ({ width: 4000, height: 6000 })}
+        loadRegion={async () => null}
+        cancelRegion={() => undefined}
+      />
+    );
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    const fit = await waitFor(() =>
+      document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-placeholder)')!
+    );
+    Object.defineProperty(fit, 'naturalWidth', { value: 1620 });
+    Object.defineProperty(fit, 'naturalHeight', { value: 1080 });
+    fireEvent.load(fit);
+    await user.keyboard('z');
+    await act(async () => undefined);
+    expect(document.querySelector('img.session-ingest-loupe-enlarged')).toBeNull();
+    expect(document.querySelector('img.session-ingest-loupe-fit')).toBeTruthy();
+    expect(document.querySelector('.session-ingest-loupe-zoom')!.textContent).toBe('Loading 100 %…');
   });
 
   it('Z zooms around the pointer over the photo', async () => {

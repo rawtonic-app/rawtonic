@@ -13,7 +13,7 @@ use std::sync::{Condvar, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 /// Pixels rendered around the view on each side, for a small pan.
-pub const REGION_MARGIN: u32 = 256;
+pub const REGION_MARGIN: u32 = 64;
 
 /// How long a wish waits for its photograph's render to reach it.
 const WAIT: Duration = Duration::from_secs(20);

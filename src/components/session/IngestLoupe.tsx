@@ -21,7 +21,7 @@ export interface LargePreview {
    * file itself for a JPEG); null when there is none. */
   url: string | null;
   info: CaptureInfo | null;
-  /** Its size in pixels once the webview has decoded it (full-size views). */
+  /** Its size in pixels once the webview has decoded it. */
   width?: number;
   height?: number;
 }
@@ -48,10 +48,10 @@ export async function loadIngestPreview(path: string): Promise<LargePreview> {
     invoke<CaptureInfo>(Invokes.SessionIngestCaptureInfo, { path }).catch(() => null)
   ]);
   const data = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes ?? []).buffer;
-  return {
-    url: data.byteLength ? URL.createObjectURL(new Blob([data], { type: 'image/jpeg' })) : null,
-    info
-  };
+  if (!data.byteLength) return { url: null, info };
+  const url = URL.createObjectURL(new Blob([data], { type: 'image/jpeg' }));
+  // Decoded ahead, so a step at 100 % knows its framing at once.
+  return { url, info, ...(await decodedSize(url)) };
 }
 
 /** A source photograph at its full size for the 100 % view: the camera's
@@ -216,6 +216,10 @@ export function zoomOffset(
 
 const clampShare = (v: number) => Math.min(1, Math.max(0, v));
 
+/** Whether two sizes have the same aspect ratio, to a pixel or two of a
+ * small preview's rounding. */
+export const sameAspect = (a: Size, b: Size) => Math.abs(Math.log((a.width / a.height) * (b.height / b.width))) < 0.02;
+
 interface Props {
   files: IngestCandidate[];
   index: number;
@@ -307,14 +311,17 @@ export default function IngestLoupe({
     );
   }, [fullCache, files, index]);
   useEffect(() => {
-    for (const offset of FULL_NEIGHBOURS) {
-      const path = files[index + offset]?.path;
-      if (!path || asked.current.has(path)) continue;
+    // The shown photograph's first: its neighbours' wait for it, so they
+    // do not hold it up.
+    const ask = (path: string | undefined) => {
+      if (!path || asked.current.has(path)) return Promise.resolve();
       asked.current.add(path);
-      loadSize(path)
+      return loadSize(path)
         .catch(() => null)
         .then((size) => setSizes((current) => ({ ...current, [path]: size })));
-    }
+    };
+    const [shown, ...neighbours] = FULL_NEIGHBOURS.map((offset) => files[index + offset]?.path);
+    void ask(shown).then(() => neighbours.forEach(ask));
   }, [files, index, loadSize]);
   useEffect(() => () => cache.clear(), [cache]);
   useEffect(() => () => fullCache.clear(), [fullCache]);
@@ -398,7 +405,19 @@ export default function IngestLoupe({
   // Until then the preview enlarged to the 100 % size stands in for them,
   // under the real pixels of the part in view once those are here.
   const plannedSize = shownRegion?.full ?? sizes[file.path] ?? undefined;
-  const enlarged = Boolean(zoomed && !atFull && !(full && !full.url) && plannedSize && preview?.url);
+  const image = preview?.url ?? thumbnail;
+  // The fitted image (the camera's preview, or the grid's until it is here)
+  // stands in where it has the 100 % view's framing (never a preview the
+  // camera stored turned, or of another aspect ratio).
+  const fitted = image
+    ? (natural[image] ??
+      (image === preview?.url && preview.width && preview.height
+        ? { width: preview.width, height: preview.height }
+        : undefined))
+    : undefined;
+  const enlarged = Boolean(
+    zoomed && !atFull && !(full && !full.url) && plannedSize && fitted && sameAspect(fitted, plannedSize)
+  );
   const checked = selected.has(file.path);
   const rating = ratings[file.path] ?? 0;
   const name = file.path.split(/[\\/]/).pop() ?? file.path;
@@ -408,7 +427,6 @@ export default function IngestLoupe({
     const next = Math.min(files.length - 1, Math.max(0, index + by));
     if (next !== index) onIndexChange(next);
   };
-  const image = preview?.url ?? thumbnail;
   const dpr = window.devicePixelRatio || 1;
   // At 100 % one image pixel is one screen pixel.
   const size100 = atFull ? fullSize : enlarged ? plannedSize : undefined;
@@ -613,8 +631,8 @@ export default function IngestLoupe({
         ) : enlarged && shown && offset ? (
           <>
             <img
-              key={preview!.url!}
-              src={preview!.url!}
+              key={image!}
+              src={image!}
               alt={name}
               draggable={false}
               className="session-ingest-loupe-enlarged"
@@ -642,6 +660,14 @@ export default function IngestLoupe({
             alt={name}
             draggable={false}
             className={`session-ingest-loupe-fit${preview?.url ? '' : ' is-placeholder'}`}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              if (img.naturalWidth && img.naturalHeight)
+                setNatural((current) => ({
+                  ...current,
+                  [image]: { width: img.naturalWidth, height: img.naturalHeight }
+                }));
+            }}
           />
         ) : preview ? (
           <span>{t('session.ingest.noPreview')}</span>

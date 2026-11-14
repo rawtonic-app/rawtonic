@@ -1130,9 +1130,16 @@ pub async fn session_ingest_full_preview(
 #[tauri::command]
 pub async fn session_ingest_full_size(path: String) -> Result<Option<(u32, u32)>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::file_management::source_full_size_dimensions(Path::new(&path), &|bytes| {
-            crate::export_processing::unedited_size(&path, bytes)
-        })
+        let started = std::time::Instant::now();
+        let size =
+            crate::file_management::source_full_size_dimensions(Path::new(&path), &|bytes| {
+                crate::export_processing::unedited_size(&path, bytes)
+            });
+        log::info!(
+            "Import 100 % size of {path}: {size:?} in {} ms",
+            started.elapsed().as_millis()
+        );
+        size
     })
     .await
     .map_err(|e| e.to_string())

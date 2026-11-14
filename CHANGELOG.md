@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improvements
+
+- **Import: 100 % shows at once, and the real pixels of the part in view come first.** When Z or a click asks for 100 % in the import dialog's large view while a RAW's full-size pixels are still being made (cameras whose own JPEG is small: Fujifilm, Sony, Panasonic, Olympus), the view now shows the camera's preview enlarged to 100 % straight away, in the same place and framing (as Capture One does), then the real pixels of the part in view as soon as the render has them, then the whole photograph; each replaces the one before in place. The part in view has exactly the pixels of the whole render. Measured on a Mac mini M4 Pro shared with other builds: the enlarged preview within about 0.05–0.25 s, real pixels in view 0.5–1.5 s after Z on 24–40 MP RAWs shown a second before (whole view before: 1.0–2.0 s) and 3.2 s on an 81 MP ORF (before: 5.1 s); a Z right as a RAW appears still waits for its decode.
+
 ### Fixes
 
 - **One duplicate rule for import, Add Folder and the scan at start.** A file whose content equals a photo the catalog already holds is a duplicate and is not added, whatever its name. Before, a byte-identical copy made while the app was closed was added as a new photo when the catalog opened, while the same copy was skipped by Add Folder and import. Now all three leave it out and say so: the import summary and Add Folder name the photo it copies ("1 duplicate skipped — already in the library as Canon_R6.CR3"), and the scan at start reports it once in the activity panel with Show photos (Synchronize Folder still offers such a file, unticked). A file at its registered place keeps the wording "already in the catalog"; the same name with other content is a photo of its own. Projects keep every file of their folder.
