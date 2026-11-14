@@ -89,6 +89,8 @@ export function selectionAfterLoosePhoto(before: LibrarySelection | null, listed
 
 export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationProps) {
   const libraryLoad = useRef<AbortController | null>(null);
+  /** Folder and album loads that came to their end (not aborted ones). */
+  const finishedLoads = useRef(new WeakSet<AbortController>());
   /** The Library's selection from before a loose photograph opened. */
   const selectionBeforeLoose = useRef<LibrarySelection | null>(null);
   useEffect(() => () => libraryLoad.current?.abort(), []);
@@ -154,6 +156,12 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       selectionBeforeLoose.current = null;
       closeEditorImage();
       selectedImagePathRef.current = null;
+      // The photograph may still have been loading: its loader no longer
+      // ends that state for a photo that is closed (useImageLoader), and
+      // the Library would wait for ever. A folder or album load under way
+      // keeps the state and ends it itself.
+      const load = libraryLoad.current;
+      if (!load || load.signal.aborted || finishedLoads.current.has(load)) setLibrary({ isViewLoading: false });
     } else {
       setLibrary({ libraryActivePath: lastActivePath });
     }
@@ -486,6 +494,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         console.error('Failed to load folder contents:', err);
         notify.error('Failed to load images from the selected folder.');
       } finally {
+        finishedLoads.current.add(load);
         if (!load.signal.aborted) useLibraryStore.getState().setLibrary({ isViewLoading: false });
       }
     },
@@ -544,6 +553,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         console.error('Failed to load album images:', err);
         notify.error(`Failed to load album: ${err}`);
       } finally {
+        finishedLoads.current.add(load);
         if (!load.signal.aborted) setLibrary({ isViewLoading: false });
       }
     },

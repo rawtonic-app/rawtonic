@@ -165,6 +165,30 @@ describe('a loose photograph (outside the Library) and the way back to the Libra
     expect(useEditorStore.getState().selectedImage).toBeNull();
   });
 
+  it('ends the loading state of a loose photograph left before it finished loading', async () => {
+    library();
+    const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+    await act(async () => {
+      await result.current.handleImageSelect('/loose/large.ARW');
+    });
+    // Opening a photograph marks the view as loading until its loader ends.
+    expect(useLibraryStore.getState().isViewLoading).toBe(true);
+    act(() => result.current.handleBackToLibrary());
+    expect(useLibraryStore.getState().isViewLoading).toBe(false);
+  });
+
+  it('leaves the loading state to a folder load that is still under way', async () => {
+    library();
+    const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+    await act(async () => {
+      void result.current.handleSelectSubfolder('/job');
+    });
+    useEditorStore.getState().setEditor({ selectedImage: { path: '/loose/large.ARW' } as never });
+    useLibraryStore.getState().setLibrary({ isViewLoading: true });
+    act(() => result.current.handleBackToLibrary());
+    expect(useLibraryStore.getState().isViewLoading).toBe(true);
+  });
+
   it('keeps the first selection when a second loose photograph follows the first', async () => {
     library();
     const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
