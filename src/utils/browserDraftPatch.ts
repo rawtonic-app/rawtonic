@@ -23,7 +23,10 @@ export function onDraftShown(listener: () => void) {
 }
 
 export function registerDraftPatchHost(element: HTMLDivElement | null) {
-  if (host && host !== element) host.replaceChildren();
+  if (host && host !== element) {
+    host.replaceChildren();
+    host.style.willChange = '';
+  }
   host = element;
 }
 
@@ -47,6 +50,10 @@ export function showDraftPatch(patch: InteractivePatch, job: number): boolean {
         height: `${patch.normH * 100}%`
       });
       const previous = target.firstElementChild as HTMLImageElement | null;
+      // Its own compositing layer while it shows drafts: a new draft repaints
+      // only itself, not the viewer's layer under it (WebKitGTK painted ~20 %
+      // of its main thread during drags; notes: parity-gaps/G55-performance.md).
+      target.style.willChange = 'transform';
       target.replaceChildren(image);
       if (previous) revoke(previous.src);
       reportBrowserPreviewLoad(patch.url, true);
@@ -68,6 +75,8 @@ export function clearDraftPatch() {
   generation++;
   const previous = host?.firstElementChild as HTMLImageElement | null;
   host?.replaceChildren();
+  // At rest the viewer is painted at its zoom (utils/layerWhileMoving.ts).
+  if (host) host.style.willChange = '';
   if (previous) revoke(previous.src);
 }
 

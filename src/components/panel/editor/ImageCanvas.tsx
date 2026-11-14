@@ -3416,12 +3416,11 @@ const ImageCanvas = memo(
                   top: `${imageRenderSize.offsetY}px`,
                   width: `${imageRenderSize.width}px`,
                   height: `${imageRenderSize.height}px`,
-                  overflow: 'hidden',
-                  // Its own compositing layer: a new draft repaints only
-                  // itself, not the viewer's layer under it (WebKitGTK
-                  // painted ~20 % of its main thread during drags; notes:
-                  // parity-gaps/G55-performance.md).
-                  willChange: 'transform'
+                  // Its own compositing layer only while it shows a draft
+                  // (utils/browserDraftPatch.ts): at rest a composited layer
+                  // here composites the zoomed viewer too, which WebKitGTK
+                  // then shows magnified from its unzoomed raster.
+                  overflow: 'hidden'
                 }}
               />
 

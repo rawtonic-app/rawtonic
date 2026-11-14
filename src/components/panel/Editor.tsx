@@ -47,6 +47,7 @@ import { isLevelsPicker } from '../../utils/targetedAdjustment';
 import SplitViewOverlay, { ViewerBeforeBadge } from './editor/SplitViewOverlay';
 import { anchoredAt, keepMagnification } from '../../utils/beforeAfter';
 import BrowserBeforePane from './editor/BrowserBeforePane';
+import { compositeWhileMoving } from '../../utils/layerWhileMoving';
 import {
   MIN_VIEWER_ZOOM,
   cropModeBox,
@@ -217,6 +218,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   /** Side by side: the before pane left of the viewer (the after pane). */
   const beforePaneRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  /** The viewer shows browser frames (Linux), not the native display. */
+  const browserFramesRef = useRef(false);
   const transformStateRef = useRef<TransformState>(transformState);
   transformStateRef.current = transformState;
   const [isPanningState, setIsPanningState] = useState(false);
@@ -586,6 +589,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
       if (contentRef.current) {
         contentRef.current.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+        // Browser frames (Linux): composited only while moving, so at rest
+        // WebKit paints the frame at the zoom, not a magnified raster.
+        if (browserFramesRef.current) compositeWhileMoving(contentRef.current);
       }
 
       if (!isTransitioningRef.current) {
@@ -2487,6 +2493,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }
 
   const isWgpuActive = appSettings?.useWgpuRenderer !== false && (hasRenderedFirstFrame || holdingNativeFrame);
+  // Read by applyTransform; a hint already set lapses within its settle time.
+  browserFramesRef.current = !isWgpuActive;
   // Cropping shows one photograph. A held or toggled whole before keeps the
   // panes (its before then fills the after pane too), so nothing moves.
   const sideBySideShown =
@@ -2581,10 +2589,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             ref={contentRef}
             className="w-full h-full flex items-center justify-center origin-top-left"
             style={{
-              transform: `translate(${transformState.positionX}px, ${transformState.positionY}px) scale(${transformState.scale})`,
-              // WebKit's JPEG fallback should move a composited layer while
-              // zooming/panning, rather than repainting the SVG photo each move.
-              willChange: isWgpuActive ? undefined : 'transform'
+              // No `will-change` here: `applyTransform` sets it only while the
+              // view moves (utils/layerWhileMoving.ts).
+              transform: `translate(${transformState.positionX}px, ${transformState.positionY}px) scale(${transformState.scale})`
             }}
           >
             <ImageCanvas
