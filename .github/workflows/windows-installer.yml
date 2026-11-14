@@ -155,12 +155,18 @@ jobs:
       # The executable and its PDB, matched by the PDB's GUID and age, for
       # symbolizing the module+offset frames of a crash report. Not a
       # download; scripts/release.sh keeps a release's copy privately.
+      # The executable is the one the portable zip ships (from the MSI): the
+      # Tauri bundler writes its bundle type into the binary when it packages
+      # it (3 bytes, "UNK" -> "MSI"), so target\release\rawtonic-app.exe is
+      # not the downloaded file; the patch leaves code, GUID and age alone.
       - name: Collect the symbols
         run: |
           New-Item -ItemType Directory symbols-out | Out-Null
           $pdb = @(Get-ChildItem target\release\rawtonic_app.pdb -ErrorAction SilentlyContinue)
           if ($pdb.Count -ne 1) { Write-Error 'no rawtonic_app.pdb beside the release executable'; exit 1 }
-          Copy-Item target\release\rawtonic-app.exe, $pdb[0].FullName symbols-out\
+          $shipped = Join-Path $env:RUNNER_TEMP 'portable\Rawtonic\rawtonic-app.exe'
+          if (-not (Test-Path $shipped)) { Write-Error 'no packaged rawtonic-app.exe (portable stage)'; exit 1 }
+          Copy-Item $shipped, $pdb[0].FullName symbols-out\
           $exeSum = (Get-FileHash symbols-out\rawtonic-app.exe -Algorithm SHA256).Hash.ToLower()
           "version $env:VERSION`ncommit $env:GITHUB_SHA`nrawtonic-app.exe sha256 $exeSum" | Set-Content symbols-out\SYMBOLS.txt
           Get-ChildItem symbols-out | ForEach-Object { "{0}: {1} bytes" -f $_.Name, $_.Length }
