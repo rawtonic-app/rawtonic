@@ -499,6 +499,7 @@
       "title": "合併"
     },
     "openWith": {
+      "browse": "瀏覽程式…",
       "chooseTitle": "選擇應用程式",
       "default": "預設",
       "failed": "無法打開檔案：{{error}}",

@@ -1,17 +1,26 @@
 //! Open With / Edit With on Windows.
 //!
-//! The programs offered for a file are the shell's recommended association
-//! handlers for its extension (`SHAssocEnumHandlers`, the list of
-//! Explorer's "Open with" menu); a program is known by the handler's
-//! `GetName` (its program file, or a packaged app's name). Opening finds
-//! that program's ProgID among the type's `OpenWithProgids` and lets the
-//! shell start it with each file (`ShellExecuteEx` with the class), which
-//! runs the program's registered command for packaged and desktop programs
-//! alike. (`IAssocHandler::Invoke` showed Windows' "Choose an app" dialog
-//! instead, for Paint, Photos and the old Photo Viewer on Windows 11.) A
-//! program file the user picked with "Choose program…" that is no
-//! registered program for the type is started directly with the files as
-//! arguments (`CreateProcess`).
+//! The programs offered for a file are the shell's association handlers
+//! for its extension (`SHAssocEnumHandlers` without a filter): the
+//! recommended ones of Explorer's "Open with" menu first, then the others
+//! of its "Choose another app" list, packaged (Store) apps such as Photos
+//! included (task WEW4). A program is known by the handler's `GetName`
+//! (its program file, or a packaged app's name). Opening finds that
+//! program's ProgID among the type's `OpenWithProgids` and lets the shell
+//! start it with each file (`ShellExecuteEx` with the class), which runs
+//! the program's registered command for packaged and desktop programs
+//! alike, as Explorer does. A packaged handler without such a ProgID is
+//! started by its own `IAssocHandler::Invoke` with the file, the last
+//! resort: on Windows 11 it showed the "Choose an app" dialog for Paint,
+//! Photos and the old Photo Viewer (task WEW). A program file the user
+//! picked with "Browse for a program…" that is no registered program for
+//! the type is started directly with the files as arguments
+//! (`CreateProcess`).
+//!
+//! An Edit With render is watched for the other program's save by its file
+//! (size and time, polled; `open_with::Watched`), not by the program's
+//! process, so a packaged app (which the shell starts in its own broker
+//! process) is tracked like any desktop program.
 //!
 //! Shell objects live on a fresh single-threaded apartment thread, never a
 //! reused Tauri pool thread (see `file_operations/windows_trash.rs`).
@@ -40,7 +49,7 @@ use windows::{
         System::{
             Com::{
                 CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
-                CoTaskMemFree, CoUninitialize,
+                CoTaskMemFree, CoUninitialize, IDataObject,
             },
             Registry::{
                 HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, KEY_READ, RegCloseKey, RegEnumValueW,
@@ -49,11 +58,12 @@ use windows::{
         },
         UI::{
             Shell::{
-                ASSOC_FILTER, ASSOC_FILTER_RECOMMENDED, ASSOCF_NOTRUNCATE, ASSOCSTR,
-                ASSOCSTR_EXECUTABLE, ASSOCSTR_FRIENDLYAPPNAME, AssocQueryStringW, ExtractIconExW,
+                ASSOC_FILTER_NONE, ASSOCF_NOTRUNCATE, ASSOCSTR, ASSOCSTR_EXECUTABLE,
+                ASSOCSTR_FRIENDLYAPPNAME, AssocQueryStringW, BHID_DataObject, ExtractIconExW,
                 FOS_FORCEFILESYSTEM, FOS_NODEREFERENCELINKS, FOS_PATHMUSTEXIST, FileOpenDialog,
-                IAssocHandler, IFileOpenDialog, SEE_MASK_CLASSNAME, SEE_MASK_FLAG_NO_UI,
-                SEE_MASK_NOASYNC, SHAssocEnumHandlers, SHELLEXECUTEINFOW, SHLoadIndirectString,
+                IAssocHandler, IFileOpenDialog, IShellItem, SEE_MASK_CLASSNAME,
+                SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHAssocEnumHandlers,
+                SHCreateItemFromParsingName, SHELLEXECUTEINFOW, SHLoadIndirectString,
                 SIGDN_FILESYSPATH, ShellExecuteExW,
             },
             WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO, SW_SHOWNORMAL},
@@ -124,14 +134,11 @@ fn extension_of(file: &Path) -> Result<String, String> {
         .ok_or_else(|| format!("{} has no file type.", file.display()))
 }
 
-/// The association handlers for `extension`, with each one's icon
-/// location (`path`, index).
-fn enumerate(
-    extension: &str,
-    filter: ASSOC_FILTER,
-) -> Result<Vec<(Handler, IAssocHandler)>, String> {
+/// Every association handler for `extension` (recommended or not, each
+/// marked so), in the shell's order.
+fn enumerate(extension: &str) -> Result<Vec<(Handler, IAssocHandler)>, String> {
     // SAFETY: a valid extension string; the enumerator is released on drop.
-    let list = unsafe { SHAssocEnumHandlers(&HSTRING::from(extension), filter) }
+    let list = unsafe { SHAssocEnumHandlers(&HSTRING::from(extension), ASSOC_FILTER_NONE) }
         .map_err(|e| format!("The programs for {extension} cannot be listed: {e}"))?;
     let mut found = Vec::new();
     loop {
@@ -360,8 +367,18 @@ pub fn apps_for(files: &[&Path]) -> (Vec<AppChoice>, Option<String>) {
         let mut per_type = Vec::new();
         let mut first = Vec::new();
         for (i, extension) in extensions.iter().enumerate() {
-            let found = enumerate(extension, ASSOC_FILTER_RECOMMENDED)?;
+            let found = enumerate(extension)?;
             let handlers: Vec<Handler> = found.iter().map(|(h, _)| h.clone()).collect();
+            // What the shell lists, for a problem report: why a program is
+            // (not) offered.
+            for handler in &handlers {
+                log::info!(
+                    "Open With {extension}: {} | {} | recommended {}",
+                    handler.name,
+                    handler.id,
+                    handler.recommended
+                );
+            }
             per_type.push(handlers::offered(handlers, own.as_deref()));
             if i == 0 {
                 first = found;
@@ -447,7 +464,7 @@ pub fn describe(program: &str) -> Option<AppChoice> {
             .or_else(|| {
                 shell_thread(|| {
                     for extension in [".tif", ".jpg", ".png"] {
-                        for (handler, _) in enumerate(extension, ASSOC_FILTER_RECOMMENDED)? {
+                        for (handler, _) in enumerate(extension)? {
                             if handlers::same_id(&handler.id, program)
                                 || (is_alias(program)
                                     && handlers::program_file_name(&handler.id)
@@ -467,6 +484,8 @@ pub fn describe(program: &str) -> Option<AppChoice> {
             .unwrap_or_else(|| handlers::program_file_name(program)),
         is_default: false,
         is_recent: false,
+        // The user's own choice: with the recommended programs.
+        recommended: true,
         icon: file_icon(path, 0),
     })
 }
@@ -591,6 +610,20 @@ fn open_as(class: &str, file: &Path) -> Result<(), String> {
     unsafe { ShellExecuteExW(&mut info) }.map_err(|e| format!("{}: {e}", file.display()))
 }
 
+/// Opens `file` with the association handler `handler` itself, as
+/// Explorer's "Open with" does when it has no registration to run.
+fn invoke(handler: &IAssocHandler, file: &Path) -> Result<(), String> {
+    let failed = |e: windows::core::Error| format!("{}: {e}", file.display());
+    // SAFETY: a valid path string; the item and its data object live for
+    // the call.
+    unsafe {
+        let item: IShellItem =
+            SHCreateItemFromParsingName(&HSTRING::from(file), None).map_err(failed)?;
+        let data: IDataObject = item.BindToHandler(None, &BHID_DataObject).map_err(failed)?;
+        handler.Invoke(&data).map_err(failed)
+    }
+}
+
 /// Starts the program file `program` with `files` as its arguments, in as
 /// many starts as the command-line limit needs.
 fn start_program(program: &str, files: &[PathBuf]) -> Result<(), String> {
@@ -625,15 +658,16 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
         handlers::is_program_file(program) && (Path::new(program).is_file() || alias);
     let a_file = Path::new(program).is_absolute() && Path::new(program).is_file();
     shell_thread(|| {
-        let offered = enumerate(&extension, ASSOC_FILTER_RECOMMENDED)?
-            .iter()
-            .any(|(h, _)| h.recommended && handlers::same_id(&h.id, program));
-        let launched = if offered {
+        let listed = enumerate(&extension)?
+            .into_iter()
+            .find(|(h, _)| handlers::same_id(&h.id, program));
+        let launched = if listed.is_some() {
             Launched::Listed
         } else {
             Launched::Picked
         };
-        if let Some(class) = handlers::progid_for(program, &progids(&extension)) {
+        let name = listed.as_ref().map(|(h, _)| h.name.as_str());
+        if let Some(class) = handlers::progid_for(program, name, &progids(&extension)) {
             for file in &handoff {
                 open_as(&class, file)?;
             }
@@ -657,6 +691,18 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
         {
             for file in &handoff[1..] {
                 open_as(&class, file)?;
+            }
+            return Ok(launched);
+        }
+        if let Some((handler, shell)) = &listed
+            && handlers::is_packaged(&handler.id)
+        {
+            log::warn!(
+                "Open With: no registration starts {}; the shell's handler opens the files",
+                handler.name
+            );
+            for file in &handoff {
+                invoke(shell, file)?;
             }
             return Ok(launched);
         }

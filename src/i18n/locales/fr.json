@@ -533,6 +533,7 @@
       "title": "Fusionner"
     },
     "openWith": {
+      "browse": "Rechercher un programme…",
       "chooseTitle": "Choisir une application",
       "default": "Par défaut",
       "failed": "Impossible d’ouvrir les fichiers : {{error}}",

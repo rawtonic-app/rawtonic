@@ -499,6 +499,7 @@
       "title": "結合"
     },
     "openWith": {
+      "browse": "プログラムを参照…",
       "chooseTitle": "アプリケーションを選択",
       "default": "デフォルト",
       "failed": "ファイルを開けませんでした: {{error}}",

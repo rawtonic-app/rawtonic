@@ -488,6 +488,130 @@ describe('restoring the last session', () => {
     await waitFor(() => expect(notify.dismiss).toHaveBeenCalledWith(RESTORE_FAILED_NOTICE));
   });
 
+  it('reopens a library on the collection it was closed on, and on its folder when that is gone', async () => {
+    const beta = { ...summary, directory: '/jobs/Beta', manifest: { ...summary.manifest, name: 'Beta' } };
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    const albums = [{ id: 'abc', name: 'Best', parent: null, count: 2, kind: 'album' }];
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === 'session_open' || command === 'session_summary'
+        ? beta
+        : command === 'session_albums'
+          ? albums
+          : command === 'session_album_paths'
+            ? ['/jobs/Beta/Photos/a.nef', '/jobs/Beta/Photos/b.nef']
+            : command === 'library_flush'
+              ? []
+              : base(command, args)
+    );
+    const last = (activeAlbumId: string) => ({
+      currentFolderPath: 'Album: Best',
+      expandedFolders: [],
+      activeAlbumId,
+      expandedAlbumGroups: [],
+      sessionDirectory: '/jobs/Beta'
+    });
+    const onSelectAlbum = vi.fn();
+    useSettingsStore.setState({
+      appSettings: {
+        lastRootPath: null,
+        recentLibraries: ['/jobs/Beta'],
+        lastFolderState: last('session-album:abc')
+      } as AppSettings
+    });
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} onSelectAlbum={onSelectAlbum} />);
+    act(() => {
+      expect(runAppCommand('recent:/jobs/Beta')).toBe(true);
+    });
+    await waitFor(() =>
+      expect(onSelectAlbum).toHaveBeenCalledWith(
+        'session-album:abc',
+        'Best',
+        ['/jobs/Beta/Photos/a.nef', '/jobs/Beta/Photos/b.nef'],
+        false
+      )
+    );
+    // The collection is gone: the library's own folder stays.
+    onSelectAlbum.mockClear();
+    useSettingsStore.setState({
+      appSettings: {
+        lastRootPath: null,
+        recentLibraries: ['/jobs/Beta'],
+        lastFolderState: last('session-album:deleted')
+      } as AppSettings
+    });
+    act(() => {
+      expect(runAppCommand('recent:/jobs/Beta')).toBe(true);
+    });
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe('/jobs/Beta'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onSelectAlbum).not.toHaveBeenCalled();
+  });
+
+  it('reopens a catalog on an added folder outside it (Windows paths), and on the library when the folder is gone', async () => {
+    const beta = { ...summary, directory: 'C:\\Users\\a\\catalog 3', manifest: { ...summary.manifest, name: 'Beta' } };
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let folderThere = true;
+    let others: { path: string; exists: boolean; photos: number }[] = [];
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === 'session_open' || command === 'session_summary') return beta;
+      if (command === 'library_flush') return [];
+      if (command === 'catalog_folders')
+        return {
+          catalog: true,
+          volumes: [
+            {
+              folders: [{ path: '\\\\?\\C:\\Users\\a\\raws 9', exists: folderThere, photos: 9 }, ...others],
+              roots: []
+            }
+          ]
+        };
+      if (command === 'get_folder_tree') {
+        const path = (args as { path: string }).path;
+        if (path.endsWith('raws 9') && !folderThere) throw new Error('gone');
+        return { path, name: 'x', isDir: true, children: [] };
+      }
+      return base(command, args);
+    });
+    const onNavigate = vi.fn(async () => {});
+    const set = () =>
+      useSettingsStore.setState({
+        appSettings: {
+          lastRootPath: null,
+          recentLibraries: [beta.directory],
+          lastFolderState: {
+            currentFolderPath: 'C:\\Users\\a\\raws 9',
+            expandedFolders: [],
+            activeAlbumId: null,
+            expandedAlbumGroups: [],
+            sessionDirectory: '\\\\?\\C:\\Users\\a\\catalog 3'
+          }
+        } as AppSettings
+      });
+    set();
+    render(<SessionWorkspace onNavigate={onNavigate} />);
+    act(() => {
+      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+    });
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true));
+    // The folder is gone: the library's own folder.
+    folderThere = false;
+    onNavigate.mockClear();
+    set();
+    act(() => {
+      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+    });
+    await waitFor(() => expect(onNavigate).toHaveBeenCalled());
+    expect(onNavigate).not.toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true);
+    // Another catalog folder is there: the library opens on it, not on an empty view.
+    others = [{ path: 'D:\\Shots\\day 2', exists: true, photos: 4 }];
+    onNavigate.mockClear();
+    set();
+    act(() => {
+      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+    });
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\day 2', true));
+  });
+
   it('stays quiet when the session opens quickly', async () => {
     vi.useFakeTimers();
     try {

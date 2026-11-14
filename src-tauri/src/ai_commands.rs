@@ -867,6 +867,12 @@ async fn auto_mask(
         None => warp().await?,
     };
     let (width, height) = (warped_image.width(), warped_image.height());
+    // A background run on the CPU peaks 2.2-2.5 GB above the model: what
+    // rebuilds on demand goes first (AIMEM: 5699 -> 5580 MB on a Mac mini).
+    // A click's run keeps the caches the next edit uses.
+    if !download && rawtonic_onnx::models_run_on_cpu_only() {
+        crate::memory_pressure::release_rebuildable_memory(app_handle);
+    }
     // Only an ONNX Runtime run can be stopped; Core ML needs no ONNX Runtime
     // at all (without one, creating run options would fail).
     let options = if network.on_onnx() {
@@ -1143,6 +1149,20 @@ pub async fn precompute_ai_sky_mask(
     .await
 }
 
+/// The models `preload_ai_mask_models` loads: both, or on the CPU only
+/// Subject. On the CPU a model's weights and the run's transient add up in
+/// the app's own memory (Subject settles at about 1 GB with a 2.2-2.5 GB run
+/// on top); Sky next to it was 0.2-0.33 GB of the peak (5912 against 5699
+/// MB on a Mac mini), and it loads in 0.14-0.37 s on first use (AIMEM,
+/// 2026-11-14).
+fn preload_kinds(on_cpu: bool) -> &'static [AutoMask] {
+    if on_cpu {
+        &[AutoMask::Subject]
+    } else {
+        &[AutoMask::Subject, AutoMask::Sky]
+    }
+}
+
 /// Loads the Subject and Sky models (installed ones only; nothing is
 /// downloaded), asked for when Develop opens for someone who used the
 /// masking tools before, so the load overlaps the photo's decoding. Not
@@ -1168,7 +1188,7 @@ pub async fn preload_ai_mask_models(
     }
     let _running = ai_state.lifecycle.run();
     let start = std::time::Instant::now();
-    for kind in [AutoMask::Subject, AutoMask::Sky] {
+    for &kind in preload_kinds(rawtonic_onnx::models_run_on_cpu_only()) {
         network(&ai_state, &app_handle, kind, false).await?;
     }
     log::info!(
@@ -1563,8 +1583,14 @@ pub async fn load_relight_pattern(path: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WarmUp, warm_up_model};
+    use super::{AutoMask, WarmUp, preload_kinds, warm_up_model};
     use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn cpu_preloads_only_subject() {
+        assert_eq!(preload_kinds(true), &[AutoMask::Subject]);
+        assert_eq!(preload_kinds(false), &[AutoMask::Subject, AutoMask::Sky]);
+    }
 
     #[test]
     fn subject_center_is_the_opaque_matte_centroid() {

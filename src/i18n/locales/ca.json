@@ -533,6 +533,7 @@
       "title": "Fusionar"
     },
     "openWith": {
+      "browse": "Cerca un programa…",
       "chooseTitle": "Tria una aplicació",
       "default": "Per defecte",
       "failed": "No s’han pogut obrir els fitxers: {{error}}",

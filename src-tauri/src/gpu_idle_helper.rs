@@ -16,7 +16,8 @@ use std::time::Duration;
 pub const ARG: &str = "--gpu-idle-compile";
 
 /// A helper still running after this ends itself (the app stops it long
-/// before; this covers an app that is gone).
+/// before; this covers an app that is gone, where a Windows job object
+/// does not end it, `kill_with_app`).
 const LIMIT: Duration = Duration::from_secs(900);
 
 /// Runs the helper when the process was started as one: its exit code.
@@ -74,6 +75,65 @@ pub fn register() {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             command.creation_flags(CREATE_NO_WINDOW);
         }
-        command.spawn()
+        let child = command.spawn()?;
+        kill_with_app(&child);
+        Ok(child)
     }));
 }
+
+/// Puts `child` in a job object the app holds open until it ends, which
+/// kills the job's processes when it closes: a helper ends with the app,
+/// also when the app is killed or crashes, instead of compiling on until
+/// its `LIMIT` (G76/HCF). Helpers run only under a compile limit, which
+/// only AMD's Windows Vulkan driver has; elsewhere a helper of an app that
+/// is gone still ends at its `LIMIT`. Failing that, the helper runs as
+/// before (logged).
+#[cfg(windows)]
+fn kill_with_app(child: &std::process::Child) {
+    use std::os::windows::io::AsRawHandle as _;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject,
+    };
+    /// The job's handle (never closed: the system closes it when the app
+    /// process ends, which ends the helpers in it).
+    static JOB: std::sync::OnceLock<Result<isize, String>> = std::sync::OnceLock::new();
+    let job = JOB.get_or_init(|| {
+        // SAFETY: plain Win32 calls; `info` lives across the call that
+        // reads it, with its true size.
+        unsafe {
+            let job = CreateJobObjectW(None, windows::core::PCWSTR::null())
+                .map_err(|e| format!("{e}"))?;
+            let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&info).cast(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+            .map_err(|e| format!("{e}"))?;
+            Ok(job.0)
+        }
+    });
+    let assigned = job.as_ref().map_err(String::clone).and_then(|&job| {
+        // SAFETY: `job` is the job created above and still open; the child's
+        // handle is valid while `child` lives.
+        unsafe {
+            AssignProcessToJobObject(HANDLE(job), HANDLE(child.as_raw_handle() as isize))
+                .map_err(|e| format!("{e}"))
+        }
+    });
+    if let Err(error) = assigned {
+        log::warn!(
+            "GPU idle compile helper {} does not end with the app ({error}); it ends after {} s at the latest",
+            child.id(),
+            LIMIT.as_secs()
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn kill_with_app(_child: &std::process::Child) {}

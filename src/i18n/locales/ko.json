@@ -499,6 +499,7 @@
       "title": "병합"
     },
     "openWith": {
+      "browse": "프로그램 찾아보기…",
       "chooseTitle": "응용 프로그램 선택",
       "default": "기본값",
       "failed": "파일을 열 수 없습니다: {{error}}",

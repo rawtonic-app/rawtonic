@@ -14,7 +14,12 @@
 //! When it finishes, the app compiles the same pipeline through the cache
 //! the helper left (`pipeline_cache::foreign`), which the driver answers
 //! without compiling (a variant another processor compiled: 140 ms on the
-//! 680M, probe round 15).
+//! 680M, probe round 15). The helper starts from the app's own cache data
+//! (`pipeline_cache::seed`), so its cache holds the app's pipelines and the
+//! new one, and the app keeps it as its own cache file
+//! (`pipeline_cache::adopt`): the next launch finds the variant there when
+//! the driver's cache was cleared (G76/HCF; our file alone answered across
+//! processes in 80 ms on the 680M, probe round 19).
 //!
 //! A frame whose features the running job covers still waits for it
 //! (`IdleCompiles::covering`): its own compile would be that variant
@@ -41,6 +46,9 @@ static UNAVAILABLE: AtomicBool = AtomicBool::new(false);
 
 /// What a helper that failed writes into its folder: why.
 pub const HELPER_ERROR_FILE: &str = "error.txt";
+/// What a helper that compiled writes into its folder: how long the driver
+/// compile took, in seconds (the rest of its time is its start).
+const HELPER_COMPILE_FILE: &str = "compile-seconds.txt";
 /// How often the helper is looked at.
 const POLL: Duration = Duration::from_millis(50);
 /// A helper still compiling after this is stopped (the longest planned
@@ -52,6 +60,9 @@ const LIMIT: Duration = Duration::from_secs(600);
 pub(super) static STOPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(super) static DONE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Helper caches the app kept as its own (tests).
+#[cfg(test)]
+pub(super) static ADOPTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 thread_local! {
     /// The cache a finished helper left, while this thread compiles the
@@ -70,8 +81,13 @@ pub fn set_idle_compile_helper(helper: IdleCompileHelper) {
 
 /// How an idle compile through a helper ended.
 pub(super) enum Helped {
-    /// The helper compiled it; compile it here through this cache.
-    Compiled(wgpu::PipelineCache),
+    /// The helper compiled it; compile it here through this cache. `seeded`:
+    /// the helper started from the app's cache data, so this cache holds
+    /// the app's pipelines too (`pipeline_cache::adopt`).
+    Compiled {
+        cache: wgpu::PipelineCache,
+        seeded: bool,
+    },
     /// Stopped for a compile or export that waits for the slot, or because
     /// the idle compiles end.
     Stopped,
@@ -142,6 +158,7 @@ pub(super) fn compile_in_helper(
         UNAVAILABLE.store(true, Ordering::Relaxed);
         Helped::Unavailable
     };
+    let seeded = crate::pipeline_cache::seed(&target.device, folder.path());
     let arg = job.arg();
     let started = Instant::now();
     let mut child = match helper(&arg, folder.path()) {
@@ -197,6 +214,9 @@ pub(super) fn compile_in_helper(
         ));
     }
     let cache = crate::pipeline_cache::foreign(&target.device, folder.path(), &name);
+    let compile = std::fs::read_to_string(folder.path().join(HELPER_COMPILE_FILE))
+        .ok()
+        .and_then(|seconds| seconds.trim().parse::<f64>().ok());
     // What the helper left instead, for the log.
     let found = std::fs::read_dir(folder.path())
         .map(|entries| {
@@ -213,10 +233,12 @@ pub(super) fn compile_in_helper(
             #[cfg(test)]
             DONE.fetch_add(1, Ordering::SeqCst);
             log::info!(
-                "GPU idle compile of {arg}: helper done after {:.2} s",
-                started.elapsed().as_secs_f64()
+                "GPU idle compile of {arg}: helper done after {:.2} s (its compile {}; started from the app's cache: {})",
+                started.elapsed().as_secs_f64(),
+                compile.map_or_else(|| "unknown".to_owned(), |s| format!("{s:.2} s")),
+                if seeded { "yes" } else { "no" }
             );
-            Helped::Compiled(cache)
+            Helped::Compiled { cache, seeded }
         }
         None => give_up(format!(
             "the helper for {arg} left no pipeline cache {} (found: {})",
@@ -239,6 +261,7 @@ pub fn compile_in_helper_process(job: &str, folder: &Path, build: &str) -> Resul
         return Err("no pipeline cache on this device".into());
     }
     let processor = GpuProcessor::for_exports(context, 64, 64)?;
+    let started = Instant::now();
     let created = idle_compiles::BACKGROUND_COMPILE.with(|background| {
         background.set(true);
         let created = match job {
@@ -263,6 +286,10 @@ pub fn compile_in_helper_process(job: &str, folder: &Path, build: &str) -> Resul
         created
     });
     created?;
+    let _ = rawtonic_fs::atomic_write(
+        &folder.join(HELPER_COMPILE_FILE),
+        format!("{:.3}", started.elapsed().as_secs_f64()),
+    );
     crate::pipeline_cache::save_now(&device)
         .map(|_| ())
         .ok_or_else(|| "the pipeline cache has no data".into())
