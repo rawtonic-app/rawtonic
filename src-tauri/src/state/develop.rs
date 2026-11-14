@@ -188,15 +188,11 @@ impl DevelopSession {
     /// memory decides whether the total stays within 6 GB on a 15 GB Radeon
     /// 680M laptop (G76/WCC11, coordinator decision D6; WCC8 measured
     /// about 0.38 GB).
-    pub fn release_rebuildable(&self) {
-        self.release_rebuildable_keeping(false);
-    }
-
-    /// `release_rebuildable`, with the warped mask image kept when
-    /// `keep_warp`: a background mask run holds it for its own run anyway
-    /// (dropping the cache's reference frees nothing) and the next frame's
-    /// masks need it again.
-    pub fn release_rebuildable_keeping(&self, keep_warp: bool) {
+    ///
+    /// The warped mask image is kept when `keep_warp`: a background mask run
+    /// holds it for its own run anyway (dropping the cache's reference frees
+    /// nothing) and the next frame's masks need it again.
+    pub fn release_rebuildable(&self, keep_warp: bool) {
         lock_recover(&self.decoded_image_cache).clear();
         lock_recover(&self.reusable_previews).clear();
         // Not `patch_cache`: the webview sends AI patch, mask and relight
@@ -310,11 +306,11 @@ mod tests {
                 .is_some_and(|cache| cache.get(&source, true, 7).is_some())
         };
         fill(&develop);
-        develop.release_rebuildable_keeping(true);
+        develop.release_rebuildable(true);
         assert!(warp(&develop));
         assert!(develop.patched_warped_cache.lock().unwrap().is_none());
         fill(&develop);
-        develop.release_rebuildable();
+        develop.release_rebuildable(false);
         assert!(!warp(&develop));
     }
 

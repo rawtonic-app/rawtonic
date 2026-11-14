@@ -167,11 +167,11 @@ pub fn release_rebuildable_memory(app: &tauri::AppHandle) {
 }
 
 /// `release_rebuildable_memory`; `keep_warp` keeps the warped mask image
-/// (`DevelopSession::release_rebuildable_keeping`).
+/// (`DevelopSession::release_rebuildable`).
 pub fn release_rebuildable_memory_keeping(app: &tauri::AppHandle, keep_warp: bool) {
     use tauri::Manager as _;
     app.state::<crate::state::develop::DevelopSession>()
-        .release_rebuildable_keeping(keep_warp);
+        .release_rebuildable(keep_warp);
     rayon::spawn_broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
     rawtonic_runtime::allocator::release_freed_memory();
 }
