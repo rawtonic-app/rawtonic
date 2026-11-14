@@ -168,6 +168,10 @@ const SYNC_COMMANDS: &[(&str, &str)] = &[
         "sets a cancel flag or wakes a worker; no I/O",
     ),
     (
+        "session_ingest_full_region_cancel",
+        "sets a cancel flag or wakes a worker; no I/O",
+    ),
+    (
         "set_app_menu",
         "main-thread-only API: menu, window, quit or webview",
     ),
