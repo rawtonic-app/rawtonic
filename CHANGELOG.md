@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- **Windows with AMD graphics: views prepared in idle time stay prepared after a driver update.** On AMD's Windows Vulkan driver the views the editor prepares in idle time (in a helper process) were kept only in the driver's own cache; when that cache was cleared (a driver update, a cleanup tool) every such view was compiled again, 39–45 s each on a Radeon 680M. They now go into the app's own cache file too, so the next start finds them there. Such a helper now also ends at once when the app ends or is closed from the Task Manager, instead of running on for up to 15 minutes. Exports are unchanged.
+- **Windows with AMD graphics: views prepared in idle time stay prepared when the driver's cache is cleared.** On AMD's Windows Vulkan driver the views the editor prepares in idle time (in a helper process) were kept only in the driver's own cache; when that cache was cleared (by a cleanup tool or a cache reset) every such view was compiled again, 39–45 s each on a Radeon 680M. They now go into the app's own cache file too, so the next start with the same driver finds them there (a driver update still starts a new cache). Such a helper now also ends at once when the app ends or is closed from the Task Manager, instead of running on for up to 15 minutes. Exports are unchanged.
 
 ## 0.1.0-alpha.14 — 2026-11-14
 
