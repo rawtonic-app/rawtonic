@@ -6,6 +6,25 @@
 //! window; it is cut to the work area here, so the interface degrades
 //! (the top bar compacts) instead of the window leaving the screen.
 //!
+//! Measured on Windows 11 (2560×1600 at 200 %, work area 2560×1504,
+//! G76/WUX11): the maximized frameless window's rectangle is still
+//! -13,-13 2586×1530, the work area plus the invisible resize border on
+//! every side, as for any resizable window; its client area (tao's
+//! `WM_NCCALCSIZE`) is exactly the work area 0,0 2560×1504 and nothing is
+//! cut off. So the maximum answered here does not move the window's outer
+//! rectangle there; what a user sees is the work area either way.
+//!
+//! The same subclass tells Windows where the maximize button drawn in the
+//! toolbar is (`WM_GETTITLEBARINFOEX`): Windows 11 asks the
+//! top window for it when the pointer rests on the button (the pointer's own
+//! hit tests go to the overlay of `snap_layout`) and opens the snap-layouts
+//! flyout below the rectangle answered. Without an answer it opened 54 px
+//! under the window's top at 200 %, a system-height title bar, which from
+//! interface size 125 % is over the lower half of our taller button and
+//! over the Preferences button: the flyout took the click meant for
+//! Maximize. With the answer it opens below the button at 100/112/125 %
+//! (measured on the Lenovo, G76/WUX11).
+//!
 //! Installed as a window subclass in front of tao's own: tao fills the
 //! structure first (`DefSubclassProc`), then [`min_max_info`] adjusts it.
 #![cfg_attr(not(windows), allow(dead_code))] // the computation is tested everywhere
@@ -67,6 +86,15 @@ pub(crate) fn min_max_info(
     }
 }
 
+/// Whether `RAWTONIC_WINDOW_TRACE` asks for the window's size and state
+/// messages in app.log (the maximize button's clicks, the limits answered
+/// here, minimum changes): for finding out on someone's machine why a
+/// window does not maximize or lands off the screen.
+pub(crate) fn trace() -> bool {
+    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TRACE.get_or_init(|| std::env::var_os("RAWTONIC_WINDOW_TRACE").is_some_and(|v| !v.is_empty()))
+}
+
 /// Sets the main window's minimum client size (logical pixels) only while it
 /// is in its normal state; returns whether it was set. tao's
 /// `set_min_inner_size` re-applies the current inner size, which takes a
@@ -89,6 +117,13 @@ pub(crate) fn set_window_minimum(
             let normal = !target.is_maximized().unwrap_or(true)
                 && !target.is_minimized().unwrap_or(true)
                 && !target.is_fullscreen().unwrap_or(true);
+            if trace() {
+                log::info!(
+                    "window trace: minimum {width}x{height} asked, normal state {normal}, inner {:?}, outer {:?}",
+                    target.inner_size().ok(),
+                    target.outer_size().ok()
+                );
+            }
             let result = if normal {
                 target
                     .set_min_size(Some(tauri::LogicalSize::new(width, height)))
@@ -125,7 +160,13 @@ mod win32 {
         GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
     };
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
-    use windows::Win32::UI::WindowsAndMessaging::{MINMAXINFO, WM_GETMINMAXINFO};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsZoomed, MINMAXINFO, TITLEBARINFOEX, WINDOWPOS, WM_GETMINMAXINFO, WM_GETTITLEBARINFOEX,
+        WM_SIZE, WM_SYSCOMMAND, WM_WINDOWPOSCHANGED, WM_WINDOWPOSCHANGING,
+    };
+
+    /// `TITLEBARINFOEX::rgrect`/`rgstate` index of the maximize button.
+    const MAXIMIZE_BUTTON: usize = 3;
 
     const SUBCLASS_ID: usize = 0x5257_4d4d;
 
@@ -165,7 +206,80 @@ mod win32 {
         _id: usize,
         frameless: usize,
     ) -> LRESULT {
+        let trace = super::trace();
+        if trace && msg == WM_WINDOWPOSCHANGING && lparam.0 != 0 {
+            // SAFETY: the message's lParam points at its WINDOWPOS.
+            let pos = unsafe { &*(lparam.0 as *const WINDOWPOS) };
+            log::info!(
+                "window trace: WM_WINDOWPOSCHANGING asked {},{} {}x{} flags {:#x}",
+                pos.x,
+                pos.y,
+                pos.cx,
+                pos.cy,
+                pos.flags.0
+            );
+        }
         let result = unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) };
+        if trace {
+            let zoomed = unsafe { IsZoomed(hwnd) }.as_bool();
+            match msg {
+                WM_SYSCOMMAND => {
+                    log::info!(
+                        "window trace: WM_SYSCOMMAND {:#x}, zoomed {zoomed}",
+                        wparam.0
+                    );
+                }
+                WM_SIZE => log::info!(
+                    "window trace: WM_SIZE kind {} client {}x{}, zoomed {zoomed}",
+                    wparam.0,
+                    lparam.0 & 0xffff,
+                    (lparam.0 >> 16) & 0xffff
+                ),
+                WM_WINDOWPOSCHANGING | WM_WINDOWPOSCHANGED if lparam.0 != 0 => {
+                    // SAFETY: the message's lParam points at its WINDOWPOS.
+                    let pos = unsafe { &*(lparam.0 as *const WINDOWPOS) };
+                    log::info!(
+                        "window trace: {} {},{} {}x{} flags {:#x}, zoomed {zoomed}",
+                        if msg == WM_WINDOWPOSCHANGING {
+                            "WM_WINDOWPOSCHANGING answered"
+                        } else {
+                            "WM_WINDOWPOSCHANGED"
+                        },
+                        pos.x,
+                        pos.y,
+                        pos.cx,
+                        pos.cy,
+                        pos.flags.0
+                    );
+                }
+                _ => {}
+            }
+        }
+        if msg == WM_GETTITLEBARINFOEX
+            && lparam.0 != 0
+            && let Some(button) = crate::snap_layout::maximize_button_on_screen()
+        {
+            // SAFETY: WM_GETTITLEBARINFOEX's lParam points at the caller's
+            // TITLEBARINFOEX; its size is checked before the write.
+            let info = unsafe { &mut *(lparam.0 as *mut TITLEBARINFOEX) };
+            if info.cbSize as usize >= std::mem::size_of::<TITLEBARINFOEX>() {
+                // Only the button: the title bar rectangle stays as Windows
+                // filled it in (empty for the frameless window, as before).
+                info.rgrect[MAXIMIZE_BUTTON] = RECT {
+                    left: button.left,
+                    top: button.top,
+                    right: button.right,
+                    bottom: button.bottom,
+                };
+                // Shown and enabled (no STATE_SYSTEM_* flag).
+                info.rgstate[MAXIMIZE_BUTTON] = 0;
+                if trace {
+                    log::info!(
+                        "window trace: WM_GETTITLEBARINFOEX answered with the maximize button {button:?}"
+                    );
+                }
+            }
+        }
         if msg == WM_GETMINMAXINFO && lparam.0 != 0 {
             // SAFETY: WM_GETMINMAXINFO's lParam points at the caller's MINMAXINFO.
             let info = unsafe { &mut *(lparam.0 as *mut MINMAXINFO) };
@@ -175,16 +289,27 @@ mod win32 {
                 ..Default::default()
             };
             if unsafe { GetMonitorInfoW(monitor, &mut monitor_info) }.as_bool() {
+                let given = MinMax {
+                    max_position: (info.ptMaxPosition.x, info.ptMaxPosition.y),
+                    max_size: (info.ptMaxSize.x, info.ptMaxSize.y),
+                    min_track: (info.ptMinTrackSize.x, info.ptMinTrackSize.y),
+                };
                 let limits = min_max_info(
                     bounds(monitor_info.rcMonitor),
                     bounds(monitor_info.rcWork),
-                    MinMax {
-                        max_position: (info.ptMaxPosition.x, info.ptMaxPosition.y),
-                        max_size: (info.ptMaxSize.x, info.ptMaxSize.y),
-                        min_track: (info.ptMinTrackSize.x, info.ptMinTrackSize.y),
-                    },
+                    given,
                     frameless != 0,
                 );
+                if trace {
+                    log::info!(
+                        "window trace: WM_GETMINMAXINFO given {given:?} max track {},{} answered {limits:?} (frameless {}, monitor {:?}, work {:?})",
+                        info.ptMaxTrackSize.x,
+                        info.ptMaxTrackSize.y,
+                        frameless != 0,
+                        bounds(monitor_info.rcMonitor),
+                        bounds(monitor_info.rcWork)
+                    );
+                }
                 let point = |(x, y): (i32, i32)| POINT { x, y };
                 info.ptMaxPosition = point(limits.max_position);
                 info.ptMaxSize = point(limits.max_size);

@@ -74,6 +74,18 @@ pub fn set_maximize_button_rect(
 #[cfg(windows)]
 mod win32;
 
+/// The overlay's rectangle on screen while it is shown (UI thread): where
+/// the main window says its maximize button is (`window_limits`).
+#[cfg(windows)]
+pub(crate) fn maximize_button_on_screen() -> Option<crate::window_limits::Bounds> {
+    win32::on_screen().map(|(left, top, right, bottom)| crate::window_limits::Bounds {
+        left,
+        top,
+        right,
+        bottom,
+    })
+}
+
 /// A modal owns the entire client area, including the maximize button.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn active_button_rect(rect: Option<ButtonRect>, modal_open: bool) -> Option<ButtonRect> {
