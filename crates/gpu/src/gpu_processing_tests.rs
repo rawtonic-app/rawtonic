@@ -3028,6 +3028,72 @@ fn input_from(context: &GpuContext, width: u32, height: u32, data: &[f16]) -> wg
         .create_view(&Default::default())
 }
 
+/// An export render of a region (CPU readback, the import dialog's 100 %
+/// view first: notes benchmark-results/impd4-import-zoom-2026-11-14) is the
+/// whole render's pixels there, byte for byte, the 8-bit dither included: a
+/// region that starts inside a tile and crosses into the next one.
+#[test]
+#[ignore = "requires a native GPU; compares actual 8/16-bit pixels"]
+fn an_export_region_is_the_whole_renders_pixels_there() {
+    let context = context();
+    let (width, height) = (2304, 400);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 11);
+    let region = Roi {
+        x: 1501,
+        y: 37,
+        width: 700,
+        height: 301,
+    };
+    for profile in [
+        json!({}),
+        json!({"sharpness":45,"clarity":30,"structure":-25,"shadows":40}),
+        json!({"lumaNoiseReduction":20,"colorNoiseReduction":15}),
+        json!({"grainAmount":60,"dehaze":20}),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        for precision in [
+            RenderOutputPrecision::EightBit,
+            RenderOutputPrecision::SixteenBit,
+        ] {
+            let render = |roi| {
+                let (pixels, w, h, ..) = processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments: adjustments.clone(),
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi,
+                        },
+                        false,
+                        precision,
+                    )
+                    .unwrap();
+                let bytes = match pixels {
+                    RenderedPixels::U8(pixels) => pixels,
+                    RenderedPixels::U16(pixels) => bytemuck::cast_slice(&pixels).to_vec(),
+                };
+                (bytes, w as usize, h as usize)
+            };
+            let (whole, whole_width, _) = render(None);
+            let (part, part_width, part_height) = render(Some(region));
+            assert_eq!((part_width, part_height), (700, 301));
+            let pixel = part.len() / (part_width * part_height);
+            for row in 0..part_height {
+                let from = ((region.y as usize + row) * whole_width + region.x as usize) * pixel;
+                assert!(
+                    part[row * part_width * pixel..(row + 1) * part_width * pixel]
+                        == whole[from..from + part_width * pixel],
+                    "{profile}, {precision:?}: row {row} of the region differs"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 #[ignore = "requires a native GPU; compares actual 8/16-bit pixels against full preparation"]
 fn cached_preview_pixels_match_full_preparation() {

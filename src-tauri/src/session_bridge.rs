@@ -1086,12 +1086,31 @@ pub async fn session_ingest_full_preview(
 ) -> Result<tauri::ipc::Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let started = std::time::Instant::now();
+        let regions = crate::ingest_zoom::regions();
+        // The view's region first when one is wanted (`session_ingest_full_region`).
+        let first =
+            |size: (u32, u32), region: &dyn Fn([u32; 4]) -> Result<image::DynamicImage, String>| {
+                regions.serve(&path, size, |rect| {
+                    let jpeg = region(rect)
+                        .map_err(|e| log::warn!("Import 100 % region of {path}: {e}"))
+                        .ok()
+                        .and_then(|image| crate::file_management::encode_full_size(&image));
+                    log::info!(
+                        "Import 100 % region of {path} ({} × {}) after {} ms",
+                        rect[2],
+                        rect[3],
+                        started.elapsed().as_millis()
+                    );
+                    jpeg
+                });
+            };
         let render = |bytes: &[u8]| {
-            crate::export_processing::render_unedited_full_size(&app, &path, bytes)
+            crate::export_processing::render_unedited_full_size(&app, &path, bytes, &first)
                 .map_err(|e| log::warn!("Import 100 % view of {path}: {e}"))
                 .ok()
         };
         let full = crate::file_management::source_full_size_jpeg(Path::new(&path), &render);
+        regions.finish(&path);
         if let Some((_, source)) = &full {
             log::info!(
                 "Import 100 % view from {source:?} in {} ms",
@@ -1102,6 +1121,55 @@ pub async fn session_ingest_full_preview(
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// The size of a RAW's 100 % view in the import dialog
+/// (`session_ingest_full_preview`), read from its header: the large view
+/// enlarges its preview to it until those pixels arrive. None for other
+/// files and unreadable ones. Read-only.
+#[tauri::command]
+pub async fn session_ingest_full_size(path: String) -> Result<Option<(u32, u32)>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::file_management::source_full_size_dimensions(Path::new(&path), &|bytes| {
+            crate::export_processing::unedited_size(&path, bytes)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The part of a RAW's 100 % view the import dialog's large view shows (a
+/// view of `view_width` × `view_height` image pixels centred at `focus_x`,
+/// `focus_y`, shares of the photograph), rendered by its running full-size
+/// render (`session_ingest_full_preview`) before the rest: six u32 (full
+/// width and height, the region's x, y, width, height), then its JPEG.
+/// Empty when that render does not make one (rendered whole first, not a
+/// render, or replaced by a newer wish or `session_ingest_full_region_cancel`).
+#[tauri::command]
+pub async fn session_ingest_full_region(
+    path: String,
+    focus_x: f64,
+    focus_y: f64,
+    view_width: u32,
+    view_height: u32,
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let view = crate::ingest_zoom::regions().wait(
+            &path,
+            (focus_x, focus_y),
+            (view_width, view_height),
+        );
+        tauri::ipc::Response::new(view.map(|view| view.to_bytes()).unwrap_or_default())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Drops the large view's wish for a region of `path`
+/// (`session_ingest_full_region`).
+#[tauri::command]
+pub fn session_ingest_full_region_cancel(path: String) {
+    crate::ingest_zoom::regions().cancel(&path);
 }
 
 /// ISO, shutter speed, aperture and focal length of a photograph to import,
