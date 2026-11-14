@@ -869,9 +869,11 @@ async fn auto_mask(
     let (width, height) = (warped_image.width(), warped_image.height());
     // A background run on the CPU peaks 2.2-2.5 GB above the model: what
     // rebuilds on demand goes first (AIMEM: 5699 -> 5580 MB on a Mac mini).
-    // A click's run keeps the caches the next edit uses.
+    // A click's run keeps the caches the next edit uses; so does this one for
+    // the warped image: the run holds it anyway, so releasing the cache's
+    // reference saves nothing, and the next mask (Sky, SAM) rebuilds it.
     if !download && rawtonic_onnx::models_run_on_cpu_only() {
-        crate::memory_pressure::release_rebuildable_memory(app_handle);
+        crate::memory_pressure::release_rebuildable_memory_keeping(app_handle, true);
     }
     // Only an ONNX Runtime run can be stopped; Core ML needs no ONNX Runtime
     // at all (without one, creating run options would fail).

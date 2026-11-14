@@ -189,11 +189,21 @@ impl DevelopSession {
     /// 680M laptop (G76/WCC11, coordinator decision D6; WCC8 measured
     /// about 0.38 GB).
     pub fn release_rebuildable(&self) {
+        self.release_rebuildable_keeping(false);
+    }
+
+    /// `release_rebuildable`, with the warped mask image kept when
+    /// `keep_warp`: a background mask run holds it for its own run anyway
+    /// (dropping the cache's reference frees nothing) and the next frame's
+    /// masks need it again.
+    pub fn release_rebuildable_keeping(&self, keep_warp: bool) {
         lock_recover(&self.decoded_image_cache).clear();
         lock_recover(&self.reusable_previews).clear();
         // Not `patch_cache`: the webview sends AI patch, mask and relight
         // bitmaps once and refers to them afterwards.
-        *lock_recover(&self.full_warped_cache) = None;
+        if !keep_warp {
+            *lock_recover(&self.full_warped_cache) = None;
+        }
         *lock_recover(&self.patched_warped_cache) = None;
         *lock_recover(&self.full_transformed_cache) = None;
     }
@@ -273,6 +283,39 @@ mod tests {
             !develop.geometry_cache.lock().unwrap().is_empty(),
             develop.patched_warped_cache.lock().unwrap().is_some(),
         ]
+    }
+
+    /// A background CPU mask run releases what rebuilds, but keeps the warped
+    /// mask image the next Sky/SAM run needs (G76/SKYP review).
+    #[test]
+    fn releasing_for_a_mask_run_can_keep_the_warped_image() {
+        let develop = DevelopSession::default();
+        let source = Arc::new(DynamicImage::new_rgb32f(2, 2));
+        let fill = |develop: &DevelopSession| {
+            *develop.full_warped_cache.lock().unwrap() = Some(FullWarpedMaskCache::new(
+                &source,
+                true,
+                7,
+                Arc::new(DynamicImage::new_rgb32f(2, 2)),
+            ));
+            *develop.patched_warped_cache.lock().unwrap() =
+                Some((1, Arc::new(DynamicImage::new_rgb32f(2, 2))));
+        };
+        let warp = |develop: &DevelopSession| {
+            develop
+                .full_warped_cache
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|cache| cache.get(&source, true, 7).is_some())
+        };
+        fill(&develop);
+        develop.release_rebuildable_keeping(true);
+        assert!(warp(&develop));
+        assert!(develop.patched_warped_cache.lock().unwrap().is_none());
+        fill(&develop);
+        develop.release_rebuildable();
+        assert!(!warp(&develop));
     }
 
     /// [decodes, patches, geometry bases, retouched source] each scope keeps

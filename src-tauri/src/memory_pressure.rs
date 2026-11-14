@@ -163,9 +163,15 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
 /// per thread after frees (mimalloc) on every worker thread (without waiting
 /// for busy ones) and this one.
 pub fn release_rebuildable_memory(app: &tauri::AppHandle) {
+    release_rebuildable_memory_keeping(app, false);
+}
+
+/// `release_rebuildable_memory`; `keep_warp` keeps the warped mask image
+/// (`DevelopSession::release_rebuildable_keeping`).
+pub fn release_rebuildable_memory_keeping(app: &tauri::AppHandle, keep_warp: bool) {
     use tauri::Manager as _;
     app.state::<crate::state::develop::DevelopSession>()
-        .release_rebuildable();
+        .release_rebuildable_keeping(keep_warp);
     rayon::spawn_broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
     rawtonic_runtime::allocator::release_freed_memory();
 }

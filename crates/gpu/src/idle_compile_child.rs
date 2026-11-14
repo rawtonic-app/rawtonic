@@ -48,7 +48,7 @@ static UNAVAILABLE: AtomicBool = AtomicBool::new(false);
 pub const HELPER_ERROR_FILE: &str = "error.txt";
 /// What a helper that compiled writes into its folder: how long the driver
 /// compile took, in seconds (the rest of its time is its start).
-const HELPER_COMPILE_FILE: &str = "compile-seconds.txt";
+pub(super) const HELPER_COMPILE_FILE: &str = "compile-seconds.txt";
 /// How often the helper is looked at.
 const POLL: Duration = Duration::from_millis(50);
 /// A helper still compiling after this is stopped (the longest planned

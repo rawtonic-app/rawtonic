@@ -452,6 +452,33 @@ mod tests {
         ));
     }
 
+    /// The file chain across processes without a GPU: the app's cache file
+    /// is the helper's start (`seed_file`), the helper's file holds both
+    /// sets of pipelines, the app keeps it as its own file, and a new
+    /// process reading only that file gets both (G76/HCF review).
+    #[test]
+    fn a_new_process_reads_the_pipelines_of_the_app_and_the_helper() {
+        let app = tempfile::tempdir().unwrap();
+        let helper = tempfile::tempdir().unwrap();
+        let name = "wgpu-pipelines-a.bin";
+        write(&app.path().join(name), b"app pipelines").unwrap();
+        // The app seeds the helper from its cache's data.
+        let seeded = read(&app.path().join(name)).unwrap();
+        assert!(seed_file(&helper.path().join(name), Some(&seeded)));
+        // The helper (a process of its own) adds its pipeline and saves.
+        let mut data = read(&helper.path().join(name)).unwrap();
+        data.extend_from_slice(b" + helper pipeline");
+        write(&helper.path().join(name), &data).unwrap();
+        // The app takes the helper's file over as its own, whole.
+        let adopted = read(&helper.path().join(name)).unwrap();
+        write(&app.path().join(name), &adopted).unwrap();
+        // A new process loads only the app's file.
+        assert_eq!(
+            read(&app.path().join(name)),
+            Some(b"app pipelines + helper pipeline".to_vec())
+        );
+    }
+
     /// A file of another format version (an older or newer build's) or of
     /// another program is ignored, never handed to the driver.
     #[test]
