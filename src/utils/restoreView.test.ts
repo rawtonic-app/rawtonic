@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LastFolderState } from '../components/ui/AppProperties';
 import { PREVIOUS_IMPORT_VIEW_ID } from './folderSync';
-import { holdSavedView, isInside, samePath, savedView, savedViewHeld } from './restoreView';
+import { holdSavedView, isInside, samePath, savedView, savedViewHeld, settleSavedView } from './restoreView';
 
 const state = (over: Partial<LastFolderState>): LastFolderState => ({
   currentFolderPath: null,
@@ -62,6 +62,15 @@ describe('stand-in view', () => {
     expect(savedViewHeld('/lib', 'Album: Missing Photos', 'session-missing')).toBe(true);
     expect(savedViewHeld('/lib', '/lib/Other', null)).toBe(false);
     // Released for good: the stand-in is now an ordinary choice.
+    expect(savedViewHeld('/lib', 'Album: Missing Photos', 'session-missing')).toBe(false);
+  });
+
+  it('saves a click on the library folder after the stand-in was shown', () => {
+    holdSavedView('/lib', '/lib/Photos', 'session-missing');
+    expect(savedViewHeld('/lib', '/lib/Photos', null)).toBe(true); // while opening
+    expect(savedViewHeld('/lib', 'Album: Missing Photos', 'session-missing')).toBe(true);
+    settleSavedView();
+    expect(savedViewHeld('/lib', '/lib/Photos', null)).toBe(false); // the user's own click
     expect(savedViewHeld('/lib', 'Album: Missing Photos', 'session-missing')).toBe(false);
   });
 });

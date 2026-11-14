@@ -61,7 +61,7 @@ import {
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSessionBar } from './sessionBar';
 import { SESSION_ALBUMS_CHANGED, openSessionAlbum, type SessionAlbum } from '../studio/StudioAlbums';
-import { holdSavedView, isInside, savedView, type SavedView } from '../../utils/restoreView';
+import { holdSavedView, isInside, savedView, settleSavedView, type SavedView } from '../../utils/restoreView';
 import { outermost, type CatalogFoldersView } from '../../utils/catalogFolders';
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, openMissingView, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
@@ -671,6 +671,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       if (missingFallback && onSelectAlbum) {
         console.info(`Library ${root}: no catalog folder is on disk; showing Missing Photos`);
         await openMissingView(root, i18n.t('offline.missingView'), onSelectAlbum).catch(() => {});
+        settleSavedView();
       }
       if (view && view.kind !== 'folder' && onSelectAlbum) {
         await reopenView(root, view, onSelectAlbum).catch(() => {});
