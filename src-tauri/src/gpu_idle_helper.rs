@@ -52,7 +52,9 @@ pub fn run_if_asked() -> Option<i32> {
 }
 
 /// Lets the idle compiles start helpers: this program with `ARG`, without
-/// a console window and below normal priority on Windows (idle work).
+/// a console window on Windows. At normal priority: an edit whose variant
+/// the running helper compiles waits for it (G76/WSMOKE16: 27.5 s at below
+/// normal priority against 23–25 s in the app).
 pub fn register() {
     let Ok(exe) = std::env::current_exe() else {
         return;
@@ -70,8 +72,7 @@ pub fn register() {
         {
             use std::os::windows::process::CommandExt as _;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
-            command.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
+            command.creation_flags(CREATE_NO_WINDOW);
         }
         command.spawn()
     }));

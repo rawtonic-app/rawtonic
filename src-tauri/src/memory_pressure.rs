@@ -148,9 +148,14 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
             last_pressure.map(|at| now.duration_since(at)),
         );
         if verdict.is_ok() {
-            // The compile may start: what rebuilds on demand goes first.
+            // The compile may start: what rebuilds on demand goes first, and
+            // the pages the allocator keeps committed per thread after
+            // frees (mimalloc) go back to the system on every worker thread
+            // (without waiting for busy ones) and this one.
             app.state::<crate::state::develop::DevelopSession>()
                 .release_rebuildable();
+            rayon::spawn_broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
+            rawtonic_runtime::allocator::release_freed_memory();
         }
         verdict
     }));
