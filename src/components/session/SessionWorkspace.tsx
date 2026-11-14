@@ -9,6 +9,7 @@ import CatalogExportDialog from './CatalogExportDialog';
 import CatalogImportDialog from './CatalogImportDialog';
 import FolderSyncDialog from './FolderSyncDialog';
 import SessionXmpStatus from './SessionXmpStatus';
+import { sourceFileName } from '../../entities/photo/photoRef';
 import ActivityCentre from '../activity/ActivityCentre';
 import { useActivityStore } from '../../store/useActivityStore';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -175,6 +176,8 @@ interface ImportResult {
   /** On a companion JPEG's result: the RAW's copy it belongs to (the
    * backend's `ImportResult` keeps its snake_case field names). */
   companion_of?: string | null;
+  /** A skipped duplicate: the photograph with the same content that the library holds. */
+  duplicate_of?: string | null;
 }
 /** Says what an ingest did (`session_ingest`, `session_ingest_resume`):
  * photographs copied or added (a RAW+JPEG pair counts once), duplicates
@@ -194,6 +197,11 @@ function reportIngest(
   // A companion JPEG is part of its RAW's photograph, not one of its own.
   const photos = results.filter((r) => !r.companion_of);
   const skipped = photos.filter((r) => r.skipped).length;
+  // One rule for every way in: a file whose content a photograph of the
+  // library has is a duplicate, said so with that photograph's name; a file
+  // already registered at its own place is only "already in".
+  const duplicates = photos.filter((r) => r.skipped && r.duplicate_of);
+  const registered = skipped - duplicates.length;
   const copied = photos.filter((r) => !r.error).length - skipped;
   const companions = results.filter((r) => r.companion_of && !r.error && !r.skipped).length;
   const sidecars = results.filter((r) => r.sidecar && !r.error).length;
@@ -215,7 +223,13 @@ function reportIngest(
           : adding
             ? i18n.t('session.toasts.added', { count: copied })
             : i18n.t('session.toasts.ingested', { count: copied }),
-        skipped ? i18n.t('session.toasts.duplicatesSkipped', { count: skipped }) : null,
+        duplicates.length
+          ? i18n.t('session.toasts.duplicatesSkipped', {
+              count: duplicates.length,
+              name: sourceFileName(duplicates[0].duplicate_of ?? '')
+            })
+          : null,
+        registered ? i18n.t('session.toasts.alreadyInLibrary', { count: registered }) : null,
         sidecars ? i18n.t('session.toasts.sidecarsCopied', { count: sidecars }) : null,
         companions ? i18n.t('session.toasts.companionsKept', { n: companions }) : null,
         album && !albumError ? i18n.t('session.toasts.addedToAlbum', { name: album }) : null,

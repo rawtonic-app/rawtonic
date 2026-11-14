@@ -48,6 +48,10 @@ pub struct ImportResult {
     pub asset_id: Option<String>,
     pub error: Option<String>,
     pub skipped: bool,
+    /// A skipped duplicate: the photograph already in the library that has
+    /// the same content (not a file already registered at its own place).
+    #[serde(default)]
+    pub duplicate_of: Option<PathBuf>,
     /// The source's XMP sidecar (`capture::card_sidecar`), copied beside
     /// `destination` under its name and adopted by the library.
     #[serde(default)]
@@ -1078,6 +1082,7 @@ pub(crate) fn import_pair(
             photo: ImportResult {
                 source: source.into(),
                 destination: Some(asset.path.clone()),
+                duplicate_of: Some(asset.path.clone()),
                 asset_id: Some(asset.id),
                 skipped: true,
                 companion: kept,
@@ -1102,6 +1107,7 @@ pub(crate) fn import_pair(
                 None,
                 Some(ImportResult {
                     source: path.into(),
+                    duplicate_of: Some(asset.path.clone()),
                     destination: Some(asset.path),
                     asset_id: Some(asset.id),
                     skipped: true,

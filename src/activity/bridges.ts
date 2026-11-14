@@ -360,6 +360,27 @@ export function syncLeftovers({ tempFiles, folders, bytes, kept }: LeftoversRepo
     });
 }
 
+/** Mirrors `DuplicatesReport` in src-tauri/src/session_bridge.rs. */
+export type SkippedDuplicates = { files: { path: string; of: string }[] };
+
+/** The scan a catalog runs when it opens left files of its folder out
+ * because their content is a photograph it holds (the one duplicate rule of
+ * import, Add Folder and this scan): said once, with the photograph the
+ * first one copies and Show photos for the photographs they copy. */
+export function syncSkippedDuplicates({ files }: SkippedDuplicates) {
+  if (files.length === 0) return;
+  useActivityStore.getState().report('done', {
+    id: 'library:duplicates-skipped',
+    source: 'files',
+    title: i18n.t('activity.duplicatesNotAdded', { count: files.length, name: fileName(files[0].of) }),
+    detail: `${i18n.t('activity.duplicatesNotAddedDetail')}\n${files
+      .map((f) => `${fileName(f.path)} = ${fileName(f.of)}`)
+      .slice(0, 10)
+      .join('\n')}`,
+    paths: [...new Set(files.map((f) => f.of))]
+  });
+}
+
 /** Tauri's `listen`, quiet without the native side (tests, `npm run dev`). */
 function listenSafely<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
   return Promise.resolve()
@@ -421,6 +442,7 @@ export function startActivityBridges(): () => void {
     listenSafely('ai-model-download-finish', () => useActivityStore.getState().finish('download:ai-model')),
     listenSafely<DuplicatesProgress>(DUPLICATES_PROGRESS, syncDuplicatesProgress),
     listenSafely<LeftoversReport>('leftovers-removed', syncLeftovers),
+    listenSafely<SkippedDuplicates>('library-duplicates-skipped', syncSkippedDuplicates),
     listenSafely<DuplicatesFinished>(DUPLICATES_FINISHED, syncDuplicatesFinished),
     // The eye check's background pass (`face_eyes`): progress and Cancel.
     listenSafely<{ done: number; total: number }>('eye-check-progress', ({ done, total }) => {
