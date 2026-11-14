@@ -573,12 +573,30 @@ fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
         return Ok(duplicates);
     }
     let _batch = lib.import_batch(rawtonic_catalog::ImportKind::Add);
-    // A relink above may already have taken some of them.
-    let report = lib.add_files(&new)?;
-    for (path, error) in &report.failed {
-        log::warn!("{} not added to the session: {error}", path.display());
+    loop {
+        // A relink above may already have taken some of them.
+        let report = lib.add_files(&new)?;
+        for (path, error) in &report.failed {
+            log::warn!("{} not added to the session: {error}", path.display());
+        }
+        // A copy is a duplicate only of a photograph that was added: when
+        // the file it copies failed (an unreadable sidecar), the copy is
+        // judged on its own, among the others left in the same state.
+        let failed: HashSet<&Path> = report.failed.iter().map(|(p, _)| p.as_path()).collect();
+        let mut again: Vec<PathBuf> = Vec::new();
+        duplicates.retain(|d| {
+            let retry = failed.contains(d.of.as_path()) && new.contains(&d.of);
+            if retry {
+                again.push(d.path.clone());
+            }
+            !retry
+        });
+        if again.is_empty() {
+            return Ok(duplicates);
+        }
+        duplicates.extend(copies_among(&mut again));
+        new = again;
     }
-    Ok(duplicates)
 }
 
 /// Files of `new` with the content of an earlier one (name order) are
@@ -2546,6 +2564,35 @@ mod tests {
         fs::copy(&a, session.directory.join("Capture/B.ARW")).unwrap();
         assert!(index_folder(&session).unwrap().is_empty());
         assert_eq!(session.summary().unwrap().assets, 2);
+    }
+
+    /// DUPW: an unreadable sidecar keeps back only its own file. A second,
+    /// byte-identical new file is a duplicate only of a photograph that was
+    /// added, so with the first one left out it is added itself.
+    #[test]
+    fn an_unreadable_sidecar_of_the_first_copy_does_not_hide_the_second() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Catalog", Mode::Catalog).unwrap();
+        let one = lib.directory.join("Photos/New_A.CR3");
+        let two = lib.directory.join("Photos/New_B.CR3");
+        let three = lib.directory.join("Photos/New_C.CR3");
+        fs::write(&one, b"a newly arrived photograph").unwrap();
+        fs::copy(&one, &two).unwrap();
+        fs::copy(&one, &three).unwrap();
+        fs::write(one.with_extension("CR3.rrdata"), b"{ not json").unwrap();
+        let skipped = index_folder(&lib).unwrap();
+        // A is reported (logged) and left out; B is the photograph, C its copy.
+        assert!(lib.asset_at(&one).unwrap().is_none());
+        assert!(lib.asset_at(&two).unwrap().is_some());
+        assert!(lib.asset_at(&three).unwrap().is_none());
+        assert_eq!(
+            skipped,
+            vec![SkippedDuplicate {
+                path: three.clone(),
+                of: two.clone()
+            }]
+        );
+        assert_eq!(lib.summary().unwrap().assets, 1);
     }
 
     #[test]
