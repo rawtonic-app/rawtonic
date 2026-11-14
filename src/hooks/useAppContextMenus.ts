@@ -49,7 +49,7 @@ import {
   Clock
 } from 'lucide-react';
 import { notify } from '../activity/notify';
-import { resolveXmpConflicts } from '../components/session/SessionXmpStatus';
+import { reportUnresolvedXmp, resolveXmpConflicts } from '../components/session/SessionXmpStatus';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { useTranslation } from 'react-i18next';
 import { changeLibraryAlbums } from '../components/studio/libraryAlbums';
@@ -1055,9 +1055,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 ].map(({ label, keep }) => ({
                   label,
                   onClick: () =>
-                    void resolveXmpConflicts(sessionDirectory, finalSelection, keep).catch((e) =>
-                      notify.error(t('session.xmp.retryFailed', { error: String(e) }))
-                    )
+                    void resolveXmpConflicts(sessionDirectory, finalSelection, keep)
+                      .then(reportUnresolvedXmp)
+                      .catch((e) => notify.error(t('session.xmp.retryFailed', { error: String(e) })))
                 }))
               }
             ]

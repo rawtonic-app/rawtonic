@@ -56,6 +56,21 @@ export async function resolveXmpConflicts(
   return report;
 }
 
+/** What a resolution left (offline photos, files changed again, write
+ * failures), said once for callers without the panel's list (the grid's
+ * menu); the names are in the detail. */
+export function reportUnresolvedXmp(report: XmpReport) {
+  const names = [
+    ...report.offline,
+    ...report.conflicts,
+    ...report.failed.map((failure) => `${failure.path}: ${failure.reason}`)
+  ];
+  if (names.length === 0) return;
+  notify.warn(i18next.t('session.xmp.notResolved', { count: names.length }), {
+    detail: names.map((name) => name.slice(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1)).join('\n')
+  });
+}
+
 /** The activity centre's entry for XMP files not up to date. */
 const XMP_ACTIVITY = 'xmp:pending';
 

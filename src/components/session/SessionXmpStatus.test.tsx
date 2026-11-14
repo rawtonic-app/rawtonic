@@ -15,12 +15,15 @@ import SessionXmpStatus, {
   type XmpRetry,
   XMP_CATCH_UP_PART,
   XMP_RESOLVED_EVENT,
-  resolveXmpConflicts
+  resolveXmpConflicts,
+  reportUnresolvedXmp
 } from './SessionXmpStatus';
 import { useActivityStore } from '../../store/useActivityStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('../../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock('../../activity/notify', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn() }
+}));
 
 afterEach(() => cleanup());
 
@@ -431,4 +434,21 @@ describe('the choice for the selected photos (grid menu)', () => {
       'None of the selected photos has an XMP file that differs from the library.'
     );
   });
+});
+
+it('says which selected photos were not resolved (offline, changed again, failed)', () => {
+  reportUnresolvedXmp({
+    done: [],
+    offline: ['/drive/a.ARW'],
+    conflicts: ['/job/b.ARW'],
+    failed: [{ path: '/job/c.ARW', reason: 'read-only' }],
+    undo: [],
+    read: []
+  });
+  expect(toast.warn).toHaveBeenCalledWith('3 photos were not resolved:', {
+    detail: 'a.ARW\nb.ARW\nc.ARW: read-only'
+  });
+  vi.mocked(toast.warn).mockClear();
+  reportUnresolvedXmp({ done: ['/job/a.ARW'], offline: [], conflicts: [], failed: [], undo: [], read: [] });
+  expect(toast.warn).not.toHaveBeenCalled();
 });
