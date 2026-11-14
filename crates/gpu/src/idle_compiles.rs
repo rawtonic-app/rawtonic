@@ -1466,8 +1466,8 @@ mod tests {
         assert!(!idle.export_starts(true));
     }
 
-    /// A frame with Basic-panel edits waits for the planned variant that
-    /// covers it even when the worker has not started it yet, and has it
+    /// A frame waits for the planned variant that covers it even when the
+    /// worker has not started it yet, and has it
     /// started at once (G76/WCOLD2: after Glow's own compile stopped the
     /// helper, Contrast compiled the whole variant in the app).
     #[test]
@@ -1663,20 +1663,21 @@ mod tests {
         });
         let running = idle.lock().running;
         assert_eq!(running, Some(IdleJob::Display(plan[0])));
-        // Glow on the unedited photo: the running job covers it, but its
-        // own variant is small, so its frame compiles that one instead of
-        // waiting for the rest of the job.
-        let glow = recipe(serde_json::json!({"glowAmount": 30}));
-        assert_eq!(preview_features(&glow) & plan[0], preview_features(&glow));
-        assert_eq!(preview_features(&glow) & BASIC_FEATURES, 0);
+        // Halation is in no planned variant: its frame compiles its own,
+        // which stops the helper.
+        let halation = recipe(serde_json::json!({"halationAmount": 30}));
+        assert_ne!(
+            preview_features(&halation) & plan[0],
+            preview_features(&halation)
+        );
         let started = Instant::now();
         // Not on screen: the shown photo's plan stays.
-        processor.preview_pipeline(&glow, false).unwrap();
+        processor.preview_pipeline(&halation, false).unwrap();
         let waited = started.elapsed();
         assert!(STOPS.load(Ordering::SeqCst) >= 1, "the helper was stopped");
         assert!(
             waited < Duration::from_secs(60),
-            "the Glow frame waited {waited:?} (the slow helper runs 120 s)"
+            "the halation frame waited {waited:?} (the slow helper runs 120 s)"
         );
         // The stopped job compiles again in idle time, now in a real helper,
         // and serves the Contrast frame.

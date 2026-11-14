@@ -9008,15 +9008,15 @@ impl GpuProcessor {
                 // them (G76/WGT14: Blacks 220 s, with repeated memory
                 // pressure on a 15 GB Radeon 680M laptop).
                 Some(_) if served() => {}
-                // Only a frame with Basic-panel edits: its own compile
-                // would be a variant of that size. A frame without them
-                // (Glow on a never-edited photo) compiles its own small one
-                // (9–11 s on a Radeon 680M, G76/WSMOKE18) instead of
-                // waiting for the rest of a 45 s compile.
-                Some(idle)
-                    if features & idle_compiles::BASIC_FEATURES != 0
-                        && idle.covering(features).is_some() =>
-                {
+                // Glow on a never-edited photo too, although its own
+                // variant is small (9–12 s on a Radeon 680M): compiling it
+                // stops the helper, whose compile then starts over, so the
+                // next Basic-panel edit waited 45 s more (G76/WCOLD2); the
+                // wait for the helper is at most its one compile, and every
+                // later edit finds the variant (coordinator decision
+                // 2026-11-14). It counts as a pending compile, so the
+                // window shows that graphics are being prepared.
+                Some(idle) if idle.covering(features).is_some() => {
                     waits_for_idle = Some(PendingCompile::new());
                 }
                 _ => self.compile_preview_variant(own),
