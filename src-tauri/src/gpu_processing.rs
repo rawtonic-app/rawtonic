@@ -13,6 +13,11 @@ use crate::state::develop::DevelopSession;
 use crate::state::gpu::GpuState;
 use crate::state::lock::lock_recover;
 
+/// The program version the app's pipeline cache file is named for
+/// (`rawtonic_gpu::pipeline_cache`); the idle compile helper names its file
+/// the same way (`gpu_idle_helper`), so the app finds it.
+pub const PIPELINE_CACHE_BUILD: &str = env!("CARGO_PKG_VERSION");
+
 /// The processing context, created on first use. It is made without the
 /// window (the device and the first display variant start before the window
 /// exists, `start_early`); `attach_display` adds the window surface.
@@ -224,6 +229,25 @@ pub fn notify_compile_activity(app_handle: &tauri::AppHandle) {
     });
 }
 
+/// Under a compile limit holds the AI models' GPU checks while a shader
+/// compile waits or runs, idle compiles included: a check runs a model on
+/// the CPU and on the GPU, and on a Radeon 680M one ran 59 s beside the
+/// Glow compile, which took 66 s instead of ~42 s at 11.7 GB with Memory
+/// pressure Critical (G76/WSMOKE14). A running check stops and runs again
+/// when the app is idle. Without a compile limit compiles are short and
+/// nothing is held.
+pub fn hold_ai_checks_during_compiles() {
+    static HELD: std::sync::Mutex<Option<rawtonic_onnx::ChecksHeld>> = std::sync::Mutex::new(None);
+    rawtonic_gpu::gpu_processing::on_compile_work(|working| {
+        let mut held = lock_recover(&HELD);
+        if !working {
+            *held = None;
+        } else if rawtonic_gpu::gpu_processing::compiles_limited() && held.is_none() {
+            *held = Some(rawtonic_onnx::hold_checks());
+        }
+    });
+}
+
 #[tauri::command]
 pub fn gpu_compiling() -> bool {
     rawtonic_gpu::gpu_processing::compiles_pending()
@@ -354,6 +378,19 @@ fn create_context(
     let info = adapter.get_info();
     log_adapter(&info);
     crate::contribute::note_gpu(&info);
+    // An integrated GPU shares the system's memory: where its shader
+    // compiles run under a limit (AMD's Windows Vulkan driver), the AI
+    // models' GPU check alone took a 15 GB Radeon 680M laptop to 10.6 GB
+    // with memory pressure, and the GPU was slower than the CPU every time
+    // (G76/WSMOKE15). The models stay on the CPU there.
+    if info.device_type == wgpu::DeviceType::IntegratedGpu
+        && rawtonic_gpu::gpu_processing::compiles_limited()
+    {
+        rawtonic_onnx::keep_models_on_cpu(&format!(
+            "{} is an integrated GPU whose shader compiles run under a limit",
+            info.name
+        ));
+    }
     let limits = adapter.limits();
 
     device.on_uncaptured_error(Arc::new(|err: wgpu::Error| {
@@ -367,7 +404,7 @@ fn create_context(
             &device,
             &info,
             &cache_dir.join("gpu-pipelines"),
-            env!("CARGO_PKG_VERSION"),
+            PIPELINE_CACHE_BUILD,
         );
     }
 

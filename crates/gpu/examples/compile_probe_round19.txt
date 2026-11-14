@@ -1,0 +1,14 @@
+# WCC11 round 19 (G76): does a display variant compiled in ANOTHER process come back fast? (idle compiles in a helper process)
+# Run each line as its own spec file from the artifact folder, COMPILE_PROBE_TIMEOUT=300. Before 1: delete %TEMP%\compile_probe_cache_kept and clear AMD's VkCache.
+# Results (Lenovo, Radeon 680M, AMD Windows Vulkan 25.10.37.03, 2026-11-14):
+#   r19_child  cold, into the kept folder: 38.8 s / 4379 MB, kept cache 364704 bytes
+#   r19_vk     new process, no app cache, VkCache kept: 78 ms / 282 MB (AMD's own disk cache answers across processes)
+#   r19_blob   VkCache cleared, our kept cache file only: 80 ms / 295 MB (our pipeline cache answers across processes)
+#   r19_kill   killed after 10 s (COMPILE_PROBE_TIMEOUT=10), then the same line again: 38.1 s / 4375 MB, no corrupt cache
+r19_child features=5238847 dce display spv=proc,keep
+# 2. no clearing
+r19_vk features=5238847 dce display spv=proc
+# 3. clear the VkCache only (keep the kept folder)
+r19_blob features=5238847 dce display spv=proc,keep
+# 4. clear VkCache and the kept folder; run with COMPILE_PROBE_TIMEOUT=10, then again with 300
+r19_kill features=5238847 dce display spv=proc

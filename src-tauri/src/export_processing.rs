@@ -2352,6 +2352,25 @@ pub(crate) fn cancel_running_export(app_handle: &tauri::AppHandle) -> Result<(),
     Ok(())
 }
 
+/// The precision a size estimate renders at: always 8 bits. TIFF is written
+/// uncompressed (`encode_image_to_bytes`), so a 16-bit TIFF's size does not
+/// depend on its pixel values and an 8-bit render encoded at 16 bits has
+/// the same byte count; every other format writes 8 bits. A 16-bit render
+/// needs its own pipeline: on a Radeon 680M picking 16-bit TIFF in the
+/// export dialog compiled one for 39 s at 7.6 GB just for the estimate
+/// (G76/WSMOKE14). Under a compile limit picking it plans that pipeline for
+/// idle time instead (`plan_deferred_exports`), so the export finds it.
+fn estimate_precision(
+    output_format: &str,
+    export_settings: &ExportSettings,
+) -> rawtonic_gpu::gpu_processing::RenderOutputPrecision {
+    use rawtonic_gpu::gpu_processing::RenderOutputPrecision;
+    if render_output_precision(output_format, export_settings) != RenderOutputPrecision::EightBit {
+        rawtonic_gpu::gpu_processing::plan_deferred_exports();
+    }
+    RenderOutputPrecision::EightBit
+}
+
 /// Renders the estimate on a blocking worker, not an async runtime thread.
 #[tauri::command]
 pub async fn estimate_export_sizes(
@@ -2523,7 +2542,7 @@ fn estimate_sizes(
                 roi: None,
             },
             "estimate_export_size",
-            render_output_precision(&output_format, &export_settings),
+            estimate_precision(&output_format, &export_settings),
         )?;
 
         let preview_bytes = encode_image_to_bytes(
@@ -2698,7 +2717,7 @@ fn estimate_sizes(
                 roi: None,
             },
             "estimate_batch_export_size",
-            render_output_precision(&output_format, &export_settings),
+            estimate_precision(&output_format, &export_settings),
         )?;
 
         let preview_bytes = encode_image_to_bytes(

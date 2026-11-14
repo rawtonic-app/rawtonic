@@ -522,6 +522,11 @@ pub(crate) struct Job {
 }
 
 fn run_job(job: &Job, stop: &Arc<Stop>) -> Ran {
+    // The models stay on the CPU (`keep_models_on_cpu`): no verdict, so a
+    // later process checks as before.
+    if crate::models_kept_on_cpu() {
+        return Ran::Done;
+    }
     let key = key(&job.path, job.kind, &job.device);
     log::info!(
         "AI {}: {} check on {} starts (the app is idle)",

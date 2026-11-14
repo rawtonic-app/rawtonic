@@ -354,14 +354,49 @@ pub fn stop_checks() {
     check::CHECKS.shut();
 }
 
+/// Why the models stay on the CPU for this process whatever the
+/// preference (`keep_models_on_cpu`), once set.
+static CPU_ONLY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Keeps every model loaded from now on on the CPU for the rest of the
+/// process, whatever the preference, and runs no GPU check (queued ones end
+/// without a verdict, so a later start without this checks as before); a
+/// forced provider still wins. The app calls it on an integrated GPU whose
+/// shader compiles run under a limit (a Radeon 680M under Windows): there
+/// a check ran the model on the CPU and on WebGPU at once and took the app
+/// to 10.6 GB of private memory with memory pressure on a 15 GB laptop,
+/// and the GPU was slower every time (G76/WSMOKE15; coordinator decision
+/// WCC11 D5). Logged once with `why`.
+pub fn keep_models_on_cpu(why: &str) {
+    if CPU_ONLY.set(why.to_string()).is_ok() {
+        log::info!("AI: models stay on the CPU and no GPU check runs: {why}");
+    }
+}
+
+/// Whether `keep_models_on_cpu` was called.
+pub(crate) fn models_kept_on_cpu() -> bool {
+    CPU_ONLY.get().is_some()
+}
+
 /// The providers to try for `kind`, best first, the CPU last.
 pub fn candidates(kind: ModelKind, settings: &Settings, forced: Option<Provider>) -> Vec<Provider> {
+    candidates_of(kind, settings, forced, models_kept_on_cpu())
+}
+
+/// `candidates` with `cpu_only` for `models_kept_on_cpu`.
+fn candidates_of(
+    kind: ModelKind,
+    settings: &Settings,
+    forced: Option<Provider>,
+    cpu_only: bool,
+) -> Vec<Provider> {
     let mut list = Vec::new();
     match forced {
         Some(Provider::Cpu) => {}
         // A forced provider ignores the preference and the exceptions, so
         // they can be measured.
         Some(provider) => list.push(provider),
+        None if cpu_only => {}
         None if settings.gpu => list.extend(
             GPU_PROVIDERS
                 .into_iter()
@@ -933,6 +968,27 @@ mod tests {
         assert_eq!(
             candidates(ModelKind::Subject, &settings(true), None),
             vec![Provider::Cuda, Provider::WebGpu, Provider::Cpu]
+        );
+    }
+
+    /// `keep_models_on_cpu` (an integrated GPU under a compile limit): the
+    /// CPU only whatever the preference; a forced provider still wins.
+    #[test]
+    fn models_kept_on_the_cpu_try_no_gpu() {
+        for kind in ModelKind::ALL {
+            assert_eq!(
+                candidates_of(kind, &settings(true), None, true),
+                vec![Provider::Cpu]
+            );
+        }
+        assert_eq!(
+            candidates_of(
+                ModelKind::Subject,
+                &settings(true),
+                Some(Provider::WebGpu),
+                true
+            ),
+            vec![Provider::WebGpu, Provider::Cpu]
         );
     }
 

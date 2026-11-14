@@ -171,8 +171,10 @@ impl RawlerError {
 
 impl From<std::io::Error> for RawlerError {
   fn from(err: std::io::Error) -> Self {
-    log::error!("I/O error: {}", err.to_string());
-    log::error!("Backtrace:\n{:?}", backtrace::Backtrace::new());
+    // The caller gets the error and decides (Rawtonic: a header read of a
+    // file's first MiB runs past its end on every RAF and reads on; logged as
+    // an ERROR with a backtrace, it looked like a failed import).
+    log::debug!("I/O error: {}", err);
     Self::DecoderFailed(format!("I/O Error without context: {}", err))
   }
 }

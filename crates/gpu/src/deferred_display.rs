@@ -132,6 +132,14 @@ pub(super) fn note_deferred_export() {
     DEFERRED_EXPORTED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// A 16-bit export was picked (the export dialog's size estimate): under a
+/// compile limit the shown photo's deferred display variant compiles in
+/// idle time from now on (`idle_compiles::plan_deferred_exports`); nothing
+/// elsewhere.
+pub fn plan_deferred_exports() {
+    super::idle_compiles::plan_deferred_exports();
+}
+
 pub(super) fn idle_deferred_exports() -> bool {
     SIXTEEN_BIT_RECIPES.load(std::sync::atomic::Ordering::Relaxed)
         || DEFERRED_EXPORTED.load(std::sync::atomic::Ordering::Relaxed)

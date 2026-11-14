@@ -100,6 +100,42 @@ pub fn save_now(device: &wgpu::Device) -> Option<(PathBuf, usize)> {
     (length > 0).then(|| (cache.path.clone(), length))
 }
 
+/// The name of `device`'s cache file (`file_name`: adapter, driver, build),
+/// if a cache is registered for it.
+pub(crate) fn file_name_of(device: &wgpu::Device) -> Option<std::ffi::OsString> {
+    for_device(device)?
+        .path
+        .file_name()
+        .map(std::ffi::OsString::from)
+}
+
+/// A cache for `device` from the file `name` in `dir`, which another process
+/// on the same adapter, driver and build wrote (`file_name` is the same
+/// only then; wgpu checks the data's header against the device too), not
+/// registered: what an idle compile in a helper process left
+/// (`idle_compile_child`). `None` without such a valid file.
+pub(crate) fn foreign(
+    device: &wgpu::Device,
+    dir: &Path,
+    name: &std::ffi::OsStr,
+) -> Option<wgpu::PipelineCache> {
+    if !device.features().contains(wgpu::Features::PIPELINE_CACHE) {
+        return None;
+    }
+    let data = read(&dir.join(name))?;
+    // SAFETY: as in `open`: data `get_data` returned for an adapter with the
+    // same name, driver and build (the file name), checked whole by our
+    // checksum; wgpu validates its header against this adapter and the
+    // driver's cache UUID, and `fallback` starts an empty cache instead.
+    Some(unsafe {
+        device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+            label: Some("Rawtonic idle compile"),
+            data: Some(&data),
+            fallback: true,
+        })
+    })
+}
+
 /// The cache registered for `device`, if any.
 pub(crate) fn for_device(device: &wgpu::Device) -> Option<Arc<PipelineCache>> {
     let caches = CACHES.lock().unwrap_or_else(|e| e.into_inner());

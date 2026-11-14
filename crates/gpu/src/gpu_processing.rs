@@ -36,9 +36,14 @@ mod preview_tests;
 pub mod camera_cover;
 #[path = "deferred_display.rs"]
 mod deferred_display;
+#[path = "idle_compile_child.rs"]
+mod idle_compile_child;
 #[path = "idle_compiles.rs"]
 mod idle_compiles;
-pub use deferred_display::set_idle_deferred_exports;
+pub use deferred_display::{plan_deferred_exports, set_idle_deferred_exports};
+pub use idle_compile_child::{
+    HELPER_ERROR_FILE, IdleCompileHelper, compile_in_helper_process, set_idle_compile_helper,
+};
 #[path = "multi_view.rs"]
 pub mod multi_view;
 #[path = "preview_layers.rs"]
@@ -112,6 +117,16 @@ impl GpuContext {
     pub fn headless_with_pipeline_cache(
         cache_dir: Option<&std::path::Path>,
     ) -> Result<Self, String> {
+        Self::headless_with_pipeline_cache_of(cache_dir, env!("CARGO_PKG_VERSION"))
+    }
+
+    /// [`Self::headless_with_pipeline_cache`] with the cache file named for
+    /// program version `build` (`pipeline_cache::open`): the app's idle
+    /// compile helper names it as the app does, so the app finds it.
+    pub fn headless_with_pipeline_cache_of(
+        cache_dir: Option<&std::path::Path>,
+        build: &str,
+    ) -> Result<Self, String> {
         let crate::device_start::StartedDevice {
             adapter,
             device,
@@ -122,7 +137,7 @@ impl GpuContext {
         log_adapter(&info);
         let limits = adapter.limits();
         if let Some(dir) = cache_dir {
-            crate::pipeline_cache::open(&device, &info, dir, env!("CARGO_PKG_VERSION"));
+            crate::pipeline_cache::open(&device, &info, dir, build);
         }
         device.on_uncaptured_error(Arc::new(|err: wgpu::Error| {
             log::error!("[wgpu-error] {}", err);
@@ -5683,17 +5698,64 @@ pub fn on_compile_activity(callback: impl Fn(bool) + Send + Sync + 'static) {
     let _ = COMPILE_ACTIVITY.set(Box::new(callback));
 }
 
+/// Compiles waiting or running, idle ones included (`CompileWork`), and who
+/// is told when the first starts and the last ends (`on_compile_work`).
+static COMPILE_WORK: Mutex<usize> = Mutex::new(0);
+static COMPILE_WORK_CALLBACK: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+/// Calls `callback(true)` when a shader compile starts waiting or running
+/// while none did, idle compiles included, and `callback(false)` when the
+/// last one ends: the app holds work that must not run beside a compile
+/// (the AI models' GPU checks: on a Radeon 680M one ran 59 s beside the
+/// Glow compile, which took 66 s instead of ~42 s and peaked at 11.7 GB,
+/// G76/WSMOKE14). Set once.
+pub fn on_compile_work(callback: impl Fn(bool) + Send + Sync + 'static) {
+    let _ = COMPILE_WORK_CALLBACK.set(Box::new(callback));
+}
+
+/// One compile counted in `COMPILE_WORK` while it lives. The callback runs
+/// under the count's lock, so its calls never arrive out of order.
+pub(crate) struct CompileWork;
+
+impl CompileWork {
+    pub(crate) fn new() -> Self {
+        let mut work = COMPILE_WORK.lock().unwrap_or_else(|e| e.into_inner());
+        *work += 1;
+        if *work == 1
+            && let Some(callback) = COMPILE_WORK_CALLBACK.get()
+        {
+            callback(true);
+        }
+        Self
+    }
+}
+
+impl Drop for CompileWork {
+    fn drop(&mut self) {
+        let mut work = COMPILE_WORK.lock().unwrap_or_else(|e| e.into_inner());
+        *work -= 1;
+        if *work == 0
+            && let Some(callback) = COMPILE_WORK_CALLBACK.get()
+        {
+            callback(false);
+        }
+    }
+}
+
 /// Whether a shader compile is waiting or running now.
 pub fn compiles_pending() -> bool {
     *PENDING_COMPILES.lock().unwrap_or_else(|e| e.into_inner()) > 0
 }
 
-/// One creation counted in `PENDING_COMPILES` while it lives. The callback
-/// runs under the count's lock, so its calls never arrive out of order.
-struct PendingCompile;
+/// One creation counted in `PENDING_COMPILES` (and `COMPILE_WORK`) while it
+/// lives. The callback runs under the count's lock, so its calls never
+/// arrive out of order.
+struct PendingCompile(#[allow(dead_code)] CompileWork);
 
 impl PendingCompile {
     fn new() -> Self {
+        let work = CompileWork::new();
         let mut pending = PENDING_COMPILES.lock().unwrap_or_else(|e| e.into_inner());
         *pending += 1;
         if *pending == 1
@@ -5701,7 +5763,7 @@ impl PendingCompile {
         {
             callback(true);
         }
-        Self
+        Self(work)
     }
 }
 
@@ -5792,6 +5854,32 @@ pub fn set_compile_limit(limit: Option<usize>) {
     COMPILE_LIMIT.freed.notify_all();
 }
 
+/// Compiles and exports waiting for a compile slot (`compile_slot`,
+/// `wait_for_running_compiles`): an idle compile in a helper process is
+/// stopped for them (`idle_compile_child`).
+static SLOT_WANTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts in `SLOT_WANTED` while it lives.
+struct SlotWanted;
+
+impl SlotWanted {
+    fn new() -> Self {
+        SLOT_WANTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for SlotWanted {
+    fn drop(&mut self) {
+        SLOT_WANTED.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Whether a compile or an export waits for a compile slot now.
+fn slot_wanted() -> bool {
+    SLOT_WANTED.load(std::sync::atomic::Ordering::SeqCst) > 0
+}
+
 /// A held compile slot; `id` names it in `SLOT_HOLDERS`.
 struct CompileSlot {
     id: u64,
@@ -5827,6 +5915,11 @@ fn compile_slot(what: &str) -> CompileSlot {
         .state
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    // An idle compile in a helper process gives its slot up for this one.
+    let wants = state
+        .1
+        .is_some_and(|max| state.0 >= max)
+        .then(SlotWanted::new);
     while state.1.is_some_and(|max| state.0 >= max) {
         let (next, timeout) = COMPILE_LIMIT
             .freed
@@ -5851,6 +5944,7 @@ fn compile_slot(what: &str) -> CompileSlot {
     }
     state.0 += 1;
     drop(state);
+    drop(wants);
     let id = NEXT_SLOT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     SLOT_HOLDERS
         .lock()
@@ -5877,6 +5971,8 @@ pub fn wait_for_running_compiles(what: &str) {
         .state
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    // An idle compile in a helper process stops for it.
+    let wants = (state.0 > 0 || compiles_pending()).then(SlotWanted::new);
     // A compile that waits for a slot is not signalled on `freed` while it
     // waits, so this looks again every 250 ms.
     while state.0 > 0 || compiles_pending() {
@@ -5887,6 +5983,7 @@ pub fn wait_for_running_compiles(what: &str) {
             .0;
     }
     drop(state);
+    drop(wants);
     let waited = started.elapsed();
     if waited >= std::time::Duration::from_millis(250) {
         log::info!(
@@ -6156,11 +6253,21 @@ fn create_shader(
 
 /// Creates a pipeline through the device's pipeline cache when the app
 /// registered one (`pipeline_cache::open`), and writes the cache soon after.
+/// An idle compile a helper process ran takes its pipeline through the
+/// cache that process left (`idle_compile_child`) instead of the device's.
 fn create_compute_pipeline(
     device: &wgpu::Device,
     descriptor: &wgpu::ComputePipelineDescriptor,
 ) -> Result<wgpu::ComputePipeline, String> {
     let label = descriptor.label.unwrap_or("compute");
+    if let Some(helper) = idle_compile_child::HELPER_CACHE.with(|cache| cache.borrow().clone()) {
+        return validated(device, &format!("pipeline '{label}'"), || {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                cache: Some(&helper),
+                ..descriptor.clone()
+            })
+        });
+    }
     let cache = crate::pipeline_cache::for_device(device);
     let created = validated(device, &format!("pipeline '{label}'"), || match &cache {
         Some(cache) => device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {

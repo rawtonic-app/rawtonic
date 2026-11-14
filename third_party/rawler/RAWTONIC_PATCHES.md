@@ -421,3 +421,14 @@ Three pieces were taken over, each from rawler 0.8.0's sources:
   f/13-18), as in rawler 0.8.0; they listed the bare lens's 200-800 mm
   f/6.3-9. Only lens metadata change (an export's LensSpecification), no
   pixels. Test `resolve_rf_200_800_with_extenders` in `src/lens.rs`.
+
+## I/O errors are not logged as errors (2026-11-14, G76/WCC11)
+
+`src/lib.rs` (`From<std::io::Error> for RawlerError`): logged every
+converted I/O error as an ERROR with a backtrace. The library's capture
+facts read a file's first MiB before more (`rawtonic-ingest`
+`read_header`), and rawler's RAF parser runs past that prefix on every RAF
+(13 of 13 local RAFs, no other format), so each import of a folder with a
+RAF logged `I/O error: failed to fill whole buffer` and a backtrace, while
+the facts read on and equal a whole-file read. The error still reaches the
+caller; it is now a debug line without a backtrace.
