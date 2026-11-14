@@ -96,9 +96,9 @@ const IDLE_COMPILE_PRESSURE_HOLD: Duration = Duration::from_secs(60);
 /// the caches that rebuild on demand go (`DevelopSession::
 /// release_rebuildable`; G76/WCC11). Idle compiles run only under a compile
 /// limit (AMD's Windows Vulkan driver), so elsewhere this is never asked.
-pub fn guard_idle_compiles(app: &tauri::AppHandle) {
+pub fn guard_idle_compiles(app_handle: &tauri::AppHandle) {
     use tauri::Manager as _;
-    let app = app.clone();
+    let app = app_handle.clone();
     let state = std::sync::Mutex::new((sysinfo::System::new(), None::<std::time::Instant>));
     rawtonic_gpu::gpu_processing::set_idle_compile_memory_guard(Box::new(move || {
         let exports = app.state::<crate::state::export::ExportState>();
@@ -159,13 +159,31 @@ pub fn guard_idle_compiles(app: &tauri::AppHandle) {
             // the pages the allocator keeps committed per thread after
             // frees (mimalloc) go back to the system on every worker thread
             // (without waiting for busy ones) and this one.
-            app.state::<crate::state::develop::DevelopSession>()
-                .release_rebuildable();
-            rayon::spawn_broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
-            rawtonic_runtime::allocator::release_freed_memory();
+            release_before_compile(&app);
         }
         verdict
     }));
+    // The same before the compile an export of the shown photo waits for
+    // (`export_of_shown_photo_starts`), which the guard above is not asked
+    // for: the app's memory beside that helper's (G76/WCOLD2: 2.45 GB
+    // beside 4.44 GB on a Radeon 680M).
+    let app = app_handle.clone();
+    rawtonic_gpu::gpu_processing::set_before_export_compile(Box::new(move || {
+        crate::ai_lifecycle::before_idle_compile(&app);
+        release_before_compile(&app);
+    }));
+}
+
+/// Gives back what rebuilds on demand before a shader compile in a helper
+/// process: the develop session's caches, and the pages the allocator keeps
+/// committed per thread after frees (mimalloc), on every worker thread
+/// (without waiting for busy ones) and this one.
+fn release_before_compile(app: &tauri::AppHandle) {
+    use tauri::Manager as _;
+    app.state::<crate::state::develop::DevelopSession>()
+        .release_rebuildable();
+    rayon::spawn_broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
+    rawtonic_runtime::allocator::release_freed_memory();
 }
 
 /// How long after an export run idle compiles that run in the app (no

@@ -51,6 +51,23 @@ pub type IdleCompileMemoryGuard = Box<dyn Fn() -> Result<(), String> + Send + Sy
 
 static MEMORY_GUARD: std::sync::OnceLock<IdleCompileMemoryGuard> = std::sync::OnceLock::new();
 
+/// What the app gives back before a compile an export waits for
+/// (`set_before_export_compile`).
+static BEFORE_EXPORT_COMPILE: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+/// Sets what the app does right before the idle worker compiles the variant
+/// an export waits for (`export_of_shown_photo_starts`): give back the
+/// memory it can rebuild, as before an idle compile (the memory guard is
+/// not asked then: it holds idle compiles while an export runs). On a
+/// Radeon 680M the app held 2.45 GB while a 16-bit export waited for its
+/// helper (4.44 GB): 6.89 GB together (G76/WCOLD2). Once per process.
+pub fn set_before_export_compile(release: Box<dyn Fn() + Send + Sync>) {
+    if BEFORE_EXPORT_COMPILE.set(release).is_err() {
+        log::warn!("GPU idle compiles: the export release was already set");
+    }
+}
+
 /// Sets what the app checks before each idle compile (its private memory,
 /// the system's memory pressure); once per process. Without one, idle
 /// compiles do not wait for memory.
@@ -270,6 +287,11 @@ struct Queue {
     /// waiting for idle time or asking the memory guard, and the export
     /// waits for it. Cleared when the worker is done with it.
     export_job: Option<IdleJob>,
+    /// A frame waits for the planned variant at the front
+    /// (`IdleCompiles::covering`): the worker compiles it now, without
+    /// waiting for quiet or asking the memory guard (the frame would
+    /// compile a variant of that size in the app otherwise).
+    rush: bool,
     worker: bool,
     cancelled: bool,
 }
@@ -383,13 +405,32 @@ impl IdleCompiles {
         self.changed.notify_all();
     }
 
-    /// The display variant compiling now if it covers `features`: a frame
-    /// of those features renders with it once it is done.
+    /// The display variant compiling now if it covers `features`, or the
+    /// planned one the worker compiles next if that does: a frame of those
+    /// features renders with it once it is done, and waits for it instead
+    /// of compiling its own. The planned one compiles at once then
+    /// (`Queue::rush`): after Glow's own compile had stopped the helper, the
+    /// Contrast edit right behind it found no helper running yet and
+    /// compiled the whole variant in the app, 42 s at 5.9 GB on a Radeon
+    /// 680M (G76/WCOLD2).
     pub(super) fn covering(&self, features: usize) -> Option<usize> {
-        match self.lock().running {
-            Some(IdleJob::Display(running)) if running & features == features => Some(running),
+        let mut queue = self.lock();
+        let covers = |job: Option<IdleJob>| match job {
+            Some(IdleJob::Display(job)) if job & features == features => Some(job),
             _ => None,
+        };
+        if let Some(running) = covers(queue.running) {
+            return Some(running);
         }
+        if queue.running.is_some() || queue.cancelled || !queue.worker {
+            return None;
+        }
+        let next = covers(queue.export_job.or_else(|| queue.plan.front().copied()))?;
+        if !queue.rush {
+            queue.rush = true;
+            self.changed.notify_all();
+        }
+        Some(next)
     }
 
     /// Ends the worker after the compile it runs (if any); nothing new
@@ -474,7 +515,7 @@ impl IdleCompiles {
                     }
                     queue = self.changed.wait(queue).unwrap_or_else(|e| e.into_inner());
                 }
-                let urgent = queue.export_job.is_some();
+                let urgent = queue.export_job.is_some() || queue.rush;
                 drop(queue);
                 if !urgent && !self.idle() {
                     let queue = self.lock();
@@ -527,6 +568,8 @@ impl IdleCompiles {
                     queue.worker = false;
                     return;
                 }
+                // The slot is held from here on.
+                queue.rush = false;
                 // The variant an export waits for goes first.
                 let export = queue.export_job;
                 let next = match export {
@@ -565,6 +608,12 @@ impl IdleCompiles {
                     continue;
                 }
                 queue.running = Some(job);
+                if export.is_some()
+                    && let Some(release) = BEFORE_EXPORT_COMPILE.get()
+                {
+                    drop(queue);
+                    release();
+                }
                 (job, planned)
             };
             let work = CompileWork::new();
@@ -1415,6 +1464,72 @@ mod tests {
         idle.cancel();
         assert_eq!(idle.lock().export_job, None);
         assert!(!idle.export_starts(true));
+    }
+
+    /// A frame with Basic-panel edits waits for the planned variant that
+    /// covers it even when the worker has not started it yet, and has it
+    /// started at once (G76/WCOLD2: after Glow's own compile stopped the
+    /// helper, Contrast compiled the whole variant in the app).
+    #[test]
+    fn a_frame_waits_for_the_planned_variant_that_covers_it() {
+        let idle = IdleCompiles::new();
+        let contrast = RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE;
+        assert_eq!(idle.covering(contrast), None, "nothing planned");
+        {
+            let mut queue = idle.lock();
+            queue.worker = true;
+            queue.plan = [IdleJob::Display(7335999), IdleJob::Display(5238847)].into();
+        }
+        assert_eq!(idle.covering(contrast), Some(7335999));
+        assert!(idle.lock().rush, "the worker starts it now");
+        // Halation is in no planned variant: its frame compiles its own.
+        idle.lock().rush = false;
+        assert_eq!(idle.covering(contrast | HALATION_FEATURE), None);
+        assert!(!idle.lock().rush);
+        // A running job that does not cover the frame: not the next one's
+        // turn yet.
+        idle.lock().running = Some(IdleJob::Deferred(4113));
+        assert_eq!(idle.covering(contrast), None);
+        idle.lock().running = Some(IdleJob::Display(7335999));
+        assert_eq!(idle.covering(contrast), Some(7335999));
+    }
+
+    /// Under a compile limit a Basic-panel edit made before the planned
+    /// variant compiled waits for the idle worker to compile that one, at
+    /// once, instead of compiling its own beside it.
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_edit_before_the_plan_compiled_waits_for_the_planned_variant"]
+    fn an_edit_before_the_plan_compiled_waits_for_the_planned_variant() {
+        use super::super::preview_tests::context;
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let processor = GpuProcessor::new(context(), 256, 256).unwrap();
+        let photo = super::super::new_raw_edit(None);
+        processor.preview_pipeline(&photo, true).unwrap();
+        let (plan, _) = planned_jobs(preview_features(&photo), &photo);
+        let mut contrast = photo;
+        contrast.global.contrast = 0.2;
+        let features = preview_features(&contrast);
+        let own = export_display_features(&contrast);
+        assert_ne!(own, plan[0]);
+        // Right after the photo's frame: no idle time has passed.
+        let started = Instant::now();
+        processor.preview_pipeline(&contrast, true).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(120),
+            "the Contrast frame waited {:?}",
+            started.elapsed()
+        );
+        assert!(processor.preview_pipelines[plan[0]].get().is_some());
+        assert!(
+            processor.preview_pipelines[own].get().is_none()
+                && processor.preview_compilation[own].get().is_none(),
+            "the frame compiled its own variant"
+        );
+        assert!(processor.preview_pipelines[features].get().is_none());
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
     }
 
     #[test]

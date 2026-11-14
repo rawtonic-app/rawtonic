@@ -51,7 +51,9 @@ mod preview_layers;
 #[path = "processor_turns.rs"]
 mod processor_turns;
 pub use idle_compile_child::idle_compiles_in_helpers;
-pub use idle_compiles::{IdleCompileMemoryGuard, set_idle_compile_memory_guard};
+pub use idle_compiles::{
+    IdleCompileMemoryGuard, set_before_export_compile, set_idle_compile_memory_guard,
+};
 pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
 use preview_layers::{
