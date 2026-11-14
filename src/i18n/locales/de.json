@@ -2210,6 +2210,7 @@
         "Depth Anything 3 Base": "Relative Szenengeometrie und Kameraschätzung für Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Tiefenmasken.",
         "DirectX Shader Compiler": "Unter Windows Microsofts Shader-Compiler (dxcompiler.dll, dxil.dll), mit dem das WebGPU-Plugin von ONNX Runtime die KI-Modelle auf der GPU ausführt (Microsoft).",
+        "jxl-oxide": "Öffnet JPEG-XL-Dateien (Wonwoo Choi), mit einer Rawtonic-Korrektur für leere Modular-Datenströme.",
         "Lensfun database": "Objektivprofile für die automatische Objektivkorrektur (nur Daten, kein Lensfun-Code).",
         "libgphoto2": "Tether-Aufnahmen: kommuniziert in einem separaten Hilfsprozess per USB mit der Kamera (mit libltdl und unter Linux libusb; dynamisch gelinkt). Unter macOS über ImageCaptureCore.",
         "libgphoto2 Rust bindings": "Anbindung des Tether-Hilfsprozesses an libgphoto2 (RapidRAWs Fork von vibe-libgphoto2-rs).",
@@ -2230,7 +2231,8 @@
         "SigLIP 2": "Automatische Stichwörter (Google).",
         "spektrafilm": "LUTs zur Filmemulation von Andrea Volpato (umbenannt, Inhalt unverändert).",
         "SQLite / rusqlite": "Bibliotheksdatenbank mit einer Rawtonic-Korrektur für WAL-Sperren unter Windows.",
-        "YuNet": "Findet Gesichter für Personenmasken (Shiqi Yu und andere)."
+        "YuNet": "Findet Gesichter für Personenmasken (Shiqi Yu und andere).",
+        "zune-jpegxl": "Verlustfreier JPEG-XL-Export (Caleb Etemesi)."
       },
       "credits": "Mitwirkende und Quellen",
       "creditsIntro": "Rawtonic baut auf diesen Projekten, Daten und Modellen auf. Unten findest du die Lizenztexte aller enthaltenen Pakete und der heruntergeladenen KI-Modelle.",

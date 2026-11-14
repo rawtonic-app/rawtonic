@@ -1965,9 +1965,8 @@ pub fn render_prepared_exports(
 /// at once (7.1 s) and the peak footprint at 6.7 GB (6 or more: 8.0–8.2 GB).
 const MASK_GENERATORS: usize = 4;
 
-// Effort 4 gives the smallest output among efforts 1–4 on the 36 MP
-// synthetic benchmark, in 2.24 s instead of effort 7's 143 s. Keep lossless
-// exports interactive; the encoder's memory budget remains open (G64).
+// jxl-encoder's lossless effort for images zune-jpegxl refuses (a side of
+// one pixel); see `encode_lossless_jxl`.
 const LOSSLESS_JXL_EFFORT: u8 = 4;
 
 /// Encodes an export render for `extension` and embeds `metadata` (EXIF and
@@ -2188,19 +2187,7 @@ pub fn encode_image_to_bytes(
             let has_alpha = image.color().has_alpha();
 
             let jxl_data = if jpeg_quality == 100 {
-                if has_alpha {
-                    let rgba = image.to_rgba8();
-                    LosslessConfig::new()
-                        .with_effort(LOSSLESS_JXL_EFFORT)
-                        .encode(rgba.as_raw(), width, height, PixelLayout::Rgba8)
-                        .map_err(|e| format!("Failed to encode lossless JXL: {}", e))?
-                } else {
-                    let rgb = image.to_rgb8();
-                    LosslessConfig::new()
-                        .with_effort(LOSSLESS_JXL_EFFORT)
-                        .encode(rgb.as_raw(), width, height, PixelLayout::Rgb8)
-                        .map_err(|e| format!("Failed to encode lossless JXL: {}", e))?
-                }
+                encode_lossless_jxl(image, color_space)?
             } else {
                 let jxl_quality = calibrated_jxl_quality(jpeg_quality as f32);
                 let distance = quality_to_distance(jxl_quality);
@@ -2348,6 +2335,108 @@ pub fn encode_image_to_bytes(
     Ok(image_bytes)
 }
 
+/// Lossless JPEG XL with libjxl's fast-lossless method (zune-jpegxl): an
+/// 8-bit render is read in place, and the encoder holds little beyond its
+/// output. On the 36 MP benchmark it peaks at 1.7× an uncompressed TIFF's
+/// memory in 0.05 s and writes 22 % less than jxl-encoder's effort 4
+/// (2.8 GB, 2.2 s); on three 24–26 MP photographs 2–10 % less (notes:
+/// benchmark-results/jxlm-2026-11-14/REPORT.md). Its output also decodes in
+/// jxl-oxide, which rejected jxl-encoder's multi-group ANS streams.
+///
+/// zune-jpegxl declares sRGB; a wide space gets jxl-encoder's image header
+/// with the space's colour encoding in front of zune's frame, which starts on
+/// the byte after its own image header. (jxl-encoder 0.3.1's lossless encoder
+/// declared sRGB whatever colour encoding it was given.)
+fn encode_lossless_jxl(image: &DynamicImage, space: OutputColorSpace) -> Result<Vec<u8>, String> {
+    use zune_core::{bit_depth::BitDepth, colorspace::ColorSpace, options::EncoderOptions};
+    let (width, height) = image.dimensions();
+    let has_alpha = image.color().has_alpha();
+    let converted;
+    let pixels: &[u8] = match image {
+        DynamicImage::ImageRgb8(rgb) => rgb.as_raw(),
+        DynamicImage::ImageRgba8(rgba) => rgba.as_raw(),
+        _ if has_alpha => {
+            converted = image.to_rgba8().into_raw();
+            &converted
+        }
+        _ => {
+            converted = image.to_rgb8().into_raw();
+            &converted
+        }
+    };
+    let (layout, colorspace) = if has_alpha {
+        (PixelLayout::Rgba8, ColorSpace::RGBA)
+    } else {
+        (PixelLayout::Rgb8, ColorSpace::RGB)
+    };
+    let error = |e: &dyn std::fmt::Display| format!("Failed to encode lossless JXL: {e}");
+    let image_header = |space: OutputColorSpace| {
+        let mut header = if has_alpha {
+            jxl_encoder::headers::FileHeader::new_rgba(width, height)
+        } else {
+            jxl_encoder::headers::FileHeader::new_rgb(width, height)
+        };
+        if space != OutputColorSpace::Srgb {
+            header.metadata.color_encoding = jxl_color_encoding(space);
+            // As jxl-encoder's lossy frames and libjxl's default.
+            header.metadata.color_encoding.rendering_intent =
+                jxl_encoder::RenderingIntent::Relative;
+        }
+        let mut writer = jxl_encoder::bit_writer::BitWriter::new();
+        header.write(&mut writer).map_err(|e| error(&e))?;
+        writer.zero_pad_to_byte();
+        Ok::<_, String>(writer.finish())
+    };
+    let (encoded, frame) = if width < 2 || height < 2 {
+        // zune-jpegxl refuses a side of one pixel. jxl-encoder writes its
+        // sRGB image header, pads it to a byte and then the frame.
+        let encoded = LosslessConfig::new()
+            .with_effort(LOSSLESS_JXL_EFFORT)
+            .encode(pixels, width, height, layout)
+            .map_err(|e| error(&e))?;
+        let own = image_header(OutputColorSpace::Srgb)?;
+        if !encoded.starts_with(&own) {
+            return Err(error(&"unexpected image header"));
+        }
+        (encoded, own.len())
+    } else {
+        let options =
+            EncoderOptions::new(width as usize, height as usize, colorspace, BitDepth::Eight);
+        let mut encoded = Vec::new();
+        zune_jpegxl::JxlSimpleEncoder::new(pixels, options)
+            .encode(&mut encoded)
+            .map_err(|e| error(&format_args!("{e:?}")))?;
+        (encoded, zune_image_header_bytes(width, height, has_alpha))
+    };
+    if space == OutputColorSpace::Srgb {
+        return Ok(encoded);
+    }
+    let mut bytes = image_header(space)?;
+    bytes.extend_from_slice(&encoded[frame..]);
+    Ok(bytes)
+}
+
+/// The length of zune-jpegxl 0.5.2's image header (signature, size header,
+/// image metadata and transform data, padded to a byte; `prepare_header` in
+/// its encoder.rs) for an 8-bit RGB or RGBA image.
+fn zune_image_header_bytes(width: u32, height: u32, has_alpha: bool) -> usize {
+    let size = |side: u32| -> usize {
+        2 + match side - 1 {
+            0..512 => 9,
+            512..8192 => 13,
+            8192..262_144 => 18,
+            _ => 30,
+        }
+    };
+    // Signature, not small, height (+ ratio 0), width.
+    let size_header = 16 + 1 + size(height) + 3 + size(width);
+    // Not all_default, no extra fields, integer samples, 8 bits, 16-bit
+    // buffer sufficient, extra channels (one default alpha), not XYB, sRGB,
+    // no extensions; transform data all_default.
+    let metadata = 1 + 1 + 1 + 2 + 1 + if has_alpha { 3 } else { 2 } + 1 + 1 + 2 + 1;
+    (size_header + metadata).div_ceil(8)
+}
+
 /// The JPEG XL colour encoding of a wide output space.
 fn jxl_color_encoding(space: OutputColorSpace) -> jxl_encoder::ColorEncoding {
     use jxl_encoder::{CIExy, ColorEncoding, CustomPrimaries};
@@ -2385,17 +2474,7 @@ fn encode_wide_jxl(
     let has_alpha = image.color().has_alpha();
     let encoding = jxl_color_encoding(space);
     if jpeg_quality == 100 {
-        let (pixels, layout) = if has_alpha {
-            (image.to_rgba8().into_raw(), PixelLayout::Rgba8)
-        } else {
-            (image.to_rgb8().into_raw(), PixelLayout::Rgb8)
-        };
-        return LosslessConfig::new()
-            .with_effort(LOSSLESS_JXL_EFFORT)
-            .encode_request(width, height, layout)
-            .with_color_encoding(encoding)
-            .encode(&pixels)
-            .map_err(|e| format!("Failed to encode lossless JXL: {}", e));
+        return encode_lossless_jxl(image, space);
     }
     let compensate = (space.white() != OutputColorSpace::Srgb.white()).then(|| {
         use crate::output_color_space::{invert, multiply};
@@ -3141,8 +3220,7 @@ mod encoding_memory_tests {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("export.jxl");
         crate::output::write_new_output(&source, bytes).unwrap();
-        // jxl-oxide 0.12 rejects these multi-group ANS streams (including
-        // the previous effort-7 default); libjxl decodes them correctly.
+        // An independent decoder: libjxl's.
         let decoded = std::process::Command::new("djxl")
             .arg(&source)
             .args(["-", "--output_format", "ppm"])
@@ -3176,6 +3254,67 @@ mod encoding_memory_tests {
             let decoder = jxl_oxide::integration::JxlDecoder::new(Cursor::new(bytes)).unwrap();
             let decoded = DynamicImage::from_decoder(decoder).unwrap();
             assert_eq!(decoded.to_rgba8(), original.to_rgba8());
+        }
+    }
+
+    /// Every size class of the image header zune's frame is spliced behind
+    /// (9-, 13-, 18- and 30-bit sides), with and without alpha, in every
+    /// space: identical samples and the space's colour encoding, as the
+    /// lossy export declares it.
+    #[test]
+    fn lossless_jxl_keeps_samples_and_space_at_every_header_size() {
+        let colour = |bytes: &[u8]| {
+            let image = jxl_oxide::JxlImage::read_with_defaults(Cursor::new(bytes)).unwrap();
+            format!("{:?}", image.image_header().metadata.colour_encoding)
+        };
+        let small = wide_test_image();
+        let mut state = 99u32;
+        let mut noise = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state as u8
+        };
+        for space in [
+            OutputColorSpace::Srgb,
+            OutputColorSpace::DisplayP3,
+            OutputColorSpace::AdobeRgb,
+            OutputColorSpace::ProPhoto,
+        ] {
+            let declared = colour(
+                &encode_image_to_bytes(&small, "jxl", 90, TiffBitDepth::Eight, space, None)
+                    .unwrap(),
+            );
+            for (width, height) in [(513, 300), (300, 513), (8193, 2), (2, 262_145), (3, 1)] {
+                for alpha in [false, true] {
+                    let original = if alpha {
+                        DynamicImage::ImageRgba8(image::RgbaImage::from_fn(
+                            width,
+                            height,
+                            |_, _| image::Rgba([noise(), noise(), noise(), noise()]),
+                        ))
+                    } else {
+                        DynamicImage::ImageRgb8(image::RgbImage::from_fn(width, height, |_, _| {
+                            image::Rgb([noise(), noise(), noise()])
+                        }))
+                    };
+                    let bytes = encode_image_to_bytes(
+                        &original,
+                        "jxl",
+                        100,
+                        TiffBitDepth::Eight,
+                        space,
+                        None,
+                    )
+                    .unwrap();
+                    let case = format!("{space:?} {width}x{height} alpha {alpha}");
+                    assert_eq!(colour(&bytes), declared, "{case}");
+                    let decoder =
+                        jxl_oxide::integration::JxlDecoder::new(Cursor::new(bytes)).unwrap();
+                    let decoded = DynamicImage::from_decoder(decoder).unwrap();
+                    assert_eq!(decoded.to_rgba8(), original.to_rgba8(), "{case}");
+                }
+            }
         }
     }
 

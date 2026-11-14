@@ -1630,6 +1630,29 @@ mod private_preview_tests {
         assert_eq!((image.width(), image.height()), (4, 4));
     }
 
+    /// Lossless JPEG XL exports up to 0.1.0-alpha.14 (jxl-encoder, ANS, more
+    /// than one 256 × 256 group) end the empty global Modular stream without
+    /// an ANS state, which jxl-oxide read before vendor/jxl-modular.
+    #[test]
+    fn multi_group_ans_jpeg_xl_reopens() {
+        let (width, height) = (515, 300);
+        let mut state = 7u32;
+        let pixels: Vec<u8> = (0..width * height * 3)
+            .map(|i| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                (i % 251 + (state & 31)) as u8
+            })
+            .collect();
+        let bytes = jxl_encoder::LosslessConfig::new()
+            .with_effort(4)
+            .encode(&pixels, width, height, jxl_encoder::PixelLayout::Rgb8)
+            .unwrap();
+        let image = load_image_with_orientation(&bytes, None).unwrap();
+        assert_eq!(image.to_rgb8().into_raw(), pixels);
+    }
+
     fn orientation_tiff(orientation: u16) -> Vec<u8> {
         let mut bytes = b"II\x2a\x00\x08\x00\x00\x00\x01\x00".to_vec();
         bytes.extend_from_slice(&0x112u16.to_le_bytes());

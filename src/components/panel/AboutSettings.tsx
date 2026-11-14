@@ -194,6 +194,18 @@ export const CREDITS: Credit[] = [
     license: 'IJG, BSD-3-Clause, zlib'
   },
   {
+    name: 'jxl-oxide',
+    url: 'https://github.com/tirr-c/jxl-oxide',
+    what: 'Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.',
+    license: 'MIT OR Apache-2.0'
+  },
+  {
+    name: 'zune-jpegxl',
+    url: 'https://github.com/etemesi254/zune-image',
+    what: 'Lossless JPEG XL export (Caleb Etemesi).',
+    license: 'MIT OR Apache-2.0 OR Zlib'
+  },
+  {
     name: 'moxcms',
     url: 'https://github.com/awxkee/moxcms',
     what: 'Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.',

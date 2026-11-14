@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Lossless JPEG XL exports reopen in Rawtonic, take a fraction of a second and need no more memory than a TIFF export.** Lossless JPEG XL exports (Quality 100) larger than 256 × 256 pixels could not be opened again in Rawtonic ("Failed to decode image"), although other programs read them; every such export since 0.1.0-alpha.1 opens now, with its exact pixels. Lossless JPEG XL now uses libjxl's fast lossless method (zune-jpegxl): a 24–26 MP photo exported from the command line peaked at the same memory as its 8-bit TIFF export (1.3–1.5 GB, was 2.5–2.9 GB) and its file is 2–10 % smaller with identical pixels; on a 36 MP frame the encoding takes 0.1 s instead of 2.2 s at 1.7× an uncompressed TIFF's memory (was 13×), and four at once peaked at 2.0 GB. Lossy JPEG XL and the other formats are unchanged, byte for byte.
+
 ## 0.1.0-alpha.14 — 2026-11-14
 
 The fourteenth alpha. Windows on AMD integrated graphics (a Radeon 680M with AMD's Vulkan driver) now works properly: exports of edited photos no longer crash the app, edits respond in about 0.1–0.4 s once their first views are prepared, a JPEG export after editing takes about 5 s instead of about 2 minutes and 16-bit TIFF exports no longer compile a view of their own, and Glow is ready after a few idle minutes. Windows also gets Open With and Edit With, window controls in the top bar with Windows 11's snap layouts, and a Maximize that fills the screen again. Thumbnails, the Library loupe and the Develop fit view now show sharpening and noise reduction closer to the export. For new edits, Dehaze adapts its veil to the photo, Blacks −100 darkens as far as Capture One's, and Lensfun lens profiles correct as Lensfun measured them. Super Resolution on Windows and Linux moves to the graphics card in the same session. Saved edits keep their look (see *Changes to existing edits*).
