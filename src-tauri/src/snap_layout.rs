@@ -86,12 +86,6 @@ pub(crate) fn maximize_button_on_screen() -> Option<crate::window_limits::Bounds
     })
 }
 
-/// Whether the pointer is on the maximize button (UI thread).
-#[cfg(windows)]
-pub(crate) fn maximize_button_hovered() -> bool {
-    win32::hovered()
-}
-
 /// A modal owns the entire client area, including the maximize button.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn active_button_rect(rect: Option<ButtonRect>, modal_open: bool) -> Option<ButtonRect> {

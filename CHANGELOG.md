@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- **Windows: Maximize works at interface size 125 %, and the Preferences button shows its tooltip there.** Windows 11 placed its snap-layouts flyout as if the window had a title bar of the system's height, so from interface size 125 % it opened over the lower half of the taller maximize button and over the Preferences button: a click on Maximize after resting the pointer on it for a second went to the flyout and did nothing, and Preferences showed no tooltip. The window now tells Windows where its maximize button is drawn.
+- **Windows: Maximize works at interface size 125 %, and the Preferences button shows its tooltip there.** Windows 11 placed its snap-layouts flyout as if the window had a title bar of the system's height, so from interface size 125 % it opened over the lower half of the taller maximize button and over the Preferences button: a click on Maximize after resting the pointer on it for a second went to the flyout and did nothing, and Preferences showed no tooltip. The window now tells Windows where its maximize button is drawn, and the flyout opens below it (checked on a 2560×1600 laptop at 200 %, interface sizes 100, 112 and 125 %).
 - **A photo opened from outside the library stays out of the Library view.** With a project or catalog open, a loose photo opened in Develop (Open With, a double-click in the file manager) kept showing in the Library's Navigator after switching to the Library, and Metadata said that some selected photos are not part of the project. Going back to the Library now closes the loose photo (its edits are saved) and selects what was selected before it opened; Develop then opens the Library's active photo.
 
 ## 0.1.0-alpha.14 — 2026-11-14

@@ -119,10 +119,6 @@ pub fn on_screen() -> Option<(i32, i32, i32, i32)> {
     Some((rect.left, rect.top, rect.right, rect.bottom))
 }
 
-pub fn hovered() -> bool {
-    HOVERED.get()
-}
-
 unsafe fn create(parent: HWND) -> windows::core::Result<HWND> {
     let instance = HINSTANCE(unsafe { GetModuleHandleW(None)? }.0);
     static REGISTER: Once = Once::new();
@@ -249,14 +245,6 @@ unsafe extern "system" fn window_proc(
             return LRESULT(0);
         }
         WM_NCRBUTTONDOWN | WM_NCRBUTTONUP => return LRESULT(0),
-        // What else Windows asks the button while the pointer rests on it.
-        _ if HOVERED.get() && crate::window_limits::trace() && msg != 0x20 => {
-            log::info!(
-                "window trace: maximize button message {msg:#x} ({:#x}, {:#x})",
-                wparam.0,
-                lparam.0
-            );
-        }
         _ => {}
     }
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
