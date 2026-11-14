@@ -6,6 +6,11 @@ import { ContextMenuProvider } from '../../context/ContextMenuContext';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 import { registerAppCommands } from '../../utils/appCommands';
+import { catalogAction, redo, undo, useCatalogUndoStore } from '../../utils/appUndo';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { invoke } from '@tauri-apps/api/core';
+
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => false, invoke: vi.fn(async () => []) }));
 let stop = () => {};
 beforeEach(() => {
   useUIStore.setState({ isSettingsOpen: false });
@@ -68,3 +73,46 @@ it('lists Report a problem… once, inside Help', async () => {
   fireEvent.click(screen.getByRole('menuitem', { name: 'Help' }));
   expect(await screen.findAllByRole('menuitem', { name: /report a problem/i })).toHaveLength(1);
 });
+
+it.each(['linux', 'windows'])(
+  'names the action Undo and Redo will take in the Edit menu on %s, after every history change',
+  async (osPlatform) => {
+    useSettingsStore.setState({ osPlatform });
+    useLibraryStore.setState({ sessionDirectory: '/job', imageRatings: {}, imageFlags: {}, imageList: [] });
+    useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+    vi.mocked(invoke).mockImplementation(async (_command, args) =>
+      ((args as { values?: { path: string; value: unknown }[] })?.values ?? []).map(({ path, value }) => ({
+        path,
+        before: value,
+        after: value
+      }))
+    );
+    const rate = [
+      { path: '/a.nef', before: { kind: 'rating' as const, value: 0 }, after: { kind: 'rating' as const, value: 4 } }
+    ];
+    const open = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'More' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }));
+    };
+    render(
+      <ContextMenuProvider>
+        <AppOverflowMenu />
+      </ContextMenuProvider>
+    );
+    await catalogAction('rating', async () => rate);
+    open();
+    expect(await screen.findByRole('menuitem', { name: 'Undo Set Rating' })).toBeTruthy();
+    cleanup();
+    render(
+      <ContextMenuProvider>
+        <AppOverflowMenu />
+      </ContextMenuProvider>
+    );
+    await undo();
+    open();
+    expect(await screen.findByRole('menuitem', { name: 'Redo Set Rating' })).toBeTruthy();
+    // Nothing left to undo: the plain label, disabled.
+    expect(screen.getByRole('menuitem', { name: 'Undo' }).hasAttribute('disabled')).toBe(true);
+    await redo();
+  }
+);

@@ -184,7 +184,8 @@ export default function GlobalTooltip() {
             'fixed z-10000 pointer-events-none',
             'bg-surface/80 backdrop-blur-xs',
             'border border-text-secondary/10 shadow-xl rounded-md',
-            'px-2.5 py-1.5 whitespace-nowrap',
+            // One line; wraps only when the window is narrower than the text.
+            'px-2.5 py-1.5 w-max max-w-[calc(100vw-24px)]',
             tooltip.isAbove && '-translate-y-full'
           )}
         >
