@@ -75,7 +75,7 @@
     "@swc/core@1.16.21": true,
     "esbuild@0.28.2": true
   },
-  "version": "0.1.0-alpha.13",
+  "version": "0.1.0-alpha.14",
   "license": "AGPL-3.0-or-later",
   "overrides": {
     "minimatch": "^11.0.4"
