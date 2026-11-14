@@ -441,12 +441,12 @@ it('says which selected photos were not resolved (offline, changed again, failed
     done: [],
     offline: ['/drive/a.ARW'],
     conflicts: ['/job/b.ARW'],
-    failed: [{ path: '/job/c.ARW', reason: 'read-only' }],
+    failed: [{ path: '/job/c.ARW', reason: 'cannot write /vol/x.xmp' }],
     undo: [],
     read: []
   });
   expect(toast.warn).toHaveBeenCalledWith('3 photos were not resolved:', {
-    detail: 'a.ARW\nb.ARW\nc.ARW: read-only'
+    detail: 'a.ARW\nb.ARW\nc.ARW: cannot write /vol/x.xmp'
   });
   vi.mocked(toast.warn).mockClear();
   reportUnresolvedXmp({ done: ['/job/a.ARW'], offline: [], conflicts: [], failed: [], undo: [], read: [] });
