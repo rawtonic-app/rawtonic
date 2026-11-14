@@ -221,6 +221,7 @@ pub async fn generate_ai_depth_mask(
             if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
                 return Err(task_cancelled());
             }
+            let _turn = crate::ai_lifecycle::turn(true).await;
 
             let is_raw = loaded.is_raw;
             let model_input = warped_image.clone();
@@ -566,6 +567,10 @@ async fn sam_embeddings(
     if cancel.is_some_and(|t| t.is_cancelled()) {
         return Err(task_cancelled());
     }
+    let _turn = crate::ai_lifecycle::turn(asked.is_some()).await;
+    if cancel.is_some_and(|t| t.is_cancelled()) {
+        return Err(task_cancelled());
+    }
     let options = Arc::new(ort::session::RunOptions::new().map_err(|e| e.to_string())?);
     let watcher = cancel.map(|token| {
         let (token, options) = (token.clone(), options.clone());
@@ -824,6 +829,12 @@ async fn auto_mask(
     if let Some(mask) = cached_mask(ai_state, kind, &key) {
         return Ok(Some(mask));
     }
+    if cancelled() {
+        return Err(task_cancelled());
+    }
+    // Not beside an idle shader compile where the two take turns (model
+    // load included); a cached mask above needs none.
+    let _turn = crate::ai_lifecycle::turn(download).await;
     if cancelled() {
         return Err(task_cancelled());
     }
@@ -1189,6 +1200,7 @@ pub async fn preload_ai_mask_models(
         return Ok(());
     }
     let _running = ai_state.lifecycle.run();
+    let _turn = crate::ai_lifecycle::turn(false).await;
     let start = std::time::Instant::now();
     for &kind in preload_kinds(rawtonic_onnx::models_run_on_cpu_only()) {
         network(&ai_state, &app_handle, kind, false).await?;
@@ -1384,6 +1396,7 @@ pub async fn generate_relight_depth(
     let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     ai_state.lifecycle.touch();
     let running = ai_state.lifecycle.run();
+    let _turn = crate::ai_lifecycle::turn(true).await;
     let model = crate::ai_processing::get_or_init_relight_model(&app_handle, &ai_state)
         .await
         .map_err(|e| e.to_string())?;

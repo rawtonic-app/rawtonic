@@ -43,6 +43,7 @@ mod idle_compiles;
 pub use deferred_display::{plan_deferred_exports, set_idle_deferred_exports};
 pub use idle_compile_child::{
     HELPER_ERROR_FILE, IdleCompileHelper, compile_in_helper_process, set_idle_compile_helper,
+    set_on_cold_helper_compile,
 };
 #[path = "multi_view.rs"]
 pub mod multi_view;
@@ -9017,6 +9018,17 @@ impl GpuProcessor {
                 // 2026-11-14). It counts as a pending compile, so the
                 // window shows that graphics are being prepared.
                 Some(idle) if idle.covering(features).is_some() => {
+                    waits_for_idle = Some(PendingCompile::new());
+                }
+                // No planned variant covers it (Halation or Grain): its own
+                // compiles in a helper process too where there are helpers,
+                // not in the app (`IdleCompiles::for_frame`). A small one
+                // compiles here beside a helper as before.
+                Some(idle)
+                    if !small_display_variant(own)
+                        && self.preview_compilation[own].get().is_none()
+                        && idle.for_frame(own, || self.idle_target()) =>
+                {
                     waits_for_idle = Some(PendingCompile::new());
                 }
                 _ => self.compile_preview_variant(own),
