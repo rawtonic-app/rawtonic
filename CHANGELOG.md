@@ -4,6 +4,7 @@
 
 ### Improvements
 
+- **Radial and linear gradients fade as in Lightroom** (new gradients; saved ones keep their look). A radial gradient's feather was a straight ramp that ended exactly on the ellipse, so at the default feather it lost its effect early and at feather 100 dropped from the very centre. It now holds the full effect longer and fades out smoothly just beyond the ellipse, as Camera Raw's does: at feathers 10, 25, 50, 75 and 100 the points where 90 %, 50 % and 10 % of the effect are left (medians over 12 photographs, Exposure +1; the curve fitted on 8, checked on the other 4) lie within 3.5 % of the radius of Camera Raw's medians, the 50 % point within 1 %. A linear gradient now eases in after its 100 % line and out before its 0 % line instead of changing at one even rate; its 50 % line stays where it was. The canvas draws a new radial's inner, central and outer lines where 98 %, 50 % and 2 % of the effect are left. Lightroom imports get the new fade too; edits made before keep theirs.
 - **The app starts through a symlinked folder or link on macOS** (for example a link on an external drive or in `/usr/local/bin`); before, it aborted with "failed to resolve resource directory". Linux and Windows were not affected. The error for truly missing resources now names the executable.
 
 ### Fixes
