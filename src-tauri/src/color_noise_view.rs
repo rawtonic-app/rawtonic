@@ -462,6 +462,21 @@ fn on_gpu(
 ) -> Option<(Option<Rgb32FImage>, std::time::Instant)> {
     use rawtonic_gpu::gpu_processing::color_noise_view;
     let gpu = app.state::<crate::state::gpu::GpuState>();
+    let integrated = lock_recover(&gpu.adapter)
+        .as_ref()
+        .is_some_and(|(_, adapter)| {
+            adapter.get_info().device_type == wgpu::DeviceType::IntegratedGpu
+        });
+    if integrated || rawtonic_gpu::gpu_processing::compiles_limited() {
+        // On a Radeon 680M laptop (integrated, compile limit) the GPU build
+        // took 1.9–2.9 s on opening a 24 MP photo and 0.86–1.12 s per typed
+        // change, with +1.07–1.68 GB of private memory (WTPX5B): over the
+        // bar from the first build, so it never runs there; an RTX 3080
+        // takes 0.3 s (G17/TPX5).
+        TOO_SLOW.store(true, Ordering::Relaxed);
+        log::info!("Colour noise view: off on this GPU (integrated or compile-limited)");
+        return None;
+    }
     let context = crate::gpu_processing::get_or_init_gpu_context(&gpu, app)
         .inspect_err(|e| log::warn!("Colour noise view: no GPU: {e}"))
         .ok()?;
