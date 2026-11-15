@@ -5404,7 +5404,14 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
         | if glow { GLOW_FEATURE } else { 0 }
         | if halation { HALATION_FEATURE } else { 0 }
-        | if grain { GRAIN_FEATURE } else { 0 }
+        // With the effect passes grain is the finish pass's alone
+        // (`effect_passes`): the main pass is the same with and without it,
+        // so a frame with grain renders with the variant it had.
+        | if grain && !effect_passes::here() {
+            GRAIN_FEATURE
+        } else {
+            0
+        }
         | if dehaze_v3 { DEHAZE_V3_FEATURE } else { 0 }
         // The tone version is photo-wide; layers render with it too.
         | if g.tone_version < 5.5 { TONE_V5_FEATURE } else { 0 }
@@ -5547,6 +5554,10 @@ fn export_display_features(adjustments: &AllAdjustments) -> usize {
     let features = preview_features(adjustments);
     if features & idle_compiles::BASIC_FEATURES == 0 {
         features
+    } else if effect_passes::here() {
+        // With the effect passes one variant serves the frames and the
+        // exports of an edited photo (`idle_compiles::serving_features`).
+        idle_compiles::serving_features(features, adjustments)
     } else {
         idle_compiles::basic_features(features, adjustments)
     }
@@ -10610,11 +10621,7 @@ impl GpuProcessor {
         }
         let finish_pass = match passes {
             Some(passes) => Some((
-                passes.finish_pipeline(
-                    device,
-                    preview_features(adjustments) & GRAIN_FEATURE != 0,
-                    deferred,
-                )?,
+                passes.finish_pipeline(device, adjustments.global.grain_amount != 0.0, deferred)?,
                 passes.colour_tile(self),
                 passes.views(self, adjustments.global.show_clipping != 0),
                 passes,

@@ -135,7 +135,7 @@ pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<us
 /// What `IdleCompiles::plan` queues for a photo shown with display variant
 /// `features`, in this order:
 ///
-/// 1. `basic` with Glow (`glow_features`), the variant that serves the
+/// 1. `basic` with Glow (`serving_features`), the variant that serves the
 ///    frames: every Basic-panel edit and Glow render with it (an idle
 ///    feature changes no pixel). First, because Glow turned on after
 ///    Basic-panel edits has no smaller variant: it waited 66 s for this one
@@ -153,10 +153,22 @@ pub(super) fn idle_plan(features: usize, adjustments: &AllAdjustments) -> Vec<us
 /// (`covered_is_enough`); the others are export variants, which an export
 /// would otherwise compile cold beside its textures (G76/WCC7 review: tens
 /// of seconds and 4–6 GB on a Radeon 680M).
+///
+/// With the effect passes (`effect_passes`, G76/EFX) the first entry also
+/// holds Halation, and an edited photo exports with it (`export_display_
+/// features`): glow and halation add 0.1k inlined expressions to a main
+/// pass and grain none, so one variant serves the Basic panel, the three
+/// effects and the exports, and `basic` alone is not planned (a Radeon 680M
+/// compiled the two for 42 s and 46 s one after the other).
 pub(super) fn planned_jobs(features: usize, adjustments: &AllAdjustments) -> (Vec<usize>, usize) {
-    let mut plan = vec![glow_features(features, adjustments)];
+    let mut plan = vec![serving_features(features, adjustments)];
     let exact = export_display_features(adjustments);
-    for entry in idle_plan(features, adjustments).into_iter().chain([exact]) {
+    let basic = if effect_passes::here() {
+        Vec::new()
+    } else {
+        idle_plan(features, adjustments)
+    };
+    for entry in basic.into_iter().chain([exact]) {
         if !plan.contains(&entry) {
             plan.push(entry);
         }
@@ -166,9 +178,16 @@ pub(super) fn planned_jobs(features: usize, adjustments: &AllAdjustments) -> (Ve
 
 /// `planned_jobs`' first entry: every Basic-panel edit with Glow, the
 /// variant an edited photo with Glow renders and exports with
-/// (`export_display_features`).
-fn glow_features(features: usize, adjustments: &AllAdjustments) -> usize {
-    basic_features(features, adjustments) | GLOW_FEATURE
+/// (`export_display_features`); with the effect passes also with Halation,
+/// the variant every edited photo renders and exports with.
+pub(super) fn serving_features(features: usize, adjustments: &AllAdjustments) -> usize {
+    basic_features(features, adjustments)
+        | GLOW_FEATURE
+        | if effect_passes::here() {
+            HALATION_FEATURE
+        } else {
+            0
+        }
 }
 
 /// Whether a compiled superset makes the planned display variant
@@ -1067,6 +1086,47 @@ mod tests {
         assert_eq!(sharpen_level(&at_start), 2);
     }
 
+    /// With the effect passes (under a compile limit, G76/EFX) one variant
+    /// serves a photo's Basic-panel edits, Glow, Halation and Grain and its
+    /// exports: the plan of a never-edited RAW holds it and the RAW default
+    /// variant, and an edit with any effect asks for no other.
+    #[test]
+    fn with_effect_passes_one_variant_serves_edits_effects_and_exports() {
+        use super::super::preview_tests::get_all_adjustments_from_json;
+        use serde_json::json;
+        effect_passes::FORCED.with(|forced| forced.set(Some(true)));
+        let at_start = new_raw_edit_at_start(None);
+        let features = preview_features(&at_start);
+        let serving = 5238847 | GLOW_FEATURE | HALATION_FEATURE;
+        assert_eq!(
+            planned_jobs(features, &at_start),
+            (vec![serving, features], features)
+        );
+        for edit in [
+            json!({"contrast":20}),
+            json!({"contrast":20,"glowAmount":30}),
+            json!({"shadows":20,"halationAmount":30}),
+            json!({"whites":-10,"grainAmount":30}),
+            json!({"contrast":20,"glowAmount":30,"halationAmount":30,"grainAmount":30}),
+        ] {
+            let mut edited = new_raw_edit_at_start(None);
+            let values = get_all_adjustments_from_json(&edit, true, Some(3));
+            let (g, v) = (&mut edited.global, &values.global);
+            (g.contrast, g.shadows, g.whites) = (v.contrast, v.shadows, v.whites);
+            (g.glow_amount, g.halation_amount, g.grain_amount) =
+                (v.glow_amount, v.halation_amount, v.grain_amount);
+            let shown = preview_features(&edited);
+            assert_eq!(shown & GRAIN_FEATURE, 0, "{edit}");
+            assert_eq!(shown & serving, shown, "{edit}: not served");
+            assert_eq!(export_display_features(&edited), serving, "{edit}");
+            assert_eq!(planned_jobs(shown, &edited), (vec![serving], serving));
+        }
+        effect_passes::FORCED.with(|forced| forced.set(None));
+        // Without them grain is the main shader's.
+        let grain = get_all_adjustments_from_json(&json!({"grainAmount":30}), true, Some(3));
+        assert_ne!(preview_features(&grain) & GRAIN_FEATURE, 0);
+    }
+
     /// One entry, every Basic-panel edit, first: no smaller tone-sliders
     /// variant compiles before it (G76/COLD).
     #[test]
@@ -1385,9 +1445,11 @@ mod tests {
     }
 
     /// Under a compile limit a 16-bit export picked and started at once
-    /// has its deferred variant compiled by the idle worker before the
-    /// export goes on to make its textures, without the idle wait
-    /// (G76/WSMOKE19).
+    /// finds its variant compiled: with the effect passes it renders with
+    /// the display variant the plan compiled (its main pass writes float
+    /// output), so no deferred variant compiles and the export does not
+    /// wait (G76/EFX; before, the idle worker compiled the deferred variant
+    /// first, G76/WSMOKE19).
     #[test]
     #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_export_right_after_a_sixteen_bit_pick_waits_for_its_variant"]
     fn an_export_right_after_a_sixteen_bit_pick_waits_for_its_variant() {
@@ -1413,11 +1475,18 @@ mod tests {
         assert!(processor.deferred_display.get(exact).is_none());
         // A frame just rendered: idle time is `IDLE_QUIET` away.
         processor.preview_pipeline(&photo, true).unwrap();
+        assert!(processor.effect_passes.is_some());
+        let started = Instant::now();
         export_of_shown_photo_starts(true);
         wait_for_running_compiles("export");
         assert!(
-            processor.deferred_display.get(exact).is_some(),
-            "the export went on without its deferred variant"
+            started.elapsed() < Duration::from_secs(2),
+            "the export waited {:?}",
+            started.elapsed()
+        );
+        assert!(
+            processor.deferred_display.get(exact).is_none(),
+            "a deferred variant was compiled"
         );
         drop(processor);
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));

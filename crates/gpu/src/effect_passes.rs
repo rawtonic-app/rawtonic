@@ -371,6 +371,11 @@ impl EffectPasses {
     /// turning on Glow, Halation or Grain does not wait for them (Radeon
     /// 680M: 1.6 s and 2.3 s). Small compiles, as beside an idle helper.
     pub(super) fn compile_ahead(self: &Arc<Self>, device: &Arc<wgpu::Device>, features: usize) {
+        // Tests end while such a thread would still compile (NVIDIA's
+        // driver then crashed at process exit); they compile on first use.
+        if cfg!(test) {
+            return;
+        }
         let key = features & TERMS_FEATURES;
         if !self
             .ahead
@@ -460,6 +465,8 @@ mod tests {
     fn the_terms_pass_depends_only_on_its_features() {
         let shader = DisplayShader::with_effect_passes(SHADER);
         assert!(shader.effect_passes());
+        // What the driver would compile: the functions the module keeps,
+        // each with its expressions and statements.
         let module = |features: usize, layer_sums: bool| {
             // The constants as a frame of `features` would set them, without
             // `terms_constants`' mask.
@@ -467,14 +474,32 @@ mod tests {
             let mut constants = variant_constants(features, true, true, layer_sums, false);
             constants.extend(display_effect_constants(features));
             constants.push(("EFFECT_TERMS_PASS", 1.0));
-            format!("{:?}", shader.variant_module(&constants).unwrap())
+            let module = shader.variant_module(&constants).unwrap();
+            module
+                .functions
+                .iter()
+                .map(|(_, function)| function)
+                .chain([&module.entry_points[0].function])
+                .map(|function| {
+                    format!(
+                        "{:?} {:?} {:?}",
+                        function.name, function.expressions, function.body
+                    )
+                })
+                .collect::<Vec<_>>()
         };
         for layer_sums in [false, true] {
             for base in [0, TERMS_FEATURES] {
                 let own = module(base, layer_sums);
                 for bit in (0..26).map(|bit| 1usize << bit) {
                     if bit & TERMS_FEATURES == 0 {
-                        assert_eq!(module(base | bit, layer_sums), own, "feature {bit}");
+                        let other = module(base | bit, layer_sums);
+                        assert!(
+                            other == own,
+                            "feature {bit} on {base}: {} against {} functions",
+                            other.len(),
+                            own.len()
+                        );
                     }
                 }
             }
