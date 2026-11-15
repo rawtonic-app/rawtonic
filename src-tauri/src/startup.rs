@@ -1350,6 +1350,7 @@ pub(crate) fn resource_dir_missing_message(
 
 #[cfg(all(test, unix))]
 mod symlinked_launch_tests {
+    use rawtonic_fs::Canonical;
     #[test]
     fn executable_through_symlinks_canonicalizes_to_the_real_resource_neighbour() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1359,9 +1360,9 @@ mod symlinked_launch_tests {
         std::os::unix::fs::symlink(tmp.path().join("real"), tmp.path().join("linked")).unwrap();
         std::os::unix::fs::symlink(real.join("app"), tmp.path().join("app-link")).unwrap();
         let via_dir = tmp.path().join("linked/target/release/app");
-        let canon = via_dir.canonicalize().unwrap();
-        assert_eq!(canon, real.canonicalize().unwrap().join("app"));
-        assert_eq!(tmp.path().join("app-link").canonicalize().unwrap(), canon);
+        let canon = via_dir.canonical().unwrap();
+        assert_eq!(canon, real.canonical().unwrap().join("app"));
+        assert_eq!(tmp.path().join("app-link").canonical().unwrap(), canon);
         let msg = super::resource_dir_missing_message(
             Some(&canon),
             Some(&canon.parent().unwrap().join("resources")),
