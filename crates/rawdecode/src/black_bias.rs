@@ -77,6 +77,10 @@ impl BlackLevels {
 /// benchmark-results/cb-channel-black-2026-11-01/.
 pub const BORDER_NOISE: f32 = 3.0;
 
+/// The gains above and below a pixel, interpolated along its row (None:
+/// all 1, the pixel stays).
+type GainSpan = Option<([f32; 3], [f32; 3])>;
+
 /// Block side in photosites: a whole number of 2 × 2 and 6 × 6 periods.
 pub const BLOCK: usize = 12;
 /// Signal-to-noise ratios (per sample, from the photo's noise model) between
@@ -240,7 +244,7 @@ impl ShadowMeans {
         // `BLOCK` of them) takes them from one table, None where all four
         // gains around the pixel are 1 (the pixel stays).
         let columns: Vec<(usize, f32)> = (0..width).map(axis).collect();
-        let along = |by: usize| -> Vec<Option<([f32; 3], [f32; 3])>> {
+        let along = |by: usize| -> Vec<GainSpan> {
             columns
                 .iter()
                 .map(|&(bx, tx)| {
@@ -260,7 +264,7 @@ impl ShadowMeans {
         rgb.par_chunks_mut(width * BLOCK)
             .enumerate()
             .map(|(chunk, lines)| {
-                let mut table: Option<(usize, Vec<Option<([f32; 3], [f32; 3])>>)> = None;
+                let mut table: Option<(usize, Vec<GainSpan>)> = None;
                 let mut changed = 0;
                 for (j, line) in lines.chunks_mut(width).enumerate() {
                     let (by, ty) = axis(chunk * BLOCK + j);
