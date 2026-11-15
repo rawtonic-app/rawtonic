@@ -34,6 +34,25 @@ pub(crate) const BUILD_IDLE: std::time::Duration = std::time::Duration::from_mil
 /// photograph reduces less; beyond this the view keeps its own filter.
 const MAX_PIXELS: u64 = 6_000_000;
 
+/// Builds slower than this per 24 MP stop them for the session: the
+/// fit view keeps its quick filter. On a Radeon 680M laptop (Ryzen CPU) a
+/// 24 MP correction took 2.1–2.9 s with +1.3–1.85 GB of private memory and
+/// a drag right after stuttered (gaps up to 402 ms; G17/WTPX4); an M5 Pro
+/// takes 0.4 s.
+const MAX_MS_PER_24MP: f64 = 1000.0;
+
+static TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether corrections are built here: on Apple silicon, where one costs
+/// about 0.4 s at 24 MP (measured; elsewhere it was over the 1 s budget or
+/// is not measured, and Linux previews have no native frame for it), while
+/// no build was too slow and the system is not short of memory.
+pub(crate) fn enabled() -> bool {
+    cfg!(all(target_os = "macos", target_arch = "aarch64"))
+        && !TOO_SLOW.load(Ordering::Relaxed)
+        && crate::memory_pressure::level_now().is_none()
+}
+
 /// The colour noise settings a correction was built for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Key {
@@ -344,6 +363,11 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         h,
         started.elapsed().as_secs_f64() * 1000.0
     );
+    let megapixels = f64::from(source.width()) * f64::from(source.height()) / 1e6;
+    if started.elapsed().as_secs_f64() * 1000.0 * 24.0 / megapixels.max(1.0) > MAX_MS_PER_24MP {
+        TOO_SLOW.store(true, Ordering::Relaxed);
+        log::warn!("Colour noise view: too slow here, off for this session");
+    }
     drop(source);
     let Some(delta) = delta else {
         return;

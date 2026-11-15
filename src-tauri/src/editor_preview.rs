@@ -1681,7 +1681,10 @@ fn fit_color_noise_base(
     refresh: impl FnOnce() -> crate::color_noise_view::Refresh,
 ) -> Option<Arc<DynamicImage>> {
     let number = develop.color_noise_view.note_frame();
-    if !frame.eligible || !crate::color_noise_view::applies(adjustments, loaded_image.is_raw) {
+    if !frame.eligible
+        || !crate::color_noise_view::enabled()
+        || !crate::color_noise_view::applies(adjustments, loaded_image.is_raw)
+    {
         return None;
     }
     #[cfg(feature = "performance-profiling")]
