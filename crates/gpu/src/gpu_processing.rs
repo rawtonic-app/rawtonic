@@ -34,6 +34,8 @@ mod preview_tests;
 
 #[path = "camera_cover.rs"]
 pub mod camera_cover;
+#[path = "color_noise_view.rs"]
+pub mod color_noise_view;
 #[path = "deferred_display.rs"]
 mod deferred_display;
 #[path = "frame_supersession.rs"]
@@ -5882,6 +5884,12 @@ impl Drop for CompileWork {
 /// Whether a shader compile is waiting or running now.
 pub fn compiles_pending() -> bool {
     *PENDING_COMPILES.lock().unwrap_or_else(|e| e.into_inner()) > 0
+}
+
+/// Whether any shader compile waits or runs now, idle compiles in a helper
+/// process included (`CompileWork`).
+pub fn compiling_now() -> bool {
+    compiles_pending() || *COMPILE_WORK.lock().unwrap_or_else(|e| e.into_inner()) > 0
 }
 
 /// One creation counted in `PENDING_COMPILES` (and `COMPILE_WORK`) while it

@@ -5,7 +5,9 @@
 //! levels; nothing tuned on the reduced frame reached the export: notes:
 //! benchmark-results/tpx-thumb-parity-2026-11-12/REPORT.md, TPX3). So the
 //! filter runs once per photograph and colour noise setting on the full
-//! decode, on the CPU in the background after the frame is shown, and
+//! decode, in the background after the frame is shown (on the CPU on Apple
+//! silicon, elsewhere the export's own GPU filter:
+//! `rawtonic_gpu::gpu_processing::color_noise_view`), and
 //! what it changes is kept at the fit view's (pre-warp) resolution
 //! (`color_noise::reduced_correction`): the fit view's final frames add it
 //! to their reduced copy and render without their own colour noise
@@ -13,7 +15,9 @@
 //! reduced filter as before; the correction's frame follows on its own
 //! (`Wanted::refresh`). Kept for the open photograph only and dropped with
 //! its source (`DevelopSession::invalidate`, `release_rebuildable`).
-//! Measured: notes: benchmark-results/tpx4-cached-chroma-2026-11-15/REPORT.md.
+//! Measured: notes: benchmark-results/tpx4-cached-chroma-2026-11-15/REPORT.md
+//! (CPU, Apple silicon), benchmark-results/tpx5-gpu-chroma-2026-11-15/REPORT.md
+//! (GPU, Windows).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -35,20 +39,20 @@ pub(crate) const BUILD_IDLE: std::time::Duration = std::time::Duration::from_mil
 const MAX_PIXELS: u64 = 6_000_000;
 
 /// Builds slower than this per 24 MP stop them for the session: the
-/// fit view keeps its quick filter. On a Radeon 680M laptop (Ryzen CPU) a
-/// 24 MP correction took 2.1–2.9 s with +1.3–1.85 GB of private memory and
-/// a drag right after stuttered (gaps up to 402 ms; G17/WTPX4); an M5 Pro
-/// takes 0.4 s.
+/// fit view keeps its quick filter. On a Radeon 680M laptop (Ryzen CPU) the
+/// CPU build of a 24 MP correction took 2.1–2.9 s with +1.3–1.85 GB of
+/// private memory and a drag right after stuttered (gaps up to 402 ms;
+/// G17/WTPX4); an M5 Pro takes 0.4 s, the GPU build there (TPX5) less.
 const MAX_MS_PER_24MP: f64 = 1000.0;
 
 static TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Whether corrections are built here: on Apple silicon, where one costs
-/// about 0.4 s at 24 MP (measured; elsewhere it was over the 1 s budget or
-/// is not measured, and Linux previews have no native frame for it), while
-/// no build was too slow and the system is not short of memory.
+/// Whether corrections are built here: not on Linux, whose previews have
+/// no native frame for the correction's frame to show in (a build's frame
+/// is rendered without an invoke to answer), while no build was too slow
+/// and the system is not short of memory.
 pub(crate) fn enabled() -> bool {
-    cfg!(all(target_os = "macos", target_arch = "aarch64"))
+    cfg!(not(target_os = "linux"))
         && !TOO_SLOW.load(Ordering::Relaxed)
         && crate::memory_pressure::level_now().is_none()
 }
@@ -115,6 +119,8 @@ struct Wanted {
     key: Key,
     settings: color_noise::Settings,
     tuning: color_noise::Tuning,
+    /// The recipe's adjustments (the GPU build takes its uniforms).
+    global: GlobalAdjustments,
     dims: (u32, u32),
     /// The preview frame it was wanted for (`ColorNoiseView::note_frame`)
     /// and that frame to render again; None for the split view's before.
@@ -301,6 +307,7 @@ pub(crate) fn corrected_base(
             key,
             settings,
             tuning,
+            global: *global,
             dims,
             frame: frame.number.map(|number| (number, refresh())),
         });
@@ -436,6 +443,55 @@ fn pool() -> &'static rayon::ThreadPool {
     })
 }
 
+/// Where corrections are built: on the CPU on Apple silicon (0.4 s at 24 MP
+/// on an M5 Pro, TPX4), elsewhere on the GPU, where a Radeon 680M laptop's
+/// CPU took 2.1–2.9 s (WTPX4) and its GPU runs the export's filter in less
+/// (TPX5).
+const ON_CPU: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+
+/// The GPU build of `wanted`'s correction and when it started (after the
+/// pass's pipelines are ready: their compile is no build's time); None when
+/// a newer frame came meanwhile (`stop`; its final frame wants again),
+/// for recipes the GPU pass does not take (`colorNoiseVersion` below 11:
+/// the fit view keeps its quick filter) and on errors (logged).
+fn on_gpu(
+    app: &tauri::AppHandle,
+    source: &DynamicImage,
+    wanted: &Wanted,
+    stop: &(dyn Fn() -> bool + Sync),
+) -> Option<(Option<Rgb32FImage>, std::time::Instant)> {
+    use rawtonic_gpu::gpu_processing::color_noise_view;
+    let gpu = app.state::<crate::state::gpu::GpuState>();
+    let context = crate::gpu_processing::get_or_init_gpu_context(&gpu, app)
+        .inspect_err(|e| log::warn!("Colour noise view: no GPU: {e}"))
+        .ok()?;
+    color_noise_view::ready(&context)
+        .inspect_err(|e| log::warn!("Colour noise view: GPU pass failed: {e}"))
+        .ok()?;
+    // A shader compile running now (a frame's variant, an idle compile)
+    // goes first, and its time is no build's.
+    while rawtonic_gpu::gpu_processing::compiling_now() {
+        if stop() {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let started = std::time::Instant::now();
+    let delta = pool()
+        .install(|| {
+            color_noise_view::reduced_correction(
+                &context,
+                source,
+                &wanted.global,
+                wanted.dims,
+                stop,
+            )
+        })
+        .inspect_err(|e| log::warn!("Colour noise view: GPU build failed: {e}"))
+        .ok()??;
+    Some((Some(delta), started))
+}
+
 fn build(app: &tauri::AppHandle, wanted: Wanted) {
     let develop = app.state::<crate::state::develop::DevelopSession>();
     let view = &develop.color_noise_view;
@@ -452,11 +508,19 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
     let Some(source) = wanted.source.upgrade() else {
         return;
     };
-    let started = std::time::Instant::now();
     let (w, h) = wanted.dims;
-    let delta = pool().install(|| {
-        color_noise::reduced_correction(&source, wanted.settings, &wanted.tuning, w, h)
-    });
+    let delta = if ON_CPU {
+        let started = std::time::Instant::now();
+        let delta = pool().install(|| {
+            color_noise::reduced_correction(&source, wanted.settings, &wanted.tuning, w, h)
+        });
+        Some((delta, started))
+    } else {
+        on_gpu(app, &source, &wanted, &|| !current(&wanted.frame))
+    };
+    let Some((delta, started)) = delta else {
+        return;
+    };
     log::info!(
         "Colour noise view: correction of {}x{} at {}x{} in {:.0} ms",
         source.width(),
@@ -630,6 +694,7 @@ mod tests {
             key: Key::of(&global(0.25)).0,
             settings: Key::of(&global(0.25)).1,
             tuning: Key::of(&global(0.25)).2,
+            global: global(0.25),
             dims,
             frame,
         };
@@ -651,6 +716,7 @@ mod tests {
             key: Key::of(&global(0.25)).0,
             settings: Key::of(&global(0.25)).1,
             tuning: Key::of(&global(0.25)).2,
+            global: global(0.25),
             dims: (300, 200),
             frame: Some((1, refresh())),
         };
@@ -670,6 +736,7 @@ mod tests {
             source: Arc::downgrade(&source),
             settings: Key::of(&global(amount)).1,
             tuning: Key::of(&global(amount)).2,
+            global: global(amount),
             dims: (300, 200),
         };
         let revision = view.revision();
