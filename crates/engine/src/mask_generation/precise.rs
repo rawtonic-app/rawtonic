@@ -256,8 +256,6 @@ fn radial_coverage(
     let radius_x = (params.radius_x as f32 * scale).max(0.01);
     let radius_y = (params.radius_y as f32 * scale).max(0.01);
     let (sin_rot, cos_rot) = (params.rotation * PI / 180.0).sin_cos();
-    let inner_bound = 1.0 - params.feather.clamp(0.0, 1.0);
-    let feather_width = (1.0 - inner_bound).max(0.01);
     let mut coverage = vec![0.0; width as usize * height as usize];
     if width == 0 {
         return coverage;
@@ -272,7 +270,7 @@ fn radial_coverage(
                 let norm_x = (dx * cos_rot + dy * sin_rot) / radius_x;
                 let norm_y = (-dx * sin_rot + dy * cos_rot) / radius_y;
                 let dist = (norm_x * norm_x + norm_y * norm_y).sqrt();
-                *pixel = (1.0 - (dist - inner_bound) / feather_width).clamp(0.0, 1.0);
+                *pixel = params.coverage(dist);
             }
         });
     coverage
@@ -319,7 +317,7 @@ fn linear_coverage(
                 *pixel = if let Some(band) = &params.band {
                     band.coverage(dist, scale)
                 } else {
-                    (0.5 - t * 0.5).clamp(0.0, 1.0)
+                    params.ramp_coverage((0.5 - t * 0.5).clamp(0.0, 1.0))
                 };
             }
         });
@@ -1526,5 +1524,132 @@ mod tests {
         let mut flat = vec![0.25; width * height];
         gaussian_blur(&mut flat, width, height, 1.5);
         assert!(flat.iter().all(|v| (v - 0.25).abs() < 1e-6));
+    }
+}
+
+/// `gradientVersion` 2 (bell radial, eased linear): new gradients only.
+#[cfg(test)]
+mod gradient_version_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn radial(feather: f32, version: Option<u32>) -> Value {
+        let mut p = json!({"centerX": 100.0, "centerY": 100.0, "radiusX": 80.0,
+            "radiusY": 40.0, "rotation": 0.0, "feather": feather});
+        if let Some(v) = version {
+            p["gradientVersion"] = json!(v);
+        }
+        p
+    }
+
+    /// Coverage along the long axis at elliptical distance `d`.
+    fn along(params: &Value, d: f32) -> f32 {
+        let coverage = radial_coverage(params, 400, 200, 1.0, (0.0, 0.0));
+        coverage[100 * 400 + (100.0 + 80.0 * d).round() as usize]
+    }
+
+    #[test]
+    fn bell_radial_holds_the_core_and_runs_out_beyond_the_ellipse() {
+        let p = radial(1.0, Some(2));
+        assert!(along(&p, 0.0) > 0.999);
+        assert!(along(&p, 0.3) > 0.97, "{}", along(&p, 0.3));
+        let half = along(&p, 0.7875);
+        assert!((half - 0.5).abs() < 0.01, "{half}");
+        // A tenth of the effect is left just outside the ellipse.
+        assert!((along(&p, 1.1) - 0.1).abs() < 0.02, "{}", along(&p, 1.1));
+        assert!(along(&p, 1.5) < 0.001);
+        // The straight ramp of version 1 lost 30 % at 0.3 and ended on it.
+        let old = radial(1.0, None);
+        assert!((along(&old, 0.3) - 0.7).abs() < 0.01);
+        assert_eq!(along(&old, 1.1), 0.0);
+    }
+
+    #[test]
+    fn bell_radial_is_monotonic_in_distance_and_continuous_in_feather() {
+        let mut last_half = 1.0;
+        for step in 1..=100 {
+            let feather = step as f32 / 100.0;
+            let mut last = 1.0;
+            for i in 0..=200 {
+                let c = bell_falloff(i as f32 / 100.0, feather);
+                assert!(c <= last + 1e-6, "feather {feather} at {i}");
+                last = c;
+            }
+            // The 50 % line moves inwards smoothly as the feather grows.
+            let half = (0..=2000)
+                .map(|i| i as f32 / 1000.0)
+                .find(|&d| bell_falloff(d, feather) < 0.5)
+                .unwrap();
+            assert!(
+                half <= last_half + 1e-3 && last_half - half < 0.02,
+                "{feather}"
+            );
+            last_half = half;
+        }
+    }
+
+    #[test]
+    fn hard_ellipse_and_version_1_keep_their_pixels() {
+        // Feather 0 is the hard ellipse in both versions.
+        let hard = radial_coverage(&radial(0.0, None), 300, 200, 1.0, (0.0, 0.0));
+        let hard2 = radial_coverage(&radial(0.0, Some(2)), 300, 200, 1.0, (0.0, 0.0));
+        assert_eq!(hard, hard2);
+        // A missing or version 1 key is the old ramp, at 8 and 16 bits.
+        for v in [None, Some(1)] {
+            let p = radial(0.5, v);
+            let legacy = radial(0.5, None);
+            assert_eq!(
+                radial_coverage(&p, 300, 200, 1.0, (0.0, 0.0)),
+                radial_coverage(&legacy, 300, 200, 1.0, (0.0, 0.0))
+            );
+            assert_eq!(
+                super::super::generate_radial_bitmap(&p, 300, 200, 1.0, (0.0, 0.0)),
+                super::super::generate_radial_bitmap(&legacy, 300, 200, 1.0, (0.0, 0.0))
+            );
+        }
+    }
+
+    #[test]
+    fn byte_masks_draw_the_same_bell() {
+        // The 8-bit path (layers before maskVersion 2) rounds the centre to
+        // whole pixels; at integer centres it is the 16-bit coverage in bytes.
+        for feather in [0.1, 0.5, 1.0] {
+            let p = radial(feather, Some(2));
+            let coverage = radial_coverage(&p, 300, 200, 1.0, (0.0, 0.0));
+            let bytes = super::super::generate_radial_bitmap(&p, 300, 200, 1.0, (0.0, 0.0));
+            for (float, byte) in coverage.iter().zip(bytes.as_raw()) {
+                assert_eq!((float * 255.0) as u8, *byte);
+            }
+        }
+        let p = json!({"startX": 0.0, "startY": 50.0, "endX": 100.0, "endY": 50.0,
+            "range": 40.0, "gradientVersion": 2});
+        let coverage = linear_coverage(&p, 100, 100, 1.0, (0.0, 0.0));
+        let bytes = super::super::generate_linear_bitmap(&p, 100, 100, 1.0, (0.0, 0.0));
+        for (float, byte) in coverage.iter().zip(bytes.as_raw()) {
+            assert_eq!((float * 255.0) as u8, *byte);
+        }
+    }
+
+    #[test]
+    fn eased_linear_keeps_its_lines_and_eases_between_them() {
+        // Start (100 %) at y 10, central line at y 50, end (0 %) at y 90.
+        let p = |v: Option<u32>| {
+            let mut p =
+                json!({"startX": 0.0, "startY": 50.0, "endX": 100.0, "endY": 50.0, "range": 40.0});
+            if let Some(v) = v {
+                p["gradientVersion"] = json!(v);
+            }
+            p
+        };
+        let new = linear_coverage(&p(Some(2)), 100, 100, 1.0, (0.0, 0.0));
+        let old = linear_coverage(&p(None), 100, 100, 1.0, (0.0, 0.0));
+        let at = |c: &[f32], y: usize| c[y * 100 + 30];
+        assert_eq!(at(&new, 5), 1.0);
+        assert_eq!(at(&new, 50), 0.5);
+        assert_eq!(at(&new, 95), 0.0);
+        // A quarter of the way from the start line: 0.844 instead of 0.75.
+        assert!((at(&new, 30) - 0.84375).abs() < 1e-5, "{}", at(&new, 30));
+        assert!((at(&old, 30) - 0.75).abs() < 1e-5);
+        assert!((at(&new, 70) - 0.15625).abs() < 1e-5);
     }
 }
