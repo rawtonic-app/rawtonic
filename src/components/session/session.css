@@ -1525,6 +1525,16 @@
   left: 0;
   cursor: nesw-resize;
 }
+/* The previous photograph's fitted image, kept under the next one until it
+   can be drawn: in the same rectangle (the stage's padding box less its
+   12 px padding), not beside it in the flex row. */
+.session-ingest-loupe-image img.session-ingest-loupe-fit.is-held {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: calc(100% - 24px);
+  height: calc(100% - 24px);
+}
 /* The preview enlarged to the 100 % size while the real pixels are made,
    and those of the part in view on top as soon as they are here. */
 .session-ingest-loupe-image img.session-ingest-loupe-enlarged,
