@@ -967,8 +967,9 @@ impl GradientVersion {
 /// of [`bell_falloff`]; linear in between. Fitted by least squares to the
 /// transition of our own Exposure +1 measurements of Camera Raw's radial
 /// gradient at feathers 10/25/50/75/100 on 8 of 12 public (CC0) frames; on
-/// the 4 held out, the 90/50/10 % points of real exports lie within 0.033
-/// radii of Camera Raw's (the 50 % point within 0.010). Method and per-frame
+/// the 4 held out, the median 90/50/10 % points of real exports at those
+/// five feathers lie within 0.033 radii of Camera Raw's medians (the 50 %
+/// point within 0.010); single photos were not bounded. Method and per-frame
 /// profiles: notes: benchmark-results/radf-mask-feather-2026-11-15/ (the
 /// commit adding this comment lists the numbers). Feather 0 is the hard
 /// ellipse.
