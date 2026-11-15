@@ -17,5 +17,4 @@ describe('compositeWhileMoving', () => {
     vi.advanceTimersByTime(50);
     expect(element.style.willChange).toBe('');
   });
-
 });

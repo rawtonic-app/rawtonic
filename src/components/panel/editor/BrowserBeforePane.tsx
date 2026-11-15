@@ -2,6 +2,7 @@ import { useSettingsStore } from '../../../store/useSettingsStore';
 import type { RenderSize } from '../../../hooks/useImageRenderSize';
 import type { Adjustments } from '../../../utils/adjustments';
 import { BeforeFrameStatus, useBrowserBeforeFrame } from './BrowserSplitImage';
+import { drawsOneToOne } from '../../../utils/pixelSnap';
 
 /**
  * Side by side on Linux (browser previews): the before pane's photograph,
@@ -40,7 +41,16 @@ export default function BrowserBeforePane({
           src={frame.url}
           draggable={false}
           className="absolute select-none"
-          style={{ left: size.offsetX, top: size.offsetY, width: size.width, height: size.height }}
+          style={{
+            left: size.offsetX,
+            top: size.offsetY,
+            width: size.width,
+            height: size.height,
+            // As the after pane: a full-size frame at 100 % unfiltered.
+            imageRendering: drawsOneToOne(frame.pixelWidth, size, transform.scale, window.devicePixelRatio || 1)
+              ? 'pixelated'
+              : 'auto'
+          }}
         />
       ) : (
         <div className="absolute" style={{ left: size.offsetX + 8, top: size.offsetY + 32 }}>

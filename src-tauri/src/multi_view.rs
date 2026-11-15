@@ -378,7 +378,12 @@ pub(crate) async fn render_browser_view(
             }
         }
         let recipe = js_adjustments.unwrap_or_else(|| recipe_of(&path));
-        let dim = target_resolution.clamp(64, 4096);
+        // Up to the photograph's own size (the split's before at 100 %),
+        // within the GPU's texture limit as Develop's own frames are.
+        let dim = crate::editor_preview::preview_dim_within_limit(
+            target_resolution.max(64),
+            context.limits.max_texture_dimension_2d,
+        );
         let key = render_key(&path, &recipe, dim, &context);
         let prepared = prepare(
             &app_handle,
@@ -414,7 +419,10 @@ pub(crate) async fn render_browser_view(
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(width.round() as u32).to_le_bytes());
         bytes.extend_from_slice(&(height.round() as u32).to_le_bytes());
-        bytes.extend(crate::editor_preview::encode_browser_preview(&rgba, 94)?);
+        bytes.extend(crate::editor_preview::encode_browser_preview(
+            &rgba,
+            crate::preview_jpeg::settled_quality(scale),
+        )?);
         Ok(tauri::ipc::Response::new(bytes))
     })
     .await

@@ -38,7 +38,8 @@ import FaceRetouchOverlay from './FaceRetouchOverlay';
 import FaceBoxOverlay from './FaceBoxOverlay';
 import BrowserSplitImage from './BrowserSplitImage';
 import { clearDraftPatch, registerDraftPatchHost } from '../../../utils/browserDraftPatch';
-import { useDecodedPreview } from '../../../hooks/useDecodedPreview';
+import { useDecodedPreviewWithSize } from '../../../hooks/useDecodedPreview';
+import { drawsOneToOne } from '../../../utils/pixelSnap';
 import { notify } from '../../../activity/notify';
 import {
   notePointerSessionStroke,
@@ -1534,11 +1535,18 @@ const ImageCanvas = memo(
       setStraightenLine(null);
     }, [isStraightenActive]);
 
-    const decodedBase = useDecodedPreview(
+    const { frame: decodedBase, width: decodedBaseWidth } = useDecodedPreviewWithSize(
       finalPreviewUrl || selectedImage.thumbnailUrl ? { url: (finalPreviewUrl || selectedImage.thumbnailUrl)! } : null,
       selectedImage.path
     );
     const displayBase = decodedBase?.url;
+    // At 100 % the full-size frame is drawn unfiltered (utils/pixelSnap.ts).
+    const baseOneToOne = drawsOneToOne(
+      decodedBaseWidth,
+      imageRenderSize,
+      transformState.scale,
+      window.devicePixelRatio || 1
+    );
 
     const [baseTool, setBaseTool] = useState<ToolType>(brushSettings?.tool ?? ToolType.Brush);
     const [isAltPressed, setIsAltPressed] = useState(false);
@@ -3381,7 +3389,7 @@ const ImageCanvas = memo(
                     y="0"
                     width="100%"
                     height="100%"
-                    style={{ imageRendering: isMaxZoom ? 'pixelated' : 'auto' }}
+                    style={{ imageRendering: isMaxZoom || baseOneToOne ? 'pixelated' : 'auto' }}
                   />
                 )}
 

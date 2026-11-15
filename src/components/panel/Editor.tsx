@@ -48,6 +48,7 @@ import SplitViewOverlay, { ViewerBeforeBadge } from './editor/SplitViewOverlay';
 import { anchoredAt, keepMagnification } from '../../utils/beforeAfter';
 import BrowserBeforePane from './editor/BrowserBeforePane';
 import { compositeWhileMoving } from '../../utils/layerWhileMoving';
+import { isOneToOne, snapToDevicePixel } from '../../utils/pixelSnap';
 import {
   MIN_VIEWER_ZOOM,
   cropModeBox,
@@ -584,6 +585,15 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     (x: number, y: number, scale: number, animating = false) => {
       // Any other transform (a wheel, a pan, a reset) ends the animation.
       if (!animating) animationTargetRef.current = null;
+      // Browser frames at 100 %: the frame's pixels on whole device pixels
+      // (utils/pixelSnap.ts), never more than half a pixel from the pan.
+      const fit = imageRenderSizeRef.current;
+      const dpr = window.devicePixelRatio || 1;
+      if (browserFramesRef.current && isOneToOne(scale, fit.scale, dpr)) {
+        const bounds = getTransformBounds(scale);
+        x = snapToDevicePixel(x, scale, fit.offsetX, dpr, bounds.minX, bounds.maxX);
+        y = snapToDevicePixel(y, scale, fit.offsetY, dpr, bounds.minY, bounds.maxY);
+      }
       transformStateRef.current = { positionX: x, positionY: y, scale };
       setTransformState({ scale, positionX: x, positionY: y });
 
@@ -615,7 +625,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         handleZoomed({ scale, positionX: x, positionY: y });
       }, 100);
     },
-    [handleZoomed]
+    [handleZoomed, getTransformBounds]
   );
 
   /** Stops the animation under way, if any, and forgets where it went. */

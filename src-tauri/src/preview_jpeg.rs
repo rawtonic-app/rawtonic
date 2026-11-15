@@ -12,6 +12,25 @@
 
 use rayon::prelude::*;
 
+/// A settled browser frame shown reduced (fit, a larger fit).
+pub(crate) const SETTLED_QUALITY: u8 = 94;
+/// A settled browser frame at the photograph's own resolution (100 % and
+/// closer): on the export's 24 MP NEF, quality 94 left 1.09–1.42 codes mean
+/// difference to the export in sharpness crops and lost a third of the
+/// grain in a flat region; 98 left 0.77–0.81 at about twice the bytes
+/// (notes: parity-gaps/G24-compare-before-after.md, LNX1).
+pub(crate) const ONE_TO_ONE_QUALITY: u8 = 98;
+
+/// The quality of a settled frame with `scale` frame px per full-resolution
+/// px of the photograph.
+pub(crate) fn settled_quality(scale: f32) -> u8 {
+    if scale >= 0.999 {
+        ONE_TO_ONE_QUALITY
+    } else {
+        SETTLED_QUALITY
+    }
+}
+
 /// 4:4:4 MCUs are 8×8 pixels.
 const MCU: usize = 8;
 /// Below this many MCU rows per strip the threads cost more than they save.
