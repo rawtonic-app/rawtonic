@@ -75,6 +75,7 @@
       "failed": "{{batch}}을(를) 완료할 수 없습니다: {{error}}",
       "keywordAdd": "키워드 “{{tag}}”",
       "keywordRemove": "키워드 “{{tag}}” 제거",
+      "keywordRename": "키워드 ‘{{from}}’을(를) ‘{{to}}’(으)로 이름 바꾸는 중",
       "notWritten_other": "사진 {{count}}장을 기록할 수 없습니다",
       "paste": "설정 붙여넣기",
       "preset": "프리셋",
@@ -3964,6 +3965,38 @@
           "showFailed": "폴더를 표시할 수 없습니다: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "{{keyword}} 아래 키워드 숨기기",
+        "confirm": {
+          "cancel": "취소",
+          "convert": "‘{{from}}’을(를) 계층 ‘{{to}}’(으)로 변환할까요?",
+          "convertAction": "변환",
+          "label": "키워드 변경 확인",
+          "merge": "‘{{from}}’을(를) ‘{{to}}’에 병합할까요? ‘{{from}}’은(는) 그것으로 대체됩니다.",
+          "mergeAction": "병합",
+          "move": "‘{{from}}’을(를) ‘{{to}}’(으)로 옮길까요?",
+          "moveAction": "이동",
+          "photos_other": "사진 {{count}}장의 키워드가 변경됩니다.",
+          "rename": "‘{{from}}’의 이름을 ‘{{to}}’(으)로 바꿀까요?",
+          "renameAction": "이름 바꾸기"
+        },
+        "empty": "아직 키워드가 없습니다.",
+        "expand": "{{keyword}} 아래 키워드 보기",
+        "filterHint": "{{keyword}} 및 그 아래 키워드가 있는 사진을 표시합니다. 다른 키워드 위로 끌어 그곳으로 옮깁니다.",
+        "legacyHint": "‘{{keyword}}’는 계층 구조 이전에 작성된 하나의 키워드입니다. 오른쪽 클릭하여 변환하세요.",
+        "menu": {
+          "clearFilter": "이 키워드로 필터링 중지",
+          "convert": "‘{{path}}’(으)로 변환",
+          "filter": "이 키워드가 있는 사진 보기",
+          "moveToTop": "최상위 수준으로 이동",
+          "rename": "이름 바꾸기…"
+        },
+        "renameLabel": "{{keyword}} 이름 바꾸기 또는 이동: 경로 입력(예: 상위 > 이름)",
+        "title": "키워드 목록",
+        "toasts": {
+          "renameFailed": "키워드를 변경할 수 없습니다: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "AI 노이즈 제거",
@@ -4405,6 +4438,7 @@
       "keywords": {
         "add": "키워드 추가",
         "addTo_other": "사진 {{count}}장에 추가",
+        "hierarchyHint": "키워드는 쉼표로 구분합니다. ‘동물 > 개’, ‘동물|개’ 또는 ‘개 < 동물’은 개를 동물 아래에 둡니다.",
         "none": "키워드 없음",
         "ofSelection": "선택 항목의 키워드",
         "partial_other": "사진 {{count}}장 중 {{on}}장에 있음",

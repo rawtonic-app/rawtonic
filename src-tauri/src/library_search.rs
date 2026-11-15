@@ -42,6 +42,32 @@ pub async fn session_search(
     .map_err(|e| e.to_string())?
 }
 
+/// The virtual copies whose own keywords hold `path` or one under it, as
+/// photo references (`<photograph>?vc=<copy>`), wherever they are listed:
+/// a library-wide keyword rename writes them too.
+#[tauri::command]
+pub async fn session_keyword_copies(
+    directory: String,
+    path: String,
+) -> Result<Vec<String>, String> {
+    with_library(directory, false, move |lib| {
+        Ok(lib
+            .copies_with_keyword(&path)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|(photo, copy)| {
+                rawtonic_metadata::photo_ref::PhotoRef::new(
+                    photo.to_string_lossy().into_owned(),
+                    Some(rawtonic_metadata::photo_ref::CopyId::new(copy)),
+                )
+                .to_string()
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// `paths` as the catalog holds them (real paths) in the form of `listed`,
 /// the folder the grid lists (perhaps through a symlink); those outside it
 /// as they are.

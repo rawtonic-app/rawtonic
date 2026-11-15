@@ -184,12 +184,17 @@ pub fn read(session_db: &Path) -> Result<Library> {
         let text = |i: usize| -> rusqlite::Result<String> {
             Ok(r.get::<_, Option<String>>(i)?.unwrap_or_default())
         };
-        let keywords = text(7)?
+        // Capture One writes a hierarchy as `Parent|Child`, the library's
+        // stored form (levels trimmed, `rawtonic_metadata::keywords`).
+        let mut keywords: Vec<String> = Vec::new();
+        for keyword in text(7)?
             .split([',', ';', '\n'])
-            .map(str::trim)
-            .filter(|k| !k.is_empty())
-            .map(str::to_string)
-            .collect();
+            .map(rawtonic_metadata::keywords::normalize)
+        {
+            if !keyword.is_empty() && !keywords.contains(&keyword) {
+                keywords.push(keyword);
+            }
+        }
         let metadata = Metadata {
             rating: r
                 .get::<_, Option<i64>>(5)?

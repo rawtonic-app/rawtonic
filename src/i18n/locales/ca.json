@@ -90,6 +90,7 @@
       "failed": "No s’ha pogut acabar {{batch}}: {{error}}",
       "keywordAdd": "Paraula clau «{{tag}}»",
       "keywordRemove": "Treure la paraula clau «{{tag}}»",
+      "keywordRename": "S'està canviant el nom de la paraula clau «{{from}}» a «{{to}}»",
       "notWritten_one": "No s’ha pogut escriure {{count}} foto",
       "notWritten_many": "No s’han pogut escriure {{count}} fotos",
       "notWritten_other": "No s’han pogut escriure {{count}} fotos",
@@ -4269,6 +4270,40 @@
           "showFailed": "No s'ha pogut mostrar la carpeta: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Amaga les paraules clau sota {{keyword}}",
+        "confirm": {
+          "cancel": "Cancel·la",
+          "convert": "Vols convertir «{{from}}» en la jerarquia «{{to}}»?",
+          "convertAction": "Converteix",
+          "label": "Confirma el canvi de paraula clau",
+          "merge": "Vols fusionar «{{from}}» amb «{{to}}»? «{{from}}» se substitueix per aquesta.",
+          "mergeAction": "Fusiona",
+          "move": "Vols moure «{{from}}» a «{{to}}»?",
+          "moveAction": "Mou",
+          "photos_one": "Això canvia les paraules clau de {{count}} foto.",
+          "photos_many": "Això canvia les paraules clau de {{count}} fotos.",
+          "photos_other": "Això canvia les paraules clau de {{count}} fotos.",
+          "rename": "Vols canviar el nom de «{{from}}» a «{{to}}»?",
+          "renameAction": "Canvia el nom"
+        },
+        "empty": "Encara no hi ha paraules clau.",
+        "expand": "Mostra les paraules clau sota {{keyword}}",
+        "filterHint": "Mostra les fotos amb {{keyword}} i les paraules clau que té a sota. Arrossega-la sobre una altra paraula clau per moure-la-hi.",
+        "legacyHint": "«{{keyword}}» és una sola paraula clau, escrita abans de les jerarquies. Fes clic dret per convertir-la.",
+        "menu": {
+          "clearFilter": "Deixa de filtrar per aquesta paraula clau",
+          "convert": "Converteix en «{{path}}»",
+          "filter": "Mostra les fotos amb aquesta paraula clau",
+          "moveToTop": "Mou al nivell superior",
+          "rename": "Canvia el nom…"
+        },
+        "renameLabel": "Canvia el nom o mou {{keyword}}: escriu el camí, p. ex. Superior > Nom",
+        "title": "Llista de paraules clau",
+        "toasts": {
+          "renameFailed": "No s'han pogut canviar les paraules clau: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "Reducció de soroll amb IA",
@@ -4727,6 +4762,7 @@
         "addTo_one": "Afegeix a {{count}} foto",
         "addTo_many": "Afegeix a {{count}} fotos",
         "addTo_other": "Afegeix a {{count}} fotos",
+        "hierarchyHint": "Separa les paraules clau amb comes. «Animals > Gossos», «Animals|Gossos» o «Gossos < Animals» posa Gossos sota Animals.",
         "none": "Sense paraules clau",
         "ofSelection": "Paraules clau de la selecció",
         "partial_one": "A {{on}} de {{count}} foto",
