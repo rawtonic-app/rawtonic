@@ -408,6 +408,9 @@ fn create_context(
             "{} is an integrated GPU whose shader compiles run under a limit",
             info.name
         ));
+        // And a network on the CPU never runs beside an idle compile: both
+        // take the same memory (G76/WSMOKE20: 8.25-8.5 GB together).
+        rawtonic_gpu::memory_turns::enable();
     }
     let limits = adapter.limits();
 

@@ -212,6 +212,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "defringeVersion",
         "bwVersion",
         "hslVersion",
+        "colorGradingVersion",
         "vignetteStyle",
         "vignetteHighlights",
         "grainStructure",

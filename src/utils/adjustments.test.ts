@@ -18,8 +18,10 @@ import {
   DEHAZE_VERSION,
   withDehazeVersion,
   layersUseDehaze,
+  layersUseGrading,
   layersUseMixer,
   withPresetVersions,
+  withColorGradingVersion,
   withHslVersion,
   layersUseVibrance,
   STRUCTURE_VERSION,
@@ -33,6 +35,7 @@ import {
   RENDER_VERSION,
   DEFRINGE_VERSION,
   BW_VERSION,
+  COLOR_GRADING_VERSION,
   HSL_VERSION,
   SHARPEN_VERSION,
   LUMA_NOISE_VERSION,
@@ -215,6 +218,58 @@ describe('RAW detail defaults', () => {
     expect(pastedAdjustments({ ...mixed, bwVersion: 2 }, ['grayMixer', 'bwVersion'], PasteMode.Merge).bwVersion).toBe(
       2
     );
+  });
+
+  it('keep the colour grading response a saved recipe rendered with', () => {
+    expect(COLOR_GRADING_VERSION).toBe(2);
+    expect(initialAdjustmentsFor(true).colorGradingVersion).toBe(COLOR_GRADING_VERSION);
+    expect(initialAdjustmentsFor(false).colorGradingVersion).toBe(COLOR_GRADING_VERSION);
+    // Neutral wheels render the same with either response; Blending and
+    // Balance alone render nothing.
+    expect(normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS } as Adjustments, true).colorGradingVersion).toBe(
+      COLOR_GRADING_VERSION
+    );
+    const balanced = {
+      ...INITIAL_ADJUSTMENTS,
+      colorGrading: { ...INITIAL_ADJUSTMENTS.colorGrading, blending: 80, balance: -40 }
+    } as Adjustments;
+    expect(normalizeLoadedAdjustments(balanced, true).colorGradingVersion).toBe(COLOR_GRADING_VERSION);
+    // A recipe that graded, on the photo or a layer, keeps the first
+    // response (missing key).
+    const graded = {
+      ...INITIAL_ADJUSTMENTS,
+      colorGrading: { ...INITIAL_ADJUSTMENTS.colorGrading, shadows: { hue: 220, saturation: 30, luminance: 0 } }
+    } as Adjustments;
+    expect(normalizeLoadedAdjustments(graded, true).colorGradingVersion).toBeUndefined();
+    const luminance = {
+      ...INITIAL_ADJUSTMENTS,
+      colorGrading: { ...INITIAL_ADJUSTMENTS.colorGrading, highlights: { hue: 0, saturation: 0, luminance: -20 } }
+    } as Adjustments;
+    expect(normalizeLoadedAdjustments(luminance, true).colorGradingVersion).toBeUndefined();
+    const layerOnly = {
+      masks: [{ adjustments: { colorGrading: { highlights: { hue: 40, saturation: 20, luminance: 0 } } } }]
+    } as unknown as Adjustments;
+    expect(
+      normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS, ...layerOnly } as Adjustments, true).colorGradingVersion
+    ).toBeUndefined();
+    expect(normalizeLoadedAdjustments({ ...graded, colorGradingVersion: 2 }, true).colorGradingVersion).toBe(2);
+    // A paste of the grading states the source's response (1 for the older edit).
+    const pasted = pastedAdjustments(
+      normalizeLoadedAdjustments(graded, true),
+      ['colorGrading', 'colorGradingVersion'],
+      PasteMode.Replace
+    );
+    expect(JSON.parse(JSON.stringify(pasted)).colorGradingVersion).toBe(1);
+    expect(
+      pastedAdjustments({ ...graded, colorGradingVersion: 2 }, ['colorGrading', 'colorGradingVersion'], PasteMode.Merge)
+        .colorGradingVersion
+    ).toBe(2);
+    // Copied layers that grade carry the source's response; a layer-only
+    // preset from before the key states version 1.
+    expect(withColorGradingVersion(layerOnly, { colorGradingVersion: 2 }).colorGradingVersion).toBe(2);
+    expect(withPresetVersions(layerOnly).colorGradingVersion).toBe(1);
+    expect(layersUseGrading(layerOnly)).toBe(true);
+    expect(layersUseGrading({ masks: [{ adjustments: { saturation: 50 } }] } as unknown as Adjustments)).toBe(false);
   });
 
   it('keep the colour mixer response a saved recipe rendered with', () => {

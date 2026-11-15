@@ -195,6 +195,16 @@ pub async fn generate_ai_depth_mask(
     let loaded = crate::image_loader::original_image(&state.source).await?;
     ensure_photo(&loaded.path, &path)?;
     let path_hash = geometry_key(&loaded, &js_adjustments);
+    let cached = lock_recover(&ai_state.models)
+        .as_ref()
+        .and_then(|ai| ai.depth_map.clone())
+        .filter(|cached| cached.path_hash == path_hash);
+    // A depth map to compute: not beside an idle shader compile or an
+    // export where they take turns, the model's load included.
+    let _turn = match cached {
+        Some(_) => None,
+        None => Some(crate::ai_lifecycle::turn(true).await),
+    };
     let depth_model = get_or_init_depth_model(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
@@ -203,10 +213,6 @@ pub async fn generate_ai_depth_mask(
         return Err(task_cancelled());
     }
 
-    let cached = lock_recover(&ai_state.models)
-        .as_ref()
-        .and_then(|ai| ai.depth_map.clone())
-        .filter(|cached| cached.path_hash == path_hash);
     let cached_depth = match cached {
         Some(cached) => cached,
         None => {
@@ -330,6 +336,7 @@ pub async fn generate_ai_subject_mask(
     let _running = ai_state.lifecycle.run();
     let generation = ai_state.lifecycle.generation();
     let started = std::time::Instant::now();
+    let _load_turn = sam_load_turn(&ai_state, true).await;
     let models = get_or_init_sam_models(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
@@ -347,6 +354,7 @@ pub async fn generate_ai_subject_mask(
         generation,
         cancel_flag,
         Some(&path),
+        false,
     )
     .await?;
     let ready = started.elapsed().as_millis();
@@ -525,6 +533,25 @@ async fn wait_turn<'a>(
 /// start of the request: an embedding whose request overlapped an unload
 /// is used once, not kept. Cancelling `cancel` stops a queued request and
 /// the encoder's ONNX Runtime run.
+/// The turn the SAM models' load takes beside idle shader compiles and
+/// exports (`ai_lifecycle::turn`), held by the caller through its run;
+/// `None` when they are loaded (the embedding's run takes its own).
+async fn sam_load_turn(
+    ai_state: &AiState,
+    asked: bool,
+) -> Option<rawtonic_gpu::memory_turns::AiRunTurn> {
+    let loaded = lock_recover(&ai_state.models)
+        .as_ref()
+        .is_some_and(|ai| ai.sam_models.is_some());
+    if loaded {
+        None
+    } else {
+        Some(crate::ai_lifecycle::turn(asked).await)
+    }
+}
+
+/// `ahead`: computed ahead of a click (a photo opened), so it waits for an
+/// idle shader compile where they take turns instead of stopping it.
 #[allow(clippy::too_many_arguments)]
 async fn sam_embeddings(
     state: &tauri::State<'_, AppState>,
@@ -535,8 +562,9 @@ async fn sam_embeddings(
     generation: u64,
     cancel: Option<&Arc<AiTaskToken>>,
     asked: Option<&str>,
+    ahead: bool,
 ) -> Result<(ImageEmbeddings, Arc<image::DynamicImage>, bool), CommandError> {
-    let _encode = wait_turn(&ai_state.sam_encode_lock, cancel).await?;
+    let mut _encode = wait_turn(&ai_state.sam_encode_lock, cancel).await?;
     // Keyed by the photo actually loaded, not the caller's path: a
     // background encode that outlives a photo switch cannot file the new
     // photo's embedding under the old one. A selection asked for one photo
@@ -566,6 +594,21 @@ async fn sam_embeddings(
     if cancel.is_some_and(|t| t.is_cancelled()) {
         return Err(task_cancelled());
     }
+    // As `auto_mask`: the wait for a turn is without the encode lock.
+    let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
+        drop(_encode);
+        let turn = crate::ai_lifecycle::turn(!ahead).await;
+        _encode = wait_turn(&ai_state.sam_encode_lock, cancel).await?;
+        if let Some(embeddings) = cached() {
+            return Ok((embeddings, warped_image, source_is_raw));
+        }
+        if cancel.is_some_and(|t| t.is_cancelled()) {
+            return Err(task_cancelled());
+        }
+        Some(turn)
+    } else {
+        None
+    };
     let options = Arc::new(ort::session::RunOptions::new().map_err(|e| e.to_string())?);
     let watcher = cancel.map(|token| {
         let (token, options) = (token.clone(), options.clone());
@@ -622,6 +665,8 @@ pub async fn precompute_ai_subject_mask(
         .as_ref()
         .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancelled = || _guard.as_ref().is_some_and(|g| g.token.is_cancelled());
+    // The models' load takes a turn as their run does (`sam_load_turn`).
+    let mut load_turn = None;
     // `background`: asked for by opening a photo, not by the user: only
     // with a model that is already installed (no download), and while the
     // system is not short of memory (as `precompute`).
@@ -633,6 +678,7 @@ pub async fn precompute_ai_subject_mask(
         if cancelled() {
             return Ok(());
         }
+        load_turn = sam_load_turn(&ai_state, false).await;
         crate::ai_processing::preload_sam_models(&app_handle, &ai_state)
             .await
             .map_err(|e| e.to_string())?;
@@ -643,6 +689,10 @@ pub async fn precompute_ai_subject_mask(
             return Ok(());
         }
     }
+    if load_turn.is_none() {
+        load_turn = sam_load_turn(&ai_state, true).await;
+    }
+    let _load_turn = load_turn;
     let models = get_or_init_sam_models(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
@@ -665,6 +715,7 @@ pub async fn precompute_ai_subject_mask(
         generation,
         cancel,
         Some(&path),
+        background == Some(true),
     )
     .await
     {
@@ -809,7 +860,7 @@ async fn auto_mask(
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
     // Counts as running from here, so an idle unload waits for the load too.
     let _running = ai_state.lifecycle.run();
-    let _run = kind.lock(ai_state).lock().await;
+    let mut _run = kind.lock(ai_state).lock().await;
     // Keyed by the photo actually loaded, not the caller's path: a run that
     // outlives a photo switch cannot file one photo's mask under another.
     let loaded = crate::image_loader::original_image(&state.source).await?;
@@ -827,6 +878,24 @@ async fn auto_mask(
     if cancelled() {
         return Err(task_cancelled());
     }
+    // Not beside an idle shader compile or an export where they take turns
+    // (model load included); a cached mask above needs none. The wait is
+    // without this kind's lock: a click must not queue behind a run made
+    // ahead that waits for a compile (the click stops that compile).
+    let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
+        drop(_run);
+        let turn = crate::ai_lifecycle::turn(download).await;
+        _run = kind.lock(ai_state).lock().await;
+        if let Some(mask) = cached_mask(ai_state, kind, &key) {
+            return Ok(Some(mask));
+        }
+        if cancelled() {
+            return Err(task_cancelled());
+        }
+        Some(turn)
+    } else {
+        None
+    };
     // The photo's warped image is made while a model that is not loaded yet
     // loads (Core ML loads on a worker thread): a first click waits for the
     // longer of the two instead of both. Only when the model will be there:
@@ -1189,6 +1258,7 @@ pub async fn preload_ai_mask_models(
         return Ok(());
     }
     let _running = ai_state.lifecycle.run();
+    let _turn = crate::ai_lifecycle::turn(false).await;
     let start = std::time::Instant::now();
     for &kind in preload_kinds(rawtonic_onnx::models_run_on_cpu_only()) {
         network(&ai_state, &app_handle, kind, false).await?;
@@ -1384,6 +1454,7 @@ pub async fn generate_relight_depth(
     let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     ai_state.lifecycle.touch();
     let running = ai_state.lifecycle.run();
+    let _turn = crate::ai_lifecycle::turn(true).await;
     let model = crate::ai_processing::get_or_init_relight_model(&app_handle, &ai_state)
         .await
         .map_err(|e| e.to_string())?;

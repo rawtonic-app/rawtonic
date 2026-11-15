@@ -46,6 +46,7 @@ import {
   layersUseDehaze,
   layersUseStructure,
   layersUseWhiteBalance,
+  layersUseGrading,
   layersUseMixer,
   layersUseVibrance,
   type RegionCurve
@@ -1657,6 +1658,7 @@ export default function StudioDevelop() {
               onInteraction={onInteraction}
               toggle={toolSwitch('colorGrading')}
               copy={photoOnly([['colorGrading', t('studio.develop.params.colorGrading')]])}
+              resetsResponse={!layer && !layersUseGrading(adjustments)}
             />
           )}
           {inTab('color') && !layer && (

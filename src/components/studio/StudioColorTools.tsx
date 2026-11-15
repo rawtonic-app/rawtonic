@@ -7,6 +7,7 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { Invokes } from '../ui/AppProperties';
 import {
   BW_VERSION,
+  COLOR_GRADING_VERSION,
   GRAY_MIXER_CHANNELS,
   INITIAL_ADJUSTMENTS,
   INITIAL_GRAY_MIXER,
@@ -30,6 +31,8 @@ interface ToolProps {
   onInteraction(active: boolean): void;
   toggle?: { enabled: boolean; onToggle(): void };
   copy?: ToolParams;
+  /** Colour grading on the photo with no layer that grades: its reset takes a new edit's grading response. */
+  resetsResponse?: boolean;
 }
 
 const REGIONS = [
@@ -133,7 +136,15 @@ const THREE_WAY_ICON = [
  * compact form); the range tabs show one large wheel with numeric sliders.
  * Both are views of the same recipe values and history entries.
  */
-export function StudioColorGrading({ values, disabled, change, onInteraction, toggle, copy }: ToolProps) {
+export function StudioColorGrading({
+  values,
+  disabled,
+  change,
+  onInteraction,
+  toggle,
+  copy,
+  resetsResponse
+}: ToolProps) {
   const { t } = useTranslation();
   const [view, setView] = useState<View>('threeWay');
   const [linked, setLinked] = useState(false);
@@ -176,8 +187,12 @@ export function StudioColorGrading({ values, disabled, change, onInteraction, to
       copy={copy}
       open={false}
       onReset={() =>
+        // Neutral wheels render alike in every grading response: the photo's
+        // reset takes a new edit's, unless a layer grades (the layers follow
+        // the photo's response).
         change({
-          colorGrading: structuredClone(INITIAL_ADJUSTMENTS.colorGrading)
+          colorGrading: structuredClone(INITIAL_ADJUSTMENTS.colorGrading),
+          ...(resetsResponse ? { colorGradingVersion: COLOR_GRADING_VERSION } : {})
         })
       }
     >

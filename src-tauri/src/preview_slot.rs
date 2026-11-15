@@ -87,6 +87,19 @@ impl<T> LatestSlot<T> {
         self.ready.notify_all();
     }
 
+    /// Keeps `job` as the next one only when none is waiting (a job of the
+    /// app's own, never in place of a request). Returns whether it was kept.
+    pub fn submit_if_empty(&self, job: T) -> bool {
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if pending.is_some() {
+            return false;
+        }
+        *pending = Some(job);
+        drop(pending);
+        self.ready.notify_one();
+        true
+    }
+
     pub fn try_take(&self) -> Option<T> {
         self.pending
             .lock()

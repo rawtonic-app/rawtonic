@@ -211,7 +211,8 @@
             "saturation": 22,
             "luminance": 0
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {
@@ -275,7 +276,8 @@
             "saturation": 14,
             "luminance": 10
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {
@@ -339,7 +341,8 @@
             "saturation": 14,
             "luminance": 8
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {
@@ -448,7 +451,8 @@
             "saturation": 0,
             "luminance": 0
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {
@@ -480,7 +484,8 @@
             "saturation": 0,
             "luminance": 0
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {
@@ -512,7 +517,8 @@
             "saturation": 22,
             "luminance": 0
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {
@@ -544,7 +550,8 @@
             "saturation": 22,
             "luminance": 0
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {
@@ -576,7 +583,8 @@
             "saturation": 8,
             "luminance": 40
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {
@@ -608,7 +616,8 @@
             "saturation": 22,
             "luminance": 0
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {
@@ -640,7 +649,8 @@
             "saturation": 18,
             "luminance": 0
           }
-        }
+        },
+        "colorGradingVersion": 1
       }
     },
     {

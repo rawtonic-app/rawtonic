@@ -360,6 +360,73 @@ pub fn before_idle_compile(app: &tauri::AppHandle) {
     }
 }
 
+/// A masking computation's turn beside the GPU's idle shader compiles
+/// (`rawtonic_gpu::memory_turns`), held while the result lives: on an
+/// integrated GPU under a compile limit (a Radeon 680M on Windows) a
+/// network on the CPU and a compile in its helper process do not run at the
+/// same time. `asked`: the photographer waits for this run (a click), so an
+/// idle compile stops for it; a run made ahead waits for the compile.
+/// Take it before the model loads and before the network runs, not for a
+/// result that is cached. At once on every other computer.
+pub async fn turn(asked: bool) -> rawtonic_gpu::memory_turns::AiRunTurn {
+    use rawtonic_gpu::memory_turns::{AiRun, ai_run, takes_turns};
+    let kind = if asked { AiRun::Asked } else { AiRun::Ahead };
+    if !takes_turns() {
+        return ai_run(kind);
+    }
+    // The wait blocks; a run that gives up meanwhile drops the turn when
+    // the wait ends.
+    match tauri::async_runtime::spawn_blocking(move || ai_run(kind)).await {
+        Ok(turn) => turn,
+        Err(_) => ai_run(kind),
+    }
+}
+
+/// An export's turn beside the masking computations
+/// (`rawtonic_gpu::memory_turns`), held while the export runs: where they
+/// take turns, the runs made ahead of a click stop now (a click computes
+/// that mask; the next photo opened gets its own ahead again), the export
+/// waits for a run the
+/// photographer asked for, and masking computations wait for the export.
+/// The export's own networks (a selection computed for an export, AI
+/// Denoise, Super Resolution) take no turn. At once on every other
+/// computer.
+pub async fn export_turn(app: &tauri::AppHandle) -> rawtonic_gpu::memory_turns::ExportTurn {
+    use rawtonic_gpu::memory_turns::{export, takes_turns};
+    if !takes_turns() {
+        return export();
+    }
+    cancel_background_runs(&app.state::<AiState>());
+    match tauri::async_runtime::spawn_blocking(export).await {
+        Ok(turn) => turn,
+        Err(_) => export(),
+    }
+}
+
+/// When a helper process of the idle shader compiles turns out to compile
+/// cold, and every 10 s while it runs
+/// (`rawtonic_gpu::gpu_processing::set_on_cold_helper_compile`): the
+/// masking models go, whenever they were last used, and so does what
+/// rebuilds on demand. `before_idle_compile` keeps models used in the last
+/// 20 s, so someone working with the brush or a mask kept them beside every
+/// compile: the app held 3.8 GB beside a helper's 4.4 GB on a Radeon 680M
+/// (G76/WSMOKE20). No masking computation runs beside the helper there
+/// (`turn`); one that waits for it loads its model again (~7 s there), once
+/// per variant and computer: afterwards the pipeline cache answers the
+/// helper before this is called.
+pub fn release_for_cold_helper_compiles(app: &tauri::AppHandle) {
+    let app = app.clone();
+    rawtonic_gpu::gpu_processing::set_on_cold_helper_compile(Box::new(move || {
+        if models_loaded(&app.state::<AiState>()) {
+            log::info!("AI models: unloading them beside a cold shader compile");
+            unload_and_notify(&app, UnloadReason::Idle);
+        }
+        crate::memory_pressure::release_rebuildable_memory(&app);
+        // Seen in a first session only (a few lines per cold compile).
+        log::info!("Rebuildable memory released beside a cold shader compile");
+    }));
+}
+
 /// Starts the idle check and the memory pressure watch (not for headless
 /// exports).
 pub fn start(app: &tauri::AppHandle) {

@@ -59,6 +59,34 @@ const POLL: Duration = Duration::from_millis(50);
 /// variant took ~60 s on the 680M; a driver hang must not hold the slot).
 const LIMIT: Duration = Duration::from_secs(600);
 
+/// A helper still running after this compiles cold: one the driver's or
+/// our pipeline cache answers ends in 0.5–1.0 s on a Radeon 680M
+/// (G76/WHCF, WCOLD2 run C), a cold one takes 25–60 s and commits about
+/// 4.4 GB on the way.
+const COLD: Duration = Duration::from_secs(2);
+/// How often the app gives memory back again while a helper compiles cold:
+/// a photo opened during the compile fills the caches again (the app held
+/// about 2.4 GB beside the start helper when a photo was opened at once,
+/// 6.8 GB together on a Radeon 680M; G76/WCOLD2B run 3).
+const COLD_AGAIN: Duration = Duration::from_secs(10);
+
+/// What the app gives back when a helper turns out to compile cold
+/// (`set_on_cold_helper_compile`).
+static ON_COLD: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+
+/// Sets what the app does once a helper turns out to compile cold (`COLD`)
+/// and every `COLD_AGAIN` while it still runs:
+/// give back memory that is only worth its reload beside a compile of
+/// 4.4 GB, not beside one the cache answers in half a second (the AI
+/// models: with them loaded and the masking tools in use, the app held
+/// 3.8 GB beside a helper on a Radeon 680M, 8.25 GB together;
+/// G76/WSMOKE20). Once per process.
+pub fn set_on_cold_helper_compile(release: Box<dyn Fn() + Send + Sync>) {
+    if ON_COLD.set(release).is_err() {
+        log::warn!("GPU idle compiles: the cold-compile release was already set");
+    }
+}
+
 /// Helpers stopped and helpers that compiled their job (tests).
 #[cfg(test)]
 pub(super) static STOPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -199,6 +227,7 @@ pub(super) fn compile_in_helper(
         child.id(),
         since_start()
     );
+    let mut released: Option<Instant> = None;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -219,7 +248,7 @@ pub(super) fn compile_in_helper(
                 if wanted {
                     "a compile or an export waits for the slot; it runs again in idle time"
                 } else if stop() {
-                    "idle compiles end, or an export's variant goes first"
+                    "idle compiles end, an export's variant or an AI run asked for goes first"
                 } else {
                     "time limit"
                 }
@@ -230,6 +259,12 @@ pub(super) fn compile_in_helper(
             #[cfg(test)]
             STOPS.fetch_add(1, Ordering::SeqCst);
             return Helped::Stopped;
+        }
+        if started.elapsed() >= COLD && released.is_none_or(|at| at.elapsed() >= COLD_AGAIN) {
+            released = Some(Instant::now());
+            if let Some(release) = ON_COLD.get() {
+                release();
+            }
         }
         std::thread::sleep(POLL);
     };
