@@ -50,6 +50,16 @@ describe('browser draft patches', () => {
     expect(shown(host)).toBeNull();
   });
 
+  it('composites the host only while it shows a draft', async () => {
+    expect(host.style.willChange).toBe('');
+    showDraftPatch(patch('http://a/6'), 106);
+    await finish('http://a/6');
+    expect(host.style.willChange).toBe('transform');
+    clearDraftPatch();
+    // At rest the zoomed viewer must not be composited (G24).
+    expect(host.style.willChange).toBe('');
+  });
+
   it('declines without a viewer', () => {
     registerDraftPatchHost(null);
     expect(showDraftPatch(patch('http://a/5'), 105)).toBe(false);

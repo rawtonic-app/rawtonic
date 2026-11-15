@@ -47,6 +47,8 @@ import { isLevelsPicker } from '../../utils/targetedAdjustment';
 import SplitViewOverlay, { ViewerBeforeBadge } from './editor/SplitViewOverlay';
 import { anchoredAt, keepMagnification } from '../../utils/beforeAfter';
 import BrowserBeforePane from './editor/BrowserBeforePane';
+import { compositeWhileMoving } from '../../utils/layerWhileMoving';
+import { isOneToOne, snapToDevicePixel } from '../../utils/pixelSnap';
 import {
   MIN_VIEWER_ZOOM,
   cropModeBox,
@@ -217,6 +219,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   /** Side by side: the before pane left of the viewer (the after pane). */
   const beforePaneRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  /** The viewer shows browser frames (Linux), not the native display. */
+  const browserFramesRef = useRef(false);
   const transformStateRef = useRef<TransformState>(transformState);
   transformStateRef.current = transformState;
   const [isPanningState, setIsPanningState] = useState(false);
@@ -577,6 +581,25 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     [getTransformBounds]
   );
 
+  /** The transform as drawn: with browser frames at 100 % the pan moved by
+   * at most half a device pixel so the frame's pixels land on whole device
+   * pixels (utils/pixelSnap.ts). The pan itself stays unrounded, so small
+   * trackpad moves still add up. */
+  const shownTransform = useCallback(
+    (t: TransformState): TransformState => {
+      const fit = imageRenderSizeRef.current;
+      const dpr = window.devicePixelRatio || 1;
+      if (!browserFramesRef.current || !isOneToOne(t.scale, fit.scale, dpr)) return t;
+      const bounds = getTransformBounds(t.scale);
+      return {
+        scale: t.scale,
+        positionX: snapToDevicePixel(t.positionX, t.scale, fit.offsetX, dpr, bounds.minX, bounds.maxX),
+        positionY: snapToDevicePixel(t.positionY, t.scale, fit.offsetY, dpr, bounds.minY, bounds.maxY)
+      };
+    },
+    [getTransformBounds]
+  );
+
   const applyTransform = useCallback(
     (x: number, y: number, scale: number, animating = false) => {
       // Any other transform (a wheel, a pan, a reset) ends the animation.
@@ -585,7 +608,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       setTransformState({ scale, positionX: x, positionY: y });
 
       if (contentRef.current) {
-        contentRef.current.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+        const shown = shownTransform({ positionX: x, positionY: y, scale });
+        contentRef.current.style.transform = `translate(${shown.positionX}px, ${shown.positionY}px) scale(${scale})`;
+        // Browser frames (Linux): composited only while moving, so at rest
+        // WebKit paints the frame at the zoom, not a magnified raster.
+        if (browserFramesRef.current) compositeWhileMoving(contentRef.current);
       }
 
       if (!isTransitioningRef.current) {
@@ -609,7 +636,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         handleZoomed({ scale, positionX: x, positionY: y });
       }, 100);
     },
-    [handleZoomed]
+    [handleZoomed, shownTransform]
   );
 
   /** Stops the animation under way, if any, and forgets where it went. */
@@ -2512,6 +2539,10 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }
 
   const isWgpuActive = appSettings?.useWgpuRenderer !== false && (hasRenderedFirstFrame || holdingNativeFrame);
+  // Read by applyTransform; a hint already set lapses within its settle time.
+  browserFramesRef.current = !isWgpuActive;
+  // Both panes draw the same snapped pan (side by side's before pane too).
+  const shownView = shownTransform(transformState);
   // The before pane only navigates: the zoom and pan cursors of the viewer.
   const beforePaneCursor =
     isPanningState && (isMiddleMousePanning.current || isZoomActionActive)
@@ -2582,7 +2613,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
                 path={selectedImage.path}
                 adjustments={adjustments}
                 size={imageRenderSize}
-                transform={transformState}
+                transform={shownView}
                 enabled={canRenderSource(selectedImage)}
                 decoded={selectedImage.isDecoded}
               />
@@ -2623,10 +2654,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             ref={contentRef}
             className="w-full h-full flex items-center justify-center origin-top-left"
             style={{
-              transform: `translate(${transformState.positionX}px, ${transformState.positionY}px) scale(${transformState.scale})`,
-              // WebKit's JPEG fallback should move a composited layer while
-              // zooming/panning, rather than repainting the SVG photo each move.
-              willChange: isWgpuActive ? undefined : 'transform'
+              // No `will-change` here: `applyTransform` sets it only while the
+              // view moves (utils/layerWhileMoving.ts).
+              transform: `translate(${shownView.positionX}px, ${shownView.positionY}px) scale(${shownView.scale})`
             }}
           >
             <ImageCanvas

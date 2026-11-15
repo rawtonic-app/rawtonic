@@ -484,11 +484,14 @@ type Prepared<'a> = &'a image::RgbaImage;
 #[cfg(target_os = "linux")]
 type Prepared<'a> = Result<Vec<u8>, String>;
 
-fn prepare(rgba: &image::RgbaImage) -> Prepared<'_> {
+fn prepare(rgba: &image::RgbaImage, region: bool) -> Prepared<'_> {
     #[cfg(not(target_os = "linux"))]
-    return rgba;
+    {
+        let _ = region;
+        rgba
+    }
     #[cfg(target_os = "linux")]
-    return browser::encode(rgba);
+    return browser::encode(rgba, region);
 }
 
 /// Puts a developed frame (`size` px) into the window's cell as `layer`.
@@ -643,7 +646,7 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
             ) {
                 Ok(developed) => {
                     let mut changed = false;
-                    let frame = prepare(&developed.rgba);
+                    let frame = prepare(&developed.rgba, false);
                     {
                         let mut guard = lock_recover(&INNER);
                         let Some(inner) = guard.as_mut() else { return };
@@ -710,7 +713,7 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                 multi_view::CELL_RENDER,
             ) {
                 Ok(region) => {
-                    let frame = prepare(&region.rgba);
+                    let frame = prepare(&region.rgba, true);
                     let mut guard = lock_recover(&INNER);
                     let Some(inner) = guard.as_mut() else { return };
                     if !inner

@@ -1836,7 +1836,11 @@ pub(crate) fn process_preview_job(
         let new_scale = scale_for_gpu * scale_factor;
         (small_preview_base, new_scale, interactive_quality)
     } else {
-        (Arc::clone(&final_preview_base), scale_for_gpu, 94)
+        (
+            Arc::clone(&final_preview_base),
+            scale_for_gpu,
+            crate::preview_jpeg::settled_quality(scale_for_gpu),
+        )
     };
 
     let (preview_width, preview_height) = processing_image.dimensions();

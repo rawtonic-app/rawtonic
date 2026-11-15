@@ -8,6 +8,23 @@ export interface BrowserViewFrame {
   url: string;
   width: number;
   height: number;
+  /** The JPEG's own width in pixels (the frame as developed). */
+  pixelWidth: number;
+}
+
+/** The width in a baseline or progressive JPEG's frame header; 0 if none. */
+export function jpegWidth(bytes: Uint8Array): number {
+  let at = 2;
+  while (at + 9 < bytes.length && bytes[at] === 0xff) {
+    const marker = bytes[at + 1];
+    const length = (bytes[at + 2] << 8) | bytes[at + 3];
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return (bytes[at + 7] << 8) | bytes[at + 8];
+    }
+    if (marker === 0xda) return 0;
+    at += 2 + length;
+  }
+  return 0;
 }
 
 /** An isolated developed frame. Stale completions cannot replace a newer
@@ -31,7 +48,8 @@ export function useBrowserViewPreview(path: string | null, recipe: string | null
           if (cancelled) return;
           if (buffer.byteLength <= 8) throw new Error('Empty browser view');
           const header = new DataView(buffer);
-          const url = URL.createObjectURL(new Blob([buffer.slice(8)], { type: 'image/jpeg' }));
+          const jpeg = buffer.slice(8);
+          const url = URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' }));
           if (urlRef.current) URL.revokeObjectURL(urlRef.current);
           urlRef.current = url;
           setFrame({
@@ -39,7 +57,8 @@ export function useBrowserViewPreview(path: string | null, recipe: string | null
             contentKey,
             url,
             width: header.getUint32(0, true),
-            height: header.getUint32(4, true)
+            height: header.getUint32(4, true),
+            pixelWidth: jpegWidth(new Uint8Array(jpeg))
           });
         })
         .catch((err: unknown) => {

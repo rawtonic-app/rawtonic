@@ -59,6 +59,8 @@ describe('before/after', () => {
     for (const renderVersion of [undefined, 2]) {
       const edited = { ...INITIAL_ADJUSTMENTS, exposure: 1, rotation: 2.5, renderVersion };
       expect(originalPreviewAdjustments(edited).renderVersion).toBe(renderVersion);
+      // The decode variant follows the edit's colour noise version as well.
+      expect(originalPreviewAdjustments({ ...edited, colorNoiseVersion: 11 }).colorNoiseVersion).toBe(11);
     }
   });
 
