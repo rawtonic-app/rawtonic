@@ -173,7 +173,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 - **Relight\*** _(experimental)_. Up to four added lights with patterns; the photo's own light can be turned down.
 - **Merge.** HDR, panorama, HDR panorama and focus stacking to a DNG; collages.
 - **Film.** Convert scanned negatives; grain with five structures (even, soft, clumped, speckled, gritty) and vignette.
-- **Library.** Ratings, flags, labels, keywords and IPTC in XMP sidecars; stacks and Auto-Stack; find duplicates; eyes-open check\*; Shift Capture Time; Match Light; catalogs, albums and smart albums; search by what a photo shows (Content search\*, sorts by match); import from Lightroom Classic and Capture One.
+- **Library.** Ratings, flags, labels, keywords (hierarchies such as Animals > Dogs, with a Keyword List and drag-and-drop onto a keyword) and IPTC in XMP sidecars; stacks and Auto-Stack; find duplicates; eyes-open check\*; Shift Capture Time; Match Light; catalogs, albums and smart albums; search by what a photo shows (Content search\*, sorts by match); import from Lightroom Classic and Capture One.
 - **Output.** Super Resolution (2× enlargement at export\*); proof sheets (File › Proof Sheet…: numbered contact sheets as PDF or JPEG for clients); JPEG, TIFF, PNG, WebP, JPEG XL and AVIF in sRGB, Display P3, Adobe RGB or ProPhoto RGB; output sharpening for screen and print; watermarks and borders; metadata you choose to keep.
 - **Private by design.** No account or telemetry. An optional startup update check is the only automatic network access ([privacy](PRIVACY.md)).
 
