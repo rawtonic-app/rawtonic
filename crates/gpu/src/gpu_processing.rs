@@ -3606,6 +3606,19 @@ struct BlurParams {
     flags: u32,
 }
 
+/// blur.wgsl `FusedBlurParams`: the horizontal passes of up to three
+/// small blurs in one (`horizontal_blurs`).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct FusedBlurParams {
+    blurs: [BlurParams; 3],
+    /// Bit k: blur k is computed.
+    enabled: u32,
+    /// The largest radius of the computed blurs.
+    widest: u32,
+    _pad: [u32; 2],
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct FlareParams {
@@ -3968,6 +3981,12 @@ pub struct GpuProcessor {
     h_blur_pipeline: wgpu::ComputePipeline,
     v_blur_pipeline: wgpu::ComputePipeline,
     blur_params_buffer: wgpu::Buffer,
+    fused_blur_bgl: wgpu::BindGroupLayout,
+    fused_blur_pipeline: wgpu::ComputePipeline,
+    fused_blur_params_buffer: wgpu::Buffer,
+    /// The second and third blur's horizontal results of `horizontal_blurs`
+    /// (the first's go to `ping_pong_view`), made on first use.
+    fused_ping_pong: std::sync::OnceLock<[wgpu::TextureView; 2]>,
 
     flare_bgl_0: wgpu::BindGroupLayout,
     flare_bgl_1: wgpu::BindGroupLayout,
@@ -4019,6 +4038,13 @@ pub struct GpuProcessor {
     /// sharpening's mask view `SHARPEN_VIEW`).
     detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 5],
     detail_compilation: [std::sync::OnceLock<()>; 5],
+    /// Whether the backend computes the detail stage in its own pass to the
+    /// same bits as inline in the main pass, so exports may take the pass
+    /// (`export_detail_pass`) without changing a byte: Metal. NVIDIA's
+    /// Vulkan compiler rounds them one code apart in up to 0.002 % of the
+    /// pixels (`cached_detail_matches_inline_detail`), so exports there keep
+    /// the stage inline.
+    exact_detail_pass: bool,
     preview_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
     preview_compilation: Arc<VariantTable<std::sync::OnceLock<()>>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
@@ -4063,6 +4089,7 @@ pub struct GpuProcessor {
     deferred_export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     deferred_pipeline: BackgroundPipeline,
     deferred_tile: std::sync::OnceLock<HighPrecisionTile>,
+    export_detail_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// `encode_deferred` into an 8-bit and a high-precision output tile.
     encode_bgls: [wgpu::BindGroupLayout; 2],
     encode_pipelines: [std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>; 2],
@@ -5566,12 +5593,49 @@ fn export_display_features(adjustments: &AllAdjustments) -> usize {
     }
 }
 
+/// The variant code of the detail stage alone (shader.wgsl `detail_stage`):
+/// noise reduction with its refinements, sharpening with responses 7 and 8.
+const DETAIL_FEATURES: usize =
+    1 | (1 << 4) | REFINED_NR_PREVIEW_FEATURE | SHARPEN_V7_FEATURE | SHARPEN_V8_FEATURE;
+
+/// Whether an export of `adjustments` computes its detail stage (noise
+/// reduction, sharpening) in the display's detail pass (`detail_main`, per
+/// tile) and renders the main pass with its specialized variant without the
+/// detail code (`export_variant`), which reads the stage instead. The large
+/// variant with both the neighbourhood code of noise reduction and the tone
+/// code took about a third more GPU time than the two passes (notes:
+/// benchmark-results/ext3-gpu-stages-2026-11-15, option 1). Only where the
+/// specialized variant renders (`renderVersion` 5 or newer, no curve table;
+/// older recipes keep the general shader), where the variant has noise
+/// reduction or sharpening code to leave out, and where every pixel takes
+/// the stage from the pass: no layer changes noise reduction, sharpening or
+/// Moiré (shader.wgsl `cached_detail`). Not under a compile limit, whose
+/// exports take display or folded variants.
+fn export_detail_pass(adjustments: &crate::image_processing::PreparedAdjustments) -> bool {
+    adjustments.specialized_export
+        && !compile_limited()
+        && adjustments.global.region_curve_active[1] == 0
+        && adjustments.global.show_clipping == 0
+        && preview_features(adjustments) & ((1 << 0) | (1 << 4)) != 0
+        && adjustments
+            .mask_adjustments
+            .iter()
+            .take(adjustments.mask_count as usize)
+            .all(|m| {
+                m.sharpness == 0.0
+                    && m.luma_noise_reduction == 0.0
+                    && m.color_noise_reduction == 0.0
+                    && m.moire[0] == 0.0
+            })
+}
+
 /// The specialized variant an export of `adjustments` compiles, or `None`
 /// for the general pipeline; `folded` for a folded export variant
 /// (`GpuProcessor::export_pipeline`: only under a compile limit).
 fn export_variant(
     adjustments: &crate::image_processing::PreparedAdjustments,
     folded: bool,
+    detail_pass: bool,
 ) -> Option<usize> {
     // Curve tables have no specialized export variant.
     if adjustments.global.region_curve_active[1] != 0 {
@@ -5585,7 +5649,12 @@ fn export_variant(
     // variant 288k inlined expressions, which the Radeon 680M compiled for
     // 438 s into 52 GB until its device was lost (G76/WCC6).
     if adjustments.specialized_export {
-        let features = preview_features(adjustments);
+        let mut features = preview_features(adjustments);
+        // The detail pass computes the noise reduction and sharpening
+        // (`export_detail_pass`): the main pass only reads them.
+        if detail_pass && !folded && std::env::var_os("EXT4_FULL_VARIANT").is_none() {
+            features &= !DETAIL_FEATURES;
+        }
         return Some(if folded {
             features
         } else {
@@ -6502,6 +6571,42 @@ fn create_shader(
 /// registered one (`pipeline_cache::open`), and writes the cache soon after.
 /// An idle compile a helper process ran takes its pipeline through the
 /// cache that process left (`idle_compile_child`) instead of the device's.
+/// The detail pass of `GpuProcessor::detail_pipeline_slot`'s `slot`, or
+/// `None` (logged) if it failed.
+fn compile_detail_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    slot: usize,
+) -> Option<wgpu::ComputePipeline> {
+    let sharpen_v7 = slot == 1 || slot >= 3;
+    let sharpen_v8 = slot == 2 || slot == 4;
+    let mask_view = slot >= 3;
+    let created = create_compute_pipeline(
+        device,
+        &wgpu::ComputePipelineDescriptor {
+            label: Some("Detail cache"),
+            layout: Some(layout),
+            module: shader,
+            entry_point: Some("detail_main"),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &[
+                    ("SHARPEN_V7", if sharpen_v7 { 1.0 } else { 0.0 }),
+                    ("SHARPEN_V8", if sharpen_v8 { 1.0 } else { 0.0 }),
+                    ("SHARPEN_VIEW", if mask_view { 1.0 } else { 0.0 }),
+                ],
+                ..Default::default()
+            },
+            cache: None,
+        },
+        CompileWeight::Small,
+    );
+    if let Err(error) = &created {
+        log::error!("Detail cache unavailable; computing it per frame: {error}");
+    }
+    created.ok()
+}
+
 fn create_compute_pipeline(
     device: &wgpu::Device,
     descriptor: &wgpu::ComputePipelineDescriptor,
@@ -7524,6 +7629,69 @@ impl GpuProcessor {
             mapped_at_creation: false,
         });
 
+        // The small blurs' horizontal passes in one (`horizontal_blurs`).
+        let fused_blur_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Fused Blur BGL"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ]
+            .into_iter()
+            .chain((4..7).map(|binding| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            }))
+            .collect::<Vec<_>>(),
+        });
+        let fused_blur_pipeline = create_compute_pipeline(
+            device,
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("Fused Horizontal Blur Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Fused Blur Pipeline Layout"),
+                        bind_group_layouts: &[Some(&fused_blur_bgl)],
+                        immediate_size: 0,
+                    }),
+                ),
+                module: &blur_shader_module,
+                entry_point: Some("horizontal_blurs"),
+                compilation_options: Default::default(),
+                cache: None,
+            },
+            CompileWeight::Tiny,
+        )?;
+        let fused_blur_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Fused Blur Params Buffer"),
+            size: std::mem::size_of::<FusedBlurParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let flare_shader =
             create_shader(device, "Flare Shader", include_str!("shaders/flare.wgsl"))?;
 
@@ -7921,6 +8089,7 @@ impl GpuProcessor {
             view_formats: &[],
         });
         let tile_output_texture_view = tile_output_texture.create_view(&Default::default());
+        let exact_detail_pass = context.device.adapter_info().backend == wgpu::Backend::Metal;
 
         let processor = Self {
             context,
@@ -7928,6 +8097,10 @@ impl GpuProcessor {
             h_blur_pipeline,
             v_blur_pipeline,
             blur_params_buffer,
+            fused_blur_bgl,
+            fused_blur_pipeline,
+            fused_blur_params_buffer,
+            fused_ping_pong: std::sync::OnceLock::new(),
             flare_bgl_0,
             flare_bgl_1,
             flare_threshold_pipeline,
@@ -7955,6 +8128,7 @@ impl GpuProcessor {
             detail_layout,
             detail_pipeline: Default::default(),
             detail_compilation: Default::default(),
+            exact_detail_pass,
             preview_pipelines,
             preview_compilation,
             preview_failed,
@@ -7984,6 +8158,7 @@ impl GpuProcessor {
             deferred_export_pipelines: variant_table(),
             deferred_pipeline,
             deferred_tile: std::sync::OnceLock::new(),
+            export_detail_tile: std::sync::OnceLock::new(),
             encode_bgls: [encode_bgl, high_precision_encode_bgl],
             encode_pipelines: Default::default(),
             tile_output_size: clamped_tile_size,
@@ -8889,6 +9064,12 @@ impl GpuProcessor {
             .get_or_init(|| self.float_tile("Deferred Tile Texture"))
     }
 
+    /// The detail stage of an export's tile (`export_detail_pass`).
+    fn export_detail_tile(&self) -> &HighPrecisionTile {
+        self.export_detail_tile
+            .get_or_init(|| self.float_tile("Export Detail Tile"))
+    }
+
     /// `encode_deferred` into an 8-bit or a high-precision output tile.
     fn encode_pipeline(&self, high_precision: bool) -> Result<&wgpu::ComputePipeline, String> {
         self.encode_pipelines[usize::from(high_precision)]
@@ -9453,9 +9634,6 @@ impl GpuProcessor {
     /// Slot 0 plain, 1 with response 7's Masking, 2 with response 8, 3 the
     /// mask view (response 7's code), 4 the mask view with response 8's.
     fn detail_pipeline_slot(&self, slot: usize) -> Option<&wgpu::ComputePipeline> {
-        let sharpen_v7 = slot == 1 || slot >= 3;
-        let sharpen_v8 = slot == 2 || slot == 4;
-        let mask_view = slot >= 3;
         if self.detail_pipeline[slot].get().is_none() {
             self.detail_compilation[slot].get_or_init(|| {
                 let pipeline = Arc::clone(&self.detail_pipeline[slot]);
@@ -9463,33 +9641,38 @@ impl GpuProcessor {
                 let shader = self.preview_shader.clone();
                 let layout = self.detail_layout.clone();
                 spawn_device_thread("pipeline-compile", move || {
-                    let created = create_compute_pipeline(
-                        &device,
-                        &wgpu::ComputePipelineDescriptor {
-                            label: Some("Detail cache"),
-                            layout: Some(&layout),
-                            module: &shader,
-                            entry_point: Some("detail_main"),
-                            compilation_options: wgpu::PipelineCompilationOptions {
-                                constants: &[
-                                    ("SHARPEN_V7", if sharpen_v7 { 1.0 } else { 0.0 }),
-                                    ("SHARPEN_V8", if sharpen_v8 { 1.0 } else { 0.0 }),
-                                    ("SHARPEN_VIEW", if mask_view { 1.0 } else { 0.0 }),
-                                ],
-                                ..Default::default()
-                            },
-                            cache: None,
-                        },
-                        CompileWeight::Small,
-                    );
-                    if let Err(error) = &created {
-                        log::error!("Detail cache unavailable; computing it per frame: {error}");
-                    }
-                    let _ = pipeline.set(created.ok());
+                    let _ = pipeline.set(compile_detail_pipeline(&device, &shader, &layout, slot));
                 });
             });
         }
         self.detail_pipeline[slot].get().and_then(Option::as_ref)
+    }
+
+    /// The detail pass an export of `adjustments` renders its detail stage
+    /// with (`export_detail_pass`), compiled here if it is not yet (an export
+    /// cannot wait for frames to bring it); `None` if it does not apply or
+    /// failed, and the export then computes the stage in the main pass.
+    fn export_detail_pipeline(
+        &self,
+        adjustments: &crate::image_processing::PreparedAdjustments,
+    ) -> Option<&wgpu::ComputePipeline> {
+        if !self.exact_detail_pass
+            || !export_detail_pass(adjustments)
+            || std::env::var_os("EXT4_NO_DETAIL").is_some()
+        {
+            return None;
+        }
+        let slot = sharpen_level(adjustments);
+        self.detail_pipeline[slot]
+            .get_or_init(|| {
+                compile_detail_pipeline(
+                    &self.context.device,
+                    &self.preview_shader,
+                    &self.detail_layout,
+                    slot,
+                )
+            })
+            .as_ref()
     }
 
     /// CPU output preserves the general curve arithmetic, including identity
@@ -9504,6 +9687,17 @@ impl GpuProcessor {
         adjustments: &crate::image_processing::PreparedAdjustments,
         output: MainOutput,
     ) -> Result<&wgpu::ComputePipeline, String> {
+        self.export_pipeline_with(adjustments, output, false)
+    }
+
+    /// `export_pipeline`, without the detail stage's code if `detail_pass`
+    /// (`export_detail_pass`).
+    fn export_pipeline_with(
+        &self,
+        adjustments: &crate::image_processing::PreparedAdjustments,
+        output: MainOutput,
+        detail_pass: bool,
+    ) -> Result<&wgpu::ComputePipeline, String> {
         // Folded only under a compile limit (AMD's Windows Vulkan driver):
         // elsewhere the driver gets the whole shader with the variant's
         // constants as before, because the folded module, the same math,
@@ -9511,7 +9705,7 @@ impl GpuProcessor {
         // Vulkan (1-7 codes in a few pixels) and 94 of 280 on Metal (G76/
         // WCC6 preservation), and exports stay byte-identical across changes.
         let folded = compile_limited();
-        let Some(features) = export_variant(adjustments, folded) else {
+        let Some(features) = export_variant(adjustments, folded, detail_pass) else {
             return self.general_pipeline(adjustments, output);
         };
         let pipelines = match output {
@@ -10312,6 +10506,17 @@ impl GpuProcessor {
         // Display frames keep their analytics image with the working texture.
         let analytics_tile =
             (output_to_display || readback_analytics).then(|| self.tile_analytics());
+        // An export with its detail stage in the detail pass and the main
+        // pass's variant without it (`export_detail_pass`).
+        let export_detail = (readback_shader == ReadbackShader::Export
+            && !output_to_display
+            && !export_display
+            && !export_deferred_display
+            && !force_full_preparation
+            && !force_general_pipeline)
+            .then(|| self.export_detail_pipeline(&request.adjustments))
+            .flatten();
+        let detail_pass = export_detail.is_some();
         // Whether the pipeline is a display variant: with the effect passes
         // a main pass, which the finish pass follows.
         let mut display_variant = false;
@@ -10332,7 +10537,11 @@ impl GpuProcessor {
                     display_variant = variant;
                     pipeline
                 } else {
-                    self.export_pipeline(&request.adjustments, MainOutput::Deferred)?
+                    self.export_pipeline_with(
+                        &request.adjustments,
+                        MainOutput::Deferred,
+                        detail_pass,
+                    )?
                 },
                 &self.high_precision_bgl,
                 &tile.texture,
@@ -10344,7 +10553,11 @@ impl GpuProcessor {
                 if force_full_preparation || force_general_pipeline {
                     self.general_pipeline(&request.adjustments, MainOutput::SixteenBit)?
                 } else {
-                    self.export_pipeline(&request.adjustments, MainOutput::SixteenBit)?
+                    self.export_pipeline_with(
+                        &request.adjustments,
+                        MainOutput::SixteenBit,
+                        detail_pass,
+                    )?
                 },
                 &self.high_precision_bgl,
                 &high_precision_tile.texture,
@@ -10364,7 +10577,7 @@ impl GpuProcessor {
                 display_variant = variant;
                 pipeline
             } else if !output_to_display && !force_full_preparation && !force_general_pipeline {
-                self.export_pipeline(&request.adjustments, MainOutput::EightBit)?
+                self.export_pipeline_with(&request.adjustments, MainOutput::EightBit, detail_pass)?
             } else {
                 self.general_pipeline(&request.adjustments, MainOutput::EightBit)?
             };
@@ -11025,6 +11238,160 @@ impl GpuProcessor {
                             bytes: 0,
                         }
                     };
+                // The small blurs (sharpening, tonal, noise reduction) the
+                // tile still needs, with their horizontal passes in one
+                // (blur.wgsl `horizontal_blurs`) where they blur the same
+                // rows; each then has its own vertical pass. The same values
+                // as one by one (`run_blur`), which test oracles keep.
+                let small_blurs: Vec<(usize, BlurParams)> = [(0, 1.0f32), (1, 3.5), (4, 2.0)]
+                    .into_iter()
+                    .filter(|&(index, _)| blur_requirements[index] && tile.views[index].is_none())
+                    .map(|(index, base_radius)| {
+                        let radius = (base_radius * scale).ceil().max(1.0) as u32;
+                        let beyond =
+                            blur_rows_beyond(index, radius, whole_blur_radius, reach, small_reach);
+                        (
+                            index,
+                            BlurParams {
+                                radius,
+                                tile_offset_x: input_x_start,
+                                tile_offset_y: input_y_start,
+                                input_width,
+                                input_height,
+                                source_x: window.x,
+                                source_y: window.y,
+                                full_width: width,
+                                full_height: height,
+                                // Rows beyond the input (none for these
+                                // radii) leave the blur to `run_blur`.
+                                rows_above: beyond,
+                                blurred_rows: input_height,
+                                flags: u32::from(adjustments.global.is_raw_image != 1) << 1,
+                            },
+                        )
+                    })
+                    .collect();
+                if !force_full_preparation
+                    && small_blurs.len() >= 2
+                    && small_blurs.iter().all(|(_, params)| params.rows_above == 0)
+                {
+                    let [second, third] = self.fused_ping_pong.get_or_init(|| {
+                        std::array::from_fn(|_| {
+                            device
+                                .create_texture(&wgpu::TextureDescriptor {
+                                    label: Some("Fused Ping Pong Texture"),
+                                    size: self.tile_output_size,
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Rgba16Float,
+                                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                        | wgpu::TextureUsages::STORAGE_BINDING,
+                                    view_formats: &[],
+                                })
+                                .create_view(&Default::default())
+                        })
+                    });
+                    let horizontal = [&self.ping_pong_view, second, third];
+                    let mut fused = FusedBlurParams {
+                        blurs: [small_blurs[0].1; 3],
+                        enabled: 0,
+                        widest: 0,
+                        _pad: [0; 2],
+                    };
+                    for (slot, (_, params)) in small_blurs.iter().enumerate() {
+                        fused.blurs[slot] = *params;
+                        fused.enabled |= 1 << slot;
+                        fused.widest = fused.widest.max(params.radius);
+                    }
+                    queue.write_buffer(
+                        &self.fused_blur_params_buffer,
+                        0,
+                        bytemuck::bytes_of(&fused),
+                    );
+                    let mut entries = vec![
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(input_texture_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: self.fused_blur_params_buffer.as_entire_binding(),
+                        },
+                    ];
+                    entries.extend(horizontal.iter().zip(4..).map(|(view, binding)| {
+                        wgpu::BindGroupEntry {
+                            binding,
+                            resource: wgpu::BindingResource::TextureView(view),
+                        }
+                    }));
+                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Fused H-Blur BG"),
+                        layout: &self.fused_blur_bgl,
+                        entries: &entries,
+                    });
+                    let mut encoder = device.create_command_encoder(&Default::default());
+                    {
+                        let mut cpass = encoder.begin_compute_pass(&Default::default());
+                        cpass.set_pipeline(&self.fused_blur_pipeline);
+                        cpass.set_bind_group(0, &bind_group, &[]);
+                        cpass.dispatch_workgroups(
+                            input_width.div_ceil(16),
+                            input_height.div_ceil(16),
+                            1,
+                        );
+                    }
+                    queue.submit(Some(encoder.finish()));
+                    for ((index, params), horizontal) in small_blurs.iter().zip(horizontal) {
+                        let output_view = tile.views[*index].insert({
+                            tile.bytes += input_width as usize * input_height as usize * 8;
+                            device
+                                .create_texture(&wgpu::TextureDescriptor {
+                                    label: Some("Cached blur tile"),
+                                    size: input_texture_size,
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Rgba16Float,
+                                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                        | wgpu::TextureUsages::STORAGE_BINDING,
+                                    view_formats: &[],
+                                })
+                                .create_view(&Default::default())
+                        });
+                        queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::bytes_of(params));
+                        let v_blur_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("V-Blur BG"),
+                            layout: &self.blur_bgl,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::TextureView(horizontal),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::TextureView(output_view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: self.blur_params_buffer.as_entire_binding(),
+                                },
+                            ],
+                        });
+                        let mut encoder = device.create_command_encoder(&Default::default());
+                        {
+                            let mut cpass = encoder.begin_compute_pass(&Default::default());
+                            cpass.set_pipeline(&self.v_blur_pipeline);
+                            cpass.set_bind_group(0, &v_blur_bg, &[]);
+                            cpass.dispatch_workgroups(
+                                input_width.div_ceil(16),
+                                input_height.div_ceil(16),
+                                1,
+                            );
+                        }
+                        queue.submit(Some(encoder.finish()));
+                    }
+                }
                 let mut run_blur = |index: usize, base_radius: f32| -> Option<wgpu::TextureView> {
                     if !blur_requirements[index] {
                         return None;
@@ -11180,28 +11547,38 @@ impl GpuProcessor {
                     .load(std::sync::atomic::Ordering::Relaxed);
                 #[cfg(not(test))]
                 let force_inline_detail = false;
-                let detail_pipeline = (retain_intermediates
-                    && !force_full_preparation
-                    && !force_inline_detail
-                    && detail_fits
-                    && DetailKey::active(&adjustments.global)
-                    && tile.bytes
-                        + if tile.detail.is_some() {
-                            0
-                        } else {
-                            detail_bytes
-                        }
-                        <= BLUR_CACHE_BYTES)
-                    .then(|| {
-                        if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
-                            self.mask_view_detail_pipeline(sharpen_v8(adjustments))
-                        } else {
-                            self.detail_pipeline_for(sharpen_level(adjustments))
-                        }
-                    })
-                    .flatten();
+                // An export builds the stage of every tile in the pass.
+                let detail_pipeline = export_detail.or_else(|| {
+                    (retain_intermediates
+                        && !force_full_preparation
+                        && !force_inline_detail
+                        && detail_fits
+                        && DetailKey::active(&adjustments.global)
+                        && tile.bytes
+                            + if tile.detail.is_some() {
+                                0
+                            } else {
+                                detail_bytes
+                            }
+                            <= BLUR_CACHE_BYTES)
+                        .then(|| {
+                            if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
+                                self.mask_view_detail_pipeline(sharpen_v8(adjustments))
+                            } else {
+                                self.detail_pipeline_for(sharpen_level(adjustments))
+                            }
+                        })
+                        .flatten()
+                });
                 let mut build_detail = false;
                 let detail_view = match (detail_pipeline, tile.detail.take()) {
+                    // An export's tiles are not kept: one texture serves
+                    // them all (wgpu clears a new one before its first use).
+                    (Some(_), previous) if export_detail.is_some() => {
+                        tile.detail = previous;
+                        build_detail = true;
+                        Some(self.export_detail_tile().view.clone())
+                    }
                     (None, previous) => {
                         tile.detail = previous;
                         None
@@ -11484,6 +11861,10 @@ impl GpuProcessor {
                         bytemuck::bytes_of(&*detail_adjustments),
                     );
                     let mut detail_entries = bind_group_entries.clone();
+                    // The detail layout's (unwritten) output is the 8-bit
+                    // tile; an export's main pass writes the float one.
+                    detail_entries[1].resource =
+                        wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
                     detail_entries.push(wgpu::BindGroupEntry {
                         binding: 14,
                         resource: wgpu::BindingResource::TextureView(&self.dummy_blur_view),

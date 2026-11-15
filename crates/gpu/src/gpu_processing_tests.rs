@@ -9732,11 +9732,11 @@ fn folded_export_variants_render_their_exports_within_rounding() {
     ] {
         let adjustments =
             get_all_adjustments_from_json(&profile, raw, Some(if raw { 3 } else { 0 }));
-        let features = export_variant(&adjustments, true)
+        let features = export_variant(&adjustments, true, false)
             .unwrap_or_else(|| panic!("{profile}: no export variant"));
         // The variant exports compile without a compile limit, whose slot
         // the export takes here.
-        let before = export_variant(&adjustments, false).unwrap();
+        let before = export_variant(&adjustments, false, false).unwrap();
         let masks = generated_profile_masks(&profile, width, height);
         let render = |folded: bool, precision| {
             let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
