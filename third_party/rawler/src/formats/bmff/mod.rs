@@ -370,7 +370,7 @@ mod trailing_bytes_tests {
   }
 
   /// Rawtonic patch: bytes shorter than a box header after the last box
-  /// are ignored, while a truncated mdat or a stray full header still fails.
+  /// are ignored, while a truncated mdat still fails.
   #[test]
   fn trailing_bytes_are_tolerated_but_truncation_is_not() {
     let mut ok = bmff_box(b"ftyp", b"crx \0\0\0\x01crx isom");
