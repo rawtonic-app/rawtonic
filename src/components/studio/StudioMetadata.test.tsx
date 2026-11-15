@@ -21,8 +21,11 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import type { AppSettings, ImageFile } from '../ui/AppProperties';
 
 import { parseKeywordEntries } from '../../utils/keywordTree';
+import { getUndoLabel, undo, useCatalogUndoStore } from '../../utils/appUndo';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('../../activity/notify', () => ({ notify: { error: vi.fn() } }));
+vi.mock('../../activity/notify', () => ({
+  notify: { error: vi.fn(), info: vi.fn(), dismiss: vi.fn(), update: vi.fn(), isActive: vi.fn(() => false) }
+}));
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
 const mockInvoke = vi.mocked(invoke);
 
@@ -230,6 +233,36 @@ describe('Keywords tool', () => {
     const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
     // Unchanged, in the order the library had them.
     expect(tags['/job/Capture/a.arw']).toEqual(['user:beach', 'dog', 'color:red']);
+  });
+
+  it('adds and removes keywords as undoable steps named for the keyword', async () => {
+    const paths = ['/job/Capture/a.arw', '/job/Capture/b.arw'];
+    mockInvoke.mockImplementation(async (command, args) =>
+      command === 'add_tag_for_paths'
+        ? paths.map((path) => ({ path, added: [(args as { tag: string }).tag], removed: [] }))
+        : command === 'remove_tag_for_paths'
+          ? [{ path: paths[0], added: [], removed: [(args as { tag: string }).tag] }]
+          : undefined
+    );
+    useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+    render(<StudioKeywords />);
+    const input = screen.getByLabelText('Add keywords');
+    fireEvent.change(input, { target: { value: 'harbour' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    expect(getUndoLabel()).toBe('Undo Add Keyword “harbour”');
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Remove keyword beach'));
+    });
+    expect(getUndoLabel()).toBe('Undo Remove Keyword “beach”');
+    await act(async () => {
+      await undo();
+    });
+    expect(mockInvoke).toHaveBeenLastCalledWith('restore_keywords', {
+      changes: [{ path: paths[0], added: [], removed: ['user:beach'] }],
+      undo: true
+    });
   });
 
   it('removes every stored form of a keyword', async () => {

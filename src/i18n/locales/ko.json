@@ -74,6 +74,7 @@
       "detail": "종료 또는 충돌로 모든 사진이 기록되기 전에 이 일괄 작업이 중단되었습니다. 나머지에 적용하거나, 적용된 부분을 실행 취소하거나, 그대로 두세요. 사진 자체는 절대 변경되지 않습니다.",
       "failed": "{{batch}}을(를) 완료할 수 없습니다: {{error}}",
       "keywordAdd": "키워드 “{{tag}}”",
+      "keywordDelete": "키워드 “{{path}}” 삭제 중",
       "keywordRemove": "키워드 “{{tag}}” 제거",
       "keywordRename": "키워드 ‘{{from}}’을(를) ‘{{to}}’(으)로 이름 바꾸는 중",
       "notWritten_other": "사진 {{count}}장을 기록할 수 없습니다",
@@ -3971,6 +3972,9 @@
           "cancel": "취소",
           "convert": "‘{{from}}’을(를) 계층 ‘{{to}}’(으)로 변환할까요?",
           "convertAction": "변환",
+          "delete": "“{{from}}”을(를) 삭제할까요? 그 아래 키워드는 한 단계 위로 올라갑니다.",
+          "deleteAction": "삭제",
+          "deleteUnused": "어떤 사진에도 없는 키워드를 모두 삭제할까요?",
           "label": "키워드 변경 확인",
           "merge": "‘{{from}}’을(를) ‘{{to}}’에 병합할까요? ‘{{from}}’은(는) 그것으로 대체됩니다.",
           "mergeAction": "병합",
@@ -3987,13 +3991,23 @@
         "menu": {
           "clearFilter": "이 키워드로 필터링 중지",
           "convert": "‘{{path}}’(으)로 변환",
+          "delete": "키워드 삭제…",
+          "deleteUnused": "사용하지 않는 키워드 삭제…",
           "filter": "이 키워드가 있는 사진 보기",
           "moveToTop": "최상위 수준으로 이동",
+          "new": "새 키워드…",
+          "newInside": "“{{keyword}}” 안에 새 키워드…",
           "rename": "이름 바꾸기…"
+        },
+        "new": {
+          "insideLabel": "{{keyword}} 안의 새 키워드",
+          "label": "새 키워드: 이름 또는 경로 입력(예: 상위 > 이름)"
         },
         "renameLabel": "{{keyword}} 이름 바꾸기 또는 이동: 경로 입력(예: 상위 > 이름)",
         "title": "키워드 목록",
         "toasts": {
+          "assignFailed": "키워드를 사진에 추가할 수 없습니다: {{error}}",
+          "createFailed": "키워드를 만들 수 없습니다: {{error}}",
           "renameFailed": "키워드를 변경할 수 없습니다: {{error}}"
         }
       },
@@ -5224,6 +5238,15 @@
     "edit": "편집",
     "file": "파일 변경",
     "flag": "플래그 설정",
+    "keywordAdd": "키워드 “{{keyword}}” 추가",
+    "keywordConvert": "키워드 변환",
+    "keywordDelete": "키워드 삭제",
+    "keywordDeleteUnused": "사용하지 않는 키워드 삭제",
+    "keywordMerge": "키워드 병합",
+    "keywordMove": "키워드 이동",
+    "keywordNew": "새 키워드",
+    "keywordRemove": "키워드 “{{keyword}}” 제거",
+    "keywordRename": "키워드 이름 변경",
     "lensCorrection": "렌즈 보정",
     "matchLight": "빛 맞추기",
     "move": "이동",

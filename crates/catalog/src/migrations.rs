@@ -100,6 +100,8 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         &[("capture_subsec", "TEXT"), ("capture_offset", "TEXT")],
         include_str!("../migrations/0028.sql"),
     ),
+    // Keywords without photographs, kept until deleted.
+    Migration::sql(29, include_str!("../migrations/0029.sql")),
 ];
 
 /// The newest schema: the last migration's.

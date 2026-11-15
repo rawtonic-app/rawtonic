@@ -109,6 +109,30 @@ describe('interrupted batches', () => {
     ]);
   });
 
+  it('puts back every keyword a killed delete took, also one it merged into', async () => {
+    const calls: [string, unknown][] = [];
+    const deleted: InterruptedBatch = {
+      ...paste,
+      id: 'run-1-2',
+      batch: { kind: 'keywordDelete', path: 'Animals' },
+      command: 'delete_keyword_for_paths',
+      args: { path: 'Animals' },
+      // The photograph's keywords before: the automatic `dog` was replaced by
+      // the user's `user:dog` the deleted `Animals|dog` merged into.
+      undo: [{ path: '/a', before: ['dog', 'user:Animals|dog'] }]
+    };
+    answer([deleted], calls);
+    await offerInterruptedBatches('/job');
+    expect(entry()?.title).toBe('Interrupted: Deleting keyword “Animals” applied to 2 of 4 photos');
+    await action('Undo the applied part').run();
+    const written = calls.filter(([command]) => command.endsWith('_tag_for_paths'));
+    expect(written).toEqual([
+      ['add_tag_for_paths', { paths: ['/a'], tag: 'dog' }],
+      ['add_tag_for_paths', { paths: ['/a'], tag: 'user:Animals|dog' }],
+      ['remove_tag_for_paths', { paths: ['/a'], tag: 'user:dog' }]
+    ]);
+  });
+
   it('offers the batch again as it is now when its repair fails part way', async () => {
     const calls: [string, unknown][] = [];
     answer([paste], calls);

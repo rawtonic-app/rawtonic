@@ -80,6 +80,7 @@
       "detail": "Ein Beenden oder Absturz hat diesen Stapel angehalten, bevor alle Fotos geschrieben waren. Wende ihn auf die übrigen an, mache den angewendeten Teil rückgängig oder lass die Fotos, wie sie sind. Die Fotos selbst werden nie verändert.",
       "failed": "{{batch}} konnte nicht abgeschlossen werden: {{error}}",
       "keywordAdd": "Stichwort „{{tag}}“",
+      "keywordDelete": "Stichwort „{{path}}“ wird gelöscht",
       "keywordRemove": "Entfernen des Stichworts „{{tag}}“",
       "keywordRename": "Stichwort „{{from}}“ wird in „{{to}}“ umbenannt",
       "notWritten_one": "{{count}} Foto konnte nicht geschrieben werden",
@@ -4094,6 +4095,9 @@
           "cancel": "Abbrechen",
           "convert": "„{{from}}“ in die Hierarchie „{{to}}“ umwandeln?",
           "convertAction": "Umwandeln",
+          "delete": "„{{from}}“ löschen? Die Stichwörter darunter rücken eine Ebene höher.",
+          "deleteAction": "Löschen",
+          "deleteUnused": "Alle Stichwörter löschen, die kein Foto hat?",
           "label": "Stichwortänderung bestätigen",
           "merge": "„{{from}}“ mit „{{to}}“ zusammenführen? „{{from}}“ wird dadurch ersetzt.",
           "mergeAction": "Zusammenführen",
@@ -4111,13 +4115,23 @@
         "menu": {
           "clearFilter": "Nicht mehr nach diesem Stichwort filtern",
           "convert": "In „{{path}}“ umwandeln",
+          "delete": "Stichwort löschen …",
+          "deleteUnused": "Unbenutzte Stichwörter löschen …",
           "filter": "Fotos mit diesem Stichwort zeigen",
           "moveToTop": "Auf oberste Ebene verschieben",
+          "new": "Neues Stichwort …",
+          "newInside": "Neues Stichwort in „{{keyword}}“ …",
           "rename": "Umbenennen …"
+        },
+        "new": {
+          "insideLabel": "Neues Stichwort in {{keyword}}",
+          "label": "Neues Stichwort: Name oder Pfad eingeben, z. B. Ober > Name"
         },
         "renameLabel": "{{keyword}} umbenennen oder verschieben: Pfad eingeben, z. B. Oberbegriff > Name",
         "title": "Stichwortliste",
         "toasts": {
+          "assignFailed": "Das Stichwort konnte den Fotos nicht hinzugefügt werden: {{error}}",
+          "createFailed": "Das Stichwort konnte nicht angelegt werden: {{error}}",
           "renameFailed": "Stichwörter konnten nicht geändert werden: {{error}}"
         }
       },
@@ -5369,6 +5383,15 @@
     "edit": "Bearbeitung",
     "file": "Dateiänderung",
     "flag": "Markierung festlegen",
+    "keywordAdd": "Stichwort „{{keyword}}“ hinzufügen",
+    "keywordConvert": "Stichwort umwandeln",
+    "keywordDelete": "Stichwort löschen",
+    "keywordDeleteUnused": "Unbenutzte Stichwörter löschen",
+    "keywordMerge": "Stichwörter zusammenführen",
+    "keywordMove": "Stichwort verschieben",
+    "keywordNew": "Neues Stichwort",
+    "keywordRemove": "Stichwort „{{keyword}}“ entfernen",
+    "keywordRename": "Stichwort umbenennen",
     "lensCorrection": "Objektivkorrektur",
     "matchLight": "Licht angleichen",
     "move": "Verschieben",

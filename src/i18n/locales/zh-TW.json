@@ -74,6 +74,7 @@
       "detail": "結束或當機使此批次作業在所有照片寫入前停止。可將其套用到其餘照片、復原已套用的部分，或保持原狀。照片本身絕不會被變更。",
       "failed": "無法完成{{batch}}：{{error}}",
       "keywordAdd": "關鍵字「{{tag}}」",
+      "keywordDelete": "正在刪除關鍵字「{{path}}」",
       "keywordRemove": "移除關鍵字「{{tag}}」",
       "keywordRename": "正在將關鍵字「{{from}}」重新命名為「{{to}}」",
       "notWritten_other": "有 {{count}} 張照片無法寫入",
@@ -3971,6 +3972,9 @@
           "cancel": "取消",
           "convert": "將「{{from}}」轉換為階層「{{to}}」？",
           "convertAction": "轉換",
+          "delete": "刪除「{{from}}」？其下的關鍵字會上移一層。",
+          "deleteAction": "刪除",
+          "deleteUnused": "刪除所有沒有照片使用的關鍵字？",
           "label": "確認關鍵字變更",
           "merge": "將「{{from}}」合併到「{{to}}」？「{{from}}」將被其取代。",
           "mergeAction": "合併",
@@ -3987,13 +3991,23 @@
         "menu": {
           "clearFilter": "不再依此關鍵字篩選",
           "convert": "轉換為「{{path}}」",
+          "delete": "刪除關鍵字…",
+          "deleteUnused": "刪除未使用的關鍵字…",
           "filter": "顯示帶有此關鍵字的照片",
           "moveToTop": "移到最上層",
+          "new": "新增關鍵字…",
+          "newInside": "在「{{keyword}}」下新增關鍵字…",
           "rename": "重新命名…"
+        },
+        "new": {
+          "insideLabel": "在 {{keyword}} 下新增關鍵字",
+          "label": "新增關鍵字：輸入名稱或路徑，例如 上層 > 名稱"
         },
         "renameLabel": "重新命名或移動 {{keyword}}：輸入其路徑，例如 上層 > 名稱",
         "title": "關鍵字清單",
         "toasts": {
+          "assignFailed": "無法將關鍵字加入照片：{{error}}",
+          "createFailed": "無法建立關鍵字：{{error}}",
           "renameFailed": "無法變更關鍵字：{{error}}"
         }
       },
@@ -5224,6 +5238,15 @@
     "edit": "編輯",
     "file": "檔案變更",
     "flag": "設定旗標",
+    "keywordAdd": "新增關鍵字「{{keyword}}」",
+    "keywordConvert": "轉換關鍵字",
+    "keywordDelete": "刪除關鍵字",
+    "keywordDeleteUnused": "刪除未使用的關鍵字",
+    "keywordMerge": "合併關鍵字",
+    "keywordMove": "移動關鍵字",
+    "keywordNew": "新增關鍵字",
+    "keywordRemove": "移除關鍵字「{{keyword}}」",
+    "keywordRename": "重新命名關鍵字",
     "lensCorrection": "鏡頭校正",
     "matchLight": "統一光線",
     "move": "移動",

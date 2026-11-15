@@ -14,7 +14,8 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { expandGroupedPaths } from '../../utils/imageGrouping';
 import { COLOR_LABELS } from '../../utils/adjustments';
 import { ToolGroup } from './StudioDevelop';
-import { useKnownKeywords } from '../../utils/keywordOps';
+import { keywordAction, type KeywordChange } from '../../utils/appUndo';
+import { useKnownKeywords, writeKeywords } from '../../utils/keywordOps';
 import {
   DISPLAY_SEPARATOR,
   displayKeyword,
@@ -243,7 +244,6 @@ export function keywordCounts(tagsByPath: (string[] | null | undefined)[]) {
  * selection, partial ones marked, typed keywords added to every photograph. */
 export function StudioKeywords() {
   const { t } = useTranslation();
-  const { applyTagDelta } = useLibraryActions();
   const imageList = useLibraryStore((s) => s.imageList);
   // The photographs to keyword: the selection and, with grouping on, each
   // chosen photograph's variants too (as the tagging menu writes to a group,
@@ -277,35 +277,36 @@ export function StudioKeywords() {
       const tagsOf = new Map(useLibraryStore.getState().imageList.map((image) => [image.path, image.tags]));
       // The UI's existing rule for a typed keyword (trimmed, lowercase, as
       // the tagging menu applies it); a path takes the library's spelling of
-      // the levels it has: that form is compared and written.
-      for (const keyword of typed) {
-        // Only photographs without the keyword—as the exact string the
-        // library adds—get it; each keeps its other keywords. A stored form
-        // that differs only in case ("user:Dog") is another keyword, so
-        // "user:dog" written beside it shows as its own chip instead of
-        // hiding behind the one shown. The catalog stores it without the
-        // marker.
-        const tag = storedKeyword(keyword);
-        const has = (path: string) => (tagsOf.get(path) ?? []).includes(tag);
-        const missing = paths.filter((path) => !has(path));
-        if (!missing.length) continue;
-        // The whole selection is written (adding is idempotent), so a group's
-        // variant that has the keyword already is named too. The library
-        // then changes that one tag on each photograph that saved: the ones
-        // the failure names (`SaveFailure.failed`) keep their old keywords.
-        try {
-          await invokeInOrder(Invokes.AddTagForPaths, { paths, tag }, 'keyword');
-          applyTagDelta(missing, tag, 'add');
-        } catch (e) {
-          const { failed } = saveFailure(e, paths);
-          applyTagDelta(
-            paths.filter((path) => !failed.includes(path)),
-            tag,
-            'add'
-          );
-          throw e;
-        }
-      }
+      // the levels it has: that form is compared and written. Typing several
+      // keywords at once is one undo step.
+      await keywordAction(
+        { kind: 'add', keyword: typed.map(displayKeyword).join(', ') },
+        async (record) => {
+          for (const keyword of typed) {
+            // Only photographs without the keyword—as the exact string the
+            // library adds—get it; each keeps its other keywords. A stored
+            // form that differs only in case ("user:Dog") is another keyword,
+            // so "user:dog" written beside it shows as its own chip instead
+            // of hiding behind the one shown. The catalog stores it without
+            // the marker.
+            const tag = storedKeyword(keyword);
+            const has = (path: string) => (tagsOf.get(path) ?? []).includes(tag);
+            if (paths.every(has)) continue;
+            // The whole selection is written (adding is idempotent), so a
+            // group's variant that has the keyword already is named too. The
+            // library then changes that one tag on each photograph that
+            // saved: the ones the failure names (`SaveFailure.failed`) keep
+            // their old keywords.
+            await writeKeywords(
+              paths,
+              record,
+              (tags) => (tags.includes(tag) ? tags : [...tags, tag]),
+              () => invokeInOrder<KeywordChange[]>(Invokes.AddTagForPaths, { paths, tag }, 'keyword')
+            );
+          }
+        },
+        paths
+      );
       setDraft('');
     } catch (e) {
       notify.error(t('studio.metadata.toasts.keywordsSaveFailed', { error: saveFailure(e, paths).message }));
@@ -313,22 +314,22 @@ export function StudioKeywords() {
   };
   const remove = async (entry: (typeof keywords)[number]) => {
     try {
-      for (const tag of entry.tags) {
-        // As for adding: the photographs the library names did not save keep
-        // the keyword.
-        try {
-          await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag }, 'keyword');
-          applyTagDelta(paths, tag, 'remove');
-        } catch (e) {
-          const { failed } = saveFailure(e, paths);
-          applyTagDelta(
-            paths.filter((path) => !failed.includes(path)),
-            tag,
-            'remove'
-          );
-          throw e;
-        }
-      }
+      await keywordAction(
+        { kind: 'remove', keyword: displayKeyword(entry.keyword) },
+        async (record) => {
+          for (const tag of entry.tags) {
+            // As for adding: the photographs the library names did not save
+            // keep the keyword.
+            await writeKeywords(
+              paths,
+              record,
+              (tags) => tags.filter((t) => t !== tag),
+              () => invokeInOrder<KeywordChange[]>(Invokes.RemoveTagForPaths, { paths, tag }, 'keyword')
+            );
+          }
+        },
+        paths
+      );
     } catch (e) {
       notify.error(t('studio.metadata.toasts.keywordsRemoveFailed', { error: saveFailure(e, paths).message }));
     }

@@ -74,6 +74,7 @@
       "detail": "退出或崩溃使此批量操作在所有照片写入前停止。可将其应用到其余照片、撤销已应用的部分，或保持现状。照片本身从不会被更改。",
       "failed": "无法完成{{batch}}：{{error}}",
       "keywordAdd": "关键词“{{tag}}”",
+      "keywordDelete": "正在删除关键词“{{path}}”",
       "keywordRemove": "移除关键词“{{tag}}”",
       "keywordRename": "正在将关键字“{{from}}”重命名为“{{to}}”",
       "notWritten_other": "有 {{count}} 张照片无法写入",
@@ -3971,6 +3972,9 @@
           "cancel": "取消",
           "convert": "将“{{from}}”转换为层级“{{to}}”？",
           "convertAction": "转换",
+          "delete": "删除“{{from}}”？其下的关键词将上移一级。",
+          "deleteAction": "删除",
+          "deleteUnused": "删除所有没有照片使用的关键词？",
           "label": "确认关键字更改",
           "merge": "将“{{from}}”合并到“{{to}}”？“{{from}}”将被其替换。",
           "mergeAction": "合并",
@@ -3987,13 +3991,23 @@
         "menu": {
           "clearFilter": "不再按此关键字筛选",
           "convert": "转换为“{{path}}”",
+          "delete": "删除关键词…",
+          "deleteUnused": "删除未使用的关键词…",
           "filter": "显示带有此关键字的照片",
           "moveToTop": "移到顶层",
+          "new": "新建关键词…",
+          "newInside": "在“{{keyword}}”下新建关键词…",
           "rename": "重命名…"
+        },
+        "new": {
+          "insideLabel": "在 {{keyword}} 下新建关键词",
+          "label": "新建关键词：输入名称或路径，例如 父级 > 名称"
         },
         "renameLabel": "重命名或移动 {{keyword}}：输入其路径，例如 上级 > 名称",
         "title": "关键字列表",
         "toasts": {
+          "assignFailed": "无法将关键词添加到照片：{{error}}",
+          "createFailed": "无法创建关键词：{{error}}",
           "renameFailed": "无法更改关键字：{{error}}"
         }
       },
@@ -5224,6 +5238,15 @@
     "edit": "编辑",
     "file": "文件更改",
     "flag": "设置旗标",
+    "keywordAdd": "添加关键词“{{keyword}}”",
+    "keywordConvert": "转换关键词",
+    "keywordDelete": "删除关键词",
+    "keywordDeleteUnused": "删除未使用的关键词",
+    "keywordMerge": "合并关键词",
+    "keywordMove": "移动关键词",
+    "keywordNew": "新建关键词",
+    "keywordRemove": "移除关键词“{{keyword}}”",
+    "keywordRename": "重命名关键词",
     "lensCorrection": "镜头校正",
     "matchLight": "统一光线",
     "move": "移动",

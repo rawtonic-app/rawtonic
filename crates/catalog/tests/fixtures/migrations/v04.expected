@@ -1,4 +1,4 @@
-# user_version 28
+# user_version 29
 # schema
 'index' | 'asset_imports_batch' | 'asset_imports' | 'CREATE INDEX asset_imports_batch ON asset_imports(batch_id)'
 'index' | 'asset_keywords_keyword' | 'asset_keywords' | 'CREATE INDEX asset_keywords_keyword ON asset_keywords(keyword)'
@@ -17,6 +17,7 @@
 'index' | 'sqlite_autoindex_collection_assets_1' | 'collection_assets' | NULL
 'index' | 'sqlite_autoindex_collections_1' | 'collections' | NULL
 'index' | 'sqlite_autoindex_content_embeddings_1' | 'content_embeddings' | NULL
+'index' | 'sqlite_autoindex_declared_keywords_1' | 'declared_keywords' | NULL
 'index' | 'sqlite_autoindex_export_recipes_1' | 'export_recipes' | NULL
 'index' | 'sqlite_autoindex_eye_reads_1' | 'eye_reads' | NULL
 'index' | 'sqlite_autoindex_face_eyes_1' | 'face_eyes' | NULL
@@ -92,6 +93,9 @@
  error TEXT,
  CHECK((vector IS NULL) = (error IS NOT NULL)),
  CHECK(vector IS NULL OR (length(vector)=768 AND scale IS NOT NULL)))'
+'table' | 'declared_keywords' | 'declared_keywords' | 'CREATE TABLE declared_keywords(
+ folded TEXT PRIMARY KEY,
+ path TEXT NOT NULL)'
 'table' | 'export_recipes' | 'export_recipes' | 'CREATE TABLE export_recipes(id TEXT PRIMARY KEY, name TEXT NOT NULL, recipe_json TEXT NOT NULL)'
 'table' | 'eye_reads' | 'eye_reads' | 'CREATE TABLE eye_reads(
  asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
@@ -357,6 +361,7 @@ END'
 # table stacks (0 rows): id, collapsed
 # table stack_members (0 rows): stack_id, asset_id, copy, position
 # table content_embeddings (0 rows): asset_id, model, fingerprint, scale, vector, error
+# table declared_keywords (0 rows): folded, path
 # foreign_key_check
 # searches
 text contains 0123: ["00000000-0000-4000-8000-000000000001"]
