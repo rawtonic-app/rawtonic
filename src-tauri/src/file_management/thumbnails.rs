@@ -373,17 +373,22 @@ pub(crate) fn develop_thumbnail(
     // The open photograph's full-resolution colour noise correction
     // (`color_noise_view`): its thumbnail from the preview proxy with the
     // correction added, rendered at Color 0, as the Develop fit view.
-    let color_noise = (is_raw && gpu_context.is_some() && !adjustments.is_null())
-        .then(|| {
-            let tm = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
-            crate::color_noise_view::for_thumbnail(
-                &app_handle.state::<DevelopSession>().color_noise_view,
-                path_str,
-                &get_all_adjustments_from_json(&adjustments, is_raw, tm),
-                is_raw,
-            )
-        })
-        .flatten();
+    // Not with AI Denoise: the correction was made from the denoised
+    // decode, the proxy stands for the photograph without it.
+    let color_noise = (is_raw
+        && gpu_context.is_some()
+        && !adjustments.is_null()
+        && image_loader::ai_denoise_settings(&adjustments).is_none())
+    .then(|| {
+        let tm = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
+        crate::color_noise_view::for_thumbnail(
+            &app_handle.state::<DevelopSession>().color_noise_view,
+            path_str,
+            &get_all_adjustments_from_json(&adjustments, is_raw, tm),
+            is_raw,
+        )
+    })
+    .flatten();
     let (proxy, color_noise) = match (proxy, color_noise) {
         (None, Some(delta)) => match stored_proxy(&source_path, &adjustments, &settings) {
             Some(proxy) => (Some(proxy), Some(delta)),
