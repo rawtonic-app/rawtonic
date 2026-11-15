@@ -576,7 +576,8 @@ jobs and their photos with state, output, error and timing; pause, cancel, resum
 
 `export` (export settings/geometry/encoders, render pipeline with `RenderEnv`, exif_processing/tiff_exif/xmp_embed with
 `export_metadata_with` + `encode_with_metadata`, `sidecars` (virtual paths, `.rrdata` reading, library walk, export
-naming), `output::write_new_output`, `file_export::FileExporter`, and `normalize::normalize`, the one entry that makes a
+naming), `output::write_new_output`, `file_export::FileExporter`, `workers` (how many photos a batch export renders at
+once and the thread pool each runs in, for the app's queue and `rawtonic export` alike), and `normalize::normalize`, the one entry that makes a
 stored or editor recipe renderable: bitmaps, offline lens, new-edit crop and versions, camera lens defaults, Lightroom
 orientation, in that order; every render caller in the app and the CLI calls it once).
 
