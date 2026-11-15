@@ -169,7 +169,13 @@ impl FileBox {
     let mut cr3xpacket = None;
 
     while current < size {
-      // get box?
+      // Rawtonic patch: fewer bytes than a box header after the last complete
+      // box are trailing padding (card tools append bytes); ignore them. A
+      // Only a truncated mdat is rejected (below); other boxes are unchanged.
+      if size - current < 8 {
+        debug!("Ignoring {} trailing bytes after the last box", size - current);
+        break;
+      }
 
       let header = BoxHeader::parse(&mut file)?;
 
@@ -186,6 +192,10 @@ impl FileBox {
         }
         MdatBox::TYP => {
           debug!("Found mdat box");
+          // Rawtonic patch: a truncated mdat is an error, not a silent short file.
+          if header.end_offset() > size {
+            return Err(BmffError::Parse("mdat box extends past the end of the file, truncated file?".into()));
+          }
           mdat = Some(MdatBox::read_box(&mut file, header)?);
         }
         _ => {
@@ -345,6 +355,42 @@ impl Bmff {
 
   pub fn compatible_brand(&self, _brand: &str) -> bool {
     true // FIXME
+  }
+}
+
+#[cfg(test)]
+mod trailing_bytes_tests {
+  use super::*;
+
+  fn bmff_box(typ: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut b = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
+    b.extend(typ);
+    b.extend(payload);
+    b
+  }
+
+  /// Rawtonic patch: bytes shorter than a box header after the last box
+  /// are ignored, while a truncated mdat still fails.
+  #[test]
+  fn trailing_bytes_are_tolerated_but_truncation_is_not() {
+    let mut ok = bmff_box(b"ftyp", b"crx \0\0\0\x01crx isom");
+    ok.extend(bmff_box(b"moov", &bmff_box(b"mvhd", &[0u8; 20])));
+    ok.extend(bmff_box(b"mdat", &[1, 2, 3, 4]));
+    assert!(parse_buffer(&ok).is_ok());
+
+    for extra in 1..8 {
+      let mut v = ok.clone();
+      v.extend(vec![0u8; extra]);
+      assert!(parse_buffer(&v).is_ok(), "{extra} trailing bytes");
+    }
+
+    // Truncated mdat (also with the trailing bytes that hide it).
+    let mut t = ok.clone();
+    t.truncate(t.len() - 2);
+    assert!(parse_buffer(&t).is_err());
+    t.truncate(t.len() - 1);
+    t.extend([0u8; 2]);
+    assert!(parse_buffer(&t).is_err());
   }
 }
 
