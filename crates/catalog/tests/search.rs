@@ -1595,7 +1595,10 @@ fn a_parent_keyword_finds_and_counts_the_photographs_under_it() {
     );
     // Text search finds a level anywhere in the path.
     assert_eq!(
-        found(&lib, json!({"field":"text","op":"contains","value":"beagle"})),
+        found(
+            &lib,
+            json!({"field":"text","op":"contains","value":"beagle"})
+        ),
         ["DSC00124.ARW"]
     );
     let facets = lib.facets(&Rule::everything(), &[Field::Keyword]).unwrap();

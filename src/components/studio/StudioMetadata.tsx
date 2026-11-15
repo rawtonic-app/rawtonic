@@ -265,15 +265,9 @@ export function StudioKeywords() {
     () => keywordCounts(imageList.map((image) => image.tags)).map((entry) => entry.keyword),
     [imageList]
   );
-  const existing = useMemo(
-    () => [...known.map((value) => value.value), ...listedKeywords],
-    [known, listedKeywords]
-  );
+  const existing = useMemo(() => [...known.map((value) => value.value), ...listedKeywords], [known, listedKeywords]);
   // Autocomplete shows each keyword's path (`Animals > Dogs`), the most used first.
-  const suggestions = useMemo(
-    () => [...new Set(existing.map(displayKeyword))].slice(0, 500),
-    [existing]
-  );
+  const suggestions = useMemo(() => [...new Set(existing.map(displayKeyword))].slice(0, 500), [existing]);
 
   const add = async (text: string) => {
     // `Animals > Dogs`, `Animals|Dogs` and `Dogs < Animals` are one

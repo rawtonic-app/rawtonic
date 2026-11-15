@@ -1502,7 +1502,11 @@ mod tests {
             let subject = &subject[..subject.find("</dc:subject>").unwrap()];
             let distinct: std::collections::BTreeSet<&str> =
                 expected.iter().flat_map(|k| k.split('|')).collect();
-            assert_eq!(subject.matches("<rdf:li>").count(), distinct.len(), "{written}");
+            assert_eq!(
+                subject.matches("<rdf:li>").count(),
+                distinct.len(),
+                "{written}"
+            );
         }
     }
 

@@ -275,7 +275,8 @@ export default function StudioMetadataFilter() {
               </button>
               {shown.map(({ value, count, months }) => {
                 const month = field === 'captureDate' && value !== '' && !isYear(value);
-                const label = field === 'keyword' && value !== '' ? keywordLeaf(value) : facetLabel(field, value, t, i18n.language);
+                const label =
+                  field === 'keyword' && value !== '' ? keywordLeaf(value) : facetLabel(field, value, t, i18n.language);
                 const level = depth.get(value) ?? 0;
                 return (
                   <div

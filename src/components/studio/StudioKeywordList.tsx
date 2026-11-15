@@ -94,8 +94,7 @@ export function StudioKeywordList() {
 
   const tree = useMemo(() => buildKeywordTree(values), [values]);
   const filtered = (path: string) => chosen?.length === 1 && fold(chosen[0]) === fold(path);
-  const filterBy = (path: string) =>
-    setFilter({ metadata: { ...selection, keyword: filtered(path) ? [] : [path] } });
+  const filterBy = (path: string) => setFilter({ metadata: { ...selection, keyword: filtered(path) ? [] : [path] } });
   const toggle = (path: string) =>
     setOpen((previous) => {
       const next = new Set(previous);
@@ -268,10 +267,9 @@ export function StudioKeywordList() {
               <button
                 type="button"
                 className="studio-keyword-disclosure"
-                aria-label={t(
-                  expanded ? 'studio.library.keywordList.collapse' : 'studio.library.keywordList.expand',
-                  { keyword: node.name }
-                )}
+                aria-label={t(expanded ? 'studio.library.keywordList.collapse' : 'studio.library.keywordList.expand', {
+                  keyword: node.name
+                })}
                 onClick={() => toggle(node.path)}
               >
                 <ChevronRight size={11} className={expanded ? 'is-open' : ''} />

@@ -606,7 +606,9 @@ pub async fn rename_keyword_for_paths(
             &paths,
             crate::batch_journal::current,
         );
-        tag_paths(&paths, &app_handle, |tags| rename_keyword_tags(tags, &from, &to))
+        tag_paths(&paths, &app_handle, |tags| {
+            rename_keyword_tags(tags, &from, &to)
+        })
     })
     .await
     .unwrap_or_else(|error| tag_failures_unsaved(&unsaved, &error))
@@ -630,8 +632,17 @@ pub(crate) fn renamed_tag(tag: &str, from: &str, to: &str) -> Option<String> {
         return None;
     }
     let rest: Vec<&str> = levels(keyword).skip(levels(from).count()).collect();
-    let path = normalize(&std::iter::once(to).chain(rest).collect::<Vec<_>>().join("|"));
-    let marker = if tag.starts_with(USER_TAG_PREFIX) { USER_TAG_PREFIX } else { "" };
+    let path = normalize(
+        &std::iter::once(to)
+            .chain(rest)
+            .collect::<Vec<_>>()
+            .join("|"),
+    );
+    let marker = if tag.starts_with(USER_TAG_PREFIX) {
+        USER_TAG_PREFIX
+    } else {
+        ""
+    };
     Some(format!("{marker}{path}"))
 }
 

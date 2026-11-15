@@ -144,7 +144,8 @@ export async function undoApplied(batch: InterruptedBatch) {
       for (const entry of undo) {
         const before = Array.isArray(entry.before) ? entry.before.map(String) : [];
         for (const tag of before) push(adds, tag, entry.path);
-        for (const tag of renameKeywordTags(before, from, to)) if (!before.includes(tag)) push(removes, tag, entry.path);
+        for (const tag of renameKeywordTags(before, from, to))
+          if (!before.includes(tag)) push(removes, tag, entry.path);
       }
       for (const [tag, tagPaths] of adds)
         await invokeInOrder(Invokes.AddTagForPaths, { paths: tagPaths, tag }, 'keyword');

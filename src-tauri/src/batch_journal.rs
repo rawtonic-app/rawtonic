@@ -95,7 +95,8 @@ impl BatchKind {
             Self::KeywordRemove { .. } => *now == json!(false),
             // Applied when the tags are what the rename makes of them.
             Self::KeywordRename { from, to } => {
-                let mut tags: Vec<String> = serde_json::from_value(before.clone()).unwrap_or_default();
+                let mut tags: Vec<String> =
+                    serde_json::from_value(before.clone()).unwrap_or_default();
                 crate::tagging::rename_keyword_tags(&mut tags, from, to);
                 tags.sort_unstable();
                 tags.dedup();
