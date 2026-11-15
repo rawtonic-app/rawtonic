@@ -757,7 +757,7 @@ impl IdleCompiles {
                     }
                     _ => false,
                 };
-                if needless || !Self::unclaimed(&target, job) {
+                if needless || !Self::unclaimed(target, job) {
                     // The export or the frame has what it waited for.
                     Self::served(&mut queue, job, source);
                     continue;
@@ -800,7 +800,7 @@ impl IdleCompiles {
             let helped = if slowed_and_stopped {
                 super::idle_compile_child::Helped::Stopped
             } else {
-                super::idle_compile_child::compile_in_helper(&target, job, stop)
+                super::idle_compile_child::compile_in_helper(target, job, stop)
             };
             match helped {
                 super::idle_compile_child::Helped::Stopped => {
@@ -830,19 +830,19 @@ impl IdleCompiles {
                     seeded,
                     mark,
                 } => {
-                    if Self::claim(&target, job) {
+                    if Self::claim(target, job) {
                         super::idle_compile_child::HELPER_CACHE
                             .with(|helper| *helper.borrow_mut() = Some(cache.clone()));
-                        self.compile(&target, job);
+                        self.compile(target, job);
                         super::idle_compile_child::HELPER_CACHE
                             .with(|helper| *helper.borrow_mut() = None);
-                        let kept = self.keep(&target, job, cache, seeded, mark);
+                        let kept = self.keep(target, job, cache, seeded, mark);
                         log::info!("GPU idle compile of {}: {kept}", job.arg());
                     }
                 }
                 super::idle_compile_child::Helped::Unavailable => {
-                    if Self::claim(&target, job) {
-                        self.compile(&target, job);
+                    if Self::claim(target, job) {
+                        self.compile(target, job);
                     }
                 }
             }
