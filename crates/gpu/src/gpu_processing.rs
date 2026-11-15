@@ -4037,7 +4037,7 @@ pub struct GpuProcessor {
     /// Under a compile limit: the effects' passes (`effect_passes`,
     /// G76/EFX); the layouts then hold their bindings and display variants
     /// are main passes that write float output.
-    effect_passes: Option<effect_passes::EffectPasses>,
+    effect_passes: Option<Arc<effect_passes::EffectPasses>>,
     /// The 8-bit and the high-precision shader as naga IR without the
     /// display-only reshapes: export variants compile from it with the
     /// branches their constants decide removed (`export_pipeline`).
@@ -6146,6 +6146,8 @@ pub fn wait_for_running_compiles(what: &str) {
 /// before it makes its textures, waits for it (`idle_compiles::
 /// export_starts`). Nothing without a compile limit or a shown photo.
 pub fn export_of_shown_photo_starts(deferred: bool) {
+    // With the effect passes every export renders with the display variant.
+    let deferred = deferred && !effect_passes::here();
     if deferred {
         deferred_display::note_deferred_export();
     }
@@ -6205,6 +6207,14 @@ pub fn inlined_size(module: &naga::Module) -> usize {
 #[doc(hidden)]
 pub fn display_shader_source(source: &str) -> String {
     crate::display_variant_ir::display_source(source)
+}
+
+/// The same with the effects in passes of their own, as display variants
+/// compile it under a compile limit (`effect_passes`); `None` when the
+/// source has another shape.
+#[doc(hidden)]
+pub fn display_shader_source_with_effect_passes(source: &str) -> Option<String> {
+    crate::display_variant_ir::display_source_with_effect_passes(source)
 }
 
 /// The source export variant `features` compiles (`ExportShaders`: the
@@ -6981,12 +6991,7 @@ impl GpuProcessor {
         // Under a compile limit glow and halation render through a terms
         // pass (`effect_passes`); fixed for the processor, whose layouts
         // carry the terms' bindings.
-        #[cfg(test)]
-        let passes = effect_passes::FORCED
-            .with(std::cell::Cell::get)
-            .unwrap_or_else(compile_limited);
-        #[cfg(not(test))]
-        let passes = compile_limited();
+        let passes = effect_passes::here();
         // The 8-bit display source with the passes: the terms pass and the
         // finish pass into the 8-bit tile compile from it.
         let pass_shader = passes
@@ -7333,12 +7338,12 @@ impl GpuProcessor {
             ),
         };
         let effect_passes = pass_shader.map(|pass_shader| {
-            effect_passes::EffectPasses::new(
+            Arc::new(effect_passes::EffectPasses::new(
                 device,
                 &pass_entries,
                 pass_shader,
                 Arc::clone(&display_shader),
-            )
+            ))
         });
 
         // A cold first start waits for the RAW default display variant
@@ -9627,7 +9632,9 @@ impl GpuProcessor {
                 log::error!(
                     "Display variant {features} unavailable for an export; using the export variant"
                 );
-                return self.export_pipeline(adjustments, output).map(|pipeline| (pipeline, false));
+                return self
+                    .export_pipeline(adjustments, output)
+                    .map(|pipeline| (pipeline, false));
             }
             self.compile_preview_variant(features);
             std::thread::sleep(std::time::Duration::from_millis(2));
@@ -10598,6 +10605,9 @@ impl GpuProcessor {
         };
         // The finish pass after a main pass: grain and the output's end,
         // into the tile the frame or export reads (`output_tile_view`).
+        if let Some(passes) = passes.filter(|_| output_to_display) {
+            passes.compile_ahead(device, export_display_features(&request.adjustments));
+        }
         let finish_pass = match passes {
             Some(passes) => Some((
                 passes.finish_pipeline(
@@ -11311,43 +11321,48 @@ impl GpuProcessor {
                     });
                     (pipeline, bind_group, tiles)
                 });
-                let finish = finish_pass.as_ref().map(|(pipeline, colour, views, passes)| {
-                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("Finish Pass Bind Group"),
-                        layout: passes.finish_bind_group_layout(deferred),
-                        entries: &[
-                            bind_group_entries[0].clone(),
-                            bind_group_entries[1].clone(),
-                            bind_group_entries[2].clone(),
-                            wgpu::BindGroupEntry {
-                                binding: 16,
-                                resource: self.render_regions_buffer.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 27,
-                                resource: film_grain.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: ANALYTICS_OUTPUT_BINDING,
-                                resource: wgpu::BindingResource::TextureView(match analytics_tile {
-                                    Some((_, view)) => view,
-                                    None => {
-                                        &self.no_analytics_output[usize::from(high_precision_layout)]
-                                    }
-                                }),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: effect_passes::FINISH_COLOUR_BINDING,
-                                resource: wgpu::BindingResource::TextureView(&colour.view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: effect_passes::FINISH_VIEWS_BINDING,
-                                resource: wgpu::BindingResource::TextureView(&views.view),
-                            },
-                        ],
+                let finish = finish_pass
+                    .as_ref()
+                    .map(|(pipeline, colour, views, passes)| {
+                        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("Finish Pass Bind Group"),
+                            layout: passes.finish_bind_group_layout(deferred),
+                            entries: &[
+                                bind_group_entries[0].clone(),
+                                bind_group_entries[1].clone(),
+                                bind_group_entries[2].clone(),
+                                wgpu::BindGroupEntry {
+                                    binding: 16,
+                                    resource: self.render_regions_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 27,
+                                    resource: film_grain.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: ANALYTICS_OUTPUT_BINDING,
+                                    resource: wgpu::BindingResource::TextureView(
+                                        match analytics_tile {
+                                            Some((_, view)) => view,
+                                            None => {
+                                                &self.no_analytics_output
+                                                    [usize::from(high_precision_layout)]
+                                            }
+                                        },
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: effect_passes::FINISH_COLOUR_BINDING,
+                                    resource: wgpu::BindingResource::TextureView(&colour.view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: effect_passes::FINISH_VIEWS_BINDING,
+                                    resource: wgpu::BindingResource::TextureView(&views.view),
+                                },
+                            ],
+                        });
+                        (pipeline, bind_group)
                     });
-                    (pipeline, bind_group)
-                });
                 if self.effect_passes.is_some() {
                     for (index, binding) in
                         effect_passes::TERMS_INPUT_BINDINGS.into_iter().enumerate()
@@ -11413,15 +11428,17 @@ impl GpuProcessor {
                 });
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: ANALYTICS_OUTPUT_BINDING,
-                    resource: wgpu::BindingResource::TextureView(match (&finish_pass, analytics_tile) {
-                        // A main pass leaves the histogram's image to the
-                        // finish pass.
-                        (Some(_), _) => &self.no_analytics_output[1],
-                        (None, Some((_, view))) => view,
-                        (None, None) => {
-                            &self.no_analytics_output[usize::from(high_precision_layout)]
-                        }
-                    }),
+                    resource: wgpu::BindingResource::TextureView(
+                        match (&finish_pass, analytics_tile) {
+                            // A main pass leaves the histogram's image to the
+                            // finish pass.
+                            (Some(_), _) => &self.no_analytics_output[1],
+                            (None, Some((_, view))) => view,
+                            (None, None) => {
+                                &self.no_analytics_output[usize::from(high_precision_layout)]
+                            }
+                        },
+                    ),
                 });
                 // A main pass writes its colour and view values for the
                 // finish pass, with the high-precision layout.

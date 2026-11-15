@@ -146,10 +146,18 @@ pub(super) fn note_deferred_export() {
 /// idle time from now on (`idle_compiles::plan_deferred_exports`); nothing
 /// elsewhere.
 pub fn plan_deferred_exports() {
+    // With the effect passes those exports render with the display variant.
+    if super::effect_passes::here() {
+        return;
+    }
     super::idle_compiles::plan_deferred_exports();
 }
 
 pub(super) fn idle_deferred_exports() -> bool {
+    // With the effect passes those exports render with the display variant.
+    if super::effect_passes::here() {
+        return false;
+    }
     SIXTEEN_BIT_RECIPES.load(std::sync::atomic::Ordering::Relaxed)
         || DEFERRED_EXPORTED.load(std::sync::atomic::Ordering::Relaxed)
 }

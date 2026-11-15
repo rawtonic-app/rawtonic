@@ -39,7 +39,41 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
-type Pipelines<K> = Mutex<std::collections::HashMap<K, Result<wgpu::ComputePipeline, String>>>;
+/// Whether processors made now render with effect passes: under a compile
+/// limit (`compile_limited`).
+pub(super) fn here() -> bool {
+    #[cfg(test)]
+    if let Some(forced) = FORCED.with(std::cell::Cell::get).or_else(|| {
+        // `RAWTONIC_TEST_EFFECT_PASSES=1`: the whole test suite through the
+        // passes.
+        std::env::var_os("RAWTONIC_TEST_EFFECT_PASSES").map(|value| value == "1")
+    }) {
+        return forced;
+    }
+    compile_limited()
+}
+
+/// A pass's variants: each compiles once, without holding up the others
+/// (a frame's finish pass must not wait for the one with grain that
+/// compiles ahead).
+type Pipelines<K> = Mutex<
+    std::collections::HashMap<K, Arc<std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>>>,
+>;
+
+fn pipeline_of<K: std::hash::Hash + Eq>(
+    pipelines: &Pipelines<K>,
+    key: K,
+    create: impl FnOnce() -> Result<wgpu::ComputePipeline, String>,
+) -> Result<wgpu::ComputePipeline, String> {
+    let cell = Arc::clone(
+        pipelines
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(key)
+            .or_default(),
+    );
+    cell.get_or_init(create).clone()
+}
 
 /// The passes' variants and the tiles between them, of one processor.
 pub(super) struct EffectPasses {
@@ -69,6 +103,8 @@ pub(super) struct EffectPasses {
     /// which the passes leave alone.
     views_tile: std::sync::OnceLock<HighPrecisionTile>,
     no_views: HighPrecisionTile,
+    /// The terms features whose passes compile ahead (`compile_ahead`).
+    ahead: Mutex<std::collections::HashSet<usize>>,
 }
 
 /// The constants of a main pass: it reads the terms and leaves the finish
@@ -247,6 +283,7 @@ impl EffectPasses {
             colour_tile: std::sync::OnceLock::new(),
             views_tile: std::sync::OnceLock::new(),
             no_views,
+            ahead: Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -269,27 +306,20 @@ impl EffectPasses {
         layer_sums: bool,
     ) -> Result<wgpu::ComputePipeline, String> {
         let key = (features & TERMS_FEATURES, layer_sums);
-        let mut pipelines = self
-            .terms_pipelines
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(pipeline) = pipelines.get(&key) {
-            return pipeline.clone();
-        }
-        let label = format!(
-            "Effect terms {}{}",
-            key.0,
-            if layer_sums { " (layer sums)" } else { "" }
-        );
-        let created = small_pipeline(
-            device,
-            &self.display,
-            &terms_constants(features, layer_sums),
-            &self.terms_layout,
-            &label,
-        );
-        pipelines.insert(key, created.clone());
-        created
+        pipeline_of(&self.terms_pipelines, key, || {
+            let label = format!(
+                "Effect terms {}{}",
+                key.0,
+                if layer_sums { " (layer sums)" } else { "" }
+            );
+            small_pipeline(
+                device,
+                &self.display,
+                &terms_constants(features, layer_sums),
+                &self.terms_layout,
+                &label,
+            )
+        })
     }
 
     /// The tiles the terms pass writes and the main pass reads.
@@ -315,33 +345,53 @@ impl EffectPasses {
         grain: bool,
         deferred: bool,
     ) -> Result<wgpu::ComputePipeline, String> {
-        let key = (grain, deferred);
-        let mut pipelines = self
-            .finish_pipelines
+        pipeline_of(&self.finish_pipelines, (grain, deferred), || {
+            let label = format!(
+                "Finish pass{}{}",
+                if grain { " with grain" } else { "" },
+                if deferred { " (deferred)" } else { "" }
+            );
+            let display = if deferred {
+                &self.float_display
+            } else {
+                &self.display
+            };
+            small_pipeline(
+                device,
+                display,
+                &finish_constants(grain, deferred),
+                &self.finish_layouts[usize::from(deferred)],
+                &label,
+            )
+        })
+    }
+
+    /// After a frame on screen: the passes its photo's next effect edit
+    /// takes compile off the render worker, once per kind of tone stage, so
+    /// turning on Glow, Halation or Grain does not wait for them (Radeon
+    /// 680M: 1.6 s and 2.3 s). Small compiles, as beside an idle helper.
+    pub(super) fn compile_ahead(self: &Arc<Self>, device: &Arc<wgpu::Device>, features: usize) {
+        let key = features & TERMS_FEATURES;
+        if !self
+            .ahead
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(pipeline) = pipelines.get(&key) {
-            return pipeline.clone();
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key)
+        {
+            return;
         }
-        let label = format!(
-            "Finish pass{}{}",
-            if grain { " with grain" } else { "" },
-            if deferred { " (deferred)" } else { "" }
-        );
-        let display = if deferred {
-            &self.float_display
-        } else {
-            &self.display
-        };
-        let created = small_pipeline(
-            device,
-            display,
-            &finish_constants(grain, deferred),
-            &self.finish_layouts[usize::from(deferred)],
-            &label,
-        );
-        pipelines.insert(key, created.clone());
-        created
+        let passes = Arc::clone(self);
+        let device = Arc::clone(device);
+        rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
+            for layer_sums in [false, true] {
+                if let Err(error) = passes.terms_pipeline(&device, key, layer_sums) {
+                    log::error!("Effect terms pass {key} unavailable: {error}");
+                }
+            }
+            if let Err(error) = passes.finish_pipeline(&device, true, false) {
+                log::error!("Finish pass with grain unavailable: {error}");
+            }
+        });
     }
 
     /// The tile a main pass stores its colour in.
@@ -395,4 +445,56 @@ fn small_pipeline(
         },
         CompileWeight::Small,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SHADER: &str = include_str!("shaders/shader.wgsl");
+
+    /// The terms pass compiles once per kind of tone stage
+    /// (`TERMS_FEATURES`): no other feature bit changes its module, with
+    /// and without the layers' sums.
+    #[test]
+    fn the_terms_pass_depends_only_on_its_features() {
+        let shader = DisplayShader::with_effect_passes(SHADER);
+        assert!(shader.effect_passes());
+        let module = |features: usize, layer_sums: bool| {
+            // The constants as a frame of `features` would set them, without
+            // `terms_constants`' mask.
+            let features = features | GLOW_FEATURE | HALATION_FEATURE;
+            let mut constants = variant_constants(features, true, true, layer_sums, false);
+            constants.extend(display_effect_constants(features));
+            constants.push(("EFFECT_TERMS_PASS", 1.0));
+            format!("{:?}", shader.variant_module(&constants).unwrap())
+        };
+        for layer_sums in [false, true] {
+            for base in [0, TERMS_FEATURES] {
+                let own = module(base, layer_sums);
+                for bit in (0..26).map(|bit| 1usize << bit) {
+                    if bit & TERMS_FEATURES == 0 {
+                        assert_eq!(module(base | bit, layer_sums), own, "feature {bit}");
+                    }
+                }
+            }
+        }
+        // Its own bits do change it.
+        assert_ne!(module(0, false), module(TERMS_FEATURES, false));
+        assert_ne!(module(8, false), module(8, true));
+    }
+
+    #[test]
+    fn the_finish_pass_holds_grain_only_when_asked() {
+        let shader = DisplayShader::with_effect_passes(SHADER);
+        let sizes = [false, true].map(|grain| {
+            let module = shader
+                .variant_module(&finish_constants(grain, false))
+                .unwrap();
+            crate::display_variant_ir::inlined_size(&module)
+        });
+        assert!(sizes[0] * 3 < sizes[1], "{sizes:?}");
+        let float = DisplayShader::with_effect_passes(&high_precision_shader_source(SHADER));
+        float.variant_module(&finish_constants(true, true)).unwrap();
+    }
 }

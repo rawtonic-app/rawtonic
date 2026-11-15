@@ -8994,7 +8994,11 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
         let features = preview_features(&adjustments);
         let masks = generated_profile_masks(&profile, width, height);
         let render = |with_effects: bool| {
+            // One pass: the reference is the whole shader in the variant's
+            // place, which is no main pass of the effect passes.
+            effect_passes::FORCED.with(|forced| forced.set(Some(false)));
             let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            effect_passes::FORCED.with(|forced| forced.set(None));
             processor.preview_pipelines[features].get_or_init(|| {
                 create_preview_pipeline(
                     &processor.context.device,
@@ -9219,6 +9223,78 @@ fn effect_passes_render_the_one_pass_frames() {
         }
     }
     assert_eq!(checked, 22);
+}
+
+#[test]
+#[ignore = "requires a native GPU; prints what the effect passes cost per display frame"]
+fn effect_passes_frame_cost_probe() {
+    // A measurement, not a check (G76/EFX): the time of a whole display
+    // frame at 2560 x 1440 in one pass and through the effect passes, for
+    // an edit without effects (main + finish pass) and one with glow,
+    // halation and grain (terms + main + finish pass). Each frame changes
+    // Exposure, so every pixel renders; the time runs until the GPU has
+    // finished the frame.
+    let context = context();
+    let (width, height) = (2560, 1440);
+    let view = input(&context, width, height, 31);
+    for (name, profile) in [
+        (
+            "basic",
+            json!({"exposure":0.3,"contrast":20,"shadows":25,"whites":-10,"vibrance":20,
+                "clarity":15,"toneVersion":18}),
+        ),
+        (
+            "effects",
+            json!({"exposure":0.3,"contrast":20,"shadows":25,"whites":-10,"vibrance":20,
+                "clarity":15,"toneVersion":18,"glowAmount":30,"halationAmount":30,
+                "grainAmount":30}),
+        ),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(3));
+        let features = preview_features(&adjustments);
+        let mut medians = Vec::new();
+        for passes in [false, true] {
+            effect_passes::FORCED.with(|forced| forced.set(Some(passes)));
+            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            effect_passes::FORCED.with(|forced| forced.set(None));
+            prepare_preview_pipeline(&processor, features);
+            let mut times = Vec::new();
+            for frame in 0..40 {
+                let mut adjustments = adjustments.clone();
+                adjustments.uniforms.global.exposure += 0.01 * (frame % 7) as f32;
+                let started = Instant::now();
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments,
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi: None,
+                        },
+                        true,
+                        RenderOutputPrecision::EightBit,
+                    )
+                    .unwrap();
+                let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
+                // The first frames build the blurs and the detail cache.
+                if frame >= 8 {
+                    times.push(started.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+            times.sort_by(f64::total_cmp);
+            medians.push((times[times.len() / 2], times[0]));
+        }
+        println!(
+            "{}",
+            json!({"probe":"effect_passes_frame_cost","edit":name,"width":width,"height":height,
+                "one_pass_median_ms":medians[0].0,"one_pass_min_ms":medians[0].1,
+                "passes_median_ms":medians[1].0,"passes_min_ms":medians[1].1,
+                "added_median_ms":medians[1].0 - medians[0].0})
+        );
+    }
 }
 
 /// The display variants' rewritten tone stage (`display_tone_stage.wgsl`,
@@ -9826,8 +9902,15 @@ fn other_exports_under_a_compile_limit_render_with_the_deferred_display_variant(
                 .unwrap();
             if limited {
                 let features = export_display_features(&adjustments);
+                // With the effect passes the display variant itself (its
+                // main pass writes float output).
+                let used = if processor.effect_passes.is_some() {
+                    processor.preview_pipelines[features].get().is_some()
+                } else {
+                    processor.deferred_display.get(features).is_some()
+                };
                 assert!(
-                    processor.deferred_display.get(features).is_some(),
+                    used,
                     "{profile}: deferred display variant {features} not used"
                 );
                 for table in [

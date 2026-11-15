@@ -563,7 +563,10 @@ time (`idle_compiles.rs`; from the app's start for a new RAW edit, `GpuProcessor
 each photo shown; small pipelines such as the RAW default variant and the detail pass compile beside one,
 `CompileWeight`), each in a helper process (`idle_compile_child.rs`; `rawtonic-app --gpu-idle-compile JOB
 FOLDER`, `src-tauri/src/gpu_idle_helper.rs`) that is killed when a compile or export waits for the slot; the app takes
-the finished variant through the pipeline cache the helper left).
+the finished variant through the pipeline cache the helper left); there a display variant is a main pass with float
+output between two small passes of the same display source (`effect_passes.rs`: a terms pass for glow and halation
+before it, a finish pass with grain, the warnings, the output encoding and the histogram's image after it), and exports
+render through the same passes).
 
 
 #### `export`

@@ -289,8 +289,7 @@ const FINISH_MAIN_END: &str = "    if (FINISH_APART) {\n        \
 /// before it: the stored colour through `finish_pixel`, or as it is when
 /// the main pass stored a probe's value (`output_space.w`: the Levels,
 /// mixer and B&W probes end `main` early with their own output).
-const FINISH_PASS_AT: &str =
-    "    let original_alpha = load_input(vec2<i32>(absolute_coord)).a;\n";
+const FINISH_PASS_AT: &str = "    let original_alpha = load_input(vec2<i32>(absolute_coord)).a;\n";
 const FINISH_PASS: &str = "    if (FINISH_PASS) {\n        \
      let stored = textureLoad(deferred_texture, vec2<i32>(id.xy), 0);\n        \
      if (adjustments.global.output_space.w != 0u) {\n            \
@@ -312,9 +311,14 @@ const MAIN_START: &str = "@compute @workgroup_size(8, 8, 1)\nfn main(";
 /// end takes are stored as they are, so it computes what one pass did.
 /// Before `with_effect_terms`. `None` when the source has another shape.
 fn with_finish_pass(source: &str) -> Option<String> {
-    if [FINISH_START, EFFECT_TERMS_MAIN_END, FINISH_PASS_AT, MAIN_START]
-        .iter()
-        .any(|text| source.matches(text).count() != 1)
+    if [
+        FINISH_START,
+        EFFECT_TERMS_MAIN_END,
+        FINISH_PASS_AT,
+        MAIN_START,
+    ]
+    .iter()
+    .any(|text| source.matches(text).count() != 1)
     {
         return None;
     }
@@ -1070,26 +1074,54 @@ mod tests {
         let main = with(&[("EFFECT_TERMS", 1.0), ("FINISH_APART", 1.0)]);
         let terms = with(&[("EFFECT_TERMS_PASS", 1.0)]);
         let finish = with(&[("FINISH_PASS", 1.0)]);
-        for name in ["glow_term", "apply_glow_term", "apply_film_grain", "finish_pixel"] {
+        for name in [
+            "glow_term",
+            "apply_glow_term",
+            "apply_film_grain",
+            "finish_pixel",
+        ] {
             assert!(has_function(&one_pass, name), "one pass: {name}");
         }
-        for gone in ["glow_term", "halation_term", "apply_film_grain", "finish_pixel", "dither"] {
+        for gone in [
+            "glow_term",
+            "halation_term",
+            "apply_film_grain",
+            "finish_pixel",
+            "dither",
+        ] {
             assert!(!has_function(&main, gone), "main: {gone}");
         }
-        assert!(has_function(&main, "apply_glow_term") && has_function(&main, "apply_halation_term"));
-        for gone in ["apply_glow_term", "apply_film_grain", "finish_pixel", "apply_hsl_panel"] {
+        assert!(
+            has_function(&main, "apply_glow_term") && has_function(&main, "apply_halation_term")
+        );
+        for gone in [
+            "apply_glow_term",
+            "apply_film_grain",
+            "finish_pixel",
+            "apply_hsl_panel",
+        ] {
             assert!(!has_function(&terms, gone), "terms: {gone}");
         }
         assert!(has_function(&terms, "glow_term") && has_function(&terms, "halation_term"));
-        for gone in ["glow_term", "apply_glow_term", "apply_tonal_adjustments", "apply_hsl_panel"] {
+        for gone in [
+            "glow_term",
+            "apply_glow_term",
+            "apply_tonal_adjustments",
+            "apply_hsl_panel",
+        ] {
             assert!(!has_function(&finish, gone), "finish: {gone}");
         }
         assert!(has_function(&finish, "apply_film_grain") && has_function(&finish, "finish_pixel"));
         let sizes = [&one_pass, &main, &terms, &finish].map(inlined_size);
-        println!("one pass {}, main {}, terms {}, finish {}", sizes[0], sizes[1], sizes[2], sizes[3]);
+        println!(
+            "one pass {}, main {}, terms {}, finish {}",
+            sizes[0], sizes[1], sizes[2], sizes[3]
+        );
         println!("terms bindings {:?}", bindings(&terms));
         println!("finish bindings {:?}", bindings(&finish));
-        assert!(sizes[1] * 2 < sizes[0] + sizes[1] && sizes[2] < sizes[1] / 2 && sizes[3] < sizes[1]);
+        assert!(
+            sizes[1] * 2 < sizes[0] + sizes[1] && sizes[2] < sizes[1] / 2 && sizes[3] < sizes[1]
+        );
         // The finish pass reads the stored colour, the views and what grain
         // and the output's end need (gpu_processing `effect_passes`).
         assert_eq!(bindings(&finish), [0, 1, 2, 16, 25, 27, 28, 33]);
