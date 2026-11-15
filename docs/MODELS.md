@@ -14,9 +14,16 @@ weights tensor by tensor.
 ## Policy
 
 - A model ships only when its authors grant a license for the weights that
-  allows redistribution and commercial use (Apache-2.0, MIT, BSD, GPL-3.0
-  for AGPL compatibility, or plain CC BY 4.0 — no NC, ND or SA variants).
-  A tag on a third-party mirror is not enough.
+  is compatible with AGPL-3.0-or-later: it allows redistribution, changes and
+  commercial use and adds no restriction beyond the AGPL (decision
+  2026-11-15; e.g. Apache-2.0, MIT, BSD, CC0, CC BY 4.0, CC BY-SA 4.0,
+  MPL-2.0, LGPL, GPL-3.0, AGPL-3.0). Excluded: NC, ND, research-only,
+  use-restricted (RAIL/OpenRAIL, community licenses with field-of-use or
+  user limits) and unlicensed weights. A tag on a third-party mirror is not
+  enough.
+- Share-alike weights (CC BY-SA 4.0, GPL/LGPL/MPL): our converted files
+  (ONNX, Core ML, quantised) are published in the model pack under the same
+  license, with the changes marked.
 - CC BY 4.0 weights (decision 2026-11-08): the author, source and license are
   credited in About, `THIRD_PARTY_NOTICES.md` and this file; a converted file
   (ONNX, Core ML, quantised) is marked as changed from the author's release;
