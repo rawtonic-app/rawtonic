@@ -100,6 +100,17 @@ impl<T> LatestSlot<T> {
         true
     }
 
+    /// Whether a job waits that `newer` accepts, without taking it: the
+    /// render running now gives way to it while it waits for graphics
+    /// (`gpu_processing::supersedable`).
+    pub fn waiting_one(&self, newer: impl Fn(&T) -> bool) -> bool {
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(newer)
+    }
+
     pub fn try_take(&self) -> Option<T> {
         self.pending
             .lock()
@@ -221,6 +232,28 @@ mod tests {
             },
             answer,
         )
+    }
+
+    /// The frame rendering now gives way only to a request the worker will
+    /// render next (`editor_preview::newer_request_waits`), never to a late
+    /// older one it drops, and the check leaves that request waiting.
+    #[test]
+    fn a_waiting_frame_sees_a_newer_request_without_taking_it() {
+        let slot = LatestSlot::default();
+        let rendering = Some(5);
+        let newer = |job: &Job| !preview_job_is_stale(job.sequence, rendering);
+        assert!(!slot.waiting_one(newer), "nothing waits");
+        let (late, _late_answer) = job(Some(4));
+        slot.submit(late);
+        assert!(!slot.waiting_one(newer), "a late older request is dropped");
+        let (next, _next_answer) = job(Some(6));
+        slot.submit(next);
+        assert!(slot.waiting_one(newer));
+        assert_eq!(slot.try_take().and_then(|job| job.sequence), Some(6));
+        // A photo's activation frame carries no sequence: it always counts.
+        let (activation, _activation_answer) = job(None);
+        slot.submit(activation);
+        assert!(slot.waiting_one(newer));
     }
 
     fn rejected(answer: &mut tokio::sync::oneshot::Receiver<u64>) -> bool {

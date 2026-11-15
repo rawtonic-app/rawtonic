@@ -36,6 +36,9 @@ mod preview_tests;
 pub mod camera_cover;
 #[path = "deferred_display.rs"]
 mod deferred_display;
+#[path = "frame_supersession.rs"]
+mod frame_supersession;
+pub use frame_supersession::{FRAME_SUPERSEDED, is_superseded, supersedable};
 #[path = "idle_compile_child.rs"]
 mod idle_compile_child;
 #[path = "idle_compiles.rs"]
@@ -9073,6 +9076,15 @@ impl GpuProcessor {
             }
             if self.preview_failed[own].load(std::sync::atomic::Ordering::Acquire) {
                 return self.general_pipeline(adjustments, MainOutput::EightBit);
+            }
+            // A newer request replaces this frame while it waits: the next
+            // one renders as soon as its own variant is there, often at once
+            // (the effect turned off again, another photo). The compile goes
+            // on; a helper's job no frame asks for any more moves to idle
+            // time (`IdleCompiles::for_frame`). Only renders that may skip
+            // ask (`frame_supersession`), never an export.
+            if frame_supersession::superseded() {
+                return Err(FRAME_SUPERSEDED.to_string());
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }

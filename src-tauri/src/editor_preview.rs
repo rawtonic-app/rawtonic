@@ -1095,6 +1095,18 @@ fn render_failed(error: impl std::fmt::Display) -> CommandError {
     )
 }
 
+/// The error of a preview render that ended without a frame: a frame a
+/// newer request replaced while it waited for graphics
+/// (`gpu_processing::supersedable`) is answered as a superseded job, which
+/// the editor never reports; anything else failed (`render_failed`).
+fn preview_render_error(error: String) -> CommandError {
+    if gpu_processing::is_superseded(&error) {
+        CommandError::cancelled(error)
+    } else {
+        render_failed(error)
+    }
+}
+
 /// The image Develop renders from: the full decode, or until it is in the
 /// photograph's preview proxy (preview_proxy.rs), with `source_scale` proxy
 /// pixels per full-resolution pixel and the full-resolution size.
@@ -2204,13 +2216,17 @@ pub(crate) fn process_preview_job(
 
     let final_processed_image = match final_processed_image_result {
         Ok(image) => image,
+        // A frame that gave way to a newer request: not logged as a failure.
+        Err(error) if gpu_processing::is_superseded(&error) => {
+            return Err(preview_render_error(error));
+        }
         Err(error) => {
             log::error!(
                 "[process_preview_job] processing failed after {:.2?}: {}",
                 fn_start.elapsed(),
                 error
             );
-            return Err(render_failed(error));
+            return Err(preview_render_error(error));
         }
     };
     state.source.rendered_source.mark(&loaded_image.image);
@@ -2473,20 +2489,30 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             if let Some(delay) = crate::preview_slot::debug_render_delay() {
                 std::thread::sleep(delay);
             }
-            let result = process_preview_job(
-                &app_handle,
-                state,
-                develop,
-                job.adjustments,
-                job.is_interactive,
-                job.target_resolution,
-                job.roi,
-                job.request_analytics,
-                job.compute_waveform,
-                job.active_waveform_channel.as_deref(),
-                job.mask_overlay.as_ref(),
-                job.crop_edit,
-                job.generation,
+            // A newer request (one the worker will render, not a late older
+            // one) replaces this frame while it waits for its graphics: the
+            // first Halation frame on a cold Radeon 680M waited ~53 s, and
+            // turning it off again or another photo showed only afterwards
+            // (G76/SUPS).
+            let result = gpu_processing::supersedable(
+                newer_request_waits(&app_handle, newest_sequence),
+                || {
+                    process_preview_job(
+                        &app_handle,
+                        state,
+                        develop,
+                        job.adjustments,
+                        job.is_interactive,
+                        job.target_resolution,
+                        job.roi,
+                        job.request_analytics,
+                        job.compute_waveform,
+                        job.active_waveform_channel.as_deref(),
+                        job.mask_overlay.as_ref(),
+                        job.crop_edit,
+                        job.generation,
+                    )
+                },
             );
             #[cfg(feature = "performance-profiling")]
             log::info!(
@@ -2498,8 +2524,12 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                     "ok": result.is_ok()
                 })
             );
-            if let Err(e) = &result {
-                log::error!("Preview worker error: {}", e);
+            match &result {
+                Err(e) if e.code == ErrorCode::Cancelled => {
+                    log::info!("Preview frame skipped: {}", e.message);
+                }
+                Err(e) => log::error!("Preview worker error: {}", e),
+                Ok(_) => {}
             }
             let rendered = result.is_ok();
             let _ = responder.send(result);
@@ -2533,6 +2563,33 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
     });
     if let Err(e) = spawned {
         log::error!("Failed to start the preview worker: {}", e);
+    }
+}
+
+/// Whether the frame the preview worker renders now is replaced: a request
+/// waits that the worker will render after it (`newest`: the newest
+/// sequence it rendered, this frame's included; a late older one it drops
+/// does not count, so the waiting frame never gives way to nothing), or
+/// another photo started loading since (`load_image_generation`): a step to
+/// the next photo sends its frame only once its decode is in, and until
+/// then the frame of the photo left behind kept waiting for the planned
+/// variant, 27 s on a cold Radeon 680M (G76/WSUPS run B).
+fn newer_request_waits(
+    app_handle: &tauri::AppHandle,
+    newest: Option<u64>,
+) -> impl Fn() -> bool + 'static {
+    let app_handle = app_handle.clone();
+    let loads = Arc::clone(&app_handle.state::<AppState>().source.load_image_generation);
+    let load = loads.load(Ordering::SeqCst);
+    move || {
+        loads.load(Ordering::SeqCst) != load
+            || app_handle
+                .state::<AppState>()
+                .preview
+                .preview_jobs
+                .waiting_one(|job| {
+                    !crate::state::preview::preview_job_is_stale(job.sequence, newest)
+                })
     }
 }
 
@@ -2579,23 +2636,28 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
         return;
     }
     let started = std::time::Instant::now();
-    let result = process_preview_job(
-        app_handle,
-        state,
-        develop,
-        warm.adjustments,
-        true,
-        warm.target_resolution,
-        None,
-        false,
-        false,
-        None,
-        None,
-        false,
-        warm.generation,
-    );
+    let result = gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
+        process_preview_job(
+            app_handle,
+            state,
+            develop,
+            warm.adjustments,
+            true,
+            warm.target_resolution,
+            None,
+            false,
+            false,
+            None,
+            None,
+            false,
+            warm.generation,
+        )
+    });
     match result {
         Ok(_) => log::info!("Drag draft source prepared in {:.1?}", started.elapsed()),
+        Err(e) if e.code == ErrorCode::Cancelled => {
+            log::info!("Preparing the drag draft source gave way: {}", e.message);
+        }
         Err(e) => log::warn!("Preparing the drag draft source failed: {}", e),
     }
 }
@@ -3886,6 +3948,20 @@ pub(crate) async fn generate_preview_for_path(
     })
     .await
     .map_err(|e| format!("Task execution failed: {}", e))?
+}
+
+#[cfg(test)]
+mod preview_error_tests {
+    use super::{ErrorCode, PREVIEW_RENDER_FAILED, gpu_processing, preview_render_error};
+
+    #[test]
+    fn a_frame_that_gave_way_is_a_superseded_job_not_a_failure() {
+        let skipped = preview_render_error(gpu_processing::FRAME_SUPERSEDED.to_string());
+        assert_eq!(skipped.code, ErrorCode::Cancelled);
+        let failed = preview_render_error("out of memory".to_string());
+        assert_eq!(failed.code, ErrorCode::RenderFailed);
+        assert!(failed.message.starts_with(PREVIEW_RENDER_FAILED));
+    }
 }
 
 #[cfg(test)]

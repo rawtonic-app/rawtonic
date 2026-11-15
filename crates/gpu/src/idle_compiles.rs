@@ -772,7 +772,7 @@ impl IdleCompiles {
             // for unless a frame or an export waits for this job
             // (`memory_turns`). A frame's variant stops any other but an
             // export's and another frame's still waited for (`for_frame`).
-            let helped = super::idle_compile_child::compile_in_helper(&target, job, || {
+            let stop = || {
                 let mut queue = self.lock();
                 if queue.cancelled
                     || queue.export_job.is_some_and(|export| export != job)
@@ -782,7 +782,16 @@ impl IdleCompiles {
                 }
                 drop(queue);
                 crate::memory_turns::asked_run_waits() && !self.awaited(job)
-            });
+            };
+            #[cfg(test)]
+            let slowed_and_stopped = source == Source::Frame && tests::slow_frame_compile(&stop);
+            #[cfg(not(test))]
+            let slowed_and_stopped = false;
+            let helped = if slowed_and_stopped {
+                super::idle_compile_child::Helped::Stopped
+            } else {
+                super::idle_compile_child::compile_in_helper(&target, job, stop)
+            };
             match helped {
                 super::idle_compile_child::Helped::Stopped => {
                     let mut queue = self.lock();
@@ -2126,6 +2135,153 @@ mod tests {
         drop(processor);
         // The idle worker ends after its quiet time; exiting while it still
         // holds the device crashed the test process on NVIDIA's Linux driver.
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    /// While set, the worker holds a frame's job (`Source::Frame`) before
+    /// its compile as a slow helper would: stopped as a helper is
+    /// (`stop`), else compiled once it is cleared.
+    static SLOW_FRAME_COMPILES: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+
+    /// `SLOW_FRAME_COMPILES`'s hold; whether the job was stopped meanwhile.
+    pub(super) fn slow_frame_compile(stop: &dyn Fn() -> bool) -> bool {
+        while SLOW_FRAME_COMPILES.load(Ordering::SeqCst) {
+            if stop() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
+    }
+
+    /// A frame that waits for its own variant in a (slow) helper gives way
+    /// to a newer request (G76/SUPS: the first Halation frame on a cold
+    /// Radeon 680M waited ~53 s, and Halation 0 showed only afterwards):
+    /// the wait ends with `FRAME_SUPERSEDED`, the next frame (Halation
+    /// back to 0) renders at once with the compiled planned variant, and
+    /// the abandoned job keeps compiling as an idle job, which serves a
+    /// later Halation frame. Runs on every backend: without a pipeline
+    /// cache (Metal) the worker compiles its jobs in the app.
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit and idle helper, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::a_newer_frame_replaces_one_that_waits_for_a_helper"]
+    fn a_newer_frame_replaces_one_that_waits_for_a_helper() {
+        use super::super::frame_supersession::{is_superseded, supersedable};
+        use super::super::preview_tests::get_all_adjustments_from_json;
+        use std::sync::atomic::AtomicBool;
+        use std::time::Instant;
+        let exe = std::env::current_exe().unwrap();
+        super::super::set_idle_compile_helper(Box::new(move |job, folder| {
+            std::process::Command::new(&exe)
+                .args([
+                    "--exact",
+                    "gpu_processing::idle_compiles::tests::idle_helper_process",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env(
+                    "RAWTONIC_TEST_IDLE_HELPER",
+                    format!("real|{job}|{}", folder.display()),
+                )
+                .stdout(std::process::Stdio::null())
+                .spawn()
+        }));
+        let cache = tempfile::tempdir().unwrap();
+        let context =
+            GpuContext::headless_with_pipeline_cache_of(Some(cache.path()), TEST_BUILD).unwrap();
+        set_compile_limit(Some(1));
+        let processor = GpuProcessor::new(context, 256, 256).unwrap();
+        let idle = Arc::clone(&processor.idle_compiles.as_ref().unwrap().0);
+        let recipe = |extra: serde_json::Value| {
+            let mut recipe =
+                serde_json::Value::Object(crate::image_processing::new_edit_responses(true));
+            recipe
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            get_all_adjustments_from_json(&recipe, true, Some(3))
+        };
+        let wait = |what: &str, seconds: u64, done: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(seconds);
+            while !done() {
+                assert!(Instant::now() < deadline, "{what}");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        let photo = recipe(serde_json::json!({}));
+        processor.preview_pipeline(&photo, true).unwrap();
+        let (plan, _) = planned_jobs(preview_features(&photo), &photo);
+        wait("the first planned superset", 300, &|| {
+            processor.preview_pipelines[plan[0]].get().is_some()
+        });
+        SLOW_FRAME_COMPILES.store(true, Ordering::SeqCst);
+        let halation = recipe(serde_json::json!({"halationAmount": 37}));
+        let own = export_display_features(&halation);
+        assert_ne!(own & plan[0], own, "Halation is in no planned variant");
+        // The newer request arrives once the helper holds the frame's job.
+        let newer = Arc::new(AtomicBool::new(false));
+        let arrived = Arc::new(Mutex::new(None::<Instant>));
+        let asker = {
+            let (idle, newer, arrived) =
+                (Arc::clone(&idle), Arc::clone(&newer), Arc::clone(&arrived));
+            std::thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(300);
+                while idle.lock().running != Some(IdleJob::Display(own)) {
+                    assert!(Instant::now() < deadline, "the frame's job never ran");
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                std::thread::sleep(Duration::from_millis(300));
+                *arrived.lock().unwrap() = Some(Instant::now());
+                newer.store(true, Ordering::SeqCst);
+            })
+        };
+        let check = Arc::clone(&newer);
+        let waited = supersedable(
+            move || check.load(Ordering::SeqCst),
+            || processor.preview_pipeline(&halation, true).map(|_| ()),
+        );
+        let ended = Instant::now();
+        asker.join().unwrap();
+        let error = waited.expect_err("the waiting frame gave way");
+        assert!(is_superseded(&error), "{error}");
+        let after = ended.duration_since(arrived.lock().unwrap().unwrap());
+        eprintln!("the waiting frame ended {after:?} after the newer request");
+        assert!(
+            after < Duration::from_millis(500),
+            "it ended {after:?} late"
+        );
+        assert!(processor.preview_pipelines[own].get().is_none());
+        // Halation back to 0: the planned variant serves it at once.
+        let started = Instant::now();
+        processor.preview_pipeline(&photo, true).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            started.elapsed()
+        );
+        // No frame asks for the abandoned job any more: it goes on as an
+        // idle job (not stopped: nothing else needs the slot).
+        wait("the abandoned job moves to idle time", 10, &|| {
+            let mut queue = idle.lock();
+            queue.frames_moved_on(now_ms());
+            queue.frame_jobs.is_empty() && queue.later.contains(&IdleJob::Display(own))
+        });
+        assert_eq!(idle.lock().running, Some(IdleJob::Display(own)));
+        SLOW_FRAME_COMPILES.store(false, Ordering::SeqCst);
+        wait("the abandoned job compiles in idle time", 300, &|| {
+            processor.preview_pipelines[own].get().is_some()
+        });
+        // A later Halation frame finds it.
+        let started = Instant::now();
+        processor.preview_pipeline(&halation, true).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            started.elapsed()
+        );
+        drop(processor);
+        wait("the idle worker ends", 60, &|| !idle.lock().worker);
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         set_compile_limit(None);
     }
