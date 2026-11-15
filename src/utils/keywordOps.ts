@@ -14,7 +14,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { saveFailure, sortStoredTags } from '../hooks/useLibraryActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { invokeInOrder, onCatalogChange } from './catalogWrites';
-import { photographPath, searchLibrary, type FacetValue, type Facets } from './librarySearch';
+import { searchLibrary, type FacetValue, type Facets } from './librarySearch';
 import { countKeywordPaths, renameKeywordTags, tagsHaveKeyword } from './keywordTree';
 
 /** Every keyword of the library (or, outside one, of the listed
@@ -77,11 +77,17 @@ export function useLibraryKeywords(): FacetValue[] {
 }
 
 /** The photographs holding `path` or a keyword under it: the library's
- * (by its catalog) and the listed ones (virtual copies keep keywords of
- * their own, which the catalog does not index). */
+ * (by its catalog), its virtual copies with keywords of their own (which
+ * the keyword index does not hold, wherever they are listed) and the
+ * listed ones. */
 export async function photosWithKeyword(directory: string | null, path: string): Promise<string[]> {
-  const found = directory ? await searchLibrary(directory, { field: 'keyword', op: 'is', value: path }) : [];
-  const paths = new Set(found);
+  const [found, copies] = directory
+    ? await Promise.all([
+        searchLibrary(directory, { field: 'keyword', op: 'is', value: path }),
+        invoke<string[]>(Invokes.SessionKeywordCopies, { directory, path })
+      ])
+    : [[], []];
+  const paths = new Set([...found, ...(copies ?? [])]);
   for (const image of useLibraryStore.getState().imageList)
     if (tagsHaveKeyword(image.tags, path)) paths.add(image.path);
   return [...paths];
@@ -96,7 +102,7 @@ export async function renameKeywordOn(paths: string[], from: string, to: string)
     const targets = new Set(written);
     useLibraryStore.getState().setLibrary((state) => ({
       imageList: state.imageList.map((image) =>
-        targets.has(image.path) || targets.has(photographPath(image.path))
+        targets.has(image.path)
           ? { ...image, tags: sortStoredTags(renameKeywordTags(image.tags ?? [], from, to)) }
           : image
       )

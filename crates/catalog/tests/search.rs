@@ -1623,3 +1623,28 @@ fn a_parent_keyword_finds_and_counts_the_photographs_under_it() {
         .collect();
     assert_eq!(animals, ["Animals"]);
 }
+
+/// A virtual copy's own keywords (in its recorded state, not the keyword
+/// index) are found for a library-wide rename, children included.
+#[test]
+fn copies_with_a_keyword_of_their_own_are_found() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    lib.save_copy_state(
+        &ids[1],
+        "a1b2c3",
+        &json!({"tags":["user:Animals|Dogs","color:red"],"adjustments":{}}),
+    )
+    .unwrap();
+    lib.save_copy_state(
+        &ids[2],
+        "d4e5f6",
+        &json!({"tags":["user:Animalsx"],"adjustments":{}}),
+    )
+    .unwrap();
+    let found = lib.copies_with_keyword("animals").unwrap();
+    assert_eq!(found.len(), 1);
+    assert!(found[0].0.ends_with("DSC00124.ARW"));
+    assert_eq!(found[0].1, "a1b2c3");
+    assert!(lib.copies_with_keyword("Animals|Cats").unwrap().is_empty());
+}

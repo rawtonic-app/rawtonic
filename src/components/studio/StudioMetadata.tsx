@@ -20,8 +20,7 @@ import {
   displayKeyword,
   keywordLeaf,
   keywordParent,
-  parseKeywordEntries,
-  resolveKeyword
+  resolveKeywordEntries
 } from '../../utils/keywordTree';
 import { catalogChanged, invokeInOrder } from '../../utils/catalogWrites';
 import { submitPhotoWrite } from '../../utils/photoWrites';
@@ -272,16 +271,14 @@ export function StudioKeywords() {
   const add = async (text: string) => {
     // `Animals > Dogs`, `Animals|Dogs` and `Dogs < Animals` are one
     // hierarchical keyword (`keywordTree.ts`).
-    const typed = parseKeywordEntries(text);
+    const typed = resolveKeywordEntries(text, existing);
     if (!paths.length || !typed.length) return;
     try {
       const tagsOf = new Map(useLibraryStore.getState().imageList.map((image) => [image.path, image.tags]));
-      for (const levels of typed) {
-        // The UI's existing rule for a typed keyword (trimmed, lowercase, as
-        // the tagging menu applies it); a path takes the library's spelling
-        // of the levels it has: that form is compared and written.
-        const keyword = resolveKeyword(levels, existing);
-        if (!keyword) continue;
+      // The UI's existing rule for a typed keyword (trimmed, lowercase, as
+      // the tagging menu applies it); a path takes the library's spelling of
+      // the levels it has: that form is compared and written.
+      for (const keyword of typed) {
         // Only photographs without the keyword—as the exact string the
         // library adds—get it; each keeps its other keywords. A stored form
         // that differs only in case ("user:Dog") is another keyword, so

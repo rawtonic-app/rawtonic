@@ -944,6 +944,7 @@ fn start(args: Vec<String>) {
             library_search::session_search,
             library_search::session_paths_as_listed,
             library_search::session_facets,
+            library_search::session_keyword_copies,
             library_search::session_create_smart_album,
             library_search::session_set_smart_album_rules,
             session_bridge::session_offline,

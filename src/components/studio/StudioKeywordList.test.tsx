@@ -39,6 +39,8 @@ beforeEach(() => {
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'session_facets') return { keyword: [...facets, { value: '', count: 4 }] };
     if (command === 'session_search') return ['/job/Capture/a.arw', '/job/Capture/b.arw'];
+    // A virtual copy no view lists, with keywords of its own.
+    if (command === 'session_keyword_copies') return ['/job/Other/d.arw?vc=a1b2c3'];
     return undefined;
   });
   useLibraryStore.setState({
@@ -108,8 +110,9 @@ describe('Keyword List', () => {
       rule: { field: 'keyword', op: 'is', value: 'Animals' },
       listed: null
     });
+    expect(mockInvoke).toHaveBeenCalledWith('session_keyword_copies', { directory: '/job', path: 'Animals' });
     expect(mockInvoke).toHaveBeenCalledWith('rename_keyword_for_paths', {
-      paths: ['/job/Capture/a.arw', '/job/Capture/b.arw'],
+      paths: ['/job/Capture/a.arw', '/job/Capture/b.arw', '/job/Other/d.arw?vc=a1b2c3'],
       from: 'Animals',
       to: 'Pets'
     });
@@ -133,6 +136,19 @@ describe('Keyword List', () => {
       'rename_keyword_for_paths',
       expect.objectContaining({ from: 'places > asia', to: 'places|asia' })
     );
+  });
+});
+
+describe('Keyword List outside a library', () => {
+  it('is not shown: filtering by a keyword is the catalog’s', async () => {
+    useLibraryStore.setState({ sessionDirectory: null });
+    render(
+      <ContextMenuProvider>
+        <StudioKeywordList />
+      </ContextMenuProvider>
+    );
+    await act(async () => {});
+    expect(screen.queryByText('Keyword List')).toBeNull();
   });
 });
 

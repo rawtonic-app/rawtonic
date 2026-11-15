@@ -1494,6 +1494,38 @@ impl Library {
         self.search_for_listing(rule, None)
     }
 
+    /// The virtual copies whose own keywords hold `path` or a keyword under
+    /// it, as `(photograph, copy id)`: a copy keeps keywords of its own in
+    /// its recorded state, which the keyword index does not hold, so a
+    /// library-wide keyword rename reaches copies no view lists.
+    pub fn copies_with_keyword(&self, path: &str) -> Result<Vec<(PathBuf, String)>, CatalogError> {
+        let mut query = self.conn.prepare(
+            "SELECT DISTINCT a.rel_path, r.path, r.external, v.name, j.value
+             FROM versions v JOIN assets a ON a.id=v.asset_id JOIN roots r ON r.id=a.root_id,
+                  json_each(v.legacy_state, '$.tags') j
+             WHERE v.is_primary=0 AND a.trashed=0 AND json_valid(v.legacy_state) AND j.type='text'
+             ORDER BY a.root_id, a.rel_path, v.name",
+        )?;
+        let mut out: Vec<(PathBuf, String)> = Vec::new();
+        let mut rows = query.query([])?;
+        while let Some(row) = rows.next()? {
+            let tag: String = row.get(4)?;
+            if rawtonic_metadata::labels::is_editor_tag(&tag) {
+                continue;
+            }
+            let keyword = tag.strip_prefix("user:").unwrap_or(&tag);
+            if !rawtonic_metadata::keywords::is_within(keyword, path) {
+                continue;
+            }
+            let photo = self.join_root(row.get(1)?, row.get(2)?, row.get(0)?);
+            let copy: String = row.get(3)?;
+            if !out.iter().any(|(p, c)| *p == photo && *c == copy) {
+                out.push((photo, copy));
+            }
+        }
+        Ok(out)
+    }
+
     /// Search with an explicit folder-grid context. A listing inside the
     /// session Trash keeps its catalog metadata available for filters.
     pub fn search_for_listing(

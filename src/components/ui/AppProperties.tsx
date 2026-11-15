@@ -341,6 +341,7 @@ export enum Invokes {
   SessionSearch = 'session_search',
   SessionPathsAsListed = 'session_paths_as_listed',
   SessionFacets = 'session_facets',
+  SessionKeywordCopies = 'session_keyword_copies',
   SessionCreateSmartAlbum = 'session_create_smart_album',
   SessionSetSmartAlbumRules = 'session_set_smart_album_rules',
   SessionSetTextMetadata = 'session_set_text_metadata',

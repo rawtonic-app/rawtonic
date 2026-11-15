@@ -126,6 +126,26 @@ export function resolveKeyword(levels: string[], existing: readonly string[]): s
   return out.join(KEYWORD_SEPARATOR);
 }
 
+/**
+ * The stored keywords for the field's text: each comma-separated entry
+ * resolved (`resolveKeyword`), without duplicates. An entry that is exactly
+ * a keyword stored flat before hierarchies (`places > asia`, as autocomplete
+ * offers it) is that keyword, so applying it again keeps its identity; the
+ * Keyword List offers its conversion.
+ */
+export function resolveKeywordEntries(text: string, existing: readonly string[]): string[] {
+  const legacy = new Map<string, string>();
+  for (const keyword of existing) if (legacyHierarchy(keyword)) legacy.set(fold(keyword.trim()), keyword.trim());
+  const out: string[] = [];
+  for (const part of text.split(',')) {
+    const kept = legacy.get(fold(part.trim()));
+    const levels = kept ? null : parseKeywordPath(part);
+    const keyword = kept ?? (levels!.length ? resolveKeyword(levels!, existing) : '');
+    if (keyword && !out.some((k) => fold(k) === fold(keyword))) out.push(keyword);
+  }
+  return out;
+}
+
 /** A keyword stored flat before hierarchies that reads as one (`places >
  * asia`, `japan < asia`): its stored path, or null. */
 export function legacyHierarchy(keyword: string): string | null {

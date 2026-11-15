@@ -11,6 +11,7 @@ import {
   renameKeyword,
   renameKeywordTags,
   resolveKeyword,
+  resolveKeywordEntries,
   tagsHaveKeyword,
   treeRows
 } from './keywordTree';
@@ -48,6 +49,20 @@ describe('typed keyword paths', () => {
     expect(resolveKeyword(['Animals'], existing)).toBe('animals');
     // Two keywords of that name: none is guessed.
     expect(resolveKeyword(['dogs'], [...existing, 'Pets|Dogs'])).toBe('dogs');
+  });
+});
+
+describe('field entries', () => {
+  it('keeps an existing flat “a > b” keyword when it is entered as it is stored', () => {
+    const existing = ['places > asia', 'Animals|Dogs'];
+    // As autocomplete offers it: the stored keyword, not a new hierarchy.
+    expect(resolveKeywordEntries('Places > Asia', existing)).toEqual(['places > asia']);
+    // Anything else with `>` is a path.
+    expect(resolveKeywordEntries('places > europe, Dogs < Animals', existing)).toEqual([
+      'places|europe',
+      'Animals|Dogs'
+    ]);
+    expect(resolveKeywordEntries('places > asia', [])).toEqual(['places|asia']);
   });
 });
 

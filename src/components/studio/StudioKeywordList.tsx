@@ -297,6 +297,8 @@ export function StudioKeywordList() {
       return [row, ...(expanded ? rows(node.children, depth + 1) : [])];
     });
 
+  // Filtering by a keyword is the catalog's: the tool belongs to a library.
+  if (!directory) return null;
   return (
     <ToolGroup title="Keyword List" label={t('studio.library.keywordList.title')}>
       {pending && (
