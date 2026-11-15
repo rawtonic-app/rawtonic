@@ -184,7 +184,7 @@ const CASES: &[Case] = &[
     Case {
         key: "hslVersion",
         slider: "hsl.blues.luminance",
-        pairs: &[(2, 1), (1, 2)],
+        pairs: &[(2, 1), (1, 2), (3, 2), (2, 3), (3, 1)],
         values: &[-50.0, 50.0],
         exact: &[],
     },
