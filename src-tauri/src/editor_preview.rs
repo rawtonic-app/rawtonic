@@ -3303,6 +3303,8 @@ fn render_split_before_blocking(
         frame_key,
     );
     display.render(&context.device, &context.queue);
+    drop(display_lock);
+    crate::color_noise_view::after_split_before(app_handle);
     Ok(true)
 }
 

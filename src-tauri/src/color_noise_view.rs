@@ -175,11 +175,25 @@ impl ColorNoiseView {
         !lock_recover(&self.builds).wanted.is_empty()
     }
 
-    fn want(&self, wanted: Wanted) {
+    /// Wants a correction; one wanted for the same photograph and setting
+    /// merges with it: the larger size, and the edit's frame to render
+    /// again whichever asked last (a before asks for none).
+    fn want(&self, mut wanted: Wanted) {
         let mut builds = lock_recover(&self.builds);
-        builds
+        if let Some(i) = builds
             .wanted
-            .retain(|w| !(w.key == wanted.key && Weak::ptr_eq(&w.source, &wanted.source)));
+            .iter()
+            .position(|w| w.key == wanted.key && Weak::ptr_eq(&w.source, &wanted.source))
+        {
+            let earlier = builds.wanted.remove(i);
+            wanted.dims = (
+                wanted.dims.0.max(earlier.dims.0),
+                wanted.dims.1.max(earlier.dims.1),
+            );
+            if wanted.frame.is_none() {
+                wanted.frame = earlier.frame;
+            }
+        }
         keep_last(&mut builds.wanted, wanted);
     }
 
@@ -346,6 +360,31 @@ pub(crate) fn after_final_frame<T>(
     }
     start_build(app_handle);
     None
+}
+
+/// After the split view's before rendered: a correction it wanted is built
+/// once no preview frame came within [`BUILD_IDLE`] (a before alone, as
+/// when a snapshot is chosen, renders no frame that would start it).
+pub(crate) fn after_split_before(app_handle: &tauri::AppHandle) {
+    let develop = app_handle.state::<crate::state::develop::DevelopSession>();
+    let view = &develop.color_noise_view;
+    if !view.has_wanted() {
+        return;
+    }
+    let frames = view.frames.load(Ordering::SeqCst);
+    let app = app_handle.clone();
+    let spawned = std::thread::Builder::new()
+        .name("color-noise-view-wait".into())
+        .spawn(move || {
+            std::thread::sleep(BUILD_IDLE);
+            let develop = app.state::<crate::state::develop::DevelopSession>();
+            if develop.color_noise_view.frames.load(Ordering::SeqCst) == frames {
+                start_build(&app);
+            }
+        });
+    if let Err(e) = spawned {
+        log::warn!("Colour noise view: no wait thread: {e}");
+    }
 }
 
 fn start_build(app_handle: &tauri::AppHandle) {
@@ -577,6 +616,29 @@ mod tests {
         let other = image(600, 400);
         assert!(frame_of(&other, (300, 200), 0.25).is_none());
         assert!(lock_recover(&view.corrections).is_empty());
+    }
+
+    /// A before asking for the edit's correction keeps the edit's frame to
+    /// render again, and the larger size.
+    #[test]
+    fn a_before_wanting_the_same_correction_keeps_the_edits_frame() {
+        let view = ColorNoiseView::default();
+        let source = image(600, 400);
+        let wanted = |frame, dims| Wanted {
+            source: Arc::downgrade(&source),
+            path: "a.raw".into(),
+            key: Key::of(&global(0.25)).0,
+            settings: Key::of(&global(0.25)).1,
+            tuning: Key::of(&global(0.25)).2,
+            dims,
+            frame,
+        };
+        view.want(wanted(Some((3, refresh())), (300, 200)));
+        view.want(wanted(None, (310, 207)));
+        let builds = lock_recover(&view.builds);
+        assert_eq!(builds.wanted.len(), 1);
+        assert_eq!(builds.wanted[0].dims, (310, 207));
+        assert_eq!(builds.wanted[0].frame.as_ref().map(|f| f.0), Some(3));
     }
 
     #[test]
