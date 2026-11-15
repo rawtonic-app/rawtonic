@@ -23674,3 +23674,153 @@ fn tpx5_color_noise_cost() {
         }
     }
 }
+
+/// From `renderVersion` 13 an export computes its detail stage in the
+/// detail pass when every pixel takes it from there (`export_detail_pass`).
+#[test]
+fn version_13_exports_take_the_detail_pass_where_every_pixel_reads_it() {
+    let detail = |recipe: serde_json::Value| {
+        let adjustments = get_all_adjustments_from_json(&recipe, true, Some(3));
+        // Under a compile limit (another test's) no export takes it.
+        export_detail_pass(&adjustments) || compile_limited()
+    };
+    let with = |mut recipe: serde_json::Value, version: u64| {
+        recipe["renderVersion"] = json!(version);
+        recipe
+    };
+    let nr = json!({"sharpness":40,"lumaNoiseReduction":30,"colorNoiseReduction":25});
+    assert!(detail(with(nr.clone(), 13)));
+    assert!(detail(with(json!({"sharpness":40}), 13)));
+    // A layer without detail amounts reads the pass too.
+    assert!(detail(with(
+        json!({"sharpness":40,"masks":[local_mask("tone", json!({"exposure":0.5}))]}),
+        13
+    )));
+    // Saved recipes up to version 12 keep the stage in the main pass.
+    assert!(!detail(with(nr.clone(), 12)));
+    assert!(!detail(with(nr.clone(), 5)));
+    assert!(!detail(nr));
+    // Nothing to leave out of the variant.
+    assert!(!detail(with(json!({"exposure":0.5}), 13)));
+    // Layers with their own noise reduction, sharpening or Moiré compute
+    // the stage inline where they apply.
+    for layer in [
+        json!({"sharpness":30}),
+        json!({"lumaNoiseReduction":20}),
+        json!({"colorNoiseReduction":20}),
+        json!({"moireAmount":40}),
+    ] {
+        assert!(!detail(with(
+            json!({"sharpness":40,"masks":[local_mask("detail", layer.clone())]}),
+            13
+        )));
+    }
+    // The variant drops exactly the detail stage's code.
+    let adjustments = get_all_adjustments_from_json(
+        &with(
+            json!({"sharpness":40,"lumaNoiseReduction":30,"colorNoiseReduction":25,"highlights":-30}),
+            13,
+        ),
+        true,
+        Some(3),
+    );
+    let full = export_variant(&adjustments, false, false).unwrap();
+    let slim = export_variant(&adjustments, false, true).unwrap();
+    assert_ne!(full & DETAIL_FEATURES, 0);
+    assert_eq!(slim, full & !DETAIL_FEATURES);
+    // A folded variant (compile limit) keeps its code.
+    assert_eq!(
+        export_variant(&adjustments, true, true),
+        export_variant(&adjustments, true, false)
+    );
+}
+
+/// A `renderVersion` 13 export (detail pass, main pass without the detail
+/// code) develops what version 12 (stage inside the main pass) does within
+/// rounding: one code where the compiler rounds the stage differently.
+#[test]
+#[ignore = "requires a native GPU; renderVersion 13 exports against version 12"]
+fn version_13_exports_match_version_12_within_rounding() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 2304, 2200).unwrap();
+    let profiles = [
+        json!({"sharpness":40,"lumaNoiseReduction":30,"colorNoiseReduction":25,
+            "exposure":0.3,"contrast":10,"highlights":-30,"shadows":30}),
+        json!({"sharpness":80,"sharpnessThreshold":20,"colorNoiseReduction":50}),
+        json!({"lumaNoiseReduction":40,"clarity":30,"dehaze":20,"blacks":-15}),
+        json!({"sharpness":40,"lumaNoiseReduction":15,"colorNoiseReduction":25,
+            "masks":[local_mask("tone", json!({"exposure":-0.7,"saturation":20}))]}),
+        // Inline where the layer sharpens: as version 12.
+        json!({"sharpness":40,"colorNoiseReduction":25,
+            "masks":[local_mask("detail", json!({"sharpness":30,"exposure":0.4}))]}),
+    ];
+    let mut checked = 0;
+    // One tile and four (2048-pixel tiles).
+    for (width, height) in [(517, 389), (2304, 2200)] {
+        let view = input(&context, width, height, 23);
+        for profile in &profiles {
+            let masks = generated_profile_masks(profile, width, height);
+            for precision in [
+                RenderOutputPrecision::EightBit,
+                RenderOutputPrecision::SixteenBit,
+            ] {
+                let render = |version: u64| {
+                    let mut recipe = profile.clone();
+                    recipe["renderVersion"] = json!(version);
+                    let adjustments = get_all_adjustments_from_json(&recipe, true, Some(3));
+                    let (pixels, ..) = processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments,
+                                mask_bitmaps: &masks,
+                                lut: None,
+                                roi: None,
+                            },
+                            false,
+                            precision,
+                        )
+                        .unwrap();
+                    match pixels {
+                        RenderedPixels::U8(bytes) => {
+                            bytes.into_iter().map(u32::from).collect::<Vec<_>>()
+                        }
+                        RenderedPixels::U16(words) => {
+                            words.into_iter().map(u32::from).collect::<Vec<_>>()
+                        }
+                    }
+                };
+                let (inline, pass) = (render(12), render(13));
+                assert_eq!(inline.len(), pass.len());
+                let differing = inline.iter().zip(&pass).filter(|(a, b)| a != b).count();
+                let largest = inline
+                    .iter()
+                    .zip(&pass)
+                    .map(|(a, b)| a.abs_diff(*b))
+                    .max()
+                    .unwrap_or(0);
+                // 8-bit: one level; 16-bit: a few codes of 65,535, under a
+                // sixteenth of an 8-bit level (5 with a tone layer on the
+                // generated noise, 1 on the preservation photos).
+                let limit = match precision {
+                    RenderOutputPrecision::EightBit => 1,
+                    RenderOutputPrecision::SixteenBit => 16,
+                };
+                println!(
+                    "{width}x{height} {precision:?}: up to {largest} apart in {differing} of {} samples",
+                    inline.len()
+                );
+                assert!(
+                    largest <= limit && differing * 100 <= inline.len(),
+                    "{width}x{height} {precision:?} {profile}: up to {largest} apart in {differing} of {} samples",
+                    inline.len()
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(processor.export_detail_tile.get().is_some());
+    assert_eq!(checked, 20);
+}

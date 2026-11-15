@@ -3606,19 +3606,6 @@ struct BlurParams {
     flags: u32,
 }
 
-/// blur.wgsl `FusedBlurParams`: the horizontal passes of up to three
-/// small blurs in one (`horizontal_blurs`).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct FusedBlurParams {
-    blurs: [BlurParams; 3],
-    /// Bit k: blur k is computed.
-    enabled: u32,
-    /// The largest radius of the computed blurs.
-    widest: u32,
-    _pad: [u32; 2],
-}
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct FlareParams {
@@ -3981,12 +3968,6 @@ pub struct GpuProcessor {
     h_blur_pipeline: wgpu::ComputePipeline,
     v_blur_pipeline: wgpu::ComputePipeline,
     blur_params_buffer: wgpu::Buffer,
-    fused_blur_bgl: wgpu::BindGroupLayout,
-    fused_blur_pipeline: wgpu::ComputePipeline,
-    fused_blur_params_buffer: wgpu::Buffer,
-    /// The second and third blur's horizontal results of `horizontal_blurs`
-    /// (the first's go to `ping_pong_view`), made on first use.
-    fused_ping_pong: std::sync::OnceLock<[wgpu::TextureView; 2]>,
 
     flare_bgl_0: wgpu::BindGroupLayout,
     flare_bgl_1: wgpu::BindGroupLayout,
@@ -4038,13 +4019,6 @@ pub struct GpuProcessor {
     /// sharpening's mask view `SHARPEN_VIEW`).
     detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 5],
     detail_compilation: [std::sync::OnceLock<()>; 5],
-    /// Whether the backend computes the detail stage in its own pass to the
-    /// same bits as inline in the main pass, so exports may take the pass
-    /// (`export_detail_pass`) without changing a byte: Metal. NVIDIA's
-    /// Vulkan compiler rounds them one code apart in up to 0.002 % of the
-    /// pixels (`cached_detail_matches_inline_detail`), so exports there keep
-    /// the stage inline.
-    exact_detail_pass: bool,
     preview_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
     preview_compilation: Arc<VariantTable<std::sync::OnceLock<()>>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
@@ -5601,18 +5575,23 @@ const DETAIL_FEATURES: usize =
 /// Whether an export of `adjustments` computes its detail stage (noise
 /// reduction, sharpening) in the display's detail pass (`detail_main`, per
 /// tile) and renders the main pass with its specialized variant without the
-/// detail code (`export_variant`), which reads the stage instead. The large
+/// detail code (`export_variant`), which reads the stage instead: from
+/// `renderVersion` 13 (`PreparedAdjustments::detail_pass_export`). The large
 /// variant with both the neighbourhood code of noise reduction and the tone
-/// code took about a third more GPU time than the two passes (notes:
-/// benchmark-results/ext3-gpu-stages-2026-11-15, option 1). Only where the
-/// specialized variant renders (`renderVersion` 5 or newer, no curve table;
-/// older recipes keep the general shader), where the variant has noise
-/// reduction or sharpening code to leave out, and where every pixel takes
-/// the stage from the pass: no layer changes noise reduction, sharpening or
-/// Moiré (shader.wgsl `cached_detail`). Not under a compile limit, whose
-/// exports take display or folded variants.
+/// code took about a third more GPU time than the two passes; the 20-NEF
+/// new-edit batch exports 11 % faster on Metal (notes:
+/// benchmark-results/ext4-gpu-export-2026-11-15). Versioned because the
+/// compiler rounds the stage in its own pass, and the main pass without
+/// that code, a little differently (16-bit on Metal: at most 1 of 65,535
+/// on up to 0.16 % of a photo's pixels; `version_13_exports_match_version_12_within_rounding`). Only where the specialized variant renders (no curve
+/// table), where the variant has noise reduction or sharpening code to
+/// leave out, and where every pixel takes the stage from the pass: no
+/// layer changes noise reduction, sharpening or Moiré (shader.wgsl
+/// `cached_detail`). Not under a compile limit, whose exports take display
+/// or folded variants.
 fn export_detail_pass(adjustments: &crate::image_processing::PreparedAdjustments) -> bool {
-    adjustments.specialized_export
+    adjustments.detail_pass_export
+        && adjustments.specialized_export
         && !compile_limited()
         && adjustments.global.region_curve_active[1] == 0
         && adjustments.global.show_clipping == 0
@@ -5652,7 +5631,7 @@ fn export_variant(
         let mut features = preview_features(adjustments);
         // The detail pass computes the noise reduction and sharpening
         // (`export_detail_pass`): the main pass only reads them.
-        if detail_pass && !folded && std::env::var_os("EXT4_FULL_VARIANT").is_none() {
+        if detail_pass && !folded {
             features &= !DETAIL_FEATURES;
         }
         return Some(if folded {
@@ -7629,69 +7608,6 @@ impl GpuProcessor {
             mapped_at_creation: false,
         });
 
-        // The small blurs' horizontal passes in one (`horizontal_blurs`).
-        let fused_blur_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Fused Blur BGL"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ]
-            .into_iter()
-            .chain((4..7).map(|binding| wgpu::BindGroupLayoutEntry {
-                binding,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture {
-                    access: wgpu::StorageTextureAccess::WriteOnly,
-                    format: wgpu::TextureFormat::Rgba16Float,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                },
-                count: None,
-            }))
-            .collect::<Vec<_>>(),
-        });
-        let fused_blur_pipeline = create_compute_pipeline(
-            device,
-            &wgpu::ComputePipelineDescriptor {
-                label: Some("Fused Horizontal Blur Pipeline"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("Fused Blur Pipeline Layout"),
-                        bind_group_layouts: &[Some(&fused_blur_bgl)],
-                        immediate_size: 0,
-                    }),
-                ),
-                module: &blur_shader_module,
-                entry_point: Some("horizontal_blurs"),
-                compilation_options: Default::default(),
-                cache: None,
-            },
-            CompileWeight::Tiny,
-        )?;
-        let fused_blur_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Fused Blur Params Buffer"),
-            size: std::mem::size_of::<FusedBlurParams>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let flare_shader =
             create_shader(device, "Flare Shader", include_str!("shaders/flare.wgsl"))?;
 
@@ -8089,7 +8005,6 @@ impl GpuProcessor {
             view_formats: &[],
         });
         let tile_output_texture_view = tile_output_texture.create_view(&Default::default());
-        let exact_detail_pass = context.device.adapter_info().backend == wgpu::Backend::Metal;
 
         let processor = Self {
             context,
@@ -8097,10 +8012,6 @@ impl GpuProcessor {
             h_blur_pipeline,
             v_blur_pipeline,
             blur_params_buffer,
-            fused_blur_bgl,
-            fused_blur_pipeline,
-            fused_blur_params_buffer,
-            fused_ping_pong: std::sync::OnceLock::new(),
             flare_bgl_0,
             flare_bgl_1,
             flare_threshold_pipeline,
@@ -8128,7 +8039,6 @@ impl GpuProcessor {
             detail_layout,
             detail_pipeline: Default::default(),
             detail_compilation: Default::default(),
-            exact_detail_pass,
             preview_pipelines,
             preview_compilation,
             preview_failed,
@@ -9656,10 +9566,7 @@ impl GpuProcessor {
         &self,
         adjustments: &crate::image_processing::PreparedAdjustments,
     ) -> Option<&wgpu::ComputePipeline> {
-        if !self.exact_detail_pass
-            || !export_detail_pass(adjustments)
-            || std::env::var_os("EXT4_NO_DETAIL").is_some()
-        {
+        if !export_detail_pass(adjustments) {
             return None;
         }
         let slot = sharpen_level(adjustments);
@@ -11238,160 +11145,6 @@ impl GpuProcessor {
                             bytes: 0,
                         }
                     };
-                // The small blurs (sharpening, tonal, noise reduction) the
-                // tile still needs, with their horizontal passes in one
-                // (blur.wgsl `horizontal_blurs`) where they blur the same
-                // rows; each then has its own vertical pass. The same values
-                // as one by one (`run_blur`), which test oracles keep.
-                let small_blurs: Vec<(usize, BlurParams)> = [(0, 1.0f32), (1, 3.5), (4, 2.0)]
-                    .into_iter()
-                    .filter(|&(index, _)| blur_requirements[index] && tile.views[index].is_none())
-                    .map(|(index, base_radius)| {
-                        let radius = (base_radius * scale).ceil().max(1.0) as u32;
-                        let beyond =
-                            blur_rows_beyond(index, radius, whole_blur_radius, reach, small_reach);
-                        (
-                            index,
-                            BlurParams {
-                                radius,
-                                tile_offset_x: input_x_start,
-                                tile_offset_y: input_y_start,
-                                input_width,
-                                input_height,
-                                source_x: window.x,
-                                source_y: window.y,
-                                full_width: width,
-                                full_height: height,
-                                // Rows beyond the input (none for these
-                                // radii) leave the blur to `run_blur`.
-                                rows_above: beyond,
-                                blurred_rows: input_height,
-                                flags: u32::from(adjustments.global.is_raw_image != 1) << 1,
-                            },
-                        )
-                    })
-                    .collect();
-                if !force_full_preparation
-                    && small_blurs.len() >= 2
-                    && small_blurs.iter().all(|(_, params)| params.rows_above == 0)
-                {
-                    let [second, third] = self.fused_ping_pong.get_or_init(|| {
-                        std::array::from_fn(|_| {
-                            device
-                                .create_texture(&wgpu::TextureDescriptor {
-                                    label: Some("Fused Ping Pong Texture"),
-                                    size: self.tile_output_size,
-                                    mip_level_count: 1,
-                                    sample_count: 1,
-                                    dimension: wgpu::TextureDimension::D2,
-                                    format: wgpu::TextureFormat::Rgba16Float,
-                                    usage: wgpu::TextureUsages::TEXTURE_BINDING
-                                        | wgpu::TextureUsages::STORAGE_BINDING,
-                                    view_formats: &[],
-                                })
-                                .create_view(&Default::default())
-                        })
-                    });
-                    let horizontal = [&self.ping_pong_view, second, third];
-                    let mut fused = FusedBlurParams {
-                        blurs: [small_blurs[0].1; 3],
-                        enabled: 0,
-                        widest: 0,
-                        _pad: [0; 2],
-                    };
-                    for (slot, (_, params)) in small_blurs.iter().enumerate() {
-                        fused.blurs[slot] = *params;
-                        fused.enabled |= 1 << slot;
-                        fused.widest = fused.widest.max(params.radius);
-                    }
-                    queue.write_buffer(
-                        &self.fused_blur_params_buffer,
-                        0,
-                        bytemuck::bytes_of(&fused),
-                    );
-                    let mut entries = vec![
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(input_texture_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: self.fused_blur_params_buffer.as_entire_binding(),
-                        },
-                    ];
-                    entries.extend(horizontal.iter().zip(4..).map(|(view, binding)| {
-                        wgpu::BindGroupEntry {
-                            binding,
-                            resource: wgpu::BindingResource::TextureView(view),
-                        }
-                    }));
-                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("Fused H-Blur BG"),
-                        layout: &self.fused_blur_bgl,
-                        entries: &entries,
-                    });
-                    let mut encoder = device.create_command_encoder(&Default::default());
-                    {
-                        let mut cpass = encoder.begin_compute_pass(&Default::default());
-                        cpass.set_pipeline(&self.fused_blur_pipeline);
-                        cpass.set_bind_group(0, &bind_group, &[]);
-                        cpass.dispatch_workgroups(
-                            input_width.div_ceil(16),
-                            input_height.div_ceil(16),
-                            1,
-                        );
-                    }
-                    queue.submit(Some(encoder.finish()));
-                    for ((index, params), horizontal) in small_blurs.iter().zip(horizontal) {
-                        let output_view = tile.views[*index].insert({
-                            tile.bytes += input_width as usize * input_height as usize * 8;
-                            device
-                                .create_texture(&wgpu::TextureDescriptor {
-                                    label: Some("Cached blur tile"),
-                                    size: input_texture_size,
-                                    mip_level_count: 1,
-                                    sample_count: 1,
-                                    dimension: wgpu::TextureDimension::D2,
-                                    format: wgpu::TextureFormat::Rgba16Float,
-                                    usage: wgpu::TextureUsages::TEXTURE_BINDING
-                                        | wgpu::TextureUsages::STORAGE_BINDING,
-                                    view_formats: &[],
-                                })
-                                .create_view(&Default::default())
-                        });
-                        queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::bytes_of(params));
-                        let v_blur_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                            label: Some("V-Blur BG"),
-                            layout: &self.blur_bgl,
-                            entries: &[
-                                wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: wgpu::BindingResource::TextureView(horizontal),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 1,
-                                    resource: wgpu::BindingResource::TextureView(output_view),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 2,
-                                    resource: self.blur_params_buffer.as_entire_binding(),
-                                },
-                            ],
-                        });
-                        let mut encoder = device.create_command_encoder(&Default::default());
-                        {
-                            let mut cpass = encoder.begin_compute_pass(&Default::default());
-                            cpass.set_pipeline(&self.v_blur_pipeline);
-                            cpass.set_bind_group(0, &v_blur_bg, &[]);
-                            cpass.dispatch_workgroups(
-                                input_width.div_ceil(16),
-                                input_height.div_ceil(16),
-                                1,
-                            );
-                        }
-                        queue.submit(Some(encoder.finish()));
-                    }
-                }
                 let mut run_blur = |index: usize, base_radius: f32| -> Option<wgpu::TextureView> {
                     if !blur_requirements[index] {
                         return None;
