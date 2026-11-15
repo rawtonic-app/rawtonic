@@ -908,5 +908,77 @@
    },
    "hslVersion": 2
   }
+ },
+ {
+  "name": "colour grading on a layer keeps the destination's grading response",
+  "pasted": {
+   "colorGrading": {
+    "shadows": {
+     "hue": 220,
+     "saturation": 30,
+     "luminance": 0
+    }
+   },
+   "colorGradingVersion": 2
+  },
+  "destination": {
+   "masks": [
+    {
+     "id": "a",
+     "adjustments": {
+      "colorGrading": {
+       "highlights": {
+        "hue": 40,
+        "saturation": 20,
+        "luminance": 0
+       }
+      }
+     }
+    }
+   ]
+  },
+  "expected": {
+   "colorGrading": {
+    "shadows": {
+     "hue": 220,
+     "saturation": 30,
+     "luminance": 0
+    }
+   },
+   "colorGradingVersion": 1
+  }
+ },
+ {
+  "name": "colour grading replaces the destination's own grading and brings its response",
+  "pasted": {
+   "colorGrading": {
+    "shadows": {
+     "hue": 220,
+     "saturation": 30,
+     "luminance": 0
+    }
+   },
+   "colorGradingVersion": 2
+  },
+  "destination": {
+   "colorGrading": {
+    "highlights": {
+     "hue": 40,
+     "saturation": 20,
+     "luminance": 0
+    }
+   },
+   "exposure": 0.5
+  },
+  "expected": {
+   "colorGrading": {
+    "shadows": {
+     "hue": 220,
+     "saturation": 30,
+     "luminance": 0
+    }
+   },
+   "colorGradingVersion": 2
+  }
  }
 ]

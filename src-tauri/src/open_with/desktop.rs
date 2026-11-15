@@ -31,6 +31,9 @@ impl Dirs {
     /// The directories of the running session, following the XDG base
     /// directory defaults. Flatpak's and Snap's export directories are
     /// added when a minimal `XDG_DATA_DIRS` leaves them out.
+    // Only `linux.rs` reads the environment; the tests of other systems
+    // pass directories.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn from_env() -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
@@ -720,6 +723,7 @@ pub fn commands(
 /// Icon files of a desktop entry's `Icon` (a name or an absolute path), as a
 /// `data:` URL when one is found under `dirs.data` (hicolor and pixmaps) or
 /// named by path. Larger than `LIMIT` is left out.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn icon_data_url(icon: &str, dirs: &Dirs) -> Option<String> {
     use base64::Engine;
     const LIMIT: u64 = 256 * 1024;
