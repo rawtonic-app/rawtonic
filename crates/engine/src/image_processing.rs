@@ -5867,7 +5867,16 @@ macro_rules! impl_apply_grading {
                     return;
                 }
                 self.grading_lut = crate::color_grading::lut(&grading, version);
-                self.grading_active = 1;
+                // The shader's path (`apply_grading`): 1 the table's shift;
+                // from `colorGradingVersion` 3 on limited per channel (2),
+                // with the Luminance sliders' curve per channel (3).
+                self.grading_active = if !version.per_channel() {
+                    1
+                } else if self.grading_lut.iter().all(|entry| entry[3] == 0.0) {
+                    2
+                } else {
+                    3
+                };
             }
         }
     };
@@ -6427,15 +6436,20 @@ pub fn hsl_version(adjustments: &serde_json::Value) -> u64 {
 
 /// The recipe key naming the colour grading response a recipe was made with.
 pub const COLOR_GRADING_VERSION_KEY: &str = "colorGradingVersion";
-/// The newest colour grading response: 2 (2026-11-15) gives the Shadows and
+/// The newest colour grading response. 2 (2026-11-15) gives the Shadows and
 /// Highlights wheels their own hue directions and ranges, Balance its own
-/// travel per wheel and a Highlights luminance that keeps white, fitted to
-/// Camera Raw on 24 photographs of the slider atlas and checked on the 24
-/// others (notes: benchmark-results/cg1-colour-grading-2026-11-15). The
-/// Midtones and Global wheels and the other luminances are version 1's;
-/// the photo's layers render with the photo's response. Recipes without
+/// travel per wheel and a Highlights luminance that keeps white (notes:
+/// benchmark-results/cg1-colour-grading-2026-11-15). 3 (2026-11-15) limits
+/// the graded colour per channel to the sRGB cube instead of leaving a tint
+/// that leaves the gamut to the output mapping, applies the Luminance
+/// sliders as a tone curve per channel, follows what Camera Raw changes in
+/// Shadows and Highlights tints above saturation 50, gives the Midtones and
+/// Global wheels their own hue tables and refits Balance and Blending;
+/// fitted to Camera Raw on 24 photographs of the slider atlas and checked
+/// on the 24 others (notes: benchmark-results/cg2-colour-grading-2026-11-15).
+/// The photo's layers render with the photo's response. Recipes without
 /// the key keep version 1.
-pub const COLOR_GRADING_VERSION: u64 = 2;
+pub const COLOR_GRADING_VERSION: u64 = 3;
 
 /// The recipe's colour grading response, 1 when missing, never newer than
 /// this renderer knows.
@@ -9301,8 +9315,16 @@ mod editing_tool_tests {
                 recipe[COLOR_GRADING_VERSION_KEY] = version;
             }
             let prepared = get_all_adjustments_from_json(&recipe, true, None);
-            assert_eq!(prepared.uniforms.global.grading_active, 1);
-            assert_eq!(prepared.uniforms.mask_adjustments[0].grading_active, 1);
+            // The shader's path: the table's shift, or from version 3 on
+            // limited per channel with the Luminance curve per channel
+            // (this grading lowers the Highlights luminance).
+            let path = if ColorGradingVersion::of(&recipe).per_channel() {
+                3
+            } else {
+                1
+            };
+            assert_eq!(prepared.uniforms.global.grading_active, path);
+            assert_eq!(prepared.uniforms.mask_adjustments[0].grading_active, path);
             (
                 prepared.uniforms.global.grading_lut,
                 prepared.uniforms.mask_adjustments[0].grading_lut,
@@ -9319,6 +9341,16 @@ mod editing_tool_tests {
         assert_eq!(tables(serde_json::Value::Null), (of(1), of(1)));
         assert_eq!(tables(json!(1)), (of(1), of(1)));
         assert_eq!(tables(json!(2)), (of(2), of(2)));
+        assert_ne!(of(2), of(3));
+        assert_eq!(tables(json!(3)), (of(3), of(3)));
+        // Without Luminance the shader skips the curve.
+        let tint_only = get_all_adjustments_from_json(
+            &json!({"colorGrading": {"global": {"hue": 30, "saturation": 20}},
+                COLOR_GRADING_VERSION_KEY: 3}),
+            true,
+            None,
+        );
+        assert_eq!(tint_only.uniforms.global.grading_active, 2);
         // Never newer than the renderer knows.
         assert_eq!(
             tables(json!(9)),

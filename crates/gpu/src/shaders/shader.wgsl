@@ -4672,7 +4672,7 @@ fn apply_color_grading(color: vec3<f32>, shadows: ColorGradeSettings, midtones: 
 // display lightness from a 32-entry table the CPU builds per recipe and
 // layer (color_grading.rs, fitted to Camera Raw). Layer 0 is the photo,
 // layer i the mask layer i - 1.
-fn grading_shift(layer: u32, lightness: f32) -> vec3<f32> {
+fn grading_entry(layer: u32, lightness: f32) -> vec4<f32> {
     let x = clamp(lightness, 0.0, 1.0) * 31.0;
     let i = min(u32(x), 30u);
     let f = x - f32(i);
@@ -4685,13 +4685,48 @@ fn grading_shift(layer: u32, lightness: f32) -> vec3<f32> {
         a = adjustments.mask_adjustments[layer - 1u].grading_lut[i];
         b = adjustments.mask_adjustments[layer - 1u].grading_lut[i + 1u];
     }
-    return mix(a.xyz, b.xyz, f);
+    return mix(a, b, f);
 }
 
+fn grading_shift(layer: u32, lightness: f32) -> vec3<f32> {
+    return grading_entry(layer, lightness).xyz;
+}
+
+// `grading_active` 1 (colorGradingVersion 1 and 2): the table's shift, the
+// output mapping deals with what leaves the gamut. 2 and 3
+// (colorGradingVersion 3, as Camera Raw renders; notes:
+// benchmark-results/cg2-colour-grading-2026-11-15): grading does not push a
+// channel beyond the sRGB cube (a channel already beyond it stays where it
+// was at most), so a strong tint of a dark or light colour is limited per
+// channel, which bends its hue and changes its lightness, instead of being
+// brought back along its hue at the output. With 3 the table's fourth value
+// holds the Luminance sliders' curve (the Oklab lightness change of a grey),
+// applied to each channel by its own cube root, as a tone curve acts, before
+// the tint; the tint is looked up by the lightness before the curve, so a
+// grey renders as the table says.
 fn apply_grading(display: vec3<f32>, layer: u32) -> vec3<f32> {
-    let lab = linear_srgb_to_oklab(display_to_linear(display));
-    let graded = oklab_to_linear_srgb(lab + grading_shift(layer, lab.x));
-    return linear_to_display(graded);
+    var mode = adjustments.global.grading_active;
+    if (layer != 0u) {
+        mode = adjustments.mask_adjustments[layer - 1u].grading_active;
+    }
+    let linear = display_to_linear(display);
+    let lab = linear_srgb_to_oklab(linear);
+    if (mode < 2u) {
+        let graded = oklab_to_linear_srgb(lab + grading_shift(layer, lab.x));
+        return linear_to_display(graded);
+    }
+    var base = lab;
+    if (mode == 3u) {
+        let root = sign(linear) * pow(abs(linear), vec3<f32>(1.0 / 3.0));
+        let curved = root + vec3<f32>(
+            grading_entry(layer, root.x).w,
+            grading_entry(layer, root.y).w,
+            grading_entry(layer, root.z).w,
+        );
+        base = linear_srgb_to_oklab(curved * curved * curved);
+    }
+    let graded = linear_to_display(oklab_to_linear_srgb(base + grading_shift(layer, lab.x)));
+    return clamp(graded, min(display, vec3<f32>(0.0)), max(display, vec3<f32>(1.0)));
 }
 
 // Black & white after Lightroom's B&W mix, on display values (Oklab of the

@@ -379,7 +379,7 @@
   "defringeVersion": 2,
   "bwVersion": 2,
   "hslVersion": 2,
-  "colorGradingVersion": 2,
+  "colorGradingVersion": 3,
   "sharpenVersion": 8,
   "lumaNoiseVersion": 2,
   "aiDenoiseVersion": 4,
