@@ -12,6 +12,7 @@ import { Invokes, type ImageMetadata, type LoadImageResult } from '../components
 import { isNewRecipe, SOURCE_FRAME_VERSION, type Adjustments } from '../utils/adjustments';
 import { withNewEditFrame } from '../utils/sourceFrame';
 import { withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
+import { hasDevelopDefaults, type PhotoDefaults } from '../utils/developDefaults';
 import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
 import { editorRecipe, neverEdited, newSaved, savedSourceFrame, type CameraLens } from '../utils/neverEdited';
 import { historyFor, keptSince } from '../utils/photoHistory';
@@ -225,6 +226,14 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           const cropsRequest = isRawPhoto(selectedImage.path)
             ? invoke<CameraCrops>(Invokes.GetCameraCrops, { path: selectedImage.path }).catch(() => null)
             : Promise.resolve(null);
+          // The user's develop defaults for its camera, which a recipe that
+          // follows them starts with (src/utils/developDefaults.ts); asked
+          // only when one is set (the camera alone is asked later, for the
+          // menus: `useOpenPhotoCamera`).
+          const defaultsRequest = hasDevelopDefaults(useSettingsStore.getState().appSettings?.developDefaults)
+            ? invoke<PhotoDefaults>(Invokes.DevelopDefaultsFor, { path: selectedImage.path }).catch(() => null)
+            : Promise.resolve(null);
+          let photoDefaults: PhotoDefaults | null = null;
           let cameraCrops: CameraCrops = null;
           let batches: { order: number; recipe: Adjustments }[] = [];
           // The recipe to render: saved, or the defaults for a never-edited photo.
@@ -249,11 +258,13 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                   )
                 : null;
             cameraCrops = isRaw ? await cropsRequest : null;
+            photoDefaults = await defaultsRequest;
+            const defaults = photoDefaults?.resolved ?? null;
             // Kept for a paste onto it while it is not edited (it pastes onto
             // this saved recipe, as onto a closed photograph). A new recipe
             // shown on previews of an older frame (offline: no decode follows)
             // is edited in the frame it shows (src/utils/sourceFrame.ts).
-            const editor = editorRecipe(savedAdjustments, isRaw, width, height, camera, cameraCrops);
+            const editor = editorRecipe(savedAdjustments, isRaw, width, height, camera, cameraCrops, defaults);
             const saved = savedAdjustments as Partial<Adjustments> | null | undefined;
             const isNew = !saved || Boolean((saved as { is_null?: boolean }).is_null) || isNewRecipe(saved);
             // In the frame it shows, with that frame's camera crop.
@@ -265,6 +276,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               saved: savedAdjustments ?? null,
               camera,
               crops: cameraCrops,
+              defaults,
               width,
               height,
               shown
@@ -280,7 +292,8 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                   width,
                   height,
                   isRaw && neverEdited(after) ? await cameraRequestFor(savedSourceFrame(after)) : null,
-                  cameraCrops
+                  cameraCrops,
+                  defaults
                 )
               }))
             );
@@ -310,7 +323,14 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                   width: Math.round(width * previewScale),
                   height: Math.round(height * previewScale)
                 },
-                selectedImage: { ...state.selectedImage, ...image, cameraCrops, height, width }
+                selectedImage: {
+                  ...state.selectedImage,
+                  ...image,
+                  cameraCrops,
+                  ...(photoDefaults ? { photoDefaults } : {}),
+                  height,
+                  width
+                }
               };
             });
           };

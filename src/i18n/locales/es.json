@@ -308,6 +308,8 @@
       "rate_5": "5 estrellas",
       "redo": "Rehacer",
       "report_problem": "Informar de un problema…",
+      "reset_adjustments": "Restablecer ajustes",
+      "reset_to_neutral": "Restablecer a neutro",
       "rotate_left": "Girar a la izquierda",
       "rotate_right": "Girar a la derecha",
       "select_all": "Seleccionar todo",
@@ -769,6 +771,39 @@
         "tether": "Disparo conectado",
         "transform": "Transformar"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}} (cuerpo {{serial}})",
+    "menu": {
+      "resetToNeutral": "Restablecer a neutro",
+      "saveToolForCamera": "Guardar los ajustes de la herramienta como predeterminados para {{camera}}",
+      "saveToolForCameraBody": "Guardar los ajustes de la herramienta como predeterminados para este cuerpo ({{serial}})",
+      "setForCamera": "Establecer como predeterminado para {{camera}}",
+      "setForCameraBody": "Establecer como predeterminado para este cuerpo ({{serial}})",
+      "setGlobal": "Establecer como predeterminado global"
+    },
+    "settings": {
+      "cameras": "Predeterminados por cámara",
+      "camerasDesc": "Se establecen en Revelar: clic derecho en un ajuste o en la foto y «Establecer como predeterminado para …», o guardar los ajustes de una herramienta desde su menú. El de un cuerpo prevalece sobre el del modelo, el del modelo sobre el global.",
+      "camerasNone": "Aún no hay predeterminados por cámara.",
+      "global": "Predeterminado global",
+      "globalDesc": "Un ajuste preestablecido o estilo con el que empieza cada foto. Se omiten sus máscaras, recorte, transformación y retoques.",
+      "globalFrom": "De «{{name}}»",
+      "globalNone": "Ninguno (neutro)",
+      "intro": "Con qué empiezan las fotos sin editar: al importar, al abrirlas por primera vez y tras restablecer. Las fotos editadas nunca cambian; las no editadas siguen los nuevos ajustes.",
+      "joins": "Se suma al predeterminado global",
+      "rawOnly": "Solo archivos RAW",
+      "rawOnlyDesc": "Los archivos JPEG, HEIF y TIFF de la cámara empiezan neutros.",
+      "remove": "Quitar el predeterminado de {{camera}}",
+      "replaces": "En lugar del predeterminado global",
+      "title": "Revelado predeterminado"
+    },
+    "toasts": {
+      "saveFailed": "No se pudieron guardar los ajustes de revelado predeterminados: {{error}}",
+      "set": "«{{name}}» es ahora el predeterminado para {{camera}}",
+      "setGlobal": "«{{name}}» es ahora el predeterminado global",
+      "toolSaved": "{{tool}} guardado como predeterminado para {{camera}}"
     }
   },
   "duplicates": {
@@ -2569,6 +2604,8 @@
         "rate_5": "Puntuación de estrellas: 5",
         "redo": "Rehacer ajuste",
         "remove_objects": "Eliminar objetos",
+        "reset_adjustments": "Restablecer a los predeterminados",
+        "reset_to_neutral": "Restablecer a neutro",
         "rotate_left": "Rotar 90° en sentido antihorario",
         "rotate_right": "Rotar 90° en sentido horario",
         "select_all": "Seleccionar todas las imágenes",

@@ -324,6 +324,8 @@
       "rate_5": "5 gwiazdek",
       "redo": "Przywróć",
       "report_problem": "Zgłoś problem…",
+      "reset_adjustments": "Resetuj ustawienia",
+      "reset_to_neutral": "Przywróć neutralne",
       "rotate_left": "Obróć w lewo",
       "rotate_right": "Obróć w prawo",
       "select_all": "Zaznacz wszystko",
@@ -807,6 +809,39 @@
         "tether": "Fotografowanie z podłączonym aparatem",
         "transform": "Przekształcanie"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}} (korpus {{serial}})",
+    "menu": {
+      "resetToNeutral": "Przywróć neutralne",
+      "saveToolForCamera": "Zapisz ustawienia narzędzia jako domyślne dla {{camera}}",
+      "saveToolForCameraBody": "Zapisz ustawienia narzędzia jako domyślne dla tego korpusu ({{serial}})",
+      "setForCamera": "Ustaw jako domyślne dla {{camera}}",
+      "setForCameraBody": "Ustaw jako domyślne dla tego korpusu ({{serial}})",
+      "setGlobal": "Ustaw jako globalne domyślne"
+    },
+    "settings": {
+      "cameras": "Ustawienia domyślne aparatów",
+      "camerasDesc": "Ustawia się je w Wywoływaniu: kliknij prawym przyciskiem preset lub zdjęcie i wybierz „Ustaw jako domyślne dla …” albo zapisz ustawienia narzędzia z jego menu. Ustawienie korpusu ma pierwszeństwo przed modelem, modelu przed globalnym.",
+      "camerasNone": "Brak ustawień domyślnych aparatów.",
+      "global": "Globalne ustawienie domyślne",
+      "globalDesc": "Preset lub styl, od którego zaczyna każde zdjęcie. Jego maski, kadrowanie, transformacja i retusz są pomijane.",
+      "globalFrom": "Z „{{name}}”",
+      "globalNone": "Brak (neutralne)",
+      "intro": "Od czego zaczynają nieedytowane zdjęcia: przy imporcie, przy pierwszym otwarciu i po zresetowaniu. Edytowane zdjęcia nigdy się nie zmieniają; nieedytowane podążają za nowymi ustawieniami.",
+      "joins": "Uzupełnia globalne ustawienie",
+      "rawOnly": "Tylko pliki RAW",
+      "rawOnlyDesc": "Pliki JPEG, HEIF i TIFF z aparatu zaczynają neutralnie.",
+      "remove": "Usuń ustawienie domyślne dla {{camera}}",
+      "replaces": "Zamiast globalnego ustawienia",
+      "title": "Domyślne wywoływanie"
+    },
+    "toasts": {
+      "saveFailed": "Nie udało się zapisać domyślnych ustawień wywoływania: {{error}}",
+      "set": "„{{name}}” to teraz ustawienie domyślne dla {{camera}}",
+      "setGlobal": "„{{name}}” to teraz globalne ustawienie domyślne",
+      "toolSaved": "{{tool}} zapisane jako domyślne dla {{camera}}"
     }
   },
   "duplicates": {
@@ -2708,6 +2743,8 @@
         "rate_5": "Ocena: 5",
         "redo": "Ponów korektę",
         "remove_objects": "Usuwanie obiektów",
+        "reset_adjustments": "Przywróć ustawienia domyślne",
+        "reset_to_neutral": "Przywróć neutralne",
         "rotate_left": "Obróć o 90° w lewo",
         "rotate_right": "Obróć o 90° w prawo",
         "select_all": "Zaznacz wszystkie obrazy",

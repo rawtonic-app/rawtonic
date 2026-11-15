@@ -308,6 +308,8 @@
       "rate_5": "5 étoiles",
       "redo": "Rétablir",
       "report_problem": "Signaler un problème…",
+      "reset_adjustments": "Réinitialiser les réglages",
+      "reset_to_neutral": "Réinitialiser au neutre",
       "rotate_left": "Pivoter à gauche",
       "rotate_right": "Pivoter à droite",
       "select_all": "Tout sélectionner",
@@ -769,6 +771,39 @@
         "tether": "Prise de vue connectée",
         "transform": "Transformation"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}} (boîtier {{serial}})",
+    "menu": {
+      "resetToNeutral": "Réinitialiser au neutre",
+      "saveToolForCamera": "Enregistrer les réglages de l’outil par défaut pour {{camera}}",
+      "saveToolForCameraBody": "Enregistrer les réglages de l’outil par défaut pour ce boîtier ({{serial}})",
+      "setForCamera": "Définir par défaut pour {{camera}}",
+      "setForCameraBody": "Définir par défaut pour ce boîtier ({{serial}})",
+      "setGlobal": "Définir comme réglage par défaut global"
+    },
+    "settings": {
+      "cameras": "Réglages par appareil",
+      "camerasDesc": "À définir dans Développement : clic droit sur un préréglage ou la photo, « Définir par défaut pour … », ou enregistrer les réglages d’un outil depuis son menu. Le réglage d’un boîtier prime sur celui du modèle, celui du modèle sur le réglage global.",
+      "camerasNone": "Aucun réglage par appareil.",
+      "global": "Réglage par défaut global",
+      "globalDesc": "Un préréglage ou style appliqué à chaque photo. Ses masques, recadrage, transformation et retouches sont ignorés.",
+      "globalFrom": "Depuis « {{name}} »",
+      "globalNone": "Aucun (neutre)",
+      "intro": "Ce avec quoi commencent les photos non retouchées : à l’import, à la première ouverture et après une réinitialisation. Les photos retouchées ne changent jamais ; les autres suivent les nouveaux réglages.",
+      "joins": "S’ajoute au réglage global",
+      "rawOnly": "Fichiers RAW uniquement",
+      "rawOnlyDesc": "Les fichiers JPEG, HEIF et TIFF de l’appareil commencent neutres.",
+      "remove": "Supprimer le réglage par défaut de {{camera}}",
+      "replaces": "Remplace le réglage global",
+      "title": "Réglages de développement par défaut"
+    },
+    "toasts": {
+      "saveFailed": "Impossible d’enregistrer les réglages de développement par défaut : {{error}}",
+      "set": "« {{name}} » est désormais le réglage par défaut pour {{camera}}",
+      "setGlobal": "« {{name}} » est désormais le réglage par défaut global",
+      "toolSaved": "{{tool}} enregistré par défaut pour {{camera}}"
     }
   },
   "duplicates": {
@@ -2569,6 +2604,8 @@
         "rate_5": "Note : 5",
         "redo": "Rétablir l'ajustement",
         "remove_objects": "Supprimer des objets",
+        "reset_adjustments": "Réinitialiser aux réglages par défaut",
+        "reset_to_neutral": "Réinitialiser au neutre",
         "rotate_left": "Pivoter de 90° à gauche",
         "rotate_right": "Pivoter de 90° à droite",
         "select_all": "Sélectionner toutes les images",

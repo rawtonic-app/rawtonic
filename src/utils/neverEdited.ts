@@ -10,6 +10,7 @@ import {
   type Adjustments
 } from './adjustments';
 import { withCameraCrop, type CameraCrops } from './cameraCrop';
+import { followsDefaults, withDevelopDefaults, type ResolvedDefaults } from './developDefaults';
 
 /** The camera's own lens data for a photograph (`get_camera_lens_profile`). */
 export type CameraLens = { params: Adjustments['lensDistortionParams'] } | null;
@@ -75,19 +76,23 @@ export const savedSourceFrame = (saved: unknown): number => {
  * of a photograph `width` × `height` with: normalized, a new recipe with
  * the camera's crop (`crops`, src/utils/cameraCrop.ts), the photo's aspect
  * ratio when it has no crop, a never-edited RAW's defaults (`camera`: its
- * lens data, asked for by the caller when `neverEdited`). */
+ * lens data, asked for by the caller when `neverEdited`) and, while it
+ * follows them, the user's develop defaults for it (`defaults`,
+ * `develop_defaults_for`), as its renders get them. */
 export function editorRecipe(
   saved: unknown,
   isRaw: boolean,
   width: number,
   height: number,
   camera: CameraLens,
-  crops?: CameraCrops
+  crops?: CameraCrops,
+  defaults?: ResolvedDefaults | null
 ): Adjustments {
   let recipe =
     saved && !(saved as { is_null?: boolean }).is_null
       ? normalizeLoadedAdjustments(saved as Adjustments, isRaw)
       : initialAdjustmentsFor(isRaw);
+  if (followsDefaults(saved)) recipe = withDevelopDefaults(recipe, defaults);
   if (isRaw && newSaved(saved)) recipe = withCameraCrop(recipe, crops, width, height);
   if (!recipe.aspectRatio && !recipe.crop) recipe.aspectRatio = width / height;
   return applyNeverEditedDefaults(recipe, saved, isRaw, camera);

@@ -145,6 +145,7 @@ interface OldAdjustments {
   lumaNoiseVersion?: number;
   renderVersion?: number;
   sourceFrameVersion?: number;
+  developDefaults?: string[];
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;

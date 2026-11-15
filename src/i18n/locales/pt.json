@@ -308,6 +308,8 @@
       "rate_5": "5 estrelas",
       "redo": "Refazer",
       "report_problem": "Relatar um problema…",
+      "reset_adjustments": "Repor definições",
+      "reset_to_neutral": "Repor para neutro",
       "rotate_left": "Girar à esquerda",
       "rotate_right": "Girar à direita",
       "select_all": "Selecionar tudo",
@@ -769,6 +771,39 @@
         "tether": "Captura conectada",
         "transform": "Transformar"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}} (corpo {{serial}})",
+    "menu": {
+      "resetToNeutral": "Repor para neutro",
+      "saveToolForCamera": "Guardar as definições da ferramenta como padrão para {{camera}}",
+      "saveToolForCameraBody": "Guardar as definições da ferramenta como padrão para este corpo ({{serial}})",
+      "setForCamera": "Definir como padrão para {{camera}}",
+      "setForCameraBody": "Definir como padrão para este corpo ({{serial}})",
+      "setGlobal": "Definir como padrão global"
+    },
+    "settings": {
+      "cameras": "Padrões por câmara",
+      "camerasDesc": "Definem-se em Revelar: clique direito numa predefinição ou na foto e “Definir como padrão para …”, ou guarde as definições de uma ferramenta a partir do seu menu. O padrão de um corpo prevalece sobre o do modelo, o do modelo sobre o global.",
+      "camerasNone": "Ainda não há padrões por câmara.",
+      "global": "Padrão global",
+      "globalDesc": "Uma predefinição ou estilo com que cada foto começa. As suas máscaras, recorte, transformação e retoques ficam de fora.",
+      "globalFrom": "De “{{name}}”",
+      "globalNone": "Nenhum (neutro)",
+      "intro": "Com o que começam as fotos sem edição: na importação, na primeira abertura e depois de repor. Fotos editadas nunca mudam; as não editadas seguem as novas predefinições.",
+      "joins": "Junta-se ao padrão global",
+      "rawOnly": "Apenas ficheiros RAW",
+      "rawOnlyDesc": "Ficheiros JPEG, HEIF e TIFF da câmara começam neutros.",
+      "remove": "Remover o padrão de {{camera}}",
+      "replaces": "Em vez do padrão global",
+      "title": "Predefinições de revelação"
+    },
+    "toasts": {
+      "saveFailed": "Não foi possível guardar as predefinições de revelação: {{error}}",
+      "set": "“{{name}}” é agora o padrão para {{camera}}",
+      "setGlobal": "“{{name}}” é agora o padrão global",
+      "toolSaved": "{{tool}} guardado como padrão para {{camera}}"
     }
   },
   "duplicates": {
@@ -2569,6 +2604,8 @@
         "rate_5": "Avaliação por estrelas: 5",
         "redo": "Refazer ajuste",
         "remove_objects": "Remover objetos",
+        "reset_adjustments": "Repor para as predefinições",
+        "reset_to_neutral": "Repor para neutro",
         "rotate_left": "Girar 90° no sentido anti-horário",
         "rotate_right": "Girar 90° no sentido horário",
         "select_all": "Selecionar todas as imagens",

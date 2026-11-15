@@ -68,6 +68,15 @@ import {
   type CameraLens
 } from '../utils/neverEdited';
 import { cameraCropFor, withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
+import { shownNotEdited } from '../utils/shownNotEdited';
+import {
+  DEVELOP_DEFAULTS_KEY,
+  followsDefaults,
+  withDevelopDefaults,
+  withoutDevelopDefaults,
+  type PhotoDefaults,
+  type ResolvedDefaults
+} from '../utils/developDefaults';
 import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { appliedStyleOf, recordStyle, revertStyle, withStyleValues } from '../utils/appliedStyle';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
@@ -235,7 +244,8 @@ function scheduleUnsavedEditorRecipe() {
   const scheduled = readScheduledRecipe?.();
   const { selectedImage, adjustments } = useEditorStore.getState();
   if (!scheduled || !selectedImage?.isReady || scheduled.path !== selectedImage.path) return;
-  if (scheduled.adjustments !== adjustments) debouncedSave(selectedImage.path, adjustments);
+  if (scheduled.adjustments !== adjustments && !shownNotEdited.has(adjustments))
+    debouncedSave(selectedImage.path, adjustments);
 }
 
 /** Another writer of recipes with edits of its own still gathering or
@@ -368,6 +378,8 @@ type OpenedRecipe = {
   camera: CameraLens;
   /** Its camera crops (src/utils/cameraCrop.ts). */
   crops?: CameraCrops;
+  /** Its develop defaults (src/utils/developDefaults.ts). */
+  defaults?: ResolvedDefaults | null;
   width: number;
   height: number;
   shown: Adjustments;
@@ -375,6 +387,48 @@ type OpenedRecipe = {
 let openedRecipe: ({ path: string } & OpenedRecipe) | null = null;
 export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
+}
+
+/** The open photograph's develop defaults are now `photoDefaults` (they
+ * changed in Preferences or from a "Set as default" menu): Reset and the
+ * sliders go back to them, and while it still shows the never-edited
+ * recipe it was opened with it shows them instead of the old ones, as its
+ * renders do now (one History entry, nothing saved: it still follows them). */
+export function showNewDevelopDefaults(path: string, photoDefaults: PhotoDefaults | null) {
+  const state = useEditorStore.getState();
+  if (state.selectedImage?.path !== path) return;
+  const isRaw = !!state.selectedImage.isRaw;
+  const opened = openedRecipe;
+  const unchanged =
+    opened?.path === path &&
+    state.history.length === 1 &&
+    !state.historyPending &&
+    state.history[0] === opened.shown &&
+    state.adjustments === opened.shown &&
+    followsDefaults(opened.saved);
+  if (!unchanged || !opened) {
+    state.setEditor({ selectedImage: { ...state.selectedImage, photoDefaults } });
+    return;
+  }
+  // The shown recipe without the old defaults (they touch none of its
+  // frame, crop or lens keys), then with the new ones.
+  const plain = editorRecipe(opened.saved, isRaw, opened.width, opened.height, opened.camera, opened.crops, null);
+  const next = { ...opened.shown } as Record<string, unknown>;
+  for (const key of [...Object.keys(opened.defaults?.settings ?? {}), DEVELOP_DEFAULTS_KEY]) {
+    const value = (plain as unknown as Record<string, unknown>)[key];
+    if (value === undefined) delete next[key];
+    else next[key] = value;
+  }
+  const resolved = photoDefaults?.resolved ?? null;
+  const shown = withDevelopDefaults(next as unknown as Adjustments, resolved);
+  shownNotEdited.add(shown);
+  rememberOpenedRecipe(path, { ...opened, defaults: resolved, shown });
+  state.setEditor({
+    selectedImage: { ...state.selectedImage, photoDefaults },
+    adjustments: shown,
+    history: [shown],
+    historyIndex: 0
+  });
 }
 
 /** The recipe pasted versions are decided on for the open photograph
@@ -483,7 +537,7 @@ export function pastedOpen(
   // recipe fills it in again as loading does (the version a recipe without
   // it renders with).
   const shown = opened
-    ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera, opened.crops)
+    ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera, opened.crops, opened.defaults)
     : reverted?.removed
       ? normalizeLoadedAdjustments(merged, open.isRaw)
       : merged;
@@ -829,8 +883,9 @@ async function showWrittenRecipes(written: string[], shown?: RecipeShown) {
         : null;
     if (isCurrentEditorImage(path)) {
       const crops = useEditorStore.getState().selectedImage?.cameraCrops;
-      const normalized = editorRecipe(saved, !!isRaw, width, height, camera, crops);
-      rememberOpenedRecipe(path, { saved, camera, crops, width, height, shown: normalized });
+      const defaults = useEditorStore.getState().selectedImage?.photoDefaults?.resolved ?? null;
+      const normalized = editorRecipe(saved, !!isRaw, width, height, camera, crops, defaults);
+      rememberOpenedRecipe(path, { saved, camera, crops, defaults, width, height, shown: normalized });
       const { adjustments, pushHistory } = useEditorStore.getState();
       if (!sameAdjustmentValue(normalized, adjustments)) {
         debouncedSetHistory.flush();
@@ -1327,8 +1382,11 @@ export function useEditorActions() {
     [setEditor]
   );
 
+  /** Reset: back to each photo's new edit, which starts from the user's
+   * develop defaults for it; `neutral` (Reset to neutral): without them, and
+   * it stays neutral when the defaults change. */
   const handleResetAdjustments = useCallback(
-    (paths?: string[]) => {
+    (paths?: string[], neutral = false) => {
       const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
       const { selectedImage, pushHistory } = useEditorStore.getState();
       const pathsToReset = paths || multiSelectedPaths;
@@ -1350,7 +1408,7 @@ export function useEditorActions() {
             pathsToReset,
             () =>
               recordedBatch(
-                invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }),
+                invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset, neutral }),
                 pathsToReset,
                 'reset adjustments'
               ),
@@ -1371,8 +1429,11 @@ export function useEditorActions() {
           if (selectedImage && reset.includes(selectedImage.path) && isCurrentEditorImage(selectedImage.path)) {
             const aspect =
               selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
+            const start = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
             const kept = withSourceFrameOf(
-              { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] },
+              neutral
+                ? withoutDevelopDefaults(start)
+                : withDevelopDefaults(start, selectedImage.photoDefaults?.resolved),
               useEditorStore.getState().adjustments
             );
             // Back to the camera's crop of its frame (src/utils/cameraCrop.ts).

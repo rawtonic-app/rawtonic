@@ -308,6 +308,8 @@
       "rate_5": "5 stelle",
       "redo": "Ripeti",
       "report_problem": "Segnala un problema…",
+      "reset_adjustments": "Ripristina impostazioni",
+      "reset_to_neutral": "Ripristina a neutro",
       "rotate_left": "Ruota a sinistra",
       "rotate_right": "Ruota a destra",
       "select_all": "Seleziona tutto",
@@ -769,6 +771,39 @@
         "tether": "Scatto collegato",
         "transform": "Trasforma"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}} (corpo {{serial}})",
+    "menu": {
+      "resetToNeutral": "Ripristina a neutro",
+      "saveToolForCamera": "Salva le impostazioni dello strumento come predefinite per {{camera}}",
+      "saveToolForCameraBody": "Salva le impostazioni dello strumento come predefinite per questo corpo ({{serial}})",
+      "setForCamera": "Imposta come predefinito per {{camera}}",
+      "setForCameraBody": "Imposta come predefinito per questo corpo ({{serial}})",
+      "setGlobal": "Imposta come predefinito globale"
+    },
+    "settings": {
+      "cameras": "Predefiniti per fotocamera",
+      "camerasDesc": "Si impostano in Sviluppo: clic destro su un preset o sulla foto e «Imposta come predefinito per …», oppure salva le impostazioni di uno strumento dal suo menu. Il predefinito di un corpo prevale su quello del modello, quello del modello sul globale.",
+      "camerasNone": "Ancora nessun predefinito per fotocamera.",
+      "global": "Predefinito globale",
+      "globalDesc": "Un preset o stile con cui inizia ogni foto. Maschere, ritaglio, trasformazione e ritocchi vengono esclusi.",
+      "globalFrom": "Da «{{name}}»",
+      "globalNone": "Nessuno (neutro)",
+      "intro": "Con cosa iniziano le foto non modificate: all’importazione, alla prima apertura e dopo un ripristino. Le foto modificate non cambiano mai; le altre seguono i nuovi predefiniti.",
+      "joins": "Si aggiunge al predefinito globale",
+      "rawOnly": "Solo file RAW",
+      "rawOnlyDesc": "I file JPEG, HEIF e TIFF della fotocamera iniziano neutri.",
+      "remove": "Rimuovi il predefinito di {{camera}}",
+      "replaces": "Al posto del predefinito globale",
+      "title": "Sviluppo predefinito"
+    },
+    "toasts": {
+      "saveFailed": "Impossibile salvare le impostazioni di sviluppo predefinite: {{error}}",
+      "set": "«{{name}}» è ora il predefinito per {{camera}}",
+      "setGlobal": "«{{name}}» è ora il predefinito globale",
+      "toolSaved": "{{tool}} salvato come predefinito per {{camera}}"
     }
   },
   "duplicates": {
@@ -2569,6 +2604,8 @@
         "rate_5": "Valutazione stelle: 5",
         "redo": "Ripeti modifica",
         "remove_objects": "Rimuovi oggetti",
+        "reset_adjustments": "Ripristina ai predefiniti",
+        "reset_to_neutral": "Ripristina a neutro",
         "rotate_left": "Ruota 90° in senso antiorario",
         "rotate_right": "Ruota 90° in senso orario",
         "select_all": "Seleziona tutte le immagini",

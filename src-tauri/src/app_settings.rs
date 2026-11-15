@@ -717,6 +717,10 @@ pub struct AppSettings {
     /// Ids of the favourite presets and styles, in the order starred.
     #[serde(default)]
     pub favorite_presets: Option<Vec<String>>,
+    /// The default develop settings of photographs without an edit
+    /// (Preferences → Develop defaults; `rawtonic_engine::develop_defaults`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub develop_defaults: Option<rawtonic_engine::develop_defaults::DevelopDefaults>,
     /// The brush's last size, hardness, opacity and flow (Capture One keeps
     /// them across photos and launches).
     #[serde(default)]
@@ -935,6 +939,7 @@ impl Default for AppSettings {
             crop_shade: None,
             tool_layout: None,
             favorite_presets: None,
+            develop_defaults: None,
             brush_defaults: None,
             sort_criteria: None,
             filter_criteria: None,

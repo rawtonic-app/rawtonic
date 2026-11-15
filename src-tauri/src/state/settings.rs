@@ -79,6 +79,7 @@ impl SettingsStore {
         };
         migrate_settings(&mut next);
         persist_settings_file(&path, &next)?;
+        publish_develop_defaults(&next);
         *write_recover(&self.current) = Some(Arc::new(next));
         Ok(Some(result))
     }
@@ -96,9 +97,19 @@ impl SettingsStore {
         }
         self.file_loads.fetch_add(1, Ordering::Relaxed);
         let settings = Arc::new(load_settings_file(path)?);
+        publish_develop_defaults(&settings);
         *write_recover(&self.current) = Some(settings.clone());
         Ok(settings)
     }
+}
+
+/// The develop defaults new edits start with follow the settings
+/// (`rawtonic_engine::develop_defaults::set_current`), published before
+/// readers see the settings.
+fn publish_develop_defaults(settings: &AppSettings) {
+    rawtonic_engine::develop_defaults::set_current(
+        settings.develop_defaults.clone().unwrap_or_default(),
+    );
 }
 
 /// The app's settings, or the defaults when the file cannot be read (what

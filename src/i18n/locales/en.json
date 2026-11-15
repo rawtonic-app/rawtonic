@@ -292,6 +292,8 @@
       "rate_5": "5 Stars",
       "redo": "Redo",
       "report_problem": "Report a Problem…",
+      "reset_adjustments": "Reset Settings",
+      "reset_to_neutral": "Reset to Neutral",
       "rotate_left": "Rotate Left",
       "rotate_right": "Rotate Right",
       "select_all": "Select All",
@@ -731,6 +733,39 @@
         "tether": "Tethering",
         "transform": "Transform"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}} (body {{serial}})",
+    "menu": {
+      "resetToNeutral": "Reset to neutral",
+      "saveToolForCamera": "Save tool settings as default for {{camera}}",
+      "saveToolForCameraBody": "Save tool settings as default for this camera body ({{serial}})",
+      "setForCamera": "Set as default for {{camera}}",
+      "setForCameraBody": "Set as default for this camera body ({{serial}})",
+      "setGlobal": "Set as global default"
+    },
+    "settings": {
+      "cameras": "Camera defaults",
+      "camerasDesc": "Set them in Develop: right-click a preset or the photo and choose “Set as default for …”, or save one tool’s settings from the tool’s menu. A camera body’s default wins over its model’s, a model’s over the global default.",
+      "camerasNone": "No camera defaults yet.",
+      "global": "Global default",
+      "globalDesc": "A preset or style every photo starts with. Its masks, crop, transform and retouching are left out.",
+      "globalFrom": "From “{{name}}”",
+      "globalNone": "None (neutral)",
+      "intro": "What photos without an edit start with: at import, when first opened and after Reset. Photos you have edited never change; unedited photos follow when you change the defaults.",
+      "joins": "Adds to the global default",
+      "rawOnly": "RAW files only",
+      "rawOnlyDesc": "JPEG, HEIF and TIFF files from the camera start neutral.",
+      "remove": "Remove the default for {{camera}}",
+      "replaces": "Instead of the global default",
+      "title": "Develop defaults"
+    },
+    "toasts": {
+      "saveFailed": "Could not save the develop defaults: {{error}}",
+      "set": "“{{name}}” is now the default for {{camera}}",
+      "setGlobal": "“{{name}}” is now the global default",
+      "toolSaved": "{{tool}} saved as default for {{camera}}"
     }
   },
   "duplicates": {
@@ -2429,6 +2464,8 @@
         "rate_5": "Star rating: 5",
         "redo": "Redo adjustment",
         "remove_objects": "Remove objects",
+        "reset_adjustments": "Reset to the develop defaults",
+        "reset_to_neutral": "Reset to neutral",
         "rotate_left": "Rotate 90° counter-clockwise",
         "rotate_right": "Rotate 90° clockwise",
         "select_all": "Select all photos",

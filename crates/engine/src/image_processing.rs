@@ -6307,7 +6307,8 @@ pub const LIBRARY_LABEL_KEY: &str = "colorLabel";
 /// Whether a recipe is new: none, or empty (Library Reset saves `{}`, or
 /// only the photograph's frame, `source_frame::reset_recipe`; the editor's
 /// load adds only `lensProfileFor`, a library read only its colour label,
-/// `LIBRARY_LABEL_KEY`). It renders as a new edit.
+/// `LIBRARY_LABEL_KEY`; Reset to neutral the record of no defaults,
+/// `develop_defaults::KEY`). It renders as a new edit.
 pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
     adjustments.is_null()
         || adjustments.as_object().is_some_and(|map| {
@@ -6315,6 +6316,7 @@ pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
                 key == crate::lens_recipe::LENS_PROFILE_FOR
                     || key == crate::source_frame::KEY
                     || key == LIBRARY_LABEL_KEY
+                    || key == crate::develop_defaults::KEY
             })
         })
 }

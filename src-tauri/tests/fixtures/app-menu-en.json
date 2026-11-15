@@ -234,6 +234,19 @@
           "accelerator": "CmdOrCtrl+Shift+KeyS"
         },
         {
+          "kind": "item",
+          "id": "cmd:reset_adjustments",
+          "label": "Reset Settings",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyR"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:reset_to_neutral",
+          "label": "Reset to Neutral",
+          "enabled": false
+        },
+        {
           "kind": "separator"
         },
         {

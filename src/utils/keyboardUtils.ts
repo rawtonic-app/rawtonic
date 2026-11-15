@@ -665,6 +665,19 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'editing'
   },
   {
+    action: 'reset_adjustments',
+    description: 'settings.keybinds.actions.reset_adjustments',
+    // Lightroom's Reset: back to the photo's develop defaults.
+    defaultCombo: ['ctrl', 'shift', 'KeyR'],
+    section: 'editing'
+  },
+  {
+    action: 'reset_to_neutral',
+    description: 'settings.keybinds.actions.reset_to_neutral',
+    defaultCombo: [],
+    section: 'editing'
+  },
+  {
     action: 'sync_settings',
     description: 'settings.keybinds.actions.sync_settings',
     // Lightroom's Sync Settings.

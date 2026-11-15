@@ -75,6 +75,8 @@ export function gridStep(index: number, count: number, code: string, columns: nu
 export const RECIPE_ACTIONS = new Set([
   'paste_adjustments',
   'paste_from_previous',
+  'reset_adjustments',
+  'reset_to_neutral',
   'sync_settings',
   'auto_adjust',
   'auto_white_balance',
@@ -117,6 +119,14 @@ const KEY_ONLY_ACTIONS = new Set(['show_original']);
 
 /** Photo menu items that act on photographs: greyed out without one. */
 const PHOTO_ACTIONS = /^(rate_\d|color_label_\w+|delete_selected|move_to_selects|copy_adjustments|paste_adjustments)$/;
+/** The photographs a Reset from the keys or the menu resets: the open one
+ * in Develop (as the tool bar's Reset), else the Library's selection. */
+const resetTargets = (s: ShortcutState): string[] =>
+  s.ui.activeView === 'editor'
+    ? s.editor.selectedImage?.isReady
+      ? [s.editor.selectedImage.path]
+      : []
+    : flagTargets(s.ui, s.editor.selectedImage?.path, s.library.multiSelectedPaths);
 const hasPhotoTarget = (s: ShortcutState) =>
   flagTargets(s.ui, s.editor.selectedImage?.path, s.library.multiSelectedPaths).length > 0 ||
   (s.ui.activeView === 'editor' && !!s.editor.selectedImage);
@@ -190,6 +200,7 @@ export const useKeyboardShortcuts = ({
     handlePasteAdjustments,
     handlePasteFromPrevious,
     handleSyncSettings,
+    handleResetAdjustments,
     toggleSplitView,
     cycleCompareMode,
     toggleCompareMode,
@@ -422,6 +433,22 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           void handlePasteFromPrevious();
+        }
+      },
+      // Reset: back to each photo's develop defaults (Lightroom's Reset);
+      // Reset to neutral: without them.
+      reset_adjustments: {
+        shouldFire: (s) => resetTargets(s).length > 0,
+        execute: (e, s) => {
+          e.preventDefault();
+          handleResetAdjustments(resetTargets(s));
+        }
+      },
+      reset_to_neutral: {
+        shouldFire: (s) => resetTargets(s).length > 0,
+        execute: (e, s) => {
+          e.preventDefault();
+          handleResetAdjustments(resetTargets(s), true);
         }
       },
       sync_settings: {

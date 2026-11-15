@@ -793,6 +793,11 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * never changed once the photo is edited (Reset, paste and presets keep
    * it): a photo keeps the size it was edited in (src/utils/sourceFrame.ts). */
   sourceFrameVersion?: number;
+  /** The levels of the user's develop defaults the photo's new edit started
+   * with, most general first ('global', 'camera', 'body'); [] for none (Reset
+   * to neutral). Missing: started before develop defaults, or none set.
+   * Per photo, never copied (src/utils/developDefaults.ts). */
+  developDefaults?: string[];
   sectionVisibility: SectionVisibility;
   /** View state, never saved (`NON_COPYABLE_ADJUSTMENT_KEYS`): the
    * renderer's clipping warnings, `showClippingValue`
@@ -1715,7 +1720,10 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
  * backend does (`image_processing::is_new_recipe`,
  * `embedded_lens::apply_default`). */
 export const isNewRecipe = (loaded: Partial<Adjustments>): boolean =>
-  Object.keys(loaded).every((key) => key === 'lensProfileFor' || key === 'sourceFrameVersion' || key === 'colorLabel');
+  Object.keys(loaded).every(
+    (key) =>
+      key === 'lensProfileFor' || key === 'sourceFrameVersion' || key === 'colorLabel' || key === 'developDefaults'
+  );
 
 /** The render version of a saved recipe: its own; the current one for a new
  * recipe; else the first (missing key). */
@@ -2801,6 +2809,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'lensProfileFor',
   'renderVersion',
   'sourceFrameVersion',
+  'developDefaults',
   'sectionVisibility',
   'showClipping'
 ];

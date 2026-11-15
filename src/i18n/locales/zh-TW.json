@@ -279,6 +279,8 @@
       "rate_5": "5 星",
       "redo": "重做",
       "report_problem": "回報問題…",
+      "reset_adjustments": "重設設定",
+      "reset_to_neutral": "重設為中性",
       "rotate_left": "向左旋轉",
       "rotate_right": "向右旋轉",
       "select_all": "全選",
@@ -718,6 +720,39 @@
         "tether": "連機拍攝",
         "transform": "變形"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}}（機身 {{serial}}）",
+    "menu": {
+      "resetToNeutral": "重設為中性",
+      "saveToolForCamera": "將工具設定儲存為 {{camera}} 的預設值",
+      "saveToolForCameraBody": "將工具設定儲存為此相機機身的預設值（{{serial}}）",
+      "setForCamera": "設為 {{camera}} 的預設值",
+      "setForCameraBody": "設為此相機機身的預設值（{{serial}}）",
+      "setGlobal": "設為全域預設值"
+    },
+    "settings": {
+      "cameras": "相機預設值",
+      "camerasDesc": "在顯影中設定：在預設集或相片上按右鍵並選擇「設為 … 的預設值」，或從工具選單儲存該工具的設定。機身預設值優先於型號，型號優先於全域預設值。",
+      "camerasNone": "尚無相機預設值。",
+      "global": "全域預設值",
+      "globalDesc": "每張相片起始使用的預設集或風格。不包括其遮罩、裁切、變形和修飾。",
+      "globalFrom": "來自「{{name}}」",
+      "globalNone": "無（中性）",
+      "intro": "未編輯相片的起始設定：匯入時、首次開啟時和重設後。已編輯的相片永不改變；未編輯的相片會隨預設值變更。",
+      "joins": "加入全域預設值",
+      "rawOnly": "僅 RAW 檔案",
+      "rawOnlyDesc": "相機的 JPEG、HEIF 和 TIFF 檔案以中性開始。",
+      "remove": "移除 {{camera}} 的預設值",
+      "replaces": "取代全域預設值",
+      "title": "顯影預設值"
+    },
+    "toasts": {
+      "saveFailed": "無法儲存顯影預設值：{{error}}",
+      "set": "「{{name}}」現在是 {{camera}} 的預設值",
+      "setGlobal": "「{{name}}」現在是全域預設值",
+      "toolSaved": "{{tool}} 已儲存為 {{camera}} 的預設值"
     }
   },
   "duplicates": {
@@ -2334,6 +2369,8 @@
         "rate_5": "星級評分：5",
         "redo": "重做調整",
         "remove_objects": "移除物件",
+        "reset_adjustments": "重設為顯影預設值",
+        "reset_to_neutral": "重設為中性",
         "rotate_left": "逆時針旋轉 90°",
         "rotate_right": "順時針旋轉 90°",
         "select_all": "選擇所有影像",

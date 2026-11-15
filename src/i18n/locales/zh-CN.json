@@ -279,6 +279,8 @@
       "rate_5": "5 星",
       "redo": "重做",
       "report_problem": "报告问题…",
+      "reset_adjustments": "重置设置",
+      "reset_to_neutral": "重置为中性",
       "rotate_left": "向左旋转",
       "rotate_right": "向右旋转",
       "select_all": "全选",
@@ -718,6 +720,39 @@
         "tether": "联机拍摄",
         "transform": "变换"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}}（机身 {{serial}}）",
+    "menu": {
+      "resetToNeutral": "重置为中性",
+      "saveToolForCamera": "将工具设置保存为 {{camera}} 的默认值",
+      "saveToolForCameraBody": "将工具设置保存为此相机机身的默认值（{{serial}}）",
+      "setForCamera": "设为 {{camera}} 的默认值",
+      "setForCameraBody": "设为此相机机身的默认值（{{serial}}）",
+      "setGlobal": "设为全局默认值"
+    },
+    "settings": {
+      "cameras": "相机默认值",
+      "camerasDesc": "在显影中设置：右键单击预设或照片并选择“设为 … 的默认值”，或从工具菜单保存该工具的设置。机身默认值优先于型号，型号优先于全局默认值。",
+      "camerasNone": "尚无相机默认值。",
+      "global": "全局默认值",
+      "globalDesc": "每张照片起始使用的预设或风格。不包括其蒙版、裁剪、变换和修饰。",
+      "globalFrom": "来自“{{name}}”",
+      "globalNone": "无（中性）",
+      "intro": "未编辑照片的起始设置：导入时、首次打开时和重置后。已编辑的照片永不改变；未编辑的照片会随默认值更改。",
+      "joins": "添加到全局默认值",
+      "rawOnly": "仅 RAW 文件",
+      "rawOnlyDesc": "相机的 JPEG、HEIF 和 TIFF 文件以中性开始。",
+      "remove": "删除 {{camera}} 的默认值",
+      "replaces": "替代全局默认值",
+      "title": "显影默认值"
+    },
+    "toasts": {
+      "saveFailed": "无法保存显影默认值：{{error}}",
+      "set": "“{{name}}”现在是 {{camera}} 的默认值",
+      "setGlobal": "“{{name}}”现在是全局默认值",
+      "toolSaved": "{{tool}} 已保存为 {{camera}} 的默认值"
     }
   },
   "duplicates": {
@@ -2334,6 +2369,8 @@
         "rate_5": "星级评分：5",
         "redo": "重做调整",
         "remove_objects": "移除对象",
+        "reset_adjustments": "重置为显影默认值",
+        "reset_to_neutral": "重置为中性",
         "rotate_left": "逆时针旋转 90°",
         "rotate_right": "顺时针旋转 90°",
         "select_all": "选择所有图像",
