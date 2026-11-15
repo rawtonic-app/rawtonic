@@ -261,11 +261,8 @@ describe('RAW detail defaults', () => {
     );
     expect(JSON.parse(JSON.stringify(pasted)).colorGradingVersion).toBe(1);
     expect(
-      pastedAdjustments(
-        { ...graded, colorGradingVersion: 2 },
-        ['colorGrading', 'colorGradingVersion'],
-        PasteMode.Merge
-      ).colorGradingVersion
+      pastedAdjustments({ ...graded, colorGradingVersion: 2 }, ['colorGrading', 'colorGradingVersion'], PasteMode.Merge)
+        .colorGradingVersion
     ).toBe(2);
     // Copied layers that grade carry the source's response; a layer-only
     // preset from before the key states version 1.

@@ -413,7 +413,13 @@ mod v2 {
         pub white_room: f32,
     }
 
-    include!("color_grading_v2_tables.rs");
+    // Fitted values; one of them reads like a mathematical constant.
+    #[allow(clippy::approx_constant)]
+    mod tables {
+        use super::{HighlightsLowering, Wheel};
+        include!("color_grading_v2_tables.rs");
+    }
+    use tables::{HIGHLIGHTS, HIGHLIGHTS_LOWERING, SHADOWS};
 
     fn hue_vector(table: &[[f32; 2]; 24], hue: f32) -> [f32; 2] {
         let x = hue.rem_euclid(360.0) / 15.0;
