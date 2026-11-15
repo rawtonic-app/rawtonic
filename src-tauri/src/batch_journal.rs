@@ -48,6 +48,15 @@ pub enum BatchKind {
     KeywordRemove {
         tag: String,
     },
+    /// A keyword renamed, moved or merged with the keywords under it.
+    KeywordRename {
+        from: String,
+        to: String,
+    },
+    /// A keyword deleted from the photographs, its children moved up.
+    KeywordDelete {
+        path: String,
+    },
 }
 
 impl BatchKind {
@@ -64,6 +73,23 @@ impl BatchKind {
                     .filter(|color| !color.is_empty())
             ),
             Self::KeywordAdd { tag } | Self::KeywordRemove { tag } => json!(tags.contains(tag)),
+            // The photograph's tags within either name, in stored order.
+            Self::KeywordRename { from, to } => json!(
+                tags.iter()
+                    .filter(|tag| {
+                        crate::tagging::renamed_tag(tag, from, from).is_some()
+                            || crate::tagging::renamed_tag(tag, to, to).is_some()
+                    })
+                    .collect::<Vec<_>>()
+            ),
+            // Every tag within the deleted keyword and the tags it moves
+            // children to are both found among the tags that stay or
+            // appear, so the whole keyword tags are compared.
+            Self::KeywordDelete { .. } => json!(
+                tags.iter()
+                    .filter(|tag| !rawtonic_metadata::labels::is_editor_tag(tag))
+                    .collect::<Vec<_>>()
+            ),
         }
     }
 
@@ -79,6 +105,23 @@ impl BatchKind {
             }
             Self::KeywordAdd { .. } => *now == json!(true),
             Self::KeywordRemove { .. } => *now == json!(false),
+            // Applied when the tags are what the rename makes of them.
+            Self::KeywordRename { from, to } => {
+                let mut tags: Vec<String> =
+                    serde_json::from_value(before.clone()).unwrap_or_default();
+                crate::tagging::rename_keyword_tags(&mut tags, from, to);
+                tags.sort_unstable();
+                tags.dedup();
+                *now == json!(tags)
+            }
+            Self::KeywordDelete { path } => {
+                let mut tags: Vec<String> =
+                    serde_json::from_value(before.clone()).unwrap_or_default();
+                crate::tagging::delete_keyword_tags(&mut tags, path);
+                tags.sort_unstable();
+                tags.dedup();
+                *now == json!(tags)
+            }
         }
     }
 }
@@ -504,6 +547,81 @@ mod tests {
             }]
         );
         assert_eq!(found[0].rest, paths[1..3].to_vec());
+    }
+
+    /// A rename killed half way: the renamed photographs count as applied
+    /// and Undo gets each one's keywords within either name from before.
+    #[test]
+    fn a_killed_keyword_rename_knows_the_keywords_before_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (photos, paths) = Photos::new(3);
+        for path in &paths {
+            photos.edit(path, |m| {
+                m.tags = Some(vec!["user:Animals|Dogs".into(), "user:beach".into()])
+            });
+        }
+        let job = begin_in(
+            dir.path(),
+            BatchKind::KeywordRename {
+                from: "Animals".into(),
+                to: "Pets".into(),
+            },
+            "rename_keyword_for_paths",
+            json!({ "from": "Animals", "to": "Pets" }),
+            None,
+            &paths,
+            |p| photos.read(p),
+        )
+        .unwrap();
+        photos.edit(&paths[0], |m| {
+            m.tags = Some(vec!["user:Pets|Dogs".into(), "user:beach".into()])
+        });
+        leave_from_earlier_run(job);
+        let found = interrupted_in(dir.path(), None, |p| photos.read(p));
+        assert_eq!((found[0].applied, found[0].total), (1, 3));
+        assert_eq!(found[0].rest, paths[1..].to_vec());
+        assert_eq!(
+            found[0].undo,
+            vec![Photo {
+                path: paths[0].clone(),
+                before: json!(["user:Animals|Dogs"])
+            }]
+        );
+    }
+
+    /// A delete killed half way: a photograph whose tags are what the
+    /// deletion makes of them counts as applied.
+    #[test]
+    fn a_killed_keyword_delete_counts_the_photographs_it_reached() {
+        let dir = tempfile::tempdir().unwrap();
+        let (photos, paths) = Photos::new(2);
+        for path in &paths {
+            photos.edit(path, |m| {
+                m.tags = Some(vec![
+                    "user:Animals|Dogs".into(),
+                    "user:Animals|Dogs|Pug".into(),
+                ])
+            });
+        }
+        let job = begin_in(
+            dir.path(),
+            BatchKind::KeywordDelete {
+                path: "Animals|Dogs".into(),
+            },
+            "delete_keyword_for_paths",
+            json!({ "path": "Animals|Dogs" }),
+            None,
+            &paths,
+            |p| photos.read(p),
+        )
+        .unwrap();
+        photos.edit(&paths[0], |m| {
+            m.tags = Some(vec!["user:Animals|Pug".into()])
+        });
+        leave_from_earlier_run(job);
+        let found = interrupted_in(dir.path(), None, |p| photos.read(p));
+        assert_eq!((found[0].applied, found[0].total), (1, 2));
+        assert_eq!(found[0].rest, paths[1..].to_vec());
     }
 
     #[test]

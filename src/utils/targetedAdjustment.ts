@@ -97,6 +97,36 @@ export function channelShares2(hue: number, property: 'hue' | 'saturation' | 'lu
   return w.map((x) => (total > 0 ? x / total : 0));
 }
 
+// apply_hsl_panel_v3 (`hslVersion` 3): version 2's windows except Blues Hue,
+// Saturation and Luminance and Purples Saturation: centre, flat top and
+// edge width below, flat top and edge width above (degrees; `hsl3_window`).
+const HSL3_WINDOWS: Record<
+  'hue' | 'saturation' | 'luminance',
+  Partial<Record<number, [number, number, number, number, number]>>
+> = {
+  hue: { 5: [254.5, 3.548, 79.38, 4.208, 67.67] },
+  saturation: { 5: [254, 10.61, 63.26, 4.519, 64.8], 6: [329.1, 0.01315, 73.05, 0.6617, 13.51] },
+  luminance: { 5: [243.6, 3.055, 65.28, 3.896, 90] }
+};
+
+/** Each channel's share of a hue under `hslVersion` 3's windows of
+ * `property` over their sum. */
+export function channelShares3(hue: number, property: 'hue' | 'saturation' | 'luminance') {
+  const w = HSL2_WINDOWS[property].map(([centre, below, above, powerBelow, powerAbove], channel) => {
+    const flat = HSL3_WINDOWS[property][channel];
+    if (flat) {
+      const d = ((((hue - flat[0]) % 360) + 540) % 360) - 180;
+      const x = Math.min(Math.max((Math.abs(d) - (d < 0 ? flat[1] : flat[3])) / (d < 0 ? flat[2] : flat[4]), 0), 1);
+      return 1 - x * x * (3 - 2 * x);
+    }
+    const d = ((((hue - centre) % 360) + 540) % 360) - 180;
+    const x = Math.min(Math.abs(d) / (d < 0 ? below : above), 1);
+    return Math.max(0.5 + 0.5 * Math.cos(x * Math.PI), 0) ** (d < 0 ? powerBelow : powerAbove);
+  });
+  const total = w.reduce((sum, x) => sum + x, 0);
+  return w.map((x) => (total > 0 ? x / total : 0));
+}
+
 /** Slider units per screen pixel of vertical drag on the tone targets
  * (Lightroom-like pace). */
 export const TAT_UNITS_PER_PIXEL = 0.5;
@@ -203,9 +233,11 @@ export function startTargetedAdjustment(
       ? (base.bwVersion ?? 1) >= 2
         ? channelShares(hue, BW2_CENTRES, BW2_REACH)
         : channelShares(hue, BW_CENTRES, BW_REACH)
-      : (base.hslVersion ?? 1) >= 2
-        ? channelShares2(hue, target as 'hue' | 'saturation' | 'luminance')
-        : channelShares(hue, HSL_CENTRES, HSL_REACH);
+      : (base.hslVersion ?? 1) >= 3
+        ? channelShares3(hue, target as 'hue' | 'saturation' | 'luminance')
+        : (base.hslVersion ?? 1) >= 2
+          ? channelShares2(hue, target as 'hue' | 'saturation' | 'luminance')
+          : channelShares(hue, HSL_CENTRES, HSL_REACH);
   return { target, base, weights };
 }
 

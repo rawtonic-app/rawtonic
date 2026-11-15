@@ -367,6 +367,12 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
         lib.facets(&everything, &[rawtonic_catalog::Field::Ai])
     })?;
     results.insert("facets_ai_only".into(), ai_list);
+    // The keyword list alone (the Keyword List tool asks for it after every
+    // catalog change).
+    let (keyword_list, _) = time(iterations, || {
+        lib.facets(&everything, &[rawtonic_catalog::Field::Keyword])
+    })?;
+    results.insert("facets_keyword_only".into(), keyword_list);
     let (albums, listed) = time(iterations, || lib.collections())?;
     results.insert("albums_with_11_smart_counts".into(), albums);
     // One metadata write with the keyword index kept by its triggers.

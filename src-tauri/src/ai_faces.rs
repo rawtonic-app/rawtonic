@@ -374,6 +374,7 @@ pub async fn apply_face_retouch_to_paths(
         message: format!("Face retouch failed: {reason}"),
         failed: paths.clone(),
         culling: Vec::new(),
+        keywords: Vec::new(),
     };
     let models = models(&app_handle, true)
         .await
@@ -544,6 +545,7 @@ pub async fn apply_face_retouch_to_paths(
                 .flat_map(|failure| failure.failed)
                 .collect(),
             culling: Vec::new(),
+            keywords: Vec::new(),
         }),
     }
 }

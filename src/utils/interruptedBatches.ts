@@ -22,6 +22,7 @@ import { notify } from '../activity/notify';
 import { invokeInOrder } from './catalogWrites';
 import { catalogChanged } from './catalogEvents';
 import { writeRecipeRepair } from '../hooks/useEditorActions';
+import { deleteKeywordTags, displayKeyword, renameKeywordTags } from './keywordTree';
 
 /** What the batch wrote (`BatchKind` in batch_journal.rs). */
 export type InterruptedBatchKind =
@@ -31,7 +32,9 @@ export type InterruptedBatchKind =
   | { kind: 'rating'; rating: number }
   | { kind: 'color'; color: string | null }
   | { kind: 'keywordAdd'; tag: string }
-  | { kind: 'keywordRemove'; tag: string };
+  | { kind: 'keywordRemove'; tag: string }
+  | { kind: 'keywordRename'; from: string; to: string }
+  | { kind: 'keywordDelete'; path: string };
 
 /** `InterruptedBatch` in batch_journal.rs. */
 export interface InterruptedBatch {
@@ -61,6 +64,13 @@ function batchName({ batch }: InterruptedBatch): string {
       return i18n.t('activity.interrupted.keywordAdd', { tag: batch.tag });
     case 'keywordRemove':
       return i18n.t('activity.interrupted.keywordRemove', { tag: batch.tag });
+    case 'keywordRename':
+      return i18n.t('activity.interrupted.keywordRename', {
+        from: displayKeyword(batch.from),
+        to: displayKeyword(batch.to)
+      });
+    case 'keywordDelete':
+      return i18n.t('activity.interrupted.keywordDelete', { path: displayKeyword(batch.path) });
     default:
       return i18n.t(`activity.interrupted.${batch.kind}`);
   }
@@ -126,6 +136,33 @@ export async function undoApplied(batch: InterruptedBatch) {
     case 'keywordRemove':
       await invokeInOrder(Invokes.AddTagForPaths, { paths, tag: batch.batch.tag }, 'keyword');
       return;
+    case 'keywordRename':
+    case 'keywordDelete': {
+      // Each photograph's tags within the keyword before the change: those
+      // go back, the ones the change made (and it had not) go.
+      const change = batch.batch;
+      const made =
+        change.kind === 'keywordRename'
+          ? (tags: string[]) => renameKeywordTags(tags, change.from, change.to)
+          : (tags: string[]) => deleteKeywordTags(tags, change.path);
+      const adds = new Map<string, string[]>();
+      const removes = new Map<string, string[]>();
+      const push = (map: Map<string, string[]>, tag: string, path: string) =>
+        map.set(tag, [...(map.get(tag) ?? []), path]);
+      for (const entry of undo) {
+        const before = Array.isArray(entry.before) ? entry.before.map(String) : [];
+        const after = made(before);
+        // Every tag the change took (also a merge destination it replaced
+        // by the user's form) goes back; every tag it made goes.
+        for (const tag of before) if (!after.includes(tag)) push(adds, tag, entry.path);
+        for (const tag of after) if (!before.includes(tag)) push(removes, tag, entry.path);
+      }
+      for (const [tag, tagPaths] of adds)
+        await invokeInOrder(Invokes.AddTagForPaths, { paths: tagPaths, tag }, 'keyword');
+      for (const [tag, tagPaths] of removes)
+        await invokeInOrder(Invokes.RemoveTagForPaths, { paths: tagPaths, tag }, 'keyword');
+      return;
+    }
   }
 }
 

@@ -89,7 +89,9 @@
       "detail": "Una chiusura o un arresto anomalo ha interrotto questo gruppo prima che tutte le foto fossero scritte. Applicalo alle restanti, annulla la parte applicata o lascia le foto come sono. Le foto stesse non vengono mai modificate.",
       "failed": "Impossibile completare {{batch}}: {{error}}",
       "keywordAdd": "Parola chiave «{{tag}}»",
+      "keywordDelete": "Eliminazione della parola chiave «{{path}}»",
       "keywordRemove": "Rimozione della parola chiave «{{tag}}»",
+      "keywordRename": "Rinomina della parola chiave «{{from}}» in «{{to}}»",
       "notWritten_one": "Impossibile scrivere {{count}} foto",
       "notWritten_many": "Impossibile scrivere {{count}} foto",
       "notWritten_other": "Impossibile scrivere {{count}} foto",
@@ -4269,6 +4271,53 @@
           "showFailed": "Impossibile mostrare la cartella: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Nascondi le parole chiave sotto {{keyword}}",
+        "confirm": {
+          "cancel": "Annulla",
+          "convert": "Convertire «{{from}}» nella gerarchia «{{to}}»?",
+          "convertAction": "Converti",
+          "delete": "Eliminare «{{from}}»? Le parole chiave al suo interno salgono di un livello.",
+          "deleteAction": "Elimina",
+          "deleteUnused": "Eliminare ogni parola chiave che nessuna foto ha?",
+          "label": "Conferma la modifica della parola chiave",
+          "merge": "Unire «{{from}}» a «{{to}}»? «{{from}}» viene sostituita.",
+          "mergeAction": "Unisci",
+          "move": "Spostare «{{from}}» in «{{to}}»?",
+          "moveAction": "Sposta",
+          "photos_one": "Questo cambia le parole chiave di {{count}} foto.",
+          "photos_many": "Questo cambia le parole chiave di {{count}} foto.",
+          "photos_other": "Questo cambia le parole chiave di {{count}} foto.",
+          "rename": "Rinominare «{{from}}» in «{{to}}»?",
+          "renameAction": "Rinomina"
+        },
+        "empty": "Ancora nessuna parola chiave.",
+        "expand": "Mostra le parole chiave sotto {{keyword}}",
+        "filterHint": "Mostra le foto con {{keyword}} e le parole chiave sotto di essa. Trascina su un’altra parola chiave per spostarla lì.",
+        "legacyHint": "«{{keyword}}» è una singola parola chiave, scritta prima delle gerarchie. Fai clic destro per convertirla.",
+        "menu": {
+          "clearFilter": "Smetti di filtrare per questa parola chiave",
+          "convert": "Converti in «{{path}}»",
+          "delete": "Elimina parola chiave…",
+          "deleteUnused": "Elimina parole chiave inutilizzate…",
+          "filter": "Mostra le foto con questa parola chiave",
+          "moveToTop": "Sposta al livello superiore",
+          "new": "Nuova parola chiave…",
+          "newInside": "Nuova parola chiave in «{{keyword}}»…",
+          "rename": "Rinomina…"
+        },
+        "new": {
+          "insideLabel": "Nuova parola chiave in {{keyword}}",
+          "label": "Nuova parola chiave: digita il nome o il percorso, ad es. Genitore > Nome"
+        },
+        "renameLabel": "Rinomina o sposta {{keyword}}: digita il percorso, ad es. Superiore > Nome",
+        "title": "Elenco parole chiave",
+        "toasts": {
+          "assignFailed": "Impossibile aggiungere la parola chiave alle foto: {{error}}",
+          "createFailed": "Impossibile creare la parola chiave: {{error}}",
+          "renameFailed": "Impossibile modificare le parole chiave: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "Riduzione rumore IA",
@@ -4727,6 +4776,7 @@
         "addTo_one": "Aggiungi a {{count}} foto",
         "addTo_many": "Aggiungi a {{count}} foto",
         "addTo_other": "Aggiungi a {{count}} foto",
+        "hierarchyHint": "Separa le parole chiave con virgole. «Animali > Cani», «Animali|Cani» o «Cani < Animali» mette Cani sotto Animali.",
         "none": "Nessuna parola chiave",
         "ofSelection": "Parole chiave della selezione",
         "partial_one": "Su {{on}} di {{count}} foto",
@@ -5541,6 +5591,15 @@
     "edit": "Modifica",
     "file": "Modifica file",
     "flag": "Imposta contrassegno",
+    "keywordAdd": "Aggiungi la parola chiave «{{keyword}}»",
+    "keywordConvert": "Converti parola chiave",
+    "keywordDelete": "Elimina parola chiave",
+    "keywordDeleteUnused": "Elimina parole chiave inutilizzate",
+    "keywordMerge": "Unisci parole chiave",
+    "keywordMove": "Sposta parola chiave",
+    "keywordNew": "Nuova parola chiave",
+    "keywordRemove": "Rimuovi la parola chiave «{{keyword}}»",
+    "keywordRename": "Rinomina parola chiave",
     "lensCorrection": "Correzione obiettivo",
     "matchLight": "Uniforma luce",
     "move": "Sposta",

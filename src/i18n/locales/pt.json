@@ -89,7 +89,9 @@
       "detail": "Um encerramento ou falha parou este lote antes de todas as fotos serem gravadas. Aplique-o às restantes, anule a parte aplicada ou deixe as fotos como estão. As fotos em si nunca são alteradas.",
       "failed": "Não foi possível concluir {{batch}}: {{error}}",
       "keywordAdd": "Palavra-chave «{{tag}}»",
+      "keywordDelete": "A eliminar a palavra-chave “{{path}}”",
       "keywordRemove": "Remoção da palavra-chave «{{tag}}»",
+      "keywordRename": "Renomeando a palavra-chave «{{from}}» para «{{to}}»",
       "notWritten_one": "Não foi possível gravar {{count}} foto",
       "notWritten_many": "Não foi possível gravar {{count}} fotos",
       "notWritten_other": "Não foi possível gravar {{count}} fotos",
@@ -4269,6 +4271,53 @@
           "showFailed": "Não foi possível mostrar a pasta: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Ocultar as palavras-chave sob {{keyword}}",
+        "confirm": {
+          "cancel": "Cancelar",
+          "convert": "Converter «{{from}}» na hierarquia «{{to}}»?",
+          "convertAction": "Converter",
+          "delete": "Eliminar “{{from}}”? As palavras-chave abaixo dela sobem um nível.",
+          "deleteAction": "Eliminar",
+          "deleteUnused": "Eliminar todas as palavras-chave que nenhuma foto tem?",
+          "label": "Confirmar a alteração da palavra-chave",
+          "merge": "Mesclar «{{from}}» com «{{to}}»? «{{from}}» é substituída por ela.",
+          "mergeAction": "Mesclar",
+          "move": "Mover «{{from}}» para «{{to}}»?",
+          "moveAction": "Mover",
+          "photos_one": "Isto altera as palavras-chave de {{count}} foto.",
+          "photos_many": "Isto altera as palavras-chave de {{count}} fotos.",
+          "photos_other": "Isto altera as palavras-chave de {{count}} fotos.",
+          "rename": "Renomear «{{from}}» para «{{to}}»?",
+          "renameAction": "Renomear"
+        },
+        "empty": "Ainda não há palavras-chave.",
+        "expand": "Mostrar as palavras-chave sob {{keyword}}",
+        "filterHint": "Mostrar as fotos com {{keyword}} e as palavras-chave sob ela. Arraste para outra palavra-chave para movê-la para lá.",
+        "legacyHint": "«{{keyword}}» é uma única palavra-chave, escrita antes das hierarquias. Clique com o botão direito para convertê-la.",
+        "menu": {
+          "clearFilter": "Parar de filtrar por esta palavra-chave",
+          "convert": "Converter em «{{path}}»",
+          "delete": "Eliminar palavra-chave…",
+          "deleteUnused": "Eliminar palavras-chave não utilizadas…",
+          "filter": "Mostrar fotos com esta palavra-chave",
+          "moveToTop": "Mover para o nível superior",
+          "new": "Nova palavra-chave…",
+          "newInside": "Nova palavra-chave dentro de “{{keyword}}”…",
+          "rename": "Renomear…"
+        },
+        "new": {
+          "insideLabel": "Nova palavra-chave dentro de {{keyword}}",
+          "label": "Nova palavra-chave: escreva o nome ou o caminho, p. ex. Pai > Nome"
+        },
+        "renameLabel": "Renomear ou mover {{keyword}}: digite o caminho, p. ex. Superior > Nome",
+        "title": "Lista de palavras-chave",
+        "toasts": {
+          "assignFailed": "Não foi possível adicionar a palavra-chave às fotos: {{error}}",
+          "createFailed": "Não foi possível criar a palavra-chave: {{error}}",
+          "renameFailed": "Não foi possível alterar as palavras-chave: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "Redução de ruído com IA",
@@ -4727,6 +4776,7 @@
         "addTo_one": "Adicionar a {{count}} foto",
         "addTo_many": "Adicionar a {{count}} fotos",
         "addTo_other": "Adicionar a {{count}} fotos",
+        "hierarchyHint": "Separe as palavras-chave com vírgulas. «Animais > Cães», «Animais|Cães» ou «Cães < Animais» coloca Cães sob Animais.",
         "none": "Sem palavras-chave",
         "ofSelection": "Palavras-chave da seleção",
         "partial_one": "Em {{on}} de {{count}} foto",
@@ -5541,6 +5591,15 @@
     "edit": "Edição",
     "file": "Alteração de ficheiro",
     "flag": "Definir marcação",
+    "keywordAdd": "Adicionar palavra-chave “{{keyword}}”",
+    "keywordConvert": "Converter palavra-chave",
+    "keywordDelete": "Eliminar palavra-chave",
+    "keywordDeleteUnused": "Eliminar palavras-chave não utilizadas",
+    "keywordMerge": "Mesclar palavras-chave",
+    "keywordMove": "Mover palavra-chave",
+    "keywordNew": "Nova palavra-chave",
+    "keywordRemove": "Remover palavra-chave “{{keyword}}”",
+    "keywordRename": "Renomear palavra-chave",
     "lensCorrection": "Correção da objetiva",
     "matchLight": "Igualar luz",
     "move": "Mover",

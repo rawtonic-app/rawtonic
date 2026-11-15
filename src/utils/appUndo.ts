@@ -1,4 +1,5 @@
 import i18n from 'i18next';
+import { invoke } from '@tauri-apps/api/core';
 import { createElement } from 'react';
 import { Invokes } from '../components/ui/AppProperties';
 import { create } from 'zustand';
@@ -8,7 +9,8 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
 import { movedPath, type PathMove } from './pathKeyedState';
 import { invokeInOrder } from './catalogWrites';
-import { xmpMetadataRead } from './catalogEvents';
+import { catalogChanged, xmpMetadataRead } from './catalogEvents';
+import { sortStoredTags } from '../hooks/useLibraryActions';
 import { photoWorkPending, reservePhotoWrites } from './photoWrites';
 import { writeCaptureTimes, type PlannedChange } from './captureTime';
 import { editUndoOrder, nextUndoOrder, onNewEdit } from './undoOrder';
@@ -63,10 +65,29 @@ export function registerRecipeWriter(writer: RecipeWriter, replacer?: RecipeRepl
   recipeWriter = writer;
   recipeReplacer = replacer ?? null;
 }
+/** What a keyword write did to one photograph (`KeywordChange` in
+ * file_management/edits.rs): stored tags gained and lost. */
+export interface KeywordChange {
+  path: string;
+  added: string[];
+  removed: string[];
+}
+/** What a change did to the keywords without photographs (`DeclaredChange`
+ * in rawtonic_catalog). */
+export interface DeclaredChange {
+  added: string[];
+  removed: string[];
+}
+/** The edit's name in the Edit menu (`undoHistory.keyword*`) and the
+ * keyword it names (`Undo Add Keyword 'Dogs'`). */
+export interface KeywordLabel {
+  kind: 'add' | 'remove' | 'rename' | 'merge' | 'move' | 'convert' | 'delete' | 'new' | 'deleteUnused';
+  keyword?: string;
+}
 export type BatchLabel = 'matchLight' | 'paste' | 'sync' | 'reset' | 'style' | 'lensCorrection' | 'apply';
 interface Step {
   order: number;
-  action: CullingValue['kind'] | 'recipes' | 'xmp' | 'captureTime' | 'stacks' | 'catalogImport';
+  action: CullingValue['kind'] | 'recipes' | 'xmp' | 'captureTime' | 'stacks' | 'catalogImport' | 'keywords';
   changes: CullingChange[];
   /** A batch recipe change (series match): one step for all its photos. */
   recipes?: RecipeChange[];
@@ -83,6 +104,20 @@ interface Step {
    * photograph's history). */
   catalogImport?: { library: string; receipts: XmpReceipt[] };
   label?: BatchLabel;
+  /** A keyword edit (add or remove on photographs, or a Keyword List
+   * operation): what each photograph's keywords gained and lost and which
+   * keywords without photographs it made or deleted, put back by
+   * `restore_keywords` and `session_keywords_declared_apply`. */
+  keywords?: {
+    library: string | null;
+    changes: KeywordChange[];
+    declared: DeclaredChange;
+    label: KeywordLabel;
+    /** The Library's keyword filter before and after the edit (a rename
+     * moves the filter on the keyword with it), followed by Undo and Redo
+     * while the person has not changed it since. */
+    filter?: { before: string[]; after: string[] };
+  };
   /** Use XMP: the photos it was asked for and what undoes each reading. */
   xmp?: { paths: string[]; receipts: XmpReceipt[] };
   directory: string | null;
@@ -422,6 +457,91 @@ export function stackAction(library: string, change: StackChange, paths: string[
     fileRedoBlocked: true
   }));
 }
+
+/** What a keyword edit's work reports as it writes: the photographs'
+ * changes and the keywords without photographs it made or deleted. Called
+ * after each write, so a partly saved edit is still one step for what saved. */
+export type KeywordRecorder = (done: {
+  changes?: KeywordChange[];
+  declared?: DeclaredChange;
+  filter?: { before: string[]; after: string[] };
+}) => void;
+/** The changes a failed keyword write names (`SaveFailure.keywords`). */
+export const savedKeywordChanges = (error: unknown): KeywordChange[] =>
+  (error as { keywords?: KeywordChange[] } | null)?.keywords ?? [];
+
+/** Runs a keyword edit as one undoable step named by `label` (Undo Add
+ * Keyword 'Dogs', Undo Merge Keywords). The step is on the stack at input
+ * time and goes when it changed nothing. `work` writes through
+ * `record`; its rejection is the caller's, the step keeps what saved. */
+export function keywordAction(
+  label: KeywordLabel,
+  work: (record: KeywordRecorder) => Promise<void>,
+  paths: readonly string[] = []
+): Promise<void> {
+  debouncedSetHistory.flush();
+  branch++;
+  const editor = useEditorStore.getState();
+  editor.setEditor({
+    history: editor.history.slice(0, editor.historyIndex + 1)
+  });
+  const library = useLibraryStore.getState().sessionDirectory;
+  const step: Step = {
+    order: nextUndoOrder(),
+    action: 'keywords',
+    changes: [],
+    keywords: { library, changes: [], declared: { added: [], removed: [] }, label },
+    directory: library
+  };
+  currentTargets.set(step, [...paths]);
+  pendingCatalog.add(step.order);
+  useCatalogUndoStore.setState((s) => ({
+    past: [...s.past, step].slice(-100),
+    future: [],
+    filesFuture: [],
+    fileRedoBlocked: true
+  }));
+  const record: KeywordRecorder = ({ changes, declared, filter }) => {
+    const keywords = step.keywords!;
+    if (filter) keywords.filter = filter;
+    // One photograph written twice (several keywords typed at once) keeps
+    // one change that holds both.
+    for (const change of changes ?? []) {
+      const own = keywords.changes.find((item) => item.path === change.path);
+      if (!own) keywords.changes.push({ ...change });
+      else {
+        own.added = [...own.added.filter((tag) => !change.removed.includes(tag)), ...change.added];
+        own.removed = [...own.removed.filter((tag) => !change.added.includes(tag)), ...change.removed];
+      }
+    }
+    if (declared) {
+      keywords.declared.added = [...keywords.declared.added, ...declared.added];
+      keywords.declared.removed = [...keywords.declared.removed, ...declared.removed];
+    }
+  };
+  return enqueue(
+    async () => {
+      try {
+        await work(record);
+      } finally {
+        const { changes, declared } = step.keywords!;
+        currentTargets.set(
+          step,
+          changes.map((change) => change.path)
+        );
+        pendingCatalog.delete(step.order);
+        pruneMoves();
+        const changed = changes.some((c) => c.added.length || c.removed.length) || !isNoDeclaredChange(declared);
+        useCatalogUndoStore.setState((s) =>
+          s.past.includes(step) ? { past: changed ? [...s.past] : s.past.filter((item) => item !== step) } : {}
+        );
+      }
+    },
+    'catalog',
+    paths.length ? paths : undefined
+  );
+}
+const isNoDeclaredChange = (change: DeclaredChange) => !change.added.length && !change.removed.length;
 
 /** Records an Import from Catalog already written to `library` as one
  * undoable step for the metadata it replaced (nothing when it replaced
@@ -838,6 +958,28 @@ function batchLabel(label: BatchLabel | undefined) {
       return i18n.t('undoHistory.matchLight');
   }
 }
+function keywordLabel({ kind, keyword = '' }: KeywordLabel) {
+  switch (kind) {
+    case 'add':
+      return i18n.t('undoHistory.keywordAdd', { keyword });
+    case 'remove':
+      return i18n.t('undoHistory.keywordRemove', { keyword });
+    case 'rename':
+      return i18n.t('undoHistory.keywordRename');
+    case 'merge':
+      return i18n.t('undoHistory.keywordMerge');
+    case 'move':
+      return i18n.t('undoHistory.keywordMove');
+    case 'convert':
+      return i18n.t('undoHistory.keywordConvert');
+    case 'delete':
+      return i18n.t('undoHistory.keywordDelete');
+    case 'new':
+      return i18n.t('undoHistory.keywordNew');
+    case 'deleteUnused':
+      return i18n.t('undoHistory.keywordDeleteUnused');
+  }
+}
 function actionLabel(direction: 'undo' | 'redo') {
   const kind = candidate(direction);
   if (kind === 'edit') {
@@ -861,6 +1003,9 @@ function actionLabel(direction: 'undo' | 'redo') {
     if (action === 'captureTime') return i18n.t('undoHistory.captureTime');
     if (action === 'stacks') return i18n.t('undoHistory.stacks');
     if (action === 'catalogImport') return i18n.t('undoHistory.catalogImport');
+    if (action === 'keywords') {
+      return keywordLabel(catalogStep(direction)!.keywords!.label);
+    }
     return null;
   }
   return null;
@@ -1058,6 +1203,14 @@ async function travel(direction: 'undo' | 'redo', fallback?: () => void | Promis
     }
     return;
   }
+  if (step.keywords) {
+    try {
+      await travelKeywords(step, direction, startedOnBranch);
+    } finally {
+      useCatalogUndoStore.setState({ busy: false });
+    }
+    return;
+  }
   if (step.stacks) {
     try {
       await travelStacks(step, direction, startedOnBranch);
@@ -1224,6 +1377,88 @@ async function travelRecipes(step: Step, direction: 'undo' | 'redo', startedOnBr
     );
   }
 }
+/** The listed photographs' tags after `changes` (or, with `undo`, before
+ * them), so the grid shows them without another listing. */
+export function showKeywordChanges(changes: KeywordChange[], undo: boolean) {
+  const by = new Map(changes.map((change) => [change.path, change]));
+  if (!by.size) return;
+  useLibraryStore.getState().setLibrary((state) => ({
+    imageList: state.imageList.map((image) => {
+      const change = by.get(image.path);
+      if (!change) return image;
+      const [gone, back] = undo ? [change.added, change.removed] : [change.removed, change.added];
+      const tags = (image.tags ?? []).filter((tag) => !gone.includes(tag));
+      for (const tag of back) if (!tags.includes(tag)) tags.push(tag);
+      return { ...image, tags: sortStoredTags(tags) };
+    })
+  }));
+}
+
+/** The Library's keyword filter goes where the edit took it (Redo) or took
+ * it from (Undo), unless the person changed it since. */
+function followKeywordFilter(step: Step, direction: 'undo' | 'redo') {
+  const filter = step.keywords?.filter;
+  if (!filter) return;
+  const library = useLibraryStore.getState();
+  const metadata = library.filterCriteria.metadata ?? {};
+  const [now, next] = direction === 'undo' ? [filter.after, filter.before] : [filter.before, filter.after];
+  if (JSON.stringify(metadata.keyword ?? []) !== JSON.stringify(now)) return;
+  library.setFilterCriteria({ metadata: { ...metadata, keyword: next } });
+}
+
+/** Undo/redo of a keyword edit: the keywords each photograph gained and
+ * lost go back (or again), as do the keywords made without photographs. A
+ * keyword changed on a photograph since stays as it is. */
+async function travelKeywords(step: Step, direction: 'undo' | 'redo', startedOnBranch: number) {
+  const from = direction === 'undo' ? 'past' : 'future';
+  const to = direction === 'undo' ? 'future' : 'past';
+  const { library, changes, declared } = step.keywords!;
+  const undoing = direction === 'undo';
+  try {
+    await enqueue(
+      async () => {
+        if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+        if (changes.length) {
+          try {
+            await invokeInOrder(Invokes.RestoreKeywords, { changes, undo: undoing }, 'keyword');
+            showKeywordChanges(changes, undoing);
+          } catch (e) {
+            const failed = (e as { failed?: string[] } | null)?.failed ?? changes.map((change) => change.path);
+            showKeywordChanges(
+              changes.filter((change) => !failed.includes(change.path)),
+              undoing
+            );
+            throw e;
+          }
+        }
+        if (library && !isNoDeclaredChange(declared)) {
+          await invoke(Invokes.SessionKeywordsDeclaredApply, {
+            directory: library,
+            remove: undoing ? declared.added : declared.removed,
+            add: undoing ? declared.removed : declared.added
+          });
+          catalogChanged();
+        }
+        followKeywordFilter(step, direction);
+        if (useCatalogUndoStore.getState()[from].includes(step))
+          useCatalogUndoStore.setState((s) => ({
+            [from]: s[from].filter((item) => item !== step),
+            [to]: branch === startedOnBranch ? [...s[to], step] : s[to]
+          }));
+      },
+      'catalog',
+      currentTargets.get(step)
+    );
+  } catch (error) {
+    const detail = String((error as { message?: string })?.message ?? error);
+    notify.error(
+      undoing
+        ? i18n.t('studio.library.fileOperations.undoFailed', { error: detail })
+        : i18n.t('studio.library.fileOperations.redoFailed', { error: detail })
+    );
+  }
+}
+
 /** Undo/redo of a stack command: its stacks as they were or became. */
 async function travelStacks(step: Step, direction: 'undo' | 'redo', startedOnBranch: number) {
   const from = direction === 'undo' ? 'past' : 'future';
@@ -1372,6 +1607,10 @@ export function followLibraryMove(from: string, to: string, keep = true) {
     }
     if (step.xmp) step.xmp.paths = step.xmp.paths.map(at);
     if (step.stacks) step.stacks.library = at(step.stacks.library);
+    if (step.keywords) {
+      if (step.keywords.library) step.keywords.library = at(step.keywords.library);
+      for (const change of step.keywords.changes) change.path = at(change.path);
+    }
     if (step.catalogImport) step.catalogImport.library = at(step.catalogImport.library);
     const paths = currentTargets.get(step);
     if (paths) currentTargets.set(step, paths.map(at));

@@ -89,7 +89,9 @@
       "detail": "Une fermeture ou un plantage a arrêté ce lot avant que toutes les photos soient écrites. Appliquez-le aux autres, annulez la partie appliquée ou laissez les photos telles quelles. Les photos elles-mêmes ne sont jamais modifiées.",
       "failed": "{{batch}} n’a pas pu être terminé : {{error}}",
       "keywordAdd": "Mot-clé « {{tag}} »",
+      "keywordDelete": "Suppression du mot-clé « {{path}} »",
       "keywordRemove": "Retrait du mot-clé « {{tag}} »",
+      "keywordRename": "Renommage du mot-clé « {{from}} » en « {{to}} »",
       "notWritten_one": "{{count}} photo n’a pas pu être écrite",
       "notWritten_many": "{{count}} photos n’ont pas pu être écrites",
       "notWritten_other": "{{count}} photos n’ont pas pu être écrites",
@@ -4269,6 +4271,53 @@
           "showFailed": "Impossible d'afficher le dossier : {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Masquer les mots-clés sous {{keyword}}",
+        "confirm": {
+          "cancel": "Annuler",
+          "convert": "Convertir « {{from}} » en hiérarchie « {{to}} » ?",
+          "convertAction": "Convertir",
+          "delete": "Supprimer « {{from}} » ? Les mots-clés qu’il contient remontent d’un niveau.",
+          "deleteAction": "Supprimer",
+          "deleteUnused": "Supprimer tous les mots-clés qu’aucune photo n’a ?",
+          "label": "Confirmer la modification du mot-clé",
+          "merge": "Fusionner « {{from}} » avec « {{to}} » ? « {{from}} » est remplacé par celui-ci.",
+          "mergeAction": "Fusionner",
+          "move": "Déplacer « {{from}} » vers « {{to}} » ?",
+          "moveAction": "Déplacer",
+          "photos_one": "Cela modifie les mots-clés de {{count}} photo.",
+          "photos_many": "Cela modifie les mots-clés de {{count}} photos.",
+          "photos_other": "Cela modifie les mots-clés de {{count}} photos.",
+          "rename": "Renommer « {{from}} » en « {{to}} » ?",
+          "renameAction": "Renommer"
+        },
+        "empty": "Aucun mot-clé pour l’instant.",
+        "expand": "Afficher les mots-clés sous {{keyword}}",
+        "filterHint": "Afficher les photos avec {{keyword}} et les mots-clés en dessous. Faites glisser sur un autre mot-clé pour l’y déplacer.",
+        "legacyHint": "« {{keyword}} » est un seul mot-clé, écrit avant les hiérarchies. Clic droit pour le convertir.",
+        "menu": {
+          "clearFilter": "Ne plus filtrer par ce mot-clé",
+          "convert": "Convertir en « {{path}} »",
+          "delete": "Supprimer le mot-clé…",
+          "deleteUnused": "Supprimer les mots-clés inutilisés…",
+          "filter": "Afficher les photos avec ce mot-clé",
+          "moveToTop": "Déplacer au niveau supérieur",
+          "new": "Nouveau mot-clé…",
+          "newInside": "Nouveau mot-clé dans « {{keyword}} »…",
+          "rename": "Renommer…"
+        },
+        "new": {
+          "insideLabel": "Nouveau mot-clé dans {{keyword}}",
+          "label": "Nouveau mot-clé : saisissez son nom ou son chemin, p. ex. Parent > Nom"
+        },
+        "renameLabel": "Renommer ou déplacer {{keyword}} : saisissez son chemin, p. ex. Parent > Nom",
+        "title": "Liste des mots-clés",
+        "toasts": {
+          "assignFailed": "Le mot-clé n’a pas pu être ajouté aux photos : {{error}}",
+          "createFailed": "Le mot-clé n’a pas pu être créé : {{error}}",
+          "renameFailed": "Impossible de modifier les mots-clés : {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "Réduction du bruit IA",
@@ -4727,6 +4776,7 @@
         "addTo_one": "Ajouter à {{count}} photo",
         "addTo_many": "Ajouter à {{count}} photos",
         "addTo_other": "Ajouter à {{count}} photos",
+        "hierarchyHint": "Séparez les mots-clés par des virgules. « Animaux > Chiens », « Animaux|Chiens » ou « Chiens < Animaux » place Chiens sous Animaux.",
         "none": "Aucun mot-clé",
         "ofSelection": "Mots-clés de la sélection",
         "partial_one": "Sur {{on}} photo sur {{count}}",
@@ -5541,6 +5591,15 @@
     "edit": "Modification",
     "file": "Modification de fichier",
     "flag": "Définir le marqueur",
+    "keywordAdd": "Ajouter le mot-clé « {{keyword}} »",
+    "keywordConvert": "Convertir le mot-clé",
+    "keywordDelete": "Supprimer le mot-clé",
+    "keywordDeleteUnused": "Supprimer les mots-clés inutilisés",
+    "keywordMerge": "Fusionner les mots-clés",
+    "keywordMove": "Déplacer le mot-clé",
+    "keywordNew": "Nouveau mot-clé",
+    "keywordRemove": "Retirer le mot-clé « {{keyword}} »",
+    "keywordRename": "Renommer le mot-clé",
     "lensCorrection": "Correction de l'objectif",
     "matchLight": "Harmoniser la lumière",
     "move": "Déplacer",

@@ -10,6 +10,7 @@ import TaggingSubMenu from './TaggingSubMenu';
 import { useLibraryActions, withTagDelta } from '../hooks/useLibraryActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { getUndoLabel, undo, useCatalogUndoStore } from '../utils/appUndo';
 import type { AppSettings, ImageFile } from '../components/ui/AppProperties';
 
 beforeEach(() => {
@@ -266,5 +267,26 @@ it("keeps each photo's other keywords when a keyword is added to all of them", a
   expect(tagsOf()).toEqual({
     '/s/a.NEF': ['user:beach', 'user:client'],
     '/s/b.NEF': ['user:client', 'user:mountain']
+  });
+});
+
+it('adds and removes a keyword as one undoable step named for it', async () => {
+  useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+  menu(['/s/a.NEF'], null, [{ tag: 'beach', isUser: true }]);
+  invoke.mockResolvedValueOnce([{ path: '/s/a.NEF', added: ['user:client'], removed: [] }]);
+  await add('client');
+  expect(getUndoLabel()).toBe('Undo Add Keyword “client”');
+  invoke.mockResolvedValueOnce([{ path: '/s/a.NEF', added: [], removed: ['user:beach'] }]);
+  await act(async () => {
+    fireEvent.click(screen.getByText('beach'));
+  });
+  expect(getUndoLabel()).toBe('Undo Remove Keyword “beach”');
+  invoke.mockResolvedValueOnce(undefined);
+  await act(async () => {
+    await undo();
+  });
+  expect(invoke).toHaveBeenLastCalledWith('restore_keywords', {
+    changes: [{ path: '/s/a.NEF', added: [], removed: ['user:beach'] }],
+    undo: true
   });
 });

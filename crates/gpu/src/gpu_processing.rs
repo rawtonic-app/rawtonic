@@ -3696,11 +3696,13 @@ const VIBRANCE_V2_FEATURE: usize = 65536;
 /// `blacks_v16_black_point`), compiled only for recipes that use it for the
 /// same reason.
 const BLACKS_V16_FEATURE: usize = 262144;
-/// Colour mixer response 2 with a mixer slider moved (`HSL_V2`, shader
-/// `apply_hsl_panel_v2`), compiled only for recipes that use it: with its
-/// call present but idle, Metal compiled the mixer differently and changed
-/// older recipes' exports by one 16-bit step in a few pixels (12 of 326
-/// preservation exports on the laptop).
+/// Colour mixer response 2 or 3 with a mixer slider moved (`HSL_V2`, shader
+/// `apply_hsl_panel_v2` and `apply_hsl_panel_v3`, chosen by the recipe's
+/// response), compiled only for recipes that use them: with its call present
+/// but idle, Metal compiled the mixer differently and changed older recipes'
+/// exports by one 16-bit step in a few pixels (12 of 326 preservation
+/// exports on the laptop). In these variants the newer response runs
+/// instead of version 1.
 const HSL_V2_FEATURE: usize = 131072;
 /// Clarity version 3 or Structure version 3 (`PRESENCE_V3`, shader
 /// `apply_band_contrast_log_v3` / `apply_structure_v3`), compiled only for
@@ -4004,7 +4006,7 @@ pub struct GpuProcessor {
     /// level][curve table][luminance noise profile][edge pass]; the others
     /// are compiled without them.
     range2_pipelines: Range2Pipelines,
-    /// `range2_pipelines` with colour mixer response 2 (`HSL_V2`).
+    /// `range2_pipelines` with colour mixer response 2 or 3 (`HSL_V2`).
     mixer_feature_pipelines: MixerFeaturePipelines,
     /// The global curve table in `curve_luts_buffer`'s first slot.
     curve_table_loaded: Mutex<Option<Arc<Vec<[f32; 4]>>>>,
@@ -5057,7 +5059,7 @@ fn highlights_v14(adjustments: &AllAdjustments) -> bool {
 }
 
 /// Whether the recipe moves a colour mixer slider, on the photo or a layer,
-/// with mixer response 2 (`HSL_V2`).
+/// with mixer response 2 or 3 (`HSL_V2`).
 fn hsl_v2(adjustments: &AllAdjustments) -> bool {
     let moved = |hsl: &[rawtonic_engine::image_processing::HslColor; 8]| {
         hsl.iter()
@@ -5607,7 +5609,7 @@ fn export_variant(
 type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
     16]; 2]; MAIN_OUTPUTS];
 
-/// `GpuProcessor::range2_pipelines` for colour mixer response 2 (`HSL_V2`)
+/// `GpuProcessor::range2_pipelines` for colour mixer response 2 or 3 (`HSL_V2`)
 /// Clarity or Structure version 3 (`PRESENCE_V3`), lowered Dehaze of
 /// dehaze version 2 (`DEHAZE_V2`) and Dehaze of dehaze version 3
 /// (`DEHAZE_V3`), one flat table on the
