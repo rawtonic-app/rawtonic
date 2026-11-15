@@ -491,17 +491,40 @@ fn nearest_same_color(
 const EPS: f32 = 1e-5;
 const EPS_SQ: f32 = 1e-10;
 
+/// `len` values of `s` from `base + off`: a tap of a row run, as a slice of
+/// the run's length so the loops over it need no bounds checks.
+#[inline(always)]
+fn run(s: &[f32], base: usize, off: isize, len: usize) -> &[f32] {
+    &s[base.wrapping_add_signed(off)..][..len]
+}
+
+/// The disc rule: the surrounding direction when it is the more decided.
+#[inline(always)]
+fn decided(central: f32, around: f32) -> f32 {
+    if (0.5 - central).abs() < (0.5 - around).abs() {
+        around
+    } else {
+        central
+    }
+}
+
+/// The Bayer kernel. Every pixel's arithmetic is the reference's
+/// (`demosaic_reference::bayer_tile`) in the same order, bit for bit; it
+/// runs on colour planes along row runs, computing every position of a run
+/// and keeping the result only where the reference writes one, so the
+/// loops vectorise. In a Bayer pattern no pass reads a value it writes
+/// itself, so the order of positions does not matter.
 fn bayer_tile(tile: &Tile) -> Vec<[f32; 3]> {
     let w = tile.w;
     let h = tile.h;
-    let cfa = &tile.data;
-    let col = &tile.colors;
+    let cfa = &tile.data[..];
+    let col = &tile.colors[..];
     let n = w * h;
-    let (w1, w2, w3, w4) = (w, 2 * w, 3 * w, 4 * w);
+    let (w1, w2, w3, w4) = (w as isize, 2 * w as isize, 3 * w as isize, 4 * w as isize);
 
-    let mut rgb = vec![[0.0f32; 3]; n];
+    let mut planes = [vec![0.0f32; n], vec![0.0f32; n], vec![0.0f32; n]];
     for i in 0..n {
-        rgb[i][col[i] as usize] = cfa[i];
+        planes[col[i] as usize][i] = cfa[i];
     }
 
     // Direction: squared high-pass along each axis. The kernel
@@ -510,76 +533,97 @@ fn bayer_tile(tile: &Tile) -> Vec<[f32; 3]> {
     let mut hp_v = vec![0.0f32; n];
     let mut hp_h = vec![0.0f32; n];
     for r in 3..h - 3 {
-        for c in 3..w - 3 {
-            let i = r * w + c;
-            let v = cfa[i - w3] - cfa[i - w1] - cfa[i + w1] + cfa[i + w3]
-                - 3.0 * (cfa[i - w2] + cfa[i + w2])
-                + 6.0 * cfa[i];
-            let hz = cfa[i - 3] - cfa[i - 1] - cfa[i + 1] + cfa[i + 3]
-                - 3.0 * (cfa[i - 2] + cfa[i + 2])
-                + 6.0 * cfa[i];
-            hp_v[i] = v * v;
-            hp_h[i] = hz * hz;
+        let (base, len) = (r * w + 3, w - 6);
+        let t = |off| run(cfa, base, off, len);
+        let (vm3, vm2, vm1, c0, vp1, vp2, vp3) =
+            (t(-w3), t(-w2), t(-w1), t(0), t(w1), t(w2), t(w3));
+        let (hm3, hm2, hm1, hp1, hp2, hp3) = (t(-3), t(-2), t(-1), t(1), t(2), t(3));
+        let out_v = &mut hp_v[base..][..len];
+        let out_h = &mut hp_h[base..][..len];
+        for k in 0..len {
+            let v = vm3[k] - vm1[k] - vp1[k] + vp3[k] - 3.0 * (vm2[k] + vp2[k]) + 6.0 * c0[k];
+            let hz = hm3[k] - hm1[k] - hp1[k] + hp3[k] - 3.0 * (hm2[k] + hp2[k]) + 6.0 * c0[k];
+            out_v[k] = v * v;
+            out_h[k] = hz * hz;
         }
     }
     let mut vh = vec![0.5f32; n];
     for r in 4..h - 4 {
-        for c in 4..w - 4 {
-            let i = r * w + c;
-            let v = EPS_SQ + hp_v[i - w1] + hp_v[i] + hp_v[i + w1];
-            let hz = EPS_SQ + hp_h[i - 1] + hp_h[i] + hp_h[i + 1];
-            vh[i] = v / (v + hz);
+        let (base, len) = (r * w + 4, w - 8);
+        let (vu, vc, vd) = (
+            run(&hp_v, base, -w1, len),
+            run(&hp_v, base, 0, len),
+            run(&hp_v, base, w1, len),
+        );
+        let (hl, hc, hr) = (
+            run(&hp_h, base, -1, len),
+            run(&hp_h, base, 0, len),
+            run(&hp_h, base, 1, len),
+        );
+        let out = &mut vh[base..][..len];
+        for k in 0..len {
+            let v = EPS_SQ + vu[k] + vc[k] + vd[k];
+            let hz = EPS_SQ + hl[k] + hc[k] + hr[k];
+            out[k] = v / (v + hz);
         }
     }
 
     // Green at red and blue sites.
-    for r in 5..h - 5 {
-        for c in 5..w - 5 {
-            let i = r * w + c;
-            if col[i] == 1 {
-                continue;
+    {
+        let green = &mut planes[1];
+        for r in 5..h - 5 {
+            let (base, len) = (r * w + 5, w - 10);
+            let t = |off| run(cfa, base, off, len);
+            let (n4, n3, n2, n1, c0, s1, s2, s3, s4) = (
+                t(-w4),
+                t(-w3),
+                t(-w2),
+                t(-w1),
+                t(0),
+                t(w1),
+                t(w2),
+                t(w3),
+                t(w4),
+            );
+            let (l4, l3, l2, l1, r1, r2, r3, r4) =
+                (t(-4), t(-3), t(-2), t(-1), t(1), t(2), t(3), t(4));
+            let d = |off| run(&vh, base, off, len);
+            let (dc, dnw, dne, dsw, dse) = (d(0), d(-w1 - 1), d(-w1 + 1), d(w1 - 1), d(w1 + 1));
+            let colors = &col[base..][..len];
+            let out = &mut green[base..][..len];
+            for k in 0..len {
+                let ci = c0[k];
+                let n_grad = EPS
+                    + (n1[k] - s1[k]).abs()
+                    + (ci - n2[k]).abs()
+                    + (n1[k] - n3[k]).abs()
+                    + (n2[k] - n4[k]).abs();
+                let s_grad = EPS
+                    + (s1[k] - n1[k]).abs()
+                    + (ci - s2[k]).abs()
+                    + (s1[k] - s3[k]).abs()
+                    + (s2[k] - s4[k]).abs();
+                let w_grad = EPS
+                    + (l1[k] - r1[k]).abs()
+                    + (ci - l2[k]).abs()
+                    + (l1[k] - l3[k]).abs()
+                    + (l2[k] - l4[k]).abs();
+                let e_grad = EPS
+                    + (r1[k] - l1[k]).abs()
+                    + (ci - r2[k]).abs()
+                    + (r1[k] - r3[k]).abs()
+                    + (r2[k] - r4[k]).abs();
+                let n_est = n1[k] + 0.5 * (ci - n2[k]);
+                let s_est = s1[k] + 0.5 * (ci - s2[k]);
+                let w_est = l1[k] + 0.5 * (ci - l2[k]);
+                let e_est = r1[k] + 0.5 * (ci - r2[k]);
+                let v_est = (s_grad * n_est + n_grad * s_est) / (n_grad + s_grad);
+                let h_est = (w_grad * e_est + e_grad * w_est) / (e_grad + w_grad);
+                let around = 0.25 * (dnw[k] + dne[k] + dsw[k] + dse[k]);
+                let disc = decided(dc[k], around);
+                let value = (h_est * disc + v_est * (1.0 - disc)).max(0.0);
+                out[k] = if colors[k] == 1 { out[k] } else { value };
             }
-            let ci = cfa[i];
-            let n_grad = EPS
-                + (cfa[i - w1] - cfa[i + w1]).abs()
-                + (ci - cfa[i - w2]).abs()
-                + (cfa[i - w1] - cfa[i - w3]).abs()
-                + (cfa[i - w2] - cfa[i - w4]).abs();
-            let s_grad = EPS
-                + (cfa[i + w1] - cfa[i - w1]).abs()
-                + (ci - cfa[i + w2]).abs()
-                + (cfa[i + w1] - cfa[i + w3]).abs()
-                + (cfa[i + w2] - cfa[i + w4]).abs();
-            let w_grad = EPS
-                + (cfa[i - 1] - cfa[i + 1]).abs()
-                + (ci - cfa[i - 2]).abs()
-                + (cfa[i - 1] - cfa[i - 3]).abs()
-                + (cfa[i - 2] - cfa[i - 4]).abs();
-            let e_grad = EPS
-                + (cfa[i + 1] - cfa[i - 1]).abs()
-                + (ci - cfa[i + 2]).abs()
-                + (cfa[i + 1] - cfa[i + 3]).abs()
-                + (cfa[i + 2] - cfa[i + 4]).abs();
-
-            // One-sided estimates: the neighbouring green corrected by half
-            // the own colour's change towards it (colour differences are
-            // smooth on the encoded data).
-            let n_est = cfa[i - w1] + 0.5 * (ci - cfa[i - w2]);
-            let s_est = cfa[i + w1] + 0.5 * (ci - cfa[i + w2]);
-            let w_est = cfa[i - 1] + 0.5 * (ci - cfa[i - 2]);
-            let e_est = cfa[i + 1] + 0.5 * (ci - cfa[i + 2]);
-
-            let v_est = (s_grad * n_est + n_grad * s_est) / (n_grad + s_grad);
-            let h_est = (w_grad * e_est + e_grad * w_est) / (e_grad + w_grad);
-
-            let central = vh[i];
-            let around = 0.25 * (vh[i - w1 - 1] + vh[i - w1 + 1] + vh[i + w1 - 1] + vh[i + w1 + 1]);
-            let disc = if (0.5 - central).abs() < (0.5 - around).abs() {
-                around
-            } else {
-                central
-            };
-            rgb[i][1] = (h_est * disc + v_est * (1.0 - disc)).max(0.0);
         }
     }
 
@@ -587,116 +631,165 @@ fn bayer_tile(tile: &Tile) -> Vec<[f32; 3]> {
     let mut hp_p = vec![0.0f32; n];
     let mut hp_q = vec![0.0f32; n];
     for r in 3..h - 3 {
-        for c in 3..w - 3 {
-            let i = r * w + c;
-            let p = cfa[i - w3 - 3] - cfa[i - w1 - 1] - cfa[i + w1 + 1] + cfa[i + w3 + 3]
-                - 3.0 * (cfa[i - w2 - 2] + cfa[i + w2 + 2])
-                + 6.0 * cfa[i];
-            let q = cfa[i - w3 + 3] - cfa[i - w1 + 1] - cfa[i + w1 - 1] + cfa[i + w3 - 3]
-                - 3.0 * (cfa[i - w2 + 2] + cfa[i + w2 - 2])
-                + 6.0 * cfa[i];
-            hp_p[i] = p * p;
-            hp_q[i] = q * q;
+        let (base, len) = (r * w + 3, w - 6);
+        let t = |off| run(cfa, base, off, len);
+        let (p3, p1, q1_, p3_, p2, p2_, c0) = (
+            t(-w3 - 3),
+            t(-w1 - 1),
+            t(w1 + 1),
+            t(w3 + 3),
+            t(-w2 - 2),
+            t(w2 + 2),
+            t(0),
+        );
+        let (q3, q1, qq1, q3_, q2, q2_) = (
+            t(-w3 + 3),
+            t(-w1 + 1),
+            t(w1 - 1),
+            t(w3 - 3),
+            t(-w2 + 2),
+            t(w2 - 2),
+        );
+        let out_p = &mut hp_p[base..][..len];
+        let out_q = &mut hp_q[base..][..len];
+        for k in 0..len {
+            let p = p3[k] - p1[k] - q1_[k] + p3_[k] - 3.0 * (p2[k] + p2_[k]) + 6.0 * c0[k];
+            let q = q3[k] - q1[k] - qq1[k] + q3_[k] - 3.0 * (q2[k] + q2_[k]) + 6.0 * c0[k];
+            out_p[k] = p * p;
+            out_q[k] = q * q;
         }
     }
     let mut pq = vec![0.5f32; n];
     for r in 4..h - 4 {
-        for c in 4..w - 4 {
-            let i = r * w + c;
-            let p = EPS_SQ + hp_p[i - w1 - 1] + hp_p[i] + hp_p[i + w1 + 1];
-            let q = EPS_SQ + hp_q[i - w1 + 1] + hp_q[i] + hp_q[i + w1 - 1];
-            pq[i] = p / (p + q);
+        let (base, len) = (r * w + 4, w - 8);
+        let (pa, pc, pb) = (
+            run(&hp_p, base, -w1 - 1, len),
+            run(&hp_p, base, 0, len),
+            run(&hp_p, base, w1 + 1, len),
+        );
+        let (qa, qc, qb) = (
+            run(&hp_q, base, -w1 + 1, len),
+            run(&hp_q, base, 0, len),
+            run(&hp_q, base, w1 - 1, len),
+        );
+        let out = &mut pq[base..][..len];
+        for k in 0..len {
+            let p = EPS_SQ + pa[k] + pc[k] + pb[k];
+            let q = EPS_SQ + qa[k] + qc[k] + qb[k];
+            out[k] = p / (p + q);
         }
     }
 
-    // Red at blue sites and blue at red sites, along the diagonals.
+    // Red at blue sites and blue at red sites, along the diagonals. A row's
+    // non-green sites are all of one colour, whose other colour it fills.
+    let mut fill = vec![0.0f32; w];
     for r in 7..h - 7 {
-        for c in 7..w - 7 {
-            let i = r * w + c;
-            let own = col[i] as usize;
-            if own == 1 {
-                continue;
+        let (base, len) = (r * w + 7, w - 14);
+        let colors = &col[base..][..len];
+        let Some(&own) = col[r * w..(r + 1) * w].iter().find(|&&c| c != 1) else {
+            continue;
+        };
+        let x = 2 - own as usize;
+        {
+            let (gp, vp) = (&planes[1], &planes[x]);
+            let g = |off| run(gp, base, off, len);
+            let v = |off| run(vp, base, off, len);
+            let (g0, gnw2, gne2, gsw2, gse2) = (g(0), g(-w2 - 2), g(-w2 + 2), g(w2 - 2), g(w2 + 2));
+            let (gnw, gne, gsw, gse) = (g(-w1 - 1), g(-w1 + 1), g(w1 - 1), g(w1 + 1));
+            let (vnw, vne, vsw, vse) = (v(-w1 - 1), v(-w1 + 1), v(w1 - 1), v(w1 + 1));
+            let (vnw3, vne3, vsw3, vse3) = (v(-w3 - 3), v(-w3 + 3), v(w3 - 3), v(w3 + 3));
+            let d = |off| run(&pq, base, off, len);
+            let (dc, dnw, dne, dsw, dse) = (d(0), d(-w1 - 1), d(-w1 + 1), d(w1 - 1), d(w1 + 1));
+            let out = &mut fill[..len];
+            for k in 0..len {
+                let nw_grad = EPS
+                    + (vnw[k] - vse[k]).abs()
+                    + (vnw[k] - vnw3[k]).abs()
+                    + (g0[k] - gnw2[k]).abs();
+                let ne_grad = EPS
+                    + (vne[k] - vsw[k]).abs()
+                    + (vne[k] - vne3[k]).abs()
+                    + (g0[k] - gne2[k]).abs();
+                let sw_grad = EPS
+                    + (vsw[k] - vne[k]).abs()
+                    + (vsw[k] - vsw3[k]).abs()
+                    + (g0[k] - gsw2[k]).abs();
+                let se_grad = EPS
+                    + (vse[k] - vnw[k]).abs()
+                    + (vse[k] - vse3[k]).abs()
+                    + (g0[k] - gse2[k]).abs();
+                let p_est = (nw_grad * (vse[k] - gse[k]) + se_grad * (vnw[k] - gnw[k]))
+                    / (nw_grad + se_grad);
+                let q_est = (ne_grad * (vsw[k] - gsw[k]) + sw_grad * (vne[k] - gne[k]))
+                    / (ne_grad + sw_grad);
+                let around = 0.25 * (dnw[k] + dne[k] + dsw[k] + dse[k]);
+                let disc = decided(dc[k], around);
+                out[k] = (g0[k] + (1.0 - disc) * p_est + disc * q_est).max(0.0);
             }
-            let x = 2 - own;
-            let g = |k: usize| rgb[k][1];
-            let v = |k: usize| rgb[k][x];
-            let (nw, ne, sw, se) = (i - w1 - 1, i - w1 + 1, i + w1 - 1, i + w1 + 1);
-            let nw_grad = EPS
-                + (v(nw) - v(se)).abs()
-                + (v(nw) - v(i - w3 - 3)).abs()
-                + (g(i) - g(i - w2 - 2)).abs();
-            let ne_grad = EPS
-                + (v(ne) - v(sw)).abs()
-                + (v(ne) - v(i - w3 + 3)).abs()
-                + (g(i) - g(i - w2 + 2)).abs();
-            let sw_grad = EPS
-                + (v(sw) - v(ne)).abs()
-                + (v(sw) - v(i + w3 - 3)).abs()
-                + (g(i) - g(i + w2 - 2)).abs();
-            let se_grad = EPS
-                + (v(se) - v(nw)).abs()
-                + (v(se) - v(i + w3 + 3)).abs()
-                + (g(i) - g(i + w2 + 2)).abs();
-            let p_est =
-                (nw_grad * (v(se) - g(se)) + se_grad * (v(nw) - g(nw))) / (nw_grad + se_grad);
-            let q_est =
-                (ne_grad * (v(sw) - g(sw)) + sw_grad * (v(ne) - g(ne))) / (ne_grad + sw_grad);
-            let central = pq[i];
-            let around = 0.25 * (pq[nw] + pq[ne] + pq[sw] + pq[se]);
-            let disc = if (0.5 - central).abs() < (0.5 - around).abs() {
-                around
-            } else {
-                central
-            };
-            rgb[i][x] = (g(i) + (1.0 - disc) * p_est + disc * q_est).max(0.0);
+        }
+        let dst = &mut planes[x][base..][..len];
+        for k in 0..len {
+            if colors[k] != 1 {
+                dst[k] = fill[k];
+            }
         }
     }
 
     // Red and blue at green sites, along the axes.
     for r in 10..h - 10 {
-        for c in 10..w - 10 {
-            let i = r * w + c;
-            if col[i] != 1 {
-                continue;
+        let (base, len) = (r * w + 10, w - 20);
+        let colors = &col[base..][..len];
+        for x in [0usize, 2] {
+            {
+                let (gp, vp) = (&planes[1], &planes[x]);
+                let g = |off| run(gp, base, off, len);
+                let v = |off| run(vp, base, off, len);
+                let (g0, gn2, gs2, gw2, ge2) = (g(0), g(-w2), g(w2), g(-2), g(2));
+                let (gn1, gs1, gw1, ge1) = (g(-w1), g(w1), g(-1), g(1));
+                let (vn1, vs1, vn3, vs3) = (v(-w1), v(w1), v(-w3), v(w3));
+                let (vw1, ve1, vw3, ve3) = (v(-1), v(1), v(-3), v(3));
+                let d = |off| run(&vh, base, off, len);
+                let (dc, dnw, dne, dsw, dse) = (d(0), d(-w1 - 1), d(-w1 + 1), d(w1 - 1), d(w1 + 1));
+                let out = &mut fill[..len];
+                for k in 0..len {
+                    let around = 0.25 * (dnw[k] + dne[k] + dsw[k] + dse[k]);
+                    let disc = decided(dc[k], around);
+                    let gi = g0[k];
+                    let n_grad = EPS
+                        + (gi - gn2[k]).abs()
+                        + (vn1[k] - vs1[k]).abs()
+                        + (vn1[k] - vn3[k]).abs();
+                    let s_grad = EPS
+                        + (gi - gs2[k]).abs()
+                        + (vs1[k] - vn1[k]).abs()
+                        + (vs1[k] - vs3[k]).abs();
+                    let w_grad = EPS
+                        + (gi - gw2[k]).abs()
+                        + (vw1[k] - ve1[k]).abs()
+                        + (vw1[k] - vw3[k]).abs();
+                    let e_grad = EPS
+                        + (gi - ge2[k]).abs()
+                        + (ve1[k] - vw1[k]).abs()
+                        + (ve1[k] - ve3[k]).abs();
+                    let n_est = vn1[k] - gn1[k];
+                    let s_est = vs1[k] - gs1[k];
+                    let w_est = vw1[k] - gw1[k];
+                    let e_est = ve1[k] - ge1[k];
+                    let v_est = (n_grad * s_est + s_grad * n_est) / (n_grad + s_grad);
+                    let h_est = (e_grad * w_est + w_grad * e_est) / (e_grad + w_grad);
+                    out[k] = (gi + (1.0 - disc) * v_est + disc * h_est).max(0.0);
+                }
             }
-            let central = vh[i];
-            let around = 0.25 * (vh[i - w1 - 1] + vh[i - w1 + 1] + vh[i + w1 - 1] + vh[i + w1 + 1]);
-            let disc = if (0.5 - central).abs() < (0.5 - around).abs() {
-                around
-            } else {
-                central
-            };
-            let gi = rgb[i][1];
-            for x in [0usize, 2] {
-                let v = |k: usize| rgb[k][x];
-                let g = |k: usize| rgb[k][1];
-                let n_grad = EPS
-                    + (gi - g(i - w2)).abs()
-                    + (v(i - w1) - v(i + w1)).abs()
-                    + (v(i - w1) - v(i - w3)).abs();
-                let s_grad = EPS
-                    + (gi - g(i + w2)).abs()
-                    + (v(i + w1) - v(i - w1)).abs()
-                    + (v(i + w1) - v(i + w3)).abs();
-                let w_grad = EPS
-                    + (gi - g(i - 2)).abs()
-                    + (v(i - 1) - v(i + 1)).abs()
-                    + (v(i - 1) - v(i - 3)).abs();
-                let e_grad = EPS
-                    + (gi - g(i + 2)).abs()
-                    + (v(i + 1) - v(i - 1)).abs()
-                    + (v(i + 1) - v(i + 3)).abs();
-                let n_est = v(i - w1) - g(i - w1);
-                let s_est = v(i + w1) - g(i + w1);
-                let w_est = v(i - 1) - g(i - 1);
-                let e_est = v(i + 1) - g(i + 1);
-                let v_est = (n_grad * s_est + s_grad * n_est) / (n_grad + s_grad);
-                let h_est = (e_grad * w_est + w_grad * e_est) / (e_grad + w_grad);
-                rgb[i][x] = (gi + (1.0 - disc) * v_est + disc * h_est).max(0.0);
+            let dst = &mut planes[x][base..][..len];
+            for k in 0..len {
+                if colors[k] == 1 {
+                    dst[k] = fill[k];
+                }
             }
         }
     }
-    rgb
+    let [red, green, blue] = &planes;
+    (0..n).map(|i| [red[i], green[i], blue[i]]).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -1127,6 +1220,10 @@ fn directional_tile(tile: &Tile, tables: &DirectionalTables) -> Vec<[f32; 3]> {
 }
 
 #[cfg(test)]
+#[path = "demosaic_reference.rs"]
+mod demosaic_reference;
+
+#[cfg(test)]
 mod tests {
     #[test]
     fn fine_grain_smoothing_keeps_edges_and_lowers_noise() {
@@ -1223,7 +1320,136 @@ mod tests {
                 (h ^ v.to_bits() as u64).wrapping_mul(0x100000001b3)
             });
             println!("{name}: {ms:.0} ms, checksum {sum:016x}");
+            if cfa.is_bayer() {
+                let started = std::time::Instant::now();
+                let reference = run_tiled(
+                    &mosaic,
+                    w,
+                    h,
+                    &cfa,
+                    &|| false,
+                    super::demosaic_reference::bayer_tile,
+                )
+                .unwrap();
+                let ms = started.elapsed().as_secs_f64() * 1000.0;
+                println!("{name} reference kernel: {ms:.0} ms");
+                assert!(reference == rgb, "the reference kernel differs");
+            }
         }
+    }
+
+    /// The planar Bayer kernel gives the reference's every value bit for
+    /// bit: all four Bayer phases, tiles of several sizes (image edges with
+    /// their padding included), noise, steps, zeros and huge values.
+    #[test]
+    fn bayer_kernel_matches_the_reference_bit_for_bit() {
+        let mut state = 0x9e37_79b9u32;
+        let mut noise = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 8) as f32 / (1u32 << 24) as f32
+        };
+        for colors in [[0u8, 1, 1, 2], [1, 0, 2, 1], [1, 2, 0, 1], [2, 1, 1, 0]] {
+            let cfa = CfaPattern::new(2, 2, colors.to_vec()).unwrap();
+            assert!(cfa.is_bayer());
+            for (w, h) in [(41usize, 43usize), (97, 64), (600, 530), (1100, 90)] {
+                let mosaic: Vec<f32> = (0..w * h)
+                    .map(|i| {
+                        let (y, x) = (i / w, i % w);
+                        let v = noise();
+                        match (x * 3 + y * 7) % 23 {
+                            0 => 0.0,
+                            1 => 1e30,
+                            2 => -0.5,
+                            3 => f32::MIN_POSITIVE,
+                            4 | 5 => v * 40.0,
+                            _ if x > w / 2 => 0.2 + 0.05 * v,
+                            _ => v * v,
+                        }
+                    })
+                    .collect();
+                let tiles_x = w.div_ceil(TILE);
+                for index in 0..tiles_x * h.div_ceil(TILE) {
+                    let (y0, x0) = ((index / tiles_x) * TILE, (index % tiles_x) * TILE);
+                    let tile = extract_tile(
+                        &mosaic,
+                        w,
+                        h,
+                        &cfa,
+                        y0,
+                        x0,
+                        TILE.min(h - y0),
+                        TILE.min(w - x0),
+                    );
+                    let new = bayer_tile(&tile);
+                    let old = super::demosaic_reference::bayer_tile(&tile);
+                    assert_eq!(new.len(), old.len());
+                    for (i, (a, b)) in new.iter().zip(&old).enumerate() {
+                        assert_eq!(
+                            a.map(f32::to_bits),
+                            b.map(f32::to_bits),
+                            "{colors:?} {w}x{h} tile {index} pixel {i}: {a:?} vs {b:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// One thread, one tile, best of 15: the Bayer kernel against its
+    /// reference (`-- --ignored --nocapture bayer_kernel_speed`).
+    #[test]
+    #[ignore]
+    fn bayer_kernel_speed() {
+        let cfa = bayer();
+        let (w, h) = (1200, 1200);
+        let mosaic = mosaic_of(w, h, &cfa, |y, x| {
+            let t = ((x * 7 + y * 13) % 97) as f32 / 97.0;
+            [
+                0.1 + 0.6 * t,
+                0.2 + 0.3 * ((y % 31) as f32 / 31.0),
+                0.05 + 0.4 * ((x % 17) as f32 / 17.0),
+            ]
+        });
+        let tile = extract_tile(&mosaic, w, h, &cfa, TILE, TILE, TILE, TILE);
+        let best = |kernel: &dyn Fn(&Tile) -> Vec<[f32; 3]>| {
+            (0..15)
+                .map(|_| {
+                    let started = std::time::Instant::now();
+                    std::hint::black_box(kernel(std::hint::black_box(&tile)));
+                    started.elapsed().as_secs_f64() * 1000.0
+                })
+                .fold(f64::MAX, f64::min)
+        };
+        let timed = |f: &dyn Fn()| {
+            (0..15)
+                .map(|_| {
+                    let started = std::time::Instant::now();
+                    f();
+                    started.elapsed().as_secs_f64() * 1000.0
+                })
+                .fold(f64::MAX, f64::min)
+        };
+        let extract = timed(&|| {
+            std::hint::black_box(extract_tile(&mosaic, w, h, &cfa, TILE, TILE, TILE, TILE));
+        });
+        println!("extract {extract:.2} ms");
+        let n = tile.w * tile.h;
+        let alloc = (0..15)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                let buffers: Vec<Vec<f32>> = (0..11).map(|k| vec![k as f32; n]).collect();
+                std::hint::black_box(&buffers);
+                started.elapsed().as_secs_f64() * 1000.0
+            })
+            .fold(f64::MAX, f64::min);
+        println!("11 fresh tile buffers: {alloc:.2} ms");
+        println!(
+            "tile {}x{}: kernel {:.2} ms, reference {:.2} ms",
+            tile.w,
+            tile.h,
+            best(&bayer_tile),
+            best(&super::demosaic_reference::bayer_tile)
+        );
     }
 
     #[test]

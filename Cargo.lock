@@ -5486,6 +5486,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sysinfo",
  "tempfile",
  "walkdir",
 ]
