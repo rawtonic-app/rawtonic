@@ -68,7 +68,8 @@ describe('Editor zoom', () => {
       isWbPickerActive: false,
       colorPickerTarget: null,
       selectedImage: { path: '/a.raw', width: 4000, height: 3000, isReady: true } as never,
-      displaySize: { width: 400, height: 300 }
+      displaySize: { width: 400, height: 300 },
+      splitView: false
     });
   });
 
@@ -141,6 +142,45 @@ describe('Editor zoom', () => {
       expect(wrapper.style.cursor).toBe('ns-resize');
     }
   );
+
+  it('pans both side-by-side panes by a drag in the before pane, as in the after pane', () => {
+    useUIStore.setState({ activeView: 'editor', activePanel: null });
+    useEditorStore.setState({ splitView: true, splitOrientation: 'side-by-side' });
+    // jsdom lays nothing out: each pane is the viewer's 400 x 300.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(300);
+    const ref = createRef<TransformWrapperHandle>();
+    const { container } = render(<Editor onContextMenu={() => {}} transformWrapperRef={ref} />);
+    const pane = container.querySelector('[data-testid="before-pane"]')!;
+    expect(pane).toBeTruthy();
+    act(() => ref.current!.setTransform(-400, -300, 4));
+    // Separate acts: the viewer renders between the events, as it does
+    // between real pointer events.
+    act(() => {
+      fireEvent.pointerDown(pane, { button: 0, clientX: 100, clientY: 100 });
+    });
+    act(() => {
+      fireEvent.pointerMove(pane, { button: 0, clientX: 140, clientY: 80 });
+    });
+    act(() => {
+      fireEvent.pointerUp(pane, { button: 0, clientX: 140, clientY: 80 });
+    });
+    // One transform for both panes: the drag moved it as in the after pane.
+    expect(ref.current!.instance.transformState).toMatchObject({ positionX: -360, positionY: -320, scale: 4 });
+    // Modifier drags belong to the edit's tools (straighten, crop pan): not
+    // from the before pane.
+    act(() => {
+      fireEvent.pointerDown(pane, { button: 0, shiftKey: true, clientX: 100, clientY: 100 });
+    });
+    act(() => {
+      fireEvent.pointerMove(pane, { button: 0, shiftKey: true, clientX: 160, clientY: 100 });
+    });
+    act(() => {
+      fireEvent.pointerUp(pane, { button: 0, shiftKey: true, clientX: 160, clientY: 100 });
+    });
+    expect(ref.current!.instance.transformState).toMatchObject({ positionX: -360, positionY: -320 });
+    expect(useEditorStore.getState().adjustments.rotation ?? 0).toBe(0);
+  });
 
   describe('camera preview (Shift+\\)', () => {
     const rotated = { ...INITIAL_ADJUSTMENTS, rotation: 5 };
