@@ -126,7 +126,8 @@ fn unescape(value: &str) -> String {
 }
 
 /// The entry of a `.desktop` file's text: an Application that is neither
-/// hidden, hidden from menus nor a terminal program. `languages` are the
+/// hidden nor a terminal program (`NoDisplay` only hides the launcher; the
+/// entry still handles its types). `languages` are the
 /// locale names to prefer for `Name`, best first (`de_DE`, `de`).
 pub fn parse_entry(text: &str, path: &Path, id: &str, languages: &[String]) -> Option<Entry> {
     let mut in_group = false;
@@ -148,11 +149,7 @@ pub fn parse_entry(text: &str, path: &Path, id: &str, languages: &[String]) -> O
         }
     }
     let flag = |key: &str| fields.get(key).is_some_and(|v| *v == "true");
-    if fields.get("Type") != Some(&"Application")
-        || flag("Hidden")
-        || flag("NoDisplay")
-        || flag("Terminal")
-    {
+    if fields.get("Type") != Some(&"Application") || flag("Hidden") || flag("Terminal") {
         return None;
     }
     let exec = unescape(fields.get("Exec")?);
@@ -359,27 +356,36 @@ impl Associations {
     /// Merges one file's text; call it for the most specific file first, an
     /// earlier file's choices come before a later one's.
     pub fn add_file(&mut self, text: &str) {
-        let mut group: Option<&mut HashMap<String, Vec<String>>> = None;
+        // What higher-priority files removed binds this file's additions.
+        let removed_before = self.removed.clone();
+        let mut section = "";
         for line in text.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
             if line.starts_with('[') {
-                group = match line {
-                    "[Default Applications]" => Some(&mut self.default),
-                    "[Added Associations]" => Some(&mut self.added),
-                    "[Removed Associations]" => Some(&mut self.removed),
-                    _ => None,
-                };
+                section = line;
                 continue;
             }
-            if let (Some(map), Some((mime, ids))) = (group.as_deref_mut(), line.split_once('=')) {
-                let list = map.entry(mime.trim().to_string()).or_default();
-                for id in ids.split(';').filter(|i| !i.is_empty()) {
-                    if !list.iter().any(|l| l == id) {
-                        list.push(id.to_string());
-                    }
+            let Some((mime, ids)) = line.split_once('=') else {
+                continue;
+            };
+            let mime = mime.trim();
+            let (map, blocked) = match section {
+                "[Default Applications]" => (&mut self.default, false),
+                "[Added Associations]" => (&mut self.added, true),
+                "[Removed Associations]" => (&mut self.removed, false),
+                _ => continue,
+            };
+            let list = map.entry(mime.to_string()).or_default();
+            for id in ids.split(';').filter(|i| !i.is_empty()) {
+                let blocked = blocked
+                    && removed_before
+                        .get(mime)
+                        .is_some_and(|r| r.iter().any(|r| r == id));
+                if !blocked && !list.iter().any(|l| l == id) {
+                    list.push(id.to_string());
                 }
             }
         }
@@ -556,6 +562,54 @@ pub fn file_url(path: &Path) -> String {
         }
     }
     out
+}
+
+/// The environment changes that give a program started from an AppImage the
+/// desktop's environment again: the variables its launcher points into the
+/// image are removed, the search paths lose their entries inside it.
+/// `(name, None)` removes a variable, `(name, Some(value))` sets it.
+pub fn desktop_environment(
+    appdir: &str,
+    vars: &[(String, String)],
+) -> Vec<(String, Option<String>)> {
+    const OWN: &[&str] = &[
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "GTK_PATH",
+        "GTK_EXEC_PREFIX",
+        "GTK_IM_MODULE_FILE",
+        "GDK_PIXBUF_MODULE_FILE",
+        "GDK_PIXBUF_MODULEDIR",
+        "GIO_EXTRA_MODULES",
+        "GSETTINGS_SCHEMA_DIR",
+        "GST_PLUGIN_PATH",
+        "GST_PLUGIN_SYSTEM_PATH",
+        "GST_PLUGIN_SCANNER",
+        "PERLLIB",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "QT_PLUGIN_PATH",
+        "WEBKIT_EXEC_PATH",
+    ];
+    const PATHS: &[&str] = &["PATH", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS"];
+    let mut changes = Vec::new();
+    if appdir.is_empty() {
+        return changes;
+    }
+    for (name, value) in vars {
+        if OWN.contains(&name.as_str()) && value.contains(appdir) {
+            changes.push((name.clone(), None));
+        } else if PATHS.contains(&name.as_str()) {
+            let kept: Vec<&str> = value
+                .split(':')
+                .filter(|entry| !entry.starts_with(appdir))
+                .collect();
+            if kept.len() != value.split(':').count() {
+                changes.push((name.clone(), (!kept.is_empty()).then(|| kept.join(":"))));
+            }
+        }
+    }
+    changes
 }
 
 /// What the field codes of an entry stand for.
@@ -735,7 +789,7 @@ mod tests {
 
     #[test]
     fn skips_what_cannot_open_a_file_for_the_user() {
-        for extra in ["Hidden=true\n", "NoDisplay=true\n", "Terminal=true\n"] {
+        for extra in ["Hidden=true\n", "Terminal=true\n"] {
             assert!(parse(&entry_text(extra)).is_none(), "{extra}");
         }
         assert!(parse("[Desktop Entry]\nType=Link\nName=A\nExec=a\n").is_none());
@@ -743,6 +797,53 @@ mod tests {
         // Keys of other groups (an action) do not count.
         let text = entry_text("[Desktop Action new]\nName=New\nExec=other\nHidden=true\n");
         assert_eq!(parse(&text).unwrap().exec, "editor %F");
+    }
+
+    #[test]
+    fn a_launcher_hidden_from_menus_still_handles_its_types() {
+        let e = parse(&entry_text("NoDisplay=true\nMimeType=image/tiff;\n")).unwrap();
+        assert_eq!(e.mime_types, ["image/tiff"]);
+    }
+
+    #[test]
+    fn a_removal_of_the_user_beats_an_addition_of_the_system() {
+        let mut assoc = Associations::default();
+        assoc.add_file("[Removed Associations]\nimage/tiff=paint.desktop;\n");
+        assoc.add_file("[Added Associations]\nimage/tiff=paint.desktop;edit.desktop;\n");
+        assert_eq!(assoc.added["image/tiff"], ["edit.desktop"]);
+        // An addition of the user stays, a lower file's removal does not undo it.
+        let mut assoc = Associations::default();
+        assoc.add_file("[Added Associations]\nimage/tiff=paint.desktop;\n");
+        assoc.add_file("[Removed Associations]\nimage/tiff=paint.desktop;\n");
+        assert_eq!(assoc.added["image/tiff"], ["paint.desktop"]);
+    }
+
+    #[test]
+    fn an_appimages_own_environment_is_not_passed_on() {
+        let vars = |l: &[(&str, &str)]| -> Vec<(String, String)> {
+            l.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect()
+        };
+        let changes = desktop_environment(
+            "/tmp/.mount_Raw",
+            &vars(&[
+                ("LD_LIBRARY_PATH", "/tmp/.mount_Raw/usr/lib"),
+                ("GTK_PATH", "/usr/lib/gtk"),
+                ("PATH", "/tmp/.mount_Raw/usr/bin:/usr/bin"),
+                ("XDG_DATA_DIRS", "/tmp/.mount_Raw/usr/share"),
+                ("HOME", "/home/u"),
+            ]),
+        );
+        assert_eq!(
+            changes,
+            [
+                ("LD_LIBRARY_PATH".to_string(), None),
+                ("PATH".to_string(), Some("/usr/bin".to_string())),
+                ("XDG_DATA_DIRS".to_string(), None),
+            ]
+        );
+        assert!(desktop_environment("", &vars(&[("LD_LIBRARY_PATH", "/x")])).is_empty());
     }
 
     #[test]

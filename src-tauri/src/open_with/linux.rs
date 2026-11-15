@@ -166,7 +166,18 @@ pub fn check(program: &str) -> Result<(), String> {
 /// process (its own session), and does not wait for it to end.
 fn spawn(command: &[String]) -> Result<(), String> {
     let (program, args) = command.split_first().ok_or("Nothing to start.")?;
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    // Started from an AppImage the program must not see its libraries.
+    if let Some(appdir) = std::env::var_os("APPDIR") {
+        let vars: Vec<(String, String)> = std::env::vars().collect();
+        for (name, value) in desktop::desktop_environment(&appdir.to_string_lossy(), &vars) {
+            match value {
+                Some(value) => command.env(name, value),
+                None => command.env_remove(name),
+            };
+        }
+    }
+    let mut child = command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

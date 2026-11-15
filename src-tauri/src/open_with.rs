@@ -31,7 +31,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 mod desktop;
 #[cfg(any(windows, test))]
 mod handlers;
@@ -1237,6 +1237,7 @@ mod tests {
         assert!(prefs.picked_apps.is_empty());
     }
 
+    #[cfg(unix)]
     /// Linux: a program is its `.desktop` file; the list the desktop offers
     /// and the arguments the frontend sends read as the commands expect.
     #[test]
