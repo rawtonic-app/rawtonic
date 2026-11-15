@@ -806,7 +806,8 @@ impl<'a> Compiler<'a> {
                     self.push(path);
                     let test = "EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id \
                                 AND (rawtonic_fold(k.keyword)=rawtonic_fold(?) \
-                                     OR rawtonic_keyword_within(k.keyword, ?)))";
+                                     OR (instr(k.keyword, '|') > 0 \
+                                         AND rawtonic_keyword_within(k.keyword, ?))))";
                     Ok(if op == Op::Is {
                         test.into()
                     } else {
@@ -1615,10 +1616,12 @@ impl Library {
             // keyword rule selects a parent with its children. CROSS JOIN
             // keeps the matches as the outer loop: SQLite would
             // otherwise walk every keyword and look its photograph up
-            // (10× slower for a narrow search, measured on 50,000).
+            // (10× slower for a narrow search, measured on 50,000); so a
+            // photograph's keywords come one after another (the inner loop),
+            // which counts each photograph once without sorting.
             let mut query = self.conn.prepare(&format!(
                 "SELECT a.id, k.keyword FROM {} CROSS JOIN asset_keywords k ON k.asset_id=a.id
-                 WHERE {} ORDER BY a.id",
+                 WHERE {}",
                 compiled.from(false, false),
                 compiled.condition
             ))?;
@@ -1634,7 +1637,13 @@ impl Library {
                     photo = Some(id);
                 }
                 let keyword: String = row.get(1)?;
-                for path in rawtonic_metadata::keywords::with_ancestors(&keyword) {
+                // Most keywords are flat: one path, the keyword itself.
+                let paths = if keyword.contains(rawtonic_metadata::keywords::SEPARATOR) {
+                    rawtonic_metadata::keywords::with_ancestors(&keyword)
+                } else {
+                    vec![keyword]
+                };
+                for path in paths {
                     let entry = tally
                         .entry(crate::fold(&path))
                         .or_insert_with(|| (path.clone(), 0, 0));
