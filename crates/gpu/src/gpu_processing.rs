@@ -4063,6 +4063,7 @@ pub struct GpuProcessor {
     deferred_export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     deferred_pipeline: BackgroundPipeline,
     deferred_tile: std::sync::OnceLock<HighPrecisionTile>,
+    export_detail_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// `encode_deferred` into an 8-bit and a high-precision output tile.
     encode_bgls: [wgpu::BindGroupLayout; 2],
     encode_pipelines: [std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>; 2],
@@ -5566,12 +5567,56 @@ fn export_display_features(adjustments: &AllAdjustments) -> usize {
     }
 }
 
+/// The variant code of the detail stage alone (shader.wgsl `detail_stage`):
+/// noise reduction with its refinements, sharpening with responses 7 and 8.
+const DETAIL_FEATURES: usize =
+    1 | (1 << 4) | REFINED_NR_PREVIEW_FEATURE | SHARPEN_V7_FEATURE | SHARPEN_V8_FEATURE;
+
+/// Whether an export of `adjustments` computes its detail stage (noise
+/// reduction, sharpening) in the display's detail pass (`detail_main`, per
+/// tile) and renders the main pass with its specialized variant without the
+/// detail code (`export_variant`), which reads the stage instead: from
+/// `renderVersion` 13 (`PreparedAdjustments::detail_pass_export`). The large
+/// variant with both the neighbourhood code of noise reduction and the tone
+/// code took about a third more GPU time than the two passes; the 20-NEF
+/// new-edit batch exports 11 % faster on Metal (notes:
+/// benchmark-results/ext4-gpu-export-2026-11-15). Versioned because the
+/// compiler rounds the stage in its own pass, and the main pass without
+/// that code, a little differently (16-bit on Metal: at most 1 of 65,535
+/// on up to 0.16 % of a photo's pixels in the preservation corpus, up to 5
+/// on generated noise with a tone layer;
+/// `version_13_exports_match_version_12_within_rounding`). Only where the specialized variant renders (no curve
+/// table), where the variant has noise reduction or sharpening code to
+/// leave out, and where every pixel takes the stage from the pass: no
+/// layer changes noise reduction, sharpening or Moiré (shader.wgsl
+/// `cached_detail`). Not under a compile limit, whose exports take display
+/// or folded variants.
+fn export_detail_pass(adjustments: &crate::image_processing::PreparedAdjustments) -> bool {
+    adjustments.detail_pass_export
+        && adjustments.specialized_export
+        && !compile_limited()
+        && adjustments.global.region_curve_active[1] == 0
+        && adjustments.global.show_clipping == 0
+        && preview_features(adjustments) & ((1 << 0) | (1 << 4)) != 0
+        && adjustments
+            .mask_adjustments
+            .iter()
+            .take(adjustments.mask_count as usize)
+            .all(|m| {
+                m.sharpness == 0.0
+                    && m.luma_noise_reduction == 0.0
+                    && m.color_noise_reduction == 0.0
+                    && m.moire[0] == 0.0
+            })
+}
+
 /// The specialized variant an export of `adjustments` compiles, or `None`
 /// for the general pipeline; `folded` for a folded export variant
 /// (`GpuProcessor::export_pipeline`: only under a compile limit).
 fn export_variant(
     adjustments: &crate::image_processing::PreparedAdjustments,
     folded: bool,
+    detail_pass: bool,
 ) -> Option<usize> {
     // Curve tables have no specialized export variant.
     if adjustments.global.region_curve_active[1] != 0 {
@@ -5585,7 +5630,12 @@ fn export_variant(
     // variant 288k inlined expressions, which the Radeon 680M compiled for
     // 438 s into 52 GB until its device was lost (G76/WCC6).
     if adjustments.specialized_export {
-        let features = preview_features(adjustments);
+        let mut features = preview_features(adjustments);
+        // The detail pass computes the noise reduction and sharpening
+        // (`export_detail_pass`): the main pass only reads them.
+        if detail_pass && !folded {
+            features &= !DETAIL_FEATURES;
+        }
         return Some(if folded {
             features
         } else {
@@ -6502,6 +6552,42 @@ fn create_shader(
 /// registered one (`pipeline_cache::open`), and writes the cache soon after.
 /// An idle compile a helper process ran takes its pipeline through the
 /// cache that process left (`idle_compile_child`) instead of the device's.
+/// The detail pass of `GpuProcessor::detail_pipeline_slot`'s `slot`, or
+/// `None` (logged) if it failed.
+fn compile_detail_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    slot: usize,
+) -> Option<wgpu::ComputePipeline> {
+    let sharpen_v7 = slot == 1 || slot >= 3;
+    let sharpen_v8 = slot == 2 || slot == 4;
+    let mask_view = slot >= 3;
+    let created = create_compute_pipeline(
+        device,
+        &wgpu::ComputePipelineDescriptor {
+            label: Some("Detail cache"),
+            layout: Some(layout),
+            module: shader,
+            entry_point: Some("detail_main"),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &[
+                    ("SHARPEN_V7", if sharpen_v7 { 1.0 } else { 0.0 }),
+                    ("SHARPEN_V8", if sharpen_v8 { 1.0 } else { 0.0 }),
+                    ("SHARPEN_VIEW", if mask_view { 1.0 } else { 0.0 }),
+                ],
+                ..Default::default()
+            },
+            cache: None,
+        },
+        CompileWeight::Small,
+    );
+    if let Err(error) = &created {
+        log::error!("Detail cache unavailable; computing it per frame: {error}");
+    }
+    created.ok()
+}
+
 fn create_compute_pipeline(
     device: &wgpu::Device,
     descriptor: &wgpu::ComputePipelineDescriptor,
@@ -7984,6 +8070,7 @@ impl GpuProcessor {
             deferred_export_pipelines: variant_table(),
             deferred_pipeline,
             deferred_tile: std::sync::OnceLock::new(),
+            export_detail_tile: std::sync::OnceLock::new(),
             encode_bgls: [encode_bgl, high_precision_encode_bgl],
             encode_pipelines: Default::default(),
             tile_output_size: clamped_tile_size,
@@ -8889,6 +8976,12 @@ impl GpuProcessor {
             .get_or_init(|| self.float_tile("Deferred Tile Texture"))
     }
 
+    /// The detail stage of an export's tile (`export_detail_pass`).
+    fn export_detail_tile(&self) -> &HighPrecisionTile {
+        self.export_detail_tile
+            .get_or_init(|| self.float_tile("Export Detail Tile"))
+    }
+
     /// `encode_deferred` into an 8-bit or a high-precision output tile.
     fn encode_pipeline(&self, high_precision: bool) -> Result<&wgpu::ComputePipeline, String> {
         self.encode_pipelines[usize::from(high_precision)]
@@ -9453,9 +9546,6 @@ impl GpuProcessor {
     /// Slot 0 plain, 1 with response 7's Masking, 2 with response 8, 3 the
     /// mask view (response 7's code), 4 the mask view with response 8's.
     fn detail_pipeline_slot(&self, slot: usize) -> Option<&wgpu::ComputePipeline> {
-        let sharpen_v7 = slot == 1 || slot >= 3;
-        let sharpen_v8 = slot == 2 || slot == 4;
-        let mask_view = slot >= 3;
         if self.detail_pipeline[slot].get().is_none() {
             self.detail_compilation[slot].get_or_init(|| {
                 let pipeline = Arc::clone(&self.detail_pipeline[slot]);
@@ -9463,33 +9553,35 @@ impl GpuProcessor {
                 let shader = self.preview_shader.clone();
                 let layout = self.detail_layout.clone();
                 spawn_device_thread("pipeline-compile", move || {
-                    let created = create_compute_pipeline(
-                        &device,
-                        &wgpu::ComputePipelineDescriptor {
-                            label: Some("Detail cache"),
-                            layout: Some(&layout),
-                            module: &shader,
-                            entry_point: Some("detail_main"),
-                            compilation_options: wgpu::PipelineCompilationOptions {
-                                constants: &[
-                                    ("SHARPEN_V7", if sharpen_v7 { 1.0 } else { 0.0 }),
-                                    ("SHARPEN_V8", if sharpen_v8 { 1.0 } else { 0.0 }),
-                                    ("SHARPEN_VIEW", if mask_view { 1.0 } else { 0.0 }),
-                                ],
-                                ..Default::default()
-                            },
-                            cache: None,
-                        },
-                        CompileWeight::Small,
-                    );
-                    if let Err(error) = &created {
-                        log::error!("Detail cache unavailable; computing it per frame: {error}");
-                    }
-                    let _ = pipeline.set(created.ok());
+                    let _ = pipeline.set(compile_detail_pipeline(&device, &shader, &layout, slot));
                 });
             });
         }
         self.detail_pipeline[slot].get().and_then(Option::as_ref)
+    }
+
+    /// The detail pass an export of `adjustments` renders its detail stage
+    /// with (`export_detail_pass`), compiled here if it is not yet (an export
+    /// cannot wait for frames to bring it); `None` if it does not apply or
+    /// failed, and the export then computes the stage in the main pass.
+    fn export_detail_pipeline(
+        &self,
+        adjustments: &crate::image_processing::PreparedAdjustments,
+    ) -> Option<&wgpu::ComputePipeline> {
+        if !export_detail_pass(adjustments) {
+            return None;
+        }
+        let slot = sharpen_level(adjustments);
+        self.detail_pipeline[slot]
+            .get_or_init(|| {
+                compile_detail_pipeline(
+                    &self.context.device,
+                    &self.preview_shader,
+                    &self.detail_layout,
+                    slot,
+                )
+            })
+            .as_ref()
     }
 
     /// CPU output preserves the general curve arithmetic, including identity
@@ -9504,6 +9596,17 @@ impl GpuProcessor {
         adjustments: &crate::image_processing::PreparedAdjustments,
         output: MainOutput,
     ) -> Result<&wgpu::ComputePipeline, String> {
+        self.export_pipeline_with(adjustments, output, false)
+    }
+
+    /// `export_pipeline`, without the detail stage's code if `detail_pass`
+    /// (`export_detail_pass`).
+    fn export_pipeline_with(
+        &self,
+        adjustments: &crate::image_processing::PreparedAdjustments,
+        output: MainOutput,
+        detail_pass: bool,
+    ) -> Result<&wgpu::ComputePipeline, String> {
         // Folded only under a compile limit (AMD's Windows Vulkan driver):
         // elsewhere the driver gets the whole shader with the variant's
         // constants as before, because the folded module, the same math,
@@ -9511,7 +9614,7 @@ impl GpuProcessor {
         // Vulkan (1-7 codes in a few pixels) and 94 of 280 on Metal (G76/
         // WCC6 preservation), and exports stay byte-identical across changes.
         let folded = compile_limited();
-        let Some(features) = export_variant(adjustments, folded) else {
+        let Some(features) = export_variant(adjustments, folded, detail_pass) else {
             return self.general_pipeline(adjustments, output);
         };
         let pipelines = match output {
@@ -10312,6 +10415,17 @@ impl GpuProcessor {
         // Display frames keep their analytics image with the working texture.
         let analytics_tile =
             (output_to_display || readback_analytics).then(|| self.tile_analytics());
+        // An export with its detail stage in the detail pass and the main
+        // pass's variant without it (`export_detail_pass`).
+        let export_detail = (readback_shader == ReadbackShader::Export
+            && !output_to_display
+            && !export_display
+            && !export_deferred_display
+            && !force_full_preparation
+            && !force_general_pipeline)
+            .then(|| self.export_detail_pipeline(&request.adjustments))
+            .flatten();
+        let detail_pass = export_detail.is_some();
         // Whether the pipeline is a display variant: with the effect passes
         // a main pass, which the finish pass follows.
         let mut display_variant = false;
@@ -10332,7 +10446,11 @@ impl GpuProcessor {
                     display_variant = variant;
                     pipeline
                 } else {
-                    self.export_pipeline(&request.adjustments, MainOutput::Deferred)?
+                    self.export_pipeline_with(
+                        &request.adjustments,
+                        MainOutput::Deferred,
+                        detail_pass,
+                    )?
                 },
                 &self.high_precision_bgl,
                 &tile.texture,
@@ -10344,7 +10462,11 @@ impl GpuProcessor {
                 if force_full_preparation || force_general_pipeline {
                     self.general_pipeline(&request.adjustments, MainOutput::SixteenBit)?
                 } else {
-                    self.export_pipeline(&request.adjustments, MainOutput::SixteenBit)?
+                    self.export_pipeline_with(
+                        &request.adjustments,
+                        MainOutput::SixteenBit,
+                        detail_pass,
+                    )?
                 },
                 &self.high_precision_bgl,
                 &high_precision_tile.texture,
@@ -10364,7 +10486,7 @@ impl GpuProcessor {
                 display_variant = variant;
                 pipeline
             } else if !output_to_display && !force_full_preparation && !force_general_pipeline {
-                self.export_pipeline(&request.adjustments, MainOutput::EightBit)?
+                self.export_pipeline_with(&request.adjustments, MainOutput::EightBit, detail_pass)?
             } else {
                 self.general_pipeline(&request.adjustments, MainOutput::EightBit)?
             };
@@ -11180,28 +11302,38 @@ impl GpuProcessor {
                     .load(std::sync::atomic::Ordering::Relaxed);
                 #[cfg(not(test))]
                 let force_inline_detail = false;
-                let detail_pipeline = (retain_intermediates
-                    && !force_full_preparation
-                    && !force_inline_detail
-                    && detail_fits
-                    && DetailKey::active(&adjustments.global)
-                    && tile.bytes
-                        + if tile.detail.is_some() {
-                            0
-                        } else {
-                            detail_bytes
-                        }
-                        <= BLUR_CACHE_BYTES)
-                    .then(|| {
-                        if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
-                            self.mask_view_detail_pipeline(sharpen_v8(adjustments))
-                        } else {
-                            self.detail_pipeline_for(sharpen_level(adjustments))
-                        }
-                    })
-                    .flatten();
+                // An export builds the stage of every tile in the pass.
+                let detail_pipeline = export_detail.or_else(|| {
+                    (retain_intermediates
+                        && !force_full_preparation
+                        && !force_inline_detail
+                        && detail_fits
+                        && DetailKey::active(&adjustments.global)
+                        && tile.bytes
+                            + if tile.detail.is_some() {
+                                0
+                            } else {
+                                detail_bytes
+                            }
+                            <= BLUR_CACHE_BYTES)
+                        .then(|| {
+                            if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
+                                self.mask_view_detail_pipeline(sharpen_v8(adjustments))
+                            } else {
+                                self.detail_pipeline_for(sharpen_level(adjustments))
+                            }
+                        })
+                        .flatten()
+                });
                 let mut build_detail = false;
                 let detail_view = match (detail_pipeline, tile.detail.take()) {
+                    // An export's tiles are not kept: one texture serves
+                    // them all (wgpu clears a new one before its first use).
+                    (Some(_), previous) if export_detail.is_some() => {
+                        tile.detail = previous;
+                        build_detail = true;
+                        Some(self.export_detail_tile().view.clone())
+                    }
                     (None, previous) => {
                         tile.detail = previous;
                         None
@@ -11484,6 +11616,10 @@ impl GpuProcessor {
                         bytemuck::bytes_of(&*detail_adjustments),
                     );
                     let mut detail_entries = bind_group_entries.clone();
+                    // The detail layout's (unwritten) output is the 8-bit
+                    // tile; an export's main pass writes the float one.
+                    detail_entries[1].resource =
+                        wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
                     detail_entries.push(wgpu::BindGroupEntry {
                         binding: 14,
                         resource: wgpu::BindingResource::TextureView(&self.dummy_blur_view),
