@@ -23146,3 +23146,92 @@ fn dehaze_version_2_lowers_as_a_veil() {
     );
     assert!(colour(&v2) < 0.6 * colour(&neutral), "colour fades");
 }
+
+/// TPX5 cost probe (measurement, not a check): the export's GPU colour
+/// noise reduction at full resolution = render at Color 50 minus Color 0,
+/// a fresh source upload each time. `TPX5_RAW=photo cargo test --release
+/// -p rawtonic-gpu -- --ignored --nocapture tpx5_color_noise_cost`.
+#[test]
+#[ignore = "measurement; needs TPX5_RAW"]
+fn tpx5_color_noise_cost() {
+    use rawtonic_engine::image_loader::{self, BaseImageOptions};
+    let Some(raw) = std::env::var_os("TPX5_RAW") else {
+        eprintln!("SKIP: TPX5_RAW not set");
+        return;
+    };
+    let raw = raw.to_string_lossy().into_owned();
+    let reps: usize = std::env::var("TPX5_REPS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let mut recipe: serde_json::Value = serde_json::from_str(include_str!(
+        "../../engine/tests/fixtures/new-edit-recipe.raw.json"
+    ))
+    .unwrap();
+    for key in [
+        "lensDistortionEnabled",
+        "lensTcaEnabled",
+        "lensVignetteEnabled",
+    ] {
+        recipe[key] = false.into();
+    }
+    recipe["sharpness"] = 0.into();
+    recipe["lumaNoiseReduction"] = 0.into();
+    let bytes = std::fs::read(&raw).unwrap();
+    let (img, measures) = image_loader::load_base_image_measured(
+        &bytes,
+        &raw,
+        false,
+        &BaseImageOptions::default().for_recipe(&recipe, &raw),
+        None,
+    )
+    .unwrap();
+    let full = Arc::new(img);
+    let context = GpuContext::headless().unwrap();
+    let processor = GpuProcessorSlot::background(None);
+    let cache = Mutex::new(None);
+    let mut hash = 1000u64;
+    for rep in 0..reps {
+        for c in [0, 50] {
+            let mut r = recipe.clone();
+            r["colorNoiseReduction"] = c.into();
+            let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
+            rawtonic_engine::baseline_exposure::apply_base_look(
+                &mut a.global,
+                &raw,
+                measures.as_ref(),
+                None,
+            );
+            a.global.show_clipping = 0;
+            hash += 1;
+            let t = std::time::Instant::now();
+            let out = process_and_get_dynamic_image_inner(
+                &context,
+                &processor,
+                &cache,
+                RenderSource::Image {
+                    image: &full,
+                    transform_hash: hash,
+                },
+                RenderRequest {
+                    adjustments: a,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                "tpx5",
+                RenderOutputPrecision::EightBit,
+                false,
+                None,
+                None,
+                ReadbackShader::Export,
+            )
+            .unwrap();
+            eprintln!(
+                "TIME rep {rep} color {c} {:?} {:?}",
+                t.elapsed(),
+                (out.width(), out.height())
+            );
+        }
+    }
+}
