@@ -43,4 +43,14 @@ describe('pixel snapping at 100 %', () => {
     expect(drawsOneToOne(6000, size, 3, 1)).toBe(false);
     expect(drawsOneToOne(0, size, 6000 / 1035, 1)).toBe(false);
   });
+
+  it('follows a pan made of small moves when only the drawn pan is snapped', () => {
+    // The viewer keeps the unrounded pan and snaps what it draws: 100 moves
+    // of 0.4 px (a trackpad) move the photograph 40 px.
+    let pan = -1000;
+    for (let i = 0; i < 100; i++) pan -= 0.4;
+    const shown = snapToDevicePixel(pan, 6000 / 1035, 32.5, 1, -30000, 0);
+    expect(Math.abs(shown - -1000)).toBeGreaterThan(39.5);
+    expect(Math.abs(shown - -1000)).toBeLessThan(40.5);
+  });
 });

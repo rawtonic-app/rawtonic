@@ -581,24 +581,35 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     [getTransformBounds]
   );
 
+  /** The transform as drawn: with browser frames at 100 % the pan moved by
+   * at most half a device pixel so the frame's pixels land on whole device
+   * pixels (utils/pixelSnap.ts). The pan itself stays unrounded, so small
+   * trackpad moves still add up. */
+  const shownTransform = useCallback(
+    (t: TransformState): TransformState => {
+      const fit = imageRenderSizeRef.current;
+      const dpr = window.devicePixelRatio || 1;
+      if (!browserFramesRef.current || !isOneToOne(t.scale, fit.scale, dpr)) return t;
+      const bounds = getTransformBounds(t.scale);
+      return {
+        scale: t.scale,
+        positionX: snapToDevicePixel(t.positionX, t.scale, fit.offsetX, dpr, bounds.minX, bounds.maxX),
+        positionY: snapToDevicePixel(t.positionY, t.scale, fit.offsetY, dpr, bounds.minY, bounds.maxY)
+      };
+    },
+    [getTransformBounds]
+  );
+
   const applyTransform = useCallback(
     (x: number, y: number, scale: number, animating = false) => {
       // Any other transform (a wheel, a pan, a reset) ends the animation.
       if (!animating) animationTargetRef.current = null;
-      // Browser frames at 100 %: the frame's pixels on whole device pixels
-      // (utils/pixelSnap.ts), never more than half a pixel from the pan.
-      const fit = imageRenderSizeRef.current;
-      const dpr = window.devicePixelRatio || 1;
-      if (browserFramesRef.current && isOneToOne(scale, fit.scale, dpr)) {
-        const bounds = getTransformBounds(scale);
-        x = snapToDevicePixel(x, scale, fit.offsetX, dpr, bounds.minX, bounds.maxX);
-        y = snapToDevicePixel(y, scale, fit.offsetY, dpr, bounds.minY, bounds.maxY);
-      }
       transformStateRef.current = { positionX: x, positionY: y, scale };
       setTransformState({ scale, positionX: x, positionY: y });
 
       if (contentRef.current) {
-        contentRef.current.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+        const shown = shownTransform({ positionX: x, positionY: y, scale });
+        contentRef.current.style.transform = `translate(${shown.positionX}px, ${shown.positionY}px) scale(${scale})`;
         // Browser frames (Linux): composited only while moving, so at rest
         // WebKit paints the frame at the zoom, not a magnified raster.
         if (browserFramesRef.current) compositeWhileMoving(contentRef.current);
@@ -625,7 +636,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         handleZoomed({ scale, positionX: x, positionY: y });
       }, 100);
     },
-    [handleZoomed, getTransformBounds]
+    [handleZoomed, shownTransform]
   );
 
   /** Stops the animation under way, if any, and forgets where it went. */
@@ -2505,6 +2516,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const isWgpuActive = appSettings?.useWgpuRenderer !== false && (hasRenderedFirstFrame || holdingNativeFrame);
   // Read by applyTransform; a hint already set lapses within its settle time.
   browserFramesRef.current = !isWgpuActive;
+  // Both panes draw the same snapped pan (side by side's before pane too).
+  const shownView = shownTransform(transformState);
   // Cropping shows one photograph. A held or toggled whole before keeps the
   // panes (its before then fills the after pane too), so nothing moves.
   const sideBySideShown =
@@ -2558,7 +2571,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
                 path={selectedImage.path}
                 adjustments={adjustments}
                 size={imageRenderSize}
-                transform={transformState}
+                transform={shownView}
                 enabled={canRenderSource(selectedImage)}
                 decoded={selectedImage.isDecoded}
               />
@@ -2601,7 +2614,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             style={{
               // No `will-change` here: `applyTransform` sets it only while the
               // view moves (utils/layerWhileMoving.ts).
-              transform: `translate(${transformState.positionX}px, ${transformState.positionY}px) scale(${transformState.scale})`
+              transform: `translate(${shownView.positionX}px, ${shownView.positionY}px) scale(${shownView.scale})`
             }}
           >
             <ImageCanvas
