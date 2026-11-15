@@ -273,7 +273,7 @@ describe('RAW detail defaults', () => {
   });
 
   it('keep the colour mixer response a saved recipe rendered with', () => {
-    expect(HSL_VERSION).toBe(2);
+    expect(HSL_VERSION).toBe(3);
     expect(initialAdjustmentsFor(true).hslVersion).toBe(HSL_VERSION);
     expect(initialAdjustmentsFor(false).hslVersion).toBe(HSL_VERSION);
     // Every mixer slider at 0 renders the same with either response.

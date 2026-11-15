@@ -66,8 +66,9 @@ override VIBRANCE_V2: bool = false;
 // Lowered Blacks of tone version 16 (`blacks_v16_black_point`), for the
 // same reason (gpu_processing.rs `BLACKS_V16_FEATURE`).
 override BLACKS_V16: bool = false;
-// Colour mixer response 2 (`apply_hsl_panel_v2`) with a slider moved, for
-// the same reason (gpu_processing.rs `HSL_V2_FEATURE`).
+// Colour mixer response 2 or 3 (`apply_hsl_panel_v2`, `apply_hsl_panel_v3`)
+// with a slider moved, for the same reason (gpu_processing.rs
+// `HSL_V2_FEATURE`).
 override HSL_V2: bool = false;
 // Clarity version 3 and Structure version 3 (`apply_band_contrast_log_v3`,
 // `apply_structure_v3`), for the same reason (gpu_processing.rs
@@ -4630,6 +4631,233 @@ fn apply_hsl_panel_v2(color: vec3<f32>, hsl_adjustments: array<HslColor, 8>) -> 
     }
     let new_hue = radians(hue + hue_shift);
     let new_chroma = chroma * max(1.0 + chroma_change, 0.0);
+    let new_lightness = max(lab.x + lightness_change, 0.0);
+    let result = oklab_to_linear_srgb(vec3<f32>(new_lightness, new_chroma * cos(new_hue), new_chroma * sin(new_hue)));
+    return gamut_floor(result);
+}
+
+// `hslVersion` 3: version 2 with Blues Hue, Saturation and Luminance and
+// Purples Saturation refitted on 30 photographs against Camera Raw (30 more
+// held out; notes: benchmark-results/hsl4-blue-purple-2026-11-15): their
+// windows have a flat top and an edge of their own on either side
+// (`hsl3_window`), a falloff exponent and a side effect per slider
+// direction (Camera Raw's Saturation band is narrower when raising than
+// when lowering, its Luminance band wider), and a Hue move also changes the
+// lightness in proportion to the colour's chroma. Saturation −100 keeps 2 %
+// of the chroma, so the colour's hue stays defined. The other sliders keep
+// version 2's numbers. The Hue move d solves d = Σ G w(hue + β d) with two
+// plain iterations over the channels that have a destination share β of at
+// least 0.01 (oranges, greens, blues, purples); the side effects use the
+// windows of the last iteration.
+
+// The window at `hue` of a channel centred at `centre`; `shape` = flat top
+// below, edge width below, flat top above, edge width above (degrees).
+fn hsl3_window(hue: f32, centre: f32, shape: vec4<f32>) -> f32 {
+    let e = hue - centre;
+    let d = e - 360.0 * round(e / 360.0);
+    let below = d < 0.0;
+    let x = clamp((abs(d) - select(shape.z, shape.x, below)) / select(shape.w, shape.y, below), 0.0, 1.0);
+    return 1.0 - x * x * (3.0 - 2.0 * x);
+}
+
+// Window weight `w` (0…1) to the falloff exponent of the slider's direction.
+fn hsl3_power(w: f32, exponent: f32) -> f32 {
+    return select(0.0, exp2(exponent * log2(max(w, 1.0e-20))), w > 0.0);
+}
+
+// `hsl2_strength` with one exponential: min(2^(a·log_c), 4) = 2^min(a·log_c, 2).
+fn hsl3_strength(log_c: f32, log_l: f32, colourful: f32, a: f32, b: f32) -> f32 {
+    return colourful * exp2(min(a * log_c, 2.0) + b * log_l);
+}
+
+fn apply_hsl_panel_v3(color: vec3<f32>, hsl_adjustments: array<HslColor, 8>) -> vec3<f32> {
+    let safe_color = gamut_floor(color);
+    var moved = false;
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        moved = moved || hsl_adjustments[i].hue != 0.0 || hsl_adjustments[i].saturation != 0.0
+            || hsl_adjustments[i].luminance != 0.0;
+    }
+    if (!moved) {
+        return safe_color;
+    }
+    let lab = linear_srgb_to_oklab(safe_color);
+    let chroma = length(lab.yz);
+    let colourful = smoothstep(0.0, 0.03, chroma);
+    if (colourful < 0.001) {
+        return safe_color;
+    }
+    let hue = degrees(atan2(lab.z, lab.y));
+    let log_c = log2(max(chroma, 1.0e-4) / 0.06);
+    let log_l = log2(max(lab.x, 0.05) / 0.6);
+
+    // Generated from the fitted parameters (notes:
+    // benchmark-results/hsl4-blue-purple-2026-11-15/tools/gen_v3.py).
+    var move0: f32 = 0.0; // reds
+    if (hsl_adjustments[0].hue != 0.0) {
+        move0 = hsl2_gain(hsl_adjustments[0].hue / 30.0, vec3<f32>(20.69, 33.89, 1.078)) * hsl3_strength(log_c, log_l, colourful, 0.3187, -0.3019);
+    }
+    var move1: f32 = 0.0; // oranges
+    if (hsl_adjustments[1].hue != 0.0) {
+        move1 = hsl2_gain(hsl_adjustments[1].hue / 30.0, vec3<f32>(42.76, 49.22, 0.8552)) * hsl3_strength(log_c, log_l, colourful, 0.0, 0.04971);
+    }
+    var move2: f32 = 0.0; // yellows
+    if (hsl_adjustments[2].hue != 0.0) {
+        move2 = hsl2_gain(hsl_adjustments[2].hue / 30.0, vec3<f32>(45.97, 41.36, 1.003)) * hsl3_strength(log_c, log_l, colourful, 0.0, 0.02166);
+    }
+    var move3: f32 = 0.0; // greens
+    if (hsl_adjustments[3].hue != 0.0) {
+        move3 = hsl2_gain(hsl_adjustments[3].hue / 30.0, vec3<f32>(35.69, 34.55, 0.9376)) * hsl3_strength(log_c, log_l, colourful, 0.0, -0.2329);
+    }
+    var move4: f32 = 0.0; // aquas
+    if (hsl_adjustments[4].hue != 0.0) {
+        move4 = hsl2_gain(hsl_adjustments[4].hue / 30.0, vec3<f32>(33.16, 64.36, 1.308)) * hsl3_strength(log_c, log_l, colourful, 0.0, 0.03546);
+    }
+    var move5: f32 = 0.0; // blues
+    if (hsl_adjustments[5].hue != 0.0) {
+        move5 = hsl2_gain(hsl_adjustments[5].hue / 30.0, vec3<f32>(86.08, 70.67, 0.6721)) * hsl3_strength(log_c, log_l, colourful, 0.006966, -0.05808);
+    }
+    var move6: f32 = 0.0; // purples
+    if (hsl_adjustments[6].hue != 0.0) {
+        move6 = hsl2_gain(hsl_adjustments[6].hue / 30.0, vec3<f32>(61.75, 34.18, 0.9037)) * hsl3_strength(log_c, log_l, colourful, 0.3516, 0.2341);
+    }
+    var move7: f32 = 0.0; // magentas
+    if (hsl_adjustments[7].hue != 0.0) {
+        move7 = hsl2_gain(hsl_adjustments[7].hue / 30.0, vec3<f32>(24.71, 18.43, 1.059)) * hsl3_strength(log_c, log_l, colourful, 0.02949, -0.03665);
+    }
+    var hue_shift: f32 = 0.0;
+    var chroma_change: f32 = 0.0;
+    var lightness_change: f32 = 0.0;
+    if (move0 != 0.0 || move1 != 0.0 || move2 != 0.0 || move3 != 0.0 || move4 != 0.0 || move5 != 0.0 || move6 != 0.0 || move7 != 0.0) {
+        // Each moved channel's window at the colour's own hue.
+        var own0: f32 = 0.0;
+        if (move0 != 0.0) { own0 = hsl2_window(hue, 9.345, vec4<f32>(22.44, 43.46, 1.026, 0.8489)); }
+        var own1: f32 = 0.0;
+        if (move1 != 0.0) { own1 = hsl2_window(hue, 53.65, vec4<f32>(51.83, 42.74, 0.9879, 1.013)); }
+        var own2: f32 = 0.0;
+        if (move2 != 0.0) { own2 = hsl2_window(hue, 90.43, vec4<f32>(46.72, 52.09, 1.371, 1.376)); }
+        var own3: f32 = 0.0;
+        if (move3 != 0.0) { own3 = hsl2_window(hue, 133.4, vec4<f32>(57.07, 53.85, 2.05, 2.104)); }
+        var own4: f32 = 0.0;
+        if (move4 != 0.0) { own4 = hsl2_window(hue, 171.8, vec4<f32>(32.82, 89.98, 1.406, 1.453)); }
+        var own5: f32 = 0.0;
+        if (move5 != 0.0) { own5 = hsl3_window(hue, 254.5, vec4<f32>(3.548, 79.38, 4.208, 67.67)); }
+        var own6: f32 = 0.0;
+        if (move6 != 0.0) { own6 = hsl2_window(hue, 312.4, vec4<f32>(62.21, 38.51, 0.9922, 0.6129)); }
+        var own7: f32 = 0.0;
+        if (move7 != 0.0) { own7 = hsl2_window(hue, 345.0, vec4<f32>(25.76, 38.31, 2.973, 2.992)); }
+        let fixed_shift = move0 * own0 + move2 * own2 + move4 * own4 + move7 * own7;
+        var at1 = own1; // oranges: its window at the destination hue
+        var at3 = own3; // greens: its window at the destination hue
+        var at5 = own5; // blues: its window at the destination hue
+        var at6 = own6; // purples: its window at the destination hue
+        hue_shift = fixed_shift + move1 * at1 + move3 * at3 + move5 * at5 + move6 * at6;
+        for (var n = 0u; n < 2u; n = n + 1u) {
+            if (move1 != 0.0) { at1 = hsl2_window(hue + 0.1249 * hue_shift, 53.65, vec4<f32>(51.83, 42.74, 0.9879, 1.013)); }
+            if (move3 != 0.0) { at3 = hsl2_window(hue + 0.04865 * hue_shift, 133.4, vec4<f32>(57.07, 53.85, 2.05, 2.104)); }
+            if (move5 != 0.0) { at5 = hsl3_window(hue + 0.2982 * hue_shift, 254.5, vec4<f32>(3.548, 79.38, 4.208, 67.67)); }
+            if (move6 != 0.0) { at6 = hsl2_window(hue + 0.1296 * hue_shift, 312.4, vec4<f32>(62.21, 38.51, 0.9922, 0.6129)); }
+            hue_shift = fixed_shift + move1 * at1 + move3 * at3 + move5 * at5 + move6 * at6;
+        }
+        let side0 = own0 * abs(move0 * own0) / 30.0;
+        chroma_change += side0 * -0.2421;
+        let side1 = own1 * abs(move1 * at1) / 30.0;
+        chroma_change += side1 * 0.01775;
+        let side2 = own2 * abs(move2 * own2) / 30.0;
+        chroma_change += side2 * 0.01302;
+        let side3 = own3 * abs(move3 * at3) / 30.0;
+        chroma_change += side3 * 0.1001;
+        let side4 = own4 * abs(move4 * own4) / 30.0;
+        chroma_change += side4 * -0.1009;
+        let side5 = own5 * abs(move5 * at5) / 30.0;
+        chroma_change += side5 * select(0.04112, -0.09396, move5 > 0.0);
+        lightness_change += side5 * select(-0.1056, 0.0789, move5 > 0.0) * 0.1 * min(exp2(log_c), 4.0);
+        let side6 = own6 * abs(move6 * at6) / 30.0;
+        chroma_change += side6 * 0.1922;
+        let side7 = own7 * abs(move7 * own7) / 30.0;
+        chroma_change += side7 * 0.1549;
+    }
+    if (hsl_adjustments[0].saturation != 0.0) { // reds
+        let change = hsl2_window(hue, 3.728, vec4<f32>(19.22, 51.69, 1.526, 1.536)) * hsl3_strength(log_c, log_l, colourful, 0.04521, -0.08886) * hsl2_gain(hsl_adjustments[0].saturation, vec3<f32>(0.9817, 0.8595, 1.143));
+        chroma_change += change;
+        lightness_change += change * -0.07219 * 0.1;
+    }
+    if (hsl_adjustments[1].saturation != 0.0) { // oranges
+        let change = hsl2_window(hue, 50.23, vec4<f32>(46.38, 42.97, 0.7862, 0.7849)) * hsl3_strength(log_c, log_l, colourful, 0.0, 0.06412) * hsl2_gain(hsl_adjustments[1].saturation, vec3<f32>(0.9857, 0.7948, 1.112));
+        chroma_change += change;
+        lightness_change += change * -0.08975 * 0.1;
+    }
+    if (hsl_adjustments[2].saturation != 0.0) { // yellows
+        let change = hsl2_window(hue, 94.28, vec4<f32>(49.99, 49.0, 1.438, 1.45)) * hsl3_strength(log_c, log_l, colourful, 0.0, -0.1249) * hsl2_gain(hsl_adjustments[2].saturation, vec3<f32>(0.9526, 0.7964, 1.124));
+        chroma_change += change;
+        lightness_change += change * 0.05667 * 0.1;
+    }
+    if (hsl_adjustments[3].saturation != 0.0) { // greens
+        let change = hsl2_window(hue, 141.7, vec4<f32>(51.61, 32.39, 1.276, 1.295)) * hsl3_strength(log_c, log_l, colourful, 0.1111, -0.4927) * hsl2_gain(hsl_adjustments[3].saturation, vec3<f32>(0.9751, 1.151, 1.325));
+        chroma_change += change;
+        lightness_change += change * -0.09878 * 0.1;
+    }
+    if (hsl_adjustments[4].saturation != 0.0) { // aquas
+        let change = hsl2_window(hue, 171.5, vec4<f32>(47.17, 82.31, 2.694, 2.785)) * hsl3_strength(log_c, log_l, colourful, 0.0, -0.2297) * hsl2_gain(hsl_adjustments[4].saturation, vec3<f32>(0.946, 0.8389, 1.023));
+        chroma_change += change;
+        lightness_change += change * 0.03637 * 0.1;
+    }
+    if (hsl_adjustments[5].saturation != 0.0) { // blues
+        let change = hsl3_power(hsl3_window(hue, 254.0, vec4<f32>(10.61, 63.26, 4.519, 64.8)), select(0.6672, 1.159, hsl_adjustments[5].saturation > 0.0)) * hsl3_strength(log_c, log_l, colourful, 0.3344, 0.008208) * hsl2_gain(hsl_adjustments[5].saturation, vec3<f32>(1.096, 1.292, 1.137));
+        chroma_change += change;
+        lightness_change += change * select(-0.1525, -0.2609, hsl_adjustments[5].saturation > 0.0) * 0.1;
+    }
+    if (hsl_adjustments[6].saturation != 0.0) { // purples
+        let change = hsl3_power(hsl3_window(hue, 329.1, vec4<f32>(0.01315, 73.05, 0.6617, 13.51)), select(1.192, 2.242, hsl_adjustments[6].saturation > 0.0)) * hsl3_strength(log_c, log_l, colourful, 0.0, 0.3306) * hsl2_gain(hsl_adjustments[6].saturation, vec3<f32>(1.078, 1.458, 0.8248));
+        chroma_change += change;
+        lightness_change += change * select(0.06974, 0.0635, hsl_adjustments[6].saturation > 0.0) * 0.1;
+    }
+    if (hsl_adjustments[7].saturation != 0.0) { // magentas
+        let change = hsl2_window(hue, 347.1, vec4<f32>(24.5, 24.17, 1.773, 1.771)) * hsl3_strength(log_c, log_l, colourful, 0.001466, -0.1087) * hsl2_gain(hsl_adjustments[7].saturation, vec3<f32>(0.9692, 1.109, 1.234));
+        chroma_change += change;
+        lightness_change += change * -4.095e-05 * 0.1;
+    }
+    if (hsl_adjustments[0].luminance != 0.0) { // reds
+        let change = hsl2_window(hue, 9.242, vec4<f32>(20.4, 44.0, 0.6776, 0.82)) * hsl3_strength(log_c, log_l, colourful, 0.0, 0.8986) * hsl2_gain(hsl_adjustments[0].luminance, vec3<f32>(0.07783, 0.07556, 0.9983));
+        lightness_change += change * smoothstep(0.0, 0.05, chroma);
+        chroma_change += change * 0.3672 * 5.0;
+    }
+    if (hsl_adjustments[1].luminance != 0.0) { // oranges
+        let change = hsl2_window(hue, 52.13, vec4<f32>(41.22, 39.77, 0.7367, 0.6362)) * hsl3_strength(log_c, log_l, colourful, 0.0, 0.9892) * hsl2_gain(hsl_adjustments[1].luminance, vec3<f32>(0.1595, 0.1386, 1.005));
+        lightness_change += change * smoothstep(0.0, 0.05, chroma);
+        chroma_change += change * 0.3125 * 5.0;
+    }
+    if (hsl_adjustments[2].luminance != 0.0) { // yellows
+        let change = hsl2_window(hue, 93.67, vec4<f32>(41.26, 39.51, 0.9953, 1.024)) * hsl3_strength(log_c, log_l, colourful, 0.1531, 1.785) * hsl2_gain(hsl_adjustments[2].luminance, vec3<f32>(0.2339, 0.1824, 1.099));
+        lightness_change += change * smoothstep(0.0, 0.05, chroma);
+        chroma_change += change * 0.1678 * 5.0;
+    }
+    if (hsl_adjustments[3].luminance != 0.0) { // greens
+        let change = hsl2_window(hue, 129.5, vec4<f32>(35.71, 47.21, 1.043, 1.096)) * hsl3_strength(log_c, log_l, colourful, 0.0, 1.662) * hsl2_gain(hsl_adjustments[3].luminance, vec3<f32>(0.1362, 0.1224, 1.019));
+        lightness_change += change * smoothstep(0.0, 0.05, chroma);
+        chroma_change += change * 0.1648 * 5.0;
+    }
+    if (hsl_adjustments[4].luminance != 0.0) { // aquas
+        let change = hsl2_window(hue, 164.2, vec4<f32>(33.36, 86.12, 3.0, 0.8911)) * hsl3_strength(log_c, log_l, colourful, 0.0001443, 1.074) * hsl2_gain(hsl_adjustments[4].luminance, vec3<f32>(0.09233, 0.08666, 0.9878));
+        lightness_change += change * smoothstep(0.0, 0.05, chroma);
+        chroma_change += change * 0.1425 * 5.0;
+    }
+    if (hsl_adjustments[5].luminance != 0.0) { // blues
+        let change = hsl3_power(hsl3_window(hue, 243.6, vec4<f32>(3.055, 65.28, 3.896, 90.0)), select(1.488, 1.449, hsl_adjustments[5].luminance > 0.0)) * hsl3_strength(log_c, log_l, colourful, 0.3019, -0.2108) * hsl2_gain(hsl_adjustments[5].luminance, vec3<f32>(0.1672, 0.1246, 1.029));
+        lightness_change += change * smoothstep(0.0, 0.05, chroma);
+        chroma_change += change * select(0.3353, 0.07596, hsl_adjustments[5].luminance > 0.0) * 5.0;
+    }
+    if (hsl_adjustments[6].luminance != 0.0) { // purples
+        let change = hsl2_window(hue, 324.3, vec4<f32>(74.2, 19.57, 0.979, 1.135)) * hsl3_strength(log_c, log_l, colourful, 0.8253, 1.29) * hsl2_gain(hsl_adjustments[6].luminance, vec3<f32>(0.1612, 0.1469, 0.9251));
+        lightness_change += change * smoothstep(0.0, 0.05, chroma);
+        chroma_change += change * 0.1462 * 5.0;
+    }
+    if (hsl_adjustments[7].luminance != 0.0) { // magentas
+        let change = hsl2_window(hue, 344.9, vec4<f32>(25.06, 29.41, 1.764, 2.313)) * hsl3_strength(log_c, log_l, colourful, 0.0, 1.967) * hsl2_gain(hsl_adjustments[7].luminance, vec3<f32>(0.114, 0.1092, 1.005));
+        lightness_change += change * smoothstep(0.0, 0.05, chroma);
+        chroma_change += change * -0.02472 * 5.0;
+    }
+    let new_hue = radians(hue + hue_shift);
+    let new_chroma = chroma * max(1.0 + chroma_change, 0.02);
     let new_lightness = max(lab.x + lightness_change, 0.0);
     let result = oklab_to_linear_srgb(vec3<f32>(new_lightness, new_chroma * cos(new_hue), new_chroma * sin(new_hue)));
     return gamut_floor(result);
@@ -11072,14 +11300,20 @@ fn main(
         textureStore(output_texture, id.xy, mixer_probe_pixel(gamut_floor(composite_rgb_linear)));
         return;
     }
-    // Version 1 runs on every recipe as before (in a branch of its own the
-    // compiler changed its rounding: exports of version-1 recipes moved by
-    // one level in 0.07 % of values); version 2, compiled only where
-    // `HSL_V2` is set, replaces its result.
-    let mixer_input = composite_rgb_linear;
-    composite_rgb_linear = apply_hsl_panel(composite_rgb_linear, final_hsl, absolute_coord_i);
+    // Versions 2 and 3 are compiled only where `HSL_V2` is set and run
+    // instead of version 1 (version 1 before them cost 2 ms of a display
+    // frame). Elsewhere the override is false and version 1 runs as before:
+    // behind a test of the recipe's response at run time the compiler
+    // changed its rounding (exports of version-1 recipes moved by one level
+    // in 0.07 % of values).
     if (HSL_V2 && adjustments.global.hsl[0].response > 0.5) {
-        composite_rgb_linear = apply_hsl_panel_v2(mixer_input, final_hsl);
+        if (adjustments.global.hsl[0].response > 1.5) {
+            composite_rgb_linear = apply_hsl_panel_v3(composite_rgb_linear, final_hsl);
+        } else {
+            composite_rgb_linear = apply_hsl_panel_v2(composite_rgb_linear, final_hsl);
+        }
+    } else {
+        composite_rgb_linear = apply_hsl_panel(composite_rgb_linear, final_hsl, absolute_coord_i);
     }
     composite_rgb_linear = apply_hue_shift(composite_rgb_linear, t_hue);
     if (VIBRANCE_V2 && adjustments.global.vibrance_version >= 2u) {
