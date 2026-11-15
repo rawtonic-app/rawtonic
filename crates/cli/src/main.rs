@@ -1273,19 +1273,38 @@ fn export(args: ExportArgs) -> Result<()> {
         Some(inputs) => exporter.with_render_inputs(inputs.clone()),
         None => exporter,
     };
-    let mut written = Vec::new();
-    let mut failed = Vec::new();
-    for ((photo, output), recipe) in jobs.iter().zip(recipes) {
+    // Several photos at once, as the app's export queue renders them: its
+    // number of workers, each in a thread pool of its own
+    // (`rawtonic_export::workers`). One at a time while the render inputs
+    // are recorded, which each export replaces.
+    let workers = if inputs.is_some() {
+        1
+    } else {
+        rawtonic_export::workers::export_workers(
+            jobs.len(),
+            rawtonic_export::workers::available_cores(),
+            available_memory(),
+        )
+    };
+    let pools = rawtonic_export::workers::lane_pools(
+        workers,
+        rawtonic_export::workers::available_cores(),
+        "export",
+        || {},
+    );
+    let exporter = &exporter;
+    let outcomes = rawtonic_export::workers::run_in_lanes(&pools, jobs.len(), |i| {
+        let (photo, output) = &jobs[i];
+        let recipe = &recipes[i];
         let (source, sidecar) = parse_virtual_path(photo);
         let library = library_of(&source);
         if let Some(resource) = recipe
             .as_ref()
             .and_then(|r| unresolved_resource(r, library.as_deref()))
         {
-            failed.push(serde_json::json!({"source": photo, "error": format!(
+            return Err(serde_json::json!({"source": photo, "error": format!(
                 "The recipe names the library resource {resource}, but the photo is in no session or catalog"
             )}));
-            continue;
         }
         // A render out of graphics memory (another program holding it) is
         // exported again after a wait, into the same file (app: the same).
@@ -1317,8 +1336,16 @@ fn export(args: ExportArgs) -> Result<()> {
             },
         );
         match results.remove(0).1 {
-            Ok(()) => written.push(output.clone()),
-            Err(error) => failed.push(serde_json::json!({"source": photo, "error": error})),
+            Ok(()) => Ok(output.clone()),
+            Err(error) => Err(serde_json::json!({"source": photo, "error": error})),
+        }
+    });
+    let mut written = Vec::new();
+    let mut failed = Vec::new();
+    for outcome in outcomes {
+        match outcome {
+            Ok(path) => written.push(path),
+            Err(failure) => failed.push(failure),
         }
     }
     if let (Some(path), Some(inputs), true) = (&render_inputs, &inputs, failed.is_empty()) {
@@ -1343,6 +1370,13 @@ fn export(args: ExportArgs) -> Result<()> {
     );
     Ok(())
 }
+/// Free physical memory in bytes, as the app's export reads it.
+fn available_memory() -> u64 {
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    system.available_memory()
+}
+
 fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
     use rawtonic_export::proof_sheet::{
         CellImage, PageValues, ProofSheet, caption, cell_settings, file_stem, page_text,

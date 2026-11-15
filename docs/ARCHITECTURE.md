@@ -585,7 +585,8 @@ jobs and their photos with state, output, error and timing; pause, cancel, resum
 
 `export` (export settings/geometry/encoders, render pipeline with `RenderEnv`, exif_processing/tiff_exif/xmp_embed with
 `export_metadata_with` + `encode_with_metadata`, `sidecars` (virtual paths, `.rrdata` reading, library walk, export
-naming), `output::write_new_output`, `file_export::FileExporter`, and `normalize::normalize`, the one entry that makes a
+naming), `output::write_new_output`, `file_export::FileExporter`, `workers` (how many photos a batch export renders at
+once and the thread pool each runs in, for the app's queue and `rawtonic export` alike), and `normalize::normalize`, the one entry that makes a
 stored or editor recipe renderable: bitmaps, offline lens, new-edit crop and versions, camera lens defaults, Lightroom
 orientation, in that order; every render caller in the app and the CLI calls it once).
 
@@ -647,7 +648,8 @@ rawtonic_…::{…}` line in `lib.rs`. Don't add empty crates pretending a separ
 
 `lib.rs` is wiring only: module declarations, `run()` and `generate_handler!`; the Develop source/preview pipeline lives
 in `editor_preview.rs` (the fit view's export colour noise reduction from a full-resolution correction built in the
-background: `color_noise_view.rs`), start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
+background: `color_noise_view.rs`; on the CPU on Apple silicon, elsewhere by the export's GPU filter in
+`rawtonic_gpu::gpu_processing::color_noise_view`, off on integrated or compile-limited GPUs), start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
 With in `open_with.rs` (programs from LaunchServices on macOS and from the shell's association handlers on Windows,
 `open_with/windows_shell.rs` with its plain-data part in `open_with/handlers.rs`; disabled on Linux; Edit With queues one export per photo
 through the export queue, snapshotted at the click like any queued export, to `NAME_edit.<ext>` beside the original,
