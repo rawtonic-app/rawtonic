@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-## 0.1.0-alpha.15 — 2026-11-15
-
 The fifteenth alpha. Photos can be filed in keyword hierarchies (Animals > Dogs) with a Keyword List, Undo for keyword changes and drag-and-drop of photos onto a keyword. For new edits the colour mixer follows Camera Raw more closely for Blues and Purples and Color Grading tints where Camera Raw puts them. The Develop fit view and the grid thumbnail now show the export's colour noise reduction on Apple silicon and discrete graphics cards, the Before of a RAW includes the sharpening and noise reduction it gets at import, and each before/after mode has a key of its own. Linux gets Open With and Edit With and a 100 % view as sharp as the export, lossless JPEG XL exports reopen and encode far faster, and the CLI exports several photos at once. On Windows with AMD graphics the first start and the first edits prepare their views without piling up memory, and exports, AI masks and view preparation take turns. A library opened by its path, one duplicate rule everywhere and a rating that survives a catalog that had registered a file twice fix several ways of losing track of photos.
 
 ### Highlights
@@ -53,8 +51,7 @@ The fifteenth alpha. Photos can be filed in keyword hierarchies (Animals > Dogs)
 
 ### Changes to existing edits
 
-- **The colour mixer and Color Grading change only new edits.** New edits use mixer response 3 (`hslVersion` 3: Blues and Purples refitted) and Color Grading response 2 (`colorGradingVersion` 2); photos you have already edited keep their mixer and Color Grading look and export exactly as before. Lightroom presets with Color Grading or Split Toning import with the new response.
-- **TODO (coordinator, PR #811 not merged when this was written): Color Grading response 3 (`colorGradingVersion` 3) — fill in the Highlights bullet and this line when it merges; like version 2 it applies to new edits only, saved edits render unchanged.**
+- **The colour mixer and Color Grading change only new edits.** New edits use mixer response 3 (`hslVersion` 3: Blues and Purples refitted) and Color Grading response 3 (`colorGradingVersion` 3: per-channel tint limit, Luminance per channel, Camera Raw's response above saturation 50); photos you have already edited keep their mixer and Color Grading look and export exactly as before. Lightroom presets with Color Grading or Split Toning import with the new response.
 - **Exports of saved photos are unchanged.** The CPU speed-ups of the RAW steps, the lossless JPEG XL encoder (same pixels, the file is 2–10 % smaller) and the AMD effect passes change no exported pixel on Apple silicon, NVIDIA or other graphics drivers; on AMD's Windows Vulkan driver the alpha.14 note on rare one-level differences still applies.
 - **Before and thumbnails look different, exports do not:** the whole-photo Before of a RAW now includes import sharpening and noise reduction, and the fit view and grid thumbnail show the export's colour noise reduction on Apple silicon and discrete graphics cards.
 - **Upright Level** now levels by the camera's roll and leaves photos without clear lines alone; saved edits render as before.
