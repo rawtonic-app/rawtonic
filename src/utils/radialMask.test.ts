@@ -214,6 +214,15 @@ describe('version 2 (bell) radial gradients', () => {
     }
   });
 
+  it('keeps the central line with Shift past the softest feather', () => {
+    const { central } = radialLines(bell);
+    const next = dragRadialLine(bell, 'outer', { x: 4000, y: 0 }, true);
+    const lines = radialLines(next);
+    near(lines.central.x, central.x);
+    near(lines.central.y, central.y);
+    near(featherOf(next), 1);
+  });
+
   it('leaves version 1 gradients on the straight ramp', () => {
     const { inner, central, outer } = radialLines(base);
     near(inner.x, 100);

@@ -124,8 +124,9 @@ function dragBellLine(params: RadialParams, line: RadialLine, point: LocalPoint,
   const feather = solveFeather((f) => movedFactor(f) / keptFactor(f), d);
   const reached = movedFactor(feather) / keptFactor(feather);
   // Past the farthest the feather reaches (outer line far out), the moved
-  // line goes to the pointer and the whole mask scales with it.
-  const scale = line === 'outer' && d > reached ? d / reached : 1;
+  // line goes to the pointer and the whole mask scales with it; with Shift
+  // the central line stays, so the outer line stops at the softest feather.
+  const scale = line === 'outer' && !symmetric && d > reached ? d / reached : 1;
   const factor = keptFactor(feather);
   return withRadii(params, (kept.x * scale) / factor, (kept.y * scale) / factor, feather);
 }
