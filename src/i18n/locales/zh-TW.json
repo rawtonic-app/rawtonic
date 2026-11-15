@@ -74,7 +74,9 @@
       "detail": "結束或當機使此批次作業在所有照片寫入前停止。可將其套用到其餘照片、復原已套用的部分，或保持原狀。照片本身絕不會被變更。",
       "failed": "無法完成{{batch}}：{{error}}",
       "keywordAdd": "關鍵字「{{tag}}」",
+      "keywordDelete": "正在刪除關鍵字「{{path}}」",
       "keywordRemove": "移除關鍵字「{{tag}}」",
+      "keywordRename": "正在將關鍵字「{{from}}」重新命名為「{{to}}」",
       "notWritten_other": "有 {{count}} 張照片無法寫入",
       "paste": "貼上設定",
       "preset": "預設集",
@@ -3964,6 +3966,51 @@
           "showFailed": "無法顯示資料夾：{{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "隱藏 {{keyword}} 下的關鍵字",
+        "confirm": {
+          "cancel": "取消",
+          "convert": "將「{{from}}」轉換為階層「{{to}}」？",
+          "convertAction": "轉換",
+          "delete": "刪除「{{from}}」？其下的關鍵字會上移一層。",
+          "deleteAction": "刪除",
+          "deleteUnused": "刪除所有沒有照片使用的關鍵字？",
+          "label": "確認關鍵字變更",
+          "merge": "將「{{from}}」合併到「{{to}}」？「{{from}}」將被其取代。",
+          "mergeAction": "合併",
+          "move": "將「{{from}}」移到「{{to}}」？",
+          "moveAction": "移動",
+          "photos_other": "這會變更 {{count}} 張照片的關鍵字。",
+          "rename": "將「{{from}}」重新命名為「{{to}}」？",
+          "renameAction": "重新命名"
+        },
+        "empty": "尚無關鍵字。",
+        "expand": "顯示 {{keyword}} 下的關鍵字",
+        "filterHint": "顯示帶有 {{keyword}} 及其下層關鍵字的照片。拖到另一個關鍵字上即可移到那裡。",
+        "legacyHint": "「{{keyword}}」是在關鍵字階層之前寫入的單一關鍵字。按右鍵可轉換。",
+        "menu": {
+          "clearFilter": "不再依此關鍵字篩選",
+          "convert": "轉換為「{{path}}」",
+          "delete": "刪除關鍵字…",
+          "deleteUnused": "刪除未使用的關鍵字…",
+          "filter": "顯示帶有此關鍵字的照片",
+          "moveToTop": "移到最上層",
+          "new": "新增關鍵字…",
+          "newInside": "在「{{keyword}}」下新增關鍵字…",
+          "rename": "重新命名…"
+        },
+        "new": {
+          "insideLabel": "在 {{keyword}} 下新增關鍵字",
+          "label": "新增關鍵字：輸入名稱或路徑，例如 上層 > 名稱"
+        },
+        "renameLabel": "重新命名或移動 {{keyword}}：輸入其路徑，例如 上層 > 名稱",
+        "title": "關鍵字清單",
+        "toasts": {
+          "assignFailed": "無法將關鍵字加入照片：{{error}}",
+          "createFailed": "無法建立關鍵字：{{error}}",
+          "renameFailed": "無法變更關鍵字：{{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "AI 降噪",
@@ -4405,6 +4452,7 @@
       "keywords": {
         "add": "加入關鍵字",
         "addTo_other": "加入至 {{count}} 張照片",
+        "hierarchyHint": "以逗號分隔關鍵字。「動物 > 狗」「動物|狗」或「狗 < 動物」會把狗放在動物下。",
         "none": "無關鍵字",
         "ofSelection": "選取項目的關鍵字",
         "partial_other": "{{count}} 張照片中的 {{on}} 張",
@@ -5190,6 +5238,15 @@
     "edit": "編輯",
     "file": "檔案變更",
     "flag": "設定旗標",
+    "keywordAdd": "新增關鍵字「{{keyword}}」",
+    "keywordConvert": "轉換關鍵字",
+    "keywordDelete": "刪除關鍵字",
+    "keywordDeleteUnused": "刪除未使用的關鍵字",
+    "keywordMerge": "合併關鍵字",
+    "keywordMove": "移動關鍵字",
+    "keywordNew": "新增關鍵字",
+    "keywordRemove": "移除關鍵字「{{keyword}}」",
+    "keywordRename": "重新命名關鍵字",
     "lensCorrection": "鏡頭校正",
     "matchLight": "統一光線",
     "move": "移動",

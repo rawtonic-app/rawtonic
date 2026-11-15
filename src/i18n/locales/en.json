@@ -80,7 +80,9 @@
       "detail": "A quit or crash stopped this batch before every photo was written. Apply it to the rest, undo the part that was applied, or leave the photos as they are. Your photos themselves are never changed.",
       "failed": "{{batch}} could not be finished: {{error}}",
       "keywordAdd": "Keyword “{{tag}}”",
+      "keywordDelete": "Deleting keyword “{{path}}”",
       "keywordRemove": "Removing keyword “{{tag}}”",
+      "keywordRename": "Renaming keyword “{{from}}” to “{{to}}”",
       "notWritten_one": "{{count}} photo could not be written",
       "notWritten_other": "{{count}} photos could not be written",
       "paste": "Paste Settings",
@@ -4087,6 +4089,52 @@
           "showFailed": "Could not show the folder: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Hide the keywords under {{keyword}}",
+        "confirm": {
+          "cancel": "Cancel",
+          "convert": "Convert “{{from}}” into the hierarchy “{{to}}”?",
+          "convertAction": "Convert",
+          "delete": "Delete “{{from}}”? Keywords under it move up one level.",
+          "deleteAction": "Delete",
+          "deleteUnused": "Delete every keyword that no photo has?",
+          "label": "Confirm keyword change",
+          "merge": "Merge “{{from}}” into “{{to}}”? “{{from}}” is replaced by it.",
+          "mergeAction": "Merge",
+          "move": "Move “{{from}}” to “{{to}}”?",
+          "moveAction": "Move",
+          "photos_one": "This changes the keywords of {{count}} photo.",
+          "photos_other": "This changes the keywords of {{count}} photos.",
+          "rename": "Rename “{{from}}” to “{{to}}”?",
+          "renameAction": "Rename"
+        },
+        "empty": "No keywords yet.",
+        "expand": "Show the keywords under {{keyword}}",
+        "filterHint": "Show the photos with {{keyword}} and the keywords under it. Drag onto another keyword to move it there.",
+        "legacyHint": "“{{keyword}}” is one keyword, written before keyword hierarchies. Right-click to convert it.",
+        "menu": {
+          "clearFilter": "Stop Filtering by This Keyword",
+          "convert": "Convert to “{{path}}”",
+          "delete": "Delete Keyword…",
+          "deleteUnused": "Delete Unused Keywords…",
+          "filter": "Show Photos with This Keyword",
+          "moveToTop": "Move to Top Level",
+          "new": "New Keyword…",
+          "newInside": "New Keyword Inside “{{keyword}}”…",
+          "rename": "Rename…"
+        },
+        "new": {
+          "insideLabel": "New keyword inside {{keyword}}",
+          "label": "New keyword: type its name or path, e.g. Parent > Name"
+        },
+        "renameLabel": "Rename or move {{keyword}}: type its path, e.g. Parent > Name",
+        "title": "Keyword List",
+        "toasts": {
+          "assignFailed": "The keyword could not be added to the photos: {{error}}",
+          "createFailed": "The keyword could not be made: {{error}}",
+          "renameFailed": "Keywords could not be changed: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "AI Denoise",
@@ -4536,6 +4584,7 @@
         "add": "Add keywords",
         "addTo_one": "Add to {{count}} photo",
         "addTo_other": "Add to {{count}} photos",
+        "hierarchyHint": "Separate keywords with commas. “Animals > Dogs”, “Animals|Dogs” or “Dogs < Animals” puts Dogs under Animals.",
         "none": "No keywords",
         "ofSelection": "Keywords of the selection",
         "partial_one": "On {{on}} of {{count}} photo",
@@ -5334,6 +5383,15 @@
     "edit": "Edit",
     "file": "File Change",
     "flag": "Set Flag",
+    "keywordAdd": "Add Keyword “{{keyword}}”",
+    "keywordConvert": "Convert Keyword",
+    "keywordDelete": "Delete Keyword",
+    "keywordDeleteUnused": "Delete Unused Keywords",
+    "keywordMerge": "Merge Keywords",
+    "keywordMove": "Move Keyword",
+    "keywordNew": "New Keyword",
+    "keywordRemove": "Remove Keyword “{{keyword}}”",
+    "keywordRename": "Rename Keyword",
     "lensCorrection": "Lens Correction",
     "matchLight": "Match Light",
     "move": "Move",

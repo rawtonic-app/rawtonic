@@ -27,7 +27,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `catalog` | SQLite schema, sessions/catalogs, recipes, search | `fs`, `metadata` | `lib`, `query`, `add` | `core:test` |
 | `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection | none | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test` |
-| `metadata` | XMP sidecars, provenance, labels, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `recipe` | `lib`, `provenance`, `labels`, `photo_ref` | `core:test` |
+| `metadata` | XMP sidecars, provenance, labels, hierarchical keyword paths (levels joined by a pipe, TS twin `src/utils/keywordTree.ts`), photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `recipe` | `lib`, `provenance`, `labels`, `keywords`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | none | `lib` | `core:test` |
 | `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
@@ -122,6 +122,11 @@ New Rust workspace crates isolate data and file safety.
   photograph's while nobody set its metadata; schema 13 read again what the earlier reader missed, schema 14 the undated
   ones once the reader followed TIFF-based files' late IFDs); keywords one row each in `asset_keywords` (kept by
   triggers), text in the trigram index `asset_search`.
+- `declared_keywords`: keywords made in the Keyword List without photographs (schema 29: `declared_keywords`, unique
+  ignoring case; listed with count 0, kept until deleted). Every change returns a `DeclaredChange` (added, removed), so
+  Undo applies it the other way (`session_keywords_declared_apply`); keyword writes on photos return `KeywordChange`s
+  (tags gained and lost) that `restore_keywords` takes back or repeats, both recorded by `keywordAction` in
+  `src/utils/appUndo.ts` as one undo step.
 - `capture_time`: corrected capture times (Shift Capture Time, schema 19: `capture_overrides`, apart from
   `assets.capture_time`, so a facts reread never undoes one and deleting the row restores the file's time; exact shift
   arithmetic keeping fraction digits and UTC offset; the editor state's EXIF map carries the correction on read and
@@ -564,8 +569,12 @@ each photo shown; small pipelines such as the RAW default variant and the detail
 `CompileWeight`), each in a helper process (`idle_compile_child.rs`; `rawtonic-app --gpu-idle-compile JOB
 FOLDER`, `src-tauri/src/gpu_idle_helper.rs`) that is killed when a compile or export waits for the slot; the app takes
 the finished variant through the pipeline cache the helper left; a frame's variant no plan covers compiles in a helper
-too, `IdleCompiles::for_frame`); `memory_turns`: on an integrated GPU under a compile limit an idle compile, an export
-and a masking network on the CPU take turns (`src-tauri/src/ai_lifecycle.rs` `turn`, `export_turn`).
+too, `IdleCompiles::for_frame`); there a display variant is the main pass between two small passes of the same display
+source (`effect_passes.rs`: a terms pass for glow and halation before it; with grain, and for exports that encode per
+output, a finish pass after it with grain, the warnings, the output encoding and the histogram's image), and exports
+render through the same passes;
+`memory_turns`: on an integrated GPU under a compile limit an idle compile, an export and a masking network on the CPU
+take turns (`src-tauri/src/ai_lifecycle.rs` `turn`, `export_turn`).
 
 
 #### `export`
@@ -639,7 +648,8 @@ rawtonic_…::{…}` line in `lib.rs`. Don't add empty crates pretending a separ
 
 `lib.rs` is wiring only: module declarations, `run()` and `generate_handler!`; the Develop source/preview pipeline lives
 in `editor_preview.rs` (the fit view's export colour noise reduction from a full-resolution correction built in the
-background: `color_noise_view.rs`), start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
+background: `color_noise_view.rs`; on the CPU on Apple silicon, elsewhere by the export's GPU filter in
+`rawtonic_gpu::gpu_processing::color_noise_view`, off on integrated or compile-limited GPUs), start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
 With in `open_with.rs` (programs from LaunchServices on macOS and from the shell's association handlers on Windows,
 `open_with/windows_shell.rs` with its plain-data part in `open_with/handlers.rs`; disabled on Linux; Edit With queues one export per photo
 through the export queue, snapshotted at the click like any queued export, to `NAME_edit.<ext>` beside the original,

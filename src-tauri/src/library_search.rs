@@ -4,6 +4,7 @@
 //! except the capture-facts pass, which reads each one's header (at most
 //! its first 16 MiB) once.
 use crate::session_bridge::with_library;
+use rawtonic_catalog::declared_keywords::DeclaredChange;
 use rawtonic_catalog::{Collection, Field, Library, Rated, Rule, query::FacetValue};
 use rawtonic_fs::Canonical;
 use serde::Deserialize;
@@ -37,6 +38,101 @@ pub async fn session_search(
             Some(listed) => as_listed(paths, Path::new(&listed)),
             None => paths,
         })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The virtual copies whose own keywords hold `path` or one under it, as
+/// photo references (`<photograph>?vc=<copy>`), wherever they are listed:
+/// a library-wide keyword rename writes them too.
+#[tauri::command]
+pub async fn session_keyword_copies(
+    directory: String,
+    path: String,
+) -> Result<Vec<String>, String> {
+    with_library(directory, false, move |lib| {
+        Ok(lib
+            .copies_with_keyword(&path)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|(photo, copy)| {
+                rawtonic_metadata::photo_ref::PhotoRef::new(
+                    photo.to_string_lossy().into_owned(),
+                    Some(rawtonic_metadata::photo_ref::CopyId::new(copy)),
+                )
+                .to_string()
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The keywords made without photographs (Keyword List, New Keyword).
+#[tauri::command]
+pub async fn session_keywords_declared(directory: String) -> Result<Vec<String>, String> {
+    with_library(directory, false, |lib| {
+        lib.declared_keywords().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Makes the keyword `path` in the library without photographs; the change
+/// says whether it was new.
+#[tauri::command]
+pub async fn session_keyword_declare(
+    directory: String,
+    path: String,
+) -> Result<DeclaredChange, String> {
+    with_library(directory, true, move |lib| {
+        lib.declare_keyword(&path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Takes `remove` off the declared keywords and puts `add` on (Undo, Redo
+/// and Delete unused keywords).
+#[tauri::command]
+pub async fn session_keywords_declared_apply(
+    directory: String,
+    remove: Vec<String>,
+    add: Vec<String>,
+) -> Result<DeclaredChange, String> {
+    with_library(directory, true, move |lib| {
+        lib.apply_declared_keywords(&remove, &add)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Renames, moves or merges the declared keywords within `from` to `to`.
+#[tauri::command]
+pub async fn session_keywords_declared_rename(
+    directory: String,
+    from: String,
+    to: String,
+) -> Result<DeclaredChange, String> {
+    with_library(directory, true, move |lib| {
+        lib.rename_declared_keywords(&from, &to)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Deletes the declared keyword `path`; those below it move up one level.
+#[tauri::command]
+pub async fn session_keywords_declared_delete(
+    directory: String,
+    path: String,
+) -> Result<DeclaredChange, String> {
+    with_library(directory, true, move |lib| {
+        lib.delete_declared_keyword(&path)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

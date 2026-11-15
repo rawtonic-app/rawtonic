@@ -218,6 +218,115 @@ pub fn resize_signed(
     ImageBuffer::from_raw(new_width, new_height, pixels).expect("resized buffer size")
 }
 
+/// [`resize_signed`] of an RGB image that arrives in bands of whole rows,
+/// top to bottom (a GPU pass read back band by band): the same taps and
+/// the same sums in the same order, so the same values, while only the
+/// output rows whose taps are still arriving are held (a few rows of the
+/// source's width) instead of the whole source.
+pub struct SignedRowStream {
+    width: usize,
+    new_width: u32,
+    new_height: u32,
+    rows: Vec<Taps>,
+    columns: Vec<Taps>,
+    /// The next source row expected.
+    next: usize,
+    /// The source's height.
+    source_height: usize,
+    /// The first output row not yet finished.
+    first_open: usize,
+    /// Vertical sums of the output rows being built, by output row.
+    open: Vec<Option<Vec<f32>>>,
+    out: Vec<f32>,
+}
+
+impl SignedRowStream {
+    pub fn new(width: u32, height: u32, new_width: u32, new_height: u32) -> Self {
+        Self {
+            width: width as usize,
+            new_width,
+            new_height,
+            rows: taps(height, new_height),
+            columns: taps(width, new_width),
+            next: 0,
+            source_height: height as usize,
+            first_open: 0,
+            open: (0..new_height).map(|_| None).collect(),
+            out: vec![0.0; new_width as usize * new_height as usize * 3],
+        }
+    }
+
+    /// Adds the next whole rows (RGB, `width` pixels each).
+    pub fn push_rows(&mut self, band: &[f32]) {
+        let row = self.width * 3;
+        assert!(row > 0 && band.len().is_multiple_of(row), "whole rows");
+        let start = self.next;
+        let end = start + band.len() / row;
+        self.next = end;
+        // As `resize_signed`: the same size is a copy.
+        if self.width == self.new_width as usize && self.rows.len() == self.source_height {
+            self.out[start * row..end * row].copy_from_slice(band);
+            self.first_open = end;
+            return;
+        }
+        // Output rows reading any of rows start..end (their taps are
+        // contiguous and their first rows rise).
+        let mut last = self.first_open;
+        while last < self.rows.len() && self.rows[last].first < end {
+            last += 1;
+        }
+        let touched = self.first_open..last;
+        let rows = &self.rows;
+        let columns = &self.columns;
+        let new_row = self.new_width as usize * 3;
+        let open = &mut self.open[touched.start..touched.end];
+        let out = &mut self.out[touched.start * new_row..];
+        open.par_iter_mut()
+            .zip(out.par_chunks_mut(new_row))
+            .zip(touched.clone().into_par_iter())
+            .for_each(|((sums, out), j)| {
+                let taps = &rows[j];
+                let sums = sums.get_or_insert_with(|| vec![0.0; row]);
+                let from = taps.first.max(start);
+                let to = (taps.first + taps.weights.len()).min(end);
+                for y in from..to {
+                    let weight = taps.weights[y - taps.first];
+                    let source = &band[(y - start) * row..(y - start + 1) * row];
+                    for (sum, &value) in sums.iter_mut().zip(source) {
+                        *sum += value * weight;
+                    }
+                }
+                if taps.first + taps.weights.len() <= end {
+                    for (pixel, taps) in out.as_chunks_mut::<3>().0.iter_mut().zip(columns) {
+                        let mut sum = [0.0f32; 3];
+                        for (i, &weight) in taps.weights.iter().enumerate() {
+                            let start = (taps.first + i) * 3;
+                            for (sum, &value) in sum.iter_mut().zip(&sums[start..start + 3]) {
+                                *sum += value * weight;
+                            }
+                        }
+                        *pixel = sum;
+                    }
+                    *sums = Vec::new();
+                }
+            });
+        while self.first_open < last
+            && self.rows[self.first_open].first + self.rows[self.first_open].weights.len() <= end
+        {
+            self.open[self.first_open] = None;
+            self.first_open += 1;
+        }
+    }
+
+    /// The resized image once every source row came; None before.
+    pub fn finish(self) -> Option<image::Rgb32FImage> {
+        if self.first_open < self.rows.len() {
+            return None;
+        }
+        ImageBuffer::from_raw(self.new_width, self.new_height, self.out)
+    }
+}
+
 /// `image.resize_exact(new_width, new_height, FilterType::Lanczos3)`, the
 /// same pixels, in the current rayon pool.
 pub fn resize_exact(image: &DynamicImage, new_width: u32, new_height: u32) -> DynamicImage {
@@ -370,6 +479,37 @@ mod tests {
                 );
                 assert!(actual.as_bytes() == expected.as_bytes());
             }
+        }
+    }
+
+    #[test]
+    fn signed_row_stream_is_resize_signed() {
+        for (w, h, nw, nh, band) in [
+            (97, 61, 40, 25, 7),
+            (64, 48, 64, 20, 1),
+            (50, 50, 23, 37, 50),
+            (31, 90, 31, 90, 16),
+        ] {
+            let values: Vec<f32> = pattern(w, h, 7)
+                .chunks(4)
+                .flat_map(|p| [p[0] - 0.5, p[1], -p[2]])
+                .collect();
+            let image = image::Rgb32FImage::from_raw(w, h, values.clone()).unwrap();
+            let expected = resize_signed(&image, nw, nh);
+            let mut stream = SignedRowStream::new(w, h, nw, nh);
+            for rows in values.chunks(w as usize * 3 * band) {
+                stream.push_rows(rows);
+            }
+            let got = stream.finish().unwrap();
+            assert_eq!(
+                got.as_raw().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                expected
+                    .as_raw()
+                    .iter()
+                    .map(|v| v.to_bits())
+                    .collect::<Vec<_>>(),
+                "{w}x{h} -> {nw}x{nh}"
+            );
         }
     }
 }

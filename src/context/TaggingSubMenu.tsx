@@ -10,6 +10,9 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { expandGroupedPaths } from '../utils/imageGrouping';
 import { invokeInOrder } from '../utils/catalogWrites';
 import { saveFailure } from '../hooks/useLibraryActions';
+import { keywordAction, type KeywordChange } from '../utils/appUndo';
+import { writeKeywords } from '../utils/keywordOps';
+import { displayKeyword } from '../utils/keywordTree';
 
 interface TaggingSubMenuProps {
   paths: string[];
@@ -91,10 +94,22 @@ export default function TaggingSubMenu({
   ) => {
     const pathsToUpdate = getPathsToUpdate();
     try {
-      await invokeInOrder(
-        adds ? Invokes.AddTagForPaths : Invokes.RemoveTagForPaths,
-        { paths: pathsToUpdate, tag },
-        'keyword'
+      // One undo step named for the keyword (Undo Add Keyword 'dog').
+      await keywordAction(
+        { kind: adds ? 'add' : 'remove', keyword: displayKeyword(tag.replace(/^user:/, '')) },
+        (record) =>
+          writeKeywords(
+            pathsToUpdate,
+            record,
+            (kept) => (adds ? (kept.includes(tag) ? kept : [...kept, tag]) : kept.filter((item) => item !== tag)),
+            () =>
+              invokeInOrder<KeywordChange[]>(
+                adds ? Invokes.AddTagForPaths : Invokes.RemoveTagForPaths,
+                { paths: pathsToUpdate, tag },
+                'keyword'
+              )
+          ),
+        pathsToUpdate
       );
     } catch (err) {
       const { message, failed } = saveFailure(err, pathsToUpdate);

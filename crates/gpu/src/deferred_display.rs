@@ -24,7 +24,11 @@
 //! pipeline cache (G76/WCC7 probe round 15: 140 ms).
 //!
 //! Only under a compile limit: elsewhere exports keep their own variants and
-//! bytes.
+//! bytes. With the effect passes (`effect_passes`, G76/EFX: every processor
+//! under a compile limit whose shader has the shape they need) these exports
+//! render with the display variant itself, whose main pass stores float
+//! colours for the finish pass, and nothing here compiles; this stays for a
+//! shader without them.
 
 use super::*;
 
@@ -137,10 +141,18 @@ pub(super) fn note_deferred_export() {
 /// idle time from now on (`idle_compiles::plan_deferred_exports`); nothing
 /// elsewhere.
 pub fn plan_deferred_exports() {
+    // With the effect passes those exports render with the display variant.
+    if super::effect_passes::here() {
+        return;
+    }
     super::idle_compiles::plan_deferred_exports();
 }
 
 pub(super) fn idle_deferred_exports() -> bool {
+    // With the effect passes those exports render with the display variant.
+    if super::effect_passes::here() {
+        return false;
+    }
     SIXTEEN_BIT_RECIPES.load(std::sync::atomic::Ordering::Relaxed)
         || DEFERRED_EXPORTED.load(std::sync::atomic::Ordering::Relaxed)
 }

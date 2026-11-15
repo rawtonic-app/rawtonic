@@ -26,6 +26,7 @@ pub mod catalog_import;
 pub mod checksum;
 pub mod companion;
 pub mod content;
+pub mod declared_keywords;
 pub mod derived;
 pub mod duplicates;
 mod error;
@@ -623,6 +624,25 @@ impl Library {
                         Some(String::from_utf8_lossy(text).trim().to_string())
                     }
                     _ => None,
+                })
+            },
+        )?;
+        // A keyword is a path or under it (`rawtonic_metadata::keywords`):
+        // a keyword rule's value finds the keywords below it too.
+        conn.create_scalar_function(
+            "rawtonic_keyword_within",
+            2,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(match (ctx.get_raw(0), ctx.get_raw(1)) {
+                    (rusqlite::types::ValueRef::Text(k), rusqlite::types::ValueRef::Text(p)) => {
+                        rawtonic_metadata::keywords::is_within(
+                            &String::from_utf8_lossy(k),
+                            &String::from_utf8_lossy(p),
+                        )
+                    }
+                    _ => false,
                 })
             },
         )?;

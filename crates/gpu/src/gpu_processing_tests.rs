@@ -1592,7 +1592,7 @@ fn bw_mix_version_2_keeps_the_conversion_and_lowers_further() {
 
 #[test]
 #[ignore = "requires a native GPU; colour mixer responses"]
-fn colour_mixer_version_2_keeps_greys_zero_and_smooth_sweeps() {
+fn colour_mixer_versions_2_and_3_keep_greys_zero_and_smooth_sweeps() {
     let (width, height) = (360u32, 4u32);
     // Row 0: a hue sweep at Oklab L 0.65, chroma 0.12 (one degree per
     // column); row 1 the same at chroma 0.04; row 2 a grey ramp; row 3 a
@@ -1656,42 +1656,82 @@ fn colour_mixer_version_2_keeps_greys_zero_and_smooth_sweeps() {
     };
     let mixer =
         |version: u64, hsl: serde_json::Value| render(json!({"hslVersion": version, "hsl": hsl}));
-    // Every slider at 0: both responses render alike, and recipes without
+    // Every slider at 0: the responses render alike, and recipes without
     // the key render version 1.
     let neutral = mixer(1, json!({}));
     assert_eq!(neutral, mixer(2, json!({})));
+    assert_eq!(neutral, mixer(3, json!({})));
     let blues = json!({"blues": {"hue": 60, "saturation": -40, "luminance": 30}});
     assert_eq!(render(json!({"hsl": blues})), mixer(1, blues.clone()));
-    assert_ne!(mixer(1, blues.clone()), mixer(2, blues));
+    assert_ne!(mixer(1, blues.clone()), mixer(2, blues.clone()));
+    assert_ne!(mixer(2, blues.clone()), mixer(3, blues));
+    // Version 3 refits Blues and Purples Saturation; a Saturation or
+    // Luminance slider it keeps moves within a few levels of version 2 (one
+    // exponential in the strength). Kept Hue sliders move further with the
+    // shorter solve (slider_response.json: Purples Hue −100 by 0.817° of
+    // hue and 0.572 C*, Reds to Greens by at most 0.093°).
+    let reds = json!({"reds": {"saturation": 60, "luminance": -30}});
+    let (two, three) = (mixer(2, reds.clone()), mixer(3, reds));
+    let apart = two
+        .iter()
+        .zip(&three)
+        .map(|(a, b)| (*a as i32 - *b as i32).abs())
+        .max()
+        .unwrap();
+    assert!(
+        apart <= 8,
+        "Reds under versions 2 and 3: {apart} levels apart"
+    );
+    // Saturation −100 keeps a trace of the chroma under version 3 (the hue
+    // stays defined); version 2 goes to grey.
+    let grey_blue = json!({"blues": {"saturation": -100}});
+    let spread = |p: &[u16], x: usize| {
+        let px = &p[(3 * width as usize + x) * 4..][..3];
+        *px.iter().max().unwrap() as i32 - *px.iter().min().unwrap() as i32
+    };
+    let (two, three) = (mixer(2, grey_blue.clone()), mixer(3, grey_blue));
+    assert!(
+        spread(&three, 359) > spread(&two, 359),
+        "version 3 keeps a trace of blue"
+    );
+    assert!(
+        spread(&three, 359) * 12 < spread(&neutral, 359),
+        "but no more than a trace"
+    );
     let row = |pixels: &[u16], y: u32| {
         pixels[(y * width * 4) as usize..((y + 1) * width * 4) as usize].to_vec()
     };
     let channels = [
         "reds", "oranges", "yellows", "greens", "aquas", "blues", "purples", "magentas",
     ];
-    for property in ["hue", "saturation", "luminance"] {
+    for (version, property) in [2u64, 3]
+        .into_iter()
+        .flat_map(|v| ["hue", "saturation", "luminance"].map(|p| (v, p)))
+    {
         for value in [-100, 100] {
             let hsl: serde_json::Map<_, _> = channels
                 .iter()
                 .map(|c| (c.to_string(), json!({property: value})))
                 .collect();
-            let all = mixer(2, serde_json::Value::Object(hsl));
+            let all = mixer(version, serde_json::Value::Object(hsl));
             // Greys stay untouched.
             assert_eq!(
                 row(&all, 2),
                 row(&neutral, 2),
-                "{property} {value}: grey ramp"
+                "version {version} {property} {value}: grey ramp"
             );
             for channel in channels {
-                let one = mixer(2, json!({channel: {property: value}}));
+                let one = mixer(version, json!({channel: {property: value}}));
                 assert_eq!(
                     row(&one, 2),
                     row(&neutral, 2),
-                    "{channel} {property} {value}: grey ramp"
+                    "version {version} {channel} {property} {value}: grey ramp"
                 );
                 // No step between neighbouring pixels of a smooth sweep
                 // grows beyond twice the unchanged sweep's largest step plus
-                // a margin (no banding at the window edges).
+                // a margin (no banding at the window edges). The largest
+                // step is where Blues Hue −100 turns the chroma ramp to the
+                // gamut's edge: 1455 under version 2, 1536 under version 3.
                 for y in [0u32, 1, 3] {
                     let (a, b) = (row(&neutral, y), row(&one, y));
                     let largest = |p: &[u16]| {
@@ -1703,8 +1743,8 @@ fn colour_mixer_version_2_keeps_greys_zero_and_smooth_sweeps() {
                     };
                     let (before, after) = (largest(&a), largest(&b));
                     assert!(
-                        after <= 2 * before + 1200,
-                        "{channel} {property} {value} row {y}: largest step {after} (unchanged {before})"
+                        after <= 2 * before + 1300,
+                        "version {version} {channel} {property} {value} row {y}: largest step {after} (unchanged {before})"
                     );
                 }
             }
@@ -3890,25 +3930,30 @@ fn colour_mixer_version_timing_probe() {
     // readbacks; the variants alternate within one process and the dragged
     // slider moves a little every frame (a drag on Blues Hue with other
     // channels already set, the costliest case of version 2).
+    // (name, `hslVersion`, sliders: 0 all three, 1 Hue only, 2 Saturation
+    // and Luminance only)
     let variants = [
-        ("none", 0u64),
-        ("v1", 1),
-        ("v2", 2),
-        ("v2_hue", 3),
-        ("v2_satlum", 4),
+        ("none", 0u64, 0),
+        ("v1", 1, 0),
+        ("v2", 2, 0),
+        ("v2_hue", 2, 1),
+        ("v2_satlum", 2, 2),
+        ("v3", 3, 0),
+        ("v3_hue", 3, 1),
+        ("v3_satlum", 3, 2),
     ];
-    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
+    for (width, height, display, frames) in [(2304, 1728, true, 40), (6000, 4000, false, 6)] {
         let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
         let view = input(&context, width, height, 3);
         let mut times = vec![Vec::new(); variants.len()];
         for frame in 0..frames + 2 {
-            for (i, (_, version)) in variants.iter().enumerate() {
+            for (i, (_, version, sliders)) in variants.iter().enumerate() {
                 let profile = if *version == 0 {
                     json!({})
-                } else if *version == 3 {
-                    json!({"hslVersion": 2, "hsl": {"blues": {"hue": 30.0 + 0.01 * frame as f64}, "oranges": {"hue": 10}, "greens": {"hue": -20}}})
-                } else if *version == 4 {
-                    json!({"hslVersion": 2, "hsl": {"blues": {"saturation": -20.0 + 0.01 * frame as f64, "luminance": -30}, "oranges": {"saturation": 15, "luminance": 20}, "greens": {"saturation": -30}}})
+                } else if *sliders == 1 {
+                    json!({"hslVersion": version, "hsl": {"blues": {"hue": 30.0 + 0.01 * frame as f64}, "oranges": {"hue": 10}, "greens": {"hue": -20}}})
+                } else if *sliders == 2 {
+                    json!({"hslVersion": version, "hsl": {"blues": {"saturation": -20.0 + 0.01 * frame as f64, "luminance": -30}, "oranges": {"saturation": 15, "luminance": 20}, "greens": {"saturation": -30}}})
                 } else {
                     json!({"hslVersion": version, "hsl": {
                         "blues": {"hue": 30.0 + 0.01 * frame as f64, "saturation": -20, "luminance": -30},
@@ -3946,7 +3991,7 @@ fn colour_mixer_version_timing_probe() {
                 }
             }
         }
-        for (i, (name, _)) in variants.iter().enumerate() {
+        for (i, (name, ..)) in variants.iter().enumerate() {
             let t = &mut times[i];
             t.sort_by(f64::total_cmp);
             println!(
@@ -3965,9 +4010,9 @@ fn colour_mixer_version_timing_probe() {
         .collect();
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
     let view = input_from(&context, width, height, &data);
-    let sky = [("sky_v1", 1u64), ("sky_v2", 2)];
+    let sky = [("sky_v1", 1u64), ("sky_v2", 2), ("sky_v3", 3)];
     let mut times = vec![Vec::new(); sky.len()];
-    for frame in 0..26 {
+    for frame in 0..42 {
         for (i, (_, version)) in sky.iter().enumerate() {
             let profile = json!({"hslVersion": version, "hsl": {"blues": {
                 "hue": 30.0 + 0.01 * frame as f64, "saturation": -20, "luminance": -30}}});
@@ -4002,7 +4047,7 @@ fn colour_mixer_version_timing_probe() {
         t.sort_by(f64::total_cmp);
         println!(
             "{}",
-            json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"p90_ms":t[t.len() * 9 / 10],"min_ms":t[0],"frames":24})
+            json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"p90_ms":t[t.len() * 9 / 10],"min_ms":t[0],"frames":40})
         );
     }
 }
@@ -8960,6 +9005,9 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
     // every branch its constants decide (`display_variant_ir`);
     // the frame must be the one the whole shader with all the effects code
     // renders, byte for byte, as display variants were compiled before.
+    // One pass, features included: the reference is the whole shader in
+    // the variant's place, which is no main pass of the effect passes.
+    effect_passes::FORCED.with(|forced| forced.set(Some(false)));
     let context = context();
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
@@ -9060,6 +9108,321 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
         checked += 1;
     }
     assert_eq!(checked, 17);
+}
+
+/// Recipes with glow and halation for the effect-pass tests: on the photo
+/// and on layers, with the tone edits their tone stage takes part in, for
+/// each kind of tone stage.
+fn effect_pass_profiles() -> Vec<serde_json::Value> {
+    vec![
+        json!({"exposure":0.4,"contrast":25,"whites":-20,"glowAmount":30,"toneVersion":18}),
+        json!({"exposure":0.4,"whites":25,"halationAmount":40,"toneVersion":18}),
+        json!({"exposure":-0.3,"brightness":0.3,"whites":-20,"shadows":30,"blacks":-20,
+            "glowAmount":60,"halationAmount":35,"grainAmount":25,"toneVersion":18,
+            "clarity":20,"dehaze":15,"vibrance":20,"curves":custom_curve()}),
+        json!({"whites":-15,"glowAmount":30,"halationAmount":50,"toneVersion":5}),
+        json!({"whites":20,"glowAmount":100,"halationAmount":100,"toneVersion":11}),
+        json!({"contrast":20,"masks":[local_mask("g", json!({"glowAmount":40}))]}),
+        json!({"exposure":0.5,"glowAmount":20,"halationAmount":20,"masks":[
+            local_mask("g", json!({"glowAmount":40,"exposure":0.6,"whites":30})),
+            local_mask("h", json!({"halationAmount":60,"brightness":0.4,"whites":-30})),
+            local_mask("c", json!({"curves":custom_curve(),"highlights":30}))]}),
+        // Grain alone, each version, and no effect at all (the finish pass
+        // without grain).
+        json!({"contrast":25,"grainAmount":30,"toneVersion":18}),
+        json!({"contrast":25,"grainAmount":40,"grainSize":60,"grainRoughness":70,"grainVersion":1}),
+        json!({"contrast":25,"grainAmount":40,"grainVersion":2}),
+        json!({"exposure":0.3,"contrast":20,"shadows":25,"vibrance":20}),
+    ]
+}
+
+/// The compile limit the app sets for this device (`device_start::
+/// compile_limit`: one compile at a time on AMD's Windows Vulkan driver)
+/// while it lives, for tests that compile many variants: without it each
+/// test processor compiles its pipelines ahead and at once, which took a
+/// Radeon 680M's driver to 13–30 GB (G76/WEFX2). Processors made under it
+/// by `effect_pass_processor` compile only what a test asks for.
+struct DeviceCompileLimit;
+
+impl DeviceCompileLimit {
+    fn set(context: &GpuContext) -> Self {
+        set_compile_limit(crate::device_start::compile_limit(
+            &context.device.adapter_info(),
+            cfg!(windows),
+        ));
+        Self
+    }
+}
+
+impl Drop for DeviceCompileLimit {
+    fn drop(&mut self) {
+        // The test's processors compile pipelines in the background (ahead,
+        // without a limit): a process that ends while a driver compiles
+        // crashed at exit (NVIDIA on Linux).
+        let deadline = Instant::now() + std::time::Duration::from_secs(600);
+        while compiles_pending() && Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        set_compile_limit(None);
+    }
+}
+
+/// A processor with or without the effect passes that compiles nothing
+/// ahead under a compile limit and plans no idle compiles (`for_exports`).
+fn effect_pass_processor(
+    context: &GpuContext,
+    width: u32,
+    height: u32,
+    passes: bool,
+) -> GpuProcessor {
+    effect_passes::FORCED.with(|forced| forced.set(Some(passes)));
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    assert_eq!(processor.effect_passes.is_some(), passes);
+    processor
+}
+
+#[test]
+#[ignore = "requires a native GPU; the effect passes against one pass"]
+fn effect_passes_render_the_one_pass_frames() {
+    // Under a compile limit glow, halation and grain render in passes of
+    // their own (`effect_passes`, G76/EFX). The display frame, with and
+    // without the layers' sums, and the float export tile (at 16 bits) must
+    // be the ones the same display source renders in one pass, value for
+    // value.
+    //
+    // One compile at a time under the device's compile limit, each of a
+    // profile's own variant (a variant with every profile's features at
+    // once took a Radeon 680M's driver beyond 50 GB, G76/WEFX), on a
+    // processor per profile, so no pipeline outlives its profile. The
+    // raster input and the export only for three profiles.
+    let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 31);
+    let profiles = effect_pass_profiles();
+    // All effects, layers, grain alone.
+    const EXPORTED: [usize; 3] = [2, 6, 7];
+    // Name, frame, frame with sums, 16-bit export, frames with sums.
+    type Rendered = (String, Vec<u8>, Vec<u8>, Option<Vec<u16>>, usize);
+    let render = |passes: bool| -> Vec<Rendered> {
+        let shown = |processor: &GpuProcessor| {
+            read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d::ZERO,
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                4,
+            )
+            .unwrap()
+        };
+        let mut rendered = Vec::new();
+        for (index, profile) in profiles.iter().enumerate() {
+            for raw in [true, false] {
+                if !raw && !EXPORTED.contains(&index) {
+                    continue;
+                }
+                let processor = effect_pass_processor(&context, width, height, passes);
+                let adjustments =
+                    get_all_adjustments_from_json(profile, raw, Some(if raw { 3 } else { 0 }));
+                prepare_preview_pipeline(&processor, preview_features(&adjustments));
+                let masks = generated_profile_masks(profile, width, height);
+                let request =
+                    |adjustments: &crate::image_processing::PreparedAdjustments| RenderRequest {
+                        adjustments: adjustments.clone(),
+                        mask_bitmaps: &masks,
+                        lut: None,
+                        roi: None,
+                    };
+                let frame = |adjustments| {
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            request(adjustments),
+                            true,
+                            RenderOutputPrecision::EightBit,
+                        )
+                        .unwrap();
+                };
+                *processor.display_render_state.lock().unwrap() = None;
+                processor.layer_sums_enabled.store(false, Ordering::Relaxed);
+                frame(&adjustments);
+                let first = shown(&processor);
+                // Later frames of a layered recipe read the layers' sums.
+                let before = processor.layer_sum_frames[0].load(Ordering::Relaxed);
+                if adjustments.mask_count > 0 {
+                    prepare_layer_sum_pipeline(&processor, preview_features(&adjustments));
+                    processor.layer_sums_enabled.store(true, Ordering::Relaxed);
+                    let mut nudged = adjustments.clone();
+                    nudged.uniforms.global.exposure += 0.25;
+                    for adjustments in [&adjustments, &nudged, &adjustments] {
+                        frame(adjustments);
+                    }
+                }
+                let summed = shown(&processor);
+                let sum_frames = processor.layer_sum_frames[0].load(Ordering::Relaxed) - before;
+                // The export under a compile limit, at 16 bits (RAW only).
+                let export = (raw && EXPORTED.contains(&index)).then(|| {
+                    processor
+                        .force_export_display
+                        .store(true, Ordering::Relaxed);
+                    let (pixels, ..) = processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            request(&adjustments),
+                            false,
+                            RenderOutputPrecision::SixteenBit,
+                        )
+                        .unwrap();
+                    match pixels {
+                        RenderedPixels::U16(values) => values,
+                        RenderedPixels::U8(_) => unreachable!(),
+                    }
+                });
+                let name = format!(
+                    "{} raw {raw}",
+                    profile.to_string().chars().take(100).collect::<String>()
+                );
+                rendered.push((name, first, summed, export, sum_frames));
+            }
+        }
+        effect_passes::FORCED.with(|forced| forced.set(None));
+        rendered
+    };
+    let one_pass = render(false);
+    let passes = render(true);
+    let mut exports = 0;
+    for (one_pass, passes) in one_pass.iter().zip(&passes) {
+        let name = &one_pass.0;
+        let differing = |a: &[u8], b: &[u8]| a.iter().zip(b).filter(|(a, b)| a != b).count();
+        // NVIDIA Vulkan (RTX 3080): identical. (With the terms cut after
+        // glow's own arithmetic instead of after the tone stage: 1/65535
+        // in up to 0.1 % of the 16-bit values, up to 5 display bytes.)
+        let frame = differing(&one_pass.1, &passes.1);
+        let summed = differing(&one_pass.2, &passes.2);
+        let export = one_pass.3.as_ref().zip(passes.3.as_ref()).map(|(a, b)| {
+            exports += 1;
+            (
+                a.iter().zip(b).filter(|(a, b)| a != b).count(),
+                a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).max().unwrap(),
+            )
+        });
+        println!(
+            "{name}: frame {frame}, frame with sums {summed} of {} bytes differ; \
+             16-bit export (differing, worst) {export:?}; frames with sums {} and {}",
+            one_pass.1.len(),
+            one_pass.4,
+            passes.4
+        );
+        // Layered profiles rendered with sums in both modes (how many of
+        // the three frames did varies with when the sums were ready).
+        assert_eq!(one_pass.4 > 0, passes.4 > 0, "{name}: frames with sums");
+        assert_eq!((frame, summed), (0, 0), "{name}: frames differ");
+        assert!(
+            export.is_none_or(|(differing, _)| differing == 0),
+            "{name}: export differs"
+        );
+    }
+    assert_eq!((passes.len(), exports), (14, 3));
+    // Layered profiles did render with sums.
+    assert!(passes.iter().any(|case| case.4 > 0));
+}
+
+#[test]
+#[ignore = "requires a native GPU; prints what the effect passes cost per display frame"]
+fn effect_passes_frame_cost_probe() {
+    // A measurement, not a check (G76/EFX): the time of a whole display
+    // frame at 2560 x 1440 in one pass and through the effect passes, for
+    // an edit without effects (the main pass alone, which finishes its
+    // pixels as one pass does), with grain (main + finish pass), with glow
+    // and halation (terms + main pass) and with all three. Each frame
+    // changes Exposure, so every pixel renders; the time runs until the GPU
+    // has finished the frame. The two modes take turns, five frames each,
+    // so a laptop's clock and temperature drift falls on both.
+    let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
+    let (width, height) = (2560, 1440);
+    let view = input(&context, width, height, 31);
+    let basic = json!({"exposure":0.3,"contrast":20,"shadows":25,"whites":-10,"vibrance":20,
+        "clarity":15,"toneVersion":18});
+    let with = |effects: serde_json::Value| {
+        let mut profile = basic.clone();
+        for (key, value) in effects.as_object().unwrap() {
+            profile[key] = value.clone();
+        }
+        profile
+    };
+    for (name, profile) in [
+        ("basic", basic.clone()),
+        ("grain", with(json!({"grainAmount":30}))),
+        (
+            "glow_halation",
+            with(json!({"glowAmount":30,"halationAmount":30})),
+        ),
+        (
+            "all",
+            with(json!({"glowAmount":30,"halationAmount":30,"grainAmount":30})),
+        ),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(3));
+        let processors = [false, true].map(|passes| {
+            let processor = effect_pass_processor(&context, width, height, passes);
+            prepare_preview_pipeline(&processor, preview_features(&adjustments));
+            processor
+        });
+        let mut times = [Vec::new(), Vec::new()];
+        for round in 0..12 {
+            for (mode, processor) in processors.iter().enumerate() {
+                effect_passes::FORCED.with(|forced| forced.set(Some(mode == 1)));
+                for frame in 0..5 {
+                    let mut adjustments = adjustments.clone();
+                    adjustments.uniforms.global.exposure += 0.01 * (1 + frame) as f32;
+                    let started = Instant::now();
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments,
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            true,
+                            RenderOutputPrecision::EightBit,
+                        )
+                        .unwrap();
+                    let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
+                    // The first rounds build the blurs and the detail cache
+                    // and compile the passes.
+                    if round >= 2 {
+                        times[mode].push(started.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            }
+        }
+        effect_passes::FORCED.with(|forced| forced.set(None));
+        let medians = times.map(|mut times| {
+            times.sort_by(f64::total_cmp);
+            (times[times.len() / 2], times[0])
+        });
+        println!(
+            "{}",
+            json!({"probe":"effect_passes_frame_cost","edit":name,"width":width,"height":height,
+                "one_pass_median_ms":medians[0].0,"one_pass_min_ms":medians[0].1,
+                "passes_median_ms":medians[1].0,"passes_min_ms":medians[1].1,
+                "added_median_ms":medians[1].0 - medians[0].0})
+        );
+    }
 }
 
 /// The display variants' rewritten tone stage (`display_tone_stage.wgsl`,
@@ -9667,8 +10030,15 @@ fn other_exports_under_a_compile_limit_render_with_the_deferred_display_variant(
                 .unwrap();
             if limited {
                 let features = export_display_features(&adjustments);
+                // With the effect passes the display variant itself (its
+                // main pass stores float colours for the finish pass).
+                let used = if processor.effect_passes.is_some() {
+                    processor.preview_pipelines[features].get().is_some()
+                } else {
+                    processor.deferred_display.get(features).is_some()
+                };
                 assert!(
-                    processor.deferred_display.get(features).is_some(),
+                    used,
                     "{profile}: deferred display variant {features} not used"
                 );
                 for table in [
@@ -17763,6 +18133,95 @@ fn render_source(
     .unwrap()
 }
 
+/// The reduced views' correction (`color_noise_view`) is the export's own
+/// colour noise reduction: the source plus its full-size difference,
+/// rendered at Color 0, is the export's render at Color 25 / 50 (up to
+/// the 16-bit float input of the second render); reduced, it is that
+/// difference resampled (`lanczos::resize_signed`); a stop ends it.
+#[test]
+#[ignore = "requires a native GPU"]
+fn color_noise_view_correction_is_the_exports_filter() {
+    let context = context();
+    let image = chroma_noise_frame(2300, 300);
+    for color in [25, 50] {
+        let recipe = json!({ "colorNoiseReduction": color, "colorNoiseVersion": 11 });
+        let global = get_all_adjustments_from_json(&recipe, true, Some(1)).global;
+        let full =
+            color_noise_view::reduced_correction(&context, &image, &global, (2300, 300), &|| false)
+                .unwrap()
+                .expect("a correction");
+        let mut corrected = image.to_rgb32f();
+        corrected
+            .iter_mut()
+            .zip(full.iter())
+            .for_each(|(v, d)| *v = half::f16::from_f32(*v).to_f32() + d);
+        let export = render_source(
+            &context,
+            &image,
+            recipe.clone(),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .to_rgba16();
+        let view = render_source(
+            &context,
+            &DynamicImage::ImageRgb32F(corrected),
+            json!({ "colorNoiseVersion": 11 }),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .to_rgba16();
+        let unfiltered = render_source(
+            &context,
+            &image,
+            json!({ "colorNoiseVersion": 11 }),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .to_rgba16();
+        let (mut worst, mut sum, mut changed) = (0i32, 0i64, 0i64);
+        for ((e, v), u) in export.pixels().zip(view.pixels()).zip(unfiltered.pixels()) {
+            for k in 0..3 {
+                let d = (e[k] as i32 - v[k] as i32).abs();
+                worst = worst.max(d);
+                sum += d as i64;
+                changed += (e[k] as i32 - u[k] as i32).abs() as i64;
+            }
+        }
+        let n = (export.width() * export.height() * 3) as f64;
+        println!(
+            "Color {color}: view correction vs export: max {worst}, mean {:.3}; filter changed mean {:.1} levels",
+            sum as f64 / n,
+            changed as f64 / n
+        );
+        // Measured on the RTX 3080 (Vulkan): max 7, mean 2.4 at Color 25
+        // while the filter moves pixels by 516 levels on average: the 16-bit
+        // float rounding of the corrected input, nothing of the filter.
+        assert!(sum as f64 / n < 4.0, "mean {}", sum as f64 / n);
+        assert!(changed as f64 / n > 100.0 * (sum as f64 / n).max(1.0));
+        assert!(worst < 64, "max {worst}");
+        let reduced =
+            color_noise_view::reduced_correction(&context, &image, &global, (800, 104), &|| false)
+                .unwrap()
+                .unwrap();
+        let expected = rawtonic_engine::lanczos::resize_signed(&full, 800, 104);
+        assert_eq!(reduced.as_raw(), expected.as_raw());
+        assert!(
+            color_noise_view::reduced_correction(&context, &image, &global, (800, 104), &|| true)
+                .unwrap()
+                .is_none()
+        );
+    }
+    let off = get_all_adjustments_from_json(
+        &json!({ "colorNoiseReduction": 0, "colorNoiseVersion": 11 }),
+        true,
+        Some(1),
+    )
+    .global;
+    assert!(
+        color_noise_view::reduced_correction(&context, &image, &off, (800, 104), &|| false)
+            .unwrap()
+            .is_none()
+    );
+}
+
 #[test]
 #[ignore = "requires a native GPU"]
 fn multiscale_color_noise_matches_its_cpu_reference() {
@@ -23100,4 +23559,118 @@ fn dehaze_version_2_lowers_as_a_veil() {
         "the tones keep their order"
     );
     assert!(colour(&v2) < 0.6 * colour(&neutral), "colour fades");
+}
+
+/// TPX5 cost probe (measurement, not a check): the export's GPU colour
+/// noise reduction at full resolution = render at Color 50 minus Color 0,
+/// a fresh source upload each time. `TPX5_RAW=photo cargo test --release
+/// -p rawtonic-gpu -- --ignored --nocapture tpx5_color_noise_cost`.
+#[test]
+#[ignore = "measurement; needs TPX5_RAW"]
+fn tpx5_color_noise_cost() {
+    use rawtonic_engine::image_loader::{self, BaseImageOptions};
+    let Some(raw) = std::env::var_os("TPX5_RAW") else {
+        eprintln!("SKIP: TPX5_RAW not set");
+        return;
+    };
+    let raw = raw.to_string_lossy().into_owned();
+    let reps: usize = std::env::var("TPX5_REPS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let mut recipe: serde_json::Value = serde_json::from_str(include_str!(
+        "../../engine/tests/fixtures/new-edit-recipe.raw.json"
+    ))
+    .unwrap();
+    for key in [
+        "lensDistortionEnabled",
+        "lensTcaEnabled",
+        "lensVignetteEnabled",
+    ] {
+        recipe[key] = false.into();
+    }
+    recipe["sharpness"] = 0.into();
+    recipe["lumaNoiseReduction"] = 0.into();
+    let bytes = std::fs::read(&raw).unwrap();
+    let (img, measures) = image_loader::load_base_image_measured(
+        &bytes,
+        &raw,
+        false,
+        &BaseImageOptions::default().for_recipe(&recipe, &raw),
+        None,
+    )
+    .unwrap();
+    let full = Arc::new(img);
+    let context = GpuContext::headless().unwrap();
+    let processor = GpuProcessorSlot::background(None);
+    let cache = Mutex::new(None);
+    let mut hash = 1000u64;
+    for rep in 0..reps {
+        for c in [0, 50] {
+            let mut r = recipe.clone();
+            r["colorNoiseReduction"] = c.into();
+            let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
+            rawtonic_engine::baseline_exposure::apply_base_look(
+                &mut a.global,
+                &raw,
+                measures.as_ref(),
+                None,
+            );
+            a.global.show_clipping = 0;
+            hash += 1;
+            let t = std::time::Instant::now();
+            let out = process_and_get_dynamic_image_inner(
+                &context,
+                &processor,
+                &cache,
+                RenderSource::Image {
+                    image: &full,
+                    transform_hash: hash,
+                },
+                RenderRequest {
+                    adjustments: a,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                "tpx5",
+                RenderOutputPrecision::EightBit,
+                false,
+                None,
+                None,
+                ReadbackShader::Export,
+            )
+            .unwrap();
+            eprintln!(
+                "TIME rep {rep} color {c} {:?} {:?}",
+                t.elapsed(),
+                (out.width(), out.height())
+            );
+        }
+    }
+    // The reduced views' GPU correction (`color_noise_view`) at the Develop
+    // fit view's pre-warp sizes (fit 1536 and 2070 of a 6000 px photo).
+    let mut r = recipe.clone();
+    r["colorNoiseReduction"] = 50.into();
+    let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
+    rawtonic_engine::baseline_exposure::apply_base_look(
+        &mut a.global,
+        &raw,
+        measures.as_ref(),
+        None,
+    );
+    color_noise_view::ready(&context).unwrap();
+    let (w, h) = (full.width(), full.height());
+    for rep in 0..reps {
+        for dim in [1920u32, 2588] {
+            let size = (dim, (u64::from(dim) * u64::from(h) / u64::from(w)) as u32);
+            let t = std::time::Instant::now();
+            let delta =
+                color_noise_view::reduced_correction(&context, &full, &a.global, size, &|| false)
+                    .unwrap()
+                    .unwrap();
+            eprintln!("TIME rep {rep} view correction {size:?} {:?}", t.elapsed());
+            drop(delta);
+        }
+    }
 }
