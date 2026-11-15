@@ -9284,6 +9284,51 @@ mod editing_tool_tests {
         assert_eq!(colour.bw_enabled, 0);
     }
 
+    /// The recipe's `colorGradingVersion` chooses the grading table of the
+    /// photo and of its layers (which follow the photo's).
+    #[test]
+    fn colour_grading_renders_with_its_response() {
+        use crate::color_grading::{Grading, lut};
+        use crate::recipe_versions::ColorGradingVersion;
+        let grading = json!({"shadows": {"hue": 220, "saturation": 40, "luminance": 0},
+            "highlights": {"hue": 40, "saturation": 30, "luminance": -30}, "balance": 20});
+        let layer = json!({"id": "a", "name": "A", "visible": true, "invert": false, "opacity": 100,
+            "subMasks": [{"id": "s", "type": "all", "visible": true, "mode": "additive", "parameters": {}}],
+            "adjustments": {"colorGrading": grading}});
+        let tables = |version: serde_json::Value| {
+            let mut recipe = json!({"colorGrading": grading, "masks": [layer]});
+            if !version.is_null() {
+                recipe[COLOR_GRADING_VERSION_KEY] = version;
+            }
+            let prepared = get_all_adjustments_from_json(&recipe, true, None);
+            assert_eq!(prepared.uniforms.global.grading_active, 1);
+            assert_eq!(prepared.uniforms.mask_adjustments[0].grading_active, 1);
+            (
+                prepared.uniforms.global.grading_lut,
+                prepared.uniforms.mask_adjustments[0].grading_lut,
+            )
+        };
+        let of = |version: u64| {
+            lut(
+                &Grading::from_json(&grading),
+                ColorGradingVersion::of(&json!({ COLOR_GRADING_VERSION_KEY: version })),
+            )
+        };
+        assert_ne!(of(1), of(2));
+        // Recipes without the key keep the first response.
+        assert_eq!(tables(serde_json::Value::Null), (of(1), of(1)));
+        assert_eq!(tables(json!(1)), (of(1), of(1)));
+        assert_eq!(tables(json!(2)), (of(2), of(2)));
+        // Never newer than the renderer knows.
+        assert_eq!(
+            tables(json!(9)),
+            (of(COLOR_GRADING_VERSION), of(COLOR_GRADING_VERSION))
+        );
+        assert!(
+            new_edit_responses(true)[COLOR_GRADING_VERSION_KEY] == json!(COLOR_GRADING_VERSION)
+        );
+    }
+
     #[test]
     fn colour_mixer_carries_its_response() {
         let response = |recipe: serde_json::Value| {
