@@ -602,6 +602,23 @@ describe('Before/After keys', () => {
     expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'left-right' });
   });
 
+  it('shows each before/after mode by its own key, and turns it off by it again', () => {
+    useEditorStore.setState({ zoom: 3, splitPosition: 0.3 });
+    key('keydown', 'KeyY', { key: 'y', altKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'top-bottom' });
+    key('keydown', 'KeyY', { key: 'Y', altKey: true, shiftKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'side-by-side' });
+    key('keydown', 'KeyY', { key: 'Y', metaKey: true, shiftKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'left-right' });
+    key('keydown', 'KeyY', { key: 'Y', metaKey: true, shiftKey: true, repeat: true });
+    expect(useEditorStore.getState().splitView).toBe(true);
+    key('keydown', 'KeyY', { key: 'Y', metaKey: true, shiftKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: false, zoom: 3, splitPosition: 0.3 });
+    // Y brings back the last mode, Shift+Y cycles on from it.
+    key('keydown', 'KeyY', { key: 'y' });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'left-right' });
+  });
+
   it('shows the whole photograph before while \\ is held, through auto-repeat', () => {
     key('keydown', 'Backslash', { key: '\\' });
     expect(useEditorStore.getState().showOriginal).toBe(true);

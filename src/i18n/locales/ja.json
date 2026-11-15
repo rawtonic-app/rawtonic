@@ -247,6 +247,9 @@
       "color_label_red": "レッド",
       "color_label_yellow": "イエロー",
       "command_palette": "コマンドパレット…",
+      "compare_left_right": "補正前/補正後：左右に分割",
+      "compare_side_by_side": "補正前/補正後：横に並べる",
+      "compare_top_bottom": "補正前/補正後：上下に分割",
       "copy_adjustments": "設定をコピー",
       "copy_image_path": "パスをコピー",
       "delete_selected": "ゴミ箱に入れる",
@@ -561,7 +564,10 @@
       "showExplorer": "エクスプローラーで表示",
       "showFileManager": "ファイルマネージャーで表示",
       "showFinder": "Finder で表示",
-      "virtualCopy": "仮想コピー"
+      "virtualCopy": "仮想コピー",
+      "xmpConflicts": "XMPの競合",
+      "xmpKeepLibrary": "選択した写真はライブラリを維持",
+      "xmpUseXmp": "選択した写真はXMPを使用"
     },
     "toasts": {
       "couldNotShowExplorer": "エクスプローラーでファイルを表示できませんでした: {{err}}",
@@ -2090,6 +2096,7 @@
       "keepLibraryFor": "{{name}} でライブラリを保持",
       "keepLibraryTitle": "ライブラリのレーティング、ラベル、キーワード、IPTC を XMP ファイルに書き込みます",
       "loading": "XMP ファイルを確認しています…",
+      "noneToResolve": "選択した写真に、ライブラリと異なるXMPファイルはありません。",
       "notResolved_other": "{{count}} 枚の写真は解決できませんでした:",
       "reason": {
         "changedElsewhere_other": "{{count}} 件の XMP ファイルがライブラリと異なります(ほかのプログラムで変更された、または Rawtonic が一度も読み込んでいないファイル)。選択しない限り上書きしません。ライブラリにはあなたの内容が保持されます。",
@@ -2293,6 +2300,9 @@
         "color_label_purple": "カラーラベル: パープル",
         "color_label_red": "カラーラベル: レッド",
         "color_label_yellow": "カラーラベル: イエロー",
+        "compare_left_right": "補正前/補正後：左右に分割",
+        "compare_side_by_side": "補正前/補正後：横に並べる",
+        "compare_top_bottom": "補正前/補正後：上下に分割",
         "copy_adjustments": "選択した補正設定をコピー",
         "copy_files": "選択したファイルをコピー",
         "copy_image_path": "選択した画像のパスをコピー",

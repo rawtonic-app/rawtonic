@@ -41,7 +41,7 @@ import { expressPastedSettings, withKeptVersions } from '../utils/pastedVersions
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
-import { nextCompareMode, splitViewAvailable, type CompareMode } from '../utils/beforeAfter';
+import { nextCompareMode, splitViewAvailable, type CompareMode, type SplitOrientation } from '../utils/beforeAfter';
 import { beforeAdjustments } from '../utils/beforeSnapshot';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import {
@@ -1271,6 +1271,14 @@ export function useEditorActions() {
     const state = useEditorStore.getState();
     setCompareMode(nextCompareMode(state.splitView ? state.splitOrientation : 'off'));
   }, [setCompareMode]);
+  /** A mode's own key: that mode, or off when it is on already. */
+  const toggleCompareMode = useCallback(
+    (mode: SplitOrientation) => {
+      const state = useEditorStore.getState();
+      setCompareMode(state.splitView && state.splitOrientation === mode ? 'off' : mode);
+    },
+    [setCompareMode]
+  );
 
   const handleLutSelect = useCallback(
     async (path: string, isBuiltIn: boolean = false, displayName?: string) => {
@@ -1866,6 +1874,7 @@ export function useEditorActions() {
     handleZoomChange,
     toggleSplitView,
     setCompareMode,
-    cycleCompareMode
+    cycleCompareMode,
+    toggleCompareMode
   };
 }

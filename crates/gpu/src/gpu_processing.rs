@@ -11865,7 +11865,7 @@ fn render_in_windows(
         processor_slot,
         max_dim,
         max_dim,
-        foreground_render(caller_id, false),
+        foreground_turn(caller_id, false),
     )?;
     let processor = &processor_lock.as_ref().unwrap().processor;
     // The multi-scale colour noise reduction measures and rebuilds the whole
@@ -12023,13 +12023,43 @@ pub fn foreground_rendered_within(window: std::time::Duration) -> bool {
 /// Renders the user watches as they happen: the Develop view's frames, its
 /// JPEG fallback (e.g. on Linux), tone targets' samples of them and the
 /// scopes beside a zoomed drag's frames ([`render_scope_analytics`]; a
-/// background render would wait until the drag stops).
+/// background render would wait until the drag stops). They keep their
+/// source in the Develop view's image cache.
 fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
     output_to_display
         || matches!(
             caller_id,
             "apply_adjustments" | "sample_curve_input" | SCOPE_ANALYTICS_CALLER
         )
+}
+
+/// The multi view's cells following Edit all selected live: rendered by the
+/// Develop view's preview worker between the primary's frames.
+pub const MULTI_VIEW_LIVE_CALLER: &str = "multi_view_live";
+
+/// Renders that take a foreground turn at the processor
+/// ([`processor_turns`]): the foreground renders, and the multi view's live
+/// cells, which as background renders waited out the pause after the
+/// primary's frame (~250 ms) before the first cell changed. They share the
+/// primary's worker, so they cannot hold up its frames; their sources stay
+/// out of the Develop view's image cache (each cell would evict the
+/// primary's).
+fn foreground_turn(caller_id: &str, output_to_display: bool) -> bool {
+    foreground_render(caller_id, output_to_display) || caller_id == MULTI_VIEW_LIVE_CALLER
+}
+
+#[cfg(test)]
+mod foreground_turn_tests {
+    use super::*;
+
+    #[test]
+    fn live_cells_take_a_foreground_turn_but_not_the_develop_cache() {
+        assert!(foreground_turn(MULTI_VIEW_LIVE_CALLER, false));
+        assert!(!foreground_render(MULTI_VIEW_LIVE_CALLER, false));
+        // The cell worker's renders stay background renders.
+        assert!(!foreground_turn("multi_view", false));
+        assert!(foreground_turn("apply_adjustments", false));
+    }
 }
 
 /// A developed frame the main window's display just bound, for a second
@@ -12486,7 +12516,7 @@ fn render_dynamic_image(
         processor_slot,
         width,
         height,
-        foreground_render(caller_id, output_to_display),
+        foreground_turn(caller_id, output_to_display),
     )?;
     let processor_state = processor_lock.as_ref().unwrap();
     let processor = &processor_state.processor;

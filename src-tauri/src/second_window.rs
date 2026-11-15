@@ -707,6 +707,7 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                 zoom,
                 (*recipe).clone(),
                 tag,
+                multi_view::CELL_RENDER,
             ) {
                 Ok(region) => {
                     let frame = prepare(&region.rgba);

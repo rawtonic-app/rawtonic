@@ -112,6 +112,8 @@ interface ProcessState {
   isPasted: boolean;
   startupLibraryReady: boolean;
   initialFileToOpen: string | null;
+  /** A library the launch named (folder or its files): opened like the recent list. */
+  libraryToOpen: string | null;
   externalEditSession: ExternalEditSession | null;
   activeAiTasks: Record<string, AiTask>;
 
@@ -148,6 +150,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
   isPasted: false,
   startupLibraryReady: false,
   initialFileToOpen: null,
+  libraryToOpen: null,
   externalEditSession: null,
   activeAiTasks: {},
 

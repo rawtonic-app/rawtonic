@@ -191,6 +191,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **Caps Lock**                | auto-advance (also in the Photo menu) |
 | **Y**                        | toggle before / after split    |
 | **⇧Y**                       | cycle Off / left-right / top-bottom / side by side |
+| ⇧⌘Y / ⇧Ctrl+Y, **⌥Y** / Alt+Y, **⇧⌥Y** / Shift+Alt+Y | before / after split left-right, split top-bottom, side by side (again: off) |
 | hold **\\**                  | whole photograph before        |
 | ⌘\\ / Ctrl+\\                | whole photograph before, on until pressed again |
 | **N**                        | multi view of the selection    |
