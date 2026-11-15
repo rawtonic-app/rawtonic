@@ -462,8 +462,13 @@ mod v2 {
         [model.lift * da.hypot(db), da, db]
     }
 
-    pub(super) fn highlights_lowering(amount: f32, l: f32, grading: &Grading) -> f32 {
-        let (p, h) = (&LUMINANCE, &HIGHLIGHTS_LOWERING);
+    pub(super) fn highlights_lowering(
+        h: &HighlightsLowering,
+        amount: f32,
+        l: f32,
+        grading: &Grading,
+    ) -> f32 {
+        let p = &LUMINANCE;
         let x = shifted(l, grading.balance, p.balance);
         let centre = by_blending(p.centre, grading.blending);
         let width = by_blending(p.width, grading.blending) * h.width_factor;
@@ -517,7 +522,7 @@ mod v2 {
         .enumerate()
         {
             out[0] += if region == 2 && wheel.luminance < 0.0 {
-                highlights_lowering(wheel.luminance, l, grading)
+                highlights_lowering(&HIGHLIGHTS_LOWERING, wheel.luminance, l, grading)
             } else {
                 luminance_shift(region, wheel.luminance, l, grading)
             };
@@ -570,11 +575,12 @@ mod v3 {
     #[allow(clippy::approx_constant)]
     mod tables {
         use super::Wheel;
+        use crate::color_grading::v2::HighlightsLowering;
         include!("color_grading_v3_tables.rs");
     }
     use tables::{
-        EXCESS_POWER, GLOBAL_ANCHORS, GLOBAL_HUE, HIGHLIGHTS, MIDTONES, MIDTONES_ANCHORS,
-        MIDTONES_HUE, SHADOWS,
+        EXCESS_POWER, GLOBAL_ANCHORS, GLOBAL_HUE, HIGHLIGHTS, HIGHLIGHTS_LOWERING, MIDTONES,
+        MIDTONES_ANCHORS, MIDTONES_HUE, SHADOWS,
     };
 
     fn at_hue<const N: usize>(table: &[[f32; N]; 24], hue: f32) -> [f32; N] {
@@ -670,8 +676,8 @@ mod v3 {
     }
 
     /// The Luminance sliders' lightness change of a grey of display
-    /// lightness `l` (version 2's curves; the shader applies them per
-    /// channel).
+    /// lightness `l` (version 2's curves, the lowering of the Highlights
+    /// refitted for a curve per channel, as the shader applies them).
     pub(super) fn luminance(grading: &Grading, l: f32) -> f32 {
         let mut out = 0.0f32;
         for (region, wheel) in [
@@ -684,7 +690,7 @@ mod v3 {
         .enumerate()
         {
             out += if region == 2 && wheel.luminance < 0.0 {
-                v2::highlights_lowering(wheel.luminance, l, grading)
+                v2::highlights_lowering(&HIGHLIGHTS_LOWERING, wheel.luminance, l, grading)
             } else {
                 luminance_shift(region, wheel.luminance, l, grading)
             };
@@ -986,12 +992,17 @@ mod tests {
     fn version_3_keeps_luminance_apart_and_changes_tints_above_50() {
         let [_, v2, v3] = versions();
         let luminance = grading(json!({"shadows": {"luminance": -60},
-            "midtones": {"luminance": 30}, "highlights": {"luminance": -70}, "balance": 20}));
+            "midtones": {"luminance": 30}, "highlights": {"luminance": 40}, "balance": 20}));
         let (old, new) = (lut(&luminance, v2), lut(&luminance, v3));
         for (a, b) in old.iter().zip(&new) {
             assert_eq!([b[0], b[1], b[2]], [0.0; 3]);
             assert!((a[0] - b[3]).abs() < 1.0e-6, "{a:?} {b:?}");
         }
+        // Lowering the Highlights is refitted for the curve per channel
+        // and still leaves white where it is.
+        let lowered = grading(json!({"highlights": {"luminance": -100}}));
+        assert!(lut(&lowered, v3)[31][3].abs() < 1.0e-4);
+        assert_ne!(lut(&lowered, v3)[27][3], lut(&lowered, v2)[27][0]);
         let tinted = grading(json!({"global": {"hue": 300, "saturation": 80}}));
         assert!(lut(&tinted, v3).iter().all(|entry| entry[3] == 0.0));
         // A grey's shift is the sum of both.
