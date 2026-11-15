@@ -1,4 +1,4 @@
-import { Adjustments, INITIAL_ADJUSTMENTS } from './adjustments';
+import { Adjustments, INITIAL_ADJUSTMENTS, RAW_DETAIL_DEFAULTS } from './adjustments';
 
 /**
  * Recipe keys that place the photograph in the frame: crop, orientation,
@@ -63,12 +63,19 @@ export function framingSignature(adjustments: Partial<Adjustments>): string {
 }
 
 /**
- * The recipe shown as "before": the defaults with the edit's framing, so
- * both sides show the same part of the photograph, or a snapshot compared
- * with (`snapshot`, framed like the edit: `beforeSnapshot`; its AI bitmaps
- * under ids of their own: `beforeSnapshotAdjustments`).
+ * The recipe shown as "before": the photograph as imported (the defaults
+ * with the edit's framing, so both sides show the same part of the
+ * photograph; for a RAW with the import detail defaults, `RAW_DETAIL_DEFAULTS`:
+ * capture sharpening and noise reduction, as Lightroom's and Capture One's
+ * before), or a snapshot compared with (`snapshot`, framed like the edit:
+ * `beforeSnapshot`; its AI bitmaps under ids of their own:
+ * `beforeSnapshotAdjustments`).
  */
-export function originalPreviewAdjustments(adjustments: Adjustments, snapshot?: Adjustments | null): Adjustments {
+export function originalPreviewAdjustments(
+  adjustments: Adjustments,
+  snapshot?: Adjustments | null,
+  isRaw = false
+): Adjustments {
   const original: Adjustments = { ...(snapshot ?? INITIAL_ADJUSTMENTS) };
   const target = original as unknown as Record<string, unknown>;
   for (const key of BEFORE_FRAMING_KEYS) target[key] = adjustments[key];
@@ -82,6 +89,13 @@ export function originalPreviewAdjustments(adjustments: Adjustments, snapshot?: 
     // the decode Develop holds, at full size on Linux too, where another
     // version decoded a quarter-size proxy for the 100 % before (LNX1).
     original.colorNoiseVersion = adjustments.colorNoiseVersion;
+    if (isRaw) {
+      // As imported: the detail the RAW got at import, through the edit's
+      // algorithm versions, so the sides differ by the edit only.
+      Object.assign(original, RAW_DETAIL_DEFAULTS);
+      original.sharpenVersion = adjustments.sharpenVersion;
+      original.lumaNoiseVersion = adjustments.lumaNoiseVersion;
+    }
   }
   return original;
 }
