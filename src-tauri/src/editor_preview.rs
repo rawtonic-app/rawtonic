@@ -370,6 +370,7 @@ pub(crate) fn reduced_preview_base(
         preview_dim,
         scale,
         false,
+        None,
     )
 }
 
@@ -396,12 +397,24 @@ pub(crate) fn interim_preview_base(
         preview_dim,
         scale,
         true,
+        None,
+    )
+}
+
+/// The size `build_reduced_preview_base` reduces `full` to at `scale` (of a
+/// source at `source_scale`) before it warps it.
+fn reduced_base_dims((full_width, full_height): (u32, u32), scale: f32) -> (u32, u32) {
+    (
+        ((full_width as f32 * scale).round() as u32).max(1),
+        ((full_height as f32 * scale).round() as u32).max(1),
     )
 }
 
 /// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
 /// in only until the photograph's decode is in, so its warp does not
 /// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
+/// `correction`: the full-resolution colour noise correction added to the
+/// reduced copy before it is warped (`color_noise_view`).
 #[allow(clippy::too_many_arguments)]
 fn build_reduced_preview_base(
     source: &DynamicImage,
@@ -412,14 +425,20 @@ fn build_reduced_preview_base(
     preview_dim: u32,
     scale: f32,
     interim: bool,
+    correction: Option<&image::Rgb32FImage>,
 ) -> Result<preview_cache::PreviewBase, String> {
     let scale = scale.min(source_scale);
-    let width = ((full_width as f32 * scale).round() as u32).max(1);
-    let height = ((full_height as f32 * scale).round() as u32).max(1);
+    let (width, height) = reduced_base_dims((full_width, full_height), scale);
     let reduced = if width < source.width() || height < source.height() {
         Cow::Owned(resample_f32_image(source, width, height))
     } else {
         Cow::Borrowed(source)
+    };
+    let reduced = match correction {
+        Some(delta) => Cow::Owned(DynamicImage::ImageRgb32F(
+            rawtonic_engine::color_noise::add_reduced_correction(reduced.to_rgb32f(), delta),
+        )),
+        None => reduced,
     };
     // The actual scale after rounding to whole pixels.
     let scale = reduced.width() as f32 / full_width as f32;
@@ -1218,6 +1237,7 @@ fn preview_base(
             build_dim,
             scale,
             interim,
+            None,
         )?
     } else {
         generate_shared_transformed_preview(
@@ -1638,6 +1658,69 @@ fn prophoto_to_linear_srgb(rgb: [f64; 3]) -> [f64; 3] {
     std::array::from_fn(|r| (0..3).map(|c| m[r][c] * linear[c]).sum())
 }
 
+/// A final fit frame's inputs for `fit_color_noise_base`; `eligible`: a
+/// final, whole, natively presented frame of the full decode's lasting
+/// base (no drag draft).
+struct FitColorNoise<'a> {
+    adjustments: &'a serde_json::Value,
+    base: &'a Arc<DynamicImage>,
+    base_dim: u32,
+    full_dims: (u32, u32),
+    eligible: bool,
+}
+
+/// The base a final fit frame renders from at Color 0 with the export's
+/// colour noise reduction in it (`color_noise_view::corrected_base`), when
+/// its base is a reduced copy of the full decode and the recipe's colour
+/// noise reduction applies; None renders the frame as before.
+fn fit_color_noise_base(
+    develop: &DevelopSession,
+    loaded_image: &LoadedImage,
+    adjustments: &rawtonic_engine::image_processing::PreparedAdjustments,
+    frame: FitColorNoise<'_>,
+    refresh: impl FnOnce() -> crate::color_noise_view::Refresh,
+) -> Option<Arc<DynamicImage>> {
+    let number = develop.color_noise_view.note_frame();
+    if !frame.eligible || !crate::color_noise_view::applies(adjustments, loaded_image.is_raw) {
+        return None;
+    }
+    #[cfg(feature = "performance-profiling")]
+    if std::env::var_os("RAWTONIC_FULL_RES_PREVIEW").is_some() {
+        return None;
+    }
+    let (full_width, full_height) = frame.full_dims;
+    if loaded_image.image.dimensions() != frame.full_dims {
+        return None;
+    }
+    let scale = reduced_preview_scale(full_width, full_height, frame.adjustments, frame.base_dim)?;
+    crate::color_noise_view::corrected_base(
+        &develop.color_noise_view,
+        &adjustments.global,
+        crate::color_noise_view::FitFrame {
+            number,
+            source: &loaded_image.image,
+            path: &loaded_image.path,
+            base: frame.base,
+            reduced_dims: reduced_base_dims(frame.full_dims, scale.min(1.0)),
+        },
+        |delta| {
+            build_reduced_preview_base(
+                &loaded_image.image,
+                1.0,
+                frame.full_dims,
+                frame.adjustments,
+                loaded_image.is_raw,
+                frame.base_dim,
+                scale,
+                false,
+                Some(delta),
+            )
+            .map(|base| base.image)
+        },
+        refresh,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_preview_job(
     app_handle: &tauri::AppHandle,
@@ -1965,6 +2048,46 @@ pub(crate) fn process_preview_job(
         crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     final_adjustments.global.detail_scale = effective_scale;
+    // A final fit frame of the full decode shows the export's colour noise
+    // reduction: from the base with the full-resolution correction added,
+    // rendered at Color 0 (`color_noise_view`).
+    let (processing_image, render_transform_hash) = match fit_color_noise_base(
+        &develop,
+        &loaded_image,
+        &final_adjustments,
+        FitColorNoise {
+            adjustments: &adjustments_clone,
+            base: &final_preview_base,
+            base_dim,
+            full_dims,
+            eligible: !is_interactive
+                && roi.is_none()
+                && !crop_edit
+                && use_wgpu_renderer
+                && source_scale >= 1.0
+                && !interim
+                && draft_dim.is_none()
+                && !base_fringe_draft,
+        },
+        || crate::color_noise_view::Refresh {
+            adjustments: adjustments_clone.clone(),
+            target_resolution,
+            request_analytics,
+            compute_waveform,
+            active_waveform_channel: active_waveform_channel.map(str::to_string),
+            mask_overlay: mask_overlay.cloned(),
+            generation: render_generation,
+        },
+    ) {
+        Some(corrected) => {
+            final_adjustments.global.color_noise_reduction = 0.0;
+            let mut hasher = DefaultHasher::new();
+            new_transform_hash.hash(&mut hasher);
+            (Arc::as_ptr(&corrected) as usize).hash(&mut hasher);
+            (corrected, hasher.finish())
+        }
+        None => (processing_image, new_transform_hash),
+    };
     let lut_path = adjustments_clone[effects::LUT_PATH.into_name()].as_str();
     let lut = lut_path.and_then(|p| {
         lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
@@ -2056,7 +2179,7 @@ pub(crate) fn process_preview_job(
             &gpu,
             &develop,
             &processing_image,
-            new_transform_hash,
+            render_transform_hash,
             RenderRequest {
                 adjustments: final_adjustments,
                 mask_bitmaps: &mask_bitmaps,
@@ -2378,6 +2501,16 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                     Some(next) => waiting = Some(next),
                     None => warm_draft_source(&app_handle, warm),
                 }
+                continue;
+            }
+            // A final frame shown without its full-resolution colour noise
+            // correction: built once the worker stays idle, then shown.
+            if rendered
+                && !interactive
+                && !crate::multi_view::live_pending()
+                && let Some(next) = crate::color_noise_view::after_final_frame(&app_handle, jobs)
+            {
+                waiting = Some(next);
                 continue;
             }
             waiting = live.after_frame(
@@ -4241,6 +4374,7 @@ mod lateral_ca_sharing_tests {
                 1400,
                 scale,
                 interim,
+                None,
             )
             .unwrap()
             .image

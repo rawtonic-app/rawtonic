@@ -370,6 +370,28 @@ pub(crate) fn develop_thumbnail(
         }
         (_, metadata) => (metadata, adjustments),
     };
+    // The open photograph's full-resolution colour noise correction
+    // (`color_noise_view`): its thumbnail from the preview proxy with the
+    // correction added, rendered at Color 0, as the Develop fit view.
+    let color_noise = (is_raw && gpu_context.is_some() && !adjustments.is_null())
+        .then(|| {
+            let tm = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
+            crate::color_noise_view::for_thumbnail(
+                &app_handle.state::<DevelopSession>().color_noise_view,
+                path_str,
+                &get_all_adjustments_from_json(&adjustments, is_raw, tm),
+                is_raw,
+            )
+        })
+        .flatten();
+    let (proxy, color_noise) = match (proxy, color_noise) {
+        (None, Some(delta)) => match stored_proxy(&source_path, &adjustments, &settings) {
+            Some(proxy) => (Some(proxy), Some(delta)),
+            None => (None, None),
+        },
+        (proxy, delta) => (proxy, delta),
+    };
+    let preloaded_image = preloaded_image.filter(|_| color_noise.is_none());
     if is_raw
         && adjustments.is_null()
         && preloaded_image.is_none()
@@ -388,6 +410,15 @@ pub(crate) fn develop_thumbnail(
         let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
 
         let base_cache_hash = crate::cache_utils::calculate_thumbnail_base_hash(&meta.adjustments);
+        let base_cache_hash = match &color_noise {
+            Some(delta) => {
+                let mut hasher = DefaultHasher::new();
+                base_cache_hash.hash(&mut hasher);
+                (Arc::as_ptr(delta) as usize).hash(&mut hasher);
+                hasher.finish()
+            }
+            None => base_cache_hash,
+        };
 
         let crop_data: Option<Crop> =
             serde_json::from_value(meta.adjustments[geometry::CROP.name()].clone()).ok();
@@ -447,7 +478,15 @@ pub(crate) fn develop_thumbnail(
                 Cow::Borrowed(img)
             } else if let Some(proxy) = &proxy {
                 raw_scale_factor = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
-                Cow::Borrowed(&proxy.image)
+                match &color_noise {
+                    Some(delta) => Cow::Owned(DynamicImage::ImageRgb32F(
+                        rawtonic_engine::color_noise::add_reduced_correction(
+                            proxy.image.to_rgb32f(),
+                            delta,
+                        ),
+                    )),
+                    None => Cow::Borrowed(&proxy.image),
+                }
             } else {
                 let mmap_guard;
                 let vec_guard;
@@ -688,6 +727,9 @@ pub(crate) fn develop_thumbnail(
             crate::photo_library::library_of_str(&source_path_str).as_deref(),
         );
         gpu_adjustments.global.detail_scale = total_scale;
+        if color_noise.is_some() {
+            gpu_adjustments.global.color_noise_reduction = 0.0;
+        }
         let lut_path = meta.adjustments[effects::LUT_PATH.into_name()].as_str();
         let lut = lut_path.and_then(|p| crate::lut_processing::get_or_load_lut(&luts, p).ok());
 
@@ -1261,6 +1303,17 @@ pub(crate) fn generate_single_thumbnail_and_cache(
 /// Makes `path`'s thumbnails again after its preview proxy was written (the
 /// thumbnail is then developed from it) and tells the frontend.
 pub fn refresh_thumbnail(app_handle: &AppHandle, path: &str) {
+    develop_thumbnail_again(app_handle, path, false);
+}
+
+/// Develops `path`'s thumbnails again even where they are cached (the
+/// open photograph's colour noise correction came in,
+/// `color_noise_view::for_thumbnail`) and tells the frontend.
+pub(crate) fn redevelop_thumbnail(app_handle: &AppHandle, path: &str) {
+    develop_thumbnail_again(app_handle, path, true);
+}
+
+fn develop_thumbnail_again(app_handle: &AppHandle, path: &str, force: bool) {
     let gpu_context = crate::gpu_processing::get_or_init_gpu_context(
         &app_handle.state::<crate::state::gpu::GpuState>(),
         app_handle,
@@ -1275,7 +1328,7 @@ pub fn refresh_thumbnail(app_handle: &AppHandle, path: &str) {
         &cache_dir,
         gpu_context.as_ref(),
         None,
-        false,
+        force,
         app_handle,
         &settings,
     ) {
