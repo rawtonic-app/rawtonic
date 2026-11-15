@@ -101,10 +101,11 @@ fn colour_grading_3_limits_per_channel_and_curves_per_channel() {
             recipe["colorGrading"] = grading.clone();
             let rendered = render_srgb(&context, &slot, chart, &recipe, true, &[]);
             // Colours the limit leaves alone, and those it puts on the
-            // cube's surface. The output's knee eases colours within 5 % of
-            // the gamut's edge a little (ease_into_gamut), so the bounds
-            // are wider than the 16-bit output's steps; the median shows
-            // the path itself.
+            // cube's surface. The output's knee eases colours on and
+            // within 5 % of the gamut's edge a little (ease_into_gamut),
+            // so the largest difference is that easing; the median and the
+            // 90th percentile of the colours left alone show the path
+            // itself.
             let mut errors = [Vec::new(), Vec::new()];
             for (before, after) in neutral.iter().zip(&rendered) {
                 // A colour on the cube's surface may lie beyond it in the
@@ -129,20 +130,24 @@ fn colour_grading_3_limits_per_channel_and_curves_per_channel() {
                 );
             }
             let limited = errors[1].len();
-            for (kind, (errors, bound)) in errors.iter_mut().zip([0.012, 0.03]).enumerate() {
+            for (kind, errors) in errors.iter_mut().enumerate() {
                 if errors.is_empty() {
                     continue;
                 }
                 errors.sort_by(f64::total_cmp);
-                let (median, max) = (errors[errors.len() / 2], errors[errors.len() - 1]);
+                let (median, p90, max) = (
+                    errors[errors.len() / 2],
+                    errors[errors.len() * 9 / 10],
+                    errors[errors.len() - 1],
+                );
                 eprintln!(
-                    "grading {number}, {} {} pixels: |shader − CPU| median {median:.5} max {max:.5}",
+                    "grading {number}, {} {} pixels: |shader − CPU| median {median:.5} p90 {p90:.5} max {max:.5}",
                     errors.len(),
                     ["free", "limited"][kind],
                 );
-                assert!(max < bound, "grading {number}");
+                assert!(max < 0.03, "grading {number}");
                 if kind == 0 {
-                    assert!(median < 0.0005, "grading {number}");
+                    assert!(median < 0.0005 && p90 < 0.002, "grading {number}");
                 }
             }
             if number == 0 && !colours {
