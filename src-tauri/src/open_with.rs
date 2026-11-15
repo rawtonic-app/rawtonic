@@ -31,8 +31,12 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
+mod desktop;
 #[cfg(any(windows, test))]
 mod handlers;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(windows)]
 mod windows_shell;
 
@@ -115,7 +119,7 @@ pub struct EditWithResult {
 /// How `platform::open` started the program (Linux starts none, macOS
 /// opens listed programs only).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub enum Launched {
     /// A program the system lists for the files.
     Listed,
@@ -448,7 +452,10 @@ mod platform {
 #[cfg(windows)]
 use windows_shell as platform;
 
-#[cfg(not(any(target_os = "macos", windows)))]
+#[cfg(target_os = "linux")]
+use linux as platform;
+
+#[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
 mod platform {
     use super::{AppChoice, Launched};
     use std::path::Path;
@@ -1228,6 +1235,68 @@ mod tests {
         remember_launch(&mut prefs, &program, Launched::Listed);
         assert_eq!(prefs.recent_apps, ["Photos"]);
         assert!(prefs.picked_apps.is_empty());
+    }
+
+    #[cfg(unix)]
+    /// Linux: a program is its `.desktop` file; the list the desktop offers
+    /// and the arguments the frontend sends read as the commands expect.
+    #[test]
+    fn a_desktop_program_crosses_ipc_as_the_frontend_sends_it() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../src/components/studio/fixtures/openWithLinux.json"
+        ))
+        .unwrap();
+        let entry = |id: &str, path: &str, name: &str| desktop::Entry {
+            path: PathBuf::from(path),
+            id: id.into(),
+            name: name.into(),
+            exec: "app %F".into(),
+            try_exec: None,
+            mime_types: vec![],
+            icon: None,
+        };
+        let gimp = entry(
+            "org.gimp.GIMP.desktop",
+            "/usr/share/applications/org.gimp.GIMP.desktop",
+            "GIMP",
+        );
+        let krita = entry(
+            "org.kde.krita.desktop",
+            "/var/lib/flatpak/exports/share/applications/org.kde.krita.desktop",
+            "Krita",
+        );
+        let listed = order_apps(
+            vec![desktop::choice(&krita, None), desktop::choice(&gimp, None)],
+            Some(&gimp.path.to_string_lossy()),
+            &[],
+        );
+        assert_eq!(
+            serde_json::to_value(&listed).unwrap(),
+            fixture["choices"]["apps"]
+        );
+        let program: String =
+            serde_json::from_value(fixture["openWithOpen"]["program"].clone()).unwrap();
+        let paths: Vec<String> =
+            serde_json::from_value(fixture["openWithOpen"]["paths"].clone()).unwrap();
+        assert_eq!(program, listed[1].path);
+        assert_eq!(
+            original_files(&paths),
+            [
+                PathBuf::from("/home/u/Fotos/Größe A.NEF"),
+                PathBuf::from("/home/u/Fotos/B.NEF")
+            ]
+        );
+        let items: Vec<EditTarget> =
+            serde_json::from_value(fixture["editWithFinish"]["items"].clone()).unwrap();
+        assert_eq!(items[0].target, "/home/u/Fotos/Größe A_edit.tiff");
+        // A listed program is remembered as recent only; a picked one is
+        // offered from now on.
+        let mut prefs = OpenWithPrefs::default();
+        remember_launch(&mut prefs, &program, Launched::Listed);
+        assert_eq!(prefs.recent_apps, std::slice::from_ref(&program));
+        assert!(prefs.picked_apps.is_empty());
+        remember_launch(&mut prefs, "/opt/tool/run", Launched::Picked);
+        assert_eq!(prefs.picked_apps, ["/opt/tool/run"]);
     }
 
     /// Windows: programs the shell offers without recommending them (the

@@ -1,0 +1,31 @@
+{
+  "choices": {
+    "supported": true,
+    "apps": [
+      {
+        "path": "/usr/share/applications/org.gimp.GIMP.desktop",
+        "name": "GIMP",
+        "isDefault": true,
+        "isRecent": false,
+        "recommended": true,
+        "icon": null
+      },
+      {
+        "path": "/var/lib/flatpak/exports/share/applications/org.kde.krita.desktop",
+        "name": "Krita",
+        "isDefault": false,
+        "isRecent": false,
+        "recommended": true,
+        "icon": null
+      }
+    ]
+  },
+  "openWithOpen": {
+    "program": "/var/lib/flatpak/exports/share/applications/org.kde.krita.desktop",
+    "paths": ["/home/u/Fotos/Größe A.NEF", "/home/u/Fotos/B.NEF?vc=c1"]
+  },
+  "editWithFinish": {
+    "items": [{ "source": "/home/u/Fotos/Größe A.NEF", "target": "/home/u/Fotos/Größe A_edit.tiff", "library": null }],
+    "program": "/usr/share/applications/org.gimp.GIMP.desktop"
+  }
+}
