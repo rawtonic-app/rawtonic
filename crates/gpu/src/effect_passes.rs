@@ -124,6 +124,10 @@ pub(super) const MAIN_CONSTANTS: [(&str, f64); 3] = [
     ("ENABLE_GRAIN", 0.0),
 ];
 
+/// The constant only a main pass has (`MAIN_CONSTANTS`; every display
+/// variant has `ENABLE_GRAIN`).
+pub(super) const MAIN_PASS_CONSTANT: &str = "FINISH_APART";
+
 /// The terms pass's outputs and the main pass's inputs (the display
 /// source's `glow_terms_out`, `halation_terms_out`, `glow_terms`,
 /// `halation_terms`).
@@ -531,6 +535,24 @@ mod tests {
         // Its own bits do change it.
         assert_ne!(module(0, false), module(TERMS_FEATURES, false));
         assert_ne!(module(8, false), module(8, true));
+    }
+
+    /// Only a main pass is marked as one: a display variant without the
+    /// passes keeps the whole shader as its stand-in when its folded module
+    /// cannot be made (`compile_variant_module`).
+    #[test]
+    fn only_main_passes_have_the_main_pass_constant() {
+        assert!(
+            MAIN_CONSTANTS
+                .iter()
+                .any(|(name, _)| *name == MAIN_PASS_CONSTANT)
+        );
+        let ordinary = [
+            &variant_constants(ALL_PREVIEW_FEATURES, true, true, true, true)[..],
+            &display_effect_constants(ALL_PREVIEW_FEATURES)[..],
+        ]
+        .concat();
+        assert!(ordinary.iter().all(|(name, _)| *name != MAIN_PASS_CONSTANT));
     }
 
     #[test]

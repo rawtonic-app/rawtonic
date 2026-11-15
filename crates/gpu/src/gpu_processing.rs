@@ -6685,7 +6685,7 @@ fn compile_variant_module(
             // then renders with the general pipeline.
             if constants
                 .iter()
-                .any(|(name, _)| effect_passes::MAIN_CONSTANTS.iter().any(|(n, _)| n == name))
+                .any(|(name, _)| *name == effect_passes::MAIN_PASS_CONSTANT)
             {
                 return Err(format!("{label}: no folded module ({error})"));
             }
