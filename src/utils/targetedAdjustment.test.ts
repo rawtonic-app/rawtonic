@@ -117,6 +117,14 @@ describe('targeted adjustment', () => {
     // A sky blue drives mostly Blues under version 2.
     const blues = startTargetedAdjustment('luminance', { ...base(), hslVersion: 2 }, sky, null)!;
     expect(blues.weights![5]).toBeGreaterThan(0.5);
+    // Version 3 has its own Blues and Purples windows; the other channels keep version 2's.
+    const v3 = startTargetedAdjustment('saturation', { ...base(), hslVersion: 3 }, orange, null)!;
+    expect(v3.weights).toEqual(v2.weights);
+    const sky2 = startTargetedAdjustment('saturation', { ...base(), hslVersion: 2 }, sky, null)!;
+    const sky3 = startTargetedAdjustment('saturation', { ...base(), hslVersion: 3 }, sky, null)!;
+    expect(sky3.weights).not.toEqual(sky2.weights);
+    expect(sum(sky3.weights!)).toBeCloseTo(1, 6);
+    expect(sky3.weights![5]).toBeGreaterThan(0.5);
   });
 
   it('adds a curve point at the level under the pointer and then moves it', () => {
