@@ -13,12 +13,17 @@ import SessionXmpStatus, {
   SHOW_PENDING_XMP_EVENT,
   type XmpReviewEntry,
   type XmpRetry,
-  XMP_CATCH_UP_PART
+  XMP_CATCH_UP_PART,
+  XMP_RESOLVED_EVENT,
+  resolveXmpConflicts,
+  reportUnresolvedXmp
 } from './SessionXmpStatus';
 import { useActivityStore } from '../../store/useActivityStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('../../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('../../activity/notify', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn() }
+}));
 
 afterEach(() => cleanup());
 
@@ -393,4 +398,57 @@ describe('SessionXmpStatus', () => {
     ]);
     useCatalogUndoStore.setState({ past: [], future: [] });
   });
+});
+
+describe('the choice for the selected photos (grid menu)', () => {
+  it('keeps the library for exactly the selected photos, says so and tells the bar to count again', async () => {
+    answer({
+      session_xmp_resolve: (args: { paths: string[] }) => ({
+        done: args.paths,
+        offline: [],
+        conflicts: [],
+        failed: [],
+        undo: [],
+        read: []
+      })
+    });
+    const resolved = vi.fn();
+    window.addEventListener(XMP_RESOLVED_EVENT, resolved);
+    const report = await resolveXmpConflicts('/job', ['/job/a.ARW', '/job/b.ARW'], 'library');
+    window.removeEventListener(XMP_RESOLVED_EVENT, resolved);
+    expect(invoke).toHaveBeenCalledWith('session_xmp_resolve', {
+      directory: '/job',
+      paths: ['/job/a.ARW', '/job/b.ARW'],
+      keep: 'library'
+    });
+    expect(report.done).toHaveLength(2);
+    expect(toast.success).toHaveBeenCalledWith('XMP conflicts resolved for 2 photos');
+    expect(resolved).toHaveBeenCalledTimes(1);
+  });
+
+  it('says when none of the selected photos has a differing XMP file', async () => {
+    answer({ session_xmp_resolve: { done: [], offline: [], conflicts: [], failed: [], undo: [], read: [] } });
+    await resolveXmpConflicts('/job', ['/job/a.ARW'], 'library');
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.info).toHaveBeenCalledWith(
+      'None of the selected photos has an XMP file that differs from the library.'
+    );
+  });
+});
+
+it('says which selected photos were not resolved (offline, changed again, failed)', () => {
+  reportUnresolvedXmp({
+    done: [],
+    offline: ['/drive/a.ARW'],
+    conflicts: ['/job/b.ARW'],
+    failed: [{ path: '/job/c.ARW', reason: 'cannot write /vol/x.xmp' }],
+    undo: [],
+    read: []
+  });
+  expect(toast.warn).toHaveBeenCalledWith('3 photos were not resolved:', {
+    detail: 'a.ARW\nb.ARW\nc.ARW: cannot write /vol/x.xmp'
+  });
+  vi.mocked(toast.warn).mockClear();
+  reportUnresolvedXmp({ done: ['/job/a.ARW'], offline: [], conflicts: [], failed: [], undo: [], read: [] });
+  expect(toast.warn).not.toHaveBeenCalled();
 });

@@ -34,6 +34,7 @@ mod camera_tethering;
 mod capture_time;
 mod catalog_subset;
 mod collage;
+mod color_noise_view;
 mod content_search;
 mod contribute;
 mod costyle;
@@ -580,6 +581,7 @@ fn start(args: Vec<String>) {
                 // GPU idle compiles: held while memory is short or an
                 // export runs.
                 memory_pressure::guard_idle_compiles(&app_handle);
+                ai_lifecycle::release_for_cold_helper_compiles(&app_handle);
                 // Under a compile limit 16-bit exports' variant compiles in
                 // idle time when a recipe is 16-bit (G76/WCC10).
                 if let Ok(settings) = state::settings::try_current(&app_handle) {
@@ -942,6 +944,7 @@ fn start(args: Vec<String>) {
             library_search::session_search,
             library_search::session_paths_as_listed,
             library_search::session_facets,
+            library_search::session_keyword_copies,
             library_search::session_create_smart_album,
             library_search::session_set_smart_album_rules,
             session_bridge::session_offline,
@@ -1013,6 +1016,7 @@ fn start(args: Vec<String>) {
             lut_processing::remove_lut,
             startup::frontend_ready,
             startup::launch_path_is_directory,
+            startup::launch_path_library,
             editor_preview::cancel_thumbnail_generation,
             editor_preview::update_wgpu_transform,
             camera_preview::show_camera_preview,
@@ -1208,6 +1212,7 @@ fn start(args: Vec<String>) {
             tagging::clear_all_tags,
             tagging::add_tag_for_paths,
             tagging::remove_tag_for_paths,
+            tagging::rename_keyword_for_paths,
             culling::cull_images,
             lens_correction::get_lensfun_makers,
             embedded_lens::get_camera_lens_profile,

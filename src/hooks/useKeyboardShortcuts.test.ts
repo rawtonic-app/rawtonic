@@ -602,6 +602,23 @@ describe('Before/After keys', () => {
     expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'left-right' });
   });
 
+  it('shows each before/after mode by its own key, and turns it off by it again', () => {
+    useEditorStore.setState({ zoom: 3, splitPosition: 0.3 });
+    key('keydown', 'KeyY', { key: 'y', altKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'top-bottom' });
+    key('keydown', 'KeyY', { key: 'Y', altKey: true, shiftKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'side-by-side' });
+    key('keydown', 'KeyY', { key: 'Y', metaKey: true, shiftKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'left-right' });
+    key('keydown', 'KeyY', { key: 'Y', metaKey: true, shiftKey: true, repeat: true });
+    expect(useEditorStore.getState().splitView).toBe(true);
+    key('keydown', 'KeyY', { key: 'Y', metaKey: true, shiftKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: false, zoom: 3, splitPosition: 0.3 });
+    // Y brings back the last mode, Shift+Y cycles on from it.
+    key('keydown', 'KeyY', { key: 'y' });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'left-right' });
+  });
+
   it('shows the whole photograph before while \\ is held, through auto-repeat', () => {
     key('keydown', 'Backslash', { key: '\\' });
     expect(useEditorStore.getState().showOriginal).toBe(true);
@@ -715,6 +732,68 @@ describe('arrow keys in the Library grid', () => {
     press('ArrowDown');
     expect(useLibraryStore.getState().libraryActivePath).toBe('/p5.jpg');
     expect(props.handleImageSelect).toHaveBeenCalledWith('/p5.jpg', false);
+    useUIStore.setState({ gridColumns: 0 });
+  });
+
+  it('extends the selection from the anchor with Shift+arrows and shrinks it again', () => {
+    const list = Array.from({ length: 10 }, (_, n) => ({ path: `/p${n}.jpg` })) as never[];
+    cleanup();
+    renderHook(() => useKeyboardShortcuts({ ...props, sortedImageList: list }));
+    useUIStore.setState({ activeView: 'library', gridColumns: 4 });
+    useLibraryStore.setState({
+      libraryActivePath: '/p1.jpg',
+      multiSelectedPaths: ['/p1.jpg'],
+      selectionAnchorPath: '/p1.jpg'
+    });
+    props.handleImageSelect.mockClear();
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/p1.jpg', '/p2.jpg', '/p3.jpg']);
+    expect(useLibraryStore.getState().libraryActivePath).toBe('/p3.jpg');
+    press('ArrowLeft', 'ArrowLeft', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/p1.jpg', '/p2.jpg']);
+    press('ArrowDown', 'ArrowDown', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual([
+      '/p1.jpg',
+      '/p2.jpg',
+      '/p3.jpg',
+      '/p4.jpg',
+      '/p5.jpg',
+      '/p6.jpg'
+    ]);
+    // A plain arrow collapses to one photo and moves the anchor.
+    press('ArrowRight');
+    expect(useLibraryStore.getState()).toMatchObject({
+      multiSelectedPaths: ['/p7.jpg'],
+      selectionAnchorPath: '/p7.jpg'
+    });
+    useUIStore.setState({ gridColumns: 0 });
+  });
+
+  it('does not wrap a Shift range round the ends of the grid', () => {
+    const list = Array.from({ length: 10 }, (_, n) => ({ path: `/p${n}.jpg` })) as never[];
+    cleanup();
+    renderHook(() => useKeyboardShortcuts({ ...props, sortedImageList: list }));
+    useUIStore.setState({ activeView: 'library', gridColumns: 4 });
+    useLibraryStore.setState({
+      libraryActivePath: '/p8.jpg',
+      multiSelectedPaths: ['/p8.jpg'],
+      selectionAnchorPath: '/p8.jpg'
+    });
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/p8.jpg', '/p9.jpg']);
+    expect(useLibraryStore.getState().libraryActivePath).toBe('/p9.jpg');
+    useLibraryStore.setState({
+      libraryActivePath: '/p1.jpg',
+      multiSelectedPaths: ['/p1.jpg'],
+      selectionAnchorPath: '/p1.jpg'
+    });
+    press('ArrowUp', 'ArrowUp', { shiftKey: true });
+    press('ArrowLeft', 'ArrowLeft', { shiftKey: true });
+    press('ArrowLeft', 'ArrowLeft', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/p0.jpg', '/p1.jpg']);
     useUIStore.setState({ gridColumns: 0 });
   });
 });

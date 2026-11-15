@@ -90,6 +90,7 @@
       "failed": "Não foi possível concluir {{batch}}: {{error}}",
       "keywordAdd": "Palavra-chave «{{tag}}»",
       "keywordRemove": "Remoção da palavra-chave «{{tag}}»",
+      "keywordRename": "Renomeando a palavra-chave «{{from}}» para «{{to}}»",
       "notWritten_one": "Não foi possível gravar {{count}} foto",
       "notWritten_many": "Não foi possível gravar {{count}} fotos",
       "notWritten_other": "Não foi possível gravar {{count}} fotos",
@@ -276,6 +277,9 @@
       "color_label_red": "Vermelho",
       "color_label_yellow": "Amarelo",
       "command_palette": "Paleta de comandos…",
+      "compare_left_right": "Antes/depois: Divisão esquerda/direita",
+      "compare_side_by_side": "Antes/depois: Lado a lado",
+      "compare_top_bottom": "Antes/depois: Divisão superior/inferior",
       "copy_adjustments": "Copiar ajustes",
       "copy_image_path": "Copiar caminho",
       "delete_selected": "Mover para o Lixo",
@@ -612,7 +616,10 @@
       "showExplorer": "Mostrar no Explorador de Arquivos",
       "showFileManager": "Mostrar no gestor de arquivos",
       "showFinder": "Mostrar no Finder",
-      "virtualCopy": "Cópia Virtual"
+      "virtualCopy": "Cópia Virtual",
+      "xmpConflicts": "Conflitos de XMP",
+      "xmpKeepLibrary": "Manter a biblioteca para as fotos selecionadas",
+      "xmpUseXmp": "Usar XMP para as fotos selecionadas"
     },
     "toasts": {
       "couldNotShowExplorer": "Não foi possível mostrar o arquivo no explorador: {{err}}",
@@ -2306,6 +2313,7 @@
       "keepLibraryFor": "Manter biblioteca para {{name}}",
       "keepLibraryTitle": "Gravar a classificação, o rótulo, as palavras-chave e o IPTC da biblioteca no arquivo XMP",
       "loading": "Verificando arquivos XMP…",
+      "noneToResolve": "Nenhuma das fotos selecionadas tem um arquivo XMP diferente da biblioteca.",
       "notResolved_one": "{{count}} foto não foi resolvida:",
       "notResolved_many": "{{count}} fotos não foram resolvidas:",
       "notResolved_other": "{{count}} fotos não foram resolvidas:",
@@ -2528,6 +2536,9 @@
         "color_label_purple": "Rótulo de cor: Roxo",
         "color_label_red": "Rótulo de cor: Vermelho",
         "color_label_yellow": "Rótulo de cor: Amarelo",
+        "compare_left_right": "Antes/depois: Divisão esquerda/direita",
+        "compare_side_by_side": "Antes/depois: Lado a lado",
+        "compare_top_bottom": "Antes/depois: Divisão superior/inferior",
         "copy_adjustments": "Copiar ajustes selecionados",
         "copy_files": "Copiar arquivo(s) selecionado(s)",
         "copy_image_path": "Copiar o caminho da(s) imagem(ns) selecionada(s)",
@@ -4259,6 +4270,40 @@
           "showFailed": "Não foi possível mostrar a pasta: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Ocultar as palavras-chave sob {{keyword}}",
+        "confirm": {
+          "cancel": "Cancelar",
+          "convert": "Converter «{{from}}» na hierarquia «{{to}}»?",
+          "convertAction": "Converter",
+          "label": "Confirmar a alteração da palavra-chave",
+          "merge": "Mesclar «{{from}}» com «{{to}}»? «{{from}}» é substituída por ela.",
+          "mergeAction": "Mesclar",
+          "move": "Mover «{{from}}» para «{{to}}»?",
+          "moveAction": "Mover",
+          "photos_one": "Isto altera as palavras-chave de {{count}} foto.",
+          "photos_many": "Isto altera as palavras-chave de {{count}} fotos.",
+          "photos_other": "Isto altera as palavras-chave de {{count}} fotos.",
+          "rename": "Renomear «{{from}}» para «{{to}}»?",
+          "renameAction": "Renomear"
+        },
+        "empty": "Ainda não há palavras-chave.",
+        "expand": "Mostrar as palavras-chave sob {{keyword}}",
+        "filterHint": "Mostrar as fotos com {{keyword}} e as palavras-chave sob ela. Arraste para outra palavra-chave para movê-la para lá.",
+        "legacyHint": "«{{keyword}}» é uma única palavra-chave, escrita antes das hierarquias. Clique com o botão direito para convertê-la.",
+        "menu": {
+          "clearFilter": "Parar de filtrar por esta palavra-chave",
+          "convert": "Converter em «{{path}}»",
+          "filter": "Mostrar fotos com esta palavra-chave",
+          "moveToTop": "Mover para o nível superior",
+          "rename": "Renomear…"
+        },
+        "renameLabel": "Renomear ou mover {{keyword}}: digite o caminho, p. ex. Superior > Nome",
+        "title": "Lista de palavras-chave",
+        "toasts": {
+          "renameFailed": "Não foi possível alterar as palavras-chave: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "Redução de ruído com IA",
@@ -4717,6 +4762,7 @@
         "addTo_one": "Adicionar a {{count}} foto",
         "addTo_many": "Adicionar a {{count}} fotos",
         "addTo_other": "Adicionar a {{count}} fotos",
+        "hierarchyHint": "Separe as palavras-chave com vírgulas. «Animais > Cães», «Animais|Cães» ou «Cães < Animais» coloca Cães sob Animais.",
         "none": "Sem palavras-chave",
         "ofSelection": "Palavras-chave da seleção",
         "partial_one": "Em {{on}} de {{count}} foto",

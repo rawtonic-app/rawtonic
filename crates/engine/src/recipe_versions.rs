@@ -434,6 +434,32 @@ impl HslVersion {
     }
 }
 
+/// `colorGradingVersion` (`image_processing::COLOR_GRADING_VERSION`): the
+/// colour grading response (`color_grading::lut`), 1 when missing, never
+/// newer than this renderer knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ColorGradingVersion(u64);
+
+impl ColorGradingVersion {
+    /// The first response (recipes without the key).
+    pub const FIRST: Self = Self(1);
+
+    pub fn of(recipe: &Value) -> Self {
+        Self(read(recipe, ip::COLOR_GRADING_VERSION_KEY, 1).clamp(1, ip::COLOR_GRADING_VERSION))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// Shadows and Highlights wheels with their own hue directions and
+    /// ranges, Balance per wheel, the Highlights luminance that keeps white
+    /// (`colorGradingVersion` 2).
+    pub fn per_wheel(self) -> bool {
+        self.0 >= 2
+    }
+}
+
 /// The film grain (`grainVersion` 3).
 pub const FILM_GRAIN_VERSION: u64 = 3;
 
@@ -895,6 +921,7 @@ pub struct RecipeVersions {
     pub defringe: DefringeVersion,
     pub bw: BwVersion,
     pub hsl: HslVersion,
+    pub color_grading: ColorGradingVersion,
     pub grain: GrainVersion,
     pub clarity: ClarityVersion,
     pub temperature: TemperatureVersion,
@@ -923,6 +950,7 @@ impl RecipeVersions {
             defringe: DefringeVersion::of(recipe),
             bw: BwVersion::of(recipe),
             hsl: HslVersion::of(recipe),
+            color_grading: ColorGradingVersion::of(recipe),
             grain: GrainVersion::of(recipe),
             clarity: ClarityVersion::of(recipe),
             temperature: TemperatureVersion::of(recipe),
@@ -1020,7 +1048,7 @@ mod tests {
         let future = json!({
             "renderVersion": 999, "toneVersion": 999, "sharpenVersion": 999,
             "lumaNoiseVersion": 999, "colorNoiseVersion": 999, "defringeVersion": 999,
-            "bwVersion": 999, "hslVersion": 999, "grainVersion": 999, "clarityVersion": 999, "vibranceVersion": 999, "structureVersion": 999, "dehazeVersion": 999,
+            "bwVersion": 999, "hslVersion": 999, "colorGradingVersion": 999, "grainVersion": 999, "clarityVersion": 999, "vibranceVersion": 999, "structureVersion": 999, "dehazeVersion": 999,
             "fringeVersion": 999, "autoCaVersion": 999, "cameraCaVersion": 999,
             "cameraGeometryVersion": 999, "diffractionVersion": 999, "aiDenoiseVersion": 999,
         });
@@ -1031,6 +1059,7 @@ mod tests {
         assert_eq!(v.structure.get(), ip::STRUCTURE_VERSION);
         assert_eq!(v.dehaze.get(), ip::DEHAZE_VERSION);
         assert_eq!(v.hsl.get(), ip::HSL_VERSION);
+        assert_eq!(v.color_grading.get(), ip::COLOR_GRADING_VERSION);
         assert_eq!(v.color_noise.get(), crate::color_noise::VERSION);
         assert_eq!(v.fringe.get(), crate::edge_fringe::VERSION);
         assert_eq!(
@@ -1043,6 +1072,7 @@ mod tests {
         assert_eq!(missing.render.get(), 1);
         assert_eq!(missing.structure.get(), 1);
         assert_eq!(missing.hsl.get(), 1);
+        assert_eq!(missing.color_grading.get(), 1);
         assert_eq!(missing.fringe.get(), 0);
         assert_eq!(missing.camera_ca.get(), 0);
         assert_eq!(missing.ai_denoise.get(), 1);

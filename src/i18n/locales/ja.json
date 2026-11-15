@@ -75,6 +75,7 @@
       "failed": "{{batch}} を完了できませんでした: {{error}}",
       "keywordAdd": "キーワード「{{tag}}」",
       "keywordRemove": "キーワード「{{tag}}」の削除",
+      "keywordRename": "キーワード「{{from}}」を「{{to}}」に名前変更中",
       "notWritten_other": "{{count}} 枚の写真を書き込めませんでした",
       "paste": "設定のペースト",
       "preset": "プリセット",
@@ -247,6 +248,9 @@
       "color_label_red": "レッド",
       "color_label_yellow": "イエロー",
       "command_palette": "コマンドパレット…",
+      "compare_left_right": "補正前/補正後：左右に分割",
+      "compare_side_by_side": "補正前/補正後：横に並べる",
+      "compare_top_bottom": "補正前/補正後：上下に分割",
       "copy_adjustments": "設定をコピー",
       "copy_image_path": "パスをコピー",
       "delete_selected": "ゴミ箱に入れる",
@@ -561,7 +565,10 @@
       "showExplorer": "エクスプローラーで表示",
       "showFileManager": "ファイルマネージャーで表示",
       "showFinder": "Finder で表示",
-      "virtualCopy": "仮想コピー"
+      "virtualCopy": "仮想コピー",
+      "xmpConflicts": "XMPの競合",
+      "xmpKeepLibrary": "選択した写真はライブラリを維持",
+      "xmpUseXmp": "選択した写真はXMPを使用"
     },
     "toasts": {
       "couldNotShowExplorer": "エクスプローラーでファイルを表示できませんでした: {{err}}",
@@ -2090,6 +2097,7 @@
       "keepLibraryFor": "{{name}} でライブラリを保持",
       "keepLibraryTitle": "ライブラリのレーティング、ラベル、キーワード、IPTC を XMP ファイルに書き込みます",
       "loading": "XMP ファイルを確認しています…",
+      "noneToResolve": "選択した写真に、ライブラリと異なるXMPファイルはありません。",
       "notResolved_other": "{{count}} 枚の写真は解決できませんでした:",
       "reason": {
         "changedElsewhere_other": "{{count}} 件の XMP ファイルがライブラリと異なります(ほかのプログラムで変更された、または Rawtonic が一度も読み込んでいないファイル)。選択しない限り上書きしません。ライブラリにはあなたの内容が保持されます。",
@@ -2293,6 +2301,9 @@
         "color_label_purple": "カラーラベル: パープル",
         "color_label_red": "カラーラベル: レッド",
         "color_label_yellow": "カラーラベル: イエロー",
+        "compare_left_right": "補正前/補正後：左右に分割",
+        "compare_side_by_side": "補正前/補正後：横に並べる",
+        "compare_top_bottom": "補正前/補正後：上下に分割",
         "copy_adjustments": "選択した補正設定をコピー",
         "copy_files": "選択したファイルをコピー",
         "copy_image_path": "選択した画像のパスをコピー",
@@ -3954,6 +3965,38 @@
           "showFailed": "フォルダを表示できませんでした: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "{{keyword}} の下のキーワードを隠す",
+        "confirm": {
+          "cancel": "キャンセル",
+          "convert": "「{{from}}」を階層「{{to}}」に変換しますか？",
+          "convertAction": "変換",
+          "label": "キーワードの変更を確認",
+          "merge": "「{{from}}」を「{{to}}」に統合しますか？「{{from}}」はそれに置き換えられます。",
+          "mergeAction": "統合",
+          "move": "「{{from}}」を「{{to}}」に移動しますか？",
+          "moveAction": "移動",
+          "photos_other": "{{count}} 枚の写真のキーワードが変わります。",
+          "rename": "「{{from}}」の名前を「{{to}}」に変更しますか？",
+          "renameAction": "名前を変更"
+        },
+        "empty": "キーワードはまだありません。",
+        "expand": "{{keyword}} の下のキーワードを表示",
+        "filterHint": "{{keyword}} とその下のキーワードが付いた写真を表示します。別のキーワードにドラッグするとそこへ移動します。",
+        "legacyHint": "「{{keyword}}」は階層化以前に書かれた 1 つのキーワードです。右クリックで変換できます。",
+        "menu": {
+          "clearFilter": "このキーワードでの絞り込みをやめる",
+          "convert": "「{{path}}」に変換",
+          "filter": "このキーワードの写真を表示",
+          "moveToTop": "最上位に移動",
+          "rename": "名前を変更…"
+        },
+        "renameLabel": "{{keyword}} の名前変更または移動：パスを入力（例：親 > 名前）",
+        "title": "キーワードリスト",
+        "toasts": {
+          "renameFailed": "キーワードを変更できませんでした：{{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "AI ノイズ除去",
@@ -4395,6 +4438,7 @@
       "keywords": {
         "add": "キーワードを追加",
         "addTo_other": "{{count}} 枚の写真に追加",
+        "hierarchyHint": "キーワードはカンマで区切ります。「動物 > 犬」「動物|犬」「犬 < 動物」で、犬が動物の下に入ります。",
         "none": "キーワードなし",
         "ofSelection": "選択範囲のキーワード",
         "partial_other": "{{count}} 枚中 {{on}} 枚に付いています",

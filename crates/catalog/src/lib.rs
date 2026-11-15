@@ -626,6 +626,25 @@ impl Library {
                 })
             },
         )?;
+        // A keyword is a path or under it (`rawtonic_metadata::keywords`):
+        // a keyword rule's value finds the keywords below it too.
+        conn.create_scalar_function(
+            "rawtonic_keyword_within",
+            2,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(match (ctx.get_raw(0), ctx.get_raw(1)) {
+                    (rusqlite::types::ValueRef::Text(k), rusqlite::types::ValueRef::Text(p)) => {
+                        rawtonic_metadata::keywords::is_within(
+                            &String::from_utf8_lossy(k),
+                            &String::from_utf8_lossy(p),
+                        )
+                    }
+                    _ => false,
+                })
+            },
+        )?;
         // A recipe's (or a copy's editor state's) AI facts, kept per version
         // by the triggers of schema 17 (`query::Field::Ai`).
         conn.create_scalar_function(

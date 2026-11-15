@@ -667,6 +667,7 @@ pub async fn invoke_generative_replace_with_mask_def(
     // MI-GAN follows the masking models' lifecycle (ai_lifecycle).
     ai_state.lifecycle.touch();
     let _running = ai_state.lifecycle.run();
+    let _turn = crate::ai_lifecycle::turn(true).await;
 
     let started = std::time::Instant::now();
     let (source_image, is_raw) =

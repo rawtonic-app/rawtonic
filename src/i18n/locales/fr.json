@@ -90,6 +90,7 @@
       "failed": "{{batch}} n’a pas pu être terminé : {{error}}",
       "keywordAdd": "Mot-clé « {{tag}} »",
       "keywordRemove": "Retrait du mot-clé « {{tag}} »",
+      "keywordRename": "Renommage du mot-clé « {{from}} » en « {{to}} »",
       "notWritten_one": "{{count}} photo n’a pas pu être écrite",
       "notWritten_many": "{{count}} photos n’ont pas pu être écrites",
       "notWritten_other": "{{count}} photos n’ont pas pu être écrites",
@@ -276,6 +277,9 @@
       "color_label_red": "Rouge",
       "color_label_yellow": "Jaune",
       "command_palette": "Palette de commandes…",
+      "compare_left_right": "Avant/après: Division gauche/droite",
+      "compare_side_by_side": "Avant/après: Côte à côte",
+      "compare_top_bottom": "Avant/après: Division haut/bas",
       "copy_adjustments": "Copier les réglages",
       "copy_image_path": "Copier le chemin",
       "delete_selected": "Placer dans la corbeille",
@@ -612,7 +616,10 @@
       "showExplorer": "Afficher dans l'explorateur",
       "showFileManager": "Afficher dans le gestionnaire de fichiers",
       "showFinder": "Afficher dans le Finder",
-      "virtualCopy": "Copie virtuelle"
+      "virtualCopy": "Copie virtuelle",
+      "xmpConflicts": "Conflits XMP",
+      "xmpKeepLibrary": "Garder la bibliothèque pour les photos sélectionnées",
+      "xmpUseXmp": "Utiliser le XMP pour les photos sélectionnées"
     },
     "toasts": {
       "couldNotShowExplorer": "Impossible d'afficher le fichier dans l'explorateur : {{err}}",
@@ -2306,6 +2313,7 @@
       "keepLibraryFor": "Garder la bibliothèque pour {{name}}",
       "keepLibraryTitle": "Écrire la note, le libellé, les mots-clés et l’IPTC de la bibliothèque dans le fichier XMP",
       "loading": "Vérification des fichiers XMP…",
+      "noneToResolve": "Aucune des photos sélectionnées n’a de fichier XMP différent de la bibliothèque.",
       "notResolved_one": "{{count}} photo n’a pas été résolue :",
       "notResolved_many": "{{count}} photos n’ont pas été résolues :",
       "notResolved_other": "{{count}} photos n’ont pas été résolues :",
@@ -2528,6 +2536,9 @@
         "color_label_purple": "Étiquette de couleur : Violet",
         "color_label_red": "Étiquette de couleur : Rouge",
         "color_label_yellow": "Étiquette de couleur : Jaune",
+        "compare_left_right": "Avant/après: Division gauche/droite",
+        "compare_side_by_side": "Avant/après: Côte à côte",
+        "compare_top_bottom": "Avant/après: Division haut/bas",
         "copy_adjustments": "Copier les ajustements sélectionnés",
         "copy_files": "Copier le(s) fichier(s) sélectionné(s)",
         "copy_image_path": "Copier le chemin de la ou des images sélectionnées",
@@ -4259,6 +4270,40 @@
           "showFailed": "Impossible d'afficher le dossier : {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Masquer les mots-clés sous {{keyword}}",
+        "confirm": {
+          "cancel": "Annuler",
+          "convert": "Convertir « {{from}} » en hiérarchie « {{to}} » ?",
+          "convertAction": "Convertir",
+          "label": "Confirmer la modification du mot-clé",
+          "merge": "Fusionner « {{from}} » avec « {{to}} » ? « {{from}} » est remplacé par celui-ci.",
+          "mergeAction": "Fusionner",
+          "move": "Déplacer « {{from}} » vers « {{to}} » ?",
+          "moveAction": "Déplacer",
+          "photos_one": "Cela modifie les mots-clés de {{count}} photo.",
+          "photos_many": "Cela modifie les mots-clés de {{count}} photos.",
+          "photos_other": "Cela modifie les mots-clés de {{count}} photos.",
+          "rename": "Renommer « {{from}} » en « {{to}} » ?",
+          "renameAction": "Renommer"
+        },
+        "empty": "Aucun mot-clé pour l’instant.",
+        "expand": "Afficher les mots-clés sous {{keyword}}",
+        "filterHint": "Afficher les photos avec {{keyword}} et les mots-clés en dessous. Faites glisser sur un autre mot-clé pour l’y déplacer.",
+        "legacyHint": "« {{keyword}} » est un seul mot-clé, écrit avant les hiérarchies. Clic droit pour le convertir.",
+        "menu": {
+          "clearFilter": "Ne plus filtrer par ce mot-clé",
+          "convert": "Convertir en « {{path}} »",
+          "filter": "Afficher les photos avec ce mot-clé",
+          "moveToTop": "Déplacer au niveau supérieur",
+          "rename": "Renommer…"
+        },
+        "renameLabel": "Renommer ou déplacer {{keyword}} : saisissez son chemin, p. ex. Parent > Nom",
+        "title": "Liste des mots-clés",
+        "toasts": {
+          "renameFailed": "Impossible de modifier les mots-clés : {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "Réduction du bruit IA",
@@ -4717,6 +4762,7 @@
         "addTo_one": "Ajouter à {{count}} photo",
         "addTo_many": "Ajouter à {{count}} photos",
         "addTo_other": "Ajouter à {{count}} photos",
+        "hierarchyHint": "Séparez les mots-clés par des virgules. « Animaux > Chiens », « Animaux|Chiens » ou « Chiens < Animaux » place Chiens sous Animaux.",
         "none": "Aucun mot-clé",
         "ofSelection": "Mots-clés de la sélection",
         "partial_one": "Sur {{on}} photo sur {{count}}",

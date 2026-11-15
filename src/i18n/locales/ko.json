@@ -75,6 +75,7 @@
       "failed": "{{batch}}을(를) 완료할 수 없습니다: {{error}}",
       "keywordAdd": "키워드 “{{tag}}”",
       "keywordRemove": "키워드 “{{tag}}” 제거",
+      "keywordRename": "키워드 ‘{{from}}’을(를) ‘{{to}}’(으)로 이름 바꾸는 중",
       "notWritten_other": "사진 {{count}}장을 기록할 수 없습니다",
       "paste": "설정 붙여넣기",
       "preset": "프리셋",
@@ -247,6 +248,9 @@
       "color_label_red": "빨간색",
       "color_label_yellow": "노란색",
       "command_palette": "명령 팔레트…",
+      "compare_left_right": "보정 전/후: 좌우 분할",
+      "compare_side_by_side": "보정 전/후: 나란히",
+      "compare_top_bottom": "보정 전/후: 상하 분할",
       "copy_adjustments": "설정 복사",
       "copy_image_path": "경로 복사",
       "delete_selected": "휴지통으로 이동",
@@ -561,7 +565,10 @@
       "showExplorer": "파일 탐색기에서 표시",
       "showFileManager": "파일 관리자에서 표시",
       "showFinder": "Finder에서 보기",
-      "virtualCopy": "가상 복사본"
+      "virtualCopy": "가상 복사본",
+      "xmpConflicts": "XMP 충돌",
+      "xmpKeepLibrary": "선택한 사진은 라이브러리 유지",
+      "xmpUseXmp": "선택한 사진은 XMP 사용"
     },
     "toasts": {
       "couldNotShowExplorer": "탐색기에서 파일을 표시할 수 없습니다: {{err}}",
@@ -2090,6 +2097,7 @@
       "keepLibraryFor": "{{name}}: 라이브러리 유지",
       "keepLibraryTitle": "라이브러리의 별점, 레이블, 키워드, IPTC를 XMP 파일에 씁니다",
       "loading": "XMP 파일 확인 중…",
+      "noneToResolve": "선택한 사진 중 라이브러리와 다른 XMP 파일이 있는 사진이 없습니다.",
       "notResolved_other": "사진 {{count}}장은 해결되지 않았습니다:",
       "reason": {
         "changedElsewhere_other": "XMP 파일 {{count}}개가 라이브러리와 다릅니다(다른 프로그램에서 변경되었거나 Rawtonic이 읽은 적 없음). 선택하지 않으면 덮어쓰지 않으며 라이브러리가 내 버전을 유지합니다.",
@@ -2293,6 +2301,9 @@
         "color_label_purple": "색상 레이블: 보라",
         "color_label_red": "색상 레이블: 빨강",
         "color_label_yellow": "색상 레이블: 노랑",
+        "compare_left_right": "보정 전/후: 좌우 분할",
+        "compare_side_by_side": "보정 전/후: 나란히",
+        "compare_top_bottom": "보정 전/후: 상하 분할",
         "copy_adjustments": "선택한 조정값 복사",
         "copy_files": "선택한 파일 복사",
         "copy_image_path": "선택한 이미지의 경로 복사",
@@ -3954,6 +3965,38 @@
           "showFailed": "폴더를 표시할 수 없습니다: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "{{keyword}} 아래 키워드 숨기기",
+        "confirm": {
+          "cancel": "취소",
+          "convert": "‘{{from}}’을(를) 계층 ‘{{to}}’(으)로 변환할까요?",
+          "convertAction": "변환",
+          "label": "키워드 변경 확인",
+          "merge": "‘{{from}}’을(를) ‘{{to}}’에 병합할까요? ‘{{from}}’은(는) 그것으로 대체됩니다.",
+          "mergeAction": "병합",
+          "move": "‘{{from}}’을(를) ‘{{to}}’(으)로 옮길까요?",
+          "moveAction": "이동",
+          "photos_other": "사진 {{count}}장의 키워드가 변경됩니다.",
+          "rename": "‘{{from}}’의 이름을 ‘{{to}}’(으)로 바꿀까요?",
+          "renameAction": "이름 바꾸기"
+        },
+        "empty": "아직 키워드가 없습니다.",
+        "expand": "{{keyword}} 아래 키워드 보기",
+        "filterHint": "{{keyword}} 및 그 아래 키워드가 있는 사진을 표시합니다. 다른 키워드 위로 끌어 그곳으로 옮깁니다.",
+        "legacyHint": "‘{{keyword}}’는 계층 구조 이전에 작성된 하나의 키워드입니다. 오른쪽 클릭하여 변환하세요.",
+        "menu": {
+          "clearFilter": "이 키워드로 필터링 중지",
+          "convert": "‘{{path}}’(으)로 변환",
+          "filter": "이 키워드가 있는 사진 보기",
+          "moveToTop": "최상위 수준으로 이동",
+          "rename": "이름 바꾸기…"
+        },
+        "renameLabel": "{{keyword}} 이름 바꾸기 또는 이동: 경로 입력(예: 상위 > 이름)",
+        "title": "키워드 목록",
+        "toasts": {
+          "renameFailed": "키워드를 변경할 수 없습니다: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "AI 노이즈 제거",
@@ -4395,6 +4438,7 @@
       "keywords": {
         "add": "키워드 추가",
         "addTo_other": "사진 {{count}}장에 추가",
+        "hierarchyHint": "키워드는 쉼표로 구분합니다. ‘동물 > 개’, ‘동물|개’ 또는 ‘개 < 동물’은 개를 동물 아래에 둡니다.",
         "none": "키워드 없음",
         "ofSelection": "선택 항목의 키워드",
         "partial_other": "사진 {{count}}장 중 {{on}}장에 있음",

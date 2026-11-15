@@ -81,6 +81,7 @@
       "failed": "{{batch}} could not be finished: {{error}}",
       "keywordAdd": "Keyword “{{tag}}”",
       "keywordRemove": "Removing keyword “{{tag}}”",
+      "keywordRename": "Renaming keyword “{{from}}” to “{{to}}”",
       "notWritten_one": "{{count}} photo could not be written",
       "notWritten_other": "{{count}} photos could not be written",
       "paste": "Paste Settings",
@@ -260,6 +261,9 @@
       "color_label_red": "Red",
       "color_label_yellow": "Yellow",
       "command_palette": "Command Palette…",
+      "compare_left_right": "Before/After: Split left/right",
+      "compare_side_by_side": "Before/After: Side by side",
+      "compare_top_bottom": "Before/After: Split top/bottom",
       "copy_adjustments": "Copy Settings",
       "copy_image_path": "Copy Path",
       "delete_selected": "Move to Trash",
@@ -574,7 +578,10 @@
       "showExplorer": "Show in file manager",
       "showFileManager": "Show in file manager",
       "showFinder": "Show in Finder",
-      "virtualCopy": "Virtual copy"
+      "virtualCopy": "Virtual copy",
+      "xmpConflicts": "XMP conflicts",
+      "xmpKeepLibrary": "Keep library for the selected photos",
+      "xmpUseXmp": "Use XMP for the selected photos"
     },
     "toasts": {
       "couldNotShowExplorer": "Could not show file in explorer: {{err}}",
@@ -2177,6 +2184,7 @@
       "keepLibraryFor": "Keep library for {{name}}",
       "keepLibraryTitle": "Write the library's rating, label, keywords and IPTC into the XMP file",
       "loading": "Checking XMP files…",
+      "noneToResolve": "None of the selected photos has an XMP file that differs from the library.",
       "notResolved_one": "{{count}} photo was not resolved:",
       "notResolved_other": "{{count}} photos were not resolved:",
       "reason": {
@@ -2388,6 +2396,9 @@
         "color_label_purple": "Color label: Purple",
         "color_label_red": "Color label: Red",
         "color_label_yellow": "Color label: Yellow",
+        "compare_left_right": "Before/After: Split left/right",
+        "compare_side_by_side": "Before/After: Side by side",
+        "compare_top_bottom": "Before/After: Split top/bottom",
         "copy_adjustments": "Copy selected adjustments",
         "copy_files": "Copy selected file(s)",
         "copy_image_path": "Copy path of selected photo(s)",
@@ -4077,6 +4088,39 @@
           "showFailed": "Could not show the folder: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Hide the keywords under {{keyword}}",
+        "confirm": {
+          "cancel": "Cancel",
+          "convert": "Convert “{{from}}” into the hierarchy “{{to}}”?",
+          "convertAction": "Convert",
+          "label": "Confirm keyword change",
+          "merge": "Merge “{{from}}” into “{{to}}”? “{{from}}” is replaced by it.",
+          "mergeAction": "Merge",
+          "move": "Move “{{from}}” to “{{to}}”?",
+          "moveAction": "Move",
+          "photos_one": "This changes the keywords of {{count}} photo.",
+          "photos_other": "This changes the keywords of {{count}} photos.",
+          "rename": "Rename “{{from}}” to “{{to}}”?",
+          "renameAction": "Rename"
+        },
+        "empty": "No keywords yet.",
+        "expand": "Show the keywords under {{keyword}}",
+        "filterHint": "Show the photos with {{keyword}} and the keywords under it. Drag onto another keyword to move it there.",
+        "legacyHint": "“{{keyword}}” is one keyword, written before keyword hierarchies. Right-click to convert it.",
+        "menu": {
+          "clearFilter": "Stop Filtering by This Keyword",
+          "convert": "Convert to “{{path}}”",
+          "filter": "Show Photos with This Keyword",
+          "moveToTop": "Move to Top Level",
+          "rename": "Rename…"
+        },
+        "renameLabel": "Rename or move {{keyword}}: type its path, e.g. Parent > Name",
+        "title": "Keyword List",
+        "toasts": {
+          "renameFailed": "Keywords could not be changed: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "AI Denoise",
@@ -4526,6 +4570,7 @@
         "add": "Add keywords",
         "addTo_one": "Add to {{count}} photo",
         "addTo_other": "Add to {{count}} photos",
+        "hierarchyHint": "Separate keywords with commas. “Animals > Dogs”, “Animals|Dogs” or “Dogs < Animals” puts Dogs under Animals.",
         "none": "No keywords",
         "ofSelection": "Keywords of the selection",
         "partial_one": "On {{on}} of {{count}} photo",

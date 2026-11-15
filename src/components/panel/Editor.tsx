@@ -47,6 +47,8 @@ import { isLevelsPicker } from '../../utils/targetedAdjustment';
 import SplitViewOverlay, { ViewerBeforeBadge } from './editor/SplitViewOverlay';
 import { anchoredAt, keepMagnification } from '../../utils/beforeAfter';
 import BrowserBeforePane from './editor/BrowserBeforePane';
+import { compositeWhileMoving } from '../../utils/layerWhileMoving';
+import { isOneToOne, snapToDevicePixel } from '../../utils/pixelSnap';
 import {
   MIN_VIEWER_ZOOM,
   cropModeBox,
@@ -217,6 +219,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   /** Side by side: the before pane left of the viewer (the after pane). */
   const beforePaneRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  /** The viewer shows browser frames (Linux), not the native display. */
+  const browserFramesRef = useRef(false);
   const transformStateRef = useRef<TransformState>(transformState);
   transformStateRef.current = transformState;
   const [isPanningState, setIsPanningState] = useState(false);
@@ -577,6 +581,25 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     [getTransformBounds]
   );
 
+  /** The transform as drawn: with browser frames at 100 % the pan moved by
+   * at most half a device pixel so the frame's pixels land on whole device
+   * pixels (utils/pixelSnap.ts). The pan itself stays unrounded, so small
+   * trackpad moves still add up. */
+  const shownTransform = useCallback(
+    (t: TransformState): TransformState => {
+      const fit = imageRenderSizeRef.current;
+      const dpr = window.devicePixelRatio || 1;
+      if (!browserFramesRef.current || !isOneToOne(t.scale, fit.scale, dpr)) return t;
+      const bounds = getTransformBounds(t.scale);
+      return {
+        scale: t.scale,
+        positionX: snapToDevicePixel(t.positionX, t.scale, fit.offsetX, dpr, bounds.minX, bounds.maxX),
+        positionY: snapToDevicePixel(t.positionY, t.scale, fit.offsetY, dpr, bounds.minY, bounds.maxY)
+      };
+    },
+    [getTransformBounds]
+  );
+
   const applyTransform = useCallback(
     (x: number, y: number, scale: number, animating = false) => {
       // Any other transform (a wheel, a pan, a reset) ends the animation.
@@ -585,7 +608,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       setTransformState({ scale, positionX: x, positionY: y });
 
       if (contentRef.current) {
-        contentRef.current.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+        const shown = shownTransform({ positionX: x, positionY: y, scale });
+        contentRef.current.style.transform = `translate(${shown.positionX}px, ${shown.positionY}px) scale(${scale})`;
+        // Browser frames (Linux): composited only while moving, so at rest
+        // WebKit paints the frame at the zoom, not a magnified raster.
+        if (browserFramesRef.current) compositeWhileMoving(contentRef.current);
       }
 
       if (!isTransitioningRef.current) {
@@ -609,7 +636,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         handleZoomed({ scale, positionX: x, positionY: y });
       }, 100);
     },
-    [handleZoomed]
+    [handleZoomed, shownTransform]
   );
 
   /** Stops the animation under way, if any, and forgets where it went. */
@@ -982,6 +1009,44 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     setEditor
   ]);
 
+  /** Starts a pan (or a two-finger pinch) of the viewer's transform from a
+   * press on the viewer or on the side-by-side before pane. */
+  const beginPan = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, panningDisabled: boolean) => {
+      if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
+
+      const isMiddleClick = e.pointerType === 'mouse' && e.button === 1;
+
+      if (panningDisabled && !isMiddleClick) return;
+
+      if (isMiddleClick) {
+        isMiddleMousePanning.current = true;
+      }
+
+      cancelAnimation();
+      if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
+
+      panVelocityHistory.current = [];
+      mouseDownPos.current = { x: e.clientX, y: e.clientY };
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointers.current.size === 1) {
+        lastPanPos.current = { x: e.clientX, y: e.clientY };
+        setIsPanningState(true);
+      } else if (activePointers.current.size === 2) {
+        const pts = Array.from(activePointers.current.values());
+        lastPinch.current = {
+          dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
+          midX: (pts[0].x + pts[1].x) / 2,
+          midY: (pts[0].y + pts[1].y) / 2
+        };
+      }
+
+      if (e.pointerType === 'mouse') e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    [cancelAnimation]
+  );
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       // Capture runs before a canvas handle can stop propagation. Let Relight
@@ -1051,36 +1116,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         return;
       }
 
-      if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
-
-      const isMiddleClick = e.pointerType === 'mouse' && e.button === 1;
-
-      if (panningDisabled && !isMiddleClick) return;
-
-      if (isMiddleClick) {
-        isMiddleMousePanning.current = true;
-      }
-
-      cancelAnimation();
-      if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
-
-      panVelocityHistory.current = [];
-      mouseDownPos.current = { x: e.clientX, y: e.clientY };
-      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-      if (activePointers.current.size === 1) {
-        lastPanPos.current = { x: e.clientX, y: e.clientY };
-        setIsPanningState(true);
-      } else if (activePointers.current.size === 2) {
-        const pts = Array.from(activePointers.current.values());
-        lastPinch.current = {
-          dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
-          midX: (pts[0].x + pts[1].x) / 2,
-          midY: (pts[0].y + pts[1].y) / 2
-        };
-      }
-
-      if (e.pointerType === 'mouse') e.currentTarget.setPointerCapture(e.pointerId);
+      beginPan(e, panningDisabled);
     },
     [
       cancelAnimation,
@@ -1092,9 +1128,21 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       selectedImage?.width,
       selectedImage?.height,
       setAdjustments,
-      setEditor
+      setEditor,
+      beginPan
     ]
   );
+
+  // The side-by-side before pane mirrors the after pane (one transform): a
+  // drag there pans both, a click zooms both, as in the after pane. The
+  // edit's tools (masks, crop, straighten, pickers) stay in the after pane.
+  const handleBeforePanePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const isMiddleClick = e.pointerType === 'mouse' && e.button === 1;
+    wasPanningDisabledOnDown.current = isPanningDisabled;
+    if (tatTarget !== null && !isMiddleClick) return;
+    if (e.pointerType === 'mouse' && e.button === 0 && (e.shiftKey || e.ctrlKey || e.metaKey)) return;
+    beginPan(e, isPanningDisabled);
+  };
 
   useEffect(() => {
     if (!isPanningDisabled) return;
@@ -1179,7 +1227,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         let newScale = transformStateRef.current.scale * distDelta;
         newScale = Math.max(minScaleRef.current, Math.min(maxScaleRef.current, newScale));
 
-        const rect = imageContainerRef.current?.getBoundingClientRect();
+        // The pane pinched (the after pane or the before pane beside it,
+        // equal in size and framing).
+        const rect = e.currentTarget.getBoundingClientRect();
         if (rect) {
           const mouseX = midX - rect.left;
           const mouseY = midY - rect.top;
@@ -1330,7 +1380,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           isClickAnimating.current = false;
         }, clickAnimationTime + 50);
 
-        const container = imageContainerRef.current;
+        // The pane clicked: the viewer, or the before pane beside it (equal
+        // in size and framing).
+        const container = e.currentTarget as HTMLElement | null;
         if (!container) return;
 
         const currentPositionX = transformStateRef.current.positionX;
@@ -2487,6 +2539,19 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }
 
   const isWgpuActive = appSettings?.useWgpuRenderer !== false && (hasRenderedFirstFrame || holdingNativeFrame);
+  // Read by applyTransform; a hint already set lapses within its settle time.
+  browserFramesRef.current = !isWgpuActive;
+  // Both panes draw the same snapped pan (side by side's before pane too).
+  const shownView = shownTransform(transformState);
+  // The before pane only navigates: the zoom and pan cursors of the viewer.
+  const beforePaneCursor =
+    isPanningState && (isMiddleMousePanning.current || isZoomActionActive)
+      ? 'grabbing'
+      : isZoomActionActive
+        ? transformState.scale > 1.01
+          ? 'zoom-out'
+          : 'zoom-in'
+        : undefined;
   // Cropping shows one photograph. A held or toggled whole before keeps the
   // panes (its before then fills the after pane too), so nothing moves.
   const sideBySideShown =
@@ -2531,16 +2596,24 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           <div
             ref={beforePaneRef}
             className="flex-1 min-w-0 relative overflow-hidden"
-            style={{ backgroundColor: isWgpuActive ? undefined : viewerBackgroundCss(viewerBackground) }}
+            style={{
+              cursor: beforePaneCursor,
+              backgroundColor: isWgpuActive ? undefined : viewerBackgroundCss(viewerBackground)
+            }}
             data-testid="before-pane"
             onWheel={forwardBeforePaneWheel}
+            onPointerDown={handleBeforePanePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onClick={handleClick}
           >
             {!isWgpuActive && selectedImage && (
               <BrowserBeforePane
                 path={selectedImage.path}
                 adjustments={adjustments}
                 size={imageRenderSize}
-                transform={transformState}
+                transform={shownView}
                 enabled={canRenderSource(selectedImage)}
                 decoded={selectedImage.isDecoded}
               />
@@ -2581,10 +2654,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             ref={contentRef}
             className="w-full h-full flex items-center justify-center origin-top-left"
             style={{
-              transform: `translate(${transformState.positionX}px, ${transformState.positionY}px) scale(${transformState.scale})`,
-              // WebKit's JPEG fallback should move a composited layer while
-              // zooming/panning, rather than repainting the SVG photo each move.
-              willChange: isWgpuActive ? undefined : 'transform'
+              // No `will-change` here: `applyTransform` sets it only while the
+              // view moves (utils/layerWhileMoving.ts).
+              transform: `translate(${shownView.positionX}px, ${shownView.positionY}px) scale(${shownView.scale})`
             }}
           >
             <ImageCanvas

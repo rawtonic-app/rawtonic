@@ -30,6 +30,48 @@ export interface XmpRetry {
 /** Asks the app to show these photographs in the grid (App.tsx). */
 export const SHOW_PENDING_XMP_EVENT = 'rawtonic:show-pending-xmp';
 export const PENDING_XMP_VIEW_ID = 'rawtonic:pending-xmp';
+/** An XMP conflict was resolved outside the panel (the grid's menu): the
+ * session bar's count is read again (SessionWorkspace). */
+export const XMP_RESOLVED_EVENT = 'rawtonic:xmp-resolved';
+
+/** Keep library or Use XMP for `paths`: through the photos' write queues
+ * (Use XMP as one step of Undo); the photographs are never touched. Photos
+ * without a changed XMP file are skipped. One way for the panel and the
+ * grid's menu. */
+export async function resolveXmpConflicts(
+  directory: string,
+  paths: string[],
+  keep: 'library' | 'xmp'
+): Promise<XmpReport> {
+  const report =
+    keep === 'xmp'
+      ? await xmpReadAction(directory, paths)
+      : await invokeInOrder<XmpReport>(Invokes.SessionXmpResolve, { directory, paths, keep }, 'keepLibraryXmp');
+  if (report.done.length) notify.success(i18next.t('session.xmp.resolved', { count: report.done.length }));
+  else if (!report.failed.length && !report.conflicts.length && !report.offline.length)
+    notify.info(i18next.t('session.xmp.noneToResolve'));
+  if (useLibraryStore.getState().activeAlbumId === PENDING_XMP_VIEW_ID)
+    window.dispatchEvent(new CustomEvent(SHOW_PENDING_XMP_EVENT, { detail: { refresh: true } }));
+  window.dispatchEvent(new Event(XMP_RESOLVED_EVENT));
+  return report;
+}
+
+/** What a resolution left (offline photos, files changed again, write
+ * failures), said once for callers without the panel's list (the grid's
+ * menu); the names are in the detail. */
+export function reportUnresolvedXmp(report: XmpReport) {
+  const base = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+  const names = [
+    ...report.offline.map(base),
+    ...report.conflicts.map(base),
+    ...report.failed.map((failure) => `${base(failure.path)}: ${failure.reason}`)
+  ];
+  if (names.length === 0) return;
+  notify.warn(i18next.t('session.xmp.notResolved', { count: names.length }), {
+    detail: names.join('\n')
+  });
+}
+
 /** The activity centre's entry for XMP files not up to date. */
 const XMP_ACTIVITY = 'xmp:pending';
 
@@ -272,6 +314,12 @@ export default function SessionXmpStatus({
     load().catch((e) => current() && notify.error(t('session.xmp.retryFailed', { error: String(e) })));
   }, [open, count, load, current, t]);
 
+  // The grid's menu offers the choice only while some XMP file differs.
+  useEffect(() => {
+    useLibraryStore.setState({ xmpPending: count });
+    return () => useLibraryStore.setState({ xmpPending: 0 });
+  }, [count]);
+
   if (count <= 0 && !open) return null;
 
   /** Keep library or Use XMP for `paths`: through the photos' write queues
@@ -280,16 +328,10 @@ export default function SessionXmpStatus({
     setBusy(true);
     setResult(null);
     try {
-      const report =
-        keep === 'xmp'
-          ? await xmpReadAction(directory, paths)
-          : await invokeInOrder<XmpReport>(Invokes.SessionXmpResolve, { directory, paths, keep }, 'keepLibraryXmp');
+      const report = await resolveXmpConflicts(directory, paths, keep);
       if (!current()) return;
       await onChanged();
       await load();
-      if (useLibraryStore.getState().activeAlbumId === PENDING_XMP_VIEW_ID)
-        window.dispatchEvent(new CustomEvent(SHOW_PENDING_XMP_EVENT, { detail: { refresh: true } }));
-      if (report.done.length) notify.success(t('session.xmp.resolved', { count: report.done.length }));
       setResolved(report.failed.length || report.conflicts.length || report.offline.length ? report : null);
     } catch (e) {
       if (current()) notify.error(t('session.xmp.retryFailed', { error: String(e) }));

@@ -5835,7 +5835,7 @@ fn get_global_adjustments_resolved(
         } else {
             crate::color_grading::Grading::default()
         };
-        global.apply_grading(grading);
+        global.apply_grading(grading, versions.color_grading);
     }
     // The RAW look's lowered Blacks follow the version's travel.
     if blacks_set_the_black_point(&global) {
@@ -5853,7 +5853,11 @@ fn modern_grading(tonemapper_mode: u32) -> bool {
 macro_rules! impl_apply_grading {
     ($t:ty) => {
         impl $t {
-            fn apply_grading(&mut self, grading: crate::color_grading::Grading) {
+            fn apply_grading(
+                &mut self,
+                grading: crate::color_grading::Grading,
+                version: crate::recipe_versions::ColorGradingVersion,
+            ) {
                 self.color_grading_shadows = ColorGradeSettings::default();
                 self.color_grading_midtones = ColorGradeSettings::default();
                 self.color_grading_highlights = ColorGradeSettings::default();
@@ -5862,7 +5866,7 @@ macro_rules! impl_apply_grading {
                     self.grading_active = 0;
                     return;
                 }
-                self.grading_lut = crate::color_grading::lut(&grading);
+                self.grading_lut = crate::color_grading::lut(&grading, version);
                 self.grading_active = 1;
             }
         }
@@ -6370,6 +6374,10 @@ pub fn new_edit_responses(is_raw: bool) -> serde_json::Map<String, serde_json::V
     map.insert(DEFRINGE_VERSION_KEY.into(), json!(DEFRINGE_VERSION));
     map.insert(BW_VERSION_KEY.into(), json!(BW_VERSION));
     map.insert(HSL_VERSION_KEY.into(), json!(HSL_VERSION));
+    map.insert(
+        COLOR_GRADING_VERSION_KEY.into(),
+        json!(COLOR_GRADING_VERSION),
+    );
     map.insert(GRAIN_VERSION_KEY.into(), json!(GRAIN_VERSION));
     if is_raw {
         map.insert(
@@ -6424,6 +6432,24 @@ pub fn hsl_version(adjustments: &serde_json::Value) -> u64 {
     crate::recipe_versions::HslVersion::of(adjustments).get()
 }
 
+/// The recipe key naming the colour grading response a recipe was made with.
+pub const COLOR_GRADING_VERSION_KEY: &str = "colorGradingVersion";
+/// The newest colour grading response: 2 (2026-11-15) gives the Shadows and
+/// Highlights wheels their own hue directions and ranges, Balance its own
+/// travel per wheel and a Highlights luminance that keeps white, fitted to
+/// Camera Raw on 24 photographs of the slider atlas and checked on the 24
+/// others (notes: benchmark-results/cg1-colour-grading-2026-11-15). The
+/// Midtones and Global wheels and the other luminances are version 1's;
+/// the photo's layers render with the photo's response. Recipes without
+/// the key keep version 1.
+pub const COLOR_GRADING_VERSION: u64 = 2;
+
+/// The recipe's colour grading response, 1 when missing, never newer than
+/// this renderer knows.
+pub fn color_grading_version(adjustments: &serde_json::Value) -> u64 {
+    crate::recipe_versions::ColorGradingVersion::of(adjustments).get()
+}
+
 /// The recipe key naming the B&W mix response a recipe was made with.
 pub const BW_VERSION_KEY: &str = "bwVersion";
 /// The newest B&W mix response: 2 (2026-11-03) lowers more strongly the
@@ -6452,13 +6478,17 @@ fn get_mask_adjustments_from_json(
         &rawtonic_recipe::masks::resolve_local(StoredRef::new(adj)),
         tonemapper_mode,
         render,
+        crate::recipe_versions::ColorGradingVersion::FIRST,
     )
 }
 
+/// `grading_version`: the photo's colour grading response, which its
+/// layers' grading renders with too.
 fn get_mask_adjustments(
     local: &rawtonic_recipe::masks::LocalAdjustments<'_>,
     tonemapper_mode: u32,
     render: RenderVersion,
+    grading_version: crate::recipe_versions::ColorGradingVersion,
 ) -> MaskAdjustments {
     if local.is_null {
         return MaskAdjustments::default();
@@ -6598,11 +6628,14 @@ fn get_mask_adjustments(
         mask.color_ranges[i * 4..i * 4 + 4].copy_from_slice(&pack_color_range(range));
     }
     if modern_grading(tonemapper_mode) && local.color_visible {
-        mask.apply_grading(if local.grading_visible {
-            crate::color_grading::Grading::from_recipe(local.grading)
-        } else {
-            crate::color_grading::Grading::default()
-        });
+        mask.apply_grading(
+            if local.grading_visible {
+                crate::color_grading::Grading::from_recipe(local.grading)
+            } else {
+                crate::color_grading::Grading::default()
+            },
+            grading_version,
+        );
     }
     mask
 }
@@ -6768,7 +6801,12 @@ fn get_all_adjustments_with_locals<'a>(
     let mut mask_count = 0;
 
     for (i, local) in local_adjustments.enumerate() {
-        mask_adjustments[i] = get_mask_adjustments(&local, global.tonemapper_mode, versions.render);
+        mask_adjustments[i] = get_mask_adjustments(
+            &local,
+            global.tonemapper_mode,
+            versions.render,
+            versions.color_grading,
+        );
         // A layer's Structure follows the photo's Structure travel.
         mask_adjustments[i].structure =
             versions.structure.amount(local.structure.get()) as f32 / SCALES.structure;
@@ -9251,6 +9289,51 @@ mod editing_tool_tests {
         let colour =
             get_global_adjustments_from_json(&json!({"grayMixer": {"red": 20}}), true, None);
         assert_eq!(colour.bw_enabled, 0);
+    }
+
+    /// The recipe's `colorGradingVersion` chooses the grading table of the
+    /// photo and of its layers (which follow the photo's).
+    #[test]
+    fn colour_grading_renders_with_its_response() {
+        use crate::color_grading::{Grading, lut};
+        use crate::recipe_versions::ColorGradingVersion;
+        let grading = json!({"shadows": {"hue": 220, "saturation": 40, "luminance": 0},
+            "highlights": {"hue": 40, "saturation": 30, "luminance": -30}, "balance": 20});
+        let layer = json!({"id": "a", "name": "A", "visible": true, "invert": false, "opacity": 100,
+            "subMasks": [{"id": "s", "type": "all", "visible": true, "mode": "additive", "parameters": {}}],
+            "adjustments": {"colorGrading": grading}});
+        let tables = |version: serde_json::Value| {
+            let mut recipe = json!({"colorGrading": grading, "masks": [layer]});
+            if !version.is_null() {
+                recipe[COLOR_GRADING_VERSION_KEY] = version;
+            }
+            let prepared = get_all_adjustments_from_json(&recipe, true, None);
+            assert_eq!(prepared.uniforms.global.grading_active, 1);
+            assert_eq!(prepared.uniforms.mask_adjustments[0].grading_active, 1);
+            (
+                prepared.uniforms.global.grading_lut,
+                prepared.uniforms.mask_adjustments[0].grading_lut,
+            )
+        };
+        let of = |version: u64| {
+            lut(
+                &Grading::from_json(&grading),
+                ColorGradingVersion::of(&json!({ COLOR_GRADING_VERSION_KEY: version })),
+            )
+        };
+        assert_ne!(of(1), of(2));
+        // Recipes without the key keep the first response.
+        assert_eq!(tables(serde_json::Value::Null), (of(1), of(1)));
+        assert_eq!(tables(json!(1)), (of(1), of(1)));
+        assert_eq!(tables(json!(2)), (of(2), of(2)));
+        // Never newer than the renderer knows.
+        assert_eq!(
+            tables(json!(9)),
+            (of(COLOR_GRADING_VERSION), of(COLOR_GRADING_VERSION))
+        );
+        assert!(
+            new_edit_responses(true)[COLOR_GRADING_VERSION_KEY] == json!(COLOR_GRADING_VERSION)
+        );
     }
 
     #[test]

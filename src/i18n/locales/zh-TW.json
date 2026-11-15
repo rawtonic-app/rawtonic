@@ -75,6 +75,7 @@
       "failed": "無法完成{{batch}}：{{error}}",
       "keywordAdd": "關鍵字「{{tag}}」",
       "keywordRemove": "移除關鍵字「{{tag}}」",
+      "keywordRename": "正在將關鍵字「{{from}}」重新命名為「{{to}}」",
       "notWritten_other": "有 {{count}} 張照片無法寫入",
       "paste": "貼上設定",
       "preset": "預設集",
@@ -247,6 +248,9 @@
       "color_label_red": "紅色",
       "color_label_yellow": "黃色",
       "command_palette": "命令面板…",
+      "compare_left_right": "修改前/修改後：左右分割",
+      "compare_side_by_side": "修改前/修改後：並排",
+      "compare_top_bottom": "修改前/修改後：上下分割",
       "copy_adjustments": "拷貝設定",
       "copy_image_path": "拷貝路徑",
       "delete_selected": "丟到垃圾桶",
@@ -561,7 +565,10 @@
       "showExplorer": "在檔案資源管理器中顯示",
       "showFileManager": "在檔案管理員中顯示",
       "showFinder": "在 Finder 中顯示",
-      "virtualCopy": "虛擬副本"
+      "virtualCopy": "虛擬副本",
+      "xmpConflicts": "XMP 衝突",
+      "xmpKeepLibrary": "所選照片保留資料庫",
+      "xmpUseXmp": "所選照片使用 XMP"
     },
     "toasts": {
       "couldNotShowExplorer": "無法在檔案資源管理器中顯示檔案：{{err}}",
@@ -2090,6 +2097,7 @@
       "keepLibraryFor": "為 {{name}} 保留圖庫",
       "keepLibraryTitle": "將圖庫的評等、標籤、關鍵字和 IPTC 寫入 XMP 檔案",
       "loading": "正在檢查 XMP 檔案…",
+      "noneToResolve": "所選照片中沒有與資料庫不同的 XMP 檔案。",
       "notResolved_other": "{{count}} 張照片未解決:",
       "reason": {
         "changedElsewhere_other": "{{count}} 個 XMP 檔案與圖庫不同(被其他程式修改,或 Rawtonic 從未讀取)。未經您選擇不會覆寫;圖庫保留您的版本。",
@@ -2293,6 +2301,9 @@
         "color_label_purple": "顏色標籤：紫色",
         "color_label_red": "顏色標籤：紅色",
         "color_label_yellow": "顏色標籤：黃色",
+        "compare_left_right": "修改前/修改後：左右分割",
+        "compare_side_by_side": "修改前/修改後：並排",
+        "compare_top_bottom": "修改前/修改後：上下分割",
         "copy_adjustments": "複製選中的調整",
         "copy_files": "複製選中的檔案",
         "copy_image_path": "複製所選圖片的路徑",
@@ -3954,6 +3965,38 @@
           "showFailed": "無法顯示資料夾：{{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "隱藏 {{keyword}} 下的關鍵字",
+        "confirm": {
+          "cancel": "取消",
+          "convert": "將「{{from}}」轉換為階層「{{to}}」？",
+          "convertAction": "轉換",
+          "label": "確認關鍵字變更",
+          "merge": "將「{{from}}」合併到「{{to}}」？「{{from}}」將被其取代。",
+          "mergeAction": "合併",
+          "move": "將「{{from}}」移到「{{to}}」？",
+          "moveAction": "移動",
+          "photos_other": "這會變更 {{count}} 張照片的關鍵字。",
+          "rename": "將「{{from}}」重新命名為「{{to}}」？",
+          "renameAction": "重新命名"
+        },
+        "empty": "尚無關鍵字。",
+        "expand": "顯示 {{keyword}} 下的關鍵字",
+        "filterHint": "顯示帶有 {{keyword}} 及其下層關鍵字的照片。拖到另一個關鍵字上即可移到那裡。",
+        "legacyHint": "「{{keyword}}」是在關鍵字階層之前寫入的單一關鍵字。按右鍵可轉換。",
+        "menu": {
+          "clearFilter": "不再依此關鍵字篩選",
+          "convert": "轉換為「{{path}}」",
+          "filter": "顯示帶有此關鍵字的照片",
+          "moveToTop": "移到最上層",
+          "rename": "重新命名…"
+        },
+        "renameLabel": "重新命名或移動 {{keyword}}：輸入其路徑，例如 上層 > 名稱",
+        "title": "關鍵字清單",
+        "toasts": {
+          "renameFailed": "無法變更關鍵字：{{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "AI 降噪",
@@ -4395,6 +4438,7 @@
       "keywords": {
         "add": "加入關鍵字",
         "addTo_other": "加入至 {{count}} 張照片",
+        "hierarchyHint": "以逗號分隔關鍵字。「動物 > 狗」「動物|狗」或「狗 < 動物」會把狗放在動物下。",
         "none": "無關鍵字",
         "ofSelection": "選取項目的關鍵字",
         "partial_other": "{{count}} 張照片中的 {{on}} 張",

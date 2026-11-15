@@ -75,6 +75,7 @@
       "failed": "无法完成{{batch}}：{{error}}",
       "keywordAdd": "关键词“{{tag}}”",
       "keywordRemove": "移除关键词“{{tag}}”",
+      "keywordRename": "正在将关键字“{{from}}”重命名为“{{to}}”",
       "notWritten_other": "有 {{count}} 张照片无法写入",
       "paste": "粘贴设置",
       "preset": "预设",
@@ -247,6 +248,9 @@
       "color_label_red": "红色",
       "color_label_yellow": "黄色",
       "command_palette": "命令面板…",
+      "compare_left_right": "修改前/修改后：左右分割",
+      "compare_side_by_side": "修改前/修改后：并排",
+      "compare_top_bottom": "修改前/修改后：上下分割",
       "copy_adjustments": "拷贝设置",
       "copy_image_path": "拷贝路径",
       "delete_selected": "移到废纸篓",
@@ -561,7 +565,10 @@
       "showExplorer": "在文件资源管理器中显示",
       "showFileManager": "在文件管理器中显示",
       "showFinder": "在访达中显示",
-      "virtualCopy": "虚拟副本"
+      "virtualCopy": "虚拟副本",
+      "xmpConflicts": "XMP 冲突",
+      "xmpKeepLibrary": "所选照片保留资料库",
+      "xmpUseXmp": "所选照片使用 XMP"
     },
     "toasts": {
       "couldNotShowExplorer": "无法在文件资源管理器中显示文件：{{err}}",
@@ -2090,6 +2097,7 @@
       "keepLibraryFor": "为 {{name}} 保留图库",
       "keepLibraryTitle": "将图库的评级、标签、关键词和 IPTC 写入 XMP 文件",
       "loading": "正在检查 XMP 文件…",
+      "noneToResolve": "所选照片中没有与资料库不同的 XMP 文件。",
       "notResolved_other": "{{count}} 张照片未解决:",
       "reason": {
         "changedElsewhere_other": "{{count}} 个 XMP 文件与图库不同(被其他程序修改,或 Rawtonic 从未读取)。未经您选择不会覆盖;图库保留您的版本。",
@@ -2293,6 +2301,9 @@
         "color_label_purple": "颜色标签：紫色",
         "color_label_red": "颜色标签：红色",
         "color_label_yellow": "颜色标签：黄色",
+        "compare_left_right": "修改前/修改后：左右分割",
+        "compare_side_by_side": "修改前/修改后：并排",
+        "compare_top_bottom": "修改前/修改后：上下分割",
         "copy_adjustments": "复制选中的调整",
         "copy_files": "复制选中的文件",
         "copy_image_path": "复制所选图片的路径",
@@ -3954,6 +3965,38 @@
           "showFailed": "无法显示文件夹：{{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "隐藏 {{keyword}} 下的关键字",
+        "confirm": {
+          "cancel": "取消",
+          "convert": "将“{{from}}”转换为层级“{{to}}”？",
+          "convertAction": "转换",
+          "label": "确认关键字更改",
+          "merge": "将“{{from}}”合并到“{{to}}”？“{{from}}”将被其替换。",
+          "mergeAction": "合并",
+          "move": "将“{{from}}”移到“{{to}}”？",
+          "moveAction": "移动",
+          "photos_other": "这会更改 {{count}} 张照片的关键字。",
+          "rename": "将“{{from}}”重命名为“{{to}}”？",
+          "renameAction": "重命名"
+        },
+        "empty": "尚无关键字。",
+        "expand": "显示 {{keyword}} 下的关键字",
+        "filterHint": "显示带有 {{keyword}} 及其下级关键字的照片。拖到另一个关键字上即可移到那里。",
+        "legacyHint": "“{{keyword}}”是在关键字层级之前写入的单个关键字。右键单击可转换。",
+        "menu": {
+          "clearFilter": "不再按此关键字筛选",
+          "convert": "转换为“{{path}}”",
+          "filter": "显示带有此关键字的照片",
+          "moveToTop": "移到顶层",
+          "rename": "重命名…"
+        },
+        "renameLabel": "重命名或移动 {{keyword}}：输入其路径，例如 上级 > 名称",
+        "title": "关键字列表",
+        "toasts": {
+          "renameFailed": "无法更改关键字：{{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "AI 降噪",
@@ -4395,6 +4438,7 @@
       "keywords": {
         "add": "添加关键字",
         "addTo_other": "添加到 {{count}} 张照片",
+        "hierarchyHint": "用逗号分隔关键字。“动物 > 狗”“动物|狗”或“狗 < 动物”会把狗放在动物下。",
         "none": "无关键字",
         "ofSelection": "所选内容的关键字",
         "partial_other": "{{count}} 张照片中的 {{on}} 张",

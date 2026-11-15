@@ -1117,6 +1117,14 @@ pub(crate) async fn export_images_impl(
 
     #[cfg(feature = "performance-profiling")]
     drop(context_stage);
+    // Where masking computations and exports take turns (an integrated GPU
+    // under a compile limit): not beside a mask computed ahead (the app
+    // alone reached 7.6 GB with a JPEG export beside one on a Radeon 680M,
+    // G76/WSMOKE20). Held until the export's workers end.
+    let ai_turn = crate::ai_lifecycle::export_turn(&app_handle).await;
+    if cancellation_token.load(Ordering::SeqCst) {
+        return Ok(());
+    }
     // Under a compile limit the variant the shown photo's export renders
     // with (the deferred display variant for a 16-bit export or several
     // recipes rendered together, else its display variant) compiles in the
@@ -1191,6 +1199,7 @@ pub(crate) async fn export_images_impl(
     let _export_task = tokio::spawn(async move {
         let _task_guard = task_guard;
         let _same_ai_providers = same_ai_providers;
+        let _ai_turn = ai_turn;
         load_denoise_models(&app_handle, photos.denoise_models.clone()).await;
         let settings = crate::state::settings::current(&app_handle);
         let targets = Arc::new(targets);

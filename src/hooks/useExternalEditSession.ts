@@ -41,10 +41,18 @@ export function useExternalEditSession(
   useEffect(() => {
     if (!initialFileToOpen || !startupLibraryReady) return;
     useProcessStore.getState().setProcess({ initialFileToOpen: null });
-    void invoke<boolean>(Invokes.LaunchPathIsDirectory, { path: initialFileToOpen }).then((directory) => {
+    void (async () => {
+      // A library's folder (or its manifest/database) is that library, opened
+      // like any other way of opening one (repair, notice, recent list).
+      const library = await invoke<string | null>(Invokes.LaunchPathLibrary, { path: initialFileToOpen });
+      if (typeof library === 'string' && library) {
+        useProcessStore.getState().setProcess({ libraryToOpen: library });
+        return;
+      }
+      const directory = await invoke<boolean>(Invokes.LaunchPathIsDirectory, { path: initialFileToOpen });
       if (directory === true) showFolderRef.current(initialFileToOpen);
       else handleImageSelectRef.current(initialFileToOpen);
-    });
+    })();
   }, [initialFileToOpen, startupLibraryReady]);
 
   useEffect(() => {

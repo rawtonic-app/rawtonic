@@ -92,7 +92,11 @@ export function beforeSnapshotAdjustments(): Adjustments | null {
  * the snapshot compared with, or the unedited photograph with the edit's
  * framing (`originalPreviewAdjustments`). */
 export function beforeAdjustments(adjustments: Adjustments): Adjustments {
-  return originalPreviewAdjustments(adjustments, beforeSnapshotAdjustments());
+  return originalPreviewAdjustments(
+    adjustments,
+    beforeSnapshotAdjustments(),
+    useEditorStore.getState().selectedImage?.isRaw ?? false
+  );
 }
 
 /** Compares the open photograph with `snapshot` (null: with the unedited

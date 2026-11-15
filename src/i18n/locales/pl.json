@@ -99,6 +99,7 @@
       "failed": "Nie udało się dokończyć: {{batch}}: {{error}}",
       "keywordAdd": "Słowo kluczowe „{{tag}}”",
       "keywordRemove": "Usuwanie słowa kluczowego „{{tag}}”",
+      "keywordRename": "Zmiana nazwy słowa kluczowego „{{from}}” na „{{to}}”",
       "notWritten_one": "Nie udało się zapisać {{count}} zdjęcia",
       "notWritten_few": "Nie udało się zapisać {{count}} zdjęć",
       "notWritten_many": "Nie udało się zapisać {{count}} zdjęć",
@@ -292,6 +293,9 @@
       "color_label_red": "Czerwona",
       "color_label_yellow": "Żółta",
       "command_palette": "Paleta poleceń…",
+      "compare_left_right": "Przed/po: Podział lewo/prawo",
+      "compare_side_by_side": "Przed/po: Obok siebie",
+      "compare_top_bottom": "Przed/po: Podział góra/dół",
       "copy_adjustments": "Kopiuj ustawienia",
       "copy_image_path": "Kopiuj ścieżkę",
       "delete_selected": "Przenieś do kosza",
@@ -650,7 +654,10 @@
       "showExplorer": "Pokaż w eksploratorze plików",
       "showFileManager": "Pokaż w menedżerze plików",
       "showFinder": "Pokaż w Finderze",
-      "virtualCopy": "Kopia wirtualna"
+      "virtualCopy": "Kopia wirtualna",
+      "xmpConflicts": "Konflikty XMP",
+      "xmpKeepLibrary": "Zachowaj bibliotekę dla zaznaczonych zdjęć",
+      "xmpUseXmp": "Użyj XMP dla zaznaczonych zdjęć"
     },
     "toasts": {
       "couldNotShowExplorer": "Nie można pokazać pliku w eksploratorze: {{err}}",
@@ -2434,6 +2441,7 @@
       "keepLibraryFor": "Zachowaj bibliotekę dla {{name}}",
       "keepLibraryTitle": "Zapisz ocenę, etykietę, słowa kluczowe i IPTC z biblioteki w pliku XMP",
       "loading": "Sprawdzanie plików XMP…",
+      "noneToResolve": "Żadne z zaznaczonych zdjęć nie ma pliku XMP różniącego się od biblioteki.",
       "notResolved_one": "{{count}} zdjęcie nie zostało rozwiązane:",
       "notResolved_few": "{{count}} zdjęcia nie zostały rozwiązane:",
       "notResolved_many": "{{count}} zdjęć nie zostało rozwiązanych:",
@@ -2667,6 +2675,9 @@
         "color_label_purple": "Etykieta koloru: Fioletowy",
         "color_label_red": "Etykieta koloru: Czerwony",
         "color_label_yellow": "Etykieta koloru: Żółty",
+        "compare_left_right": "Przed/po: Podział lewo/prawo",
+        "compare_side_by_side": "Przed/po: Obok siebie",
+        "compare_top_bottom": "Przed/po: Podział góra/dół",
         "copy_adjustments": "Kopiuj wybrane ustawienia",
         "copy_files": "Skopiuj wybrane pliki",
         "copy_image_path": "Kopiuj ścieżkę wybranych zdjęć",
@@ -4440,6 +4451,41 @@
           "showFailed": "Nie udało się pokazać folderu: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Ukryj słowa kluczowe pod {{keyword}}",
+        "confirm": {
+          "cancel": "Anuluj",
+          "convert": "Przekształcić „{{from}}” w hierarchię „{{to}}”?",
+          "convertAction": "Przekształć",
+          "label": "Potwierdź zmianę słowa kluczowego",
+          "merge": "Scalić „{{from}}” z „{{to}}”? „{{from}}” zostanie nim zastąpione.",
+          "mergeAction": "Scal",
+          "move": "Przenieść „{{from}}” do „{{to}}”?",
+          "moveAction": "Przenieś",
+          "photos_one": "To zmieni słowa kluczowe {{count}} zdjęcia.",
+          "photos_few": "To zmieni słowa kluczowe {{count}} zdjęć.",
+          "photos_many": "To zmieni słowa kluczowe {{count}} zdjęć.",
+          "photos_other": "To zmieni słowa kluczowe {{count}} zdjęcia.",
+          "rename": "Zmienić nazwę „{{from}}” na „{{to}}”?",
+          "renameAction": "Zmień nazwę"
+        },
+        "empty": "Brak słów kluczowych.",
+        "expand": "Pokaż słowa kluczowe pod {{keyword}}",
+        "filterHint": "Pokaż zdjęcia z {{keyword}} i słowami kluczowymi pod nim. Przeciągnij na inne słowo kluczowe, aby je tam przenieść.",
+        "legacyHint": "„{{keyword}}” to jedno słowo kluczowe zapisane przed hierarchiami. Kliknij prawym przyciskiem, aby je przekształcić.",
+        "menu": {
+          "clearFilter": "Przestań filtrować według tego słowa kluczowego",
+          "convert": "Przekształć w „{{path}}”",
+          "filter": "Pokaż zdjęcia z tym słowem kluczowym",
+          "moveToTop": "Przenieś na najwyższy poziom",
+          "rename": "Zmień nazwę…"
+        },
+        "renameLabel": "Zmień nazwę lub przenieś {{keyword}}: wpisz ścieżkę, np. Nadrzędne > Nazwa",
+        "title": "Lista słów kluczowych",
+        "toasts": {
+          "renameFailed": "Nie udało się zmienić słów kluczowych: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "Odszumianie AI",
@@ -4907,6 +4953,7 @@
         "addTo_few": "Dodaj do {{count}} zdjęć",
         "addTo_many": "Dodaj do {{count}} zdjęć",
         "addTo_other": "Dodaj do {{count}} zdjęcia",
+        "hierarchyHint": "Oddzielaj słowa kluczowe przecinkami. „Zwierzęta > Psy”, „Zwierzęta|Psy” lub „Psy < Zwierzęta” umieszcza Psy pod Zwierzęta.",
         "none": "Brak słów kluczowych",
         "ofSelection": "Słowa kluczowe zaznaczenia",
         "partial_one": "Na {{on}} z {{count}} zdjęcia",

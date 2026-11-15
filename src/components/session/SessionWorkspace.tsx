@@ -8,7 +8,7 @@ import LibraryTransferDialog, { type TransferPurpose } from './LibraryTransferDi
 import CatalogExportDialog from './CatalogExportDialog';
 import CatalogImportDialog from './CatalogImportDialog';
 import FolderSyncDialog from './FolderSyncDialog';
-import SessionXmpStatus from './SessionXmpStatus';
+import SessionXmpStatus, { XMP_RESOLVED_EVENT } from './SessionXmpStatus';
 import { sourceFileName } from '../../entities/photo/photoRef';
 import ActivityCentre from '../activity/ActivityCentre';
 import { useActivityStore } from '../../store/useActivityStore';
@@ -720,6 +720,25 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     return unsubscribe;
   }, [navigate]);
 
+  // A library the launch named (a command-line path, a second launch, a
+  // library file handed over by the system): opened through the same command
+  // as the recent list, once the remembered library has finished opening.
+  const libraryToOpen = useProcessStore((s) => s.libraryToOpen);
+  const startupReady = useProcessStore((s) => s.startupLibraryReady);
+  useEffect(() => {
+    if (!libraryToOpen || !startupReady) return;
+    useProcessStore.getState().setProcess({ libraryToOpen: null });
+    void switchLibraryAfterSaves(async () => {
+      try {
+        await navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory: libraryToOpen }));
+      } catch (e) {
+        setError(String(e));
+        notify.error(String(e));
+      }
+      return true;
+    });
+  }, [libraryToOpen, startupReady, navigate]);
+
   // A session folder moved (Move the whole session, or its undo/redo): its
   // recent-libraries entry and the undo history follow, and the open
   // session opens again there (the same library: its history stays). Another
@@ -1236,6 +1255,12 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
   );
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
+  // An XMP conflict resolved from the grid's menu: the bar's count follows.
+  useEffect(() => {
+    const changed = () => void refreshRef.current().catch(() => {});
+    window.addEventListener(XMP_RESOLVED_EVENT, changed);
+    return () => window.removeEventListener(XMP_RESOLVED_EVENT, changed);
+  }, []);
   // Undo/redo can restore flags without going through mark(): refresh the
   // picked and pending-XMP counts after the catalog operation settles.
   useEffect(

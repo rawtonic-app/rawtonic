@@ -2423,6 +2423,67 @@ mod tests {
         );
     }
 
+    /// A hierarchical keyword reaches JPEG and TIFF exports as Lightroom
+    /// exports one: every level (the parents too) a term of `dc:subject`,
+    /// the path in `lr:hierarchicalSubject`, read back as the same keyword.
+    #[test]
+    fn jpeg_and_tiff_exports_carry_the_keyword_hierarchy() {
+        use image::ImageFormat;
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join("photo.jpg");
+        let pixels = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            8,
+            8,
+            image::Rgb([40, 50, 60]),
+        ));
+        pixels.save(&original).unwrap();
+        let catalog = || {
+            Some(rawtonic_metadata::Metadata {
+                keywords: vec!["Animals|Dogs".into(), "holiday".into()],
+                ..Default::default()
+            })
+        };
+        for (format, ext) in [(ImageFormat::Jpeg, "jpeg"), (ImageFormat::Tiff, "tiff")] {
+            let metadata = super::export_metadata_with(
+                original.to_str().unwrap(),
+                ext,
+                rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
+                true,
+                false,
+                false,
+                8,
+                8,
+                false,
+                &|| None,
+                &catalog,
+            )
+            .expect(ext);
+            let mut bytes = Vec::new();
+            pixels
+                .write_to(&mut Cursor::new(&mut bytes), format)
+                .unwrap();
+            embed_export_metadata(&mut bytes, ext, &metadata).unwrap();
+            let text = String::from_utf8_lossy(&bytes);
+            let start = text.find("<x:xmpmeta").expect(ext);
+            let end = text.find("</x:xmpmeta>").expect(ext) + "</x:xmpmeta>".len();
+            let packet = &text[start..end];
+            assert!(
+                packet.contains(
+                    "<dc:subject><rdf:Bag><rdf:li>Animals</rdf:li><rdf:li>Dogs</rdf:li><rdf:li>holiday</rdf:li></rdf:Bag></dc:subject>"
+                ),
+                "{ext}: {packet}"
+            );
+            assert!(
+                packet.contains(
+                    "<lr:hierarchicalSubject><rdf:Bag><rdf:li>Animals|Dogs</rdf:li></rdf:Bag></lr:hierarchicalSubject>"
+                ),
+                "{ext}"
+            );
+            let (read, _) = rawtonic_metadata::read_xmp(packet).unwrap();
+            assert_eq!(read.keywords, ["Animals|Dogs", "holiday"], "{ext}");
+        }
+    }
+
     #[test]
     fn png_webp_and_tiff_exports_keep_exif_beyond_64_kb() {
         use image::ImageFormat;

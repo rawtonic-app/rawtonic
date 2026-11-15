@@ -378,7 +378,12 @@ pub(crate) async fn render_browser_view(
             }
         }
         let recipe = js_adjustments.unwrap_or_else(|| recipe_of(&path));
-        let dim = target_resolution.clamp(64, 4096);
+        // Up to the photograph's own size (the split's before at 100 %),
+        // within the GPU's texture limit as Develop's own frames are.
+        let dim = crate::editor_preview::preview_dim_within_limit(
+            target_resolution.max(64),
+            context.limits.max_texture_dimension_2d,
+        );
         let key = render_key(&path, &recipe, dim, &context);
         let prepared = prepare(
             &app_handle,
@@ -408,13 +413,17 @@ pub(crate) async fn render_browser_view(
                 ),
                 mask_source: prepared.mask_source.as_ref(),
                 key: prepared.key,
+                caller: CELL_RENDER,
             },
         )?;
         let (width, height) = shown_size(&prepared.recipe, prepared.facts);
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(width.round() as u32).to_le_bytes());
         bytes.extend_from_slice(&(height.round() as u32).to_le_bytes());
-        bytes.extend(crate::editor_preview::encode_browser_preview(&rgba, 94)?);
+        bytes.extend(crate::editor_preview::encode_browser_preview(
+            &rgba,
+            crate::preview_jpeg::settled_quality(scale),
+        )?);
         Ok(tauri::ipc::Response::new(bytes))
     })
     .await
@@ -940,7 +949,19 @@ struct DevelopInput<'a> {
     crop_offset: (f32, f32),
     mask_source: Option<&'a ParametricMaskSource>,
     key: u64,
+    /// Whose render it is at the GPU processor (`gpu_processing`'s turns):
+    /// [`CELL_RENDER`] or [`LIVE_RENDER`].
+    caller: &'static str,
 }
+
+/// The cell worker's renders: background renders at the GPU processor,
+/// which wait while the Develop view renders and shortly after.
+pub(crate) const CELL_RENDER: &str = "multi_view";
+/// The cells that follow Edit all selected live. The preview worker renders
+/// them between the primary's frames, so they never hold up a frame of
+/// the primary; as background renders they waited ~250 ms after its frame
+/// (the turns' pause for drags) before the first cell changed.
+const LIVE_RENDER: &str = gpu_processing::MULTI_VIEW_LIVE_CALLER;
 
 /// Develops `input` with the display's shader variants (masks, LUT, the
 /// base look) into display-encoded RGBA8.
@@ -1011,7 +1032,7 @@ fn develop_rgba(
             lut,
             roi: None,
         },
-        "multi_view",
+        input.caller,
         RenderOutputPrecision::EightBit,
         false,
         None,
@@ -1052,6 +1073,7 @@ fn develop(
     app_handle: &tauri::AppHandle,
     context: &GpuContext,
     prepared: Prepared,
+    caller: &'static str,
 ) -> Result<f64, String> {
     let start = Instant::now();
     let scale = prepared.base.scale;
@@ -1070,6 +1092,7 @@ fn develop(
             ),
             mask_source: prepared.mask_source.as_ref(),
             key: prepared.key,
+            caller,
         },
     )?;
     let (w, h) = shown_size(&prepared.recipe, prepared.facts);
@@ -1177,6 +1200,7 @@ pub(crate) fn develop_whole(
             ),
             mask_source: prepared.mask_source.as_ref(),
             key: prepared.key,
+            caller: CELL_RENDER,
         },
     )?;
     let (w, h) = shown_size(&prepared.recipe, prepared.facts);
@@ -1317,7 +1341,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
                     let size = CellSize::new(&path, shown_size(&prepared.recipe, prepared.facts));
                     sizes.retain(|known: &CellSize| known.path != size.path);
                     sizes.push(size);
-                    match develop(app_handle, &context, prepared) {
+                    match develop(app_handle, &context, prepared, CELL_RENDER) {
                         Ok(gpu_ms) => {
                             developed += 1;
                             log::info!(
@@ -2107,6 +2131,7 @@ pub(crate) fn develop_region(
     zoom: CellZoom,
     recipe: serde_json::Value,
     key: u64,
+    caller: &'static str,
 ) -> Result<Region, String> {
     let start = Instant::now();
     // The texture covers the visible part and REGION_MARGIN around it; the
@@ -2155,6 +2180,7 @@ pub(crate) fn develop_region(
             crop_offset: (base.crop_offset.0 + x as f32, base.crop_offset.1 + y as f32),
             mask_source: base.mask_source.as_ref(),
             key,
+            caller,
         },
     )?;
     let (shown_w, shown_h) = shown_size(&recipe, base.facts);
@@ -2338,6 +2364,7 @@ fn develop_interim_region(
             ),
             mask_source: None,
             key,
+            caller: CELL_RENDER,
         },
     )?;
     Ok(Region {
@@ -2517,6 +2544,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                 zoom,
                 recipe,
                 key,
+                CELL_RENDER,
             )
             .map(|region| (region, zoom.scale));
             if sender.send((path, result)).is_err() {
@@ -2796,7 +2824,7 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
             source_kind: "live",
             prepare_ms: 0.0,
         };
-        match develop(app_handle, &context, prepared) {
+        match develop(app_handle, &context, prepared, LIVE_RENDER) {
             Ok(gpu_ms) => {
                 // Developed: the others may still be behind.
                 LIVE.lock().unwrap_or_else(|e| e.into_inner()).settled = 0;
@@ -2870,6 +2898,7 @@ fn live_region(
         zoom,
         recipe.clone(),
         key,
+        LIVE_RENDER,
     ) {
         Ok(region) => {
             show_frame(

@@ -49,11 +49,16 @@ fn error(a: &[Lab], b: &[Lab]) -> (f64, f64) {
     (mean, all[(all.len() as f64 * 0.95) as usize])
 }
 
-/// A recipe's slider: a top-level key, or `hsl.<band>.<property>`.
+/// A recipe's slider: a top-level key, `hsl.<band>.<property>`, or
+/// `colorGrading.<wheel>.<property>` (a wheel's saturation at hue 40).
 fn set(recipe: &mut Value, slider: &str, value: f64) {
     if let Some(rest) = slider.strip_prefix("hsl.") {
         let (band, property) = rest.split_once('.').unwrap();
         recipe["hsl"][band][property] = json!(value);
+    } else if let Some(rest) = slider.strip_prefix("colorGrading.") {
+        let (wheel, property) = rest.split_once('.').unwrap();
+        recipe["colorGrading"][wheel]["hue"] = json!(40);
+        recipe["colorGrading"][wheel][property] = json!(value);
     } else {
         recipe[slider] = json!(value);
     }
@@ -186,6 +191,27 @@ const CASES: &[Case] = &[
         slider: "hsl.blues.luminance",
         pairs: &[(2, 1), (1, 2), (3, 2), (2, 3), (3, 1)],
         values: &[-50.0, 50.0],
+        exact: &[],
+    },
+    Case {
+        key: "colorGradingVersion",
+        slider: "colorGrading.shadows.saturation",
+        pairs: &[(2, 1), (1, 2)],
+        values: &[25.0, 50.0],
+        exact: &[],
+    },
+    Case {
+        key: "colorGradingVersion",
+        slider: "colorGrading.highlights.saturation",
+        pairs: &[(2, 1), (1, 2)],
+        values: &[25.0, 50.0],
+        exact: &[],
+    },
+    Case {
+        key: "colorGradingVersion",
+        slider: "colorGrading.highlights.luminance",
+        pairs: &[(2, 1), (1, 2)],
+        values: &[-100.0, -50.0],
         exact: &[],
     },
     Case {

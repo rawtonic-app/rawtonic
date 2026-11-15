@@ -24,16 +24,18 @@ import {
 } from '../../utils/editWith';
 
 /** Asks for any application ("Other…"): an application bundle on macOS, a
- * program file on Windows. */
+ * program file on Windows, a `.desktop` file or executable on Linux. */
 async function pickApplication(title: string): Promise<string | null> {
-  const windows = useSettingsStore.getState().osPlatform === 'windows';
-  if (windows) return (await invoke<AppChoice | null>(Invokes.OpenWithPick, { title }))?.path ?? null;
+  const platform = useSettingsStore.getState().osPlatform;
+  if (platform === 'windows') return (await invoke<AppChoice | null>(Invokes.OpenWithPick, { title }))?.path ?? null;
+  // Linux: a `.desktop` file or an executable (no extension to filter by).
+  const linux = platform === 'linux';
   const chosen = await openDialog({
     title,
-    defaultPath: windows ? 'C:\\Program Files' : '/Applications',
+    defaultPath: linux ? '/usr/share/applications' : '/Applications',
     multiple: false,
     directory: false,
-    filters: windows ? [{ name: 'Programs', extensions: ['exe'] }] : [{ name: 'Applications', extensions: ['app'] }]
+    filters: linux ? undefined : [{ name: 'Applications', extensions: ['app'] }]
   });
   return typeof chosen === 'string' ? chosen : null;
 }
@@ -41,7 +43,7 @@ async function pickApplication(title: string): Promise<string | null> {
 /** "Other…": on Windows the program file picker, the last resort after the
  * programs Windows itself offers. */
 const otherLabel = (t: TFunction) =>
-  useSettingsStore.getState().osPlatform === 'windows'
+  ['windows', 'linux'].includes(useSettingsStore.getState().osPlatform)
     ? t('contextMenus.openWith.browse')
     : t('contextMenus.openWith.other');
 

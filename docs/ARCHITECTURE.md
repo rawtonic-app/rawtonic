@@ -27,7 +27,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `catalog` | SQLite schema, sessions/catalogs, recipes, search | `fs`, `metadata` | `lib`, `query`, `add` | `core:test` |
 | `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection | none | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test` |
-| `metadata` | XMP sidecars, provenance, labels, photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `recipe` | `lib`, `provenance`, `labels`, `photo_ref` | `core:test` |
+| `metadata` | XMP sidecars, provenance, labels, hierarchical keyword paths (levels joined by a pipe, TS twin `src/utils/keywordTree.ts`), photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `recipe` | `lib`, `provenance`, `labels`, `keywords`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | none | `lib` | `core:test` |
 | `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
@@ -563,7 +563,9 @@ time (`idle_compiles.rs`; from the app's start for a new RAW edit, `GpuProcessor
 each photo shown; small pipelines such as the RAW default variant and the detail pass compile beside one,
 `CompileWeight`), each in a helper process (`idle_compile_child.rs`; `rawtonic-app --gpu-idle-compile JOB
 FOLDER`, `src-tauri/src/gpu_idle_helper.rs`) that is killed when a compile or export waits for the slot; the app takes
-the finished variant through the pipeline cache the helper left).
+the finished variant through the pipeline cache the helper left; a frame's variant no plan covers compiles in a helper
+too, `IdleCompiles::for_frame`); `memory_turns`: on an integrated GPU under a compile limit an idle compile, an export
+and a masking network on the CPU take turns (`src-tauri/src/ai_lifecycle.rs` `turn`, `export_turn`).
 
 
 #### `export`
@@ -635,7 +637,8 @@ Moved modules stay reachable under their old `crate::<module>` names through tho
 rawtonic_…::{…}` line in `lib.rs`. Don't add empty crates pretending a separation exists.
 
 `lib.rs` is wiring only: module declarations, `run()` and `generate_handler!`; the Develop source/preview pipeline lives
-in `editor_preview.rs`, start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
+in `editor_preview.rs` (the fit view's export colour noise reduction from a full-resolution correction built in the
+background: `color_noise_view.rs`), start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
 With in `open_with.rs` (programs from LaunchServices on macOS and from the shell's association handlers on Windows,
 `open_with/windows_shell.rs` with its plain-data part in `open_with/handlers.rs`; disabled on Linux; Edit With queues one export per photo
 through the export queue, snapshotted at the click like any queued export, to `NAME_edit.<ext>` beside the original,

@@ -10,6 +10,7 @@ import { toggleWindowFullScreen } from '../utils/photoFullScreen';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { cropEditCancelled } from '../utils/cropGesture';
 import { nextClipSides } from '../utils/clippingWarnings';
+import { COMPARE_MODE_ACTIONS, type SplitOrientation } from '../utils/beforeAfter';
 import { isMaskOverlayShown, maskDisplayOf, toggleGrayscaleMask, toggleMaskDisplay } from '../utils/maskDisplay';
 import { Mask } from '../components/panel/right/Masks';
 import { DEFAULT_BRUSH_SIZE, stepBrushSize } from '../utils/brushSize';
@@ -125,6 +126,12 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_fullscreen: (s) => s.ui.isFullScreen,
   toggle_metadata: (s) => s.ui.infoOverlay && (s.ui.activeView === 'editor' || s.ui.isFullScreen),
   toggle_split_view: (s) => !!s.editor.splitView,
+  ...Object.fromEntries(
+    (Object.entries(COMPARE_MODE_ACTIONS) as [SplitOrientation, string][]).map(([mode, action]) => [
+      action,
+      (s: ShortcutState) => !!s.editor.splitView && s.editor.splitOrientation === mode
+    ])
+  ),
   toggle_original: (s) => !!s.editor.showOriginal,
   toggle_multi_view: () => useMultiViewStore.getState().active,
   toggle_second_window: () => useSecondWindowStore.getState().state.open,
@@ -185,6 +192,7 @@ export const useKeyboardShortcuts = ({
     handleSyncSettings,
     toggleSplitView,
     cycleCompareMode,
+    toggleCompareMode,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
     handleAutoStraighten
@@ -760,6 +768,27 @@ export const useKeyboardShortcuts = ({
           if (!e.repeat) cycleCompareMode();
         }
       },
+      compare_left_right: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e) => {
+          e.preventDefault();
+          if (!e.repeat) toggleCompareMode('left-right');
+        }
+      },
+      compare_top_bottom: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e) => {
+          e.preventDefault();
+          if (!e.repeat) toggleCompareMode('top-bottom');
+        }
+      },
+      compare_side_by_side: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e) => {
+          e.preventDefault();
+          if (!e.repeat) toggleCompareMode('side-by-side');
+        }
+      },
       toggle_clipping: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
@@ -1248,8 +1277,28 @@ export const useKeyboardShortcuts = ({
           const nextIndex = gridStep(currentIndex, sortedListRef.current.length, e.code, s.ui.gridColumns);
           if (nextIndex === currentIndex) return;
           const nextImage = sortedListRef.current[nextIndex];
-          if (nextImage) {
-            s.library.setLibrary({ libraryActivePath: nextImage.path, multiSelectedPaths: [nextImage.path] });
+          const extend = e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
+          const forward = e.code === 'ArrowRight' || e.code === 'ArrowDown';
+          // A range does not wrap round the grid's ends: past the last (first) photo it stays.
+          if (extend && (forward ? nextIndex < currentIndex : nextIndex > currentIndex)) return;
+          if (nextImage && extend) {
+            // Shift+arrow extends the selection from the anchor to the new photo
+            // (Lightroom, Capture One); the anchor stays, so the range can shrink again.
+            const anchorPath = s.library.selectionAnchorPath ?? activePath;
+            const anchorIndex = sortedListRef.current.findIndex((img) => img.path === anchorPath);
+            const from = Math.min(anchorIndex === -1 ? currentIndex : anchorIndex, nextIndex);
+            const to = Math.max(anchorIndex === -1 ? currentIndex : anchorIndex, nextIndex);
+            s.library.setLibrary({
+              libraryActivePath: nextImage.path,
+              multiSelectedPaths: sortedListRef.current.slice(from, to + 1).map((img) => img.path),
+              selectionAnchorPath: anchorPath
+            });
+          } else if (nextImage) {
+            s.library.setLibrary({
+              libraryActivePath: nextImage.path,
+              multiSelectedPaths: [nextImage.path],
+              selectionAnchorPath: nextImage.path
+            });
             handleImageSelect(nextImage.path, false);
           }
         }
@@ -1396,6 +1445,7 @@ export const useKeyboardShortcuts = ({
     handleSetColorLabel,
     toggleSplitView,
     cycleCompareMode,
+    toggleCompareMode,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
     handleAutoStraighten

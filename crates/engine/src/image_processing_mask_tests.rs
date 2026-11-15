@@ -166,13 +166,14 @@ fn old_mask_adjustments(
     }
     if modern_grading(tonemapper_mode) && is_visible("color") {
         let off = serde_json::Value::Null;
-        mask.apply_grading(crate::color_grading::Grading::from_json(
-            if tool_on("colorGrading") {
+        mask.apply_grading(
+            crate::color_grading::Grading::from_json(if tool_on("colorGrading") {
                 &cg_obj
             } else {
                 &off
-            },
-        ));
+            }),
+            crate::recipe_versions::ColorGradingVersion::FIRST,
+        );
     }
     mask
 }

@@ -153,3 +153,37 @@ it('a Shift-click after collapsing a stack ranges from its shown top', async () 
   expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/job/a.ARW', '/job/c.ARW', '/job/d.ARW']);
   setStacks(null, []);
 });
+
+it('a Shift-click keeps the range anchor, so a later Shift-click moves the same range', () => {
+  useLibraryStore.setState({
+    imageList: ['a', 'b', 'c', 'd', 'e'].map((name) => ({
+      path: `/job/${name}.ARW`,
+      rating: 0,
+      tags: null,
+      modified: 0,
+      is_edited: false,
+      is_raw: true,
+      exif: null,
+      is_virtual_copy: false,
+      is_cloud_placeholder: false,
+      group_id: null
+    })),
+    activeAlbumId: null,
+    sessionDirectory: '/job',
+    multiSelectedPaths: ['/job/a.ARW'],
+    libraryActivePath: '/job/a.ARW',
+    selectionAnchorPath: '/job/a.ARW',
+    filterCriteria: { flag: 'all', rating: 0, colors: [], rawStatus: 'all' as never },
+    searchCriteria: { text: '', tags: [], mode: 'OR' },
+    sortCriteria: { key: 'name', order: 'asc' as never },
+    imageRatings: {},
+    imageFlags: {},
+    catalogMatches: null
+  });
+  const { result } = renderHook(() => useLibraryActions());
+  const shift = { shiftKey: true, ctrlKey: false, metaKey: false } as never;
+  result.current.handleLibraryImageSingleClick('/job/d.ARW', shift);
+  expect(useLibraryStore.getState().selectionAnchorPath).toBe('/job/a.ARW');
+  result.current.handleLibraryImageSingleClick('/job/b.ARW', shift);
+  expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/job/a.ARW', '/job/b.ARW']);
+});

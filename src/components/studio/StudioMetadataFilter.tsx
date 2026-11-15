@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { searchTextFilter, useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { onCatalogChange } from '../../utils/catalogWrites';
+import { displayKeyword, keywordLeaf, treeRows } from '../../utils/keywordTree';
 import { folderViewMode } from '../../utils/subfolderView';
 import {
   FACET_FIELDS,
@@ -246,7 +247,12 @@ export default function StudioMetadataFilter() {
           .filter((c) => !values.some((v) => v.value === c))
           .filter((c) => !(field === 'captureDate' && isYear(c) && values.some((v) => v.value.startsWith(`${c}-`))));
         const kept = withKept(field, values, gone);
-        const listed: Row[] = field === 'captureDate' ? yearRows(kept) : kept;
+        // Keywords in tree order, each under its parent (`Animals`, then
+        // `Dogs` indented); choosing a parent finds the keywords under it.
+        const keywordRows = field === 'keyword' ? treeRows(kept) : null;
+        const depth = new Map(keywordRows?.map(({ row, depth }) => [row.value, depth]));
+        const listed: Row[] =
+          field === 'captureDate' ? yearRows(kept) : keywordRows ? keywordRows.map(({ row }) => row) : kept;
         // Rows as shown: a year's months below it while it is open.
         const shown: Row[] = listed.flatMap((row) => (row.months && open[row.value] ? [row, ...row.months] : [row]));
         const heading = t(`studio.library.metadataFilter.fields.${field}`);
@@ -269,9 +275,16 @@ export default function StudioMetadataFilter() {
               </button>
               {shown.map(({ value, count, months }) => {
                 const month = field === 'captureDate' && value !== '' && !isYear(value);
-                const label = facetLabel(field, value, t, i18n.language);
+                const label =
+                  field === 'keyword' && value !== '' ? keywordLeaf(value) : facetLabel(field, value, t, i18n.language);
+                const level = depth.get(value) ?? 0;
                 return (
-                  <div key={value} className={`studio-metadata-row${month ? ' is-month' : ''}`}>
+                  <div
+                    key={value}
+                    className={`studio-metadata-row${month ? ' is-month' : ''}`}
+                    style={level ? { paddingLeft: level * 10 } : undefined}
+                    title={field === 'keyword' && level ? displayKeyword(value) : undefined}
+                  >
                     {months && months.length > 0 && (
                       <button
                         className="studio-metadata-disclosure"
