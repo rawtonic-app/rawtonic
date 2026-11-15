@@ -6,6 +6,7 @@
 pub mod device_start;
 mod display_variant_ir;
 pub mod gpu_processing;
+pub mod memory_turns;
 pub mod pipeline_cache;
 
 use rawtonic_engine::{camera_profile, image_processing, lut, mask_generation, scopes};
