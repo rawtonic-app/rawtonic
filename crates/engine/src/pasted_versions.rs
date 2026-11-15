@@ -161,6 +161,18 @@ const KEYS: &[VersionKey] = &[
         translated: &[],
         translate: None,
     },
+    // A wheel with a hue but no saturation counts as a user too: the
+    // destination then keeps its response, which renders that wheel alike.
+    VersionKey {
+        key: ip::COLOR_GRADING_VERSION_KEY,
+        effective: |r, _| rv::ColorGradingVersion::of(r).get(),
+        users: Users::Sliders {
+            global: &["colorGrading"],
+            layer: &["colorGrading"],
+        },
+        translated: &[],
+        translate: None,
+    },
     VersionKey {
         key: ip::SHARPEN_VERSION_KEY,
         effective: |r, _| rv::SharpenVersion::of(r).get(),

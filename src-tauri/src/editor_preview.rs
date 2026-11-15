@@ -370,6 +370,7 @@ pub(crate) fn reduced_preview_base(
         preview_dim,
         scale,
         false,
+        None,
     )
 }
 
@@ -396,12 +397,24 @@ pub(crate) fn interim_preview_base(
         preview_dim,
         scale,
         true,
+        None,
+    )
+}
+
+/// The size `build_reduced_preview_base` reduces `full` to at `scale` (of a
+/// source at `source_scale`) before it warps it.
+fn reduced_base_dims((full_width, full_height): (u32, u32), scale: f32) -> (u32, u32) {
+    (
+        ((full_width as f32 * scale).round() as u32).max(1),
+        ((full_height as f32 * scale).round() as u32).max(1),
     )
 }
 
 /// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
 /// in only until the photograph's decode is in, so its warp does not
 /// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
+/// `correction`: the full-resolution colour noise correction added to the
+/// reduced copy before it is warped (`color_noise_view`).
 #[allow(clippy::too_many_arguments)]
 fn build_reduced_preview_base(
     source: &DynamicImage,
@@ -412,14 +425,20 @@ fn build_reduced_preview_base(
     preview_dim: u32,
     scale: f32,
     interim: bool,
+    correction: Option<&image::Rgb32FImage>,
 ) -> Result<preview_cache::PreviewBase, String> {
     let scale = scale.min(source_scale);
-    let width = ((full_width as f32 * scale).round() as u32).max(1);
-    let height = ((full_height as f32 * scale).round() as u32).max(1);
+    let (width, height) = reduced_base_dims((full_width, full_height), scale);
     let reduced = if width < source.width() || height < source.height() {
         Cow::Owned(resample_f32_image(source, width, height))
     } else {
         Cow::Borrowed(source)
+    };
+    let reduced = match correction {
+        Some(delta) => Cow::Owned(DynamicImage::ImageRgb32F(
+            rawtonic_engine::color_noise::add_reduced_correction(reduced.to_rgb32f(), delta),
+        )),
+        None => reduced,
     };
     // The actual scale after rounding to whole pixels.
     let scale = reduced.width() as f32 / full_width as f32;
@@ -1076,6 +1095,18 @@ fn render_failed(error: impl std::fmt::Display) -> CommandError {
     )
 }
 
+/// The error of a preview render that ended without a frame: a frame a
+/// newer request replaced while it waited for graphics
+/// (`gpu_processing::supersedable`) is answered as a superseded job, which
+/// the editor never reports; anything else failed (`render_failed`).
+fn preview_render_error(error: String) -> CommandError {
+    if gpu_processing::is_superseded(&error) {
+        CommandError::cancelled(error)
+    } else {
+        render_failed(error)
+    }
+}
+
 /// The image Develop renders from: the full decode, or until it is in the
 /// photograph's preview proxy (preview_proxy.rs), with `source_scale` proxy
 /// pixels per full-resolution pixel and the full-resolution size.
@@ -1218,6 +1249,7 @@ fn preview_base(
             build_dim,
             scale,
             interim,
+            None,
         )?
     } else {
         generate_shared_transformed_preview(
@@ -1638,6 +1670,74 @@ fn prophoto_to_linear_srgb(rgb: [f64; 3]) -> [f64; 3] {
     std::array::from_fn(|r| (0..3).map(|c| m[r][c] * linear[c]).sum())
 }
 
+/// A final fit frame's inputs for `fit_color_noise_base`; `eligible`: a
+/// final, whole, natively presented frame of the full decode's lasting
+/// base (no drag draft).
+struct FitColorNoise<'a> {
+    adjustments: &'a serde_json::Value,
+    base: &'a Arc<DynamicImage>,
+    base_dim: u32,
+    full_dims: (u32, u32),
+    eligible: bool,
+    /// The preview frame's number (`ColorNoiseView::note_frame`); None for
+    /// the split view's before.
+    number: Option<u64>,
+}
+
+/// The base a final fit frame renders from at Color 0 with the export's
+/// colour noise reduction in it (`color_noise_view::corrected_base`), when
+/// its base is a reduced copy of the full decode and the recipe's colour
+/// noise reduction applies; None renders the frame as before.
+fn fit_color_noise_base(
+    develop: &DevelopSession,
+    loaded_image: &LoadedImage,
+    adjustments: &rawtonic_engine::image_processing::PreparedAdjustments,
+    frame: FitColorNoise<'_>,
+    refresh: impl FnOnce() -> crate::color_noise_view::Refresh,
+) -> Option<Arc<DynamicImage>> {
+    if !frame.eligible
+        || !crate::color_noise_view::enabled()
+        || !crate::color_noise_view::applies(adjustments, loaded_image.is_raw)
+    {
+        return None;
+    }
+    #[cfg(feature = "performance-profiling")]
+    if std::env::var_os("RAWTONIC_FULL_RES_PREVIEW").is_some() {
+        return None;
+    }
+    let (full_width, full_height) = frame.full_dims;
+    if loaded_image.image.dimensions() != frame.full_dims {
+        return None;
+    }
+    let scale = reduced_preview_scale(full_width, full_height, frame.adjustments, frame.base_dim)?;
+    crate::color_noise_view::corrected_base(
+        &develop.color_noise_view,
+        &adjustments.global,
+        crate::color_noise_view::FitFrame {
+            number: frame.number,
+            source: &loaded_image.image,
+            path: &loaded_image.path,
+            base: frame.base,
+            reduced_dims: reduced_base_dims(frame.full_dims, scale.min(1.0)),
+        },
+        |delta| {
+            build_reduced_preview_base(
+                &loaded_image.image,
+                1.0,
+                frame.full_dims,
+                frame.adjustments,
+                loaded_image.is_raw,
+                frame.base_dim,
+                scale,
+                false,
+                Some(delta),
+            )
+            .map(|base| base.image)
+        },
+        refresh,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_preview_job(
     app_handle: &tauri::AppHandle,
@@ -1836,7 +1936,11 @@ pub(crate) fn process_preview_job(
         let new_scale = scale_for_gpu * scale_factor;
         (small_preview_base, new_scale, interactive_quality)
     } else {
-        (Arc::clone(&final_preview_base), scale_for_gpu, 94)
+        (
+            Arc::clone(&final_preview_base),
+            scale_for_gpu,
+            crate::preview_jpeg::settled_quality(scale_for_gpu),
+        )
     };
 
     let (preview_width, preview_height) = processing_image.dimensions();
@@ -1965,6 +2069,47 @@ pub(crate) fn process_preview_job(
         crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     final_adjustments.global.detail_scale = effective_scale;
+    // A final fit frame of the full decode shows the export's colour noise
+    // reduction: from the base with the full-resolution correction added,
+    // rendered at Color 0 (`color_noise_view`).
+    let (processing_image, render_transform_hash) = match fit_color_noise_base(
+        &develop,
+        &loaded_image,
+        &final_adjustments,
+        FitColorNoise {
+            adjustments: &adjustments_clone,
+            base: &final_preview_base,
+            base_dim,
+            full_dims,
+            number: Some(develop.color_noise_view.note_frame()),
+            eligible: !is_interactive
+                && roi.is_none()
+                && !crop_edit
+                && use_wgpu_renderer
+                && source_scale >= 1.0
+                && !interim
+                && draft_dim.is_none()
+                && !base_fringe_draft,
+        },
+        || crate::color_noise_view::Refresh {
+            adjustments: adjustments_clone.clone(),
+            target_resolution,
+            request_analytics,
+            compute_waveform,
+            active_waveform_channel: active_waveform_channel.map(str::to_string),
+            mask_overlay: mask_overlay.cloned(),
+            generation: render_generation,
+        },
+    ) {
+        Some(corrected) => {
+            final_adjustments.global.color_noise_reduction = 0.0;
+            let mut hasher = DefaultHasher::new();
+            new_transform_hash.hash(&mut hasher);
+            (Arc::as_ptr(&corrected) as usize).hash(&mut hasher);
+            (corrected, hasher.finish())
+        }
+        None => (processing_image, new_transform_hash),
+    };
     let lut_path = adjustments_clone[effects::LUT_PATH.into_name()].as_str();
     let lut = lut_path.and_then(|p| {
         lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
@@ -2056,7 +2201,7 @@ pub(crate) fn process_preview_job(
             &gpu,
             &develop,
             &processing_image,
-            new_transform_hash,
+            render_transform_hash,
             RenderRequest {
                 adjustments: final_adjustments,
                 mask_bitmaps: &mask_bitmaps,
@@ -2071,13 +2216,17 @@ pub(crate) fn process_preview_job(
 
     let final_processed_image = match final_processed_image_result {
         Ok(image) => image,
+        // A frame that gave way to a newer request: not logged as a failure.
+        Err(error) if gpu_processing::is_superseded(&error) => {
+            return Err(preview_render_error(error));
+        }
         Err(error) => {
             log::error!(
                 "[process_preview_job] processing failed after {:.2?}: {}",
                 fn_start.elapsed(),
                 error
             );
-            return Err(render_failed(error));
+            return Err(preview_render_error(error));
         }
     };
     state.source.rendered_source.mark(&loaded_image.image);
@@ -2340,20 +2489,30 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             if let Some(delay) = crate::preview_slot::debug_render_delay() {
                 std::thread::sleep(delay);
             }
-            let result = process_preview_job(
-                &app_handle,
-                state,
-                develop,
-                job.adjustments,
-                job.is_interactive,
-                job.target_resolution,
-                job.roi,
-                job.request_analytics,
-                job.compute_waveform,
-                job.active_waveform_channel.as_deref(),
-                job.mask_overlay.as_ref(),
-                job.crop_edit,
-                job.generation,
+            // A newer request (one the worker will render, not a late older
+            // one) replaces this frame while it waits for its graphics: the
+            // first Halation frame on a cold Radeon 680M waited ~53 s, and
+            // turning it off again or another photo showed only afterwards
+            // (G76/SUPS).
+            let result = gpu_processing::supersedable(
+                newer_request_waits(&app_handle, newest_sequence),
+                || {
+                    process_preview_job(
+                        &app_handle,
+                        state,
+                        develop,
+                        job.adjustments,
+                        job.is_interactive,
+                        job.target_resolution,
+                        job.roi,
+                        job.request_analytics,
+                        job.compute_waveform,
+                        job.active_waveform_channel.as_deref(),
+                        job.mask_overlay.as_ref(),
+                        job.crop_edit,
+                        job.generation,
+                    )
+                },
             );
             #[cfg(feature = "performance-profiling")]
             log::info!(
@@ -2365,8 +2524,12 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                     "ok": result.is_ok()
                 })
             );
-            if let Err(e) = &result {
-                log::error!("Preview worker error: {}", e);
+            match &result {
+                Err(e) if e.code == ErrorCode::Cancelled => {
+                    log::info!("Preview frame skipped: {}", e.message);
+                }
+                Err(e) => log::error!("Preview worker error: {}", e),
+                Ok(_) => {}
             }
             let rendered = result.is_ok();
             let _ = responder.send(result);
@@ -2380,6 +2543,16 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 }
                 continue;
             }
+            // A final frame shown without its full-resolution colour noise
+            // correction: built once the worker stays idle, then shown.
+            if rendered
+                && !interactive
+                && !crate::multi_view::live_pending()
+                && let Some(next) = crate::color_noise_view::after_final_frame(&app_handle, jobs)
+            {
+                waiting = Some(next);
+                continue;
+            }
             waiting = live.after_frame(
                 jobs,
                 interactive,
@@ -2390,6 +2563,33 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
     });
     if let Err(e) = spawned {
         log::error!("Failed to start the preview worker: {}", e);
+    }
+}
+
+/// Whether the frame the preview worker renders now is replaced: a request
+/// waits that the worker will render after it (`newest`: the newest
+/// sequence it rendered, this frame's included; a late older one it drops
+/// does not count, so the waiting frame never gives way to nothing), or
+/// another photo started loading since (`load_image_generation`): a step to
+/// the next photo sends its frame only once its decode is in, and until
+/// then the frame of the photo left behind kept waiting for the planned
+/// variant, 27 s on a cold Radeon 680M (G76/WSUPS run B).
+fn newer_request_waits(
+    app_handle: &tauri::AppHandle,
+    newest: Option<u64>,
+) -> impl Fn() -> bool + 'static {
+    let app_handle = app_handle.clone();
+    let loads = Arc::clone(&app_handle.state::<AppState>().source.load_image_generation);
+    let load = loads.load(Ordering::SeqCst);
+    move || {
+        loads.load(Ordering::SeqCst) != load
+            || app_handle
+                .state::<AppState>()
+                .preview
+                .preview_jobs
+                .waiting_one(|job| {
+                    !crate::state::preview::preview_job_is_stale(job.sequence, newest)
+                })
     }
 }
 
@@ -2436,23 +2636,28 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
         return;
     }
     let started = std::time::Instant::now();
-    let result = process_preview_job(
-        app_handle,
-        state,
-        develop,
-        warm.adjustments,
-        true,
-        warm.target_resolution,
-        None,
-        false,
-        false,
-        None,
-        None,
-        false,
-        warm.generation,
-    );
+    let result = gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
+        process_preview_job(
+            app_handle,
+            state,
+            develop,
+            warm.adjustments,
+            true,
+            warm.target_resolution,
+            None,
+            false,
+            false,
+            None,
+            None,
+            false,
+            warm.generation,
+        )
+    });
     match result {
         Ok(_) => log::info!("Drag draft source prepared in {:.1?}", started.elapsed()),
+        Err(e) if e.code == ErrorCode::Cancelled => {
+            log::info!("Preparing the drag draft source gave way: {}", e.message);
+        }
         Err(e) => log::warn!("Preparing the drag draft source failed: {}", e),
     }
 }
@@ -3036,17 +3241,36 @@ pub(crate) async fn render_split_before(
     app_handle: tauri::AppHandle,
 ) -> Result<bool, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        render_split_before_blocking(&app_handle, &path, js_adjustments, target_resolution)
+        render_split_before_blocking(&app_handle, &path, js_adjustments, target_resolution, false)
     })
     .await
     .map_err(|e| format!("Split before task failed: {e}"))?
 }
 
+/// The split view's before again for `request` once a colour noise
+/// correction came in (`color_noise_view`), when a before is shown.
+pub(crate) fn render_split_before_again(
+    app_handle: &tauri::AppHandle,
+    request: crate::color_noise_view::SplitBeforeRequest,
+) {
+    if let Err(e) = render_split_before_blocking(
+        app_handle,
+        &request.path,
+        request.adjustments,
+        request.target_resolution,
+        true,
+    ) {
+        log::warn!("Split view before again: {e}");
+    }
+}
+
+/// `only_if_shown`: nothing unless the display shows a before.
 fn render_split_before_blocking(
     app_handle: &tauri::AppHandle,
     path: &str,
     mut adjustments: serde_json::Value,
     target_resolution: Option<u32>,
+    only_if_shown: bool,
 ) -> Result<bool, CommandError> {
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("split_before");
@@ -3073,6 +3297,16 @@ fn render_split_before_blocking(
     let Some(current_key) = display_key(&context) else {
         return Ok(false);
     };
+    if only_if_shown && current_key.is_none() {
+        return Ok(false);
+    }
+    develop
+        .color_noise_view
+        .note_split_before(crate::color_noise_view::SplitBeforeRequest {
+            path: path.to_string(),
+            adjustments: adjustments.clone(),
+            target_resolution,
+        });
     normalize_editor_recipe(&develop, &mut adjustments);
     let load_generation = state.source.load_image_generation.load(Ordering::SeqCst);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
@@ -3085,6 +3319,7 @@ fn render_split_before_blocking(
     );
     let frame_key = split_frame_key(path, &adjustments);
     let interim = interim_source(&state, &loaded_image, source_scale);
+    // A before rendered before a colour noise correction came in is stale.
     let render_key = split_render_key(
         frame_key,
         &loaded_image.image,
@@ -3092,7 +3327,7 @@ fn render_split_before_blocking(
         preview_dim,
         &adjustments,
         interim,
-    );
+    ) ^ develop.color_noise_view.revision().rotate_left(17);
     if current_key == Some(render_key) {
         return Ok(true);
     }
@@ -3134,6 +3369,8 @@ fn render_split_before_blocking(
         frame_key,
     );
     display.render(&context.device, &context.queue);
+    drop(display_lock);
+    crate::color_noise_view::after_split_before(app_handle);
     Ok(true)
 }
 
@@ -3217,6 +3454,30 @@ fn develop_split_before(
         crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     all_adjustments.global.detail_scale = scale;
+    // The colour noise correction, as the edit's final frame takes it.
+    let (base, render_hash) = match fit_color_noise_base(
+        develop,
+        loaded_image,
+        &all_adjustments,
+        FitColorNoise {
+            adjustments,
+            base: &base,
+            base_dim: preview_dim,
+            full_dims,
+            eligible: source_scale >= 1.0 && !interim,
+            number: None,
+        },
+        || unreachable!("the split view's before renders no frame of its own"),
+    ) {
+        Some(corrected) => {
+            all_adjustments.global.color_noise_reduction = 0.0;
+            let mut hasher = DefaultHasher::new();
+            transform_hash.hash(&mut hasher);
+            (Arc::as_ptr(&corrected) as usize).hash(&mut hasher);
+            (corrected, hasher.finish())
+        }
+        None => (base, transform_hash),
+    };
     // Encoded for the window layer, as display frames are.
     let space = context.display_space;
     all_adjustments.global.output_space[0] = space.shader_code();
@@ -3230,7 +3491,7 @@ fn develop_split_before(
         gpu,
         develop,
         &base,
-        transform_hash,
+        render_hash,
         RenderRequest {
             adjustments: all_adjustments,
             mask_bitmaps: &mask_bitmaps,
@@ -3687,6 +3948,20 @@ pub(crate) async fn generate_preview_for_path(
     })
     .await
     .map_err(|e| format!("Task execution failed: {}", e))?
+}
+
+#[cfg(test)]
+mod preview_error_tests {
+    use super::{ErrorCode, PREVIEW_RENDER_FAILED, gpu_processing, preview_render_error};
+
+    #[test]
+    fn a_frame_that_gave_way_is_a_superseded_job_not_a_failure() {
+        let skipped = preview_render_error(gpu_processing::FRAME_SUPERSEDED.to_string());
+        assert_eq!(skipped.code, ErrorCode::Cancelled);
+        let failed = preview_render_error("out of memory".to_string());
+        assert_eq!(failed.code, ErrorCode::RenderFailed);
+        assert!(failed.message.starts_with(PREVIEW_RENDER_FAILED));
+    }
 }
 
 #[cfg(test)]
@@ -4241,6 +4516,7 @@ mod lateral_ca_sharing_tests {
                 1400,
                 scale,
                 interim,
+                None,
             )
             .unwrap()
             .image

@@ -156,6 +156,8 @@ pub struct DevelopSession {
     pub patched_warped_cache: Mutex<Option<(u64, Arc<DynamicImage>)>>,
     /// The transformed full-resolution source.
     pub full_transformed_cache: Mutex<Option<TransformedImageCache>>,
+    /// The fit view's full-resolution colour noise correction.
+    pub color_noise_view: crate::color_noise_view::ColorNoiseView,
 }
 
 impl Default for DevelopSession {
@@ -175,6 +177,7 @@ impl Default for DevelopSession {
             mask_source_recipe: Mutex::new(None),
             patched_warped_cache: Mutex::new(None),
             full_transformed_cache: Mutex::new(None),
+            color_noise_view: Default::default(),
         }
     }
 }
@@ -202,6 +205,7 @@ impl DevelopSession {
         }
         *lock_recover(&self.patched_warped_cache) = None;
         *lock_recover(&self.full_transformed_cache) = None;
+        self.color_noise_view.clear();
     }
 
     /// Drops what `scope` makes stale. Takes each cache's lock alone, one
@@ -219,6 +223,7 @@ impl DevelopSession {
                 lock_recover(&self.mask_cache).clear();
                 lock_recover(&self.mask_thumbnail_cache).clear();
                 lock_recover(&self.geometry_cache).clear();
+                self.color_noise_view.clear();
             }
             Scope::Decoder => {
                 lock_recover(&self.decoded_image_cache).clear();
@@ -228,6 +233,7 @@ impl DevelopSession {
                 *lock_recover(&self.full_warped_cache) = None;
                 *lock_recover(&self.patched_warped_cache) = None;
                 *lock_recover(&self.full_transformed_cache) = None;
+                self.color_noise_view.clear();
                 // The multi view's decodes held for its 1:1 previews.
                 crate::multi_view_prefetch::forget_decodes();
                 // The decode kept for the photograph opened next.

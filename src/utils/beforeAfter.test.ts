@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rustRecipeKeys } from '../contracts/recipeKeys.testSupport';
-import { INITIAL_ADJUSTMENTS } from './adjustments';
+import { INITIAL_ADJUSTMENTS, RAW_DETAIL_DEFAULTS } from './adjustments';
 import {
   BEFORE_FRAMING_KEYS,
   COMPARE_MODES,
@@ -59,7 +59,32 @@ describe('before/after', () => {
     for (const renderVersion of [undefined, 2]) {
       const edited = { ...INITIAL_ADJUSTMENTS, exposure: 1, rotation: 2.5, renderVersion };
       expect(originalPreviewAdjustments(edited).renderVersion).toBe(renderVersion);
+      // The decode variant follows the edit's colour noise version as well.
+      expect(originalPreviewAdjustments({ ...edited, colorNoiseVersion: 11 }).colorNoiseVersion).toBe(11);
     }
+  });
+
+  it('shows a RAW as imported: import detail defaults, not a zero-detail render; the edit stays out', () => {
+    const edited = {
+      ...INITIAL_ADJUSTMENTS,
+      sharpness: 80,
+      colorNoiseReduction: 60,
+      lumaNoiseReduction: 50,
+      exposure: 1,
+      sharpenVersion: 3,
+      lumaNoiseVersion: 2
+    };
+    const original = originalPreviewAdjustments(edited, null, true);
+    expect(original.sharpness).toBe(RAW_DETAIL_DEFAULTS.sharpness);
+    expect(original.colorNoiseReduction).toBe(RAW_DETAIL_DEFAULTS.colorNoiseReduction);
+    expect(original.lumaNoiseReduction).toBe(RAW_DETAIL_DEFAULTS.lumaNoiseReduction);
+    expect(original.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
+    expect(original.sharpenVersion).toBe(3);
+    expect(original.lumaNoiseVersion).toBe(2);
+    // A non-RAW has no import detail; a snapshot keeps its own detail.
+    expect(originalPreviewAdjustments(edited, null, false).sharpness).toBe(INITIAL_ADJUSTMENTS.sharpness);
+    const snap = { ...INITIAL_ADJUSTMENTS, sharpness: 7 };
+    expect(originalPreviewAdjustments(edited, snap, true).sharpness).toBe(7);
   });
 
   it('keeps a framing key the edit leaves unset unset, so both sides match natively', () => {

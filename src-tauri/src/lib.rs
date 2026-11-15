@@ -34,6 +34,7 @@ mod camera_tethering;
 mod capture_time;
 mod catalog_subset;
 mod collage;
+mod color_noise_view;
 mod content_search;
 mod contribute;
 mod costyle;
@@ -580,6 +581,7 @@ fn start(args: Vec<String>) {
                 // GPU idle compiles: held while memory is short or an
                 // export runs.
                 memory_pressure::guard_idle_compiles(&app_handle);
+                ai_lifecycle::release_for_cold_helper_compiles(&app_handle);
                 // Under a compile limit 16-bit exports' variant compiles in
                 // idle time when a recipe is 16-bit (G76/WCC10).
                 if let Ok(settings) = state::settings::try_current(&app_handle) {

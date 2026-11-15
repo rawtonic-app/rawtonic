@@ -38,6 +38,9 @@ pub mod camera_cover;
 mod deferred_display;
 #[path = "effect_passes.rs"]
 mod effect_passes;
+#[path = "frame_supersession.rs"]
+mod frame_supersession;
+pub use frame_supersession::{FRAME_SUPERSEDED, is_superseded, supersedable};
 #[path = "idle_compile_child.rs"]
 mod idle_compile_child;
 #[path = "idle_compiles.rs"]
@@ -45,6 +48,7 @@ mod idle_compiles;
 pub use deferred_display::{plan_deferred_exports, set_idle_deferred_exports};
 pub use idle_compile_child::{
     HELPER_ERROR_FILE, IdleCompileHelper, compile_in_helper_process, set_idle_compile_helper,
+    set_on_cold_helper_compile,
 };
 #[path = "multi_view.rs"]
 pub mod multi_view;
@@ -9127,6 +9131,17 @@ impl GpuProcessor {
                 Some(idle) if idle.covering(features).is_some() => {
                     waits_for_idle = Some(PendingCompile::new());
                 }
+                // No planned variant covers it (Halation or Grain): its own
+                // compiles in a helper process too where there are helpers,
+                // not in the app (`IdleCompiles::for_frame`). A small one
+                // compiles here beside a helper as before.
+                Some(idle)
+                    if !small_display_variant(own)
+                        && self.preview_compilation[own].get().is_none()
+                        && idle.for_frame(own, || self.idle_target()) =>
+                {
+                    waits_for_idle = Some(PendingCompile::new());
+                }
                 _ => self.compile_preview_variant(own),
             }
             // Another photo than a default RAW: the compiles held back at
@@ -9171,6 +9186,15 @@ impl GpuProcessor {
                 return self
                     .general_pipeline(adjustments, MainOutput::EightBit)
                     .map(|pipeline| (pipeline, false));
+            }
+            // A newer request replaces this frame while it waits: the next
+            // one renders as soon as its own variant is there, often at once
+            // (the effect turned off again, another photo). The compile goes
+            // on; a helper's job no frame asks for any more moves to idle
+            // time (`IdleCompiles::for_frame`). Only renders that may skip
+            // ask (`frame_supersession`), never an export.
+            if frame_supersession::superseded() {
+                return Err(FRAME_SUPERSEDED.to_string());
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }

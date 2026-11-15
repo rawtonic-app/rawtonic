@@ -13,6 +13,7 @@ import {
   DEFRINGE_VERSION,
   DEHAZE_VERSION,
   HSL_VERSION,
+  COLOR_GRADING_VERSION,
   LUMA_NOISE_VERSION,
   SHARPEN_VERSION,
   STRUCTURE_VERSION,
@@ -138,6 +139,7 @@ const KEYS: VersionKey[] = [
   },
   { key: 'tintVersion', newest: TINT_VERSION, users: sliders('tint'), translated: ['tint'], translate: translateTint },
   { key: 'hslVersion', newest: HSL_VERSION, users: sliders('hsl'), translated: [] },
+  { key: 'colorGradingVersion', newest: COLOR_GRADING_VERSION, users: sliders('colorGrading'), translated: [] },
   { key: 'sharpenVersion', newest: SHARPEN_VERSION, users: sliders('sharpness'), translated: [] },
   { key: 'lumaNoiseVersion', newest: LUMA_NOISE_VERSION, users: sliders('lumaNoiseReduction'), translated: [] },
   {

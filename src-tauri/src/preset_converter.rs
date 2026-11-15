@@ -786,6 +786,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             recipe_color::COLOR_GRADING.name().to_string(),
             Value::Object(color_grading_map),
         );
+        // Lightroom's wheel values: the response fitted to it.
+        adjustments.insert(
+            rawtonic_engine::image_processing::COLOR_GRADING_VERSION_KEY.to_string(),
+            json!(rawtonic_engine::image_processing::COLOR_GRADING_VERSION),
+        );
     }
 
     // Post-crop vignette style (1 highlight priority, 2 colour priority,
@@ -2726,5 +2731,13 @@ mod tests {
             crs:SplitToningShadowSaturation="30" crs:ColorGradeBlending="50"/></rdf:RDF></x:xmpmeta>"#;
         let adjustments = convert_xmp_to_preset(modern).unwrap().adjustments;
         assert_eq!(adjustments["colorGrading"]["blending"], 50);
+        // Lightroom's wheel values render with the response fitted to it.
+        assert_eq!(
+            adjustments["colorGradingVersion"],
+            rawtonic_engine::image_processing::COLOR_GRADING_VERSION
+        );
+        let plain = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Exposure2012="+0.20"/></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(plain).unwrap().adjustments;
+        assert!(adjustments.get("colorGradingVersion").is_none());
     }
 }

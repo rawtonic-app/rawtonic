@@ -17,7 +17,7 @@ import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/q
 import {
   sameAdjustmentValue,
   withBwVersion,
-  withHslVersion,
+  withColourVersions,
   withDetailVersions,
   withWhiteBalanceVersions,
   withVibranceVersion,
@@ -225,7 +225,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // (inferred after drawn masks are left out of the live patch).
       const shown = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
       const patch = shown
-        ? withHslVersion(
+        ? withColourVersions(
             withBwVersion(
               withVibranceVersion(
                 withDetailVersions(
@@ -291,7 +291,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // on each of them (never the primary's bitmaps).
       const done = writeToOthers(
         applyRef.current,
-        withHslVersion(
+        withColourVersions(
           withBwVersion(
             withVibranceVersion(
               withDetailVersions(
