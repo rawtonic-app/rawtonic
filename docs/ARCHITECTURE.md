@@ -647,7 +647,8 @@ rawtonic_…::{…}` line in `lib.rs`. Don't add empty crates pretending a separ
 
 `lib.rs` is wiring only: module declarations, `run()` and `generate_handler!`; the Develop source/preview pipeline lives
 in `editor_preview.rs` (the fit view's export colour noise reduction from a full-resolution correction built in the
-background: `color_noise_view.rs`), start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
+background: `color_noise_view.rs`; on the CPU on Apple silicon, elsewhere by the export's GPU filter in
+`rawtonic_gpu::gpu_processing::color_noise_view`, off on integrated or compile-limited GPUs), start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
 With in `open_with.rs` (programs from LaunchServices on macOS and from the shell's association handlers on Windows,
 `open_with/windows_shell.rs` with its plain-data part in `open_with/handlers.rs`; disabled on Linux; Edit With queues one export per photo
 through the export queue, snapshotted at the click like any queued export, to `NAME_edit.<ext>` beside the original,

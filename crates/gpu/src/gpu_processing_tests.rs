@@ -18133,6 +18133,95 @@ fn render_source(
     .unwrap()
 }
 
+/// The reduced views' correction (`color_noise_view`) is the export's own
+/// colour noise reduction: the source plus its full-size difference,
+/// rendered at Color 0, is the export's render at Color 25 / 50 (up to
+/// the 16-bit float input of the second render); reduced, it is that
+/// difference resampled (`lanczos::resize_signed`); a stop ends it.
+#[test]
+#[ignore = "requires a native GPU"]
+fn color_noise_view_correction_is_the_exports_filter() {
+    let context = context();
+    let image = chroma_noise_frame(2300, 300);
+    for color in [25, 50] {
+        let recipe = json!({ "colorNoiseReduction": color, "colorNoiseVersion": 11 });
+        let global = get_all_adjustments_from_json(&recipe, true, Some(1)).global;
+        let full =
+            color_noise_view::reduced_correction(&context, &image, &global, (2300, 300), &|| false)
+                .unwrap()
+                .expect("a correction");
+        let mut corrected = image.to_rgb32f();
+        corrected
+            .iter_mut()
+            .zip(full.iter())
+            .for_each(|(v, d)| *v = half::f16::from_f32(*v).to_f32() + d);
+        let export = render_source(
+            &context,
+            &image,
+            recipe.clone(),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .to_rgba16();
+        let view = render_source(
+            &context,
+            &DynamicImage::ImageRgb32F(corrected),
+            json!({ "colorNoiseVersion": 11 }),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .to_rgba16();
+        let unfiltered = render_source(
+            &context,
+            &image,
+            json!({ "colorNoiseVersion": 11 }),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .to_rgba16();
+        let (mut worst, mut sum, mut changed) = (0i32, 0i64, 0i64);
+        for ((e, v), u) in export.pixels().zip(view.pixels()).zip(unfiltered.pixels()) {
+            for k in 0..3 {
+                let d = (e[k] as i32 - v[k] as i32).abs();
+                worst = worst.max(d);
+                sum += d as i64;
+                changed += (e[k] as i32 - u[k] as i32).abs() as i64;
+            }
+        }
+        let n = (export.width() * export.height() * 3) as f64;
+        println!(
+            "Color {color}: view correction vs export: max {worst}, mean {:.3}; filter changed mean {:.1} levels",
+            sum as f64 / n,
+            changed as f64 / n
+        );
+        // Measured on the RTX 3080 (Vulkan): max 7, mean 2.4 at Color 25
+        // while the filter moves pixels by 516 levels on average: the 16-bit
+        // float rounding of the corrected input, nothing of the filter.
+        assert!(sum as f64 / n < 4.0, "mean {}", sum as f64 / n);
+        assert!(changed as f64 / n > 100.0 * (sum as f64 / n).max(1.0));
+        assert!(worst < 64, "max {worst}");
+        let reduced =
+            color_noise_view::reduced_correction(&context, &image, &global, (800, 104), &|| false)
+                .unwrap()
+                .unwrap();
+        let expected = rawtonic_engine::lanczos::resize_signed(&full, 800, 104);
+        assert_eq!(reduced.as_raw(), expected.as_raw());
+        assert!(
+            color_noise_view::reduced_correction(&context, &image, &global, (800, 104), &|| true)
+                .unwrap()
+                .is_none()
+        );
+    }
+    let off = get_all_adjustments_from_json(
+        &json!({ "colorNoiseReduction": 0, "colorNoiseVersion": 11 }),
+        true,
+        Some(1),
+    )
+    .global;
+    assert!(
+        color_noise_view::reduced_correction(&context, &image, &off, (800, 104), &|| false)
+            .unwrap()
+            .is_none()
+    );
+}
+
 #[test]
 #[ignore = "requires a native GPU"]
 fn multiscale_color_noise_matches_its_cpu_reference() {
@@ -23470,4 +23559,118 @@ fn dehaze_version_2_lowers_as_a_veil() {
         "the tones keep their order"
     );
     assert!(colour(&v2) < 0.6 * colour(&neutral), "colour fades");
+}
+
+/// TPX5 cost probe (measurement, not a check): the export's GPU colour
+/// noise reduction at full resolution = render at Color 50 minus Color 0,
+/// a fresh source upload each time. `TPX5_RAW=photo cargo test --release
+/// -p rawtonic-gpu -- --ignored --nocapture tpx5_color_noise_cost`.
+#[test]
+#[ignore = "measurement; needs TPX5_RAW"]
+fn tpx5_color_noise_cost() {
+    use rawtonic_engine::image_loader::{self, BaseImageOptions};
+    let Some(raw) = std::env::var_os("TPX5_RAW") else {
+        eprintln!("SKIP: TPX5_RAW not set");
+        return;
+    };
+    let raw = raw.to_string_lossy().into_owned();
+    let reps: usize = std::env::var("TPX5_REPS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let mut recipe: serde_json::Value = serde_json::from_str(include_str!(
+        "../../engine/tests/fixtures/new-edit-recipe.raw.json"
+    ))
+    .unwrap();
+    for key in [
+        "lensDistortionEnabled",
+        "lensTcaEnabled",
+        "lensVignetteEnabled",
+    ] {
+        recipe[key] = false.into();
+    }
+    recipe["sharpness"] = 0.into();
+    recipe["lumaNoiseReduction"] = 0.into();
+    let bytes = std::fs::read(&raw).unwrap();
+    let (img, measures) = image_loader::load_base_image_measured(
+        &bytes,
+        &raw,
+        false,
+        &BaseImageOptions::default().for_recipe(&recipe, &raw),
+        None,
+    )
+    .unwrap();
+    let full = Arc::new(img);
+    let context = GpuContext::headless().unwrap();
+    let processor = GpuProcessorSlot::background(None);
+    let cache = Mutex::new(None);
+    let mut hash = 1000u64;
+    for rep in 0..reps {
+        for c in [0, 50] {
+            let mut r = recipe.clone();
+            r["colorNoiseReduction"] = c.into();
+            let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
+            rawtonic_engine::baseline_exposure::apply_base_look(
+                &mut a.global,
+                &raw,
+                measures.as_ref(),
+                None,
+            );
+            a.global.show_clipping = 0;
+            hash += 1;
+            let t = std::time::Instant::now();
+            let out = process_and_get_dynamic_image_inner(
+                &context,
+                &processor,
+                &cache,
+                RenderSource::Image {
+                    image: &full,
+                    transform_hash: hash,
+                },
+                RenderRequest {
+                    adjustments: a,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                "tpx5",
+                RenderOutputPrecision::EightBit,
+                false,
+                None,
+                None,
+                ReadbackShader::Export,
+            )
+            .unwrap();
+            eprintln!(
+                "TIME rep {rep} color {c} {:?} {:?}",
+                t.elapsed(),
+                (out.width(), out.height())
+            );
+        }
+    }
+    // The reduced views' GPU correction (`color_noise_view`) at the Develop
+    // fit view's pre-warp sizes (fit 1536 and 2070 of a 6000 px photo).
+    let mut r = recipe.clone();
+    r["colorNoiseReduction"] = 50.into();
+    let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
+    rawtonic_engine::baseline_exposure::apply_base_look(
+        &mut a.global,
+        &raw,
+        measures.as_ref(),
+        None,
+    );
+    color_noise_view::ready(&context).unwrap();
+    let (w, h) = (full.width(), full.height());
+    for rep in 0..reps {
+        for dim in [1920u32, 2588] {
+            let size = (dim, (u64::from(dim) * u64::from(h) / u64::from(w)) as u32);
+            let t = std::time::Instant::now();
+            let delta =
+                color_noise_view::reduced_correction(&context, &full, &a.global, size, &|| false)
+                    .unwrap()
+                    .unwrap();
+            eprintln!("TIME rep {rep} view correction {size:?} {:?}", t.elapsed());
+            drop(delta);
+        }
+    }
 }
