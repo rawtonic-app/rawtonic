@@ -8960,6 +8960,9 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
     // every branch its constants decide (`display_variant_ir`);
     // the frame must be the one the whole shader with all the effects code
     // renders, byte for byte, as display variants were compiled before.
+    // One pass, features included: the reference is the whole shader in
+    // the variant's place, which is no main pass of the effect passes.
+    effect_passes::FORCED.with(|forced| forced.set(Some(false)));
     let context = context();
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
@@ -8994,11 +8997,7 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
         let features = preview_features(&adjustments);
         let masks = generated_profile_masks(&profile, width, height);
         let render = |with_effects: bool| {
-            // One pass: the reference is the whole shader in the variant's
-            // place, which is no main pass of the effect passes.
-            effect_passes::FORCED.with(|forced| forced.set(Some(false)));
             let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
-            effect_passes::FORCED.with(|forced| forced.set(None));
             processor.preview_pipelines[features].get_or_init(|| {
                 create_preview_pipeline(
                     &processor.context.device,
@@ -9092,6 +9091,51 @@ fn effect_pass_profiles() -> Vec<serde_json::Value> {
     ]
 }
 
+/// The compile limit the app sets for this device (`device_start::
+/// compile_limit`: one compile at a time on AMD's Windows Vulkan driver)
+/// while it lives, for tests that compile many variants: without it each
+/// test processor compiles its pipelines ahead and at once, which took a
+/// Radeon 680M's driver to 13–30 GB (G76/WEFX2). Processors made under it
+/// by `effect_pass_processor` compile only what a test asks for.
+struct DeviceCompileLimit;
+
+impl DeviceCompileLimit {
+    fn set(context: &GpuContext) -> Self {
+        set_compile_limit(crate::device_start::compile_limit(
+            &context.device.adapter_info(),
+            cfg!(windows),
+        ));
+        Self
+    }
+}
+
+impl Drop for DeviceCompileLimit {
+    fn drop(&mut self) {
+        // The test's processors compile pipelines in the background (ahead,
+        // without a limit): a process that ends while a driver compiles
+        // crashed at exit (NVIDIA on Linux).
+        let deadline = Instant::now() + std::time::Duration::from_secs(600);
+        while compiles_pending() && Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        set_compile_limit(None);
+    }
+}
+
+/// A processor with or without the effect passes that compiles nothing
+/// ahead under a compile limit and plans no idle compiles (`for_exports`).
+fn effect_pass_processor(
+    context: &GpuContext,
+    width: u32,
+    height: u32,
+    passes: bool,
+) -> GpuProcessor {
+    effect_passes::FORCED.with(|forced| forced.set(Some(passes)));
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    assert_eq!(processor.effect_passes.is_some(), passes);
+    processor
+}
+
 #[test]
 #[ignore = "requires a native GPU; the effect passes against one pass"]
 fn effect_passes_render_the_one_pass_frames() {
@@ -9101,14 +9145,13 @@ fn effect_passes_render_the_one_pass_frames() {
     // be the ones the same display source renders in one pass, value for
     // value.
     //
-    // Few and small compiles, as a driver under a compile limit takes
-    // 30–60 s and 4–6 GB for each (a variant with every profile's features
-    // at once took a Radeon 680M's driver beyond 50 GB, G76/WEFX): one
-    // processor per mode; one pass renders each profile with its own
-    // variant, the passes with the variant the app plans for it
-    // (`export_display_features`: an idle feature changes no pixel). The
+    // One compile at a time under the device's compile limit, each of a
+    // profile's own variant (a variant with every profile's features at
+    // once took a Radeon 680M's driver beyond 50 GB, G76/WEFX), on a
+    // processor per profile, so no pipeline outlives its profile. The
     // raster input and the export only for three profiles.
     let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
     let profiles = effect_pass_profiles();
@@ -9117,10 +9160,7 @@ fn effect_passes_render_the_one_pass_frames() {
     // Name, frame, frame with sums, 16-bit export, frames with sums.
     type Rendered = (String, Vec<u8>, Vec<u8>, Option<Vec<u16>>, usize);
     let render = |passes: bool| -> Vec<Rendered> {
-        effect_passes::FORCED.with(|forced| forced.set(Some(passes)));
-        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
-        assert_eq!(processor.effect_passes.is_some(), passes);
-        let shown = || {
+        let shown = |processor: &GpuProcessor| {
             read_texture_data_roi(
                 &context.device,
                 &context.queue,
@@ -9141,16 +9181,10 @@ fn effect_passes_render_the_one_pass_frames() {
                 if !raw && !EXPORTED.contains(&index) {
                     continue;
                 }
+                let processor = effect_pass_processor(&context, width, height, passes);
                 let adjustments =
                     get_all_adjustments_from_json(profile, raw, Some(if raw { 3 } else { 0 }));
-                prepare_preview_pipeline(
-                    &processor,
-                    if passes {
-                        export_display_features(&adjustments)
-                    } else {
-                        preview_features(&adjustments)
-                    },
-                );
+                prepare_preview_pipeline(&processor, preview_features(&adjustments));
                 let masks = generated_profile_masks(profile, width, height);
                 let request =
                     |adjustments: &crate::image_processing::PreparedAdjustments| RenderRequest {
@@ -9174,7 +9208,7 @@ fn effect_passes_render_the_one_pass_frames() {
                 *processor.display_render_state.lock().unwrap() = None;
                 processor.layer_sums_enabled.store(false, Ordering::Relaxed);
                 frame(&adjustments);
-                let first = shown();
+                let first = shown(&processor);
                 // Later frames of a layered recipe read the layers' sums.
                 let before = processor.layer_sum_frames[0].load(Ordering::Relaxed);
                 if adjustments.mask_count > 0 {
@@ -9186,10 +9220,10 @@ fn effect_passes_render_the_one_pass_frames() {
                         frame(adjustments);
                     }
                 }
-                let summed = shown();
+                let summed = shown(&processor);
                 let sum_frames = processor.layer_sum_frames[0].load(Ordering::Relaxed) - before;
-                // The export under a compile limit, at 16 bits.
-                let export = EXPORTED.contains(&index).then(|| {
+                // The export under a compile limit, at 16 bits (RAW only).
+                let export = (raw && EXPORTED.contains(&index)).then(|| {
                     processor
                         .force_export_display
                         .store(true, Ordering::Relaxed);
@@ -9252,7 +9286,7 @@ fn effect_passes_render_the_one_pass_frames() {
             "{name}: export differs"
         );
     }
-    assert_eq!((passes.len(), exports), (14, 6));
+    assert_eq!((passes.len(), exports), (14, 3));
     // Layered profiles did render with sums.
     assert!(passes.iter().any(|case| case.4 > 0));
 }
@@ -9269,6 +9303,7 @@ fn effect_passes_frame_cost_probe() {
     // has finished the frame. The two modes take turns, five frames each,
     // so a laptop's clock and temperature drift falls on both.
     let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
     let (width, height) = (2560, 1440);
     let view = input(&context, width, height, 31);
     let basic = json!({"exposure":0.3,"contrast":20,"shadows":25,"whites":-10,"vibrance":20,
@@ -9294,10 +9329,8 @@ fn effect_passes_frame_cost_probe() {
     ] {
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(3));
         let processors = [false, true].map(|passes| {
-            effect_passes::FORCED.with(|forced| forced.set(Some(passes)));
-            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            let processor = effect_pass_processor(&context, width, height, passes);
             prepare_preview_pipeline(&processor, preview_features(&adjustments));
-            effect_passes::FORCED.with(|forced| forced.set(None));
             processor
         });
         let mut times = [Vec::new(), Vec::new()];
