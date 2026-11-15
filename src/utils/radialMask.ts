@@ -112,7 +112,11 @@ function dragBellLine(params: RadialParams, line: RadialLine, point: LocalPoint,
   const at = (feather: number) => lineFactors(params, feather);
   // The line that stays, its radii and its factor as a function of feather.
   const [kept, keptFactor, movedFactor] = symmetric
-    ? [lines.central, (f: number) => at(f).central, line === 'inner' ? (f: number) => at(f).inner : (f: number) => at(f).outer]
+    ? [
+        lines.central,
+        (f: number) => at(f).central,
+        line === 'inner' ? (f: number) => at(f).inner : (f: number) => at(f).outer
+      ]
     : line === 'inner'
       ? [lines.outer, (f: number) => at(f).outer, (f: number) => at(f).inner]
       : [lines.inner, (f: number) => at(f).inner, (f: number) => at(f).outer];
