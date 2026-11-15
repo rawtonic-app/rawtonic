@@ -97,6 +97,13 @@ export type CompareMode = 'off' | SplitOrientation;
 /** The compare menu's entries and the cycle's order (Shift+Y). */
 export const COMPARE_MODES: CompareMode[] = ['off', 'left-right', 'top-bottom', 'side-by-side'];
 
+/** The shortcut that shows each mode directly (and turns it off again). */
+export const COMPARE_MODE_ACTIONS: Record<SplitOrientation, string> = {
+  'left-right': 'compare_left_right',
+  'top-bottom': 'compare_top_bottom',
+  'side-by-side': 'compare_side_by_side'
+};
+
 /** The mode after `mode` in the cycle: Off → left-right → top-bottom → side-by-side → Off. */
 export function nextCompareMode(mode: CompareMode): CompareMode {
   return COMPARE_MODES[(COMPARE_MODES.indexOf(mode) + 1) % COMPARE_MODES.length];
