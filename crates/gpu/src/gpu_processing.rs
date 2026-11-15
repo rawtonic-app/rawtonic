@@ -5896,6 +5896,57 @@ impl Drop for CompileWork {
     }
 }
 
+/// Threads started by `spawn_device_thread` that have not ended yet.
+static DEVICE_THREADS: (Mutex<usize>, std::sync::Condvar) =
+    (Mutex::new(0), std::sync::Condvar::new());
+
+/// Counts a thread of `spawn_device_thread` until it has dropped what its
+/// closure held (the device among it).
+struct DeviceThreadEnd;
+
+impl Drop for DeviceThreadEnd {
+    fn drop(&mut self) {
+        let mut live = DEVICE_THREADS.0.lock().unwrap_or_else(|e| e.into_inner());
+        *live -= 1;
+        DEVICE_THREADS.1.notify_all();
+    }
+}
+
+/// [`rawtonic_runtime::spawn_render_thread`] for a thread whose closure holds
+/// the device (or its resources). The thread counts as live until `f`'s
+/// captures are dropped: the last reference to a device may be that
+/// thread's, and dropping it unloads the Vulkan driver, which must not run
+/// beside a process exit (NVIDIA: `free(): invalid pointer` at the end of a
+/// test binary, 7 of 10 runs).
+fn spawn_device_thread<F>(name: &str, f: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    *DEVICE_THREADS.0.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+    rawtonic_runtime::spawn_render_thread(name, move || {
+        let _end = DeviceThreadEnd;
+        f();
+    });
+}
+
+/// Blocks until every `spawn_device_thread` thread has ended, so a test
+/// that drops its processor and device does not leave their last reference
+/// to a thread still running at the process exit.
+#[cfg(test)]
+pub(crate) fn wait_for_device_threads() {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    let mut live = DEVICE_THREADS.0.lock().unwrap_or_else(|e| e.into_inner());
+    while *live > 0 {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        assert!(!left.is_zero(), "{} GPU threads did not end", *live);
+        live = DEVICE_THREADS
+            .1
+            .wait_timeout(live, left)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
+    }
+}
+
 /// Whether a shader compile is waiting or running now.
 pub fn compiles_pending() -> bool {
     *PENDING_COMPILES.lock().unwrap_or_else(|e| e.into_inner()) > 0
@@ -6315,7 +6366,7 @@ impl BackgroundPipeline {
         let result = Arc::clone(&cell);
         let device = device.clone();
         let start = Arc::clone(gate);
-        rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
+        spawn_device_thread("pipeline-compile", move || {
             if !start.wait() {
                 return;
             }
@@ -6371,7 +6422,7 @@ fn spawn_preview_compile(
 ) {
     let first = features == RAW_DEFAULT_PREVIEW_FEATURES;
     let opens = first.then(|| Arc::clone(start_gate));
-    rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
+    spawn_device_thread("pipeline-compile", move || {
         if let Some(gate) = gate
             && !gate.wait()
         {
@@ -9267,7 +9318,7 @@ impl GpuProcessor {
             let shader = self.preview_shader.clone();
             let display = Arc::clone(&self.display_shader);
             let layout = self.preview_layout.clone();
-            rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
+            spawn_device_thread("pipeline-compile", move || {
                 match create_preview_pipeline(
                     &device,
                     &shader,
@@ -9321,7 +9372,7 @@ impl GpuProcessor {
             let shader = self.preview_shader.clone();
             let display = Arc::clone(&self.display_shader);
             let layout = self.preview_layout.clone();
-            rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
+            spawn_device_thread("pipeline-compile", move || {
                 let started = std::time::Instant::now();
                 match create_sharpen_view_pipeline(&device, &shader, &display, &layout, features) {
                     Ok(pipeline) => {
@@ -9403,7 +9454,7 @@ impl GpuProcessor {
                 let device = Arc::clone(&self.context.device);
                 let shader = self.preview_shader.clone();
                 let layout = self.detail_layout.clone();
-                rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
+                spawn_device_thread("pipeline-compile", move || {
                     let created = create_compute_pipeline(
                         &device,
                         &wgpu::ComputePipelineDescriptor {
