@@ -1329,3 +1329,45 @@ mod launch_path_tests {
         );
     }
 }
+
+/// The message for a resource directory that cannot be resolved. Tauri derives
+/// the directory from the canonical executable path (it follows symlinks on
+/// Linux, macOS and Windows alike), so name that path and where the files
+/// were expected.
+pub(crate) fn resource_dir_missing_message(
+    exe: Option<&std::path::Path>,
+    resource_dir: Option<&std::path::Path>,
+) -> String {
+    let exe = exe.map_or_else(|| "unknown".into(), |p| p.display().to_string());
+    match resource_dir {
+        Some(dir) => format!(
+            "resource directory {} (for the executable {exe}) does not exist; the installation is incomplete",
+            dir.display()
+        ),
+        None => format!("cannot resolve the resource directory for the executable {exe}"),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod symlinked_launch_tests {
+    use rawtonic_fs::Canonical;
+    #[test]
+    fn executable_through_symlinks_canonicalizes_to_the_real_resource_neighbour() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("real/target/release");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("app"), b"x").unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("real"), tmp.path().join("linked")).unwrap();
+        std::os::unix::fs::symlink(real.join("app"), tmp.path().join("app-link")).unwrap();
+        let via_dir = tmp.path().join("linked/target/release/app");
+        let canon = via_dir.canonical().unwrap();
+        assert_eq!(canon, real.canonical().unwrap().join("app"));
+        assert_eq!(tmp.path().join("app-link").canonical().unwrap(), canon);
+        let msg = super::resource_dir_missing_message(
+            Some(&canon),
+            Some(&canon.parent().unwrap().join("resources")),
+        );
+        assert!(msg.contains("real/target/release/resources") && !msg.contains("linked"));
+        assert!(super::resource_dir_missing_message(None, None).contains("unknown"));
+    }
+}

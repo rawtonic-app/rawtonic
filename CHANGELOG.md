@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improvements
+
+- **The app starts through a symlinked folder or link on macOS** (for example a link on an external drive or in `/usr/local/bin`); before, it aborted with "failed to resolve resource directory". Linux and Windows were not affected. The error for truly missing resources now names the executable.
+
 ## 0.1.0-alpha.15 — 2026-11-15
 
 The fifteenth alpha. Photos can be filed in keyword hierarchies (Animals > Dogs) with a Keyword List, Undo for keyword changes and drag-and-drop of photos onto a keyword. For new edits the colour mixer follows Camera Raw more closely for Blues and Purples and Color Grading tints where Camera Raw puts them. The Develop fit view and the grid thumbnail now show the export's colour noise reduction on Apple silicon and discrete graphics cards, the Before of a RAW includes the sharpening and noise reduction it gets at import, and each before/after mode has a key of its own. Linux gets Open With and Edit With and a 100 % view as sharp as the export, lossless JPEG XL exports reopen and encode far faster, and the CLI exports several photos at once. On Windows with AMD graphics the first start and the first edits prepare their views without piling up memory, and exports, AI masks and view preparation take turns. A library opened by its path, one duplicate rule everywhere and a rating that survives a catalog that had registered a file twice fix several ways of losing track of photos.
