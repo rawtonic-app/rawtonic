@@ -2,6 +2,7 @@ import { useId } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Loader2, TriangleAlert } from 'lucide-react';
 import { useEditorStore } from '../../../store/useEditorStore';
+import { drawsOneToOne } from '../../../utils/pixelSnap';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useSnapshotStore } from '../../../store/useSnapshotStore';
 import { beforeAdjustments } from '../../../utils/beforeSnapshot';
@@ -44,12 +45,12 @@ export function useBrowserBeforeFrame({
     ...beforeAdjustments(adjustments),
     ...view
   });
-  const resolution = Math.min(
-    4096,
-    Math.max(
-      64,
-      Math.ceil((Math.max(size.width, size.height) * transform.scale * (window.devicePixelRatio || 1)) / 64) * 64
-    )
+  // As large as shown, up to the photograph's own size at 100 % (the
+  // native side keeps it within the GPU's texture limit), so the before is
+  // as sharp as the after it is compared with.
+  const resolution = Math.max(
+    64,
+    Math.ceil((Math.max(size.width, size.height) * transform.scale * (window.devicePixelRatio || 1)) / 64) * 64
   );
   return useBrowserViewPreview(active ? path : null, recipe, resolution, String(decoded));
 }
@@ -104,7 +105,19 @@ export default function BrowserSplitImage({
         </clipPath>
       </defs>
       {frame ? (
-        <image href={frame.url} x={0} y={0} width="100%" height="100%" clipPath={`url(#${id})`} />
+        <image
+          href={frame.url}
+          x={0}
+          y={0}
+          width="100%"
+          height="100%"
+          clipPath={`url(#${id})`}
+          style={{
+            imageRendering: drawsOneToOne(frame.pixelWidth, size, transform.scale, window.devicePixelRatio || 1)
+              ? 'pixelated'
+              : 'auto'
+          }}
+        />
       ) : (
         <foreignObject x={8} y={32} width={24} height={24}>
           <BeforeFrameStatus error={error} />

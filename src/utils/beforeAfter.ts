@@ -75,7 +75,14 @@ export function originalPreviewAdjustments(adjustments: Adjustments, snapshot?: 
   // The unedited photograph through the photo's render pipeline (warps keep
   // wide-gamut colour from 2), so before and after differ by the edit only;
   // a snapshot keeps its own, as it looked.
-  if (!snapshot) original.renderVersion = adjustments.renderVersion;
+  if (!snapshot) {
+    original.renderVersion = adjustments.renderVersion;
+    // The colour noise version picks the decode too (multi-scale: no
+    // decode-time chroma clean-up): with the edit's, the before develops from
+    // the decode Develop holds, at full size on Linux too, where another
+    // version decoded a quarter-size proxy for the 100 % before (LNX1).
+    original.colorNoiseVersion = adjustments.colorNoiseVersion;
+  }
   return original;
 }
 
