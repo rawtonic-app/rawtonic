@@ -35,6 +35,9 @@ const DEAD_NEIGHBOUR_RATIO: f32 = 0.6;
 const HOT_MARGIN: f32 = 0.01;
 const DEAD_MARGIN: f32 = 0.005;
 const DEAD_FLOOR: f32 = 0.02;
+/// Rows of the mosaic one task tests (the rows of levels it converts are
+/// this plus four).
+const HOT_BAND: usize = 32;
 
 /// Which test finds dead photosites.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -129,53 +132,97 @@ pub fn suppress<T: Copy + Send + Sync>(
         }
     });
     let source: &[T] = data;
-    let fixes: Vec<(usize, T)> = (top + 2..top + ah - 2)
-        .into_par_iter()
-        .flat_map_iter(|row| {
+    // The test of one sample, as it always was.
+    let check = |row: usize, col: usize, values: &mut [f32; 24]| -> Option<T> {
+        let phase = (row % neighbours.period) * neighbours.period + col % neighbours.period;
+        let colour = cfa.color_at(row, col);
+        if colour >= 3 {
+            return None;
+        }
+        let v = level(source[row * width + col]);
+        let same = &neighbours.same[phase];
+        let mut lo = f32::INFINITY;
+        let mut hi = f32::NEG_INFINITY;
+        for (i, (dy, dx)) in same.iter().enumerate() {
+            let n =
+                level(source[(row as isize + dy) as usize * width + (col as isize + dx) as usize]);
+            values[i] = n;
+            lo = lo.min(n);
+            hi = hi.max(n);
+        }
+        // Adjacent samples of the other colours, white-balanced.
+        let adjacent = || {
+            neighbours.other[phase].iter().map(|(dy, dx, c)| {
+                level(source[(row as isize + dy) as usize * width + (col as isize + dx) as usize])
+                    * wb[*c]
+                    / wb[colour]
+            })
+        };
+        let hot = v > HOT_RATIO * hi.max(0.0) + HOT_MARGIN
+            && v > HOT_NEIGHBOUR_RATIO * adjacent().fold(0.0f32, f32::max) + HOT_MARGIN;
+        let dead = !hot
+            && lo > DEAD_FLOOR
+            && v < DEAD_RATIO * lo - DEAD_MARGIN
+            && (dead_test == DeadTest::SameColour
+                || v < DEAD_NEIGHBOUR_RATIO * adjacent().fold(f32::INFINITY, f32::min)
+                    - DEAD_MARGIN);
+        if hot || dead {
+            let n = same.len();
+            let slice = &mut values[..n];
+            slice.sort_by(f32::total_cmp);
+            let median = 0.5 * (slice[(n - 1) / 2] + slice[n / 2]);
+            Some(store(median))
+        } else {
+            None
+        }
+    };
+    // Only samples brighter than twice their brightest same-colour
+    // neighbour or darker than 0.4 of their darkest can be defective, and
+    // the brightest and darkest do not depend on the order they are taken
+    // in: they are found for whole rows at once, on rows of levels each
+    // converted once per band, and only those samples are tested.
+    let rows: Vec<usize> = (top + 2..top + ah - 2).collect();
+    let fixes: Vec<(usize, T)> = rows
+        .par_chunks(HOT_BAND)
+        .flat_map_iter(|band| {
             let mut out = Vec::new();
             let mut values = [0f32; 24];
-            for col in left + 2..left + aw - 2 {
-                let phase = (row % neighbours.period) * neighbours.period + col % neighbours.period;
-                let colour = cfa.color_at(row, col);
-                if colour >= 3 {
-                    continue;
+            let mut ring: [Vec<f32>; 5] = std::array::from_fn(|_| vec![0.0f32; aw]);
+            let (mut hi, mut lo) = (vec![0.0f32; aw], vec![0.0f32; aw]);
+            let fill = |buffer: &mut [f32], row: usize| {
+                for (l, &s) in buffer.iter_mut().zip(&source[row * width + left..][..aw]) {
+                    *l = level(s);
                 }
-                let v = level(source[row * width + col]);
-                let same = &neighbours.same[phase];
-                let mut lo = f32::INFINITY;
-                let mut hi = f32::NEG_INFINITY;
-                for (i, (dy, dx)) in same.iter().enumerate() {
-                    let n = level(
-                        source[(row as isize + dy) as usize * width + (col as isize + dx) as usize],
-                    );
-                    values[i] = n;
-                    lo = lo.min(n);
-                    hi = hi.max(n);
+            };
+            for row in band[0] - 2..band[0] + 2 {
+                fill(&mut ring[row % 5], row);
+            }
+            let period = neighbours.period;
+            for &row in band {
+                fill(&mut ring[(row + 2) % 5], row + 2);
+                hi.fill(f32::NEG_INFINITY);
+                lo.fill(f32::INFINITY);
+                for pc in 0..period {
+                    let phase = (row % period) * period + pc;
+                    // Active columns 2..aw - 2 of this phase.
+                    let first = 2 + (pc + period - (left + 2) % period) % period;
+                    for &(dy, dx) in &neighbours.same[phase] {
+                        let from = &ring[(row as isize + dy) as usize % 5];
+                        for col in (first..aw - 2).step_by(period) {
+                            let n = from[(col as isize + dx) as usize];
+                            hi[col] = hi[col].max(n);
+                            lo[col] = lo[col].min(n);
+                        }
+                    }
                 }
-                // Adjacent samples of the other colours, white-balanced.
-                let adjacent = || {
-                    neighbours.other[phase].iter().map(|(dy, dx, c)| {
-                        level(
-                            source[(row as isize + dy) as usize * width
-                                + (col as isize + dx) as usize],
-                        ) * wb[*c]
-                            / wb[colour]
-                    })
-                };
-                let hot = v > HOT_RATIO * hi.max(0.0) + HOT_MARGIN
-                    && v > HOT_NEIGHBOUR_RATIO * adjacent().fold(0.0f32, f32::max) + HOT_MARGIN;
-                let dead = !hot
-                    && lo > DEAD_FLOOR
-                    && v < DEAD_RATIO * lo - DEAD_MARGIN
-                    && (dead_test == DeadTest::SameColour
-                        || v < DEAD_NEIGHBOUR_RATIO * adjacent().fold(f32::INFINITY, f32::min)
-                            - DEAD_MARGIN);
-                if hot || dead {
-                    let n = same.len();
-                    let slice = &mut values[..n];
-                    slice.sort_by(f32::total_cmp);
-                    let median = 0.5 * (slice[(n - 1) / 2] + slice[n / 2]);
-                    out.push((row * width + col, store(median)));
+                let own = &ring[row % 5];
+                for col in 2..aw - 2 {
+                    let v = own[col];
+                    let candidate = v > HOT_RATIO * hi[col].max(0.0) + HOT_MARGIN
+                        || lo[col] > DEAD_FLOOR && v < DEAD_RATIO * lo[col] - DEAD_MARGIN;
+                    if candidate && let Some(value) = check(row, left + col, &mut values) {
+                        out.push((row * width + left + col, value));
+                    }
                 }
             }
             out
@@ -188,11 +235,84 @@ pub fn suppress<T: Copy + Send + Sync>(
 }
 
 #[cfg(test)]
+#[path = "hot_pixels_reference.rs"]
+mod hot_pixels_reference;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     fn bayer() -> CFA {
         CFA::new("RGGB")
+    }
+
+    /// The row prefilter repairs exactly what the per-sample test did:
+    /// u16 and f32 mosaics, Bayer and X-Trans, both dead tests, an active
+    /// area off the origin, defects of every kind among noise and edges.
+    #[test]
+    fn the_row_prefilter_repairs_what_the_reference_repairs() {
+        let mut state = 0x2545_f491u32;
+        let mut noise = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 8) as f32 / (1u32 << 24) as f32
+        };
+        let xtrans = CFA::new("GGRGGBGGBGGRBRGRBGGGBGGRGGRGGBRBGBRG");
+        for cfa in [bayer(), CFA::new("GBRG"), xtrans] {
+            for dead_test in [DeadTest::SameColour, DeadTest::Adjacent] {
+                let (w, h) = (203usize, 150usize);
+                let active = (5, 3, 190, 141);
+                let levels: Vec<f32> = (0..w * h)
+                    .map(|i| {
+                        let (y, x) = (i / w, i % w);
+                        let base = if x > 120 {
+                            0.4
+                        } else if y > 90 {
+                            0.003
+                        } else {
+                            0.15
+                        };
+                        match (x * 31 + y * 17) % 211 {
+                            0 => 0.97,
+                            1 => 0.0,
+                            2 => base * 0.1,
+                            3 => base * 3.0,
+                            _ => base * (1.0 + 0.3 * (noise() - 0.5)),
+                        }
+                    })
+                    .collect();
+                let wb = [2.1, 1.0, 1.6, 1.0];
+                let mut new = levels.clone();
+                let mut old = levels.clone();
+                let a = suppress(&mut new, w, active, &cfa, wb, dead_test, |v| v, |v| v);
+                let b = super::hot_pixels_reference::suppress(
+                    &mut old,
+                    w,
+                    active,
+                    &cfa,
+                    wb,
+                    dead_test,
+                    |v| v,
+                    |v| v,
+                );
+                assert!(a > 10, "{a}");
+                assert_eq!(a, b);
+                assert!(
+                    new.iter()
+                        .zip(&old)
+                        .all(|(x, y)| x.to_bits() == y.to_bits())
+                );
+                let raw: Vec<u16> = levels.iter().map(|v| (v * 4000.0 + 600.0) as u16).collect();
+                let (mut new, mut old) = (raw.clone(), raw);
+                let level = |v: u16| (v as f32 - 600.0) / 4000.0;
+                let store = |l: f32| (l * 4000.0 + 600.0).round().clamp(0.0, 65535.0) as u16;
+                let a = suppress(&mut new, w, active, &cfa, wb, dead_test, level, store);
+                let b = super::hot_pixels_reference::suppress(
+                    &mut old, w, active, &cfa, wb, dead_test, level, store,
+                );
+                assert_eq!(a, b);
+                assert_eq!(new, old);
+            }
+        }
     }
 
     #[test]
