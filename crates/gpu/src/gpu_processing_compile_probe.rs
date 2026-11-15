@@ -44,9 +44,9 @@ fn pipeline_compilation_probe() {
         let start = Instant::now();
         create_preview_pipeline(
             &context.device,
-            &processor.display_fallback,
+            &processor.preview_shader,
             Some(&processor.display_shader),
-            &processor.display_layout,
+            &processor.preview_layout,
             features,
             true,
             true,

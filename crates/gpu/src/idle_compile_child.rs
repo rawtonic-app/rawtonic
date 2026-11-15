@@ -335,9 +335,9 @@ pub fn compile_in_helper_process(job: &str, folder: &Path, build: &str) -> Resul
         let created = match job {
             IdleJob::Display(features) | IdleJob::LayerSums(features) => create_preview_pipeline(
                 &device,
-                &processor.display_fallback,
+                &processor.preview_shader,
                 Some(&processor.display_shader),
-                &processor.display_layout,
+                &processor.preview_layout,
                 features,
                 true,
                 true,

@@ -4033,14 +4033,9 @@ pub struct GpuProcessor {
     /// The same shader as naga IR, from which display variants compile
     /// without the code their constants rule out (`display_variant_ir`).
     display_shader: Arc<DisplayShader>,
-    /// The whole shader a display variant compiles if its folded module
-    /// cannot be made, and the display variants' layout: the 8-bit ones, or
-    /// with `effect_passes` the high-precision ones.
-    display_fallback: wgpu::ShaderModule,
-    display_layout: wgpu::PipelineLayout,
     /// Under a compile limit: the effects' passes (`effect_passes`,
     /// G76/EFX); the layouts then hold their bindings and display variants
-    /// are main passes that write float output.
+    /// are their main passes.
     effect_passes: Option<Arc<effect_passes::EffectPasses>>,
     /// The 8-bit and the high-precision shader as naga IR without the
     /// display-only reshapes: export variants compile from it with the
@@ -6961,9 +6956,9 @@ impl GpuProcessor {
     pub fn compile_display_variant(&self, features: usize) -> Result<(), String> {
         create_preview_pipeline(
             &self.context.device,
-            &self.display_fallback,
+            &self.preview_shader,
             Some(&self.display_shader),
-            &self.display_layout,
+            &self.preview_layout,
             features,
             true,
             true,
@@ -7243,7 +7238,7 @@ impl GpuProcessor {
         // here; the main pass's get the terms it reads.
         let pass_entries = bind_group_layout_entries.clone();
         if pass_shader.is_some() {
-            bind_group_layout_entries.extend(effect_passes::terms_input_entries());
+            bind_group_layout_entries.extend(effect_passes::main_pass_entries());
         }
 
         // `main` alone writes `analytics_output` (the detail pass does not).
@@ -7306,17 +7301,10 @@ impl GpuProcessor {
         let high_precision_bgl =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("High Precision Main BGL"),
-                entries: &{
-                    let mut entries = with_analytics_output(
-                        &bind_group_layout_entries,
-                        wgpu::TextureFormat::Rgba32Float,
-                    );
-                    // The view values a main pass stores for the finish pass.
-                    if pass_shader.is_some() {
-                        entries.push(effect_passes::views_output_entry());
-                    }
-                    entries
-                },
+                entries: &with_analytics_output(
+                    &bind_group_layout_entries,
+                    wgpu::TextureFormat::Rgba32Float,
+                ),
             });
         let high_precision_encode_bgl =
             encode_bind_group_layout(device, &bind_group_layout_entries);
@@ -7336,28 +7324,19 @@ impl GpuProcessor {
             &high_precision_source,
         )?;
         let export_shaders = ExportShaders::new(shader_source, &high_precision_source);
-        // Display variants: under a compile limit the main pass of the
-        // effect passes, which writes float output for the finish pass
-        // (`effect_passes`), so they compile from the high-precision source
-        // with its layout; elsewhere as before.
-        let (display_shader, display_fallback, display_layout) = match &pass_shader {
-            Some(_) => (
-                DisplayShader::with_effect_passes(&high_precision_source),
-                high_precision_shader.clone(),
-                high_precision_pipeline_layout.clone(),
-            ),
-            None => (
-                DisplayShader::new(shader_source),
-                shader_module.clone(),
-                pipeline_layout.clone(),
-            ),
+        // Display variants: under a compile limit main passes of the effect
+        // passes (`effect_passes`), compiled from the display source with
+        // the passes; elsewhere as before.
+        let display_shader = match &pass_shader {
+            Some(pass_shader) => Arc::clone(pass_shader),
+            None => DisplayShader::new(shader_source),
         };
         let effect_passes = pass_shader.map(|pass_shader| {
             Arc::new(effect_passes::EffectPasses::new(
                 device,
                 &pass_entries,
                 pass_shader,
-                Arc::clone(&display_shader),
+                DisplayShader::with_effect_passes(&high_precision_source),
             ))
         });
 
@@ -7394,9 +7373,9 @@ impl GpuProcessor {
             preview_compilation[RAW_DEFAULT_PREVIEW_FEATURES].get_or_init(|| {
                 spawn_preview_compile(
                     Arc::clone(device),
-                    display_fallback.clone(),
+                    shader_module.clone(),
                     Arc::clone(&display_shader),
-                    display_layout.clone(),
+                    pipeline_layout.clone(),
                     RAW_DEFAULT_PREVIEW_FEATURES,
                     Arc::clone(&preview_pipelines),
                     Arc::clone(&preview_failed),
@@ -7928,8 +7907,6 @@ impl GpuProcessor {
             display_shader,
             export_shaders,
             preview_layout: pipeline_layout,
-            display_fallback,
-            display_layout,
             export_pipelines: variant_table(),
             high_precision_export_pipelines: variant_table(),
             deferred_display: deferred_display::DeferredDisplay::new(
@@ -9009,9 +8986,9 @@ impl GpuProcessor {
     fn idle_target(&self) -> idle_compiles::IdleTarget {
         idle_compiles::IdleTarget {
             device: Arc::clone(&self.context.device),
-            shader: self.display_fallback.clone(),
+            shader: self.preview_shader.clone(),
             display: Arc::clone(&self.display_shader),
-            layout: self.display_layout.clone(),
+            layout: self.preview_layout.clone(),
             pipelines: Arc::clone(&self.preview_pipelines),
             compilation: Arc::clone(&self.preview_compilation),
             failed: Arc::clone(&self.preview_failed),
@@ -9285,9 +9262,9 @@ impl GpuProcessor {
         self.layer_sum_compilation[features].get_or_init(|| {
             let pipelines = Arc::clone(&self.layer_sum_pipelines);
             let device = Arc::clone(&self.context.device);
-            let shader = self.display_fallback.clone();
+            let shader = self.preview_shader.clone();
             let display = Arc::clone(&self.display_shader);
-            let layout = self.display_layout.clone();
+            let layout = self.preview_layout.clone();
             rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
                 match create_preview_pipeline(
                     &device,
@@ -9339,9 +9316,9 @@ impl GpuProcessor {
         self.sharpen_view_compilation[features].get_or_init(|| {
             let pipelines = Arc::clone(&self.sharpen_view_pipelines);
             let device = Arc::clone(&self.context.device);
-            let shader = self.display_fallback.clone();
+            let shader = self.preview_shader.clone();
             let display = Arc::clone(&self.display_shader);
-            let layout = self.display_layout.clone();
+            let layout = self.preview_layout.clone();
             rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
                 let started = std::time::Instant::now();
                 match create_sharpen_view_pipeline(&device, &shader, &display, &layout, features) {
@@ -9378,9 +9355,9 @@ impl GpuProcessor {
         self.preview_compilation[features].get_or_init(|| {
             spawn_preview_compile(
                 Arc::clone(&self.context.device),
-                self.display_fallback.clone(),
+                self.preview_shader.clone(),
                 Arc::clone(&self.display_shader),
-                self.display_layout.clone(),
+                self.preview_layout.clone(),
                 features,
                 Arc::clone(&self.preview_pipelines),
                 Arc::clone(&self.preview_failed),
@@ -10637,19 +10614,25 @@ impl GpuProcessor {
             }
             _ => None,
         };
-        // The finish pass after a main pass: grain and the output's end,
-        // into the tile the frame or export reads (`output_tile_view`).
         if let Some(passes) = passes.filter(|_| output_to_display) {
             passes.compile_ahead(device, export_display_features(&request.adjustments));
         }
+        // The finish pass after a main pass, into the tile the frame or
+        // export reads (`output_tile_view`): with grain, which the main
+        // pass does not hold, and for an export whose outputs are encoded
+        // in passes of their own (the main pass writes the 8-bit tile).
+        // Every other frame finishes in its main pass, as one pass does. A
+        // probe (`output_space.w`) ends the main pass before grain.
+        let grain =
+            adjustments.global.grain_amount != 0.0 && adjustments.global.output_space[3] == 0;
         let finish_pass = match passes {
-            Some(passes) => Some((
-                passes.finish_pipeline(device, adjustments.global.grain_amount != 0.0, deferred)?,
+            Some(passes) if grain || deferred => Some((
+                passes.finish_pipeline(device, grain, deferred)?,
                 passes.colour_tile(self),
                 passes.views(self, adjustments.global.show_clipping != 0),
                 passes,
             )),
-            None => None,
+            _ => None,
         };
         let blur_requirements = if force_full_preparation {
             [true; 5]
@@ -11393,7 +11376,23 @@ impl GpuProcessor {
                         });
                         (pipeline, bind_group)
                     });
-                if self.effect_passes.is_some() {
+                if let Some(passes) = &self.effect_passes {
+                    // What a main pass stores for the finish pass, or 1 x 1
+                    // textures a frame without one leaves alone.
+                    bind_group_entries.push(wgpu::BindGroupEntry {
+                        binding: effect_passes::VIEWS_OUTPUT_BINDING,
+                        resource: wgpu::BindingResource::TextureView(match &finish_pass {
+                            Some((_, _, views, _)) => &views.view,
+                            None => &passes.views(self, false).view,
+                        }),
+                    });
+                    bind_group_entries.push(wgpu::BindGroupEntry {
+                        binding: effect_passes::COLOUR_OUTPUT_BINDING,
+                        resource: wgpu::BindingResource::TextureView(match &finish_pass {
+                            Some((_, colour, _, _)) => &colour.view,
+                            None => passes.no_colour(),
+                        }),
+                    });
                     for (index, binding) in
                         effect_passes::TERMS_INPUT_BINDINGS.into_iter().enumerate()
                     {
@@ -11456,40 +11455,28 @@ impl GpuProcessor {
                         detail_view.as_ref().unwrap_or(&self.dummy_blur_view),
                     ),
                 });
+                // A display variant with the effect passes has the 8-bit
+                // layout, also for an export into the deferred tile (its
+                // finish pass writes that).
+                let main_pass_layout = passes.is_some() && high_precision_layout;
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: ANALYTICS_OUTPUT_BINDING,
-                    resource: wgpu::BindingResource::TextureView(
-                        match (&finish_pass, analytics_tile) {
-                            // A main pass leaves the histogram's image to the
-                            // finish pass.
-                            (Some(_), _) => &self.no_analytics_output[1],
-                            (None, Some((_, view))) => view,
-                            (None, None) => {
-                                &self.no_analytics_output[usize::from(high_precision_layout)]
-                            }
-                        },
-                    ),
+                    resource: wgpu::BindingResource::TextureView(match analytics_tile {
+                        Some((_, view)) => view,
+                        None => {
+                            &self.no_analytics_output
+                                [usize::from(high_precision_layout && !main_pass_layout)]
+                        }
+                    }),
                 });
-                // A main pass writes its colour and view values for the
-                // finish pass, with the high-precision layout.
-                if let Some((_, colour, _, _)) = &finish_pass {
+                if main_pass_layout {
                     bind_group_entries[1].resource =
-                        wgpu::BindingResource::TextureView(&colour.view);
-                }
-                let float_layout = finish_pass.is_some() || high_precision_layout;
-                if let Some(passes) = self.effect_passes.as_ref().filter(|_| float_layout) {
-                    bind_group_entries.push(wgpu::BindGroupEntry {
-                        binding: effect_passes::VIEWS_OUTPUT_BINDING,
-                        resource: wgpu::BindingResource::TextureView(match &finish_pass {
-                            Some((_, _, views, _)) => &views.view,
-                            None => &passes.views(self, false).view,
-                        }),
-                    });
+                        wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
                 }
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Tile Bind Group"),
-                    layout: if finish_pass.is_some() {
-                        &self.high_precision_bgl
+                    layout: if main_pass_layout {
+                        &self.main_bgl
                     } else {
                         output_bgl
                     },
@@ -11543,7 +11530,14 @@ impl GpuProcessor {
                 tile_adjustments.tile_offset_x = input_x_start;
                 tile_adjustments.tile_offset_y = input_y_start;
                 tile_adjustments.render_region = regions[0];
-                tile_adjustments.detail_cache = [u32::from(detail_view.is_some()), 0, 0, 0];
+                // y: the main pass leaves the finish to its pass (the display
+                // source's `FINISH_MAIN_END`; shader.wgsl reads only x).
+                tile_adjustments.detail_cache = [
+                    u32::from(detail_view.is_some()),
+                    u32::from(finish_pass.is_some()),
+                    0,
+                    0,
+                ];
                 tile_adjustments.source_window = source_window;
                 queue.write_buffer(
                     &self.adjustments_buffer,

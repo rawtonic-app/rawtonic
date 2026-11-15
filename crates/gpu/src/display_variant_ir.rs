@@ -184,6 +184,7 @@ const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
      override FINISH_PASS: bool = false;\n\
      @group(0) @binding(33) var finish_views: texture_2d<f32>;\n\
      @group(0) @binding(34) var finish_views_out: texture_storage_2d<rgba32float, write>;\n\
+     @group(0) @binding(35) var finish_colour_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(29) var glow_terms_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(30) var halation_terms_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(31) var glow_terms: texture_2d<f32>;\n\
@@ -276,39 +277,41 @@ const FINISH_FUNCTION: &str = "fn finish_pixel(\n    \
      range_view: f32, sharpen_view_mask: f32, colour: vec3<f32>\n) {\n    \
      let absolute_coord_i = vec2<i32>(absolute_coord);\n    \
      var final_rgb = colour;\n";
-/// `main`'s end with the finish apart: with `FINISH_APART` it stores the
+/// `main`'s end with the finish apart: where a frame asks for it
+/// (`FINISH_APART_FLAG`, set per frame: with grain, or for an export that
+/// encodes each output in its own pass) a `FINISH_APART` variant stores the
 /// colour before grain (and the two view values, when a texture for them
-/// is bound) for the finish pass; else it finishes the pixel itself.
-const FINISH_MAIN_END: &str = "    if (FINISH_APART) {\n        \
-     textureStore(output_texture, id.xy, vec4<f32>(final_rgb, original_alpha));\n        \
+/// is bound) for the finish pass; else it finishes the pixel itself, as
+/// one pass does. A frame without grain so costs what it did: on a Radeon
+/// 680M the stored tile and its read added 12 ms to a 2560 x 1440 frame
+/// (53 ms) when every frame took the finish pass (G76/WEFX).
+const FINISH_MAIN_END: &str = "    if (FINISH_APART && adjustments.detail_cache.y != 0u) {\n        \
+     textureStore(finish_colour_out, id.xy, vec4<f32>(final_rgb, original_alpha));\n        \
      if (textureDimensions(finish_views_out).x > 1u) {\n            \
      textureStore(finish_views_out, id.xy, vec4<f32>(range_view, sharpen_view_mask, 0.0, 0.0));\n        }\n    \
      } else {\n        \
      finish_pixel(id, absolute_coord, scale, original_alpha, range_view, sharpen_view_mask, final_rgb);\n    }\n    }\n";
 /// Where `main` starts its work on a pixel, and `main` as the finish pass
-/// before it: the stored colour through `finish_pixel`, or as it is when
-/// the main pass stored a probe's value (`output_space.w`: the Levels,
-/// mixer and B&W probes end `main` early with their own output).
+/// before it: the stored colour through `finish_pixel`.
 const FINISH_PASS_AT: &str = "    let original_alpha = load_input(vec2<i32>(absolute_coord)).a;\n";
 const FINISH_PASS: &str = "    if (FINISH_PASS) {\n        \
      let stored = textureLoad(deferred_texture, vec2<i32>(id.xy), 0);\n        \
-     if (adjustments.global.output_space.w != 0u) {\n            \
-     textureStore(output_texture, id.xy, stored);\n        \
-     } else {\n            \
-     var views = vec2<f32>(-1.0, 1.0);\n            \
-     if (textureDimensions(finish_views).x > 1u) {\n                \
-     views = textureLoad(finish_views, vec2<i32>(id.xy), 0).xy;\n            }\n            \
-     finish_pixel(id, absolute_coord, scale, stored.a, views.x, views.y, stored.rgb);\n        }\n    \
+     var views = vec2<f32>(-1.0, 1.0);\n        \
+     if (textureDimensions(finish_views).x > 1u) {\n            \
+     views = textureLoad(finish_views, vec2<i32>(id.xy), 0).xy;\n        }\n        \
+     finish_pixel(id, absolute_coord, scale, stored.a, views.x, views.y, stored.rgb);\n    \
      } else {\n";
 const MAIN_START: &str = "@compute @workgroup_size(8, 8, 1)\nfn main(";
 
 /// The end of `main` as a function the main pass or a finish pass runs
 /// (G76/EFX): grain is 29.4k inlined expressions (four versions), the rest
-/// of the end 6.4k. With `FINISH_APART` the main pass stores the colour
-/// before grain in an Rgba32Float tile (59.9k for the Basic-panel superset
-/// with every effect, against 117.4k in one pass); with `FINISH_PASS`
-/// `main` is the pass that finishes it (35.9k with grain). The values the
-/// end takes are stored as they are, so it computes what one pass did.
+/// of the end 6.4k. A `FINISH_APART` variant holds the end without grain
+/// and can store the colour before it in an Rgba32Float tile instead
+/// (`FINISH_MAIN_END`; 66.2k for the Basic-panel superset with glow and
+/// halation, against 117.4k for one pass with the three effects); with
+/// `FINISH_PASS` `main` is the pass that finishes a stored colour (35.9k
+/// with grain). The values the end takes are stored as they are, so it
+/// computes what one pass did.
 /// Before `with_effect_terms`. `None` when the source has another shape.
 fn with_finish_pass(source: &str) -> Option<String> {
     if [
@@ -1071,7 +1074,11 @@ mod tests {
             shader.variant_module(&[&all[..], extra].concat()).unwrap()
         };
         let one_pass = with(&[]);
-        let main = with(&[("EFFECT_TERMS", 1.0), ("FINISH_APART", 1.0)]);
+        let main = with(&[
+            ("EFFECT_TERMS", 1.0),
+            ("FINISH_APART", 1.0),
+            ("ENABLE_GRAIN", 0.0),
+        ]);
         let terms = with(&[("EFFECT_TERMS_PASS", 1.0)]);
         let finish = with(&[("FINISH_PASS", 1.0)]);
         for name in [
@@ -1082,18 +1089,14 @@ mod tests {
         ] {
             assert!(has_function(&one_pass, name), "one pass: {name}");
         }
-        for gone in [
-            "glow_term",
-            "halation_term",
-            "apply_film_grain",
-            "finish_pixel",
-            "dither",
-        ] {
+        // The main pass: no tone stage for the blurred photo, no grain; it
+        // can finish a pixel itself.
+        for gone in ["glow_term", "halation_term", "apply_film_grain"] {
             assert!(!has_function(&main, gone), "main: {gone}");
         }
-        assert!(
-            has_function(&main, "apply_glow_term") && has_function(&main, "apply_halation_term")
-        );
+        for kept in ["apply_glow_term", "apply_halation_term", "finish_pixel"] {
+            assert!(has_function(&main, kept), "main: {kept}");
+        }
         for gone in [
             "apply_glow_term",
             "apply_film_grain",
@@ -1117,15 +1120,16 @@ mod tests {
             "one pass {}, main {}, terms {}, finish {}",
             sizes[0], sizes[1], sizes[2], sizes[3]
         );
-        println!("terms bindings {:?}", bindings(&terms));
-        println!("finish bindings {:?}", bindings(&finish));
-        assert!(
-            sizes[1] * 2 < sizes[0] + sizes[1] && sizes[2] < sizes[1] / 2 && sizes[3] < sizes[1]
-        );
+        assert!(sizes[1] * 3 < sizes[0] * 2 && sizes[2] < sizes[1] / 2 && sizes[3] < sizes[1]);
         // The finish pass reads the stored colour, the views and what grain
         // and the output's end need (gpu_processing `effect_passes`).
         assert_eq!(bindings(&finish), [0, 1, 2, 16, 25, 27, 28, 33]);
-        assert!(bindings(&main).contains(&34) && !bindings(&main).contains(&28));
+        for binding in [1, 28, 31, 32, 34, 35] {
+            assert!(
+                bindings(&main).contains(&binding),
+                "main: binding {binding}"
+            );
+        }
         // Sources of another shape keep one pass.
         assert_eq!(display_source_with_effect_passes("fn other() {}"), None);
         assert!(!DisplayShader::with_effect_passes("fn other() {}").effect_passes());

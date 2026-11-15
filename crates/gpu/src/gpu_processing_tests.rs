@@ -3488,9 +3488,9 @@ pub(super) fn prepare_preview_pipeline(processor: &GpuProcessor, features: usize
     processor.preview_pipelines[features].get_or_init(|| {
         create_preview_pipeline(
             &processor.context.device,
-            &processor.display_fallback,
+            &processor.preview_shader,
             Some(&processor.display_shader),
-            &processor.display_layout,
+            &processor.preview_layout,
             features,
             true,
             true,
@@ -3505,9 +3505,9 @@ fn prepare_layer_sum_pipeline(processor: &GpuProcessor, features: usize) {
     processor.layer_sum_pipelines[features].get_or_init(|| {
         create_preview_pipeline(
             &processor.context.device,
-            &processor.display_fallback,
+            &processor.preview_shader,
             Some(&processor.display_shader),
-            &processor.display_layout,
+            &processor.preview_layout,
             features,
             true,
             true,
@@ -9002,11 +9002,11 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
             processor.preview_pipelines[features].get_or_init(|| {
                 create_preview_pipeline(
                     &processor.context.device,
-                    &processor.display_fallback,
+                    &processor.preview_shader,
                     // The reference: the whole shader with the effects code,
                     // as display variants compiled before.
                     (!with_effects).then_some(&*processor.display_shader),
-                    &processor.display_layout,
+                    &processor.preview_layout,
                     if with_effects {
                         features | EFFECTS_FEATURES | TONE_V5_FEATURE
                     } else {
@@ -9099,36 +9099,27 @@ fn effect_passes_render_the_one_pass_frames() {
     // their own (`effect_passes`, G76/EFX). The display frame, with and
     // without the layers' sums, and the float export tile (at 16 bits) must
     // be the ones the same display source renders in one pass, value for
-    // value, RAW and raster.
+    // value.
     //
-    // Few compiles, as a driver under a compile limit takes 30–60 s for
-    // each: one processor per mode, and every frame renders with one
-    // variant that holds all the profiles' features (an idle feature
-    // changes no pixel), as frames under a compile limit do.
+    // Few and small compiles, as a driver under a compile limit takes
+    // 30–60 s and 4–6 GB for each (a variant with every profile's features
+    // at once took a Radeon 680M's driver beyond 50 GB, G76/WEFX): one
+    // processor per mode; one pass renders each profile with its own
+    // variant, the passes with the variant the app plans for it
+    // (`export_display_features`: an idle feature changes no pixel). The
+    // raster input and the export only for three profiles.
     let context = context();
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
     let profiles = effect_pass_profiles();
-    // (frames, frames with sums, 16-bit exports) per profile and input kind.
-    type Rendered = (Vec<u8>, Vec<u8>, Option<Vec<u16>>, usize);
+    // All effects, layers, grain alone.
+    const EXPORTED: [usize; 3] = [2, 6, 7];
+    // Name, frame, frame with sums, 16-bit export, frames with sums.
+    type Rendered = (String, Vec<u8>, Vec<u8>, Option<Vec<u16>>, usize);
     let render = |passes: bool| -> Vec<Rendered> {
         effect_passes::FORCED.with(|forced| forced.set(Some(passes)));
         let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
         assert_eq!(processor.effect_passes.is_some(), passes);
-        let cases: Vec<_> = profiles
-            .iter()
-            .enumerate()
-            .flat_map(|(index, profile)| [true, false].map(|raw| (index, profile, raw)))
-            .map(|(index, profile, raw)| {
-                let adjustments =
-                    get_all_adjustments_from_json(profile, raw, Some(if raw { 3 } else { 0 }));
-                (index, profile, adjustments)
-            })
-            .collect();
-        let all = cases.iter().fold(0, |all, (_, _, adjustments)| {
-            all | preview_features(adjustments)
-        });
-        prepare_preview_pipeline(&processor, all);
         let shown = || {
             read_texture_data_roi(
                 &context.device,
@@ -9144,9 +9135,22 @@ fn effect_passes_render_the_one_pass_frames() {
             )
             .unwrap()
         };
-        let rendered = cases
-            .iter()
-            .map(|(index, profile, adjustments)| {
+        let mut rendered = Vec::new();
+        for (index, profile) in profiles.iter().enumerate() {
+            for raw in [true, false] {
+                if !raw && !EXPORTED.contains(&index) {
+                    continue;
+                }
+                let adjustments =
+                    get_all_adjustments_from_json(profile, raw, Some(if raw { 3 } else { 0 }));
+                prepare_preview_pipeline(
+                    &processor,
+                    if passes {
+                        export_display_features(&adjustments)
+                    } else {
+                        preview_features(&adjustments)
+                    },
+                );
                 let masks = generated_profile_masks(profile, width, height);
                 let request =
                     |adjustments: &crate::image_processing::PreparedAdjustments| RenderRequest {
@@ -9168,38 +9172,33 @@ fn effect_passes_render_the_one_pass_frames() {
                         .unwrap();
                 };
                 *processor.display_render_state.lock().unwrap() = None;
-                processor
-                    .layer_sums_enabled
-                    .store(false, std::sync::atomic::Ordering::Relaxed);
-                frame(adjustments);
+                processor.layer_sums_enabled.store(false, Ordering::Relaxed);
+                frame(&adjustments);
                 let first = shown();
                 // Later frames of a layered recipe read the layers' sums.
                 let before = processor.layer_sum_frames[0].load(Ordering::Relaxed);
                 if adjustments.mask_count > 0 {
-                    prepare_layer_sum_pipeline(&processor, preview_features(adjustments));
-                    processor
-                        .layer_sums_enabled
-                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    prepare_layer_sum_pipeline(&processor, preview_features(&adjustments));
+                    processor.layer_sums_enabled.store(true, Ordering::Relaxed);
                     let mut nudged = adjustments.clone();
                     nudged.uniforms.global.exposure += 0.25;
-                    for adjustments in [adjustments, &nudged, adjustments] {
+                    for adjustments in [&adjustments, &nudged, &adjustments] {
                         frame(adjustments);
                     }
                 }
                 let summed = shown();
                 let sum_frames = processor.layer_sum_frames[0].load(Ordering::Relaxed) - before;
-                // The export under a compile limit, at 16 bits: of three
-                // profiles (all effects, layers, grain alone).
-                let export = [2, 6, 7].contains(index).then(|| {
+                // The export under a compile limit, at 16 bits.
+                let export = EXPORTED.contains(&index).then(|| {
                     processor
                         .force_export_display
-                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                        .store(true, Ordering::Relaxed);
                     let (pixels, ..) = processor
                         .run(
                             &view,
                             width,
                             height,
-                            request(adjustments),
+                            request(&adjustments),
                             false,
                             RenderOutputPrecision::SixteenBit,
                         )
@@ -9209,32 +9208,28 @@ fn effect_passes_render_the_one_pass_frames() {
                         RenderedPixels::U8(_) => unreachable!(),
                     }
                 });
-                (first, summed, export, sum_frames)
-            })
-            .collect();
+                let name = format!(
+                    "{} raw {raw}",
+                    profile.to_string().chars().take(100).collect::<String>()
+                );
+                rendered.push((name, first, summed, export, sum_frames));
+            }
+        }
         effect_passes::FORCED.with(|forced| forced.set(None));
         rendered
     };
     let one_pass = render(false);
     let passes = render(true);
     let mut exports = 0;
-    for (case, (one_pass, passes)) in one_pass.iter().zip(&passes).enumerate() {
-        let name = format!(
-            "{} raw {}",
-            profiles[case / 2]
-                .to_string()
-                .chars()
-                .take(100)
-                .collect::<String>(),
-            case % 2 == 0
-        );
+    for (one_pass, passes) in one_pass.iter().zip(&passes) {
+        let name = &one_pass.0;
         let differing = |a: &[u8], b: &[u8]| a.iter().zip(b).filter(|(a, b)| a != b).count();
         // NVIDIA Vulkan (RTX 3080): identical. (With the terms cut after
         // glow's own arithmetic instead of after the tone stage: 1/65535
         // in up to 0.1 % of the 16-bit values, up to 5 display bytes.)
-        let frame = differing(&one_pass.0, &passes.0);
-        let summed = differing(&one_pass.1, &passes.1);
-        let export = one_pass.2.as_ref().zip(passes.2.as_ref()).map(|(a, b)| {
+        let frame = differing(&one_pass.1, &passes.1);
+        let summed = differing(&one_pass.2, &passes.2);
+        let export = one_pass.3.as_ref().zip(passes.3.as_ref()).map(|(a, b)| {
             exports += 1;
             (
                 a.iter().zip(b).filter(|(a, b)| a != b).count(),
@@ -9244,22 +9239,22 @@ fn effect_passes_render_the_one_pass_frames() {
         println!(
             "{name}: frame {frame}, frame with sums {summed} of {} bytes differ; \
              16-bit export (differing, worst) {export:?}; frames with sums {} and {}",
-            one_pass.0.len(),
-            one_pass.3,
-            passes.3
+            one_pass.1.len(),
+            one_pass.4,
+            passes.4
         );
         // Layered profiles rendered with sums in both modes (how many of
         // the three frames did varies with when the sums were ready).
-        assert_eq!(one_pass.3 > 0, passes.3 > 0, "{name}: frames with sums");
+        assert_eq!(one_pass.4 > 0, passes.4 > 0, "{name}: frames with sums");
         assert_eq!((frame, summed), (0, 0), "{name}: frames differ");
         assert!(
             export.is_none_or(|(differing, _)| differing == 0),
             "{name}: export differs"
         );
     }
-    assert_eq!((passes.len(), exports), (22, 6));
+    assert_eq!((passes.len(), exports), (14, 6));
     // Layered profiles did render with sums.
-    assert!(passes.iter().any(|case| case.3 > 0));
+    assert!(passes.iter().any(|case| case.4 > 0));
 }
 
 #[test]
@@ -9267,63 +9262,81 @@ fn effect_passes_render_the_one_pass_frames() {
 fn effect_passes_frame_cost_probe() {
     // A measurement, not a check (G76/EFX): the time of a whole display
     // frame at 2560 x 1440 in one pass and through the effect passes, for
-    // an edit without effects (main + finish pass) and one with glow,
-    // halation and grain (terms + main + finish pass). Each frame changes
-    // Exposure, so every pixel renders; the time runs until the GPU has
-    // finished the frame.
+    // an edit without effects (the main pass alone, which finishes its
+    // pixels as one pass does), with grain (main + finish pass), with glow
+    // and halation (terms + main pass) and with all three. Each frame
+    // changes Exposure, so every pixel renders; the time runs until the GPU
+    // has finished the frame. The two modes take turns, five frames each,
+    // so a laptop's clock and temperature drift falls on both.
     let context = context();
     let (width, height) = (2560, 1440);
     let view = input(&context, width, height, 31);
+    let basic = json!({"exposure":0.3,"contrast":20,"shadows":25,"whites":-10,"vibrance":20,
+        "clarity":15,"toneVersion":18});
+    let with = |effects: serde_json::Value| {
+        let mut profile = basic.clone();
+        for (key, value) in effects.as_object().unwrap() {
+            profile[key] = value.clone();
+        }
+        profile
+    };
     for (name, profile) in [
+        ("basic", basic.clone()),
+        ("grain", with(json!({"grainAmount":30}))),
         (
-            "basic",
-            json!({"exposure":0.3,"contrast":20,"shadows":25,"whites":-10,"vibrance":20,
-                "clarity":15,"toneVersion":18}),
+            "glow_halation",
+            with(json!({"glowAmount":30,"halationAmount":30})),
         ),
         (
-            "effects",
-            json!({"exposure":0.3,"contrast":20,"shadows":25,"whites":-10,"vibrance":20,
-                "clarity":15,"toneVersion":18,"glowAmount":30,"halationAmount":30,
-                "grainAmount":30}),
+            "all",
+            with(json!({"glowAmount":30,"halationAmount":30,"grainAmount":30})),
         ),
     ] {
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(3));
-        let features = preview_features(&adjustments);
-        let mut medians = Vec::new();
-        for passes in [false, true] {
+        let processors = [false, true].map(|passes| {
             effect_passes::FORCED.with(|forced| forced.set(Some(passes)));
             let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            prepare_preview_pipeline(&processor, preview_features(&adjustments));
             effect_passes::FORCED.with(|forced| forced.set(None));
-            prepare_preview_pipeline(&processor, features);
-            let mut times = Vec::new();
-            for frame in 0..40 {
-                let mut adjustments = adjustments.clone();
-                adjustments.uniforms.global.exposure += 0.01 * (frame % 7) as f32;
-                let started = Instant::now();
-                processor
-                    .run(
-                        &view,
-                        width,
-                        height,
-                        RenderRequest {
-                            adjustments,
-                            mask_bitmaps: &[],
-                            lut: None,
-                            roi: None,
-                        },
-                        true,
-                        RenderOutputPrecision::EightBit,
-                    )
-                    .unwrap();
-                let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
-                // The first frames build the blurs and the detail cache.
-                if frame >= 8 {
-                    times.push(started.elapsed().as_secs_f64() * 1000.0);
+            processor
+        });
+        let mut times = [Vec::new(), Vec::new()];
+        for round in 0..12 {
+            for (mode, processor) in processors.iter().enumerate() {
+                effect_passes::FORCED.with(|forced| forced.set(Some(mode == 1)));
+                for frame in 0..5 {
+                    let mut adjustments = adjustments.clone();
+                    adjustments.uniforms.global.exposure += 0.01 * (1 + frame) as f32;
+                    let started = Instant::now();
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments,
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            true,
+                            RenderOutputPrecision::EightBit,
+                        )
+                        .unwrap();
+                    let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
+                    // The first rounds build the blurs and the detail cache
+                    // and compile the passes.
+                    if round >= 2 {
+                        times[mode].push(started.elapsed().as_secs_f64() * 1000.0);
+                    }
                 }
             }
-            times.sort_by(f64::total_cmp);
-            medians.push((times[times.len() / 2], times[0]));
         }
+        effect_passes::FORCED.with(|forced| forced.set(None));
+        let medians = times.map(|mut times| {
+            times.sort_by(f64::total_cmp);
+            (times[times.len() / 2], times[0])
+        });
         println!(
             "{}",
             json!({"probe":"effect_passes_frame_cost","edit":name,"width":width,"height":height,

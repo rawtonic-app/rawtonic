@@ -103,13 +103,21 @@ pub(super) struct EffectPasses {
     /// which the passes leave alone.
     views_tile: std::sync::OnceLock<HighPrecisionTile>,
     no_views: HighPrecisionTile,
+    /// What a main pass that finishes its pixels itself has in the stored
+    /// colour's place.
+    no_colour: HighPrecisionTile,
     /// The terms features whose passes compile ahead (`compile_ahead`).
     ahead: Mutex<std::collections::HashSet<usize>>,
 }
 
 /// The constants of a main pass: it reads the terms and leaves the finish
 /// to its pass (`create_display_pipeline`).
-pub(super) const MAIN_CONSTANTS: [(&str, f64); 2] = [("EFFECT_TERMS", 1.0), ("FINISH_APART", 1.0)];
+pub(super) const MAIN_CONSTANTS: [(&str, f64); 3] = [
+    ("EFFECT_TERMS", 1.0),
+    ("FINISH_APART", 1.0),
+    // Grain is the finish pass's alone.
+    ("ENABLE_GRAIN", 0.0),
+];
 
 /// The terms pass's outputs and the main pass's inputs (the display
 /// source's `glow_terms_out`, `halation_terms_out`, `glow_terms`,
@@ -122,6 +130,8 @@ pub(super) const TERMS_INPUT_BINDINGS: [u32; 2] = [31, 32];
 pub(super) const FINISH_COLOUR_BINDING: u32 = 25;
 pub(super) const FINISH_VIEWS_BINDING: u32 = 33;
 pub(super) const VIEWS_OUTPUT_BINDING: u32 = 34;
+/// The colour a main pass stores for the finish pass (`finish_colour_out`).
+pub(super) const COLOUR_OUTPUT_BINDING: u32 = 35;
 
 /// The feature bits the terms pass's code depends on: layers (their
 /// sliders' sums per pixel) and the tone stage's switches. Every other bit
@@ -162,14 +172,15 @@ fn output_entry(binding: u32, format: wgpu::TextureFormat) -> wgpu::BindGroupLay
     }
 }
 
-/// The layout entries of the terms the main pass reads.
-pub(super) fn terms_input_entries() -> [wgpu::BindGroupLayoutEntry; 2] {
-    TERMS_INPUT_BINDINGS.map(float_texture_entry)
-}
-
-/// The layout entry of the view values a main pass stores.
-pub(super) fn views_output_entry() -> wgpu::BindGroupLayoutEntry {
-    output_entry(VIEWS_OUTPUT_BINDING, wgpu::TextureFormat::Rgba32Float)
+/// The layout entries a main pass adds to the main shader's: the terms it
+/// reads, and the view values and the colour it stores for the finish pass.
+pub(super) fn main_pass_entries() -> [wgpu::BindGroupLayoutEntry; 4] {
+    [
+        float_texture_entry(TERMS_INPUT_BINDINGS[0]),
+        float_texture_entry(TERMS_INPUT_BINDINGS[1]),
+        output_entry(VIEWS_OUTPUT_BINDING, wgpu::TextureFormat::Rgba32Float),
+        output_entry(COLOUR_OUTPUT_BINDING, wgpu::TextureFormat::Rgba32Float),
+    ]
 }
 
 /// The pipeline constants of the terms pass for a frame of `features`.
@@ -252,9 +263,9 @@ impl EffectPasses {
                 immediate_size: 0,
             })
         });
-        let no_views = {
+        let one_texel = |label| {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("No Finish Views"),
+                label: Some(label),
                 size: wgpu::Extent3d {
                     width: 1,
                     height: 1,
@@ -270,6 +281,8 @@ impl EffectPasses {
             let view = texture.create_view(&Default::default());
             HighPrecisionTile { texture, view }
         };
+        let no_views = one_texel("No Finish Views");
+        let no_colour = one_texel("No Finish Colour");
         Self {
             display,
             float_display,
@@ -283,6 +296,7 @@ impl EffectPasses {
             colour_tile: std::sync::OnceLock::new(),
             views_tile: std::sync::OnceLock::new(),
             no_views,
+            no_colour,
             ahead: Mutex::new(std::collections::HashSet::new()),
         }
     }
@@ -397,6 +411,11 @@ impl EffectPasses {
                 log::error!("Finish pass with grain unavailable: {error}");
             }
         });
+    }
+
+    /// A 1 x 1 texture in the stored colour's place.
+    pub(super) fn no_colour(&self) -> &wgpu::TextureView {
+        &self.no_colour.view
     }
 
     /// The tile a main pass stores its colour in.
