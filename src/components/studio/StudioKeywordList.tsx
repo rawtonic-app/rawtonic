@@ -36,7 +36,7 @@ import {
   movedKeyword,
   parseKeywordPath,
   renameKeyword,
-  resolveKeyword,
+  resolveKeywordPath,
   KEYWORD_SEPARATOR,
   type KeywordNode
 } from '../../utils/keywordTree';
@@ -141,8 +141,20 @@ export function StudioKeywordList() {
         return;
       }
       const label: KeywordLabel = { kind: change.kind, keyword: displayKeyword(from) };
+      // A filter on the old name follows it (a deleted keyword leaves it).
+      const followed = chosen?.some((value) => isWithinKeyword(value, from));
+      const filter =
+        chosen && followed
+          ? {
+              before: chosen,
+              after:
+                change.kind === 'delete'
+                  ? chosen.filter((value) => !isWithinKeyword(value, from))
+                  : chosen.map((value) => renameKeyword(value, from, to))
+            }
+          : undefined;
       // One undo step: the photographs' keywords and the keywords made
-      // without photographs that follow them.
+      // without photographs that follow them; Undo takes the filter back.
       await keywordAction(label, async (record) => {
         const paths = await photosWithKeyword(directory, from);
         try {
@@ -156,18 +168,9 @@ export function StudioKeywordList() {
                 : await declaredKeywordsFollow(directory, 'rename', from, to)) ?? undefined
           });
         }
+        record({ filter });
       });
-      // A filter on the old name follows it.
-      if (chosen?.some((value) => isWithinKeyword(value, from)))
-        setFilter({
-          metadata: {
-            ...selection,
-            keyword:
-              change.kind === 'delete'
-                ? chosen.filter((value) => !isWithinKeyword(value, from))
-                : chosen.map((value) => renameKeyword(value, from, to))
-          }
-        });
+      if (filter) setFilter({ metadata: { ...selection, keyword: filter.after } });
       const parent = keywordParent(to);
       if (change.kind !== 'delete' && parent) setOpen((previous) => new Set([...previous, fold(parent)]));
     } catch (e) {
@@ -182,7 +185,7 @@ export function StudioKeywordList() {
     const typed = parseKeywordPath(text);
     if (!typed.length || !directory) return;
     const levels = [...(parent ? parseKeywordPath(parent) : []), ...typed];
-    const path = resolveKeyword(levels, known);
+    const path = resolveKeywordPath(levels, known);
     setBusy(true);
     try {
       await makeKeyword(directory, path);

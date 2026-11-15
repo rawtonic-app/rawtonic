@@ -7,7 +7,7 @@ import { useLibraryStore } from '../../store/useLibraryStore';
 import type { ImageFile } from '../ui/AppProperties';
 import { StudioKeywordList, plannedRename } from './StudioKeywordList';
 import { buildKeywordTree } from '../../utils/keywordTree';
-import { getUndoLabel, undo, useCatalogUndoStore } from '../../utils/appUndo';
+import { getUndoLabel, redo, undo, useCatalogUndoStore } from '../../utils/appUndo';
 import { TILE_DROP_EVENT } from './tileDrag';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -215,6 +215,52 @@ describe('Keyword List: photos dropped on a keyword, keywords without photos, de
       remove: ['Animals|Birds'],
       add: []
     });
+  });
+
+  it('makes a top-level keyword with the name of one inside another, as asked', async () => {
+    await renderList();
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === 'session_facets') return { keyword: facets };
+      if (command === 'session_keyword_declare') return { added: ['dogs'], removed: [] };
+      return undefined;
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'New Keyword…' }));
+    fireEvent.click(await screen.findByText('New Keyword…'));
+    const input = screen.getByLabelText(/New keyword:/);
+    fireEvent.change(input, { target: { value: 'Dogs' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    // Not `Animals|Dogs`: the keyword list's `Dogs` is no entry shorthand.
+    expect(mockInvoke).toHaveBeenCalledWith('session_keyword_declare', { directory: '/job', path: 'dogs' });
+  });
+
+  it('takes the keyword filter back with an undone rename', async () => {
+    await renderList();
+    fireEvent.click(screen.getByText('Animals'));
+    expect(useLibraryStore.getState().filterCriteria.metadata?.keyword).toEqual(['Animals']);
+    fireEvent.doubleClick(screen.getByText('Animals'));
+    const input = screen.getByLabelText(/Rename or move Animals/) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Pets' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    const base = mockInvoke.getMockImplementation()!;
+    mockInvoke.mockImplementation(async (command, args) =>
+      command === 'rename_keyword_for_paths'
+        ? [{ path: '/job/Capture/a.arw', added: ['user:Pets|Dogs'], removed: ['user:Animals|Dogs'] }]
+        : base(command, args)
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    });
+    expect(useLibraryStore.getState().filterCriteria.metadata?.keyword).toEqual(['Pets']);
+    await act(async () => {
+      await undo();
+    });
+    expect(useLibraryStore.getState().filterCriteria.metadata?.keyword).toEqual(['Animals']);
+    await act(async () => {
+      await redo();
+    });
+    expect(useLibraryStore.getState().filterCriteria.metadata?.keyword).toEqual(['Pets']);
   });
 
   it('deletes a keyword after a confirmation naming the photos; its children move up', async () => {

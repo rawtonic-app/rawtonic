@@ -113,6 +113,10 @@ interface Step {
     changes: KeywordChange[];
     declared: DeclaredChange;
     label: KeywordLabel;
+    /** The Library's keyword filter before and after the edit (a rename
+     * moves the filter on the keyword with it), followed by Undo and Redo
+     * while the person has not changed it since. */
+    filter?: { before: string[]; after: string[] };
   };
   /** Use XMP: the photos it was asked for and what undoes each reading. */
   xmp?: { paths: string[]; receipts: XmpReceipt[] };
@@ -457,7 +461,11 @@ export function stackAction(library: string, change: StackChange, paths: string[
 /** What a keyword edit's work reports as it writes: the photographs'
  * changes and the keywords without photographs it made or deleted. Called
  * after each write, so a partly saved edit is still one step for what saved. */
-export type KeywordRecorder = (done: { changes?: KeywordChange[]; declared?: DeclaredChange }) => void;
+export type KeywordRecorder = (done: {
+  changes?: KeywordChange[];
+  declared?: DeclaredChange;
+  filter?: { before: string[]; after: string[] };
+}) => void;
 /** The changes a failed keyword write names (`SaveFailure.keywords`). */
 export const savedKeywordChanges = (error: unknown): KeywordChange[] =>
   (error as { keywords?: KeywordChange[] } | null)?.keywords ?? [];
@@ -493,8 +501,9 @@ export function keywordAction(
     filesFuture: [],
     fileRedoBlocked: true
   }));
-  const record: KeywordRecorder = ({ changes, declared }) => {
+  const record: KeywordRecorder = ({ changes, declared, filter }) => {
     const keywords = step.keywords!;
+    if (filter) keywords.filter = filter;
     // One photograph written twice (several keywords typed at once) keeps
     // one change that holds both.
     for (const change of changes ?? []) {
@@ -1385,6 +1394,18 @@ export function showKeywordChanges(changes: KeywordChange[], undo: boolean) {
   }));
 }
 
+/** The Library's keyword filter goes where the edit took it (Redo) or took
+ * it from (Undo), unless the person changed it since. */
+function followKeywordFilter(step: Step, direction: 'undo' | 'redo') {
+  const filter = step.keywords?.filter;
+  if (!filter) return;
+  const library = useLibraryStore.getState();
+  const metadata = library.filterCriteria.metadata ?? {};
+  const [now, next] = direction === 'undo' ? [filter.after, filter.before] : [filter.before, filter.after];
+  if (JSON.stringify(metadata.keyword ?? []) !== JSON.stringify(now)) return;
+  library.setFilterCriteria({ metadata: { ...metadata, keyword: next } });
+}
+
 /** Undo/redo of a keyword edit: the keywords each photograph gained and
  * lost go back (or again), as do the keywords made without photographs. A
  * keyword changed on a photograph since stays as it is. */
@@ -1418,6 +1439,7 @@ async function travelKeywords(step: Step, direction: 'undo' | 'redo', startedOnB
           });
           catalogChanged();
         }
+        followKeywordFilter(step, direction);
         if (useCatalogUndoStore.getState()[from].includes(step))
           useCatalogUndoStore.setState((s) => ({
             [from]: s[from].filter((item) => item !== step),

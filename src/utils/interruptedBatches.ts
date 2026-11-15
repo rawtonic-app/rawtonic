@@ -22,7 +22,7 @@ import { notify } from '../activity/notify';
 import { invokeInOrder } from './catalogWrites';
 import { catalogChanged } from './catalogEvents';
 import { writeRecipeRepair } from '../hooks/useEditorActions';
-import { deleteKeywordTags, displayKeyword, renameKeywordTags, tagsHaveKeyword } from './keywordTree';
+import { deleteKeywordTags, displayKeyword, renameKeywordTags } from './keywordTree';
 
 /** What the batch wrote (`BatchKind` in batch_journal.rs). */
 export type InterruptedBatchKind =
@@ -145,17 +145,17 @@ export async function undoApplied(batch: InterruptedBatch) {
         change.kind === 'keywordRename'
           ? (tags: string[]) => renameKeywordTags(tags, change.from, change.to)
           : (tags: string[]) => deleteKeywordTags(tags, change.path);
-      // A delete's journal holds all the keywords of a photograph (a child
-      // moved up may merge into one it had); only those within it go back.
-      const within = (tag: string) => (change.kind === 'keywordDelete' ? tagsHaveKeyword([tag], change.path) : true);
       const adds = new Map<string, string[]>();
       const removes = new Map<string, string[]>();
       const push = (map: Map<string, string[]>, tag: string, path: string) =>
         map.set(tag, [...(map.get(tag) ?? []), path]);
       for (const entry of undo) {
         const before = Array.isArray(entry.before) ? entry.before.map(String) : [];
-        for (const tag of before.filter(within)) push(adds, tag, entry.path);
-        for (const tag of made(before)) if (!before.includes(tag)) push(removes, tag, entry.path);
+        const after = made(before);
+        // Every tag the change took (also a merge destination it replaced
+        // by the user's form) goes back; every tag it made goes.
+        for (const tag of before) if (!after.includes(tag)) push(adds, tag, entry.path);
+        for (const tag of after) if (!before.includes(tag)) push(removes, tag, entry.path);
       }
       for (const [tag, tagPaths] of adds)
         await invokeInOrder(Invokes.AddTagForPaths, { paths: tagPaths, tag }, 'keyword');

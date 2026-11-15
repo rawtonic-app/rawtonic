@@ -117,6 +117,26 @@ export function resolveKeyword(levels: string[], existing: readonly string[]): s
     const named = known.has(fold(levels[0])) ? undefined : leaves.get(fold(levels[0]));
     return named?.size === 1 ? [...named][0] : levels[0].toLowerCase();
   }
+  return spelledPath(levels, known);
+}
+
+/** The path of `levels` as the library spells it: each level naming an
+ * existing keyword at that place takes its spelling (ignoring case), new
+ * levels are lowercased. A single name is never taken for a keyword deeper
+ * in the tree (New Keyword makes what was typed, where it was asked). */
+export function resolveKeywordPath(levels: string[], existing: readonly string[]): string {
+  const known = new Map<string, string>();
+  for (const keyword of existing) {
+    const parts = keywordLevels(keyword);
+    for (let i = 1; i <= parts.length; i++) {
+      const path = parts.slice(0, i).join(KEYWORD_SEPARATOR);
+      if (!known.has(fold(path))) known.set(fold(path), path);
+    }
+  }
+  return spelledPath(levels, known);
+}
+
+function spelledPath(levels: string[], known: Map<string, string>): string {
   const out: string[] = [];
   for (const level of levels) {
     const path = [...out, level].join(KEYWORD_SEPARATOR);
