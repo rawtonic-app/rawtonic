@@ -24,7 +24,10 @@
 //! pipeline cache (G76/WCC7 probe round 15: 140 ms).
 //!
 //! Only under a compile limit: elsewhere exports keep their own variants and
-//! bytes.
+//! bytes. With the effect passes (`effect_passes`, G76/EFX: every processor
+//! under a compile limit whose shader has the shape they need) these exports
+//! render with the display variant itself, whose main pass writes float
+//! output, and nothing here compiles; this stays for a shader without them.
 
 use super::*;
 
@@ -41,9 +44,6 @@ pub(super) struct DeferredDisplay {
     layout: wgpu::PipelineLayout,
     pipelines: VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>,
     failed: VariantTable<std::sync::atomic::AtomicBool>,
-    /// Whether its variants read glow and halation from the terms pass
-    /// (`effect_passes`), as the processor's display variants do.
-    effect_passes: bool,
 }
 
 impl DeferredDisplay {
@@ -51,7 +51,6 @@ impl DeferredDisplay {
         source: &str,
         shader: wgpu::ShaderModule,
         layout: wgpu::PipelineLayout,
-        effect_passes: bool,
     ) -> Arc<Self> {
         Arc::new(Self {
             source: source.into(),
@@ -60,7 +59,6 @@ impl DeferredDisplay {
             layout,
             pipelines: variant_table(),
             failed: variant_table(),
-            effect_passes,
         })
     }
 
@@ -88,13 +86,9 @@ impl DeferredDisplay {
         if self.failed(features) {
             return Err(format!("Deferred display variant {features} failed before"));
         }
-        let display = self.display.get_or_init(|| {
-            if self.effect_passes {
-                DisplayShader::with_effect_passes(&self.source)
-            } else {
-                DisplayShader::new(&self.source)
-            }
-        });
+        let display = self
+            .display
+            .get_or_init(|| DisplayShader::new(&self.source));
         match create_preview_pipeline(
             device,
             &self.shader,

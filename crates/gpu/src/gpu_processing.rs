@@ -7932,7 +7932,6 @@ impl GpuProcessor {
                 &high_precision_source,
                 high_precision_shader.clone(),
                 high_precision_pipeline_layout.clone(),
-                effect_passes.is_some(),
             ),
             effect_passes,
             high_precision_shader,
