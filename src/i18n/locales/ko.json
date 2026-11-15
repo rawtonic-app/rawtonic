@@ -3999,16 +3999,16 @@
           "newInside": "“{{keyword}}” 안에 새 키워드…",
           "rename": "이름 바꾸기…"
         },
+        "new": {
+          "insideLabel": "{{keyword}} 안의 새 키워드",
+          "label": "새 키워드: 이름 또는 경로 입력(예: 상위 > 이름)"
+        },
         "renameLabel": "{{keyword}} 이름 바꾸기 또는 이동: 경로 입력(예: 상위 > 이름)",
         "title": "키워드 목록",
         "toasts": {
           "assignFailed": "키워드를 사진에 추가할 수 없습니다: {{error}}",
           "createFailed": "키워드를 만들 수 없습니다: {{error}}",
           "renameFailed": "키워드를 변경할 수 없습니다: {{error}}"
-        },
-        "new": {
-          "insideLabel": "{{keyword}} 안의 새 키워드",
-          "label": "새 키워드: 이름 또는 경로 입력(예: 상위 > 이름)"
         }
       },
       "metadataFilter": {

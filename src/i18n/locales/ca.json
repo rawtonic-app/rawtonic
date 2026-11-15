@@ -4306,16 +4306,16 @@
           "newInside": "Paraula clau nova dins de «{{keyword}}»…",
           "rename": "Canvia el nom…"
         },
+        "new": {
+          "insideLabel": "Paraula clau nova dins de {{keyword}}",
+          "label": "Paraula clau nova: escriviu-ne el nom o el camí, p. ex. Pare > Nom"
+        },
         "renameLabel": "Canvia el nom o mou {{keyword}}: escriu el camí, p. ex. Superior > Nom",
         "title": "Llista de paraules clau",
         "toasts": {
           "assignFailed": "No s’ha pogut afegir la paraula clau a les fotos: {{error}}",
           "createFailed": "No s’ha pogut crear la paraula clau: {{error}}",
           "renameFailed": "No s'han pogut canviar les paraules clau: {{error}}"
-        },
-        "new": {
-          "insideLabel": "Paraula clau nova dins de {{keyword}}",
-          "label": "Paraula clau nova: escriviu-ne el nom o el camí, p. ex. Pare > Nom"
         }
       },
       "metadataFilter": {

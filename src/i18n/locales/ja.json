@@ -3999,16 +3999,16 @@
           "newInside": "「{{keyword}}」内に新規キーワード…",
           "rename": "名前を変更…"
         },
+        "new": {
+          "insideLabel": "{{keyword}} 内の新規キーワード",
+          "label": "新規キーワード：名前またはパスを入力（例：親 > 名前）"
+        },
         "renameLabel": "{{keyword}} の名前変更または移動：パスを入力（例：親 > 名前）",
         "title": "キーワードリスト",
         "toasts": {
           "assignFailed": "キーワードを写真に追加できませんでした：{{error}}",
           "createFailed": "キーワードを作成できませんでした：{{error}}",
           "renameFailed": "キーワードを変更できませんでした：{{error}}"
-        },
-        "new": {
-          "insideLabel": "{{keyword}} 内の新規キーワード",
-          "label": "新規キーワード：名前またはパスを入力（例：親 > 名前）"
         }
       },
       "metadataFilter": {

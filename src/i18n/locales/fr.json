@@ -4306,16 +4306,16 @@
           "newInside": "Nouveau mot-clé dans « {{keyword}} »…",
           "rename": "Renommer…"
         },
+        "new": {
+          "insideLabel": "Nouveau mot-clé dans {{keyword}}",
+          "label": "Nouveau mot-clé : saisissez son nom ou son chemin, p. ex. Parent > Nom"
+        },
         "renameLabel": "Renommer ou déplacer {{keyword}} : saisissez son chemin, p. ex. Parent > Nom",
         "title": "Liste des mots-clés",
         "toasts": {
           "assignFailed": "Le mot-clé n’a pas pu être ajouté aux photos : {{error}}",
           "createFailed": "Le mot-clé n’a pas pu être créé : {{error}}",
           "renameFailed": "Impossible de modifier les mots-clés : {{error}}"
-        },
-        "new": {
-          "insideLabel": "Nouveau mot-clé dans {{keyword}}",
-          "label": "Nouveau mot-clé : saisissez son nom ou son chemin, p. ex. Parent > Nom"
         }
       },
       "metadataFilter": {

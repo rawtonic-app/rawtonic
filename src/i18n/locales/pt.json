@@ -4306,16 +4306,16 @@
           "newInside": "Nova palavra-chave dentro de “{{keyword}}”…",
           "rename": "Renomear…"
         },
+        "new": {
+          "insideLabel": "Nova palavra-chave dentro de {{keyword}}",
+          "label": "Nova palavra-chave: escreva o nome ou o caminho, p. ex. Pai > Nome"
+        },
         "renameLabel": "Renomear ou mover {{keyword}}: digite o caminho, p. ex. Superior > Nome",
         "title": "Lista de palavras-chave",
         "toasts": {
           "assignFailed": "Não foi possível adicionar a palavra-chave às fotos: {{error}}",
           "createFailed": "Não foi possível criar a palavra-chave: {{error}}",
           "renameFailed": "Não foi possível alterar as palavras-chave: {{error}}"
-        },
-        "new": {
-          "insideLabel": "Nova palavra-chave dentro de {{keyword}}",
-          "label": "Nova palavra-chave: escreva o nome ou o caminho, p. ex. Pai > Nome"
         }
       },
       "metadataFilter": {

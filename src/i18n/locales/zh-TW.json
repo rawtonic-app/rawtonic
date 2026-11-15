@@ -3999,16 +3999,16 @@
           "newInside": "在「{{keyword}}」下新增關鍵字…",
           "rename": "重新命名…"
         },
+        "new": {
+          "insideLabel": "在 {{keyword}} 下新增關鍵字",
+          "label": "新增關鍵字：輸入名稱或路徑，例如 上層 > 名稱"
+        },
         "renameLabel": "重新命名或移動 {{keyword}}：輸入其路徑，例如 上層 > 名稱",
         "title": "關鍵字清單",
         "toasts": {
           "assignFailed": "無法將關鍵字加入照片：{{error}}",
           "createFailed": "無法建立關鍵字：{{error}}",
           "renameFailed": "無法變更關鍵字：{{error}}"
-        },
-        "new": {
-          "insideLabel": "在 {{keyword}} 下新增關鍵字",
-          "label": "新增關鍵字：輸入名稱或路徑，例如 上層 > 名稱"
         }
       },
       "metadataFilter": {

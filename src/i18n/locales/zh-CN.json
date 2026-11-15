@@ -3999,16 +3999,16 @@
           "newInside": "在“{{keyword}}”下新建关键词…",
           "rename": "重命名…"
         },
+        "new": {
+          "insideLabel": "在 {{keyword}} 下新建关键词",
+          "label": "新建关键词：输入名称或路径，例如 父级 > 名称"
+        },
         "renameLabel": "重命名或移动 {{keyword}}：输入其路径，例如 上级 > 名称",
         "title": "关键字列表",
         "toasts": {
           "assignFailed": "无法将关键词添加到照片：{{error}}",
           "createFailed": "无法创建关键词：{{error}}",
           "renameFailed": "无法更改关键字：{{error}}"
-        },
-        "new": {
-          "insideLabel": "在 {{keyword}} 下新建关键词",
-          "label": "新建关键词：输入名称或路径，例如 父级 > 名称"
         }
       },
       "metadataFilter": {

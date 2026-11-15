@@ -4123,16 +4123,16 @@
           "newInside": "New Keyword Inside “{{keyword}}”…",
           "rename": "Rename…"
         },
+        "new": {
+          "insideLabel": "New keyword inside {{keyword}}",
+          "label": "New keyword: type its name or path, e.g. Parent > Name"
+        },
         "renameLabel": "Rename or move {{keyword}}: type its path, e.g. Parent > Name",
         "title": "Keyword List",
         "toasts": {
           "assignFailed": "The keyword could not be added to the photos: {{error}}",
           "createFailed": "The keyword could not be made: {{error}}",
           "renameFailed": "Keywords could not be changed: {{error}}"
-        },
-        "new": {
-          "insideLabel": "New keyword inside {{keyword}}",
-          "label": "New keyword: type its name or path, e.g. Parent > Name"
         }
       },
       "metadataFilter": {

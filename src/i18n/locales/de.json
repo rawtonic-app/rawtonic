@@ -4123,16 +4123,16 @@
           "newInside": "Neues Stichwort in „{{keyword}}“ …",
           "rename": "Umbenennen …"
         },
+        "new": {
+          "insideLabel": "Neues Stichwort in {{keyword}}",
+          "label": "Neues Stichwort: Name oder Pfad eingeben, z. B. Ober > Name"
+        },
         "renameLabel": "{{keyword}} umbenennen oder verschieben: Pfad eingeben, z. B. Oberbegriff > Name",
         "title": "Stichwortliste",
         "toasts": {
           "assignFailed": "Das Stichwort konnte den Fotos nicht hinzugefügt werden: {{error}}",
           "createFailed": "Das Stichwort konnte nicht angelegt werden: {{error}}",
           "renameFailed": "Stichwörter konnten nicht geändert werden: {{error}}"
-        },
-        "new": {
-          "insideLabel": "Neues Stichwort in {{keyword}}",
-          "label": "Neues Stichwort: Name oder Pfad eingeben, z. B. Ober > Name"
         }
       },
       "metadataFilter": {

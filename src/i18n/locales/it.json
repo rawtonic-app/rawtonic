@@ -4306,16 +4306,16 @@
           "newInside": "Nuova parola chiave in «{{keyword}}»…",
           "rename": "Rinomina…"
         },
+        "new": {
+          "insideLabel": "Nuova parola chiave in {{keyword}}",
+          "label": "Nuova parola chiave: digita il nome o il percorso, ad es. Genitore > Nome"
+        },
         "renameLabel": "Rinomina o sposta {{keyword}}: digita il percorso, ad es. Superiore > Nome",
         "title": "Elenco parole chiave",
         "toasts": {
           "assignFailed": "Impossibile aggiungere la parola chiave alle foto: {{error}}",
           "createFailed": "Impossibile creare la parola chiave: {{error}}",
           "renameFailed": "Impossibile modificare le parole chiave: {{error}}"
-        },
-        "new": {
-          "insideLabel": "Nuova parola chiave in {{keyword}}",
-          "label": "Nuova parola chiave: digita il nome o il percorso, ad es. Genitore > Nome"
         }
       },
       "metadataFilter": {

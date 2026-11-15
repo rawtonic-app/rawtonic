@@ -4488,16 +4488,16 @@
           "newInside": "Nowe słowo kluczowe w „{{keyword}}”…",
           "rename": "Zmień nazwę…"
         },
+        "new": {
+          "insideLabel": "Nowe słowo kluczowe w {{keyword}}",
+          "label": "Nowe słowo kluczowe: wpisz nazwę lub ścieżkę, np. Nadrzędne > Nazwa"
+        },
         "renameLabel": "Zmień nazwę lub przenieś {{keyword}}: wpisz ścieżkę, np. Nadrzędne > Nazwa",
         "title": "Lista słów kluczowych",
         "toasts": {
           "assignFailed": "Nie można dodać słowa kluczowego do zdjęć: {{error}}",
           "createFailed": "Nie można utworzyć słowa kluczowego: {{error}}",
           "renameFailed": "Nie udało się zmienić słów kluczowych: {{error}}"
-        },
-        "new": {
-          "insideLabel": "Nowe słowo kluczowe w {{keyword}}",
-          "label": "Nowe słowo kluczowe: wpisz nazwę lub ścieżkę, np. Nadrzędne > Nazwa"
         }
       },
       "metadataFilter": {
