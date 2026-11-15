@@ -395,11 +395,13 @@ export default function IngestLoupe({
   const baseImage = file ? (cache.get(file.path)?.url ?? thumbnail ?? undefined) : undefined;
   const [baseDecoded, setBaseDecoded] = useState<string | null>(null);
   const lastLayers = useRef<Layer[]>([]);
-  const [held, setHeld] = useState<{ forImage: string; layers: Layer[] } | null>(null);
+  const [held, setHeld] = useState<{ forImage: string | undefined; layers: Layer[] } | null>(null);
   const [heldBase, setHeldBase] = useState(baseImage);
   if (heldBase !== baseImage) {
     setHeldBase(baseImage);
-    setHeld(baseImage ? { forImage: baseImage, layers: lastLayers.current } : null);
+    // Also while the next one has no image yet (a photograph far away,
+    // whose preview is still loading): kept through that too.
+    setHeld({ forImage: baseImage, layers: lastLayers.current });
   }
   const measured = viewSize.width > 0 && viewSize.height > 0;
   // While Z waits for a RAW's pixels, the render makes the part in view first.
@@ -531,7 +533,7 @@ export default function IngestLoupe({
     });
   }
   const holding =
-    held && held.forImage === image && baseDecoded !== image && !fullOnScreen
+    held && held.forImage === (image ?? undefined) && (image ? baseDecoded !== image : !preview) && !fullOnScreen
       ? held.layers.filter((layer) => !own.some((o) => o.key === layer.key))
       : [];
   const layers: Layer[] = [

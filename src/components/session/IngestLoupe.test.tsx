@@ -512,6 +512,63 @@ describe('Reviewing before the import (IMPD)', () => {
     expect(document.querySelectorAll('img.is-held')).toHaveLength(0);
   });
 
+  it('stepping to a photograph whose preview is still loading keeps the previous one up until it can be drawn (IMPDW)', async () => {
+    const user = userEvent.setup();
+    let finishNext: (preview: LargePreview) => void = () => undefined;
+    render(
+      <Harness
+        list={files(2)}
+        loadPreview={(p) =>
+          p === path(0)
+            ? Promise.resolve({ url: `blob:large${p}`, info: null, width: 1620, height: 1080 })
+            : new Promise<LargePreview>((resolve) => (finishNext = resolve))
+        }
+        loadFullPreview={() => new Promise<LargePreview>(() => undefined)}
+      />
+    );
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    const first = await waitFor(() =>
+      document.querySelector<HTMLImageElement>(`img.session-ingest-loupe-fit[src="blob:large${path(0)}"]`)!
+    );
+    fireEvent.load(first);
+    await user.keyboard('{ArrowRight}');
+    expect(shownName()).toBe('DSC00001.ARW');
+    // No image of its own yet: the first stays, in its place under it.
+    expect(first.isConnected).toBe(true);
+    expect(first.classList.contains('is-held')).toBe(true);
+    await act(async () => finishNext({ url: `blob:large${path(1)}`, info: null, width: 1620, height: 1080 }));
+    const next = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-held)')!;
+    expect(next.getAttribute('src')).toBe(`blob:large${path(1)}`);
+    expect(first.isConnected).toBe(true);
+    fireEvent.load(next);
+    expect(first.isConnected).toBe(false);
+  });
+
+  it('a photograph without any preview drops the previous one instead of keeping it up (IMPDW)', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        list={files(2)}
+        loadPreview={async (p) =>
+          p === path(0) ? { url: `blob:large${p}`, info: null, width: 1620, height: 1080 } : { url: null, info: null }
+        }
+        loadFullPreview={() => new Promise<LargePreview>(() => undefined)}
+      />
+    );
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    const first = await waitFor(() =>
+      document.querySelector<HTMLImageElement>(`img.session-ingest-loupe-fit[src="blob:large${path(0)}"]`)!
+    );
+    fireEvent.load(first);
+    await user.keyboard('{ArrowRight}');
+    // Its grid thumbnail, if any, replaces it once drawn; with none, the
+    // view says there is no preview instead of showing the previous photo.
+    await waitFor(() => expect(screen.queryByText('Loading 100 %…')).toBeNull());
+    const own = document.querySelector<HTMLImageElement>('.session-ingest-loupe-image img:not(.is-held)');
+    if (own) fireEvent.load(own);
+    await waitFor(() => expect(first.isConnected).toBe(false));
+  });
+
   it('closing the import view while a 100 % region is shown revokes its blob URL', async () => {
     const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
     const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
