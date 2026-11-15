@@ -127,6 +127,28 @@ describe('the slash key on other layouts', () => {
   });
 });
 
+describe('Option/Alt letters on other layouts', () => {
+  const press = (init: KeyboardEventInit & { keyCode?: number }) => {
+    const event = new KeyboardEvent('keydown', init);
+    if (init.keyCode !== undefined) Object.defineProperty(event, 'keyCode', { value: init.keyCode });
+    return normalizeCombo(event);
+  };
+  it('are the letter the key types (keyCode), not its place: Y and Z swap on QWERTZ', () => {
+    // ⌥Y on a Swiss/German Mac: the Y key sits where US has Z, ⌥ types Ω.
+    expect(press({ key: 'Ω', code: 'KeyZ', altKey: true, keyCode: 89 })).toEqual(['alt', 'KeyY']);
+    expect(press({ key: '¥', code: 'KeyY', altKey: true, keyCode: 89 })).toEqual(['alt', 'KeyY']);
+    // Without a letter keyCode: the key's place, as before.
+    expect(press({ key: '≈', code: 'KeyX', altKey: true })).toEqual(['alt', 'KeyX']);
+  });
+});
+
+it('binds a direct key per before/after mode beside Y and Shift+Y', () => {
+  const map = buildComboMap(null);
+  expect(map.get('ctrl+shift+KeyY')).toEqual(['compare_left_right']);
+  expect(map.get('alt+KeyY')).toEqual(['compare_top_bottom']);
+  expect(map.get('shift+alt+KeyY')).toEqual(['compare_side_by_side']);
+});
+
 it('binds both Windows redo conventions and the export and settings shortcuts', () => {
   const map = buildComboMap(null);
   expect(map.get('ctrl+KeyY')).toEqual(['redo']);
