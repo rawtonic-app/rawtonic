@@ -185,7 +185,7 @@ describe('Keyword List: photos dropped on a keyword, keywords without photos, de
     await act(async () => {
       await undo();
     });
-    expect(mockInvoke).toHaveBeenLastCalledWith('restore_keywords', {
+    expect(mockInvoke).toHaveBeenCalledWith('restore_keywords', {
       changes: [{ path: '/job/Capture/c.arw', added: ['user:Animals|Cats'], removed: [] }],
       undo: true
     });
@@ -210,7 +210,7 @@ describe('Keyword List: photos dropped on a keyword, keywords without photos, de
     await act(async () => {
       await undo();
     });
-    expect(mockInvoke).toHaveBeenLastCalledWith('session_keywords_declared_apply', {
+    expect(mockInvoke).toHaveBeenCalledWith('session_keywords_declared_apply', {
       directory: '/job',
       remove: ['Animals|Birds'],
       add: []
