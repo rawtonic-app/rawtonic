@@ -623,7 +623,19 @@ impl IdleCompiles {
             && quiet_since(LAST_COMPILE_MS.load(Ordering::Relaxed))
     }
 
+    /// The idle worker thread. It gives up its device before it reports
+    /// itself ended (`Queue::worker`): the last reference to a device may be
+    /// the worker's, and dropping it unloads the Vulkan driver, which must
+    /// not run beside a process exit (NVIDIA: `free(): invalid pointer` at
+    /// the end of a test binary whose processor was dropped while the
+    /// worker still ended).
     fn work(self: Arc<Self>, target: IdleTarget) {
+        self.work_loop(&target);
+        drop(target);
+        self.lock().worker = false;
+    }
+
+    fn work_loop(&self, target: &IdleTarget) {
         // Why the memory guard holds the worker, while it does.
         let mut held: Option<String> = None;
         loop {
@@ -632,7 +644,6 @@ impl IdleCompiles {
                 let mut queue = self.lock();
                 loop {
                     if queue.cancelled {
-                        queue.worker = false;
                         return;
                     }
                     if !queue.plan.is_empty()
@@ -708,7 +719,6 @@ impl IdleCompiles {
             let (job, source) = {
                 let mut queue = self.lock();
                 if queue.cancelled {
-                    queue.worker = false;
                     return;
                 }
                 // The slot is held from here on.
@@ -1458,7 +1468,12 @@ mod tests {
         // The superset keeps serving it: its own variant never compiles.
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         assert!(processor.preview_pipelines[features].get().is_none());
+        let idle = Arc::clone(&processor.idle_compiles.as_ref().unwrap().0);
         drop(processor);
+        // The worker gives up its device before the process exits (an
+        // exit beside the driver's unload aborted the test binary).
+        wait("the idle worker ends", &|| !idle.lock().worker);
+        super::wait_for_device_threads();
         set_compile_limit(None);
     }
 
@@ -1986,6 +2001,7 @@ mod tests {
         drop(processor);
         // The worker stops its helper and ends before the process does.
         wait("the idle worker ends", 30, &|| !idle.lock().worker);
+        super::wait_for_device_threads();
         set_compile_limit(None);
     }
 
@@ -2079,6 +2095,7 @@ mod tests {
         // ...until the idle compiles end with their processor.
         drop(processor);
         wait("the idle worker ends", 30, &|| !idle.lock().worker);
+        super::wait_for_device_threads();
         assert!(ahead.recv_timeout(Duration::from_secs(10)).is_ok());
         set_compile_limit(None);
     }
@@ -2282,6 +2299,7 @@ mod tests {
         );
         drop(processor);
         wait("the idle worker ends", 60, &|| !idle.lock().worker);
+        super::wait_for_device_threads();
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         set_compile_limit(None);
     }
