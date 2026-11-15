@@ -49,6 +49,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 0,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -437,6 +438,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 0,
    "colorRanges": [],
    "contrast": null,
@@ -823,6 +825,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 0,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -1211,6 +1214,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 0,
    "colorRanges": [],
    "contrast": 0,
@@ -1600,6 +1604,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 0,
    "colorRanges": [],
    "contrast": 20,
@@ -1985,6 +1990,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 0,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -2374,6 +2380,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 0,
    "colorRanges": [],
    "contrast": 0,
@@ -3028,6 +3035,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 0,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -3416,6 +3424,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 0,
    "colorRanges": [],
    "contrast": 0,
@@ -3804,6 +3813,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 25,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -4195,6 +4205,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 25,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -4583,6 +4594,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 25,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -4974,6 +4986,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 25,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -5365,6 +5378,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 25,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -5752,6 +5766,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 25,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -6144,6 +6159,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 25,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -6802,6 +6818,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 25,
    "colorNoiseVersion": 11,
    "colorRanges": [],
@@ -7193,6 +7210,7 @@
      "saturation": 0
     }
    },
+   "colorGradingVersion": 2,
    "colorNoiseReduction": 25,
    "colorNoiseVersion": 11,
    "colorRanges": [],

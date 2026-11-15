@@ -737,6 +737,14 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * renders as version 1. 1 or missing on recipes that used the mixer before
    * it. Photo-wide: the layers' mixer renders with the photo's. */
   hslVersion?: number;
+  /** Colour grading response (crates/engine/src/image_processing.rs
+   * `COLOR_GRADING_VERSION`): 2 = the Shadows and Highlights wheels with
+   * their own hue directions and ranges, Balance per wheel and a Highlights
+   * luminance that keeps white, fitted to Camera Raw (the same wheel values
+   * tint as Camera Raw does); wheels without saturation and luminance render
+   * as version 1. 1 or missing on recipes that graded before it. Photo-wide:
+   * the layers' grading renders with the photo's. */
+  colorGradingVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
    * `SHARPEN_VERSION`): 8 = 7 with a noise gate on RAW photos at every Masking value (what stands no more
    * than the photo's measured noise out of its neighbourhood is not sharpened; renders as 7 on non-RAW photos and
@@ -1547,6 +1555,10 @@ export const BW_VERSION = 2;
  * benchmark-results/atf8-hsl-shapes-2026-11-09). */
 export const HSL_VERSION = 2;
 
+/** The colour grading response new edits start with (notes:
+ * benchmark-results/cg1-colour-grading-2026-11-15). */
+export const COLOR_GRADING_VERSION = 2;
+
 /** The sharpening response new edits start with (notes: reference/detail.md). */
 export const SHARPEN_VERSION = 8;
 
@@ -1661,6 +1673,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         defringeVersion: DEFRINGE_VERSION,
         bwVersion: BW_VERSION,
         hslVersion: HSL_VERSION,
+        colorGradingVersion: COLOR_GRADING_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
@@ -1681,6 +1694,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         defringeVersion: DEFRINGE_VERSION,
         bwVersion: BW_VERSION,
         hslVersion: HSL_VERSION,
+        colorGradingVersion: COLOR_GRADING_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
@@ -1757,6 +1771,28 @@ const loadedHslVersion = (loaded: Partial<Adjustments>): number | undefined => {
   return used ? undefined : HSL_VERSION;
 };
 
+/** Whether a wheel of `grading` tints or changes luminance (Blending and
+ * Balance alone render nothing). */
+const gradingMoved = (grading: unknown): boolean =>
+  Object.values((grading ?? {}) as Record<string, unknown>).some(
+    (wheel) =>
+      typeof wheel === 'object' &&
+      wheel !== null &&
+      (((wheel as Record<string, number | undefined>).saturation ?? 0) > 0 ||
+        ((wheel as Record<string, number | undefined>).luminance ?? 0) !== 0)
+  );
+
+/** The colour grading response of a saved recipe: its own; else the current
+ * one when no wheel (photo or layer) grades (every response renders it
+ * alike), the first one otherwise (missing key). */
+const loadedColorGradingVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.colorGradingVersion !== undefined && loaded.colorGradingVersion !== null) {
+    return loaded.colorGradingVersion;
+  }
+  const used = gradingMoved(loaded.colorGrading) || layersUseGrading(loaded);
+  return used ? undefined : COLOR_GRADING_VERSION;
+};
+
 /** Whether a recipe renders the same with every sharpening response: no
  * sharpening (photo or layer); response 3 differs from 1 at every amount. */
 const sharpensAlikeInEveryVersion = (values: Partial<Adjustments>, isRaw: boolean): boolean => {
@@ -1801,6 +1837,7 @@ export const pastedAdjustments = (
       key === 'dehazeVersion' ||
       key === 'bwVersion' ||
       key === 'hslVersion' ||
+      key === 'colorGradingVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
     ) {
       continue;
@@ -1809,12 +1846,15 @@ export const pastedAdjustments = (
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  return withHslVersion(
-    withBwVersion(
-      withVibranceVersion(
-        withDetailVersions(
-          withGrainVersion(
-            withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, copied), copied), copied),
+  return withColorGradingVersion(
+    withHslVersion(
+      withBwVersion(
+        withVibranceVersion(
+          withDetailVersions(
+            withGrainVersion(
+              withLumaNoiseVersion(withWhiteBalanceVersions(withSharpenVersion(picked, copied), copied), copied),
+              copied
+            ),
             copied
           ),
           copied
@@ -2032,6 +2072,10 @@ export const layersUseVibrance = (adjustments: Partial<Adjustments>): boolean =>
 export const layersUseMixer = (adjustments: Partial<Adjustments>): boolean =>
   (adjustments.masks ?? []).some((mask) => mixerMoved(mask?.adjustments?.hsl));
 
+/** Whether a layer of the recipe grades (its grading follows the photo's `colorGradingVersion`). */
+export const layersUseGrading = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.masks ?? []).some((mask) => gradingMoved(mask?.adjustments?.colorGrading));
+
 /** Whether a layer of the recipe uses Structure (its travel follows the photo's `structureVersion`). */
 export const layersUseStructure = (adjustments: Partial<Adjustments>): boolean =>
   (adjustments.masks ?? []).some((mask) => ((mask?.adjustments?.structure as number | undefined) ?? 0) !== 0);
@@ -2085,14 +2129,43 @@ export const withHslVersion = <T extends Partial<Adjustments>>(
   return { ...picked, hslVersion: source?.hslVersion ?? 1 };
 };
 
+/** As `withHslVersion` for colour grading: wherever grading values are
+ * copied the grading response goes along explicitly — the source's, else 1
+ * (a source or preset from before the key) — so the copy tints as the
+ * source does. */
+export const withColorGradingVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>
+): T & Pick<Partial<Adjustments>, 'colorGradingVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'colorGradingVersion') && picked.colorGradingVersion == null) {
+    return { ...picked, colorGradingVersion: 1 };
+  }
+  // Layers' grading renders with the photo's response, so copied layers
+  // that grade carry it too.
+  const grading = picked.colorGrading !== undefined || (source !== undefined && layersUseGrading(picked));
+  if (!grading || picked.colorGradingVersion != null) {
+    return picked;
+  }
+  return { ...picked, colorGradingVersion: source?.colorGradingVersion ?? 1 };
+};
+
+/** The colour mixer and colour grading responses, each going along with its values. */
+export const withColourVersions = <T extends Partial<Adjustments>>(picked: T, source?: Partial<Adjustments>) =>
+  withColorGradingVersion(withHslVersion(picked, source), source);
+
 /** A preset's settings with its Clarity and B&W mix responses stated: the
  * preset is its own source, so Clarity on its layers alone or a mix from
  * before the keys renders with version 1 wherever it is previewed or
  * applied. */
 export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
-  withHslVersion(
-    withBwVersion(
-      withVibranceVersion(withDetailVersions(withWhiteBalanceVersions(preset, preset), preset), preset),
+  withColorGradingVersion(
+    withHslVersion(
+      withBwVersion(
+        withVibranceVersion(withDetailVersions(withWhiteBalanceVersions(preset, preset), preset), preset),
+        preset
+      ),
       preset
     ),
     preset
@@ -2398,6 +2471,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       defringeVersion: loadedDefringeVersion(loadedAdjustments),
       bwVersion: loadedBwVersion(loadedAdjustments),
       hslVersion: loadedHslVersion(loadedAdjustments),
+      colorGradingVersion: loadedColorGradingVersion(loadedAdjustments),
       sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
       // A saved recipe's own grain; without the key 1 where it has grain, else
       // the newest (a new edit's, as `initialAdjustmentsFor`).
@@ -2534,7 +2608,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
       label: 'modals.copyPaste.groups.hueShift',
       keys: [ColorAdjustment.Hue]
     },
-    { label: 'modals.copyPaste.groups.colorGrading', keys: [ColorAdjustment.ColorGrading] },
+    { label: 'modals.copyPaste.groups.colorGrading', keys: [ColorAdjustment.ColorGrading, 'colorGradingVersion'] },
     { label: 'modals.copyPaste.groups.colorMixer', keys: [ColorAdjustment.Hsl, 'colorRanges', 'hslVersion'] },
     { label: 'modals.copyPaste.groups.colorCalibration', keys: ['colorCalibration'] },
     { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer', 'bwVersion'] }

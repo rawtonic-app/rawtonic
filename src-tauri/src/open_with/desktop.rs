@@ -31,7 +31,8 @@ impl Dirs {
     /// The directories of the running session, following the XDG base
     /// directory defaults. Flatpak's and Snap's export directories are
     /// added when a minimal `XDG_DATA_DIRS` leaves them out.
-    // Called by the Linux adapter only; the parsing here is tested everywhere.
+    // Only `linux.rs` reads the environment; the tests of other systems
+    // pass directories.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn from_env() -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from);
