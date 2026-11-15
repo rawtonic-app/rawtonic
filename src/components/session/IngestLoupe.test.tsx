@@ -306,9 +306,12 @@ describe('Reviewing before the import (IMPD)', () => {
     Object.defineProperty(measure, 'naturalWidth', { value: 6000 });
     Object.defineProperty(measure, 'naturalHeight', { value: 4000 });
     fireEvent.load(measure);
-    expect(zoomButton().textContent).toBe('100 %');
     const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full');
     expect(fullImage()?.getAttribute('src')).toBe('blob:full0');
+    // Said once its own element has the pixels (jsdom has no decode()).
+    expect(zoomButton().textContent).toBe('Loading 100 %…');
+    fireEvent.load(fullImage()!);
+    expect(zoomButton().textContent).toBe('100 %');
     expect(fullImage()?.style.width).toBe('6000px');
     expect(full.mock.calls.map((c) => c[0])).toEqual([path(0), path(1)]);
     // The next photograph opens at 100 % as soon as its pixels are there.
@@ -337,9 +340,11 @@ describe('Reviewing before the import (IMPD)', () => {
     const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full');
     expect(fullImage()).toBeNull();
     await user.keyboard('z');
-    // Already decoded and measured: 100 % at once, no measuring image.
-    expect(zoomButton().textContent).toBe('100 %');
+    // Already decoded and measured: on screen at once, no measuring image.
+    expect(document.querySelector('img[hidden]')).toBeNull();
     expect(fullImage()?.getAttribute('src')).toBe(`blob:${path(0)}`);
+    fireEvent.load(fullImage()!);
+    expect(zoomButton().textContent).toBe('100 %');
     expect(fullImage()?.style.width).toBe('6000px');
     await user.keyboard('{ArrowRight}');
     expect(fullImage()?.getAttribute('src')).toBe(`blob:${path(1)}`);
@@ -398,17 +403,81 @@ describe('Reviewing before the import (IMPD)', () => {
       expect(part.getAttribute('src')).toBe('blob:region0');
       expect(part.style.width).toBe('1312px');
       expect(part.style.transform).toBe('translate(-256px, -156px)');
-      // Then all of it in the same place; the stand-ins go.
+      // Then all of it in the same place, on top; what it replaces stays
+      // under it until its element has the pixels.
       await act(async () => finishFull({ url: 'blob:full0', info: null, width: 6000, height: 4000 }));
       const whole = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full')!;
       expect(whole.getAttribute('src')).toBe('blob:full0');
       expect(whole.style.transform).toBe('translate(-2600px, -1700px)');
-      expect(enlarged()).toBeNull();
+      expect(document.querySelector('img.session-ingest-loupe-region')).toBe(part);
+      expect(enlarged()).toBeTruthy();
+      fireEvent.load(whole);
+      expect(document.querySelector('.session-ingest-loupe-zoom')!.textContent).toBe('100 %');
       expect(document.querySelector('img.session-ingest-loupe-region')).toBeNull();
+      // The enlarged preview stays exactly under it, for zooming out.
+      expect(enlarged()!.style.transform).toBe('translate(-2600px, -1700px)');
       expect(revoked).toContain('blob:region0');
       expect(cancel).toHaveBeenCalledWith(path(0));
       expect(region).toHaveBeenCalledTimes(1);
     } finally {
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
+
+  it('Z in and out keeps the photograph on screen: one element is restyled, and the full size replaces it only once decoded (IMPDW)', async () => {
+    // A new <img> paints nothing until it has decoded (WebView2: 65–98 ms of
+    // an empty view after Z, notes G76 WSMOKE22), so Z must not swap the
+    // shown element, and the full size goes on screen only once decoded.
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    const decodes: (() => void)[] = [];
+    const decode = vi.fn(() => new Promise<void>((resolve) => decodes.push(resolve)));
+    Object.defineProperty(HTMLImageElement.prototype, 'decode', { value: decode, configurable: true });
+    try {
+      const user = userEvent.setup();
+      render(
+        <Harness
+          list={files(2)}
+          loadPreview={async (p) => ({ url: `blob:large${p}`, info: null, width: 1620, height: 1080 })}
+          loadFullPreview={async () => ({ url: 'blob:full0', info: null, width: 6000, height: 4000 })}
+          loadFullSize={async () => ({ width: 6000, height: 4000 })}
+          loadRegion={async () => null}
+          cancelRegion={() => undefined}
+        />
+      );
+      await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+      const fit = await waitFor(() =>
+        document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-placeholder)')!
+      );
+      const zoomButton = () => document.querySelector('.session-ingest-loupe-zoom')!.textContent;
+      const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full');
+      await user.keyboard('z');
+      // The same element, now at the 100 % size; the full size on top of it.
+      expect(fit.isConnected).toBe(true);
+      expect(fit.className).toBe('session-ingest-loupe-enlarged');
+      expect(fit.style.width).toBe('6000px');
+      expect(fullImage()?.getAttribute('src')).toBe('blob:full0');
+      fireEvent.load(fullImage()!);
+      expect(zoomButton()).toBe('Loading 100 %…');
+      await act(async () => decodes.shift()!());
+      expect(zoomButton()).toBe('100 %');
+      expect(fit.isConnected).toBe(true);
+      // Out: the same element again, fitted.
+      await user.keyboard('z');
+      expect(fit.isConnected).toBe(true);
+      expect(fit.className).toBe('session-ingest-loupe-fit');
+      expect(fit.style.width).toBe('');
+      expect(fullImage()).toBeNull();
+      // In again: the full size has a new element, which must decode again.
+      await user.keyboard('z');
+      expect(fit.className).toBe('session-ingest-loupe-enlarged');
+      expect(zoomButton()).toBe('Loading 100 %…');
+      fireEvent.load(fullImage()!);
+      await act(async () => decodes.shift()!());
+      expect(zoomButton()).toBe('100 %');
+    } finally {
+      delete (HTMLImageElement.prototype as { decode?: unknown }).decode;
       width.mockRestore();
       height.mockRestore();
     }

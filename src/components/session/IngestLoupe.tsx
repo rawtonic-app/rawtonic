@@ -290,6 +290,11 @@ export default function IngestLoupe({
   const [sizes, setSizes] = useState<Record<string, Size | null>>({});
   const asked = useRef(new Set<string>());
   const [region, setRegion] = useState<(RegionPreview & { path: string }) | null>(null);
+  // The full-size image whose own <img> has decoded. A new <img> paints
+  // nothing until it has (Chromium/WebView2 decodes a 24 MP JPEG for 0.1–0.4 s
+  // even when the same URL was decoded ahead), so what it replaces stays
+  // under it until then.
+  const [fullPainted, setFullPainted] = useState<string | null>(null);
   const [focus, setFocus] = useState<ZoomFocus>({ x: 0.5, y: 0.5 });
   const [natural, setNatural] = useState<Record<string, { width: number; height: number }>>({});
   const [viewSize, setViewSize] = useState({ width: 0, height: 0 });
@@ -357,6 +362,14 @@ export default function IngestLoupe({
 
   const path = file?.path;
   const fullReady = Boolean(path && fullCache.get(path));
+  // Another photograph's full-size image gets a new element: not decoded
+  // yet, even when it was shown before (reset before this render commits).
+  const [paintedPath, setPaintedPath] = useState(path);
+  if (paintedPath !== path) {
+    setPaintedPath(path);
+    setFullPainted(null);
+  }
+  const fullOnScreen = Boolean(zoomed && path && fullPainted && fullCache.get(path)?.url === fullPainted);
   const measured = viewSize.width > 0 && viewSize.height > 0;
   // While Z waits for a RAW's pixels, the render makes the part in view first.
   useEffect(() => {
@@ -378,11 +391,11 @@ export default function IngestLoupe({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomed, path, fullReady, measured, loadRegion, cancelRegion]);
   useEffect(() => {
-    if (region && (region.path !== path || !zoomed || fullReady)) {
+    if (region && (region.path !== path || !zoomed || fullOnScreen)) {
       URL.revokeObjectURL(region.url);
       setRegion(null);
     }
-  }, [region, path, zoomed, fullReady]);
+  }, [region, path, zoomed, fullOnScreen]);
   // The region on show, for the cleanup at unmount: a state update queued
   // then is dropped, so its URL would never be revoked.
   const regionUrl = useRef<string | null>(null);
@@ -405,10 +418,10 @@ export default function IngestLoupe({
     : undefined;
   // 100 % is shown (and said) only once the full-size pixels are here.
   const atFull = Boolean(zoomed && full?.url && fullSize);
-  const shownRegion = zoomed && !atFull && region?.path === file.path ? region : null;
+  const shownRegion = zoomed && !fullOnScreen && region?.path === file.path ? region : null;
   // Until then the preview enlarged to the 100 % size stands in for them,
   // under the real pixels of the part in view once those are here.
-  const plannedSize = shownRegion?.full ?? sizes[file.path] ?? undefined;
+  const plannedSize = (atFull ? fullSize : undefined) ?? shownRegion?.full ?? sizes[file.path] ?? undefined;
   const image = preview?.url ?? thumbnail;
   // The fitted image (the camera's preview, or the grid's until it is here)
   // stands in where it has the 100 % view's framing (never a preview the
@@ -419,9 +432,7 @@ export default function IngestLoupe({
         ? { width: preview.width, height: preview.height }
         : undefined))
     : undefined;
-  const enlarged = Boolean(
-    zoomed && !atFull && !(full && !full.url) && plannedSize && fitted && sameAspect(fitted, plannedSize)
-  );
+  const enlarged = Boolean(zoomed && !(full && !full.url) && plannedSize && fitted && sameAspect(fitted, plannedSize));
   const checked = selected.has(file.path);
   const rating = ratings[file.path] ?? 0;
   const name = file.path.split(/[\\/]/).pop() ?? file.path;
@@ -454,8 +465,11 @@ export default function IngestLoupe({
     return { x: clampShare((e.clientX - left) / width), y: clampShare((e.clientY - top) / height) };
   };
   const toggleZoom = (at?: ZoomFocus | null) => {
-    if (zoomed) setZoomed(false);
-    else {
+    if (zoomed) {
+      setZoomed(false);
+      // Its element goes; a new one must decode again before it shows.
+      setFullPainted(null);
+    } else {
       if (at) setFocus(at);
       setZoomed(true);
     }
@@ -556,7 +570,7 @@ export default function IngestLoupe({
           title={t('session.ingest.zoomHint')}
           onClick={() => toggleZoom()}
         >
-          {atFull ? '100 %' : zoomed ? t('session.ingest.zoomLoading') : t('session.ingest.zoomFit')}
+          {fullOnScreen ? '100 %' : zoomed ? t('session.ingest.zoomLoading') : t('session.ingest.zoomFit')}
         </button>
         <span className="session-ingest-loupe-count">
           {(index + 1).toLocaleString()} / {files.length.toLocaleString()}
@@ -623,47 +637,29 @@ export default function IngestLoupe({
           press.current = null;
         }}
       >
-        {atFull && full?.url && shown && offset ? (
-          <img
-            key={full.url}
-            src={full.url}
-            alt={name}
-            draggable={false}
-            className="session-ingest-loupe-full"
-            style={{ width: shown.width, height: shown.height, transform: `translate(${offset.x}px, ${offset.y}px)` }}
-          />
-        ) : enlarged && shown && offset ? (
-          <>
-            <img
-              key={image!}
-              src={image!}
-              alt={name}
-              draggable={false}
-              className="session-ingest-loupe-enlarged"
-              style={{ width: shown.width, height: shown.height, transform: `translate(${offset.x}px, ${offset.y}px)` }}
-            />
-            {shownRegion && (
-              <img
-                key={shownRegion.url}
-                src={shownRegion.url}
-                alt=""
-                draggable={false}
-                className="session-ingest-loupe-region"
-                style={{
-                  width: shownRegion.rect.width / dpr,
-                  height: shownRegion.rect.height / dpr,
-                  transform: `translate(${offset.x + shownRegion.rect.x / dpr}px, ${offset.y + shownRegion.rect.y / dpr}px)`
-                }}
-              />
-            )}
-          </>
-        ) : image ? (
+        {/* One element for the fitted image and its enlargement to the 100 %
+            size: Z (in or out) only restyles it, so it stays on screen (a
+            new element would be blank until it had decoded). The region and
+            the full-size image come on top of it; it stays under the
+            full-size image, which covers it exactly. */}
+        {image ? (
           <img
             key={image}
             src={image}
             alt={name}
             draggable={false}
-            className={`session-ingest-loupe-fit${preview?.url ? '' : ' is-placeholder'}`}
+            className={
+              enlarged
+                ? 'session-ingest-loupe-enlarged'
+                : `session-ingest-loupe-fit${preview?.url ? '' : ' is-placeholder'}`
+            }
+            style={
+              enlarged && shown && offset
+                ? { width: shown.width, height: shown.height, transform: `translate(${offset.x}px, ${offset.y}px)` }
+                : fullOnScreen
+                  ? { visibility: 'hidden' }
+                  : undefined
+            }
             onLoad={(e) => {
               const img = e.currentTarget;
               if (img.naturalWidth && img.naturalHeight)
@@ -673,9 +669,41 @@ export default function IngestLoupe({
                 }));
             }}
           />
-        ) : preview ? (
+        ) : !image && preview && !atFull ? (
           <span>{t('session.ingest.noPreview')}</span>
         ) : null}
+        {shownRegion && enlarged && shown && offset && (
+          <img
+            key={shownRegion.url}
+            src={shownRegion.url}
+            alt=""
+            draggable={false}
+            className="session-ingest-loupe-region"
+            style={{
+              width: shownRegion.rect.width / dpr,
+              height: shownRegion.rect.height / dpr,
+              transform: `translate(${offset.x + shownRegion.rect.x / dpr}px, ${offset.y + shownRegion.rect.y / dpr}px)`
+            }}
+          />
+        )}
+        {atFull && full?.url && shown && offset && (
+          <img
+            key={full.url}
+            src={full.url}
+            alt={name}
+            draggable={false}
+            className="session-ingest-loupe-full"
+            style={{ width: shown.width, height: shown.height, transform: `translate(${offset.x}px, ${offset.y}px)` }}
+            onLoad={(e) => {
+              const url = full.url!;
+              const shownWhenDecoded = () => setFullPainted(url);
+              const img = e.currentTarget;
+              if (typeof img.decode === 'function') img.decode().then(shownWhenDecoded, shownWhenDecoded);
+              else shownWhenDecoded();
+            }}
+            onError={() => setFullPainted(full.url!)}
+          />
+        )}
         {/* Measures the full-size image once it arrives; shown only then. */}
         {zoomed && full?.url && !fullSize && (
           <img
@@ -692,7 +720,7 @@ export default function IngestLoupe({
         {zoomed && full && !full.url && (
           <span className="session-ingest-loupe-note">{t('session.ingest.noFullSize')}</span>
         )}
-        {(!preview || (zoomed && !full)) && (
+        {(!preview || (zoomed && (!full || Boolean(full.url && !fullOnScreen)))) && (
           <LoaderCircle size={18} className="session-ingest-loupe-spinner animate-spin" aria-hidden />
         )}
       </div>

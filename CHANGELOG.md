@@ -6,6 +6,10 @@
 
 - **The app starts through a symlinked folder or link on macOS** (for example a link on an external drive or in `/usr/local/bin`); before, it aborted with "failed to resolve resource directory". Linux and Windows were not affected. The error for truly missing resources now names the executable.
 
+### Fixes
+
+- **Import: Z no longer shows an empty frame on Windows.** In the import dialog's large view, Z (or a click) to 100 % and back showed nothing for a moment (65–98 ms measured on a Windows laptop) before the enlarged preview or the real pixels appeared, because the webview painted the newly made image only once it had decoded it again. The photograph now stays on screen through the zoom: the shown preview itself grows to the 100 % size, and the full-size pixels replace it only once they are ready to draw. Measured in Chromium (the engine of Windows' webview) on Linux with the real view: 0 empty frames over 18 zooms in and out (before: an empty frame after each).
+
 ## 0.1.0-alpha.15 — 2026-11-15
 
 The fifteenth alpha. Photos can be filed in keyword hierarchies (Animals > Dogs) with a Keyword List, Undo for keyword changes and drag-and-drop of photos onto a keyword. For new edits the colour mixer follows Camera Raw more closely for Blues and Purples and Color Grading tints where Camera Raw puts them. The Develop fit view and the grid thumbnail now show the export's colour noise reduction on Apple silicon and discrete graphics cards, the Before of a RAW includes the sharpening and noise reduction it gets at import, and each before/after mode has a key of its own. Linux gets Open With and Edit With and a 100 % view as sharp as the export, lossless JPEG XL exports reopen and encode far faster, and the CLI exports several photos at once. On Windows with AMD graphics the first start and the first edits prepare their views without piling up memory, and exports, AI masks and view preparation take turns. A library opened by its path, one duplicate rule everywhere and a rating that survives a catalog that had registered a file twice fix several ways of losing track of photos.
