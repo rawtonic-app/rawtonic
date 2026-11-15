@@ -1665,9 +1665,10 @@ fn colour_mixer_versions_2_and_3_keep_greys_zero_and_smooth_sweeps() {
     assert_eq!(render(json!({"hsl": blues})), mixer(1, blues.clone()));
     assert_ne!(mixer(1, blues.clone()), mixer(2, blues.clone()));
     assert_ne!(mixer(2, blues.clone()), mixer(3, blues));
-    // Version 3 refits Blues and Purples Saturation; a channel it keeps
-    // moves within a few levels of version 2 (a shorter Hue solve, one
-    // exponential in the strength).
+    // Version 3 refits Blues and Purples Saturation; a Saturation or
+    // Luminance slider it keeps moves within a few levels of version 2 (one
+    // exponential in the strength). Kept Hue sliders move further with the
+    // shorter solve (slider_response.json: Purples Hue −100 by 0.8° of hue).
     let reds = json!({"reds": {"saturation": 60, "luminance": -30}});
     let (two, three) = (mixer(2, reds.clone()), mixer(3, reds));
     let apart = two
