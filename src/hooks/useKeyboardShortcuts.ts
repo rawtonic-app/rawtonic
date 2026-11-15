@@ -1277,8 +1277,24 @@ export const useKeyboardShortcuts = ({
           const nextIndex = gridStep(currentIndex, sortedListRef.current.length, e.code, s.ui.gridColumns);
           if (nextIndex === currentIndex) return;
           const nextImage = sortedListRef.current[nextIndex];
-          if (nextImage) {
-            s.library.setLibrary({ libraryActivePath: nextImage.path, multiSelectedPaths: [nextImage.path] });
+          if (nextImage && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            // Shift+arrow extends the selection from the anchor to the new photo
+            // (Lightroom, Capture One); the anchor stays, so the range can shrink again.
+            const anchorPath = s.library.selectionAnchorPath ?? activePath;
+            const anchorIndex = sortedListRef.current.findIndex((img) => img.path === anchorPath);
+            const from = Math.min(anchorIndex === -1 ? currentIndex : anchorIndex, nextIndex);
+            const to = Math.max(anchorIndex === -1 ? currentIndex : anchorIndex, nextIndex);
+            s.library.setLibrary({
+              libraryActivePath: nextImage.path,
+              multiSelectedPaths: sortedListRef.current.slice(from, to + 1).map((img) => img.path),
+              selectionAnchorPath: anchorPath
+            });
+          } else if (nextImage) {
+            s.library.setLibrary({
+              libraryActivePath: nextImage.path,
+              multiSelectedPaths: [nextImage.path],
+              selectionAnchorPath: nextImage.path
+            });
             handleImageSelect(nextImage.path, false);
           }
         }

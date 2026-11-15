@@ -636,6 +636,21 @@ function SmartAlbumEditor({ draft, albums: given }: { draft: SmartAlbumDraft; al
   const keys = (e: KeyboardEvent) => {
     e.stopPropagation();
     if (e.key === 'Escape') close();
+    // Return in the name field creates the album, as in Lightroom's and Capture One's
+    // naming dialogs (a keyboard-only user typed a name and nothing happened).
+    else if (
+      e.key === 'Enter' &&
+      !e.nativeEvent.isComposing &&
+      e.target instanceof HTMLInputElement &&
+      e.target.classList.contains('studio-metadata-input') &&
+      e.target.closest('.studio-smart-album-name') &&
+      name.trim() &&
+      !incomplete(rules) &&
+      !error
+    ) {
+      e.preventDefault();
+      void save();
+    }
   };
   const title = draft.id ? t('studio.library.smartAlbums.editTitle') : t('studio.library.smartAlbums.newTitle');
   return createPortal(
