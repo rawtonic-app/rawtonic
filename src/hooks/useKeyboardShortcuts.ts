@@ -1277,7 +1277,11 @@ export const useKeyboardShortcuts = ({
           const nextIndex = gridStep(currentIndex, sortedListRef.current.length, e.code, s.ui.gridColumns);
           if (nextIndex === currentIndex) return;
           const nextImage = sortedListRef.current[nextIndex];
-          if (nextImage && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          const extend = e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
+          const forward = e.code === 'ArrowRight' || e.code === 'ArrowDown';
+          // A range does not wrap round the grid's ends: past the last (first) photo it stays.
+          if (extend && (forward ? nextIndex < currentIndex : nextIndex > currentIndex)) return;
+          if (nextImage && extend) {
             // Shift+arrow extends the selection from the anchor to the new photo
             // (Lightroom, Capture One); the anchor stays, so the range can shrink again.
             const anchorPath = s.library.selectionAnchorPath ?? activePath;
