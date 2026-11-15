@@ -359,12 +359,12 @@ pub(crate) fn develop_thumbnail(
         // develop or develop defaults to apply; without either the camera's
         // JPEG or a plain decode below), or a Reset's.
         (proxy, metadata)
-            if is_raw
-                && crate::image_processing::is_new_recipe(&adjustments)
-                && (proxy.is_some()
-                    || !adjustments.is_null()
-                    // With the user's develop defaults, not the camera's JPEG.
-                    || rawtonic_engine::develop_defaults::for_path(&source_path).is_some()) =>
+            if crate::image_processing::is_new_recipe(&adjustments)
+                && ((is_raw && (proxy.is_some() || !adjustments.is_null()))
+                    // With the user's develop defaults, not the camera's JPEG
+                    // (a JPEG or TIFF too when they are not for RAWs only).
+                    || (rawtonic_engine::develop_defaults::follows_defaults(&adjustments)
+                        && rawtonic_engine::develop_defaults::for_path(&source_path).is_some())) =>
         {
             let mut recipe = if adjustments.is_null() {
                 serde_json::json!({})
