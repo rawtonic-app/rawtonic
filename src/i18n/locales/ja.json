@@ -74,6 +74,7 @@
       "detail": "終了またはクラッシュにより、すべての写真が書き込まれる前にこの一括処理が止まりました。残りに適用するか、適用済みの部分を取り消すか、そのままにしてください。写真そのものは変更されません。",
       "failed": "{{batch}} を完了できませんでした: {{error}}",
       "keywordAdd": "キーワード「{{tag}}」",
+      "keywordDelete": "キーワード「{{path}}」を削除中",
       "keywordRemove": "キーワード「{{tag}}」の削除",
       "keywordRename": "キーワード「{{from}}」を「{{to}}」に名前変更中",
       "notWritten_other": "{{count}} 枚の写真を書き込めませんでした",
@@ -3971,6 +3972,9 @@
           "cancel": "キャンセル",
           "convert": "「{{from}}」を階層「{{to}}」に変換しますか？",
           "convertAction": "変換",
+          "delete": "「{{from}}」を削除しますか？その下のキーワードは1階層上がります。",
+          "deleteAction": "削除",
+          "deleteUnused": "どの写真にも付いていないキーワードをすべて削除しますか？",
           "label": "キーワードの変更を確認",
           "merge": "「{{from}}」を「{{to}}」に統合しますか？「{{from}}」はそれに置き換えられます。",
           "mergeAction": "統合",
@@ -3987,14 +3991,24 @@
         "menu": {
           "clearFilter": "このキーワードでの絞り込みをやめる",
           "convert": "「{{path}}」に変換",
+          "delete": "キーワードを削除…",
+          "deleteUnused": "未使用のキーワードを削除…",
           "filter": "このキーワードの写真を表示",
           "moveToTop": "最上位に移動",
+          "new": "新規キーワード…",
+          "newInside": "「{{keyword}}」内に新規キーワード…",
           "rename": "名前を変更…"
         },
         "renameLabel": "{{keyword}} の名前変更または移動：パスを入力（例：親 > 名前）",
         "title": "キーワードリスト",
         "toasts": {
+          "assignFailed": "キーワードを写真に追加できませんでした：{{error}}",
+          "createFailed": "キーワードを作成できませんでした：{{error}}",
           "renameFailed": "キーワードを変更できませんでした：{{error}}"
+        },
+        "new": {
+          "insideLabel": "{{keyword}} 内の新規キーワード",
+          "label": "新規キーワード：名前またはパスを入力（例：親 > 名前）"
         }
       },
       "metadataFilter": {
@@ -5224,6 +5238,15 @@
     "edit": "編集",
     "file": "ファイルの変更",
     "flag": "フラグの設定",
+    "keywordAdd": "キーワード「{{keyword}}」を追加",
+    "keywordConvert": "キーワードを変換",
+    "keywordDelete": "キーワードを削除",
+    "keywordDeleteUnused": "未使用のキーワードを削除",
+    "keywordMerge": "キーワードを統合",
+    "keywordMove": "キーワードを移動",
+    "keywordNew": "新規キーワード",
+    "keywordRemove": "キーワード「{{keyword}}」を削除",
+    "keywordRename": "キーワード名を変更",
     "lensCorrection": "レンズ補正",
     "matchLight": "光を揃える",
     "move": "移動",

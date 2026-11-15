@@ -89,6 +89,7 @@
       "detail": "Un cierre o un fallo detuvo este lote antes de escribir todas las fotos. Aplícalo al resto, deshaz la parte aplicada o deja las fotos como están. Las fotos en sí nunca se modifican.",
       "failed": "No se pudo terminar {{batch}}: {{error}}",
       "keywordAdd": "Palabra clave «{{tag}}»",
+      "keywordDelete": "Eliminando la palabra clave «{{path}}»",
       "keywordRemove": "Quitar la palabra clave «{{tag}}»",
       "keywordRename": "Renombrando la palabra clave «{{from}}» como «{{to}}»",
       "notWritten_one": "No se pudo escribir {{count}} foto",
@@ -4276,6 +4277,9 @@
           "cancel": "Cancelar",
           "convert": "¿Convertir «{{from}}» en la jerarquía «{{to}}»?",
           "convertAction": "Convertir",
+          "delete": "¿Eliminar «{{from}}»? Las palabras clave que contiene suben un nivel.",
+          "deleteAction": "Eliminar",
+          "deleteUnused": "¿Eliminar todas las palabras clave que no tiene ninguna foto?",
           "label": "Confirmar el cambio de palabra clave",
           "merge": "¿Fusionar «{{from}}» con «{{to}}»? «{{from}}» se sustituye por ella.",
           "mergeAction": "Fusionar",
@@ -4294,14 +4298,24 @@
         "menu": {
           "clearFilter": "Dejar de filtrar por esta palabra clave",
           "convert": "Convertir en «{{path}}»",
+          "delete": "Eliminar palabra clave…",
+          "deleteUnused": "Eliminar palabras clave sin uso…",
           "filter": "Mostrar fotos con esta palabra clave",
           "moveToTop": "Mover al nivel superior",
+          "new": "Nueva palabra clave…",
+          "newInside": "Nueva palabra clave dentro de «{{keyword}}»…",
           "rename": "Renombrar…"
         },
         "renameLabel": "Renombrar o mover {{keyword}}: escribe su ruta, p. ej. Superior > Nombre",
         "title": "Lista de palabras clave",
         "toasts": {
+          "assignFailed": "No se pudo añadir la palabra clave a las fotos: {{error}}",
+          "createFailed": "No se pudo crear la palabra clave: {{error}}",
           "renameFailed": "No se pudieron cambiar las palabras clave: {{error}}"
+        },
+        "new": {
+          "insideLabel": "Nueva palabra clave dentro de {{keyword}}",
+          "label": "Nueva palabra clave: escriba su nombre o ruta, p. ej. Padre > Nombre"
         }
       },
       "metadataFilter": {
@@ -5577,6 +5591,15 @@
     "edit": "Edición",
     "file": "Cambio de archivo",
     "flag": "Establecer indicador",
+    "keywordAdd": "Añadir palabra clave «{{keyword}}»",
+    "keywordConvert": "Convertir palabra clave",
+    "keywordDelete": "Eliminar palabra clave",
+    "keywordDeleteUnused": "Eliminar palabras clave sin uso",
+    "keywordMerge": "Combinar palabras clave",
+    "keywordMove": "Mover palabra clave",
+    "keywordNew": "Nueva palabra clave",
+    "keywordRemove": "Quitar palabra clave «{{keyword}}»",
+    "keywordRename": "Renombrar palabra clave",
     "lensCorrection": "Corrección de objetivo",
     "matchLight": "Igualar luz",
     "move": "Mover",

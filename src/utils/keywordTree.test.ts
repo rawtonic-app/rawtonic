@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildKeywordTree,
   countKeywordPaths,
+  deleteKeywordTags,
   displayKeyword,
   isWithinKeyword,
+  keywordWithout,
   legacyHierarchy,
   movedKeyword,
   parseKeywordEntries,
@@ -13,7 +15,8 @@ import {
   resolveKeyword,
   resolveKeywordEntries,
   tagsHaveKeyword,
-  treeRows
+  treeRows,
+  withDeclaredKeywords
 } from './keywordTree';
 
 describe('typed keyword paths', () => {
@@ -142,5 +145,34 @@ describe('keyword tree', () => {
       )
     ).toEqual(['color:red', 'user:Fauna|cats', 'user:Fauna', 'user:Fauna|Dogs|Beagle']);
     expect(renameKeywordTags(['Fauna', 'user:Animals'], 'Animals', 'fauna')).toEqual(['user:Fauna']);
+  });
+});
+
+describe('deleting a keyword and keywords without photographs', () => {
+  it('moves the keywords under a deleted keyword up one level, as the backend does', () => {
+    expect(keywordWithout('Animals|Dogs', 'animals|dogs')).toBeNull();
+    expect(keywordWithout('Animals|Dogs|Pugs', 'Animals|Dogs')).toBe('Animals|Pugs');
+    expect(keywordWithout('Animals|Dogs', 'Animals')).toBe('Dogs');
+    expect(keywordWithout('Cats', 'Dogs')).toBe('Cats');
+    expect(
+      deleteKeywordTags(
+        ['user:Animals|Dogs', 'user:Animals|Dogs|Beagle', 'user:Animals|Beagle', 'color:red'],
+        'Animals|Dogs'
+      )
+    ).toEqual(['user:Animals|Beagle', 'color:red']);
+    expect(deleteKeywordTags(['user:Animals', 'user:Animals|Dogs'], 'Animals')).toEqual(['user:Dogs']);
+  });
+
+  it('lists a keyword made without photographs, and its parents, with a count of 0', () => {
+    const values = [{ value: 'Animals', count: 2 }];
+    expect(withDeclaredKeywords(values, ['animals|Birds|Owls', 'Unused'])).toEqual([
+      { value: 'Animals', count: 2 },
+      { value: 'animals|Birds', count: 0 },
+      { value: 'animals|Birds|Owls', count: 0 },
+      { value: 'Unused', count: 0 }
+    ]);
+    const tree = buildKeywordTree(withDeclaredKeywords(values, ['Animals|Birds']));
+    expect(tree[0].children.map((child) => [child.name, child.count])).toEqual([['Birds', 0]]);
+    expect(tree[0].count).toBe(2);
   });
 });

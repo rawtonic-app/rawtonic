@@ -60,6 +60,43 @@ pub fn with_ancestors(keyword: &str) -> Vec<String> {
     out
 }
 
+/// `keyword` with `from` (its prefix) replaced by `to`: a keyword under
+/// `from` keeps its levels below it (`Animals|Dogs|Pugs` renamed
+/// `Animals|Dogs` → `Pets` is `Pets|Pugs`). None when it is not within
+/// `from`.
+pub fn renamed(keyword: &str, from: &str, to: &str) -> Option<String> {
+    if !is_within(keyword, from) {
+        return None;
+    }
+    let rest = levels(keyword).skip(levels(from).count());
+    Some(normalize(
+        &std::iter::once(to)
+            .chain(rest)
+            .collect::<Vec<_>>()
+            .join("|"),
+    ))
+}
+
+/// What `keyword` becomes when the keyword `path` is deleted: none for
+/// `path` itself, a keyword below it moves up one level (`Animals|Dogs|Pugs`
+/// without `Animals|Dogs` is `Animals|Pugs`, as Lightroom keeps a deleted
+/// keyword's children), any other keyword stays.
+pub fn without(keyword: &str, path: &str) -> Option<String> {
+    if !is_within(keyword, path) {
+        return Some(keyword.to_string());
+    }
+    let own = levels(path).count();
+    if levels(keyword).count() == own {
+        return None;
+    }
+    let kept: Vec<&str> = levels(keyword)
+        .enumerate()
+        .filter(|(at, _)| *at != own - 1)
+        .map(|(_, level)| level)
+        .collect();
+    Some(kept.join("|"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,6 +110,22 @@ mod tests {
         assert!(!is_within("Animals", "Animals|Dogs"));
         assert!(!is_within("Animals", ""));
         assert!(is_within("Ärger|Ölung", "ärger"));
+    }
+
+    #[test]
+    fn renaming_and_deleting_keep_the_levels_below() {
+        assert_eq!(
+            renamed("Animals|Dogs|Pugs", "animals|dogs", "Pets").as_deref(),
+            Some("Pets|Pugs")
+        );
+        assert_eq!(renamed("Cats", "Dogs", "Pets"), None);
+        assert_eq!(without("Animals|Dogs", "Animals|Dogs"), None);
+        assert_eq!(
+            without("Animals|Dogs|Pugs", "animals|dogs").as_deref(),
+            Some("Animals|Pugs")
+        );
+        assert_eq!(without("Animals|Dogs", "Animals").as_deref(), Some("Dogs"));
+        assert_eq!(without("Cats", "Dogs").as_deref(), Some("Cats"));
     }
 
     #[test]

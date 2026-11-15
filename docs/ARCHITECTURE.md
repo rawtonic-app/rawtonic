@@ -122,6 +122,11 @@ New Rust workspace crates isolate data and file safety.
   photograph's while nobody set its metadata; schema 13 read again what the earlier reader missed, schema 14 the undated
   ones once the reader followed TIFF-based files' late IFDs); keywords one row each in `asset_keywords` (kept by
   triggers), text in the trigram index `asset_search`.
+- `declared_keywords`: keywords made in the Keyword List without photographs (schema 29: `declared_keywords`, unique
+  ignoring case; listed with count 0, kept until deleted). Every change returns a `DeclaredChange` (added, removed), so
+  Undo applies it the other way (`session_keywords_declared_apply`); keyword writes on photos return `KeywordChange`s
+  (tags gained and lost) that `restore_keywords` takes back or repeats, both recorded by `keywordAction` in
+  `src/utils/appUndo.ts` as one undo step.
 - `capture_time`: corrected capture times (Shift Capture Time, schema 19: `capture_overrides`, apart from
   `assets.capture_time`, so a facts reread never undoes one and deleting the row restores the file's time; exact shift
   arithmetic keeping fraction digits and UTC offset; the editor state's EXIF map carries the correction on read and

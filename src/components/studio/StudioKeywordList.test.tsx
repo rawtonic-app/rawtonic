@@ -7,9 +7,13 @@ import { useLibraryStore } from '../../store/useLibraryStore';
 import type { ImageFile } from '../ui/AppProperties';
 import { StudioKeywordList, plannedRename } from './StudioKeywordList';
 import { buildKeywordTree } from '../../utils/keywordTree';
+import { getUndoLabel, undo, useCatalogUndoStore } from '../../utils/appUndo';
+import { TILE_DROP_EVENT } from './tileDrag';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('../../activity/notify', () => ({ notify: { error: vi.fn() } }));
+vi.mock('../../activity/notify', () => ({
+  notify: { error: vi.fn(), info: vi.fn(), dismiss: vi.fn(), update: vi.fn(), isActive: vi.fn(() => false) }
+}));
 const mockInvoke = vi.mocked(invoke);
 
 const file = (path: string, tags: string[] | null): ImageFile => ({
@@ -53,6 +57,7 @@ beforeEach(() => {
     filterCriteria: { ...useLibraryStore.getState().filterCriteria, metadata: {} }
   });
 });
+beforeEach(() => useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState()));
 afterEach(cleanup);
 
 const renderList = async () => {
@@ -136,6 +141,121 @@ describe('Keyword List', () => {
       'rename_keyword_for_paths',
       expect.objectContaining({ from: 'places > asia', to: 'places|asia' })
     );
+  });
+});
+
+describe('Keyword List: photos dropped on a keyword, keywords without photos, delete', () => {
+  /** The library has `Animals|Birds` and `Unused` without photographs. */
+  const withDeclared = () => {
+    const base = mockInvoke.getMockImplementation()!;
+    mockInvoke.mockImplementation(async (command, args) => {
+      if (command === 'session_keywords_declared') return ['Animals|Birds', 'Unused'];
+      return base(command, args);
+    });
+  };
+
+  it('lists a keyword without photographs with a count of 0', async () => {
+    withDeclared();
+    await renderList();
+    expect(screen.getByText('Unused').closest('[role="treeitem"]')?.textContent).toContain('0');
+    fireEvent.click(screen.getByLabelText('Show the keywords under Animals'));
+    expect(screen.getByText('Birds').closest('[role="treeitem"]')?.textContent).toContain('0');
+  });
+
+  it('adds a keyword to the photos dropped on it as one undoable step', async () => {
+    await renderList();
+    const dropped = ['/job/Capture/a.arw', '/job/Capture/c.arw'];
+    mockInvoke.mockImplementation(async (command, args) => {
+      if (command === 'add_tag_for_paths')
+        return [{ path: '/job/Capture/c.arw', added: [(args as { tag: string }).tag], removed: [] }];
+      if (command === 'session_facets') return { keyword: facets };
+      return undefined;
+    });
+    fireEvent.click(screen.getByLabelText('Show the keywords under Animals'));
+    const row = screen.getByText('Cats').closest('[role="treeitem"]')!;
+    await act(async () => {
+      row.dispatchEvent(
+        new CustomEvent(TILE_DROP_EVENT, { bubbles: true, detail: { target: 'Animals|Cats', paths: dropped } })
+      );
+    });
+    expect(mockInvoke).toHaveBeenCalledWith('add_tag_for_paths', { paths: dropped, tag: 'user:Animals|Cats' });
+    const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
+    expect(tags['/job/Capture/c.arw']).toEqual(['user:Animals|Cats', 'user:beach']);
+    expect(getUndoLabel()).toBe('Undo Add Keyword “Animals > Cats”');
+    await act(async () => {
+      await undo();
+    });
+    expect(mockInvoke).toHaveBeenLastCalledWith('restore_keywords', {
+      changes: [{ path: '/job/Capture/c.arw', added: ['user:Animals|Cats'], removed: [] }],
+      undo: true
+    });
+  });
+
+  it('makes a keyword inside another without photographs, undoable', async () => {
+    await renderList();
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === 'session_facets') return { keyword: facets };
+      if (command === 'session_keyword_declare') return { added: ['Animals|Birds'], removed: [] };
+      return undefined;
+    });
+    fireEvent.contextMenu(screen.getByText('Animals'));
+    fireEvent.click(await screen.findByText('New Keyword Inside “Animals”…'));
+    const input = screen.getByLabelText('New keyword inside Animals');
+    fireEvent.change(input, { target: { value: 'Birds' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    expect(mockInvoke).toHaveBeenCalledWith('session_keyword_declare', { directory: '/job', path: 'Animals|birds' });
+    expect(getUndoLabel()).toBe('Undo New Keyword');
+    await act(async () => {
+      await undo();
+    });
+    expect(mockInvoke).toHaveBeenLastCalledWith('session_keywords_declared_apply', {
+      directory: '/job',
+      remove: ['Animals|Birds'],
+      add: []
+    });
+  });
+
+  it('deletes a keyword after a confirmation naming the photos; its children move up', async () => {
+    await renderList();
+    const base = mockInvoke.getMockImplementation()!;
+    mockInvoke.mockImplementation(async (command, args) =>
+      command === 'delete_keyword_for_paths'
+        ? [{ path: '/job/Capture/b.arw', added: ['user:Dogs|Beagle'], removed: ['user:Animals|Dogs|Beagle'] }]
+        : base(command, args)
+    );
+    fireEvent.contextMenu(screen.getByText('Animals'));
+    fireEvent.click(await screen.findByText('Delete Keyword…'));
+    expect(screen.getByRole('alertdialog').textContent).toContain(
+      'Delete “Animals”? Keywords under it move up one level. This changes the keywords of 3 photos.'
+    );
+    expect(mockInvoke).not.toHaveBeenCalledWith('delete_keyword_for_paths', expect.anything());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    });
+    expect(mockInvoke).toHaveBeenCalledWith('delete_keyword_for_paths', expect.objectContaining({ path: 'Animals' }));
+    const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
+    expect(tags['/job/Capture/a.arw']).toEqual(['color:red', 'user:Dogs']);
+    expect(tags['/job/Capture/b.arw']).toEqual(['user:Dogs|Beagle']);
+    expect(getUndoLabel()).toBe('Undo Delete Keyword');
+  });
+
+  it('deletes the unused keywords after a confirmation, as one undoable step', async () => {
+    withDeclared();
+    await renderList();
+    fireEvent.click(screen.getByRole('button', { name: 'New Keyword…' }));
+    fireEvent.click(await screen.findByText('Delete Unused Keywords…'));
+    expect(screen.getByRole('alertdialog').textContent).toContain('Delete every keyword that no photo has?');
+    mockInvoke.mockImplementation(async (command) =>
+      command === 'session_keywords_declared_apply' ? { added: [], removed: ['Animals|Birds', 'Unused'] } : undefined
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    });
+    const call = mockInvoke.mock.calls.find(([command]) => command === 'session_keywords_declared_apply')!;
+    expect((call[1] as { remove: string[] }).remove.sort()).toEqual(['Animals|Birds', 'Unused']);
+    expect(getUndoLabel()).toBe('Undo Delete Unused Keywords');
   });
 });
 

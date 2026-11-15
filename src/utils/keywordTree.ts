@@ -211,6 +211,27 @@ export function buildKeywordTree(values: readonly { value: string; count: number
   return roots;
 }
 
+/** `values` (counted keyword paths) with the keywords made without
+ * photographs and their parents added with a count of 0, unless the library
+ * counts them already. */
+export function withDeclaredKeywords<T extends { value: string; count: number }>(
+  values: readonly T[],
+  declared: readonly string[]
+): (T | { value: string; count: number })[] {
+  const known = new Set(values.map((entry) => fold(normalizeKeyword(entry.value))));
+  const out: (T | { value: string; count: number })[] = [...values];
+  for (const keyword of declared) {
+    const levels = keywordLevels(keyword);
+    for (let i = 1; i <= levels.length; i++) {
+      const path = levels.slice(0, i).join(KEYWORD_SEPARATOR);
+      if (known.has(fold(path))) continue;
+      known.add(fold(path));
+      out.push({ value: path, count: 0 });
+    }
+  }
+  return out;
+}
+
 /** Each path and its parents counted once per photograph, from the tags of
  * the listed photographs (outside a library, where no catalog counts). */
 export function countKeywordPaths(keywordsByPhoto: readonly (readonly string[])[]) {
@@ -264,14 +285,45 @@ const tagKeyword = (tag: string) =>
  * wins over an automatic tag. Not sorted.
  */
 export function renameKeywordTags(tags: readonly string[], from: string, to: string): string[] {
+  return replaceKeywordTags(tags, (keyword) =>
+    isWithinKeyword(keyword, from) ? renameKeyword(keyword, from, to) : undefined
+  );
+}
+
+/** What `keyword` becomes when the keyword `path` is deleted: null for
+ * `path` itself, one level up for a keyword under it (Lightroom keeps a
+ * deleted keyword's children; `rawtonic_metadata::keywords::without`), else
+ * itself. */
+export function keywordWithout(keyword: string, path: string): string | null {
+  if (!isWithinKeyword(keyword, path)) return keyword;
+  const levels = keywordLevels(keyword);
+  const own = keywordLevels(path).length;
+  if (levels.length === own) return null;
+  return levels.filter((_, at) => at !== own - 1).join(KEYWORD_SEPARATOR);
+}
+
+/** A photograph's tags after deleting the keyword `path`, as the backend
+ * writes them (`delete_keyword_tags` in src-tauri/src/tagging.rs). Not
+ * sorted. */
+export function deleteKeywordTags(tags: readonly string[], path: string): string[] {
+  return replaceKeywordTags(tags, (keyword) =>
+    isWithinKeyword(keyword, path) ? keywordWithout(keyword, path) : undefined
+  );
+}
+
+/** Tags with their keywords replaced: `replace` says undefined to keep a
+ * keyword, null to drop it or its new path. */
+function replaceKeywordTags(
+  tags: readonly string[],
+  replace: (keyword: string) => string | null | undefined
+): string[] {
   const kept: string[] = [];
   const renamed: string[] = [];
   for (const tag of tags) {
     const keyword = tagKeyword(tag);
-    if (keyword !== null && isWithinKeyword(keyword, from)) {
-      const marker = tag.startsWith(USER_PREFIX) ? USER_PREFIX : '';
-      renamed.push(`${marker}${renameKeyword(keyword, from, to)}`);
-    } else kept.push(tag);
+    const replaced = keyword === null ? undefined : replace(keyword);
+    if (replaced === undefined) kept.push(tag);
+    else if (replaced !== null) renamed.push(`${tag.startsWith(USER_PREFIX) ? USER_PREFIX : ''}${replaced}`);
   }
   for (const tag of renamed) {
     const keyword = fold(tagKeyword(tag)!);

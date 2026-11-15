@@ -98,6 +98,7 @@
       "detail": "Zamknięcie lub awaria przerwały tę partię, zanim zapisano wszystkie zdjęcia. Zastosuj ją do pozostałych, cofnij zastosowaną część albo zostaw zdjęcia bez zmian. Same zdjęcia nigdy nie są zmieniane.",
       "failed": "Nie udało się dokończyć: {{batch}}: {{error}}",
       "keywordAdd": "Słowo kluczowe „{{tag}}”",
+      "keywordDelete": "Usuwanie słowa kluczowego „{{path}}”",
       "keywordRemove": "Usuwanie słowa kluczowego „{{tag}}”",
       "keywordRename": "Zmiana nazwy słowa kluczowego „{{from}}” na „{{to}}”",
       "notWritten_one": "Nie udało się zapisać {{count}} zdjęcia",
@@ -4457,6 +4458,9 @@
           "cancel": "Anuluj",
           "convert": "Przekształcić „{{from}}” w hierarchię „{{to}}”?",
           "convertAction": "Przekształć",
+          "delete": "Usunąć „{{from}}”? Słowa kluczowe pod nim przesuną się o poziom wyżej.",
+          "deleteAction": "Usuń",
+          "deleteUnused": "Usunąć każde słowo kluczowe, którego nie ma żadne zdjęcie?",
           "label": "Potwierdź zmianę słowa kluczowego",
           "merge": "Scalić „{{from}}” z „{{to}}”? „{{from}}” zostanie nim zastąpione.",
           "mergeAction": "Scal",
@@ -4476,14 +4480,24 @@
         "menu": {
           "clearFilter": "Przestań filtrować według tego słowa kluczowego",
           "convert": "Przekształć w „{{path}}”",
+          "delete": "Usuń słowo kluczowe…",
+          "deleteUnused": "Usuń nieużywane słowa kluczowe…",
           "filter": "Pokaż zdjęcia z tym słowem kluczowym",
           "moveToTop": "Przenieś na najwyższy poziom",
+          "new": "Nowe słowo kluczowe…",
+          "newInside": "Nowe słowo kluczowe w „{{keyword}}”…",
           "rename": "Zmień nazwę…"
         },
         "renameLabel": "Zmień nazwę lub przenieś {{keyword}}: wpisz ścieżkę, np. Nadrzędne > Nazwa",
         "title": "Lista słów kluczowych",
         "toasts": {
+          "assignFailed": "Nie można dodać słowa kluczowego do zdjęć: {{error}}",
+          "createFailed": "Nie można utworzyć słowa kluczowego: {{error}}",
           "renameFailed": "Nie udało się zmienić słów kluczowych: {{error}}"
+        },
+        "new": {
+          "insideLabel": "Nowe słowo kluczowe w {{keyword}}",
+          "label": "Nowe słowo kluczowe: wpisz nazwę lub ścieżkę, np. Nadrzędne > Nazwa"
         }
       },
       "metadataFilter": {
@@ -5784,6 +5798,15 @@
     "edit": "Edycja",
     "file": "Zmiana pliku",
     "flag": "Ustaw flagę",
+    "keywordAdd": "Dodaj słowo kluczowe „{{keyword}}”",
+    "keywordConvert": "Przekształć słowo kluczowe",
+    "keywordDelete": "Usuń słowo kluczowe",
+    "keywordDeleteUnused": "Usuń nieużywane słowa kluczowe",
+    "keywordMerge": "Scal słowa kluczowe",
+    "keywordMove": "Przenieś słowo kluczowe",
+    "keywordNew": "Nowe słowo kluczowe",
+    "keywordRemove": "Usuń słowo kluczowe „{{keyword}}”",
+    "keywordRename": "Zmień nazwę słowa kluczowego",
     "lensCorrection": "Korekcja obiektywu",
     "matchLight": "Wyrównaj światło",
     "move": "Przenieś",
