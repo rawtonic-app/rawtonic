@@ -116,47 +116,98 @@ struct Wanted {
     settings: color_noise::Settings,
     tuning: color_noise::Tuning,
     dims: (u32, u32),
-    /// The frame it was wanted for (`ColorNoiseView::note_frame`).
-    frame: u64,
-    refresh: Refresh,
+    /// The preview frame it was wanted for (`ColorNoiseView::note_frame`)
+    /// and that frame to render again; None for the split view's before.
+    frame: Option<(u64, Refresh)>,
 }
 
 #[derive(Default)]
 struct Builds {
-    wanted: Option<Wanted>,
+    /// At most [`KEPT`], oldest first.
+    wanted: Vec<Wanted>,
     running: bool,
 }
 
-/// The open photograph's correction (one), the fit view base it made and
-/// what to build next. Part of `DevelopSession`.
+/// Corrections (and corrected bases) kept: the edit's and the split view's
+/// before when its colour noise setting differs.
+const KEPT: usize = 2;
+
+/// The split view's last before request (`editor_preview::
+/// render_split_before`), rendered again when a correction comes in.
+pub(crate) struct SplitBeforeRequest {
+    pub path: String,
+    pub adjustments: serde_json::Value,
+    pub target_resolution: Option<u32>,
+}
+
+/// The open photograph's corrections, the fit view bases they made and what
+/// to build next. Part of `DevelopSession`.
 #[derive(Default)]
 pub struct ColorNoiseView {
-    correction: Mutex<Option<Correction>>,
-    corrected: Mutex<Option<CorrectedBase>>,
+    corrections: Mutex<Vec<Correction>>,
+    corrected: Mutex<Vec<CorrectedBase>>,
     builds: Mutex<Builds>,
     /// Preview frames rendered so far (`note_frame`): a correction's frame
     /// follows only when none came after the one it was wanted for.
     frames: AtomicU64,
+    /// Changes with every correction stored or dropped (`revision`).
+    revision: AtomicU64,
+    split_before: Mutex<Option<SplitBeforeRequest>>,
+}
+
+/// Keeps `item` last in `list` of at most [`KEPT`], dropping the oldest.
+fn keep_last<T>(list: &mut Vec<T>, item: T) {
+    list.push(item);
+    if list.len() > KEPT {
+        list.remove(0);
+    }
 }
 
 impl ColorNoiseView {
-    /// Drops the correction and its base (memory; rebuilt on demand).
+    /// Drops the corrections and their bases (memory; rebuilt on demand).
     pub fn clear(&self) {
-        *lock_recover(&self.correction) = None;
-        *lock_recover(&self.corrected) = None;
+        lock_recover(&self.corrections).clear();
+        lock_recover(&self.corrected).clear();
+        self.revision.fetch_add(1, Ordering::SeqCst);
     }
 
     fn has_wanted(&self) -> bool {
-        lock_recover(&self.builds).wanted.is_some()
+        !lock_recover(&self.builds).wanted.is_empty()
+    }
+
+    fn want(&self, wanted: Wanted) {
+        let mut builds = lock_recover(&self.builds);
+        builds
+            .wanted
+            .retain(|w| !(w.key == wanted.key && Weak::ptr_eq(&w.source, &wanted.source)));
+        keep_last(&mut builds.wanted, wanted);
     }
 
     fn store(&self, wanted: &Wanted, delta: Rgb32FImage) {
-        *lock_recover(&self.correction) = Some(Correction {
-            source: wanted.source.clone(),
-            path: wanted.path.clone(),
-            key: wanted.key,
-            delta: Arc::new(delta),
-        });
+        let mut corrections = lock_recover(&self.corrections);
+        corrections.retain(|c| Weak::ptr_eq(&c.source, &wanted.source) && c.key != wanted.key);
+        keep_last(
+            &mut corrections,
+            Correction {
+                source: wanted.source.clone(),
+                path: wanted.path.clone(),
+                key: wanted.key,
+                delta: Arc::new(delta),
+            },
+        );
+        self.revision.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A number that changes whenever the corrections do: a split view's
+    /// before rendered with another is stale.
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision.load(Ordering::SeqCst)
+    }
+
+    /// Remembers the split view's before request, to render it again when
+    /// a correction comes in.
+    pub(crate) fn note_split_before(&self, request: SplitBeforeRequest) {
+        *lock_recover(&self.split_before) = Some(request);
     }
 
     /// Counts a preview frame of the open photograph (every frame, a drag's
@@ -168,8 +219,9 @@ impl ColorNoiseView {
 
 /// A final fit frame of a full decode that the correction applies to.
 pub(crate) struct FitFrame<'a> {
-    /// Its number (`ColorNoiseView::note_frame`).
-    pub number: u64,
+    /// Its number (`ColorNoiseView::note_frame`); None for the split view's
+    /// before.
+    pub number: Option<u64>,
     pub source: &'a Arc<DynamicImage>,
     pub path: &'a str,
     /// The frame's reduced base (warped, cropped) and the size of its
@@ -203,7 +255,8 @@ fn build_dims(dims: (u32, u32)) -> Option<(u32, u32)> {
 /// built with `build` from the correction; None when there is no
 /// correction for this photograph, setting and size yet: then one is wanted
 /// (built after [`BUILD_IDLE`], `after_final_frame`), its frame rendered
-/// from `refresh`.
+/// from `refresh` (the split view's before: rendered again,
+/// `SplitBeforeRequest`).
 pub(crate) fn corrected_base(
     view: &ColorNoiseView,
     global: &GlobalAdjustments,
@@ -213,49 +266,53 @@ pub(crate) fn corrected_base(
 ) -> Option<Arc<DynamicImage>> {
     let dims = build_dims(frame.reduced_dims)?;
     let (key, settings, tuning) = Key::of(global);
+    let source = Arc::downgrade(frame.source);
     let delta = {
-        let mut correction = lock_recover(&view.correction);
-        // Another photograph's correction goes as soon as this one shows.
-        if correction
-            .as_ref()
-            .is_some_and(|c| !Weak::ptr_eq(&c.source, &Arc::downgrade(frame.source)))
-        {
-            *correction = None;
+        let mut corrections = lock_recover(&view.corrections);
+        // Another photograph's corrections go as soon as this one shows.
+        let before = corrections.len();
+        corrections.retain(|c| Weak::ptr_eq(&c.source, &source));
+        if corrections.len() != before {
+            view.revision.fetch_add(1, Ordering::SeqCst);
         }
-        correction
-            .as_ref()
-            .filter(|c| c.key == key && c.delta.width() >= dims.0 && c.delta.height() >= dims.1)
+        corrections
+            .iter()
+            .find(|c| c.key == key && c.delta.width() >= dims.0 && c.delta.height() >= dims.1)
             .map(|c| Arc::clone(&c.delta))
     };
     let Some(delta) = delta else {
-        lock_recover(&view.builds).wanted = Some(Wanted {
-            source: Arc::downgrade(frame.source),
+        view.want(Wanted {
+            source,
             path: frame.path.to_string(),
             key,
             settings,
             tuning,
             dims,
-            frame: frame.number,
-            refresh: refresh(),
+            frame: frame.number.map(|number| (number, refresh())),
         });
         return None;
     };
     {
         let corrected = lock_recover(&view.corrected);
-        if let Some(c) = corrected.as_ref()
-            && Weak::ptr_eq(&c.base, &Arc::downgrade(frame.base))
-            && Weak::ptr_eq(&c.delta, &Arc::downgrade(&delta))
-        {
+        if let Some(c) = corrected.iter().find(|c| {
+            Weak::ptr_eq(&c.base, &Arc::downgrade(frame.base))
+                && Weak::ptr_eq(&c.delta, &Arc::downgrade(&delta))
+        }) {
             return Some(Arc::clone(&c.image));
         }
     }
     match build(&delta) {
         Ok(image) if image.dimensions() == frame.base.dimensions() => {
-            *lock_recover(&view.corrected) = Some(CorrectedBase {
-                base: Arc::downgrade(frame.base),
-                delta: Arc::downgrade(&delta),
-                image: Arc::clone(&image),
-            });
+            let mut corrected = lock_recover(&view.corrected);
+            corrected.retain(|c| c.delta.strong_count() > 0);
+            keep_last(
+                &mut corrected,
+                CorrectedBase {
+                    base: Arc::downgrade(frame.base),
+                    delta: Arc::downgrade(&delta),
+                    image: Arc::clone(&image),
+                },
+            );
             Some(image)
         }
         Ok(image) => {
@@ -299,9 +356,10 @@ fn start_build(app_handle: &tauri::AppHandle) {
             // The running build takes it next.
             return;
         }
-        let Some(wanted) = builds.wanted.take() else {
+        if builds.wanted.is_empty() {
             return;
-        };
+        }
+        let wanted = builds.wanted.remove(0);
         builds.running = true;
         wanted
     };
@@ -314,7 +372,7 @@ fn start_build(app_handle: &tauri::AppHandle) {
                 build(&app, wanted);
                 let develop = app.state::<crate::state::develop::DevelopSession>();
                 let mut builds = lock_recover(&develop.color_noise_view.builds);
-                next = builds.wanted.take();
+                next = (!builds.wanted.is_empty()).then(|| builds.wanted.remove(0));
                 builds.running = next.is_some();
             }
         });
@@ -344,7 +402,12 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
     let view = &develop.color_noise_view;
     // A newer frame came: its final frame finds the correction or wants its
     // own.
-    if wanted.frame != view.frames.load(Ordering::SeqCst) {
+    let current = |frame: &Option<(u64, Refresh)>| {
+        frame
+            .as_ref()
+            .is_none_or(|(number, _)| *number == view.frames.load(Ordering::SeqCst))
+    };
+    if !current(&wanted.frame) {
         return;
     }
     let Some(source) = wanted.source.upgrade() else {
@@ -378,10 +441,17 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
     rawtonic_runtime::allocator::release_freed_memory();
     // Shown only while the frame it was wanted for is the latest: after a
     // newer one (a drag's) its recipe would be an older state.
-    if wanted.frame != view.frames.load(Ordering::SeqCst) {
+    if !current(&wanted.frame) {
         return;
     }
-    let refresh = wanted.refresh;
+    // The split view's before, when one is shown (it may use it too).
+    let split_before = lock_recover(&view.split_before).take();
+    if let Some(request) = split_before {
+        crate::editor_preview::render_split_before_again(app, request);
+    }
+    let Some((_, refresh)) = wanted.frame else {
+        return;
+    };
     let (responder, _) = tokio::sync::oneshot::channel();
     let job = crate::state::preview::PreviewJob {
         generation: refresh.generation,
@@ -415,10 +485,14 @@ pub(crate) fn for_thumbnail(
     adjustments: &AllAdjustments,
     is_raw: bool,
 ) -> Option<Arc<Rgb32FImage>> {
-    let correction = lock_recover(&view.correction);
-    let correction = correction.as_ref().filter(|c| c.path == path)?;
-    (applies(adjustments, is_raw) && Key::of(&adjustments.global).0 == correction.key)
-        .then(|| Arc::clone(&correction.delta))
+    if !applies(adjustments, is_raw) {
+        return None;
+    }
+    let key = Key::of(&adjustments.global).0;
+    lock_recover(&view.corrections)
+        .iter()
+        .find(|c| c.path == path && c.key == key)
+        .map(|c| Arc::clone(&c.delta))
 }
 
 #[cfg(test)]
@@ -468,7 +542,7 @@ mod tests {
         let builds = Cell::new(0);
         let corrected = image(200, 133);
         let frame_of = |source: &Arc<DynamicImage>, dims, amount| {
-            let number = view.note_frame();
+            let number = Some(view.note_frame());
             corrected_base(
                 &view,
                 &global(amount),
@@ -487,7 +561,7 @@ mod tests {
             )
         };
         assert!(frame_of(&source, (300, 200), 0.25).is_none());
-        let wanted = lock_recover(&view.builds).wanted.take().unwrap();
+        let wanted = lock_recover(&view.builds).wanted.pop().unwrap();
         assert_eq!(wanted.dims, (300, 200));
         view.store(&wanted, Rgb32FImage::new(300, 200));
 
@@ -495,14 +569,14 @@ mod tests {
         assert!(Arc::ptr_eq(&shown, &corrected));
         assert!(frame_of(&source, (280, 187), 0.25).is_some());
         assert_eq!(builds.get(), 1, "the corrected base is kept");
-        assert!(lock_recover(&view.builds).wanted.is_none());
+        assert!(lock_recover(&view.builds).wanted.is_empty());
 
         assert!(frame_of(&source, (300, 200), 0.5).is_none());
         assert!(frame_of(&source, (310, 207), 0.25).is_none());
         // Another photograph drops the correction.
         let other = image(600, 400);
         assert!(frame_of(&other, (300, 200), 0.25).is_none());
-        assert!(lock_recover(&view.correction).is_none());
+        assert!(lock_recover(&view.corrections).is_empty());
     }
 
     #[test]
@@ -516,8 +590,7 @@ mod tests {
             settings: Key::of(&global(0.25)).1,
             tuning: Key::of(&global(0.25)).2,
             dims: (300, 200),
-            frame: 1,
-            refresh: refresh(),
+            frame: Some((1, refresh())),
         };
         view.store(&wanted, Rgb32FImage::new(300, 200));
         let all = |amount| AllAdjustments {
@@ -526,6 +599,26 @@ mod tests {
         };
         assert!(for_thumbnail(&view, "a.raw", &all(0.25), true).is_some());
         assert!(for_thumbnail(&view, "a.raw", &all(0.5), true).is_none());
+        // The split view's before with another setting keeps its own beside
+        // the edit's; a third setting replaces the oldest.
+        let other = |amount| Wanted {
+            key: Key::of(&global(amount)).0,
+            frame: None,
+            path: "a.raw".into(),
+            source: Arc::downgrade(&source),
+            settings: Key::of(&global(amount)).1,
+            tuning: Key::of(&global(amount)).2,
+            dims: (300, 200),
+        };
+        let revision = view.revision();
+        view.store(&other(0.5), Rgb32FImage::new(300, 200));
+        assert_ne!(view.revision(), revision);
+        assert!(for_thumbnail(&view, "a.raw", &all(0.25), true).is_some());
+        assert!(for_thumbnail(&view, "a.raw", &all(0.5), true).is_some());
+        view.store(&other(0.75), Rgb32FImage::new(300, 200));
+        assert!(for_thumbnail(&view, "a.raw", &all(0.25), true).is_none());
+        assert!(for_thumbnail(&view, "a.raw", &all(0.5), true).is_some());
+        view.store(&wanted, Rgb32FImage::new(300, 200));
         assert!(for_thumbnail(&view, "b.raw", &all(0.25), true).is_none());
         assert!(for_thumbnail(&view, "a.raw", &all(0.25), false).is_none());
         view.clear();

@@ -1667,6 +1667,9 @@ struct FitColorNoise<'a> {
     base_dim: u32,
     full_dims: (u32, u32),
     eligible: bool,
+    /// The preview frame's number (`ColorNoiseView::note_frame`); None for
+    /// the split view's before.
+    number: Option<u64>,
 }
 
 /// The base a final fit frame renders from at Color 0 with the export's
@@ -1680,7 +1683,6 @@ fn fit_color_noise_base(
     frame: FitColorNoise<'_>,
     refresh: impl FnOnce() -> crate::color_noise_view::Refresh,
 ) -> Option<Arc<DynamicImage>> {
-    let number = develop.color_noise_view.note_frame();
     if !frame.eligible
         || !crate::color_noise_view::enabled()
         || !crate::color_noise_view::applies(adjustments, loaded_image.is_raw)
@@ -1700,7 +1702,7 @@ fn fit_color_noise_base(
         &develop.color_noise_view,
         &adjustments.global,
         crate::color_noise_view::FitFrame {
-            number,
+            number: frame.number,
             source: &loaded_image.image,
             path: &loaded_image.path,
             base: frame.base,
@@ -2063,6 +2065,7 @@ pub(crate) fn process_preview_job(
             base: &final_preview_base,
             base_dim,
             full_dims,
+            number: Some(develop.color_noise_view.note_frame()),
             eligible: !is_interactive
                 && roi.is_none()
                 && !crop_edit
@@ -3172,17 +3175,36 @@ pub(crate) async fn render_split_before(
     app_handle: tauri::AppHandle,
 ) -> Result<bool, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        render_split_before_blocking(&app_handle, &path, js_adjustments, target_resolution)
+        render_split_before_blocking(&app_handle, &path, js_adjustments, target_resolution, false)
     })
     .await
     .map_err(|e| format!("Split before task failed: {e}"))?
 }
 
+/// The split view's before again for `request` once a colour noise
+/// correction came in (`color_noise_view`), when a before is shown.
+pub(crate) fn render_split_before_again(
+    app_handle: &tauri::AppHandle,
+    request: crate::color_noise_view::SplitBeforeRequest,
+) {
+    if let Err(e) = render_split_before_blocking(
+        app_handle,
+        &request.path,
+        request.adjustments,
+        request.target_resolution,
+        true,
+    ) {
+        log::warn!("Split view before again: {e}");
+    }
+}
+
+/// `only_if_shown`: nothing unless the display shows a before.
 fn render_split_before_blocking(
     app_handle: &tauri::AppHandle,
     path: &str,
     mut adjustments: serde_json::Value,
     target_resolution: Option<u32>,
+    only_if_shown: bool,
 ) -> Result<bool, CommandError> {
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("split_before");
@@ -3209,6 +3231,16 @@ fn render_split_before_blocking(
     let Some(current_key) = display_key(&context) else {
         return Ok(false);
     };
+    if only_if_shown && current_key.is_none() {
+        return Ok(false);
+    }
+    develop
+        .color_noise_view
+        .note_split_before(crate::color_noise_view::SplitBeforeRequest {
+            path: path.to_string(),
+            adjustments: adjustments.clone(),
+            target_resolution,
+        });
     normalize_editor_recipe(&develop, &mut adjustments);
     let load_generation = state.source.load_image_generation.load(Ordering::SeqCst);
     let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
@@ -3221,6 +3253,7 @@ fn render_split_before_blocking(
     );
     let frame_key = split_frame_key(path, &adjustments);
     let interim = interim_source(&state, &loaded_image, source_scale);
+    // A before rendered before a colour noise correction came in is stale.
     let render_key = split_render_key(
         frame_key,
         &loaded_image.image,
@@ -3228,7 +3261,7 @@ fn render_split_before_blocking(
         preview_dim,
         &adjustments,
         interim,
-    );
+    ) ^ develop.color_noise_view.revision().rotate_left(17);
     if current_key == Some(render_key) {
         return Ok(true);
     }
@@ -3353,6 +3386,30 @@ fn develop_split_before(
         crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     all_adjustments.global.detail_scale = scale;
+    // The colour noise correction, as the edit's final frame takes it.
+    let (base, render_hash) = match fit_color_noise_base(
+        develop,
+        loaded_image,
+        &all_adjustments,
+        FitColorNoise {
+            adjustments,
+            base: &base,
+            base_dim: preview_dim,
+            full_dims,
+            eligible: source_scale >= 1.0 && !interim,
+            number: None,
+        },
+        || unreachable!("the split view's before renders no frame of its own"),
+    ) {
+        Some(corrected) => {
+            all_adjustments.global.color_noise_reduction = 0.0;
+            let mut hasher = DefaultHasher::new();
+            transform_hash.hash(&mut hasher);
+            (Arc::as_ptr(&corrected) as usize).hash(&mut hasher);
+            (corrected, hasher.finish())
+        }
+        None => (base, transform_hash),
+    };
     // Encoded for the window layer, as display frames are.
     let space = context.display_space;
     all_adjustments.global.output_space[0] = space.shader_code();
@@ -3366,7 +3423,7 @@ fn develop_split_before(
         gpu,
         develop,
         &base,
-        transform_hash,
+        render_hash,
         RenderRequest {
             adjustments: all_adjustments,
             mask_bitmaps: &mask_bitmaps,
