@@ -64,12 +64,18 @@ const LIMIT: Duration = Duration::from_secs(600);
 /// (G76/WHCF, WCOLD2 run C), a cold one takes 25–60 s and commits about
 /// 4.4 GB on the way.
 const COLD: Duration = Duration::from_secs(2);
+/// How often the app gives memory back again while a helper compiles cold:
+/// a photo opened during the compile fills the caches again (the app held
+/// about 2.4 GB beside the start helper when a photo was opened at once,
+/// 6.8 GB together on a Radeon 680M; G76/WCOLD2B run 3).
+const COLD_AGAIN: Duration = Duration::from_secs(10);
 
 /// What the app gives back when a helper turns out to compile cold
 /// (`set_on_cold_helper_compile`).
 static ON_COLD: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
 
-/// Sets what the app does once a helper turns out to compile cold (`COLD`):
+/// Sets what the app does once a helper turns out to compile cold (`COLD`)
+/// and every `COLD_AGAIN` while it still runs:
 /// give back memory that is only worth its reload beside a compile of
 /// 4.4 GB, not beside one the cache answers in half a second (the AI
 /// models: with them loaded and the masking tools in use, the app held
@@ -221,7 +227,7 @@ pub(super) fn compile_in_helper(
         child.id(),
         since_start()
     );
-    let mut cold = false;
+    let mut released: Option<Instant> = None;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -254,8 +260,8 @@ pub(super) fn compile_in_helper(
             STOPS.fetch_add(1, Ordering::SeqCst);
             return Helped::Stopped;
         }
-        if !cold && started.elapsed() >= COLD {
-            cold = true;
+        if started.elapsed() >= COLD && released.is_none_or(|at| at.elapsed() >= COLD_AGAIN) {
+            released = Some(Instant::now());
             if let Some(release) = ON_COLD.get() {
                 release();
             }

@@ -404,7 +404,8 @@ pub async fn export_turn(app: &tauri::AppHandle) -> rawtonic_gpu::memory_turns::
 }
 
 /// When a helper process of the idle shader compiles turns out to compile
-/// cold (`rawtonic_gpu::gpu_processing::set_on_cold_helper_compile`): the
+/// cold, and every 10 s while it runs
+/// (`rawtonic_gpu::gpu_processing::set_on_cold_helper_compile`): the
 /// masking models go, whenever they were last used, and so does what
 /// rebuilds on demand. `before_idle_compile` keeps models used in the last
 /// 20 s, so someone working with the brush or a mask kept them beside every
