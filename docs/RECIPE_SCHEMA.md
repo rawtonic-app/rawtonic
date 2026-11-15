@@ -126,7 +126,7 @@ When the destination keeps its key, the paste states it as the destination rende
 | `temperatureVersion` | `temperature` | warming: v2's s → v1's s − s²/400 (v2 +100 = v1 +75), inverse; cooling alike | 2 → 1 at +100 8.6 / 15.5 (17.1 / 34.9 untranslated), at −100 5.6 / 9.5 (v2's brightness and magenta coupling) |
 | `tintVersion` | `tint` | × 1.9 towards magenta, × 1.55 towards green, within ±100 | 1 → 2 at −100 and 2 → 1 at −50 exact; 2 → 1 at +50 1.8 / 2.6 (7.4 / 11.9 untranslated); beyond v1's reach (2 → 1 at ±100) 10–15 |
 | `hslVersion` | `hsl` (any colour off 0) | none | at ±50: ≤ 0.43 / 5.5 |
-| `colorGradingVersion` | `colorGrading` (a wheel of the photo or a layer; a hue without saturation counts) | none | CGV_ROW |
+| `colorGradingVersion` | `colorGrading` (a wheel of the photo or a layer; a hue without saturation counts) | none | 2 ↔ 1, hue 40° at saturation 50: Shadows 1.53 / 4.84, Highlights 0.89 / 3.45 (at 25: 0.77 / 2.28, 0.43 / 1.67); Highlights luminance −100 1.02 / 2.44, −50 0.59 / 1.69 |
 | `sharpenVersion` | `sharpness` | none | 8 → 1 at 80 0.20 / 1.59 |
 | `lumaNoiseVersion` | `lumaNoiseReduction` | none | 0 on the charts (no isolated specks; not covered) |
 | `defringeVersion` | `defringePurpleAmount`, `defringeGreenAmount`; layers' `defringe` | none | not on the charts (no fringes) |
