@@ -182,6 +182,27 @@ describe('Editor zoom', () => {
     expect(useEditorStore.getState().adjustments.rotation ?? 0).toBe(0);
   });
 
+  it('zooms both side-by-side panes about the point clicked in the before pane', () => {
+    useUIStore.setState({ activeView: 'editor', activePanel: null });
+    useEditorStore.setState({ splitView: true, splitOrientation: 'side-by-side' });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(300);
+    const ref = createRef<TransformWrapperHandle>();
+    const { container } = render(<Editor onContextMenu={() => {}} transformWrapperRef={ref} />);
+    const pane = container.querySelector('[data-testid="before-pane"]')!;
+    // The pane sits left of the after pane, each 400 px wide.
+    vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 400, 300));
+    act(() => {
+      fireEvent.pointerDown(pane, { button: 0, clientX: 100, clientY: 75 });
+    });
+    act(() => {
+      fireEvent.pointerUp(pane, { button: 0, clientX: 100, clientY: 75 });
+      fireEvent.click(pane, { button: 0, clientX: 100, clientY: 75 });
+    });
+    // 2x about the clicked point of the pane: that point stays where it is.
+    expect(ref.current!.instance.targetTransformState).toMatchObject({ scale: 2, positionX: -100, positionY: -75 });
+  });
+
   describe('camera preview (Shift+\\)', () => {
     const rotated = { ...INITIAL_ADJUSTMENTS, rotation: 5 };
 
