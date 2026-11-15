@@ -9678,7 +9678,7 @@ impl GpuProcessor {
         adjustments: &crate::image_processing::PreparedAdjustments,
     ) -> Result<(&wgpu::ComputePipeline, bool), String> {
         // With the effect passes the display variant itself: its main pass
-        // writes float output, which the finish pass turns into the colour
+        // stores float colours, which the finish pass turns into the colour
         // each output encodes.
         if self.effect_passes.is_some() {
             return self.export_display_pipeline(adjustments, MainOutput::Deferred);

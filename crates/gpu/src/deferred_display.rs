@@ -26,8 +26,9 @@
 //! Only under a compile limit: elsewhere exports keep their own variants and
 //! bytes. With the effect passes (`effect_passes`, G76/EFX: every processor
 //! under a compile limit whose shader has the shape they need) these exports
-//! render with the display variant itself, whose main pass writes float
-//! output, and nothing here compiles; this stays for a shader without them.
+//! render with the display variant itself, whose main pass stores float
+//! colours for the finish pass, and nothing here compiles; this stays for a
+//! shader without them.
 
 use super::*;
 

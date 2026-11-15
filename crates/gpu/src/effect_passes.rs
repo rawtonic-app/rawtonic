@@ -11,18 +11,23 @@
 //!
 //! - the terms pass (with glow or halation): per pixel the blurred photo
 //!   through exposure and the tone stage, into two Rgba32Float tiles;
-//! - the main pass, a display variant: everything up to the colour before
-//!   grain, into an Rgba32Float tile, reading the terms;
-//! - the finish pass: grain, the clipping warnings and views, the output
-//!   encoding and the histogram's image, into the 8-bit tile (or, for
-//!   exports that encode per output, the deferred tile).
+//! - the main pass, a display variant: everything else, reading the terms.
+//!   It holds no grain. A frame without grain finishes in it, as one pass
+//!   does;
+//! - the finish pass (with grain, and for exports that encode each output
+//!   in a pass of its own): the main pass stores the colour before grain
+//!   in an Rgba32Float tile, and this pass adds grain, the clipping
+//!   warnings and views, the output encoding and the histogram's image,
+//!   into the 8-bit tile or the deferred one.
 //!
 //! Radeon 680M, probe round 20: one shader with every effect 55.9 s /
-//! 5954 MB; the main pass 31.0 s / 3761 MB (the Basic-panel superset in one
-//! pass: 36.7 s / 4329 MB), the terms pass 1.6 s / 539 MB, the finish pass
-//! with grain 2.3 s / 458 MB. The operations and their order are those of
-//! the one pass, and the values between the passes are stored as 32-bit
-//! floats.
+//! 5954 MB; the main pass with glow and halation as terms 37.1 s / 4331 MB
+//! (the Basic-panel superset alone: 36.7 s / 4329 MB), the terms pass 1.6 s
+//! / 539 MB, the finish pass with grain 2.3 s / 458 MB. The operations and
+//! their order are those of the one pass, and the values between the
+//! passes are stored as 32-bit floats. (A main pass that always left the
+//! finish to its pass compiled into 3761 MB, but the stored tile and its
+//! read cost every frame 12 ms of 53 on that GPU, G76/WEFX.)
 //!
 //! Only under a compile limit: elsewhere display variants compile as
 //! before. Exports that render with display variants there (WCC7, WCC10)

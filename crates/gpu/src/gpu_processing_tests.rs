@@ -9953,7 +9953,7 @@ fn other_exports_under_a_compile_limit_render_with_the_deferred_display_variant(
             if limited {
                 let features = export_display_features(&adjustments);
                 // With the effect passes the display variant itself (its
-                // main pass writes float output).
+                // main pass stores float colours for the finish pass).
                 let used = if processor.effect_passes.is_some() {
                     processor.preview_pipelines[features].get().is_some()
                 } else {

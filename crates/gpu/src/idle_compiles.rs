@@ -1628,8 +1628,9 @@ mod tests {
 
     /// Under a compile limit a 16-bit export picked and started at once
     /// finds its variant compiled: with the effect passes it renders with
-    /// the display variant the plan compiled (its main pass writes float
-    /// output), so no deferred variant compiles and the export does not
+    /// the display variant the plan compiled (its main pass stores float
+    /// colours for the finish pass), so no deferred variant compiles and
+    /// the export does not
     /// wait (G76/EFX; before, the idle worker compiled the deferred variant
     /// first, G76/WSMOKE19).
     #[test]
