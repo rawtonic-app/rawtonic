@@ -2655,6 +2655,48 @@
   padding: 0 5px;
   color: var(--studio-shade-muted, #9ca0a5);
 }
+/* A hierarchical keyword's parents, before its own name. */
+.studio-keyword-parents {
+  color: var(--studio-shade-muted, #9ca0a5);
+}
+/* Keyword List rows: disclosure, then the name that filters. */
+.studio-workspace .studio-keyword-row {
+  gap: 2px;
+  padding-right: 0;
+}
+.studio-workspace .studio-keyword-row .studio-keyword-disclosure {
+  display: inline-flex;
+  flex: 0 0 14px;
+  justify-content: center;
+  min-height: 0;
+  padding: 0;
+  background: none;
+}
+.studio-keyword-disclosure svg.is-open {
+  transform: rotate(90deg);
+}
+.studio-workspace .studio-keyword-row .studio-keyword-name {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.studio-keyword-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-workspace .studio-keyword-name small {
+  margin-left: auto;
+  padding-right: 6px;
+  font-size: 9px;
+  color: var(--studio-shade-muted, #8f949a);
+}
 .studio-metadata-input {
   width: 100%;
   min-width: 0;

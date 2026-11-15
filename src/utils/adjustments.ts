@@ -733,7 +733,9 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
   /** Colour mixer response (crates/engine/src/image_processing.rs
    * `HSL_VERSION`): 2 = each channel's Hue, Saturation and Luminance with
    * its own hue window, gains and slider curve fitted to Camera Raw (the
-   * same slider value moves colours as Camera Raw does); every slider at 0
+   * same slider value moves colours as Camera Raw does); 3 = 2 with Blues
+   * and Purples Saturation refitted on more photographs (flat-topped
+   * windows, falloff per slider direction); every slider at 0
    * renders as version 1. 1 or missing on recipes that used the mixer before
    * it. Photo-wide: the layers' mixer renders with the photo's. */
   hslVersion?: number;
@@ -1555,8 +1557,9 @@ export const DEFRINGE_VERSION = 2;
 export const BW_VERSION = 2;
 
 /** The colour mixer response new edits start with (notes:
- * benchmark-results/atf8-hsl-shapes-2026-11-09). */
-export const HSL_VERSION = 2;
+ * benchmark-results/atf8-hsl-shapes-2026-11-09,
+ * benchmark-results/hsl4-blue-purple-2026-11-15). */
+export const HSL_VERSION = 3;
 
 /** The colour grading response new edits start with (notes:
  * benchmark-results/cg2-colour-grading-2026-11-15). */

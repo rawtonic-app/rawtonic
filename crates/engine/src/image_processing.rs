@@ -6424,9 +6424,16 @@ pub const HSL_VERSION_KEY: &str = "hslVersion";
 /// photographs (the other 8 held out): Hue moves select by the colour's
 /// destination hue as well, Saturation and Luminance move strongly
 /// saturated colours more than pale ones (notes:
-/// benchmark-results/atf8-hsl-shapes-2026-11-09). Every slider at 0
-/// renders as version 1. Recipes without the key keep version 1.
-pub const HSL_VERSION: u64 = 2;
+/// benchmark-results/atf8-hsl-shapes-2026-11-09). 3 (2026-11-15) is 2 with
+/// Blues Hue, Saturation and Luminance and Purples Saturation refitted on
+/// 30 photographs (30 more held out): flat-topped windows with an edge of
+/// their own on either side, a falloff and side effect per slider direction,
+/// a lightness side effect of Hue moves, 2 % of the chroma kept at
+/// Saturation −100, and a shorter Hue solve that runs instead of version 1,
+/// not after it (notes: benchmark-results/hsl4-blue-purple-2026-11-15).
+/// Every slider at 0 renders as version 1. Recipes without the key keep
+/// version 1.
+pub const HSL_VERSION: u64 = 3;
 
 /// The recipe's colour mixer response, 1 when missing, never newer than
 /// this renderer knows.
@@ -9371,6 +9378,7 @@ mod editing_tool_tests {
         assert_eq!(response(json!({})), (0.0, 0.0));
         assert_eq!(response(json!({"hslVersion": 1})), (0.0, 0.0));
         assert_eq!(response(json!({"hslVersion": 2})), (1.0, 0.0));
+        assert_eq!(response(json!({"hslVersion": 3})), (2.0, 0.0));
         // Never newer than the renderer knows.
         assert_eq!(
             response(json!({"hslVersion": 9})),

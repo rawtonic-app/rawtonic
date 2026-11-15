@@ -67,6 +67,8 @@ this list current.
   2026-10-28): the fix applies to saved edits too, since the old samples were
   corrupt sensor data and not a look.
 
+- `src/formats/bmff/mod.rs` (2026-11-15, EXT1 finding): `FileBox::parse` stopped with an EOF error when fewer than 8 bytes (less than a box header) followed the last box, so a CR3 with 2 appended bytes (card tools) failed with "No decoder found". Such trailing bytes are now ignored, as Camera Raw, LibRaw and exiftool do. A truncated file still fails: an `mdat` whose size runs past the end of the file is now an error (before, the parse ended silently). Unit test `trailing_bytes_tests`.
+
 ## Levels and white balance against Adobe DNG Converter (2026-10-05)
 
 Checked on all 1,680 non-DNG raw.pixls.us files converted with Adobe DNG

@@ -332,7 +332,7 @@ fn capture_one_session(dir: &Path, name: &str) -> std::path::PathBuf {
          INSERT INTO ZVARIANTMETADATA (Z_ENT, Z_PK, ZLAYER, ZBASIC_RATING, ZCOLOR_TAG_INDEX, ZCONTENT_KEYWORDS,
            ZSTATUS_TITLE, ZCONTENT_DESCRIPTION, ZCONTACT_CREATOR, ZSTATUS_COPYRIGHTNOTICE, ZIMAGE_CITY, ZIMAGE_COUNTRY,
            ZCONTACT_EMAILS)
-           VALUES(13,1,100,4,1,'beach, sunset','Sun','Evening','Alex Example','(c) A','Ascona','Switzerland','alex@example.org'),
+           VALUES(13,1,100,4,1,'beach, sunset, Places | Ascona,Places|Ascona','Sun','Evening','Alex Example','(c) A','Ascona','Switzerland','alex@example.org'),
                  (13,2,101,2,2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
          CREATE TABLE ZCOLLECTION (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZNAME VARCHAR, ZPARENT INTEGER,
            ZCOLLECTIONINDEX INTEGER, ZSMARTCRITERIA VARCHAR);
@@ -411,7 +411,12 @@ fn capture_one_session_variants_settings_and_albums() {
     );
     assert_eq!(
         first.metadata.keywords,
-        vec!["beach".to_string(), "sunset".to_string()]
+        // A Capture One hierarchy (`Parent|Child`) is one keyword path.
+        vec![
+            "beach".to_string(),
+            "sunset".to_string(),
+            "Places|Ascona".to_string()
+        ]
     );
     assert_eq!(first.metadata.title, "Sun");
     assert_eq!(

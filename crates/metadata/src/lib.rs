@@ -1,6 +1,7 @@
 //! Atomic sidecar IO. Original image files are never passed to this API.
 pub mod culling;
 mod error;
+pub mod keywords;
 pub mod labels;
 pub mod photo_ref;
 pub mod provenance;
@@ -607,9 +608,10 @@ fn keywords_from(flat: Vec<String>, hierarchical: Vec<String>) -> Vec<String> {
     let clean = |list: Vec<String>| -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         for k in list {
-            let k = k.trim();
-            if !k.is_empty() && !out.iter().any(|o| o == k) {
-                out.push(k.to_string());
+            // Levels trimmed (`Animals | Dogs` is `Animals|Dogs`).
+            let k = keywords::normalize(&k);
+            if !k.is_empty() && !out.contains(&k) {
+                out.push(k);
             }
         }
         out
@@ -1443,6 +1445,69 @@ mod tests {
             ),
             ("Caption", "Jane Example", "© 2026 Jane Example")
         );
+    }
+
+    /// Keyword hierarchies in sidecars other applications write, as each
+    /// writes them (hand-made in their layout, not produced by them):
+    /// Lightroom Classic and Bridge list every assigned keyword's path in
+    /// `lr:hierarchicalSubject` and every level in `dc:subject`; Capture One
+    /// lists the parents' paths too. Each comes in as the tree it holds and
+    /// is written back in the same form.
+    #[test]
+    fn lightroom_capture_one_and_bridge_hierarchies_round_trip() {
+        let lightroom = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0-c000 1.000000, 0000/00/00-00:00:00        ">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:lr="http://ns.adobe.com/lightroom/1.0/"
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   xmp:Rating="3"
+   crs:Exposure2012="+0.50">
+   <dc:subject>
+    <rdf:Bag>
+     <rdf:li>alps</rdf:li>
+     <rdf:li>europe</rdf:li>
+     <rdf:li>holiday</rdf:li>
+     <rdf:li>places</rdf:li>
+    </rdf:Bag>
+   </dc:subject>
+   <lr:hierarchicalSubject>
+    <rdf:Bag>
+     <rdf:li>holiday</rdf:li>
+     <rdf:li>places|europe|alps</rdf:li>
+    </rdf:Bag>
+   </lr:hierarchicalSubject>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>"#;
+        let capture_one = r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:lr="http://ns.adobe.com/lightroom/1.0/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="2"><dc:subject><rdf:Bag><rdf:li>Animals</rdf:li><rdf:li>Dogs</rdf:li><rdf:li>Beagle</rdf:li></rdf:Bag></dc:subject><lr:hierarchicalSubject><rdf:Bag><rdf:li>Animals</rdf:li><rdf:li>Animals|Dogs</rdf:li><rdf:li>Animals|Dogs|Beagle</rdf:li></rdf:Bag></lr:hierarchicalSubject></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>"#;
+        let bridge = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:lr="http://ns.adobe.com/lightroom/1.0/"><dc:subject><rdf:Bag><rdf:li>Events</rdf:li><rdf:li>Wedding</rdf:li><rdf:li>portrait</rdf:li></rdf:Bag></dc:subject><lr:hierarchicalSubject><rdf:Bag><rdf:li>Events | Wedding</rdf:li></rdf:Bag></lr:hierarchicalSubject></rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        for (text, expected) in [
+            (lightroom, vec!["holiday", "places|europe|alps"]),
+            (
+                capture_one,
+                vec!["Animals", "Animals|Dogs", "Animals|Dogs|Beagle"],
+            ),
+            // Bridge's spaces around `|` are not part of the levels; a
+            // `dc:subject` term no path holds stays a keyword of its own.
+            (bridge, vec!["Events|Wedding", "portrait"]),
+        ] {
+            let (meta, _) = read_xmp(text).unwrap();
+            assert_eq!(meta.keywords, expected);
+            let written = merge_xmp(Some(text), &meta, None).unwrap();
+            assert_eq!(read_xmp(&written).unwrap().0.keywords, expected);
+            // Every level once in `dc:subject`, as the other applications read it.
+            let subject = &written[written.find("<dc:subject>").unwrap()..];
+            let subject = &subject[..subject.find("</dc:subject>").unwrap()];
+            let distinct: std::collections::BTreeSet<&str> =
+                expected.iter().flat_map(|k| k.split('|')).collect();
+            assert_eq!(
+                subject.matches("<rdf:li>").count(),
+                distinct.len(),
+                "{written}"
+            );
+        }
     }
 
     #[test]

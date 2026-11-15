@@ -81,6 +81,7 @@
       "failed": "{{batch}} konnte nicht abgeschlossen werden: {{error}}",
       "keywordAdd": "Stichwort „{{tag}}“",
       "keywordRemove": "Entfernen des Stichworts „{{tag}}“",
+      "keywordRename": "Stichwort „{{from}}“ wird in „{{to}}“ umbenannt",
       "notWritten_one": "{{count}} Foto konnte nicht geschrieben werden",
       "notWritten_other": "{{count}} Fotos konnten nicht geschrieben werden",
       "paste": "Einstellungen einfügen",
@@ -4087,6 +4088,39 @@
           "showFailed": "Der Ordner konnte nicht angezeigt werden: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Stichwörter unter {{keyword}} ausblenden",
+        "confirm": {
+          "cancel": "Abbrechen",
+          "convert": "„{{from}}“ in die Hierarchie „{{to}}“ umwandeln?",
+          "convertAction": "Umwandeln",
+          "label": "Stichwortänderung bestätigen",
+          "merge": "„{{from}}“ mit „{{to}}“ zusammenführen? „{{from}}“ wird dadurch ersetzt.",
+          "mergeAction": "Zusammenführen",
+          "move": "„{{from}}“ nach „{{to}}“ verschieben?",
+          "moveAction": "Verschieben",
+          "photos_one": "Das ändert die Stichwörter von {{count}} Foto.",
+          "photos_other": "Das ändert die Stichwörter von {{count}} Fotos.",
+          "rename": "„{{from}}“ in „{{to}}“ umbenennen?",
+          "renameAction": "Umbenennen"
+        },
+        "empty": "Noch keine Stichwörter.",
+        "expand": "Stichwörter unter {{keyword}} zeigen",
+        "filterHint": "Fotos mit {{keyword}} und den Stichwörtern darunter zeigen. Auf ein anderes Stichwort ziehen, um es dorthin zu verschieben.",
+        "legacyHint": "„{{keyword}}“ ist ein einzelnes Stichwort aus der Zeit vor Stichworthierarchien. Rechtsklick zum Umwandeln.",
+        "menu": {
+          "clearFilter": "Nicht mehr nach diesem Stichwort filtern",
+          "convert": "In „{{path}}“ umwandeln",
+          "filter": "Fotos mit diesem Stichwort zeigen",
+          "moveToTop": "Auf oberste Ebene verschieben",
+          "rename": "Umbenennen …"
+        },
+        "renameLabel": "{{keyword}} umbenennen oder verschieben: Pfad eingeben, z. B. Oberbegriff > Name",
+        "title": "Stichwortliste",
+        "toasts": {
+          "renameFailed": "Stichwörter konnten nicht geändert werden: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "KI-Rauschentfernung",
@@ -4536,6 +4570,7 @@
         "add": "Stichwörter hinzufügen",
         "addTo_one": "Zu {{count}} Foto hinzufügen",
         "addTo_other": "Zu {{count}} Fotos hinzufügen",
+        "hierarchyHint": "Stichwörter mit Kommas trennen. „Tiere > Hunde“, „Tiere|Hunde“ oder „Hunde < Tiere“ legt Hunde unter Tiere ab.",
         "none": "Keine Stichwörter",
         "ofSelection": "Stichwörter der Auswahl",
         "partial_one": "Auf {{on}} von {{count}} Foto",
