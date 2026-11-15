@@ -2566,21 +2566,30 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
     }
 }
 
-/// Whether a request waits that the preview worker will render after the
-/// frame it renders now (`newest`: the newest sequence it rendered, this
-/// frame's included): a late older one it drops does not count, so the
-/// waiting frame never gives way to nothing.
+/// Whether the frame the preview worker renders now is replaced: a request
+/// waits that the worker will render after it (`newest`: the newest
+/// sequence it rendered, this frame's included; a late older one it drops
+/// does not count, so the waiting frame never gives way to nothing), or
+/// another photo started loading since (`load_image_generation`): a step to
+/// the next photo sends its frame only once its decode is in, and until
+/// then the frame of the photo left behind kept waiting for the planned
+/// variant, 27 s on a cold Radeon 680M (G76/WSUPS run B).
 fn newer_request_waits(
     app_handle: &tauri::AppHandle,
     newest: Option<u64>,
 ) -> impl Fn() -> bool + 'static {
     let app_handle = app_handle.clone();
+    let loads = Arc::clone(&app_handle.state::<AppState>().source.load_image_generation);
+    let load = loads.load(Ordering::SeqCst);
     move || {
-        app_handle
-            .state::<AppState>()
-            .preview
-            .preview_jobs
-            .waiting_one(|job| !crate::state::preview::preview_job_is_stale(job.sequence, newest))
+        loads.load(Ordering::SeqCst) != load
+            || app_handle
+                .state::<AppState>()
+                .preview
+                .preview_jobs
+                .waiting_one(|job| {
+                    !crate::state::preview::preview_job_is_stale(job.sequence, newest)
+                })
     }
 }
 
