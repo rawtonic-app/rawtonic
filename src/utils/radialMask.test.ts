@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bellCoverage,
   dragRadialHandle,
   dragRadialLine,
   featherOf,
@@ -148,5 +149,75 @@ describe('dragging the shape handles', () => {
     const next = dragRadialHandle(base, 'right', { x: -500, y: 0 });
     expect(next.radiusX).toBeGreaterThanOrEqual(1);
     expect(dragRadialLine(base, 'outer', { x: 0, y: 0 }).radiusX).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('version 2 (bell) radial gradients', () => {
+  const bell: RadialParams = { ...base, gradientVersion: 2 };
+  const ellipticalOf = (params: RadialParams, point: { x: number; y: number }) =>
+    Math.hypot(point.x / params.radiusX, point.y / params.radiusY);
+
+  it('draws its lines where 98%, 50% and 2% of the effect are left', () => {
+    for (const feather of [0.1, 0.25, 0.5, 0.8, 1]) {
+      const params = { ...bell, feather };
+      const { inner, central, outer } = radialLines(params);
+      near(bellCoverage(ellipticalOf(params, { x: inner.x, y: 0 }), feather), 0.98);
+      near(bellCoverage(ellipticalOf(params, { x: 0, y: central.y }), feather), 0.5);
+      near(bellCoverage(ellipticalOf(params, { x: outer.x, y: 0 }), feather), 0.02);
+      // The effect runs out beyond the ellipse (the radius).
+      expect(outer.x).toBeGreaterThan(params.radiusX);
+    }
+  });
+
+  it('matches the engine at the knots (mask_generation BELL_KNOTS)', () => {
+    near(bellCoverage(0.786, 1), 0.5);
+    near(bellCoverage(0.885, 0.5), 0.5);
+    expect(bellCoverage(1.1, 1)).toBeCloseTo(0.1, 1);
+    expect(bellCoverage(0.99, 0)).toBe(1);
+    expect(bellCoverage(1.01, 0)).toBe(0);
+  });
+
+  it('moves only the full-effect area with the inner line', () => {
+    const { outer } = radialLines(bell);
+    const next = dragRadialLine(bell, 'inner', { x: 120, y: 0 });
+    const lines = radialLines(next);
+    near(lines.inner.x, 120);
+    near(lines.outer.x, outer.x);
+    near(lines.outer.y, outer.y);
+    expect(next.gradientVersion).toBe(2);
+  });
+
+  it('keeps the full-effect area when the outer line moves', () => {
+    const { inner } = radialLines(bell);
+    const lines = radialLines(dragRadialLine(bell, 'outer', { x: 260, y: 0 }));
+    near(lines.outer.x, 260);
+    near(lines.inner.x, inner.x);
+  });
+
+  it('scales the whole mask once the outer line goes past the softest feather', () => {
+    const soft = { ...bell, feather: 1 };
+    const next = dragRadialLine(soft, 'outer', { x: 5000, y: 0 });
+    near(radialLines(next).outer.x, 5000);
+    near(featherOf(next), 1);
+  });
+
+  it('keeps the central line with Shift', () => {
+    const { central } = radialLines(bell);
+    for (const [line, x] of [
+      ['inner', 140],
+      ['outer', 230]
+    ] as const) {
+      const lines = radialLines(dragRadialLine(bell, line, { x, y: 0 }, true));
+      near(lines.central.x, central.x);
+      near(lines.central.y, central.y);
+      near(lines[line].x, x);
+    }
+  });
+
+  it('leaves version 1 gradients on the straight ramp', () => {
+    const { inner, central, outer } = radialLines(base);
+    near(inner.x, 100);
+    near(central.x, 150);
+    near(outer.x, 200);
   });
 });

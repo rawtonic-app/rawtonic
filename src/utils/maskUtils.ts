@@ -10,6 +10,12 @@ export const DEFAULT_LUMA_RANGE = { rangeLow: 0, rangeHigh: 100, falloff: 20 };
  * far out of focus left out: `rawtonic_segment::SUBJECT_VERSION`). */
 export const SUBJECT_VERSION = 2;
 
+/** Falloff version of new radial and linear gradients (`gradientVersion`;
+ * absent = 1, a straight ramp; 2 = a radial bell that runs out just beyond
+ * the ellipse and a linear eased at both lines:
+ * `rawtonic_engine::recipe_versions::gradient::BELL`). */
+export const GRADIENT_VERSION = 2;
+
 export const createSubMask = (
   type: Mask,
   imageDimensions: ImageDimensions,
@@ -36,13 +42,21 @@ export const createSubMask = (
           radiusX: width / 4,
           radiusY: width / 4,
           rotation: 0,
-          feather: 0.5
+          feather: 0.5,
+          gradientVersion: GRADIENT_VERSION
         }
       };
     case Mask.Linear:
       return {
         ...common,
-        parameters: { startX: width * 0.25, startY: height / 2, endX: width * 0.75, endY: height / 2, range: 50 }
+        parameters: {
+          startX: width * 0.25,
+          startY: height / 2,
+          endX: width * 0.75,
+          endY: height / 2,
+          range: 50,
+          gradientVersion: GRADIENT_VERSION
+        }
       };
     case Mask.Brush:
       return { ...common, parameters: { lines: [] } };

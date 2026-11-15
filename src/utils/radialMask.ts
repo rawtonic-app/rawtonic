@@ -1,7 +1,11 @@
-// Capture One-style editing of a radial gradient mask. The engine draws full
-// coverage inside radius × (1 − feather) and falls linearly to zero at the
-// radius, so three ellipses describe a mask: the inner line (100%), the central
-// line (50%, carrying the shape handles) and the outer line (0%).
+// Capture One-style editing of a radial gradient mask. Three ellipses describe
+// a mask: the inner line (full effect), the central line (50%, carrying the
+// shape handles) and the outer line (no effect). A gradient without
+// `gradientVersion` (version 1) has full coverage inside radius × (1 − feather)
+// and falls linearly to zero at the radius. Version 2 (new gradients) falls
+// off as a bell, `2^-(d / half)^(1 / softness)` of the elliptical distance d
+// (`bell_falloff` in rawtonic-engine's mask_generation): its lines are drawn
+// where 98%, 50% and 2% of the effect are left.
 
 export interface RadialParams {
   centerX: number;
@@ -32,11 +36,94 @@ export function featherOf(params: RadialParams): number {
   return typeof feather === 'number' && Number.isFinite(feather) ? clamp(feather, 0, MAX_FEATHER) : 0.5;
 }
 
-/** Radii of the inner (100%), central (50%) and outer (0%) lines. */
+/** Whether the gradient falls off as a bell (`gradientVersion` 2+). */
+function isBell(params: RadialParams): boolean {
+  const version = params.gradientVersion;
+  return typeof version === 'number' && version >= 2;
+}
+
+/** Feather → (50% distance in radii, reciprocal sharpness), linear in
+ * between: the engine's `BELL_KNOTS`. */
+const BELL_KNOTS: ReadonlyArray<readonly [number, number, number]> = [
+  [0, 1, 0],
+  [0.1, 0.991, 0.019],
+  [0.25, 0.955, 0.067],
+  [0.5, 0.885, 0.161],
+  [0.75, 0.817, 0.247],
+  [1, 0.786, 0.281]
+];
+
+function bellShape(feather: number): { half: number; softness: number } {
+  let i = 0;
+  while (i < BELL_KNOTS.length - 2 && BELL_KNOTS[i + 1][0] <= feather) i += 1;
+  const [f0, h0, s0] = BELL_KNOTS[i];
+  const [f1, h1, s1] = BELL_KNOTS[i + 1];
+  const t = clamp((feather - f0) / (f1 - f0), 0, 1);
+  return { half: h0 + (h1 - h0) * t, softness: s0 + (s1 - s0) * t };
+}
+
+/** The share of the effect left at elliptical distance `d` of a version 2
+ * gradient (the engine's `bell_falloff`). */
+export function bellCoverage(d: number, feather: number): number {
+  if (feather <= 0) return d <= 1 ? 1 : 0;
+  const { half, softness } = bellShape(feather);
+  return Math.pow(2, -Math.pow(Math.max(d, 0) / half, 1 / softness));
+}
+
+/** Coverage left on the inner and outer lines of a version 2 gradient. */
+const BELL_INNER = 0.98;
+const BELL_OUTER = 0.02;
+
+/** Inner, central and outer line in radii at `feather`. */
+function lineFactors(params: RadialParams, feather: number) {
+  if (!isBell(params)) return { inner: 1 - feather, central: 1 - feather / 2, outer: 1 };
+  if (feather <= 0) return { inner: 1, central: 1, outer: 1 };
+  const { half, softness } = bellShape(feather);
+  // 2^-(d / half)^(1 / softness) = level  ⇔  d = half · log2(1 / level)^softness
+  const at = (level: number) => half * Math.pow(Math.log2(1 / level), softness);
+  return { inner: at(BELL_INNER), central: half, outer: at(BELL_OUTER) };
+}
+
+/** Radii of the inner (full), central (50%) and outer (none) lines. */
 export function radialLines(params: RadialParams) {
-  const feather = featherOf(params);
+  const f = lineFactors(params, featherOf(params));
   const scaled = (factor: number) => ({ x: params.radiusX * factor, y: params.radiusY * factor });
-  return { inner: scaled(1 - feather), central: scaled(1 - feather / 2), outer: scaled(1) };
+  return { inner: scaled(f.inner), central: scaled(f.central), outer: scaled(f.outer) };
+}
+
+/** The feather in [0, 1] at which `ratio(feather)` (monotonic) reaches
+ * `target`, clamped to the ends of its range. */
+function solveFeather(ratio: (feather: number) => number, target: number): number {
+  const rising = ratio(1) > ratio(0);
+  let lo = 0;
+  let hi = MAX_FEATHER;
+  for (let i = 0; i < 40; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (ratio(mid) < target === rising) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/** `dragRadialLine` for a version 2 gradient: the same rules, with the
+ * lines at the bell's 98 / 50 / 2% points. */
+function dragBellLine(params: RadialParams, line: RadialLine, point: LocalPoint, symmetric: boolean): RadialParams {
+  const lines = radialLines(params);
+  const at = (feather: number) => lineFactors(params, feather);
+  // The line that stays, its radii and its factor as a function of feather.
+  const [kept, keptFactor, movedFactor] = symmetric
+    ? [lines.central, (f: number) => at(f).central, line === 'inner' ? (f: number) => at(f).inner : (f: number) => at(f).outer]
+    : line === 'inner'
+      ? [lines.outer, (f: number) => at(f).outer, (f: number) => at(f).inner]
+      : [lines.inner, (f: number) => at(f).inner, (f: number) => at(f).outer];
+  const d = ellipticalDistance(point, kept);
+  const feather = solveFeather((f) => movedFactor(f) / keptFactor(f), d);
+  const reached = movedFactor(feather) / keptFactor(feather);
+  // Past the farthest the feather reaches (outer line far out), the moved
+  // line goes to the pointer and the whole mask scales with it.
+  const scale = line === 'outer' && d > reached ? d / reached : 1;
+  const factor = keptFactor(feather);
+  return withRadii(params, (kept.x * scale) / factor, (kept.y * scale) / factor, feather);
 }
 
 function angle(params: RadialParams) {
@@ -97,6 +184,7 @@ export function dragRadialLine(
   point: LocalPoint,
   symmetric = false
 ): RadialParams {
+  if (isBell(params)) return dragBellLine(params, line, point, symmetric);
   const feather = featherOf(params);
   const { inner, central, outer } = radialLines(params);
   if (symmetric) {

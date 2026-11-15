@@ -929,6 +929,84 @@ struct RadialMaskParameters {
     radius_y: f64,
     rotation: f32,
     feather: f32,
+    /// `gradientVersion`: absent = 1, the straight ramp; 2 = [`bell_falloff`].
+    #[serde(default)]
+    gradient_version: Option<u32>,
+}
+
+impl RadialMaskParameters {
+    /// Coverage at elliptical distance `dist` (1 = on the ellipse).
+    fn coverage(&self, dist: f32) -> f32 {
+        let feather = self.feather.clamp(0.0, 1.0);
+        if GradientVersion::of(self.gradient_version).bell() && feather > 0.0 {
+            return bell_falloff(dist, feather);
+        }
+        // Preserve the exact arithmetic of every existing radial mask.
+        let inner_bound = 1.0 - feather;
+        (1.0 - (dist - inner_bound) / (1.0 - inner_bound).max(0.01)).clamp(0.0, 1.0)
+    }
+}
+
+/// A gradient's falloff version (`gradientVersion` of a radial or linear
+/// component's parameters).
+#[derive(Clone, Copy)]
+struct GradientVersion(Option<u32>);
+
+impl GradientVersion {
+    fn of(version: Option<u32>) -> Self {
+        Self(version)
+    }
+
+    fn bell(self) -> bool {
+        self.0
+            .is_some_and(|v| v >= crate::recipe_versions::gradient::BELL)
+    }
+}
+
+/// Feather (0–1) → (distance of the 50 % line in radii, reciprocal sharpness)
+/// of [`bell_falloff`]; linear in between. Fitted to the transition of our
+/// own Exposure +1 measurements of Camera Raw's radial gradient at feathers
+/// 10/25/50/75/100 (8 of 12 public frames; notes:
+/// benchmark-results/radf-mask-feather-2026-11-15/). Feather 0 is the hard
+/// ellipse.
+const BELL_KNOTS: [(f32, f32, f32); 6] = [
+    (0.0, 1.0, 0.0),
+    (0.1, 0.991, 0.019),
+    (0.25, 0.955, 0.067),
+    (0.5, 0.885, 0.161),
+    (0.75, 0.817, 0.247),
+    (1.0, 0.786, 0.281),
+];
+
+/// The radial falloff of `gradientVersion` 2: a generalised Gaussian in the
+/// elliptical distance, `2^-(dist / half)^(1 / softness)`, full in the
+/// centre, half at `half`, and running out just beyond the ellipse (at
+/// feather 100 a tenth of the effect is left at 1.10 radii, a fiftieth at
+/// 1.28) instead of a straight ramp that ends on it.
+fn bell_falloff(dist: f32, feather: f32) -> f32 {
+    let i = BELL_KNOTS
+        .iter()
+        .rposition(|k| k.0 <= feather)
+        .unwrap_or(0)
+        .min(BELL_KNOTS.len() - 2);
+    let (f0, h0, s0) = BELL_KNOTS[i];
+    let (f1, h1, s1) = BELL_KNOTS[i + 1];
+    let t = ((feather - f0) / (f1 - f0)).clamp(0.0, 1.0);
+    let half = h0 + (h1 - h0) * t;
+    let softness = s0 + (s1 - s0) * t;
+    if softness <= 0.0 {
+        return if dist <= half { 1.0 } else { 0.0 };
+    }
+    (-(dist.max(0.0) / half).powf(1.0 / softness)).exp2()
+}
+
+/// The linear falloff of `gradientVersion` 2 from the straight ramp's
+/// coverage `ramp` (1 on the start line, ½ on the central line, 0 on the
+/// end line): a smoothstep, so the effect is held near the start line and
+/// eases out before the end line, the 50 % line staying where it is.
+fn eased_ramp(ramp: f32) -> f32 {
+    let r = ramp.clamp(0.0, 1.0);
+    r * r * (3.0 - 2.0 * r)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -948,6 +1026,21 @@ struct LinearMaskParameters {
     /// Optional symmetric strip: full-coverage width and outward feather in image pixels.
     #[serde(default)]
     band: Option<LinearBand>,
+    /// `gradientVersion`: absent = 1, the straight ramp; 2 = [`eased_ramp`]
+    /// (not for a band).
+    #[serde(default)]
+    gradient_version: Option<u32>,
+}
+
+impl LinearMaskParameters {
+    /// Coverage of an unbanded gradient from the straight ramp's `0.5 - t / 2`.
+    fn ramp_coverage(&self, ramp: f32) -> f32 {
+        if GradientVersion::of(self.gradient_version).bell() {
+            eased_ramp(ramp)
+        } else {
+            ramp
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -984,6 +1077,7 @@ impl Default for LinearMaskParameters {
             range: default_range(),
             range_end: None,
             band: None,
+            gradient_version: None,
         }
     }
 }
@@ -3046,7 +3140,6 @@ fn generate_radial_bitmap(
     let rotation_rad = params.rotation * PI / 180.0;
     let cos_rot = rotation_rad.cos();
     let sin_rot = rotation_rad.sin();
-    let inner_bound = 1.0 - params.feather.clamp(0.0, 1.0);
 
     // Rows in parallel; every pixel is computed exactly as before.
     if width > 0 {
@@ -3065,8 +3158,7 @@ fn generate_radial_bitmap(
 
                     let dist = (norm_x.powi(2) + norm_y.powi(2)).sqrt();
 
-                    let intensity = 1.0 - (dist - inner_bound) / (1.0 - inner_bound).max(0.01);
-                    *pixel = (intensity.clamp(0.0, 1.0) * 255.0) as u8;
+                    *pixel = (params.coverage(dist) * 255.0) as u8;
                 }
             });
     }
@@ -3128,7 +3220,7 @@ fn generate_linear_bitmap(
                     band.coverage(dist_perp, scale)
                 } else {
                     // Preserve the exact arithmetic of every existing linear mask.
-                    0.5 - t * 0.5
+                    params.ramp_coverage((0.5 - t * 0.5).clamp(0.0, 1.0))
                 };
                 *pixel = (intensity.clamp(0.0, 1.0) * 255.0) as u8;
             }

@@ -1028,6 +1028,16 @@ pub mod auto_mask {
     pub const COLOUR_MODELS: u32 = 3;
 }
 
+/// Versions of a radial or linear component's falloff (`gradientVersion` in
+/// its parameters, missing = 1: the straight ramp).
+pub mod gradient {
+    /// The key in a radial or linear component's parameters.
+    pub const KEY: &str = "gradientVersion";
+    /// Radial: a bell that runs out just beyond the ellipse; linear: eased
+    /// at both lines.
+    pub const BELL: u32 = 2;
+}
+
 /// Versions of a brush line's dabs (`dabVersion`, missing = 1).
 pub mod dab {
     /// The dab tip that ends at the last point without scallops.
