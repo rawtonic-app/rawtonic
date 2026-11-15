@@ -1481,9 +1481,9 @@ mod tests {
         let photo = recipe(serde_json::json!({}));
         let shown = preview_features(&photo);
         processor.preview_pipeline(&photo, true).unwrap();
-        let plan = idle_plan(shown, &photo);
-        // The Basic panel; no all-effects entry (G76/WCC8).
-        assert_eq!(plan.len(), 1);
+        // The variant planned to serve the frames: the Basic panel with
+        // Glow and, with the effect passes, Halation (`serving_features`).
+        let plan = vec![planned_jobs(shown, &photo).0[0]];
         let started = Instant::now();
         wait("the planned supersets", &|| {
             for &f in &plan {
@@ -1809,8 +1809,7 @@ mod tests {
         let mut contrast = photo;
         contrast.global.contrast = 0.2;
         let features = preview_features(&contrast);
-        let own = export_display_features(&contrast);
-        assert_ne!(own, plan[0]);
+        assert_ne!(features, plan[0]);
         // Right after the photo's frame: no idle time has passed.
         let started = Instant::now();
         let rendered_with: *const wgpu::ComputePipeline =
@@ -1969,27 +1968,29 @@ mod tests {
         });
         let running = idle.lock().running;
         assert_eq!(running, Some(IdleJob::Display(plan[0])));
-        // Halation is in no planned variant: its frame's own variant
-        // compiles in a helper of its own (a real one), which stops the
-        // running helper, and the frame waits for it (G76/COLD2).
-        let halation = recipe(serde_json::json!({"halationAmount": 30}));
+        // An edit of an older tone version is in no planned variant (its
+        // tone stage is another): its frame's own variant compiles in a
+        // helper of its own (a real one), which stops the running helper,
+        // and the frame waits for it (G76/COLD2; then with Halation, which
+        // the effect passes' planned variant holds).
+        let uncovered = recipe(serde_json::json!({"contrast": 20, "toneVersion": 5}));
         assert_ne!(
-            preview_features(&halation) & plan[0],
-            preview_features(&halation)
+            preview_features(&uncovered) & plan[0],
+            preview_features(&uncovered)
         );
         SLOW.store(false, Ordering::SeqCst);
-        let own = export_display_features(&halation);
+        let own = export_display_features(&uncovered);
         let started = Instant::now();
         // Not on screen: the shown photo's plan stays.
-        processor.preview_pipeline(&halation, false).unwrap();
+        processor.preview_pipeline(&uncovered, false).unwrap();
         let waited = started.elapsed();
         assert!(STOPS.load(Ordering::SeqCst) >= 1, "the helper was stopped");
         assert!(
             DONE.load(Ordering::SeqCst) >= 1,
-            "a helper compiled the halation frame's variant"
+            "a helper compiled the uncovered frame's variant"
         );
         assert!(processor.preview_pipelines[own].get().is_some());
-        eprintln!("the halation frame waited {waited:?} for its helper");
+        eprintln!("the uncovered frame waited {waited:?} for its helper");
         // The stopped job compiles again in idle time, now in a real helper,
         // and serves the Contrast frame.
         wait("the first planned superset", 300, &|| {
@@ -2285,9 +2286,11 @@ mod tests {
             processor.preview_pipelines[plan[0]].get().is_some()
         });
         SLOW_FRAME_COMPILES.store(true, Ordering::SeqCst);
-        let halation = recipe(serde_json::json!({"halationAmount": 37}));
+        // An edit no planned variant covers: an older tone version's (then
+        // Halation, which the effect passes' planned variant holds).
+        let halation = recipe(serde_json::json!({"contrast": 37, "toneVersion": 5}));
         let own = export_display_features(&halation);
-        assert_ne!(own & plan[0], own, "Halation is in no planned variant");
+        assert_ne!(own & plan[0], own, "in no planned variant");
         // The newer request arrives once the helper holds the frame's job.
         let newer = Arc::new(AtomicBool::new(false));
         let arrived = Arc::new(Mutex::new(None::<Instant>));
