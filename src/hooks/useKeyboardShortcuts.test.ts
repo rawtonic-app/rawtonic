@@ -734,6 +734,68 @@ describe('arrow keys in the Library grid', () => {
     expect(props.handleImageSelect).toHaveBeenCalledWith('/p5.jpg', false);
     useUIStore.setState({ gridColumns: 0 });
   });
+
+  it('extends the selection from the anchor with Shift+arrows and shrinks it again', () => {
+    const list = Array.from({ length: 10 }, (_, n) => ({ path: `/p${n}.jpg` })) as never[];
+    cleanup();
+    renderHook(() => useKeyboardShortcuts({ ...props, sortedImageList: list }));
+    useUIStore.setState({ activeView: 'library', gridColumns: 4 });
+    useLibraryStore.setState({
+      libraryActivePath: '/p1.jpg',
+      multiSelectedPaths: ['/p1.jpg'],
+      selectionAnchorPath: '/p1.jpg'
+    });
+    props.handleImageSelect.mockClear();
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/p1.jpg', '/p2.jpg', '/p3.jpg']);
+    expect(useLibraryStore.getState().libraryActivePath).toBe('/p3.jpg');
+    press('ArrowLeft', 'ArrowLeft', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/p1.jpg', '/p2.jpg']);
+    press('ArrowDown', 'ArrowDown', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual([
+      '/p1.jpg',
+      '/p2.jpg',
+      '/p3.jpg',
+      '/p4.jpg',
+      '/p5.jpg',
+      '/p6.jpg'
+    ]);
+    // A plain arrow collapses to one photo and moves the anchor.
+    press('ArrowRight');
+    expect(useLibraryStore.getState()).toMatchObject({
+      multiSelectedPaths: ['/p7.jpg'],
+      selectionAnchorPath: '/p7.jpg'
+    });
+    useUIStore.setState({ gridColumns: 0 });
+  });
+
+  it('does not wrap a Shift range round the ends of the grid', () => {
+    const list = Array.from({ length: 10 }, (_, n) => ({ path: `/p${n}.jpg` })) as never[];
+    cleanup();
+    renderHook(() => useKeyboardShortcuts({ ...props, sortedImageList: list }));
+    useUIStore.setState({ activeView: 'library', gridColumns: 4 });
+    useLibraryStore.setState({
+      libraryActivePath: '/p8.jpg',
+      multiSelectedPaths: ['/p8.jpg'],
+      selectionAnchorPath: '/p8.jpg'
+    });
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    press('ArrowRight', 'ArrowRight', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/p8.jpg', '/p9.jpg']);
+    expect(useLibraryStore.getState().libraryActivePath).toBe('/p9.jpg');
+    useLibraryStore.setState({
+      libraryActivePath: '/p1.jpg',
+      multiSelectedPaths: ['/p1.jpg'],
+      selectionAnchorPath: '/p1.jpg'
+    });
+    press('ArrowUp', 'ArrowUp', { shiftKey: true });
+    press('ArrowLeft', 'ArrowLeft', { shiftKey: true });
+    press('ArrowLeft', 'ArrowLeft', { shiftKey: true });
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/p0.jpg', '/p1.jpg']);
+    useUIStore.setState({ gridColumns: 0 });
+  });
 });
 
 it.each(['Backspace', 'Delete'])('opens the Library delete dialog with plain %s on macOS', (code) => {

@@ -40,6 +40,23 @@ const settle = () =>
   });
 
 describe('smart album editor', () => {
+  it('creates the album on Return in the name field', async () => {
+    render(<SmartAlbumEditorHost />);
+    act(() =>
+      useSmartAlbumEditor.getState().open({
+        name: 'Keepers',
+        parent: null,
+        rules: { combine: 'all', rules: [{ field: 'folder', op: 'is', value: '/job/Capture' }] }
+      })
+    );
+    await settle();
+    await act(async () => fireEvent.keyDown(screen.getByDisplayValue('Keepers'), { key: 'Enter' }));
+    expect(mockInvoke).toHaveBeenCalledWith(
+      'session_create_smart_album',
+      expect.objectContaining({ directory: '/job', name: 'Keepers' })
+    );
+  });
+
   it('says a failed save in the dialog, which the activity centre behind it cannot', async () => {
     const base = mockInvoke.getMockImplementation()!;
     mockInvoke.mockImplementation(async (command, args) => {
