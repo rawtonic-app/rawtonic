@@ -314,7 +314,7 @@ impl Queue {
     }
 
     /// Moves the frame jobs no frame asked for within `AWAITED` to `later`
-    /// (the photographer set the effect back): they compile in idle time.
+    /// (the frame's render ended without it): they compile in idle time.
     /// `now`: `now_ms`.
     fn frames_moved_on(&mut self, now: u64) {
         let waits = |asked: u64| now.saturating_sub(asked) < AWAITED.as_millis() as u64;
@@ -525,9 +525,11 @@ impl IdleCompiles {
     /// on an edited photo compiled its variant in the app for 50.7 s at
     /// 6.7 GB of the app's memory on a Radeon 680M, with the window showing
     /// the old frame (G76/WSMOKE20); a helper commits about 4.4 GB beside
-    /// an app that gave back what it can rebuild, and it stops the moment
-    /// the photographer moves on to another variant. Several frames'
-    /// variants (the photo shown, a thumbnail) compile one after the other.
+    /// an app that gave back what it can rebuild. The frame's render waits
+    /// for it as it waited for its own compile (edits made meanwhile show
+    /// afterwards); a job whose frame no longer asks (its render ended
+    /// with another pipeline) moves to idle time. Several frames' variants
+    /// (the photo shown, a thumbnail) compile one after the other.
     pub(super) fn for_frame(
         self: &Arc<Self>,
         features: usize,

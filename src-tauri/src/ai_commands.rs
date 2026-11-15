@@ -195,6 +195,16 @@ pub async fn generate_ai_depth_mask(
     let loaded = crate::image_loader::original_image(&state.source).await?;
     ensure_photo(&loaded.path, &path)?;
     let path_hash = geometry_key(&loaded, &js_adjustments);
+    let cached = lock_recover(&ai_state.models)
+        .as_ref()
+        .and_then(|ai| ai.depth_map.clone())
+        .filter(|cached| cached.path_hash == path_hash);
+    // A depth map to compute: not beside an idle shader compile or an
+    // export where they take turns, the model's load included.
+    let _turn = match cached {
+        Some(_) => None,
+        None => Some(crate::ai_lifecycle::turn(true).await),
+    };
     let depth_model = get_or_init_depth_model(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
@@ -203,10 +213,6 @@ pub async fn generate_ai_depth_mask(
         return Err(task_cancelled());
     }
 
-    let cached = lock_recover(&ai_state.models)
-        .as_ref()
-        .and_then(|ai| ai.depth_map.clone())
-        .filter(|cached| cached.path_hash == path_hash);
     let cached_depth = match cached {
         Some(cached) => cached,
         None => {
@@ -221,7 +227,6 @@ pub async fn generate_ai_depth_mask(
             if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
                 return Err(task_cancelled());
             }
-            let _turn = crate::ai_lifecycle::turn(true).await;
 
             let is_raw = loaded.is_raw;
             let model_input = warped_image.clone();
@@ -331,6 +336,7 @@ pub async fn generate_ai_subject_mask(
     let _running = ai_state.lifecycle.run();
     let generation = ai_state.lifecycle.generation();
     let started = std::time::Instant::now();
+    let _load_turn = sam_load_turn(&ai_state, true).await;
     let models = get_or_init_sam_models(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
@@ -348,6 +354,7 @@ pub async fn generate_ai_subject_mask(
         generation,
         cancel_flag,
         Some(&path),
+        false,
     )
     .await?;
     let ready = started.elapsed().as_millis();
@@ -526,6 +533,25 @@ async fn wait_turn<'a>(
 /// start of the request: an embedding whose request overlapped an unload
 /// is used once, not kept. Cancelling `cancel` stops a queued request and
 /// the encoder's ONNX Runtime run.
+/// The turn the SAM models' load takes beside idle shader compiles and
+/// exports (`ai_lifecycle::turn`), held by the caller through its run;
+/// `None` when they are loaded (the embedding's run takes its own).
+async fn sam_load_turn(
+    ai_state: &AiState,
+    asked: bool,
+) -> Option<rawtonic_gpu::memory_turns::AiRunTurn> {
+    let loaded = lock_recover(&ai_state.models)
+        .as_ref()
+        .is_some_and(|ai| ai.sam_models.is_some());
+    if loaded {
+        None
+    } else {
+        Some(crate::ai_lifecycle::turn(asked).await)
+    }
+}
+
+/// `ahead`: computed ahead of a click (a photo opened), so it waits for an
+/// idle shader compile where they take turns instead of stopping it.
 #[allow(clippy::too_many_arguments)]
 async fn sam_embeddings(
     state: &tauri::State<'_, AppState>,
@@ -536,6 +562,7 @@ async fn sam_embeddings(
     generation: u64,
     cancel: Option<&Arc<AiTaskToken>>,
     asked: Option<&str>,
+    ahead: bool,
 ) -> Result<(ImageEmbeddings, Arc<image::DynamicImage>, bool), CommandError> {
     let mut _encode = wait_turn(&ai_state.sam_encode_lock, cancel).await?;
     // Keyed by the photo actually loaded, not the caller's path: a
@@ -570,7 +597,7 @@ async fn sam_embeddings(
     // As `auto_mask`: the wait for a turn is without the encode lock.
     let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
         drop(_encode);
-        let turn = crate::ai_lifecycle::turn(asked.is_some()).await;
+        let turn = crate::ai_lifecycle::turn(!ahead).await;
         _encode = wait_turn(&ai_state.sam_encode_lock, cancel).await?;
         if let Some(embeddings) = cached() {
             return Ok((embeddings, warped_image, source_is_raw));
@@ -638,6 +665,8 @@ pub async fn precompute_ai_subject_mask(
         .as_ref()
         .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancelled = || _guard.as_ref().is_some_and(|g| g.token.is_cancelled());
+    // The models' load takes a turn as their run does (`sam_load_turn`).
+    let mut load_turn = None;
     // `background`: asked for by opening a photo, not by the user: only
     // with a model that is already installed (no download), and while the
     // system is not short of memory (as `precompute`).
@@ -649,6 +678,7 @@ pub async fn precompute_ai_subject_mask(
         if cancelled() {
             return Ok(());
         }
+        load_turn = sam_load_turn(&ai_state, false).await;
         crate::ai_processing::preload_sam_models(&app_handle, &ai_state)
             .await
             .map_err(|e| e.to_string())?;
@@ -659,6 +689,10 @@ pub async fn precompute_ai_subject_mask(
             return Ok(());
         }
     }
+    if load_turn.is_none() {
+        load_turn = sam_load_turn(&ai_state, true).await;
+    }
+    let _load_turn = load_turn;
     let models = get_or_init_sam_models(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
@@ -681,6 +715,7 @@ pub async fn precompute_ai_subject_mask(
         generation,
         cancel,
         Some(&path),
+        background == Some(true),
     )
     .await
     {
