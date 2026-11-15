@@ -1668,7 +1668,8 @@ fn colour_mixer_versions_2_and_3_keep_greys_zero_and_smooth_sweeps() {
     // Version 3 refits Blues and Purples Saturation; a Saturation or
     // Luminance slider it keeps moves within a few levels of version 2 (one
     // exponential in the strength). Kept Hue sliders move further with the
-    // shorter solve (slider_response.json: Purples Hue −100 by 0.8° of hue).
+    // shorter solve (slider_response.json: Purples Hue −100 by 0.817° of
+    // hue and 0.572 C*, Reds to Greens by at most 0.093°).
     let reds = json!({"reds": {"saturation": 60, "luminance": -30}});
     let (two, three) = (mixer(2, reds.clone()), mixer(3, reds));
     let apart = two
