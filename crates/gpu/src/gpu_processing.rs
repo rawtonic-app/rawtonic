@@ -5583,7 +5583,9 @@ const DETAIL_FEATURES: usize =
 /// benchmark-results/ext4-gpu-export-2026-11-15). Versioned because the
 /// compiler rounds the stage in its own pass, and the main pass without
 /// that code, a little differently (16-bit on Metal: at most 1 of 65,535
-/// on up to 0.16 % of a photo's pixels; `version_13_exports_match_version_12_within_rounding`). Only where the specialized variant renders (no curve
+/// on up to 0.16 % of a photo's pixels in the preservation corpus, up to 5
+/// on generated noise with a tone layer;
+/// `version_13_exports_match_version_12_within_rounding`). Only where the specialized variant renders (no curve
 /// table), where the variant has noise reduction or sharpening code to
 /// leave out, and where every pixel takes the stage from the pass: no
 /// layer changes noise reduction, sharpening or Moiré (shader.wgsl

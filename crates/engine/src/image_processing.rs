@@ -6278,8 +6278,9 @@ pub const GAMUT_KNEE_RENDER_VERSION: u64 = 12;
 /// display frames cache it, and the main pass without that code
 /// (`PreparedAdjustments::detail_pass_export`, gpu_processing.rs
 /// `export_detail_pass`): faster, and the compiler rounds a few values
-/// differently (at most 1 of 65,535 on up to 0.16 % of a photo's pixels on
-/// Metal; notes: benchmark-results/ext4-gpu-export-2026-11-15).
+/// differently (16-bit on Metal: at most 1 of 65,535 on up to 0.16 % of a
+/// photo's pixels in the preservation corpus, up to 5 on generated noise
+/// with a tone layer; notes: benchmark-results/ext4-gpu-export-2026-11-15).
 pub const DETAIL_PASS_EXPORT_RENDER_VERSION: u64 = 13;
 
 /// The render version from which exports render with the main shader

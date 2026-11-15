@@ -23824,3 +23824,104 @@ fn version_13_exports_match_version_12_within_rounding() {
     assert!(processor.export_detail_tile.get().is_some());
     assert_eq!(checked, 20);
 }
+
+/// `version_13_exports_match_version_12_within_rounding` with today's
+/// detail responses (sharpening response 8, luminance noise version 2,
+/// multiscale colour noise version 11 with its chroma pyramid) and a
+/// measured noise level.
+#[test]
+#[ignore = "requires a native GPU; renderVersion 13 exports with current detail responses"]
+fn version_13_exports_with_current_detail_responses_match_version_12_within_rounding() {
+    let context = context();
+    let (width, height) = (1500, 1000);
+    let image = chroma_noise_frame(width, height);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let current = json!({"sharpness":40,"lumaNoiseReduction":30,"colorNoiseReduction":25,
+        "sharpenVersion":8,"lumaNoiseVersion":2,"colorNoiseVersion":11,
+        "exposure":0.3,"highlights":-30,"shadows":30});
+    let mut layered = current.clone();
+    layered["masks"] = json!([local_mask("tone", json!({"exposure":-0.7,"saturation":20}))]);
+    let mut checked = 0;
+    for profile in [current, layered] {
+        let masks = generated_profile_masks(&profile, width, height);
+        for precision in [
+            RenderOutputPrecision::EightBit,
+            RenderOutputPrecision::SixteenBit,
+        ] {
+            let render = |version: u64| {
+                let mut recipe = profile.clone();
+                recipe["renderVersion"] = json!(version);
+                let mut source = chroma_test_source(&context, &image);
+                let mut adjustments = get_all_adjustments_from_json(&recipe, true, Some(1));
+                let views = prepare_color_noise(
+                    &context,
+                    &processor,
+                    &mut source,
+                    None,
+                    &mut adjustments,
+                    false,
+                    None,
+                )
+                .unwrap();
+                if adjustments.global.noise_level <= 0.0 {
+                    adjustments.global.noise_level = 0.01;
+                }
+                assert_eq!(sharpen_level(&adjustments), 2);
+                assert!(views.is_some(), "the chroma pyramid is prepared");
+                assert_eq!(
+                    export_detail_pass(&adjustments),
+                    version >= 13 && !compile_limited()
+                );
+                let (pixels, ..) = processor
+                    .run_with_shader(
+                        &source.texture_view,
+                        source.width,
+                        source.height,
+                        RenderRequest {
+                            adjustments,
+                            mask_bitmaps: &masks,
+                            lut: None,
+                            roi: None,
+                        },
+                        false,
+                        precision,
+                        ReadbackShader::Export,
+                        views.as_ref().map(|views| (&views.0, &views.1)),
+                    )
+                    .unwrap();
+                match pixels {
+                    RenderedPixels::U8(bytes) => {
+                        bytes.into_iter().map(u32::from).collect::<Vec<_>>()
+                    }
+                    RenderedPixels::U16(words) => {
+                        words.into_iter().map(u32::from).collect::<Vec<_>>()
+                    }
+                }
+            };
+            let (inline, pass) = (render(12), render(13));
+            let differing = inline.iter().zip(&pass).filter(|(a, b)| a != b).count();
+            let largest = inline
+                .iter()
+                .zip(&pass)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap_or(0);
+            println!(
+                "{precision:?} masks={}: up to {largest} apart in {differing} of {} samples",
+                !masks.is_empty(),
+                inline.len()
+            );
+            let limit = match precision {
+                RenderOutputPrecision::EightBit => 1,
+                RenderOutputPrecision::SixteenBit => 16,
+            };
+            assert!(
+                largest <= limit && differing * 100 <= inline.len(),
+                "{precision:?} {profile}: up to {largest} apart in {differing} of {} samples",
+                inline.len()
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 4);
+}
