@@ -36,6 +36,8 @@ mod preview_tests;
 pub mod camera_cover;
 #[path = "deferred_display.rs"]
 mod deferred_display;
+#[path = "effect_passes.rs"]
+mod effect_passes;
 #[path = "idle_compile_child.rs"]
 mod idle_compile_child;
 #[path = "idle_compiles.rs"]
@@ -4027,6 +4029,9 @@ pub struct GpuProcessor {
     /// The same shader as naga IR, from which display variants compile
     /// without the code their constants rule out (`display_variant_ir`).
     display_shader: Arc<DisplayShader>,
+    /// Under a compile limit: glow and halation's terms pass
+    /// (`effect_passes`, G76/EFX); the layouts then hold the terms' bindings.
+    effect_passes: Option<effect_passes::EffectPasses>,
     /// The 8-bit and the high-precision shader as naga IR without the
     /// display-only reshapes: export variants compile from it with the
     /// branches their constants decide removed (`export_pipeline`).
@@ -6618,6 +6623,14 @@ fn create_display_pipeline(
     label: &str,
     constants: &[(&str, f64)],
 ) -> Result<wgpu::ComputePipeline, String> {
+    // Its variants read glow and halation from the terms pass.
+    let with_terms;
+    let constants = if display.effect_terms() {
+        with_terms = [constants, &[("EFFECT_TERMS", 1.0)]].concat();
+        &with_terms[..]
+    } else {
+        constants
+    };
     compile_variant_module(
         device,
         shader_module,
@@ -6646,7 +6659,10 @@ fn compile_variant_module(
             // shader.wgsl has one switch for the effects (`ENABLE_EFFECTS`).
             let constants: Vec<_> = constants
                 .iter()
-                .filter(|(name, _)| !display_effect_constants(0).iter().any(|(n, _)| n == name))
+                .filter(|(name, _)| {
+                    *name != "EFFECT_TERMS"
+                        && !display_effect_constants(0).iter().any(|(n, _)| n == name)
+                })
                 .copied()
                 .collect();
             return create_variant_pipeline(
@@ -6951,7 +6967,20 @@ impl GpuProcessor {
         const MAX_MASK_BINDINGS: u32 = 1;
 
         let shader_module = create_shader(device, "Image Processing Shader", shader_source)?;
-        let display_shader = DisplayShader::new(shader_source);
+        // Under a compile limit glow and halation render through a terms
+        // pass (`effect_passes`); fixed for the processor, whose layouts
+        // carry the terms' bindings.
+        #[cfg(test)]
+        let passes = effect_passes::FORCED
+            .with(std::cell::Cell::get)
+            .unwrap_or_else(compile_limited);
+        #[cfg(not(test))]
+        let passes = compile_limited();
+        let display_shader = if passes {
+            DisplayShader::with_effect_passes(shader_source)
+        } else {
+            DisplayShader::new(shader_source)
+        };
 
         let mut bind_group_layout_entries = vec![
             wgpu::BindGroupLayoutEntry {
@@ -7179,6 +7208,16 @@ impl GpuProcessor {
         bind_group_layout_entries.push(storage_entry(24, true));
         bind_group_layout_entries.push(storage_entry(26, true));
         bind_group_layout_entries.push(storage_entry(27, true));
+        let effect_passes = display_shader.effect_terms().then(|| {
+            effect_passes::EffectPasses::new(
+                device,
+                &bind_group_layout_entries,
+                Arc::clone(&display_shader),
+            )
+        });
+        if effect_passes.is_some() {
+            bind_group_layout_entries.extend(effect_passes::terms_input_entries());
+        }
 
         // `main` alone writes `analytics_output` (the detail pass does not).
         let with_analytics_output = |entries: &[wgpu::BindGroupLayoutEntry], format| {
@@ -7837,7 +7876,9 @@ impl GpuProcessor {
                 &high_precision_source,
                 high_precision_shader.clone(),
                 high_precision_pipeline_layout.clone(),
+                effect_passes.is_some(),
             ),
+            effect_passes,
             high_precision_shader,
             high_precision_layout: high_precision_pipeline_layout,
             high_precision_bgl,
@@ -10389,6 +10430,8 @@ impl GpuProcessor {
             self.update_curve_table(table);
         }
         let mut layer_sums_buffer = self.layer_sums_off.clone();
+        // Whether the frame's pipeline reads the layers' sums.
+        let mut summed_variant = false;
         if display_shader {
             let mut layers = prepare_layers(adjustments);
             if export_display || export_deferred_display {
@@ -10447,6 +10490,7 @@ impl GpuProcessor {
                 if let (Some(pipeline), Some((buffer, _exclude))) = (pipeline, sums) {
                     output_pipeline = pipeline;
                     layer_sums_buffer = buffer;
+                    summed_variant = true;
                     #[cfg(test)]
                     for (counter, counts) in
                         self.layer_sum_frames.iter().zip([true, _exclude.is_some()])
@@ -10458,6 +10502,23 @@ impl GpuProcessor {
                 }
             }
         }
+        // Glow and halation's terms pass before the main pass of a display
+        // variant (`effect_passes`), with the sliders' sums the main pass
+        // takes.
+        let terms_pass = match &self.effect_passes {
+            Some(passes)
+                if display_shader
+                    && !force_full_preparation
+                    && !force_general_pipeline
+                    && effect_passes::EffectPasses::wanted(preview_features(adjustments)) =>
+            {
+                Some((
+                    passes.pipeline(device, preview_features(adjustments), summed_variant)?,
+                    passes,
+                ))
+            }
+            _ => None,
+        };
         let blur_requirements = if force_full_preparation {
             [true; 5]
         } else {
@@ -11131,6 +11192,46 @@ impl GpuProcessor {
                     binding: 27,
                     resource: film_grain.as_entire_binding(),
                 });
+                // The terms pass takes the main pass's resources (an 8-bit
+                // output, which it only measures) and writes the terms the
+                // main pass reads.
+                let terms = terms_pass.as_ref().map(|(pipeline, passes)| {
+                    let tiles = passes.tiles(self);
+                    let mut entries = bind_group_entries.clone();
+                    entries[1].resource =
+                        wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
+                    entries.push(wgpu::BindGroupEntry {
+                        binding: 14,
+                        resource: wgpu::BindingResource::TextureView(&self.dummy_blur_view),
+                    });
+                    for (binding, tile) in
+                        effect_passes::TERMS_OUTPUT_BINDINGS.into_iter().zip(tiles)
+                    {
+                        entries.push(wgpu::BindGroupEntry {
+                            binding,
+                            resource: wgpu::BindingResource::TextureView(&tile.view),
+                        });
+                    }
+                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Effect Terms Bind Group"),
+                        layout: passes.bind_group_layout(),
+                        entries: &entries,
+                    });
+                    (pipeline, bind_group, tiles)
+                });
+                if self.effect_passes.is_some() {
+                    for (index, binding) in
+                        effect_passes::TERMS_INPUT_BINDINGS.into_iter().enumerate()
+                    {
+                        bind_group_entries.push(wgpu::BindGroupEntry {
+                            binding,
+                            resource: wgpu::BindingResource::TextureView(match &terms {
+                                Some((_, _, tiles)) => &tiles[index].view,
+                                None => &self.dummy_blur_view,
+                            }),
+                        });
+                    }
+                }
                 let crop_x_start = x_start - input_x_start;
                 let crop_y_start = y_start - input_y_start;
 
@@ -11249,6 +11350,16 @@ impl GpuProcessor {
                     bytemuck::bytes_of(&*tile_adjustments),
                 );
                 let mut main_encoder = device.create_command_encoder(&Default::default());
+                if let Some((pipeline, bind_group, _)) = &terms {
+                    let mut pass = main_encoder.begin_compute_pass(&Default::default());
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, bind_group, &[]);
+                    pass.dispatch_workgroups(
+                        RENDER_REGION_GROUPS_X,
+                        workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        1,
+                    );
+                }
                 {
                     let mut compute_pass = main_encoder.begin_compute_pass(&Default::default());
                     compute_pass.set_pipeline(output_pipeline);

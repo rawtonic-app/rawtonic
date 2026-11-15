@@ -9062,6 +9062,159 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
     assert_eq!(checked, 17);
 }
 
+/// Recipes with glow and halation for the effect-pass tests: on the photo
+/// and on layers, with the tone edits their tone stage takes part in, for
+/// each kind of tone stage.
+fn effect_pass_profiles() -> Vec<serde_json::Value> {
+    vec![
+        json!({"exposure":0.4,"contrast":25,"whites":-20,"glowAmount":30,"toneVersion":18}),
+        json!({"exposure":0.4,"whites":25,"halationAmount":40,"toneVersion":18}),
+        json!({"exposure":-0.3,"brightness":0.3,"whites":-20,"shadows":30,"blacks":-20,
+            "glowAmount":60,"halationAmount":35,"grainAmount":25,"toneVersion":18,
+            "clarity":20,"dehaze":15,"vibrance":20,"curves":custom_curve()}),
+        json!({"whites":-15,"glowAmount":30,"halationAmount":50,"toneVersion":5}),
+        json!({"whites":20,"glowAmount":100,"halationAmount":100,"toneVersion":11}),
+        json!({"contrast":20,"masks":[local_mask("g", json!({"glowAmount":40}))]}),
+        json!({"exposure":0.5,"glowAmount":20,"halationAmount":20,"masks":[
+            local_mask("g", json!({"glowAmount":40,"exposure":0.6,"whites":30})),
+            local_mask("h", json!({"halationAmount":60,"brightness":0.4,"whites":-30})),
+            local_mask("c", json!({"curves":custom_curve(),"highlights":30}))]}),
+    ]
+}
+
+#[test]
+#[ignore = "requires a native GPU; glow and halation through the terms pass against one pass"]
+fn effect_passes_render_the_one_pass_frames() {
+    // Under a compile limit glow and halation come from a terms pass
+    // (`effect_passes`, G76/EFX). The display frame and the float export
+    // tile (the deferred display variant, at 16 bits) must be the ones the
+    // same display variants render in one pass, value for value, RAW and
+    // raster, with and without the layers' sums.
+    let context = context();
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 31);
+    let mut checked = 0;
+    for profile in effect_pass_profiles() {
+        for raw in [true, false] {
+            let adjustments =
+                get_all_adjustments_from_json(&profile, raw, Some(if raw { 3 } else { 0 }));
+            let masks = generated_profile_masks(&profile, width, height);
+            let features = preview_features(&adjustments);
+            let frames = |passes: bool| {
+                effect_passes::FORCED.with(|forced| forced.set(Some(passes)));
+                let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+                effect_passes::FORCED.with(|forced| forced.set(None));
+                assert_eq!(processor.effect_passes.is_some(), passes);
+                let request = || RenderRequest {
+                    adjustments: adjustments.clone(),
+                    mask_bitmaps: &masks,
+                    lut: None,
+                    roi: None,
+                };
+                let shown = || {
+                    read_texture_data_roi(
+                        &context.device,
+                        &context.queue,
+                        &processor.test_working_texture(),
+                        wgpu::Origin3d::ZERO,
+                        wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                        4,
+                    )
+                    .unwrap()
+                };
+                // The frame's own variant, without the layers' sums and
+                // (later frames of a layered recipe) with them.
+                prepare_preview_pipeline(&processor, features);
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        request(),
+                        true,
+                        RenderOutputPrecision::EightBit,
+                    )
+                    .unwrap();
+                let first = shown();
+                prepare_layer_sum_pipeline(&processor, features);
+                processor
+                    .layer_sums_enabled
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                let mut nudged = adjustments.clone();
+                nudged.uniforms.global.exposure += 0.25;
+                for adjustments in [adjustments.clone(), nudged, adjustments.clone()] {
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments,
+                                ..request()
+                            },
+                            true,
+                            RenderOutputPrecision::EightBit,
+                        )
+                        .unwrap();
+                }
+                let summed = shown();
+                let sum_frames =
+                    processor.layer_sum_frames[0].load(std::sync::atomic::Ordering::Relaxed);
+                // The export under a compile limit, at 16 bits.
+                processor
+                    .force_export_display
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                let (pixels, ..) = processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        request(),
+                        false,
+                        RenderOutputPrecision::SixteenBit,
+                    )
+                    .unwrap();
+                let export = match pixels {
+                    RenderedPixels::U16(values) => values,
+                    RenderedPixels::U8(_) => unreachable!(),
+                };
+                (first, summed, export, sum_frames)
+            };
+            let one_pass = frames(false);
+            let passes = frames(true);
+            let name = profile.to_string().chars().take(120).collect::<String>();
+            let differing = |a: &[u8], b: &[u8]| a.iter().zip(b).filter(|(a, b)| a != b).count();
+            // NVIDIA Vulkan (RTX 3080): identical. (With the terms cut after
+            // glow's own arithmetic instead of after the tone stage: 1/65535
+            // in up to 0.1 % of the 16-bit values, up to 5 display bytes.)
+            assert_eq!(
+                differing(&one_pass.0, &passes.0),
+                0,
+                "{name} raw {raw}: frame"
+            );
+            assert_eq!(
+                differing(&one_pass.1, &passes.1),
+                0,
+                "{name} raw {raw}: summed frame"
+            );
+            let export = one_pass
+                .2
+                .iter()
+                .zip(&passes.2)
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(export, 0, "{name} raw {raw}: 16-bit export");
+            assert_eq!(one_pass.3, passes.3, "{name}: frames with sums");
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 14);
+}
+
 /// The display variants' rewritten tone stage (`display_tone_stage.wgsl`,
 /// G76/WCC4) against the export path, which keeps shader.wgsl's: every tone
 /// version, every tone slider both ways, under every look, for a legacy

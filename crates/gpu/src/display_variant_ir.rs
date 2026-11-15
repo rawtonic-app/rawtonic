@@ -27,6 +27,9 @@ use naga::{Arena, Block, Expression, Handle, Literal, Module, Statement};
 pub(crate) struct DisplayShader {
     source: Arc<str>,
     parsed: OnceLock<Result<(Module, naga::valid::ModuleInfo), String>>,
+    /// Whether its variants read glow and halation from the terms pass
+    /// (`with_effect_passes`, `EFFECT_TERMS`).
+    effect_terms: bool,
 }
 
 /// The tone gains display variants compile instead of shader.wgsl's
@@ -172,6 +175,133 @@ fn with_effects_apart(source: &str) -> Option<String> {
     ))
 }
 
+/// The display source's switches and bindings for effects in passes of
+/// their own (`with_effect_terms`): `EFFECT_TERMS_PASS` makes `main` the
+/// terms pass, `EFFECT_TERMS` makes it read what that pass wrote.
+const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
+     override EFFECT_TERMS_PASS: bool = false;\n\
+     @group(0) @binding(29) var glow_terms_out: texture_storage_2d<rgba32float, write>;\n\
+     @group(0) @binding(30) var halation_terms_out: texture_storage_2d<rgba32float, write>;\n\
+     @group(0) @binding(31) var glow_terms: texture_2d<f32>;\n\
+     @group(0) @binding(32) var halation_terms: texture_2d<f32>;\n";
+
+/// shader.wgsl's text (after `with_effects_apart`) and what the display
+/// source of a processor with effect passes writes instead, each found
+/// exactly once. Glow and halation each become a term, the blurred photo
+/// through exposure and the tone stage (`glow_term`, `halation_term`), and
+/// its use on the pixel's colour (`apply_glow_term`,
+/// `apply_halation_term`); the operations and their order stay as they
+/// are, so the terms pass and a main pass reading its Rgba32Float textures
+/// compute what one pass did.
+const EFFECT_TERMS_EDITS: [(&str, &str); 4] = [
+    (
+        ") -> vec3<f32> {\n    if (amount <= 0.0) {\n        return color;\n    }\n",
+        ") -> vec3<f32> {\n    if (amount <= 0.0) {\n        return color;\n    }\n    \
+         return apply_glow_term(color, glow_term(blurred_color_input_space, is_raw, exp, bright, wh), amount);\n}\n\n\
+         fn glow_term(\n    blurred_color_input_space: vec3<f32>,\n    is_raw: u32,\n    \
+         exp: f32, bright: f32, wh: f32\n) -> vec3<f32> {\n",
+    ),
+    (
+        ") -> vec3<f32> {\n    if (amount <= 0.0) { return color; }\n",
+        ") -> vec3<f32> {\n    if (amount <= 0.0) { return color; }\n    \
+         return apply_halation_term(color, halation_term(blurred_color_input_space, is_raw, exp, bright, wh), amount);\n}\n\n\
+         fn halation_term(\n    blurred_color_input_space: vec3<f32>,\n    is_raw: u32,\n    \
+         exp: f32, bright: f32, wh: f32\n) -> vec3<f32> {\n",
+    ),
+    // `main` as the terms pass ends once it has the blurred photo and the
+    // pixel's slider values; the rest of `main` is its other branch
+    // (closed by `EFFECT_TERMS_MAIN_END`), which the fold drops.
+    (
+        "    let structure_blurred = textureLoad(structure_blur_texture, id.xy, 0).rgb;\n",
+        "    let structure_blurred = textureLoad(structure_blur_texture, id.xy, 0).rgb;\n    \
+         if (EFFECT_TERMS_PASS) {\n        \
+         var glow = vec3<f32>(0.0);\n        \
+         var halation = vec3<f32>(0.0);\n        \
+         if (ENABLE_GLOW && t_glow > 0.0) {\n            \
+         glow = glow_term(structure_blurred, is_raw, t_exposure, t_brightness, t_whites);\n        }\n        \
+         if (ENABLE_HALATION && t_halation > 0.0) {\n            \
+         halation = halation_term(clarity_blurred, is_raw, t_exposure, t_brightness, t_whites);\n        }\n        \
+         textureStore(glow_terms_out, id.xy, vec4<f32>(glow, 0.0));\n        \
+         textureStore(halation_terms_out, id.xy, vec4<f32>(halation, 0.0));\n    \
+         } else {\n",
+    ),
+    // The photo's glow and halation: from the terms pass or computed here.
+    (
+        "        if (ENABLE_GLOW && t_glow > 0.0) {\n            \
+         processed_rgb = apply_glow_bloom(\n                \
+         processed_rgb, structure_blurred, t_glow, is_raw,\n                \
+         t_exposure, t_brightness, t_contrast, t_whites\n            );\n        }\n        \
+         if (ENABLE_HALATION && t_halation > 0.0) {\n            \
+         processed_rgb = apply_halation(\n                \
+         processed_rgb, clarity_blurred, t_halation, is_raw,\n                \
+         t_exposure, t_brightness, t_contrast, t_whites\n            );\n        }\n",
+        "        if (ENABLE_GLOW && t_glow > 0.0) {\n            \
+         if (EFFECT_TERMS) {\n                \
+         processed_rgb = apply_glow_term(processed_rgb, textureLoad(glow_terms, id.xy, 0).rgb, t_glow);\n            \
+         } else {\n                \
+         processed_rgb = apply_glow_bloom(processed_rgb, structure_blurred, t_glow, is_raw, t_exposure, t_brightness, t_contrast, t_whites);\n            }\n        }\n        \
+         if (ENABLE_HALATION && t_halation > 0.0) {\n            \
+         if (EFFECT_TERMS) {\n                \
+         processed_rgb = apply_halation_term(processed_rgb, textureLoad(halation_terms, id.xy, 0).rgb, t_halation);\n            \
+         } else {\n                \
+         processed_rgb = apply_halation(processed_rgb, clarity_blurred, t_halation, is_raw, t_exposure, t_brightness, t_contrast, t_whites);\n            }\n        }\n",
+    ),
+];
+
+/// Where glow's and then halation's term ends in shader.wgsl: the first
+/// line after the tone stage of the blurred photo, in that order. Cut
+/// there, the main pass keeps each effect's own arithmetic: with the cut
+/// after it (the bloom colour as the term) NVIDIA's compiler rounded glow
+/// differently in the small module, 1/65535 in up to 0.1 % of an export's
+/// 16-bit values (G76/EFX).
+const EFFECT_TERM_END: &str =
+    "    let linear_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));\n";
+const EFFECT_TERM_USES: [&str; 2] = ["apply_glow_term", "apply_halation_term"];
+
+/// The end of `main` in shader.wgsl (the text after it), where the branch
+/// `EFFECT_TERMS_EDITS` opens is closed.
+const EFFECT_TERMS_MAIN_END: &str = "}\n\n// The colours `main` stored with DEFER_OUTPUT";
+
+/// Glow and halation as terms a pass of its own computes (G76/EFX): each
+/// carries the tone stage for the blurred photo (10.9k inlined expressions
+/// each), so the Basic-panel superset with both grew from 66.1k to 88.0k,
+/// beyond what a Radeon 680M compiles within the memory bar (about 77k).
+/// With `EFFECT_TERMS` the main pass reads the terms (66.2k with both);
+/// with `EFFECT_TERMS_PASS` `main` is the pass that writes them (23.1k).
+/// Without either constant the source computes what it did. `None` when
+/// shader.wgsl has another shape.
+fn with_effect_terms(source: &str) -> Option<String> {
+    let mut source = EFFECT_TERMS_EDITS
+        .iter()
+        .try_fold(source.to_string(), |source, (from, to)| {
+            (source.matches(from).count() == 1).then(|| source.replace(from, to))
+        })?;
+    if source.matches(EFFECT_TERM_END).count() != EFFECT_TERM_USES.len()
+        || source.matches(EFFECT_TERMS_MAIN_END).count() != 1
+    {
+        return None;
+    }
+    for name in EFFECT_TERM_USES {
+        source = source.replacen(
+            EFFECT_TERM_END,
+            &format!(
+                "    return blurred_linear;\n}}\n\n\
+                 fn {name}(color: vec3<f32>, blurred_linear: vec3<f32>, amount: f32) -> vec3<f32> {{\n\
+                 {}",
+                EFFECT_TERM_END.replace("    let linear_luma", "    let  linear_luma")
+            ),
+            1,
+        );
+    }
+    source = source.replace("    let  linear_luma", "    let linear_luma");
+    source = source.replace(
+        EFFECT_TERMS_MAIN_END,
+        &format!("    }}\n{EFFECT_TERMS_MAIN_END}"),
+    );
+    source.push_str(EFFECT_TERMS_DECLARATIONS);
+    Some(source)
+}
+
 fn with_display_tone_gains(source: &str) -> String {
     replace_functions(source, &REPLACED_TONE_GAINS, DISPLAY_TONE_GAINS)
         .unwrap_or_else(|| source.into())
@@ -267,9 +397,39 @@ pub(crate) fn display_source(source: &str) -> String {
     with_display_tone_stage(&source).unwrap_or(source)
 }
 
+/// `display_source` with glow and halation as terms of a pass of their own
+/// (`with_effect_terms`): what display variants compile under a compile
+/// limit. `None` when shader.wgsl has another shape.
+pub(crate) fn display_source_with_effect_passes(source: &str) -> Option<String> {
+    with_effect_terms(&display_source(source))
+}
+
 impl DisplayShader {
     pub(crate) fn new(source: &str) -> Arc<Self> {
         Self::exact(&display_source(source))
+    }
+
+    /// The display shader of a processor that renders glow and halation
+    /// through the terms pass (`with_effect_terms`); `new` when the source
+    /// has another shape (its variants then compute the effects themselves).
+    pub(crate) fn with_effect_passes(source: &str) -> Arc<Self> {
+        match display_source_with_effect_passes(source) {
+            Some(source) => Arc::new(Self {
+                source: source.into(),
+                parsed: OnceLock::new(),
+                effect_terms: true,
+            }),
+            None => {
+                log::warn!("Display variants: no effect passes (shader shape)");
+                Self::new(source)
+            }
+        }
+    }
+
+    /// Whether variants of this shader read glow and halation from the
+    /// terms pass, which then has to run before them.
+    pub(crate) fn effect_terms(&self) -> bool {
+        self.effect_terms
     }
 
     /// `source` as it is, without the display-only reshapes: what export
@@ -278,6 +438,7 @@ impl DisplayShader {
         Arc::new(Self {
             source: source.into(),
             parsed: OnceLock::new(),
+            effect_terms: false,
         })
     }
 
