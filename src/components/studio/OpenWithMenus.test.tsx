@@ -9,6 +9,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { submitPhotoWrite } from '../../utils/photoWrites';
 import i18n from 'i18next';
 import packaged from './fixtures/openWithPackaged.json';
+import linux from './fixtures/openWithLinux.json';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
@@ -135,6 +136,25 @@ it('on Windows lists the programs Windows offers without recommending them (Phot
     fireEvent.click(screen.getByRole('menuitem', { name: /Photos/ }));
     // The exact arguments the Rust side reads (a_packaged_program_crosses_ipc_as_the_frontend_sends_it).
     await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('open_with_open', openWithOpen));
+  } finally {
+    useSettingsStore.setState({ osPlatform: '' });
+  }
+});
+
+it('on Linux lists the desktop entries, default first, and opens the chosen one by its .desktop file', async () => {
+  useSettingsStore.setState({ osPlatform: 'linux' });
+  mockInvoke.mockImplementation(async (command) => (command === 'open_with_apps' ? linux.choices : undefined));
+  try {
+    render(<OpenWithSubMenu paths={linux.openWithOpen.paths} hideContextMenu={vi.fn()} />);
+    await screen.findByText('GIMP');
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'GIMPDefault',
+      'Krita',
+      'Browse for a program…'
+    ]);
+    fireEvent.click(screen.getByRole('menuitem', { name: /Krita/ }));
+    // The exact arguments the Rust side reads (a_desktop_program_crosses_ipc_as_the_frontend_sends_it).
+    await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('open_with_open', linux.openWithOpen));
   } finally {
     useSettingsStore.setState({ osPlatform: '' });
   }

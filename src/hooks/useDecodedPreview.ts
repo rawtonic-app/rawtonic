@@ -5,9 +5,14 @@ import { noteThumbnailUse } from '../utils/thumbnailCacheUse';
  * cannot resurrect an old photo. The caller owns the URLs. No transition or
  * extra RAF is needed. Interactive patches load directly to avoid this wait. */
 export function useDecodedPreview<T extends { url: string }>(frame: T | null, identity: string) {
+  return useDecodedPreviewWithSize(frame, identity).frame;
+}
+
+/** `useDecodedPreview` with the shown frame's pixel width (0 before one). */
+export function useDecodedPreviewWithSize<T extends { url: string }>(frame: T | null, identity: string) {
   const latest = useRef(frame);
   latest.current = frame;
-  const [ready, setReady] = useState<{ identity: string; frame: T } | null>(null);
+  const [ready, setReady] = useState<{ identity: string; frame: T; width: number } | null>(null);
   const url = frame?.url;
   useEffect(() => {
     if (!url) return;
@@ -16,7 +21,7 @@ export function useDecodedPreview<T extends { url: string }>(frame: T | null, id
     const commit = () => {
       if (!cancelled && latest.current?.url === url) {
         noteThumbnailUse(url);
-        setReady({ identity, frame: latest.current });
+        setReady({ identity, frame: latest.current, width: image.naturalWidth || 0 });
       }
     };
     image.src = url;
@@ -30,5 +35,6 @@ export function useDecodedPreview<T extends { url: string }>(frame: T | null, id
       image.onload = null;
     };
   }, [url, identity]);
-  return frame && ready?.identity === identity ? ready.frame : null;
+  const shown = frame && ready?.identity === identity;
+  return { frame: shown ? ready.frame : null, width: shown ? ready.width : 0 };
 }

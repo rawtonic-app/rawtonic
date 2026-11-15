@@ -26,9 +26,6 @@ use crate::state::lock::lock_recover;
 
 /// Sent to the second window's page whenever a frame it shows changes.
 pub(super) const FRAMES_EVENT: &str = "second-window-frames";
-/// The settled main preview's JPEG quality on Linux (editor_preview.rs):
-/// the window's own frames look like the main window's.
-const QUALITY: u8 = 94;
 /// Frames kept for the page: the current whole and region and the ones
 /// before them, which a load started just before a replacement still reads.
 const KEPT: usize = 6;
@@ -83,9 +80,16 @@ fn keep(jpeg: Vec<u8>) -> Uuid {
 }
 
 /// A developed frame encoded for the page (done before the window's state
-/// is locked: the main window's frames wait on that lock).
-pub(super) fn encode(rgba: &image::RgbaImage) -> Result<Vec<u8>, String> {
-    crate::preview_jpeg::encode_rgbx_444(rgba, QUALITY)
+/// is locked: the main window's frames wait on that lock), at the main
+/// window's settled qualities (preview_jpeg.rs): a zoomed `region` is the
+/// photograph at 100 % or closer, the whole frame is shown reduced.
+pub(super) fn encode(rgba: &image::RgbaImage, region: bool) -> Result<Vec<u8>, String> {
+    let quality = if region {
+        crate::preview_jpeg::ONE_TO_ONE_QUALITY
+    } else {
+        crate::preview_jpeg::SETTLED_QUALITY
+    };
+    crate::preview_jpeg::encode_rgbx_444(rgba, quality)
 }
 
 pub(crate) struct BrowserView {

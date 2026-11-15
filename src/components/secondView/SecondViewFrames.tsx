@@ -24,6 +24,15 @@ export function frameRect(area: [number, number], frame: SecondWindowFrame, zoom
   return zoomedRect(area, frame.shown, frame.region, zoom);
 }
 
+/** A frame drawn one of its pixels per device pixel (a 100 % region): its
+ * place on whole device pixels at its own size, so WebKit copies its pixels
+ * instead of filtering them at a fractional offset (LNX1, as the main
+ * window's utils/pixelSnap.ts). Null for any other frame. */
+export function pixelExactRect(rect: Rect, frame: SecondWindowFrame): Rect | null {
+  if (Math.abs(rect[2] - frame.width) > 0.5 || Math.abs(rect[3] - frame.height) > 0.5) return null;
+  return [Math.round(rect[0]), Math.round(rect[1]), frame.width, frame.height];
+}
+
 /** One layer: the newest frame that finished decoding (a frame decoded
  * after a newer one is dropped; the shown one stays until its replacement
  * is ready, so a drag's frames never blank the window). The decoded image
@@ -58,11 +67,14 @@ function FrameLayer({
       return;
     }
     const d = layout.current.dpr;
+    const exact = pixelExactRect(rect, current);
+    const placed = exact ?? rect;
     el.style.display = 'block';
-    el.style.left = `${rect[0] / d}px`;
-    el.style.top = `${rect[1] / d}px`;
-    el.style.width = `${rect[2] / d}px`;
-    el.style.height = `${rect[3] / d}px`;
+    el.style.left = `${placed[0] / d}px`;
+    el.style.top = `${placed[1] / d}px`;
+    el.style.width = `${placed[2] / d}px`;
+    el.style.height = `${placed[3] / d}px`;
+    el.style.imageRendering = exact ? 'pixelated' : '';
   };
 
   useEffect(() => {

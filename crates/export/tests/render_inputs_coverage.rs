@@ -380,7 +380,8 @@ fn contexts() -> Vec<(&'static str, Value)> {
         region[key] = json!(20);
     }
     vec![
-        ("/colorGrading", json!({"colorGrading": grading})),
+        ("/colorGrading", json!({"colorGrading": grading.clone()})),
+        ("/colorGradingVersion", json!({"colorGrading": grading})),
         ("/regionCurve", json!({"regionCurve": region})),
         (
             "/curves/version",
