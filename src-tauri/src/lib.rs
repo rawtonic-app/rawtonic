@@ -515,7 +515,15 @@ fn start(args: Vec<String>) {
                     let resource_path = app_handle
                         .path()
                         .resolve("resources", tauri::path::BaseDirectory::Resource)
-                        .expect("failed to resolve resource directory");
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "{}",
+                                startup::resource_dir_missing_message(
+                                    std::env::current_exe().ok().as_deref(),
+                                    None
+                                )
+                            )
+                        });
 
                     let ort_library_name = {
                         #[cfg(target_os = "windows")]
