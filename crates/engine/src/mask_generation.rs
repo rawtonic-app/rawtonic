@@ -964,10 +964,13 @@ impl GradientVersion {
 }
 
 /// Feather (0–1) → (distance of the 50 % line in radii, reciprocal sharpness)
-/// of [`bell_falloff`]; linear in between. Fitted to the transition of our
-/// own Exposure +1 measurements of Camera Raw's radial gradient at feathers
-/// 10/25/50/75/100 (8 of 12 public frames; notes:
-/// benchmark-results/radf-mask-feather-2026-11-15/). Feather 0 is the hard
+/// of [`bell_falloff`]; linear in between. Fitted by least squares to the
+/// transition of our own Exposure +1 measurements of Camera Raw's radial
+/// gradient at feathers 10/25/50/75/100 on 8 of 12 public (CC0) frames; on
+/// the 4 held out, the 90/50/10 % points of real exports lie within 0.033
+/// radii of Camera Raw's (the 50 % point within 0.010). Method and per-frame
+/// profiles: notes: benchmark-results/radf-mask-feather-2026-11-15/ (the
+/// commit adding this comment lists the numbers). Feather 0 is the hard
 /// ellipse.
 const BELL_KNOTS: [(f32, f32, f32); 6] = [
     (0.0, 1.0, 0.0),
