@@ -170,7 +170,7 @@ impl FileBox {
 
     while current < size {
       // Rawtonic patch: fewer bytes than a box header after the last complete
-      // box are trailing padding (card tools append bytes); ignore them. A
+      // box are trailing padding (card tools append bytes); ignore them.
       // Only a truncated mdat is rejected (below); other boxes are unchanged.
       if size - current < 8 {
         debug!("Ignoring {} trailing bytes after the last box", size - current);
