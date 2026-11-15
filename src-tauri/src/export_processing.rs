@@ -969,7 +969,6 @@ impl ExportLanes {
         // overflowed it (`RENDER_STACK_SIZE`, gap G74).
         let pools = rawtonic_export::workers::lane_pools(workers, threads, "export", move || {
             lower_thread_priority();
-            crate::gpu_processing::mark_private_pool_thread();
             if let Some(cpus) = run.upgrade() {
                 cpus.add_current_thread();
             }

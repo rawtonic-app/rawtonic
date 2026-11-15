@@ -32,8 +32,10 @@ pub fn available_cores() -> usize {
 /// GPU processor that waits for its parallel work may meanwhile run other
 /// jobs of its pool, which would be another photo waiting for that
 /// processor. With a pool of its own no job a photo waits for waits for it.
-/// Threads have the render stack (`RENDER_STACK_SIZE`). `start` runs on
-/// each new thread (the app lowers their priority there).
+/// Threads have the render stack (`RENDER_STACK_SIZE`) and are marked as a
+/// private pool's (`mark_private_pool_thread`), so their renders keep their
+/// parallel work in it. `start` runs on each new thread after that (the app
+/// lowers their priority there).
 pub fn lane_pools(
     workers: usize,
     threads: usize,
@@ -47,7 +49,10 @@ pub fn lane_pools(
                 .num_threads(threads)
                 .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
                 .thread_name(move |i| format!("{name}-{lane}-{i}"))
-                .start_handler(move |_| start())
+                .start_handler(move |_| {
+                    rawtonic_gpu::gpu_processing::mark_private_pool_thread();
+                    start();
+                })
                 .build()
                 .expect("export thread pool")
         })
