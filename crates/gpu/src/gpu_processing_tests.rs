@@ -3488,9 +3488,9 @@ pub(super) fn prepare_preview_pipeline(processor: &GpuProcessor, features: usize
     processor.preview_pipelines[features].get_or_init(|| {
         create_preview_pipeline(
             &processor.context.device,
-            &processor.preview_shader,
+            &processor.display_fallback,
             Some(&processor.display_shader),
-            &processor.preview_layout,
+            &processor.display_layout,
             features,
             true,
             true,
@@ -3505,9 +3505,9 @@ fn prepare_layer_sum_pipeline(processor: &GpuProcessor, features: usize) {
     processor.layer_sum_pipelines[features].get_or_init(|| {
         create_preview_pipeline(
             &processor.context.device,
-            &processor.preview_shader,
+            &processor.display_fallback,
             Some(&processor.display_shader),
-            &processor.preview_layout,
+            &processor.display_layout,
             features,
             true,
             true,
@@ -8998,11 +8998,11 @@ fn display_variants_from_folded_ir_render_the_same_pixels() {
             processor.preview_pipelines[features].get_or_init(|| {
                 create_preview_pipeline(
                     &processor.context.device,
-                    &processor.preview_shader,
+                    &processor.display_fallback,
                     // The reference: the whole shader with the effects code,
                     // as display variants compiled before.
                     (!with_effects).then_some(&*processor.display_shader),
-                    &processor.preview_layout,
+                    &processor.display_layout,
                     if with_effects {
                         features | EFFECTS_FEATURES | TONE_V5_FEATURE
                     } else {
@@ -9079,11 +9079,17 @@ fn effect_pass_profiles() -> Vec<serde_json::Value> {
             local_mask("g", json!({"glowAmount":40,"exposure":0.6,"whites":30})),
             local_mask("h", json!({"halationAmount":60,"brightness":0.4,"whites":-30})),
             local_mask("c", json!({"curves":custom_curve(),"highlights":30}))]}),
+        // Grain alone, each version, and no effect at all (the finish pass
+        // without grain).
+        json!({"contrast":25,"grainAmount":30,"toneVersion":18}),
+        json!({"contrast":25,"grainAmount":40,"grainSize":60,"grainRoughness":70,"grainVersion":1}),
+        json!({"contrast":25,"grainAmount":40,"grainVersion":2}),
+        json!({"exposure":0.3,"contrast":20,"shadows":25,"vibrance":20}),
     ]
 }
 
 #[test]
-#[ignore = "requires a native GPU; glow and halation through the terms pass against one pass"]
+#[ignore = "requires a native GPU; the effect passes against one pass"]
 fn effect_passes_render_the_one_pass_frames() {
     // Under a compile limit glow and halation come from a terms pass
     // (`effect_passes`, G76/EFX). The display frame and the float export
@@ -9212,7 +9218,7 @@ fn effect_passes_render_the_one_pass_frames() {
             checked += 1;
         }
     }
-    assert_eq!(checked, 14);
+    assert_eq!(checked, 22);
 }
 
 /// The display variants' rewritten tone stage (`display_tone_stage.wgsl`,

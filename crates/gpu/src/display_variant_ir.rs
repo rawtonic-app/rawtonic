@@ -29,7 +29,7 @@ pub(crate) struct DisplayShader {
     parsed: OnceLock<Result<(Module, naga::valid::ModuleInfo), String>>,
     /// Whether its variants read glow and halation from the terms pass
     /// (`with_effect_passes`, `EFFECT_TERMS`).
-    effect_terms: bool,
+    effect_passes: bool,
 }
 
 /// The tone gains display variants compile instead of shader.wgsl's
@@ -180,6 +180,10 @@ fn with_effects_apart(source: &str) -> Option<String> {
 /// terms pass, `EFFECT_TERMS` makes it read what that pass wrote.
 const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
      override EFFECT_TERMS_PASS: bool = false;\n\
+     override FINISH_APART: bool = false;\n\
+     override FINISH_PASS: bool = false;\n\
+     @group(0) @binding(33) var finish_views: texture_2d<f32>;\n\
+     @group(0) @binding(34) var finish_views_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(29) var glow_terms_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(30) var halation_terms_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(31) var glow_terms: texture_2d<f32>;\n\
@@ -261,6 +265,79 @@ const EFFECT_TERM_USES: [&str; 2] = ["apply_glow_term", "apply_halation_term"];
 /// The end of `main` in shader.wgsl (the text after it), where the branch
 /// `EFFECT_TERMS_EDITS` opens is closed.
 const EFFECT_TERMS_MAIN_END: &str = "}\n\n// The colours `main` stored with DEFER_OUTPUT";
+
+/// Where the end of `main` starts in the display source (grain, then the
+/// clipping warnings, the views, the output encoding and the histogram's
+/// image), and the pixel's values it takes from the code before it.
+const FINISH_START: &str =
+    "    if (ENABLE_EFFECTS && ENABLE_GRAIN) {\n        if (adjustments.global.grain_amount > 0.0";
+const FINISH_FUNCTION: &str = "fn finish_pixel(\n    \
+     id: vec3<u32>, absolute_coord: vec2<u32>, scale: f32, original_alpha: f32,\n    \
+     range_view: f32, sharpen_view_mask: f32, colour: vec3<f32>\n) {\n    \
+     let absolute_coord_i = vec2<i32>(absolute_coord);\n    \
+     var final_rgb = colour;\n";
+/// `main`'s end with the finish apart: with `FINISH_APART` it stores the
+/// colour before grain (and the two view values, when a texture for them
+/// is bound) for the finish pass; else it finishes the pixel itself.
+const FINISH_MAIN_END: &str = "    if (FINISH_APART) {\n        \
+     textureStore(output_texture, id.xy, vec4<f32>(final_rgb, original_alpha));\n        \
+     if (textureDimensions(finish_views_out).x > 1u) {\n            \
+     textureStore(finish_views_out, id.xy, vec4<f32>(range_view, sharpen_view_mask, 0.0, 0.0));\n        }\n    \
+     } else {\n        \
+     finish_pixel(id, absolute_coord, scale, original_alpha, range_view, sharpen_view_mask, final_rgb);\n    }\n    }\n";
+/// Where `main` starts its work on a pixel, and `main` as the finish pass
+/// before it: the stored colour through `finish_pixel`, or as it is when
+/// the main pass stored a probe's value (`output_space.w`: the Levels,
+/// mixer and B&W probes end `main` early with their own output).
+const FINISH_PASS_AT: &str =
+    "    let original_alpha = load_input(vec2<i32>(absolute_coord)).a;\n";
+const FINISH_PASS: &str = "    if (FINISH_PASS) {\n        \
+     let stored = textureLoad(deferred_texture, vec2<i32>(id.xy), 0);\n        \
+     if (adjustments.global.output_space.w != 0u) {\n            \
+     textureStore(output_texture, id.xy, stored);\n        \
+     } else {\n            \
+     var views = vec2<f32>(-1.0, 1.0);\n            \
+     if (textureDimensions(finish_views).x > 1u) {\n                \
+     views = textureLoad(finish_views, vec2<i32>(id.xy), 0).xy;\n            }\n            \
+     finish_pixel(id, absolute_coord, scale, stored.a, views.x, views.y, stored.rgb);\n        }\n    \
+     } else {\n";
+const MAIN_START: &str = "@compute @workgroup_size(8, 8, 1)\nfn main(";
+
+/// The end of `main` as a function the main pass or a finish pass runs
+/// (G76/EFX): grain is 29.4k inlined expressions (four versions), the rest
+/// of the end 6.4k. With `FINISH_APART` the main pass stores the colour
+/// before grain in an Rgba32Float tile (59.9k for the Basic-panel superset
+/// with every effect, against 117.4k in one pass); with `FINISH_PASS`
+/// `main` is the pass that finishes it (35.9k with grain). The values the
+/// end takes are stored as they are, so it computes what one pass did.
+/// Before `with_effect_terms`. `None` when the source has another shape.
+fn with_finish_pass(source: &str) -> Option<String> {
+    if [FINISH_START, EFFECT_TERMS_MAIN_END, FINISH_PASS_AT, MAIN_START]
+        .iter()
+        .any(|text| source.matches(text).count() != 1)
+    {
+        return None;
+    }
+    let start = source.find(FINISH_START)?;
+    let end = source.find(EFFECT_TERMS_MAIN_END)?;
+    let entry = source.find(MAIN_START)?;
+    if !(entry < start && start < end) {
+        return None;
+    }
+    let mut out = String::with_capacity(source.len() + 4096);
+    out.push_str(&source[..entry]);
+    out.push_str(FINISH_FUNCTION);
+    out.push_str(&source[start..end]);
+    out.push_str("}\n\n");
+    out.push_str(&source[entry..start].replacen(
+        FINISH_PASS_AT,
+        &format!("{FINISH_PASS}{FINISH_PASS_AT}"),
+        1,
+    ));
+    out.push_str(FINISH_MAIN_END);
+    out.push_str(&source[end..]);
+    Some(out)
+}
 
 /// Glow and halation as terms a pass of its own computes (G76/EFX): each
 /// carries the tone stage for the blurred photo (10.9k inlined expressions
@@ -401,7 +478,7 @@ pub(crate) fn display_source(source: &str) -> String {
 /// (`with_effect_terms`): what display variants compile under a compile
 /// limit. `None` when shader.wgsl has another shape.
 pub(crate) fn display_source_with_effect_passes(source: &str) -> Option<String> {
-    with_effect_terms(&display_source(source))
+    with_effect_terms(&with_finish_pass(&display_source(source))?)
 }
 
 impl DisplayShader {
@@ -417,7 +494,7 @@ impl DisplayShader {
             Some(source) => Arc::new(Self {
                 source: source.into(),
                 parsed: OnceLock::new(),
-                effect_terms: true,
+                effect_passes: true,
             }),
             None => {
                 log::warn!("Display variants: no effect passes (shader shape)");
@@ -428,8 +505,8 @@ impl DisplayShader {
 
     /// Whether variants of this shader read glow and halation from the
     /// terms pass, which then has to run before them.
-    pub(crate) fn effect_terms(&self) -> bool {
-        self.effect_terms
+    pub(crate) fn effect_passes(&self) -> bool {
+        self.effect_passes
     }
 
     /// `source` as it is, without the display-only reshapes: what export
@@ -438,7 +515,7 @@ impl DisplayShader {
         Arc::new(Self {
             source: source.into(),
             parsed: OnceLock::new(),
-            effect_terms: false,
+            effect_passes: false,
         })
     }
 
@@ -956,6 +1033,70 @@ mod tests {
         }
         // Sources of another shape keep their code.
         assert_eq!(with_effects_apart("fn other() {}"), None);
+    }
+
+    /// The bindings a module's code uses.
+    fn bindings(module: &Module) -> Vec<u32> {
+        let mut bindings: Vec<u32> = module
+            .global_variables
+            .iter()
+            .filter_map(|(_, variable)| variable.binding.as_ref().map(|b| b.binding))
+            .collect();
+        bindings.sort_unstable();
+        bindings
+    }
+
+    /// Under a compile limit the display source has the effects in passes
+    /// of their own (G76/EFX): the main pass without their code, the terms
+    /// pass with the tone stage alone, the finish pass with grain and the
+    /// output's end alone. A shader.wgsl of another shape fails here.
+    #[test]
+    fn effect_passes_split_the_display_source() {
+        let shader = DisplayShader::with_effect_passes(SHADER);
+        assert!(shader.effect_passes());
+        let all = [
+            ("ENABLE_TONE", 1.0),
+            ("WHITES_V12", 1.0),
+            ("TONE_V5", 0.0),
+            ("ENABLE_EFFECTS", 1.0),
+            ("ENABLE_GLOW", 1.0),
+            ("ENABLE_HALATION", 1.0),
+            ("ENABLE_GRAIN", 1.0),
+        ];
+        let with = |extra: &[(&'static str, f64)]| {
+            shader.variant_module(&[&all[..], extra].concat()).unwrap()
+        };
+        let one_pass = with(&[]);
+        let main = with(&[("EFFECT_TERMS", 1.0), ("FINISH_APART", 1.0)]);
+        let terms = with(&[("EFFECT_TERMS_PASS", 1.0)]);
+        let finish = with(&[("FINISH_PASS", 1.0)]);
+        for name in ["glow_term", "apply_glow_term", "apply_film_grain", "finish_pixel"] {
+            assert!(has_function(&one_pass, name), "one pass: {name}");
+        }
+        for gone in ["glow_term", "halation_term", "apply_film_grain", "finish_pixel", "dither"] {
+            assert!(!has_function(&main, gone), "main: {gone}");
+        }
+        assert!(has_function(&main, "apply_glow_term") && has_function(&main, "apply_halation_term"));
+        for gone in ["apply_glow_term", "apply_film_grain", "finish_pixel", "apply_hsl_panel"] {
+            assert!(!has_function(&terms, gone), "terms: {gone}");
+        }
+        assert!(has_function(&terms, "glow_term") && has_function(&terms, "halation_term"));
+        for gone in ["glow_term", "apply_glow_term", "apply_tonal_adjustments", "apply_hsl_panel"] {
+            assert!(!has_function(&finish, gone), "finish: {gone}");
+        }
+        assert!(has_function(&finish, "apply_film_grain") && has_function(&finish, "finish_pixel"));
+        let sizes = [&one_pass, &main, &terms, &finish].map(inlined_size);
+        println!("one pass {}, main {}, terms {}, finish {}", sizes[0], sizes[1], sizes[2], sizes[3]);
+        println!("terms bindings {:?}", bindings(&terms));
+        println!("finish bindings {:?}", bindings(&finish));
+        assert!(sizes[1] * 2 < sizes[0] + sizes[1] && sizes[2] < sizes[1] / 2 && sizes[3] < sizes[1]);
+        // The finish pass reads the stored colour, the views and what grain
+        // and the output's end need (gpu_processing `effect_passes`).
+        assert_eq!(bindings(&finish), [0, 1, 2, 16, 25, 27, 28, 33]);
+        assert!(bindings(&main).contains(&34) && !bindings(&main).contains(&28));
+        // Sources of another shape keep one pass.
+        assert_eq!(display_source_with_effect_passes("fn other() {}"), None);
+        assert!(!DisplayShader::with_effect_passes("fn other() {}").effect_passes());
     }
 
     fn count_calls(block: &naga::Block, target: naga::Handle<naga::Function>) -> usize {

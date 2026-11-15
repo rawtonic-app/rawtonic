@@ -1515,7 +1515,7 @@ mod tests {
         // Right after the photo's frame: no idle time has passed.
         let started = Instant::now();
         let rendered_with: *const wgpu::ComputePipeline =
-            processor.preview_pipeline(&contrast, true).unwrap();
+            processor.preview_pipeline(&contrast, true).unwrap().0;
         assert!(
             started.elapsed() < Duration::from_secs(120),
             "the Contrast frame waited {:?}",
