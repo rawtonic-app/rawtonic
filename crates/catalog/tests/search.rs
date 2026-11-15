@@ -1561,3 +1561,62 @@ fn a_sidecar_found_after_the_camera_rating_is_adopted() {
 fn capture_xmp(lib: &Library, stem: &str) -> PathBuf {
     lib.directory.join(format!("Capture/{stem}.xmp"))
 }
+
+/// A hierarchical keyword (`Animals|Dogs`) is found by its own path and by
+/// each parent's (Lightroom's keyword list filter), level by level and
+/// ignoring case; the value list counts each parent once per photograph.
+#[test]
+fn a_parent_keyword_finds_and_counts_the_photographs_under_it() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    for (i, keywords) in [
+        (0, vec!["Animals|Dogs", "Animals|Cats"]),
+        (1, vec!["animals|dogs|Beagle"]),
+        (2, vec!["Animalsx", "places > asia"]),
+    ] {
+        let mut meta = lib.metadata(&ids[i]).unwrap();
+        meta.keywords = keywords.into_iter().map(String::from).collect();
+        lib.set_metadata(&ids[i], &meta).unwrap();
+    }
+    let is = |value: &str| found(&lib, json!({"field":"keyword","op":"is","value":value}));
+    assert_eq!(is("Animals"), ["DSC00123.ARW", "DSC00124.ARW"]);
+    assert_eq!(is("ANIMALS|Dogs"), ["DSC00123.ARW", "DSC00124.ARW"]);
+    assert_eq!(is("Animals|Dogs|beagle"), ["DSC00124.ARW"]);
+    assert_eq!(is("Dogs"), Vec::<String>::new());
+    // A keyword written before hierarchies keeps selecting itself only.
+    assert_eq!(is("places > asia"), ["IMG_0001.CR3"]);
+    assert_eq!(is("places"), Vec::<String>::new());
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"keyword","op":"isNot","value":"animals"})
+        ),
+        ["IMG_0001.CR3", "scan.jpg"]
+    );
+    // Text search finds a level anywhere in the path.
+    assert_eq!(
+        found(&lib, json!({"field":"text","op":"contains","value":"beagle"})),
+        ["DSC00124.ARW"]
+    );
+    let facets = lib.facets(&Rule::everything(), &[Field::Keyword]).unwrap();
+    let count = |value: &str| {
+        facets[&Field::Keyword]
+            .iter()
+            .filter(|v| v.value.to_lowercase() == value.to_lowercase())
+            .map(|v| v.count)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(count("animals"), [2]);
+    assert_eq!(count("animals|dogs"), [2]);
+    assert_eq!(count("animals|cats"), [1]);
+    assert_eq!(count("animals|dogs|beagle"), [1]);
+    assert_eq!(count("animalsx"), [1]);
+    assert_eq!(count("places > asia"), [1]);
+    // One spelling per value (the first in byte order, as before).
+    let animals: Vec<&str> = facets[&Field::Keyword]
+        .iter()
+        .filter(|v| v.value.eq_ignore_ascii_case("animals"))
+        .map(|v| v.value.as_str())
+        .collect();
+    assert_eq!(animals, ["Animals"]);
+}

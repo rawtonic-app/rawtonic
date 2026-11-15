@@ -576,6 +576,98 @@ fn remove_tag_for_paths_blocking(
     })
 }
 
+/// Renames, moves or merges the keyword `from` (with every keyword under it)
+/// to `to` on each of `paths`: `Animals|Dogs` renamed `Animals` → `Fauna`
+/// is `Fauna|Dogs`. A batch save that failed for some photographs rejects
+/// with a `SaveFailure` naming them (the others are renamed).
+#[tauri::command]
+pub async fn rename_keyword_for_paths(
+    paths: Vec<String>,
+    from: String,
+    to: String,
+    app_handle: AppHandle,
+) -> Result<(), SaveFailure> {
+    let unsaved = paths.clone();
+    let from = rawtonic_metadata::keywords::normalize(&from);
+    let to = rawtonic_metadata::keywords::normalize(&to);
+    if from.is_empty() || to.is_empty() {
+        return tag_failures_unsaved(&unsaved, "A keyword needs a name");
+    }
+    crate::file_management::blocking(move || {
+        let _job = crate::batch_journal::begin(
+            &app_handle,
+            crate::batch_journal::BatchKind::KeywordRename {
+                from: from.clone(),
+                to: to.clone(),
+            },
+            "rename_keyword_for_paths",
+            serde_json::json!({ "from": from, "to": to }),
+            None,
+            &paths,
+            crate::batch_journal::current,
+        );
+        tag_paths(&paths, &app_handle, |tags| rename_keyword_tags(tags, &from, &to))
+    })
+    .await
+    .unwrap_or_else(|error| tag_failures_unsaved(&unsaved, &error))
+}
+
+/// The keyword a tag names (without the editor's `user:` marker), or None
+/// for a colour label.
+fn tag_keyword(tag: &str) -> Option<&str> {
+    if labels::is_editor_tag(tag) {
+        return None;
+    }
+    Some(tag.strip_prefix(USER_TAG_PREFIX).unwrap_or(tag))
+}
+
+/// `tag` with its keyword renamed from `from` to `to` (a keyword under
+/// `from` keeps its levels below it); None when it is not within `from`.
+pub(crate) fn renamed_tag(tag: &str, from: &str, to: &str) -> Option<String> {
+    use rawtonic_metadata::keywords::{is_within, levels, normalize};
+    let keyword = tag_keyword(tag)?;
+    if !is_within(keyword, from) {
+        return None;
+    }
+    let rest: Vec<&str> = levels(keyword).skip(levels(from).count()).collect();
+    let path = normalize(&std::iter::once(to).chain(rest).collect::<Vec<_>>().join("|"));
+    let marker = if tag.starts_with(USER_TAG_PREFIX) { USER_TAG_PREFIX } else { "" };
+    Some(format!("{marker}{path}"))
+}
+
+/// Renames every keyword tag within `from` to `to`. A renamed keyword the
+/// photograph has already (ignoring case, as the library compares them: a
+/// merge) is kept once, in the spelling it had; the user's marker wins over
+/// an automatic tag of the same keyword.
+pub(crate) fn rename_keyword_tags(tags: &mut Vec<String>, from: &str, to: &str) {
+    let mut renamed: Vec<String> = Vec::new();
+    tags.retain(|tag| match renamed_tag(tag, from, to) {
+        Some(new) => {
+            renamed.push(new);
+            false
+        }
+        None => true,
+    });
+    for tag in renamed {
+        let Some(keyword) = tag_keyword(&tag).map(str::to_lowercase) else {
+            continue;
+        };
+        let user = tag.starts_with(USER_TAG_PREFIX);
+        match tags
+            .iter()
+            .position(|t| tag_keyword(t).is_some_and(|k| k.to_lowercase() == keyword))
+        {
+            Some(at) => {
+                if user && !tags[at].starts_with(USER_TAG_PREFIX) {
+                    let kept = tag_keyword(&tags[at]).unwrap_or_default().to_string();
+                    tags[at] = format!("{USER_TAG_PREFIX}{kept}");
+                }
+            }
+            None => tags.push(tag),
+        }
+    }
+}
+
 /// Changes the tags of each of `paths` with `modify_fn` and saves them. The
 /// photographs that saved are not named: only those not saved are (`Err`),
 /// so the frontend marks only those failed and the others as written.
@@ -712,6 +804,42 @@ fn clear_tags_under(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Renaming a keyword renames the keywords under it, keeps others and
+    /// colour labels, and merges into a keyword the photograph has.
+    #[test]
+    fn a_keyword_rename_moves_its_children_and_merges() {
+        let mut tags: Vec<String> = [
+            "user:Animals",
+            "user:animals|Dogs|Beagle",
+            "Animals|Cats",
+            "user:Animalsx",
+            "color:red",
+            "user:Fauna|cats",
+        ]
+        .map(String::from)
+        .to_vec();
+        rename_keyword_tags(&mut tags, "Animals", "Fauna");
+        assert_eq!(
+            tags,
+            [
+                "user:Animalsx",
+                "color:red",
+                "user:Fauna|cats",
+                "user:Fauna",
+                "user:Fauna|Dogs|Beagle",
+            ]
+        );
+        // A move under a new parent; a legacy flat `a > b` becomes a path.
+        let mut tags = vec!["user:Dogs".to_string(), "user:places > asia".to_string()];
+        rename_keyword_tags(&mut tags, "dogs", "Animals|Dogs");
+        rename_keyword_tags(&mut tags, "places > asia", "places|asia");
+        assert_eq!(tags, ["user:Animals|Dogs", "user:places|asia"]);
+        // An automatic tag merged into the user's keyword keeps the user's marker.
+        let mut tags = vec!["Fauna".to_string(), "user:Animals".to_string()];
+        rename_keyword_tags(&mut tags, "Animals", "fauna");
+        assert_eq!(tags, ["user:Fauna"]);
+    }
 
     /// A keyword batch whose save failed for some photographs reports exactly
     /// those paths (`SaveFailure.failed`), as the other batch writes do, so

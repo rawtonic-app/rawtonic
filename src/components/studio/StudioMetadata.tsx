@@ -14,6 +14,15 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { expandGroupedPaths } from '../../utils/imageGrouping';
 import { COLOR_LABELS } from '../../utils/adjustments';
 import { ToolGroup } from './StudioDevelop';
+import { useKnownKeywords } from '../../utils/keywordOps';
+import {
+  DISPLAY_SEPARATOR,
+  displayKeyword,
+  keywordLeaf,
+  keywordParent,
+  parseKeywordEntries,
+  resolveKeyword
+} from '../../utils/keywordTree';
 import { catalogChanged, invokeInOrder } from '../../utils/catalogWrites';
 import { submitPhotoWrite } from '../../utils/photoWrites';
 import { captureText } from '../../utils/captureTime';
@@ -231,16 +240,6 @@ export function keywordCounts(tagsByPath: (string[] | null | undefined)[]) {
   return [...counts.values()].sort((a, b) => a.keyword.localeCompare(b.keyword));
 }
 
-/** Keywords typed into the field: comma-separated, trimmed, without duplicates. */
-export function parseKeywords(text: string) {
-  const keywords: string[] = [];
-  for (const part of text.split(',')) {
-    const keyword = part.trim();
-    if (keyword && !keywords.some((k) => k.toLowerCase() === keyword.toLowerCase())) keywords.push(keyword);
-  }
-  return keywords;
-}
-
 /** Capture One's Keywords tool / Lightroom's Keywording: the keywords of the
  * selection, partial ones marked, typed keywords added to every photograph. */
 export function StudioKeywords() {
@@ -259,23 +258,35 @@ export function StudioKeywords() {
     return paths.map((path) => byPath.get(path));
   }, [imageList, paths]);
   const keywords = useMemo(() => keywordCounts(tagsByPath), [tagsByPath]);
-  const suggestions = useMemo(
-    () =>
-      keywordCounts(imageList.map((image) => image.tags))
-        .map((entry) => entry.keyword)
-        .slice(0, 500),
+  // The library's keywords (counted for the Keyword List) and the listed
+  // photographs' (outside a library, or before the first count).
+  const known = useKnownKeywords();
+  const listedKeywords = useMemo(
+    () => keywordCounts(imageList.map((image) => image.tags)).map((entry) => entry.keyword),
     [imageList]
+  );
+  const existing = useMemo(
+    () => [...known.map((value) => value.value), ...listedKeywords],
+    [known, listedKeywords]
+  );
+  // Autocomplete shows each keyword's path (`Animals > Dogs`), the most used first.
+  const suggestions = useMemo(
+    () => [...new Set(existing.map(displayKeyword))].slice(0, 500),
+    [existing]
   );
 
   const add = async (text: string) => {
-    const typed = parseKeywords(text);
+    // `Animals > Dogs`, `Animals|Dogs` and `Dogs < Animals` are one
+    // hierarchical keyword (`keywordTree.ts`).
+    const typed = parseKeywordEntries(text);
     if (!paths.length || !typed.length) return;
     try {
       const tagsOf = new Map(useLibraryStore.getState().imageList.map((image) => [image.path, image.tags]));
-      for (const typedKeyword of typed) {
-        // The UI's existing rule, as the tagging menu applies it to a typed
-        // keyword (trimmed, lowercase): that form is compared and written.
-        const keyword = typedKeyword.trim().toLowerCase();
+      for (const levels of typed) {
+        // The UI's existing rule for a typed keyword (trimmed, lowercase, as
+        // the tagging menu applies it); a path takes the library's spelling
+        // of the levels it has: that form is compared and written.
+        const keyword = resolveKeyword(levels, existing);
         if (!keyword) continue;
         // Only photographs without the keyword—as the exact string the
         // library adds—get it; each keeps its other keywords. A stored form
@@ -364,11 +375,18 @@ export function StudioKeywords() {
                       : undefined
                   }
                 >
-                  {entry.keyword}
+                  {/* A hierarchical keyword shows its path, the parents dimmed. */}
+                  {keywordParent(entry.keyword) !== null && (
+                    <span className="studio-keyword-parents">
+                      {displayKeyword(keywordParent(entry.keyword)!)}
+                      {DISPLAY_SEPARATOR}
+                    </span>
+                  )}
+                  {keywordLeaf(entry.keyword)}
                   {partial && <span aria-hidden="true">*</span>}
                   <button
-                    aria-label={t('studio.metadata.keywords.removeAria', { keyword: entry.keyword })}
-                    title={t('studio.metadata.keywords.removeTitle', { keyword: entry.keyword })}
+                    aria-label={t('studio.metadata.keywords.removeAria', { keyword: displayKeyword(entry.keyword) })}
+                    title={t('studio.metadata.keywords.removeTitle', { keyword: displayKeyword(entry.keyword) })}
                     onClick={() => void remove(entry)}
                   >
                     <X size={10} />
@@ -385,6 +403,7 @@ export function StudioKeywords() {
                 ? t('studio.metadata.keywords.addTo', { count: paths.length })
                 : t('studio.metadata.keywords.add')
             }
+            title={t('studio.metadata.keywords.hierarchyHint')}
             list="studio-keyword-suggestions"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

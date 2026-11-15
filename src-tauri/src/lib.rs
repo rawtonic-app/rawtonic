@@ -1211,6 +1211,7 @@ fn start(args: Vec<String>) {
             tagging::clear_all_tags,
             tagging::add_tag_for_paths,
             tagging::remove_tag_for_paths,
+            tagging::rename_keyword_for_paths,
             culling::cull_images,
             lens_correction::get_lensfun_makers,
             embedded_lens::get_camera_lens_profile,

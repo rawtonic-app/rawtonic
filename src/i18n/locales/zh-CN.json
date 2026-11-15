@@ -75,6 +75,7 @@
       "failed": "无法完成{{batch}}：{{error}}",
       "keywordAdd": "关键词“{{tag}}”",
       "keywordRemove": "移除关键词“{{tag}}”",
+      "keywordRename": "正在将关键字“{{from}}”重命名为“{{to}}”",
       "notWritten_other": "有 {{count}} 张照片无法写入",
       "paste": "粘贴设置",
       "preset": "预设",
@@ -3964,6 +3965,38 @@
           "showFailed": "无法显示文件夹：{{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "隐藏 {{keyword}} 下的关键字",
+        "confirm": {
+          "cancel": "取消",
+          "convert": "将“{{from}}”转换为层级“{{to}}”？",
+          "convertAction": "转换",
+          "label": "确认关键字更改",
+          "merge": "将“{{from}}”合并到“{{to}}”？“{{from}}”将被其替换。",
+          "mergeAction": "合并",
+          "move": "将“{{from}}”移到“{{to}}”？",
+          "moveAction": "移动",
+          "photos_other": "这会更改 {{count}} 张照片的关键字。",
+          "rename": "将“{{from}}”重命名为“{{to}}”？",
+          "renameAction": "重命名"
+        },
+        "empty": "尚无关键字。",
+        "expand": "显示 {{keyword}} 下的关键字",
+        "filterHint": "显示带有 {{keyword}} 及其下级关键字的照片。拖到另一个关键字上即可移到那里。",
+        "legacyHint": "“{{keyword}}”是在关键字层级之前写入的单个关键字。右键单击可转换。",
+        "menu": {
+          "clearFilter": "不再按此关键字筛选",
+          "convert": "转换为“{{path}}”",
+          "filter": "显示带有此关键字的照片",
+          "moveToTop": "移到顶层",
+          "rename": "重命名…"
+        },
+        "renameLabel": "重命名或移动 {{keyword}}：输入其路径，例如 上级 > 名称",
+        "title": "关键字列表",
+        "toasts": {
+          "renameFailed": "无法更改关键字：{{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "AI 降噪",
@@ -4405,6 +4438,7 @@
       "keywords": {
         "add": "添加关键字",
         "addTo_other": "添加到 {{count}} 张照片",
+        "hierarchyHint": "用逗号分隔关键字。“动物 > 狗”“动物|狗”或“狗 < 动物”会把狗放在动物下。",
         "none": "无关键字",
         "ofSelection": "所选内容的关键字",
         "partial_other": "{{count}} 张照片中的 {{on}} 张",

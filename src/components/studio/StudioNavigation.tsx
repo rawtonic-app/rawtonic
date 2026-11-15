@@ -51,6 +51,7 @@ import { useLibraryActions } from '../../hooks/useLibraryActions';
 import { ToolGroup } from './StudioDevelop';
 import { ToolColumn } from './toolLayout';
 import { StudioExif, StudioKeywords, StudioMetadataTool } from './StudioMetadata';
+import { StudioKeywordList } from './StudioKeywordList';
 import StudioAlbums, { type SelectAlbum } from './StudioAlbums';
 import {
   DEFAULT_FOLDER_TREE_SORT,
@@ -817,6 +818,7 @@ export default function StudioNavigation({
       <StudioFolders key="folders" onNavigate={onNavigate} actions={folderActions} />
       {onSelectAlbum && <StudioAlbums key="albums" onSelectAlbum={onSelectAlbum} />}
       {!develop && <StudioKeywords key="keywords" />}
+      {!develop && <StudioKeywordList key="keywordList" />}
       {!develop && <StudioMetadataTool key="metadata" />}
       {!develop && <StudioExif key="exif" />}
     </ToolColumn>

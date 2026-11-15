@@ -22,6 +22,7 @@ import { notify } from '../activity/notify';
 import { invokeInOrder } from './catalogWrites';
 import { catalogChanged } from './catalogEvents';
 import { writeRecipeRepair } from '../hooks/useEditorActions';
+import { displayKeyword, renameKeywordTags } from './keywordTree';
 
 /** What the batch wrote (`BatchKind` in batch_journal.rs). */
 export type InterruptedBatchKind =
@@ -31,7 +32,8 @@ export type InterruptedBatchKind =
   | { kind: 'rating'; rating: number }
   | { kind: 'color'; color: string | null }
   | { kind: 'keywordAdd'; tag: string }
-  | { kind: 'keywordRemove'; tag: string };
+  | { kind: 'keywordRemove'; tag: string }
+  | { kind: 'keywordRename'; from: string; to: string };
 
 /** `InterruptedBatch` in batch_journal.rs. */
 export interface InterruptedBatch {
@@ -61,6 +63,11 @@ function batchName({ batch }: InterruptedBatch): string {
       return i18n.t('activity.interrupted.keywordAdd', { tag: batch.tag });
     case 'keywordRemove':
       return i18n.t('activity.interrupted.keywordRemove', { tag: batch.tag });
+    case 'keywordRename':
+      return i18n.t('activity.interrupted.keywordRename', {
+        from: displayKeyword(batch.from),
+        to: displayKeyword(batch.to)
+      });
     default:
       return i18n.t(`activity.interrupted.${batch.kind}`);
   }
@@ -126,6 +133,25 @@ export async function undoApplied(batch: InterruptedBatch) {
     case 'keywordRemove':
       await invokeInOrder(Invokes.AddTagForPaths, { paths, tag: batch.batch.tag }, 'keyword');
       return;
+    case 'keywordRename': {
+      // Each photograph's tags within either name before the rename: those
+      // go back, the ones the rename made (and it had not) go.
+      const { from, to } = batch.batch;
+      const adds = new Map<string, string[]>();
+      const removes = new Map<string, string[]>();
+      const push = (map: Map<string, string[]>, tag: string, path: string) =>
+        map.set(tag, [...(map.get(tag) ?? []), path]);
+      for (const entry of undo) {
+        const before = Array.isArray(entry.before) ? entry.before.map(String) : [];
+        for (const tag of before) push(adds, tag, entry.path);
+        for (const tag of renameKeywordTags(before, from, to)) if (!before.includes(tag)) push(removes, tag, entry.path);
+      }
+      for (const [tag, tagPaths] of adds)
+        await invokeInOrder(Invokes.AddTagForPaths, { paths: tagPaths, tag }, 'keyword');
+      for (const [tag, tagPaths] of removes)
+        await invokeInOrder(Invokes.RemoveTagForPaths, { paths: tagPaths, tag }, 'keyword');
+      return;
+    }
   }
 }
 

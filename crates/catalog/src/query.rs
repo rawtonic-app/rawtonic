@@ -796,9 +796,17 @@ impl<'a> Compiler<'a> {
             Field::Lens => self.text_column("a.lens", op, value),
             Field::Keyword => match op {
                 Op::Is | Op::IsNot => {
-                    self.push(text_value(value)?);
+                    // A keyword and every keyword under it (`Animals` finds a
+                    // photograph keyworded `Animals|Dogs`), as Lightroom's
+                    // keyword list and filter count a parent.
+                    // A keyword written before hierarchies (`a > b`, or with
+                    // spaces around `|`) still selects what it counts.
+                    let path = text_value(value)?;
+                    self.push(path.clone());
+                    self.push(path);
                     let test = "EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id \
-                                AND rawtonic_fold(k.keyword)=rawtonic_fold(?))";
+                                AND (rawtonic_fold(k.keyword)=rawtonic_fold(?) \
+                                     OR rawtonic_keyword_within(k.keyword, ?)))";
                     Ok(if op == Op::Is {
                         test.into()
                     } else {
@@ -1601,24 +1609,50 @@ impl Library {
             .collect();
         if fields.contains(&Field::Keyword) {
             // Keywords differing only in case are one value (folded as the
-            // keyword rules compare), with one of their spellings. CROSS JOIN
+            // keyword rules compare), with one of their spellings. A
+            // hierarchical keyword counts for each of its parents too
+            // (`Animals|Dogs` for `Animals`), each photograph once, as the
+            // keyword rule selects a parent with its children. CROSS JOIN
             // keeps the matches as the outer loop: SQLite would
             // otherwise walk every keyword and look its photograph up
             // (10× slower for a narrow search, measured on 50,000).
             let mut query = self.conn.prepare(&format!(
-                "SELECT min(k.keyword), count(DISTINCT a.id) AS n FROM {} CROSS JOIN asset_keywords k ON k.asset_id=a.id
-                 WHERE {} GROUP BY rawtonic_fold(k.keyword) ORDER BY n DESC, rawtonic_fold(k.keyword)",
+                "SELECT a.id, k.keyword FROM {} CROSS JOIN asset_keywords k ON k.asset_id=a.id
+                 WHERE {} ORDER BY a.id",
                 compiled.from(false, false),
                 compiled.condition
             ))?;
-            let mut values: Vec<FacetValue> = query
-                .query_map(compiled.params().as_slice(), |r| {
-                    Ok(FacetValue {
-                        value: r.get(0)?,
-                        count: r.get::<_, i64>(1)? as usize,
-                    })
-                })?
-                .collect::<rusqlite::Result<_>>()?;
+            // Folded path → (spelling, photographs, the last photograph counted).
+            let mut tally: HashMap<String, (String, usize, i64)> = HashMap::new();
+            let mut photo: Option<String> = None;
+            let mut nth: i64 = 0;
+            let mut rows = query.query(compiled.params().as_slice())?;
+            while let Some(row) = rows.next()? {
+                let id: String = row.get(0)?;
+                if photo.as_deref() != Some(id.as_str()) {
+                    nth += 1;
+                    photo = Some(id);
+                }
+                let keyword: String = row.get(1)?;
+                for path in rawtonic_metadata::keywords::with_ancestors(&keyword) {
+                    let entry = tally
+                        .entry(crate::fold(&path))
+                        .or_insert_with(|| (path.clone(), 0, 0));
+                    if path < entry.0 {
+                        entry.0 = path;
+                    }
+                    if entry.2 != nth {
+                        entry.1 += 1;
+                        entry.2 = nth;
+                    }
+                }
+            }
+            let mut values: Vec<(String, FacetValue)> = tally
+                .into_iter()
+                .map(|(folded, (value, count, _))| (folded, FacetValue { value, count }))
+                .collect();
+            values.sort_by(|(a, x), (b, y)| y.count.cmp(&x.count).then_with(|| a.cmp(b)));
+            let mut values: Vec<FacetValue> = values.into_iter().map(|(_, v)| v).collect();
             // And the photographs without any ("No keyword", the `empty` rule).
             let without: i64 = self.conn.query_row(
                 &format!(

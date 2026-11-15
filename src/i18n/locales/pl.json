@@ -99,6 +99,7 @@
       "failed": "Nie udało się dokończyć: {{batch}}: {{error}}",
       "keywordAdd": "Słowo kluczowe „{{tag}}”",
       "keywordRemove": "Usuwanie słowa kluczowego „{{tag}}”",
+      "keywordRename": "Zmiana nazwy słowa kluczowego „{{from}}” na „{{to}}”",
       "notWritten_one": "Nie udało się zapisać {{count}} zdjęcia",
       "notWritten_few": "Nie udało się zapisać {{count}} zdjęć",
       "notWritten_many": "Nie udało się zapisać {{count}} zdjęć",
@@ -4450,6 +4451,41 @@
           "showFailed": "Nie udało się pokazać folderu: {{error}}"
         }
       },
+      "keywordList": {
+        "collapse": "Ukryj słowa kluczowe pod {{keyword}}",
+        "confirm": {
+          "cancel": "Anuluj",
+          "convert": "Przekształcić „{{from}}” w hierarchię „{{to}}”?",
+          "convertAction": "Przekształć",
+          "label": "Potwierdź zmianę słowa kluczowego",
+          "merge": "Scalić „{{from}}” z „{{to}}”? „{{from}}” zostanie nim zastąpione.",
+          "mergeAction": "Scal",
+          "move": "Przenieść „{{from}}” do „{{to}}”?",
+          "moveAction": "Przenieś",
+          "photos_one": "To zmieni słowa kluczowe {{count}} zdjęcia.",
+          "photos_few": "To zmieni słowa kluczowe {{count}} zdjęć.",
+          "photos_many": "To zmieni słowa kluczowe {{count}} zdjęć.",
+          "photos_other": "To zmieni słowa kluczowe {{count}} zdjęcia.",
+          "rename": "Zmienić nazwę „{{from}}” na „{{to}}”?",
+          "renameAction": "Zmień nazwę"
+        },
+        "empty": "Brak słów kluczowych.",
+        "expand": "Pokaż słowa kluczowe pod {{keyword}}",
+        "filterHint": "Pokaż zdjęcia z {{keyword}} i słowami kluczowymi pod nim. Przeciągnij na inne słowo kluczowe, aby je tam przenieść.",
+        "legacyHint": "„{{keyword}}” to jedno słowo kluczowe zapisane przed hierarchiami. Kliknij prawym przyciskiem, aby je przekształcić.",
+        "menu": {
+          "clearFilter": "Przestań filtrować według tego słowa kluczowego",
+          "convert": "Przekształć w „{{path}}”",
+          "filter": "Pokaż zdjęcia z tym słowem kluczowym",
+          "moveToTop": "Przenieś na najwyższy poziom",
+          "rename": "Zmień nazwę…"
+        },
+        "renameLabel": "Zmień nazwę lub przenieś {{keyword}}: wpisz ścieżkę, np. Nadrzędne > Nazwa",
+        "title": "Lista słów kluczowych",
+        "toasts": {
+          "renameFailed": "Nie udało się zmienić słów kluczowych: {{error}}"
+        }
+      },
       "metadataFilter": {
         "aiFacts": {
           "aiDenoise": "Odszumianie AI",
@@ -4917,6 +4953,7 @@
         "addTo_few": "Dodaj do {{count}} zdjęć",
         "addTo_many": "Dodaj do {{count}} zdjęć",
         "addTo_other": "Dodaj do {{count}} zdjęcia",
+        "hierarchyHint": "Oddzielaj słowa kluczowe przecinkami. „Zwierzęta > Psy”, „Zwierzęta|Psy” lub „Psy < Zwierzęta” umieszcza Psy pod Zwierzęta.",
         "none": "Brak słów kluczowych",
         "ofSelection": "Słowa kluczowe zaznaczenia",
         "partial_one": "Na {{on}} z {{count}} zdjęcia",

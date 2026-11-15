@@ -296,6 +296,7 @@ export enum Invokes {
   RemoveTagForPaths = 'remove_tag_for_paths',
   PreviewRename = 'preview_rename',
   RenameFiles = 'rename_files',
+  RenameKeywordForPaths = 'rename_keyword_for_paths',
   RenameFolder = 'rename_folder',
   UndoFileOperation = 'undo_file_operation',
   RedoFileOperation = 'redo_file_operation',

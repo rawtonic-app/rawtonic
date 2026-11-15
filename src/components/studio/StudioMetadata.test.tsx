@@ -10,7 +10,6 @@ import {
   StudioMetadataTool,
   useTextMetadataCache,
   keywordCounts,
-  parseKeywords,
   sharedValue,
   formatBytes
 } from './StudioMetadata';
@@ -21,6 +20,7 @@ import { PHOTO_WRITES_SETTLED } from '../../utils/photoWrites';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import type { AppSettings, ImageFile } from '../ui/AppProperties';
 
+import { parseKeywordEntries } from '../../utils/keywordTree';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../../activity/notify', () => ({ notify: { error: vi.fn() } }));
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
@@ -72,7 +72,7 @@ describe('keyword helpers', () => {
     ]);
   });
   it('splits typed keywords at commas and drops duplicates', () => {
-    expect(parseKeywords(' harbour, Pier ,, harbour ,pier')).toEqual(['harbour', 'Pier']);
+    expect(parseKeywordEntries(' harbour, Pier ,, harbour ,pier')).toEqual([['harbour'], ['Pier']]);
   });
   it('reports mixed values as null', () => {
     expect(
@@ -186,6 +186,33 @@ describe('Keywords tool', () => {
       ['dog', false],
       ['Dog', true]
     ]);
+  });
+
+  it('reads typed hierarchies in the three entry forms and spells them as the library does', async () => {
+    useLibraryStore.setState({
+      imageList: [file('/job/Capture/a.arw', ['user:Animals|Dogs']), file('/job/Capture/b.arw', null)],
+      multiSelectedPaths: ['/job/Capture/a.arw', '/job/Capture/b.arw']
+    });
+    mockInvoke.mockResolvedValue(undefined);
+    render(<StudioKeywords />);
+    // The path shows with its parents (dimmed) before the keyword's own name.
+    expect(document.querySelector('.studio-keyword')?.textContent).toContain('Animals > Dogs');
+    const input = screen.getByLabelText('Add keywords');
+    fireEvent.change(input, { target: { value: 'Dogs < Animals, animals > Cats, Places|Europe|Alps' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    const paths = ['/job/Capture/a.arw', '/job/Capture/b.arw'];
+    expect(mockInvoke).toHaveBeenCalledWith('add_tag_for_paths', { paths, tag: 'user:Animals|Dogs' });
+    expect(mockInvoke).toHaveBeenCalledWith('add_tag_for_paths', { paths, tag: 'user:Animals|cats' });
+    expect(mockInvoke).toHaveBeenCalledWith('add_tag_for_paths', { paths, tag: 'user:places|europe|alps' });
+    const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
+    expect(tags['/job/Capture/b.arw']).toEqual(['user:Animals|Dogs', 'user:Animals|cats', 'user:places|europe|alps']);
+    // Autocomplete offers each path in its display form.
+    const options = [...document.querySelectorAll('#studio-keyword-suggestions option')].map((o) =>
+      o.getAttribute('value')
+    );
+    expect(options).toContain('Animals > Dogs');
   });
 
   it('normalises a typed keyword as the tagging menu does before comparing it', async () => {
