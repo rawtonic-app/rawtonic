@@ -120,12 +120,20 @@ describe('develop defaults', () => {
     expect(edited.developDefaults).toBeUndefined();
   });
 
-  it('shows the defaults in the before, unless the edit started neutral', () => {
-    const edit = { ...withDevelopDefaults(initialAdjustmentsFor(true), resolved), exposure: 1 };
-    const before = originalPreviewAdjustments(edit, null, true, resolved);
+  it('shows in the before the defaults its edit began with, never later ones', () => {
+    // Begun with Contrast +20 / Vibrance 5; the defaults changed since (the
+    // before takes nothing from today's).
+    const edit = { ...withDevelopDefaults(initialAdjustmentsFor(true), resolved), contrast: 35, exposure: 1 };
+    expect(edit.developDefaultsSettings).toEqual(resolved.settings);
+    const before = originalPreviewAdjustments(edit, null, true);
     expect(before.contrast).toBe(20);
+    expect(before.vibrance).toBe(5);
     expect(before.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
-    const neutralEdit = { ...withoutDevelopDefaults(initialAdjustmentsFor(true)), exposure: 1 };
-    expect(originalPreviewAdjustments(neutralEdit, null, true, resolved).contrast).toBe(INITIAL_ADJUSTMENTS.contrast);
+    // Begun neutral, or before develop defaults: a neutral before.
+    const neutralEdit = { ...withoutDevelopDefaults(edit), contrast: 35 };
+    expect(neutralEdit).not.toHaveProperty('developDefaultsSettings');
+    expect(originalPreviewAdjustments(neutralEdit, null, true).contrast).toBe(INITIAL_ADJUSTMENTS.contrast);
+    const older = { ...initialAdjustmentsFor(true), contrast: 35 };
+    expect(originalPreviewAdjustments(older, null, true).contrast).toBe(INITIAL_ADJUSTMENTS.contrast);
   });
 });

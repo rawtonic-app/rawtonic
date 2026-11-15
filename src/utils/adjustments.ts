@@ -798,6 +798,8 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * to neutral). Missing: started before develop defaults, or none set.
    * Per photo, never copied (src/utils/developDefaults.ts). */
   developDefaults?: string[];
+  /** The settings those defaults gave it, for its Before (never copied). */
+  developDefaultsSettings?: Record<string, unknown>;
   sectionVisibility: SectionVisibility;
   /** View state, never saved (`NON_COPYABLE_ADJUSTMENT_KEYS`): the
    * renderer's clipping warnings, `showClippingValue`
@@ -2810,6 +2812,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'renderVersion',
   'sourceFrameVersion',
   'developDefaults',
+  'developDefaultsSettings',
   'sectionVisibility',
   'showClipping'
 ];

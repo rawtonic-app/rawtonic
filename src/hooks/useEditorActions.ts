@@ -71,6 +71,7 @@ import { cameraCropFor, withCameraCrop, type CameraCrops } from '../utils/camera
 import { shownNotEdited } from '../utils/shownNotEdited';
 import {
   DEVELOP_DEFAULTS_KEY,
+  DEVELOP_DEFAULTS_SETTINGS_KEY,
   followsDefaults,
   withDevelopDefaults,
   withoutDevelopDefaults,
@@ -414,7 +415,11 @@ export function showNewDevelopDefaults(path: string, photoDefaults: PhotoDefault
   // frame, crop or lens keys), then with the new ones.
   const plain = editorRecipe(opened.saved, isRaw, opened.width, opened.height, opened.camera, opened.crops, null);
   const next = { ...opened.shown } as Record<string, unknown>;
-  for (const key of [...Object.keys(opened.defaults?.settings ?? {}), DEVELOP_DEFAULTS_KEY]) {
+  for (const key of [
+    ...Object.keys(opened.defaults?.settings ?? {}),
+    DEVELOP_DEFAULTS_KEY,
+    DEVELOP_DEFAULTS_SETTINGS_KEY
+  ]) {
     const value = (plain as unknown as Record<string, unknown>)[key];
     if (value === undefined) delete next[key];
     else next[key] = value;

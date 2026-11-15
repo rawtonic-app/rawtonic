@@ -30,6 +30,11 @@ use serde_json::{Map, Value};
 /// `[]` for none (a Reset to neutral, or no default for the photo).
 pub const KEY: &str = "developDefaults";
 
+/// The recipe key keeping the settings those levels gave the new edit, so
+/// the photo's Before shows the defaults its edit began with, never later
+/// ones (written with `KEY` when any level applied).
+pub const SETTINGS_KEY: &str = "developDefaultsSettings";
+
 /// Level names written under `KEY`.
 pub const GLOBAL: &str = "global";
 pub const CAMERA: &str = "camera";
@@ -43,6 +48,7 @@ pub const BODY: &str = "body";
 /// new edit's invariants if a hand-edited file carried them.
 const NEVER_DEFAULTED: &[&str] = &[
     KEY,
+    SETTINGS_KEY,
     "renderVersion",
     "sourceFrameVersion",
     "lensProfileFor",
@@ -347,13 +353,18 @@ pub fn for_path(path: &Path) -> Option<Resolved> {
 }
 
 /// Puts `resolved` onto a recipe that has just started as a new edit:
-/// its settings over the new edit's and `KEY` with its levels.
+/// its settings over the new edit's, `KEY` with its levels and
+/// `SETTINGS_KEY` with the settings (the photo's Before).
 pub fn apply_resolved(recipe: &mut Value, resolved: &Resolved) {
     if let Some(map) = recipe.as_object_mut() {
         for (key, value) in &resolved.settings {
             map.insert(key.clone(), value.clone());
         }
         map.insert(KEY.to_string(), serde_json::json!(resolved.levels));
+        map.insert(
+            SETTINGS_KEY.to_string(),
+            Value::Object(resolved.settings.clone()),
+        );
     }
 }
 
@@ -485,7 +496,7 @@ mod tests {
                 name: None,
                 settings: settings(json!({
                     "exposure": 0.5, "crop": {"x": 0}, "masks": [], "renderVersion": 1,
-                    "developDefaults": ["x"], "aiPatches": []
+                    "developDefaults": ["x"], "developDefaultsSettings": {}, "aiPatches": []
                 })),
             }),
             ..Default::default()
@@ -511,7 +522,11 @@ mod tests {
         );
         assert_eq!(
             recipe,
-            json!({"contrast": 10, "developDefaults": ["global"]})
+            json!({
+                "contrast": 10,
+                "developDefaults": ["global"],
+                "developDefaultsSettings": {"contrast": 10}
+            })
         );
         assert!(!crate::image_processing::is_new_recipe(&recipe));
     }

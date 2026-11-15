@@ -146,6 +146,7 @@ interface OldAdjustments {
   renderVersion?: number;
   sourceFrameVersion?: number;
   developDefaults?: string[];
+  developDefaultsSettings?: Record<string, unknown>;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;

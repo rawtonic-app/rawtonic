@@ -1,5 +1,4 @@
 import { Adjustments, INITIAL_ADJUSTMENTS, RAW_DETAIL_DEFAULTS } from './adjustments';
-import type { ResolvedDefaults } from './developDefaults';
 
 /**
  * Recipe keys that place the photograph in the frame: crop, orientation,
@@ -75,10 +74,7 @@ export function framingSignature(adjustments: Partial<Adjustments>): string {
 export function originalPreviewAdjustments(
   adjustments: Adjustments,
   snapshot?: Adjustments | null,
-  isRaw = false,
-  /** The user's develop defaults for the photo (src/utils/developDefaults.ts):
-   * part of "as imported", unless its edit started neutral (`developDefaults` []). */
-  defaults?: ResolvedDefaults | null
+  isRaw = false
 ): Adjustments {
   const original: Adjustments = { ...(snapshot ?? INITIAL_ADJUSTMENTS) };
   const target = original as unknown as Record<string, unknown>;
@@ -100,8 +96,11 @@ export function originalPreviewAdjustments(
       original.sharpenVersion = adjustments.sharpenVersion;
       original.lumaNoiseVersion = adjustments.lumaNoiseVersion;
     }
-    if (defaults && !(adjustments.developDefaults && adjustments.developDefaults.length === 0)) {
-      Object.assign(original, structuredClone(defaults.settings));
+    // As imported includes the develop defaults its edit began with (its
+    // record), never the defaults of today (src/utils/developDefaults.ts).
+    const defaults = adjustments.developDefaults?.length ? adjustments.developDefaultsSettings : null;
+    if (defaults) {
+      Object.assign(original, structuredClone(defaults));
       // The decode stays Develop's (see above).
       original.colorNoiseVersion = adjustments.colorNoiseVersion;
     }

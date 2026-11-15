@@ -26,6 +26,8 @@ import { expressPastedSettings } from './pastedVersions';
 
 /** The recipe key recording the levels a new edit started with (`develop_defaults::KEY`). */
 export const DEVELOP_DEFAULTS_KEY = 'developDefaults';
+/** The settings those levels gave it (`develop_defaults::SETTINGS_KEY`): its Before. */
+export const DEVELOP_DEFAULTS_SETTINGS_KEY = 'developDefaultsSettings';
 
 export type DefaultLevel = 'global' | 'camera' | 'body';
 
@@ -74,6 +76,7 @@ const PER_PHOTO_KEYS = new Set<string>([
   ...ADJUSTMENT_GROUPS.masks.flatMap((group) => group.keys),
   ...NON_COPYABLE_ADJUSTMENT_KEYS,
   DEVELOP_DEFAULTS_KEY,
+  DEVELOP_DEFAULTS_SETTINGS_KEY,
   'colorLabel',
   'lensProfileFor'
 ]);
@@ -98,12 +101,17 @@ export function withDevelopDefaults(recipe: Adjustments, resolved: ResolvedDefau
   return {
     ...recipe,
     ...(structuredClone(resolved.settings) as Partial<Adjustments>),
-    developDefaults: [...resolved.levels]
+    developDefaults: [...resolved.levels],
+    developDefaultsSettings: structuredClone(resolved.settings)
   };
 }
 
 /** The neutral new edit's record: no defaults (Reset to neutral). */
-export const withoutDevelopDefaults = (recipe: Adjustments): Adjustments => ({ ...recipe, developDefaults: [] });
+export function withoutDevelopDefaults(recipe: Adjustments): Adjustments {
+  const out: Adjustments = { ...recipe, developDefaults: [] };
+  delete out.developDefaultsSettings;
+  return out;
+}
 
 /** The default settings of a full recipe `full`: its keys that differ from
  * the neutral new edit `base`, without the photo's own. */
