@@ -8,7 +8,7 @@
 
 ### Fixes
 
-- **Import: Z no longer shows an empty frame on Windows.** In the import dialog's large view, Z (or a click) to 100 % and back showed nothing for a moment (65–98 ms measured on a Windows laptop) before the enlarged preview or the real pixels appeared, because the webview painted the newly made image only once it had decoded it again. The photograph now stays on screen through the zoom: the shown preview itself grows to the 100 % size, and the full-size pixels replace it only once they are ready to draw. Measured in Chromium (the engine of Windows' webview) on Linux with the real view: 0 empty frames over 18 zooms in and out (before: an empty frame after each).
+- **Import: Z and the arrow keys no longer show an empty frame on Windows.** In the import dialog's large view, Z (or a click) to 100 % and back, and stepping to the next photograph, showed nothing for a moment (65–98 ms measured on a Windows laptop after Z) before the enlarged preview or the real pixels appeared, because the webview draws a newly made image only once it has decoded it again. The photograph now stays on screen: the shown preview itself grows to the 100 % size, the full-size pixels replace it only once they are ready to draw, and when stepping the previous photograph stays up until the next one can be drawn, as in Lightroom. Measured in Chromium (the engine of Windows' webview) on Linux with the real view: 0 empty frames in 18 zooms and 6 steps (before: an empty frame after each). "100 %" now appears when its pixels are on screen.
 
 ## 0.1.0-alpha.15 — 2026-11-15
 
