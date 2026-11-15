@@ -97,6 +97,10 @@ Nested locks in use (earlier one held while the later one is taken):
    `gpu_image_cache` (building the preview base under its lock, `editor_preview::process_preview_job`;
    each taken alone).
 
+`color_noise_view` (the fit view's colour noise correction) takes its own locks (`correction`,
+`corrected`, `builds`) each alone, never under another `DevelopSession` lock; its build thread
+submits the correction's frame to `PreviewState.preview_jobs` with none held.
+
 Every other access holds one `DevelopSession` lock for one step. The sites outside `state/` keep
 their lock calls (`lock().unwrap()` or recovery) until their context's part of 3.3; `invalidate`
 recovers poisoned locks (`lock_recover`), where `clear_image_caches` skipped a poisoned one.

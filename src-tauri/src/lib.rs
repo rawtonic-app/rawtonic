@@ -34,6 +34,7 @@ mod camera_tethering;
 mod capture_time;
 mod catalog_subset;
 mod collage;
+mod color_noise_view;
 mod content_search;
 mod contribute;
 mod costyle;

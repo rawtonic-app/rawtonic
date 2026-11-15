@@ -2599,6 +2599,75 @@ pub fn apply_to_linear(
     )
 }
 
+/// What [`apply_to_linear`] changes in `image` (linear RGB), resampled to
+/// `width` x `height` (Lanczos3, signed; [`crate::lanczos::resize_signed`]):
+/// the export's colour noise reduction at full resolution for views
+/// rendered from a reduced copy of `image`, which add it to that copy and
+/// render without their own colour noise reduction (a reduced frame's
+/// finest level is one of the export's coarse levels, so the filter run on
+/// it leaves 1.5–3 × the export's chroma noise; notes:
+/// benchmark-results/tpx-thumb-parity-2026-11-12/REPORT.md, TPX3/TPX4).
+/// The resampling is linear, so the reduced copy plus this is the filtered
+/// image reduced the same way. None at Amount 0 or for an image too small
+/// for the pyramid.
+pub fn reduced_correction(
+    image: &DynamicImage,
+    settings: Settings,
+    tuning: &Tuning,
+    width: u32,
+    height: u32,
+) -> Option<image::Rgb32FImage> {
+    let pyramid = ChromaPyramid::build_for(image, true, tuning)?;
+    let thresholds = tuning.thresholds(settings, &pyramid.noise_for(tuning));
+    if thresholds.iter().all(|t| *t <= 0.0) {
+        return None;
+    }
+    let source = match image {
+        DynamicImage::ImageRgb32F(buffer) => std::borrow::Cow::Borrowed(buffer),
+        other => std::borrow::Cow::Owned(other.to_rgb32f()),
+    };
+    let mut delta = apply_with(
+        &source,
+        &pyramid,
+        &thresholds,
+        tuning.base_sigma(settings),
+        tuning,
+    );
+    drop(pyramid);
+    delta
+        .as_mut()
+        .par_chunks_mut(1 << 16)
+        .zip(source.as_raw().par_chunks(1 << 16))
+        .for_each(|(d, s)| {
+            for (d, s) in d.iter_mut().zip(s) {
+                *d -= s;
+            }
+        });
+    drop(source);
+    Some(crate::lanczos::resize_signed(&delta, width, height))
+}
+
+/// `image`, a reduced copy of the image a [`reduced_correction`] was made
+/// for, with that correction added (resampled to its size), negative
+/// values cut at 0 as [`crate::image_processing::resample_f32_image`] cuts
+/// its ringing.
+pub fn add_reduced_correction(
+    mut image: image::Rgb32FImage,
+    delta: &image::Rgb32FImage,
+) -> image::Rgb32FImage {
+    let delta = crate::lanczos::resize_signed(delta, image.width(), image.height());
+    image
+        .as_mut()
+        .par_chunks_mut(1 << 16)
+        .zip(delta.as_raw().par_chunks(1 << 16))
+        .for_each(|(v, d)| {
+            for (v, d) in v.iter_mut().zip(d) {
+                *v = (*v + d).max(0.0);
+            }
+        });
+    image
+}
+
 /// [`apply_to_linear`] with a built pyramid and thresholds.
 pub fn apply_with(
     image: &image::Rgb32FImage,
@@ -2824,6 +2893,50 @@ mod tests {
                 p * p
             }))
         })
+    }
+
+    /// The reduced correction added to a reduced copy is the filtered image
+    /// reduced the same way (the resampling is linear), and it removes the
+    /// chroma noise the filter removes.
+    #[test]
+    fn reduced_correction_is_the_filtered_image_reduced() {
+        let image = noisy(384, 256, 0.02, true, 7);
+        let settings = Settings {
+            amount: 0.5,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        let tuning = Tuning::for_version(VERSION);
+        let filtered = apply_to_linear(&image, settings, &tuning);
+        let (w, h) = (150, 100);
+        let delta = reduced_correction(
+            &DynamicImage::ImageRgb32F(image.clone()),
+            settings,
+            &tuning,
+            w,
+            h,
+        )
+        .unwrap();
+        assert_eq!(delta.dimensions(), (w, h));
+        let reduced = crate::lanczos::resize_scene_linear(&image, w, h);
+        let corrected = add_reduced_correction(reduced, &delta);
+        let expected = crate::lanczos::resize_scene_linear(&filtered, w, h);
+        let worst = corrected
+            .iter()
+            .zip(expected.iter())
+            .map(|(c, e)| (c - e).abs())
+            .fold(0.0f32, f32::max);
+        assert!(worst < 1e-5, "worst {worst}");
+        // It changes the noisy half's chroma, so it is not empty.
+        let energy: f32 = delta.iter().map(|v| v * v).sum::<f32>() / delta.len() as f32;
+        assert!(energy > 1e-7, "energy {energy}");
+        let zero = Settings {
+            amount: 0.0,
+            ..settings
+        };
+        assert!(
+            reduced_correction(&DynamicImage::ImageRgb32F(image), zero, &tuning, w, h).is_none()
+        );
     }
 
     /// RMS of level-0 detail of a whole image (what the estimator should
