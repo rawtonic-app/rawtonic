@@ -612,6 +612,28 @@
         },
         {
           "kind": "item",
+          "id": "cmd:compare_left_right",
+          "label": "Before/After: Split left/right",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyY",
+          "checked": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:compare_top_bottom",
+          "label": "Before/After: Split top/bottom",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:compare_side_by_side",
+          "label": "Before/After: Side by side",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
           "id": "cmd:toggle_original",
           "label": "Before (Whole Photo)",
           "enabled": false,
