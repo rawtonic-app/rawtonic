@@ -422,6 +422,8 @@ pub fn release_for_cold_helper_compiles(app: &tauri::AppHandle) {
             unload_and_notify(&app, UnloadReason::Idle);
         }
         crate::memory_pressure::release_rebuildable_memory(&app);
+        // Seen in a first session only (a few lines per cold compile).
+        log::info!("Rebuildable memory released beside a cold shader compile");
     }));
 }
 
