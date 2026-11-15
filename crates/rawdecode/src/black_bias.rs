@@ -235,26 +235,47 @@ impl ShadowMeans {
                 (f.floor() as usize, f.fract())
             }
         };
-        rgb.par_chunks_mut(width)
-            .enumerate()
-            .map(|(r, line)| {
-                let (by, ty) = axis(r);
-                let mut changed = 0;
-                for (c, p) in line.iter_mut().enumerate() {
-                    let (bx, tx) = axis(c);
+        // The gains of a row's pixels interpolated along it depend on its
+        // block row alone: each band of rows with the same block row (about
+        // `BLOCK` of them) takes them from one table, None where all four
+        // gains around the pixel are 1 (the pixel stays).
+        let columns: Vec<(usize, f32)> = (0..width).map(axis).collect();
+        let along = |by: usize| -> Vec<Option<([f32; 3], [f32; 3])>> {
+            columns
+                .iter()
+                .map(|&(bx, tx)| {
                     let g00 = gain_at(bx, by);
                     let g10 = gain_at(bx + 1, by);
                     let g01 = gain_at(bx, by + 1);
                     let g11 = gain_at(bx + 1, by + 1);
                     if [g00, g10, g01, g11].iter().all(|g| *g == [1.0; 3]) {
-                        continue;
+                        return None;
                     }
-                    for k in 0..3 {
-                        let top = g00[k] + (g10[k] - g00[k]) * tx;
-                        let bottom = g01[k] + (g11[k] - g01[k]) * tx;
-                        p[k] *= top + (bottom - top) * ty;
+                    let top = [0, 1, 2].map(|k| g00[k] + (g10[k] - g00[k]) * tx);
+                    let bottom = [0, 1, 2].map(|k| g01[k] + (g11[k] - g01[k]) * tx);
+                    Some((top, bottom))
+                })
+                .collect()
+        };
+        rgb.par_chunks_mut(width * BLOCK)
+            .enumerate()
+            .map(|(chunk, lines)| {
+                let mut table: Option<(usize, Vec<Option<([f32; 3], [f32; 3])>>)> = None;
+                let mut changed = 0;
+                for (j, line) in lines.chunks_mut(width).enumerate() {
+                    let (by, ty) = axis(chunk * BLOCK + j);
+                    if table.as_ref().is_none_or(|(at, _)| *at != by) {
+                        table = Some((by, along(by)));
                     }
-                    changed += 1;
+                    let Some((_, row)) = &table else { continue };
+                    for (p, gains) in line.iter_mut().zip(row) {
+                        if let Some((top, bottom)) = gains {
+                            for k in 0..3 {
+                                p[k] *= top[k] + (bottom[k] - top[k]) * ty;
+                            }
+                            changed += 1;
+                        }
+                    }
                 }
                 changed
             })
@@ -391,8 +412,38 @@ pub fn masked_black(
 }
 
 #[cfg(test)]
+#[path = "black_bias_reference.rs"]
+mod black_bias_reference;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The per-band gain rows restore every pixel as the per-pixel
+    /// interpolation did, bit for bit: dark ramps (partly restored), odd
+    /// sizes (partial blocks), bright areas (left alone) and scales.
+    #[test]
+    fn restore_matches_the_reference_bit_for_bit() {
+        let color = |r: usize, c: usize| (r % 2) + (c % 2);
+        let mut seed = 11u64;
+        for (low, high, scale) in [(0.0, 0.004, [1.0; 3]), (-0.001, 0.02, [2.1, 1.0, 1.7]), (0.2, 0.6, [1.0; 3])] {
+            let (w, mosaic) = ramp(low, high, &mut seed);
+            for cut in [0usize, 7, 13] {
+                let w2 = w - cut;
+                let rows = mosaic.len() / w - cut;
+                let at = |r: usize, c: usize| mosaic[r * w + c];
+                let means = ShadowMeans::measure(w2, rows, at, color);
+                let rgb: Vec<[f32; 3]> = (0..rows * w2)
+                    .map(|i| [at(i / w2, i % w2).max(0.0) * 1.3, at(i / w2, i % w2).max(0.0), at(i / w2, i % w2).abs()])
+                    .collect();
+                let (mut new, mut old) = (rgb.clone(), rgb);
+                let a = means.restore(&mut new, w2, scale);
+                let b = super::black_bias_reference::restore(&means, &mut old, w2, scale);
+                assert_eq!(a, b);
+                assert!(new.iter().zip(&old).all(|(x, y)| x.map(f32::to_bits) == y.map(f32::to_bits)));
+            }
+        }
+    }
 
     fn noise(seed: &mut u64) -> f32 {
         // Sum of four uniforms: roughly normal, unit spread.

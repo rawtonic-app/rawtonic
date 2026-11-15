@@ -211,4 +211,3 @@ pub(super) fn bayer_tile(tile: &Tile) -> Vec<[f32; 3]> {
     }
     rgb
 }
-

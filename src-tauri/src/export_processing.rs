@@ -896,16 +896,6 @@ fn export_adjustments_as_lut(
     Ok(cube_lut)
 }
 
-/// Export workers at most. The GPU renders one photo at a time and is the
-/// slowest stage; four keep it busy while they load, upload and encode the
-/// other photos. Measured on 20 RAWs with two recipes (M5 Pro): 4 workers
-/// 23.5 s, 6 23.7 s, 8 26.1 s; with one render for both recipes 4 workers
-/// 16.4 s, 6 18.6 s, 8 19.1 s (notes: parity-gaps/G43, F10).
-const MAX_EXPORT_WORKERS: usize = 4;
-/// Memory an export worker takes, measured: four workers on 24–45 MP RAWs
-/// with two recipes peaked 7.8 GB above the app's footprint before the
-/// export.
-const EXPORT_WORKER_GB: f64 = 2.0;
 /// Free memory a batch export leaves: no further photo starts below it.
 const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
 
@@ -974,26 +964,16 @@ impl ExportLanes {
         // Threads inherit their creator's priority: not from an export's.
         crate::gpu_processing::start_shared_pools();
         let cpus = crate::export_cpus::ExportCpus::new();
-        let pools = (0..workers)
-            .map(|lane| {
-                let run = Arc::downgrade(&cpus);
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(threads)
-                    // Explicit, not the 2 MiB default: renders on RADV
-                    // overflowed it (`RENDER_STACK_SIZE`, gap G74).
-                    .stack_size(rawtonic_runtime::RENDER_STACK_SIZE)
-                    .thread_name(move |i| format!("export-{lane}-{i}"))
-                    .start_handler(move |_| {
-                        lower_thread_priority();
-                        crate::gpu_processing::mark_private_pool_thread();
-                        if let Some(cpus) = run.upgrade() {
-                            cpus.add_current_thread();
-                        }
-                    })
-                    .build()
-                    .expect("export thread pool")
-            })
-            .collect();
+        let run = Arc::downgrade(&cpus);
+        // The render stack, not the 2 MiB default: renders on RADV
+        // overflowed it (`RENDER_STACK_SIZE`, gap G74).
+        let pools = rawtonic_export::workers::lane_pools(workers, threads, "export", move || {
+            lower_thread_priority();
+            crate::gpu_processing::mark_private_pool_thread();
+            if let Some(cpus) = run.upgrade() {
+                cpus.add_current_thread();
+            }
+        });
         cpus.follow_editing();
         Arc::new(Self {
             free: Mutex::new((0..workers).rev().collect()),
@@ -1169,24 +1149,18 @@ pub(crate) async fn export_images_impl(
             .sum(),
     ));
 
-    let available_cores = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let available_cores = rawtonic_export::workers::available_cores();
 
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
 
     let available_ram_gb = sys.available_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
-    let ram_based_limit = (available_ram_gb / EXPORT_WORKER_GB).floor() as usize;
-
-    let num_threads = if paths.len() == 1 {
-        1
-    } else {
-        available_cores
-            .min(ram_based_limit)
-            .clamp(1, MAX_EXPORT_WORKERS)
-            .min(max_jobs.unwrap_or(usize::MAX))
-    };
+    let num_threads = rawtonic_export::workers::export_workers(
+        paths.len(),
+        available_cores,
+        sys.available_memory(),
+    )
+    .min(max_jobs.unwrap_or(usize::MAX));
 
     log::info!(
         "Batch Export: {} cores, {:.1} GB free RAM -> {} threads, {} recipes",

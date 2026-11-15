@@ -17,6 +17,7 @@ pub mod sidecars;
 pub mod text_watermark;
 pub mod tiff_exif;
 pub mod webp_container;
+pub mod workers;
 pub mod xmp_embed;
 
 use rawtonic_engine::{

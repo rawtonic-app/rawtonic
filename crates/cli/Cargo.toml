@@ -33,6 +33,8 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 tempfile = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
+# Free memory, for the number of export workers (as the app).
+sysinfo = "0.39.6"
 
 [dev-dependencies]
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0", features = ["test-support"] }
