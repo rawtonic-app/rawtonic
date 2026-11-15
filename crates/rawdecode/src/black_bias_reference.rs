@@ -6,7 +6,11 @@ use super::*;
 
 #[allow(clippy::needless_range_loop)]
 pub(super) fn restore(
-means: &ShadowMeans, rgb: &mut [[f32; 3]], width: usize, scale: [f32; 3]) -> usize {
+    means: &ShadowMeans,
+    rgb: &mut [[f32; 3]],
+    width: usize,
+    scale: [f32; 3],
+) -> usize {
     let height = rgb.len() / width;
     if means.blocks_x != width.div_ceil(BLOCK) || means.blocks_y != height.div_ceil(BLOCK) {
         return 0;

@@ -426,7 +426,11 @@ mod tests {
     fn restore_matches_the_reference_bit_for_bit() {
         let color = |r: usize, c: usize| (r % 2) + (c % 2);
         let mut seed = 11u64;
-        for (low, high, scale) in [(0.0, 0.004, [1.0; 3]), (-0.001, 0.02, [2.1, 1.0, 1.7]), (0.2, 0.6, [1.0; 3])] {
+        for (low, high, scale) in [
+            (0.0, 0.004, [1.0; 3]),
+            (-0.001, 0.02, [2.1, 1.0, 1.7]),
+            (0.2, 0.6, [1.0; 3]),
+        ] {
             let (w, mosaic) = ramp(low, high, &mut seed);
             for cut in [0usize, 7, 13] {
                 let w2 = w - cut;
@@ -434,13 +438,23 @@ mod tests {
                 let at = |r: usize, c: usize| mosaic[r * w + c];
                 let means = ShadowMeans::measure(w2, rows, at, color);
                 let rgb: Vec<[f32; 3]> = (0..rows * w2)
-                    .map(|i| [at(i / w2, i % w2).max(0.0) * 1.3, at(i / w2, i % w2).max(0.0), at(i / w2, i % w2).abs()])
+                    .map(|i| {
+                        [
+                            at(i / w2, i % w2).max(0.0) * 1.3,
+                            at(i / w2, i % w2).max(0.0),
+                            at(i / w2, i % w2).abs(),
+                        ]
+                    })
                     .collect();
                 let (mut new, mut old) = (rgb.clone(), rgb);
                 let a = means.restore(&mut new, w2, scale);
                 let b = super::black_bias_reference::restore(&means, &mut old, w2, scale);
                 assert_eq!(a, b);
-                assert!(new.iter().zip(&old).all(|(x, y)| x.map(f32::to_bits) == y.map(f32::to_bits)));
+                assert!(
+                    new.iter()
+                        .zip(&old)
+                        .all(|(x, y)| x.map(f32::to_bits) == y.map(f32::to_bits))
+                );
             }
         }
     }
