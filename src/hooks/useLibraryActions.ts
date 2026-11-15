@@ -353,7 +353,9 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
           const baseSelection = isCtrlPressed ? multiSelectedPaths : [];
           const newSelection = Array.from(new Set([...baseSelection, ...range]));
 
-          setLibrary({ multiSelectedPaths: newSelection, selectionAnchorPath: path });
+          // The anchor stays where the range started, so a later Shift-click or Shift+arrow
+          // moves the far end of the same range (Lightroom, Capture One).
+          setLibrary({ multiSelectedPaths: newSelection, selectionAnchorPath: shiftAnchor });
           if (updateLibraryActivePath) setLibrary({ libraryActivePath: path });
         }
       } else if (isCtrlPressed) {
