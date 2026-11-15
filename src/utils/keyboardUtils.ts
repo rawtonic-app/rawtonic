@@ -279,6 +279,28 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     defaultCombo: ['shift', 'KeyY'],
     section: 'view'
   },
+  // One key per before/after mode (Lightroom has one each: ⇧Y, ⌥Y, Y),
+  // beside the cycle (⇧Y) and the toggle of the last mode (Y, as Capture
+  // One's Y): the key shows that mode, again turns before/after off. ⌥Y is
+  // Lightroom's top/bottom key; the others are the free ones beside it.
+  {
+    action: 'compare_left_right',
+    description: 'settings.keybinds.actions.compare_left_right',
+    defaultCombo: ['ctrl', 'shift', 'KeyY'],
+    section: 'view'
+  },
+  {
+    action: 'compare_top_bottom',
+    description: 'settings.keybinds.actions.compare_top_bottom',
+    defaultCombo: ['alt', 'KeyY'],
+    section: 'view'
+  },
+  {
+    action: 'compare_side_by_side',
+    description: 'settings.keybinds.actions.compare_side_by_side',
+    defaultCombo: ['shift', 'alt', 'KeyY'],
+    section: 'view'
+  },
   {
     // Held down: the whole photograph before, until the key is released
     // (Lightroom's backslash). Works with and without the split.
@@ -831,6 +853,11 @@ export function normalizeCombo(event: KeyboardEvent, osPlatform?: string, librar
   if (!code && event.key === ',') code = 'Comma';
   if (event.key && /^[a-zA-Z]$/.test(event.key)) {
     code = `Key${event.key.toUpperCase()}`;
+  } else if (event.altKey && /^Key[A-Z]$/.test(code) && event.keyCode >= 65 && event.keyCode <= 90) {
+    // ⌥ (macOS) turns the letter into another character (⌥Y types ¥ or Ω):
+    // the letter the key types without it, as the webview reports it in
+    // keyCode, not its place (Y and Z swap on German and Swiss keyboards).
+    code = `Key${String.fromCharCode(event.keyCode)}`;
   } else if (/^Numpad[0-9]$/.test(code)) {
     code = `Digit${code.slice(-1)}`;
   } else if (code === 'NumpadAdd') {

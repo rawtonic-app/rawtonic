@@ -99,6 +99,7 @@ export enum Invokes {
   GenerateAiDepthMask = 'generate_ai_depth_mask',
   FrontendReady = 'frontend_ready',
   LaunchPathIsDirectory = 'launch_path_is_directory',
+  LaunchPathLibrary = 'launch_path_library',
   CancelThumbnailGeneration = 'cancel_thumbnail_generation',
   LoadAndParseLut = 'load_and_parse_lut',
   ApplyAutoLensCorrectionToPaths = 'apply_auto_lens_correction_to_paths',

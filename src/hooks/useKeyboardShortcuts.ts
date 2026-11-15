@@ -10,6 +10,7 @@ import { toggleWindowFullScreen } from '../utils/photoFullScreen';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { cropEditCancelled } from '../utils/cropGesture';
 import { nextClipSides } from '../utils/clippingWarnings';
+import { COMPARE_MODE_ACTIONS, type SplitOrientation } from '../utils/beforeAfter';
 import { isMaskOverlayShown, maskDisplayOf, toggleGrayscaleMask, toggleMaskDisplay } from '../utils/maskDisplay';
 import { Mask } from '../components/panel/right/Masks';
 import { DEFAULT_BRUSH_SIZE, stepBrushSize } from '../utils/brushSize';
@@ -125,6 +126,12 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_fullscreen: (s) => s.ui.isFullScreen,
   toggle_metadata: (s) => s.ui.infoOverlay && (s.ui.activeView === 'editor' || s.ui.isFullScreen),
   toggle_split_view: (s) => !!s.editor.splitView,
+  ...Object.fromEntries(
+    (Object.entries(COMPARE_MODE_ACTIONS) as [SplitOrientation, string][]).map(([mode, action]) => [
+      action,
+      (s: ShortcutState) => !!s.editor.splitView && s.editor.splitOrientation === mode
+    ])
+  ),
   toggle_original: (s) => !!s.editor.showOriginal,
   toggle_multi_view: () => useMultiViewStore.getState().active,
   toggle_second_window: () => useSecondWindowStore.getState().state.open,
@@ -185,6 +192,7 @@ export const useKeyboardShortcuts = ({
     handleSyncSettings,
     toggleSplitView,
     cycleCompareMode,
+    toggleCompareMode,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
     handleAutoStraighten
@@ -758,6 +766,27 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           if (!e.repeat) cycleCompareMode();
+        }
+      },
+      compare_left_right: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e) => {
+          e.preventDefault();
+          if (!e.repeat) toggleCompareMode('left-right');
+        }
+      },
+      compare_top_bottom: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e) => {
+          e.preventDefault();
+          if (!e.repeat) toggleCompareMode('top-bottom');
+        }
+      },
+      compare_side_by_side: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e) => {
+          e.preventDefault();
+          if (!e.repeat) toggleCompareMode('side-by-side');
         }
       },
       toggle_clipping: {
@@ -1396,6 +1425,7 @@ export const useKeyboardShortcuts = ({
     handleSetColorLabel,
     toggleSplitView,
     cycleCompareMode,
+    toggleCompareMode,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
     handleAutoStraighten

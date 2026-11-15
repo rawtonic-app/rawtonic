@@ -394,14 +394,18 @@ export function syncMergedDuplicates({ files, backup }: MergedDuplicates) {
     id: 'library:duplicates-merged',
     source: 'files',
     title: i18n.t('activity.duplicatesMerged', { count: files.length }),
-    detail: `${i18n.t('activity.duplicatesMergedDetail', { backup: backup ? fileName(backup) : '' })}\n${files
-      .map(({ path, fields }) =>
-        fields.length > 0
-          ? i18n.t('activity.duplicatesMergedFields', { name: fileName(path), fields: fields.join(', ') })
-          : fileName(path)
-      )
-      .slice(0, 10)
-      .join('\n')}`,
+    // Every photo by name first (the panel shows a few lines; the photos'
+    // names must not fall below them), then what was kept and which fields
+    // came from the other record; "Copy details" has all of it.
+    detail: [
+      files.map(({ path }) => fileName(path)).join(', '),
+      i18n.t('activity.duplicatesMergedDetail', { backup: backup ? fileName(backup) : '' }),
+      ...files
+        .filter(({ fields }) => fields.length > 0)
+        .map(({ path, fields }) =>
+          i18n.t('activity.duplicatesMergedFields', { name: fileName(path), fields: fields.join(', ') })
+        )
+    ].join('\n'),
     paths: files.map((f) => f.path)
   });
 }
