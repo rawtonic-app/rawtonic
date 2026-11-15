@@ -26,6 +26,15 @@
 //! wheels get their own hue directions (which turn with lightness), ranges
 //! and Balance travel, lowering the Highlights luminance keeps white. The
 //! Midtones and Global wheels and the other luminances are version 1's.
+//!
+//! `colorGradingVersion` 3 (`v3`, notes:
+//! benchmark-results/cg2-colour-grading-2026-11-15) follows what Camera Raw
+//! does beyond a table by lightness: the shader limits the graded colour per
+//! channel to the sRGB cube and applies the Luminance sliders as a tone
+//! curve per channel (`apply_grading`, the table's fourth value). The table
+//! adds the change of Shadows and Highlights tints above saturation 50, own
+//! hue tables for the Midtones and Global wheels, and a refitted Balance and
+//! Blending.
 use crate::recipe_versions::ColorGradingVersion;
 use rawtonic_recipe::color;
 use serde_json::Value;
@@ -331,9 +340,12 @@ fn luminance_shift(region: usize, amount: f32, l: f32, grading: &Grading) -> f32
     magnitude * p.gain[region][side] * shape * headroom
 }
 
-/// Oklab shift (dL, da, db) at display lightness `l`.
+/// Oklab shift (dL, da, db) of a grey of display lightness `l`.
 pub fn shift(grading: &Grading, version: ColorGradingVersion, l: f32) -> [f32; 3] {
-    if version.per_wheel() {
+    if version.per_channel() {
+        let [dl, da, db] = v3::tint(grading, l);
+        [dl + v3::luminance(grading, l), da, db]
+    } else if version.per_wheel() {
         v2::shift(grading, l)
     } else {
         shift_v1(grading, l)
@@ -450,8 +462,13 @@ mod v2 {
         [model.lift * da.hypot(db), da, db]
     }
 
-    fn highlights_lowering(amount: f32, l: f32, grading: &Grading) -> f32 {
-        let (p, h) = (&LUMINANCE, &HIGHLIGHTS_LOWERING);
+    pub(super) fn highlights_lowering(
+        h: &HighlightsLowering,
+        amount: f32,
+        l: f32,
+        grading: &Grading,
+    ) -> f32 {
+        let p = &LUMINANCE;
         let x = shifted(l, grading.balance, p.balance);
         let centre = by_blending(p.centre, grading.blending);
         let width = by_blending(p.width, grading.blending) * h.width_factor;
@@ -505,7 +522,7 @@ mod v2 {
         .enumerate()
         {
             out[0] += if region == 2 && wheel.luminance < 0.0 {
-                highlights_lowering(wheel.luminance, l, grading)
+                highlights_lowering(&HIGHLIGHTS_LOWERING, wheel.luminance, l, grading)
             } else {
                 luminance_shift(region, wheel.luminance, l, grading)
             };
@@ -514,11 +531,187 @@ mod v2 {
     }
 }
 
-/// The shader's grading table: (dL, da, db, 0) at L = i / (size − 1).
+/// `colorGradingVersion` 3: the tint (with what Shadows and Highlights
+/// tints change above saturation 50, own hue tables for Midtones and
+/// Global, Balance with its own travel per direction and a slope) and,
+/// apart from it, the Luminance sliders' curve.
+mod v3 {
+    use super::*;
+
+    /// A Shadows or Highlights wheel.
+    pub(super) struct Wheel {
+        /// Where the tint has the dark hue table's direction, and (by
+        /// blending 0, 50, 100) where the light one's; between them the
+        /// direction turns linearly.
+        pub dark_anchor: f32,
+        pub light_anchor: [f32; 3],
+        /// (da, db) per unit capacity at saturation 50, every 15 degrees of
+        /// Lightroom hue from 0, at the two anchors.
+        pub hue: [[[f32; 2]; 24]; 2],
+        /// Tint weights by balanced lightness x = 0, 0.1 … 1, for blending
+        /// 0, 50 and 100.
+        pub weights: [[f32; 11]; 3],
+        /// Lightness change per unit colour shift.
+        pub lift: f32,
+        /// Balance: x = logistic((1 − c · |b|) · logit(l) + k · sign · |b|^q)
+        /// with b = balance / 100; k and c for negative and positive
+        /// balance.
+        pub balance_shift: [f32; 2],
+        pub balance_power: f32,
+        pub balance_slope: [f32; 2],
+        /// The direction turns by this share of the balanced lightness and
+        /// the rest of the plain one,
+        pub turn_by_balance: f32,
+        /// from this turn on (0: the dark table's direction; below 0 the
+        /// direction keeps turning below the dark anchor).
+        pub turn_from: f32,
+        /// What saturation 100 adds to twice the tint of saturation 50:
+        /// (dL, da, db) per unit weight × capacity, every 15 degrees, at
+        /// the two anchors.
+        pub excess: [[[f32; 3]; 24]; 2],
+    }
+
+    // Fitted values; some read like mathematical constants.
+    #[allow(clippy::approx_constant)]
+    mod tables {
+        use super::Wheel;
+        use crate::color_grading::v2::HighlightsLowering;
+        include!("color_grading_v3_tables.rs");
+    }
+    use tables::{
+        EXCESS_POWER, GLOBAL_ANCHORS, GLOBAL_HUE, HIGHLIGHTS, HIGHLIGHTS_LOWERING, MIDTONES,
+        MIDTONES_ANCHORS, MIDTONES_HUE, SHADOWS,
+    };
+
+    fn at_hue<const N: usize>(table: &[[f32; N]; 24], hue: f32) -> [f32; N] {
+        let x = hue.rem_euclid(360.0) / 15.0;
+        let i = (x as usize) % 24;
+        let f = x - x.floor();
+        let (a, b) = (table[i], table[(i + 1) % 24]);
+        std::array::from_fn(|k| a[k] * (1.0 - f) + b[k] * f)
+    }
+
+    fn balanced(model: &Wheel, l: f32, balance: f32) -> f32 {
+        let l = l.clamp(1.0e-4, 1.0 - 1.0e-4);
+        let logit = (l / (1.0 - l)).ln();
+        if balance == 0.0 {
+            return logistic(logit);
+        }
+        let side = usize::from(balance > 0.0);
+        let b = balance.abs() / 100.0;
+        logistic(
+            (1.0 - model.balance_slope[side] * b) * logit
+                + model.balance_shift[side] * balance.signum() * b.powf(model.balance_power),
+        )
+    }
+
+    /// (dL, da, db) of a Shadows or Highlights wheel at lightness `l`.
+    fn wheel_tint(model: &Wheel, wheel: &super::Wheel, grading: &Grading, l: f32) -> [f32; 3] {
+        let x = balanced(model, l, grading.balance);
+        let reach = table(&model.weights, grading.blending, x) * capacity(l);
+        let scale = reach * wheel.saturation / 50.0;
+        let u = model.turn_by_balance * x + (1.0 - model.turn_by_balance) * l.clamp(0.0, 1.0);
+        let light = by_blending(model.light_anchor, grading.blending);
+        let t = ((u - model.dark_anchor) / (light - model.dark_anchor)).clamp(model.turn_from, 1.0);
+        let (dark, light) = (
+            at_hue(&model.hue[0], wheel.hue),
+            at_hue(&model.hue[1], wheel.hue),
+        );
+        let da = (dark[0] * (1.0 - t) + light[0] * t) * scale;
+        let db = (dark[1] * (1.0 - t) + light[1] * t) * scale;
+        let mut out = [model.lift * da.hypot(db), da, db];
+        if wheel.saturation > 50.0 {
+            let more = ((wheel.saturation - 50.0) / 50.0).powf(EXCESS_POWER) * reach;
+            let t = t.clamp(0.0, 1.0);
+            let (dark, light) = (
+                at_hue(&model.excess[0], wheel.hue),
+                at_hue(&model.excess[1], wheel.hue),
+            );
+            for k in 0..3 {
+                out[k] += more * (dark[k] * (1.0 - t) + light[k] * t);
+            }
+        }
+        out
+    }
+
+    /// The tint (dL, da, db) at display lightness `l`.
+    pub(super) fn tint(grading: &Grading, l: f32) -> [f32; 3] {
+        let mut out = [0.0f32; 3];
+        for (model, wheel) in [
+            (&SHADOWS, &grading.shadows),
+            (&HIGHLIGHTS, &grading.highlights),
+        ] {
+            if wheel.saturation > 0.0 {
+                let tint = wheel_tint(model, wheel, grading, l);
+                for k in 0..3 {
+                    out[k] += tint[k];
+                }
+            }
+        }
+        let x = shifted(l, grading.balance, TINT.balance);
+        let tm = logistic((x - MIDTONES[1]) / MIDTONES[2]);
+        let cap = capacity(l);
+        // Midtones and Global: (dL, da, db) per unit capacity at saturation
+        // 50 at two lightness anchors, linear between, constant beyond.
+        for (weight, hues, anchors, wheel) in [
+            (
+                MIDTONES[0] * (4.0 * tm * (1.0 - tm)).powf(MIDTONES[3]),
+                &MIDTONES_HUE,
+                MIDTONES_ANCHORS,
+                &grading.midtones,
+            ),
+            (1.0, &GLOBAL_HUE, GLOBAL_ANCHORS, &grading.global),
+        ] {
+            if wheel.saturation > 0.0 {
+                let t =
+                    ((l.clamp(0.0, 1.0) - anchors[0]) / (anchors[1] - anchors[0])).clamp(0.0, 1.0);
+                let (dark, light) = (at_hue(&hues[0], wheel.hue), at_hue(&hues[1], wheel.hue));
+                let scale = weight * cap * wheel.saturation / 50.0;
+                for k in 0..3 {
+                    out[k] += (dark[k] * (1.0 - t) + light[k] * t) * scale;
+                }
+            }
+        }
+        out
+    }
+
+    /// The Luminance sliders' lightness change of a grey of display
+    /// lightness `l` (version 2's curves, the lowering of the Highlights
+    /// refitted for a curve per channel, as the shader applies them).
+    pub(super) fn luminance(grading: &Grading, l: f32) -> f32 {
+        let mut out = 0.0f32;
+        for (region, wheel) in [
+            grading.shadows,
+            grading.midtones,
+            grading.highlights,
+            grading.global,
+        ]
+        .iter()
+        .enumerate()
+        {
+            out += if region == 2 && wheel.luminance < 0.0 {
+                v2::highlights_lowering(&HIGHLIGHTS_LOWERING, wheel.luminance, l, grading)
+            } else {
+                luminance_shift(region, wheel.luminance, l, grading)
+            };
+        }
+        out
+    }
+}
+
+/// The shader's grading table at L = i / (size − 1): (dL, da, db, 0), or
+/// from `colorGradingVersion` 3 on the tint's (dL, da, db) and the
+/// Luminance sliders' dL, which the shader applies per channel.
 pub fn lut(grading: &Grading, version: ColorGradingVersion) -> [[f32; 4]; GRADING_LUT_SIZE] {
     std::array::from_fn(|i| {
-        let [dl, da, db] = shift(grading, version, i as f32 / (GRADING_LUT_SIZE - 1) as f32);
-        [dl, da, db, 0.0]
+        let l = i as f32 / (GRADING_LUT_SIZE - 1) as f32;
+        if version.per_channel() {
+            let [dl, da, db] = v3::tint(grading, l);
+            [dl, da, db, v3::luminance(grading, l)]
+        } else {
+            let [dl, da, db] = shift(grading, version, l);
+            [dl, da, db, 0.0]
+        }
     })
 }
 
@@ -615,8 +808,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn versions() -> [ColorGradingVersion; 2] {
-        [1, 2].map(|v| ColorGradingVersion::of(&json!({ "colorGradingVersion": v })))
+    fn versions() -> [ColorGradingVersion; 3] {
+        [1, 2, 3].map(|v| ColorGradingVersion::of(&json!({ "colorGradingVersion": v })))
     }
 
     #[test]
@@ -764,7 +957,7 @@ mod tests {
     /// Global wheels and the other luminances as they were.
     #[test]
     fn version_2_changes_shadows_highlights_and_balance_only() {
-        let [v1, v2] = versions();
+        let [v1, v2, _] = versions();
         for value in [
             json!({"midtones": {"hue": 30, "saturation": 50, "luminance": -30}}),
             json!({"global": {"hue": 210, "saturation": 80, "luminance": 40}}),
@@ -790,5 +983,46 @@ mod tests {
         };
         let reach = |balance: f32| chroma(shift(&shadows(balance), v2, 0.6));
         assert!(reach(-50.0) - reach(0.0) < 0.5 * (reach(-100.0) - reach(0.0)));
+    }
+
+    /// Version 3's table keeps the Luminance sliders' curve apart from the
+    /// tint (the shader applies it per channel), and a Shadows or
+    /// Highlights tint is linear in the saturation up to 50 only.
+    #[test]
+    fn version_3_keeps_luminance_apart_and_changes_tints_above_50() {
+        let [_, v2, v3] = versions();
+        let luminance = grading(json!({"shadows": {"luminance": -60},
+            "midtones": {"luminance": 30}, "highlights": {"luminance": 40}, "balance": 20}));
+        let (old, new) = (lut(&luminance, v2), lut(&luminance, v3));
+        for (a, b) in old.iter().zip(&new) {
+            assert_eq!([b[0], b[1], b[2]], [0.0; 3]);
+            assert!((a[0] - b[3]).abs() < 1.0e-6, "{a:?} {b:?}");
+        }
+        // Lowering the Highlights is refitted for the curve per channel
+        // and still leaves white where it is.
+        let lowered = grading(json!({"highlights": {"luminance": -100}}));
+        assert!(lut(&lowered, v3)[31][3].abs() < 1.0e-4);
+        assert_ne!(lut(&lowered, v3)[27][3], lut(&lowered, v2)[27][0]);
+        let tinted = grading(json!({"global": {"hue": 300, "saturation": 80}}));
+        assert!(lut(&tinted, v3).iter().all(|entry| entry[3] == 0.0));
+        // A grey's shift is the sum of both.
+        let both = grading(json!({"shadows": {"hue": 30, "saturation": 40, "luminance": 50}}));
+        let entry = lut(&both, v3)[8];
+        let whole = shift(&both, v3, 8.0 / 31.0);
+        assert!((whole[0] - entry[0] - entry[3]).abs() < 1.0e-6);
+        assert_eq!([whole[1], whole[2]], [entry[1], entry[2]]);
+        for (region, l) in [("shadows", 0.3f32), ("highlights", 0.85)] {
+            let at = |saturation: f32| {
+                let g = grading(json!({region: {"hue": 120, "saturation": saturation}}));
+                shift(&g, v3, l)
+            };
+            let (quarter, half, full) = (at(25.0), at(50.0), at(100.0));
+            for k in 0..3 {
+                assert!((half[k] - 2.0 * quarter[k]).abs() < 1.0e-6, "{region} {k}");
+            }
+            let excess = (1..3).map(|k| (full[k] - 2.0 * half[k]).abs()).sum::<f32>()
+                + (full[0] - 2.0 * half[0]).abs();
+            assert!(excess > 0.003, "{region} {excess}");
+        }
     }
 }

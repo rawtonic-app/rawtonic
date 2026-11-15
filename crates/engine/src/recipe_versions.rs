@@ -458,6 +458,14 @@ impl ColorGradingVersion {
     pub fn per_wheel(self) -> bool {
         self.0 >= 2
     }
+
+    /// The graded colour limited per channel to the sRGB cube, the
+    /// Luminance sliders as a curve per channel, the change of Shadows and
+    /// Highlights tints above saturation 50, own hue tables for Midtones
+    /// and Global (`colorGradingVersion` 3).
+    pub fn per_channel(self) -> bool {
+        self.0 >= 3
+    }
 }
 
 /// The film grain (`grainVersion` 3).

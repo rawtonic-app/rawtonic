@@ -221,7 +221,7 @@ describe('RAW detail defaults', () => {
   });
 
   it('keep the colour grading response a saved recipe rendered with', () => {
-    expect(COLOR_GRADING_VERSION).toBe(2);
+    expect(COLOR_GRADING_VERSION).toBe(3);
     expect(initialAdjustmentsFor(true).colorGradingVersion).toBe(COLOR_GRADING_VERSION);
     expect(initialAdjustmentsFor(false).colorGradingVersion).toBe(COLOR_GRADING_VERSION);
     // Neutral wheels render the same with either response; Blending and
