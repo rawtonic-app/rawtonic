@@ -7,12 +7,14 @@ import { submitPhotoWrite } from './photoWrites';
 /** The photographs a catalog write is for: `paths`, or the `path` of each
  * of its `values` (restoring culling). */
 function writtenPaths(args: InvokeArgs): string[] {
-  const { paths, values } = args as { paths?: unknown; values?: unknown };
+  const { paths, values, changes } = args as { paths?: unknown; values?: unknown; changes?: unknown };
   const listed = Array.isArray(paths)
     ? paths
     : Array.isArray(values)
       ? values.map((value) => (value as { path?: unknown })?.path)
-      : [];
+      : Array.isArray(changes)
+        ? changes.map((change) => (change as { path?: unknown })?.path)
+        : [];
   return listed.filter((path): path is string => typeof path === 'string');
 }
 

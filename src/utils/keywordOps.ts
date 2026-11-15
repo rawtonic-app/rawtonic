@@ -15,7 +15,21 @@ import { saveFailure, sortStoredTags } from '../hooks/useLibraryActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { invokeInOrder, onCatalogChange } from './catalogWrites';
 import { searchLibrary, type FacetValue, type Facets } from './librarySearch';
-import { countKeywordPaths, renameKeywordTags, tagsHaveKeyword } from './keywordTree';
+import { catalogChanged } from './catalogEvents';
+import {
+  keywordAction,
+  savedKeywordChanges,
+  type DeclaredChange,
+  type KeywordChange,
+  type KeywordRecorder
+} from './appUndo';
+import {
+  countKeywordPaths,
+  deleteKeywordTags,
+  renameKeywordTags,
+  tagsHaveKeyword,
+  withDeclaredKeywords
+} from './keywordTree';
 
 /** Every keyword of the library (or, outside one, of the listed
  * photographs) with its photographs, each parent counted too. */
@@ -33,7 +47,10 @@ export async function libraryKeywords(directory: string | null): Promise<FacetVa
     requests: [{ field: 'keyword', rule: { combine: 'all', rules: [] } }],
     listed: null
   });
-  return (facets?.keyword ?? []).filter((value) => value.value !== '');
+  const counted = (facets?.keyword ?? []).filter((value) => value.value !== '');
+  // Keywords made without photographs are listed with a count of 0.
+  const declared = await invoke<string[]>(Invokes.SessionKeywordsDeclared, { directory }).catch(() => []);
+  return Array.isArray(declared) && declared.length ? withDeclaredKeywords(counted, declared) : counted;
 }
 
 /** The library's keywords, shared by the Keywords and Keyword List tools:
@@ -93,27 +110,122 @@ export async function photosWithKeyword(directory: string | null, path: string):
   return [...paths];
 }
 
+/** Sets the listed photographs' tags as a write left them: `change` is
+ * applied to the tags of each of `written`. */
+function showWritten(written: string[], change: (tags: string[]) => string[]) {
+  const targets = new Set(written);
+  useLibraryStore.getState().setLibrary((state) => ({
+    imageList: state.imageList.map((image) =>
+      targets.has(image.path) ? { ...image, tags: sortStoredTags(change(image.tags ?? [])) } : image
+    )
+  }));
+}
+
+/** Runs one keyword write on `paths`: reports what saved to `record` (also
+ * for a write that failed for some photographs, which keep their keywords),
+ * shows it on the listed photographs and rejects with the backend's
+ * `SaveFailure` when some were not written. */
+export async function writeKeywords(
+  paths: string[],
+  record: KeywordRecorder,
+  change: (tags: string[]) => string[],
+  write: () => Promise<KeywordChange[]>
+) {
+  if (!paths.length) return;
+  try {
+    record({ changes: await write() });
+    showWritten(paths, change);
+  } catch (e) {
+    const { failed } = saveFailure(e, paths);
+    record({ changes: savedKeywordChanges(e) });
+    showWritten(
+      paths.filter((path) => !failed.includes(path)),
+      change
+    );
+    throw e;
+  }
+}
+
 /** Renames `from` (with the keywords under it) to `to` on `paths`, and the
  * listed photographs' tags as written. Rejects with the backend's
  * `SaveFailure` when some photographs were not written (they keep theirs). */
-export async function renameKeywordOn(paths: string[], from: string, to: string) {
-  if (!paths.length) return;
-  const apply = (written: string[]) => {
-    const targets = new Set(written);
-    useLibraryStore.getState().setLibrary((state) => ({
-      imageList: state.imageList.map((image) =>
-        targets.has(image.path)
-          ? { ...image, tags: sortStoredTags(renameKeywordTags(image.tags ?? [], from, to)) }
-          : image
-      )
-    }));
-  };
-  try {
-    await invokeInOrder(Invokes.RenameKeywordForPaths, { paths, from, to }, 'keyword');
-    apply(paths);
-  } catch (e) {
-    const { failed } = saveFailure(e, paths);
-    apply(paths.filter((path) => !failed.includes(path)));
-    throw e;
-  }
+export const renameKeywordOn = (paths: string[], from: string, to: string, record: KeywordRecorder) =>
+  writeKeywords(
+    paths,
+    record,
+    (tags) => renameKeywordTags(tags, from, to),
+    () => invokeInOrder<KeywordChange[]>(Invokes.RenameKeywordForPaths, { paths, from, to }, 'keyword')
+  );
+
+/** Deletes the keyword `path` from `paths`: its children move up a level. */
+export const deleteKeywordOn = (paths: string[], path: string, record: KeywordRecorder) =>
+  writeKeywords(
+    paths,
+    record,
+    (tags) => deleteKeywordTags(tags, path),
+    () => invokeInOrder<KeywordChange[]>(Invokes.DeleteKeywordForPaths, { paths, path }, 'keyword')
+  );
+
+/** The keywords made without photographs follow a rename or delete of the
+ * keyword they are within. */
+export async function declaredKeywordsFollow(
+  directory: string | null,
+  command: 'rename' | 'delete',
+  path: string,
+  to?: string
+): Promise<DeclaredChange | undefined> {
+  if (!directory) return undefined;
+  const change =
+    command === 'rename'
+      ? await invoke<DeclaredChange>(Invokes.SessionKeywordsDeclaredRename, { directory, from: path, to })
+      : await invoke<DeclaredChange>(Invokes.SessionKeywordsDeclaredDelete, { directory, path });
+  catalogChanged();
+  return change;
+}
+
+/** Adds the stored keyword `tag` to `paths` as one undoable step named for
+ * `keyword` (Undo Add Keyword 'Dogs'); the photographs that have it already
+ * are left out. Rejects with the `SaveFailure` of a partly saved write. */
+export function addKeywordTo(paths: string[], tag: string, keyword: string) {
+  const tagsOf = new Map(useLibraryStore.getState().imageList.map((image) => [image.path, image.tags]));
+  const missing = paths.filter((path) => !(tagsOf.get(path) ?? []).includes(tag));
+  if (!missing.length) return Promise.resolve();
+  return keywordAction(
+    { kind: 'add', keyword },
+    (record) =>
+      writeKeywords(
+        paths,
+        record,
+        (tags) => (tags.includes(tag) ? tags : [...tags, tag]),
+        () => invokeInOrder<KeywordChange[]>(Invokes.AddTagForPaths, { paths, tag }, 'keyword')
+      ),
+    paths
+  );
+}
+
+/** Makes the keyword `path` without photographs (New Keyword) as one
+ * undoable step; true when the library had no such keyword yet. */
+export async function makeKeyword(directory: string, path: string): Promise<boolean> {
+  let added = false;
+  await keywordAction({ kind: 'new', keyword: path }, async (record) => {
+    const declared = await invoke<DeclaredChange>(Invokes.SessionKeywordDeclare, { directory, path });
+    record({ declared });
+    added = declared.added.length > 0;
+    catalogChanged();
+  });
+  return added;
+}
+
+/** Deletes the keywords without photographs in `paths` (Delete Unused
+ * Keywords) as one undoable step. */
+export function deleteUnusedKeywords(directory: string, paths: string[]) {
+  return keywordAction({ kind: 'deleteUnused' }, async (record) => {
+    const declared = await invoke<DeclaredChange>(Invokes.SessionKeywordsDeclaredApply, {
+      directory,
+      remove: paths,
+      add: []
+    });
+    record({ declared });
+    catalogChanged();
+  });
 }

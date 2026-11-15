@@ -53,6 +53,10 @@ pub enum BatchKind {
         from: String,
         to: String,
     },
+    /// A keyword deleted from the photographs, its children moved up.
+    KeywordDelete {
+        path: String,
+    },
 }
 
 impl BatchKind {
@@ -78,6 +82,14 @@ impl BatchKind {
                     })
                     .collect::<Vec<_>>()
             ),
+            // Every tag within the deleted keyword and the tags it moves
+            // children to are both found among the tags that stay or
+            // appear, so the whole keyword tags are compared.
+            Self::KeywordDelete { .. } => json!(
+                tags.iter()
+                    .filter(|tag| !rawtonic_metadata::labels::is_editor_tag(tag))
+                    .collect::<Vec<_>>()
+            ),
         }
     }
 
@@ -98,6 +110,14 @@ impl BatchKind {
                 let mut tags: Vec<String> =
                     serde_json::from_value(before.clone()).unwrap_or_default();
                 crate::tagging::rename_keyword_tags(&mut tags, from, to);
+                tags.sort_unstable();
+                tags.dedup();
+                *now == json!(tags)
+            }
+            Self::KeywordDelete { path } => {
+                let mut tags: Vec<String> =
+                    serde_json::from_value(before.clone()).unwrap_or_default();
+                crate::tagging::delete_keyword_tags(&mut tags, path);
                 tags.sort_unstable();
                 tags.dedup();
                 *now == json!(tags)
@@ -567,6 +587,41 @@ mod tests {
                 before: json!(["user:Animals|Dogs"])
             }]
         );
+    }
+
+    /// A delete killed half way: a photograph whose tags are what the
+    /// deletion makes of them counts as applied.
+    #[test]
+    fn a_killed_keyword_delete_counts_the_photographs_it_reached() {
+        let dir = tempfile::tempdir().unwrap();
+        let (photos, paths) = Photos::new(2);
+        for path in &paths {
+            photos.edit(path, |m| {
+                m.tags = Some(vec![
+                    "user:Animals|Dogs".into(),
+                    "user:Animals|Dogs|Pug".into(),
+                ])
+            });
+        }
+        let job = begin_in(
+            dir.path(),
+            BatchKind::KeywordDelete {
+                path: "Animals|Dogs".into(),
+            },
+            "delete_keyword_for_paths",
+            json!({ "path": "Animals|Dogs" }),
+            None,
+            &paths,
+            |p| photos.read(p),
+        )
+        .unwrap();
+        photos.edit(&paths[0], |m| {
+            m.tags = Some(vec!["user:Animals|Pug".into()])
+        });
+        leave_from_earlier_run(job);
+        let found = interrupted_in(dir.path(), None, |p| photos.read(p));
+        assert_eq!((found[0].applied, found[0].total), (1, 2));
+        assert_eq!(found[0].rest, paths[1..].to_vec());
     }
 
     #[test]

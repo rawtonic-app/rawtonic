@@ -706,21 +706,51 @@ fn measure_patches(
                 return None;
             }
             let shift = |plane: &[f32], m: (f32, f32)| -> Option<f32> {
-                let score = |s: f32| -> f32 {
-                    let mut v = Vec::with_capacity(n * n);
-                    for j in -HALF..=HALF {
-                        for i in -HALF..=HALF {
-                            let (x, y) = (px + i as f32 + s * ux, py + j as f32 + s * uy);
-                            let (x, y) = modelled(m, x, y, cx, cy, inv_hd2);
-                            v.push(at(plane, x, y));
+                // The samples of every searched shift, shift-minor, so the
+                // scores' sums run side by side (`scores_side_by_side`).
+                // Each sample is `at`'s at the modelled position, taken in
+                // steps over all shifts of a sample at once (positions,
+                // then the four neighbours, then their blend) so the
+                // arithmetic runs on vectors.
+                let mut v = vec![0.0f32; n * n * STEPS];
+                let shifts: [f32; STEPS] = std::array::from_fn(|k| -MAX_SHIFT + 0.25 * k as f32);
+                let (left, top) = (x0 as f32, y0 as f32);
+                let (last_x, last_y) = (lw as f32 - 1.001, lh as f32 - 1.001);
+                let mut rows = v.as_chunks_mut::<STEPS>().0.iter_mut();
+                for j in -HALF..=HALF {
+                    for i in -HALF..=HALF {
+                        let (bx, by) = (px + i as f32, py + j as f32);
+                        let mut index = [0usize; STEPS];
+                        let mut fx = [0.0f32; STEPS];
+                        let mut fy = [0.0f32; STEPS];
+                        for l in 0..STEPS {
+                            let s = shifts[l];
+                            let (x, y) = modelled(m, bx + s * ux, by + s * uy, cx, cy, inv_hd2);
+                            let x = (x - left).clamp(0.0, last_x);
+                            let y = (y - top).clamp(0.0, last_y);
+                            // Not negative after the clamp: truncating is the floor.
+                            let (xi, yi) = (x as usize, y as usize);
+                            fx[l] = x - xi as f32;
+                            fy[l] = y - yi as f32;
+                            index[l] = yi * lw + xi;
+                        }
+                        let mut corners = [[0.0f32; STEPS]; 4];
+                        for l in 0..STEPS {
+                            let q = &plane[index[l]..index[l] + lw + 2];
+                            corners[0][l] = q[0];
+                            corners[1][l] = q[1];
+                            corners[2][l] = q[lw];
+                            corners[3][l] = q[lw + 1];
+                        }
+                        let row = rows.next().expect("a row per sample");
+                        let [p00, p10, p01, p11] = &corners;
+                        for l in 0..STEPS {
+                            row[l] = (p00[l] * (1.0 - fx[l]) + p10[l] * fx[l]) * (1.0 - fy[l])
+                                + (p01[l] * (1.0 - fx[l]) + p11[l] * fx[l]) * fy[l];
                         }
                     }
-                    if !normalise(&mut v) {
-                        return f32::MAX;
-                    }
-                    v.iter().zip(&refs).map(|(a, b)| (a - b) * (a - b)).sum()
-                };
-                parabolic_minimum(&score)
+                }
+                best_shift(&scores_side_by_side(&v, &refs))
             };
             let red = shift(&plane(0), model.red)?;
             let blue = shift(&plane(2), model.blue)?;
@@ -796,18 +826,51 @@ fn normalise(v: &mut [f32]) -> bool {
     true
 }
 
-/// The shift in ±`MAX_SHIFT` with the lowest score: a coarse search in
-/// quarter pixels, then a parabola through the best three.
-fn parabolic_minimum(score: &dyn Fn(f32) -> f32) -> Option<f32> {
-    // The quarter-pixel steps are exact, so the best one's neighbours are
-    // searched shifts whose scores are kept.
-    let mut scores = [0.0f32; STEPS];
+/// The score of each searched shift as `measure_patches` scores one: the
+/// shift's samples normalised (mean 0, standard deviation 1; `f32::MAX`
+/// when flat) and their squared difference to `refs` added up. `v` holds
+/// the samples shift-minor (`[sample][shift]`). Every shift's sums are
+/// taken in its own sample order, as `normalise` and the score take them
+/// one shift at a time, so the result is the same to the bit; the shifts
+/// run side by side so their sums do not wait for each other.
+fn scores_side_by_side(v: &[f32], refs: &[f32]) -> [f32; STEPS] {
+    let samples = refs.len();
+    debug_assert_eq!(v.len(), samples * STEPS);
+    let rows = v.as_chunks::<STEPS>().0;
+    let len = samples as f32;
+    // Float sums start at −0.0, as `Iterator::sum` does.
+    let mut sum = [-0.0f32; STEPS];
+    for row in rows {
+        for l in 0..STEPS {
+            sum[l] += row[l];
+        }
+    }
+    let mean = sum.map(|s| s / len);
+    let mut var = [-0.0f32; STEPS];
+    for row in rows {
+        for l in 0..STEPS {
+            var[l] += (row[l] - mean[l]) * (row[l] - mean[l]);
+        }
+    }
+    let var = var.map(|s| s / len);
+    let sd = var.map(f32::sqrt);
+    let mut score = [-0.0f32; STEPS];
+    for (row, &r) in rows.iter().zip(refs) {
+        for l in 0..STEPS {
+            let a = (row[l] - mean[l]) / sd[l];
+            score[l] += (a - r) * (a - r);
+        }
+    }
+    std::array::from_fn(|l| if var[l] < 1e-8 { f32::MAX } else { score[l] })
+}
+
+/// `parabolic_minimum` of scores already taken at the searched shifts.
+fn best_shift(scores: &[f32; STEPS]) -> Option<f32> {
     let mut best = (0.0f32, f32::MAX, 0);
     let mut s = -MAX_SHIFT;
-    for (k, v) in scores.iter_mut().enumerate() {
-        *v = score(s);
-        if *v < best.1 {
-            best = (s, *v, k);
+    for (k, &v) in scores.iter().enumerate() {
+        if v < best.1 {
+            best = (s, v, k);
         }
         s += 0.25;
     }
@@ -819,6 +882,16 @@ fn parabolic_minimum(score: &dyn Fn(f32) -> f32) -> Option<f32> {
     let d = l - 2.0 * c + r;
     let offset = if d > 1e-9 { 0.5 * (l - r) / d * h } else { 0.0 };
     Some(best.0 + offset)
+}
+
+/// The shift in ±`MAX_SHIFT` with the lowest score: a coarse search in
+/// quarter pixels, then a parabola through the best three.
+#[cfg(test)]
+fn parabolic_minimum(score: &dyn Fn(f32) -> f32) -> Option<f32> {
+    // The quarter-pixel steps are exact.
+    best_shift(&std::array::from_fn(|k| {
+        score(-MAX_SHIFT + 0.25 * k as f32)
+    }))
 }
 
 /// `a + b·x` (x the squared relative radius) through the median of
@@ -984,19 +1057,38 @@ fn window_costs(
                         [0.0f32; CHECK_SIDE * CHECK_SIDE + LANES],
                         [0.0f32; CHECK_SIDE * CHECK_SIDE + LANES],
                     );
+                    // Row by row: positions, samples, then the values, so
+                    // the arithmetic runs on vectors (each pixel's numbers
+                    // as one at a time).
                     for j in 0..CHECK_SIDE {
+                        let y = py - CHECK_HALF + j as i64;
+                        let mut red = [(0.0f32, 0.0f32); CHECK_SIDE];
+                        let mut blue = [(0.0f32, 0.0f32); CHECK_SIDE];
                         for i in 0..CHECK_SIDE {
-                            let (x, y) = (px - CHECK_HALF + i as i64, py - CHECK_HALF + j as i64);
-                            // The window lies in the image and the box.
-                            let g = planes[1][(y - y0) as usize * bw + (x - x0) as usize];
-                            let (rx, ry) = modelled(model.red, x as f32, y as f32, cx, cy, inv_hd2);
-                            let (bx, by) =
-                                modelled(model.blue, x as f32, y as f32, cx, cy, inv_hd2);
-                            let (r, b) = (sample(0, rx, ry), sample(2, bx, by));
-                            let k = j * CHECK_SIDE + i;
-                            y_[k] = ((r * r + 2.0 * g * g + b * b) / 4.0).sqrt();
-                            u[k] = r - g;
-                            v[k] = b - g;
+                            let x = px - CHECK_HALF + i as i64;
+                            red[i] = modelled(model.red, x as f32, y as f32, cx, cy, inv_hd2);
+                            blue[i] = modelled(model.blue, x as f32, y as f32, cx, cy, inv_hd2);
+                        }
+                        let mut r = [0.0f32; CHECK_SIDE];
+                        let mut b = [0.0f32; CHECK_SIDE];
+                        for i in 0..CHECK_SIDE {
+                            r[i] = sample(0, red[i].0, red[i].1);
+                            b[i] = sample(2, blue[i].0, blue[i].1);
+                        }
+                        // The window lies in the image and the box.
+                        let start = (y - y0) as usize * bw + (px - CHECK_HALF - x0) as usize;
+                        let g = &planes[1][start..start + CHECK_SIDE];
+                        let k = j * CHECK_SIDE;
+                        let (y_, u, v) = (
+                            &mut y_[k..k + CHECK_SIDE],
+                            &mut u[k..k + CHECK_SIDE],
+                            &mut v[k..k + CHECK_SIDE],
+                        );
+                        for i in 0..CHECK_SIDE {
+                            let (r, g, b) = (r[i], g[i], b[i]);
+                            y_[i] = ((r * r + 2.0 * g * g + b * b) / 4.0).sqrt();
+                            u[i] = r - g;
+                            v[i] = b - g;
                         }
                     }
                     let (mut sum, mut count) = (0.0f64, 0usize);
@@ -1384,6 +1476,82 @@ mod reference;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Prints the editor's new RAW edit (`start_new_edit`), for timing
+    /// exports of current recipes (`-- --ignored --nocapture new_raw_edit`).
+    #[test]
+    #[ignore]
+    fn print_new_raw_edit() {
+        let mut recipe = serde_json::json!({});
+        crate::image_processing::start_new_edit(&mut recipe, true);
+        println!("NEW_EDIT {recipe}");
+    }
+
+    /// Where the estimate's time goes on real photos, one stage after the
+    /// other (`EXT2_CA_PHOTOS`: RAW paths separated by `:`; `-- --ignored
+    /// --nocapture ca_stage_times`).
+    #[test]
+    #[ignore]
+    fn ca_stage_times() {
+        let Some(paths) = std::env::var_os("EXT2_CA_PHOTOS") else {
+            println!("SKIP: no EXT2_CA_PHOTOS");
+            return;
+        };
+        let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1000.0;
+        for path in std::env::split_paths(&paths) {
+            let bytes = std::fs::read(&path).unwrap();
+            let image = crate::image_loader::load_base_image(
+                &bytes,
+                &path.to_string_lossy(),
+                false,
+                &crate::image_loader::BaseImageOptions::default(),
+                None,
+            )
+            .unwrap()
+            .to_rgb32f();
+            let t = std::time::Instant::now();
+            let small = Reduced::new(&image, WORK_EDGE);
+            let reduce = ms(t);
+            drop(small);
+            let t = std::time::Instant::now();
+            let analysis = analyse(&image, false);
+            let analyse_ms = ms(t);
+            let Some(analysis) = analysis else {
+                println!("{}: too few edges", path.display());
+                continue;
+            };
+            let models: Vec<CaModel> = std::iter::once(CaModel::NONE)
+                .chain(candidates(&analysis).map(|(_, m)| m))
+                .collect();
+            let t = std::time::Instant::now();
+            let _ = window_costs(&image, &analysis.full, &models);
+            let costs = ms(t);
+            let t = std::time::Instant::now();
+            let _ = measure_patches(&image, &analysis.full, analysis.coarse, false);
+            let measure = ms(t);
+            let t = std::time::Instant::now();
+            let _ = reference::measure_patches(&image, &analysis.full, analysis.coarse, false);
+            let measure_reference = ms(t);
+            let own = CaModel {
+                red: (2e-4, 0.0),
+                blue: (-2e-4, 0.0),
+            };
+            let t = std::time::Instant::now();
+            let _ = estimate_v2(&image);
+            let v2 = ms(t);
+            let t = std::time::Instant::now();
+            let _ = estimate_versus(&image, own);
+            let v3 = ms(t);
+            println!(
+                "{}: {}x{} reduce {reduce:.0} analyse {analyse_ms:.0} (patches {}) window_costs[{}] {costs:.0} measure_full {measure:.0} (reference {measure_reference:.0}) | v2 {v2:.0} v3 {v3:.0} ms",
+                path.file_name().unwrap().to_string_lossy(),
+                image.width(),
+                image.height(),
+                analysis.full.len(),
+                models.len()
+            );
+        }
+    }
 
     /// A scene of concentric and radial bars (edges in every direction),
     /// with red rendered `kr` larger and blue `kb` larger than green.

@@ -89,6 +89,7 @@
       "detail": "Un tancament o una fallada ha aturat aquest lot abans d’escriure totes les fotos. Aplica’l a la resta, desfés la part aplicada o deixa les fotos com són. Les fotos mateixes no es modifiquen mai.",
       "failed": "No s’ha pogut acabar {{batch}}: {{error}}",
       "keywordAdd": "Paraula clau «{{tag}}»",
+      "keywordDelete": "S’està suprimint la paraula clau «{{path}}»",
       "keywordRemove": "Treure la paraula clau «{{tag}}»",
       "keywordRename": "S'està canviant el nom de la paraula clau «{{from}}» a «{{to}}»",
       "notWritten_one": "No s’ha pogut escriure {{count}} foto",
@@ -4276,6 +4277,9 @@
           "cancel": "Cancel·la",
           "convert": "Vols convertir «{{from}}» en la jerarquia «{{to}}»?",
           "convertAction": "Converteix",
+          "delete": "Voleu suprimir «{{from}}»? Les paraules clau que conté pugen un nivell.",
+          "deleteAction": "Suprimeix",
+          "deleteUnused": "Voleu suprimir totes les paraules clau que no té cap foto?",
           "label": "Confirma el canvi de paraula clau",
           "merge": "Vols fusionar «{{from}}» amb «{{to}}»? «{{from}}» se substitueix per aquesta.",
           "mergeAction": "Fusiona",
@@ -4294,13 +4298,23 @@
         "menu": {
           "clearFilter": "Deixa de filtrar per aquesta paraula clau",
           "convert": "Converteix en «{{path}}»",
+          "delete": "Suprimeix la paraula clau…",
+          "deleteUnused": "Suprimeix les paraules clau sense ús…",
           "filter": "Mostra les fotos amb aquesta paraula clau",
           "moveToTop": "Mou al nivell superior",
+          "new": "Paraula clau nova…",
+          "newInside": "Paraula clau nova dins de «{{keyword}}»…",
           "rename": "Canvia el nom…"
+        },
+        "new": {
+          "insideLabel": "Paraula clau nova dins de {{keyword}}",
+          "label": "Paraula clau nova: escriviu-ne el nom o el camí, p. ex. Pare > Nom"
         },
         "renameLabel": "Canvia el nom o mou {{keyword}}: escriu el camí, p. ex. Superior > Nom",
         "title": "Llista de paraules clau",
         "toasts": {
+          "assignFailed": "No s’ha pogut afegir la paraula clau a les fotos: {{error}}",
+          "createFailed": "No s’ha pogut crear la paraula clau: {{error}}",
           "renameFailed": "No s'han pogut canviar les paraules clau: {{error}}"
         }
       },
@@ -5577,6 +5591,15 @@
     "edit": "Edició",
     "file": "Canvi de fitxer",
     "flag": "Estableix la marca",
+    "keywordAdd": "Afegeix la paraula clau «{{keyword}}»",
+    "keywordConvert": "Converteix la paraula clau",
+    "keywordDelete": "Suprimeix la paraula clau",
+    "keywordDeleteUnused": "Suprimeix les paraules clau sense ús",
+    "keywordMerge": "Combina paraules clau",
+    "keywordMove": "Mou la paraula clau",
+    "keywordNew": "Paraula clau nova",
+    "keywordRemove": "Treu la paraula clau «{{keyword}}»",
+    "keywordRename": "Canvia el nom de la paraula clau",
     "lensCorrection": "Correcció de l'objectiu",
     "matchLight": "Igualar la llum",
     "move": "Mou",

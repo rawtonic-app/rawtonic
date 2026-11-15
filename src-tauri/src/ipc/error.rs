@@ -526,6 +526,7 @@ mod tests {
             message: "Could not save 1 of 2 photos: a.raf: denied".into(),
             failed: vec!["a.raf".into()],
             culling: Vec::new(),
+            keywords: Vec::new(),
         };
         assert_eq!(
             serde_json::to_value(CommandError::from(failure)).unwrap(),

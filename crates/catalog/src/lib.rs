@@ -26,6 +26,7 @@ pub mod catalog_import;
 pub mod checksum;
 pub mod companion;
 pub mod content;
+pub mod declared_keywords;
 pub mod derived;
 pub mod duplicates;
 mod error;

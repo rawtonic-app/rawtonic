@@ -23,6 +23,11 @@
 //! - `display`: the source as display variants compile it (the app's
 //!   `DisplayShader`: its display-only reshapes of shader.wgsl). Use it with
 //!   `dce` to measure what the app compiles.
+//! - `passes`: with `display`, the source with the effects in passes of
+//!   their own, as display variants compile it under a compile limit
+//!   (G76/EFX). The main pass: `hp set=EFFECT_TERMS:1,FINISH_APART:1`; the
+//!   terms pass: `set=EFFECT_TERMS_PASS:1`; the finish pass:
+//!   `set=FINISH_PASS:1` (add `SHARPEN_VIEW:1` as the app does).
 //! - `hp`: float output storage (the 16-bit and deferred renders' source);
 //!   with `set=HIGH_PRECISION_OUTPUT:1` (and `DEFER_OUTPUT:1`).
 //! - `exportsrc`: the source export variants compile (the app's
@@ -168,6 +173,7 @@ struct Spec {
     unchecked: bool,
     export: bool,
     display: bool,
+    passes: bool,
     exportsrc: bool,
     hp: bool,
     stubs: Vec<String>,
@@ -187,6 +193,7 @@ fn parse(line: &str) -> Result<Spec, String> {
         unchecked: false,
         export: false,
         display: false,
+        passes: false,
         exportsrc: false,
         hp: false,
         stubs: vec![],
@@ -223,6 +230,7 @@ fn parse(line: &str) -> Result<Spec, String> {
             None if word == "unchecked" => spec.unchecked = true,
             None if word == "export" => spec.export = true,
             None if word == "display" => spec.display = true,
+            None if word == "passes" => spec.passes = true,
             None if word == "exportsrc" => spec.exportsrc = true,
             None if word == "hp" => spec.hp = true,
             None if word == "spirv" => spec.spirv = true,
@@ -298,7 +306,10 @@ fn one(line: &str) -> Result<String, String> {
     };
     // `display`: the source display variants compile (with their reshaped
     // tone code), as the app's `DisplayShader` makes it.
-    let source = if spec.display {
+    let source = if spec.display && spec.passes {
+        rawtonic_gpu::gpu_processing::display_shader_source_with_effect_passes(&source)
+            .ok_or("passes: the source has another shape")?
+    } else if spec.display {
         rawtonic_gpu::gpu_processing::display_shader_source(&source)
     } else if spec.exportsrc {
         rawtonic_gpu::gpu_processing::export_shader_source(&source, spec.features)

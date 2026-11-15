@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -9,13 +10,23 @@ import {
   type ReactNode
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Tag } from 'lucide-react';
+import { ChevronRight, Plus, Tag } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { notify } from '../../activity/notify';
 import { useContextMenu } from '../../context/ContextMenuContext';
-import { saveFailure } from '../../hooks/useLibraryActions';
+import { saveFailure, storedKeyword } from '../../hooks/useLibraryActions';
 import { useLibraryStore } from '../../store/useLibraryStore';
-import { photosWithKeyword, renameKeywordOn, useLibraryKeywords } from '../../utils/keywordOps';
+import { keywordAction, type KeywordLabel } from '../../utils/appUndo';
+import {
+  addKeywordTo,
+  declaredKeywordsFollow,
+  deleteKeywordOn,
+  deleteUnusedKeywords,
+  makeKeyword,
+  photosWithKeyword,
+  renameKeywordOn,
+  useLibraryKeywords
+} from '../../utils/keywordOps';
 import {
   buildKeywordTree,
   displayKeyword,
@@ -25,19 +36,23 @@ import {
   movedKeyword,
   parseKeywordPath,
   renameKeyword,
+  resolveKeywordPath,
   KEYWORD_SEPARATOR,
   type KeywordNode
 } from '../../utils/keywordTree';
 import { swallowDragClick } from '../../utils/swallowClick';
 import { createDragGhost } from './dragGhost';
+import { TILE_DROP_EVENT, type TileDropDetail } from './tileDrag';
 import { ToolGroup } from './StudioDevelop';
 
 /** A change waiting for its confirmation. */
 type Pending = {
-  kind: 'rename' | 'merge' | 'move' | 'convert';
+  kind: 'rename' | 'merge' | 'move' | 'convert' | 'delete' | 'deleteUnused';
   from: string;
   to: string;
   count: number;
+  /** Delete unused keywords: the paths without photographs. */
+  unused?: string[];
 };
 
 const fold = (text: string) => text.toLowerCase();
@@ -93,6 +108,20 @@ export function StudioKeywordList() {
   const list = useRef<HTMLDivElement>(null);
 
   const tree = useMemo(() => buildKeywordTree(values), [values]);
+  const empty = tree.length === 0;
+  const known = useMemo(() => values.map((value) => value.value), [values]);
+  // Keywords no photograph has (made without photographs, or left so).
+  const unused = useMemo(() => {
+    const out: string[] = [];
+    const walk = (nodes: KeywordNode[]) =>
+      nodes.forEach((node) => {
+        if (node.count === 0) out.push(node.path);
+        walk(node.children);
+      });
+    walk(tree);
+    return out;
+  }, [tree]);
+  const [making, setMaking] = useState<{ parent: string | null } | null>(null);
   const filtered = (path: string) => chosen?.length === 1 && fold(chosen[0]) === fold(path);
   const filterBy = (path: string) => setFilter({ metadata: { ...selection, keyword: filtered(path) ? [] : [path] } });
   const toggle = (path: string) =>
@@ -103,16 +132,47 @@ export function StudioKeywordList() {
       return next;
     });
 
-  const run = async ({ from, to }: Pending) => {
+  const run = async (change: Pending) => {
+    const { from, to } = change;
     setBusy(true);
     try {
-      const paths = await photosWithKeyword(directory, from);
-      await renameKeywordOn(paths, from, to);
-      // A filter on the old name follows it.
-      if (chosen?.some((value) => isWithinKeyword(value, from)))
-        setFilter({ metadata: { ...selection, keyword: chosen.map((value) => renameKeyword(value, from, to)) } });
+      if (change.kind === 'deleteUnused') {
+        if (directory) await deleteUnusedKeywords(directory, change.unused ?? []);
+        return;
+      }
+      const label: KeywordLabel = { kind: change.kind, keyword: displayKeyword(from) };
+      // A filter on the old name follows it (a deleted keyword leaves it).
+      const followed = chosen?.some((value) => isWithinKeyword(value, from));
+      const filter =
+        chosen && followed
+          ? {
+              before: chosen,
+              after:
+                change.kind === 'delete'
+                  ? chosen.filter((value) => !isWithinKeyword(value, from))
+                  : chosen.map((value) => renameKeyword(value, from, to))
+            }
+          : undefined;
+      // One undo step: the photographs' keywords and the keywords made
+      // without photographs that follow them; Undo takes the filter back.
+      await keywordAction(label, async (record) => {
+        const paths = await photosWithKeyword(directory, from);
+        try {
+          if (change.kind === 'delete') await deleteKeywordOn(paths, from, record);
+          else await renameKeywordOn(paths, from, to, record);
+        } finally {
+          record({
+            declared:
+              (change.kind === 'delete'
+                ? await declaredKeywordsFollow(directory, 'delete', from)
+                : await declaredKeywordsFollow(directory, 'rename', from, to)) ?? undefined
+          });
+        }
+        record({ filter });
+      });
+      if (filter) setFilter({ metadata: { ...selection, keyword: filter.after } });
       const parent = keywordParent(to);
-      if (parent) setOpen((previous) => new Set([...previous, fold(parent)]));
+      if (change.kind !== 'delete' && parent) setOpen((previous) => new Set([...previous, fold(parent)]));
     } catch (e) {
       notify.error(t('studio.library.keywordList.toasts.renameFailed', { error: saveFailure(e, []).message }));
     } finally {
@@ -120,26 +180,68 @@ export function StudioKeywordList() {
     }
   };
 
+  // A new keyword, with or without a parent, is made without photographs.
+  const make = async (parent: string | null, text: string) => {
+    const typed = parseKeywordPath(text);
+    if (!typed.length || !directory) return;
+    const levels = [...(parent ? parseKeywordPath(parent) : []), ...typed];
+    const path = resolveKeywordPath(levels, known);
+    setBusy(true);
+    try {
+      await makeKeyword(directory, path);
+      // Open the levels above the new keyword so it shows.
+      const above: string[] = [];
+      for (let at = keywordParent(path); at; at = keywordParent(at)) above.push(fold(at));
+      setOpen((previous) => new Set([...previous, ...above]));
+    } catch (e) {
+      notify.error(t('studio.library.keywordList.toasts.createFailed', { error: String(e) }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Photographs dragged from the grid onto a keyword get it (tileDrag.ts):
+  // the dragged selection, virtual copies only when they are selected.
+  const dropRef = useRef<(detail: TileDropDetail) => void>(() => {});
+  dropRef.current = ({ target, paths }) => {
+    if (!paths.length || busy) return;
+    addKeywordTo(paths, storedKeyword(target), displayKeyword(target)).catch((e) =>
+      notify.error(t('studio.library.keywordList.toasts.assignFailed', { error: saveFailure(e, paths).message }))
+    );
+  };
+  useEffect(() => {
+    const element = list.current;
+    if (!element) return;
+    const onDrop = (e: Event) => dropRef.current((e as CustomEvent<TileDropDetail>).detail);
+    element.addEventListener(TILE_DROP_EVENT, onDrop);
+    return () => element.removeEventListener(TILE_DROP_EVENT, onDrop);
+  }, [empty]);
+
   const confirmText = (change: Pending) => {
     const names = { from: displayKeyword(change.from), to: displayKeyword(change.to) };
+    if (change.kind === 'deleteUnused') return t('studio.library.keywordList.confirm.deleteUnused');
     const what =
-      change.kind === 'merge'
-        ? t('studio.library.keywordList.confirm.merge', names)
-        : change.kind === 'move'
-          ? t('studio.library.keywordList.confirm.move', names)
-          : change.kind === 'convert'
-            ? t('studio.library.keywordList.confirm.convert', names)
-            : t('studio.library.keywordList.confirm.rename', names);
+      change.kind === 'delete'
+        ? t('studio.library.keywordList.confirm.delete', names)
+        : change.kind === 'merge'
+          ? t('studio.library.keywordList.confirm.merge', names)
+          : change.kind === 'move'
+            ? t('studio.library.keywordList.confirm.move', names)
+            : change.kind === 'convert'
+              ? t('studio.library.keywordList.confirm.convert', names)
+              : t('studio.library.keywordList.confirm.rename', names);
     return `${what} ${t('studio.library.keywordList.confirm.photos', { count: change.count })}`;
   };
   const actionLabel = (kind: Pending['kind']) =>
-    kind === 'merge'
-      ? t('studio.library.keywordList.confirm.mergeAction')
-      : kind === 'move'
-        ? t('studio.library.keywordList.confirm.moveAction')
-        : kind === 'convert'
-          ? t('studio.library.keywordList.confirm.convertAction')
-          : t('studio.library.keywordList.confirm.renameAction');
+    kind === 'delete' || kind === 'deleteUnused'
+      ? t('studio.library.keywordList.confirm.deleteAction')
+      : kind === 'merge'
+        ? t('studio.library.keywordList.confirm.mergeAction')
+        : kind === 'move'
+          ? t('studio.library.keywordList.confirm.moveAction')
+          : kind === 'convert'
+            ? t('studio.library.keywordList.confirm.convertAction')
+            : t('studio.library.keywordList.confirm.renameAction');
 
   const menu = (e: ReactMouseEvent, node: KeywordNode) => {
     e.preventDefault();
@@ -152,6 +254,14 @@ export function StudioKeywordList() {
         onClick: () => filterBy(node.path)
       },
       { label: t('studio.library.keywordList.menu.rename'), onClick: () => setRenaming(node.path) },
+      {
+        label: t('studio.library.keywordList.menu.newInside', { keyword: displayKeyword(node.path) }),
+        onClick: () => setMaking({ parent: node.path })
+      },
+      {
+        label: t('studio.library.keywordList.menu.delete'),
+        onClick: () => setPending({ kind: 'delete', from: node.path, to: node.path, count: node.count })
+      },
       ...(keywordParent(node.path) !== null
         ? [
             {
@@ -256,6 +366,7 @@ export function StudioKeywordList() {
             aria-expanded={node.children.length ? expanded : undefined}
             aria-selected={filtered(node.path)}
             data-keyword-row={node.path}
+            data-album-drop={node.path}
             className={`studio-preset studio-album studio-keyword-row ${filtered(node.path) ? 'is-applied' : ''} ${
               drag?.path === node.path ? 'is-dragged' : ''
             }${droppable ? ' is-drop-into' : ''}`}
@@ -299,8 +410,47 @@ export function StudioKeywordList() {
 
   // Filtering by a keyword is the catalog's: the tool belongs to a library.
   if (!directory) return null;
+  const listMenu = (e: ReactMouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    const details = e.currentTarget.closest('details');
+    if (details) details.open = true;
+    const rect = e.currentTarget.getBoundingClientRect();
+    showContextMenu(rect.left, rect.bottom, [
+      { label: t('studio.library.keywordList.menu.new'), onClick: () => setMaking({ parent: null }) },
+      ...(unused.length
+        ? [
+            {
+              label: t('studio.library.keywordList.menu.deleteUnused'),
+              onClick: () => setPending({ kind: 'deleteUnused', from: '', to: '', count: 0, unused })
+            }
+          ]
+        : [])
+    ]);
+  };
+  const makeKeys = (e: KeyboardEvent<HTMLInputElement>, parent: string | null) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') return setMaking(null);
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const text = e.currentTarget.value;
+    setMaking(null);
+    void make(parent, text);
+  };
   return (
-    <ToolGroup title="Keyword List" label={t('studio.library.keywordList.title')}>
+    <ToolGroup
+      title="Keyword List"
+      label={t('studio.library.keywordList.title')}
+      actions={
+        <button
+          type="button"
+          title={t('studio.library.keywordList.menu.new')}
+          aria-label={t('studio.library.keywordList.menu.new')}
+          onClick={listMenu}
+        >
+          <Plus size={12} />
+        </button>
+      }
+    >
       {pending && (
         <div
           className="studio-inline studio-preset-confirm"
@@ -323,7 +473,20 @@ export function StudioKeywordList() {
           </span>
         </div>
       )}
-      {tree.length === 0 ? (
+      {making && (
+        <input
+          className="studio-metadata-input studio-album-name"
+          aria-label={
+            making.parent
+              ? t('studio.library.keywordList.new.insideLabel', { keyword: displayKeyword(making.parent) })
+              : t('studio.library.keywordList.new.label')
+          }
+          autoFocus
+          onKeyDown={(e) => makeKeys(e, making.parent)}
+          onBlur={() => setMaking(null)}
+        />
+      )}
+      {empty ? (
         <p className="studio-help">{t('studio.library.keywordList.empty')}</p>
       ) : (
         <div

@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use walkdir::WalkDir;
 
 use crate::app_state::AppState;
-use crate::file_management::{self, SaveFailure, parse_virtual_path};
+use crate::file_management::{self, KeywordChange, SaveFailure, parse_virtual_path};
 use crate::formats::is_supported_image_file;
 use crate::image_processing::ImageMetadata;
 use crate::ipc::CommandError;
@@ -467,10 +467,12 @@ fn modify_tags_for_path(
     path_str: &str,
     app_handle: &AppHandle,
     modify_fn: impl Fn(&mut Vec<String>),
-) -> Result<(), String> {
+) -> Result<KeywordChange, String> {
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
 
+    let before = crate::exif_processing::load_sidecar(&sidecar_path).tags;
     let metadata = change_tags(&sidecar_path, modify_fn)?;
+    let change = KeywordChange::between(path_str, before.as_deref(), metadata.tags.as_deref());
     crate::session_bridge::write_editor_sidecar(
         &sidecar_path,
         serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?,
@@ -484,7 +486,7 @@ fn modify_tags_for_path(
         file_management::sync_metadata_to_xmp(&source_path, &metadata, create_if_missing);
     }
 
-    Ok(())
+    Ok(change)
 }
 
 /// The metadata of `sidecar_path` with `modify_fn` applied to its tags (sorted
@@ -510,7 +512,7 @@ pub async fn add_tag_for_paths(
     paths: Vec<String>,
     tag: String,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
+) -> Result<Vec<KeywordChange>, SaveFailure> {
     let unsaved = paths.clone();
     crate::file_management::blocking(move || add_tag_for_paths_blocking(paths, tag, app_handle))
         .await
@@ -523,7 +525,7 @@ fn add_tag_for_paths_blocking(
     paths: Vec<String>,
     tag: String,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
+) -> Result<Vec<KeywordChange>, SaveFailure> {
     let _job = crate::batch_journal::begin(
         &app_handle,
         crate::batch_journal::BatchKind::KeywordAdd { tag: tag.clone() },
@@ -548,7 +550,7 @@ pub async fn remove_tag_for_paths(
     paths: Vec<String>,
     tag: String,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
+) -> Result<Vec<KeywordChange>, SaveFailure> {
     let unsaved = paths.clone();
     crate::file_management::blocking(move || remove_tag_for_paths_blocking(paths, tag, app_handle))
         .await
@@ -561,7 +563,7 @@ fn remove_tag_for_paths_blocking(
     paths: Vec<String>,
     tag: String,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
+) -> Result<Vec<KeywordChange>, SaveFailure> {
     let _job = crate::batch_journal::begin(
         &app_handle,
         crate::batch_journal::BatchKind::KeywordRemove { tag: tag.clone() },
@@ -586,7 +588,7 @@ pub async fn rename_keyword_for_paths(
     from: String,
     to: String,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
+) -> Result<Vec<KeywordChange>, SaveFailure> {
     let unsaved = paths.clone();
     let from = rawtonic_metadata::keywords::normalize(&from);
     let to = rawtonic_metadata::keywords::normalize(&to);
@@ -609,6 +611,104 @@ pub async fn rename_keyword_for_paths(
         tag_paths(&paths, &app_handle, |tags| {
             rename_keyword_tags(tags, &from, &to)
         })
+    })
+    .await
+    .unwrap_or_else(|error| tag_failures_unsaved(&unsaved, &error))
+}
+
+/// Deletes the keyword `path` from each of `paths`: the photographs lose it
+/// and its children move up one level (Lightroom keeps a deleted keyword's
+/// children). A batch save that failed for some photographs rejects with a
+/// `SaveFailure` naming them (the others are changed).
+#[tauri::command]
+pub async fn delete_keyword_for_paths(
+    paths: Vec<String>,
+    path: String,
+    app_handle: AppHandle,
+) -> Result<Vec<KeywordChange>, SaveFailure> {
+    let unsaved = paths.clone();
+    let keyword = rawtonic_metadata::keywords::normalize(&path);
+    if keyword.is_empty() {
+        return tag_failures_unsaved(&unsaved, "A keyword needs a name");
+    }
+    crate::file_management::blocking(move || {
+        let _job = crate::batch_journal::begin(
+            &app_handle,
+            crate::batch_journal::BatchKind::KeywordDelete {
+                path: keyword.clone(),
+            },
+            "delete_keyword_for_paths",
+            serde_json::json!({ "path": keyword }),
+            None,
+            &paths,
+            crate::batch_journal::current,
+        );
+        tag_paths(&paths, &app_handle, |tags| {
+            delete_keyword_tags(tags, &keyword)
+        })
+    })
+    .await
+    .unwrap_or_else(|error| tag_failures_unsaved(&unsaved, &error))
+}
+
+/// `tags` after Undo (or Redo) of `change`: the tags it added go and the tags
+/// it removed come back (the other way for Redo). Tags the photograph gained
+/// or lost since are not touched.
+pub(crate) fn travel_keyword_change(tags: &mut Vec<String>, change: &KeywordChange, undo: bool) {
+    let (gone, back) = if undo {
+        (&change.added, &change.removed)
+    } else {
+        (&change.removed, &change.added)
+    };
+    tags.retain(|tag| !gone.contains(tag));
+    for tag in back {
+        if !tags.contains(tag) {
+            tags.push(tag.clone());
+        }
+    }
+}
+
+/// Undo or Redo of a keyword write: each photograph loses what the write
+/// added and gets back what it removed (`undo`), or the other way round.
+/// Keywords the photograph gained or lost meanwhile stay as they are. Returns
+/// what each photograph changed by, and a `SaveFailure` naming those not
+/// saved.
+#[tauri::command]
+pub async fn restore_keywords(
+    changes: Vec<KeywordChange>,
+    undo: bool,
+    app_handle: AppHandle,
+) -> Result<Vec<KeywordChange>, SaveFailure> {
+    let unsaved: Vec<String> = changes.iter().map(|change| change.path.clone()).collect();
+    crate::file_management::blocking(move || {
+        let results: Vec<(String, Result<KeywordChange, String>)> = changes
+            .par_iter()
+            .map(|change| {
+                let _turn = file_management::sidecar_field_edit();
+                (
+                    change.path.clone(),
+                    modify_tags_for_path(&change.path, &app_handle, |tags| {
+                        travel_keyword_change(tags, change, undo)
+                    }),
+                )
+            })
+            .collect();
+        let mut done = Vec::new();
+        let mut failures = Vec::new();
+        for (path, result) in results {
+            match result {
+                Ok(change) if !change.is_empty() => done.push(change),
+                Ok(_) => {}
+                Err(e) => failures.push((path, e)),
+            }
+        }
+        match tag_failures(changes.len(), failures) {
+            Ok(()) => Ok(done),
+            Err(mut failure) => {
+                failure.keywords = done;
+                Err(failure)
+            }
+        }
     })
     .await
     .unwrap_or_else(|error| tag_failures_unsaved(&unsaved, &error))
@@ -651,10 +751,38 @@ pub(crate) fn renamed_tag(tag: &str, from: &str, to: &str) -> Option<String> {
 /// merge) is kept once, in the spelling it had; the user's marker wins over
 /// an automatic tag of the same keyword.
 pub(crate) fn rename_keyword_tags(tags: &mut Vec<String>, from: &str, to: &str) {
+    replace_keyword_tags(tags, |tag| renamed_tag(tag, from, to).map(Some));
+}
+
+/// Deletes the keyword `path` from the tags: its own tag goes, a tag under
+/// it moves up one level (`rawtonic_metadata::keywords::without`).
+pub(crate) fn delete_keyword_tags(tags: &mut Vec<String>, path: &str) {
+    replace_keyword_tags(tags, |tag| {
+        let keyword = tag_keyword(tag)?;
+        if !rawtonic_metadata::keywords::is_within(keyword, path) {
+            return None;
+        }
+        Some(
+            rawtonic_metadata::keywords::without(keyword, path).map(|kept| {
+                let marker = if tag.starts_with(USER_TAG_PREFIX) {
+                    USER_TAG_PREFIX
+                } else {
+                    ""
+                };
+                format!("{marker}{kept}")
+            }),
+        )
+    });
+}
+
+/// Replaces tags: `replace` says None to keep a tag, Some(None) to drop it
+/// and Some(Some(new)) to change it. A changed keyword the photograph has
+/// already (ignoring case) is kept once; see `rename_keyword_tags`.
+fn replace_keyword_tags(tags: &mut Vec<String>, replace: impl Fn(&str) -> Option<Option<String>>) {
     let mut renamed: Vec<String> = Vec::new();
-    tags.retain(|tag| match renamed_tag(tag, from, to) {
+    tags.retain(|tag| match replace(tag) {
         Some(new) => {
-            renamed.push(new);
+            renamed.extend(new);
             false
         }
         None => true,
@@ -681,22 +809,40 @@ pub(crate) fn rename_keyword_tags(tags: &mut Vec<String>, from: &str, to: &str) 
 
 /// Changes the tags of each of `paths` with `modify_fn` and saves them. The
 /// photographs that saved are not named: only those not saved are (`Err`),
-/// so the frontend marks only those failed and the others as written.
+/// so the frontend marks only those failed and the others as written. Both
+/// the result and the failure carry what each saved photograph's keywords
+/// gained and lost (`KeywordChange`), which Undo takes back.
 fn tag_paths(
     paths: &[String],
     app_handle: &AppHandle,
     modify_fn: impl Fn(&mut Vec<String>) + Sync,
-) -> Result<(), SaveFailure> {
-    let failures: Vec<(String, String)> = paths
+) -> Result<Vec<KeywordChange>, SaveFailure> {
+    let results: Vec<(String, Result<KeywordChange, String>)> = paths
         .par_iter()
-        .filter_map(|path| {
+        .map(|path| {
             let _turn = file_management::sidecar_field_edit();
-            modify_tags_for_path(path, app_handle, &modify_fn)
-                .err()
-                .map(|e| (path.clone(), e))
+            (
+                path.clone(),
+                modify_tags_for_path(path, app_handle, &modify_fn),
+            )
         })
         .collect();
-    tag_failures(paths.len(), failures)
+    let mut changes = Vec::new();
+    let mut failures = Vec::new();
+    for (path, result) in results {
+        match result {
+            Ok(change) if !change.is_empty() => changes.push(change),
+            Ok(_) => {}
+            Err(e) => failures.push((path, e)),
+        }
+    }
+    match tag_failures(paths.len(), failures) {
+        Ok(()) => Ok(changes),
+        Err(mut failure) => {
+            failure.keywords = changes;
+            Err(failure)
+        }
+    }
 }
 
 /// A keyword batch's report: `Ok` when every photograph saved, else the
@@ -708,7 +854,7 @@ fn tag_failures(total: usize, failures: Vec<(String, String)>) -> Result<(), Sav
 }
 
 /// The keyword worker saving `paths` stopped (`error`): none of them saved.
-fn tag_failures_unsaved(paths: &[String], error: &str) -> Result<(), SaveFailure> {
+fn tag_failures_unsaved(paths: &[String], error: &str) -> Result<Vec<KeywordChange>, SaveFailure> {
     tag_failures(
         paths.len(),
         paths
@@ -716,6 +862,7 @@ fn tag_failures_unsaved(paths: &[String], error: &str) -> Result<(), SaveFailure
             .map(|path| (path.clone(), format!("Saving failed: {error}")))
             .collect(),
     )
+    .map(|()| Vec::new())
 }
 
 fn sync_xmp_for_rrdata(
@@ -850,6 +997,61 @@ mod tests {
         let mut tags = vec!["Fauna".to_string(), "user:Animals".to_string()];
         rename_keyword_tags(&mut tags, "Animals", "fauna");
         assert_eq!(tags, ["user:Fauna"]);
+    }
+
+    /// Deleting a keyword removes it and moves its children up one level,
+    /// merging into a keyword the photograph has; colour labels stay.
+    #[test]
+    fn deleting_a_keyword_moves_its_children_up() {
+        let mut tags: Vec<String> = [
+            "user:Animals|Dogs",
+            "user:Animals|Dogs|Beagle",
+            "user:Animals|Beagle",
+            "user:Animals|Cats",
+            "color:red",
+        ]
+        .map(String::from)
+        .to_vec();
+        delete_keyword_tags(&mut tags, "animals|dogs");
+        // `Animals|Dogs|Beagle` merges into the `Animals|Beagle` it has.
+        assert_eq!(
+            tags,
+            ["user:Animals|Beagle", "user:Animals|Cats", "color:red"]
+        );
+        let mut tags = vec!["user:Animals".to_string(), "user:Animals|Dogs".to_string()];
+        delete_keyword_tags(&mut tags, "Animals");
+        assert_eq!(tags, ["user:Dogs"]);
+    }
+
+    /// What a write did is what Undo takes back: the stored keyword tags
+    /// gained and lost, never a colour label.
+    #[test]
+    fn a_keyword_change_names_the_tags_gained_and_lost() {
+        let before = ["user:Dogs".to_string(), "color:red".to_string()];
+        let after = ["user:Pets|Dogs".to_string(), "color:blue".to_string()];
+        let change = KeywordChange::between("a.raf", Some(&before), Some(&after));
+        assert_eq!(change.added, ["user:Pets|Dogs"]);
+        assert_eq!(change.removed, ["user:Dogs"]);
+        assert!(KeywordChange::between("a.raf", Some(&before), Some(&before)).is_empty());
+    }
+
+    /// Undo and Redo of a keyword write change only the tags the write
+    /// changed: a keyword added since, and a colour label, stay.
+    #[test]
+    fn undoing_a_keyword_write_keeps_what_changed_since() {
+        let original = vec!["user:Dogs".to_string(), "color:red".to_string()];
+        let mut tags = original.clone();
+        // A rename `Dogs` → `Animals|Dogs` the photograph went through.
+        rename_keyword_tags(&mut tags, "Dogs", "Animals|Dogs");
+        let change = KeywordChange::between("a.raf", Some(&original), Some(&tags));
+        // The photograph gained `beach` meanwhile.
+        tags.push("user:beach".into());
+        travel_keyword_change(&mut tags, &change, true);
+        tags.sort();
+        assert_eq!(tags, ["color:red", "user:Dogs", "user:beach"]);
+        travel_keyword_change(&mut tags, &change, false);
+        tags.sort();
+        assert_eq!(tags, ["color:red", "user:Animals|Dogs", "user:beach"]);
     }
 
     /// A keyword batch whose save failed for some photographs reports exactly

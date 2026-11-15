@@ -89,6 +89,7 @@
       "detail": "Une fermeture ou un plantage a arrêté ce lot avant que toutes les photos soient écrites. Appliquez-le aux autres, annulez la partie appliquée ou laissez les photos telles quelles. Les photos elles-mêmes ne sont jamais modifiées.",
       "failed": "{{batch}} n’a pas pu être terminé : {{error}}",
       "keywordAdd": "Mot-clé « {{tag}} »",
+      "keywordDelete": "Suppression du mot-clé « {{path}} »",
       "keywordRemove": "Retrait du mot-clé « {{tag}} »",
       "keywordRename": "Renommage du mot-clé « {{from}} » en « {{to}} »",
       "notWritten_one": "{{count}} photo n’a pas pu être écrite",
@@ -4276,6 +4277,9 @@
           "cancel": "Annuler",
           "convert": "Convertir « {{from}} » en hiérarchie « {{to}} » ?",
           "convertAction": "Convertir",
+          "delete": "Supprimer « {{from}} » ? Les mots-clés qu’il contient remontent d’un niveau.",
+          "deleteAction": "Supprimer",
+          "deleteUnused": "Supprimer tous les mots-clés qu’aucune photo n’a ?",
           "label": "Confirmer la modification du mot-clé",
           "merge": "Fusionner « {{from}} » avec « {{to}} » ? « {{from}} » est remplacé par celui-ci.",
           "mergeAction": "Fusionner",
@@ -4294,13 +4298,23 @@
         "menu": {
           "clearFilter": "Ne plus filtrer par ce mot-clé",
           "convert": "Convertir en « {{path}} »",
+          "delete": "Supprimer le mot-clé…",
+          "deleteUnused": "Supprimer les mots-clés inutilisés…",
           "filter": "Afficher les photos avec ce mot-clé",
           "moveToTop": "Déplacer au niveau supérieur",
+          "new": "Nouveau mot-clé…",
+          "newInside": "Nouveau mot-clé dans « {{keyword}} »…",
           "rename": "Renommer…"
+        },
+        "new": {
+          "insideLabel": "Nouveau mot-clé dans {{keyword}}",
+          "label": "Nouveau mot-clé : saisissez son nom ou son chemin, p. ex. Parent > Nom"
         },
         "renameLabel": "Renommer ou déplacer {{keyword}} : saisissez son chemin, p. ex. Parent > Nom",
         "title": "Liste des mots-clés",
         "toasts": {
+          "assignFailed": "Le mot-clé n’a pas pu être ajouté aux photos : {{error}}",
+          "createFailed": "Le mot-clé n’a pas pu être créé : {{error}}",
           "renameFailed": "Impossible de modifier les mots-clés : {{error}}"
         }
       },
@@ -5577,6 +5591,15 @@
     "edit": "Modification",
     "file": "Modification de fichier",
     "flag": "Définir le marqueur",
+    "keywordAdd": "Ajouter le mot-clé « {{keyword}} »",
+    "keywordConvert": "Convertir le mot-clé",
+    "keywordDelete": "Supprimer le mot-clé",
+    "keywordDeleteUnused": "Supprimer les mots-clés inutilisés",
+    "keywordMerge": "Fusionner les mots-clés",
+    "keywordMove": "Déplacer le mot-clé",
+    "keywordNew": "Nouveau mot-clé",
+    "keywordRemove": "Retirer le mot-clé « {{keyword}} »",
+    "keywordRename": "Renommer le mot-clé",
     "lensCorrection": "Correction de l'objectif",
     "matchLight": "Harmoniser la lumière",
     "move": "Déplacer",

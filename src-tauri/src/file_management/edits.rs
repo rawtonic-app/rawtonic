@@ -980,6 +980,7 @@ pub(crate) fn face_retouch_failure(path: &str, reason: &str) -> SaveFailure {
         message: format!("Face retouch of {path} failed: {reason}"),
         failed: vec![path.to_string()],
         culling: Vec::new(),
+        keywords: Vec::new(),
     }
 }
 
@@ -1130,6 +1131,7 @@ pub async fn apply_auto_adjustments_to_paths(
         message: format!("Auto adjustments failed: {e}"),
         failed: all,
         culling: Vec::new(),
+        keywords: Vec::new(),
     })?;
     SaveFailure::check(total, failures)
 }
@@ -1143,6 +1145,51 @@ pub struct SaveFailure {
     pub failed: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub culling: Vec<CullingChange>,
+    /// A keyword batch: what each photograph that saved gained and lost.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<KeywordChange>,
+}
+
+/// What a keyword write did to one photograph's keywords: the stored tags it
+/// gained and lost (colour labels are not keywords). Undo removes `added` and
+/// puts `removed` back; Redo the other way (`restore_keywords`), so a keyword
+/// the photograph gained meanwhile stays.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct KeywordChange {
+    pub path: String,
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+}
+
+impl KeywordChange {
+    /// The change from the tags `before` to those `after` (None: no tags).
+    pub fn between(path: &str, before: Option<&[String]>, after: Option<&[String]>) -> Self {
+        let keywords = |tags: Option<&[String]>| -> Vec<String> {
+            tags.unwrap_or_default()
+                .iter()
+                .filter(|tag| !rawtonic_metadata::labels::is_editor_tag(tag))
+                .cloned()
+                .collect()
+        };
+        let (before, after) = (keywords(before), keywords(after));
+        Self {
+            path: path.to_string(),
+            added: after
+                .iter()
+                .filter(|tag| !before.contains(tag))
+                .cloned()
+                .collect(),
+            removed: before
+                .iter()
+                .filter(|tag| !after.contains(tag))
+                .cloned()
+                .collect(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.removed.is_empty()
+    }
 }
 
 impl SaveFailure {
@@ -1171,6 +1218,7 @@ impl SaveFailure {
             message: format!("Could not save {what}: {}", listed.join("; ")),
             failed: failures.into_iter().map(|(path, _)| path).collect(),
             culling: Vec::new(),
+            keywords: Vec::new(),
         })
     }
 }
