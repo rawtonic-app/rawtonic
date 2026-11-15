@@ -1,3 +1,4 @@
+use rawtonic_engine::recipe_versions::gradient;
 use rawtonic_recipe::color as recipe_color;
 use rawtonic_recipe::detail;
 use rawtonic_recipe::effects;
@@ -1539,7 +1540,8 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                     match (mnum("ZeroX"), mnum("ZeroY"), mnum("FullX"), mnum("FullY")) {
                         (Some(zx), Some(zy), Some(fx), Some(fy)) => (
                             "linear",
-                            json!({"lrNormalized": {"zeroX": zx, "zeroY": zy, "fullX": fx, "fullY": fy}}),
+                            json!({"lrNormalized": {"zeroX": zx, "zeroY": zy, "fullX": fx, "fullY": fy,
+                                gradient::KEY: gradient::BELL}}),
                         ),
                         _ => {
                             supported = false;
@@ -1577,6 +1579,7 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                                 "top": top, "left": left, "bottom": bottom, "right": right,
                                 "angle": mnum("Angle").unwrap_or(0.0),
                                 "feather": mnum("Feather").unwrap_or(50.0),
+                                gradient::KEY: gradient::BELL,
                             }}),
                         ),
                         _ => {
@@ -2154,6 +2157,12 @@ mod tests {
         assert_eq!(
             layers[2]["subMasks"][0]["parameters"]["lrNormalized"]["fullY"],
             json!(0.1)
+        );
+        // New imports take the current gradient falloff.
+        assert_eq!(
+            layers[2]["subMasks"][0]["parameters"]["lrNormalized"]
+                [rawtonic_engine::recipe_versions::gradient::KEY],
+            json!(rawtonic_engine::recipe_versions::gradient::BELL)
         );
         let sky = &layers[0];
         assert_eq!(sky["name"], "Sky darker");

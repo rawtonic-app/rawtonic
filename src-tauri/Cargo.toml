@@ -1,6 +1,6 @@
 [package]
 name = "rawtonic-app"
-version = "0.1.0-alpha.14"
+version = "0.1.0-alpha.15"
 license = "AGPL-3.0-or-later"
 default-run = "rawtonic-app"
 description = "Non-destructive photo editor with native GPU rendering and portable sessions (development build)."
@@ -51,7 +51,7 @@ rawtonic-onnx = { path = "../crates/onnx", version = "0.1.0" }
 rawtonic-runtime = { path = "../crates/runtime", version = "0.1.0" }
 rawtonic-fileops = { path = "../crates/fileops", version = "0.1.0" }
 rawtonic-interop = { path = "../crates/interop", version = "0.1.0" }
-tauri = { version = "2.12", features = [ "macos-private-api", "rustls-tls", "protocol-asset" ] }
+tauri = { version = "2.12", features = [ "macos-private-api", "rustls-tls", "protocol-asset", "process-relaunch-dangerous-allow-symlink-macos" ] }
 tauri-plugin-dialog = "2.8.4"
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -83,6 +83,23 @@ pub fn set_orientation(adjustments: &mut Value, orientation: u16) {
     }
 }
 
+/// A placed gradient keeps the falloff version its import recorded in the
+/// pending geometry (none before 2026-11-15: the straight ramp, as such a
+/// component rendered when it was imported).
+trait WithGradientVersion {
+    fn with_gradient_version(self, g: &Value) -> Self;
+}
+
+impl WithGradientVersion for Value {
+    fn with_gradient_version(mut self, g: &Value) -> Self {
+        let key = crate::recipe_versions::gradient::KEY;
+        if let Some(version) = g.get(key) {
+            self[key] = version.clone();
+        }
+        self
+    }
+}
+
 /// Lightroom's geometry `g` of a component of kind `kind` placed in a photo
 /// of `width` × `height` coordinate pixels (as decoded, EXIF orientation
 /// applied) whose orientation is `orientation`: Rawtonic's parameters for
@@ -136,6 +153,7 @@ pub fn placed_parameters(
                 masks::RANGE.name(): round(length / 2.0),
                 masks::FRAME.name(): frame,
             })
+            .with_gradient_version(g)
         }
         "radial" => {
             // Top/Left and Bottom/Right are opposite corners of the
@@ -157,6 +175,7 @@ pub fn placed_parameters(
                     (g[masks::FEATHER.name()].as_f64().unwrap_or(50.0) / 100.0).clamp(0.0, 1.0),
                 masks::FRAME.name(): frame,
             })
+            .with_gradient_version(g)
         }
         "brush" => {
             // The radius is a share of the long side (Camera Raw: 0.05 →
@@ -440,6 +459,23 @@ mod tests {
             let left_out = render(&pending, &reduced);
             assert_ne!(left_out, rendered);
             assert_eq!(left_out, render(&imported(None), &reduced));
+        }
+    }
+
+    #[test]
+    fn placed_gradients_keep_the_falloff_version_of_their_import() {
+        let key = crate::recipe_versions::gradient::KEY;
+        let linear = json!({"zeroX": 0.5, "zeroY": 0.5, "fullX": 0.5, "fullY": 0.1});
+        let radial = json!({"top": 0.2, "left": 0.2, "bottom": 0.8, "right": 0.8,
+            "angle": 0.0, "feather": 50.0});
+        for (kind, g) in [("linear", linear), ("radial", radial)] {
+            // Imported before the key: the straight ramp, as it rendered.
+            let old = placed_parameters(kind, &g, 300.0, 200.0, 1).unwrap();
+            assert!(old.get(key).is_none(), "{kind}");
+            let mut new = g.clone();
+            new[key] = json!(2);
+            let placed = placed_parameters(kind, &new, 300.0, 200.0, 1).unwrap();
+            assert_eq!(placed[key], 2, "{kind}");
         }
     }
 

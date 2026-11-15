@@ -463,6 +463,14 @@ impl ColorGradingVersion {
     pub fn per_wheel(self) -> bool {
         self.0 >= 2
     }
+
+    /// The graded colour limited per channel to the sRGB cube, the
+    /// Luminance sliders as a curve per channel, the change of Shadows and
+    /// Highlights tints above saturation 50, own hue tables for Midtones
+    /// and Global (`colorGradingVersion` 3).
+    pub fn per_channel(self) -> bool {
+        self.0 >= 3
+    }
 }
 
 /// The film grain (`grainVersion` 3).
@@ -1023,6 +1031,16 @@ pub mod auto_mask {
     pub const EDGE_AWARE: u32 = 2;
     /// Colour models per dab.
     pub const COLOUR_MODELS: u32 = 3;
+}
+
+/// Versions of a radial or linear component's falloff (`gradientVersion` in
+/// its parameters, missing = 1: the straight ramp).
+pub mod gradient {
+    /// The key in a radial or linear component's parameters.
+    pub const KEY: &str = "gradientVersion";
+    /// Radial: a bell that runs out just beyond the ellipse; linear: eased
+    /// at both lines.
+    pub const BELL: u32 = 2;
 }
 
 /// Versions of a brush line's dabs (`dabVersion`, missing = 1).

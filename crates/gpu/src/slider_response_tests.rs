@@ -448,11 +448,24 @@ fn render(
 fn render_with_masks(
     context: &GpuContext,
     slot: &GpuProcessorSlot,
-    (image, hash, key, airlight): &Chart,
+    chart: &Chart,
     recipe: &Value,
     camera_raw: bool,
     masks: &[Arc<MaskBitmap>],
 ) -> Lab {
+    let rgb = render_srgb(context, slot, chart, recipe, camera_raw, masks);
+    Lab(rgb.into_iter().map(srgb_to_lab).collect())
+}
+
+/// The render's sRGB values (16-bit output), row by row.
+fn render_srgb(
+    context: &GpuContext,
+    slot: &GpuProcessorSlot,
+    (image, hash, key, airlight): &Chart,
+    recipe: &Value,
+    camera_raw: bool,
+    masks: &[Arc<MaskBitmap>],
+) -> Vec<[f32; 3]> {
     let mut adjustments = get_all_adjustments_from_json(recipe, true, None);
     if camera_raw {
         camera_raw_look().apply(&mut adjustments.global);
@@ -487,8 +500,7 @@ fn render_with_masks(
     )
     .unwrap();
     assert_eq!((output.width(), output.height()), (WIDTH, HEIGHT));
-    let rgb = output.to_rgb32f();
-    Lab(rgb.pixels().map(|p| srgb_to_lab(p.0)).collect())
+    output.to_rgb32f().pixels().map(|p| p.0).collect()
 }
 
 /// One render's measurement of all four charts (absolute values).
@@ -734,6 +746,9 @@ fn adapter_name() -> String {
 
 #[path = "pasted_versions_tests.rs"]
 mod pasted_versions;
+
+#[path = "color_grading_tests.rs"]
+mod color_grading;
 
 #[test]
 #[ignore = "requires a native GPU; every global slider's response on generated charts against tests/data/slider_response.json"]

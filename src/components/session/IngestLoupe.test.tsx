@@ -306,9 +306,12 @@ describe('Reviewing before the import (IMPD)', () => {
     Object.defineProperty(measure, 'naturalWidth', { value: 6000 });
     Object.defineProperty(measure, 'naturalHeight', { value: 4000 });
     fireEvent.load(measure);
-    expect(zoomButton().textContent).toBe('100 %');
-    const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full');
+    const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full:not(.is-held)');
     expect(fullImage()?.getAttribute('src')).toBe('blob:full0');
+    // Said once its own element has the pixels (jsdom has no decode()).
+    expect(zoomButton().textContent).toBe('Loading 100 %…');
+    fireEvent.load(fullImage()!);
+    expect(zoomButton().textContent).toBe('100 %');
     expect(fullImage()?.style.width).toBe('6000px');
     expect(full.mock.calls.map((c) => c[0])).toEqual([path(0), path(1)]);
     // The next photograph opens at 100 % as soon as its pixels are there.
@@ -334,12 +337,14 @@ describe('Reviewing before the import (IMPD)', () => {
     // Without any zoom yet: the shown photograph, then the next one.
     await waitFor(() => expect(full.mock.calls.map((c) => c[0])).toEqual([path(0), path(1)]));
     const zoomButton = () => document.querySelector('.session-ingest-loupe-zoom')!;
-    const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full');
+    const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full:not(.is-held)');
     expect(fullImage()).toBeNull();
     await user.keyboard('z');
-    // Already decoded and measured: 100 % at once, no measuring image.
-    expect(zoomButton().textContent).toBe('100 %');
+    // Already decoded and measured: on screen at once, no measuring image.
+    expect(document.querySelector('img[hidden]')).toBeNull();
     expect(fullImage()?.getAttribute('src')).toBe(`blob:${path(0)}`);
+    fireEvent.load(fullImage()!);
+    expect(zoomButton().textContent).toBe('100 %');
     expect(fullImage()?.style.width).toBe('6000px');
     await user.keyboard('{ArrowRight}');
     expect(fullImage()?.getAttribute('src')).toBe(`blob:${path(1)}`);
@@ -379,7 +384,8 @@ describe('Reviewing before the import (IMPD)', () => {
       expect(region).not.toHaveBeenCalled();
       await user.keyboard('z');
       // At once: the large preview at the 100 % size around the centre.
-      const enlarged = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-enlarged');
+      const enlarged = () =>
+        document.querySelector<HTMLImageElement>('img.session-ingest-loupe-enlarged:not(.is-held)');
       await waitFor(() => expect(enlarged()).toBeTruthy());
       expect(enlarged()!.getAttribute('src')).toBe(`blob:large${path(0)}`);
       expect(enlarged()!.style.width).toBe('6000px');
@@ -394,17 +400,23 @@ describe('Reviewing before the import (IMPD)', () => {
           rect: { x: 2344, y: 1544, width: 1312, height: 912 }
         })
       );
-      const part = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-region')!;
+      const part = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-region:not(.is-held)')!;
       expect(part.getAttribute('src')).toBe('blob:region0');
       expect(part.style.width).toBe('1312px');
       expect(part.style.transform).toBe('translate(-256px, -156px)');
-      // Then all of it in the same place; the stand-ins go.
+      // Then all of it in the same place, on top; what it replaces stays
+      // under it until its element has the pixels.
       await act(async () => finishFull({ url: 'blob:full0', info: null, width: 6000, height: 4000 }));
-      const whole = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full')!;
+      const whole = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full:not(.is-held)')!;
       expect(whole.getAttribute('src')).toBe('blob:full0');
       expect(whole.style.transform).toBe('translate(-2600px, -1700px)');
-      expect(enlarged()).toBeNull();
-      expect(document.querySelector('img.session-ingest-loupe-region')).toBeNull();
+      expect(document.querySelector('img.session-ingest-loupe-region:not(.is-held)')).toBe(part);
+      expect(enlarged()).toBeTruthy();
+      fireEvent.load(whole);
+      expect(document.querySelector('.session-ingest-loupe-zoom')!.textContent).toBe('100 %');
+      expect(document.querySelector('img.session-ingest-loupe-region:not(.is-held)')).toBeNull();
+      // The enlarged preview stays exactly under it, for zooming out.
+      expect(enlarged()!.style.transform).toBe('translate(-2600px, -1700px)');
       expect(revoked).toContain('blob:region0');
       expect(cancel).toHaveBeenCalledWith(path(0));
       expect(region).toHaveBeenCalledTimes(1);
@@ -412,6 +424,149 @@ describe('Reviewing before the import (IMPD)', () => {
       width.mockRestore();
       height.mockRestore();
     }
+  });
+
+  it('Z in and out keeps the photograph on screen: one element is restyled, and the full size replaces it only once decoded (IMPDW)', async () => {
+    // A new <img> paints nothing until it has decoded (WebView2: 65–98 ms of
+    // an empty view after Z, notes G76 WSMOKE22), so Z must not swap the
+    // shown element, and the full size goes on screen only once decoded.
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    const decodes: (() => void)[] = [];
+    const decode = vi.fn(() => new Promise<void>((resolve) => decodes.push(resolve)));
+    Object.defineProperty(HTMLImageElement.prototype, 'decode', { value: decode, configurable: true });
+    try {
+      const user = userEvent.setup();
+      render(
+        <Harness
+          list={files(2)}
+          loadPreview={async (p) => ({ url: `blob:large${p}`, info: null, width: 1620, height: 1080 })}
+          loadFullPreview={async () => ({ url: 'blob:full0', info: null, width: 6000, height: 4000 })}
+          loadFullSize={async () => ({ width: 6000, height: 4000 })}
+          loadRegion={async () => null}
+          cancelRegion={() => undefined}
+        />
+      );
+      await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+      const fit = await waitFor(() =>
+        document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-placeholder)')!
+      );
+      const zoomButton = () => document.querySelector('.session-ingest-loupe-zoom')!.textContent;
+      const fullImage = () => document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full:not(.is-held)');
+      await user.keyboard('z');
+      // The same element, now at the 100 % size; the full size on top of it.
+      expect(fit.isConnected).toBe(true);
+      expect(fit.className).toBe('session-ingest-loupe-enlarged');
+      expect(fit.style.width).toBe('6000px');
+      expect(fullImage()?.getAttribute('src')).toBe('blob:full0');
+      fireEvent.load(fullImage()!);
+      expect(zoomButton()).toBe('Loading 100 %…');
+      await act(async () => decodes.shift()!());
+      expect(zoomButton()).toBe('100 %');
+      expect(fit.isConnected).toBe(true);
+      // Out: the same element again, fitted.
+      await user.keyboard('z');
+      expect(fit.isConnected).toBe(true);
+      expect(fit.className).toBe('session-ingest-loupe-fit');
+      expect(fit.style.width).toBe('');
+      expect(fullImage()).toBeNull();
+      // In again: the full size has a new element, which must decode again.
+      await user.keyboard('z');
+      expect(fit.className).toBe('session-ingest-loupe-enlarged');
+      expect(zoomButton()).toBe('Loading 100 %…');
+      fireEvent.load(fullImage()!);
+      await act(async () => decodes.shift()!());
+      expect(zoomButton()).toBe('100 %');
+    } finally {
+      delete (HTMLImageElement.prototype as { decode?: unknown }).decode;
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
+
+  it('stepping keeps the previous photograph on screen until the next one has decoded, never an empty frame (IMPDW)', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        list={files(2)}
+        loadPreview={async (p) => ({ url: `blob:large${p}`, info: null, width: 1620, height: 1080 })}
+        loadFullPreview={() => new Promise<LargePreview>(() => undefined)}
+      />
+    );
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    const first = await waitFor(() =>
+      document.querySelector<HTMLImageElement>(`img.session-ingest-loupe-fit[src="blob:large${path(0)}"]`)!
+    );
+    fireEvent.load(first);
+    await user.keyboard('{ArrowRight}');
+    expect(shownName()).toBe('DSC00001.ARW');
+    // The same element of the first photograph stays, under the next one.
+    expect(first.isConnected).toBe(true);
+    expect(first.classList.contains('is-held')).toBe(true);
+    const next = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-held)')!;
+    expect(next.getAttribute('src')).toBe(`blob:large${path(1)}`);
+    expect(first.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Once the next one can be drawn, the first goes.
+    fireEvent.load(next);
+    expect(first.isConnected).toBe(false);
+    expect(document.querySelectorAll('img.is-held')).toHaveLength(0);
+  });
+
+  it('stepping to a photograph whose preview is still loading keeps the previous one up until it can be drawn (IMPDW)', async () => {
+    const user = userEvent.setup();
+    let finishNext: (preview: LargePreview) => void = () => undefined;
+    render(
+      <Harness
+        list={files(2)}
+        loadPreview={(p) =>
+          p === path(0)
+            ? Promise.resolve({ url: `blob:large${p}`, info: null, width: 1620, height: 1080 })
+            : new Promise<LargePreview>((resolve) => (finishNext = resolve))
+        }
+        loadFullPreview={() => new Promise<LargePreview>(() => undefined)}
+      />
+    );
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    const first = await waitFor(() =>
+      document.querySelector<HTMLImageElement>(`img.session-ingest-loupe-fit[src="blob:large${path(0)}"]`)!
+    );
+    fireEvent.load(first);
+    await user.keyboard('{ArrowRight}');
+    expect(shownName()).toBe('DSC00001.ARW');
+    // No image of its own yet: the first stays, in its place under it.
+    expect(first.isConnected).toBe(true);
+    expect(first.classList.contains('is-held')).toBe(true);
+    await act(async () => finishNext({ url: `blob:large${path(1)}`, info: null, width: 1620, height: 1080 }));
+    const next = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-fit:not(.is-held)')!;
+    expect(next.getAttribute('src')).toBe(`blob:large${path(1)}`);
+    expect(first.isConnected).toBe(true);
+    fireEvent.load(next);
+    expect(first.isConnected).toBe(false);
+  });
+
+  it('a photograph without any preview drops the previous one instead of keeping it up (IMPDW)', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        list={files(2)}
+        loadPreview={async (p) =>
+          p === path(0) ? { url: `blob:large${p}`, info: null, width: 1620, height: 1080 } : { url: null, info: null }
+        }
+        loadFullPreview={() => new Promise<LargePreview>(() => undefined)}
+      />
+    );
+    await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
+    const first = await waitFor(() =>
+      document.querySelector<HTMLImageElement>(`img.session-ingest-loupe-fit[src="blob:large${path(0)}"]`)!
+    );
+    fireEvent.load(first);
+    await user.keyboard('{ArrowRight}');
+    // Its grid thumbnail, if any, replaces it once drawn; with none, the
+    // view says there is no preview instead of showing the previous photo.
+    await waitFor(() => expect(screen.queryByText('Loading 100 %…')).toBeNull());
+    const own = document.querySelector<HTMLImageElement>('.session-ingest-loupe-image img:not(.is-held)');
+    if (own) fireEvent.load(own);
+    await waitFor(() => expect(first.isConnected).toBe(false));
   });
 
   it('closing the import view while a 100 % region is shown revokes its blob URL', async () => {
@@ -446,7 +601,7 @@ describe('Reviewing before the import (IMPD)', () => {
           rect: { x: 2344, y: 1544, width: 1312, height: 912 }
         })
       );
-      expect(document.querySelector('img.session-ingest-loupe-region')).toBeTruthy();
+      expect(document.querySelector('img.session-ingest-loupe-region:not(.is-held)')).toBeTruthy();
       expect(revoked).not.toContain('blob:region-open');
       unmount();
       expect(revoked).toContain('blob:region-open');
@@ -473,12 +628,12 @@ describe('Reviewing before the import (IMPD)', () => {
     );
     await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
     await user.keyboard('z');
-    await waitFor(() => expect(document.querySelector('img.session-ingest-loupe-full')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector('img.session-ingest-loupe-full:not(.is-held)')).toBeTruthy());
     await waitFor(() => expect(document.querySelector('.session-ingest-loupe-count')!.textContent).toContain('1'));
     await user.keyboard('{ArrowRight}');
     expect(shownName()).toBe('DSC00001.ARW');
-    expect(document.querySelector('img.session-ingest-loupe-fit')).toBeNull();
-    const enlarged = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-enlarged')!;
+    expect(document.querySelector('img.session-ingest-loupe-fit:not(.is-held)')).toBeNull();
+    const enlarged = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-enlarged:not(.is-held)')!;
     expect(enlarged.getAttribute('src')).toBe(`blob:large${path(1)}`);
     expect(enlarged.style.width).toBe('6000px');
   });
@@ -503,7 +658,7 @@ describe('Reviewing before the import (IMPD)', () => {
     fireEvent.load(fit);
     await user.keyboard('z');
     await act(async () => undefined);
-    expect(document.querySelector('img.session-ingest-loupe-enlarged')).toBeNull();
+    expect(document.querySelector('img.session-ingest-loupe-enlarged:not(.is-held)')).toBeNull();
     expect(document.querySelector('img.session-ingest-loupe-fit')).toBeTruthy();
     expect(document.querySelector('.session-ingest-loupe-zoom')!.textContent).toBe('Loading 100 %…');
   });
@@ -527,7 +682,7 @@ describe('Reviewing before the import (IMPD)', () => {
     fireEvent.load(measure);
     // A quarter across and down, at 100 % (dpr 1): that spot sits at the
     // view's centre (jsdom measured the view as 0 × 0, so its centre is 0, 0).
-    const shown = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full')!;
+    const shown = document.querySelector<HTMLImageElement>('img.session-ingest-loupe-full:not(.is-held)')!;
     expect(shown.style.transform).toBe('translate(-1500px, -1000px)');
   });
 
@@ -537,7 +692,7 @@ describe('Reviewing before the import (IMPD)', () => {
     await user.dblClick(screen.getByRole('checkbox', { name: 'DSC00000.ARW' }));
     await user.keyboard('z');
     await waitFor(() => expect(screen.getByText('No full-size view could be made of this file')).toBeTruthy());
-    expect(document.querySelector('img.session-ingest-loupe-full')).toBeNull();
+    expect(document.querySelector('img.session-ingest-loupe-full:not(.is-held)')).toBeNull();
     expect(document.querySelector('.session-ingest-loupe-zoom')!.textContent).not.toBe('100 %');
   });
 
