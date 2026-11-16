@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Empty a catalog’s Trash folder.** Its folder menu now offers Empty Trash with the same confirmation and permanent, non-undoable deletion as sessions; photographs outside that folder are kept.
+
 - **Every menu shows each command's key, named for your keyboard.** The menu bar (macOS), the ⋯ menu (Windows, Linux) and the right-click menus show the key of each command at the row's right — single keys too (ratings, flags, views), and your own keys when you changed them. Keys are named as your keyboard layout types them: on a Swiss or German Mac, New Virtual Copy shows ⌘Ä and Rotate shows Ü, the keys that run them (before, the menu showed ⌘^, which zoomed instead); ⌘+ and ⌘- zoom on every layout. Preferences and tooltips write keys the platform's way (⇧⌘E on a Mac, Ctrl+Shift+E elsewhere).
 - **F10 or Alt opens the menu on Windows and Linux**, and the arrow keys, Enter, Esc and a row's first letter work in every menu, as in other Windows and KDE applications.
 - **The bars above the grid and the photo stay one row.** On a 13-inch laptop, at 1280 × 800 or with the filmstrip docked beside the photo, the Library's filter bar and Develop's viewer bar no longer wrap to two or three rows: words beside icons give way first (their names stay as tooltips), then field widths; the viewer bar's Camera preview, Proof margin, zoom presets and finally Fit and 100 % move into a ⋯ menu. The eyes filter shows once Eye check is on (Preferences ▸ General).

@@ -4475,13 +4475,19 @@
         "incomplete": "Der Papierkorb wurde geleert, einige Dateien ließen sich aber noch nicht löschen; Rawtonic versucht es beim nächsten Start erneut. {{note}}",
         "menu": "Papierkorb leeren…",
         "messageEmptyFolders": "Die leeren Ordner im Papierkorb-Ordner entfernen?",
+        "messageEmptyFolders_catalog": "Die leeren Ordner im Papierkorb-Ordner des Katalogs entfernen?",
         "messageFiles_one": "{{count}} Datei wird vom Datenträger entfernt, Begleitdateien und XMP eingeschlossen.",
         "messageFiles_other": "{{count}} Dateien werden vom Datenträger entfernt, Begleitdateien und XMP eingeschlossen.",
         "messageOnlyFiles_one": "{{count}} Datei im Papierkorb-Ordner endgültig löschen?",
         "messageOnlyFiles_other": "{{count}} Dateien im Papierkorb-Ordner endgültig löschen?",
+        "messageOnlyFiles_catalog_one": "{{count}} Datei im Papierkorb-Ordner des Katalogs endgültig löschen?",
+        "messageOnlyFiles_catalog_other": "{{count}} Dateien im Papierkorb-Ordner des Katalogs endgültig löschen?",
         "messagePhotos_one": "{{count}} Foto im Papierkorb-Ordner endgültig löschen?",
         "messagePhotos_other": "{{count}} Fotos im Papierkorb-Ordner endgültig löschen?",
-        "title": "Papierkorb-Ordner leeren?"
+        "messagePhotos_catalog_one": "{{count}} Foto im Papierkorb-Ordner des Katalogs endgültig löschen?",
+        "messagePhotos_catalog_other": "{{count}} Fotos im Papierkorb-Ordner des Katalogs endgültig löschen?",
+        "title": "Papierkorb-Ordner leeren?",
+        "title_catalog": "Papierkorb-Ordner des Katalogs leeren?"
       }
     },
     "loadError": {

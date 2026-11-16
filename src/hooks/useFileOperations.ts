@@ -435,10 +435,10 @@ export function describeEmptyTrash(contents: TrashContents): string {
   const t = i18next.t.bind(i18next);
   const what =
     contents.photos > 0
-      ? `${t('studio.library.trash.messagePhotos', { count: contents.photos })} ${t('studio.library.trash.messageFiles', { count: contents.files })}`
+      ? `${t('studio.library.trash.messagePhotos', { count: contents.photos, ...kind() })} ${t('studio.library.trash.messageFiles', { count: contents.files, ...kind() })}`
       : contents.files > 0
-        ? t('studio.library.trash.messageOnlyFiles', { count: contents.files })
-        : t('studio.library.trash.messageEmptyFolders');
+        ? t('studio.library.trash.messageOnlyFiles', { count: contents.files, ...kind() })
+        : t('studio.library.trash.messageEmptyFolders', kind());
   return `${what} ${t('studio.library.trash.cannotUndo')}`;
 }
 
@@ -712,7 +712,7 @@ export function useFileOperations(
     useUIStore.getState().setUI({
       confirmModalState: {
         isOpen: true,
-        title: t('studio.library.trash.title'),
+        title: t('studio.library.trash.title', kind()),
         message: describeEmptyTrash(contents),
         confirmText: t('studio.library.trash.confirm'),
         confirmVariant: 'destructive',
@@ -729,7 +729,7 @@ export function useFileOperations(
             if (result?.note) {
               notify.warn(t('studio.library.trash.incomplete', { note: result.note }), { autoClose: false });
             } else if (contents.photos > 0) {
-              notify.success(t('studio.library.trash.emptied', { count: contents.photos }));
+              notify.success(t('studio.library.trash.emptied', { count: contents.photos, ...kind() }));
             } else {
               notify.success(t('studio.library.trash.emptiedNow'));
             }

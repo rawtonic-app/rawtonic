@@ -522,9 +522,30 @@ describe("the panel beside Develop's tools", () => {
 });
 
 describe("the session's Trash folder", () => {
-  it("offers Empty Trash only on the session's own Trash folder", () => {
+  it.each(['session', 'catalog'] as const)("offers Empty Trash only on the %s's own Trash folder", (libraryKind) => {
     const emptyTrash = vi.fn();
     useLibraryStore.setState({
+      libraryKind,
+      catalogFolders:
+        libraryKind === 'catalog'
+          ? {
+              catalog: true,
+              volumes: [
+                {
+                  key: 'sys',
+                  kind: 'local',
+                  id: 'sys',
+                  name: 'System',
+                  mount_point: '/',
+                  online: true,
+                  free_bytes: null,
+                  total_bytes: null,
+                  folders: [],
+                  roots: ['/job']
+                }
+              ]
+            }
+          : null,
       folderTrees: [
         folder('/job', 0, [folder('/job/Capture', 2), folder('/job/Trash', 1, [folder('/job/Trash/Capture', 1)])])
       ] as never,
