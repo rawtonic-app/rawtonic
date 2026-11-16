@@ -5196,6 +5196,7 @@
         "noOthers": "Select other photos in the filmstrip to apply to them"
       },
       "popover": {
+        "photoMenu": "Photo menu…",
         "resetBrush": "Reset brush",
         "resetCrop": "Reset crop and straighten",
         "resetOpacity": "Reset opacity",

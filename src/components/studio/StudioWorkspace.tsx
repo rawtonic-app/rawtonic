@@ -282,6 +282,15 @@ export default function StudioWorkspace(props: Props) {
     y: number;
   } | null>(null);
   const closeToolPopover = useCallback(() => setToolPopover(null), []);
+  // The photograph's menu from the tool panel's last row, where the
+  // right-click was: the brush tools keep Undo, Copy and Rating in reach.
+  const openPhotoMenuAt = ({ x, y }: { x: number; y: number }) =>
+    onEditorContextMenu({
+      clientX: x,
+      clientY: y,
+      preventDefault() {},
+      stopPropagation() {}
+    } as unknown as MouseEvent);
   // With a mask tool active, a right-click on the photograph opens its
   // settings (Capture One); otherwise the photograph's context menu.
   const onViewerContextMenu = (event: MouseEvent) => {
@@ -1260,7 +1269,14 @@ export default function StudioWorkspace(props: Props) {
               />
             </PerfProfiler>
           </MultiViewStage>
-          {toolPopover && <StudioToolPopover x={toolPopover.x} y={toolPopover.y} onClose={closeToolPopover} />}
+          {toolPopover && (
+            <StudioToolPopover
+              x={toolPopover.x}
+              y={toolPopover.y}
+              onClose={closeToolPopover}
+              onPhotoMenu={viewOnly ? undefined : () => openPhotoMenuAt(toolPopover)}
+            />
+          )}
           {infoOverlay && (develop || isFullScreen) && <ViewerInfoOverlay />}
           <GraphicsPreparingNotice />
           {quickAdjust && (

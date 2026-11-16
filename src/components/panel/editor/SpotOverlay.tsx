@@ -234,6 +234,17 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   // and shows its source, so you see what a click will select).
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [pointer, setPointer] = useState<Point | null>(null);
+  // The settings closed: the ring leaves with them and returns with the next move.
+  useEffect(
+    () =>
+      useEditorStore.subscribe((state, previous) => {
+        if (previous.toolPopoverOpen && !state.toolPopoverOpen) {
+          setHoverId(null);
+          setPointer(null);
+        }
+      }),
+    []
+  );
   const [stroke, setStroke] = useState<Point[] | null>(null);
   // Spots and removals being placed (a removal's fill takes about a second;
   // the brush keeps painting meanwhile).
@@ -956,6 +967,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onPointerLeave={() => {
+        // Onto the settings opened by a right-click: the ring (or the spot
+        // right-clicked) stays as it was and shows size and feather changes.
+        if (useEditorStore.getState().toolPopoverOpen) return;
         setHoverId(null);
         setPointer(null);
       }}

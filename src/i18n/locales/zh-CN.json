@@ -5063,6 +5063,7 @@
         "noOthers": "在胶片条中选择其他照片以应用到它们"
       },
       "popover": {
+        "photoMenu": "照片菜单…",
         "resetBrush": "重置画笔",
         "resetCrop": "重置裁剪和拉直",
         "resetOpacity": "重置不透明度",

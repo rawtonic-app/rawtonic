@@ -5405,6 +5405,7 @@
         "noOthers": "Selecciona otras fotos en la tira de imágenes para aplicarlo a ellas"
       },
       "popover": {
+        "photoMenu": "Menú de la foto…",
         "resetBrush": "Restablecer pincel",
         "resetCrop": "Restablecer recorte y enderezado",
         "resetOpacity": "Restablecer opacidad",

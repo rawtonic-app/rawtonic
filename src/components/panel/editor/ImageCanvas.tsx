@@ -3092,8 +3092,20 @@ const ImageCanvas = memo(
 
     const handleMouseLeave = useCallback(() => {
       setPointerOverImage(false);
+      // Onto the brush settings opened by a right-click: the ring stays at
+      // the right-click and shows their size and feather as they change.
+      if (useEditorStore.getState().toolPopoverOpen) return;
       setCursorPreview((p: CursorPreview) => ({ ...p, visible: false }));
     }, []);
+    // Closed: the ring leaves with the panel and returns with the next move.
+    useEffect(
+      () =>
+        useEditorStore.subscribe((state, previous) => {
+          if (previous.toolPopoverOpen && !state.toolPopoverOpen)
+            setCursorPreview((p: CursorPreview) => ({ ...p, visible: false }));
+        }),
+      []
+    );
 
     // A pointermove precedes the mousemove handleMove receives; it carries
     // the coalesced positions (WebKit and Chromium, where supported).

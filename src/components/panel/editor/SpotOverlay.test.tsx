@@ -1045,6 +1045,19 @@ describe('brush cursor', () => {
     expect(el.style.cursor).toBe('crosshair');
   });
 
+  it('stays at the right-click while its settings are open and leaves when they close', () => {
+    const el = overlay();
+    fireEvent.pointerMove(el, { clientX: 40, clientY: 30 });
+    act(() => useEditorStore.setState({ toolPopoverOpen: true }));
+    // The pointer moves onto the settings: the ring shows their size there.
+    fireEvent.pointerLeave(el);
+    const ring = () => screen.getByTestId('spot-brush-cursor').querySelector('circle')!;
+    act(() => useEditorStore.setState({ spotSettings: { mode: 'heal', size: 50, feather: 0, opacity: 100 } }));
+    expect(ring().getAttribute('r')).toBe('25');
+    act(() => useEditorStore.setState({ toolPopoverOpen: false }));
+    expect(screen.queryByTestId('spot-brush-cursor')).toBeNull();
+  });
+
   it('falls back below four screen pixels and accounts for zoom', () => {
     useEditorStore.setState({ spotSettings: { mode: 'heal', size: 3, feather: 50, opacity: 100 } });
     const { rerender } = render(

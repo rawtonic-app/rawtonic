@@ -5405,6 +5405,7 @@
         "noOthers": "Selecciona altres fotos a la tira d'imatges per aplicar-ho"
       },
       "popover": {
+        "photoMenu": "Menú de la foto…",
         "resetBrush": "Restableix el pinzell",
         "resetCrop": "Restableix el retall i el redreçament",
         "resetOpacity": "Restableix l'opacitat",

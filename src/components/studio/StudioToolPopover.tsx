@@ -40,10 +40,26 @@ export function toolPopoverApplies(tools: ReturnType<typeof useStudioTools>) {
   return Boolean(tools.layer) && tools.activeTool !== 'select';
 }
 
+/** Controls a press of Enter activates instead of closing the panel. */
+const ENTER_ACTS =
+  'button, select, textarea, input[type="checkbox"], input[type="radio"], [role="radio"], [role="checkbox"]';
+
 /** The selected layer's tool settings at the pointer, opened by a right-click
- * on the photograph. Closes on Escape, an outside press or when the layer is
- * deselected. */
-export default function StudioToolPopover({ x, y, onClose }: { x: number; y: number; onClose(): void }) {
+ * on the photograph. Closes on Escape, Enter, an outside press or when the
+ * layer is deselected; values apply as they change (to the same state the
+ * tool panel writes), so closing never undoes them. `onPhotoMenu` opens the
+ * photograph's own menu (Undo, Copy, Rating, …) the right-click replaced. */
+export default function StudioToolPopover({
+  x,
+  y,
+  onClose,
+  onPhotoMenu
+}: {
+  x: number;
+  y: number;
+  onClose(): void;
+  onPhotoMenu?(): void;
+}) {
   const { t } = useTranslation();
   const tools = useStudioTools();
   const { setAdjustments } = useEditorActions();
@@ -70,6 +86,13 @@ export default function StudioToolPopover({ x, y, onClose }: { x: number; y: num
     if (!open) onClose();
   }, [open, onClose]);
 
+  // While open, the brush ring stays at the right-click on the photo, so
+  // size and feather changes show there (SpotOverlay, ImageCanvas).
+  useEffect(() => {
+    useEditorStore.getState().setEditor({ toolPopoverOpen: true });
+    return () => useEditorStore.getState().setEditor({ toolPopoverOpen: false });
+  }, []);
+
   const spotTool = tools.activeTool === 'spot';
   useEffect(() => {
     // A press beside the panel closes it and still acts: painting or
@@ -86,17 +109,43 @@ export default function StudioToolPopover({ x, y, onClose }: { x: number; y: num
       }
       onClose();
     };
+    // A value field with typed, not yet applied digits: Escape first
+    // discards them in the field (as any field), a second Escape closes.
+    let editedField: EventTarget | null = null;
+    const onInput = (e: Event) => {
+      editedField = e.target;
+    };
+    const onFocusOut = (e: FocusEvent) => {
+      if (e.target === editedField) editedField = null;
+    };
     // Capture phase, so the viewer's own Escape handling (deselecting the
     // layer) does not run for the same key.
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      const target = e.target as Element | null;
+      if (e.key === 'Escape') {
+        if (editedField && target === editedField) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        onClose();
+        return;
+      }
+      // Enter applies a typed value (leaving the field commits it) and
+      // closes, as Capture One's tool panel; on a button it presses it.
+      if (e.key !== 'Enter' || e.isComposing || !target || !ref.current?.contains(target)) return;
+      if (target.closest?.(ENTER_ACTS)) return;
       e.preventDefault();
       e.stopImmediatePropagation();
+      if (target instanceof HTMLElement && target !== ref.current) target.blur();
       onClose();
     };
+    const panel = ref.current;
+    panel?.addEventListener('input', onInput);
+    panel?.addEventListener('focusout', onFocusOut);
     document.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('keydown', onKeyDown, true);
     return () => {
+      panel?.removeEventListener('input', onInput);
+      panel?.removeEventListener('focusout', onFocusOut);
       document.removeEventListener('pointerdown', onPointerDown, true);
       window.removeEventListener('keydown', onKeyDown, true);
     };
@@ -188,6 +237,18 @@ export default function StudioToolPopover({ x, y, onClose }: { x: number; y: num
         <StudioSpotControls />
       ) : (
         <StudioLayerControls compact />
+      )}
+      {onPhotoMenu && (
+        <button
+          type="button"
+          className="studio-text-button studio-tool-popover-more"
+          onClick={() => {
+            onClose();
+            onPhotoMenu();
+          }}
+        >
+          {t('studio.tools.popover.photoMenu')}
+        </button>
       )}
     </div>,
     // Inside the workspace, so its variables and control styles apply.

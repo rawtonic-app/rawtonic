@@ -5063,6 +5063,7 @@
         "noOthers": "필름스트립에서 다른 사진을 선택하여 적용하세요"
       },
       "popover": {
+        "photoMenu": "사진 메뉴…",
         "resetBrush": "브러시 재설정",
         "resetCrop": "자르기 및 수평 맞추기 재설정",
         "resetOpacity": "불투명도 재설정",

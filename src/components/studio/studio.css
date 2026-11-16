@@ -1304,6 +1304,14 @@
 .studio-tool-popover .studio-layer-paint {
   margin-top: 4px;
 }
+/* The photograph's own menu, which the right-click with a tool replaced. */
+.studio-tool-popover-more {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  border-top: 1px solid var(--studio-shade-hover, #404247);
+  text-align: left;
+}
 /* One-click new layers above the list: selections | drawn shapes. */
 .studio-layer-quick {
   display: flex;
