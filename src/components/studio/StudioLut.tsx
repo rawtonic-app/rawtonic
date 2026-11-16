@@ -1,7 +1,7 @@
 import { Invokes } from '../ui/AppProperties';
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { openDialog } from '../../utils/fileDialog';
 import { notify } from '../../activity/notify';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -130,8 +130,10 @@ export default function StudioLut({
   const importLuts = async (folder: boolean) => {
     try {
       const selected = folder
-        ? await open({ directory: true, multiple: true })
-        : await open({
+        ? await openDialog({ directory: true, multiple: true, title: t('studio.lut.importFolderTitle'), purpose: 'luts' })
+        : await openDialog({
+            title: t('studio.lut.importTitle'),
+            purpose: 'luts',
             multiple: true,
             filters: [{ name: 'LUT', extensions: [...EXTENSIONS, ...EXTENSIONS.map((e) => e.toUpperCase())] }]
           });

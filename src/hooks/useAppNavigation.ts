@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openDialog } from '../utils/fileDialog';
-import { homeDir } from '@tauri-apps/api/path';
+import i18next from 'i18next';
 import { notify } from '../activity/notify';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -629,7 +629,12 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
    * session only shows it; addFolder.ts); else the folder is shown. */
   const handleOpenFolder = useCallback(async () => {
     try {
-      const selected = await openDialog({ directory: true, multiple: false, defaultPath: await homeDir() });
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        title: i18next.t('studio.library.folders.addFolderTitle'),
+        purpose: 'addFolder'
+      });
       if (typeof selected !== 'string' || !selected) return;
       if (!requestAddFolder({ folder: selected, show: () => showFolder(selected) })) await showFolder(selected);
     } catch (err) {

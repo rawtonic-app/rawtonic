@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useShallow } from 'zustand/react/shallow';
-import type { i18n as I18n } from 'i18next';
+import { interfaceLanguage } from '../i18n/systemLanguage';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore, reconcileWorkspace } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -49,24 +49,6 @@ interface UseAppInitializationProps {
   libraryViewMode: LibraryViewMode;
   setLibraryViewMode: (mode: LibraryViewMode) => void;
 }
-
-const getDefaultLanguage = (i18nInstance: I18n): string => {
-  // `userLanguage` is the legacy Internet Explorer name for navigator.language.
-  const browserLang = navigator.language || (navigator as Navigator & { userLanguage?: string }).userLanguage || 'en';
-  const shortLang = browserLang.split('-')[0].toLowerCase();
-  const supportedLanguages = Object.keys(i18nInstance.options.resources || {});
-  const fallbackLang =
-    typeof i18nInstance.options.fallbackLng === 'string'
-      ? i18nInstance.options.fallbackLng
-      : // src/i18n configures 'en'; a language list is the only other shape this reads.
-        (i18nInstance.options.fallbackLng as readonly string[] | undefined)?.[0] || 'en';
-
-  return supportedLanguages.includes(browserLang)
-    ? browserLang
-    : supportedLanguages.includes(shortLang)
-      ? shortLang
-      : fallbackLang;
-};
 
 export const useAppInitialization = ({
   preloadedDataRef,
@@ -171,10 +153,6 @@ export const useAppInitialization = ({
           } as CopyPasteSettings;
         }
 
-        if (!settings.language) {
-          settings.language = getDefaultLanguage(i18n);
-          handleSettingsChange(settings);
-        }
 
         const savedRawStatus = settings?.filterCriteria?.rawStatus as string | undefined;
         if (savedRawStatus === 'groupVariants' || savedRawStatus === 'rawOverNonRaw') {
@@ -188,7 +166,9 @@ export const useAppInitialization = ({
         settings.workspace = reconciledWorkspace;
 
         setAppSettings(settings);
-        i18n.changeLanguage(settings.language);
+        // No language chosen in Preferences: the system's (UXR4L-03). It is
+        // not saved, so the interface follows a later change of the system's.
+        void interfaceLanguage(settings.language).then((language) => i18n.changeLanguage(language));
 
         if (settings?.sortCriteria) setSortCriteria(settings.sortCriteria);
 
@@ -374,9 +354,13 @@ export const useAppInitialization = ({
 
   useEffect(() => {
     if (isInitialMount.current || !appSettings) return;
-    if (appSettings.language && appSettings.language !== i18n.language) {
-      i18n.changeLanguage(appSettings.language);
-    }
+    let current = true;
+    void interfaceLanguage(appSettings.language).then((language) => {
+      if (current && language !== i18n.language) void i18n.changeLanguage(language);
+    });
+    return () => {
+      current = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the two languages it compares; `appSettings` changes on every settings save, and the react-i18next `i18n` wrapper only changes identity together with i18n.language
   }, [appSettings?.language, i18n.language]);
 

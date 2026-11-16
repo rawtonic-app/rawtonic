@@ -122,6 +122,7 @@ mod upright;
 mod window_capture;
 mod window_customizer;
 mod window_limits;
+mod window_menu;
 mod window_state;
 mod xmp_review;
 
@@ -181,6 +182,9 @@ pub fn run() {
     if let Some(code) = gpu_idle_helper::run_if_asked() {
         std::process::exit(code);
     }
+    // Before any thread starts: the environment is changed here.
+    #[cfg(target_os = "linux")]
+    startup::use_portal_dialogs();
     #[cfg(feature = "performance-profiling")]
     performance::mark_application_start();
     gpu_processing::mark_process_start();
@@ -898,6 +902,7 @@ fn start(args: Vec<String>) {
             window_customizer::set_window_full_screen,
             snap_layout::set_maximize_button_rect,
             window_limits::set_window_minimum,
+            window_menu::show_window_menu,
             second_window::second_window_state,
             second_window::second_window_set_open,
             second_window::second_window_set_locked,

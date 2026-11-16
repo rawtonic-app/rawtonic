@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { openDialog } from '../../utils/fileDialog';
 import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LayoutGrid, List, Star } from 'lucide-react';
@@ -339,7 +339,9 @@ export default function StudioProfileBrowser({
   const importProfile = async () => {
     if (!imagePath) return;
     try {
-      const source = await open({
+      const source = await openDialog({
+        title: t('studio.profile.importDcp'),
+        purpose: 'profiles',
         multiple: false,
         filters: [{ name: t('studio.profile.dcpFilter'), extensions: ['dcp', 'DCP'] }]
       });

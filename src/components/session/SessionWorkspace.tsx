@@ -1504,9 +1504,9 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     return () => window.removeEventListener('keydown', handler, true);
   }, [mark, form, session, busy]);
 
-  const chooseFolder = async (setter: (value: string) => void) => {
+  const chooseFolder = async (setter: (value: string) => void, title: string, purpose: string) => {
     try {
-      const value = await openDialog({ directory: true, multiple: false });
+      const value = await openDialog({ directory: true, multiple: false, title, purpose });
       if (typeof value === 'string') setter(value);
     } catch (e) {
       setError(String(e));
@@ -1516,7 +1516,8 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     const directory = await openDialog({
       directory: true,
       multiple: false,
-      title: t('session.dialogs.openTitle')
+      title: t('session.dialogs.openTitle'),
+      purpose: 'library'
     });
     if (typeof directory !== 'string') return;
     await openRecentDirectory(directory);
@@ -1666,11 +1667,12 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     try {
       const value = await openDialog(
         folders
-          ? { multiple: true, directory: true, title: t('session.ingest.chooseFolderTitle') }
+          ? { multiple: true, directory: true, title: t('session.ingest.chooseFolderTitle'), purpose: 'ingest' }
           : {
               multiple: true,
               directory: false,
               title: t('session.ingest.chooseTitle'),
+              purpose: 'ingest',
               filters: [{ name: t('session.ingest.photographs'), extensions: extensions() }]
             }
       );
@@ -2386,6 +2388,8 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                   aria-label={t('session.import.chooseSource')}
                   onClick={() =>
                     void openDialog({
+                      title: t('session.import.chooseSource'),
+                      purpose: 'catalogImport',
                       multiple: false,
                       directory: false,
                       filters: [
@@ -2487,7 +2491,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                   type="button"
                   className="session-icon-button"
                   aria-label={t('session.hotFolder.chooseFolder')}
-                  onClick={() => void chooseFolder(setHotPath)}
+                  onClick={() => void chooseFolder(setHotPath, t('session.hotFolder.chooseFolder'), 'hotFolder')}
                 >
                   <FolderOpen size={16} />
                 </button>
@@ -2592,7 +2596,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
             </label>
             <label className="session-field">
               {t('session.create.location')}
-              <button type="button" className="session-path" onClick={() => void chooseFolder(setParent)}>
+              <button type="button" className="session-path" onClick={() => void chooseFolder(setParent, t('session.create.chooseParentTitle'), 'library')}>
                 <FolderOpen size={17} />
                 <span>{parent || t('session.create.chooseParent')}</span>
               </button>
@@ -2752,7 +2756,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                       <span className="session-optional">{t('session.ingest.optional')}</span>
                     </span>
                     <div className="session-backup">
-                      <button type="button" className="session-path" onClick={() => void chooseFolder(setBackup)}>
+                      <button type="button" className="session-path" onClick={() => void chooseFolder(setBackup, t('session.ingest.chooseSecondCopyTitle'), 'backup')}>
                         <FolderOpen size={17} />
                         <span>{backup || t('session.ingest.chooseBackup')}</span>
                       </button>

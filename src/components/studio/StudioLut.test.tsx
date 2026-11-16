@@ -118,7 +118,13 @@ it('groups imported LUTs by pack and reports the files a folder import left out'
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import folder…' }));
   });
-  expect(open).toHaveBeenCalledWith({ directory: true, multiple: true });
+  expect(open).toHaveBeenCalledWith(
+    expect.objectContaining({
+      directory: true,
+      multiple: true,
+      title: 'Import every LUT in a folder (and its subfolders) as a pack'
+    })
+  );
   expect(invoke).toHaveBeenCalledWith('import_luts', { sourcePaths: ['/home/me/Summer'] });
   const select = screen.getByRole('combobox', { name: 'LUT' });
   const groups = [...select.querySelectorAll('optgroup')].map((g) => [

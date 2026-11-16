@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { openDialog } from '../../utils/fileDialog';
 import { AppWindow, Check, FolderOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';

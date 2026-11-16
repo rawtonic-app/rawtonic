@@ -88,12 +88,14 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
       }).catch(() => undefined);
       const file = await saveDialog({
         title: t('studio.export.dialogs.exportFile', { name }),
+        purpose: 'export',
         defaultPath: named?.name ?? `${stem}.${extension}`,
         filters: [{ name: extension.toUpperCase(), extensions: [extension] }]
       });
       return typeof file === 'string' ? { path: file, isFile: true } : null;
     }
     const chosen = await openDialog({
+      purpose: 'export',
       title: t('studio.export.dialogs.exportFolder', {
         count: paths.length,
         name

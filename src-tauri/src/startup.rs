@@ -725,6 +725,39 @@ pub(crate) fn gtk_uses_wayland(env: impl Fn(&str) -> Option<String>) -> bool {
 
 /// Whether to set `WEBKIT_FORCE_DMABUF_RENDERER=1` before the webview exists.
 ///
+/// Set when this process asked GTK for portal dialogs itself; programs it
+/// starts (Open With) then get the user's environment without it.
+#[cfg(target_os = "linux")]
+static PORTAL_DIALOGS_SET: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Whether to ask GTK for the desktop portal's dialogs: unless the user set
+/// `GTK_USE_PORTAL` themselves (`0` keeps GTK's own chooser).
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn wants_portal_dialogs(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
+    env("GTK_USE_PORTAL").is_none()
+}
+
+/// File and folder dialogs through the XDG desktop portal (UXR4L-01): KDE
+/// shows its own dialog with the user's places, GNOME and others theirs.
+/// rfd's GTK backend shows a `GtkFileChooserNative`, which asks the portal
+/// when `GTK_USE_PORTAL=1` and shows GTK's own chooser when no portal
+/// answers. Called first in `run`, before any thread exists.
+#[cfg(target_os = "linux")]
+pub(crate) fn use_portal_dialogs() {
+    if wants_portal_dialogs(|name| std::env::var_os(name)) {
+        // SAFETY: no other thread runs yet (see the caller).
+        unsafe { std::env::set_var("GTK_USE_PORTAL", "1") };
+        PORTAL_DIALOGS_SET.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Whether `use_portal_dialogs` set `GTK_USE_PORTAL` (not the user).
+#[cfg(target_os = "linux")]
+pub(crate) fn portal_dialogs_set() -> bool {
+    PORTAL_DIALOGS_SET.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// WebKitGTK up to at least 2.50 (the AppImage's) turns its DMA-BUF renderer
 /// off when it finds `/dev/nvidia*`, and on Wayland that leaves it without
 /// accelerated compositing: every frame of the page is rasterised on the CPU
@@ -1369,5 +1402,21 @@ mod symlinked_launch_tests {
         );
         assert!(msg.contains("real/target/release/resources") && !msg.contains("linked"));
         assert!(super::resource_dir_missing_message(None, None).contains("unknown"));
+    }
+}
+
+#[cfg(test)]
+mod portal_dialog_tests {
+    use super::wants_portal_dialogs;
+
+    #[test]
+    fn dialogs_use_the_portal_unless_the_user_chose() {
+        assert!(wants_portal_dialogs(|_| None));
+        assert!(!wants_portal_dialogs(
+            |name| (name == "GTK_USE_PORTAL").then(|| "0".into())
+        ));
+        assert!(!wants_portal_dialogs(
+            |name| (name == "GTK_USE_PORTAL").then(|| "1".into())
+        ));
     }
 }

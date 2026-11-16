@@ -130,3 +130,46 @@ it('converts zoomed DOM bounds once at every interface size and display DPI', ()
     }
   }
 });
+
+it('asks the desktop for its window menu on a right-click of the empty title bar on Linux (UXR4L-07)', async () => {
+  win.isMaximized.mockResolvedValue(false);
+  win.onResized.mockResolvedValue(() => {});
+  ipc.invoke.mockResolvedValue(undefined);
+  render(
+    <div data-testid="bar" data-tauri-drag-region>
+      <button>Library</button>
+      <WindowControls linuxFrame />
+    </div>
+  );
+  await waitFor(() => expect(win.isMaximized).toHaveBeenCalled());
+  const onButton = fireEvent.contextMenu(screen.getByRole('button', { name: 'Library' }), { clientX: 5, clientY: 6 });
+  expect(onButton).toBe(true);
+  expect(ipc.invoke).not.toHaveBeenCalledWith('show_window_menu', expect.anything());
+  const onBar = fireEvent.contextMenu(screen.getByTestId('bar'), { clientX: 120, clientY: 14 });
+  expect(onBar).toBe(false);
+  expect(ipc.invoke).toHaveBeenCalledWith('show_window_menu', { x: 120, y: 14 });
+});
+
+it('outlines the window on Linux while it is not maximized (UXR4L-06)', async () => {
+  win.isMaximized.mockResolvedValue(false);
+  win.onResized.mockResolvedValue(() => {});
+  const { unmount } = render(<WindowControls linuxFrame />);
+  await waitFor(() => expect(document.documentElement.classList.contains('window-outlined')).toBe(true));
+  unmount();
+  expect(document.documentElement.classList.contains('window-outlined')).toBe(false);
+  win.isMaximized.mockResolvedValue(true);
+  render(<WindowControls linuxFrame />);
+  await screen.findByRole('button', { name: 'Restore window' });
+  expect(document.documentElement.classList.contains('window-outlined')).toBe(false);
+});
+
+it('leaves the right-click and the outline alone off Linux', async () => {
+  setup(false);
+  await waitFor(() => expect(win.isMaximized).toHaveBeenCalled());
+  const bar = document.createElement('div');
+  bar.setAttribute('data-tauri-drag-region', '');
+  document.body.append(bar);
+  expect(fireEvent.contextMenu(bar)).toBe(true);
+  bar.remove();
+  expect(document.documentElement.classList.contains('window-outlined')).toBe(false);
+});
