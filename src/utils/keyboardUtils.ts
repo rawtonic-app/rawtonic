@@ -874,16 +874,53 @@ const symMap: Record<string, string> = {
   PrintScreen: 'PrtSc'
 };
 
+/** Keys named the same on every layout (`KeyboardEvent.key` = `code`). */
+const NAMED_KEYS = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+  'Delete',
+  'Backspace',
+  'Insert',
+  'Escape',
+  'Enter',
+  'Tab'
+]);
+/** Characters whose key has one name in the shortcut table. */
+const CHARACTER_CODES: Record<string, string> = { ' ': 'Space', ',': 'Comma', '[': 'BracketLeft', ']': 'BracketRight' };
+
+/**
+ * The physical key of `event`, as `KeyboardEvent.code` names it. A key press
+ * injected as a character (Windows SendInput without a scan code or as
+ * Unicode: on-screen keyboards, remote desktop, AutoHotkey, test drivers)
+ * arrives without its code: then the key it typed stands for it where that
+ * names one key — digits, letters, the named keys (arrows, Home/End, Delete,
+ * Escape…), F-keys, space, comma and brackets. Without that the rating keys
+ * 1–5 did nothing while P and X (matched by letter) worked (RATE2).
+ */
+export function eventCode(event: Pick<KeyboardEvent, 'code' | 'key'>): string {
+  if (event.code && event.code !== 'Unidentified') return event.code;
+  const key = event.key ?? '';
+  if (/^[0-9]$/.test(key)) return `Digit${key}`;
+  if (/^[a-zA-Z]$/.test(key)) return `Key${key.toUpperCase()}`;
+  if (NAMED_KEYS.has(key) || /^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return key;
+  return CHARACTER_CODES[key] ?? '';
+}
+
 export function normalizeCombo(event: KeyboardEvent, osPlatform?: string, libraryPlainDelete = false): string[] {
+  const physical = eventCode(event);
   const isMacDelete =
-    osPlatform === 'macos' && event.code === 'Backspace' && (event.ctrlKey || event.metaKey || libraryPlainDelete);
+    osPlatform === 'macos' && physical === 'Backspace' && (event.ctrlKey || event.metaKey || libraryPlainDelete);
   const parts: string[] = [];
   if ((event.ctrlKey || event.metaKey) && !isMacDelete) parts.push('ctrl');
   if (event.shiftKey) parts.push('shift');
   if (event.altKey) parts.push('alt');
-  let code = isMacDelete ? 'Delete' : event.code;
-  // Defensively accept punctuation events that omit the physical code.
-  if (!code && event.key === ',') code = 'Comma';
+  let code = isMacDelete ? 'Delete' : physical;
   if (event.key && /^[a-zA-Z]$/.test(event.key)) {
     code = `Key${event.key.toUpperCase()}`;
   } else if (event.altKey && /^Key[A-Z]$/.test(code) && event.keyCode >= 65 && event.keyCode <= 90) {
