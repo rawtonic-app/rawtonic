@@ -671,7 +671,10 @@
       "failedApplyAuto": "Nie udało się zastosować auto-korekty: {{err}}",
       "failedCreateVirtualCopy": "Nie udało się utworzyć wirtualnej kopii: {{err}}",
       "failedDuplicate": "Nie udało się zduplikować pliku: {{err}}",
-      "failedRemoveImages": "Nie udało się usunąć obrazów: {{err}}"
+      "failedRemoveImages": "Nie udało się usunąć obrazów: {{err}}",
+      "virtualCopyMade": "Utworzono kopię wirtualną {{name}}.",
+      "virtualCopyNotShown": "Ten widok jej nie pokazuje; pokazuje ją folder zdjęcia.",
+      "virtualCopyNumbered": "Utworzono kopię wirtualną {{number}} zdjęcia {{name}}."
     }
   },
   "contribute": {
@@ -1324,7 +1327,12 @@
       "zoomOutTooltip": "Oddal"
     },
     "quit": {
+      "exportRunning": "{{label}} (wyeksportowano {{done}} z {{total}})",
+      "exportWaiting": "{{label}} (oczekuje)",
+      "keepWorking": "Pracuj dalej",
       "quitAnyway": "Mimo to zakończ",
+      "runningMessage": "Nadal trwa: {{work}}. Zamknięcie to przerwie; eksport można wznowić w Aktywności po następnym uruchomieniu.",
+      "runningTitle": "Trwa eksport lub import",
       "unsavedMessage": "Nie udało się zapisać tych zmian: {{changes}}. Po zakończeniu zostaną utracone; wybierz „Anuluj”, aby pozostawić Rawtonic otwarty i spróbować ponownie.",
       "unsavedTitle": "Zmiany niezapisane"
     },
@@ -3930,6 +3938,7 @@
         "current": "Bieżące ustawienia",
         "currentUnused": "Bieżące ustawienia. Zaznaczone przepisy eksportują z własnymi ustawieniami.",
         "delete": "Usuń przepis {{name}}",
+        "deleteConfirm": "Usunąć przepis „{{name}}”?",
         "edit": "Pokaż i edytuj ten przepis",
         "editingCurrent": "Bieżące ustawienia, niezapisane jako przepis.",
         "editingRecipe": "Edytowany przepis {{name}}. Zmiany są w nim zapisywane.",

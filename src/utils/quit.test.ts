@@ -1,10 +1,13 @@
+import '../i18n';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useUIStore } from '../store/useUIStore';
+import { useProcessStore, type ExportJob } from '../store/useProcessStore';
 import { invoke } from '@tauri-apps/api/core';
 import {
   relaunchAfterPhotoSaves,
   cancelQuitRequest,
+  confirmQuitWhileRunning,
   confirmQuitWithUnsaved,
   flushBeforeQuit,
   handleQuitRequest,
@@ -305,4 +308,59 @@ it('a restart holds editing from before its flushes until it restarts', async ()
   expect(restart).toHaveBeenCalledOnce();
   expect(held.every((value) => value != null)).toBe(true);
   expect(useUIStore.getState().quitSaving).toBeNull();
+});
+
+// UXR4M-03: ⌘Q, ⌘W, Alt+F4 and the close button all reach this request; with
+// an export running or waiting it asks first (Lightroom and Capture One do),
+// after the edits were saved.
+it('asks before quitting while an export runs or waits, Keep Working keeps the app open', async () => {
+  const job = (id: string, state: 'running' | 'queued' | 'done') =>
+    ({ id, label: '12 photos as JPG', state, createdAt: '', total: 12, done: 3, failed: 0, failures: [] }) as ExportJob;
+  useProcessStore.setState({ exportQueue: [job('a', 'running'), job('b', 'queued'), job('c', 'done')] });
+  try {
+    const ask = vi.fn();
+    const askRunning = vi.fn();
+    await handleQuitRequest(ask, 1, askRunning);
+    expect(ask).not.toHaveBeenCalled();
+    expect(askRunning).toHaveBeenCalledWith(
+      ['12 photos as JPG (3 of 12 exported)', '12 photos as JPG (waiting)'],
+      expect.any(Function),
+      expect.any(Function)
+    );
+    expect(commands()).toEqual([Invokes.QuitSaving, Invokes.CancelQuit]);
+    expect(vi.mocked(invoke)).toHaveBeenLastCalledWith(Invokes.CancelQuit, { requestId: 1, allowQuitAnyway: true });
+    askRunning.mock.calls[0][2]();
+    expect(vi.mocked(invoke)).toHaveBeenLastCalledWith(Invokes.CancelQuit, { requestId: 1, allowQuitAnyway: false });
+    expect(commands()).not.toContain(Invokes.FinishQuit);
+
+    // Asked again, Quit Anyway quits.
+    vi.mocked(invoke).mockClear();
+    await handleQuitRequest(ask, 2, askRunning);
+    askRunning.mock.calls[1][1]();
+    expect(vi.mocked(invoke)).toHaveBeenLastCalledWith(Invokes.FinishQuit, { requestId: 2, force: true });
+
+    // The app's own prompt: Keep Working is the safe default.
+    confirmQuitWhileRunning(['12 photos as JPG (waiting)'], vi.fn(), vi.fn());
+    const prompt = useUIStore.getState().confirmModalState;
+    expect(prompt.title).toBe('Exports or Imports Are Running');
+    expect(prompt.cancelText).toBe('Keep Working');
+    expect(prompt.confirmVariant).toBe('destructive');
+    expect(prompt.message).toContain('12 photos as JPG (waiting)');
+  } finally {
+    useProcessStore.setState({ exportQueue: [] });
+  }
+});
+
+it('a finished or held-done export does not hold the quit', async () => {
+  useProcessStore.setState({
+    exportQueue: [{ id: 'c', label: 'x', state: 'done', createdAt: '', total: 1, done: 1, failed: 0, failures: [] }]
+  });
+  try {
+    const askRunning = vi.fn();
+    await handleQuitRequest(vi.fn(), 1, askRunning);
+    expect(askRunning).not.toHaveBeenCalled();
+    expect(commands()).toEqual([Invokes.QuitSaving, Invokes.FinishQuit]);
+  } finally {
+    useProcessStore.setState({ exportQueue: [] });
+  }
 });

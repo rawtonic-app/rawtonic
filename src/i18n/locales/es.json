@@ -633,7 +633,10 @@
       "failedApplyAuto": "Error al aplicar ajustes automáticos: {{err}}",
       "failedCreateVirtualCopy": "Error al crear la copia virtual: {{err}}",
       "failedDuplicate": "Error al duplicar el archivo: {{err}}",
-      "failedRemoveImages": "Error al quitar las imágenes: {{err}}"
+      "failedRemoveImages": "Error al quitar las imágenes: {{err}}",
+      "virtualCopyMade": "Copia virtual de {{name}} creada.",
+      "virtualCopyNotShown": "Esta vista no la muestra; la carpeta de la foto sí.",
+      "virtualCopyNumbered": "Copia virtual {{number}} de {{name}} creada."
     }
   },
   "contribute": {
@@ -1271,7 +1274,12 @@
       "zoomOutTooltip": "Alejar"
     },
     "quit": {
+      "exportRunning": "{{label}} ({{done}} de {{total}} exportadas)",
+      "exportWaiting": "{{label}} (en espera)",
+      "keepWorking": "Seguir trabajando",
       "quitAnyway": "Salir de todos modos",
+      "runningMessage": "Todavía en curso: {{work}}. Salir lo detiene; una exportación se puede reanudar desde Actividad en el próximo inicio.",
+      "runningTitle": "Hay exportaciones o importaciones en curso",
       "unsavedMessage": "Estos cambios no se han podido guardar: {{changes}}. Si sales ahora, se perderán; cancela para mantener Rawtonic abierto y volver a intentarlo.",
       "unsavedTitle": "Cambios sin guardar"
     },
@@ -3772,6 +3780,7 @@
         "current": "Ajustes actuales",
         "currentUnused": "Ajustes actuales. Las recetas marcadas exportan con sus propios ajustes.",
         "delete": "Eliminar la receta {{name}}",
+        "deleteConfirm": "¿Eliminar la receta «{{name}}»?",
         "edit": "Ver y editar esta receta",
         "editingCurrent": "Ajustes actuales, no guardados como receta.",
         "editingRecipe": "Editando la receta {{name}}. Los cambios se guardan en ella.",

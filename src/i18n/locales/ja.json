@@ -582,7 +582,10 @@
       "failedApplyAuto": "自動補正の適用に失敗しました: {{err}}",
       "failedCreateVirtualCopy": "仮想コピーの作成に失敗しました: {{err}}",
       "failedDuplicate": "ファイルの複製に失敗しました: {{err}}",
-      "failedRemoveImages": "画像の削除に失敗しました: {{err}}"
+      "failedRemoveImages": "画像の削除に失敗しました: {{err}}",
+      "virtualCopyMade": "{{name}} の仮想コピーを作成しました。",
+      "virtualCopyNotShown": "この表示には出ません。写真のフォルダーに表示されます。",
+      "virtualCopyNumbered": "{{name}} の仮想コピー {{number}} を作成しました。"
     }
   },
   "contribute": {
@@ -1204,7 +1207,12 @@
       "zoomOutTooltip": "縮小"
     },
     "quit": {
+      "exportRunning": "{{label}}（{{total}} 枚中 {{done}} 枚書き出し済み）",
+      "exportWaiting": "{{label}}（待機中）",
+      "keepWorking": "作業を続ける",
       "quitAnyway": "終了する",
+      "runningMessage": "実行中: {{work}}。終了すると停止します。書き出しは次回起動後にアクティビティから再開できます。",
+      "runningTitle": "書き出しまたは読み込みを実行中",
       "unsavedMessage": "次の変更を保存できませんでした: {{changes}}。今終了すると、これらの変更は失われます。キャンセルすると Rawtonic を開いたまま再試行できます。",
       "unsavedTitle": "未保存の変更"
     },
@@ -3513,6 +3521,7 @@
         "current": "現在の設定",
         "currentUnused": "現在の設定。チェックしたレシピはそれぞれの設定で書き出します。",
         "delete": "レシピ「{{name}}」を削除",
+        "deleteConfirm": "レシピ「{{name}}」を削除しますか？",
         "edit": "このレシピを表示して編集",
         "editingCurrent": "現在の設定（レシピとして未保存）。",
         "editingRecipe": "レシピ {{name}} を編集中。変更はレシピに保存されます。",

@@ -1221,7 +1221,12 @@
       "zoomOutTooltip": "Zoom Out"
     },
     "quit": {
+      "exportRunning": "{{label}} ({{done}} of {{total}} exported)",
+      "exportWaiting": "{{label}} (waiting)",
+      "keepWorking": "Keep Working",
       "quitAnyway": "Quit Anyway",
+      "runningMessage": "Still running: {{work}}. Quitting stops it; an export can be resumed from Activity after the next start.",
+      "runningTitle": "Exports or Imports Are Running",
       "unsavedMessage": "These changes could not be saved: {{changes}}. Quitting now loses them; cancel to keep Rawtonic open and try again.",
       "unsavedTitle": "Changes Not Saved"
     },

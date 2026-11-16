@@ -582,7 +582,10 @@
       "failedApplyAuto": "자동 조정을 적용하지 못했습니다: {{err}}",
       "failedCreateVirtualCopy": "가상 복사본을 만들지 못했습니다: {{err}}",
       "failedDuplicate": "파일을 복제하지 못했습니다: {{err}}",
-      "failedRemoveImages": "이미지를 제거하지 못했습니다: {{err}}"
+      "failedRemoveImages": "이미지를 제거하지 못했습니다: {{err}}",
+      "virtualCopyMade": "{{name}}의 가상 사본을 만들었습니다.",
+      "virtualCopyNotShown": "이 보기에는 표시되지 않으며 사진 폴더에 표시됩니다.",
+      "virtualCopyNumbered": "{{name}}의 가상 사본 {{number}}을(를) 만들었습니다."
     }
   },
   "contribute": {
@@ -1204,7 +1207,12 @@
       "zoomOutTooltip": "축소"
     },
     "quit": {
+      "exportRunning": "{{label}} ({{total}}개 중 {{done}}개 내보냄)",
+      "exportWaiting": "{{label}} (대기 중)",
+      "keepWorking": "계속 작업",
       "quitAnyway": "그래도 종료",
+      "runningMessage": "아직 실행 중: {{work}}. 종료하면 중지됩니다. 내보내기는 다음 시작 후 활동에서 재개할 수 있습니다.",
+      "runningTitle": "내보내기 또는 가져오기 실행 중",
       "unsavedMessage": "다음 변경 사항을 저장하지 못했습니다: {{changes}}. 지금 종료하면 이 변경 사항이 손실됩니다. 취소하면 Rawtonic을 열어 둔 채로 다시 시도할 수 있습니다.",
       "unsavedTitle": "저장되지 않은 변경 사항"
     },
@@ -3513,6 +3521,7 @@
         "current": "현재 설정",
         "currentUnused": "현재 설정. 선택한 레시피는 각자의 설정으로 내보냅니다.",
         "delete": "레시피 {{name}} 삭제",
+        "deleteConfirm": "레시피 \"{{name}}\"을(를) 삭제할까요?",
         "edit": "이 레시피 보기 및 편집",
         "editingCurrent": "현재 설정, 레시피로 저장되지 않음.",
         "editingRecipe": "레시피 {{name}} 편집 중. 변경 사항이 레시피에 저장됩니다.",

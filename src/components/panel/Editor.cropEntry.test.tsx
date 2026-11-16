@@ -63,9 +63,7 @@ it('opening the Crop tab on an uncropped photo is no edit (UXR4M-18)', () => {
 it('a ratio chosen in the Crop tab still writes its crop', () => {
   render(<Editor onContextMenu={() => {}} transformWrapperRef={createRef<TransformWrapperHandle>()} />);
   act(() => useUIStore.setState({ activePanel: Panel.Crop }));
-  act(() =>
-    useEditorStore.getState().setEditor((s) => ({ ...s, adjustments: { ...s.adjustments, aspectRatio: 1 } }))
-  );
+  act(() => useEditorStore.getState().setEditor((s) => ({ ...s, adjustments: { ...s.adjustments, aspectRatio: 1 } })));
   const crop = useEditorStore.getState().adjustments.crop;
   expect(crop).not.toBeNull();
   expect(Math.round(crop!.width)).toBe(Math.round(crop!.height));

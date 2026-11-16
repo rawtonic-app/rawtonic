@@ -94,7 +94,11 @@ it('selects the new copy, opens it where a photo is shown and names it', async (
   const open = vi.fn();
   const hook = renderHook(() => useVirtualCopyCommand(refresh, open));
   useUIStore.setState({ activeView: 'library', libraryLoupe: false, isFullScreen: false });
-  useLibraryStore.setState({ multiSelectedPaths: ['/job/a.CR3'], libraryActivePath: '/job/a.CR3', activeAlbumId: null });
+  useLibraryStore.setState({
+    multiSelectedPaths: ['/job/a.CR3'],
+    libraryActivePath: '/job/a.CR3',
+    activeAlbumId: null
+  });
   expect(runAppCommand('virtual_copy')).toBe(true);
   await vi.waitFor(() => expect(notify.success).toHaveBeenCalledWith('Made virtual copy 1 of a.CR3.'));
   expect(useLibraryStore.getState().multiSelectedPaths).toEqual([copy]);

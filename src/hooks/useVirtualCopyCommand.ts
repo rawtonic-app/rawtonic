@@ -60,7 +60,9 @@ export async function createVirtualCopy(
     const list = useLibraryStore.getState().imageList;
     const shown = list.some((image) => image.path === copy);
     if (shown) {
-      useLibraryStore.getState().setLibrary({ multiSelectedPaths: [copy], libraryActivePath: copy, selectionAnchorPath: copy });
+      useLibraryStore
+        .getState()
+        .setLibrary({ multiSelectedPaths: [copy], libraryActivePath: copy, selectionAnchorPath: copy });
       if (openPhoto && viewerShown(useUIStore.getState()))
         openPhoto(copy, useUIStore.getState().activeView === 'editor');
     }

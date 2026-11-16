@@ -770,8 +770,7 @@ export function useFileOperations(
           warnAboutNote(summary);
           const { selectedImage } = useEditorStore.getState();
           const ui = useUIStore.getState();
-          const openMoved =
-            !!selectedImage && paths.some((p) => sourceOf(p) === sourceOf(selectedImage.path));
+          const openMoved = !!selectedImage && paths.some((p) => sourceOf(p) === sourceOf(selectedImage.path));
           // The viewer (Develop, the Library loupe or full screen) goes on to
           // the next photo (the previous one at the end), as after Move to
           // Trash and as Capture One does after Move to Selects (UXR4M-20).

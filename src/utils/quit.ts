@@ -3,6 +3,8 @@ import i18n from 'i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Invokes } from '../components/ui/AppProperties';
 import { useUIStore } from '../store/useUIStore';
+import { useProcessStore } from '../store/useProcessStore';
+import { useActivityStore } from '../store/useActivityStore';
 import {
   batchFailures,
   batchOfEntry,
@@ -407,6 +409,60 @@ export const confirmQuitWithUnsaved: AskToQuitAnyway = (failures, quit, cancel) 
   });
 };
 
+/** Work that quitting would stop, as the quit prompt names it (UXR4M-03):
+ * every export running or waiting in the queue, and every running import
+ * (ingest, catalog import, Add Folder, hot folder copies). Lightroom and
+ * Capture One ask before quitting while such tasks run. */
+export function runningWork(): string[] {
+  const exports = useProcessStore
+    .getState()
+    .exportQueue.filter((job) => job.state === 'running' || job.state === 'queued')
+    .map((job) =>
+      i18n.t(job.state === 'running' ? 'modals.quit.exportRunning' : 'modals.quit.exportWaiting', {
+        label: job.label,
+        done: job.done + job.failed,
+        total: job.total
+      })
+    );
+  const imports = useActivityStore
+    .getState()
+    .entries.filter((entry) => entry.source === 'import' && entry.status === 'running')
+    .map((entry) => entry.title);
+  return [...exports, ...imports];
+}
+
+/** Asks whether to quit although `work` is still running; `quit` quits. */
+export type AskToQuitWhileRunning = (work: string[], quit: () => void, cancel: () => void) => void;
+
+/** The app's confirmation for a quit while exports or imports run: Keep
+ * Working is the default (focused) button. */
+export const confirmQuitWhileRunning: AskToQuitWhileRunning = (work, quit, cancel) => {
+  let decided = false;
+  const decide = (action: () => void) => {
+    if (decided) return;
+    decided = true;
+    action();
+  };
+  const appWindow = getCurrentWindow();
+  void appWindow
+    .unminimize()
+    .then(() => appWindow.show())
+    .then(() => appWindow.setFocus())
+    .catch(() => undefined);
+  useUIStore.getState().setUI({
+    confirmModalState: {
+      cancelText: i18n.t('modals.quit.keepWorking'),
+      confirmText: i18n.t('modals.quit.quitAnyway'),
+      confirmVariant: 'destructive',
+      isOpen: true,
+      message: i18n.t('modals.quit.runningMessage', { work: listed(work) }),
+      onConfirm: () => decide(quit),
+      onCancel: () => decide(cancel),
+      title: i18n.t('modals.quit.runningTitle')
+    }
+  });
+};
+
 let handlingQuit: number | null = null;
 let latestQuitRequest: number | null = null;
 
@@ -423,7 +479,11 @@ export function cancelQuitRequest(requestId: number): boolean {
 
 /** Saves for one native request. Only that request may finish, and only
  * explicit confirmation may force a quit after failed saves. */
-export async function handleQuitRequest(askToQuitAnyway: AskToQuitAnyway, requestId: number): Promise<void> {
+export async function handleQuitRequest(
+  askToQuitAnyway: AskToQuitAnyway,
+  requestId: number,
+  askWhileRunning: AskToQuitWhileRunning = confirmQuitWhileRunning
+): Promise<void> {
   if (!Number.isSafeInteger(requestId) || requestId <= 0 || handlingQuit !== null) return;
   handlingQuit = requestId;
   latestQuitRequest = requestId;
@@ -431,7 +491,10 @@ export async function handleQuitRequest(askToQuitAnyway: AskToQuitAnyway, reques
   try {
     const failures = await drainBeforeQuit(requestId);
     if (handlingQuit !== requestId) return;
-    if (!failures) {
+    // Edits are saved first either way; running exports and imports then
+    // ask too, since quitting stops them.
+    const running = failures ? [] : runningWork();
+    if (!failures && running.length === 0) {
       await invoke(Invokes.FinishQuit, { ...request, force: false });
       return;
     }
@@ -444,11 +507,10 @@ export async function handleQuitRequest(askToQuitAnyway: AskToQuitAnyway, reques
       latestQuitRequest = null;
       void invoke(command, { ...request, ...args }).catch((error) => console.error('Quit decision failed:', error));
     };
-    askToQuitAnyway(
-      failures,
-      () => decide(Invokes.FinishQuit, { force: true }),
-      () => decide(Invokes.CancelQuit, { allowQuitAnyway: false })
-    );
+    const quit = () => decide(Invokes.FinishQuit, { force: true });
+    const cancel = () => decide(Invokes.CancelQuit, { allowQuitAnyway: false });
+    if (failures) askToQuitAnyway(failures, quit, cancel);
+    else askWhileRunning(running, quit, cancel);
   } catch (error) {
     // Logging alone leaves the native timeout armed. Cancel it explicitly;
     // the backend rejects this command if a newer request already owns it.
