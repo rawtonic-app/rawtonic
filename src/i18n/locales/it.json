@@ -2269,6 +2269,7 @@
       "imported_one": "{{count}} foto importata ({{withSettings}} con modifiche, album: {{albums}})",
       "imported_many": "{{count}} foto importate ({{withSettings}} con modifiche, album: {{albums}})",
       "imported_other": "{{count}} foto importate ({{withSettings}} con modifiche, album: {{albums}})",
+      "importLegacySettings": "Modifiche importate con impostazioni non convertite di un processo Lightroom precedente al 2012: {{n}}.",
       "importNotFound_one": "{{count}} non trovata",
       "importNotFound_many": "{{count}} non trovate",
       "importNotFound_other": "{{count}} non trovate",
@@ -5056,16 +5057,22 @@
         "untranslated": "Non tradotto — {{files}}"
       },
       "untranslated": {
+        "Brightness": "luminosità",
         "calibration": "calibrazione",
+        "Clarity": "chiarezza",
         "colorEditor": "Color Editor",
+        "Contrast": "contrasto",
         "crop": "ritaglio",
         "curves": "curve (approssimate, qualche livello di scarto)",
+        "FillLight": "luce di schiarita",
         "filmCurve": "curva pellicola",
+        "HighlightRecovery": "recupero delle luci",
         "lens": "obiettivo e keystone",
         "lensProfile": "profilo obiettivo",
         "noiseReduction": "riduzione rumore",
         "profile": "profilo",
         "profileNamed": "profilo «{{name}}»",
+        "Shadows": "ombre",
         "upright": "Upright",
         "whiteBalance": "bilanciamento del bianco"
       }

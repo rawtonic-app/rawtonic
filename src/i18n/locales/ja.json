@@ -2079,6 +2079,7 @@
       "importCopiesSkipped_other": "仮想コピー {{count}} 件は読み込まれていません",
       "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
+      "importLegacySettings": "2012 年より前の Lightroom 処理による未変換の設定を含む読み込み済みの編集: {{n}} 件。",
       "importNotFound_other": "{{count}} 枚が見つかりません",
       "importStacks_other": "スタック {{count}} 件を読み込みました",
       "importWarnings_other": "{{count}} 枚の写真を警告付きで読み込みました。{{error}}",
@@ -4721,16 +4722,22 @@
         "untranslated": "変換されなかった設定 — {{files}}"
       },
       "untranslated": {
+        "Brightness": "明るさ",
         "calibration": "キャリブレーション",
+        "Clarity": "明瞭度",
         "colorEditor": "Color Editor",
+        "Contrast": "コントラスト",
         "crop": "切り抜き",
         "curves": "カーブ（近似、数レベルの差）",
+        "FillLight": "補助光",
         "filmCurve": "フィルムカーブ",
+        "HighlightRecovery": "ハイライトの復元",
         "lens": "レンズとキーストーン",
         "lensProfile": "レンズプロファイル",
         "noiseReduction": "ノイズ除去",
         "profile": "プロファイル",
         "profileNamed": "プロファイル「{{name}}」",
+        "Shadows": "シャドウ",
         "upright": "Upright",
         "whiteBalance": "ホワイトバランス"
       }

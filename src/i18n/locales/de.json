@@ -2152,6 +2152,7 @@
       "importCropsClipped_other": "{{count}} Freistellungen ragten über das Bildfeld der Kamera hinaus und wurden darauf beschnitten",
       "imported_one": "{{count}} Foto importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
       "imported_other": "{{count}} Fotos importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
+      "importLegacySettings": "Importierte Bearbeitungen mit nicht konvertierten Einstellungen aus einem Lightroom-Prozess vor 2012: {{n}}.",
       "importNotFound_one": "{{count}} nicht gefunden",
       "importNotFound_other": "{{count}} nicht gefunden",
       "importStacks_one": "{{count}} Stapel importiert",
@@ -4853,16 +4854,22 @@
         "untranslated": "Nicht übernommen — {{files}}"
       },
       "untranslated": {
+        "Brightness": "Helligkeit",
         "calibration": "Kalibrierung",
+        "Clarity": "Klarheit",
         "colorEditor": "Color Editor",
+        "Contrast": "Kontrast",
         "crop": "Freistellung",
         "curves": "Kurven (angenähert, einige Stufen Abweichung)",
+        "FillLight": "Aufhelllicht",
         "filmCurve": "Filmkurve",
+        "HighlightRecovery": "Lichterwiederherstellung",
         "lens": "Objektiv und Keystone",
         "lensProfile": "Objektivprofil",
         "noiseReduction": "Rauschreduzierung",
         "profile": "Profil",
         "profileNamed": "Profil „{{name}}“",
+        "Shadows": "Tiefen",
         "upright": "Upright",
         "whiteBalance": "Weißabgleich"
       }

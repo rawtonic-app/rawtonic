@@ -2079,6 +2079,7 @@
       "importCopiesSkipped_other": "{{count}} 个虚拟副本未导入",
       "importCropsClipped_other": "{{count}} 个裁剪超出相机画面，已收缩到画面内",
       "imported_other": "已导入 {{count}} 张照片（{{withSettings}} 张有调整，{{albums}} 个相册）",
+      "importLegacySettings": "包含 2012 年之前 Lightroom 处理版本的未转换设置的已导入编辑：{{n}} 个。",
       "importNotFound_other": "{{count}} 张未找到",
       "importStacks_other": "已导入 {{count}} 个堆叠",
       "importWarnings_other": "{{count}} 张照片已导入，但有警告。{{error}}",
@@ -4721,16 +4722,22 @@
         "untranslated": "未转换 — {{files}}"
       },
       "untranslated": {
+        "Brightness": "亮度",
         "calibration": "校准",
+        "Clarity": "清晰度",
         "colorEditor": "Color Editor",
+        "Contrast": "对比度",
         "crop": "裁剪",
         "curves": "曲线（近似，相差几个色阶）",
+        "FillLight": "补光",
         "filmCurve": "胶片曲线",
+        "HighlightRecovery": "高光恢复",
         "lens": "镜头和梯形校正",
         "lensProfile": "镜头配置文件",
         "noiseReduction": "降噪",
         "profile": "配置文件",
         "profileNamed": "配置文件“{{name}}”",
+        "Shadows": "阴影",
         "upright": "Upright",
         "whiteBalance": "白平衡"
       }

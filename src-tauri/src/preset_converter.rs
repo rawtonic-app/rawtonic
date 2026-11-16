@@ -430,7 +430,7 @@ pub fn crs_attributes(xmp_content: &str) -> HashMap<String, String> {
         .collect()
 }
 
-// Camera Raw process identifiers, confirmed in the PV10 task correction:
+// Camera Raw process identifiers (not Lightroom application versions):
 // 5.0 = PV2003, 5.7 = PV2010, 6.7 = PV2012 (not a legacy process).
 const LEGACY_CONTROLS: [&str; 6] = [
     "Brightness",
@@ -441,6 +441,16 @@ const LEGACY_CONTROLS: [&str; 6] = [
     "Clarity",
 ];
 
+const MODERN_CONTROLS: [&str; 7] = [
+    "Exposure2012",
+    "Contrast2012",
+    "Highlights2012",
+    "Shadows2012",
+    "Whites2012",
+    "Blacks2012",
+    "Clarity2012",
+];
+
 fn legacy_process(attrs: &HashMap<String, String>) -> bool {
     if attrs.contains_key("ProcessVersion") {
         return get_attr_as_f64(attrs, "ProcessVersion").is_some_and(|v| v < 6.7);
@@ -449,17 +459,7 @@ fn legacy_process(attrs: &HashMap<String, String>) -> bool {
     std::iter::once("Exposure")
         .chain(LEGACY_CONTROLS)
         .any(nonzero)
-        && ![
-            "Exposure2012",
-            "Contrast2012",
-            "Highlights2012",
-            "Shadows2012",
-            "Whites2012",
-            "Blacks2012",
-            "Clarity2012",
-        ]
-        .into_iter()
-        .any(nonzero)
+        && !MODERN_CONTROLS.into_iter().any(nonzero)
 }
 
 /// Legacy controls have no measured mapping; exposure alone keeps its stop value.
@@ -491,15 +491,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     let legacy = legacy_process(&attrs);
     if legacy {
         // Inactive 2012 controls may coexist with the active old-process ones.
-        for key in [
-            "Exposure2012",
-            "Contrast2012",
-            "Highlights2012",
-            "Shadows2012",
-            "Whites2012",
-            "Blacks2012",
-            "Clarity2012",
-        ] {
+        for key in MODERN_CONTROLS {
             attrs.remove(key);
         }
         if let Some(exposure) = attrs.get("Exposure").cloned() {
@@ -945,16 +937,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         ("ToneCurvePV2012Blue", "blue"),
     ];
     for (xmp_curve, rr_curve) in curve_mappings {
-        let curve = if legacy {
-            xmp_curve.replace("PV2012", "")
-        } else {
-            xmp_curve.to_string()
-        };
-        if let Some(points) = extract_tone_curve_points(xmp_content, &curve).or_else(|| {
-            legacy
-                .then(|| extract_tone_curve_points(xmp_content, xmp_curve))
-                .flatten()
-        }) {
+        if let Some(points) = extract_tone_curve_points(xmp_content, xmp_curve) {
             curves_map.insert(rr_curve.to_string(), Value::Array(points));
         }
     }
@@ -1893,7 +1876,7 @@ mod tests {
                     .map(|v| format!("ProcessVersion = \"{v}\", "))
                     .unwrap_or_default();
                 let lua = format!(
-                    "s = {{ {process}{modern} Exposure = 1.25, Brightness = 50, Contrast = 25, FillLight = 12, HighlightRecovery = 10, Shadows = 5, Clarity = 20, Temperature = 4500, Tint = 8, WhiteBalance = \"Custom\", Sharpness = 40, LuminanceSmoothing = 15, HueAdjustmentRed = 10, ToneCurve = {{0, 0, 128, 100, 255, 255}} }}"
+                    "s = {{ {process}{modern} Exposure = 1.25, Brightness = 50, Contrast = 25, FillLight = 12, HighlightRecovery = 10, Shadows = 5, Clarity = 20, Temperature = 4500, Tint = 8, WhiteBalance = \"Custom\", Sharpness = 40, LuminanceSmoothing = 15, HueAdjustmentRed = 10, ToneCurvePV2012 = {{0, 0, 128, 100, 255, 255}} }}"
                 );
                 let xmp = rawtonic_interop::lightroom_settings::to_xmp(&lua).unwrap();
                 let preset = super::convert_xmp_to_preset(&xmp).unwrap();
@@ -1931,7 +1914,7 @@ mod tests {
 
     #[test]
     fn pv2012_boundary_and_stale_legacy_keys_keep_modern_behavior() {
-        // PV10 coordinator correction: 6.7 is PV2012, not PV2010.
+        // The PV2012 boundary is 6.7; stale legacy controls stay inactive.
         for version in ["6.7", "15.4"] {
             for exposure in [0.0, 0.75] {
                 let xmp = format!(

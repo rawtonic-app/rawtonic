@@ -301,10 +301,12 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
                 return None;
             };
             let warning = crate::preset_converter::legacy_process_warning(xmp)?;
-            let context = snapshot
-                .or(photo.copy_name.as_ref())
+            let context = photo
+                .copy_name
+                .iter()
+                .chain(snapshot)
                 .map(|name| format!(" ({name})"))
-                .unwrap_or_default();
+                .collect::<String>();
             Some(format!("{}{}: {warning}", photo.path.display(), context))
         })
         .collect()
@@ -1148,7 +1150,8 @@ mod tests {
         ).unwrap());
         let mut original = photo("1", path.clone(), develop.clone(), None);
         original.snapshots.push(("Earlier".into(), develop.clone()));
-        let mut copy = photo("2", path, develop, Some("1"));
+        let mut copy = photo("2", path, develop.clone(), Some("1"));
+        copy.snapshots.push(("Earlier".into(), develop));
         copy.copy_name = Some("Alternate".into());
         let source = Source {
             name: "Legacy".into(),
@@ -1159,13 +1162,14 @@ mod tests {
         };
         let report = import_into(&catalog, &source).unwrap();
         assert!(report.errors.is_empty(), "{report:?}");
-        assert_eq!(report.warnings.len(), 3);
+        assert_eq!(report.warnings.len(), 4);
         assert!(
             report.warnings[0]
                 .contains("A.png: Lightroom process before 2012: could not convert FillLight")
         );
         assert!(report.warnings[1].contains("(Earlier)"));
         assert!(report.warnings[2].contains("(Alternate)"));
+        assert!(report.warnings[3].contains("(Alternate) (Earlier)"));
         assert_eq!(report.imported, 1);
         assert_eq!(report.copies, 1);
         assert_eq!(

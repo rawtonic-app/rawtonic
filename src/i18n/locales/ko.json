@@ -2079,6 +2079,7 @@
       "importCopiesSkipped_other": "가상 복사본 {{count}}개는 가져오지 않음",
       "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
+      "importLegacySettings": "2012년 이전 Lightroom 프로세스의 변환되지 않은 설정이 포함된 가져온 편집: {{n}}개.",
       "importNotFound_other": "{{count}}장 찾을 수 없음",
       "importStacks_other": "스택 {{count}}개를 가져왔습니다",
       "importWarnings_other": "사진 {{count}}장을 경고와 함께 가져왔습니다. {{error}}",
@@ -4721,16 +4722,22 @@
         "untranslated": "변환되지 않음 — {{files}}"
       },
       "untranslated": {
+        "Brightness": "밝기",
         "calibration": "보정",
+        "Clarity": "명료도",
         "colorEditor": "Color Editor",
+        "Contrast": "대비",
         "crop": "자르기",
         "curves": "커브(근사치, 몇 단계 차이)",
+        "FillLight": "보조광",
         "filmCurve": "필름 커브",
+        "HighlightRecovery": "하이라이트 복구",
         "lens": "렌즈 및 키스톤",
         "lensProfile": "렌즈 프로필",
         "noiseReduction": "노이즈 감소",
         "profile": "프로필",
         "profileNamed": "프로필 “{{name}}”",
+        "Shadows": "그림자",
         "upright": "Upright",
         "whiteBalance": "화이트 밸런스"
       }

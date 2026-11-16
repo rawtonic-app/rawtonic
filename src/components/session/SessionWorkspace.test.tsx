@@ -42,6 +42,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 vi.mock('../../activity/notify', () => ({
   notify: {
     error: vi.fn(),
+    warning: vi.fn(),
     success: vi.fn(),
     info: vi.fn(),
     dismiss: vi.fn(),
@@ -803,6 +804,7 @@ it('reads next-capture keywords from a comma-separated list', () => {
 });
 
 it('previews and imports a Lightroom catalog into the open catalog', async () => {
+  const warnings = Array.from({ length: 1000 }, (_, index) => `Photo ${index}: FillLight could not be converted`);
   const user = userEvent.setup();
   const catalog = { ...summary, manifest: { ...summary.manifest, mode: 'catalog' } };
   const base = vi.mocked(invoke).getMockImplementation()!;
@@ -821,7 +823,7 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
             notRead: { smartAlbums: 3, localAdjustments: 0, unlocated: 0 }
           }
         : command === 'library_import'
-          ? { imported: 12, withSettings: 5, missing: 0, copiesSkipped: 1, albums: 2, errors: [] }
+          ? { imported: 12, withSettings: 5, missing: 0, copiesSkipped: 1, albums: 2, errors: [], warnings }
           : base(command, args)
   );
   render(
@@ -847,6 +849,10 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
       directory: '/jobs/Acme',
       relinks: [{ from: '/Volumes/Old/2026', to: '/Volumes/New/2026' }]
     })
+  );
+  expect(toast.warning).toHaveBeenCalledWith(
+    'Imported edits with unconverted settings from a Lightroom process before 2012: 1000.',
+    { detail: warnings.join('\n'), autoClose: false }
   );
   expect(toast.success).toHaveBeenCalledWith(
     expect.stringContaining('12 photos imported (5 with edits, 2 albums)'),
