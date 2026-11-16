@@ -1,7 +1,21 @@
 import { locale } from '@tauri-apps/plugin-os';
 
 /** The interface languages Rawtonic ships (src/i18n/locales). */
-export const UI_LANGUAGES = ['en', 'ca', 'de', 'es', 'fr', 'it', 'pl', 'pt', 'ru', 'ja', 'ko', 'zh-CN', 'zh-TW'] as const;
+export const UI_LANGUAGES = [
+  'en',
+  'ca',
+  'de',
+  'es',
+  'fr',
+  'it',
+  'pl',
+  'pt',
+  'ru',
+  'ja',
+  'ko',
+  'zh-CN',
+  'zh-TW'
+] as const;
 
 /**
  * The shipped interface language for a system language tag — a BCP 47 tag
@@ -40,7 +54,10 @@ export async function systemLanguage(): Promise<string> {
   } catch {
     // Outside the native app (tests, `npm run dev`): the webview's languages.
   }
-  const candidates = [system, ...(typeof navigator === 'undefined' ? [] : (navigator.languages ?? [navigator.language]))];
+  const candidates = [
+    system,
+    ...(typeof navigator === 'undefined' ? [] : (navigator.languages ?? [navigator.language]))
+  ];
   for (const candidate of candidates) {
     const match = matchUiLanguage(candidate);
     if (match) return match;

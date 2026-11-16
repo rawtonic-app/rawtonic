@@ -130,7 +130,12 @@ export default function StudioLut({
   const importLuts = async (folder: boolean) => {
     try {
       const selected = folder
-        ? await openDialog({ directory: true, multiple: true, title: t('studio.lut.importFolderTitle'), purpose: 'luts' })
+        ? await openDialog({
+            directory: true,
+            multiple: true,
+            title: t('studio.lut.importFolderTitle'),
+            purpose: 'luts'
+          })
         : await openDialog({
             title: t('studio.lut.importTitle'),
             purpose: 'luts',

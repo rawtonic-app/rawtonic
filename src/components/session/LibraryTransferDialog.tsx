@@ -182,7 +182,12 @@ export default function LibraryTransferDialog({ purpose, directory = '', name = 
             {purpose === 'restore' ? (
               <label className="session-field">
                 {t('session.transfer.source')}
-                <button type="button" className="session-path" disabled={busy} onClick={() => void choose(setSource, t('session.transfer.chooseSource'))}>
+                <button
+                  type="button"
+                  className="session-path"
+                  disabled={busy}
+                  onClick={() => void choose(setSource, t('session.transfer.chooseSource'))}
+                >
                   <FolderOpen size={16} />
                   <span>{source || t('session.transfer.chooseSource')}</span>
                 </button>
@@ -192,7 +197,12 @@ export default function LibraryTransferDialog({ purpose, directory = '', name = 
             )}
             <label className="session-field">
               {t('session.transfer.destination')}
-              <button type="button" className="session-path" disabled={busy} onClick={() => void choose(setParent, t('session.transfer.destination'))}>
+              <button
+                type="button"
+                className="session-path"
+                disabled={busy}
+                onClick={() => void choose(setParent, t('session.transfer.destination'))}
+              >
                 <FolderOpen size={16} />
                 <span>{parent || t('session.create.chooseParent')}</span>
               </button>

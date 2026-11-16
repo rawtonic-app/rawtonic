@@ -584,7 +584,11 @@ function App() {
             onNavigate={handleSelectSubfolder}
             onSelectAlbum={(id, name, paths, preserveEditor) => handleSelectAlbum(id, name, paths, preserveEditor)}
             nativeTitlebar={hasNativeMacTitlebar || showWindowControls}
-            windowControls={showWindowControls ? <WindowControls snapLayouts={osPlatform === 'windows'} linuxFrame={osPlatform === 'linux'} /> : undefined}
+            windowControls={
+              showWindowControls ? (
+                <WindowControls snapLayouts={osPlatform === 'windows'} linuxFrame={osPlatform === 'linux'} />
+              ) : undefined
+            }
           />
         </PerfProfiler>
         <PerfProfiler id="workspace">

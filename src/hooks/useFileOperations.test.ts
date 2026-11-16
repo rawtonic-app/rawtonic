@@ -1184,7 +1184,11 @@ it.each(['move', 'paste', 'trash', 'trash-associated'] as const)(
 
 it("says that Delete on a photo already in the library's Trash goes on to the computer's Trash (UXR4L-05)", () => {
   useUIStore.setState({ activeView: 'library', confirmModalState: { isOpen: false } });
-  useLibraryStore.setState({ sessionDirectory: '/job', multiSelectedPaths: ['/job/Trash/Photos/A.NEF'], imageList: [] });
+  useLibraryStore.setState({
+    sessionDirectory: '/job',
+    multiSelectedPaths: ['/job/Trash/Photos/A.NEF'],
+    imageList: []
+  });
   const { result } = renderHook(() =>
     useFileOperations(
       vi.fn(() => Promise.resolve()),

@@ -2596,7 +2596,11 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
             </label>
             <label className="session-field">
               {t('session.create.location')}
-              <button type="button" className="session-path" onClick={() => void chooseFolder(setParent, t('session.create.chooseParentTitle'), 'library')}>
+              <button
+                type="button"
+                className="session-path"
+                onClick={() => void chooseFolder(setParent, t('session.create.chooseParentTitle'), 'library')}
+              >
                 <FolderOpen size={17} />
                 <span>{parent || t('session.create.chooseParent')}</span>
               </button>
@@ -2756,7 +2760,13 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                       <span className="session-optional">{t('session.ingest.optional')}</span>
                     </span>
                     <div className="session-backup">
-                      <button type="button" className="session-path" onClick={() => void chooseFolder(setBackup, t('session.ingest.chooseSecondCopyTitle'), 'backup')}>
+                      <button
+                        type="button"
+                        className="session-path"
+                        onClick={() =>
+                          void chooseFolder(setBackup, t('session.ingest.chooseSecondCopyTitle'), 'backup')
+                        }
+                      >
                         <FolderOpen size={17} />
                         <span>{backup || t('session.ingest.chooseBackup')}</span>
                       </button>

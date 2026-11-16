@@ -153,7 +153,6 @@ export const useAppInitialization = ({
           } as CopyPasteSettings;
         }
 
-
         const savedRawStatus = settings?.filterCriteria?.rawStatus as string | undefined;
         if (savedRawStatus === 'groupVariants' || savedRawStatus === 'rawOverNonRaw') {
           const legacyPref = settings?.groupPreferredType === 'jpeg' ? 'jpeg' : 'raw';
