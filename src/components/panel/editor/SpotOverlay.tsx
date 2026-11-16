@@ -42,7 +42,7 @@ interface Props {
   zoom: number;
 }
 
-/** Keep keyboard and wheel sizing useful at the slider limits too. */
+/** Keep keyboard sizing useful at the slider limits too. */
 function resizedBrush(size: number, grow: boolean) {
   return Math.min(
     1000,
@@ -254,22 +254,6 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const objectBrush = detectObjects && (settings.objectSelect ?? 'brush') === 'brush';
   const drag = useRef<Drag | null>(null);
   const ref = useRef<HTMLDivElement>(null);
-  // Native listener runs before the viewer's native pan/zoom listener.
-  // Plain wheel/trackpad scroll remains navigation, just as for masks.
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const resize = (event: WheelEvent) => {
-      if (!event.altKey || event.ctrlKey || event.metaKey || event.deltaY === 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const { spotSettings, setEditor } = useEditorStore.getState();
-      setEditor({ spotSettings: { ...spotSettings, size: resizedBrush(spotSettings.size, event.deltaY < 0) } });
-    };
-    element.addEventListener('wheel', resize, { passive: false });
-    return () => element.removeEventListener('wheel', resize);
-  }, []);
-
   // The removals being filled (task ids, newest last) and what the backend
   // reported of each; the newest one with a report is shown.
   const filling = useRef<string[]>([]);
