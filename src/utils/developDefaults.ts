@@ -137,7 +137,7 @@ export function presetDefaultSettings(preset: Preset, isRaw = true): Record<stri
   ) as Partial<Adjustments>;
   const style = preset.presetType !== 'tool';
   const values = expressPastedSettings(presetValues(own), {
-    recipe: null,
+    recipe: base,
     isRaw,
     isNew: true,
     replaceLayers: true,
@@ -150,7 +150,15 @@ export function presetDefaultSettings(preset: Preset, isRaw = true): Record<stri
 /** A tool's settings of `current` as a default (all of them, also those at
  * their neutral value, so they replace a more general default's). */
 export function toolDefaultSettings(current: Adjustments, keys: string[], isRaw: boolean): Record<string, unknown> {
-  const picked = toolPresetToSave(current, keys, isRaw) as Record<string, unknown>;
+  // Carried as a tool copy carries them (Blacks as amounts), then as a new
+  // edit takes them: recipe values, as a default is applied.
+  const carried = toolPresetToSave(current, keys, isRaw);
+  const picked = expressPastedSettings(carried, {
+    recipe: initialAdjustmentsFor(isRaw),
+    isRaw,
+    isNew: true,
+    replaceLayers: true
+  }) as Record<string, unknown>;
   return Object.fromEntries(
     Object.entries(picked)
       .filter(([key, value]) => isDefaultKey(key) && value !== undefined)

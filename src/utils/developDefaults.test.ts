@@ -20,6 +20,7 @@ import {
   type ResolvedDefaults
 } from './developDefaults';
 import type { Preset } from '../components/ui/AppProperties';
+import { toolPresetToSave } from '../components/studio/toolPresets';
 
 const z9 = { make: 'Nikon', model: 'Z 9', serial: '3001234' };
 const resolved: ResolvedDefaults = { levels: ['global', 'camera'], settings: { contrast: 20, vibrance: 5 } };
@@ -78,6 +79,18 @@ describe('develop defaults', () => {
     expect(defaultSettingsOf(photo, base)).toEqual({ exposure: 1 });
     const tool = toolDefaultSettings({ ...base, grainAmount: 0 } as Adjustments, ['grainAmount'], true);
     expect(tool).toHaveProperty('grainAmount', 0);
+    // Blacks travel as amounts in a tool copy; a default holds the value the
+    // new edit renders, so it reproduces the photo's −75.
+    const blacks = toolDefaultSettings({ ...base, blacks: -75 } as Adjustments, ['blacks'], true);
+    expect(blacks.blacks as number).toBeCloseTo(-75, 6);
+    // A preset saved from that photo's tool (Blacks as its amount) likewise.
+    const preset = {
+      id: 't',
+      name: 'Blacks',
+      presetType: 'tool',
+      adjustments: toolPresetToSave({ ...base, blacks: -75 } as Adjustments, ['blacks'], true)
+    } as unknown as Preset;
+    expect(presetDefaultSettings(preset).blacks as number).toBeCloseTo(-75, 6);
   });
 
   it('a preset replaces a camera default, a tool joins it; bodies are kept apart by serial', () => {
