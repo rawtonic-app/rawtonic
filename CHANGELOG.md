@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- **Empty a catalog’s Trash folder.** Its folder menu now offers Empty Trash with the same confirmation and permanent, non-undoable deletion as sessions; photographs outside that folder are kept.
+- **Empty Trash keeps photos recoverable.** Sessions and catalogs move their Trash contents to the computer’s Trash, with Undo for each moved entry. If a move fails, the remaining entries stay in the library Trash; permanent deletion requires a separate confirmation with Cancel focused.
 
 - **Every menu shows each command's key, named for your keyboard.** The menu bar (macOS), the ⋯ menu (Windows, Linux) and the right-click menus show the key of each command at the row's right — single keys too (ratings, flags, views), and your own keys when you changed them. Keys are named as your keyboard layout types them: on a Swiss or German Mac, New Virtual Copy shows ⌘Ä and Rotate shows Ü, the keys that run them (before, the menu showed ⌘^, which zoomed instead); ⌘+ and ⌘- zoom on every layout. Preferences and tooltips write keys the platform's way (⇧⌘E on a Mac, Ctrl+Shift+E elsewhere).
 - **F10 or Alt opens the menu on Windows and Linux**, and the arrow keys, Enter, Esc and a row's first letter work in every menu, as in other Windows and KDE applications.

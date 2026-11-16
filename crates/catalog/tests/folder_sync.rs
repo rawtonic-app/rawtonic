@@ -892,3 +892,33 @@ fn synchronize_verbatim_windows_root_through_plain_paths_finds_new_photos() {
         assert!(plan.removed.is_empty(), "{plan:#?}");
     }
 }
+
+#[test]
+fn system_trashed_rows_do_not_resurface_in_synchronize_folder() {
+    for mode in [Mode::Session, Mode::Catalog] {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = Library::create(&tmp.path().join("Library"), "Library", mode).unwrap();
+        let path = lib.directory.join("Trash/A.RAF");
+        photo(&path, 12);
+        let asset = lib.add_asset(&path).unwrap();
+        fill(&lib);
+        lib.set_trashed_at(&path, true).unwrap();
+        let os_trash = tmp.path().join("os-trash.RAF");
+        fs::rename(&path, &os_trash).unwrap();
+        let plan = scan(&lib, None);
+        assert!(plan.is_empty());
+        assert!(plan.unavailable.is_empty());
+        // A matching new file must not be treated as the trashed photo moved.
+        let copy = lib.directory.join("Capture/Copy.RAF");
+        photo(&copy, 12);
+        let plan = scan(&lib, None);
+        assert!(plan.verified_moves.is_empty());
+        assert!(plan.probable_moves.is_empty());
+        assert!(plan.contested.is_empty());
+        assert_eq!(plan.new_files.len(), 1);
+        assert!(lib.asset(&asset.id).unwrap().missing);
+        fs::rename(&os_trash, &path).unwrap();
+        lib.set_trashed_at(&path, false).unwrap();
+        assert!(!lib.asset(&asset.id).unwrap().missing);
+    }
+}

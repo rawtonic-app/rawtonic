@@ -417,18 +417,18 @@ describe('emptying the session Trash', () => {
     });
   });
 
-  it('names the count, says it is permanent and not undoable', () => {
-    expect(describeEmptyTrash(contents)).toBe(
-      'Permanently delete 3 photos in the Trash folder? 7 files are removed from disk, sidecars and XMP included. This cannot be undone, and file changes made before it can no longer be undone either.'
-    );
-    expect(describeEmptyTrash({ photos: 1, files: 1, entries: 1 })).toContain('Permanently delete 1 photo in');
-    expect(describeEmptyTrash({ photos: 0, files: 2, entries: 1 })).toContain('Permanently delete 2 files in');
-    expect(describeEmptyTrash({ photos: 0, files: 0, entries: 1 })).toContain('Remove the empty folders');
+  it('names photos and files and promises the computer Trash and recovery', () => {
+    expect(describeEmptyTrash(contents)).toContain('3 photos');
+    expect(describeEmptyTrash(contents)).toContain('7 files');
+    expect(describeEmptyTrash(contents)).toContain('computer’s Trash');
+    expect(describeEmptyTrash(contents)).toContain('Undo');
+    expect(describeEmptyTrash(contents)).not.toContain('Permanently delete');
   });
 
   it.each(['session', 'catalog'] as const)(
     'asks first in a %s, then empties exactly what was counted and lets nothing from the Trash stay open',
     async (libraryKind) => {
+      useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
       useLibraryStore.setState({ libraryKind });
       const handleBackToLibrary = vi.fn();
       vi.mocked(invoke).mockResolvedValueOnce(contents);
@@ -448,13 +448,16 @@ describe('emptying the session Trash', () => {
       expect(modal.title).toBe(
         libraryKind === 'catalog' ? 'Empty the Catalog’s Trash Folder?' : 'Empty the Trash Folder?'
       );
-      expect(modal.confirmText).toBe('Delete Permanently');
+      expect(modal.confirmText).toBe('Move to Computer’s Trash');
       expect(modal.confirmVariant).toBe('destructive');
       expect(modal.message).toContain('3 photos');
       // Nothing is deleted before the confirmation.
       expect(invoke).not.toHaveBeenCalledWith(Invokes.EmptySessionTrash, expect.anything());
 
-      vi.mocked(invoke).mockResolvedValueOnce(contents);
+      vi.mocked(invoke).mockResolvedValueOnce({
+        ...contents,
+        operations: [summary({ id: 'empty-trash-entry', systemTrash: 1 })]
+      });
       await modal.onConfirm?.();
       expect(invoke).toHaveBeenCalledWith(Invokes.EmptySessionTrash, {
         session: '/job',
@@ -462,12 +465,16 @@ describe('emptying the session Trash', () => {
         files: 7,
         entries: 2
       });
-      expect(toast.success).toHaveBeenCalledWith('3 photos deleted permanently.');
+      expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('computer’s Trash'));
       expect(useEditorStore.getState().selectedImage).toBeNull();
       const library = useLibraryStore.getState();
       expect(library.multiSelectedPaths).toEqual(['/job/Capture/K.RAF']);
       expect(library.libraryActivePath).toBeNull();
       expect(library.currentFolderPath).toBe('/job/Trash');
+      expect(useCatalogUndoStore.getState().filesPast.at(-1)?.id).toBe('empty-trash-entry');
+      vi.mocked(invoke).mockResolvedValue(summary({ id: 'empty-trash-entry' }));
+      await appUndo();
+      expect(invoke).toHaveBeenCalledWith(Invokes.UndoFileOperation);
       useLibraryStore.setState({ libraryKind: null });
     }
   );
@@ -492,6 +499,43 @@ describe('emptying the session Trash', () => {
     expect(useEditorStore.getState().selectedImage?.path).toBe('/job/Trash/Capture/A.RAF');
     useLibraryStore.setState({ libraryKind: null });
   });
+
+  it.each(['session', 'catalog'] as const)(
+    'a failed %s move asks separately before purge, and cancel sends nothing',
+    async (libraryKind) => {
+      useLibraryStore.setState({ libraryKind });
+      vi.mocked(invoke).mockResolvedValueOnce(contents);
+      const { result } = renderHook(() =>
+        useFileOperations(
+          vi.fn(async () => {}),
+          vi.fn(async () => {}),
+          vi.fn(),
+          vi.fn(),
+          []
+        )
+      );
+      await result.current.handleEmptySessionTrash();
+      const first = useUIStore.getState().confirmModalState;
+      const remaining = { photos: 1, files: 2, entries: 1 };
+      vi.mocked(invoke).mockResolvedValueOnce({ ...contents, failures: ['B.RAF: No system Trash'], remaining });
+      await first.onConfirm?.();
+      const fallback = useUIStore.getState().confirmModalState;
+      expect(fallback.confirmText).toBe('Delete Permanently…');
+      expect(fallback.confirmVariant).toBe('destructive');
+      expect(fallback.message).toContain('B.RAF');
+      expect(fallback.message).toContain('cannot be undone');
+      expect(vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.EmptySessionTrash)).toHaveLength(1);
+      useUIStore.getState().setUI({ confirmModalState: { isOpen: false } });
+      expect(vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.EmptySessionTrash)).toHaveLength(1);
+      vi.mocked(invoke).mockResolvedValueOnce(remaining);
+      await fallback.onConfirm?.();
+      expect(invoke).toHaveBeenCalledWith(Invokes.EmptySessionTrash, {
+        session: '/job',
+        ...remaining,
+        permanently: true
+      });
+    }
+  );
 
   it('an empty Trash asks nothing', async () => {
     vi.mocked(invoke).mockResolvedValueOnce({ photos: 0, files: 0, entries: 0 });

@@ -7,8 +7,8 @@
 //! "delete" moves files into the session's own `Trash/` folder (Capture
 //! One's session Trash); elsewhere, and from that folder, they go to the
 //! system Trash. Undone operations can be redone until a new one runs.
-//! The only deletion is the user's explicit Empty Trash of a library's
-//! `Trash/` folder (`empty_session_trash`, journaled, not undoable). A move
+//! Empty Trash uses the same system Trash path. Only a separate explicit
+//! permanent-deletion confirmation may invoke purge. A move
 //! to another drive copies, verifies and then trashes the originals (ADR
 //! 0016); its progress goes to the Library, which can stop it.
 use crate::file_management::{
@@ -1073,7 +1073,7 @@ pub(crate) fn forget_purged(op: &Operation) -> Result<(), String> {
 }
 
 /// What the library's Trash folder holds, for the Empty Trash dialog.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrashContents {
     /// Photographs and virtual copies.
@@ -1082,9 +1082,13 @@ pub struct TrashContents {
     pub files: usize,
     /// Top-level entries (files and folders).
     pub entries: usize,
-    /// Set when the Trash was emptied but some files could not be deleted
-    /// yet (they are out of the Trash and deleted at the next start).
+    /// Permanent purge only: committed entries awaiting cleanup.
     pub note: Option<String>,
+    /// Successful, independently undoable moves; a failed entry stays put.
+    pub operations: Vec<OperationSummary>,
+    pub failures: Vec<String>,
+    pub moved_entries: Vec<PathBuf>,
+    pub remaining: Option<Box<TrashContents>>,
 }
 
 /// The real `Trash/` folder of a library identified by its manifest.
@@ -1116,15 +1120,20 @@ fn contents_of(plan: &rawtonic_fileops::PurgePlan) -> TrashContents {
         files: plan.files.len(),
         entries: plan.entries.len(),
         note: None,
+        operations: Vec::new(),
+        failures: Vec::new(),
+        moved_entries: Vec::new(),
+        remaining: None,
     }
 }
 
-/// Empties the library's Trash for good if it still holds what the user
-/// confirmed (`expected`): refuses, deleting nothing, when it changed.
+/// Empties the library Trash through the system Trash, unless the user
+/// separately confirmed permanent deletion. Refuses when counts changed.
 pub fn empty_trash(
     app: &AppHandle,
     session: &str,
     expected: &TrashContents,
+    permanently: bool,
 ) -> Result<TrashContents, String> {
     let plan = library_trash_plan(session)?
         .filter(|plan| !plan.entries.is_empty())
@@ -1142,13 +1151,54 @@ pub fn empty_trash(
     } else {
         format!("Empty Trash ({} photos)", contents.photos)
     };
-    let op = with_journal(app, |journal| journal.purge("emptyTrash", &label, &plan))?;
-    sync_pending(app, Some(&op.id));
-    if op.state != State::Purged {
-        log::warn!("'{}' is not finished: {:?}", op.label, op.note);
-        contents.note = op.note.clone();
+    if permanently {
+        // Only the separate, explicit permanent-deletion confirmation reaches here.
+        let op = with_journal(app, |journal| journal.purge("emptyTrash", &label, &plan))?;
+        sync_pending(app, Some(&op.id));
+        if op.state != State::Purged {
+            contents.note = op.note.clone();
+        }
+    } else {
+        // One journal transaction per entry: failure never rolls back earlier
+        // successful moves, and no failed move can fall through to purge.
+        let (operations, failures) = move_trash_entries(&plan, |entry| {
+            run(app, "trash", &label, vec![Step::system_trash(entry)])
+        });
+        contents.moved_entries = operations.iter().flat_map(Operation::trashed).collect();
+        contents.operations = operations.iter().map(OperationSummary::from).collect();
+        contents.failures = failures;
+        contents.remaining =
+            library_trash_plan(session)?.map(|remaining| Box::new(contents_of(&remaining)));
     }
     Ok(contents)
+}
+
+/// Shared session/catalog path, with the journal/OS adapter injected for tests.
+fn move_trash_entries(
+    plan: &rawtonic_fileops::PurgePlan,
+    mut move_entry: impl FnMut(&Path) -> Result<Operation, String>,
+) -> (Vec<Operation>, Vec<String>) {
+    let mut moved = Vec::new();
+    let mut failed = Vec::new();
+    for entry in &plan.entries {
+        match move_entry(entry) {
+            Ok(op) => moved.push(op),
+            Err(error) => {
+                let files = plan
+                    .files
+                    .iter()
+                    .filter(|file| file.starts_with(entry))
+                    .map(|file| file.display().to_string())
+                    .collect::<Vec<_>>();
+                failed.push(format!(
+                    "{}: {error}\n{}",
+                    entry.display(),
+                    files.join("\n")
+                ));
+            }
+        }
+    }
+    (moved, failed)
 }
 
 /// What the library's Trash folder holds (zero when it has none).
@@ -1163,8 +1213,8 @@ pub async fn session_trash_contents(session: String) -> Result<TrashContents, St
     .map_err(|e| e.to_string())?
 }
 
-/// Permanently deletes everything in the library's Trash folder, after the
-/// user confirmed the counts in `session_trash_contents`. Not undoable.
+/// Moves library Trash entries to the system Trash. Permanent deletion
+/// requires the separate confirmation (`permanently` defaults to false).
 #[tauri::command]
 pub async fn empty_session_trash(
     app: AppHandle,
@@ -1172,15 +1222,16 @@ pub async fn empty_session_trash(
     photos: usize,
     files: usize,
     entries: usize,
+    permanently: Option<bool>,
 ) -> Result<TrashContents, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let expected = TrashContents {
             photos,
             files,
             entries,
-            note: None,
+            ..TrashContents::default()
         };
-        empty_trash(&app, &session, &expected)
+        empty_trash(&app, &session, &expected, permanently.unwrap_or(false))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1714,11 +1765,29 @@ mod tests {
             let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
             let mut trashed = Vec::new();
             for name in ["A.RAF", "B.ARW"] {
-                let photo = dir.join("Trash/Capture").join(name);
-                fs::create_dir_all(photo.parent().unwrap()).unwrap();
+                let photo = dir.join("Capture").join(name);
+                let sidecar = dir.join(format!("Capture/{name}.rrdata"));
                 fs::write(&photo, name).unwrap();
-                fs::write(dir.join(format!("Trash/Capture/{name}.rrdata")), "{}").unwrap();
-                trashed.push(lib.add_asset(&photo).unwrap());
+                fs::write(&sidecar, "{}").unwrap();
+                let asset = lib.add_asset(&photo).unwrap();
+                let mut metadata = lib.metadata(&asset.id).unwrap();
+                metadata.rating = 4;
+                lib.set_metadata(&asset.id, &metadata).unwrap();
+                lib.save_editor_state(
+                    &asset.id,
+                    &serde_json::json!({"adjustments":{"exposure":1}}),
+                )
+                .unwrap();
+                let op = journal
+                    .execute(
+                        "trash",
+                        "Move to Trash",
+                        plan_trash(&[vec![photo, sidecar]]),
+                        &rawtonic_fileops::NoSystemTrash,
+                    )
+                    .unwrap();
+                sync_catalog(&op, true).unwrap();
+                trashed.push(asset);
             }
             let session_path = dir.to_string_lossy().into_owned();
             let plan = library_trash_plan(&session_path).unwrap().unwrap();
@@ -1746,7 +1815,155 @@ mod tests {
             assert!(journal.last_undoable().unwrap().is_none());
             // Nothing left to count.
             let plan = library_trash_plan(&session_path).unwrap().unwrap();
-            assert_eq!(contents_of(&plan), TrashContents::default());
+            assert_eq!(contents_of(&plan).entries, 0);
+        }
+    }
+
+    #[test]
+    fn emptying_library_trash_uses_system_trash_and_undo_preserves_records() {
+        for mode in [
+            rawtonic_catalog::Mode::Session,
+            rawtonic_catalog::Mode::Catalog,
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("Library");
+            Library::create(&dir, "Library", mode).unwrap();
+            fs::create_dir_all(dir.join("Capture")).unwrap();
+            let kept = dir.join("Capture/K.RAF");
+            fs::write(&kept, "k").unwrap();
+            let lib = Library::open(&dir).unwrap();
+            let kept_asset = lib.add_asset(&kept).unwrap();
+            let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+            let mut trashed = Vec::new();
+            for name in ["A.RAF", "B.ARW"] {
+                let photo = dir.join("Capture").join(name);
+                let sidecar = dir.join(format!("Capture/{name}.rrdata"));
+                fs::write(&photo, name).unwrap();
+                fs::write(&sidecar, "{}").unwrap();
+                let asset = lib.add_asset(&photo).unwrap();
+                let mut metadata = lib.metadata(&asset.id).unwrap();
+                metadata.rating = 4;
+                lib.set_metadata(&asset.id, &metadata).unwrap();
+                lib.save_editor_state(
+                    &asset.id,
+                    &serde_json::json!({"adjustments":{"exposure":1}}),
+                )
+                .unwrap();
+                let op = journal
+                    .execute(
+                        "trash",
+                        "Move to Trash",
+                        plan_trash(&[vec![photo, sidecar]]),
+                        &rawtonic_fileops::NoSystemTrash,
+                    )
+                    .unwrap();
+                sync_catalog(&op, true).unwrap();
+                trashed.push(asset);
+            }
+            let session_path = dir.to_string_lossy().into_owned();
+            let plan = library_trash_plan(&session_path).unwrap().unwrap();
+            let contents = contents_of(&plan);
+            assert_eq!(
+                (contents.photos, contents.files, contents.entries),
+                (2, 4, 1)
+            );
+
+            let trash = BesideTrash(tmp.path().join("os-trash"));
+            let (ops, errors) = move_trash_entries(&plan, |entry| {
+                let op = journal
+                    .execute(
+                        "trash",
+                        "Empty Trash",
+                        vec![Step::system_trash(entry)],
+                        &trash,
+                    )
+                    .map_err(|e| format!("{e:#}"))?;
+                sync_catalog(&op, true)?;
+                Ok(op)
+            });
+            assert!(errors.is_empty(), "{errors:?}");
+            assert_eq!(fs::read_dir(dir.join("Trash")).unwrap().count(), 0);
+            assert_eq!(fs::read_dir(&trash.0).unwrap().count(), 1);
+            for asset in &trashed {
+                assert!(lib.asset(&asset.id).unwrap().missing);
+            }
+            for op in ops.iter().rev() {
+                let undone = journal.undo(&op.id, &trash).unwrap();
+                sync_catalog(&undone, false).unwrap();
+            }
+            for asset in &trashed {
+                assert!(!lib.asset(&asset.id).unwrap().missing);
+                assert_eq!(lib.metadata(&asset.id).unwrap().rating, 4);
+                assert!(lib.editor_state(&asset.id).unwrap().is_some());
+            }
+            assert_eq!(lib.asset_at(&kept).unwrap().unwrap().id, kept_asset.id);
+            assert_eq!(fs::read_to_string(&kept).unwrap(), "k");
+            assert_eq!(
+                contents_of(&library_trash_plan(&session_path).unwrap().unwrap()).files,
+                4
+            );
+        }
+    }
+
+    #[test]
+    fn unavailable_trash_never_purges_and_partial_success_stays_moved() {
+        for mode in [
+            rawtonic_catalog::Mode::Session,
+            rawtonic_catalog::Mode::Catalog,
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("Library");
+            Library::create(&dir, "Library", mode).unwrap();
+            let lib = Library::open(&dir).unwrap();
+            let a = dir.join("Trash/A.RAF");
+            let b = dir.join("Trash/B.RAF");
+            fs::create_dir_all(a.parent().unwrap()).unwrap();
+            fs::write(&a, "a").unwrap();
+            fs::write(&b, "b").unwrap();
+            let aa = lib.add_asset(&a).unwrap();
+            let bb = lib.add_asset(&b).unwrap();
+            let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+            let plan = library_trash_plan(dir.to_str().unwrap()).unwrap().unwrap();
+            let (ops, errors) = move_trash_entries(&plan, |entry| {
+                journal
+                    .execute(
+                        "trash",
+                        "Empty Trash",
+                        vec![Step::system_trash(entry)],
+                        &rawtonic_fileops::NoSystemTrash,
+                    )
+                    .map_err(|e| format!("{e:#}"))
+            });
+            assert!(ops.is_empty());
+            assert_eq!(errors.len(), 2);
+            assert_eq!(fs::read_to_string(&a).unwrap(), "a");
+            assert_eq!(fs::read_to_string(&b).unwrap(), "b");
+            let trash = BesideTrash(tmp.path().join("os-trash"));
+            let (ops, errors) = move_trash_entries(&plan, |entry| {
+                if entry == b {
+                    return Err("Volume has no system Trash".into());
+                }
+                let op = journal
+                    .execute(
+                        "trash",
+                        "Empty Trash",
+                        vec![Step::system_trash(entry)],
+                        &trash,
+                    )
+                    .map_err(|e| format!("{e:#}"))?;
+                sync_catalog(&op, true)?;
+                Ok(op)
+            });
+            assert_eq!(ops.len(), 1);
+            assert_eq!(errors.len(), 1);
+            assert!(errors[0].contains("B.RAF"));
+            assert!(!a.exists());
+            assert_eq!(fs::read_to_string(&b).unwrap(), "b");
+            assert!(lib.asset(&aa.id).unwrap().missing);
+            assert!(!lib.asset(&bb.id).unwrap().missing);
+            let undo = journal.undo(&ops[0].id, &trash).unwrap();
+            sync_catalog(&undo, false).unwrap();
+            assert_eq!(fs::read_to_string(&a).unwrap(), "a");
         }
     }
 

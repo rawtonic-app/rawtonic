@@ -281,9 +281,12 @@ roots added before.
 recovery; redo re-validates; the system Trash is a trait the app implements) moves to another volume as a verified copy
 published by an exclusive rename, the originals then trashed, undone by copying back (ADR 0016; `volume`: free space
 check, exclusive-rename probe, copy + read-back compare; `tree`: a whole folder as one step —
-listing without links, tree copy, unchanged checks); and `purge`, the only deletion: emptying one real folder (a
-session's `Trash/`) — entries set aside first, committed, then deleted without following links; not undoable, it ends
-Undo for earlier operations. App glue: `src-tauri/src/file_operations.rs`; renames are planned once by
+listing without links, tree copy, unchanged checks); and `purge`, the only permanent deletion: entries of one real library `Trash/` folder are set aside,
+committed, then deleted without following links; not undoable, it ends Undo for earlier operations.
+Empty Trash first sends each top-level entry through the ordinary system Trash mechanism, with one Undo
+step per moved entry. Failures stay in the library Trash and are listed; only a separate explicit
+confirmation may purge those remaining entries. System-trashed rows stay hidden for lossless Undo;
+there is currently no safe history-pruning hook to forget their metadata when unreachable. App glue: `src-tauri/src/file_operations.rs`; renames are planned once by
 `file_management::rename_plan` (final names, sidecars, XMP owner, companion, conflicts), previewed in the rename dialog
 and run as previewed.
 
