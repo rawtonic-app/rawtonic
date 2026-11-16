@@ -8,6 +8,7 @@ import type { RedEye } from '../../../utils/adjustments';
 import { withoutSpotItems } from '../../../utils/spotItems';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../../../utils/geometryKeys';
 import { Invokes } from '../../ui/AppProperties';
+import { bracketStep } from '../../../utils/bracketKeys';
 
 interface Props {
   /** The displayed photograph's box in the viewer's (zoomed) content. */
@@ -313,13 +314,15 @@ export default function RedEyeOverlay({ rect, cropX, cropY, scale, zoom }: Props
           redEyes: (prev.redEyes ?? []).filter((eye) => eye.id !== id)
         }));
         setEditor({ activeSpotId: null });
-      } else if (e.key === '[' || e.key === ']') {
+      } else if (bracketStep(e)) {
         e.preventDefault();
         e.stopImmediatePropagation();
         // 15 % a press, and at least a pixel.
         const size = redEyeSettings.size;
         const next =
-          e.key === ']' ? Math.max(size + 1, Math.round(size * 1.15)) : Math.min(size - 1, Math.round(size / 1.15));
+          bracketStep(e)! > 0
+            ? Math.max(size + 1, Math.round(size * 1.15))
+            : Math.min(size - 1, Math.round(size / 1.15));
         setEditor({
           redEyeSettings: { ...redEyeSettings, size: Math.max(2, next) }
         });

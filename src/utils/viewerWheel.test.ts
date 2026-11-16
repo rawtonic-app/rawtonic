@@ -45,6 +45,29 @@ describe('wheelAction', () => {
   });
 });
 
+describe('wheelAction on recorded macOS sequences (UXF5)', () => {
+  // What the page received for CoreGraphics continuous scrolls with phases
+  // (began, changed…, ended: AppKit hasPreciseScrollingDeltas true) and for
+  // one mouse wheel line, recorded with `ui.wheel_log` in a QA build
+  // (notes: benchmark-results/uxf5-2026-11-16).
+  const trackpadDown = Array.from({ length: 6 }, () => wheel({ deltaY: 20 }));
+  const trackpadSideways = Array.from({ length: 6 }, () => wheel({ deltaX: 20 }));
+  const mouseLine = wheel({ deltaY: 40 });
+
+  it('pans for every event of a trackpad gesture while the report is there', () => {
+    window.__rawtonicScrollPrecise = true;
+    for (const event of [...trackpadDown, ...trackpadSideways]) expect(wheelAction(event, 'mouse').kind).toBe('pan');
+    window.__rawtonicScrollPrecise = false;
+    expect(wheelAction(mouseLine, 'mouse').kind).toBe('zoom');
+  });
+
+  it('reads a trackpad as a wheel on a page without the report: why the app repeats it at each gesture', () => {
+    // MSMOKE1: dy zoomed out to Fit, dx then panned nothing at Fit.
+    expect(trackpadDown.map((event) => wheelAction(event, 'mouse').kind)).toEqual(Array(6).fill('zoom'));
+    expect(trackpadSideways.map((event) => wheelAction(event, 'mouse').kind)).toEqual(Array(6).fill('pan'));
+  });
+});
+
 describe('listenForPinch', () => {
   const gesture = (type: string, scale: number, clientX = 10, clientY = 20) => {
     const event = new Event(type, { cancelable: true }) as Event & { scale: number; clientX: number; clientY: number };

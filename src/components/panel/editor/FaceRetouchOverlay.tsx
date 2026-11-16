@@ -3,6 +3,7 @@ import { updateAdjustments } from '../../../hooks/useEditorActions';
 import { useEditorStore } from '../../../store/useEditorStore';
 import type { Adjustments, FaceProtectStroke, RetouchFace } from '../../../utils/adjustments';
 import { faceRetouchGeometry, healedBlemishes } from '../../studio/StudioFaceRetouch';
+import { bracketStep } from '../../../utils/bracketKeys';
 
 interface Props {
   /** The displayed photograph's box in the viewer's (zoomed) content. */
@@ -47,12 +48,13 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-      if (e.key !== '[' && e.key !== ']') return;
+      const step = bracketStep(e);
+      if (!step) return;
       // Not the rotate shortcut on the same keys.
       e.preventDefault();
       e.stopImmediatePropagation();
       const { faceProtect, setEditor } = useEditorStore.getState();
-      const size = Math.round(Math.min(500, Math.max(2, faceProtect.size * (e.key === ']' ? 1.15 : 1 / 1.15))));
+      const size = Math.round(Math.min(500, Math.max(2, faceProtect.size * (step > 0 ? 1.15 : 1 / 1.15))));
       setEditor({ faceProtect: { ...faceProtect, size } });
     };
     window.addEventListener('keydown', onKey, true);

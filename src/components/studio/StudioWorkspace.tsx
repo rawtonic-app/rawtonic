@@ -130,6 +130,7 @@ import { useIdleCursor } from './useIdleCursor';
 import { followPhotoFullScreen } from '../../utils/photoFullScreen';
 import { ProgressRing } from '../activity/ProgressRing';
 import { sourceFileName } from '../../entities/photo/photoRef';
+import { bracketStep } from '../../utils/bracketKeys';
 
 interface Props {
   files: ImageFile[];
@@ -869,9 +870,10 @@ export default function StudioWorkspace(props: Props) {
       if (e.metaKey || e.ctrlKey) return;
       // [ and ] resize the brush while it is active, with Shift they change
       // its hardness (Capture One); otherwise they keep rotating the
-      // photograph. Option is allowed: German Mac layouts type [ ] with it.
-      const bracket = ({ '[': -1, '{': -1, ']': 1, '}': 1 } as const)[e.key as '[' | '{' | ']' | '}'] as
-        -1 | 1 | undefined;
+      // photograph. Option is allowed: German Mac layouts type [ ] with it,
+      // and the keys bound to Rotate count as [ ] (`bracketStep`).
+      const bracket =
+        ({ '{': -1, '}': 1 } as const)[e.key as '{' | '}'] ?? (brushActiveRef.current ? bracketStep(e) : undefined);
       if (bracket && brushActiveRef.current) {
         e.preventDefault();
         e.stopImmediatePropagation();
