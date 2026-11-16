@@ -40,6 +40,9 @@ pub mod color_noise_view;
 mod deferred_display;
 #[path = "effect_passes.rs"]
 mod effect_passes;
+#[path = "tone_split.rs"]
+mod tone_split;
+pub(crate) use tone_split::ToneSplitParts;
 #[path = "frame_supersession.rs"]
 mod frame_supersession;
 pub use frame_supersession::{FRAME_SUPERSEDED, is_superseded, supersedable};
@@ -6835,6 +6838,27 @@ fn create_display_pipeline(
     } else {
         constants
     };
+    // Under a compile limit its main passes run after the parts of `main`
+    // before and in the tone stage (`tone_split`).
+    if let Some(split) = display.tone_split() {
+        return split.main_pass(
+            device,
+            display,
+            pipeline_layout,
+            label,
+            constants,
+            |constants| {
+                compile_variant_module(
+                    device,
+                    shader_module,
+                    display.variant_module(constants),
+                    pipeline_layout,
+                    label,
+                    constants,
+                )
+            },
+        );
+    }
     compile_variant_module(
         device,
         shader_module,
@@ -7184,7 +7208,7 @@ impl GpuProcessor {
         // The 8-bit display source with the passes: the terms pass and the
         // finish pass into the 8-bit tile compile from it.
         let pass_shader = passes
-            .then(|| DisplayShader::with_effect_passes(shader_source))
+            .then(|| DisplayShader::with_passes(shader_source, tone_split::here()))
             .filter(|shader| shader.effect_passes());
 
         let mut bind_group_layout_entries = vec![
@@ -7416,8 +7440,11 @@ impl GpuProcessor {
         // The passes' own layouts take the main pass's entries as they are
         // here; the main pass's get the terms it reads.
         let pass_entries = bind_group_layout_entries.clone();
-        if pass_shader.is_some() {
+        if let Some(pass_shader) = &pass_shader {
             bind_group_layout_entries.extend(effect_passes::main_pass_entries());
+            if pass_shader.tone_split().is_some() {
+                bind_group_layout_entries.extend(tone_split::layout_entries());
+            }
         }
 
         // `main` alone writes `analytics_output` (the detail pass does not).
@@ -7515,7 +7542,7 @@ impl GpuProcessor {
                 device,
                 &pass_entries,
                 pass_shader,
-                DisplayShader::with_effect_passes(&high_precision_source),
+                DisplayShader::with_passes(&high_precision_source, tone_split::here()),
             ))
         });
 
@@ -10815,6 +10842,11 @@ impl GpuProcessor {
         // variant (`effect_passes`), with the sliders' sums the main pass
         // takes.
         let passes = self.effect_passes.as_ref().filter(|_| display_variant);
+        // A main pass split at the tone stage runs after its parts
+        // (`tone_split`).
+        let split_parts = passes
+            .and_then(|_| self.display_shader.tone_split())
+            .and_then(|split| split.of(output_pipeline));
         let terms_pass = match passes {
             Some(passes)
                 if effect_passes::EffectPasses::terms_wanted(preview_features(adjustments)) =>
@@ -11627,6 +11659,11 @@ impl GpuProcessor {
                             None => passes.no_colour(),
                         }),
                     });
+                    if self.display_shader.tone_split().is_some() {
+                        bind_group_entries.extend(
+                            passes.split_entries(self, split_parts.as_ref().map(|_| 2)),
+                        );
+                    }
                     for (index, binding) in
                         effect_passes::TERMS_INPUT_BINDINGS.into_iter().enumerate()
                     {
@@ -11711,6 +11748,29 @@ impl GpuProcessor {
                     bind_group_entries[1].resource =
                         wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
                 }
+                // The parts of a split main pass: its resources, with their
+                // own tiles to write and read.
+                let split = split_parts.as_ref().zip(passes).map(|(parts, passes)| {
+                    [0, 1].map(|part| {
+                        let mut entries = bind_group_entries.clone();
+                        let own = passes.split_entries(self, Some(part));
+                        for entry in &mut entries {
+                            if let Some(own) = own.iter().find(|own| own.binding == entry.binding) {
+                                *entry = own.clone();
+                            }
+                        }
+                        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("Split Part Bind Group"),
+                            layout: if main_pass_layout {
+                                &self.main_bgl
+                            } else {
+                                output_bgl
+                            },
+                            entries: &entries,
+                        });
+                        (&parts[part], bind_group)
+                    })
+                });
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Tile Bind Group"),
                     layout: if main_pass_layout {
@@ -11784,6 +11844,16 @@ impl GpuProcessor {
                 );
                 let mut main_encoder = device.create_command_encoder(&Default::default());
                 if let Some((pipeline, bind_group, _)) = &terms {
+                    let mut pass = main_encoder.begin_compute_pass(&Default::default());
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, bind_group, &[]);
+                    pass.dispatch_workgroups(
+                        RENDER_REGION_GROUPS_X,
+                        workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        1,
+                    );
+                }
+                for (pipeline, bind_group) in split.iter().flatten() {
                     let mut pass = main_encoder.begin_compute_pass(&Default::default());
                     pass.set_pipeline(pipeline);
                     pass.set_bind_group(0, bind_group, &[]);

@@ -1,0 +1,15 @@
+# COLD4 round 22 (G76): the main pass split at the tone stage as built (display source with the
+# passes, `display passes`). Run from the artifact folder, COMPILE_PROBE_TIMEOUT=300, AMD VkCache
+# cleared before the round. The idle plan's serving variant (Basic + Glow + Halation, 24113215)
+# and the Basic superset with tone version 19 (72347711): main pass and its two parts; then the
+# app's own path (`spv=proc`: the processor compiles the main pass and both parts, as a frame does).
+r22_serving_main features=24113215 dce display passes set=EFFECT_TERMS:1,FINISH_APART:1,ENABLE_GRAIN:0,SPLIT_LOAD2:1
+r22_serving_before features=24113215 dce display passes set=EFFECT_TERMS:1,ENABLE_GRAIN:0,SPLIT_STORE1:1
+r22_serving_tone features=24113215 dce display passes set=EFFECT_TERMS:1,ENABLE_GRAIN:0,SPLIT_LOAD1:1,SPLIT_STORE2:1
+r22_v19_main features=72347711 dce display passes set=EFFECT_TERMS:1,FINISH_APART:1,ENABLE_GRAIN:0,SPLIT_LOAD2:1
+r22_v19_tone features=72347711 dce display passes set=EFFECT_TERMS:1,ENABLE_GRAIN:0,SPLIT_LOAD1:1,SPLIT_STORE2:1
+r22_raw_main features=4113 dce display passes set=EFFECT_TERMS:1,FINISH_APART:1,ENABLE_GRAIN:0,SPLIT_LOAD2:1
+r22_raw_before features=4113 dce display passes set=EFFECT_TERMS:1,ENABLE_GRAIN:0,SPLIT_STORE1:1
+r22_raw_tone features=4113 dce display passes set=EFFECT_TERMS:1,ENABLE_GRAIN:0,SPLIT_LOAD1:1,SPLIT_STORE2:1
+r22_serving_app features=24113215 spv=proc
+r22_raw_app features=4113 spv=proc

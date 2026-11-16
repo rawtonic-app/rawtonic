@@ -25,8 +25,11 @@
 //!   `dce` to measure what the app compiles.
 //! - `passes`: with `display`, the source with the effects in passes of
 //!   their own, as display variants compile it under a compile limit
-//!   (G76/EFX). The main pass: `hp set=EFFECT_TERMS:1,FINISH_APART:1`; the
-//!   terms pass: `set=EFFECT_TERMS_PASS:1`; the finish pass:
+//!   (G76/EFX) and the main pass split at the tone stage (G76/COLD4). The
+//!   main pass: `set=EFFECT_TERMS:1,FINISH_APART:1,ENABLE_GRAIN:0,SPLIT_LOAD2:1`;
+//!   its part before the tone stage: `set=EFFECT_TERMS:1,ENABLE_GRAIN:0,SPLIT_STORE1:1`;
+//!   the tone part: `set=EFFECT_TERMS:1,ENABLE_GRAIN:0,SPLIT_LOAD1:1,SPLIT_STORE2:1`;
+//!   the terms pass: `set=EFFECT_TERMS_PASS:1`; the finish pass:
 //!   `set=FINISH_PASS:1` (add `SHARPEN_VIEW:1` as the app does).
 //! - `hp`: float output storage (the 16-bit and deferred renders' source);
 //!   with `set=HIGH_PRECISION_OUTPUT:1` (and `DEFER_OUTPUT:1`).

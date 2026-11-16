@@ -9166,6 +9166,18 @@ fn effect_pass_profiles() -> Vec<serde_json::Value> {
         json!({"contrast":25,"grainAmount":40,"grainSize":60,"grainRoughness":70,"grainVersion":1}),
         json!({"contrast":25,"grainAmount":40,"grainVersion":2}),
         json!({"exposure":0.3,"contrast":20,"shadows":25,"vibrance":20}),
+        // The main pass split at the tone stage (G76/COLD4): every Basic
+        // edit at its current version, with sharpening, noise reduction and
+        // the mixer around the cuts; and layers that move the tone stage
+        // and the colour after it.
+        json!({"exposure":0.2,"contrast":30,"highlights":-40,"shadows":60,"whites":-25,
+            "blacks":-30,"clarity":25,"structure":20,"dehaze":10,"vibrance":25,
+            "saturation":-10,"sharpness":40,"lumaNoiseReduction":20,"toneVersion":19,
+            "hslVersion":2,"hsl":{"blues":{"hue":20,"saturation":-15},"oranges":{"luminance":10}},
+            "colorGrading":{"shadows":{"hue":220,"saturation":20,"luminance":0}}}),
+        json!({"contrast":15,"toneVersion":19,"masks":[
+            local_mask("t", json!({"shadows":50,"highlights":-30,"whites":20,"blacks":-20})),
+            local_mask("c", json!({"hue":10,"saturation":20,"exposure":-0.4}))]}),
     ]
 }
 
@@ -9218,10 +9230,12 @@ fn effect_pass_processor(
 #[ignore = "requires a native GPU; the effect passes against one pass"]
 fn effect_passes_render_the_one_pass_frames() {
     // Under a compile limit glow, halation and grain render in passes of
-    // their own (`effect_passes`, G76/EFX). The display frame, with and
-    // without the layers' sums, and the float export tile (at 16 bits) must
-    // be the ones the same display source renders in one pass, value for
-    // value.
+    // their own (`effect_passes`, G76/EFX), and the main pass runs after
+    // its parts before and in the tone stage (`tone_split`, G76/COLD4). The
+    // display frame, with and without the layers' sums, and the float
+    // export tile (at 16 bits) must be the ones the same display source
+    // renders in one pass, value for value, with the main pass split and
+    // not.
     //
     // One compile at a time under the device's compile limit, each of a
     // profile's own variant (a variant with every profile's features at
@@ -9233,11 +9247,12 @@ fn effect_passes_render_the_one_pass_frames() {
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
     let profiles = effect_pass_profiles();
-    // All effects, layers, grain alone.
-    const EXPORTED: [usize; 3] = [2, 6, 7];
+    // All effects, layers, grain alone, the Basic panel.
+    const EXPORTED: [usize; 4] = [2, 6, 7, 11];
     // Name, frame, frame with sums, 16-bit export, frames with sums.
     type Rendered = (String, Vec<u8>, Vec<u8>, Option<Vec<u16>>, usize);
-    let render = |passes: bool| -> Vec<Rendered> {
+    let render = |passes: bool, split: bool| -> Vec<Rendered> {
+        tone_split::FORCED.with(|forced| forced.set(Some(split)));
         let shown = |processor: &GpuProcessor| {
             read_texture_data_roi(
                 &context.device,
@@ -9300,6 +9315,15 @@ fn effect_passes_render_the_one_pass_frames() {
                 }
                 let summed = shown(&processor);
                 let sum_frames = processor.layer_sum_frames[0].load(Ordering::Relaxed) - before;
+                // The split processor's frames ran through the parts.
+                assert_eq!(
+                    processor
+                        .display_shader
+                        .tone_split()
+                        .is_some_and(|split| split.main_passes() > 0),
+                    split,
+                    "split main passes"
+                );
                 // The export under a compile limit, at 16 bits (RAW only).
                 let export = (raw && EXPORTED.contains(&index)).then(|| {
                     processor
@@ -9328,13 +9352,20 @@ fn effect_passes_render_the_one_pass_frames() {
             }
         }
         effect_passes::FORCED.with(|forced| forced.set(None));
+        tone_split::FORCED.with(|forced| forced.set(None));
         rendered
     };
-    let one_pass = render(false);
-    let passes = render(true);
+    let one_pass = render(false, false);
+    let unsplit = render(true, false);
+    let passes = render(true, true);
     let mut exports = 0;
-    for (one_pass, passes) in one_pass.iter().zip(&passes) {
-        let name = &one_pass.0;
+    for ((one_pass, passes), split) in one_pass
+        .iter()
+        .zip(&unsplit)
+        .map(|case| (case, false))
+        .chain(one_pass.iter().zip(&passes).map(|case| (case, true)))
+    {
+        let name = &format!("{} (main pass split: {split})", one_pass.0);
         let differing = |a: &[u8], b: &[u8]| a.iter().zip(b).filter(|(a, b)| a != b).count();
         // NVIDIA Vulkan (RTX 3080): identical. (With the terms cut after
         // glow's own arithmetic instead of after the tone stage: 1/65535
@@ -9364,7 +9395,7 @@ fn effect_passes_render_the_one_pass_frames() {
             "{name}: export differs"
         );
     }
-    assert_eq!((passes.len(), exports), (14, 3));
+    assert_eq!((passes.len(), exports), (17, 8));
     // Layered profiles did render with sums.
     assert!(passes.iter().any(|case| case.4 > 0));
 }
@@ -9454,6 +9485,83 @@ fn effect_passes_frame_cost_probe() {
                 "one_pass_median_ms":medians[0].0,"one_pass_min_ms":medians[0].1,
                 "passes_median_ms":medians[1].0,"passes_min_ms":medians[1].1,
                 "added_median_ms":medians[1].0 - medians[0].0})
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; prints what the tone split costs per drag step"]
+fn tone_split_drag_render_time() {
+    // A measurement, not a check (G76/COLD4): display frames at 2560 x
+    // 1440 through the effect passes with one main pass and with the main
+    // pass split at the tone stage (`tone_split`: two Rgba32Float tiles
+    // stored and read per frame), while Exposure is dragged, for a Basic
+    // edit and the same with Glow and Halation. Each time runs until the
+    // GPU has finished the frame; the modes take turns, ten frames each.
+    let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
+    let (width, height) = (2560, 1440);
+    let view = input(&context, width, height, 31);
+    let basic = json!({"exposure":0.3,"contrast":20,"highlights":-30,"shadows":25,"whites":-10,
+        "blacks":-10,"vibrance":20,"clarity":15,"sharpness":30,"toneVersion":19});
+    let mut glow = basic.clone();
+    glow["glowAmount"] = json!(30);
+    glow["halationAmount"] = json!(30);
+    for (name, profile) in [("basic", basic), ("glow_halation", glow)] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(3));
+        let processors = [false, true].map(|split| {
+            tone_split::FORCED.with(|forced| forced.set(Some(split)));
+            let processor = effect_pass_processor(&context, width, height, true);
+            prepare_preview_pipeline(&processor, preview_features(&adjustments));
+            processor
+        });
+        tone_split::FORCED.with(|forced| forced.set(None));
+        effect_passes::FORCED.with(|forced| forced.set(None));
+        let mut times = [Vec::new(), Vec::new()];
+        for round in 0..12 {
+            for (mode, processor) in processors.iter().enumerate() {
+                for step in 0..10 {
+                    let mut adjustments = adjustments.clone();
+                    adjustments.uniforms.global.exposure += 0.01 * (1 + step) as f32;
+                    let started = Instant::now();
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments,
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            true,
+                            RenderOutputPrecision::EightBit,
+                        )
+                        .unwrap();
+                    let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
+                    // The first rounds build the blurs and the detail cache
+                    // and compile the passes.
+                    if round >= 2 {
+                        times[mode].push(started.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            }
+        }
+        assert!(processors[1]
+            .display_shader
+            .tone_split()
+            .is_some_and(|split| split.main_passes() > 0));
+        let [one, split] = times.map(|mut times| {
+            times.sort_by(f64::total_cmp);
+            (times[times.len() / 2], times[times.len() * 9 / 10])
+        });
+        println!(
+            "{}",
+            json!({"probe":"tone_split_drag","edit":name,"width":width,"height":height,
+                "one_main_pass_p50_ms":one.0,"one_main_pass_p90_ms":one.1,
+                "split_p50_ms":split.0,"split_p90_ms":split.1,
+                "added_p50_ms":split.0 - one.0,"added_p90_ms":split.1 - one.1})
         );
     }
 }
@@ -15718,12 +15826,18 @@ fn display_split_shows_the_before_left_of_the_divider() {
     }
     assert_eq!(pixel(&side_by_side, 1, 2), background);
     assert_eq!(pixel(&side_by_side, 49, 2), background);
-    // While the before is on its way, its pane shows the background, not
-    // the after reaching into it.
+    // While the before is on its way, its pane shows the edited frame in
+    // the before's place (never blank, G76/COLD4), still not the after
+    // reaching into it.
     let waiting = render(super::split_uniform(false, Some(48.0), false, 48.0));
-    assert_eq!(pixel(&waiting, 17, 24), background);
-    assert_eq!(pixel(&waiting, 30, 24), background);
-    assert_eq!(pixel(&waiting, 49, 24), after_rgba);
+    for y in [9, 24, 38] {
+        assert_eq!(pixel(&waiting, 1, y), after_rgba, "waiting pane, row {y}");
+        assert_eq!(pixel(&waiting, 30, y), after_rgba, "waiting pane, row {y}");
+        assert_eq!(pixel(&waiting, 33, y), background, "past its photograph, row {y}");
+        assert_eq!(pixel(&waiting, 47, y), background, "waiting pane, row {y}");
+        assert_eq!(pixel(&waiting, 49, y), after_rgba, "after pane, row {y}");
+    }
+    assert_eq!(pixel(&waiting, 1, 2), background);
     // Side by side is left/right only: a stale vertical flag is ignored.
     assert_eq!(super::split_uniform(true, Some(48.0), true, 48.0), side);
 }

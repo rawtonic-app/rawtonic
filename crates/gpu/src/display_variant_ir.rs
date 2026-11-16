@@ -30,6 +30,9 @@ pub(crate) struct DisplayShader {
     /// Whether its variants read glow and halation from the terms pass
     /// (`with_effect_passes`, `EFFECT_TERMS`).
     effect_passes: bool,
+    /// Whether its main passes run after the parts of `main` before and in
+    /// the tone stage (`with_tone_split`), and those parts' pipelines.
+    tone_split: Option<crate::gpu_processing::ToneSplitParts>,
 }
 
 /// The tone gains display variants compile instead of shader.wgsl's
@@ -386,6 +389,113 @@ fn with_effect_terms(source: &str) -> Option<String> {
     Some(source)
 }
 
+/// The display source's switches and bindings for the main pass split at
+/// the tone stage (`with_tone_split`).
+const TONE_SPLIT_DECLARATIONS: &str = "override SPLIT_STORE1: bool = false;\n\
+     override SPLIT_LOAD1: bool = false;\n\
+     override SPLIT_STORE2: bool = false;\n\
+     override SPLIT_LOAD2: bool = false;\n\
+     @group(0) @binding(36) var split_out1: texture_storage_2d<rgba32float, write>;\n\
+     @group(0) @binding(37) var split_in1: texture_2d<f32>;\n\
+     @group(0) @binding(38) var split_out2: texture_storage_2d<rgba32float, write>;\n\
+     @group(0) @binding(39) var split_in2: texture_2d<f32>;\n";
+
+/// Where `main`'s work before the tone stage starts (after the blurred
+/// photos are read), and the lines it changes so the colour and the
+/// sharpening view's mask live beyond that part: `exposure_gain` (which the
+/// tone stage reads too) moves before it.
+const SPLIT_PART1_START: &str = "    // Layers that change noise reduction or sharpening need their own amounts.\n    let cached_detail";
+const SPLIT_PART1_EDITS: [(&str, &str); 3] = [
+    (
+        "    var sharpen_view_mask = 1.0;\n    if (SHARPEN_VIEW && locally_contrasted_rgb.x",
+        "    if (SHARPEN_VIEW && locally_contrasted_rgb.x",
+    ),
+    (
+        "    let exposure_gain = exp2(t_exposure);\n    if (PRESENCE_V3 && adjustments.global.structure_version",
+        "    if (PRESENCE_V3 && adjustments.global.structure_version",
+    ),
+    (
+        "    var composite_rgb_linear = apply_dehaze(processed_rgb",
+        "    composite_rgb_linear = apply_dehaze(processed_rgb",
+    ),
+];
+/// The first cut: right before the tone stage.
+const SPLIT_CUT1: &str = "    composite_rgb_linear = apply_centre_tonal_and_color(composite_rgb_linear, adjustments.global.centre, absolute_coord_i);\n    if (ENABLE_TONE) {\n";
+/// The second cut: right after Highlights.
+const SPLIT_CUT2: &str = "    composite_rgb_linear = apply_color_calibration(composite_rgb_linear, adjustments.global.color_calibration);\n";
+
+/// The main pass split at the tone stage (G76/COLD4): the Radeon 680M's
+/// Windows Vulkan compiler costs grow far faster than a shader's size (the
+/// Basic-panel superset, 70.5k inlined expressions, 38.6 s / 4.4 GB; its
+/// part before the tone stage, 25.9k, 2.6 s / 449 MB; the tone stage and
+/// Highlights, 13.9k, 3.2 s / 732 MB; the rest, 33.3k, 4.5 s / 543 MB;
+/// compile_probe round 21). `SPLIT_STORE1` makes `main` the pass before the
+/// tone stage, which stores the colour and the sharpening view's mask in an
+/// Rgba32Float tile; `SPLIT_LOAD1` + `SPLIT_STORE2` the tone pass, which
+/// reads that tile and stores the colour after Highlights; `SPLIT_LOAD2` the
+/// main pass that reads it and does the rest. Every pass sums the layers'
+/// sliders as one pass does; the operations and their order are those of
+/// one pass, and without the constants the source computes what it did.
+/// After `with_effect_terms`. `None` when the source has another shape.
+fn with_tone_split(source: &str) -> Option<String> {
+    let mut source = SPLIT_PART1_EDITS
+        .iter()
+        .try_fold(source.to_string(), |source, (from, to)| {
+            (source.matches(from).count() == 1).then(|| source.replacen(from, to, 1))
+        })?;
+    if [SPLIT_PART1_START, SPLIT_CUT1, SPLIT_CUT2, EFFECT_TERMS_MAIN_END]
+        .iter()
+        .any(|text| source.matches(text).count() != 1)
+    {
+        return None;
+    }
+    let (start, cut1, cut2) = (
+        source.find(SPLIT_PART1_START)?,
+        source.find(SPLIT_CUT1)?,
+        source.find(SPLIT_CUT2)?,
+    );
+    if !(start < cut1 && cut1 < cut2 && cut2 < source.find(EFFECT_TERMS_MAIN_END)?) {
+        return None;
+    }
+    let load = |n: u32| {
+        format!(
+            "    if (SPLIT_LOAD{n}) {{\n        \
+             let stored = textureLoad(split_in{n}, id.xy, 0);\n        \
+             composite_rgb_linear = stored.rgb;\n        \
+             sharpen_view_mask = stored.a;\n    }}\n"
+        )
+    };
+    let store = |n: u32| {
+        format!(
+            "    if (SPLIT_STORE{n}) {{\n        \
+             textureStore(split_out{n}, id.xy, vec4<f32>(composite_rgb_linear, sharpen_view_mask));\n    \
+             }} else {{\n"
+        )
+    };
+    let tone_stage = SPLIT_CUT1.len() - "    if (ENABLE_TONE) {\n".len();
+    source = format!(
+        "{}    let exposure_gain = exp2(t_exposure);\n    \
+         var composite_rgb_linear = vec3<f32>(0.0);\n    \
+         var sharpen_view_mask = 1.0;\n    \
+         if (!(SPLIT_LOAD1 || SPLIT_LOAD2)) {{\n{}{}    }}\n{}{}    if (!SPLIT_LOAD2) {{\n{}    }}\n{}{}{}",
+        &source[..start],
+        &source[start..cut1],
+        &SPLIT_CUT1[..tone_stage],
+        load(1),
+        store(1),
+        &source[cut1 + tone_stage..cut2],
+        load(2),
+        store(2),
+        &source[cut2..],
+    );
+    source = source.replace(
+        EFFECT_TERMS_MAIN_END,
+        &format!("    }}\n    }}\n{EFFECT_TERMS_MAIN_END}"),
+    );
+    source.push_str(TONE_SPLIT_DECLARATIONS);
+    Some(source)
+}
+
 fn with_display_tone_gains(source: &str) -> String {
     replace_functions(source, &REPLACED_TONE_GAINS, DISPLAY_TONE_GAINS)
         .unwrap_or_else(|| source.into())
@@ -482,9 +592,16 @@ pub(crate) fn display_source(source: &str) -> String {
 }
 
 /// `display_source` with glow and halation as terms of a pass of their own
-/// (`with_effect_terms`): what display variants compile under a compile
+/// (`with_effect_terms`) and the main pass split at the tone stage
+/// (`with_tone_split`): what display variants compile under a compile
 /// limit. `None` when shader.wgsl has another shape.
 pub(crate) fn display_source_with_effect_passes(source: &str) -> Option<String> {
+    with_tone_split(&display_source_with_effect_terms(source)?)
+}
+
+/// `display_source` with the effects in passes of their own, the main pass
+/// not split.
+fn display_source_with_effect_terms(source: &str) -> Option<String> {
     with_effect_terms(&with_finish_pass(&display_source(source))?)
 }
 
@@ -497,17 +614,36 @@ impl DisplayShader {
     /// through the terms pass (`with_effect_terms`); `new` when the source
     /// has another shape (its variants then compute the effects themselves).
     pub(crate) fn with_effect_passes(source: &str) -> Arc<Self> {
-        match display_source_with_effect_passes(source) {
-            Some(source) => Arc::new(Self {
-                source: source.into(),
-                parsed: OnceLock::new(),
-                effect_passes: true,
-            }),
-            None => {
-                log::warn!("Display variants: no effect passes (shader shape)");
-                Self::new(source)
-            }
+        Self::with_passes(source, true)
+    }
+
+    /// `with_effect_passes`, with the main pass split at the tone stage
+    /// (`split`; a source whose shape does not allow the split keeps one
+    /// main pass) or not.
+    pub(crate) fn with_passes(source: &str, split: bool) -> Arc<Self> {
+        let Some(terms) = display_source_with_effect_terms(source) else {
+            log::warn!("Display variants: no effect passes (shader shape)");
+            return Self::new(source);
+        };
+        let split_source = split.then(|| with_tone_split(&terms)).flatten();
+        if split && split_source.is_none() {
+            log::warn!("Display variants: the main pass is not split (shader shape)");
         }
+        let tone_split = split_source
+            .is_some()
+            .then(crate::gpu_processing::ToneSplitParts::default);
+        Arc::new(Self {
+            source: split_source.unwrap_or(terms).into(),
+            parsed: OnceLock::new(),
+            effect_passes: true,
+            tone_split,
+        })
+    }
+
+    /// The parts of `main` this shader's main passes run after
+    /// (`with_tone_split`): `None` when they are not split.
+    pub(crate) fn tone_split(&self) -> Option<&crate::gpu_processing::ToneSplitParts> {
+        self.tone_split.as_ref()
     }
 
     /// Whether variants of this shader read glow and halation from the
@@ -523,6 +659,7 @@ impl DisplayShader {
             source: source.into(),
             parsed: OnceLock::new(),
             effect_passes: false,
+            tone_split: None,
         })
     }
 
@@ -1133,6 +1270,72 @@ mod tests {
         // Sources of another shape keep one pass.
         assert_eq!(display_source_with_effect_passes("fn other() {}"), None);
         assert!(!DisplayShader::with_effect_passes("fn other() {}").effect_passes());
+    }
+
+    /// Under a compile limit the main pass runs after its parts before and
+    /// in the tone stage (G76/COLD4): each part holds only its own stages,
+    /// and binds only the tiles it writes and reads.
+    #[test]
+    fn the_tone_split_parts_hold_their_stages() {
+        let shader = DisplayShader::with_passes(SHADER, true);
+        assert!(shader.effect_passes() && shader.tone_split().is_some());
+        let basic = [
+            ("ENABLE_TONE", 1.0),
+            ("ENABLE_HIGHLIGHTS", 1.0),
+            ("ENABLE_SHARPEN", 1.0),
+            ("ENABLE_NOISE_REDUCTION", 1.0),
+            ("TONE_V5", 0.0),
+            ("EFFECT_TERMS", 1.0),
+            ("FINISH_APART", 1.0),
+            ("ENABLE_GRAIN", 0.0),
+        ];
+        let with = |extra: &[(&'static str, f64)]| {
+            shader.variant_module(&[&basic[..], extra].concat()).unwrap()
+        };
+        let one = with(&[]);
+        let before = with(&[("SPLIT_STORE1", 1.0)]);
+        let tone = with(&[("SPLIT_LOAD1", 1.0), ("SPLIT_STORE2", 1.0)]);
+        let main = with(&[("SPLIT_LOAD2", 1.0)]);
+        for (part, has, lacks) in [
+            (
+                &before,
+                &["detail_stage", "apply_dehaze"][..],
+                &["apply_tonal_adjustments", "apply_hsl_panel", "finish_pixel"][..],
+            ),
+            (
+                &tone,
+                &["apply_tonal_adjustments", "apply_highlights_adjustment"],
+                &["detail_stage", "apply_dehaze", "apply_hsl_panel", "finish_pixel"],
+            ),
+            (
+                &main,
+                &["apply_hsl_panel", "finish_pixel"],
+                &["detail_stage", "apply_dehaze", "apply_tonal_adjustments"],
+            ),
+        ] {
+            for name in has {
+                assert!(has_function(part, name), "{name} missing");
+            }
+            for name in lacks {
+                assert!(!has_function(part, name), "{name} kept");
+            }
+        }
+        let split_bindings = |module: &Module| {
+            bindings(module)
+                .into_iter()
+                .filter(|binding| (36..40).contains(binding))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(split_bindings(&one), Vec::<u32>::new());
+        assert_eq!(split_bindings(&before), [36]);
+        assert_eq!(split_bindings(&tone), [37, 38]);
+        assert_eq!(split_bindings(&main), [39]);
+        let sizes = [&one, &before, &tone, &main].map(inlined_size);
+        println!("one pass {}, parts {} + {} + {}", sizes[0], sizes[1], sizes[2], sizes[3]);
+        assert!(sizes[1..].iter().all(|size| size * 2 < sizes[0]), "{sizes:?}");
+        // Without the split, the passes' source as before.
+        assert!(DisplayShader::with_passes(SHADER, false).tone_split().is_none());
+        assert!(with_tone_split("fn other() {}").is_none());
     }
 
     fn count_calls(block: &naga::Block, target: naga::Handle<naga::Function>) -> usize {

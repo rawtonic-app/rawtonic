@@ -1,7 +1,8 @@
 # COLD4 round 21 (G76): the main pass split at the tone stage. Run from the artifact folder
-# (compile_probe_round21_tone_split.wgsl beside it), COMPILE_PROBE_TIMEOUT=300, AMD VkCache
-# cleared before the round. Candidate: generator ~/rawtonic-scratch/COLD4/probe/make_tone_split.py
-# on shader.wgsl of this commit; cut C1 before the tone stage (`if (ENABLE_TONE)`), C2 after
+# (compile_probe_round21_tone_split.wgsl beside it; candidate + generator in the notes,
+# benchmark-results/cold4-tone-split-2026-11-16/), COMPILE_PROBE_TIMEOUT=300, AMD VkCache
+# cleared before the round. Candidate: make_tone_split.py
+# on shader.wgsl of main 6bd631f6; cut C1 before the tone stage (`if (ENABLE_TONE)`), C2 after
 # Highlights; the colour (and the sharpening view's mask) between passes in Rgba32Float.
 # Inlined sizes (naga) in the comments. Pass: each piece <= 3-4 s and <= ~2.5 GB peak.
 # reference: Basic superset, one pass, 70.5k (WSHRIM3: 39.3 s / 4509 MB)
@@ -22,3 +23,20 @@ r21_raw features=4113 dce display
 r21_raw_pre_tone features=4113 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_STORE2:1
 r21_raw_post features=4113 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_LOAD2:1
 # the general fallback (all bits) is not split: parts stay 73.9k / 20.7k / 62.7k (one pass 154.8k)
+#
+# Results (WR21, Lenovo, Radeon 680M, Vulkan AMD proprietary driver 25.10.37.03, VkCache cleared,
+# all 12 ok; name pipeline_ms/peak_mb/inlined/functions):
+# r21_basic 38588/4426/70533/246
+# r21_pre 2638/449/25882/105
+# r21_tone 3218/732/13913/61
+# r21_post 4547/543/33281/129
+# r21_pre_tone 14070/2117/38526/147
+# r21_tone_post 19872/2679/45925/171
+# r21_v19 38705/4450/70670/247
+# r21_v19_tone 3254/733/14050/62
+# r21_v19_pre_tone 14104/2122/38663/148
+# r21_raw 6741/663/45774/179
+# r21_raw_pre_tone 2235/428/24580/97
+# r21_raw_post 1040/398/22446/106
+# Verdict: three passes each <= 4.6 s / <= 750 MB (one pass 38.6 s / 4.4 GB); two passes do not
+# (14.1 s / 2.1 GB and 19.9 s / 2.7 GB). Built: display_variant_ir `with_tone_split`, gpu `tone_split`.
