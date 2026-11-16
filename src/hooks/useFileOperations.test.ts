@@ -29,7 +29,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { OPEN_EXPORT_QUEUE } from '../utils/catalogEvents';
-import { Invokes } from '../components/ui/AppProperties';
+import { type ImageFile, Invokes } from '../components/ui/AppProperties';
 import { OFFLINE_COUNTED } from '../utils/offline';
 import { FILE_OPERATIONS_CHANGED } from '../utils/catalogEvents';
 import { debouncedSave } from './useEditorActions';
@@ -540,6 +540,67 @@ describe('moving to the Trash', () => {
     debouncedSave('/q/B.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
     await hook().executeDelete(['/r/C.RAF']);
     expect(calls()).toContain('delete_files_from_disk');
+  });
+
+  describe('the photo shown in the Library loupe (UXR4M-20 / UX4-03)', () => {
+    const list = ['/p/A.RAF', '/p/B.RAF', '/p/C.RAF'].map((path) => ({ path }) as ImageFile);
+    const open = (path: string, view: Partial<ReturnType<typeof useUIStore.getState>>) => {
+      useUIStore.setState({ activeView: 'library', libraryLoupe: false, isFullScreen: false, ...view });
+      useEditorStore.setState({ selectedImage: { path, isReady: true } as never });
+      useLibraryStore.setState({ libraryActivePath: path, multiSelectedPaths: [path] });
+    };
+    const run = (select: (path: string, openInEditor?: boolean) => void) =>
+      renderHook(() =>
+        useFileOperations(
+          vi.fn(() => Promise.resolve()),
+          vi.fn(() => Promise.resolve()),
+          select,
+          vi.fn(),
+          list
+        )
+      ).result.current;
+
+    it('Trash keeps the loupe open on the next photo', async () => {
+      open('/p/B.RAF', { libraryLoupe: true });
+      const select = vi.fn<(path: string, openInEditor?: boolean) => void>();
+      await run(select).executeDelete(['/p/B.RAF']);
+      expect(select).toHaveBeenCalledWith('/p/C.RAF', false);
+      expect(useEditorStore.getState().selectedImage?.path).toBe('/p/B.RAF');
+      expect(useLibraryStore.getState().libraryActivePath).toBe('/p/C.RAF');
+    });
+
+    it('at the end of the list it goes to the previous photo, also in full screen', async () => {
+      open('/p/C.RAF', { isFullScreen: true });
+      const select = vi.fn<(path: string, openInEditor?: boolean) => void>();
+      await run(select).executeDelete(['/p/C.RAF']);
+      expect(select).toHaveBeenCalledWith('/p/B.RAF', false);
+    });
+
+    it('the grid still closes the photo and selects the next tile', async () => {
+      open('/p/B.RAF', {});
+      const select = vi.fn<(path: string, openInEditor?: boolean) => void>();
+      await run(select).executeDelete(['/p/B.RAF']);
+      expect(select).not.toHaveBeenCalled();
+      expect(useEditorStore.getState().selectedImage).toBeNull();
+      expect(useLibraryStore.getState().libraryActivePath).toBe('/p/C.RAF');
+    });
+
+    it('Move (to Selects) from the loupe goes on to the next photo too', async () => {
+      open('/p/A.RAF', { libraryLoupe: true });
+      vi.mocked(invoke).mockImplementation((command) =>
+        Promise.resolve(
+          command === Invokes.PlanMoveFiles
+            ? { crossVolume: false }
+            : command === Invokes.MoveFiles
+              ? summary({ kind: 'move', items: 1, moves: [{ from: '/p/A.RAF', to: '/p/Selects/A.RAF' }] })
+              : undefined
+        )
+      );
+      const select = vi.fn<(path: string, openInEditor?: boolean) => void>();
+      await run(select).handleMoveToFolder(['/p/A.RAF'], '/p/Selects');
+      await waitFor(() => expect(select).toHaveBeenCalledWith('/p/B.RAF', false));
+      expect(useLibraryStore.getState().libraryActivePath).toBe('/p/B.RAF');
+    });
   });
 
   it('saves a pending edit before a folder moves', async () => {

@@ -136,6 +136,9 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   const [checkedIds, setCheckedIds] = useState<string[]>(readChecked);
   const checked = recipes.filter((r) => checkedIds.includes(r.id));
   const [editing, setEditing] = useState<string | null>(null);
+  // A recipe is built once and used for months: × asks first, in the row,
+  // as deleting a preset does (UXR4M-22; Lightroom and Capture One ask too).
+  const [deletingRecipe, setDeletingRecipe] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const subfolderError =
     subfolderProblem(draft.subfolder) ?? (validNamingTemplate(draft.subfolder, 'export', 'folder') ? null : 'tokens');
@@ -481,30 +484,55 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                   {t('studio.export.recipes.current')}
                 </button>
               </li>
-              {recipes.map((recipe) => (
-                <li key={recipe.id} className={editing === recipe.id ? 'is-editing' : ''}>
-                  <input
-                    type="checkbox"
-                    aria-label={t('studio.export.recipes.exportWith', {
-                      name: recipe.name
-                    })}
-                    checked={checkedIds.includes(recipe.id)}
-                    onChange={() => toggleRecipe(recipe.id)}
-                  />
-                  <button type="button" onClick={() => loadRecipe(recipe)} title={t('studio.export.recipes.edit')}>
-                    {recipe.name}
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t('studio.export.recipes.delete', {
-                      name: recipe.name
-                    })}
-                    onClick={() => deleteRecipe(recipe.id)}
+              {recipes.map((recipe) =>
+                deletingRecipe === recipe.id ? (
+                  <li
+                    key={recipe.id}
+                    className="studio-inline studio-preset-confirm"
+                    role="alertdialog"
+                    aria-label={t('studio.export.recipes.delete', { name: recipe.name })}
                   >
-                    ×
-                  </button>
-                </li>
-              ))}
+                    <span>{t('studio.export.recipes.deleteConfirm', { name: recipe.name })}</span>
+                    <span>
+                      <button type="button" autoFocus onClick={() => setDeletingRecipe(null)}>
+                        {t('studio.presets.cancel')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          deleteRecipe(recipe.id);
+                          setDeletingRecipe(null);
+                        }}
+                      >
+                        {t('studio.presets.delete')}
+                      </button>
+                    </span>
+                  </li>
+                ) : (
+                  <li key={recipe.id} className={editing === recipe.id ? 'is-editing' : ''}>
+                    <input
+                      type="checkbox"
+                      aria-label={t('studio.export.recipes.exportWith', {
+                        name: recipe.name
+                      })}
+                      checked={checkedIds.includes(recipe.id)}
+                      onChange={() => toggleRecipe(recipe.id)}
+                    />
+                    <button type="button" onClick={() => loadRecipe(recipe)} title={t('studio.export.recipes.edit')}>
+                      {recipe.name}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t('studio.export.recipes.delete', {
+                        name: recipe.name
+                      })}
+                      onClick={() => setDeletingRecipe(recipe.id)}
+                    >
+                      ×
+                    </button>
+                  </li>
+                )
+              )}
             </ul>
             <div className="studio-export-recipe-actions">
               <input

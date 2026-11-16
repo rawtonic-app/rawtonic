@@ -13,6 +13,7 @@ import { useProcessStore } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { ImageFile, Invokes } from '../components/ui/AppProperties';
 import { followPathMoves, type PathMove } from '../utils/pathKeyedState';
+import { libraryViewer, viewerShown } from '../utils/viewerMode';
 import { recountAfterFileOperation } from '../utils/offline';
 import { openDialog } from '../utils/fileDialog';
 import { registerContentsMover, usableSessionFolder, type ContentsMoved } from '../utils/sessionFolders';
@@ -478,6 +479,26 @@ async function askBeforeOtherDrive(
   });
 }
 
+/**
+ * The photo to show after `removed` left the list (trash or move): the next
+ * one after `active` that stays, else the previous one; null when none is
+ * left. A virtual copy goes with its photo's file.
+ */
+export function photoAfterRemoval(list: ImageFile[], active: string, removed: string[]): string | null {
+  const gone = (path: string) => removed.some((p) => p === path || p === sourceOf(path));
+  if (!gone(active)) return active;
+  const index = list.findIndex((img) => img.path === active);
+  if (index === -1) return null;
+  return (
+    list.slice(index + 1).find((img) => !gone(img.path))?.path ??
+    list
+      .slice(0, index)
+      .reverse()
+      .find((img) => !gone(img.path))?.path ??
+    null
+  );
+}
+
 export function useFileOperations(
   refreshImageList: () => Promise<void>,
   refreshAllFolderTrees: () => Promise<void>,
@@ -532,40 +553,12 @@ export function useFileOperations(
 
       const { libraryActivePath, setLibrary } = useLibraryStore.getState();
       const { selectedImage } = useEditorStore.getState();
-      const { activeView } = useUIStore.getState(); // <-- Check active view
+      const { activeView } = useUIStore.getState();
 
-      // Determine the active path based on the current view
-      const activePath = selectedImage && activeView === 'editor' ? selectedImage.path : libraryActivePath;
-      let nextImagePath: string | null = null;
-
-      if (activePath) {
-        const physicalPath = sourceOf(activePath);
-        const isActiveImageDeleted = pathsToDelete.some((p) => p === activePath || p === physicalPath);
-
-        if (isActiveImageDeleted) {
-          const currentIndex = sortedImageList.findIndex((img) => img.path === activePath);
-          if (currentIndex !== -1) {
-            const nextCandidate = sortedImageList
-              .slice(currentIndex + 1)
-              .find((img) => !pathsToDelete.includes(img.path));
-
-            if (nextCandidate) {
-              nextImagePath = nextCandidate.path;
-            } else {
-              const prevCandidate = sortedImageList
-                .slice(0, currentIndex)
-                .reverse()
-                .find((img) => !pathsToDelete.includes(img.path));
-
-              if (prevCandidate) {
-                nextImagePath = prevCandidate.path;
-              }
-            }
-          }
-        } else {
-          nextImagePath = activePath;
-        }
-      }
+      // The photo the user is on: the open one wherever the viewer shows it
+      // (Develop, the Library loupe or full screen), else the grid's active one.
+      const activePath = selectedImage && viewerShown(useUIStore.getState()) ? selectedImage.path : libraryActivePath;
+      const nextImagePath = activePath ? photoAfterRemoval(sortedImageList, activePath, pathsToDelete) : null;
 
       try {
         if (!(await saveEditsFirst(pathsToDelete, options.includeAssociated))) return;
@@ -603,7 +596,11 @@ export function useFileOperations(
           if (selectedImage) {
             const physicalPath = sourceOf(selectedImage.path);
             if (pathsToDelete.some((p) => p === selectedImage.path || p === physicalPath)) {
-              useEditorStore.getState().setEditor({ selectedImage: null });
+              // UXR4M-20 / UX4-03: the loupe and full screen stay open on the
+              // next photo (the previous one at the end), as Develop does
+              // and as in Lightroom and Capture One; the grid when none is left.
+              if (nextImagePath && libraryViewer(useUIStore.getState())) handleImageSelect(nextImagePath, false);
+              else useEditorStore.getState().setEditor({ selectedImage: null });
             }
           }
         }
@@ -772,8 +769,16 @@ export function useFileOperations(
           if (summary) notify.success(describeFileOperation(summary));
           warnAboutNote(summary);
           const { selectedImage } = useEditorStore.getState();
-          if (selectedImage && paths.some((p) => sourceOf(p) === sourceOf(selectedImage.path))) {
-            if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
+          const ui = useUIStore.getState();
+          const openMoved =
+            !!selectedImage && paths.some((p) => sourceOf(p) === sourceOf(selectedImage.path));
+          // The viewer (Develop, the Library loupe or full screen) goes on to
+          // the next photo (the previous one at the end), as after Move to
+          // Trash and as Capture One does after Move to Selects (UXR4M-20).
+          const next =
+            openMoved && viewerShown(ui) ? photoAfterRemoval(sortedImageList, selectedImage.path, paths) : null;
+          if (openMoved && !next) {
+            if (ui.activeView === 'editor') handleBackToLibrary();
             useEditorStore.getState().setEditor({ selectedImage: null });
           }
           // They left the shown folder: nothing stays selected; picks,
@@ -783,13 +788,17 @@ export function useFileOperations(
           await refreshImageList();
           await refreshAllFolderTrees();
           void recountAfterFileOperation();
+          if (next) {
+            useLibraryStore.getState().setLibrary({ multiSelectedPaths: [next], libraryActivePath: next });
+            handleImageSelect(next, ui.activeView === 'editor');
+          }
         } catch (err) {
           notify.error(ops('moveFailed', { error: String(err) }));
         }
       };
       await askBeforeOtherDrive(paths, destination, move, 'moveFailed');
     },
-    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves]
+    [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves, sortedImageList, handleImageSelect]
   );
 
   /** Session Folders' "Move contents" (G38): everything in `from` moves

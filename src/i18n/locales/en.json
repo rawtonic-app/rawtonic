@@ -595,7 +595,10 @@
       "failedApplyAuto": "Failed to apply auto adjustments: {{err}}",
       "failedCreateVirtualCopy": "Failed to create virtual copy: {{err}}",
       "failedDuplicate": "Failed to duplicate file: {{err}}",
-      "failedRemoveImages": "Failed to remove photos: {{err}}"
+      "failedRemoveImages": "Failed to remove photos: {{err}}",
+      "virtualCopyMade": "Made a virtual copy of {{name}}.",
+      "virtualCopyNotShown": "This view does not show it; the photo's folder does.",
+      "virtualCopyNumbered": "Made virtual copy {{number}} of {{name}}."
     }
   },
   "contribute": {
@@ -3613,6 +3616,7 @@
         "current": "Current settings",
         "currentUnused": "Current settings. The ticked recipes export with their own settings.",
         "delete": "Delete recipe {{name}}",
+        "deleteConfirm": "Delete the recipe “{{name}}”?",
         "edit": "Show and edit this recipe",
         "editingCurrent": "Current settings, not saved as a recipe.",
         "editingRecipe": "Editing the recipe {{name}}. Changes are saved to it.",

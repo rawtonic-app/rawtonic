@@ -2144,8 +2144,20 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       } else {
         prevCropParams.current = { rotation, aspectRatio, orientationSteps };
 
+        // UXR4M-18: opening the tool on an uncropped photo shows the full
+        // frame without writing it; a crop that only restates "no crop" is
+        // no edit (no history step, no sidecar write), as in Lightroom and
+        // Capture One. Only a frame that differs is committed.
+        const restatesNoCrop =
+          !currentAdjCrop &&
+          !!nextPixelCrop &&
+          Math.abs(nextPixelCrop.x) <= 1 &&
+          Math.abs(nextPixelCrop.y) <= 1 &&
+          Math.abs(nextPixelCrop.width - W) <= 1 &&
+          Math.abs(nextPixelCrop.height - H) <= 1;
         if (
           nextPixelCrop &&
+          !restatesNoCrop &&
           (!currentAdjCrop ||
             Math.abs(currentAdjCrop.x - nextPixelCrop.x) > 1 ||
             Math.abs(currentAdjCrop.y - nextPixelCrop.y) > 1 ||
@@ -2183,7 +2195,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     const cropBaseWidth = isSwapped ? selectedImage.height : selectedImage.width;
     const cropBaseHeight = isSwapped ? selectedImage.width : selectedImage.height;
 
-    const { crop: pixelCrop } = adjustments;
+    // An uncropped photo shows its full frame (or the frame its rotation and
+    // ratio give) without that frame being written to the recipe (UXR4M-18).
+    const pixelCrop = adjustments.crop ?? getEffectiveCrop();
 
     if (pixelCrop) {
       const pct: PercentCrop = {
@@ -2197,7 +2211,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       lastValidCropRef.current = pct;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads only crop and orientationSteps from adjustments, both listed; unrelated edits must not re-derive the displayed crop
-  }, [isCropping, adjustments.crop, adjustments.orientationSteps, selectedImage, liveRotation]);
+  }, [isCropping, adjustments.crop, adjustments.orientationSteps, selectedImage, liveRotation, getEffectiveCrop]);
 
   const handleCropChange = useCallback(
     (_pixelCrop: Crop, percentCrop: PercentCrop) => {

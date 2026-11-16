@@ -418,6 +418,31 @@ it('saves the form as a new recipe', () => {
   );
 });
 
+// UXR4M-22: one click on × deleted a recipe at once, with no question and no
+// undo. It asks in the row, as deleting a preset does; Cancel is focused.
+it('asks before deleting a recipe and keeps it on Cancel', () => {
+  const web = presetFromDraft(DEFAULT_RECIPE_DRAFT, 'web', 'Fast (Web)');
+  const handleSettingsChange = vi.fn(async (settings: AppSettings) => {
+    useSettingsStore.setState({ appSettings: settings });
+  });
+  useSettingsStore.setState({
+    appSettings: { exportPresets: [web] } as unknown as AppSettings,
+    handleSettingsChange
+  });
+  render(<StudioExport />);
+  fireEvent.click(screen.getByRole('button', { name: 'Delete recipe Fast (Web)' }));
+  expect(handleSettingsChange).not.toHaveBeenCalled();
+  const ask = screen.getByRole('alertdialog', { name: 'Delete recipe Fast (Web)' });
+  expect(ask.textContent).toContain('Delete the recipe “Fast (Web)”?');
+  expect(document.activeElement).toBe(within(ask).getByRole('button', { name: 'Cancel' }));
+  fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
+  expect(handleSettingsChange).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Fast (Web)' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete recipe Fast (Web)' }));
+  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+  expect(handleSettingsChange).toHaveBeenCalledWith(expect.objectContaining({ exportPresets: [] }));
+});
+
 it('saves the recipe on Return in its name field instead of exporting', () => {
   const handleSettingsChange = vi.fn(async () => {});
   useSettingsStore.setState({
