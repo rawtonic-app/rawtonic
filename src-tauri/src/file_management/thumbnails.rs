@@ -2362,7 +2362,10 @@ mod thumbnail_queue_tests {
             compute_thumbnail_cache_hash(&photo, b"null").unwrap()
         };
         let before = [key(&session, ""), key(&session, "?vc=1")];
-        assert_ne!(before[0], before[1], "a virtual copy has thumbnails of its own");
+        assert_ne!(
+            before[0], before[1],
+            "a virtual copy has thumbnails of its own"
+        );
 
         // The whole session moved (a rename keeps the file's time stamp).
         let moved = directory.path().join("Archive/Job");
@@ -2376,7 +2379,10 @@ mod thumbnail_queue_tests {
 
         // Outside a library a photograph is still named by its path.
         let loose = directory.path().join("A.RAF");
-        assert_eq!(cache_label(&loose.to_string_lossy(), &loose), loose.to_string_lossy());
+        assert_eq!(
+            cache_label(&loose.to_string_lossy(), &loose),
+            loose.to_string_lossy()
+        );
     }
 
     #[test]
