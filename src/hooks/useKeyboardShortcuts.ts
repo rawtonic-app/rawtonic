@@ -1316,7 +1316,8 @@ export const useKeyboardShortcuts = ({
       },
       {
         match: (e: KeyboardEvent, s: ShortcutState) => {
-          const isDeleteKey = s.settings.osPlatform === 'macos' ? eventCode(e) === 'Backspace' : eventCode(e) === 'Delete';
+          const isDeleteKey =
+            s.settings.osPlatform === 'macos' ? eventCode(e) === 'Backspace' : eventCode(e) === 'Delete';
           return isDeleteKey && s.editor.selectedImage?.isReady && !!s.editor.activeMaskContainerId;
         },
         execute: (e: KeyboardEvent, s: ShortcutState) => {
@@ -1477,7 +1478,8 @@ export const useKeyboardShortcuts = ({
         document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
       const rangeOwnsKey =
         rangeFocused && fieldOwnsKey(document.activeElement, eventCode(event), event.metaKey || event.ctrlKey);
-      if (!rangeFocused && fieldOwnsKey(document.activeElement, eventCode(event), event.metaKey || event.ctrlKey)) return;
+      if (!rangeFocused && fieldOwnsKey(document.activeElement, eventCode(event), event.metaKey || event.ctrlKey))
+        return;
       // Tab moves the focus between fields and controls; it hides panels only
       // from the photograph, the browser tiles or with nothing focused.
       if (eventCode(event) === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;
