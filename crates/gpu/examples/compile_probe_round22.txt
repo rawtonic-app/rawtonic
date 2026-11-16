@@ -11,5 +11,9 @@ r22_v19_tone features=72347711 dce display passes set=EFFECT_TERMS:1,ENABLE_GRAI
 r22_raw_main features=4113 dce display passes set=EFFECT_TERMS:1,FINISH_APART:1,ENABLE_GRAIN:0,SPLIT_LOAD2:1
 r22_raw_before features=4113 dce display passes set=EFFECT_TERMS:1,ENABLE_GRAIN:0,SPLIT_STORE1:1
 r22_raw_tone features=4113 dce display passes set=EFFECT_TERMS:1,ENABLE_GRAIN:0,SPLIT_LOAD1:1,SPLIT_STORE2:1
-r22_serving_app features=24113215 spv=proc
-r22_raw_app features=4113 spv=proc
+r22_serving_app features=24113215 dce spv=proc
+r22_raw_app features=4113 dce spv=proc
+#
+# Results (WR22, Lenovo, Radeon 680M, AMD 25.10.37.03, VkCache cleared): the 8 pieces <= 4.62 s /
+# <= 733 MB; r22_serving_app (main pass + both parts through the app's processor, run with dce)
+# 6.9 s / 921 MB (the first run's spv=proc lines without dce errored).
