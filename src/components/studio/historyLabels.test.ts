@@ -89,7 +89,7 @@ it('names a removal Remove', () => {
 });
 
 it('names no tool for values only read back in another key order or stamped by the save (HIST1)', () => {
-  const sorted = <T,>(value: T): T =>
+  const sorted = <T>(value: T): T =>
     value && typeof value === 'object' && !Array.isArray(value)
       ? (Object.fromEntries(
           Object.entries(value)

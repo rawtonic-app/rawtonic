@@ -43,7 +43,7 @@ it('reading a saved edit back adds no History step (HIST1)', () => {
   // As a session photograph's saved recipe reads back: with the lens stamp
   // its save adds, its colour label (library metadata, "" without one) and
   // the backend's key order.
-  const sorted = <T,>(value: T): T =>
+  const sorted = <T>(value: T): T =>
     value && typeof value === 'object' && !Array.isArray(value)
       ? (Object.fromEntries(
           Object.entries(value)
