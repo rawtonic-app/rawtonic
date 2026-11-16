@@ -44,6 +44,7 @@ mod linux {
             .default_seat()
             .and_then(|seat| seat.pointer())
             .ok_or("No pointer on this seat.")?;
+        let (_, origin_x, origin_y) = gdk_window.origin();
         let mut event = gdk::Event::new(gdk::EventType::ButtonPress);
         event.set_device(Some(&pointer));
         // SAFETY: a fresh button event owned by `event`; it holds a reference
@@ -56,6 +57,9 @@ mod linux {
             button.time = gdk::ffi::GDK_CURRENT_TIME as u32;
             button.x = x;
             button.y = y;
+            // X11 sends the root position to the window manager.
+            button.x_root = f64::from(origin_x) + x;
+            button.y_root = f64::from(origin_y) + y;
             button.button = 3;
         }
         Ok(gdk_window.show_window_menu(&mut event))

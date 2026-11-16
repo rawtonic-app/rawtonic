@@ -732,20 +732,49 @@ static PORTAL_DIALOGS_SET: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 /// Whether to ask GTK for the desktop portal's dialogs: unless the user set
-/// `GTK_USE_PORTAL` themselves (`0` keeps GTK's own chooser).
+/// `GTK_USE_PORTAL` themselves (`0` keeps GTK's own chooser), and only when
+/// the session's portal answers for its FileChooser interface — GTK 3 has no
+/// fallback once it asked a portal that cannot show the dialog.
 #[cfg(any(target_os = "linux", test))]
-pub(crate) fn wants_portal_dialogs(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
-    env("GTK_USE_PORTAL").is_none()
+pub(crate) fn wants_portal_dialogs(
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+    file_chooser_answers: impl FnOnce() -> bool,
+) -> bool {
+    env("GTK_USE_PORTAL").is_none() && file_chooser_answers()
+}
+
+/// Asks the session bus for the portal's FileChooser version, in a child
+/// process (`dbus-send`), so no thread starts in this one before the
+/// environment is set. False when there is no bus, no portal, no
+/// FileChooser or no `dbus-send`.
+#[cfg(target_os = "linux")]
+fn portal_file_chooser_answers() -> bool {
+    std::process::Command::new("dbus-send")
+        .args([
+            "--session",
+            "--print-reply",
+            "--reply-timeout=2000",
+            "--dest=org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.DBus.Properties.Get",
+            "string:org.freedesktop.portal.FileChooser",
+            "string:version",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 /// File and folder dialogs through the XDG desktop portal (UXR4L-01): KDE
 /// shows its own dialog with the user's places, GNOME and others theirs.
 /// rfd's GTK backend shows a `GtkFileChooserNative`, which asks the portal
-/// when `GTK_USE_PORTAL=1` and shows GTK's own chooser when no portal
-/// answers. Called first in `run`, before any thread exists.
+/// when `GTK_USE_PORTAL=1`; without a portal that answers, GTK's own chooser
+/// stays. Called first in `run`, before any thread exists.
 #[cfg(target_os = "linux")]
 pub(crate) fn use_portal_dialogs() {
-    if wants_portal_dialogs(|name| std::env::var_os(name)) {
+    if wants_portal_dialogs(|name| std::env::var_os(name), portal_file_chooser_answers) {
         // SAFETY: no other thread runs yet (see the caller).
         unsafe { std::env::set_var("GTK_USE_PORTAL", "1") };
         PORTAL_DIALOGS_SET.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1410,13 +1439,14 @@ mod portal_dialog_tests {
     use super::wants_portal_dialogs;
 
     #[test]
-    fn dialogs_use_the_portal_unless_the_user_chose() {
-        assert!(wants_portal_dialogs(|_| None));
-        assert!(!wants_portal_dialogs(
-            |name| (name == "GTK_USE_PORTAL").then(|| "0".into())
-        ));
-        assert!(!wants_portal_dialogs(
-            |name| (name == "GTK_USE_PORTAL").then(|| "1".into())
-        ));
+    fn dialogs_use_the_portal_unless_the_user_chose_or_it_cannot_answer() {
+        assert!(wants_portal_dialogs(|_| None, || true));
+        // No portal FileChooser: GTK's own chooser, never a dialog that does not come.
+        assert!(!wants_portal_dialogs(|_| None, || false));
+        let user = |value: &'static str| {
+            move |name: &str| (name == "GTK_USE_PORTAL").then(|| value.into())
+        };
+        assert!(!wants_portal_dialogs(user("0"), || panic!("not asked")));
+        assert!(!wants_portal_dialogs(user("1"), || panic!("not asked")));
     }
 }
