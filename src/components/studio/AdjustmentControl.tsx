@@ -416,8 +416,8 @@ export default memo(function AdjustmentControl({
       <input
         className="adjustment-value"
         aria-label={
-          unit
-            ? t('studio.adjustment.valueWithUnit', { name: ariaLabel ?? label, unit })
+          unit?.trim()
+            ? t('studio.adjustment.valueWithUnit', { name: ariaLabel ?? label, unit: unit.trim() })
             : t('studio.adjustment.value', { name: ariaLabel ?? label })
         }
         inputMode="decimal"

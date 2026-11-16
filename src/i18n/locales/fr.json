@@ -5405,6 +5405,7 @@
         "noOthers": "Sélectionnez d'autres photos dans la bande de film pour les leur appliquer"
       },
       "popover": {
+        "photoMenu": "Menu de la photo…",
         "resetBrush": "Réinitialiser le pinceau",
         "resetCrop": "Réinitialiser le recadrage et le redressement",
         "resetOpacity": "Réinitialiser l'opacité",

@@ -80,6 +80,21 @@ describe('Find Dust preview', () => {
 });
 
 describe('spot removal overlay', () => {
+  it("places nothing on macOS's Ctrl+click, which opens the settings like a right-click", async () => {
+    useSettingsStore.setState({ osPlatform: 'macos' });
+    try {
+      const el = overlay();
+      await act(async () => {
+        fireEvent.pointerDown(el, { button: 0, ctrlKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+        fireEvent.pointerUp(el, { button: 0, ctrlKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+      });
+      expect(invoke).not.toHaveBeenCalled();
+      expect(useEditorStore.getState().adjustments.spots ?? []).toHaveLength(0);
+    } finally {
+      useSettingsStore.setState({ osPlatform: '' });
+    }
+  });
+
   it("places a spot with the backend's automatic source", async () => {
     invoke.mockResolvedValue({ source: [260, 150], fill: false });
     const el = overlay();
@@ -1043,6 +1058,19 @@ describe('brush cursor', () => {
     fireEvent.pointerLeave(el);
     expect(screen.queryByTestId('spot-brush-cursor')).toBeNull();
     expect(el.style.cursor).toBe('crosshair');
+  });
+
+  it('stays at the right-click while its settings are open and leaves when they close', () => {
+    const el = overlay();
+    fireEvent.pointerMove(el, { clientX: 40, clientY: 30 });
+    act(() => useEditorStore.setState({ toolPopoverOpen: true }));
+    // The pointer moves onto the settings: the ring shows their size there.
+    fireEvent.pointerLeave(el);
+    const ring = () => screen.getByTestId('spot-brush-cursor').querySelector('circle')!;
+    act(() => useEditorStore.setState({ spotSettings: { mode: 'heal', size: 50, feather: 0, opacity: 100 } }));
+    expect(ring().getAttribute('r')).toBe('25');
+    act(() => useEditorStore.setState({ toolPopoverOpen: false }));
+    expect(screen.queryByTestId('spot-brush-cursor')).toBeNull();
   });
 
   it('falls back below four screen pixels and accounts for zoom', () => {

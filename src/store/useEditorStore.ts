@@ -174,6 +174,11 @@ interface EditorState {
    * fitted to it): the crop tool keeps that crop as it is. */
   autoStraightened: { rotation: number; crop: Adjustments['crop'] } | null;
   brushSettings: BrushSettings | null;
+  /** The tool settings popover is open at the pointer (right-click with a
+   * brush or the spot tool): the brush ring stays where the right-click was,
+   * so size and feather changes show on the photo while the pointer is over
+   * the popover. */
+  toolPopoverOpen: boolean;
 
   // Masks & AI
   activeMaskContainerId: string | null;
@@ -340,6 +345,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   autoStraightened: null,
 
   brushSettings: { size: DEFAULT_BRUSH_SIZE, feather: 50, tool: ToolType.Brush },
+  toolPopoverOpen: false,
   copiedAdjustments: null,
   copiedFrom: null,
   previousPhoto: null,

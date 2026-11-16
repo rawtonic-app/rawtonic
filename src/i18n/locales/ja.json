@@ -5063,6 +5063,7 @@
         "noOthers": "フィルムストリップで他の写真を選択すると適用できます"
       },
       "popover": {
+        "photoMenu": "写真メニュー…",
         "resetBrush": "ブラシをリセット",
         "resetCrop": "切り抜きと角度補正をリセット",
         "resetOpacity": "不透明度をリセット",

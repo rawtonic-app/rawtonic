@@ -5063,6 +5063,7 @@
         "noOthers": "在膠片條中選擇其他照片以套用至它們"
       },
       "popover": {
+        "photoMenu": "相片選單…",
         "resetBrush": "重設筆刷",
         "resetCrop": "重設裁切和拉直",
         "resetOpacity": "重設不透明度",

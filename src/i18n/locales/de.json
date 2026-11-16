@@ -5196,6 +5196,7 @@
         "noOthers": "Wähle weitere Fotos im Filmstreifen aus, um darauf anzuwenden"
       },
       "popover": {
+        "photoMenu": "Fotomenü…",
         "resetBrush": "Pinsel zurücksetzen",
         "resetCrop": "Zuschneiden und Ausrichten zurücksetzen",
         "resetOpacity": "Deckkraft zurücksetzen",
