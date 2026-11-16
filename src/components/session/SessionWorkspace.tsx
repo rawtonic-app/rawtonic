@@ -375,6 +375,7 @@ interface ImportReport {
   /** Lightroom stacks made (or completed by a repeated import). */
   stacks?: number;
   aiMasksOnOpen: number;
+  warnings?: string[];
   errors: string[];
 }
 
@@ -1184,6 +1185,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
           .join(' · '),
         { autoClose: 8000 }
       );
+      if (report.warnings?.length) notify.warning(report.warnings.join('\n'), { autoClose: false });
       if (report.errors.length) notify.error(report.errors[0], { autoClose: false });
       window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
       setForm(null);
