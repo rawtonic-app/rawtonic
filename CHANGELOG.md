@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Thumbnails appear right after a fast scroll through a large folder.** In the Library grid, the filmstrip and its docked column, a fling or scrollbar drag through hundreds of photos revealed the thumbnails of every row it had passed before those of the tiles where it stopped. A screen's cached thumbnails now arrive together, are looked up apart from thumbnails still being made, and the tiles in view are shown first. Measured with cached thumbnails, release to every tile in view filled: Linux, 1,200 photos, median 245 → 60 ms; Windows laptop, about 1,160 photos, median 133 → 88 ms for scrollbar drags, wheel flings 103–131 ms after the fix.
+
 ## 0.1.0-alpha.16 — 2026-11-16
 
 The sixteenth alpha. Develop's filmstrip can be docked beside the photo as a vertical grid, and unedited photos can start from develop defaults of your own — globally, per camera model or per camera body. For new edits, raised Shadows no longer leaves a light rim beside strong edges and radial and linear gradients fade as Camera Raw's do. On Windows with AMD graphics the first edits on a new computer wait at most about 9 s instead of 37 s, exports of new edits with noise reduction or sharpening are about a tenth faster, and the import view keeps the photograph on screen while zooming and stepping.
@@ -19,7 +23,6 @@ The sixteenth alpha. Develop's filmstrip can be docked beside the photo as a ver
 ### Fixes
 
 - **The app starts through a symlinked folder or link on macOS** (for example a link on an external drive or in `/usr/local/bin`); before, it aborted with "failed to resolve resource directory". Linux and Windows were not affected. The error for truly missing resources now names the executable.
-- **Thumbnails appear right after a fast scroll through a large folder.** In the Library grid, the filmstrip and its docked column, a fling or scrollbar drag through hundreds of photos left the tiles where it stopped blank while the thumbnails of every row it had passed were revealed first (3.5–4 s on a Windows laptop with about 1,160 photos). A screen's cached thumbnails now arrive together, are looked up apart from thumbnails still being made, and the tiles in view are shown first: 60 ms instead of 245 ms (median of 10 drags over 1,200 cached photos, Linux).
 - **Windows: no crash when the window needs another graphics setup than the one the app started with.** When the first graphics device (Vulkan) cannot show the window — on computers with two graphics cards, or when the window needs DirectX 12 — the app sets up its graphics a second time; shader compiles of the first setup still running then could pick the new setup's pipeline cache and crash the app. Each setup now uses only its own cache.
 - **Import: Z and the arrow keys no longer show an empty frame on Windows.** In the import dialog's large view, Z (or a click) to 100 % and back, and stepping to the next photograph, showed nothing for a moment (65–98 ms measured on a Windows laptop after Z) before the enlarged preview or the real pixels appeared, because the webview draws a newly made image only once it has decoded it again. The photograph now stays on screen: the shown preview itself grows to the 100 % size, the full-size pixels replace it only once they are ready to draw, and when stepping the previous photograph stays up until the next one can be drawn, as in Lightroom. Measured in Chromium (the engine of Windows' webview) on Linux with the real view: 0 empty frames in 18 zooms and 6 steps (before: an empty frame after each). "100 %" now appears when its pixels are on screen.
 
