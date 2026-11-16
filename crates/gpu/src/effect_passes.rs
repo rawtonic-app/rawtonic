@@ -1,5 +1,5 @@
-//! Glow, halation and grain in passes of their own under a compile limit
-//! (G76/EFX).
+//! Glow, halation and grain in passes of their own (G76/EFX), for display
+//! variants on every device since G76/FEW1.
 //!
 //! Glow and halation each carry the tone stage for the blurred photo, and
 //! grain four versions of itself, so on AMD's Windows Vulkan driver a
@@ -29,10 +29,19 @@
 //! finish to its pass compiled into 3761 MB, but the stored tile and its
 //! read cost every frame 12 ms of 53 on that GPU, G76/WEFX.)
 //!
-//! Only under a compile limit: elsewhere display variants compile as
-//! before. Exports that render with display variants there (WCC7, WCC10)
-//! take the same passes; one main pass serves the 8-bit and the float
-//! outputs, so no deferred display variant compiles.
+//! Built for a compile limit, then made the display path everywhere: with
+//! the main pass split at the tone stage (`tone_split`) a fresh NVIDIA
+//! driver cache (RTX 3080, Linux) compiles the RAW default display variant
+//! in 2.9 s of pieces instead of 4.7 s in one, and the Basic-panel
+//! superset in pieces of at most 3.5 s instead of 10.1 s (compile_probe;
+//! notes: benchmark-results/few1-2026-11-16): the first frame came 4 s
+//! sooner and no first Basic-panel edit waited more than 1.3 s for its
+//! variant instead of 8.5 s. Exports without a compile limit keep their own
+//! export variants, which hold every effect in one pass (`export_variant`),
+//! and their bytes. Exports that render with display variants under a
+//! compile limit (WCC7, WCC10) take the same passes; one main pass serves
+//! the 8-bit and the float outputs, so no deferred display variant
+//! compiles.
 
 use super::*;
 
@@ -44,8 +53,8 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
-/// Whether processors made now render with effect passes: under a compile
-/// limit (`compile_limited`).
+/// Whether processors made now render display variants with effect
+/// passes: always, but for tests that compare.
 pub(super) fn here() -> bool {
     #[cfg(test)]
     if let Some(forced) = FORCED.with(std::cell::Cell::get).or_else(|| {
@@ -55,7 +64,7 @@ pub(super) fn here() -> bool {
     }) {
         return forced;
     }
-    compile_limited()
+    true
 }
 
 /// A pass's variants: each compiles once, without holding up the others
