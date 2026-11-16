@@ -114,16 +114,21 @@ pub fn recipe_values(crop: CameraCrop) -> (Value, Value) {
 /// skipped. Every batch edit of a never-edited photo starts here, so it
 /// gets the edit the photo opened first gets. Saved edits keep their own
 /// crop (and versions); files without another camera frame get only the
-/// versions.
+/// versions. Then the user's develop defaults for the photograph's camera
+/// (`develop_defaults`), unless the recipe has its defaults decided.
 pub fn apply_default(adjustments: &mut Value, source: &std::path::Path) {
     if !crate::image_processing::is_new_recipe(adjustments) {
         return;
     }
-    start_new_edit(
-        adjustments,
-        &crops(&source.to_string_lossy()),
-        crate::formats::is_raw_file(source),
-    );
+    let follows = crate::develop_defaults::follows_defaults(adjustments);
+    let is_raw = crate::formats::is_raw_file(source);
+    start_new_edit(adjustments, &crops(&source.to_string_lossy()), is_raw);
+    // The user's defaults for its camera (none set: nothing read).
+    if follows {
+        crate::develop_defaults::apply_current(adjustments, is_raw, || {
+            crate::develop_defaults::camera_of(source)
+        });
+    }
 }
 
 /// Starts a new edit from already-read RAW bytes, without reopening its path.
@@ -131,10 +136,16 @@ pub fn apply_default_from_source(adjustments: &mut Value, source: &rawler::rawso
     if !crate::image_processing::is_new_recipe(adjustments) {
         return;
     }
+    let follows = crate::develop_defaults::follows_defaults(adjustments);
     let crops: Vec<_> = (0..=crate::source_frame::VERSION)
         .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(source, version))
         .collect();
     start_new_edit(adjustments, &crops, true);
+    if follows {
+        crate::develop_defaults::apply_current(adjustments, true, || {
+            crate::develop_defaults::camera_of_raw(source)
+        });
+    }
 }
 
 /// The part of the developed frame the camera's own image (a RAW's

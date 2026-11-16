@@ -16,6 +16,7 @@ pub mod camera_crop;
 pub mod camera_profile;
 pub mod color_grading;
 pub mod color_noise;
+pub mod develop_defaults;
 pub mod diffraction;
 pub mod dust;
 pub mod edge_fringe;

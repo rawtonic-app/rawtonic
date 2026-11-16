@@ -7,6 +7,7 @@ import type { ModuleLayout, WorkspaceModule } from '../../utils/panelLayout';
 import type { ImportMetadataPreset } from '../session/IngestMetadata';
 import type { MetadataSelection } from '../../utils/librarySearch';
 import type { CameraCrops } from '../../utils/cameraCrop';
+import type { DevelopDefaults, PhotoDefaults } from '../../utils/developDefaults';
 import type { InterfaceShade } from '../../utils/themes';
 
 export const GLOBAL_KEYS = [
@@ -200,6 +201,7 @@ export enum Invokes {
   CalculateUpright = 'calculate_upright',
   CalculateAutoStraighten = 'calculate_auto_straighten',
   GetCameraCrops = 'get_camera_crops',
+  DevelopDefaultsFor = 'develop_defaults_for',
   GetCameraLensProfile = 'get_camera_lens_profile',
   GetLensDistortionParams = 'get_lens_distortion_params',
   GetLensfunLensesForMaker = 'get_lensfun_lenses_for_maker',
@@ -547,6 +549,8 @@ export interface AppSettings {
   toolLayout?: ToolLayout;
   /** Ids of the favourite presets and styles, in the order starred. */
   favoritePresets?: string[];
+  /** Preferences → Develop defaults (src/utils/developDefaults.ts). */
+  developDefaults?: DevelopDefaults;
   /** The brush's last size, hardness, opacity and flow. */
   brushDefaults?: Partial<Pick<BrushSettings, 'size' | 'hardness' | 'opacity' | 'flow'>>;
   enableAiTagging?: boolean;
@@ -890,6 +894,9 @@ export interface SelectedImage {
   /** The camera's crop for each frame version, which new recipes start
    * with (src/utils/cameraCrop.ts; RAWs only). */
   cameraCrops?: CameraCrops;
+  /** Its camera and the develop defaults it gets now (`develop_defaults_for`,
+   * src/utils/developDefaults.ts): what Reset and a slider's reset go back to. */
+  photoDefaults?: PhotoDefaults | null;
   /** An AI Denoise amount that failed for this source (not retried). */
   aiDenoiseFailed?: number;
   /** The `aiDenoiseVersion` that failed with it (missing: 1). */

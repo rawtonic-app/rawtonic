@@ -754,21 +754,38 @@ fn same_photograph(a: &str, b: &str) -> bool {
             .is_some_and(|a| b.canonical().ok() == Some(a))
 }
 
+/// Resets each photograph to a new edit, which starts from the user's develop
+/// defaults; `neutral` (Reset to neutral) records that it gets none
+/// (`develop_defaults::KEY` `[]`), so it starts neutral and stays so when the
+/// defaults change.
 #[tauri::command]
 pub async fn reset_adjustments_for_paths(
     paths: Vec<String>,
+    neutral: Option<bool>,
     app_handle: AppHandle,
 ) -> Result<RecipeBatch, String> {
-    Ok(recorded_batch(app_handle, paths, |app_handle, paths| {
+    let neutral = neutral.unwrap_or(false);
+    Ok(recorded_batch(app_handle, paths, move |app_handle, paths| {
         edit_sidecars_recorded(paths, xmp_sync(app_handle), |_, _, sidecar_path| {
             let mut existing_metadata = crate::exif_processing::load_sidecar(sidecar_path);
-            // A new edit in the frame the photograph was edited in (ADR 0020).
-            existing_metadata.adjustments =
-                rawtonic_engine::source_frame::reset_recipe(&existing_metadata.adjustments);
+            existing_metadata.adjustments = reset_recipe(&existing_metadata.adjustments, neutral);
             Ok(existing_metadata)
         })
     })
     .await)
+}
+
+/// A Reset's recipe: a new edit in the frame the photograph was edited in
+/// (ADR 0020), with no develop defaults when `neutral`.
+fn reset_recipe(adjustments: &Value, neutral: bool) -> Value {
+    let mut reset = rawtonic_engine::source_frame::reset_recipe(adjustments);
+    if neutral && let Some(map) = reset.as_object_mut() {
+        map.insert(
+            rawtonic_engine::develop_defaults::KEY.to_string(),
+            Value::Array(Vec::new()),
+        );
+    }
+    reset
 }
 
 /// One photograph's whole recipe for `replace_recipes`.
@@ -1679,6 +1696,31 @@ pub(crate) fn load_metadata_blocking(
 mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
+
+    #[test]
+    fn reset_follows_the_develop_defaults_and_reset_to_neutral_records_none() {
+        let edited = serde_json::json!({"exposure": 1.0, "sourceFrameVersion": 1});
+        let reset = reset_recipe(&edited, false);
+        assert_eq!(reset, serde_json::json!({"sourceFrameVersion": 1}));
+        assert!(rawtonic_engine::develop_defaults::follows_defaults(&reset));
+        let neutral = reset_recipe(&edited, true);
+        assert_eq!(
+            neutral,
+            serde_json::json!({"sourceFrameVersion": 1, "developDefaults": []})
+        );
+        assert!(rawtonic_engine::image_processing::is_new_recipe(&neutral));
+        assert!(!rawtonic_engine::develop_defaults::follows_defaults(
+            &neutral
+        ));
+        // A Reset of a neutral reset follows the defaults again.
+        assert!(rawtonic_engine::develop_defaults::follows_defaults(
+            &reset_recipe(&neutral, false)
+        ));
+        assert_eq!(
+            reset_recipe(&serde_json::Value::Null, true),
+            serde_json::json!({"developDefaults": []})
+        );
+    }
 
     #[test]
     fn culling_batches_open_each_unavailable_owner_only_once() {

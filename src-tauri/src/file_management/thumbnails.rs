@@ -151,6 +151,16 @@ pub(crate) fn compute_thumbnail_cache_hash(
     {
         hasher.update(b"\0relight-face-reflection-v7");
     }
+    // A photograph without an edit renders with the user's develop defaults
+    // (`rawtonic_engine::develop_defaults`): new ones make new thumbnails.
+    if let Some(defaults) = rawtonic_engine::develop_defaults::fingerprint()
+        && rawtonic_engine::develop_defaults::follows_defaults(
+            adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
+        )
+    {
+        hasher.update(b"\0develop-defaults\0");
+        hasher.update(&defaults);
+    }
     // Absent light fields now render with a new light's values.
     if adjustments
         .as_ref()
@@ -346,12 +356,15 @@ pub(crate) fn develop_thumbnail(
         .flatten();
     let (metadata, adjustments) = match (&proxy, metadata) {
         // A new recipe renders as its export does: none (with a proxy to
-        // develop; without one the camera's JPEG or a plain decode below), or
-        // a Reset's.
+        // develop or develop defaults to apply; without either the camera's
+        // JPEG or a plain decode below), or a Reset's.
         (proxy, metadata)
-            if is_raw
-                && crate::image_processing::is_new_recipe(&adjustments)
-                && (proxy.is_some() || !adjustments.is_null()) =>
+            if crate::image_processing::is_new_recipe(&adjustments)
+                && ((is_raw && (proxy.is_some() || !adjustments.is_null()))
+                    // With the user's develop defaults, not the camera's JPEG
+                    // (a JPEG or TIFF too when they are not for RAWs only).
+                    || (rawtonic_engine::develop_defaults::follows_defaults(&adjustments)
+                        && rawtonic_engine::develop_defaults::for_path(&source_path).is_some())) =>
         {
             let mut recipe = if adjustments.is_null() {
                 serde_json::json!({})

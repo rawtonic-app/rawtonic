@@ -292,6 +292,8 @@
       "rate_5": "5 Sterne",
       "redo": "Wiederholen",
       "report_problem": "Problem melden …",
+      "reset_adjustments": "Einstellungen zurücksetzen",
+      "reset_to_neutral": "Auf neutral zurücksetzen",
       "rotate_left": "Nach links drehen",
       "rotate_right": "Nach rechts drehen",
       "select_all": "Alles auswählen",
@@ -731,6 +733,39 @@
         "tether": "Tethering",
         "transform": "Transformieren"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}} (Gehäuse {{serial}})",
+    "menu": {
+      "resetToNeutral": "Auf neutral zurücksetzen",
+      "saveToolForCamera": "Werkzeugeinstellungen als Standard für {{camera}} speichern",
+      "saveToolForCameraBody": "Werkzeugeinstellungen als Standard für dieses Kameragehäuse speichern ({{serial}})",
+      "setForCamera": "Als Standard für {{camera}} festlegen",
+      "setForCameraBody": "Als Standard für dieses Kameragehäuse festlegen ({{serial}})",
+      "setGlobal": "Als globalen Standard festlegen"
+    },
+    "settings": {
+      "cameras": "Kamerastandards",
+      "camerasDesc": "Festlegen in Entwickeln: Rechtsklick auf ein Preset oder das Foto und „Als Standard für … festlegen“ wählen, oder die Einstellungen eines Werkzeugs aus seinem Menü speichern. Der Standard eines Kameragehäuses geht dem des Modells vor, der des Modells dem globalen.",
+      "camerasNone": "Noch keine Kamerastandards.",
+      "global": "Globaler Standard",
+      "globalDesc": "Ein Preset oder Stil, mit dem jedes Foto beginnt. Seine Masken, Zuschnitt, Transformation und Retusche bleiben weg.",
+      "globalFrom": "Aus „{{name}}“",
+      "globalNone": "Keiner (neutral)",
+      "intro": "Womit Fotos ohne Bearbeitung beginnen: beim Import, beim ersten Öffnen und nach dem Zurücksetzen. Bearbeitete Fotos ändern sich nie; unbearbeitete folgen, wenn du die Standards änderst.",
+      "joins": "Ergänzt den globalen Standard",
+      "rawOnly": "Nur RAW-Dateien",
+      "rawOnlyDesc": "JPEG-, HEIF- und TIFF-Dateien aus der Kamera beginnen neutral.",
+      "remove": "Standard für {{camera}} entfernen",
+      "replaces": "Statt des globalen Standards",
+      "title": "Entwicklungsstandards"
+    },
+    "toasts": {
+      "saveFailed": "Die Entwicklungsstandards konnten nicht gespeichert werden: {{error}}",
+      "set": "„{{name}}“ ist jetzt der Standard für {{camera}}",
+      "setGlobal": "„{{name}}“ ist jetzt der globale Standard",
+      "toolSaved": "{{tool}} als Standard für {{camera}} gespeichert"
     }
   },
   "duplicates": {
@@ -2429,6 +2464,8 @@
         "rate_5": "Sternbewertung: 5",
         "redo": "Bearbeitung wiederholen",
         "remove_objects": "Objekte entfernen",
+        "reset_adjustments": "Auf die Entwicklungsstandards zurücksetzen",
+        "reset_to_neutral": "Auf neutral zurücksetzen",
         "rotate_left": "90° gegen den Uhrzeigersinn drehen",
         "rotate_right": "90° im Uhrzeigersinn drehen",
         "select_all": "Alle Bilder auswählen",

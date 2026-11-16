@@ -1,3 +1,5 @@
+import { withDevelopDefaults, withoutDevelopDefaults } from '../utils/developDefaults';
+import { photoDefaultItems } from '../components/studio/developDefaultsMenus';
 import { fileManagerLabelKey } from '../utils/platformLabels';
 import { ComponentProps, useCallback, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -388,6 +390,25 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
 
       const commonTags = getCommonTags([selectedImage.path]);
 
+      // Reset goes back to the photo's develop defaults, Reset to neutral
+      // without them; the photo keeps the frame it was edited in
+      // (src/utils/sourceFrame.ts). One undoable step; the History before it stays.
+      const resetOpen = (neutral: boolean) => {
+        const originalAspectRatio =
+          selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
+        const start = {
+          ...initialAdjustmentsFor(!!selectedImage.isRaw),
+          aspectRatio: originalAspectRatio,
+          aiPatches: []
+        };
+        const resetData = withSourceFrameOf(
+          neutral ? withoutDevelopDefaults(start) : withDevelopDefaults(start, selectedImage.photoDefaults?.resolved),
+          useEditorStore.getState().adjustments
+        );
+        debouncedSetHistory.flush();
+        useEditorStore.getState().pushHistory(resetData);
+        setEditor({ adjustments: resetData });
+      };
       const options: Array<Option> = [
         {
           label: t('contextMenus.editor.exportImage'),
@@ -524,26 +545,17 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               label: t('contextMenus.editor.confirmReset'),
               icon: Check,
               isDestructive: true,
-              onClick: () => {
-                const originalAspectRatio =
-                  selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-                // The photo keeps the frame it was edited in (src/utils/sourceFrame.ts).
-                const resetData = withSourceFrameOf(
-                  {
-                    ...initialAdjustmentsFor(!!selectedImage.isRaw),
-                    aspectRatio: originalAspectRatio,
-                    aiPatches: []
-                  },
-                  useEditorStore.getState().adjustments
-                );
-                // One undoable step; the History before it stays.
-                debouncedSetHistory.flush();
-                useEditorStore.getState().pushHistory(resetData);
-                setEditor({ adjustments: resetData });
-              }
+              onClick: () => resetOpen(false)
+            },
+            {
+              label: t('developDefaults.menu.resetToNeutral'),
+              icon: RotateCcw,
+              isDestructive: true,
+              onClick: () => resetOpen(true)
             }
           ]
-        }
+        },
+        ...photoDefaultItems()
       ];
       showContextMenu(event.clientX, event.clientY, options);
     },
@@ -1207,6 +1219,12 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               icon: Check,
               isDestructive: true,
               onClick: () => handleResetAdjustments(finalSelection)
+            },
+            {
+              label: t('developDefaults.menu.resetToNeutral'),
+              icon: RotateCcw,
+              isDestructive: true,
+              onClick: () => handleResetAdjustments(finalSelection, true)
             }
           ]
         },

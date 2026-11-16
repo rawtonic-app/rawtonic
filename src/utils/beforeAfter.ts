@@ -96,6 +96,14 @@ export function originalPreviewAdjustments(
       original.sharpenVersion = adjustments.sharpenVersion;
       original.lumaNoiseVersion = adjustments.lumaNoiseVersion;
     }
+    // As imported includes the develop defaults its edit began with (its
+    // record), never the defaults of today (src/utils/developDefaults.ts).
+    const defaults = adjustments.developDefaults?.length ? adjustments.developDefaultsSettings : null;
+    if (defaults) {
+      Object.assign(original, structuredClone(defaults));
+      // The decode stays Develop's (see above).
+      original.colorNoiseVersion = adjustments.colorNoiseVersion;
+    }
   }
   return original;
 }

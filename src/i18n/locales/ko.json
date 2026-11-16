@@ -279,6 +279,8 @@
       "rate_5": "별 5개",
       "redo": "실행 복귀",
       "report_problem": "문제 신고…",
+      "reset_adjustments": "설정 재설정",
+      "reset_to_neutral": "중립으로 재설정",
       "rotate_left": "왼쪽으로 회전",
       "rotate_right": "오른쪽으로 회전",
       "select_all": "전체 선택",
@@ -718,6 +720,39 @@
         "tether": "테더링",
         "transform": "변형"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}} (바디 {{serial}})",
+    "menu": {
+      "resetToNeutral": "중립으로 재설정",
+      "saveToolForCamera": "도구 설정을 {{camera}}의 기본값으로 저장",
+      "saveToolForCameraBody": "도구 설정을 이 카메라 바디의 기본값으로 저장 ({{serial}})",
+      "setForCamera": "{{camera}}의 기본값으로 설정",
+      "setForCameraBody": "이 카메라 바디의 기본값으로 설정 ({{serial}})",
+      "setGlobal": "전체 기본값으로 설정"
+    },
+    "settings": {
+      "cameras": "카메라별 기본값",
+      "camerasDesc": "현상에서 설정합니다: 사전 설정이나 사진을 오른쪽 클릭해 “…의 기본값으로 설정”을 선택하거나 도구 메뉴에서 해당 도구의 설정을 저장하세요. 바디 기본값이 모델보다, 모델 기본값이 전체보다 우선합니다.",
+      "camerasNone": "아직 카메라별 기본값이 없습니다.",
+      "global": "전체 기본값",
+      "globalDesc": "모든 사진이 시작하는 사전 설정 또는 스타일. 마스크, 자르기, 변형, 리터칭은 제외됩니다.",
+      "globalFrom": "“{{name}}”에서",
+      "globalNone": "없음 (중립)",
+      "intro": "편집하지 않은 사진이 시작하는 설정입니다: 가져올 때, 처음 열 때, 재설정 후. 편집한 사진은 바뀌지 않으며, 편집하지 않은 사진은 새 기본값을 따릅니다.",
+      "joins": "전체 기본값에 추가",
+      "rawOnly": "RAW 파일만",
+      "rawOnlyDesc": "카메라의 JPEG, HEIF, TIFF 파일은 중립으로 시작합니다.",
+      "remove": "{{camera}} 기본값 제거",
+      "replaces": "전체 기본값 대신",
+      "title": "현상 기본값"
+    },
+    "toasts": {
+      "saveFailed": "현상 기본값을 저장하지 못했습니다: {{error}}",
+      "set": "“{{name}}”이(가) 이제 {{camera}}의 기본값입니다",
+      "setGlobal": "“{{name}}”이(가) 이제 전체 기본값입니다",
+      "toolSaved": "{{tool}}을(를) {{camera}}의 기본값으로 저장했습니다"
     }
   },
   "duplicates": {
@@ -2334,6 +2369,8 @@
         "rate_5": "별점: 5",
         "redo": "조정 다시 실행",
         "remove_objects": "개체 제거",
+        "reset_adjustments": "현상 기본값으로 재설정",
+        "reset_to_neutral": "중립으로 재설정",
         "rotate_left": "90° 반시계 방향 회전",
         "rotate_right": "90° 시계 방향 회전",
         "select_all": "모든 이미지 선택",

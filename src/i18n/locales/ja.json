@@ -279,6 +279,8 @@
       "rate_5": "星5つ",
       "redo": "やり直す",
       "report_problem": "問題を報告…",
+      "reset_adjustments": "設定をリセット",
+      "reset_to_neutral": "ニュートラルにリセット",
       "rotate_left": "左に回転",
       "rotate_right": "右に回転",
       "select_all": "すべてを選択",
@@ -718,6 +720,39 @@
         "tether": "テザー撮影",
         "transform": "変形"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}}（ボディ {{serial}}）",
+    "menu": {
+      "resetToNeutral": "ニュートラルにリセット",
+      "saveToolForCamera": "ツールの設定を {{camera}} のデフォルトとして保存",
+      "saveToolForCameraBody": "ツールの設定をこのカメラボディのデフォルトとして保存（{{serial}}）",
+      "setForCamera": "{{camera}} のデフォルトに設定",
+      "setForCameraBody": "このカメラボディのデフォルトに設定（{{serial}}）",
+      "setGlobal": "全体のデフォルトに設定"
+    },
+    "settings": {
+      "cameras": "カメラ別デフォルト",
+      "camerasDesc": "現像で設定します。プリセットまたは写真を右クリックして「… のデフォルトに設定」を選ぶか、ツールのメニューからそのツールの設定を保存します。ボディのデフォルトは機種より、機種のデフォルトは全体より優先されます。",
+      "camerasNone": "カメラ別デフォルトはまだありません。",
+      "global": "全体のデフォルト",
+      "globalDesc": "すべての写真が最初に使うプリセットまたはスタイル。マスク、切り抜き、変形、レタッチは含まれません。",
+      "globalFrom": "「{{name}}」から",
+      "globalNone": "なし（ニュートラル）",
+      "intro": "未編集の写真の開始設定です（読み込み時、初めて開いたとき、リセット後）。編集済みの写真は変わりません。未編集の写真は新しいデフォルトに従います。",
+      "joins": "全体のデフォルトに追加",
+      "rawOnly": "RAW ファイルのみ",
+      "rawOnlyDesc": "カメラの JPEG、HEIF、TIFF ファイルはニュートラルで始まります。",
+      "remove": "{{camera}} のデフォルトを削除",
+      "replaces": "全体のデフォルトの代わり",
+      "title": "現像のデフォルト"
+    },
+    "toasts": {
+      "saveFailed": "現像のデフォルトを保存できませんでした: {{error}}",
+      "set": "「{{name}}」が {{camera}} のデフォルトになりました",
+      "setGlobal": "「{{name}}」が全体のデフォルトになりました",
+      "toolSaved": "{{tool}} を {{camera}} のデフォルトとして保存しました"
     }
   },
   "duplicates": {
@@ -2334,6 +2369,8 @@
         "rate_5": "星評価: 5",
         "redo": "操作をやり直す",
         "remove_objects": "オブジェクトを削除",
+        "reset_adjustments": "現像のデフォルトにリセット",
+        "reset_to_neutral": "ニュートラルにリセット",
         "rotate_left": "反時計回りに90°回転",
         "rotate_right": "時計回りに90°回転",
         "select_all": "すべての画像を選択",

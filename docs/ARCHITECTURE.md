@@ -539,7 +539,10 @@ red eyes placed from Lightroom's geometry on the base image), lightroom_crop (Li
 `crop`/`rotation` in the photo's frame, from the sensor area `rawdecode::source_frame::frame_and_sensor` reads),
 face_retouch, mask_generation rasterisation + masks definitions + mask_parameters (brush strokes a preview request
 refers to by token), cache_utils hashes, lut, source_frame (a recipe's frame version, the frames a file's versions
-develop alike, a Reset's recipe), camera_crop (that aspect ratio as the crop of new recipes, ADR 0020 option C));
+develop alike, a Reset's recipe), camera_crop (that aspect ratio as the crop of new recipes, ADR 0020 option C),
+develop_defaults (the user's develop defaults — global, per camera model, per body by serial, RAW only — resolved
+for a photograph's camera and put on its new edit by `camera_crop::apply_default*`; set by the app from
+`AppSettings::develop_defaults`, glue `src-tauri/src/develop_defaults.rs`));
 
 Engine also holds image_loader's decode path (`load_base_image` + `BaseImageOptions`), adjustment_utils and the LUT
 parsers.

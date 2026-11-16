@@ -51,6 +51,9 @@ import {
   layersUseVibrance,
   type RegionCurve
 } from '../../utils/adjustments';
+import { withDevelopDefaults } from '../../utils/developDefaults';
+import { resetToolToUserDefaults, useOpenPhotoCamera } from '../../hooks/developDefaultsActions';
+import { toolDefaultItems } from './developDefaultsMenus';
 import { Panel, type AppSettings, type MaskDisplay } from '../ui/AppProperties';
 import {
   DEFAULT_MASK_OPACITY,
@@ -150,7 +153,15 @@ export function ToolGroup({
   }, [isOpen, onOpenChange]);
   const menu = useToolMenu();
   const openOnly = useToolOpenOnly();
-  const resetNamed = onReset ? () => resetGroup(onReset, name) : undefined;
+  // The photo's tools reset to the user's develop defaults for it.
+  const resetToDefaults =
+    onReset && copy
+      ? () => {
+          onReset();
+          resetToolToUserDefaults(copy.map(([key]) => key));
+        }
+      : onReset;
+  const resetNamed = resetToDefaults ? () => resetGroup(resetToDefaults, name) : undefined;
   const hold = useToolBeforeHold(name, before ? onReset : undefined, resetNamed);
   return (
     <details
@@ -166,7 +177,7 @@ export function ToolGroup({
       }}
     >
       <summary
-        onContextMenu={(e) => menu?.(e, resetNamed)}
+        onContextMenu={(e) => menu?.(e, resetNamed, copy ? toolDefaultItems(name, copy) : undefined)}
         onClick={(e) => {
           if (!e.altKey) return;
           // Option-click on the name resets the group (Lightroom's group
@@ -759,6 +770,8 @@ export function PointCurve({
 
 export default function StudioDevelop() {
   const { t } = useTranslation();
+  // The open photo's camera, for the "Set as default for <camera>" menus.
+  useOpenPhotoCamera();
   const appSettings = useSettingsStore((s) => s.appSettings);
   const handleSettingsChange = useSettingsStore((s) => s.handleSettingsChange);
   const setAppSettings = useSettingsStore((s) => s.setAppSettings);
@@ -932,8 +945,15 @@ export default function StudioDevelop() {
     optionViews.current.set(key, next);
     return next;
   };
-  // Layers start neutral; the photo itself starts from the RAW defaults.
-  const defaults = layer ? INITIAL_ADJUSTMENTS : initialAdjustmentsFor(!!selectedImage?.isRaw);
+  // Layers start neutral; the photo itself starts from the RAW defaults and
+  // the user's develop defaults for it, where a reset goes back to.
+  const photoIsRaw = !!selectedImage?.isRaw;
+  const userDefaults = selectedImage?.photoDefaults?.resolved;
+  const photoDefaults = useMemo(
+    () => withDevelopDefaults(initialAdjustmentsFor(photoIsRaw), userDefaults),
+    [photoIsRaw, userDefaults]
+  );
+  const defaults = layer ? INITIAL_ADJUSTMENTS : photoDefaults;
   const reset = (keys: string[]) =>
     change(Object.fromEntries(keys.map((key) => [key, structuredClone(defaults[key])])));
   const control = (

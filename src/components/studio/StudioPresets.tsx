@@ -22,6 +22,7 @@ import {
 import { expressPastedSettings } from '../../utils/pastedVersions';
 import { appliedStyleOf, revertStyle, withStyleAmount } from '../../utils/appliedStyle';
 import { presetPreview, presetValues, toolPresetToSave } from './toolPresets';
+import { presetDefaultItems } from './developDefaultsMenus';
 import { noteTool } from '../contribute/usageStats';
 
 type Entry = { folder: { id: string; name: string; builtin?: boolean } | null; presets: Preset[] };
@@ -372,8 +373,11 @@ export default function StudioPresets() {
   const menu = (e: MouseEvent, preset: Preset, groupKey: string) => {
     e.preventDefault();
     endPreview();
-    // Built-ins are read-only.
-    if (preset.builtin) return;
+    // Built-ins are read-only; they can be a develop default.
+    if (preset.builtin) {
+      showContextMenu(e.clientX, e.clientY, presetDefaultItems(preset, presetName(t, preset)).slice(1));
+      return;
+    }
     showContextMenu(e.clientX, e.clientY, [
       {
         label: t('studio.presets.menu.rename'),
@@ -403,7 +407,8 @@ export default function StudioPresets() {
         ]
       },
       { label: t('studio.presets.menu.export'), onClick: () => void exportPreset(preset) },
-      { label: t('studio.presets.menu.delete'), onClick: () => setDeleting(preset) }
+      { label: t('studio.presets.menu.delete'), onClick: () => setDeleting(preset) },
+      ...presetDefaultItems(preset, presetName(t, preset))
     ]);
   };
   // Lightroom's preset groups / Capture One's style folders.

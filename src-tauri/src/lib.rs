@@ -39,6 +39,7 @@ mod content_search;
 mod contribute;
 mod costyle;
 mod culling;
+mod develop_defaults;
 mod duplicates;
 mod editor_preview;
 mod embedded_lens;
@@ -1010,6 +1011,7 @@ fn start(args: Vec<String>) {
             camera_profile::import_camera_profile,
             camera_profile::list_camera_profiles,
             camera_profile::white_balance_info,
+            develop_defaults::develop_defaults_for,
             camera_profile::white_balance_from_sample,
             bw_auto::auto_gray_mix,
             preset_converter::place_lightroom_masks,

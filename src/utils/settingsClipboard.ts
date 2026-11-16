@@ -199,7 +199,11 @@ export function pasteInto(
   }
 ): Adjustments | null {
   const out: Record<string, unknown> = { ...(base ?? {}) };
-  if (Object.keys(out).every((key) => key === 'lensProfileFor' || key === 'sourceFrameVersion')) {
+  if (
+    Object.keys(out).every(
+      (key) => key === 'lensProfileFor' || key === 'sourceFrameVersion' || key === 'developDefaults'
+    )
+  ) {
     out.renderVersion = RENDER_VERSION;
     // A Reset's frame stays (`source_frame::reset_recipe`).
     out.sourceFrameVersion ??= SOURCE_FRAME_VERSION;

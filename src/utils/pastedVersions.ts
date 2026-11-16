@@ -213,6 +213,28 @@ const effective = (key: VersionKey, recipe: Values, isRaw: boolean): number => {
   return key.key === 'colorNoiseVersion' && isRaw && recipe.colorNoiseReduction === undefined ? COLOR_NOISE_VERSION : 1;
 };
 
+/** Every response version `recipe` renders with (a missing key's default
+ * stated), by key: what a default made from it must carry. */
+export function effectiveVersions(recipe: Partial<Adjustments>, isRaw: boolean): Record<string, number> {
+  return Object.fromEntries(KEYS.map((key) => [key.key, effective(key, recipe as Values, isRaw)]));
+}
+
+/** The sliders the photo-wide response keys (`users: 'always'`) render
+ * through: the tone sliders' travel and roll-offs (tone versions), the
+ * colour noise amounts (the filter). */
+const ALWAYS_SLIDERS: Record<string, string[]> = {
+  toneVersion: ['whites', 'blacks', 'shadows', 'highlights', 'clarity'],
+  colorNoiseVersion: ['colorNoiseReduction', 'colorNoiseDetail', 'colorNoiseSmoothness']
+};
+
+/** The response keys a photo slider `slider` renders through: what a
+ * default of it must carry. */
+export function versionKeysUsing(slider: string): string[] {
+  return KEYS.filter((key) =>
+    key.users === 'always' ? (ALWAYS_SLIDERS[key.key] ?? []).includes(slider) : key.users.global.includes(slider)
+  ).map((key) => key.key);
+}
+
 const keptLayers = (pasted: Values, recipe: Values, replaceLayers: boolean): Layer[] => {
   const own = Array.isArray(recipe.masks) ? (recipe.masks as Layer[]) : [];
   if (!has(pasted, 'masks')) return own;

@@ -108,6 +108,8 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('paste_adjustments'),
       c('paste_from_previous'),
       c('sync_settings'),
+      c('reset_adjustments'),
+      c('reset_to_neutral'),
       'separator',
       c('copy_image_path')
     ]

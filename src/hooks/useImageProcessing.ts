@@ -16,6 +16,7 @@ import type { SubMask } from '../components/panel/right/Masks';
 import { referToSentMaskBitmaps } from '../utils/bitmapIds';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
 import { debouncedSave, registerScheduledRecipe } from './useEditorActions';
+import { shownNotEdited } from '../utils/shownNotEdited';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import {
   epochOf,
@@ -873,7 +874,8 @@ export function useImageProcessing(
       const hasAdjustmentsChanged = prev.adjustments !== adjustments;
 
       if (hasAdjustmentsChanged) {
-        debouncedSave(selectedImage.path, adjustments);
+        // New develop defaults shown on a never-edited photo are no edit.
+        if (!shownNotEdited.has(adjustments)) debouncedSave(selectedImage.path, adjustments);
 
         prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
       }

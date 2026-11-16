@@ -7,6 +7,7 @@ import {
   Plus,
   X,
   SlidersHorizontal,
+  SlidersVertical,
   Palette,
   Keyboard,
   Bookmark,
@@ -46,6 +47,8 @@ import CrashReportSettings from './CrashReportSettings';
 import GpuBackendState from './GpuBackendState';
 import UsageStatsSettings from './UsageStatsSettings';
 import TetheringSettings from './TetheringSettings';
+import DevelopDefaultsSettings from './DevelopDefaultsSettings';
+import { saveDevelopDefaults } from '../../hooks/developDefaultsActions';
 import DevelopToolsSide from '../studio/DevelopToolsSide';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
@@ -348,6 +351,8 @@ export default function SettingsPanel({
       { id: 'processing', label: t('settings.categories.processing'), icon: Cpu },
       // Its own page (Lightroom keeps previews in Catalog Settings, Capture
       // One in its Image preferences), not the end of a long one.
+      // The one place for what unedited photographs start with (G28).
+      { id: 'developDefaults', label: t('developDefaults.settings.title'), icon: SlidersVertical },
       { id: 'previews', label: t('previews.settings.title'), icon: Images },
       { id: 'storage', label: t('storage.title'), icon: HardDrive },
       { id: 'tethering', label: t('settings.tethering.title'), icon: Camera },
@@ -1824,6 +1829,17 @@ export default function SettingsPanel({
                     onLibraryRefresh={onLibraryRefresh}
                     onOpenPreviews={() => setActiveCategory('previews')}
                   />
+                </motion.div>
+              )}
+
+              {activeCategory === 'developDefaults' && (
+                <motion.div key="developDefaults" className="pref-page">
+                  <div className="pref-section">
+                    <Text as="h2" variant={TextVariants.title} className="pref-section-title">
+                      {t('developDefaults.settings.title')}
+                    </Text>
+                    <DevelopDefaultsSettings appSettings={appSettings} save={saveDevelopDefaults} />
+                  </div>
                 </motion.div>
               )}
 

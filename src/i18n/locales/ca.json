@@ -308,6 +308,8 @@
       "rate_5": "5 estrelles",
       "redo": "Refés",
       "report_problem": "Informa d'un problema…",
+      "reset_adjustments": "Restableix els ajustos",
+      "reset_to_neutral": "Restableix a neutre",
       "rotate_left": "Gira a l'esquerra",
       "rotate_right": "Gira a la dreta",
       "select_all": "Selecciona-ho tot",
@@ -769,6 +771,39 @@
         "tether": "Captura connectada",
         "transform": "Transforma"
       }
+    }
+  },
+  "developDefaults": {
+    "bodyName": "{{camera}} (cos {{serial}})",
+    "menu": {
+      "resetToNeutral": "Restableix a neutre",
+      "saveToolForCamera": "Desa els ajustos de l’eina com a predeterminats per a {{camera}}",
+      "saveToolForCameraBody": "Desa els ajustos de l’eina com a predeterminats per a aquest cos ({{serial}})",
+      "setForCamera": "Defineix com a predeterminat per a {{camera}}",
+      "setForCameraBody": "Defineix com a predeterminat per a aquest cos ({{serial}})",
+      "setGlobal": "Defineix com a predeterminat global"
+    },
+    "settings": {
+      "cameras": "Predeterminats per càmera",
+      "camerasDesc": "Es defineixen a Revela: clic dret en un preajust o a la foto i «Defineix com a predeterminat per a …», o desa els ajustos d’una eina des del seu menú. El d’un cos preval sobre el del model, el del model sobre el global.",
+      "camerasNone": "Encara no hi ha predeterminats per càmera.",
+      "global": "Predeterminat global",
+      "globalDesc": "Un preajust o estil amb què comença cada foto. Se n’ometen les màscares, el retall, la transformació i els retocs.",
+      "globalFrom": "De «{{name}}»",
+      "globalNone": "Cap (neutre)",
+      "intro": "Amb què comencen les fotos sense editar: en importar, en obrir-les per primer cop i després de restablir. Les fotos editades no canvien mai; les altres segueixen els nous predeterminats.",
+      "joins": "S’afegeix al predeterminat global",
+      "rawOnly": "Només fitxers RAW",
+      "rawOnlyDesc": "Els fitxers JPEG, HEIF i TIFF de la càmera comencen neutres.",
+      "remove": "Elimina el predeterminat de {{camera}}",
+      "replaces": "En lloc del predeterminat global",
+      "title": "Revelat predeterminat"
+    },
+    "toasts": {
+      "saveFailed": "No s’han pogut desar els predeterminats de revelat: {{error}}",
+      "set": "«{{name}}» és ara el predeterminat per a {{camera}}",
+      "setGlobal": "«{{name}}» és ara el predeterminat global",
+      "toolSaved": "{{tool}} desat com a predeterminat per a {{camera}}"
     }
   },
   "duplicates": {
@@ -2569,6 +2604,8 @@
         "rate_5": "Puntuació d'estrelles: 5",
         "redo": "Refer ajustament",
         "remove_objects": "Elimina objectes",
+        "reset_adjustments": "Restableix als predeterminats",
+        "reset_to_neutral": "Restableix a neutre",
         "rotate_left": "Girar 90° en sentit antihorari",
         "rotate_right": "Girar 90° en sentit horari",
         "select_all": "Seleccionar totes les imatges",

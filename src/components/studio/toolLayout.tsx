@@ -18,14 +18,15 @@ import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useContextMenu } from '../../context/ContextMenuContext';
-import { OPTION_SEPARATOR, type ToolLayout } from '../ui/AppProperties';
+import { OPTION_SEPARATOR, type Option, type ToolLayout } from '../ui/AppProperties';
 import { createDragGhost } from './dragGhost';
 
 /** The tool column a tool group belongs to ("library", "develop:color", …);
  * open state and order are remembered per column. */
 const ToolColumnContext = createContext<{
   scope: string;
-  menu?(e: React.MouseEvent, resetThis?: () => void): void;
+  /** `extra`: the tool's own entries after its reset (its develop defaults). */
+  menu?(e: React.MouseEvent, resetThis?: () => void, extra?: Option[]): void;
   /** One tool open at a time in this column. */
   solo?: boolean;
   /** Opens `title` and closes the column's other tools. */
@@ -199,7 +200,7 @@ export function ToolColumn({ scope, className, children }: { scope: string; clas
     const slot = el?.closest<HTMLElement>('[data-tool-slot]');
     return slot && slot.parentElement === ref.current ? slot : null;
   };
-  const menu = (e: React.MouseEvent, resetThis?: () => void) => {
+  const menu = (e: React.MouseEvent, resetThis?: () => void, extra: Option[] = []) => {
     const id = slotOf(e.currentTarget as Element)?.dataset.toolSlot;
     if (!id) return;
     e.preventDefault();
@@ -212,6 +213,7 @@ export function ToolColumn({ scope, className, children }: { scope: string; clas
             { type: OPTION_SEPARATOR }
           ]
         : []),
+      ...extra,
       {
         label: t('studio.develop.layout.moveUp'),
         icon: ArrowUp,
@@ -322,7 +324,7 @@ export function ToolColumn({ scope, className, children }: { scope: string; clas
   const context = useMemo(
     () => ({
       scope,
-      menu: (e: React.MouseEvent, resetThis?: () => void) => menuRef.current(e, resetThis),
+      menu: (e: React.MouseEvent, resetThis?: () => void, extra?: Option[]) => menuRef.current(e, resetThis, extra),
       solo,
       openOnly: (title: string) => openOnlyRef.current(title)
     }),
