@@ -1599,7 +1599,7 @@ pub fn update_thumbnail_queue(
     // Looked up in the cache first, then decoded in this (visible) order.
     queue.replace(unique_paths);
 
-    let queue_len = queue.len();
+    let queue_len = queue.queued();
     drop(queue);
 
     let (current, total) = thumbnails.set_queued(queue_len);
@@ -2524,7 +2524,7 @@ mod thumbnail_queue_tests {
             None
         );
         assert!(
-            queue.is_empty(),
+            queue.queued() == 0,
             "the rest of the cancelled queue is dropped"
         );
 
@@ -2542,13 +2542,13 @@ mod thumbnail_queue_tests {
         use ThumbnailWork::{Decode, Lookup};
         let mut queue = ThumbnailQueue::default();
         queue.replace(names(&["first", "second", "third", "fourth"]));
-        assert_eq!(queue.len(), 4);
+        assert_eq!(queue.queued(), 4);
         assert!(!queue.has(Decode), "decoders wait for the lookup's misses");
         let Some(ThumbnailJob::Lookup { paths, generation }) = queue.take(Lookup) else {
             panic!("the whole viewport is one lookup");
         };
         assert_eq!(paths, names(&["first", "second", "third", "fourth"]));
-        assert!(queue.is_empty());
+        assert_eq!(queue.queued(), 0);
 
         // "second" and "fourth" were cached.
         assert!(queue.queue_misses(generation, names(&["first", "third"])));

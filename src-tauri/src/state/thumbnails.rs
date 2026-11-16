@@ -56,11 +56,8 @@ impl ThumbnailQueue {
         self.replace(Vec::new());
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.lookup.is_empty() && self.decode.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
+    /// The photos still to look up or decode.
+    pub fn queued(&self) -> usize {
         self.lookup.len() + self.decode.len()
     }
 
