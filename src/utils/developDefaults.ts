@@ -22,7 +22,7 @@ import {
   type Adjustments
 } from './adjustments';
 import { withStyleValues } from './appliedStyle';
-import { expressPastedSettings } from './pastedVersions';
+import { effectiveVersions, expressPastedSettings, versionKeysUsing } from './pastedVersions';
 
 /** The recipe key recording the levels a new edit started with (`develop_defaults::KEY`). */
 export const DEVELOP_DEFAULTS_KEY = 'developDefaults';
@@ -152,8 +152,16 @@ export function presetDefaultSettings(preset: Preset, isRaw = true): Record<stri
 export function toolDefaultSettings(current: Adjustments, keys: string[], isRaw: boolean): Record<string, unknown> {
   // Carried as a tool copy carries them (Blacks as amounts), then as a new
   // edit takes them: recipe values, as a default is applied.
-  const carried = toolPresetToSave(current, keys, isRaw);
-  const picked = expressPastedSettings(carried, {
+  // With every response the photo renders with stated (an older edit leaves
+  // some implicit), and those its sliders use carried along.
+  const versions = effectiveVersions(current, isRaw);
+  const stated = { ...current, ...versions } as Adjustments;
+  const carried = toolPresetToSave(
+    stated,
+    [...new Set([...keys, ...keys.flatMap((key) => versionKeysUsing(key))])],
+    isRaw
+  );
+  const picked = expressPastedSettings(carried as Partial<Adjustments>, {
     recipe: initialAdjustmentsFor(isRaw),
     isRaw,
     isNew: true,
