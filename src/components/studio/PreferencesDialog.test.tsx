@@ -12,8 +12,8 @@ function Workspace() {
   return (
     <>
       <header>
-        <button onClick={() => setOpen(true)}>{'Preferences'}</button>
-        <button>{'Ingest'}</button>
+        <button onClick={() => setOpen(true)}>{'Settings'}</button>
+        <button>{'Import'}</button>
       </header>
       <main>
         <button>{'Library'}</button>
@@ -33,10 +33,10 @@ function Workspace() {
 it('moves the focus in, keeps Tab inside, makes the workspace inert and returns the focus', async () => {
   const user = userEvent.setup();
   render(<Workspace />);
-  const opener = screen.getByRole('button', { name: 'Preferences' });
+  const opener = screen.getByRole('button', { name: 'Settings' });
   await user.click(opener);
 
-  const dialog = screen.getByRole('dialog', { name: 'Preferences' });
+  const dialog = screen.getByRole('dialog', { name: 'Settings' });
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'General' }));
 
   // The workspace behind is inert, the dialog and its ancestors are not.
@@ -71,7 +71,7 @@ it('leaves elements that were inert before untouched', async () => {
       <Workspace />
     </>
   );
-  await user.click(screen.getByRole('button', { name: 'Preferences' }));
+  await user.click(screen.getByRole('button', { name: 'Settings' }));
   await user.click(screen.getByRole('button', { name: 'Close' }));
   expect(screen.getByTestId('busy').hasAttribute('inert')).toBe(true);
 });

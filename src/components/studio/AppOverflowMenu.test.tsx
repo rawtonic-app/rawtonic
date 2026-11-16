@@ -44,9 +44,9 @@ it.each(['linux', 'windows'])('shows and dispatches the shared command tree on %
     expect(screen.getByRole('menuitem', { name })).toBeTruthy();
   fireEvent.click(screen.getByRole('menuitem', { name: 'File' }));
   const open = await screen.findByRole('menuitem', {
-    name: 'Open Project or Catalog…'
+    name: 'Open Session or Catalog…'
   });
-  expect(screen.getByRole('menuitem', { name: 'New Project or Catalog…' }).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('menuitem', { name: 'New Session or Catalog…' }).hasAttribute('disabled')).toBe(true);
   fireEvent.click(open);
   expect(run).toHaveBeenCalledOnce();
 });
@@ -116,3 +116,68 @@ it.each(['linux', 'windows'])(
     await redo();
   }
 );
+
+it.each(['linux', 'windows'])(
+  'shows each command key and opens on F10 and a lone Alt, then walks with the arrows on %s (UXR4L-04)',
+  async (osPlatform) => {
+    useSettingsStore.setState({ osPlatform, appSettings: null });
+    const run = vi.fn();
+    stop = registerAppCommands({ toggle_export: { run } });
+    const outside = vi.fn();
+    window.addEventListener('keydown', outside);
+    render(
+      <ContextMenuProvider>
+        <AppOverflowMenu />
+      </ContextMenuProvider>
+    );
+    // F10 opens the menu with its first row focused; ↓ → walk into File.
+    fireEvent.keyDown(window, { key: 'F10', code: 'F10' });
+    const file = screen.getByRole('menuitem', { name: 'File' });
+    expect(document.activeElement).toBe(file);
+    fireEvent.keyDown(window, { key: 'ArrowDown', code: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Edit' }));
+    fireEvent.keyDown(window, { key: 'ArrowUp', code: 'ArrowUp' });
+    fireEvent.keyDown(window, { key: 'ArrowRight', code: 'ArrowRight' });
+    const exportRow = await screen.findByRole('menuitem', { name: 'Export…' });
+    // The key at the row's right, as the platform names it.
+    expect(exportRow.getAttribute('aria-keyshortcuts')).toBe('Ctrl+Shift+E');
+    expect(exportRow.textContent).toContain('Ctrl+Shift+E');
+    expect(document.activeElement?.closest('[role="menu"]')?.getAttribute('data-menu-path')).toBe('0');
+    // ← closes the submenu and goes back to File; the app never saw the keys.
+    fireEvent.keyDown(window, { key: 'ArrowLeft', code: 'ArrowLeft' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'File' }));
+    expect(outside).not.toHaveBeenCalled();
+    // A letter goes to the row starting with it; Escape closes the menu.
+    fireEvent.keyDown(window, { key: 'v', code: 'KeyV' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'View' }));
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+    await vi.waitFor(() => expect(screen.queryByRole('menuitem', { name: 'File' })).toBeNull());
+    // Alt pressed and released alone opens it; Alt+click (layer solo) does not.
+    fireEvent.keyDown(window, { key: 'Alt', code: 'AltLeft', altKey: true });
+    fireEvent.pointerDown(document.body);
+    fireEvent.keyUp(window, { key: 'Alt', code: 'AltLeft' });
+    expect(screen.queryByRole('menuitem', { name: 'File' })).toBeNull();
+    fireEvent.keyDown(window, { key: 'Alt', code: 'AltLeft', altKey: true });
+    fireEvent.keyUp(window, { key: 'Alt', code: 'AltLeft' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'File' }));
+    // Enter on a row runs it.
+    fireEvent.keyDown(window, { key: 'Enter', code: 'Enter' });
+    const exportItem = await screen.findByRole('menuitem', { name: 'Export…' });
+    exportItem.focus();
+    fireEvent.keyDown(window, { key: 'Enter', code: 'Enter' });
+    expect(run).toHaveBeenCalledOnce();
+    window.removeEventListener('keydown', outside);
+  }
+);
+
+it('opens nothing while a dialog holds the app', () => {
+  useSettingsStore.setState({ osPlatform: 'windows' });
+  useUIStore.setState({ isSettingsOpen: true });
+  render(
+    <ContextMenuProvider>
+      <AppOverflowMenu />
+    </ContextMenuProvider>
+  );
+  fireEvent.keyDown(window, { key: 'F10', code: 'F10' });
+  expect(screen.queryByRole('menuitem', { name: 'File' })).toBeNull();
+});

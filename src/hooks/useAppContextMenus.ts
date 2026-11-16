@@ -64,6 +64,7 @@ import { useProcessStore } from '../store/useProcessStore';
 import { createVirtualCopy } from './useVirtualCopyCommand';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { shortcutHint } from '../utils/keyboardUtils';
 import {
   Invokes,
   Option,
@@ -117,6 +118,12 @@ import { isCopy, isCopyOf, sourceOf } from '../entities/photo/photoRef';
 const MERGE_LIMITS = { panorama: [2, 30], hdr: [2, 9], hdrPanorama: [4, Infinity], focusStack: [2, Infinity] } as const;
 
 type TaggingSubMenuProps = Omit<ComponentProps<typeof TaggingSubMenu>, 'hideContextMenu'>;
+
+/** The command's key at a menu row's right (UX4-06), as the user bound it. */
+function menuKey(action: string): string | null {
+  const { appSettings, osPlatform } = useSettingsStore.getState();
+  return shortcutHint(action, appSettings?.keybinds, osPlatform);
+}
 
 export interface UseAppContextMenusProps {
   handleImageSelect: (path: string, openInEditor?: boolean) => void;
@@ -413,6 +420,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const options: Array<Option> = [
         {
           label: t('contextMenus.editor.exportImage'),
+          shortcut: menuKey('toggle_export'),
           icon: FileInput,
           onClick: () => setPanel(Panel.Export)
         },
@@ -420,6 +428,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         { type: OPTION_SEPARATOR },
         {
           label: getUndoLabel(),
+          shortcut: menuKey('undo'),
           icon: Undo,
           onClick: () => {
             void undo();
@@ -428,6 +437,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         },
         {
           label: getRedoLabel(),
+          shortcut: menuKey('redo'),
           icon: Redo,
           onClick: () => {
             void redo();
@@ -437,11 +447,13 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         { type: OPTION_SEPARATOR },
         {
           label: t('contextMenus.editor.copyAdjustments'),
+          shortcut: menuKey('copy_adjustments'),
           icon: Copy,
           onClick: () => handleCopyAdjustments()
         },
         {
           label: t('contextMenus.editor.pasteAdjustments'),
+          shortcut: menuKey('paste_adjustments'),
           icon: ClipboardPaste,
           onClick: () => handlePasteAdjustments(),
           disabled: copiedAdjustments === null
@@ -506,6 +518,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               rating === 0
                 ? t('contextMenus.editor.noRating')
                 : t('contextMenus.editor.ratingLabel', { count: rating }),
+            shortcut: menuKey(`rate_${rating}`),
             onClick: () => handleRate(rating)
           }))
         },
@@ -513,10 +526,15 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           label: t('contextMenus.editor.colorLabel'),
           icon: Palette,
           submenu: [
-            { label: t('contextMenus.editor.noLabel'), onClick: () => handleSetColorLabel(null) },
+            {
+              label: t('contextMenus.editor.noLabel'),
+              shortcut: menuKey('color_label_none'),
+              onClick: () => handleSetColorLabel(null)
+            },
             ...COLOR_LABELS.map((label: Color) => ({
               label: t(`contextMenus.colors.${label.name}`, { defaultValue: `contextMenus.colors.${label.name}` }),
               color: label.color,
+              shortcut: menuKey(`color_label_${label.name}`),
               onClick: () => handleSetColorLabel(label.name)
             }))
           ]
@@ -889,12 +907,12 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 label: t('contextMenus.editor.editImage'),
                 onClick: () => props.handleImageSelect(finalSelection[0])
               },
-              { icon: FileInput, label: exportLabel, onClick: onExportClick },
+              { icon: FileInput, label: exportLabel, shortcut: menuKey('toggle_export'), onClick: onExportClick },
               ...openWithItems(finalSelection),
               { type: OPTION_SEPARATOR }
             ]
           : [
-              { icon: FileInput, label: exportLabel, onClick: onExportClick },
+              { icon: FileInput, label: exportLabel, shortcut: menuKey('toggle_export'), onClick: onExportClick },
               ...openWithItems(finalSelection),
               { type: OPTION_SEPARATOR }
             ]),
@@ -902,12 +920,14 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           disabled: !isSingleSelection,
           icon: Copy,
           label: t('contextMenus.editor.copyAdjustments'),
+          shortcut: menuKey('copy_adjustments'),
           onClick: () => handleCopyAdjustments(finalSelection[0])
         },
         {
           disabled: copiedAdjustments === null,
           icon: ClipboardPaste,
           label: pasteLabel,
+          shortcut: menuKey('paste_adjustments'),
           onClick: () => handlePasteAdjustments(finalSelection)
         },
         presetMenu(usePresetStore.getState().presets, finalSelection),
@@ -1097,6 +1117,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
             },
             {
               label: t('contextMenus.thumbnail.virtualCopy'),
+              shortcut: menuKey('virtual_copy'),
               icon: CopyPlus,
               disabled: !isSingleSelection,
               onClick: () => handleCreateVirtualCopy(finalSelection[0])
@@ -1129,6 +1150,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               rating === 0
                 ? t('contextMenus.editor.noRating')
                 : t('contextMenus.editor.ratingLabel', { count: rating }),
+            shortcut: menuKey(`rate_${rating}`),
             onClick: () => handleRate(rating, finalSelection)
           }))
         },
@@ -1136,10 +1158,15 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           label: t('contextMenus.editor.colorLabel'),
           icon: Palette,
           submenu: [
-            { label: t('contextMenus.editor.noLabel'), onClick: () => handleSetColorLabel(null, finalSelection) },
+            {
+              label: t('contextMenus.editor.noLabel'),
+              shortcut: menuKey('color_label_none'),
+              onClick: () => handleSetColorLabel(null, finalSelection)
+            },
             ...COLOR_LABELS.map((label: Color) => ({
               label: t(`contextMenus.colors.${label.name}`, { defaultValue: `contextMenus.colors.${label.name}` }),
               color: label.color,
+              shortcut: menuKey(`color_label_${label.name}`),
               onClick: () => handleSetColorLabel(label.name, finalSelection)
             }))
           ]

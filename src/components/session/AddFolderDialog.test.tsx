@@ -110,8 +110,8 @@ it('says plainly that renamed copies are duplicates, naming the photograph they 
 it('in a project, says the folder is only shown and offers the verified copy', () => {
   const { onCopy, onShow, onClose } = dialog(false);
   expect(invoke).not.toHaveBeenCalled();
-  expect(screen.getByText(/Shown here, not added — projects keep their own files/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Copy into this project…' }));
+  expect(screen.getByText(/Shown here, not added — sessions keep their own files/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy into this session…' }));
   expect(onCopy).toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Show folder' }));
   expect(onShow).toHaveBeenCalled();

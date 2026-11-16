@@ -375,6 +375,7 @@ export enum Invokes {
   SetAppMenu = 'set_app_menu',
   SetAppMenuState = 'set_app_menu_state',
   AppMenuTextAction = 'app_menu_text_action',
+  KeyboardLayout = 'keyboard_layout',
   OpenWithDescribe = 'open_with_describe',
   OpenWithPick = 'open_with_pick',
   OpenWithApps = 'open_with_apps',
@@ -776,6 +777,8 @@ export interface Option {
   label?: string;
   onClick?(): void;
   onRightClick?(): void;
+  /** The command's key, shown at the row's right ("Ctrl+Shift+E", "P"). */
+  shortcut?: string | null;
   submenu?: Option[];
   type?: string;
 }

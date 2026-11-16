@@ -668,7 +668,9 @@ export function StudioMetadataTool() {
         <div className="studio-metadata">
           {!session && <p className="studio-help">{t('studio.metadata.outsideSessions')}</p>}
           {session && loaded && registered.length < paths.length && (
-            <p className="studio-help">{t('studio.metadata.notInSession')}</p>
+            <p className="studio-help">
+              {t('studio.metadata.notInSession', { context: useLibraryStore.getState().libraryKind ?? undefined })}
+            </p>
           )}
           {TEXT_FIELDS.map((field) =>
             session || !EXIF_TEXT_FIELDS[field] ? (

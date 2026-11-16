@@ -282,6 +282,9 @@ describe('the macOS menu bar', () => {
         id: 'cmd:view_grid',
         label: i18n.t('appMenu.items.view_grid'),
         enabled: false,
+        // Single keys show in the menu too (UXR4M-05).
+        shortcut: { key: 'g' },
+        shortcutLabel: 'G',
         checked: false
       })
     );

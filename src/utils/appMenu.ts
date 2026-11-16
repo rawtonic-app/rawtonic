@@ -2,9 +2,13 @@
  * The macOS menu bar, generated from the shortcut table (keyboardUtils) and
  * the app's commands (appCommands): this file only places the commands in
  * menus. Labels come from the locale files (`appMenu.*`, else the shortcut's
- * description), key equivalents from the user's keys, so the menu, the keys
- * and the shortcut list in Preferences cannot drift apart. src-tauri's
- * app_menu.rs builds the native menu from `buildMenuSpec`.
+ * description), shortcuts from the user's keys, so the menu, the keys and
+ * the shortcut list in Preferences cannot drift apart. src-tauri's
+ * app_menu.rs builds the native menu from `buildMenuSpec`; Windows and Linux
+ * show the same tree in the ⋯ menu (commandPalette's `overflowCommands`).
+ *
+ * Every item shows its key, single keys included (UXR4M-05, UX4-06), named
+ * as the active keyboard layout types it (keyboardLayout.ts, UXR4M-06).
  *
  * Grouping (G53, taken from Lightroom Classic's and Capture One's menus
  * where each is clearer): the photo commands in one Photo menu (Lightroom;
@@ -12,7 +16,7 @@
  * in View (both), Copy/Paste Settings in Edit (Capture One's Adjustments
  * menu splits them from Undo), File for libraries, import and export.
  */
-import { effectiveCombos, KEYBIND_DEFINITIONS } from './keyboardUtils';
+import { comboKeyChar, effectiveCombos, formatCombo, KEYBIND_DEFINITIONS } from './keyboardUtils';
 import { appCommand, appCommandEnabled, appMenuCommands } from './appCommands';
 
 export type NativeRole =
@@ -254,8 +258,27 @@ const NATIVE_COMBOS: Partial<Record<NativeRole, string>> = {
   closeWindow: 'ctrl+KeyW'
 };
 
+/** A key as AppKit takes it (app_menu.rs `Shortcut`): the character typed
+ * or a named key, with ⌘ (`command`), ⇧ and ⌥. */
+export interface NativeShortcut {
+  key: string;
+  command?: boolean;
+  shift?: boolean;
+  option?: boolean;
+}
+
 export type MenuNode =
-  | { kind: 'item'; id: string; label: string; accelerator?: string; enabled: boolean; checked?: boolean }
+  | {
+      kind: 'item';
+      id: string;
+      label: string;
+      /** The native menu's key (macOS). */
+      shortcut?: NativeShortcut;
+      /** The key as the in-window menu shows it ("Ctrl+Shift+G"). */
+      shortcutLabel?: string;
+      enabled: boolean;
+      checked?: boolean;
+    }
   | { kind: 'submenu'; label: string; role?: 'window' | 'help'; items: MenuNode[] }
   | { kind: 'separator' }
   | { kind: 'native'; role: NativeRole; label?: string };
@@ -278,11 +301,8 @@ export const MENU_ID_PREFIX = 'cmd:';
 /** i18next's `t`, untyped keys (they are built from command names). */
 export type Translate = (key: string | string[], options?: Record<string, unknown>) => string;
 
-const MODIFIER_NAMES: Record<string, string> = { ctrl: 'CmdOrCtrl', shift: 'Shift', alt: 'Alt' };
-
-/** Keys a native key equivalent can name (app_menu.rs's `is_key_code`);
- * other keys keep their shortcut in the webview only. */
-const MENU_KEYS = new Set([
+/** Keys AppKit names by themselves (app_menu.rs `NAMED_KEYS`). */
+const NAMED_KEYS = new Set([
   'ArrowUp',
   'ArrowDown',
   'ArrowLeft',
@@ -290,35 +310,32 @@ const MENU_KEYS = new Set([
   'Enter',
   'Tab',
   'Space',
-  'Backspace',
   'Escape',
-  'Equal',
-  'Minus',
-  'Comma',
-  'Period',
-  'Slash',
-  'Backslash',
-  'BracketLeft',
-  'BracketRight',
-  'Semicolon',
-  'Quote',
-  'Backquote',
   'Home',
   'End',
   'PageUp',
   'PageDown'
 ]);
-const isMenuKey = (key: string) =>
-  MENU_KEYS.has(key) || /^Key[A-Z]$/.test(key) || /^Digit[0-9]$/.test(key) || /^F([1-9]|1[0-9]|2[0-4])$/.test(key);
 
-/** A combo the menu may hold: with ⌘ (a plain, ⇧- or ⌥-only key would take
- * what a text field types; those keys stay the webview's alone). */
-export function menuAccelerator(combo: string[]): string | null {
-  if (!combo.includes('ctrl') || combo.length < 2) return null;
-  const key = combo[combo.length - 1];
-  if (!isMenuKey(key)) return null;
-  const modifiers = combo.slice(0, -1).map((part) => MODIFIER_NAMES[part]);
-  return modifiers.every(Boolean) ? [...modifiers, key].join('+') : null;
+/** A combo as the native menu's key, or null for a key it cannot name
+ * (numpad keys, Caps Lock). The table's Delete is ⌫ on a Mac. */
+export function nativeShortcut(combo: string[]): NativeShortcut | null {
+  if (combo.length === 0) return null;
+  const code = combo[combo.length - 1];
+  const modifiers = combo.slice(0, -1);
+  if (!modifiers.every((part) => part === 'ctrl' || part === 'shift' || part === 'alt')) return null;
+  let key: string | null;
+  if (/^Key[A-Z]$/.test(code) || /^Digit[0-9]$/.test(code)) key = code.slice(-1).toLowerCase();
+  else if (code === 'Delete' || code === 'Backspace') key = 'Backspace';
+  else if (NAMED_KEYS.has(code) || /^F([1-9]|1[0-9]|2[0-4])$/.test(code)) key = code;
+  else key = comboKeyChar(code, modifiers.includes('ctrl'))?.toLowerCase() ?? null;
+  if (!key) return null;
+  return {
+    key,
+    ...(modifiers.includes('ctrl') ? { command: true } : {}),
+    ...(modifiers.includes('shift') ? { shift: true } : {}),
+    ...(modifiers.includes('alt') ? { option: true } : {})
+  };
 }
 
 /** The menu tree for the app's language and the user's keys. */
@@ -327,7 +344,8 @@ export function buildMenuSpec(
   keybinds?: Record<string, string[]> | null,
   enabled: (command: string) => boolean = appCommandEnabled,
   app = 'Rawtonic',
-  historyLabels: Partial<Record<'undo' | 'redo', string>> = {}
+  historyLabels: Partial<Record<'undo' | 'redo', string>> = {},
+  platform = 'macos'
 ): BuiltMenu {
   const definitions = new Map(KEYBIND_DEFINITIONS.map((def) => [def.action, def]));
   const combos = new Map<string, string>();
@@ -349,12 +367,13 @@ export function buildMenuSpec(
       const bound = effectiveCombos(def, keybinds);
       const preferred = entry.preferCombo && bound.find((combo) => combo.join('+') === entry.preferCombo!.join('+'));
       for (const combo of preferred ? [preferred, ...bound] : bound) {
-        const accelerator = menuAccelerator(combo);
+        const shortcut = nativeShortcut(combo);
         const key = combo.join('+');
-        if (!accelerator || taken.has(key)) continue;
+        if (!shortcut || taken.has(key)) continue;
         taken.add(key);
         combos.set(entry.command, key);
-        node.accelerator = accelerator;
+        if (platform === 'macos') node.shortcut = shortcut;
+        node.shortcutLabel = formatCombo(combo, platform);
         break;
       }
     }

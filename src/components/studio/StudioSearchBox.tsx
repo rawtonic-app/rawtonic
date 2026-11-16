@@ -2,7 +2,7 @@
 import { useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
-import { Search } from 'lucide-react';
+import { Download, Search } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { downloadSearchModel, setSearchMode } from '../../hooks/useContentSearch';
 import { downloadSize } from '../../utils/contentSearch';
@@ -40,17 +40,21 @@ export default function StudioSearchBox({
 
   let detail = null;
   if (content && status && !status.installed) {
+    const download = t('studio.contentSearch.download', { size: downloadSize(status.downloadBytes, i18n.language) });
     detail = (
       <button
         className="studio-search-download"
-        title={t('studio.contentSearch.downloadTitle')}
+        title={`${download} — ${t('studio.contentSearch.downloadTitle')}`}
+        aria-label={download}
         disabled={downloading}
         onClick={() => {
           setDownloading(true);
           void downloadSearchModel(directory).finally(() => setDownloading(false));
         }}
       >
-        {t('studio.contentSearch.download', { size: downloadSize(status.downloadBytes, i18n.language) })}
+        <Download size={12} aria-hidden="true" />
+        {/* A narrow bar keeps the icon (useFitOneRow's last level). */}
+        <span>{download}</span>
       </button>
     );
   } else if (content && ranking && unranked > 0) {

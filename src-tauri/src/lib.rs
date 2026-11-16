@@ -66,6 +66,7 @@ mod image_processing;
 mod ingest_zoom;
 mod inpainting;
 mod ipc;
+mod keyboard_layout;
 mod launch_request;
 mod legal;
 mod lens_correction;
@@ -337,6 +338,14 @@ fn start(args: Vec<String>) {
                 }
                 return;
             }
+            // Keys without ⌘ in the menu bar are live only while the main
+            // window is key (app_menu.rs).
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::Focused(focused) = event
+                && window.label() == "main"
+            {
+                app_menu::main_window_focused(window.app_handle(), *focused);
+            }
             // Closing the main window quits once the editor saved (app_quit.rs).
             if let tauri::WindowEvent::CloseRequested { api, .. } = event
                 && window.label() == "main"
@@ -380,6 +389,10 @@ fn start(args: Vec<String>) {
                 contribute::start_crash_records(app.handle(), keep)
             };
             contribute::note_phase("setup");
+            #[cfg(target_os = "macos")]
+            if !is_headless {
+                keyboard_layout::observe_changes(app.handle());
+            }
             #[cfg(feature = "qa-control")]
             qa_crash::at("setup");
             let startup_state = app.state::<state::startup::StartupState>();
@@ -1012,6 +1025,7 @@ fn start(args: Vec<String>) {
             app_menu::set_app_menu,
             app_menu::set_app_menu_state,
             app_menu::app_menu_text_action,
+            keyboard_layout::keyboard_layout,
             lut_processing::load_and_parse_lut,
             camera_profile::import_camera_profile,
             camera_profile::list_camera_profiles,

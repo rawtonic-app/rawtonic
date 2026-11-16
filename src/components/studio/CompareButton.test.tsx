@@ -58,5 +58,5 @@ it('disables both controls and guards a menu left open while the photo unloads',
 it('shows a reassigned cycle key in the menu button tooltip', () => {
   useSettingsStore.setState({ appSettings: { keybinds: { cycle_compare_mode: ['alt', 'KeyY'] } } as never });
   render(<CompareButton disabled={false} title="Before/After" />);
-  expect(screen.getByRole('button', { name: 'Compare mode' }).title).toBe('Compare mode (⌥ + Y)');
+  expect(screen.getByRole('button', { name: 'Compare mode' }).title).toBe('Compare mode (⌥Y)');
 });

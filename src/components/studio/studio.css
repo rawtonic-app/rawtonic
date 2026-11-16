@@ -1771,16 +1771,33 @@
 .studio-viewer-toolbar .studio-viewer-side {
   min-width: max-content;
 }
-/* Narrow viewers keep the cursor tools and drop words, then the zoom menu. */
-@media (max-width: 1280px) {
-  .studio-viewer-toolbar .optional-label {
-    display: none;
-  }
+/* One row (useFitOneRow, UX4-07, UXR4L-15): the bar's own width decides,
+   not the window's (a docked filmstrip or open panels narrow it). Level 1
+   drops words beside icons, level 2 narrows the layer menu, level 3 moves
+   Camera preview, Proof margin and the zoom presets into ⋯, level 4 Fit
+   and 100 % too, level 5 leaves Undo and Redo to ⌘Z/⇧⌘Z and the Edit menu.
+   The cursor tools always stay. Only past level 5 may the bar wrap. */
+.studio-viewer-toolbar[data-collapse]:not([data-wrap='true']) {
+  flex-wrap: nowrap;
 }
-@media (max-width: 1080px) {
-  .studio-viewer-toolbar .studio-zoom-select {
-    display: none;
-  }
+.studio-viewer-toolbar[data-collapse]:not([data-collapse='0']) .optional-label {
+  display: none;
+}
+.studio-viewer-toolbar:is([data-collapse='2'], [data-collapse='3'], [data-collapse='4'], [data-collapse='5'])
+  .studio-layer-select {
+  max-width: 110px;
+}
+.studio-viewer-toolbar .studio-viewer-overflow {
+  display: none;
+}
+.studio-viewer-toolbar:is([data-collapse='3'], [data-collapse='4'], [data-collapse='5']) .studio-viewer-overflow {
+  display: inline-flex;
+}
+.studio-viewer-toolbar:is([data-collapse='3'], [data-collapse='4'], [data-collapse='5'])
+  :is(.studio-zoom-select, .studio-camera-preview-toggle, .studio-proof-margin-toggle),
+.studio-viewer-toolbar:is([data-collapse='4'], [data-collapse='5']) .studio-viewer-fit,
+.studio-viewer-toolbar[data-collapse='5'] .studio-viewer-history {
+  display: none;
 }
 .studio-counter {
   font-variant-numeric: tabular-nums;
@@ -2363,11 +2380,6 @@
 .studio-library-filters select.studio-eyes-filter {
   flex-basis: auto;
   max-width: 180px;
-}
-@media (max-width: 1240px) {
-  .studio-flag-label {
-    display: none;
-  }
 }
 /* Too narrow for one row (about 770 px without the flag names): search and
    sorting stay on the first row and the filters take the second. */
@@ -4045,6 +4057,18 @@ body.is-dragging.is-drop-refused * {
 }
 .rawtonic-menu-item.is-destructive {
   color: var(--studio-shade-error, #f1abab);
+}
+/* The command's key at the row's right, as in the platform's menus. */
+.rawtonic-menu-shortcut {
+  flex: none;
+  margin-left: 18px;
+  color: var(--studio-shade-muted, #9a9ea4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rawtonic-menu-item:hover:not(.is-disabled) .rawtonic-menu-shortcut,
+.rawtonic-menu-item:focus-visible .rawtonic-menu-shortcut {
+  color: inherit;
 }
 .rawtonic-menu-item.is-destructive:hover:not(.is-disabled) {
   background: #8a3b3b;
@@ -6286,22 +6310,68 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   line-height: 1.4;
   color: var(--studio-text);
 }
-/* The fallback row can be narrower than the window because of the sidebar. */
-@container library-toolbar (max-width: 1100px) {
-  .studio-flag-label,
-  .studio-metadata-toggle > span:not(.studio-filter-count) {
-    display: none;
-  }
-  .studio-library-filters {
-    gap: 5px;
-    flex-wrap: nowrap;
-  }
-  .studio-library-filters select {
-    max-width: 110px;
-  }
-  .studio-search {
-    flex-basis: 160px;
-  }
+/* One row (useFitOneRow): the bar measures itself and goes a level down
+   while its content does not fit (UX4-08, UXR4M-24, UXR4L-16). Level 1
+   keeps every control and drops the words beside icons (each keeps its
+   name as tooltip and accessible name); levels 2 and 3 narrow the search
+   box and the menus. Only past level 3 (the smallest window) may it wrap. */
+.studio-library-toolbar[data-collapse]:not([data-wrap='true']),
+.studio-library-toolbar[data-collapse]:not([data-wrap='true']) .studio-library-filters {
+  flex-wrap: nowrap;
+}
+.studio-library-toolbar[data-collapse]:not([data-wrap='true']) .studio-search {
+  min-width: 190px;
+}
+/* The search group never shrinks below its controls (they would overlap the
+   filters); the search box inside gives way at the levels below. */
+.studio-library-toolbar[data-collapse]:not([data-wrap='true']) .studio-search-group {
+  min-width: min-content;
+}
+/* Content search's model download keeps its words and size until the bar
+   runs short, then ends in an ellipsis, then keeps only its icon (the
+   tooltip and accessible name keep the words). */
+.studio-search-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.studio-search-download > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.studio-library-toolbar[data-collapse='2'] .studio-search-download > span {
+  max-width: 110px;
+}
+.studio-library-toolbar[data-collapse='3'] .studio-search-download > span {
+  display: none;
+}
+.studio-library-toolbar[data-collapse]:not([data-collapse='0']) .studio-flag-label,
+.studio-library-toolbar[data-collapse]:not([data-collapse='0'])
+  .studio-metadata-toggle
+  > span:not(.studio-filter-count),
+.studio-library-toolbar[data-collapse]:not([data-collapse='0']) .studio-subfolders > span,
+.studio-library-toolbar[data-collapse]:not([data-collapse='0']) .studio-clear-filters > span {
+  display: none;
+}
+.studio-library-toolbar[data-collapse]:not([data-collapse='0']) .studio-library-filters {
+  gap: 5px;
+}
+.studio-library-toolbar[data-collapse='2'] .studio-search,
+.studio-library-toolbar[data-collapse='3'] .studio-search {
+  flex-basis: 160px;
+  min-width: 130px;
+}
+.studio-library-toolbar[data-collapse='2'] .studio-library-filters select {
+  max-width: 120px;
+}
+.studio-library-toolbar[data-collapse='3'] {
+  gap: 6px;
+}
+.studio-library-toolbar[data-collapse='3'] .studio-search {
+  min-width: 100px;
+}
+.studio-library-toolbar[data-collapse='3'] select {
+  max-width: 104px;
 }
 .studio-effects-master {
   display: flex;

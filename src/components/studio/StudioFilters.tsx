@@ -9,7 +9,6 @@ import type { FlagCounts, FlagFilter } from '../../utils/culling';
 import { filterAsRule, scopeRule, selectionCount } from '../../utils/librarySearch';
 import { folderViewMode } from '../../utils/subfolderView';
 import { useSmartAlbumEditor } from './SmartAlbumEditor';
-import { checkEyes } from '../../hooks/useEyeCheck';
 import { COLOR_LABEL_NAMES } from '../../entities/photo/colorLabel';
 
 const flags = [
@@ -126,28 +125,21 @@ export default function StudioFilters({
         )}
       </select>
       {children}
-      {sessionDirectory && (
+      {sessionDirectory && eyeCheck && (
         // Faces' eyes (a suggestion, never a reject): closed or partly, or
-        // in need of a check. Until turned on, the one entry starts it.
+        // in need of a check. Shown only with Eye check on (Preferences ›
+        // General turns it on): "All eyes" meant nothing before (UX4-16)
+        // and took a place in the one-row bar.
         <select
           className="studio-eyes-filter"
           aria-label={t('studio.eyes.filter')}
           title={t('studio.eyes.suggestion')}
-          value={eyeCheck ? (filter.eyes ?? 'all') : 'all'}
-          onChange={(e) => {
-            if (e.target.value === 'start') void checkEyes(sessionDirectory);
-            else setFilter({ eyes: e.target.value as 'all' | 'closed' | 'check' });
-          }}
+          value={filter.eyes ?? 'all'}
+          onChange={(e) => setFilter({ eyes: e.target.value as 'all' | 'closed' | 'check' })}
         >
           <option value="all">{t('studio.eyes.filterAll')}</option>
-          {eyeCheck ? (
-            <>
-              <option value="closed">{t('studio.eyes.filterClosed')}</option>
-              <option value="check">{t('studio.eyes.filterCheck')}</option>
-            </>
-          ) : (
-            <option value="start">{t('studio.eyes.start')}</option>
-          )}
+          <option value="closed">{t('studio.eyes.filterClosed')}</option>
+          <option value="check">{t('studio.eyes.filterCheck')}</option>
         </select>
       )}
       {sessionDirectory && onToggleMetadata && (
@@ -183,8 +175,9 @@ export default function StudioFilters({
             })
           }
         >
+          {/* Icon only (its name is the tooltip): an occasional action that
+              must not cost the one-row bar its width (UX4-08). */}
           <ListPlus size={12} />
-          <span>{t('studio.library.smartAlbums.fromFilter')}</span>
         </button>
       )}
       <button

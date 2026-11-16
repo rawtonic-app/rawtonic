@@ -949,7 +949,7 @@ it('one undo restores every photo a Sync changed, and redo applies it again (O-0
     }),
     ['/b.nef', '/c.nef']
   );
-  expect(getUndoLabel()).toBe('Undo Sync Settings');
+  expect(getUndoLabel()).toBe('Undo Sync Adjustments');
   await undo();
   expect(recipes).toEqual({ '/b.nef': { exposure: 0.2 }, '/c.nef': {} });
   // The open photograph keeps its own edit; it is the next step.
@@ -979,7 +979,7 @@ it('a paste onto the open photo and others is one undo step for all of them (O-0
     ['/b.nef'],
     editUndoOrder(history, historyIndex)
   );
-  expect(getUndoLabel()).toBe('Undo Paste Settings');
+  expect(getUndoLabel()).toBe('Undo Paste Adjustments');
   await undo();
   expect(useEditorStore.getState().adjustments.exposure).toBe(0);
   expect(recipes['/b.nef']).toEqual({ contrast: 3 });

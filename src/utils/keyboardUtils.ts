@@ -1,3 +1,5 @@
+import { layoutChars } from './keyboardLayout';
+
 export interface KeybindDefinition {
   action: string;
   description: string;
@@ -889,6 +891,12 @@ export function normalizeCombo(event: KeyboardEvent, osPlatform?: string, librar
     // the letter the key types without it, as the webview reports it in
     // keyCode, not its place (Y and Z swap on German and Swiss keyboards).
     code = `Key${String.fromCharCode(event.keyCode)}`;
+  } else if ((event.ctrlKey || event.metaKey) && (event.key === '+' || event.key === '-')) {
+    // ⌘+ and ⌘- zoom by the character on every layout (German: + and - have
+    // keys of their own; US: ⌘+ is ⌘⇧=), as in every photo editor.
+    code = event.key === '+' ? 'Equal' : 'Minus';
+    const shift = parts.indexOf('shift');
+    if (shift >= 0) parts.splice(shift, 1);
   } else if (/^Numpad[0-9]$/.test(code)) {
     code = `Digit${code.slice(-1)}`;
   } else if (code === 'NumpadAdd') {
@@ -908,13 +916,42 @@ export function normalizeCombo(event: KeyboardEvent, osPlatform?: string, librar
   return parts;
 }
 
-function codeToDisplayLabel(code: string): string | null {
+/** Punctuation keys: matched by place, named by what they type. */
+const PLACE_KEYS = new Set([
+  'Backquote',
+  'Minus',
+  'Equal',
+  'BracketLeft',
+  'BracketRight',
+  'Backslash',
+  'Semicolon',
+  'Quote',
+  'Comma',
+  'Period'
+]);
+
+/** The character a key stands for in a combo on the active layout: what a
+ * punctuation key types there ("ä" for Quote on a German keyboard). With
+ * ⌘/Ctrl, Equal and Minus are + and - on every layout: normalizeCombo
+ * matches ⌘+ and ⌘- by the character (⌘⇧= on a US keyboard, ⌘⇧1 on a Swiss
+ * one), as Safari's and the photo editors' menus show them. Null for keys
+ * that are not punctuation. */
+export function comboKeyChar(code: string, withCtrl = false): string | null {
+  if (!PLACE_KEYS.has(code)) return code === 'Slash' ? '/' : null;
+  if (withCtrl && code === 'Equal') return '+';
+  if (withCtrl && code === 'Minus') return '-';
+  return layoutChars().get(code) ?? symMap[code] ?? null;
+}
+
+function codeToDisplayLabel(code: string, withCtrl = false): string | null {
   if (/^Key[A-Z]$/.test(code) || /^Digit[0-9]$/.test(code)) {
     return code[code.length - 1].toUpperCase();
   }
   if (/^Numpad[0-9]$/.test(code)) {
     return `Numpad ${code.slice(-1)}`;
   }
+  const char = comboKeyChar(code, withCtrl);
+  if (char !== null) return char.toLocaleUpperCase();
   return symMap[code] ?? null;
 }
 
@@ -925,17 +962,40 @@ function isValidShortcutKey(code: string): boolean {
   return code in symMap;
 }
 
-export function formatKeyCode(key: string, osPlatform: string): string {
+export function formatKeyCode(key: string, osPlatform: string, withCtrl = false): string {
   if (key === 'ctrl') return osPlatform === 'macos' ? '⌘' : 'Ctrl';
   if (key === 'shift') return 'Shift';
   if (key === 'alt') return osPlatform === 'macos' ? '⌥' : 'Alt';
   if (key === 'Delete' && osPlatform === 'macos') return '⌫ / Delete / ⌘+⌫';
-  const label = codeToDisplayLabel(key);
+  const label = codeToDisplayLabel(key, withCtrl);
   return label || key;
 }
 
-/** The first key of an action for tooltips ("B", "Ctrl + Shift + E"), or
- * null when it has none. */
+/** macOS names keys with glyphs, in Apple's order (⌃⌥⇧⌘). */
+const MAC_MODIFIERS: [string, string][] = [
+  ['alt', '⌥'],
+  ['shift', '⇧'],
+  ['ctrl', '⌘']
+];
+const MAC_KEYS: Record<string, string> = { Delete: '⌫', Backspace: '⌫' };
+
+/** A combo as menus and Preferences show it: "⇧⌘G" on macOS (the system's
+ * notation), "Ctrl+Shift+G" elsewhere; punctuation as the active keyboard
+ * layout types it. */
+export function formatCombo(combo: string[], osPlatform: string): string {
+  const key = combo[combo.length - 1];
+  const withCtrl = combo.includes('ctrl');
+  if (osPlatform === 'macos') {
+    const modifiers = MAC_MODIFIERS.filter(([part]) => combo.includes(part))
+      .map(([, glyph]) => glyph)
+      .join('');
+    return modifiers + (MAC_KEYS[key] ?? formatKeyCode(key, osPlatform, withCtrl));
+  }
+  return combo.map((part) => formatKeyCode(part, osPlatform, withCtrl)).join('+');
+}
+
+/** The first key of an action for tooltips ("B", "Ctrl+Shift+E", "⇧⌘E"),
+ * or null when it has none. */
 export function shortcutHint(
   action: string,
   keybinds: Record<string, string[]> | null | undefined,
@@ -943,5 +1003,5 @@ export function shortcutHint(
 ): string | null {
   const def = KEYBIND_DEFINITIONS.find((d) => d.action === action);
   const combo = def && effectiveCombos(def, keybinds)[0];
-  return combo ? combo.map((k) => formatKeyCode(k, osPlatform)).join(' + ') : null;
+  return combo ? formatCombo(combo, osPlatform) : null;
 }

@@ -812,7 +812,7 @@ describe('Folders › Add Folder… (G39 AF)', () => {
     window.removeEventListener(SHOW_PREVIOUS_IMPORT, shown);
   });
 
-  it('in a project, the folder is only shown; Copy into this project… opens the verified copy import', async () => {
+  it('in a project, the folder is only shown; Copy into this session… opens the verified copy import', async () => {
     const user = userEvent.setup();
     respond(summary);
     await open();
@@ -820,8 +820,8 @@ describe('Folders › Add Folder… (G39 AF)', () => {
     act(() => {
       requestAddFolder({ folder: '/Volumes/Archive/2026', show });
     });
-    await screen.findByText(/projects keep their own files/);
-    await user.click(screen.getByRole('button', { name: 'Copy into this project…' }));
+    await screen.findByText(/sessions keep their own files/);
+    await user.click(screen.getByRole('button', { name: 'Copy into this session…' }));
     await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2));
     expect(screen.getByRole('button', { name: 'Copy 2 photos' })).toBeTruthy();
     expect(show).not.toHaveBeenCalled();

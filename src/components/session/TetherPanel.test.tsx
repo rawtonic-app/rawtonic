@@ -287,8 +287,8 @@ it('says before connecting a Canon that it is experimental and needs the opt-in 
   const onClose = vi.fn();
   render(<Harness onClose={onClose} />);
   expect(await screen.findByText(/Experimental — testers wanted/)).toBeTruthy();
-  expect(screen.getByText(/turn on “Experimental: Canon cameras” in Preferences > Tethering/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Open Tethering preferences' }));
+  expect(screen.getByText(/turn on “Experimental: Canon cameras” in Settings > Tethering/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Open Tethering settings' }));
   expect(useUIStore.getState().isSettingsOpen).toBe(true);
   expect(useUIStore.getState().settingsCategory).toBe('tethering');
   // The floating panel goes, so it does not cover the Preferences page.
@@ -298,7 +298,7 @@ it('says before connecting a Canon that it is experimental and needs the opt-in 
   useSettingsStore.setState({ appSettings: { lastRootPath: null, tetherExperimentalCanon: true } as AppSettings });
   render(<Harness />);
   expect(await screen.findByText(/Experimental — testers wanted/)).toBeTruthy();
-  expect(screen.queryByRole('button', { name: 'Open Tethering preferences' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Open Tethering settings' })).toBeNull();
   useSettingsStore.setState({ appSettings: null });
   useUIStore.getState().setUI({ isSettingsOpen: false, settingsCategory: null });
 });

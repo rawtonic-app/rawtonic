@@ -49,7 +49,7 @@ describe('interrupted batches', () => {
     await offerInterruptedBatches('/job');
     expect(calls[0]).toEqual(['interrupted_batches', { directory: '/job' }]);
     expect(entry()?.status).toBe('warning');
-    expect(entry()?.title).toBe('Interrupted: Paste Settings applied to 2 of 4 photos');
+    expect(entry()?.title).toBe('Interrupted: Paste Adjustments applied to 2 of 4 photos');
     expect(entry()?.actions?.map((a) => a.label)).toEqual(['Apply to the rest', 'Undo the applied part', 'Dismiss']);
     useActivityStore.setState({ entries: [] });
     await offerInterruptedBatches('/job');
@@ -155,7 +155,7 @@ describe('interrupted batches', () => {
     });
     await action('Apply to the rest').run();
     expect(calls.map(([command]) => command)).not.toContain('dismiss_interrupted_batch');
-    await vi.waitFor(() => expect(entry()?.title).toBe('Interrupted: Paste Settings applied to 3 of 4 photos'));
+    await vi.waitFor(() => expect(entry()?.title).toBe('Interrupted: Paste Adjustments applied to 3 of 4 photos'));
     expect(entry()?.status).toBe('warning');
   });
 
@@ -175,7 +175,7 @@ describe('interrupted batches', () => {
     answer([paste], calls);
     useLibraryStore.setState({ sessionDirectory: '/job' });
     await offerInterruptedBatches('/job');
-    expect(entry()?.title).toBe('Interrupted: Paste Settings applied to 2 of 4 photos');
+    expect(entry()?.title).toBe('Interrupted: Paste Adjustments applied to 2 of 4 photos');
   });
 
   it('forgets the batch when its entry is closed, as Dismiss does', async () => {

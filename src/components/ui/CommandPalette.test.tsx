@@ -143,7 +143,7 @@ it.each(['linux', 'windows'])('opens with Ctrl+Shift+P on %s and displays effect
   render(<Harness />);
   press('KeyP', { ctrlKey: true, shiftKey: true });
   expect(screen.getByRole('dialog')).toBeTruthy();
-  expect(screen.getByRole('dialog').textContent).toContain('Ctrl + ,');
+  expect(screen.getByRole('dialog').textContent).toContain('Ctrl+,');
 });
 
 it('moves through matches with arrows and restores the opener on Escape', () => {

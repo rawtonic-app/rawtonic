@@ -1,4 +1,8 @@
-import { SquareSquare } from 'lucide-react';
+import { Ellipsis, SquareSquare } from 'lucide-react';
+import { useContextMenu } from '../../context/ContextMenuContext';
+import { OPTION_SEPARATOR } from '../ui/AppProperties';
+import { cameraPreviewOnScreen, cameraPreviewToggleState } from './CameraPreview';
+import { TOGGLE_CAMERA_PREVIEW, toggleCameraPreview } from '../../utils/cameraPreview';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -17,6 +21,7 @@ export function ProofMarginButton() {
   const key = shortcutHint('toggle_proof_margin', appSettings?.keybinds, osPlatform);
   return (
     <button
+      className="studio-proof-margin-toggle"
       aria-pressed={on}
       aria-label={label}
       title={t('studio.workspace.withShortcut', {
@@ -100,6 +105,75 @@ export function PointerReadout() {
         </span>
       ))}
       {unit === 'percent' && <span className="studio-muted">%</span>}
+    </button>
+  );
+}
+
+/**
+ * The viewer bar's ⋯ once the bar runs short (useFitOneRow's level 3,
+ * UX4-07): Camera preview, Proof margin, Fit, 100 % and the zoom presets,
+ * which the bar then leaves out (Fit and 100 % from level 4), so none of
+ * them becomes unreachable.
+ */
+export function ViewerOverflowMenu({ onZoom }: { onZoom(value: number, fit?: boolean): void }) {
+  const { t } = useTranslation();
+  const { showContextMenu } = useContextMenu();
+  const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
+  const osPlatform = useSettingsStore((s) => s.osPlatform);
+  const fit = useEditorStore((s) => {
+    const { originalSize, baseRenderSize, adjustments } = s;
+    const swapped = (adjustments.orientationSteps || 0) % 2 === 1;
+    const width = swapped ? originalSize.height : originalSize.width;
+    const height = swapped ? originalSize.width : originalSize.height;
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    return fitZoomValue(width, height, baseRenderSize?.width ?? 0, baseRenderSize?.height ?? 0, dpr);
+  });
+  const label = t('studio.workspace.viewer.more');
+  return (
+    <button
+      className="studio-viewer-overflow"
+      aria-label={label}
+      title={label}
+      aria-haspopup="menu"
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const editor = useEditorStore.getState();
+        const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+        const camera = cameraPreviewToggleState(editor.selectedImage);
+        const margin = appSettings?.viewerProofMargin ?? false;
+        showContextMenu(rect.left, rect.bottom, [
+          {
+            label: t('studio.workspace.cameraPreview.label'),
+            checked: cameraPreviewOnScreen(editor),
+            disabled: camera.disabled,
+            shortcut: shortcutHint(TOGGLE_CAMERA_PREVIEW, keybinds, osPlatform),
+            onClick: toggleCameraPreview
+          },
+          {
+            label: t('studio.workspace.viewer.proofMargin'),
+            checked: margin,
+            disabled: !appSettings,
+            shortcut: shortcutHint('toggle_proof_margin', keybinds, osPlatform),
+            onClick: () => {
+              const current = useSettingsStore.getState().appSettings;
+              if (current) void handleSettingsChange({ ...current, viewerProofMargin: !margin });
+            }
+          },
+          { type: OPTION_SEPARATOR },
+          // Fit and 100 % leave the bar one level later (UX4-07).
+          { label: t('studio.workspace.viewer.fitTitle'), shortcut: ',', onClick: () => onZoom(1, true) },
+          { label: t('studio.workspace.viewer.actualPixels'), shortcut: '.', onClick: () => onZoom(1) },
+          {
+            label: t('studio.workspace.viewer.zoom'),
+            submenu: zoomPresetsAboveFit(fit).map((preset) => ({
+              label: `${Math.round(preset * 100)}%`,
+              onClick: () => onZoom(preset)
+            }))
+          }
+        ]);
+      }}
+    >
+      <Ellipsis size={14} />
     </button>
   );
 }

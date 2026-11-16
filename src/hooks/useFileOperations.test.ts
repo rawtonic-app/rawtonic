@@ -74,6 +74,20 @@ it('says where deleted photos went and how to undo it', () => {
   );
 });
 
+it('names a catalog by its own kind, never "session" (UX4-02)', () => {
+  useLibraryStore.setState({ libraryKind: 'catalog' });
+  try {
+    expect(describeFileOperation(summary({ sessionTrash: 2 }), '')).toBe(
+      "Moved 2 items to the catalog's Trash folder. "
+    );
+    expect(describeFileOperation(summary({ sessionTrash: 1, systemTrash: 1 }), '')).toContain(
+      "the catalog's Trash folder and the Trash"
+    );
+  } finally {
+    useLibraryStore.setState({ libraryKind: null });
+  }
+});
+
 it('names the folder photos were moved to, and other operations by their label', () => {
   expect(
     describeFileOperation(
@@ -404,7 +418,7 @@ describe('emptying the session Trash', () => {
 
   it('names the count, says it is permanent and not undoable', () => {
     expect(describeEmptyTrash(contents)).toBe(
-      "Permanently delete 3 photos in this session's Trash folder? 7 files are removed from disk, sidecars and XMP included. This cannot be undone, and file changes made before it can no longer be undone either."
+      'Permanently delete 3 photos in the Trash folder? 7 files are removed from disk, sidecars and XMP included. This cannot be undone, and file changes made before it can no longer be undone either.'
     );
     expect(describeEmptyTrash({ photos: 1, files: 1, entries: 1 })).toContain('Permanently delete 1 photo in');
     expect(describeEmptyTrash({ photos: 0, files: 2, entries: 1 })).toContain('Permanently delete 2 files in');
@@ -427,7 +441,7 @@ describe('emptying the session Trash', () => {
     expect(invoke).toHaveBeenCalledWith(Invokes.SessionTrashContents, { session: '/job' });
     const modal = useUIStore.getState().confirmModalState;
     expect(modal.isOpen).toBe(true);
-    expect(modal.title).toBe('Empty the Session Trash?');
+    expect(modal.title).toBe('Empty the Trash Folder?');
     expect(modal.confirmText).toBe('Delete Permanently');
     expect(modal.confirmVariant).toBe('destructive');
     expect(modal.message).toContain('3 photos');
@@ -463,7 +477,7 @@ describe('emptying the session Trash', () => {
     );
     await result.current.handleEmptySessionTrash();
     expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
-    expect(toast.info).toHaveBeenCalledWith("The session's Trash folder is empty.");
+    expect(toast.info).toHaveBeenCalledWith('The Trash folder is empty.');
   });
 });
 

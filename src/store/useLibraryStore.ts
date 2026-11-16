@@ -51,6 +51,9 @@ interface LibraryState {
   imageRatings: Record<string, number>;
   imageFlags: Record<string, number>;
   sessionDirectory: string | null;
+  /** The open library's kind: texts name it ("this catalog's Trash folder"),
+   * never the other one (`t(key, { context: libraryKind })`). */
+  libraryKind: 'session' | 'catalog' | null;
   /** Photos whose XMP file is behind the library (the session bar's count). */
   xmpPending: number;
   /** The open session's Capture, Selects and Output folders (G38): where
@@ -121,6 +124,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   imageRatings: {},
   imageFlags: {},
   sessionDirectory: null,
+  libraryKind: null,
   xmpPending: 0,
   sessionFolders: [],
   subfolderDefaultRoot: null,

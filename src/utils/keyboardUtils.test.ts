@@ -4,10 +4,12 @@ import {
   buildComboMap,
   conflictingActions,
   fieldOwnsKey,
+  formatCombo,
   normalizeCombo,
   shortcutHint,
   splitByView
 } from './keyboardUtils';
+import { setLayoutChars } from './keyboardLayout';
 
 describe('keybinds', () => {
   it.each([
@@ -96,8 +98,35 @@ describe('keybinds', () => {
     expect(shortcutHint('toggle_split_view', null, 'macos')).toBe('Y');
     expect(shortcutHint('show_original', null, 'macos')).toBe('\\');
     expect(shortcutHint('tool_brush', null, 'macos')).toBe('B');
-    expect(shortcutHint('toggle_export', null, 'macos')).toBe('⌘ + Shift + E');
+    expect(shortcutHint('toggle_export', null, 'macos')).toBe('⇧⌘E');
+    expect(shortcutHint('toggle_export', null, 'windows')).toBe('Ctrl+Shift+E');
     expect(shortcutHint('copy_files', null, 'macos')).toBeNull();
+  });
+
+  it('names punctuation as the keyboard layout types it, and zooms with ⌘+ and ⌘- on every layout', () => {
+    setLayoutChars(
+      new Map([
+        ['Quote', 'ä'],
+        ['Equal', '´'],
+        ['BracketRight', '+'],
+        ['Slash', '-']
+      ])
+    );
+    try {
+      expect(formatCombo(['ctrl', 'Quote'], 'windows')).toBe('Ctrl+Ä');
+      expect(formatCombo(['ctrl', 'Equal'], 'macos')).toBe('⌘+');
+      expect(formatCombo(['BracketRight'], 'windows')).toBe('+');
+    } finally {
+      setLayoutChars(new Map());
+    }
+    const key = (init: KeyboardEventInit) => normalizeCombo(new KeyboardEvent('keydown', init), 'macos');
+    // German ⌘+ (its own key), US ⌘⇧= and Swiss ⌘⇧1 all zoom in.
+    expect(key({ code: 'BracketRight', key: '+', metaKey: true })).toEqual(['ctrl', 'Equal']);
+    expect(key({ code: 'Equal', key: '+', metaKey: true, shiftKey: true })).toEqual(['ctrl', 'Equal']);
+    expect(key({ code: 'Digit1', key: '+', metaKey: true, shiftKey: true })).toEqual(['ctrl', 'Equal']);
+    expect(key({ code: 'Slash', key: '-', metaKey: true })).toEqual(['ctrl', 'Minus']);
+    // Without ⌘ the key keeps its place (German + is rotate right's ]).
+    expect(key({ code: 'BracketRight', key: '+' })).toEqual(['BracketRight']);
   });
 });
 
