@@ -783,7 +783,7 @@ export function useFileOperations(
             }
             const moved = (path: string) =>
               result?.movedEntries
-                ? result.movedEntries.some((entry) => isBelow(sourceOf(path), entry))
+                ? result.movedEntries.some((entry) => sourceOf(path) === entry || isBelow(sourceOf(path), entry))
                 : !result?.failures?.length && inTrash(path);
             // Keep selection only for entries that stayed in the library Trash.
             const { selectedImage, setEditor } = useEditorStore.getState();

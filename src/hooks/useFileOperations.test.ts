@@ -537,6 +537,35 @@ describe('emptying the session Trash', () => {
     }
   );
 
+  it('partial success clears exactly the moved file and keeps a failed file selected', async () => {
+    const a = '/job/Trash/A.RAF';
+    const b = '/job/Trash/B.RAF';
+    useEditorStore.setState({ selectedImage: { path: a } as never });
+    useLibraryStore.setState({ multiSelectedPaths: [a, b], libraryActivePath: a });
+    vi.mocked(invoke).mockResolvedValueOnce(contents);
+    const { result } = renderHook(() =>
+      useFileOperations(
+        vi.fn(async () => {}),
+        vi.fn(async () => {}),
+        vi.fn(),
+        vi.fn(),
+        []
+      )
+    );
+    await result.current.handleEmptySessionTrash();
+    const modal = useUIStore.getState().confirmModalState;
+    vi.mocked(invoke).mockResolvedValueOnce({
+      ...contents,
+      movedEntries: [a],
+      failures: ['B.RAF: unavailable'],
+      remaining: { photos: 1, files: 1, entries: 1 }
+    });
+    await modal.onConfirm?.();
+    expect(useEditorStore.getState().selectedImage).toBeNull();
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual([b]);
+    expect(useLibraryStore.getState().libraryActivePath).toBeNull();
+  });
+
   it('an empty Trash asks nothing', async () => {
     vi.mocked(invoke).mockResolvedValueOnce({ photos: 0, files: 0, entries: 0 });
     const { result } = renderHook(() =>
