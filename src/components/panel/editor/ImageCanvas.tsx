@@ -1,4 +1,3 @@
-import { brushCursorOutlines } from './brushCursor';
 import { useState, useEffect, useRef, useCallback, memo, useMemo, type MutableRefObject } from 'react';
 import { useCropGestures, useToolGesture } from '../../../utils/cropGesture';
 import ReactCrop from 'react-image-crop';
@@ -33,6 +32,7 @@ import { sampleLumaRange } from '../../../utils/lumaSample';
 import TargetedAdjustmentOverlay from './TargetedAdjustmentOverlay';
 import RelightOverlay from './RelightOverlay';
 import { useRelightStore } from '../../../store/useRelightStore';
+import { brushCursorOutlines } from './brushCursor';
 import SpotOverlay from './SpotOverlay';
 import RedEyeOverlay from './RedEyeOverlay';
 import FaceRetouchOverlay from './FaceRetouchOverlay';

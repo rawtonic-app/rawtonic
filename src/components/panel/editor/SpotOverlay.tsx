@@ -1,4 +1,3 @@
-import { brushCursorOutlines } from './brushCursor';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
@@ -23,6 +22,8 @@ import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { uiHoldsShortcuts } from '../../../hooks/useKeyboardShortcuts';
 
+import { brushCursorOutlines } from './brushCursor';
+
 /** Whether `e` is the key bound to Find another source (`spot_new_source`). */
 function isNewSourceKey(e: KeyboardEvent): boolean {
   const { appSettings, osPlatform } = useSettingsStore.getState();
@@ -39,6 +40,14 @@ interface Props {
   scale: number;
   /** The viewer's zoom, so handles keep their size on screen. */
   zoom: number;
+}
+
+/** Keep keyboard and wheel sizing useful at the slider limits too. */
+function resizedBrush(size: number, grow: boolean) {
+  return Math.min(
+    1000,
+    Math.max(2, grow ? Math.max(size + 1, Math.round(size * 1.15)) : Math.min(size - 1, Math.round(size / 1.15)))
+  );
 }
 
 type Point = { x: number; y: number };
@@ -223,8 +232,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const [draft, setDraft] = useState<Spot | null>(null);
   // The spot under the pointer while no button is down (Lightroom marks it
   // and shows its source, so you see what a click will select).
-  const [pointer, setPointer] = useState<Point | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [pointer, setPointer] = useState<Point | null>(null);
   const [stroke, setStroke] = useState<Point[] | null>(null);
   // Spots and removals being placed (a removal's fill takes about a second;
   // the brush keeps painting meanwhile).
@@ -245,6 +254,22 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const objectBrush = detectObjects && (settings.objectSelect ?? 'brush') === 'brush';
   const drag = useRef<Drag | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  // Native listener runs before the viewer's native pan/zoom listener.
+  // Plain wheel/trackpad scroll remains navigation, just as for masks.
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const resize = (event: WheelEvent) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.deltaY === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const { spotSettings, setEditor } = useEditorStore.getState();
+      setEditor({ spotSettings: { ...spotSettings, size: resizedBrush(spotSettings.size, event.deltaY < 0) } });
+    };
+    element.addEventListener('wheel', resize, { passive: false });
+    return () => element.removeEventListener('wheel', resize);
+  }, []);
+
   // The removals being filled (task ids, newest last) and what the backend
   // reported of each; the newest one with a report is shown.
   const filling = useRef<string[]>([]);
@@ -801,8 +826,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         const factor = e.key === ']' ? 1.15 : 1 / 1.15;
         const spot = adjustments.spots?.find((s) => s.id === id);
         if (spot) commit({ ...spot, radius: Math.max(2, spot.radius * factor) });
-        else
-          setEditor({ spotSettings: { ...spotSettings, size: Math.max(2, Math.round(spotSettings.size * factor)) } });
+        else setEditor({ spotSettings: { ...spotSettings, size: resizedBrush(spotSettings.size, e.key === ']') } });
       } else if (e.key === 'Escape' && filling.current.length) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -825,8 +849,25 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     hoveredSpot &&
     !isStroke(hoveredSpot) &&
     Math.abs(distanceToSpot(pointer.x, pointer.y, hoveredSpot)) <= RIM * pixel;
-  const showBrush = pointer && !hoveredItem && (!detectObjects || objectBrush) && settings.size * scale * zoom >= 2;
-  const cursor = hoveredItem ? (rim ? 'nwse-resize' : 'move') : showBrush ? 'none' : 'crosshair';
+  const dragKind = drag.current?.kind;
+  const editingSpot = dragKind === 'target' || dragKind === 'source' || dragKind === 'radius';
+  const showBrush =
+    pointer &&
+    !hoveredItem &&
+    (!dragKind || dragKind === 'paint' || dragKind === 'objectStroke') &&
+    (!detectObjects || objectBrush) &&
+    settings.size * scale * zoom >= 2;
+  const cursor = editingSpot
+    ? dragKind === 'radius'
+      ? 'nwse-resize'
+      : 'move'
+    : hoveredItem
+      ? rim
+        ? 'nwse-resize'
+        : 'move'
+      : showBrush
+        ? 'none'
+        : 'crosshair';
 
   const line = 1.5 * pixel * scale;
   const circle = (key: string, x: number, y: number, r: number, cls: string, dashed = false, bold = false) => {
@@ -925,17 +966,6 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         zIndex: 6,
         cursor,
         touchAction: 'none'
-      }}
-      onWheel={(e) => {
-        if (e.ctrlKey || e.metaKey || e.deltaY === 0) return;
-        e.stopPropagation();
-        const { spotSettings, setEditor } = useEditorStore.getState();
-        setEditor({
-          spotSettings: {
-            ...spotSettings,
-            size: Math.max(2, Math.round(spotSettings.size * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))
-          }
-        });
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

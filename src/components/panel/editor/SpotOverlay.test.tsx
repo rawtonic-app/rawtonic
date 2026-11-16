@@ -1037,7 +1037,7 @@ describe('brush cursor', () => {
     expect(el.style.cursor).toBe('none');
     fireEvent.keyDown(window, { key: ']' });
     expect(ring().getAttribute('r')).toBe('11.5');
-    fireEvent.wheel(el, { deltaY: -100 });
+    fireEvent.wheel(el, { deltaY: -100, altKey: true });
     expect(ring().getAttribute('r')).toBe('13');
     act(() => useEditorStore.setState({ spotSettings: { mode: 'clone', size: 40, feather: 25, opacity: 100 } }));
     expect(ring().getAttribute('r')).toBe('20');
@@ -1089,6 +1089,31 @@ describe('brush cursor', () => {
     expect(screen.queryByTestId('spot-brush-cursor')).toBeNull();
     fireEvent.pointerMove(el, { clientX: 60, clientY: 50 });
     expect(el.style.cursor).toBe('nwse-resize');
+    fireEvent.pointerDown(el, { clientX: 60, clientY: 50, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: 80, clientY: 50, pointerId: 1 });
+    expect(el.style.cursor).toBe('nwse-resize');
+    expect(screen.queryByTestId('spot-brush-cursor')).toBeNull();
+    fireEvent.pointerUp(el, { clientX: 80, clientY: 50, pointerId: 1 });
+  });
+
+  it('reserves only Alt-wheel before the native viewer navigation listener, with bounded sizes', () => {
+    const el = overlay();
+    const navigate = vi.fn();
+    el.parentElement!.addEventListener('wheel', navigate);
+    fireEvent.wheel(el, { deltaY: -1 });
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(useEditorStore.getState().spotSettings.size).toBe(20);
+    fireEvent.wheel(el, { deltaY: -1, altKey: true });
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(useEditorStore.getState().spotSettings.size).toBe(23);
+    act(() => useEditorStore.setState({ spotSettings: { mode: 'heal', size: 2, feather: 0, opacity: 100 } }));
+    fireEvent.keyDown(window, { key: ']' });
+    expect(useEditorStore.getState().spotSettings.size).toBe(3);
+    fireEvent.wheel(el, { deltaY: -1, altKey: true });
+    expect(useEditorStore.getState().spotSettings.size).toBe(4);
+    act(() => useEditorStore.setState({ spotSettings: { mode: 'heal', size: 1000, feather: 0, opacity: 100 } }));
+    fireEvent.wheel(el, { deltaY: -1, altKey: true });
+    expect(useEditorStore.getState().spotSettings.size).toBe(1000);
   });
 
   it('shows the Remove object brush without a feather ring', () => {
