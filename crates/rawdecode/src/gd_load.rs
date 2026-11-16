@@ -289,6 +289,21 @@ pub fn run(mosaic: &[f32], w: usize, h: usize, colors: [u32; 4]) {
     for name in &PASSES[1..] {
         pass(&mut encoder, name);
     }
+    // EXT7 `noreadback`: a GPU-resident design keeps the frame on the GPU;
+    // wait for the work only.
+    if std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "noreadback")) {
+        g.queue.submit(Some(encoder.finish()));
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = done.clone();
+        g.queue.on_submitted_work_done(move || flag.store(true, std::sync::atomic::Ordering::Release));
+        while !done.load(std::sync::atomic::Ordering::Acquire) {
+            let _ = dev.poll(wgpu::PollType::Poll);
+            std::thread::sleep(std::time::Duration::from_micros(500));
+        }
+        drop(guard);
+        log::info!("gd_load: {w}x{h} noreadback {:.0} ms", started.elapsed().as_secs_f64() * 1000.0);
+        return;
+    }
     // The developed frame back as Rgb32F (12 bytes per pixel).
     encoder.copy_buffer_to_buffer(&set.pr, 0, &set.staging, 0, f);
     encoder.copy_buffer_to_buffer(&set.pg, 0, &set.staging, f, f);
