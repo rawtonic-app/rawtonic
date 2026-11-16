@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { openDialog, saveDialog } from '../../utils/fileDialog';
 import { ArrowDownAZ, Check, ChevronRight, FolderInput, FolderPlus, Plus, Sparkles, Star } from 'lucide-react';
 import { notify } from '../../activity/notify';
 import { useTranslation } from 'react-i18next';
@@ -357,8 +357,9 @@ export default function StudioPresets() {
     setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
   };
   const exportPreset = async (preset: Preset) => {
-    const path = await save({
+    const path = await saveDialog({
       title: t('studio.presets.exportTitle', { name: preset.name }),
+      purpose: 'presets',
       defaultPath: `${preset.name}.rrpreset`,
       filters: [{ name: t('studio.presets.fileType'), extensions: ['rrpreset'] }]
     });
@@ -423,8 +424,9 @@ export default function StudioPresets() {
         label: t('studio.presets.menu.export'),
         disabled: !item,
         onClick: async () => {
-          const path = await save({
+          const path = await saveDialog({
             title: t('studio.presets.exportTitle', { name: folder.name }),
+            purpose: 'presets',
             defaultPath: `${folder.name}.rrpreset`,
             filters: [{ name: t('studio.presets.fileType'), extensions: ['rrpreset'] }]
           });
@@ -443,9 +445,10 @@ export default function StudioPresets() {
   // Lightroom presets (.xmp, .lrtemplate), Capture One styles (.costyle,
   // translated into Rawtonic's tools) and Rawtonic's own files.
   const importFiles = async () => {
-    const chosen = await open({
+    const chosen = await openDialog({
       multiple: true,
       title: t('studio.presets.importTitle'),
+      purpose: 'presets',
       filters: [
         {
           name: t('studio.presets.importFilter'),

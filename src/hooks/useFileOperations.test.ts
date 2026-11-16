@@ -1195,3 +1195,38 @@ it.each(['move', 'paste', 'trash', 'trash-associated'] as const)(
     expect(target).toBe('/dest/a.jpg');
   }
 );
+
+it("says that Delete on a photo already in the library's Trash goes on to the computer's Trash (UXR4L-05)", () => {
+  useUIStore.setState({ activeView: 'library', confirmModalState: { isOpen: false } });
+  useLibraryStore.setState({
+    sessionDirectory: '/job',
+    multiSelectedPaths: ['/job/Trash/Photos/A.NEF'],
+    imageList: []
+  });
+  const { result } = renderHook(() =>
+    useFileOperations(
+      vi.fn(() => Promise.resolve()),
+      vi.fn(() => Promise.resolve()),
+      vi.fn(),
+      vi.fn(),
+      []
+    )
+  );
+  result.current.handleDeleteSelected();
+  let modal = useUIStore.getState().confirmModalState;
+  expect(modal.title).toBe("Move Out of the Library's Trash Folder?");
+  expect(modal.message).toContain("already in the library's Trash folder");
+  expect(modal.confirmText).toBe("Move to Computer's Trash");
+
+  useLibraryStore.setState({ multiSelectedPaths: ['/job/Photos/B.NEF', '/job/Trash/Photos/A.NEF'] });
+  result.current.handleDeleteSelected();
+  modal = useUIStore.getState().confirmModalState;
+  expect(modal.title).toBe('Move to Trash');
+  expect(modal.message).toContain("Those already in the library's Trash folder go on to the computer's Trash.");
+
+  // A folder of the same name outside the library's Trash: the usual text.
+  useLibraryStore.setState({ multiSelectedPaths: ['/job/Photos/Trash/C.NEF'] });
+  result.current.handleDeleteSelected();
+  expect(useUIStore.getState().confirmModalState.title).toBe('Move to Trash');
+  useLibraryStore.setState({ sessionDirectory: null, multiSelectedPaths: [] });
+});

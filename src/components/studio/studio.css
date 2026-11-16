@@ -7572,6 +7572,18 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-app.linux-unified-chrome .studio-window-close:active {
   background: #a5252d;
 }
+/* Linux without the system title bar (WindowControls.tsx): KWin draws no
+   frame or shadow for the window, so a dark window would melt into another
+   dark one behind it (UXR4L-06). A 1 px light outline while not maximized;
+   it never takes a click. */
+html.window-outlined body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  border: 1px solid rgb(255 255 255 / 18%);
+  pointer-events: none;
+  z-index: 2147483647;
+}
 .studio-app.custom-window-chrome .studio-viewer-filename,
 .studio-app.linux-unified-chrome .studio-viewer-filename {
   flex-basis: auto;

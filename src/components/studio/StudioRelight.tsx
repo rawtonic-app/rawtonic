@@ -190,6 +190,8 @@ export default function StudioRelight({
   const importPattern = async () => {
     setImportError(null);
     const path = await openDialog({
+      title: t('studio.relight.importPattern'),
+      purpose: 'patterns',
       multiple: false,
       filters: [
         {

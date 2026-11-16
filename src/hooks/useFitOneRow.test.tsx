@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { useFitOneRow } from './useFitOneRow';
 
 /** A bar whose content is `widths[level]` wide in a 500 px bar. */
-function Bar({ widths }: { widths: number[] }) {
+function Bar({ widths, attach = true }: { widths: number[]; attach?: boolean }) {
   const ref = useFitOneRow(widths.length - 1);
   return (
     <div
@@ -13,7 +13,7 @@ function Bar({ widths }: { widths: number[] }) {
           Object.defineProperty(el, 'clientWidth', { get: () => 500 });
           Object.defineProperty(el, 'scrollWidth', { get: () => widths[Number(el.dataset.collapse ?? 0)] });
         }
-        ref(el);
+        ref(attach ? el : null);
       }}
     />
   );
@@ -41,12 +41,13 @@ describe('useFitOneRow', () => {
 });
 
 it('leaves no level on a node it lets go of (React reuses it for another bar)', () => {
-  const { getByTestId, rerender } = render(<Bar widths={[700, 400]} />);
+  const { getByTestId, rerender } = render(<Bar widths={[700, 600, 900]} />);
   const bar = getByTestId('bar');
-  expect(bar.dataset.collapse).toBe('1');
-  function Plain() {
-    return <div data-testid="bar" />;
-  }
-  rerender(<Plain />);
-  expect(getByTestId('bar').dataset.collapse).toBeUndefined();
+  expect(bar.dataset.collapse).toBe('2');
+  expect(bar.dataset.wrap).toBe('true');
+  // Same node, ref released (Develop's bar becoming the loupe's).
+  rerender(<Bar widths={[700, 600, 900]} attach={false} />);
+  expect(getByTestId('bar')).toBe(bar);
+  expect(bar.dataset.collapse).toBeUndefined();
+  expect(bar.dataset.wrap).toBeUndefined();
 });

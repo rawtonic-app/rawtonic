@@ -22,6 +22,8 @@ import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { uiHoldsShortcuts } from '../../../hooks/useKeyboardShortcuts';
 
+import { brushCursorOutlines } from './brushCursor';
+
 /** Whether `e` is the key bound to Find another source (`spot_new_source`). */
 function isNewSourceKey(e: KeyboardEvent): boolean {
   const { appSettings, osPlatform } = useSettingsStore.getState();
@@ -38,6 +40,14 @@ interface Props {
   scale: number;
   /** The viewer's zoom, so handles keep their size on screen. */
   zoom: number;
+}
+
+/** Keep keyboard sizing useful at the slider limits too. */
+function resizedBrush(size: number, grow: boolean) {
+  return Math.min(
+    1000,
+    Math.max(2, grow ? Math.max(size + 1, Math.round(size * 1.15)) : Math.min(size - 1, Math.round(size / 1.15)))
+  );
 }
 
 type Point = { x: number; y: number };
@@ -223,6 +233,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   // The spot under the pointer while no button is down (Lightroom marks it
   // and shows its source, so you see what a click will select).
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [pointer, setPointer] = useState<Point | null>(null);
   const [stroke, setStroke] = useState<Point[] | null>(null);
   // Spots and removals being placed (a removal's fill takes about a second;
   // the brush keeps painting meanwhile).
@@ -577,6 +588,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
     const [x, y] = toImage(e.clientX, e.clientY);
+    setPointer({ x, y });
     if (!d) {
       const id = itemAt(x, y) ?? null;
       if (id !== hoverId) setHoverId(id);
@@ -798,8 +810,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         const factor = e.key === ']' ? 1.15 : 1 / 1.15;
         const spot = adjustments.spots?.find((s) => s.id === id);
         if (spot) commit({ ...spot, radius: Math.max(2, spot.radius * factor) });
-        else
-          setEditor({ spotSettings: { ...spotSettings, size: Math.max(2, Math.round(spotSettings.size * factor)) } });
+        else setEditor({ spotSettings: { ...spotSettings, size: resizedBrush(spotSettings.size, e.key === ']') } });
       } else if (e.key === 'Escape' && filling.current.length) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -813,6 +824,34 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, []);
+
+  // Size is a radius in mask pixels; the viewer applies zoom outside this box.
+  const hoveredItem = pointer && !drag.current ? itemAt(pointer.x, pointer.y) : undefined;
+  const hoveredSpot = shown.find((spot) => spot.id === hoveredItem);
+  const rim =
+    pointer &&
+    hoveredSpot &&
+    !isStroke(hoveredSpot) &&
+    Math.abs(distanceToSpot(pointer.x, pointer.y, hoveredSpot)) <= RIM * pixel;
+  const dragKind = drag.current?.kind;
+  const editingSpot = dragKind === 'target' || dragKind === 'source' || dragKind === 'radius';
+  const showBrush =
+    pointer &&
+    !hoveredItem &&
+    (!dragKind || dragKind === 'paint' || dragKind === 'objectStroke') &&
+    (!detectObjects || objectBrush) &&
+    settings.size * scale * zoom >= 2;
+  const cursor = editingSpot
+    ? dragKind === 'radius'
+      ? 'nwse-resize'
+      : 'move'
+    : hoveredItem
+      ? rim
+        ? 'nwse-resize'
+        : 'move'
+      : showBrush
+        ? 'none'
+        : 'crosshair';
 
   const line = 1.5 * pixel * scale;
   const circle = (key: string, x: number, y: number, r: number, cls: string, dashed = false, bold = false) => {
@@ -909,14 +948,18 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         width: rect.width,
         height: rect.height,
         zIndex: 6,
-        cursor: 'crosshair',
+        cursor,
         touchAction: 'none'
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onPointerLeave={() => setHoverId(null)}
+      onPointerLeave={() => {
+        setHoverId(null);
+        setPointer(null);
+      }}
+      onPointerEnter={onPointerMove}
     >
       {view && (
         <img
@@ -932,6 +975,17 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         height={rect.height}
         style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none' }}
       >
+        {showBrush && pointer && (
+          <g data-testid="spot-brush-cursor" transform={`translate(${toBox(pointer.x, pointer.y).join(' ')})`}>
+            {brushCursorOutlines(
+              settings.size * scale,
+              settings.mode === 'remove' ? undefined : settings.size * scale * (1 - settings.feather / 100)
+            ).map(({ radius, stroke, strokeWidth }, i) => (
+              <circle key={i} r={radius} fill="none" stroke={stroke} strokeWidth={strokeWidth / zoom} />
+            ))}
+            <circle r={1.5 / zoom} fill="white" stroke="rgba(0, 0, 0, 0.45)" strokeWidth={1 / zoom} />
+          </g>
+        )}
         {shown.map((spot) => {
           const active = spot.id === activeSpotId;
           // Hovered: drawn with its source like the selected one, in white.

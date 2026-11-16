@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { openDialog } from '../../utils/fileDialog';
 import { Invokes } from '../ui/AppProperties';
 import { registerAppCommands } from '../../utils/appCommands';
 import { useLibraryStore } from '../../store/useLibraryStore';
@@ -178,7 +178,12 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
       } else if (draft.folder) {
         destination = draft.folder;
       } else {
-        const chosen = await open({ title: t('proofSheet.chooseFolder'), directory: true, multiple: false });
+        const chosen = await openDialog({
+          title: t('proofSheet.chooseFolder'),
+          purpose: 'export',
+          directory: true,
+          multiple: false
+        });
         destination = typeof chosen === 'string' ? chosen : null;
       }
       if (!destination) return;
@@ -195,8 +200,9 @@ function ProofSheetDialog({ paths }: { paths: string[] }) {
   };
 
   const chooseFolder = async () => {
-    const chosen = await open({
+    const chosen = await openDialog({
       title: t('proofSheet.chooseFolder'),
+      purpose: 'export',
       directory: true,
       multiple: false,
       defaultPath: draft.folder

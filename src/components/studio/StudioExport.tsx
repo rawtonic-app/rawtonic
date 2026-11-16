@@ -5,7 +5,7 @@ import NamingEditor from '../ui/NamingEditor';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { openDialog } from '../../utils/fileDialog';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { currentEditForExport, useEditorStore } from '../../store/useEditorStore';
 import { useProcessStore } from '../../store/useProcessStore';
@@ -122,8 +122,9 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     folder: target === 'choose' ? draft.folder : undefined
   };
   const chooseFolder = async () => {
-    const chosen = await open({
+    const chosen = await openDialog({
       title: t('studio.export.destination.choose'),
+      purpose: 'export',
       directory: true,
       multiple: false,
       defaultPath: draft.folder
@@ -399,8 +400,9 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     if (checkedIds.includes(id)) toggleRecipe(id);
   };
   const chooseWatermark = async () => {
-    const file = await open({
+    const file = await openDialog({
       title: t('studio.export.dialogs.watermarkTitle'),
+      purpose: 'watermark',
       multiple: false,
       directory: false,
       filters: [

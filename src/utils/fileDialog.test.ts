@@ -75,3 +75,19 @@ it('compiles the QA answers out of ordinary builds', async () => {
   const qa = await bundle(true);
   expect(qa).toContain('takeDialogAnswer');
 }, 60_000);
+
+const sources = import.meta.glob<string>(['../**/*.{ts,tsx}', '!../**/*.test.{ts,tsx}', '!./fileDialog.ts'], {
+  eager: true,
+  query: '?raw',
+  import: 'default'
+});
+
+it('is the only way to the native file dialogs, so every dialog has a title and a start folder (UXR4L-01)', () => {
+  // Type imports are fine; values (open, save) go through openDialog/saveDialog.
+  const valueImport = /import\s+\{[^}]*\b(open|save)\b[^}]*\}\s+from\s+'@tauri-apps\/plugin-dialog'/;
+  const offenders = Object.entries(sources)
+    .filter(([, text]) => valueImport.test(text))
+    .map(([path]) => path);
+  expect(Object.keys(sources).length).toBeGreaterThan(100);
+  expect(offenders).toEqual([]);
+});

@@ -2,6 +2,25 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- The interface languages Rawtonic ships (src/i18n/locales): AppKit
+	     then shows its own menu items and panels in the user's language
+	     when it is one of them (UXR4M-04). -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>ca</string>
+		<string>de</string>
+		<string>es</string>
+		<string>fr</string>
+		<string>it</string>
+		<string>ja</string>
+		<string>ko</string>
+		<string>pl</string>
+		<string>pt</string>
+		<string>ru</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+	</array>
 	<!-- Tethered shooting: macOS treats a camera on USB as removable media. -->
 	<key>NSRemovableVolumesUsageDescription</key>
 	<string>Rawtonic reads the photos on memory cards you import from, and from a camera connected over USB for tethered shooting.</string>
