@@ -357,6 +357,8 @@ pub struct DecodeMeasures {
 impl DecodeMeasures {
     /// Measures a full decode.
     pub fn of(image: &DynamicImage) -> Self {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("decode_measures");
         Self {
             noise_level: crate::noise_level::measure(image),
             image_key: crate::image_key::measure(image),
