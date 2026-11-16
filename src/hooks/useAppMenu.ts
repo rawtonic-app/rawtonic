@@ -20,6 +20,7 @@ import {
   type Translate
 } from '../utils/appMenu';
 import { normalizeCombo } from '../utils/keyboardUtils';
+import { onLayoutChange, watchKeyboardLayout } from '../utils/keyboardLayout';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { isAnyModalOpen, useUIStore } from '../store/useUIStore';
 import { useUpdateStore } from '../store/useUpdateStore';
@@ -31,10 +32,11 @@ import { useSecondWindowStore } from '../store/useSecondWindowStore';
 /** The event app_menu.rs sends with the chosen command's name. */
 export const APP_MENU_COMMAND_EVENT = 'app-menu-command';
 
-/** WebKit offers a ⌘ key to the page first and passes it on to the menu
+/** WebKit offers a key to the page first and passes it on to the menu
  * only when the page did not take it (no preventDefault; measured on macOS
- * 2026-10-25: a taken key never reached the menu, a key left to a text
- * field chose its item 2–26 ms later). Each declined key with an item's
+ * 2026-10-25 for ⌘ keys: a taken key never reached the menu, a key left to
+ * a text field chose its item 2–26 ms later; single keys shown in the menu
+ * since UXF4 take the same way). Each declined key with an item's
  * combo is owed one menu echo: the next command with that combo consumes
  * it and goes to the text field or nowhere, never runs the command the
  * webview declined, however late it arrives. A disabled item gets no key
@@ -129,6 +131,10 @@ export function useAppMenu(): void {
   const osPlatform = useSettingsStore((s) => s.osPlatform);
   const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
   const enabled = osPlatform === 'macos';
+  // The keys' names follow the keyboard layout (menus, tooltips, Preferences).
+  const [layoutRevision, setLayoutRevision] = useState(0);
+  useEffect(() => onLayoutChange(() => setLayoutRevision((revision) => revision + 1)), []);
+  useEffect(() => (osPlatform ? watchKeyboardLayout(osPlatform) : undefined), [osPlatform]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -201,10 +207,10 @@ export function useAppMenu(): void {
 
     // Capture: seen before any handler can stop the key.
     const onKeyDown = (event: KeyboardEvent) => {
-      // The menu's key equivalents hold ⌘ (CmdOrCtrl on macOS); a ⌃ key
-      // never chooses one.
-      if (!event.metaKey || event.ctrlKey) return;
-      const combo = normalizeCombo(event, 'macos').join('+');
+      // A ⌃ key never chooses an item (the menu's keys hold ⌘ or none).
+      if (event.ctrlKey) return;
+      // Plain ⌫ is the menu's Delete wherever the page declines it.
+      const combo = normalizeCombo(event, 'macos', true).join('+');
       const command = commandOf.get(combo);
       // Only an enabled item's key equivalent can come back from AppKit.
       if (!command || !dispatch.shown.get(command)) return;
@@ -230,5 +236,5 @@ export function useAppMenu(): void {
       dialogs.disconnect();
       void unlisten.then((stop) => stop());
     };
-  }, [enabled, t, i18n.language, keybinds, commandsRevision]);
+  }, [enabled, t, i18n.language, keybinds, commandsRevision, layoutRevision]);
 }

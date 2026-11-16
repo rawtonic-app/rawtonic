@@ -630,6 +630,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         summary.manifest.mode === 'catalog' ? await join(root, summary.manifest.capture) : null;
       useLibraryStore.getState().setLibrary({
         sessionDirectory: root,
+        libraryKind: summary.manifest.mode,
         sessionFolders: summary.folders ?? [],
         subfolderDefaultRoot,
         imageFlags: byPathKey(flags),
@@ -2065,7 +2066,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
           <button
             className="session-action"
             disabled={!session || importing}
-            title={t('session.bar.ingestTitle')}
+            title={t('session.bar.ingestTitle', { context: session?.manifest.mode })}
             onClick={() => openIngest()}
           >
             <ArrowDownToLine size={14} />
@@ -2083,7 +2084,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                       folder: hotFolder.folder,
                       count: hotFolder.imported
                     })
-                  : t('session.bar.hotFolderTitle')
+                  : t('session.bar.hotFolderTitle', { context: session?.manifest.mode })
             }
             onClick={() => void openHotFolder()}
           >
@@ -2101,7 +2102,9 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
             disabled={!session}
             aria-pressed={tetherOpen}
             title={
-              tether ? t('session.bar.tetherConnected', { camera: tether.camera.model }) : t('session.bar.tetherTitle')
+              tether
+                ? t('session.bar.tetherConnected', { camera: tether.camera.model })
+                : t('session.bar.tetherTitle', { context: session?.manifest.mode })
             }
             onClick={() => setTetherOpen((open) => !open)}
           >
@@ -2531,7 +2534,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                   {t('session.hotFolder.stop')}
                 </button>
               ) : (
-                <span>{t('session.hotFolder.resumesOnOpen')}</span>
+                <span>{t('session.hotFolder.resumesOnOpen', { context: session?.manifest.mode })}</span>
               )}
               <button
                 type="submit"

@@ -4046,6 +4046,18 @@ body.is-dragging.is-drop-refused * {
 .rawtonic-menu-item.is-destructive {
   color: var(--studio-shade-error, #f1abab);
 }
+/* The command's key at the row's right, as in the platform's menus. */
+.rawtonic-menu-shortcut {
+  flex: none;
+  margin-left: 18px;
+  color: var(--studio-shade-muted, #9a9ea4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rawtonic-menu-item:hover:not(.is-disabled) .rawtonic-menu-shortcut,
+.rawtonic-menu-item:focus-visible .rawtonic-menu-shortcut {
+  color: inherit;
+}
 .rawtonic-menu-item.is-destructive:hover:not(.is-disabled) {
   background: #8a3b3b;
   color: #fff;

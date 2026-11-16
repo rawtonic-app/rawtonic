@@ -106,6 +106,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   const state = useProcessStore((s) => s.exportState);
   const paths = selected.length ? selected : image ? [image.path] : [];
   const session = useLibraryStore((s) => s.sessionDirectory);
+  const libraryKind = useLibraryStore((s) => s.libraryKind);
   // The last settings of this library come back when the dialog reopens.
   const startDraft = startFormDraft;
   const [draft, setDraft] = useState<RecipeDraft>(() => startDraft(session));
@@ -444,7 +445,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         : `${job.resizeValue}${unit === '%' ? unit : ` ${unit}`}`;
     const where =
       job.where === 'output' && session
-        ? t('studio.export.destination.output')
+        ? t('studio.export.destination.output', { context: libraryKind ?? undefined })
         : job.where === 'original'
           ? t('studio.export.destination.original')
           : job.folder
@@ -576,7 +577,11 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                   else set({ where });
                 }}
               >
-                {session && <option value="output">{t('studio.export.destination.output')}</option>}
+                {session && (
+                  <option value="output">
+                    {t('studio.export.destination.output', { context: libraryKind ?? undefined })}
+                  </option>
+                )}
                 <option value="original">{t('studio.export.destination.original')}</option>
                 <option value="choose">
                   {target === 'choose' && draft.folder ? fileName(draft.folder) : t('studio.export.destination.choose')}

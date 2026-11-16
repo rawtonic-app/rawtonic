@@ -98,7 +98,7 @@ it('copies exactly the chosen tools and layers and remembers the choice', async 
   render(<CopySettingsDialogHost />);
   const { result } = renderHook(useEditorActions);
   await act(() => result.current.handleCopyAdjustments());
-  expect(screen.getByRole('dialog', { name: 'Copy settings' })).toBeTruthy();
+  expect(screen.getByRole('dialog', { name: 'Copy adjustments' })).toBeTruthy();
   expect(screen.getByRole('checkbox', { name: 'Light effects' })).toBeTruthy();
   const clarity = screen.getByRole('checkbox', { name: 'Presence: clarity, structure & dehaze' });
   expect(clarity.closest('fieldset')?.querySelector('legend')?.textContent).toContain('Light');
@@ -148,7 +148,7 @@ it("syncs the open photo's chosen settings to the other selected photographs", a
   render(<CopySettingsDialogHost />);
   const { result } = renderHook(useEditorActions);
   await act(() => result.current.handleSyncSettings());
-  expect(screen.getByRole('dialog', { name: 'Sync settings to the other selected photos (2)' })).toBeTruthy();
+  expect(screen.getByRole('dialog', { name: 'Sync adjustments to the other selected photos (2)' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Sync (2)' }));
   await act(async () => {});
   expect(applied()).toEqual([
@@ -225,7 +225,7 @@ it('takes the keyboard while open and gives it back', async () => {
   control.focus();
   const { result } = renderHook(useEditorActions);
   await act(() => result.current.handleCopyAdjustments());
-  const dialog = screen.getByRole('dialog', { name: 'Copy settings' });
+  const dialog = screen.getByRole('dialog', { name: 'Copy adjustments' });
   expect(document.activeElement).toBe(dialog);
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
   expect(screen.queryByRole('dialog')).toBeNull();

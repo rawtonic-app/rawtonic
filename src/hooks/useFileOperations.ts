@@ -389,6 +389,8 @@ type FileOperationText =
 
 const ops = (key: FileOperationText, options: Record<string, unknown> = {}) =>
   i18next.t(`studio.library.fileOperations.${key}`, options);
+/** The open library's kind, for texts that name it (never "session" in a catalog). */
+const kind = () => ({ context: useLibraryStore.getState().libraryKind ?? undefined });
 /** The texts with a number (plural forms). */
 type FileOperationCount =
   'keptCopies' | 'movedTo' | 'trashManyMessage' | 'trashedBoth' | 'trashedSession' | 'trashedSystem';
@@ -431,7 +433,7 @@ export function describeFileOperation(summary: FileOperationSummary, hint = undo
   if (summary.kind === 'trash') {
     const where =
       summary.systemTrash === 0 ? 'trashedSession' : summary.sessionTrash === 0 ? 'trashedSystem' : 'trashedBoth';
-    return `${opsCount(where, summary.items)} ${hint}`;
+    return `${opsCount(where, summary.items, kind())} ${hint}`;
   }
   if (summary.kind === 'move' && summary.newPaths.length) {
     const folder = summary.newPaths[0].split(/[\\/]/).slice(-2, -1)[0];
@@ -977,7 +979,7 @@ export function useFileOperations(
           // Undoable, so not destructive; only Empty Trash is.
           confirmVariant: 'primary',
           isOpen: true,
-          message: ops('trashFolderMessage', { name, hint: undoHint() }),
+          message: ops('trashFolderMessage', { name, hint: undoHint(), ...kind() }),
           onConfirm: async () => {
             try {
               if (!(await saveEditsFirst([path]))) return;
@@ -1028,13 +1030,13 @@ export function useFileOperations(
 
     if (selectionHasVirtualCopies) {
       modalTitle = ops('trashCopiesTitle');
-      modalMessage = ops('trashCopiesMessage', { hint });
+      modalMessage = ops('trashCopiesMessage', { hint, ...kind() });
       confirmText = ops('trashCopiesConfirm');
     } else if (isSingle) {
-      modalMessage = ops('trashOneMessage', { hint });
+      modalMessage = ops('trashOneMessage', { hint, ...kind() });
       confirmText = ops('trashSelectedOnly');
     } else {
-      modalMessage = opsCount('trashManyMessage', pathsToDelete.length, { hint });
+      modalMessage = opsCount('trashManyMessage', pathsToDelete.length, { hint, ...kind() });
       confirmText = ops('trashSelectedOnly');
     }
 

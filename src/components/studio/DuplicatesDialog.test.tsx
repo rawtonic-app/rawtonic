@@ -250,7 +250,7 @@ it('needs a library', async () => {
   render(<DuplicatesDialogHost trash={trash} />);
   expect(appCommandEnabled('find_duplicates')).toBe(false);
   act(() => useDuplicatesDialog.getState().show());
-  expect(screen.getByText('Open a project or catalog to find duplicates.')).toBeTruthy();
+  expect(screen.getByText('Open a session or catalog to find duplicates.')).toBeTruthy();
   expect(calls('duplicates_start')).toHaveLength(0);
 });
 

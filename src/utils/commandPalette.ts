@@ -83,7 +83,7 @@ export function overflowCommands(
   historyLabels: Partial<Record<'undo' | 'redo', string>> = {}
 ): Option[] {
   if (!hasOverflowMenu(platform)) return [];
-  const built = buildMenuSpec(t, keybinds, enabled, 'Rawtonic', historyLabels).spec.menus;
+  const built = buildMenuSpec(t, keybinds, enabled, 'Rawtonic', historyLabels, platform).spec.menus;
   const convert = (nodes: MenuNode[]): Option[] =>
     nodes
       .flatMap((node): Option[] => {
@@ -94,6 +94,7 @@ export function overflowCommands(
         return [
           {
             label: node.label,
+            shortcut: node.shortcutLabel,
             disabled: !node.enabled,
             checked: node.checked,
             onClick: () => {

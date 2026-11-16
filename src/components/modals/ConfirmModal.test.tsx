@@ -13,7 +13,7 @@ function open(confirmVariant?: string) {
   render(
     <ConfirmModal
       isOpen
-      title="Empty the Session Trash?"
+      title="Empty the Trash Folder?"
       message="3 files are removed from disk."
       confirmText="Delete Permanently"
       cancelText="Cancel"
@@ -29,7 +29,7 @@ describe('ConfirmModal', () => {
   it('uses the studio dialog and buttons', () => {
     open();
     expect(classes(screen.getByRole('dialog').firstElementChild)).toEqual(expect.arrayContaining(['studio-dialog']));
-    expect(classes(screen.getByRole('heading', { name: 'Empty the Session Trash?' }))).toEqual(
+    expect(classes(screen.getByRole('heading', { name: 'Empty the Trash Folder?' }))).toEqual(
       expect.arrayContaining(['studio-dialog-title'])
     );
     expect(classes(screen.getByRole('button', { name: 'Cancel' }))).toEqual(expect.arrayContaining(['studio-button']));
@@ -107,7 +107,7 @@ describe('ConfirmModal', () => {
     document.body.appendChild(create);
     try {
       open();
-      expect(create.contains(screen.getByRole('heading', { name: 'Empty the Session Trash?' }))).toBe(true);
+      expect(create.contains(screen.getByRole('heading', { name: 'Empty the Trash Folder?' }))).toBe(true);
     } finally {
       cleanup();
       create.remove();

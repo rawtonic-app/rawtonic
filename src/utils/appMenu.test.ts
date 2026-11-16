@@ -1,6 +1,7 @@
 import i18next from 'i18next';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { buildMenuSpec, menuAccelerator, menuCommands, menuItemStates, type MenuNode, type Translate } from './appMenu';
+import { buildMenuSpec, menuCommands, menuItemStates, nativeShortcut, type MenuNode, type Translate } from './appMenu';
+import { setLayoutChars } from './keyboardLayout';
 import { registerAppCommands } from './appCommands';
 import { KEYBIND_DEFINITIONS } from './keyboardUtils';
 import fixture from '../../src-tauri/tests/fixtures/app-menu-en.json?raw';
@@ -99,38 +100,76 @@ describe('the menu bar tree', () => {
     expect(find(de, 'undo').label).toBe('Widerrufen');
   });
 
-  it('turns ⌘ shortcuts into key equivalents and never a single key, ⇧ or ⌥ alone', () => {
+  it('shows every key, single keys included, as the native menu and the ⋯ menu take it', () => {
     const { spec, combos } = buildMenuSpec(tr('en'), {});
-    expect(find(spec.menus, 'undo').accelerator).toBe('CmdOrCtrl+KeyZ');
+    expect(find(spec.menus, 'undo').shortcut).toEqual({ key: 'z', command: true });
     // Redo shows ⇧⌘Z (the Mac's key); ⌘Y keeps working as the webview's.
-    expect(find(spec.menus, 'redo').accelerator).toBe('CmdOrCtrl+Shift+KeyZ');
-    expect(find(spec.menus, 'toggle_export').accelerator).toBe('CmdOrCtrl+Shift+KeyE');
-    expect(find(spec.menus, 'paste_from_previous').accelerator).toBe('CmdOrCtrl+Alt+KeyV');
-    expect(find(spec.menus, 'zoom_in').accelerator).toBe('CmdOrCtrl+Equal');
+    expect(find(spec.menus, 'redo').shortcut).toEqual({ key: 'z', command: true, shift: true });
+    expect(find(spec.menus, 'redo').shortcutLabel).toBe('⇧⌘Z');
+    expect(find(spec.menus, 'toggle_export').shortcut).toEqual({ key: 'e', command: true, shift: true });
+    expect(find(spec.menus, 'paste_from_previous').shortcut).toEqual({ key: 'v', command: true, option: true });
+    expect(find(spec.menus, 'zoom_in').shortcut).toEqual({ key: '+', command: true });
     expect(combos.get('copy_adjustments')).toBe('ctrl+shift+KeyC');
-    for (const command of [
-      'rate_3',
-      'toggle_fullscreen',
-      'toggle_split_view',
-      'color_label_red',
-      'rotate_left',
-      'delete_selected',
-      'toggle_bottom_panel'
-    ]) {
-      expect(find(spec.menus, command).accelerator, command).toBeUndefined();
+    // Single keys show too (UXR4M-05): ratings, flags, labels, views, panels.
+    expect(find(spec.menus, 'rate_3').shortcut).toEqual({ key: '3' });
+    expect(find(spec.menus, 'flag_pick').shortcut).toEqual({ key: 'p' });
+    expect(find(spec.menus, 'toggle_fullscreen').shortcut).toEqual({ key: 'f' });
+    expect(find(spec.menus, 'rotate_left').shortcut).toEqual({ key: '[' });
+    expect(find(spec.menus, 'delete_selected').shortcut).toEqual({ key: 'Backspace' });
+    expect(find(spec.menus, 'toggle_bottom_panel').shortcut).toEqual({ key: 'F6' });
+    expect(nativeShortcut(['shift', 'Digit1'])).toEqual({ key: '1', shift: true });
+    expect(nativeShortcut(['ctrl', 'alt', 'KeyC'])).toEqual({ key: 'c', command: true, option: true });
+    // Keys a native menu cannot name stay the webview's alone.
+    for (const key of ['Insert', 'NumpadAdd', 'PrintScreen', 'CapsLock', 'F25']) {
+      expect(nativeShortcut(['ctrl', key]), key).toBeNull();
     }
-    expect(menuAccelerator(['shift', 'Digit1'])).toBeNull();
-    expect(menuAccelerator(['alt', 'KeyM'])).toBeNull();
-    expect(menuAccelerator(['KeyF'])).toBeNull();
-    expect(menuAccelerator(['ctrl', 'alt', 'KeyC'])).toBe('CmdOrCtrl+Alt+KeyC');
-    // Keys the recorder takes but a native key equivalent cannot name stay
-    // the webview's (app_menu.rs would refuse the whole tree).
-    for (const key of ['Insert', 'NumpadAdd', 'PrintScreen', 'CapsLock', 'Delete', 'F25']) {
-      expect(menuAccelerator(['ctrl', key]), key).toBeNull();
-    }
-    expect(menuAccelerator(['ctrl', 'F12'])).toBe('CmdOrCtrl+F12');
+    expect(nativeShortcut(['ctrl', 'F12'])).toEqual({ key: 'F12', command: true });
     const custom = buildMenuSpec(tr('en'), { toggle_export: ['ctrl', 'Insert'] }).spec;
-    expect(find(custom.menus, 'toggle_export').accelerator).toBeUndefined();
+    expect(find(custom.menus, 'toggle_export').shortcut).toBeUndefined();
+    // Windows and Linux name the same keys their way.
+    const windows = buildMenuSpec(tr('en'), {}, undefined, 'Rawtonic', {}, 'windows').spec;
+    expect(find(windows.menus, 'toggle_export').shortcut).toBeUndefined();
+    expect(find(windows.menus, 'toggle_export').shortcutLabel).toBe('Ctrl+Shift+E');
+    expect(find(windows.menus, 'rate_3').shortcutLabel).toBe('3');
+  });
+
+  it('names punctuation keys as the keyboard layout types them (UXR4M-06)', () => {
+    // A Swiss German Mac: the US ' [ ] = - keys type à è ¨ ^ ' there, and + is ⇧1.
+    setLayoutChars(
+      new Map([
+        ['Quote', 'à'],
+        ['BracketLeft', 'è'],
+        ['BracketRight', '¨'],
+        ['Equal', '^'],
+        ['Minus', "'"],
+        ['Slash', '-'],
+        ['Digit1', '1']
+      ])
+    );
+    try {
+      const { spec } = buildMenuSpec(tr('en'), {});
+      expect(find(spec.menus, 'virtual_copy').shortcut).toEqual({ key: 'à', command: true });
+      expect(find(spec.menus, 'virtual_copy').shortcutLabel).toBe('⌘À');
+      expect(find(spec.menus, 'rotate_left').shortcut).toEqual({ key: 'è' });
+      // ⌘+ (⌘⇧1 here) and ⌘- zoom by the character on every layout.
+      expect(find(spec.menus, 'zoom_in').shortcut).toEqual({ key: '+', command: true });
+      expect(find(spec.menus, 'zoom_out').shortcut).toEqual({ key: '-', command: true });
+      // German: + and - have keys of their own.
+      setLayoutChars(
+        new Map([
+          ['Equal', '´'],
+          ['BracketRight', '+'],
+          ['Minus', 'ß'],
+          ['Slash', '-']
+        ])
+      );
+      const german = buildMenuSpec(tr('en'), {}).spec;
+      expect(find(german.menus, 'zoom_in').shortcut).toEqual({ key: '+', command: true });
+      expect(find(german.menus, 'zoom_out').shortcut).toEqual({ key: '-', command: true });
+      expect(find(german.menus, 'rotate_right').shortcut).toEqual({ key: '+' });
+    } finally {
+      setLayoutChars(new Map());
+    }
   });
 
   it("follows the user's own keys and leaves AppKit's keys to AppKit", () => {
@@ -142,12 +181,12 @@ describe('the menu bar tree', () => {
       // Two actions on one key: the first item shows it.
       zoom_in: ['ctrl', 'KeyK']
     });
-    expect(find(spec.menus, 'toggle_export').accelerator).toBe('CmdOrCtrl+Alt+KeyE');
-    expect(find(spec.menus, 'undo').accelerator).toBeUndefined();
-    expect(find(spec.menus, 'copy_adjustments').accelerator).toBeUndefined();
-    const accelerators = items(spec.menus).flatMap((node) => (node.accelerator ? [node.accelerator] : []));
-    expect(new Set(accelerators).size).toBe(accelerators.length);
-    expect(accelerators.filter((a) => a === 'CmdOrCtrl+KeyK')).toHaveLength(1);
+    expect(find(spec.menus, 'toggle_export').shortcut).toEqual({ key: 'e', command: true, option: true });
+    expect(find(spec.menus, 'undo').shortcut).toBeUndefined();
+    expect(find(spec.menus, 'copy_adjustments').shortcut).toBeUndefined();
+    const keys = items(spec.menus).flatMap((node) => (node.shortcut ? [JSON.stringify(node.shortcut)] : []));
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.filter((key) => key === JSON.stringify({ key: 'k', command: true }))).toHaveLength(1);
   });
 
   it('describes every new shortcut of the table in the Preferences list', () => {

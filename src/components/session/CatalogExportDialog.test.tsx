@@ -265,7 +265,7 @@ it('photos another project owns are left out only after Export the others, and n
   );
   await user.click(screen.getByRole('button', { name: 'Destination parent folder' }));
   await user.click(screen.getByRole('button', { name: 'Export 2 photos' }));
-  const notice = await screen.findByRole('alertdialog', { name: '1 photo belongs to another project or catalog' });
+  const notice = await screen.findByRole('alertdialog', { name: '1 photo belongs to another session or catalog' });
   expect(notice.textContent).toMatch(/latest edits are in Wedding Smith, not here/);
   expect(invoke).not.toHaveBeenCalledWith('library_export_catalog', expect.anything());
   await user.click(screen.getByRole('button', { name: 'Export the others' }));

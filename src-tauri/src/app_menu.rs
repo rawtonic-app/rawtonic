@@ -11,6 +11,15 @@
 //! items) are AppKit's predefined items; Quit stays `app_quit`'s, which asks
 //! the editor to save first. Linux and Windows keep their current behaviour
 //! (no menu bar): the commands validate the tree there and set nothing.
+//!
+//! Shortcuts are set on AppKit's items directly (not muda's accelerators):
+//! the key is the character the active keyboard layout types on the key
+//! the webview matches (`src/utils/keyboardLayout.ts`), with AppKit's own
+//! re-mapping of key equivalents turned off, so the menu shows the key that
+//! runs the command on a Swiss or German keyboard too (UXR4M-06). Keys
+//! without ⌘ (ratings, flags, views) are shown as well (UXR4M-05); they are
+//! live only while the main window is key, where the web view takes every
+//! key first, so a native dialog's text field keeps its letters.
 use std::collections::HashSet;
 
 use serde::Deserialize;
@@ -32,7 +41,7 @@ pub enum MenuNode {
         id: String,
         label: String,
         #[serde(default)]
-        accelerator: Option<String>,
+        shortcut: Option<Shortcut>,
         #[serde(default = "enabled_by_default")]
         enabled: bool,
         /// `Some` makes it a check item.
@@ -57,6 +66,33 @@ pub enum MenuNode {
 
 fn enabled_by_default() -> bool {
     true
+}
+
+/// A menu item's key: the character the keyboard types (`"p"`, `"ä"`,
+/// `"+"`) or a named key (`"ArrowLeft"`, `"F6"`, `"Backspace"`), with the
+/// modifiers held.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct Shortcut {
+    pub key: String,
+    #[serde(default)]
+    pub command: bool,
+    #[serde(default)]
+    pub shift: bool,
+    #[serde(default)]
+    pub option: bool,
+}
+
+impl Shortcut {
+    /// The same key, as AppKit compares them (letters without case).
+    fn identity(&self) -> (String, bool, bool, bool) {
+        (
+            self.key.to_lowercase(),
+            self.command,
+            self.shift,
+            self.option,
+        )
+    }
 }
 
 /// Menus AppKit treats specially (window list, help search).
@@ -109,84 +145,49 @@ pub fn command_of(id: &str) -> Option<&str> {
         .filter(|command| !command.is_empty())
 }
 
-/// Modifiers a key equivalent may carry, as `muda` parses them.
-const MODIFIERS: [&str; 8] = [
-    "CmdOrCtrl",
-    "CommandOrControl",
-    "Cmd",
-    "Command",
-    "Ctrl",
-    "Control",
-    "Shift",
-    "Alt",
+/// Named keys a shortcut may use; anything else is one typed character.
+const NAMED_KEYS: [&str; 13] = [
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "Enter",
+    "Tab",
+    "Space",
+    "Backspace",
+    "Delete",
+    "Escape",
+    "Home",
+    "End",
+    "PageUp",
 ];
 
-/// Whether `code` names one key the way `muda` parses it (W3C codes).
-fn is_key_code(code: &str) -> bool {
-    let tail_is = |prefix: &str, ok: fn(&str) -> bool| code.strip_prefix(prefix).is_some_and(ok);
-    tail_is("Key", |c| {
-        c.len() == 1 && c.bytes().all(|b| b.is_ascii_uppercase())
-    }) || tail_is("Digit", |c| {
-        c.len() == 1 && c.bytes().all(|b| b.is_ascii_digit())
-    }) || tail_is("F", |c| {
-        c.parse::<u8>().is_ok_and(|n| (1..=24).contains(&n))
-    }) || matches!(
-        code,
-        "ArrowUp"
-            | "ArrowDown"
-            | "ArrowLeft"
-            | "ArrowRight"
-            | "Enter"
-            | "Tab"
-            | "Space"
-            | "Backspace"
-            | "Delete"
-            | "Escape"
-            | "Equal"
-            | "Minus"
-            | "Comma"
-            | "Period"
-            | "Slash"
-            | "Backslash"
-            | "BracketLeft"
-            | "BracketRight"
-            | "Semicolon"
-            | "Quote"
-            | "Backquote"
-            | "Home"
-            | "End"
-            | "PageUp"
-            | "PageDown"
-    )
+fn is_named_key(key: &str) -> bool {
+    NAMED_KEYS.contains(&key)
+        || key == "PageDown"
+        || key
+            .strip_prefix('F')
+            .is_some_and(|n| n.parse::<u8>().is_ok_and(|n| (1..=24).contains(&n)))
 }
 
-/// A key equivalent must hold ⌘ or ⌃: a plain, ⇧- or ⌥-only key would take
-/// the keys a text field types (single-key shortcuts stay in the webview).
-fn check_accelerator(accelerator: &str) -> Result<(), String> {
-    let mut parts: Vec<&str> = accelerator.split('+').collect();
-    let key = parts.pop().unwrap_or_default();
-    if !is_key_code(key) {
-        return Err(format!("unknown key in \"{accelerator}\""));
+/// One printable character, or a named key.
+fn check_shortcut(id: &str, shortcut: &Shortcut) -> Result<(), String> {
+    let mut chars = shortcut.key.chars();
+    let printable = matches!((chars.next(), chars.next()), (Some(c), None) if !c.is_control() && !c.is_whitespace());
+    if printable || is_named_key(&shortcut.key) {
+        Ok(())
+    } else {
+        Err(format!("item \"{id}\" has an unknown key \"{}\"", shortcut.key))
     }
-    let mut seen = HashSet::new();
-    for part in &parts {
-        if !MODIFIERS.contains(part) || !seen.insert(*part) {
-            return Err(format!("bad modifier in \"{accelerator}\""));
-        }
-    }
-    if !parts.iter().any(|part| !matches!(*part, "Shift" | "Alt")) {
-        return Err(format!("\"{accelerator}\" holds neither Cmd nor Ctrl"));
-    }
-    Ok(())
 }
 
 /// Checks a tree before anything native is built: top-level submenus, ids
-/// unique and named `cmd:<command>`, key equivalents valid, unique and with
-/// ⌘/⌃, labels present, one Quit.
+/// unique and named `cmd:<command>`, shortcuts valid and unique (also
+/// against AppKit's own items), labels present, one Quit.
 pub fn validate(spec: &MenuSpec) -> Result<(), String> {
     struct Walk {
         ids: HashSet<String>,
-        accelerators: HashSet<String>,
+        shortcuts: HashSet<(String, bool, bool, bool)>,
         nodes: usize,
         quits: usize,
     }
@@ -203,7 +204,7 @@ pub fn validate(spec: &MenuSpec) -> Result<(), String> {
                 MenuNode::Item {
                     id,
                     label,
-                    accelerator,
+                    shortcut,
                     ..
                 } => {
                     if command_of(id).is_none() {
@@ -217,10 +218,10 @@ pub fn validate(spec: &MenuSpec) -> Result<(), String> {
                     if !w.ids.insert(id.clone()) {
                         return Err(format!("item id \"{id}\" appears twice"));
                     }
-                    if let Some(accelerator) = accelerator {
-                        check_accelerator(accelerator)?;
-                        if !w.accelerators.insert(accelerator.clone()) {
-                            return Err(format!("key \"{accelerator}\" is on two items"));
+                    if let Some(shortcut) = shortcut {
+                        check_shortcut(id, shortcut)?;
+                        if !w.shortcuts.insert(shortcut.identity()) {
+                            return Err(format!("the key of \"{id}\" is on two items"));
                         }
                     }
                 }
@@ -234,10 +235,10 @@ pub fn validate(spec: &MenuSpec) -> Result<(), String> {
                     if *role == NativeRole::Quit {
                         w.quits += 1;
                     }
-                    if let Some(accelerator) = native_accelerator(*role)
-                        && !w.accelerators.insert(accelerator.into())
+                    if let Some(shortcut) = native_shortcut(*role)
+                        && !w.shortcuts.insert(shortcut.identity())
                     {
-                        return Err(format!("key \"{accelerator}\" is on two items"));
+                        return Err(format!("the key of {role:?} is on two items"));
                     }
                 }
                 MenuNode::Separator => {}
@@ -257,7 +258,7 @@ pub fn validate(spec: &MenuSpec) -> Result<(), String> {
     }
     let mut w = Walk {
         ids: HashSet::new(),
-        accelerators: HashSet::new(),
+        shortcuts: HashSet::new(),
         nodes: 0,
         quits: 0,
     };
@@ -271,23 +272,30 @@ pub fn validate(spec: &MenuSpec) -> Result<(), String> {
     Ok(())
 }
 
-/// The key AppKit's predefined item takes, so a command cannot take it too.
-fn native_accelerator(role: NativeRole) -> Option<&'static str> {
-    match role {
-        NativeRole::Hide => Some("CmdOrCtrl+KeyH"),
-        NativeRole::HideOthers => Some("CmdOrCtrl+Alt+KeyH"),
-        NativeRole::Quit => Some("CmdOrCtrl+KeyQ"),
-        NativeRole::Cut => Some("CmdOrCtrl+KeyX"),
-        NativeRole::Copy => Some("CmdOrCtrl+KeyC"),
-        NativeRole::Paste => Some("CmdOrCtrl+KeyV"),
-        NativeRole::Minimize => Some("CmdOrCtrl+KeyM"),
-        NativeRole::Fullscreen => Some("Ctrl+CmdOrCtrl+KeyF"),
-        NativeRole::CloseWindow => Some("CmdOrCtrl+KeyW"),
-        NativeRole::Services
+/// The key AppKit's predefined item takes, so a command cannot take it too
+/// (Full Screen's ⌃⌘F holds ⌃, which no command key does).
+fn native_shortcut(role: NativeRole) -> Option<Shortcut> {
+    let (key, option) = match role {
+        NativeRole::Hide => ("h", false),
+        NativeRole::HideOthers => ("h", true),
+        NativeRole::Quit => ("q", false),
+        NativeRole::Cut => ("x", false),
+        NativeRole::Copy => ("c", false),
+        NativeRole::Paste => ("v", false),
+        NativeRole::Minimize => ("m", false),
+        NativeRole::CloseWindow => ("w", false),
+        NativeRole::Fullscreen
+        | NativeRole::Services
         | NativeRole::ShowAll
         | NativeRole::Zoom
-        | NativeRole::BringAllToFront => None,
-    }
+        | NativeRole::BringAllToFront => return None,
+    };
+    Some(Shortcut {
+        key: key.into(),
+        command: true,
+        shift: false,
+        option,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -347,11 +355,12 @@ mod native {
                 MenuNode::Item {
                     id,
                     label,
-                    accelerator,
                     enabled,
                     checked,
+                    ..
                 } => {
-                    let accelerator = accelerator.as_deref();
+                    // The shortcut is set on AppKit's item (`shortcuts`).
+                    let accelerator: Option<&str> = None;
                     let kind = match checked {
                         Some(checked) => MenuItemKind::Check(CheckMenuItem::with_id(
                             app,
@@ -424,6 +433,164 @@ mod native {
         }
     }
 
+    /// The menu items' shortcuts, set on AppKit's items once the menu shows.
+    pub(super) mod shortcuts {
+        use std::cell::RefCell;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        use objc2::rc::Retained;
+        use objc2::runtime::{AnyObject, Bool};
+        use objc2::{class, msg_send, sel};
+        use objc2_foundation::NSString;
+
+        use super::super::{MenuNode, Shortcut};
+
+        const SHIFT: usize = 1 << 17;
+        const OPTION: usize = 1 << 19;
+        const COMMAND: usize = 1 << 20;
+
+        /// Whether the main window is key: only then does the web view take
+        /// every key before the menu (single keys are live only then).
+        static MAIN_WINDOW_KEY: AtomicBool = AtomicBool::new(true);
+
+        thread_local! {
+            /// Items whose key holds no ⌘, with the key equivalent they show.
+            static SINGLE_KEYS: RefCell<Vec<(Retained<AnyObject>, String)>> = const { RefCell::new(Vec::new()) };
+        }
+
+        /// AppKit's key equivalent for a shortcut: the typed character or
+        /// the function-key character of a named key.
+        pub(crate) fn key_equivalent(shortcut: &Shortcut) -> String {
+            let named = match shortcut.key.as_str() {
+                "ArrowUp" => Some('\u{F700}'),
+                "ArrowDown" => Some('\u{F701}'),
+                "ArrowLeft" => Some('\u{F702}'),
+                "ArrowRight" => Some('\u{F703}'),
+                "Enter" => Some('\r'),
+                "Tab" => Some('\t'),
+                "Space" => Some(' '),
+                "Backspace" => Some('\u{8}'),
+                "Delete" => Some('\u{F728}'),
+                "Escape" => Some('\u{1b}'),
+                "Home" => Some('\u{F729}'),
+                "End" => Some('\u{F72B}'),
+                "PageUp" => Some('\u{F72C}'),
+                "PageDown" => Some('\u{F72D}'),
+                key => key
+                    .strip_prefix('F')
+                    .and_then(|n| n.parse::<u32>().ok())
+                    .filter(|n| (1..=24).contains(n))
+                    .and_then(|n| char::from_u32(0xF704 + n - 1)),
+            };
+            named.map_or_else(|| shortcut.key.to_lowercase(), String::from)
+        }
+
+        fn modifier_mask(shortcut: &Shortcut) -> usize {
+            (if shortcut.command { COMMAND } else { 0 })
+                | (if shortcut.shift { SHIFT } else { 0 })
+                | (if shortcut.option { OPTION } else { 0 })
+        }
+
+        /// Sets the tree's shortcuts on the menu bar AppKit shows. Main
+        /// thread, after `set_menu` (items are found by their titles).
+        pub(crate) fn apply(menus: &[MenuNode]) {
+            // SAFETY: main thread; NSMenu/NSMenuItem messages with their
+            // documented argument types.
+            unsafe {
+                let ns_app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+                let main: *mut AnyObject = msg_send![ns_app, mainMenu];
+                if main.is_null() {
+                    return;
+                }
+                let mut single = Vec::new();
+                for node in menus {
+                    if let MenuNode::Submenu { label, items, .. } = node {
+                        apply_submenu(main, label, items, &mut single);
+                    }
+                }
+                let live = MAIN_WINDOW_KEY.load(Ordering::Relaxed);
+                for (item, key) in &single {
+                    set_key(item, if live { key } else { "" });
+                }
+                SINGLE_KEYS.with(|keys| *keys.borrow_mut() = single);
+            }
+        }
+
+        unsafe fn item_titled(menu: *mut AnyObject, title: &str) -> *mut AnyObject {
+            let title = NSString::from_str(title);
+            unsafe { msg_send![menu, itemWithTitle: &*title] }
+        }
+
+        unsafe fn set_key(item: &AnyObject, key: &str) {
+            let key = NSString::from_str(key);
+            unsafe {
+                let () = msg_send![item, setKeyEquivalent: &*key];
+            }
+        }
+
+        unsafe fn apply_submenu(
+            parent: *mut AnyObject,
+            label: &str,
+            nodes: &[MenuNode],
+            single: &mut Vec<(Retained<AnyObject>, String)>,
+        ) {
+            unsafe {
+                let holder = item_titled(parent, label);
+                if holder.is_null() {
+                    return;
+                }
+                let menu: *mut AnyObject = msg_send![holder, submenu];
+                if menu.is_null() {
+                    return;
+                }
+                for node in nodes {
+                    match node {
+                        MenuNode::Submenu { label, items, .. } => {
+                            apply_submenu(menu, label, items, single)
+                        }
+                        MenuNode::Item {
+                            label,
+                            shortcut: Some(shortcut),
+                            ..
+                        } => {
+                            let item = item_titled(menu, label);
+                            let Some(item) = Retained::retain(item) else {
+                                continue;
+                            };
+                            let key = key_equivalent(shortcut);
+                            set_key(&item, &key);
+                            let () = msg_send![&*item, setKeyEquivalentModifierMask: modifier_mask(shortcut)];
+                            // macOS 12+: AppKit would otherwise move the key
+                            // to another place on ISO layouts than the one
+                            // the web view matches.
+                            let localizes: Bool = msg_send![&*item, respondsToSelector: sel!(setAllowsAutomaticKeyEquivalentLocalization:)];
+                            if localizes.as_bool() {
+                                let () = msg_send![&*item, setAllowsAutomaticKeyEquivalentLocalization: Bool::NO];
+                            }
+                            if !shortcut.command {
+                                single.push((item, key));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        /// The main window became key or stopped being key (a sheet, a
+        /// native dialog, the second window or another app): keys without ⌘
+        /// go live or quiet, so a native text field keeps its letters.
+        pub(crate) fn main_window_key(key: bool) {
+            MAIN_WINDOW_KEY.store(key, Ordering::Relaxed);
+            SINGLE_KEYS.with(|keys| {
+                for (item, shown) in keys.borrow().iter() {
+                    // SAFETY: main thread (window events), live items.
+                    unsafe { set_key(item, if key { shown } else { "" }) };
+                }
+            });
+        }
+    }
+
     /// Text-editing actions sent to the first responder (the focused text
     /// field): the menu's Undo, Redo and Select All are the app's commands,
     /// and the webview hands them back here while a text field has the focus.
@@ -459,6 +626,10 @@ pub fn set_app_menu(app: tauri::AppHandle, spec: MenuSpec) -> Result<(), String>
         let mut items = std::collections::HashMap::new();
         let menu = native::build(&app, &spec.menus, &mut items).map_err(|e| e.to_string())?;
         app.set_menu(menu).map_err(|e| e.to_string())?;
+        // Queued after set_menu's own main-thread work: the items exist.
+        let menus = spec.menus.clone();
+        app.run_on_main_thread(move || native::shortcuts::apply(&menus))
+            .map_err(|e| e.to_string())?;
         match app.try_state::<native::Items<tauri::Wry>>() {
             Some(state) => *state.0.lock().unwrap_or_else(|e| e.into_inner()) = items,
             None => {
@@ -522,6 +693,12 @@ pub fn app_menu_text_action(app: tauri::AppHandle, action: String) -> Result<(),
     }
 }
 
+/// The main window gained or lost the key focus (lib.rs's window events).
+#[cfg(target_os = "macos")]
+pub fn main_window_focused<R: tauri::Runtime>(app: &tauri::AppHandle<R>, focused: bool) {
+    let _ = app.run_on_main_thread(move || native::shortcuts::main_window_key(focused));
+}
+
 /// A menu item was chosen: a command goes to the webview, the rest is
 /// `app_quit`'s (Quit, Report a Problem of the menu shown before the tree).
 #[cfg(target_os = "macos")]
@@ -541,11 +718,20 @@ pub fn on_menu_event<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: tauri:
 mod tests {
     use super::*;
 
-    fn item(id: &str, accelerator: Option<&str>) -> MenuNode {
+    fn key(key: &str, command: bool) -> Shortcut {
+        Shortcut {
+            key: key.into(),
+            command,
+            shift: false,
+            option: false,
+        }
+    }
+
+    fn item(id: &str, shortcut: Option<Shortcut>) -> MenuNode {
         MenuNode::Item {
             id: id.into(),
             label: id.into(),
-            accelerator: accelerator.map(Into::into),
+            shortcut,
             enabled: true,
             checked: None,
         }
@@ -667,44 +853,37 @@ mod tests {
     }
 
     #[test]
-    fn single_key_shortcuts_never_become_key_equivalents() {
+    fn every_key_is_shown_single_keys_and_layout_characters_included() {
         let spec: MenuSpec = serde_json::from_str(WEBVIEW_TREE).unwrap();
         let mut nodes = Vec::new();
         walk(&spec.menus, &mut nodes);
-        let rated = nodes.iter().find_map(|n| match n {
-            MenuNode::Item {
-                id, accelerator, ..
-            } if id == "cmd:rate_3" => Some(accelerator),
-            _ => None,
-        });
-        assert_eq!(rated, Some(&None));
-        // Plain, ⇧-only and ⌥-only shortcuts.
-        for shortcut in [
-            ["", "KeyF"],
-            ["Shift+", "Digit1"],
-            ["Alt+", "KeyM"],
-            ["Shift+Alt+", "KeyM"],
-        ] {
-            let shortcut = shortcut.concat();
-            assert!(check_accelerator(&shortcut).is_err(), "{shortcut}");
+        let shortcut_of = |command: &str| {
+            nodes.iter().find_map(|n| match n {
+                MenuNode::Item { id, shortcut, .. } if id == &format!("cmd:{command}") => {
+                    shortcut.clone()
+                }
+                _ => None,
+            })
+        };
+        // Ratings and flags show their single key (UXR4M-05).
+        assert_eq!(shortcut_of("rate_3"), Some(key("3", false)));
+        assert_eq!(shortcut_of("flag_pick"), Some(key("p", false)));
+        assert_eq!(shortcut_of("undo"), Some(key("z", true)));
+        // A layout's own characters and named keys are valid keys.
+        for valid in ["ä", "+", "¨", "ArrowLeft", "F6", "Backspace", "PageDown"] {
+            check_shortcut("cmd:x", &key(valid, false)).unwrap();
         }
-        for accelerator in [
-            "CmdOrCtrl+KeyZ",
-            "CmdOrCtrl+Shift+KeyE",
-            "CmdOrCtrl+Alt+KeyV",
-            "CmdOrCtrl+Equal",
-            "Ctrl+CmdOrCtrl+KeyF",
-            "CmdOrCtrl+Digit0",
-        ] {
-            check_accelerator(accelerator).unwrap();
+        for invalid in ["", "ab", " ", "\t", "F25", "Plus"] {
+            assert!(check_shortcut("cmd:x", &key(invalid, true)).is_err(), "{invalid:?}");
         }
-        for accelerator in [
-            "CmdOrCtrl+",
-            "CmdOrCtrl+Hyper+KeyA",
-            "CmdOrCtrl+CmdOrCtrl+KeyA",
-            "CmdOrCtrl+Plus",
-        ] {
-            assert!(check_accelerator(accelerator).is_err(), "{accelerator}");
+        #[cfg(target_os = "macos")]
+        {
+            use native::shortcuts::key_equivalent;
+            assert_eq!(key_equivalent(&key("P", false)), "p");
+            assert_eq!(key_equivalent(&key("ä", true)), "ä");
+            assert_eq!(key_equivalent(&key("F6", false)), "\u{F709}");
+            assert_eq!(key_equivalent(&key("ArrowLeft", false)), "\u{F702}");
+            assert_eq!(key_equivalent(&key("Backspace", false)), "\u{8}");
         }
     }
 
@@ -723,8 +902,8 @@ mod tests {
         assert!(validate(&spec(vec![item("cmd:", None)])).is_err());
         assert!(
             validate(&spec(vec![
-                item("cmd:a", Some("CmdOrCtrl+KeyJ")),
-                item("cmd:b", Some("CmdOrCtrl+KeyJ"))
+                item("cmd:a", Some(key("j", true))),
+                item("cmd:b", Some(key("J", true)))
             ]))
             .unwrap_err()
             .contains("two items")
@@ -732,7 +911,7 @@ mod tests {
         // A command cannot take a key AppKit's own item holds.
         assert!(
             validate(&spec(vec![
-                item("cmd:a", Some("CmdOrCtrl+KeyC")),
+                item("cmd:a", Some(key("c", true))),
                 MenuNode::Native {
                     role: NativeRole::Copy,
                     label: None
@@ -762,7 +941,8 @@ mod tests {
         }
         assert!(validate(&spec(vec![deep])).unwrap_err().contains("deep"));
         validate(&spec(vec![
-            item("cmd:a", Some("CmdOrCtrl+KeyJ")),
+            item("cmd:a", Some(key("j", true))),
+            item("cmd:b", Some(key("j", false))),
             MenuNode::Separator,
         ]))
         .unwrap();
@@ -792,7 +972,7 @@ mod tests {
             MenuNode::Item {
                 enabled: true,
                 checked: None,
-                accelerator: None,
+                shortcut: None,
                 ..
             }
         ));
