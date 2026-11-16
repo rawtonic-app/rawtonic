@@ -118,6 +118,44 @@ it('publishes completed thumbnails without replacing unchanged large-library met
   expect(markGenerated).toHaveBeenCalledWith('/image-5.RAF');
 });
 
+it('reveals the thumbnails of tiles in view first after a fast scroll, and takes a batch as one event', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('requestAnimationFrame', (fn: () => void) => setTimeout(fn, 16));
+  vi.stubGlobal('cancelAnimationFrame', clearTimeout);
+  useLibraryStore.getState().setLibrary({ imageList: [], imageRatings: {} });
+  useProcessStore.getState().setProcess({ thumbnails: {}, mediumThumbnails: {} });
+  const shown = Array.from({ length: 24 }, (_, i) => `/shown-${i}.jpg`);
+  const markGenerated = vi.fn();
+  renderHook(() =>
+    useTauriListeners({
+      refreshAllFolderTrees: vi.fn(),
+      handleSelectSubfolder: vi.fn(),
+      refreshImageList: vi.fn(),
+      markGenerated,
+      isInView: (path) => shown.includes(path)
+    })
+  );
+  const batch = (paths: string[]) =>
+    callbacks.get('thumbnails-generated')!({
+      payload: paths.map((path) => ({ path, thumbnailPath: `${path}-s`, previewPath: `${path}-m` }))
+    });
+  act(() => {
+    // Four rows the scroll passed arrive before the ones it stopped at.
+    for (let row = 0; row < 4; row++) batch(Array.from({ length: 24 }, (_, i) => `/passed-${row}-${i}.jpg`));
+    batch(shown);
+  });
+  act(() => vi.advanceTimersByTime(20));
+  act(() => vi.advanceTimersByTime(16));
+  const thumbnails = useProcessStore.getState().thumbnails;
+  // Two frames of 12: every tile in view, nothing it passed yet.
+  expect(shown.every((path) => thumbnails[path] === `asset://${path}-s`)).toBe(true);
+  expect(Object.keys(thumbnails)).toHaveLength(24);
+  expect(markGenerated).toHaveBeenCalledTimes(5 * 24);
+  // The rows passed follow (their tiles come back cached).
+  act(() => vi.advanceTimersByTime(16 * 9));
+  expect(Object.keys(useProcessStore.getState().thumbnails)).toHaveLength(5 * 24);
+});
+
 it("keeps newer listed ratings over a thumbnail's rating read when its generation began", () => {
   vi.useFakeTimers();
   vi.stubGlobal('requestAnimationFrame', (fn: () => void) => setTimeout(fn, 16));

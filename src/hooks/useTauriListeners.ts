@@ -110,6 +110,9 @@ interface TauriListenerProps {
   ) => void | Promise<void>;
   refreshImageList: () => void;
   markGenerated: (path: string) => void;
+  /** Whether a tile in view asked for this photograph's thumbnail: those are
+   * revealed first. */
+  isInView?: (path: string) => boolean;
   /** Opens a photograph (in Develop with `openInEditor`). */
   handleImageSelect?: (path: string, openInEditor?: boolean) => void;
 }
@@ -216,11 +219,22 @@ const parentFolder = (path: string) => path.slice(0, Math.max(path.lastIndexOf('
 /** New grid thumbnails taken into the store per animation frame. */
 export const THUMBNAILS_PER_FRAME = 12;
 
+/** Buffered thumbnails in the order they are revealed: those of tiles in
+ * view first, each group in arrival order. */
+export function revealOrder(paths: string[], isInView?: (path: string) => boolean): string[] {
+  if (!isInView) return paths;
+  const inView: string[] = [];
+  const rest: string[] = [];
+  for (const path of paths) (isInView(path) ? inView : rest).push(path);
+  return inView.length ? inView.concat(rest) : paths;
+}
+
 export function useTauriListeners({
   refreshAllFolderTrees,
   handleSelectSubfolder,
   refreshImageList,
   markGenerated,
+  isInView,
   handleImageSelect
 }: TauriListenerProps) {
   const refs = useRef({
@@ -228,12 +242,20 @@ export function useTauriListeners({
     handleSelectSubfolder,
     refreshImageList,
     markGenerated,
+    isInView,
     handleImageSelect
   });
   const latestCapture = useRef(0);
 
   useEffect(() => {
-    refs.current = { refreshAllFolderTrees, handleSelectSubfolder, refreshImageList, markGenerated, handleImageSelect };
+    refs.current = {
+      refreshAllFolderTrees,
+      handleSelectSubfolder,
+      refreshImageList,
+      markGenerated,
+      isInView,
+      handleImageSelect
+    };
   });
 
   const thumbnailBuffer = useRef<Record<string, string>>({});
@@ -324,8 +346,11 @@ export function useTauriListeners({
       // Reveal at most a few new thumbnails per frame: a whole burst of new
       // images loading and painting together made the first grid seconds of
       // large sessions drop frames (53–69 ms with 5,000 RAWs).
+      // Tiles in view first: after a fast scroll the buffer still holds the
+      // thumbnails of every row it passed, and the photographs shown now
+      // waited behind them (G53 DKT1).
       const thumbPaths = Object.keys(thumbnailBuffer.current);
-      const now = thumbPaths.slice(0, THUMBNAILS_PER_FRAME);
+      const now = revealOrder(thumbPaths, refs.current.isInView).slice(0, THUMBNAILS_PER_FRAME);
       const pendingThumbs: Record<string, string> = {};
       const pendingMediumThumbs: Record<string, string> = {};
       for (const path of now) {
@@ -401,6 +426,33 @@ export function useTauriListeners({
     const scheduleFlush = () => {
       if (flushHandle.current !== null) return;
       flushHandle.current = requestAnimationFrame(flushThumbnailBatch);
+    };
+
+    const acceptThumbnail = (payload: ThumbnailGeneratedPayload) => {
+      const { path: emittedPath, thumbnailPath, previewPath, rating, is_edited, data } = payload;
+      // Batch operations can publish the canonical Windows path while the
+      // grid was listed through its plain spelling. Update that visible tile.
+      const images = useLibraryStore.getState().imageList;
+      const path = libraryImagePath(images, emittedPath);
+
+      if (thumbnailPath && previewPath) {
+        thumbnailBuffer.current[path] = convertFileSrc(thumbnailPath.replace(/\\/g, '/'));
+        mediumThumbnailBuffer.current[path] = convertFileSrc(previewPath.replace(/\\/g, '/'));
+        refs.current.markGenerated(path);
+      } else if (data) {
+        thumbnailBuffer.current[path] = data;
+        mediumThumbnailBuffer.current[path] = data;
+        refs.current.markGenerated(path);
+      }
+      if (rating != null) {
+        ratingBuffer.current[path] = rating;
+      }
+      if (is_edited != null) {
+        editStatusBuffer.current[path] = is_edited;
+      }
+      if (thumbnailPath || data || rating != null || is_edited != null) {
+        scheduleFlush();
+      }
     };
 
     // An ingest's photographs appear in the grid as each is copied
@@ -523,31 +575,11 @@ export function useTauriListeners({
         if (isEffectActive) useProcessStore.getState().setProcess({ thumbnailProgress: { current: 0, total: 0 } });
       }),
       listen<ThumbnailGeneratedPayload>('thumbnail-generated', (event) => {
-        if (!isEffectActive) return;
-        const { path: emittedPath, thumbnailPath, previewPath, rating, is_edited, data } = event.payload;
-        // Batch operations can publish the canonical Windows path while the
-        // grid was listed through its plain spelling. Update that visible tile.
-        const images = useLibraryStore.getState().imageList;
-        const path = libraryImagePath(images, emittedPath);
-
-        if (thumbnailPath && previewPath) {
-          thumbnailBuffer.current[path] = convertFileSrc(thumbnailPath.replace(/\\/g, '/'));
-          mediumThumbnailBuffer.current[path] = convertFileSrc(previewPath.replace(/\\/g, '/'));
-          refs.current.markGenerated(path);
-        } else if (data) {
-          thumbnailBuffer.current[path] = data;
-          mediumThumbnailBuffer.current[path] = data;
-          refs.current.markGenerated(path);
-        }
-        if (rating != null) {
-          ratingBuffer.current[path] = rating;
-        }
-        if (is_edited != null) {
-          editStatusBuffer.current[path] = is_edited;
-        }
-        if (thumbnailPath || data || rating != null || is_edited != null) {
-          scheduleFlush();
-        }
+        if (isEffectActive) acceptThumbnail(event.payload);
+      }),
+      // A viewport's cached thumbnails come as one event.
+      listen<ThumbnailGeneratedPayload[]>('thumbnails-generated', (event) => {
+        if (isEffectActive) event.payload.forEach(acceptThumbnail);
       }),
       listen<CameraRatingsPayload>('library-camera-ratings', async (event) => {
         if (!isEffectActive) return;

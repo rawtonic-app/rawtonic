@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Thumbnails appear right after a fast scroll through a large folder.** In the Library grid, the filmstrip and its docked column, a fling or scrollbar drag through hundreds of photos revealed the thumbnails of every row it had passed before those of the tiles where it stopped. A screen's cached thumbnails now arrive together, are looked up apart from thumbnails still being made, and the tiles in view are shown first. Measured with cached thumbnails, release to every tile in view filled: Linux, 1,200 photos, median 245 → 60 ms; Windows laptop, about 1,160 photos, median 133 → 88 ms for scrollbar drags, wheel flings 103–131 ms after the fix.
+
 ## 0.1.0-alpha.16 — 2026-11-16
 
 The sixteenth alpha. Develop's filmstrip can be docked beside the photo as a vertical grid, and unedited photos can start from develop defaults of your own — globally, per camera model or per camera body. For new edits, raised Shadows no longer leaves a light rim beside strong edges and radial and linear gradients fade as Camera Raw's do. On Windows with AMD graphics the first edits on a new computer wait at most about 9 s instead of 37 s, exports of new edits with noise reduction or sharpening are about a tenth faster, and the import view keeps the photograph on screen while zooming and stepping.

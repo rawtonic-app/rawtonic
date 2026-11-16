@@ -23,7 +23,7 @@ use crate::mask_generation::prepare_parametric_mask_source;
 use crate::mask_generation::{MaskBitmap, MaskDefinition};
 use crate::state::develop::DevelopSession;
 use crate::state::lock::lock_recover;
-use crate::state::thumbnails::ThumbnailState;
+use crate::state::thumbnails::{ThumbnailJob, ThumbnailQueue, ThumbnailState, ThumbnailWork};
 use anyhow::Result;
 use image::DynamicImage;
 use image::GenericImageView;
@@ -1228,6 +1228,98 @@ fn cache_thumbnail(path: &Path, bytes: &[u8]) -> Result<()> {
     rawtonic_fs::atomic_write(path, bytes)
 }
 
+/// Where `path_str`'s thumbnails are cached for its file and recipe as they
+/// are now, with the rating and edit state read from its sidecar.
+struct ThumbnailCacheEntry {
+    small: PathBuf,
+    medium: PathBuf,
+    rating: Option<u8>,
+    is_edited: Option<bool>,
+}
+
+/// A photo's cached thumbnails: small path, medium path, rating, edited.
+pub(crate) type CachedThumbnails = (String, String, Option<u8>, Option<bool>);
+
+impl ThumbnailCacheEntry {
+    fn of(
+        path_str: &str,
+        thumb_cache_dir: &Path,
+        app_handle: &AppHandle,
+        settings: &AppSettings,
+    ) -> Option<Self> {
+        let (source_path, sidecar_path) = parse_virtual_path(path_str);
+
+        // Rating and edit state only when a sidecar was read: without one they
+        // are unknown here (the listing has them), and an event saying 0 could
+        // arrive after the photograph was registered with its rating.
+        let (rating, is_edited, adjustments_bytes) = if is_cloud_placeholder(&sidecar_path) {
+            enqueue_metadata(
+                app_handle,
+                path_str.to_string(),
+                source_path.clone(),
+                sidecar_path.clone(),
+            );
+            (None, None, Vec::new())
+        } else if let Some(meta) = thumbnail_metadata(&source_path, &sidecar_path) {
+            {
+                let is_raw = crate::formats::is_raw_file(path_str);
+                let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
+                (
+                    Some(meta.rating),
+                    Some(crate::image_processing::is_image_edited(
+                        &meta.adjustments,
+                        is_raw,
+                        tm,
+                    )),
+                    serde_json::to_vec(&meta.adjustments).unwrap_or_default(),
+                )
+            }
+        } else {
+            (None, None, Vec::new())
+        };
+
+        let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
+        Some(Self {
+            small: thumb_cache_dir.join(format!("{}_small.jpg", cache_hash)),
+            medium: thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash)),
+            rating,
+            is_edited,
+        })
+    }
+
+    /// Both files, marked used, if the cache has them.
+    fn cached(&self) -> Option<CachedThumbnails> {
+        let _small_use = crate::storage_fs::pin_file(&self.small);
+        let _medium_use = crate::storage_fs::pin_file(&self.medium);
+        if !(self.small.exists() && self.medium.exists()) {
+            return None;
+        }
+        crate::storage_fs::mark_used(&self.small);
+        crate::storage_fs::mark_used(&self.medium);
+        Some(self.paths())
+    }
+
+    fn paths(&self) -> CachedThumbnails {
+        (
+            self.small.to_string_lossy().into_owned(),
+            self.medium.to_string_lossy().into_owned(),
+            self.rating,
+            self.is_edited,
+        )
+    }
+}
+
+/// `path_str`'s cached thumbnails for its file and recipe as they are now,
+/// if both exist; nothing is made.
+pub(crate) fn cached_thumbnails(
+    path_str: &str,
+    thumb_cache_dir: &Path,
+    app_handle: &AppHandle,
+    settings: &AppSettings,
+) -> Option<CachedThumbnails> {
+    ThumbnailCacheEntry::of(path_str, thumb_cache_dir, app_handle, settings)?.cached()
+}
+
 pub(crate) fn generate_single_thumbnail_and_cache(
     path_str: &str,
     thumb_cache_dir: &Path,
@@ -1236,56 +1328,17 @@ pub(crate) fn generate_single_thumbnail_and_cache(
     force_regenerate: bool,
     app_handle: &AppHandle,
     settings: &AppSettings,
-) -> Option<(String, String, Option<u8>, Option<bool>)> {
-    let (source_path, sidecar_path) = parse_virtual_path(path_str);
+) -> Option<CachedThumbnails> {
+    let entry = ThumbnailCacheEntry::of(path_str, thumb_cache_dir, app_handle, settings)?;
+    let (small_path, medium_path) = (&entry.small, &entry.medium);
+    let _small_use = crate::storage_fs::pin_file(small_path);
+    let _medium_use = crate::storage_fs::pin_file(medium_path);
 
-    // Rating and edit state only when a sidecar was read: without one they
-    // are unknown here (the listing has them), and an event saying 0 could
-    // arrive after the photograph was registered with its rating.
-    let (rating, is_edited, adjustments_bytes) = if is_cloud_placeholder(&sidecar_path) {
-        enqueue_metadata(
-            app_handle,
-            path_str.to_string(),
-            source_path.clone(),
-            sidecar_path.clone(),
-        );
-        (None, None, Vec::new())
-    } else if let Some(meta) = thumbnail_metadata(&source_path, &sidecar_path) {
-        {
-            let is_raw = crate::formats::is_raw_file(path_str);
-            let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
-            (
-                Some(meta.rating),
-                Some(crate::image_processing::is_image_edited(
-                    &meta.adjustments,
-                    is_raw,
-                    tm,
-                )),
-                serde_json::to_vec(&meta.adjustments).unwrap_or_default(),
-            )
-        }
-    } else {
-        (None, None, Vec::new())
-    };
-
-    let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
-
-    let small_path = thumb_cache_dir.join(format!("{}_small.jpg", cache_hash));
-    let medium_path = thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash));
-    let _small_use = crate::storage_fs::pin_file(&small_path);
-    let _medium_use = crate::storage_fs::pin_file(&medium_path);
-
-    if !force_regenerate && small_path.exists() && medium_path.exists() {
-        crate::storage_fs::mark_used(&small_path);
-        crate::storage_fs::mark_used(&medium_path);
-        return Some((
-            small_path.to_string_lossy().into_owned(),
-            medium_path.to_string_lossy().into_owned(),
-            rating,
-            is_edited,
-        ));
+    if !force_regenerate && let Some(cached) = entry.cached() {
+        return Some(cached);
     }
 
+    let (source_path, _) = parse_virtual_path(path_str);
     if is_cloud_placeholder(&source_path) {
         return None;
     }
@@ -1303,19 +1356,14 @@ pub(crate) fn generate_single_thumbnail_and_cache(
             ))
         })
         .and_then(|(small_data, medium_data)| {
-            cache_thumbnail(&small_path, &small_data)?;
-            cache_thumbnail(&medium_path, &medium_data)
+            cache_thumbnail(small_path, &small_data)?;
+            cache_thumbnail(medium_path, &medium_data)
         });
     if let Err(error) = made {
         log::warn!("Thumbnail of {path_str} not made: {error:#}");
         return None;
     }
-    Some((
-        small_path.to_string_lossy().into_owned(),
-        medium_path.to_string_lossy().into_owned(),
-        rating,
-        is_edited,
-    ))
+    Some(entry.paths())
 }
 
 /// Makes `path`'s thumbnails again after its preview proxy was written (the
@@ -1361,17 +1409,18 @@ pub(crate) fn prefetch_source_file(path_str: &str) {
     }
 }
 
-/// The next queued photo, or `None` (and the rest of the queue dropped) once
+/// The next job, or `None` (and the rest of the queue dropped) once
 /// thumbnail generation was cancelled.
-pub(crate) fn take_next_thumbnail_path(
-    queue: &mut std::collections::VecDeque<String>,
+pub(crate) fn take_next_thumbnail_job(
+    queue: &mut ThumbnailQueue,
+    work: ThumbnailWork,
     cancelled: &std::sync::atomic::AtomicBool,
-) -> Option<String> {
+) -> Option<ThumbnailJob> {
     if cancelled.load(Ordering::SeqCst) {
         queue.clear();
         return None;
     }
-    queue.pop_back()
+    queue.take(work)
 }
 
 pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
@@ -1379,76 +1428,124 @@ pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
     let settings = crate::state::settings::current(&app_handle);
     let thread_count = settings.thumbnail_worker_threads.unwrap_or(4).clamp(1, 16);
 
-    for _ in 0..thread_count {
+    // One thread looks the viewports up in the cache, the others decode.
+    let workers = std::iter::once(ThumbnailWork::Lookup).chain(std::iter::repeat_n(
+        ThumbnailWork::Decode,
+        thread_count as usize,
+    ));
+    for work in workers {
         let app_clone = app_handle.clone();
         let manager_clone = manager.clone();
 
         rawtonic_runtime::spawn_render_thread("thumbnails", move || {
             loop {
-                let path_to_process: String = {
+                let job = {
                     let mut queue = lock_recover(&manager_clone.queue);
-                    while queue.is_empty() {
+                    while !queue.has(work) {
                         queue = manager_clone
                             .cvar
                             .wait(queue)
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
                     }
                     let thumbnails = app_clone.state::<ThumbnailState>();
-                    let Some(path) = take_next_thumbnail_path(&mut queue, &thumbnails.cancelled)
+                    let Some(job) =
+                        take_next_thumbnail_job(&mut queue, work, &thumbnails.cancelled)
                     else {
                         // Cancelled: the queue is dropped, the progress is already reset.
                         continue;
                     };
 
-                    let mut processing = lock_recover(&manager_clone.processing_now);
-                    if processing.contains(&path) {
-                        increment_thumbnail_progress(&thumbnails, &app_clone);
-                        continue;
+                    if let ThumbnailJob::Decode(path) = &job {
+                        let mut processing = lock_recover(&manager_clone.processing_now);
+                        if processing.contains(path) {
+                            increment_thumbnail_progress(&thumbnails, &app_clone);
+                            continue;
+                        }
+                        processing.insert(path.clone());
                     }
-                    processing.insert(path.clone());
-                    path
+                    job
                 };
                 // A GPU check of an AI model never times the CPU or the GPU
                 // beside a thumbnail (rawtonic-onnx `background`).
                 rawtonic_onnx::note_activity();
 
-                let gpu_context = crate::gpu_processing::get_or_init_gpu_context(
-                    &app_clone.state::<crate::state::gpu::GpuState>(),
-                    &app_clone,
-                )
-                .ok();
-
                 let current_settings = crate::state::settings::current(&app_clone);
+                let cache_dir = get_thumb_cache_dir(&app_clone);
 
-                if let Ok(cache_dir) = get_thumb_cache_dir(&app_clone) {
-                    if manager_clone.rotational_disk.load(Ordering::Relaxed) {
-                        let _io_permit = lock_recover(&manager_clone.io_gate);
-                        prefetch_source_file(&path_to_process);
+                match job {
+                    ThumbnailJob::Lookup { paths, generation } => {
+                        let Ok(cache_dir) = cache_dir else { continue };
+                        let mut found = Vec::new();
+                        let mut misses = Vec::new();
+                        for path in paths {
+                            match cached_thumbnails(
+                                &path,
+                                &cache_dir,
+                                &app_clone,
+                                &current_settings,
+                            ) {
+                                Some(cached) => found.push((path, cached)),
+                                None => misses.push(path),
+                            }
+                        }
+                        let current =
+                            lock_recover(&manager_clone.queue).queue_misses(generation, misses);
+                        if current {
+                            manager_clone.cvar.notify_all();
+                        }
+                        // An older viewport's thumbnails are shown too (they
+                        // are made), but count only toward their own progress.
+                        emit_thumbnails_generated(&app_clone, &found);
+                        if current && !found.is_empty() {
+                            complete_thumbnail_progress(
+                                &app_clone.state::<ThumbnailState>(),
+                                found.len(),
+                                &app_clone,
+                            );
+                        }
                     }
+                    ThumbnailJob::Decode(path_to_process) => {
+                        if let Ok(cache_dir) = cache_dir {
+                            let gpu_context = crate::gpu_processing::get_or_init_gpu_context(
+                                &app_clone.state::<crate::state::gpu::GpuState>(),
+                                &app_clone,
+                            )
+                            .ok();
+                            // Only a photo the cache did not have is read
+                            // ahead: a cached one costs no read of its file.
+                            if manager_clone.rotational_disk.load(Ordering::Relaxed) {
+                                let _io_permit = lock_recover(&manager_clone.io_gate);
+                                prefetch_source_file(&path_to_process);
+                            }
 
-                    let result = generate_single_thumbnail_and_cache(
-                        &path_to_process,
-                        &cache_dir,
-                        gpu_context.as_ref(),
-                        None,
-                        false,
-                        &app_clone,
-                        &current_settings,
-                    );
+                            let result = generate_single_thumbnail_and_cache(
+                                &path_to_process,
+                                &cache_dir,
+                                gpu_context.as_ref(),
+                                None,
+                                false,
+                                &app_clone,
+                                &current_settings,
+                            );
 
-                    if let Some((small_path, medium_path, rating, is_edited)) = result {
-                        emit_thumbnail_generated(
-                            &app_clone,
-                            &path_to_process,
-                            &small_path,
-                            &medium_path,
-                            rating,
-                            is_edited,
-                        );
+                            if let Some((small_path, medium_path, rating, is_edited)) = result {
+                                emit_thumbnail_generated(
+                                    &app_clone,
+                                    &path_to_process,
+                                    &small_path,
+                                    &medium_path,
+                                    rating,
+                                    is_edited,
+                                );
+                            }
+                            increment_thumbnail_progress(
+                                &app_clone.state::<ThumbnailState>(),
+                                &app_clone,
+                            );
+                        }
+                        lock_recover(&manager_clone.processing_now).remove(&path_to_process);
                     }
-                    increment_thumbnail_progress(&app_clone.state::<ThumbnailState>(), &app_clone);
                 }
-                lock_recover(&manager_clone.processing_now).remove(&path_to_process);
             }
         });
     }
@@ -1496,14 +1593,13 @@ pub fn update_thumbnail_queue(
     let processing = lock_recover(&manager.processing_now);
     let mut unique_paths = visible_thumbnail_paths(paths, &processing);
     drop(processing);
-    queue.clear();
     if manager.rotational_disk.load(Ordering::Relaxed) {
         unique_paths.sort();
     }
-    // Workers pop from the back; preserve visible order and bound oversized input.
-    queue.extend(unique_paths.into_iter().rev());
+    // Looked up in the cache first, then decoded in this (visible) order.
+    queue.replace(unique_paths);
 
-    let queue_len = queue.len();
+    let queue_len = queue.queued();
     drop(queue);
 
     let (current, total) = thumbnails.set_queued(queue_len);
@@ -1527,7 +1623,12 @@ pub fn add_to_thumbnail_queue(thumbnails: &ThumbnailState, count: usize, app_han
 }
 
 pub fn increment_thumbnail_progress(thumbnails: &ThumbnailState, app_handle: &AppHandle) {
-    if let Some((current, total)) = thumbnails.complete_one() {
+    complete_thumbnail_progress(thumbnails, 1, app_handle);
+}
+
+/// Counts `count` finished photos with one progress event.
+fn complete_thumbnail_progress(thumbnails: &ThumbnailState, count: usize, app_handle: &AppHandle) {
+    if let Some((current, total)) = thumbnails.complete(count) {
         let _ = app_handle.emit(
             "thumbnail-progress",
             serde_json::json!({ "current": current, "total": total }),
@@ -1559,6 +1660,27 @@ pub(crate) fn emit_thumbnail_generated(
             "is_edited": is_edited
         }),
     );
+}
+
+/// A viewport's cached thumbnails as one event (`thumbnails-generated`, a
+/// list of `thumbnail-generated` payloads).
+fn emit_thumbnails_generated(app_handle: &AppHandle, found: &[(String, CachedThumbnails)]) {
+    if found.is_empty() {
+        return;
+    }
+    let batch: Vec<_> = found
+        .iter()
+        .map(|(path, (small, medium, rating, is_edited))| {
+            serde_json::json!({
+                "path": path,
+                "thumbnailPath": small,
+                "previewPath": medium,
+                "rating": rating,
+                "is_edited": is_edited
+            })
+        })
+        .collect();
+    let _ = app_handle.emit("thumbnails-generated", batch);
 }
 
 // Recovery bypasses the viewport generation queue. Admit it before entering
@@ -2375,30 +2497,122 @@ mod thumbnail_queue_tests {
         assert!(visible_thumbnail_paths(Vec::new(), &processing).is_empty());
     }
 
+    fn names(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|path| path.to_string()).collect()
+    }
+
     #[test]
     fn a_cancelled_generation_stops_at_the_next_photo_and_a_new_one_runs() {
         use std::sync::atomic::AtomicBool;
         let cancelled = AtomicBool::new(false);
-        let mut queue: std::collections::VecDeque<String> =
-            ["c", "b", "a"].into_iter().map(String::from).collect();
+        let mut queue = ThumbnailQueue::default();
+        queue.replace(names(&["a", "b", "c"]));
+        let Some(ThumbnailJob::Lookup { paths, generation }) =
+            take_next_thumbnail_job(&mut queue, ThumbnailWork::Lookup, &cancelled)
+        else {
+            panic!("a new viewport is looked up first");
+        };
+        assert!(queue.queue_misses(generation, paths));
         assert_eq!(
-            take_next_thumbnail_path(&mut queue, &cancelled).as_deref(),
-            Some("a")
+            take_next_thumbnail_job(&mut queue, ThumbnailWork::Decode, &cancelled),
+            Some(ThumbnailJob::Decode("a".into()))
         );
 
         cancelled.store(true, Ordering::SeqCst);
-        assert_eq!(take_next_thumbnail_path(&mut queue, &cancelled), None);
+        assert_eq!(
+            take_next_thumbnail_job(&mut queue, ThumbnailWork::Decode, &cancelled),
+            None
+        );
         assert!(
-            queue.is_empty(),
+            queue.queued() == 0,
             "the rest of the cancelled queue is dropped"
         );
 
         // update_thumbnail_queue resets the flag when a new generation starts.
         cancelled.store(false, Ordering::SeqCst);
-        queue.push_back("d".to_string());
+        queue.replace(names(&["d"]));
+        assert!(matches!(
+            take_next_thumbnail_job(&mut queue, ThumbnailWork::Lookup, &cancelled),
+            Some(ThumbnailJob::Lookup { paths, .. }) if paths == names(&["d"])
+        ));
+    }
+
+    #[test]
+    fn a_viewport_is_looked_up_at_once_and_only_its_misses_are_decoded_in_visible_order() {
+        use ThumbnailWork::{Decode, Lookup};
+        let mut queue = ThumbnailQueue::default();
+        queue.replace(names(&["first", "second", "third", "fourth"]));
+        assert_eq!(queue.queued(), 4);
+        assert!(!queue.has(Decode), "decoders wait for the lookup's misses");
+        let Some(ThumbnailJob::Lookup { paths, generation }) = queue.take(Lookup) else {
+            panic!("the whole viewport is one lookup");
+        };
+        assert_eq!(paths, names(&["first", "second", "third", "fourth"]));
+        assert_eq!(queue.queued(), 0);
+
+        // "second" and "fourth" were cached.
+        assert!(queue.queue_misses(generation, names(&["first", "third"])));
+        assert!(!queue.has(Lookup));
         assert_eq!(
-            take_next_thumbnail_path(&mut queue, &cancelled).as_deref(),
-            Some("d")
+            queue.take(Decode),
+            Some(ThumbnailJob::Decode("first".into()))
         );
+        assert_eq!(
+            queue.take(Decode),
+            Some(ThumbnailJob::Decode("third".into()))
+        );
+        assert_eq!(queue.take(Decode), None);
+    }
+
+    #[test]
+    fn a_new_viewport_is_looked_up_while_the_decoders_are_busy() {
+        use ThumbnailWork::{Decode, Lookup};
+        let mut queue = ThumbnailQueue::default();
+        queue.replace(names(&["passed"]));
+        let Some(ThumbnailJob::Lookup { paths, generation }) = queue.take(Lookup) else {
+            panic!("lookup expected");
+        };
+        assert!(queue.queue_misses(generation, paths));
+        // Every decoder now works on a row the scroll passed; the rows it
+        // stopped at are looked up without waiting for them.
+        assert_eq!(
+            queue.take(Decode),
+            Some(ThumbnailJob::Decode("passed".into()))
+        );
+        queue.replace(names(&["shown"]));
+        assert!(queue.has(Lookup));
+        assert!(!queue.has(Decode));
+    }
+
+    #[test]
+    fn a_lookup_overtaken_by_a_newer_viewport_queues_no_decodes() {
+        use ThumbnailWork::{Decode, Lookup};
+        let mut queue = ThumbnailQueue::default();
+        queue.replace(names(&["passed-1", "passed-2"]));
+        let Some(ThumbnailJob::Lookup { generation, .. }) = queue.take(Lookup) else {
+            panic!("lookup expected");
+        };
+        // The user scrolled on while the cache was being looked up.
+        queue.replace(names(&["shown"]));
+        assert!(!queue.queue_misses(generation, names(&["passed-1", "passed-2"])));
+        assert!(matches!(
+            queue.take(Lookup),
+            Some(ThumbnailJob::Lookup { paths, .. }) if paths == names(&["shown"])
+        ));
+        assert_eq!(
+            queue.take(Decode),
+            None,
+            "the passed rows are never decoded"
+        );
+
+        // A replacement also drops decodes still waiting from the last one.
+        queue.replace(names(&["a"]));
+        let Some(ThumbnailJob::Lookup { paths, generation }) = queue.take(Lookup) else {
+            panic!("lookup expected");
+        };
+        assert!(queue.queue_misses(generation, paths));
+        queue.replace(names(&["b"]));
+        assert_eq!(queue.take(Decode), None);
+        assert!(queue.has(Lookup));
     }
 }

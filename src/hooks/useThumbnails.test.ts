@@ -51,6 +51,16 @@ describe('visible thumbnail queue', () => {
     expect(send.mock.calls.at(-1)).toEqual([['new']]);
   });
 
+  it('knows which paths the viewport asked for last', () => {
+    const queue = createThumbnailQueue(() => new Promise(() => {}));
+    queue.request(['a', 'b']);
+    queue.request(['c']);
+    expect(queue.isInView('c')).toBe(true);
+    expect(queue.isInView('a')).toBe(false);
+    queue.clear();
+    expect(queue.isInView('c')).toBe(false);
+  });
+
   it('does not resubmit completed thumbnails or unchanged ranges', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
     const queue = createThumbnailQueue(send);

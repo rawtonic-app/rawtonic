@@ -172,7 +172,7 @@ function App() {
   const [thumbnailSize, setThumbnailSize] = useState(defaultThumbnailSize);
   const [thumbnailAspectRatio, setThumbnailAspectRatio] = useState(ThumbnailAspectRatio.Contain);
 
-  const { requestThumbnails, clearThumbnailQueue, markGenerated } = useThumbnails();
+  const { requestThumbnails, clearThumbnailQueue, markGenerated, isInView } = useThumbnails();
 
   const transformWrapperRef = useRef<TransformWrapperHandle | null>(null);
   const preloadedDataRef = useRef<{
@@ -465,6 +465,7 @@ function App() {
     handleSelectSubfolder,
     refreshImageList: handleLibraryRefresh,
     markGenerated,
+    isInView,
     handleImageSelect
   });
 
