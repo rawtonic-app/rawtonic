@@ -46,7 +46,7 @@ const VALUE_FIELD = 'input.adjustment-value';
 /** Where Enter closes the panel: a value field, a slider or the panel itself;
  * elsewhere (buttons, checkboxes, a form such as a custom crop ratio) Enter
  * keeps its own meaning. */
-const ENTER_CLOSES = `${VALUE_FIELD}, [role="slider"]`;
+const ENTER_CLOSES = `${VALUE_FIELD}, input[type="range"], [role="slider"]`;
 
 /** The selected layer's tool settings at the pointer, opened by a right-click
  * on the photograph. Closes on Escape, Enter, an outside press or when the

@@ -354,6 +354,16 @@ describe('brush settings at the pointer', () => {
     expect(editor().brushSettings?.autoMask).toBe(true);
   });
 
+  it("closes on Enter from a slider's track", () => {
+    brushLayer();
+    workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    const track = screen.getByRole('slider', { name: 'Size' });
+    act(() => track.focus());
+    fireEvent.keyDown(track, { key: 'Enter' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('reaches every value field with Tab', () => {
     brushLayer();
     workspace();
