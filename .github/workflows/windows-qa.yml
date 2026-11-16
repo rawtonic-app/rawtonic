@@ -106,6 +106,8 @@ jobs:
           $tests = cargo test --release --locked -p rawtonic-gpu --lib --no-run --message-format=json | ConvertFrom-Json | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.executable -and $_.target.name -eq 'rawtonic_gpu' } | Select-Object -Last 1
           if (-not $tests) { Write-Error "no GPU test executable"; exit 1 }
           Copy-Item $tests.executable probe-out\rawtonic_gpu_tests.exe
+          # Pinned data the tests read beside the executable (slider_response_tests `data_file`).
+          Copy-Item crates\gpu\tests\data\slider_response.json probe-out
           "commit $env:GITHUB_SHA" | Set-Content probe-out\PROBE-BUILD.txt
       - uses: actions/upload-artifact@v4
         with:

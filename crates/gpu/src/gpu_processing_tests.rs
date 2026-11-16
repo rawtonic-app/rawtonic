@@ -14573,6 +14573,30 @@ fn tone_version_13_shadows_lifts_midtones_less() {
 /// Bright plateaus (2^0.5, with ±0.15 EV texture) between dark bands 2.5 EV
 /// below them, 128 px each: strong edges with a bright side, as at skies
 /// behind branches.
+/// Two 16-bit exports that must render alike: byte for byte where each
+/// export compiles its own variant; under a compile limit (AMD's Windows
+/// Vulkan driver) an edited photo exports with its one shared Basic-panel
+/// variant (`export_display_features`), whose tone code holds every version
+/// the photo's tone version has (version 14's Highlights function for
+/// raised Highlights too, the same arithmetic as version 13's in another
+/// function), so there the two may round apart by up to one 8-bit code,
+/// the display variants' tolerance against exports (WSHRIM3: version 13
+/// against 14 at Highlights +60 on a Radeon 680M).
+fn assert_same_export(a: &[[u16; 3]], b: &[[u16; 3]], what: &str) {
+    let worst = a
+        .iter()
+        .zip(b)
+        .flat_map(|(p, q)| p.iter().zip(q).map(|(x, y)| x.abs_diff(*y)))
+        .max()
+        .unwrap_or(0);
+    let tolerance = if compiles_ahead() { 0 } else { 257 };
+    eprintln!("{what}: worst 16-bit difference {worst} (tolerance {tolerance})");
+    assert!(
+        a.len() == b.len() && worst <= tolerance,
+        "{what} differs: worst 16-bit difference {worst}, tolerance {tolerance}"
+    );
+}
+
 fn highlights_v14_edges(width: u32, height: u32) -> Vec<f32> {
     (0..height)
         .flat_map(|y| (0..width).map(move |x| (x, y)))
@@ -14623,21 +14647,22 @@ fn tone_version_14_highlights_no_light_rim() {
         json!({ "whites": -80, "blacks": -40, "shadows": 50, "contrast": 30 }),
     ] {
         for view in [&edges, &textured] {
-            assert!(
-                render_raw_look(
+            assert_same_export(
+                &render_raw_look(
                     &processor,
                     view,
                     (width, height),
                     &with(&recipe, 13),
-                    (3, 2.0)
-                ) == render_raw_look(
+                    (3, 2.0),
+                ),
+                &render_raw_look(
                     &processor,
                     view,
                     (width, height),
                     &with(&recipe, 14),
-                    (3, 2.0)
+                    (3, 2.0),
                 ),
-                "{recipe} differs"
+                &format!("{recipe}"),
             );
         }
     }
