@@ -438,14 +438,20 @@ const SPLIT_CUT2: &str = "    composite_rgb_linear = apply_color_calibration(com
 /// one pass, and without the constants the source computes what it did.
 /// After `with_effect_terms`. `None` when the source has another shape.
 fn with_tone_split(source: &str) -> Option<String> {
-    let mut source = SPLIT_PART1_EDITS
-        .iter()
-        .try_fold(source.to_string(), |source, (from, to)| {
-            (source.matches(from).count() == 1).then(|| source.replacen(from, to, 1))
-        })?;
-    if [SPLIT_PART1_START, SPLIT_CUT1, SPLIT_CUT2, EFFECT_TERMS_MAIN_END]
-        .iter()
-        .any(|text| source.matches(text).count() != 1)
+    let mut source =
+        SPLIT_PART1_EDITS
+            .iter()
+            .try_fold(source.to_string(), |source, (from, to)| {
+                (source.matches(from).count() == 1).then(|| source.replacen(from, to, 1))
+            })?;
+    if [
+        SPLIT_PART1_START,
+        SPLIT_CUT1,
+        SPLIT_CUT2,
+        EFFECT_TERMS_MAIN_END,
+    ]
+    .iter()
+    .any(|text| source.matches(text).count() != 1)
     {
         return None;
     }
@@ -1290,7 +1296,9 @@ mod tests {
             ("ENABLE_GRAIN", 0.0),
         ];
         let with = |extra: &[(&'static str, f64)]| {
-            shader.variant_module(&[&basic[..], extra].concat()).unwrap()
+            shader
+                .variant_module(&[&basic[..], extra].concat())
+                .unwrap()
         };
         let one = with(&[]);
         let before = with(&[("SPLIT_STORE1", 1.0)]);
@@ -1305,7 +1313,12 @@ mod tests {
             (
                 &tone,
                 &["apply_tonal_adjustments", "apply_highlights_adjustment"],
-                &["detail_stage", "apply_dehaze", "apply_hsl_panel", "finish_pixel"],
+                &[
+                    "detail_stage",
+                    "apply_dehaze",
+                    "apply_hsl_panel",
+                    "finish_pixel",
+                ],
             ),
             (
                 &main,
@@ -1331,10 +1344,20 @@ mod tests {
         assert_eq!(split_bindings(&tone), [37, 38]);
         assert_eq!(split_bindings(&main), [39]);
         let sizes = [&one, &before, &tone, &main].map(inlined_size);
-        println!("one pass {}, parts {} + {} + {}", sizes[0], sizes[1], sizes[2], sizes[3]);
-        assert!(sizes[1..].iter().all(|size| size * 2 < sizes[0]), "{sizes:?}");
+        println!(
+            "one pass {}, parts {} + {} + {}",
+            sizes[0], sizes[1], sizes[2], sizes[3]
+        );
+        assert!(
+            sizes[1..].iter().all(|size| size * 2 < sizes[0]),
+            "{sizes:?}"
+        );
         // Without the split, the passes' source as before.
-        assert!(DisplayShader::with_passes(SHADER, false).tone_split().is_none());
+        assert!(
+            DisplayShader::with_passes(SHADER, false)
+                .tone_split()
+                .is_none()
+        );
         assert!(with_tone_split("fn other() {}").is_none());
     }
 

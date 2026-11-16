@@ -11660,9 +11660,8 @@ impl GpuProcessor {
                         }),
                     });
                     if self.display_shader.tone_split().is_some() {
-                        bind_group_entries.extend(
-                            passes.split_entries(self, split_parts.as_ref().map(|_| 2)),
-                        );
+                        bind_group_entries
+                            .extend(passes.split_entries(self, split_parts.as_ref().map(|_| 2)));
                     }
                     for (index, binding) in
                         effect_passes::TERMS_INPUT_BINDINGS.into_iter().enumerate()

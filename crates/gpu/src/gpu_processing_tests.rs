@@ -9548,10 +9548,12 @@ fn tone_split_drag_render_time() {
                 }
             }
         }
-        assert!(processors[1]
-            .display_shader
-            .tone_split()
-            .is_some_and(|split| split.main_passes() > 0));
+        assert!(
+            processors[1]
+                .display_shader
+                .tone_split()
+                .is_some_and(|split| split.main_passes() > 0)
+        );
         let [one, split] = times.map(|mut times| {
             times.sort_by(f64::total_cmp);
             (times[times.len() / 2], times[times.len() * 9 / 10])
@@ -15833,7 +15835,11 @@ fn display_split_shows_the_before_left_of_the_divider() {
     for y in [9, 24, 38] {
         assert_eq!(pixel(&waiting, 1, y), after_rgba, "waiting pane, row {y}");
         assert_eq!(pixel(&waiting, 30, y), after_rgba, "waiting pane, row {y}");
-        assert_eq!(pixel(&waiting, 33, y), background, "past its photograph, row {y}");
+        assert_eq!(
+            pixel(&waiting, 33, y),
+            background,
+            "past its photograph, row {y}"
+        );
         assert_eq!(pixel(&waiting, 47, y), background, "waiting pane, row {y}");
         assert_eq!(pixel(&waiting, 49, y), after_rgba, "after pane, row {y}");
     }

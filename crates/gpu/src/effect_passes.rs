@@ -175,7 +175,10 @@ pub(super) fn float_texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-pub(super) fn output_entry(binding: u32, format: wgpu::TextureFormat) -> wgpu::BindGroupLayoutEntry {
+pub(super) fn output_entry(
+    binding: u32,
+    format: wgpu::TextureFormat,
+) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::COMPUTE,
