@@ -432,13 +432,16 @@ pub fn crs_attributes(xmp_content: &str) -> HashMap<String, String> {
 
 // Camera Raw process identifiers (not Lightroom application versions):
 // 5.0 = PV2003, 5.7 = PV2010, 6.7 = PV2012 (not a legacy process).
-const LEGACY_CONTROLS: [&str; 6] = [
-    "Brightness",
-    "Contrast",
-    "FillLight",
-    "HighlightRecovery",
-    "Shadows",
-    "Clarity",
+// Lightroom Classic 15.6 writes these in every old-process record at the
+// process defaults (Brightness 50, Contrast 25, Shadows 5, others 0), also for
+// untouched photos; only values the photographer changed are reported.
+const LEGACY_CONTROLS: [(&str, f64); 6] = [
+    ("Brightness", 50.0),
+    ("Contrast", 25.0),
+    ("FillLight", 0.0),
+    ("HighlightRecovery", 0.0),
+    ("Shadows", 5.0),
+    ("Clarity", 0.0),
 ];
 
 const MODERN_CONTROLS: [&str; 7] = [
@@ -456,10 +459,16 @@ fn legacy_process(attrs: &HashMap<String, String>) -> bool {
         return get_attr_as_f64(attrs, "ProcessVersion").is_some_and(|v| v < 6.7);
     }
     let nonzero = |key: &str| get_attr_as_f64(attrs, key).is_some_and(|v| v != 0.0);
-    std::iter::once("Exposure")
-        .chain(LEGACY_CONTROLS)
-        .any(nonzero)
+    (nonzero("Exposure") || !changed_legacy_controls(attrs).is_empty())
         && !MODERN_CONTROLS.into_iter().any(nonzero)
+}
+
+fn changed_legacy_controls(attrs: &HashMap<String, String>) -> Vec<&'static str> {
+    LEGACY_CONTROLS
+        .into_iter()
+        .filter(|(key, default)| get_attr_as_f64(attrs, key).is_some_and(|v| v != *default))
+        .map(|(key, _)| key)
+        .collect()
 }
 
 /// Legacy controls have no measured mapping; exposure alone keeps its stop value.
@@ -479,10 +488,7 @@ fn legacy_untranslated(attrs: &HashMap<String, String>) -> Vec<&'static str> {
     if !legacy_process(attrs) {
         return Vec::new();
     }
-    LEGACY_CONTROLS
-        .into_iter()
-        .filter(|key| get_attr_as_f64(attrs, key).is_some_and(|v| v != 0.0))
-        .collect()
+    changed_legacy_controls(attrs)
 }
 
 pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
@@ -1876,7 +1882,7 @@ mod tests {
                     .map(|v| format!("ProcessVersion = \"{v}\", "))
                     .unwrap_or_default();
                 let lua = format!(
-                    "s = {{ {process}{modern} Exposure = 1.25, Brightness = 50, Contrast = 25, FillLight = 12, HighlightRecovery = 10, Shadows = 5, Clarity = 20, Temperature = 4500, Tint = 8, WhiteBalance = \"Custom\", Sharpness = 40, LuminanceSmoothing = 15, HueAdjustmentRed = 10, ToneCurvePV2012 = {{0, 0, 128, 100, 255, 255}} }}"
+                    "s = {{ {process}{modern} Exposure = 1.25, Brightness = 60, Contrast = 30, FillLight = 12, HighlightRecovery = 10, Shadows = 8, Clarity = 20, Temperature = 4500, Tint = 8, WhiteBalance = \"Custom\", Sharpness = 40, LuminanceSmoothing = 15, HueAdjustmentRed = 10, ToneCurvePV2012 = {{0, 0, 128, 100, 255, 255}} }}"
                 );
                 let xmp = rawtonic_interop::lightroom_settings::to_xmp(&lua).unwrap();
                 let preset = super::convert_xmp_to_preset(&xmp).unwrap();
@@ -1899,7 +1905,10 @@ mod tests {
                     "Lightroom process before 2012: could not convert Brightness, Contrast, FillLight, HighlightRecovery, Shadows, Clarity (no measured mapping)."
                 );
                 let (untranslated, _) = super::untranslated_settings(&xmp);
-                assert_eq!(untranslated, super::LEGACY_CONTROLS);
+                assert_eq!(
+                    untranslated,
+                    super::LEGACY_CONTROLS.map(|(key, _)| key).to_vec()
+                );
                 // The exact same path reads a sidecar packet; these are not
                 // catalog-only aliases inserted by the Lua writer.
                 assert!(xmp.contains("crs:Exposure=\"1.25\""));
@@ -1934,10 +1943,28 @@ mod tests {
         assert!(super::legacy_process_warning(modern).is_none());
         assert!(
             super::legacy_process_warning(
-                r#"crs:ProcessVersion="5.7" crs:Exposure="1" crs:Brightness="0""#
+                r#"crs:ProcessVersion="5.7" crs:Exposure="1" crs:Brightness="50""#
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn untouched_old_process_records_report_nothing() {
+        // Real Lightroom Classic 15.6 records (2026-11-16): the old-process
+        // defaults are written into every record, also unedited ones.
+        let defaults = r#"crs:ProcessVersion="5.7" crs:Exposure="0.00" crs:Brightness="+50" crs:Contrast="+25" crs:Shadows="5" crs:FillLight="0" crs:HighlightRecovery="0" crs:Clarity="0""#;
+        assert!(super::legacy_process_warning(defaults).is_none());
+        let changed = defaults.replace(r#"crs:Shadows="5""#, r#"crs:Shadows="9""#);
+        assert!(
+            super::legacy_process_warning(&changed)
+                .unwrap()
+                .contains("could not convert Shadows (")
+        );
+        // Without a version, defaults alone do not make a record old-process.
+        let unversioned = r#"crs:Exposure2012="0" crs:Brightness="+50" crs:Contrast="+25" crs:Shadows="5" crs:Temperature="5000""#;
+        assert!(super::legacy_process_warning(unversioned).is_none());
+        assert!(!super::legacy_process(&super::crs_attributes(unversioned)));
     }
 
     /// Converts every preset listed in `XMP_PRESET_LIST` (one path per line)
