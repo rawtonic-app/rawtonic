@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { notify } from '../activity/notify';
 import i18n from 'i18next';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
-import { buildComboMap, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
+import { buildComboMap, eventCode, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
 import { readFilmstripDock } from '../utils/filmstripDock';
 import { runAutoStraighten } from '../utils/autoStraighten';
@@ -262,7 +262,7 @@ export const useKeyboardShortcuts = ({
       endBeforePeek();
     };
     const onKeyUp = (event: KeyboardEvent) => {
-      if (event.code === peekKeyRef.current) release();
+      if (eventCode(event) === peekKeyRef.current) release();
     };
     const onVisibility = () => {
       if (document.hidden) release();
@@ -773,7 +773,7 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           if (e.repeat || peekKeyRef.current) return;
-          if (startBeforePeek()) peekKeyRef.current = e.code;
+          if (startBeforePeek()) peekKeyRef.current = eventCode(e);
         }
       },
       toggle_original: {
@@ -1208,14 +1208,14 @@ export const useKeyboardShortcuts = ({
       {
         // Capture One's Cmd+Left / Cmd+Right step the primary in its multi view too.
         match: (e: KeyboardEvent, s: ShortcutState) =>
-          (e.code === 'ArrowLeft' || e.code === 'ArrowRight') &&
+          (eventCode(e) === 'ArrowLeft' || eventCode(e) === 'ArrowRight') &&
           (s.settings.osPlatform === 'macos' ? e.metaKey : e.ctrlKey) &&
           !e.altKey &&
           !e.shiftKey &&
           multiViewActive(s),
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
-          stepMultiView(s, e.code === 'ArrowRight' ? 1 : -1);
+          stepMultiView(s, eventCode(e) === 'ArrowRight' ? 1 : -1);
         }
       },
       {
@@ -1223,7 +1223,7 @@ export const useKeyboardShortcuts = ({
         // grid, the loupe, the full screen and Develop's filmstrip (in the
         // multi view: of the selection, as its arrows step).
         match: (e: KeyboardEvent, s: ShortcutState) =>
-          (e.code === 'Home' || e.code === 'End') &&
+          (eventCode(e) === 'Home' || eventCode(e) === 'End') &&
           !e.altKey &&
           !e.shiftKey &&
           !e.metaKey &&
@@ -1231,7 +1231,7 @@ export const useKeyboardShortcuts = ({
           (viewerShown(s.ui) ? !!s.editor.selectedImage : s.ui.activeView === 'library'),
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
-          const last = e.code === 'End';
+          const last = eventCode(e) === 'End';
           if (multiViewActive(s)) {
             const selection = orderedSelection(
               sortedListRef.current.map((image) => image.path),
@@ -1261,7 +1261,7 @@ export const useKeyboardShortcuts = ({
         }
       },
       {
-        match: (e: KeyboardEvent) => e.code === 'Escape',
+        match: (e: KeyboardEvent) => eventCode(e) === 'Escape',
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
           // The camera preview (Shift+\) returns to the edit, and only that:
@@ -1302,7 +1302,7 @@ export const useKeyboardShortcuts = ({
         // Capture One (the crop itself is already live), also when a crop
         // button kept the focus after a click (Space still presses it).
         match: (e: KeyboardEvent, s: ShortcutState) =>
-          (e.code === 'Enter' || e.code === 'NumpadEnter') &&
+          (eventCode(e) === 'Enter' || eventCode(e) === 'NumpadEnter') &&
           !e.metaKey &&
           !e.ctrlKey &&
           !e.altKey &&
@@ -1316,7 +1316,8 @@ export const useKeyboardShortcuts = ({
       },
       {
         match: (e: KeyboardEvent, s: ShortcutState) => {
-          const isDeleteKey = s.settings.osPlatform === 'macos' ? e.code === 'Backspace' : e.code === 'Delete';
+          const isDeleteKey =
+            s.settings.osPlatform === 'macos' ? eventCode(e) === 'Backspace' : eventCode(e) === 'Delete';
           return isDeleteKey && s.editor.selectedImage?.isReady && !!s.editor.activeMaskContainerId;
         },
         execute: (e: KeyboardEvent, s: ShortcutState) => {
@@ -1339,7 +1340,7 @@ export const useKeyboardShortcuts = ({
         // Space in the Library's grid opens the loupe on the active
         // photograph (Lightroom); in the loupe it zooms as in Develop.
         match: (e: KeyboardEvent, s: ShortcutState) =>
-          e.code === 'Space' &&
+          eventCode(e) === 'Space' &&
           !e.metaKey &&
           !e.ctrlKey &&
           !e.altKey &&
@@ -1362,18 +1363,18 @@ export const useKeyboardShortcuts = ({
         match: (e: KeyboardEvent, s: ShortcutState) =>
           s.ui.activeView === 'library' &&
           !viewerShown(s.ui) &&
-          ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code),
+          ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(eventCode(e)),
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
           const activePath = s.library.libraryActivePath;
           if (!activePath || sortedListRef.current.length === 0) return;
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === activePath);
           if (currentIndex === -1) return;
-          const nextIndex = gridStep(currentIndex, sortedListRef.current.length, e.code, s.ui.gridColumns);
+          const nextIndex = gridStep(currentIndex, sortedListRef.current.length, eventCode(e), s.ui.gridColumns);
           if (nextIndex === currentIndex) return;
           const nextImage = sortedListRef.current[nextIndex];
           const extend = e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
-          const forward = e.code === 'ArrowRight' || e.code === 'ArrowDown';
+          const forward = eventCode(e) === 'ArrowRight' || eventCode(e) === 'ArrowDown';
           // A range does not wrap round the grid's ends: past the last (first) photo it stays.
           if (extend && (forward ? nextIndex < currentIndex : nextIndex > currentIndex)) return;
           if (nextImage && extend) {
@@ -1427,7 +1428,7 @@ export const useKeyboardShortcuts = ({
     const syncMacCapsLock = (event: KeyboardEvent, state: ShortcutState) => {
       if (
         state.settings.osPlatform !== 'macos' ||
-        event.code !== 'CapsLock' ||
+        eventCode(event) !== 'CapsLock' ||
         event.repeat ||
         event.metaKey ||
         event.ctrlKey ||
@@ -1451,7 +1452,7 @@ export const useKeyboardShortcuts = ({
         event.defaultPrevented ||
         state.ui.isSettingsOpen ||
         shortcutsHeld(state) ||
-        fieldOwnsKey(document.activeElement, event.code, event.metaKey || event.ctrlKey)
+        fieldOwnsKey(document.activeElement, eventCode(event), event.metaKey || event.ctrlKey)
       )
         return;
       syncMacCapsLock(event, state);
@@ -1463,7 +1464,7 @@ export const useKeyboardShortcuts = ({
       // Preferences is an aria-modal overlay: Escape closes it (unless a dialog
       // opened over it), and no other shortcut reaches the app behind it.
       if (state.ui.isSettingsOpen) {
-        if (event.code === 'Escape' && !document.querySelector('dialog[open]')) {
+        if (eventCode(event) === 'Escape' && !document.querySelector('dialog[open]')) {
           event.preventDefault();
           state.ui.setUI({ isSettingsOpen: false });
         }
@@ -1476,11 +1477,12 @@ export const useKeyboardShortcuts = ({
       const rangeFocused =
         document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
       const rangeOwnsKey =
-        rangeFocused && fieldOwnsKey(document.activeElement, event.code, event.metaKey || event.ctrlKey);
-      if (!rangeFocused && fieldOwnsKey(document.activeElement, event.code, event.metaKey || event.ctrlKey)) return;
+        rangeFocused && fieldOwnsKey(document.activeElement, eventCode(event), event.metaKey || event.ctrlKey);
+      if (!rangeFocused && fieldOwnsKey(document.activeElement, eventCode(event), event.metaKey || event.ctrlKey))
+        return;
       // Tab moves the focus between fields and controls; it hides panels only
       // from the photograph, the browser tiles or with nothing focused.
-      if (event.code === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;
+      if (eventCode(event) === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;
 
       if (!rangeOwnsKey && syncMacCapsLock(event, state)) return;
 

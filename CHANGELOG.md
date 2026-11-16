@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- **Rating keys work with on-screen keyboards, remote desktop and automation tools.** Key presses that arrive without the key's physical code (Windows on-screen keyboard, remote desktop, AutoHotkey and other tools that send keys without a scan code) were ignored for the digits, arrows, Home/End, Delete and other named keys, so stars typed with 1–5 were never set while P and X worked. Such a key now acts by the key it typed.
 - **A moved session shows its thumbnails at once.** After Move the Whole Session (and its Undo and Redo) the Library developed every thumbnail again because thumbnails were remembered by the photo's full path: 7.9 s until the first screen of a 100-photo session was back on Linux. Thumbnails of photos in a session or catalog are now remembered by the library and the photo's place in it, so the session is back with its thumbnails in under half a second; after this update each library's thumbnails are made once more.
 - **Empty a catalog’s Trash folder.** Its folder menu now offers Empty Trash with the same confirmation and permanent, non-undoable deletion as sessions; photographs outside that folder are kept.
 

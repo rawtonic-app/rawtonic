@@ -5,6 +5,7 @@ import {
   conflictingActions,
   fieldOwnsKey,
   formatCombo,
+  eventCode,
   normalizeCombo,
   shortcutHint,
   splitByView
@@ -185,4 +186,36 @@ it('binds both Windows redo conventions and the export and settings shortcuts', 
   expect(map.get('ctrl+shift+KeyE')).toEqual(['toggle_export']);
   for (const suffix of ['KeyC', 'shift+KeyC']) expect(map.get(`ctrl+${suffix}`)).toEqual(['copy_adjustments']);
   for (const suffix of ['KeyV', 'shift+KeyV']) expect(map.get(`ctrl+${suffix}`)).toEqual(['paste_adjustments']);
+});
+
+// RATE2: Windows SendInput without a scan code, a character injected as Unicode
+// (on-screen keyboards, remote desktop, AutoHotkey) arrive with an empty code:
+// the rating keys 1–5 did nothing in a fast keyboard cull while P/X worked.
+describe('keys without their physical code', () => {
+  const press = (init: KeyboardEventInit) => normalizeCombo(new KeyboardEvent('keydown', init), 'windows', true);
+  it('rates with the digit the key typed', () => {
+    for (const digit of ['0', '1', '2', '3', '4', '5', '9']) {
+      expect(press({ key: digit, code: '' })).toEqual([`Digit${digit}`]);
+      expect(press({ key: digit, code: 'Unidentified' })).toEqual([`Digit${digit}`]);
+    }
+  });
+  it('steps, deletes and jumps with the named keys', () => {
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Delete', 'Escape', 'F7']) {
+      expect(press({ key, code: '' })).toEqual([key]);
+    }
+    expect(eventCode({ key: 'Enter', code: '' })).toBe('Enter');
+    expect(eventCode({ key: ' ', code: '' })).toBe('Space');
+  });
+  it('takes brackets and the comma by what they typed', () => {
+    expect(press({ key: '[', code: '' })).toEqual(['BracketLeft']);
+    expect(press({ key: ']', code: '' })).toEqual(['BracketRight']);
+    expect(press({ key: ',', code: '' })).toEqual(['Comma']);
+  });
+  it('keeps modifiers and the physical code when there is one', () => {
+    expect(press({ key: '3', code: '', ctrlKey: true })).toEqual(['ctrl', 'Digit3']);
+    // German Shift+7 types '/', AZERTY's 1 key types '&': the place counts.
+    expect(press({ key: '&', code: 'Digit1' })).toEqual(['Digit1']);
+    // A shifted digit's character is not a digit: nothing is guessed.
+    expect(press({ key: '!', code: '', shiftKey: true })).toEqual(['shift']);
+  });
 });
