@@ -355,3 +355,12 @@ it('shows Camera Preview in View checked only while it is on screen, enabled for
   useEditorStore.setState({ selectedImage: { path: '/s/c.dng', isReady: false, isRaw: true } as SelectedImage });
   expect(command?.enabled?.()).toBe(false);
 });
+
+it('steps into the results from a photograph a filter leaves out (Develop, docked filmstrip filter)', () => {
+  useUIStore.setState({ activeView: 'editor' });
+  open('/s/excluded.dng');
+  press('ArrowRight');
+  expect(props.handleImageSelect).toHaveBeenLastCalledWith('/s/a.dng', true);
+  press('ArrowLeft');
+  expect(props.handleImageSelect).toHaveBeenLastCalledWith('/s/c.dng', true);
+});

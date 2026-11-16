@@ -523,7 +523,8 @@ export const useKeyboardShortcuts = ({
             return;
           }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
-          if (currentIndex === -1) return;
+          // A photograph a filter leaves out: the step enters the results.
+          if (currentIndex === -1 && !sortedListRef.current.length) return;
           const nextIndex = currentIndex - 1 < 0 ? sortedListRef.current.length - 1 : currentIndex - 1;
           handleImageSelect(sortedListRef.current[nextIndex].path, true);
         }
@@ -541,7 +542,7 @@ export const useKeyboardShortcuts = ({
             return;
           }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
-          if (currentIndex === -1) return;
+          if (currentIndex === -1 && !sortedListRef.current.length) return;
           const nextIndex = currentIndex + 1 >= sortedListRef.current.length ? 0 : currentIndex + 1;
           handleImageSelect(sortedListRef.current[nextIndex].path, true);
         }

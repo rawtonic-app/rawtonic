@@ -497,7 +497,8 @@ export default function StudioBrowser({
   reveal.current = { files, extent, columns };
   useEffect(() => {
     const el = ref.current;
-    if (horizontal || !currentPath || !el) return;
+    // The docked grid reveals only once measured (and put back in place).
+    if (horizontal || !currentPath || !el || (dock && !measured)) return;
     const { files, extent, columns } = reveal.current;
     const index = files.findIndex((f) => f.path === currentPath);
     if (index < 0) return;
@@ -506,7 +507,7 @@ export default function StudioBrowser({
     else if (top + extent > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top + extent - el.clientHeight);
     else return;
     setOffset(el.scrollTop);
-  }, [currentPath, horizontal]);
+  }, [currentPath, horizontal, dock, measured, shown]);
   return (
     <PerfProfiler id={film ? 'filmstrip' : 'grid'}>
       <div

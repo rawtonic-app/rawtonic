@@ -1478,8 +1478,9 @@ export default function StudioWorkspace(props: Props) {
                     <button
                       aria-label={t('studio.workspace.footer.previous')}
                       title={withShortcut(t('studio.workspace.footer.previous'), '←')}
-                      disabled={currentIndex <= 0}
-                      onClick={() => onOpen(files[currentIndex - 1].path)}
+                      disabled={currentIndex === 0 || !files.length}
+                      // A photograph a filter leaves out: step into the results.
+                      onClick={() => onOpen(files[currentIndex < 0 ? files.length - 1 : currentIndex - 1].path)}
                     >
                       <ArrowLeft size={14} />
                     </button>
@@ -1505,7 +1506,7 @@ export default function StudioWorkspace(props: Props) {
                     <button
                       aria-label={t('studio.workspace.footer.next')}
                       title={withShortcut(t('studio.workspace.footer.next'), '→')}
-                      disabled={currentIndex < 0 || currentIndex >= files.length - 1}
+                      disabled={!files.length || currentIndex >= files.length - 1}
                       onClick={() => onOpen(files[currentIndex + 1].path)}
                     >
                       <ArrowRight size={14} />

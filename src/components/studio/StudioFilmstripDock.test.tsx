@@ -286,4 +286,29 @@ describe('docked filmstrip', () => {
     fireEvent.pointerUp(header, { clientX: 100, clientY: 200, pointerId: 1 });
     expect(dockState().side).toBe('left');
   });
+
+  it('reveals a late current photograph once measured, as the dock opens', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(224);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    const places = new WeakMap<Element, number>();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+      configurable: true,
+      get(this: Element) {
+        return places.get(this) ?? 0;
+      },
+      set(this: Element, value: number) {
+        places.set(this, value);
+      }
+    });
+    try {
+      const { browser, container } = mount(many(400), 'left', vi.fn(), vi.fn(), 300);
+      // Row 150 of two columns starts at 150 * 92 px; it is in view and mounted.
+      expect(browser.scrollTop).toBeGreaterThan(150 * 92 - 600);
+      expect(container.querySelector('[aria-label="IMG_0300.NEF"]')).not.toBeNull();
+    } finally {
+      delete (HTMLElement.prototype as { scrollTop?: number }).scrollTop;
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
 });
