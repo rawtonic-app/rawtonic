@@ -7,6 +7,7 @@ use rawtonic_catalog::{
     Asset, ImportBatchInfo, Library,
     folder_sync::{SyncAction, SyncApplied, SyncOptions, SyncPlan, SyncProgress},
 };
+use rawtonic_metadata::photo_ref::PhotoRef;
 use std::{
     cell::Cell,
     path::{Path, PathBuf},
@@ -16,7 +17,6 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use rawtonic_metadata::photo_ref::PhotoRef;
 use tauri::Emitter;
 
 static CANCEL_SYNC: AtomicBool = AtomicBool::new(false);
@@ -126,7 +126,10 @@ pub async fn session_previous_import(directory: String) -> Result<PreviousImport
     with_library(directory, false, |lib| {
         Ok(PreviousImport {
             batch: lib.previous_import().map_err(|e| e.to_string())?,
-            paths: with_copies(lib, lib.previous_import_assets().map_err(|e| e.to_string())?)?,
+            paths: with_copies(
+                lib,
+                lib.previous_import_assets().map_err(|e| e.to_string())?,
+            )?,
         })
     })
     .await
@@ -323,10 +326,7 @@ mod tests {
             .unwrap();
         let previous = block_on(session_previous_import(directory.clone())).unwrap();
         let copy = format!("{}?vc=abc123", capture.join("A.ARW").display());
-        assert_eq!(
-            previous.paths,
-            [capture.join("A.ARW"), PathBuf::from(copy)]
-        );
+        assert_eq!(previous.paths, [capture.join("A.ARW"), PathBuf::from(copy)]);
         lib.remove_copy(&asset.id, "abc123").unwrap();
         fs::rename(capture.join("A.ARW"), capture.join("B.ARW")).unwrap();
         fs::write(capture.join("C.ARW"), vec![3u8; 210_000]).unwrap();
