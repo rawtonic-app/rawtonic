@@ -7538,3 +7538,138 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   margin-left: 2px;
   padding-left: 4px;
 }
+
+/* Develop's filmstrip docked as a vertical grid beside the photograph. */
+.studio-dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
+  background: var(--studio-shade-inset, #232426);
+  z-index: 2;
+}
+.studio-dock.is-left {
+  order: 1;
+  border-right: 1px solid var(--studio-shade-ink, #17181a);
+}
+.studio-dock.is-right {
+  order: 2;
+  border-left: 1px solid var(--studio-shade-ink, #17181a);
+}
+.studio-dock-header,
+.studio-dock-filter {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 2px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  min-height: 28px;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.studio-dock-header {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  border-bottom: 1px solid var(--studio-shade-ink, #17181a);
+}
+.studio-dock-header:active {
+  cursor: grabbing;
+}
+.studio-dock-header strong {
+  white-space: nowrap;
+}
+.studio-dock-count {
+  color: var(--studio-shade-muted, #868a90);
+  white-space: nowrap;
+}
+.studio-dock-header button,
+.studio-dock-filter button {
+  min-height: 22px;
+  min-width: 22px;
+  padding: 0 3px;
+  color: var(--studio-shade-muted, #868a90);
+}
+.studio-dock-header button[aria-pressed='true'],
+.studio-dock-filter button[aria-pressed='true'] {
+  color: var(--studio-shade-text, #e3e6ea);
+  background: var(--studio-shade-hover, #464c53);
+}
+.studio-dock-stars {
+  display: inline-flex;
+}
+.studio-dock-color {
+  width: 12px;
+  min-width: 12px !important;
+  height: 12px;
+  min-height: 12px !important;
+  padding: 0 !important;
+  border-radius: 50%;
+  border: 1px solid transparent;
+}
+.studio-dock-color[aria-pressed='true'] {
+  border-color: var(--studio-shade-text, #e3e6ea);
+}
+.studio-dock-color.is-red {
+  background: #d4574f;
+}
+.studio-dock-color.is-yellow {
+  background: #d7b84a;
+}
+.studio-dock-color.is-green {
+  background: #5fa86a;
+}
+.studio-dock-color.is-blue {
+  background: #4f84c4;
+}
+.studio-dock-color.is-purple {
+  background: #8d66b8;
+}
+.studio-dock-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.studio-browser.is-dock {
+  flex: 1;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.studio-dock-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 3;
+}
+.studio-dock.is-left .studio-dock-resizer {
+  right: -3px;
+}
+.studio-dock.is-right .studio-dock-resizer {
+  left: -3px;
+}
+.studio-dock-drop {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(120 160 200 / 0.22);
+  border: 2px dashed #7fa6c9;
+  color: var(--studio-shade-text, #e3e6ea);
+  font-size: 12px;
+  pointer-events: none;
+}
+.studio-dock-drop.is-here {
+  opacity: 0.5;
+}
+.studio-workspace.is-image-fullscreen .studio-dock {
+  display: none;
+}

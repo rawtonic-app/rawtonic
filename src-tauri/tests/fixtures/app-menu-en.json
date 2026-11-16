@@ -739,6 +739,30 @@
               "id": "cmd:toggle_bottom_panel",
               "label": "Filmstrip",
               "enabled": false
+            },
+            {
+              "kind": "separator"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:dock_filmstrip_bottom",
+              "label": "Filmstrip Under the Photo",
+              "enabled": false,
+              "checked": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:dock_filmstrip_left",
+              "label": "Filmstrip Left of the Photo",
+              "enabled": false,
+              "checked": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:dock_filmstrip_right",
+              "label": "Filmstrip Right of the Photo",
+              "enabled": false,
+              "checked": false
             }
           ]
         },

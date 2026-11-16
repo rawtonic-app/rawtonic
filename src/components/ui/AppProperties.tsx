@@ -4,6 +4,7 @@ import { ExportPreset } from './ExportImportProperties';
 import { Adjustments, CopyPasteSettings } from '../../utils/adjustments';
 import { ToolType } from '../panel/right/Masks';
 import type { ModuleLayout, WorkspaceModule } from '../../utils/panelLayout';
+import type { FilmstripDock } from '../../utils/filmstripDock';
 import type { ImportMetadataPreset } from '../session/IngestMetadata';
 import type { MetadataSelection } from '../../utils/librarySearch';
 import type { CameraCrops } from '../../utils/cameraCrop';
@@ -980,6 +981,8 @@ export interface UiVisibility {
   quickFilter?: boolean;
   /** The Studio workspace's layout per module (`src/utils/panelLayout.ts`). */
   modules?: Partial<Record<WorkspaceModule, Partial<ModuleLayout>>>;
+  /** Develop's filmstrip: under the photograph or docked in a side column. */
+  filmstripDock?: Partial<FilmstripDock>;
 }
 
 export interface CollapsibleSectionsState {

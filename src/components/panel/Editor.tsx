@@ -1840,9 +1840,18 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       }
     });
 
+    // A layout change can move the photograph's area without resizing it
+    // (the docked filmstrip from the left to the right, the tools to the other
+    // side): the observer above sees only size changes, so tell the display.
+    const unsubscribeLayout = useUIStore.subscribe((ui, previous) => {
+      if (ui.uiVisibility !== previous.uiVisibility || ui.studioToolLayout !== previous.studioToolLayout)
+        scheduleSync();
+    });
+
     return () => {
       isEffectActive = false;
       unsubscribeSplit();
+      unsubscribeLayout();
       if (wgpuSyncRef.current !== null) {
         cancelAnimationFrame(wgpuSyncRef.current);
         wgpuSyncRef.current = null;

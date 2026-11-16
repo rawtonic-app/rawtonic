@@ -207,7 +207,11 @@ export const MENU_LAYOUT: TopMenu[] = [
           'separator',
           c('toggle_left_panel'),
           c('toggle_right_panel'),
-          c('toggle_bottom_panel')
+          c('toggle_bottom_panel'),
+          'separator',
+          c('dock_filmstrip_bottom', { check: true }),
+          c('dock_filmstrip_left', { check: true }),
+          c('dock_filmstrip_right', { check: true })
         ]
       },
       'separator',

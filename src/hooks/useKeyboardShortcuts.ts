@@ -7,6 +7,7 @@ import i18n from 'i18next';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
+import { readFilmstripDock } from '../utils/filmstripDock';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { cropEditCancelled } from '../utils/cropGesture';
 import { nextClipSides } from '../utils/clippingWarnings';
@@ -142,6 +143,9 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
       (s: ShortcutState) => !!s.editor.splitView && s.editor.splitOrientation === mode
     ])
   ),
+  dock_filmstrip_bottom: (s) => readFilmstripDock(s.ui.uiVisibility.filmstripDock).side === 'bottom',
+  dock_filmstrip_left: (s) => readFilmstripDock(s.ui.uiVisibility.filmstripDock).side === 'left',
+  dock_filmstrip_right: (s) => readFilmstripDock(s.ui.uiVisibility.filmstripDock).side === 'right',
   toggle_original: (s) => !!s.editor.showOriginal,
   toggle_multi_view: () => useMultiViewStore.getState().active,
   toggle_second_window: () => useSecondWindowStore.getState().state.open,
@@ -519,7 +523,8 @@ export const useKeyboardShortcuts = ({
             return;
           }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
-          if (currentIndex === -1) return;
+          // A photograph a filter leaves out: the step enters the results.
+          if (currentIndex === -1 && !sortedListRef.current.length) return;
           const nextIndex = currentIndex - 1 < 0 ? sortedListRef.current.length - 1 : currentIndex - 1;
           handleImageSelect(sortedListRef.current[nextIndex].path, true);
         }
@@ -537,7 +542,7 @@ export const useKeyboardShortcuts = ({
             return;
           }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
-          if (currentIndex === -1) return;
+          if (currentIndex === -1 && !sortedListRef.current.length) return;
           const nextIndex = currentIndex + 1 >= sortedListRef.current.length ? 0 : currentIndex + 1;
           handleImageSelect(sortedListRef.current[nextIndex].path, true);
         }
@@ -1026,6 +1031,27 @@ export const useKeyboardShortcuts = ({
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('right');
+        }
+      },
+      dock_filmstrip_bottom: {
+        shouldFire: (s) => s.ui.activeView !== 'library' && !s.ui.isFullScreen,
+        execute: (e, s) => {
+          e.preventDefault();
+          s.ui.setFilmstripDock({ side: 'bottom' });
+        }
+      },
+      dock_filmstrip_left: {
+        shouldFire: (s) => s.ui.activeView !== 'library' && !s.ui.isFullScreen,
+        execute: (e, s) => {
+          e.preventDefault();
+          s.ui.setFilmstripDock({ side: 'left' });
+        }
+      },
+      dock_filmstrip_right: {
+        shouldFire: (s) => s.ui.activeView !== 'library' && !s.ui.isFullScreen,
+        execute: (e, s) => {
+          e.preventDefault();
+          s.ui.setFilmstripDock({ side: 'right' });
         }
       },
       toggle_bottom_panel: {

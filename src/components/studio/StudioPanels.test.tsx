@@ -360,3 +360,20 @@ it('offers the confirmed library duplicate instead of Add', async () => {
   expect(view.container.querySelector('.studio-counter')?.textContent).toContain('Already in library as existing.dng');
   expect(screen.getByText(/Show in library/)).toBeTruthy();
 });
+
+it('docks the filmstrip as a grid in a side column instead of under the photograph, and remembers it', () => {
+  const { container } = workspace();
+  expect(container.querySelector('.studio-filmstrip')).not.toBeNull();
+  expect(container.querySelector('.studio-dock')).toBeNull();
+  act(() => useUIStore.getState().setFilmstripDock({ side: 'right' }));
+  expect(container.querySelector('.studio-filmstrip')).toBeNull();
+  expect(container.querySelector('.studio-dock.is-right')).not.toBeNull();
+  act(() => useUIStore.getState().setFilmstripDock({ side: 'left' }));
+  expect(container.querySelector('.studio-dock.is-left')).not.toBeNull();
+  expect(useUIStore.getState().uiVisibility.filmstripDock?.side).toBe('left');
+  // F6 / the footer toggle hides the docked filmstrip like the strip.
+  act(() => useUIStore.getState().togglePanels('filmstrip'));
+  expect(container.querySelector('.studio-dock')).toBeNull();
+  act(() => useUIStore.getState().togglePanels('filmstrip'));
+  expect(container.querySelector('.studio-dock')).not.toBeNull();
+});
