@@ -23,6 +23,7 @@ import { useUIStore } from '../../../store/useUIStore';
 import { uiHoldsShortcuts } from '../../../hooks/useKeyboardShortcuts';
 
 import { brushCursorOutlines } from './brushCursor';
+import { isContextClick } from './brushGesture';
 
 /** Whether `e` is the key bound to Find another source (`spot_new_source`). */
 function isNewSourceKey(e: KeyboardEvent): boolean {
@@ -513,7 +514,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const { setEditor } = useEditorStore.getState();
     // A right-click selects what is under it; the press goes on to the
     // viewer, whose context menu is the tool's settings popover.
-    if (e.button === 2) {
+    if (isContextClick(e, useSettingsStore.getState().osPlatform)) {
       const id = itemAt(x, y);
       if (id) setEditor({ activeSpotId: id });
       return;

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { brushGestureValues, isBrushGesturePress } from './brushGesture';
+import { brushGestureValues, isBrushGesturePress, isContextClick } from './brushGesture';
 
 const start = { size: 500, hardness: 50, opacity: 100, flow: 100 };
 
@@ -21,4 +21,16 @@ it('starts only for a primary press with Control and Option', () => {
   expect(isBrushGesturePress({ button: 0, ctrlKey: true, altKey: true })).toBe(true);
   expect(isBrushGesturePress({ button: 0, ctrlKey: true, altKey: false })).toBe(false);
   expect(isBrushGesturePress({ button: 2, ctrlKey: true, altKey: true })).toBe(false);
+});
+
+it("treats Ctrl+click as macOS's right-click, not as a stroke, and leaves other systems' Ctrl+click alone", () => {
+  const press = (button: number, ctrlKey = false, altKey = false) => ({ button, ctrlKey, altKey });
+  expect(isContextClick(press(2), 'windows')).toBe(true);
+  expect(isContextClick(press(2), 'macos')).toBe(true);
+  expect(isContextClick(press(0, true), 'macos')).toBe(true);
+  expect(isContextClick(press(0, true), 'windows')).toBe(false);
+  expect(isContextClick(press(0, true), 'linux')).toBe(false);
+  expect(isContextClick(press(0), 'macos')).toBe(false);
+  // Ctrl+Option+drag stays the brush gesture on macOS.
+  expect(isContextClick(press(0, true, true), 'macos')).toBe(false);
 });

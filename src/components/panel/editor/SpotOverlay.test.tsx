@@ -80,6 +80,21 @@ describe('Find Dust preview', () => {
 });
 
 describe('spot removal overlay', () => {
+  it("places nothing on macOS's Ctrl+click, which opens the settings like a right-click", async () => {
+    useSettingsStore.setState({ osPlatform: 'macos' });
+    try {
+      const el = overlay();
+      await act(async () => {
+        fireEvent.pointerDown(el, { button: 0, ctrlKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+        fireEvent.pointerUp(el, { button: 0, ctrlKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+      });
+      expect(invoke).not.toHaveBeenCalled();
+      expect(useEditorStore.getState().adjustments.spots ?? []).toHaveLength(0);
+    } finally {
+      useSettingsStore.setState({ osPlatform: '' });
+    }
+  });
+
   it("places a spot with the backend's automatic source", async () => {
     invoke.mockResolvedValue({ source: [260, 150], fill: false });
     const el = overlay();

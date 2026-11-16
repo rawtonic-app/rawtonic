@@ -24,6 +24,7 @@ import { AppSettings, BrushSettings, SelectedImage } from '../../ui/AppPropertie
 import { RenderSize } from '../../../hooks/useImageRenderSize';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../../store/useEditorStore';
+import { useSettingsStore } from '../../../store/useSettingsStore';
 import type { OverlayMode } from './overlays/CompositionOverlays';
 import CompositionOverlays from './overlays/CompositionOverlays';
 import { calculateStraightenAngle } from '../../../utils/cropUtils';
@@ -49,7 +50,7 @@ import {
   reportBrowserPreviewLoad
 } from '../../../hooks/usePerformanceDiagnostics';
 import { whiteBalanceForCurrentPreview } from '../../../utils/whiteBalance';
-import { useBrushGesture } from './brushGesture';
+import { isContextClick, useBrushGesture } from './brushGesture';
 import { isCropEdge, resizeCropFromEdge, type CropRect } from './cropEdges';
 import { DEFAULT_BRUSH_SIZE } from '../../../utils/brushSize';
 import { GUIDE_COLORS, guideOrientation, guideRejection } from '../../../utils/guideLines';
@@ -1516,6 +1517,9 @@ const ImageCanvas = memo(
     // the pointer events after it (the state keeps visibility and the last
     // position React drew).
     const cursorPosition = useRef<Coord>({ x: 0, y: 0 });
+    // The brush settings just closed: the last position is the right-click,
+    // not where the pointer is now, so the ring waits for the next move.
+    const cursorStale = useRef(false);
     const brushCursorRef = useRef<Konva.Group>(null);
     const cropGesture = useCropGestures();
     // Closed or another photograph mid-drag: the crop component reports no
@@ -2250,6 +2254,9 @@ const ImageCanvas = memo(
         if (e.evt && typeof e.evt.button === 'number' && e.evt.button !== 0) {
           return;
         }
+        // macOS's Ctrl+click is the right-click that opens the brush settings.
+        if (e.evt && typeof e.evt.button === 'number' && isContextClick(e.evt, useSettingsStore.getState().osPlatform))
+          return;
 
         if (e.evt && e.evt.cancelable) e.evt.preventDefault();
 
@@ -2518,6 +2525,7 @@ const ImageCanvas = memo(
         if (isToolActive) {
           if (pos) {
             cursorPosition.current = pos;
+            cursorStale.current = false;
             const rings = brushCursorRef.current;
             if (rings && cursorPreview.visible) {
               if (!brushGesture) {
@@ -3085,7 +3093,7 @@ const ImageCanvas = memo(
     const [pointerOverImage, setPointerOverImage] = useState(false);
     const handleMouseEnter = useCallback(() => {
       setPointerOverImage(true);
-      if (isToolActive) {
+      if (isToolActive && !cursorStale.current) {
         setCursorPreview({ ...cursorPosition.current, visible: true });
       }
     }, [isToolActive]);
@@ -3101,8 +3109,10 @@ const ImageCanvas = memo(
     useEffect(
       () =>
         useEditorStore.subscribe((state, previous) => {
-          if (previous.toolPopoverOpen && !state.toolPopoverOpen)
+          if (previous.toolPopoverOpen && !state.toolPopoverOpen) {
+            cursorStale.current = true;
             setCursorPreview((p: CursorPreview) => ({ ...p, visible: false }));
+          }
         }),
       []
     );
