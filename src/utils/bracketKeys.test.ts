@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { bracketStep } from './bracketKeys';
+import { bracketKey, bracketStep } from './bracketKeys';
 import { useSettingsStore } from '../store/useSettingsStore';
 
 const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init);
@@ -24,4 +24,13 @@ it("follows the user's Rotate keys", () => {
   });
   expect(bracketStep(key({ key: 'q', code: 'KeyQ' }))).toBe(-1);
   expect(bracketStep(key({ key: 'ü', code: 'BracketLeft' }))).toBeUndefined();
+});
+
+it('takes a Rotate key that holds Shift as a plain [, Shift on another Rotate key as the hardness', () => {
+  useSettingsStore.setState({
+    appSettings: { keybinds: { rotate_left: ['shift', 'KeyL'] } } as never
+  });
+  expect(bracketKey(key({ key: 'L', code: 'KeyL', shiftKey: true }))).toEqual({ step: -1, shifted: false });
+  expect(bracketKey(key({ key: ']', code: 'BracketRight', shiftKey: true }))).toEqual({ step: 1, shifted: true });
+  expect(bracketKey(key({ key: 'l', code: 'KeyL' }))).toBeUndefined();
 });

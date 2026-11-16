@@ -130,7 +130,7 @@ import { useIdleCursor } from './useIdleCursor';
 import { followPhotoFullScreen } from '../../utils/photoFullScreen';
 import { ProgressRing } from '../activity/ProgressRing';
 import { sourceFileName } from '../../entities/photo/photoRef';
-import { bracketStep } from '../../utils/bracketKeys';
+import { bracketKey } from '../../utils/bracketKeys';
 
 interface Props {
   files: ImageFile[];
@@ -872,13 +872,14 @@ export default function StudioWorkspace(props: Props) {
       // its hardness (Capture One); otherwise they keep rotating the
       // photograph. Option is allowed: German Mac layouts type [ ] with it,
       // and the keys bound to Rotate count as [ ] (`bracketStep`).
-      const bracket =
-        ({ '{': -1, '}': 1 } as const)[e.key as '{' | '}'] ?? (brushActiveRef.current ? bracketStep(e) : undefined);
-      if (bracket && brushActiveRef.current) {
+      const braced = ({ '{': -1, '}': 1 } as const)[e.key as '{' | '}'];
+      const key = braced ? { step: braced, shifted: true } : brushActiveRef.current ? bracketKey(e) : undefined;
+      const bracket = key?.step;
+      if (key && bracket && brushActiveRef.current) {
         e.preventDefault();
         e.stopImmediatePropagation();
         const { brushSettings, setEditor } = useEditorStore.getState();
-        if (e.shiftKey || e.key === '{' || e.key === '}') {
+        if (key.shifted) {
           if (brushSettings) {
             const hardness = brushSettings.hardness ?? 50;
             setEditor({
