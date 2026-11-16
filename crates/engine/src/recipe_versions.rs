@@ -184,6 +184,9 @@ pub const WHITES_TRAVEL_TONE_VERSION: u64 = 17;
 /// pace and reach its −100 (`toneVersion` 18,
 /// `image_processing::blacks_amount_v18`).
 pub const BLACKS_TRAVEL_TONE_VERSION: u64 = 18;
+/// The tone-slider response from which raised Shadows' level does not fall
+/// below the tonal blur's beside a strong edge (`toneVersion` 19).
+pub const SHADOWS_EDGE_STOP_TONE_VERSION: u64 = 19;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -238,6 +241,11 @@ impl ToneVersion {
     /// Lowered Blacks' black point reaches into the midtones (up to L* 80).
     pub fn blacks_reach(self) -> bool {
         self.0 >= BLACKS_REACH_TONE_VERSION
+    }
+
+    /// Raised Shadows leave no light rim on the bright side of a strong edge.
+    pub fn shadows_edge_stop(self) -> bool {
+        self.0 >= SHADOWS_EDGE_STOP_TONE_VERSION
     }
 
     /// The Whites amount (recipe units) the renderer applies for the slider

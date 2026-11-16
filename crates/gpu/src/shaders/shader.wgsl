@@ -66,6 +66,9 @@ override VIBRANCE_V2: bool = false;
 // Lowered Blacks of tone version 16 (`blacks_v16_black_point`), for the
 // same reason (gpu_processing.rs `BLACKS_V16_FEATURE`).
 override BLACKS_V16: bool = false;
+// Raised Shadows' level of tone version 19 (`shadows_v19_level`), for the
+// same reason (gpu_processing.rs `SHADOWS_V19_FEATURE`).
+override SHADOWS_V19: bool = false;
 // Colour mixer response 2 or 3 (`apply_hsl_panel_v2`, `apply_hsl_panel_v3`)
 // with a slider moved, for the same reason (gpu_processing.rs
 // `HSL_V2_FEATURE`).
@@ -2785,6 +2788,29 @@ const SH_V6_FADE: f32 = 0.1;
 // The wide level: luminance in input space (before exposure).
 fn shadows_v6_level(coords: vec2<u32>) -> f32 {
     return exp2(small_blur_mean_log(vec2<i32>(coords)));
+}
+
+// Tone version 19 (notes: G02, benchmark-results/shrim-shadows-rim-
+// 2026-11-16): raised Shadows' wide level does not fall below the tonal
+// blur's mean log luminance at the pixel. Beside a strong edge the small
+// blur of the bright side took in the dark side, so the bright side's
+// pixels were lifted as shadows: a light rim, 0.94 L* (median at +100 next
+// to edges of 30 L* or more) against Camera Raw's 0.36–0.43. The tonal
+// blur is about half as wide and reaches less across the edge. Where the
+// tonal level is the darker one (texture's dark side, the dark side of an
+// edge) the wide level stays; on flat areas the two are the same, so broad
+// shadows lift as before. Both meet in a smooth maximum SH_V19_SOFT EV
+// wide (quadratic, exactly the larger one beyond it), so the level has no
+// kink. The tonal blur carries its mean log luminance for this
+// (gpu_processing.rs `tonal_log_used`), stored as the small blur's is.
+const SH_V19_SOFT: f32 = 0.1;
+
+fn shadows_v19_level(coords: vec2<u32>) -> f32 {
+    let wide = small_blur_mean_log(vec2<i32>(coords));
+    let t = textureLoad(tonal_blur_texture, coords, 0);
+    let d = t.a + blur_log_luma(t.rgb) - wide;
+    let q = clamp(d + SH_V19_SOFT, 0.0, 2.0 * SH_V19_SOFT);
+    return exp2(wide + select(q * q / (4.0 * SH_V19_SOFT), d, d >= SH_V19_SOFT));
 }
 
 // The texture gain on top of the wide level's lift `gain`.
@@ -11310,6 +11336,11 @@ fn main(
         var wide_luma = 0.0;
         if (t_shadows > 0.0 && adjustments.global.tone_version > 5.5) {
             wide_luma = shadows_v6_level(id.xy);
+        }
+        // The lines above stay as they were, so pipelines without
+        // SHADOWS_V19 compile the code they always had.
+        if (SHADOWS_V19 && t_shadows > 0.0 && adjustments.global.tone_version > 18.5) {
+            wide_luma = shadows_v19_level(id.xy);
         }
         var whites_offset = 0.0;
         if (t_whites < 0.0 && adjustments.global.tone_version > 9.5 && base_look_is_camera_raw()) {

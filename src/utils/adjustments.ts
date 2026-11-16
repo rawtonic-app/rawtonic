@@ -668,7 +668,9 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * Capture One's Black does; 17 = and raised Whites move at the reference
    * editors' pace (+50 as their +50); 18 = and lowered Blacks move at
    * Capture One's pace on the RAW look (−50 as before, −100 reaches its
-   * −100, version 16's −100 at −72); 1 or missing on
+   * −100, version 16's −100 at −72); 19 = and raised Shadows leaves no
+   * light rim on the bright side of strong edges (its level does not fall
+   * below the tonal blur's); 1 or missing on
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
@@ -1349,7 +1351,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 18;
+export const TONE_VERSION = 19;
 
 /** The tone-slider response from which raised Whites move at the reference
  * editors' pace (`whites_amount_v17` in crates/engine/src/image_processing.rs). */

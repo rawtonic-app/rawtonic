@@ -236,6 +236,7 @@ pub(super) fn basic_features(features: usize, adjustments: &AllAdjustments) -> u
         | bit(tone.shadows_midtone_cut(), SHADOWS_V13_FEATURE)
         | bit(tone.whites_bright_reach(), WHITES_V12_FEATURE)
         | bit(tone.blacks_reach(), BLACKS_V16_FEATURE)
+        | bit(tone.shadows_edge_stop(), SHADOWS_V19_FEATURE)
         | bit(
             ClarityVersion::from_uniform(g.clarity_version).get() >= 3
                 || StructureVersion::from_uniform(g.structure_version).edge_aware(),
@@ -260,6 +261,7 @@ pub(super) const BASIC_FEATURES: usize = TONE_PREVIEW_FEATURE
     | SHADOWS_V13_FEATURE
     | WHITES_V12_FEATURE
     | BLACKS_V16_FEATURE
+    | SHADOWS_V19_FEATURE
     | PRESENCE_V3_FEATURE
     | DEHAZE_V3_FEATURE
     | DEHAZE_V2_FEATURE
@@ -1263,7 +1265,8 @@ mod tests {
     /// default variant the processor compiles at start, then the one
     /// without Glow and that variant itself (export variants) — the
     /// variants a first session compiled for an unedited RAW on the Radeon
-    /// 680M (G76/WHCF, WSMOKE18: 7335999, 5238847).
+    /// 680M (G76/WHCF, WSMOKE18: 7335999, 5238847; since tone version 19
+    /// with raised Shadows' level, `SHADOWS_V19_FEATURE`).
     #[test]
     fn the_start_plans_what_a_new_raw_edit_plans() {
         // Without a look set for every RAW in Preferences: the RAW look.
@@ -1273,7 +1276,8 @@ mod tests {
         assert_eq!(features, RAW_DEFAULT_PREVIEW_FEATURES);
         let (plan, exact) = planned_jobs(features, &at_start);
         assert_eq!(exact, features);
-        assert_eq!(plan, vec![5238847 | GLOW_FEATURE, 5238847, features]);
+        let basic = 5238847 | SHADOWS_V19_FEATURE;
+        assert_eq!(plan, vec![basic | GLOW_FEATURE, basic, features]);
         // Response 8's detail-cache pass.
         assert_eq!(sharpen_level(&at_start), 2);
     }
@@ -1289,7 +1293,7 @@ mod tests {
         effect_passes::FORCED.with(|forced| forced.set(Some(true)));
         let at_start = new_raw_edit_at_start(None);
         let features = preview_features(&at_start);
-        let serving = 5238847 | GLOW_FEATURE | HALATION_FEATURE;
+        let serving = 5238847 | SHADOWS_V19_FEATURE | GLOW_FEATURE | HALATION_FEATURE;
         assert_eq!(
             planned_jobs(features, &at_start),
             (vec![serving, features], features)
@@ -1333,6 +1337,7 @@ mod tests {
             | SHADOWS_V13_FEATURE
             | WHITES_V12_FEATURE
             | BLACKS_V16_FEATURE
+            | SHADOWS_V19_FEATURE
             | PRESENCE_V3_FEATURE
             | DEHAZE_V3_FEATURE
             | VIBRANCE_V2_FEATURE
@@ -1449,7 +1454,7 @@ mod tests {
         // before raised Shadows' newer response plan no bit for it.
         let other_look = adjustments(crate::image_processing::TONE_VERSION as f32, 0);
         let (sh, wh, bl) = (SHADOWS_V13_FEATURE, WHITES_V12_FEATURE, BLACKS_V16_FEATURE);
-        let basic = 46 | sh | wh | bl;
+        let basic = 46 | sh | wh | bl | SHADOWS_V19_FEATURE;
         assert_eq!(idle_plan(0, &other_look), vec![basic]);
         assert_eq!(idle_plan(34, &other_look), vec![basic]);
         // A photo already shown with it plans nothing.
