@@ -17,6 +17,7 @@
 //! export, crop and virtual copy use the same value.
 
 use image::DynamicImage;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -58,20 +59,39 @@ pub fn measure(image: &DynamicImage) -> Option<f32> {
         other => std::borrow::Cow::Owned(other.to_rgb32f()),
     };
     let (width, height) = (rgb.width() as usize, rgb.height() as usize);
-    if width < 16 || height < 16 {
-        return None;
+    let blocks = Blocks::of(width, height)?;
+    let mut dark = vec![0.0f32; blocks.w * blocks.h];
+    dark.par_chunks_mut(blocks.w)
+        .enumerate()
+        .for_each(|(by, out)| blocks.dark_row(rgb.as_raw(), width, by, out));
+    blocks.level(dark)
+}
+
+/// The grid of blocks the dark channel is measured on.
+pub(crate) struct Blocks {
+    /// Pixels per block edge.
+    pub step: usize,
+    pub w: usize,
+    pub h: usize,
+}
+
+impl Blocks {
+    /// None for frames too small to measure.
+    pub fn of(width: usize, height: usize) -> Option<Self> {
+        if width < 16 || height < 16 {
+            return None;
+        }
+        let step = width.max(height).div_ceil(SAMPLES_LONG_EDGE).max(1);
+        let (w, h) = (width / step, height / step);
+        (w >= 8 && h >= 8).then_some(Self { step, w, h })
     }
-    let step = width.max(height).div_ceil(SAMPLES_LONG_EDGE).max(1);
-    let (w, h) = (width / step, height / step);
-    if w < 8 || h < 8 {
-        return None;
-    }
-    // Minimum channel of block means.
-    let data = rgb.as_raw();
-    let mut dark = vec![0.0f32; w * h];
-    let norm = 1.0 / (step * step) as f32;
-    for by in 0..h {
-        for bx in 0..w {
+
+    /// Block row `by` of the dark channel: the minimum channel of block
+    /// means, each summed in pixel order.
+    pub fn dark_row(&self, data: &[f32], width: usize, by: usize, out: &mut [f32]) {
+        let step = self.step;
+        let norm = 1.0 / (step * step) as f32;
+        for (bx, out) in out.iter_mut().enumerate() {
             let mut sum = [0.0f32; 3];
             for y in by * step..(by + 1) * step {
                 let row = &data[(y * width + bx * step) * 3..(y * width + (bx + 1) * step) * 3];
@@ -83,34 +103,70 @@ pub fn measure(image: &DynamicImage) -> Option<f32> {
                     }
                 }
             }
-            dark[by * w + bx] = (sum[0].min(sum[1]).min(sum[2]) * norm).max(0.0);
+            *out = (sum[0].min(sum[1]).min(sum[2]) * norm).max(0.0);
         }
     }
-    // Local minimum over a square window (separable).
-    let radius = ((WINDOW_SHARE * w.max(h) as f32 - 1.0) / 2.0)
-        .round()
-        .max(0.0) as usize;
-    let mut rows = vec![0.0f32; w * h];
-    for y in 0..h {
-        for x in 0..w {
-            let (x0, x1) = (x.saturating_sub(radius), (x + radius).min(w - 1));
-            rows[y * w + x] = dark[y * w + x0..=y * w + x1]
-                .iter()
-                .copied()
-                .fold(f32::INFINITY, f32::min);
-        }
-    }
-    for x in 0..w {
-        for y in 0..h {
+
+    /// The level from the whole dark channel: its local minimum over a
+    /// square window (separable), then the percentile. Rows in parallel;
+    /// neither depends on the order of the work (order_statistic).
+    pub fn level(&self, mut dark: Vec<f32>) -> Option<f32> {
+        let (w, h) = (self.w, self.h);
+        let radius = ((WINDOW_SHARE * w.max(h) as f32 - 1.0) / 2.0)
+            .round()
+            .max(0.0) as usize;
+        let mut rows = vec![0.0f32; w * h];
+        rows.par_chunks_mut(w)
+            .zip(dark.par_chunks(w))
+            .for_each(|(out, dark)| {
+                for (x, out) in out.iter_mut().enumerate() {
+                    let (x0, x1) = (x.saturating_sub(radius), (x + radius).min(w - 1));
+                    *out = dark[x0..=x1].iter().copied().fold(f32::INFINITY, f32::min);
+                }
+            });
+        dark.par_chunks_mut(w).enumerate().for_each(|(y, out)| {
             let (y0, y1) = (y.saturating_sub(radius), (y + radius).min(h - 1));
-            dark[y * w + x] = (y0..=y1)
-                .map(|yy| rows[yy * w + x])
-                .fold(f32::INFINITY, f32::min);
-        }
+            for (x, out) in out.iter_mut().enumerate() {
+                *out = (y0..=y1)
+                    .map(|yy| rows[yy * w + x])
+                    .fold(f32::INFINITY, f32::min);
+            }
+        });
+        let index = ((dark.len() - 1) as f32 * PERCENTILE) as usize;
+        let level = crate::order_statistic::nth(&[&dark], index);
+        (level > 0.0).then_some(level)
     }
-    let index = ((dark.len() - 1) as f32 * PERCENTILE) as usize;
-    let level = *dark.select_nth_unstable_by(index, f32::total_cmp).1;
-    (level > 0.0).then_some(level)
+}
+
+/// The noise level (noise_level.rs) and the airlight in one parallel pass
+/// over bands of rows, each band read once for both while it is in the
+/// cache; the same values as `noise_level::measure` and `measure`.
+pub fn with_noise_level(image: &DynamicImage) -> (Option<f32>, Option<f32>) {
+    let rgb = match image {
+        DynamicImage::ImageRgb32F(buffer) => std::borrow::Cow::Borrowed(buffer),
+        other => std::borrow::Cow::Owned(other.to_rgb32f()),
+    };
+    let (width, height) = (rgb.width() as usize, rgb.height() as usize);
+    let Some(blocks) = Blocks::of(width, height) else {
+        return (crate::noise_level::measure(image), None);
+    };
+    let data = rgb.as_raw();
+    let mut dark = vec![0.0f32; blocks.w * blocks.h];
+    let residuals: Vec<Vec<f32>> = dark
+        .par_chunks_mut(blocks.w)
+        .enumerate()
+        .map(|(by, out)| {
+            blocks.dark_row(data, width, by, out);
+            // The last band takes the rows below the blocks.
+            let end = if by + 1 == blocks.h {
+                height
+            } else {
+                (by + 1) * blocks.step
+            };
+            crate::noise_level::residuals(data, width, height, by * blocks.step..end)
+        })
+        .collect();
+    (crate::noise_level::level(&residuals), blocks.level(dark))
 }
 
 #[cfg(test)]
