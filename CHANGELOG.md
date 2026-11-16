@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **See the brush size while retouching.** Heal, Clone and Remove now show a ring on the photo, including the object brush. It follows zoom and size changes from the panel slider or [ and ] keys. Moving or resizing an existing spot keeps its own cursor.
+
 - **Thumbnails appear right after a fast scroll through a large folder.** In the Library grid, the filmstrip and its docked column, a fling or scrollbar drag through hundreds of photos revealed the thumbnails of every row it had passed before those of the tiles where it stopped. A screen's cached thumbnails now arrive together, are looked up apart from thumbnails still being made, and the tiles in view are shown first. Measured with cached thumbnails, release to every tile in view filled: Linux, 1,200 photos, median 245 → 60 ms; Windows laptop, about 1,160 photos, median 133 → 88 ms for scrollbar drags, wheel flings 103–131 ms after the fix.
 - **Opening the Crop tab is no edit.** On a photo without a crop, opening Crop and leaving it again added a "Crop" step to History, enabled Undo, marked the photo as edited and wrote its sidecar. Nothing is written now until the frame, angle or ratio is changed, as in Lightroom and Capture One.
 - **Move to Trash in the Library loupe stays in the loupe.** The loupe (and the Library's full screen) now goes on to the next photo, or the previous one at the end of the list, as Develop already did; before, it dropped back to the grid. Moving the shown photo to another folder or to Selects (⌘J / Ctrl+J) goes on to the next photo the same way in the loupe, full screen and Develop, instead of returning to the grid.

@@ -1027,3 +1027,129 @@ describe('Find another source key', () => {
     }
   });
 });
+
+describe('brush cursor', () => {
+  it('uses the real radius, updates without pointer movement, and leaves cleanly', () => {
+    const el = overlay();
+    fireEvent.pointerMove(el, { clientX: 40, clientY: 30 });
+    const ring = () => screen.getByTestId('spot-brush-cursor').querySelector('circle')!;
+    expect(ring().getAttribute('r')).toBe('10');
+    expect(el.style.cursor).toBe('none');
+    fireEvent.keyDown(window, { key: ']' });
+    expect(ring().getAttribute('r')).toBe('11.5');
+    act(() => useEditorStore.setState({ spotSettings: { mode: 'clone', size: 40, feather: 25, opacity: 100 } }));
+    expect(ring().getAttribute('r')).toBe('20');
+    expect(screen.getByTestId('spot-brush-cursor').querySelectorAll('circle')[2].getAttribute('r')).toBe('15');
+    fireEvent.pointerLeave(el);
+    expect(screen.queryByTestId('spot-brush-cursor')).toBeNull();
+    expect(el.style.cursor).toBe('crosshair');
+  });
+
+  it('falls back below four screen pixels and accounts for zoom', () => {
+    useEditorStore.setState({ spotSettings: { mode: 'heal', size: 3, feather: 50, opacity: 100 } });
+    const { rerender } = render(
+      <SpotOverlay rect={{ left: 0, top: 0, width: 200, height: 150 }} cropX={0} cropY={0} scale={0.5} zoom={1} />
+    );
+    const el = screen.getByTestId('spot-overlay');
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 150 }) as DOMRect;
+    fireEvent.pointerMove(el, { clientX: 40, clientY: 30 });
+    expect(el.style.cursor).toBe('crosshair');
+    rerender(
+      <SpotOverlay rect={{ left: 0, top: 0, width: 200, height: 150 }} cropX={0} cropY={0} scale={0.5} zoom={2} />
+    );
+    expect(el.style.cursor).toBe('none');
+    expect(screen.getByTestId('spot-brush-cursor').querySelector('circle')?.getAttribute('r')).toBe('1.5');
+  });
+
+  it('yields to an existing spot and its resize rim', () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [
+          {
+            id: 'a',
+            visible: true,
+            mode: 'clone',
+            x: 200,
+            y: 150,
+            radius: 20,
+            sourceX: 300,
+            sourceY: 150,
+            opacity: 1,
+            feather: 0.5
+          }
+        ]
+      }
+    });
+    const el = overlay();
+    fireEvent.pointerMove(el, { clientX: 50, clientY: 50 });
+    expect(el.style.cursor).toBe('move');
+    expect(screen.queryByTestId('spot-brush-cursor')).toBeNull();
+    fireEvent.pointerMove(el, { clientX: 60, clientY: 50 });
+    expect(el.style.cursor).toBe('nwse-resize');
+    fireEvent.pointerDown(el, { clientX: 60, clientY: 50, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: 80, clientY: 50, pointerId: 1 });
+    expect(el.style.cursor).toBe('nwse-resize');
+    expect(screen.queryByTestId('spot-brush-cursor')).toBeNull();
+    fireEvent.pointerUp(el, { clientX: 80, clientY: 50, pointerId: 1 });
+  });
+
+  it('leaves every wheel modifier available to native viewer navigation', () => {
+    const el = overlay();
+    const navigate = vi.fn();
+    el.parentElement!.addEventListener('wheel', navigate);
+    for (const modifiers of [{}, { altKey: true }, { altKey: true, shiftKey: true }]) {
+      fireEvent.wheel(el, { deltaY: -1, ...modifiers });
+    }
+    expect(navigate).toHaveBeenCalledTimes(3);
+    expect(useEditorStore.getState().spotSettings.size).toBe(20);
+    act(() => useEditorStore.setState({ spotSettings: { mode: 'heal', size: 2, feather: 0, opacity: 100 } }));
+    fireEvent.keyDown(window, { key: ']' });
+    expect(useEditorStore.getState().spotSettings.size).toBe(3);
+    act(() => useEditorStore.setState({ spotSettings: { mode: 'heal', size: 1000, feather: 0, opacity: 100 } }));
+    fireEvent.keyDown(window, { key: ']' });
+    expect(useEditorStore.getState().spotSettings.size).toBe(1000);
+  });
+
+  it.each([
+    ['target', 50],
+    ['source', 100]
+  ])('keeps the move cursor during a %s drag', (_, startX) => {
+    useEditorStore.setState({
+      activeSpotId: 'a',
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [
+          {
+            id: 'a',
+            visible: true,
+            mode: 'clone',
+            x: 200,
+            y: 150,
+            radius: 20,
+            sourceX: 300,
+            sourceY: 150,
+            opacity: 1,
+            feather: 0.5
+          }
+        ]
+      }
+    });
+    const el = overlay();
+    fireEvent.pointerMove(el, { clientX: startX, clientY: 50 });
+    fireEvent.pointerDown(el, { clientX: startX, clientY: 50, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: startX + 20, clientY: 60, pointerId: 1 });
+    expect(el.style.cursor).toBe('move');
+    expect(screen.queryByTestId('spot-brush-cursor')).toBeNull();
+    fireEvent.pointerUp(el, { clientX: startX + 20, clientY: 60, pointerId: 1 });
+  });
+
+  it('shows the Remove object brush without a feather ring', () => {
+    useEditorStore.setState({
+      spotSettings: { mode: 'remove', size: 20, feather: 50, opacity: 100, detectObjects: true, objectSelect: 'brush' }
+    });
+    const el = overlay();
+    fireEvent.pointerMove(el, { clientX: 40, clientY: 30 });
+    expect(screen.getByTestId('spot-brush-cursor').querySelectorAll('circle')).toHaveLength(3);
+  });
+});
