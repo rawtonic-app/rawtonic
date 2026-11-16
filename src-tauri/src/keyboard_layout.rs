@@ -184,7 +184,9 @@ pub fn observe_changes(app: &tauri::AppHandle) {
         }
     }
     REGISTER.call_once(|| {
-        if let Some(mut decl) = objc::declare::ClassDecl::new("RawtonicKeyboardLayout", class!(NSObject)) {
+        if let Some(mut decl) =
+            objc::declare::ClassDecl::new("RawtonicKeyboardLayout", class!(NSObject))
+        {
             // SAFETY: the selector takes one object (the notification).
             unsafe {
                 decl.add_method(

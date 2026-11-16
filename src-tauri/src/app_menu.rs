@@ -177,7 +177,10 @@ fn check_shortcut(id: &str, shortcut: &Shortcut) -> Result<(), String> {
     if printable || is_named_key(&shortcut.key) {
         Ok(())
     } else {
-        Err(format!("item \"{id}\" has an unknown key \"{}\"", shortcut.key))
+        Err(format!(
+            "item \"{id}\" has an unknown key \"{}\"",
+            shortcut.key
+        ))
     }
 }
 
@@ -874,7 +877,10 @@ mod tests {
             check_shortcut("cmd:x", &key(valid, false)).unwrap();
         }
         for invalid in ["", "ab", " ", "\t", "F25", "Plus"] {
-            assert!(check_shortcut("cmd:x", &key(invalid, true)).is_err(), "{invalid:?}");
+            assert!(
+                check_shortcut("cmd:x", &key(invalid, true)).is_err(),
+                "{invalid:?}"
+            );
         }
         #[cfg(target_os = "macos")]
         {

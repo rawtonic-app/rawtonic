@@ -364,7 +364,7 @@ export default function StudioWorkspace(props: Props) {
   // Both bars stay one row: words, then field widths, then rare controls
   // (into ⋯) give way as the bar narrows (useFitOneRow).
   const libraryBarRef = useFitOneRow(3);
-  const viewerBarRef = useFitOneRow(3);
+  const viewerBarRef = useFitOneRow(5);
   const searchFocusRequest = useUIStore((s) => s.searchFocusRequest);
   useEffect(() => {
     if (!searchFocusRequest) return;
@@ -1406,8 +1406,9 @@ export default function StudioWorkspace(props: Props) {
                   >
                     {sidesHidden ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
                   </button>
-                  <div className="studio-toolbar-divider" />
+                  <div className="studio-toolbar-divider studio-viewer-history" />
                   <button
+                    className="studio-viewer-history"
                     title={withShortcut(getUndoLabel(), '⌘Z')}
                     aria-label={t('studio.workspace.viewer.undo')}
                     disabled={!panelsReady || !canUndo()}
@@ -1418,6 +1419,7 @@ export default function StudioWorkspace(props: Props) {
                     <Undo2 size={15} />
                   </button>
                   <button
+                    className="studio-viewer-history"
                     title={withShortcut(getRedoLabel(), '⇧⌘Z')}
                     aria-label={t('studio.workspace.viewer.redo')}
                     disabled={!panelsReady || !canRedo()}
@@ -1437,12 +1439,14 @@ export default function StudioWorkspace(props: Props) {
                   <CameraPreviewButton />
                   <ProofMarginButton />
                   <button
+                    className="studio-viewer-fit"
                     title={withShortcut(t('studio.workspace.viewer.fitTitle'), ',')}
                     onClick={() => onZoom(1, true)}
                   >
                     {t('studio.workspace.viewer.fit')}
                   </button>
                   <button
+                    className="studio-viewer-fit"
                     title={withShortcut(t('studio.workspace.viewer.actualPixels'), '.')}
                     onClick={() => onZoom(1)}
                   >
@@ -1462,7 +1466,7 @@ export default function StudioWorkspace(props: Props) {
                     </option>
                     <ZoomPresetOptions />
                   </select>
-                  <ViewerOverflowMenu onZoom={(value) => onZoom(value)} />
+                  <ViewerOverflowMenu onZoom={(value, fit) => onZoom(value, fit)} />
                   <button
                     aria-label={t('studio.workspace.loupe.fullScreen')}
                     title={withShortcut(t('studio.workspace.loupe.fullScreen'), hint('toggle_fullscreen'))}
@@ -1716,12 +1720,14 @@ export default function StudioWorkspace(props: Props) {
                 <div className="studio-viewer-side is-end">
                   <ViewerCaptureInfo />
                   <button
+                    className="studio-viewer-fit"
                     title={withShortcut(t('studio.workspace.viewer.fitTitle'), ',')}
                     onClick={() => onZoom(1, true)}
                   >
                     {t('studio.workspace.viewer.fit')}
                   </button>
                   <button
+                    className="studio-viewer-fit"
                     title={withShortcut(t('studio.workspace.viewer.actualPixels'), '.')}
                     onClick={() => onZoom(1)}
                   >

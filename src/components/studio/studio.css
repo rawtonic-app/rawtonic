@@ -1774,27 +1774,29 @@
 /* One row (useFitOneRow, UX4-07, UXR4L-15): the bar's own width decides,
    not the window's (a docked filmstrip or open panels narrow it). Level 1
    drops words beside icons, level 2 narrows the layer menu, level 3 moves
-   Camera preview, Proof margin and the zoom presets into ⋯. The cursor
-   tools always stay. Only past level 3 may the end group wrap. */
+   Camera preview, Proof margin and the zoom presets into ⋯, level 4 Fit
+   and 100 % too, level 5 leaves Undo and Redo to ⌘Z/⇧⌘Z and the Edit menu.
+   The cursor tools always stay. Only past level 5 may the bar wrap. */
 .studio-viewer-toolbar:not([data-wrap='true']) {
   flex-wrap: nowrap;
 }
 .studio-viewer-toolbar:not([data-collapse='0']) .optional-label {
   display: none;
 }
-.studio-viewer-toolbar[data-collapse='2'] .studio-layer-select,
-.studio-viewer-toolbar[data-collapse='3'] .studio-layer-select {
+.studio-viewer-toolbar:is([data-collapse='2'], [data-collapse='3'], [data-collapse='4'], [data-collapse='5'])
+  .studio-layer-select {
   max-width: 110px;
 }
-.studio-viewer-overflow {
+.studio-viewer-toolbar .studio-viewer-overflow {
   display: none;
 }
-.studio-viewer-toolbar[data-collapse='3'] .studio-viewer-overflow {
+.studio-viewer-toolbar:is([data-collapse='3'], [data-collapse='4'], [data-collapse='5']) .studio-viewer-overflow {
   display: inline-flex;
 }
-.studio-viewer-toolbar[data-collapse='3'] .studio-zoom-select,
-.studio-viewer-toolbar[data-collapse='3'] .studio-camera-preview-toggle,
-.studio-viewer-toolbar[data-collapse='3'] .studio-proof-margin-toggle {
+.studio-viewer-toolbar:is([data-collapse='3'], [data-collapse='4'], [data-collapse='5'])
+  :is(.studio-zoom-select, .studio-camera-preview-toggle, .studio-proof-margin-toggle),
+.studio-viewer-toolbar:is([data-collapse='4'], [data-collapse='5']) .studio-viewer-fit,
+.studio-viewer-toolbar[data-collapse='5'] .studio-viewer-history {
   display: none;
 }
 .studio-counter {
@@ -6320,6 +6322,29 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-library-toolbar:not([data-wrap='true']) .studio-search {
   min-width: 190px;
 }
+/* The search group never shrinks below its controls (they would overlap the
+   filters); the search box inside gives way at the levels below. */
+.studio-library-toolbar:not([data-wrap='true']) .studio-search-group {
+  min-width: min-content;
+}
+/* Content search's model download keeps its words and size until the bar
+   runs short, then ends in an ellipsis, then keeps only its icon (the
+   tooltip and accessible name keep the words). */
+.studio-search-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.studio-search-download > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.studio-library-toolbar[data-collapse='2'] .studio-search-download > span {
+  max-width: 110px;
+}
+.studio-library-toolbar[data-collapse='3'] .studio-search-download > span {
+  display: none;
+}
 .studio-library-toolbar:not([data-collapse='0']) .studio-flag-label,
 .studio-library-toolbar:not([data-collapse='0']) .studio-metadata-toggle > span:not(.studio-filter-count),
 .studio-library-toolbar:not([data-collapse='0']) .studio-subfolders > span,
@@ -6335,7 +6360,7 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   min-width: 130px;
 }
 .studio-library-toolbar[data-collapse='2'] .studio-library-filters select {
-  max-width: 110px;
+  max-width: 120px;
 }
 .studio-library-toolbar[data-collapse='3'] {
   gap: 6px;
@@ -6344,7 +6369,7 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   min-width: 100px;
 }
 .studio-library-toolbar[data-collapse='3'] select {
-  max-width: 86px;
+  max-width: 104px;
 }
 .studio-effects-master {
   display: flex;

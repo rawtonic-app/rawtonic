@@ -110,11 +110,12 @@ export function PointerReadout() {
 }
 
 /**
- * The viewer bar's ⋯ at its narrowest (useFitOneRow's last level, UX4-07):
- * Camera preview, Proof margin and the zoom presets, which the bar then
- * leaves out, so none of them becomes unreachable.
+ * The viewer bar's ⋯ once the bar runs short (useFitOneRow's level 3,
+ * UX4-07): Camera preview, Proof margin, Fit, 100 % and the zoom presets,
+ * which the bar then leaves out (Fit and 100 % from level 4), so none of
+ * them becomes unreachable.
  */
-export function ViewerOverflowMenu({ onZoom }: { onZoom(value: number): void }) {
+export function ViewerOverflowMenu({ onZoom }: { onZoom(value: number, fit?: boolean): void }) {
   const { t } = useTranslation();
   const { showContextMenu } = useContextMenu();
   const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
@@ -159,6 +160,9 @@ export function ViewerOverflowMenu({ onZoom }: { onZoom(value: number): void }) 
             }
           },
           { type: OPTION_SEPARATOR },
+          // Fit and 100 % leave the bar one level later (UX4-07).
+          { label: t('studio.workspace.viewer.fitTitle'), shortcut: ',', onClick: () => onZoom(1, true) },
+          { label: t('studio.workspace.viewer.actualPixels'), shortcut: '.', onClick: () => onZoom(1) },
           {
             label: t('studio.workspace.viewer.zoom'),
             submenu: zoomPresetsAboveFit(fit).map((preset) => ({

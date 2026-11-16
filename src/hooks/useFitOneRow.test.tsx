@@ -1,5 +1,5 @@
-import { render } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, render } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
 import { useFitOneRow } from './useFitOneRow';
 
 /** A bar whose content is `widths[level]` wide in a 500 px bar. */
@@ -18,6 +18,8 @@ function Bar({ widths }: { widths: number[] }) {
     />
   );
 }
+
+afterEach(cleanup);
 
 describe('useFitOneRow', () => {
   it('takes the first level whose content fits the bar', () => {

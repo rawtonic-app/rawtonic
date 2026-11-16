@@ -164,11 +164,11 @@ it('toggles the metadata lists and saves what filters as a smart album', async (
   await user.click(metadata);
   expect(toggle).toHaveBeenCalled();
   // Nothing filters: nothing to save.
-  expect(screen.getByText('Save as smart album…').closest('button')!.classList.contains('is-idle')).toBe(true);
+  expect(screen.getByRole('button', { name: 'Save as smart album…' }).classList.contains('is-idle')).toBe(true);
   useLibraryStore.getState().setFilterCriteria({ metadata: { camera: ['X-T4'] }, rating: 4 });
   expect((await screen.findByRole('button', { name: /Metadata/ })).textContent).toBe('Metadata1');
   expect(screen.getByRole('button', { name: 'Metadata 1' })).toBeTruthy();
-  await user.click(screen.getByText('Save as smart album…'));
+  await user.click(screen.getByRole('button', { name: 'Save as smart album…' }));
   expect(useSmartAlbumEditor.getState().draft?.rules).toEqual({
     combine: 'all',
     rules: [
@@ -180,7 +180,7 @@ it('toggles the metadata lists and saves what filters as a smart album', async (
   useSmartAlbumEditor.getState().close();
   // Edited / unedited has no rule: saving is refused, not silently widened.
   useLibraryStore.getState().setFilterCriteria({ editedStatus: EditedStatus.EditedOnly });
-  expect(((await screen.findByText('Save as smart album…')).closest('button') as HTMLButtonElement).disabled).toBe(
+  expect(((await screen.findByRole('button', { name: 'Save as smart album…' })) as HTMLButtonElement).disabled).toBe(
     true
   );
 });

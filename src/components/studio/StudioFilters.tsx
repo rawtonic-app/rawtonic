@@ -175,8 +175,9 @@ export default function StudioFilters({
             })
           }
         >
+          {/* Icon only (its name is the tooltip): an occasional action that
+              must not cost the one-row bar its width (UX4-08). */}
           <ListPlus size={12} />
-          <span>{t('studio.library.smartAlbums.fromFilter')}</span>
         </button>
       )}
       <button
