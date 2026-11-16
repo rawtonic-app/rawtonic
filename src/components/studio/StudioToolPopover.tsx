@@ -40,9 +40,13 @@ export function toolPopoverApplies(tools: ReturnType<typeof useStudioTools>) {
   return Boolean(tools.layer) && tools.activeTool !== 'select';
 }
 
-/** Controls a press of Enter activates instead of closing the panel. */
-const ENTER_ACTS =
-  'button, select, textarea, input[type="checkbox"], input[type="radio"], [role="radio"], [role="checkbox"]';
+/** The value fields beside the sliders (AdjustmentControl): Escape cancels
+ * their typed digits, Enter applies them. */
+const VALUE_FIELD = 'input.adjustment-value';
+/** Where Enter closes the panel: a value field, a slider or the panel itself;
+ * elsewhere (buttons, checkboxes, a form such as a custom crop ratio) Enter
+ * keeps its own meaning. */
+const ENTER_CLOSES = `${VALUE_FIELD}, [role="slider"]`;
 
 /** The selected layer's tool settings at the pointer, opened by a right-click
  * on the photograph. Closes on Escape, Enter, an outside press or when the
@@ -113,7 +117,7 @@ export default function StudioToolPopover({
     // discards them in the field (as any field), a second Escape closes.
     let editedField: EventTarget | null = null;
     const onInput = (e: Event) => {
-      editedField = e.target;
+      if ((e.target as Element | null)?.matches?.(VALUE_FIELD)) editedField = e.target;
     };
     const onFocusOut = (e: FocusEvent) => {
       if (e.target === editedField) editedField = null;
@@ -132,7 +136,7 @@ export default function StudioToolPopover({
       // Enter applies a typed value (leaving the field commits it) and
       // closes, as Capture One's tool panel; on a button it presses it.
       if (e.key !== 'Enter' || e.isComposing || !target || !ref.current?.contains(target)) return;
-      if (target.closest?.(ENTER_ACTS)) return;
+      if (target !== ref.current && (!target.matches?.(ENTER_CLOSES) || target.closest?.('form'))) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       if (target instanceof HTMLElement && target !== ref.current) target.blur();

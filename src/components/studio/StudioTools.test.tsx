@@ -338,6 +338,22 @@ describe('brush settings at the pointer', () => {
     expect(editor().brushSettings?.size).toBe(150);
   });
 
+  it('closes on Escape after a checkbox changed, and Enter on a checkbox keeps the panel open', () => {
+    brushLayer();
+    workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    const autoMask = screen.getByRole('checkbox', { name: 'Auto mask' });
+    act(() => autoMask.focus());
+    fireEvent.click(autoMask);
+    fireEvent.input(autoMask);
+    expect(editor().brushSettings?.autoMask).toBe(true);
+    fireEvent.keyDown(autoMask, { key: 'Enter' });
+    expect(screen.getByRole('dialog', { name: 'Brush settings' })).toBeTruthy();
+    fireEvent.keyDown(autoMask, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(editor().brushSettings?.autoMask).toBe(true);
+  });
+
   it('reaches every value field with Tab', () => {
     brushLayer();
     workspace();
@@ -577,6 +593,21 @@ describe('crop tool panel', () => {
     fireEvent.click(within(panel).getByRole('button', { name: 'Reset crop and straighten' }));
     expect(editor().adjustments.aspectRatio).toBeNull();
     expect(editor().adjustments.crop).toBeNull();
+  });
+
+  it('adds a custom ratio with Enter in its fields, without closing the panel first', () => {
+    useUIStore.setState({ activePanel: Panel.Crop });
+    useSettingsStore.setState({ appSettings: { customAspectRatios: [] } as never });
+    workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a crop ratio' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ratio width' }), { target: { value: '7' } });
+    const height = screen.getByRole('textbox', { name: 'Ratio height' });
+    fireEvent.change(height, { target: { value: '5' } });
+    const event = fireEvent.keyDown(height, { key: 'Enter' });
+    // Not taken by the panel: the browser goes on to submit the form.
+    expect(event).toBe(true);
+    expect(screen.getByRole('dialog', { name: 'Crop settings' })).toBeTruthy();
   });
 
   it('opens with the pointer in its title bar', () => {
