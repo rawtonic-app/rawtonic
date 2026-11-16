@@ -430,9 +430,74 @@ pub fn crs_attributes(xmp_content: &str) -> HashMap<String, String> {
         .collect()
 }
 
+// Camera Raw process identifiers (not Lightroom application versions):
+// 5.0 = PV2003, 5.7 = PV2010, 6.7 = PV2012 (not a legacy process).
+const LEGACY_CONTROLS: [&str; 6] = [
+    "Brightness",
+    "Contrast",
+    "FillLight",
+    "HighlightRecovery",
+    "Shadows",
+    "Clarity",
+];
+
+const MODERN_CONTROLS: [&str; 7] = [
+    "Exposure2012",
+    "Contrast2012",
+    "Highlights2012",
+    "Shadows2012",
+    "Whites2012",
+    "Blacks2012",
+    "Clarity2012",
+];
+
+fn legacy_process(attrs: &HashMap<String, String>) -> bool {
+    if attrs.contains_key("ProcessVersion") {
+        return get_attr_as_f64(attrs, "ProcessVersion").is_some_and(|v| v < 6.7);
+    }
+    let nonzero = |key: &str| get_attr_as_f64(attrs, key).is_some_and(|v| v != 0.0);
+    std::iter::once("Exposure")
+        .chain(LEGACY_CONTROLS)
+        .any(nonzero)
+        && !MODERN_CONTROLS.into_iter().any(nonzero)
+}
+
+/// Legacy controls have no measured mapping; exposure alone keeps its stop value.
+/// Shared by catalog imports and XMP/preset import reports.
+pub fn legacy_process_warning(xmp: &str) -> Option<String> {
+    let attrs = crs_attributes(xmp);
+    let settings = legacy_untranslated(&attrs);
+    (!settings.is_empty()).then(|| {
+        format!(
+            "Lightroom process before 2012: could not convert {} (no measured mapping).",
+            settings.join(", ")
+        )
+    })
+}
+
+fn legacy_untranslated(attrs: &HashMap<String, String>) -> Vec<&'static str> {
+    if !legacy_process(attrs) {
+        return Vec::new();
+    }
+    LEGACY_CONTROLS
+        .into_iter()
+        .filter(|key| get_attr_as_f64(attrs, key).is_some_and(|v| v != 0.0))
+        .collect()
+}
+
 pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     let xmp_one_line = xmp_content.split('\n').collect::<Vec<_>>().join(" ");
-    let attrs = crs_attributes(xmp_content);
+    let mut attrs = crs_attributes(xmp_content);
+    let legacy = legacy_process(&attrs);
+    if legacy {
+        // Inactive 2012 controls may coexist with the active old-process ones.
+        for key in MODERN_CONTROLS {
+            attrs.remove(key);
+        }
+        if let Some(exposure) = attrs.get("Exposure").cloned() {
+            attrs.insert("Exposure2012".into(), exposure);
+        }
+    }
 
     let mut adjustments = Map::new();
     let mut hsl_map = Map::new();
@@ -1771,7 +1836,7 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
             .is_some_and(|v| v.eq_ignore_ascii_case(value))
     };
     let profile = untranslated_profile(xmp_content);
-    let mut out = Vec::new();
+    let mut out = legacy_untranslated(&attrs);
     if profile.is_some() {
         out.push("profile");
     }
@@ -1803,6 +1868,78 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn legacy_process_exposure_and_warnings_from_lua_and_xmp() {
+        for version in [Some("5.0"), Some("5.7"), None] {
+            for modern in ["", "Exposure2012 = 0, Contrast2012 = 0, Clarity2012 = 0,"] {
+                let process = version
+                    .map(|v| format!("ProcessVersion = \"{v}\", "))
+                    .unwrap_or_default();
+                let lua = format!(
+                    "s = {{ {process}{modern} Exposure = 1.25, Brightness = 50, Contrast = 25, FillLight = 12, HighlightRecovery = 10, Shadows = 5, Clarity = 20, Temperature = 4500, Tint = 8, WhiteBalance = \"Custom\", Sharpness = 40, LuminanceSmoothing = 15, HueAdjustmentRed = 10, ToneCurvePV2012 = {{0, 0, 128, 100, 255, 255}} }}"
+                );
+                let xmp = rawtonic_interop::lightroom_settings::to_xmp(&lua).unwrap();
+                let preset = super::convert_xmp_to_preset(&xmp).unwrap();
+                let a = &preset.adjustments;
+                assert_eq!(a["exposure"], 1.25, "{lua}");
+                assert!(a.get("contrast").is_none());
+                assert!(a.get("clarity").is_none());
+                assert_eq!(a["sharpness"], 40.0);
+                assert_eq!(
+                    a["hsl"][rawtonic_recipe::color::HSL_CHANNELS[0].name()]["hue"],
+                    10.0
+                );
+                assert_eq!(a[rawtonic_recipe::detail::LUMA_NOISE_REDUCTION.name()], 15);
+                assert_eq!(a[rawtonic_recipe::color::WB_TEMPERATURE.name()], 4500.0);
+                assert!(
+                    (rendered(a["curves"]["luma"].as_array().unwrap(), 128.0) - 100.0).abs() < 0.01
+                );
+                assert_eq!(
+                    super::legacy_process_warning(&xmp).unwrap(),
+                    "Lightroom process before 2012: could not convert Brightness, Contrast, FillLight, HighlightRecovery, Shadows, Clarity (no measured mapping)."
+                );
+                let (untranslated, _) = super::untranslated_settings(&xmp);
+                assert_eq!(untranslated, super::LEGACY_CONTROLS);
+                // The exact same path reads a sidecar packet; these are not
+                // catalog-only aliases inserted by the Lua writer.
+                assert!(xmp.contains("crs:Exposure=\"1.25\""));
+                assert!(
+                    a.get(rawtonic_recipe::color::WB_TEMPERATURE.name())
+                        .is_some(),
+                    "{a}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pv2012_boundary_and_stale_legacy_keys_keep_modern_behavior() {
+        // The PV2012 boundary is 6.7; stale legacy controls stay inactive.
+        for version in ["6.7", "15.4"] {
+            for exposure in [0.0, 0.75] {
+                let xmp = format!(
+                    r#"<rdf:Description crs:ProcessVersion="{version}" crs:Exposure="2" crs:Exposure2012="{exposure}" crs:Brightness="50" crs:Contrast="25" crs:Contrast2012="10"/>"#
+                );
+                let a = super::convert_xmp_to_preset(&xmp).unwrap().adjustments;
+                assert_eq!(a["exposure"], exposure);
+                assert_eq!(a["contrast"], 10);
+                assert!(super::legacy_process_warning(&xmp).is_none());
+            }
+        }
+        let modern = r#"crs:Exposure="2" crs:Exposure2012="0.75" crs:Brightness="50""#;
+        assert_eq!(
+            super::convert_xmp_to_preset(modern).unwrap().adjustments["exposure"],
+            0.75
+        );
+        assert!(super::legacy_process_warning(modern).is_none());
+        assert!(
+            super::legacy_process_warning(
+                r#"crs:ProcessVersion="5.7" crs:Exposure="1" crs:Brightness="0""#
+            )
+            .is_none()
+        );
+    }
+
     /// Converts every preset listed in `XMP_PRESET_LIST` (one path per line)
     /// and counts what the import report names; checks that real presets
     /// convert. `cargo test -p rawtonic-app --lib converts_real_presets --

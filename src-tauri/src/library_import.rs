@@ -90,6 +90,7 @@ pub struct ImportReport {
     /// before that leave those masks' layers without effect.
     pub ai_masks_on_open: usize,
     pub errors: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 fn preview(source: &Source, kind: &'static str) -> ImportPreview {
@@ -287,6 +288,30 @@ pub fn translate(develop: &Develop) -> Option<Value> {
         .then_some(adjustments)
 }
 
+fn import_warnings(photo: &Photo) -> Vec<String> {
+    std::iter::once((None, &photo.develop))
+        .chain(
+            photo
+                .snapshots
+                .iter()
+                .map(|(name, develop)| (Some(name), develop)),
+        )
+        .filter_map(|(snapshot, develop)| {
+            let Develop::LightroomXmp(xmp) = develop else {
+                return None;
+            };
+            let warning = crate::preset_converter::legacy_process_warning(xmp)?;
+            let context = photo
+                .copy_name
+                .iter()
+                .chain(snapshot)
+                .map(|name| format!(" ({name})"))
+                .collect::<String>();
+            Some(format!("{}{}: {warning}", photo.path.display(), context))
+        })
+        .collect()
+}
+
 /// Registers the photographs that exist, with metadata, translated edits
 /// and albums, in `catalog`.
 pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, String> {
@@ -309,6 +334,7 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                 report.with_settings += usize::from(imported.translated);
                 report.ai_masks_on_open += usize::from(imported.ai_masks);
                 report.crops_clipped += imported.crops_clipped;
+                report.warnings.extend(import_warnings(photo));
                 members.insert(photo.key.as_str(), Member::photo(asset.clone()));
                 assets.insert(photo.key.as_str(), asset);
             }
@@ -337,6 +363,7 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                 report.copies += 1;
                 report.ai_masks_on_open += usize::from(imported.ai_masks);
                 report.crops_clipped += imported.crops_clipped;
+                report.warnings.extend(import_warnings(photo));
             }
             Err(e) => {
                 report.copies_skipped += 1;
@@ -1109,6 +1136,53 @@ mod tests {
         let mut after = catalog.copies(&asset.id).unwrap();
         after.sort();
         assert_eq!(after, expected);
+    }
+
+    #[test]
+    fn old_process_import_reports_each_photo_copy_and_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Library"), "Main", Mode::Catalog).unwrap();
+        let path = tmp.path().join("A.png");
+        image::RgbImage::new(100, 80).save(&path).unwrap();
+        let original_bytes = fs::read(&path).unwrap();
+        let develop = Develop::LightroomXmp(rawtonic_interop::lightroom_settings::to_xmp(
+            r#"s = { ProcessVersion = "5.7", Exposure = 1.25, Exposure2012 = 0, FillLight = 10, HasCrop = true, CropLeft = 0.1, CropTop = 0.2, CropRight = 0.9, CropBottom = 0.8, CropAngle = 0 }"#
+        ).unwrap());
+        let mut original = photo("1", path.clone(), develop.clone(), None);
+        original.snapshots.push(("Earlier".into(), develop.clone()));
+        let mut copy = photo("2", path, develop.clone(), Some("1"));
+        copy.snapshots.push(("Earlier".into(), develop));
+        copy.copy_name = Some("Alternate".into());
+        let source = Source {
+            name: "Legacy".into(),
+            photos: vec![original, copy],
+            albums: vec![],
+            stacks: vec![],
+            not_read: Default::default(),
+        };
+        let report = import_into(&catalog, &source).unwrap();
+        assert!(report.errors.is_empty(), "{report:?}");
+        assert_eq!(report.warnings.len(), 4);
+        assert!(
+            report.warnings[0]
+                .contains("A.png: Lightroom process before 2012: could not convert FillLight")
+        );
+        assert!(report.warnings[1].contains("(Earlier)"));
+        assert!(report.warnings[2].contains("(Alternate)"));
+        assert!(report.warnings[3].contains("(Alternate) (Earlier)"));
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.copies, 1);
+        assert_eq!(
+            fs::read(source.photos[0].path.clone()).unwrap(),
+            original_bytes
+        );
+        let asset = catalog.asset_at(&source.photos[0].path).unwrap().unwrap();
+        let state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        assert_eq!(state["adjustments"]["exposure"], 1.25);
+        assert_eq!(
+            state["adjustments"]["crop"],
+            json!({"unit": "px", "x": 10.0, "y": 16.0, "width": 80.0, "height": 48.0})
+        );
     }
 
     #[test]
