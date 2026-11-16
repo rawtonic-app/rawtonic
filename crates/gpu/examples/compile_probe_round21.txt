@@ -1,0 +1,24 @@
+# COLD4 round 21 (G76): the main pass split at the tone stage. Run from the artifact folder
+# (compile_probe_round21_tone_split.wgsl beside it), COMPILE_PROBE_TIMEOUT=300, AMD VkCache
+# cleared before the round. Candidate: generator ~/rawtonic-scratch/COLD4/probe/make_tone_split.py
+# on shader.wgsl of this commit; cut C1 before the tone stage (`if (ENABLE_TONE)`), C2 after
+# Highlights; the colour (and the sharpening view's mask) between passes in Rgba32Float.
+# Inlined sizes (naga) in the comments. Pass: each piece <= 3-4 s and <= ~2.5 GB peak.
+# reference: Basic superset, one pass, 70.5k (WSHRIM3: 39.3 s / 4509 MB)
+r21_basic features=5238847 dce display
+# Basic superset in three passes: pre-tone 25.9k, tone 13.9k, post-tone 33.3k
+r21_pre features=5238847 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_STORE1:1
+r21_tone features=5238847 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_LOAD1:1,SPLIT_STORE2:1
+r21_post features=5238847 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_LOAD2:1
+# two passes: pre-tone + tone 38.5k (with r21_post), or tone + post 45.9k (with r21_pre)
+r21_pre_tone features=5238847 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_STORE2:1
+r21_tone_post features=5238847 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_LOAD1:1
+# raised Shadows of tone version 19 (SHADOWS_V19): one pass 70.7k; tone 14.1k, tone + post 46.1k (pre = r21_pre)
+r21_v19 features=72347711 dce display
+r21_v19_tone features=72347711 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_LOAD1:1,SPLIT_STORE2:1
+r21_v19_pre_tone features=72347711 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_STORE2:1
+# RAW default 4113: one pass 45.8k (~7 s)
+r21_raw features=4113 dce display
+r21_raw_pre_tone features=4113 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_STORE2:1
+r21_raw_post features=4113 dce display src=compile_probe_round21_tone_split.wgsl set=SPLIT_LOAD2:1
+# the general fallback (all bits) is not split: parts stay 73.9k / 20.7k / 62.7k (one pass 154.8k)
