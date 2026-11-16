@@ -167,6 +167,10 @@ pub fn check(program: &str) -> Result<(), String> {
 fn spawn(command: &[String]) -> Result<(), String> {
     let (program, args) = command.split_first().ok_or("Nothing to start.")?;
     let mut command = Command::new(program);
+    // The portal dialogs are this app's choice, not the started program's.
+    if crate::startup::portal_dialogs_set() {
+        command.env_remove("GTK_USE_PORTAL");
+    }
     // Started from an AppImage the program must not see its libraries.
     if let Some(appdir) = std::env::var_os("APPDIR") {
         let vars: Vec<(String, String)> = std::env::vars().collect();

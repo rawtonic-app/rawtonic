@@ -62,7 +62,7 @@ pub use xmp_state::{SidecarStamps, UnsavedXmp, XmpCheck, XmpProblem, XmpRetry};
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
-/// Photos visible in normal library views. Explicit session Trash listings
+/// Photos visible in normal library views. Explicit library Trash listings
 /// use `visible_assets_for_listing` so their metadata remains filterable.
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
@@ -317,21 +317,20 @@ pub fn fingerprint(path: &Path) -> Result<String, CatalogError> {
 }
 
 impl Library {
+    /// Sessions and catalogs both move deleted photos into their own
+    /// `Trash/` folder (the desktop's `plan_trash`), so both leave it out of
+    /// albums, Previous Import, searches and counts (UXR4L-05).
     fn visible_assets(&self) -> &'static str {
-        if self.manifest.mode == Mode::Session {
-            VISIBLE_ASSETS
-        } else {
-            "a.trashed=0"
-        }
+        VISIBLE_ASSETS
     }
 
-    /// An explicit folder listing in session Trash may inspect its metadata,
-    /// while albums/searches elsewhere continue to exclude trashed photos.
+    /// An explicit folder listing in the library's Trash may inspect its
+    /// metadata, while albums/searches elsewhere continue to exclude trashed
+    /// photos.
     fn visible_assets_for_listing(&self, listed: Option<&Path>) -> &'static str {
-        if self.manifest.mode == Mode::Session
-            && listed
-                .and_then(|p| p.canonical().ok())
-                .is_some_and(|p| p.starts_with(self.directory.join("Trash")))
+        if listed
+            .and_then(|p| p.canonical().ok())
+            .is_some_and(|p| p.starts_with(self.directory.join("Trash")))
         {
             "a.trashed=0"
         } else {

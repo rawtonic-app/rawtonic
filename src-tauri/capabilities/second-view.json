@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "second-view",
-  "description": "Capability for the second window (second_window.rs): its own events and window, nothing else",
+  "description": "Capability for the second window (second_window.rs): its own events and window, and the system language",
   "windows": [
     "second-view"
   ],
@@ -10,6 +10,7 @@
     "core:window:default",
     "core:window:allow-close",
     "core:window:allow-set-title",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "os:allow-locale"
   ]
 }

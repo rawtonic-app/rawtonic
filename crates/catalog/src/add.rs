@@ -777,7 +777,12 @@ mod tests {
 
     /// Three photographs: one with an editor sidecar, one with an XMP, one bare.
     fn photos(lib: &Library) -> Vec<PathBuf> {
-        let capture = lib.directory.join("Capture");
+        photos_in(lib, "Capture")
+    }
+
+    fn photos_in(lib: &Library, folder: &str) -> Vec<PathBuf> {
+        let capture = lib.directory.join(folder);
+        fs::create_dir_all(&capture).unwrap();
         let names = ["A.ARW", "B.ARW", "C.ARW"];
         for name in names {
             fs::write(capture.join(name), format!("fixture {name}")).unwrap();
@@ -906,9 +911,21 @@ mod tests {
 
     #[test]
     fn trashed_photographs_leave_imports_and_albums_until_restored() {
+        trashed_photographs_leave_views(Mode::Session);
+    }
+
+    /// A catalog moves deleted photos into its own `Trash/` folder as a
+    /// session does; they left Previous Import only in sessions (UXR4L-05).
+    #[test]
+    fn a_catalogs_trashed_photographs_leave_imports_and_albums_until_restored() {
+        trashed_photographs_leave_views(Mode::Catalog);
+    }
+
+    fn trashed_photographs_leave_views(mode: Mode) {
         let d = tempfile::tempdir().unwrap();
-        let lib = session(d.path());
-        let paths = photos(&lib);
+        let lib = Library::create(&d.path().join("Job"), "Job", mode).unwrap();
+        let paths = photos_in(&lib, &lib.manifest.capture.clone());
+        fs::create_dir_all(lib.directory.join("Trash")).unwrap();
         {
             let _batch = lib.import_batch(ImportKind::Add);
             lib.add_files(&paths).unwrap();

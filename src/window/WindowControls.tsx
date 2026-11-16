@@ -84,8 +84,46 @@ function useSnapLayoutButton(button: RefObject<HTMLButtonElement | null>, enable
   return state;
 }
 
+/** Whether a right-click on `target` is on the empty title bar: the drag
+ * region itself, as Tauri's drag handler decides (not a button on it). */
+export function isTitleBarArea(target: EventTarget | null): boolean {
+  return target instanceof Element && target.hasAttribute('data-tauri-drag-region');
+}
+
+/**
+ * Linux without the system's title bar (UXR4L-06/-07): the desktop's window
+ * menu on a right-click of the empty bar, and a 1 px outline around the
+ * window while it is not maximized, so its edge shows against other dark
+ * windows. KWin draws no shadow for an undecorated window; the system title
+ * bar (Preferences ▸ Interface) brings the desktop's frame and shadow.
+ */
+function useLinuxWindowFrame(enabled: boolean, maximized: boolean) {
+  useEffect(() => {
+    if (!enabled) return;
+    const onContextMenu = (event: MouseEvent) => {
+      if (!isTitleBarArea(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void invoke(Invokes.ShowWindowMenu, { x: event.clientX, y: event.clientY }).catch(console.error);
+    };
+    window.addEventListener('contextmenu', onContextMenu, true);
+    return () => window.removeEventListener('contextmenu', onContextMenu, true);
+  }, [enabled]);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('window-outlined', enabled && !maximized);
+    return () => root.classList.remove('window-outlined');
+  }, [enabled, maximized]);
+}
+
 /** Windows and Linux window controls share the session bar instead of adding a second row. */
-export default function WindowControls({ snapLayouts = false }: { snapLayouts?: boolean }) {
+export default function WindowControls({
+  snapLayouts = false,
+  linuxFrame = false
+}: {
+  snapLayouts?: boolean;
+  linuxFrame?: boolean;
+}) {
   const { t } = useTranslation();
   const [appWindow] = useState(() => getCurrentWindow());
   const [isMaximized, setIsMaximized] = useState(false);
@@ -112,6 +150,8 @@ export default function WindowControls({ snapLayouts = false }: { snapLayouts?: 
       unlisten?.();
     };
   }, [appWindow]);
+
+  useLinuxWindowFrame(linuxFrame, isMaximized);
 
   const maximizeLabel = t(isMaximized ? 'session.bar.windowRestore' : 'session.bar.windowMaximize');
 

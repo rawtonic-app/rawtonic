@@ -381,6 +381,12 @@ type FileOperationText =
   | 'trashFolderMessage'
   | 'trashFolderTitle'
   | 'trashOneMessage'
+  | 'trashOutOfLibraryConfirm'
+  | 'trashOutOfLibraryFolder'
+  | 'trashOutOfLibraryMany'
+  | 'trashOutOfLibraryOne'
+  | 'trashOutOfLibrarySome'
+  | 'trashOutOfLibraryTitle'
   | 'trashSelectedOnly'
   | 'trashTitle'
   | 'undoFailed'
@@ -394,6 +400,14 @@ type FileOperationCount =
   'keptCopies' | 'movedTo' | 'trashManyMessage' | 'trashedBoth' | 'trashedSession' | 'trashedSystem';
 const opsCount = (key: FileOperationCount, count: number, options: Record<string, unknown> = {}) =>
   i18next.t(`studio.library.fileOperations.${key}`, { ...options, count });
+
+/** The open library's own Trash folder (a session's or a catalog's), where
+ * Delete moves its photographs; null without an open library. */
+export function libraryTrashFolder(libraryDirectory: string | null | undefined): string | null {
+  if (!libraryDirectory) return null;
+  const separator = libraryDirectory.includes('\\') && !libraryDirectory.includes('/') ? '\\' : '/';
+  return `${libraryDirectory.replace(/[\\/]+$/, '')}${separator}Trash`;
+}
 
 /** How to undo a file operation from where the user is: in Develop ⌘Z
  * undoes edits (the edit history), so the hint names the Library. */
@@ -691,8 +705,7 @@ export function useFileOperations(
       notify.info(t('studio.library.trash.alreadyEmpty'));
       return;
     }
-    const separator = sessionDirectory.includes('\\') && !sessionDirectory.includes('/') ? '\\' : '/';
-    const trashFolder = `${sessionDirectory}${separator}Trash`;
+    const trashFolder = libraryTrashFolder(sessionDirectory) ?? '';
     const inTrash = (path: string) => isBelow(sourceOf(path), trashFolder);
     useUIStore.getState().setUI({
       confirmModalState: {
@@ -971,13 +984,15 @@ export function useFileOperations(
   const handleTrashFolder = useCallback(
     (path: string) => {
       const name = path.split(/[\\/]/).pop();
+      const trashFolder = libraryTrashFolder(useLibraryStore.getState().sessionDirectory);
+      const inLibraryTrash = !!trashFolder && isBelow(path, trashFolder);
       useUIStore.getState().setUI({
         confirmModalState: {
-          confirmText: ops('trashConfirm'),
+          confirmText: ops(inLibraryTrash ? 'trashOutOfLibraryConfirm' : 'trashConfirm'),
           // Undoable, so not destructive; only Empty Trash is.
           confirmVariant: 'primary',
           isOpen: true,
-          message: ops('trashFolderMessage', { name, hint: undoHint() }),
+          message: ops(inLibraryTrash ? 'trashOutOfLibraryFolder' : 'trashFolderMessage', { name, hint: undoHint() }),
           onConfirm: async () => {
             try {
               if (!(await saveEditsFirst([path]))) return;
@@ -1000,7 +1015,7 @@ export function useFileOperations(
               notify.error(ops('trashFolderFailed', { error: String(err) }));
             }
           },
-          title: ops('trashFolderTitle')
+          title: ops(inLibraryTrash ? 'trashOutOfLibraryTitle' : 'trashFolderTitle')
         }
       });
     },
@@ -1026,7 +1041,19 @@ export function useFileOperations(
     let modalMessage: string;
     let confirmText: string;
 
-    if (selectionHasVirtualCopies) {
+    // Delete moves a library's photographs into its own Trash folder; one
+    // already there goes on to the computer's Trash. Say so, instead of the
+    // usual text that promises the library's Trash folder (UXR4L-05).
+    const trashFolder = libraryTrashFolder(useLibraryStore.getState().sessionDirectory);
+    const alreadyTrashed = trashFolder
+      ? pathsToDelete.filter((path) => isBelow(sourceOf(path), trashFolder)).length
+      : 0;
+
+    if (alreadyTrashed === pathsToDelete.length) {
+      modalTitle = ops('trashOutOfLibraryTitle');
+      modalMessage = ops(isSingle ? 'trashOutOfLibraryOne' : 'trashOutOfLibraryMany', { hint });
+      confirmText = ops('trashOutOfLibraryConfirm');
+    } else if (selectionHasVirtualCopies) {
       modalTitle = ops('trashCopiesTitle');
       modalMessage = ops('trashCopiesMessage', { hint });
       confirmText = ops('trashCopiesConfirm');
@@ -1046,6 +1073,9 @@ export function useFileOperations(
         ? pathsToDelete.filter((path) => byPath.get(stackKey(path))?.stack.collapsed).length
         : 0;
     if (collapsedTops > 0) modalMessage = `${modalMessage} ${i18next.t('stacks.trashTop', { count: collapsedTops })}`;
+    if (alreadyTrashed > 0 && alreadyTrashed < pathsToDelete.length) {
+      modalMessage = `${modalMessage} ${ops('trashOutOfLibrarySome')}`;
+    }
 
     setUI({
       confirmModalState: {

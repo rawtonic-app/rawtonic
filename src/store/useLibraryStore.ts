@@ -1,5 +1,6 @@
 import type { SessionFolder } from '../utils/sessionFolders';
 import { create } from 'zustand';
+import { setDialogLibraryFolder } from '../utils/dialogFolders';
 import { useSettingsStore } from './useSettingsStore';
 import {
   FilterCriteria,
@@ -174,6 +175,12 @@ export const useLibraryStore = create<LibraryState>((set) => ({
       return { navHistory: newHistory, navIndex: newHistory.length - 1 };
     })
 }));
+
+// File and folder dialogs open at the library's folder when no folder was
+// remembered for them (src/utils/dialogFolders.ts).
+useLibraryStore.subscribe((state, previous) => {
+  if (state.sessionDirectory !== previous.sessionDirectory) setDialogLibraryFolder(state.sessionDirectory);
+});
 
 /** Whether the library lists the photo at `path` as a RAW (its recipe then
  * normalizes with the RAW defaults, as the backend reads it). */

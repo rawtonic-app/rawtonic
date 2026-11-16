@@ -63,6 +63,7 @@ import {
 } from '../../utils/viewerDisplay';
 import { viewerBackgroundLabel } from './editor/viewerBackgroundMenu';
 import { catalogChanged } from '../../utils/catalogWrites';
+import { UI_LANGUAGES, systemLanguage as readSystemLanguage } from '../../i18n/systemLanguage';
 
 interface ConfirmModalState {
   confirmText: string;
@@ -126,6 +127,23 @@ interface ProcessingSettings {
 }
 
 const EXECUTE_TIMEOUT = 3000;
+
+/** Each interface language in its own name. */
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  ca: 'Català',
+  de: 'Deutsch',
+  es: 'Español',
+  fr: 'Français',
+  it: 'Italiano',
+  pl: 'Polski',
+  pt: 'Português',
+  ru: 'Русский',
+  ja: '日本語',
+  ko: '한국어',
+  'zh-CN': '简体中文',
+  'zh-TW': '繁體中文'
+};
 
 const resolutions: OptionItem<number>[] = [
   { value: 720, label: '720px' },
@@ -283,6 +301,14 @@ export default function SettingsPanel({
   onSettingsChange,
   rootPaths
 }: SettingsPanelProps) {
+  const [systemLanguage, setSystemLanguage] = useState('en');
+  useEffect(() => {
+    let current = true;
+    void readSystemLanguage().then((language) => current && setSystemLanguage(language));
+    return () => {
+      current = false;
+    };
+  }, []);
   const { t } = useTranslation();
   const [isClearing, setIsClearing] = useState(false);
   const [clearMessage, setClearMessage] = useState('');
@@ -873,23 +899,13 @@ export default function SettingsPanel({
                     <div className="space-y-8">
                       <SettingItem label={t('settings.language')} description={t('settings.languageDesc')}>
                         <Dropdown
-                          onChange={(value) => onSettingsChange({ ...appSettings, language: value })}
+                          onChange={(value) => onSettingsChange({ ...appSettings, language: value || undefined })}
                           options={[
-                            { value: 'en', label: 'English' },
-                            { value: 'ca', label: 'Català' },
-                            { value: 'de', label: 'Deutsch' },
-                            { value: 'es', label: 'Español' },
-                            { value: 'fr', label: 'Français' },
-                            { value: 'it', label: 'Italiano' },
-                            { value: 'pl', label: 'Polski' },
-                            { value: 'pt', label: 'Português' },
-                            { value: 'ru', label: 'Русский' },
-                            { value: 'ja', label: '日本語' },
-                            { value: 'ko', label: '한국어' },
-                            { value: 'zh-CN', label: '简体中文' },
-                            { value: 'zh-TW', label: '繁體中文' }
+                            // Not chosen: the system's language (UXR4L-03); saved as no choice.
+                            { value: '', label: `${t('settings.languageSystem')} · ${LANGUAGE_NAMES[systemLanguage]}` },
+                            ...UI_LANGUAGES.map((value) => ({ value, label: LANGUAGE_NAMES[value] }))
                           ]}
-                          value={appSettings?.language || 'en'}
+                          value={appSettings?.language || ''}
                           triggerClassName="bg-bg-primary"
                         />
                       </SettingItem>

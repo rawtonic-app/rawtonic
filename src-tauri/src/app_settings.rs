@@ -1004,7 +1004,9 @@ impl Default for AppSettings {
             apply_preprocessing_to_non_raws: Some(false),
             use_apple_raw9: Some(false),
             exif_overlay: Some("off".to_string()),
-            language: Some("en".to_string()),
+            // None follows the system's language (UXR4L-03, src/i18n/systemLanguage.ts);
+            // a language chosen in Preferences is kept.
+            language: None,
             folder_tree_sort: Some(FolderTreeSort::default()),
             library_display_mode: Some("grid".to_string()),
             grouping: Some("off".to_string()),
@@ -1425,6 +1427,20 @@ mod tests {
         fs::write(&path, b"\xef\xbb\xbf{\"uiScale\":1.12}").unwrap();
         assert_eq!(load_settings_file(&path).unwrap().ui_scale, Some(1.12));
         assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    /// A first start has no language: the interface follows the system's
+    /// (UXR4L-03, UXR4M-04). A stored choice is kept.
+    #[test]
+    fn a_first_start_follows_the_system_language_and_a_choice_is_kept() {
+        assert_eq!(AppSettings::default().language, None);
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        fs::write(&path, br#"{"language":"de"}"#).unwrap();
+        assert_eq!(
+            load_settings_file(&path).unwrap().language.as_deref(),
+            Some("de")
+        );
     }
 
     #[test]

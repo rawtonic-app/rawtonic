@@ -107,8 +107,10 @@ export default function SecondView() {
     void invoke<{ language?: string; interfaceShade?: string }>(Invokes.LoadSettings)
       .then((settings) => {
         applyInterfaceShade(settings?.interfaceShade);
-        if (settings?.language)
-          void import('i18next').then(({ default: i18n }) => i18n.changeLanguage(settings.language));
+        void Promise.all([import('i18next'), import('../../i18n/systemLanguage')]).then(
+          async ([{ default: i18n }, { interfaceLanguage }]) =>
+            i18n.changeLanguage(await interfaceLanguage(settings?.language))
+        );
       })
       .catch(() => {});
     void invoke<SecondWindowState>(Invokes.SecondWindowState)
