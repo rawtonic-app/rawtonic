@@ -410,6 +410,7 @@ describe('emptying the session Trash', () => {
     useEditorStore.setState({ selectedImage: { path: '/job/Trash/Capture/A.RAF' } as never });
     useLibraryStore.setState({
       sessionDirectory: '/job',
+      libraryKind: null,
       currentFolderPath: '/job/Trash/Capture',
       multiSelectedPaths: ['/job/Trash/Capture/A.RAF', '/job/Capture/K.RAF'],
       libraryActivePath: '/job/Trash/Capture/A.RAF'
@@ -425,43 +426,71 @@ describe('emptying the session Trash', () => {
     expect(describeEmptyTrash({ photos: 0, files: 0, entries: 1 })).toContain('Remove the empty folders');
   });
 
-  it('asks first, then empties exactly what was counted and lets nothing from the Trash stay open', async () => {
-    const handleBackToLibrary = vi.fn();
+  it.each(['session', 'catalog'] as const)(
+    'asks first in a %s, then empties exactly what was counted and lets nothing from the Trash stay open',
+    async (libraryKind) => {
+      useLibraryStore.setState({ libraryKind });
+      const handleBackToLibrary = vi.fn();
+      vi.mocked(invoke).mockResolvedValueOnce(contents);
+      const { result } = renderHook(() =>
+        useFileOperations(
+          vi.fn(() => Promise.resolve()),
+          vi.fn(() => Promise.resolve()),
+          vi.fn(),
+          handleBackToLibrary,
+          []
+        )
+      );
+      await result.current.handleEmptySessionTrash();
+      expect(invoke).toHaveBeenCalledWith(Invokes.SessionTrashContents, { session: '/job' });
+      const modal = useUIStore.getState().confirmModalState;
+      expect(modal.isOpen).toBe(true);
+      expect(modal.title).toBe(
+        libraryKind === 'catalog' ? 'Empty the Catalog’s Trash Folder?' : 'Empty the Trash Folder?'
+      );
+      expect(modal.confirmText).toBe('Delete Permanently');
+      expect(modal.confirmVariant).toBe('destructive');
+      expect(modal.message).toContain('3 photos');
+      // Nothing is deleted before the confirmation.
+      expect(invoke).not.toHaveBeenCalledWith(Invokes.EmptySessionTrash, expect.anything());
+
+      vi.mocked(invoke).mockResolvedValueOnce(contents);
+      await modal.onConfirm?.();
+      expect(invoke).toHaveBeenCalledWith(Invokes.EmptySessionTrash, {
+        session: '/job',
+        photos: 3,
+        files: 7,
+        entries: 2
+      });
+      expect(toast.success).toHaveBeenCalledWith('3 photos deleted permanently.');
+      expect(useEditorStore.getState().selectedImage).toBeNull();
+      const library = useLibraryStore.getState();
+      expect(library.multiSelectedPaths).toEqual(['/job/Capture/K.RAF']);
+      expect(library.libraryActivePath).toBeNull();
+      expect(library.currentFolderPath).toBe('/job/Trash');
+      useLibraryStore.setState({ libraryKind: null });
+    }
+  );
+
+  it('canceling a catalog Empty Trash leaves the photos and selection alone', async () => {
+    useLibraryStore.setState({ libraryKind: 'catalog' });
     vi.mocked(invoke).mockResolvedValueOnce(contents);
     const { result } = renderHook(() =>
       useFileOperations(
         vi.fn(() => Promise.resolve()),
         vi.fn(() => Promise.resolve()),
         vi.fn(),
-        handleBackToLibrary,
+        vi.fn(),
         []
       )
     );
     await result.current.handleEmptySessionTrash();
-    expect(invoke).toHaveBeenCalledWith(Invokes.SessionTrashContents, { session: '/job' });
-    const modal = useUIStore.getState().confirmModalState;
-    expect(modal.isOpen).toBe(true);
-    expect(modal.title).toBe('Empty the Trash Folder?');
-    expect(modal.confirmText).toBe('Delete Permanently');
-    expect(modal.confirmVariant).toBe('destructive');
-    expect(modal.message).toContain('3 photos');
-    // Nothing is deleted before the confirmation.
+    useUIStore.getState().setUI({ confirmModalState: { isOpen: false } });
+    expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke).not.toHaveBeenCalledWith(Invokes.EmptySessionTrash, expect.anything());
-
-    vi.mocked(invoke).mockResolvedValueOnce(contents);
-    await modal.onConfirm?.();
-    expect(invoke).toHaveBeenCalledWith(Invokes.EmptySessionTrash, {
-      session: '/job',
-      photos: 3,
-      files: 7,
-      entries: 2
-    });
-    expect(toast.success).toHaveBeenCalledWith('3 photos deleted permanently.');
-    expect(useEditorStore.getState().selectedImage).toBeNull();
-    const library = useLibraryStore.getState();
-    expect(library.multiSelectedPaths).toEqual(['/job/Capture/K.RAF']);
-    expect(library.libraryActivePath).toBeNull();
-    expect(library.currentFolderPath).toBe('/job/Trash');
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/job/Trash/Capture/A.RAF', '/job/Capture/K.RAF']);
+    expect(useEditorStore.getState().selectedImage?.path).toBe('/job/Trash/Capture/A.RAF');
+    useLibraryStore.setState({ libraryKind: null });
   });
 
   it('an empty Trash asks nothing', async () => {
@@ -482,6 +511,7 @@ describe('emptying the session Trash', () => {
 });
 
 describe('moving to the Trash', () => {
+  beforeEach(() => useLibraryStore.setState({ libraryKind: null }));
   const hook = () =>
     renderHook(() =>
       useFileOperations(

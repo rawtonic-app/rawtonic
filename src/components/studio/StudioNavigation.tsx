@@ -156,7 +156,7 @@ function FolderRow({
   const expanded = useLibraryStore((s) => s.expandedFolders.has(node.path));
   const path = node.path;
   const children = (node.children ?? []).filter((child) => !isInternalSessionFolder(path, child.name, sessionRoot));
-  const isSessionTrash = !catalog && !!sessionRoot && parent === sessionRoot && node.name === 'Trash';
+  const isLibraryTrash = !!sessionRoot && parent === sessionRoot && node.name === 'Trash';
   const open = allOpen || expanded;
   const canExpand = children.length > 0 || !!node.hasSubdirs;
   const menu = (e: React.MouseEvent) => {
@@ -281,8 +281,8 @@ function FolderRow({
             isDestructive: true,
             onClick: () => actions.trash(path)
           },
-          // The session's own Trash folder (Capture One's session Trash).
-          ...(actions.emptyTrash && isSessionTrash
+          // Only the open library's own Trash folder.
+          ...(actions.emptyTrash && isLibraryTrash
             ? [
                 {
                   label: t('studio.library.trash.menu'),
@@ -375,7 +375,7 @@ function FolderRow({
           <ChevronRight size={11} />
         </button>
         <button onClick={() => onNavigate(path)} title={missing ? missingTitle(path) : path}>
-          {isSessionTrash ? (
+          {isLibraryTrash ? (
             <Trash2 size={14} />
           ) : missing ? (
             <FolderX size={14} />

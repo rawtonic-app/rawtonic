@@ -4354,12 +4354,18 @@
         "incomplete": "回收站已清空，但部分文件尚未能删除；Rawtonic 将在下次启动时重试。{{note}}",
         "menu": "清空回收站…",
         "messageEmptyFolders": "移除 Trash 文件夹中的空文件夹？",
+        "messageEmptyFolders_catalog": "移除 目录的 Trash 文件夹中的空文件夹？",
         "messageFiles_other": "将从磁盘删除 {{count}} 个文件，包括附属文件和 XMP。",
         "messageOnlyFiles_one": "永久删除 Trash 文件夹中的 {{count}} 个文件？",
         "messageOnlyFiles_other": "永久删除 Trash 文件夹中的 {{count}} 个文件？",
+        "messageOnlyFiles_catalog_one": "永久删除 目录的 Trash 文件夹中的 {{count}} 个文件？",
+        "messageOnlyFiles_catalog_other": "永久删除 目录的 Trash 文件夹中的 {{count}} 个文件？",
         "messagePhotos_one": "永久删除 Trash 文件夹中的 {{count}} 张照片？",
         "messagePhotos_other": "永久删除 Trash 文件夹中的 {{count}} 张照片？",
-        "title": "清空 Trash 文件夹？"
+        "messagePhotos_catalog_one": "永久删除 目录的 Trash 文件夹中的 {{count}} 张照片？",
+        "messagePhotos_catalog_other": "永久删除 目录的 Trash 文件夹中的 {{count}} 张照片？",
+        "title": "清空 Trash 文件夹？",
+        "title_catalog": "清空 目录的 Trash 文件夹？"
       }
     },
     "loadError": {

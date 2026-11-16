@@ -4354,12 +4354,18 @@
         "incomplete": "ゴミ箱は空になりましたが、一部のファイルはまだ削除できていません。Rawtonic は次回の起動時に再試行します。{{note}}",
         "menu": "ゴミ箱を空にする…",
         "messageEmptyFolders": "Trash フォルダ内の空のフォルダを削除しますか？",
+        "messageEmptyFolders_catalog": "カタログの Trash フォルダ内の空のフォルダを削除しますか？",
         "messageFiles_other": "サイドカーと XMP を含む {{count}} 個のファイルがディスクから削除されます。",
         "messageOnlyFiles_one": "Trash フォルダ内のファイル {{count}} 個を完全に削除しますか？",
         "messageOnlyFiles_other": "Trash フォルダ内のファイル {{count}} 個を完全に削除しますか？",
+        "messageOnlyFiles_catalog_one": "カタログの Trash フォルダ内のファイル {{count}} 個を完全に削除しますか？",
+        "messageOnlyFiles_catalog_other": "カタログの Trash フォルダ内のファイル {{count}} 個を完全に削除しますか？",
         "messagePhotos_one": "Trash フォルダ内の写真 {{count}} 枚を完全に削除しますか？",
         "messagePhotos_other": "Trash フォルダ内の写真 {{count}} 枚を完全に削除しますか？",
-        "title": "Trash フォルダを空にしますか？"
+        "messagePhotos_catalog_one": "カタログの Trash フォルダ内の写真 {{count}} 枚を完全に削除しますか？",
+        "messagePhotos_catalog_other": "カタログの Trash フォルダ内の写真 {{count}} 枚を完全に削除しますか？",
+        "title": "Trash フォルダを空にしますか？",
+        "title_catalog": "カタログの Trash フォルダを空にしますか？"
       }
     },
     "loadError": {

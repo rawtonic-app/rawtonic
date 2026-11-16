@@ -7,7 +7,7 @@
 //! "delete" moves files into the session's own `Trash/` folder (Capture
 //! One's session Trash); elsewhere, and from that folder, they go to the
 //! system Trash. Undone operations can be redone until a new one runs.
-//! The only deletion is the user's explicit Empty Trash of a session's
+//! The only deletion is the user's explicit Empty Trash of a library's
 //! `Trash/` folder (`empty_session_trash`, journaled, not undoable). A move
 //! to another drive copies, verifies and then trashes the originals (ADR
 //! 0016); its progress goes to the Library, which can stop it.
@@ -1047,9 +1047,10 @@ pub(crate) fn forget_purged(op: &Operation) -> Result<(), String> {
     let session = trash
         .parent()
         .filter(|s| {
-            trash.file_name() == Some(SESSION_TRASH.as_ref()) && s.join(SESSION_MANIFEST).is_file()
+            trash.file_name() == Some(SESSION_TRASH.as_ref())
+                && rawtonic_catalog::layout::LibraryLayout::at(s).is_some()
         })
-        .ok_or_else(|| format!("{} is not a session's Trash", trash.display()))?;
+        .ok_or_else(|| format!("{} is not a library's Trash", trash.display()))?;
     let lib = Library::open(session).map_err(|e| format!("{e:#}"))?;
     let mut failures = Vec::new();
     for entry in &entries {
@@ -1071,7 +1072,7 @@ pub(crate) fn forget_purged(op: &Operation) -> Result<(), String> {
     }
 }
 
-/// What the session's Trash folder holds, for the Empty Trash dialog.
+/// What the library's Trash folder holds, for the Empty Trash dialog.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrashContents {
@@ -1086,22 +1087,21 @@ pub struct TrashContents {
     pub note: Option<String>,
 }
 
-/// The `Trash/` folder of the session at `session`, which must be a
-/// session (its `session.json`), by its real path.
-fn session_trash_dir(session: &str) -> Result<PathBuf, String> {
+/// The real `Trash/` folder of a library identified by its manifest.
+fn library_trash_dir(session: &str) -> Result<PathBuf, String> {
     let dir = PathBuf::from(session)
         .canonical()
-        .map_err(|e| format!("Cannot open the session {session}: {e}"))?;
-    if !dir.join(SESSION_MANIFEST).is_file() {
-        return Err(format!("{} is not a session", dir.display()));
+        .map_err(|e| format!("Cannot open the library {session}: {e}"))?;
+    if rawtonic_catalog::layout::LibraryLayout::at(&dir).is_none() {
+        return Err(format!("{} is not a library", dir.display()));
     }
     Ok(dir.join(SESSION_TRASH))
 }
 
-/// What emptying the session's Trash would delete; `None` when it has no
+/// What emptying the library's Trash would delete; `None` when it has no
 /// Trash folder.
-fn session_trash_plan(session: &str) -> Result<Option<rawtonic_fileops::PurgePlan>, String> {
-    let trash = session_trash_dir(session)?;
+fn library_trash_plan(session: &str) -> Result<Option<rawtonic_fileops::PurgePlan>, String> {
+    let trash = library_trash_dir(session)?;
     if fs::symlink_metadata(&trash).is_err() {
         return Ok(None);
     }
@@ -1119,22 +1119,22 @@ fn contents_of(plan: &rawtonic_fileops::PurgePlan) -> TrashContents {
     }
 }
 
-/// Empties the session's Trash for good if it still holds what the user
+/// Empties the library's Trash for good if it still holds what the user
 /// confirmed (`expected`): refuses, deleting nothing, when it changed.
 pub fn empty_trash(
     app: &AppHandle,
     session: &str,
     expected: &TrashContents,
 ) -> Result<TrashContents, String> {
-    let plan = session_trash_plan(session)?
+    let plan = library_trash_plan(session)?
         .filter(|plan| !plan.entries.is_empty())
-        .ok_or("The session's Trash is already empty.")?;
+        .ok_or("The library's Trash is already empty.")?;
     let mut contents = contents_of(&plan);
     if (contents.photos, contents.files, contents.entries)
         != (expected.photos, expected.files, expected.entries)
     {
         return Err(
-            "The session's Trash changed since it was counted; nothing was deleted.".into(),
+            "The library's Trash changed since it was counted; nothing was deleted.".into(),
         );
     }
     let label = if contents.photos == 1 {
@@ -1151,11 +1151,11 @@ pub fn empty_trash(
     Ok(contents)
 }
 
-/// What the session's Trash folder holds (zero when it has none).
+/// What the library's Trash folder holds (zero when it has none).
 #[tauri::command]
 pub async fn session_trash_contents(session: String) -> Result<TrashContents, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(session_trash_plan(&session)?
+        Ok(library_trash_plan(&session)?
             .map(|plan| contents_of(&plan))
             .unwrap_or_default())
     })
@@ -1163,7 +1163,7 @@ pub async fn session_trash_contents(session: String) -> Result<TrashContents, St
     .map_err(|e| e.to_string())?
 }
 
-/// Permanently deletes everything in the session's Trash folder, after the
+/// Permanently deletes everything in the library's Trash folder, after the
 /// user confirmed the counts in `session_trash_contents`. Not undoable.
 #[tauri::command]
 pub async fn empty_session_trash(
@@ -1698,55 +1698,56 @@ mod tests {
     /// the records forgotten, with photographs elsewhere in the session
     /// untouched; a second sync is harmless.
     #[test]
-    fn emptying_the_session_trash_deletes_its_files_and_forgets_their_records() {
-        let tmp = tempfile::tempdir().unwrap();
-        let dir = session(tmp.path());
-        let kept = dir.join("Capture/K.RAF");
-        fs::write(&kept, "k").unwrap();
-        let lib = Library::open(&dir).unwrap();
-        let kept_asset = lib.add_asset(&kept).unwrap();
-        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
-        let none = &rawtonic_fileops::NoSystemTrash;
-        let mut trashed = Vec::new();
-        for name in ["A.RAF", "B.ARW"] {
-            let photo = dir.join("Capture").join(name);
-            fs::write(&photo, name).unwrap();
-            fs::write(dir.join(format!("Capture/{name}.rrdata")), "{}").unwrap();
-            trashed.push(lib.add_asset(&photo).unwrap());
-            let groups = vec![associated_files(std::slice::from_ref(&photo)).unwrap()];
-            let op = journal
-                .execute("trash", "Delete 1 photo", plan_trash(&groups), none)
-                .unwrap();
-            sync_catalog(&op, true).unwrap();
-            journal.mark_synced(&op.id).unwrap();
-        }
-        let session_path = dir.to_string_lossy().into_owned();
-        let plan = session_trash_plan(&session_path).unwrap().unwrap();
-        let contents = contents_of(&plan);
-        assert_eq!(
-            (contents.photos, contents.files, contents.entries),
-            (2, 4, 1)
-        );
-
-        let op = journal.purge("emptyTrash", "Empty Trash", &plan).unwrap();
-        assert_eq!(op.state, State::Purged);
-        forget_purged(&op).unwrap();
-        forget_purged(&op).unwrap();
-        assert_eq!(fs::read_dir(dir.join("Trash")).unwrap().count(), 0);
-        for asset in &trashed {
-            assert!(
-                lib.asset(&asset.id).is_err(),
-                "record of {:?} kept",
-                asset.path
+    fn emptying_library_trash_deletes_its_files_and_forgets_their_records() {
+        for mode in [
+            rawtonic_catalog::Mode::Session,
+            rawtonic_catalog::Mode::Catalog,
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("Library");
+            Library::create(&dir, "Library", mode).unwrap();
+            fs::create_dir_all(dir.join("Capture")).unwrap();
+            let kept = dir.join("Capture/K.RAF");
+            fs::write(&kept, "k").unwrap();
+            let lib = Library::open(&dir).unwrap();
+            let kept_asset = lib.add_asset(&kept).unwrap();
+            let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+            let mut trashed = Vec::new();
+            for name in ["A.RAF", "B.ARW"] {
+                let photo = dir.join("Trash/Capture").join(name);
+                fs::create_dir_all(photo.parent().unwrap()).unwrap();
+                fs::write(&photo, name).unwrap();
+                fs::write(dir.join(format!("Trash/Capture/{name}.rrdata")), "{}").unwrap();
+                trashed.push(lib.add_asset(&photo).unwrap());
+            }
+            let session_path = dir.to_string_lossy().into_owned();
+            let plan = library_trash_plan(&session_path).unwrap().unwrap();
+            let contents = contents_of(&plan);
+            assert_eq!(
+                (contents.photos, contents.files, contents.entries),
+                (2, 4, 1)
             );
+
+            let op = journal.purge("emptyTrash", "Empty Trash", &plan).unwrap();
+            assert_eq!(op.state, State::Purged);
+            forget_purged(&op).unwrap();
+            forget_purged(&op).unwrap();
+            assert_eq!(fs::read_dir(dir.join("Trash")).unwrap().count(), 0);
+            for asset in &trashed {
+                assert!(
+                    lib.asset(&asset.id).is_err(),
+                    "record of {:?} kept",
+                    asset.path
+                );
+            }
+            assert_eq!(lib.asset_at(&kept).unwrap().unwrap().id, kept_asset.id);
+            assert_eq!(fs::read_to_string(&kept).unwrap(), "k");
+            // Nothing before it can be undone any more.
+            assert!(journal.last_undoable().unwrap().is_none());
+            // Nothing left to count.
+            let plan = library_trash_plan(&session_path).unwrap().unwrap();
+            assert_eq!(contents_of(&plan), TrashContents::default());
         }
-        assert_eq!(lib.asset_at(&kept).unwrap().unwrap().id, kept_asset.id);
-        assert_eq!(fs::read_to_string(&kept).unwrap(), "k");
-        // Nothing before it can be undone any more.
-        assert!(journal.last_undoable().unwrap().is_none());
-        // Nothing left to count.
-        let plan = session_trash_plan(&session_path).unwrap().unwrap();
-        assert_eq!(contents_of(&plan), TrashContents::default());
     }
 
     #[test]
@@ -1755,13 +1756,13 @@ mod tests {
         let folder = tmp.path().join("Not a session");
         fs::create_dir_all(folder.join("Trash")).unwrap();
         fs::write(folder.join("Trash/A.RAF"), "a").unwrap();
-        let error = session_trash_plan(&folder.to_string_lossy()).unwrap_err();
-        assert!(error.contains("is not a session"), "{error}");
+        let error = library_trash_plan(&folder.to_string_lossy()).unwrap_err();
+        assert!(error.contains("is not a library"), "{error}");
         // A session without a Trash folder has nothing in it.
         let dir = session(tmp.path());
         fs::remove_dir(dir.join("Trash")).unwrap();
         assert!(
-            session_trash_plan(&dir.to_string_lossy())
+            library_trash_plan(&dir.to_string_lossy())
                 .unwrap()
                 .is_none()
         );

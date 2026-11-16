@@ -4666,16 +4666,24 @@
         "incomplete": "Se vació la papelera, pero algunos archivos aún no se pudieron eliminar; Rawtonic lo intentará de nuevo en el próximo inicio. {{note}}",
         "menu": "Vaciar papelera…",
         "messageEmptyFolders": "¿Quitar las carpetas vacías de la carpeta Trash?",
+        "messageEmptyFolders_catalog": "¿Quitar las carpetas vacías de la carpeta Trash del catálogo?",
         "messageFiles_one": "Se borra {{count}} archivo del disco, incluidos los archivos complementarios y XMP.",
         "messageFiles_many": "Se borran {{count}} archivos del disco, incluidos los archivos complementarios y XMP.",
         "messageFiles_other": "Se borran {{count}} archivos del disco, incluidos los archivos complementarios y XMP.",
         "messageOnlyFiles_one": "¿Eliminar definitivamente {{count}} archivo de la carpeta Trash?",
         "messageOnlyFiles_many": "¿Eliminar definitivamente {{count}} archivos de la carpeta Trash?",
         "messageOnlyFiles_other": "¿Eliminar definitivamente {{count}} archivos de la carpeta Trash?",
+        "messageOnlyFiles_catalog_one": "¿Eliminar definitivamente {{count}} archivo de la carpeta Trash del catálogo?",
+        "messageOnlyFiles_catalog_many": "¿Eliminar definitivamente {{count}} archivos de la carpeta Trash del catálogo?",
+        "messageOnlyFiles_catalog_other": "¿Eliminar definitivamente {{count}} archivos de la carpeta Trash del catálogo?",
         "messagePhotos_one": "¿Eliminar definitivamente {{count}} foto de la carpeta Trash?",
         "messagePhotos_many": "¿Eliminar definitivamente {{count}} fotos de la carpeta Trash?",
         "messagePhotos_other": "¿Eliminar definitivamente {{count}} fotos de la carpeta Trash?",
-        "title": "¿Vaciar la carpeta Trash?"
+        "messagePhotos_catalog_one": "¿Eliminar definitivamente {{count}} foto de la carpeta Trash del catálogo?",
+        "messagePhotos_catalog_many": "¿Eliminar definitivamente {{count}} fotos de la carpeta Trash del catálogo?",
+        "messagePhotos_catalog_other": "¿Eliminar definitivamente {{count}} fotos de la carpeta Trash del catálogo?",
+        "title": "¿Vaciar la carpeta Trash?",
+        "title_catalog": "¿Vaciar la carpeta Trash del catálogo?"
       }
     },
     "loadError": {

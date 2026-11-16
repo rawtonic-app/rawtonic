@@ -4855,6 +4855,7 @@
         "incomplete": "Kosz został opróżniony, ale niektórych plików nie udało się jeszcze usunąć; Rawtonic spróbuje ponownie przy następnym uruchomieniu. {{note}}",
         "menu": "Opróżnij kosz…",
         "messageEmptyFolders": "Usunąć puste foldery w folderze Trash?",
+        "messageEmptyFolders_catalog": "Usunąć puste foldery w folderze Trash katalogu?",
         "messageFiles_one": "Z dysku zostanie usunięty {{count}} plik, łącznie z plikami towarzyszącymi i XMP.",
         "messageFiles_few": "Z dysku zostaną usunięte {{count}} pliki, łącznie z plikami towarzyszącymi i XMP.",
         "messageFiles_many": "Z dysku zostanie usuniętych {{count}} plików, łącznie z plikami towarzyszącymi i XMP.",
@@ -4863,11 +4864,20 @@
         "messageOnlyFiles_few": "Trwale usunąć {{count}} pliki w folderze Trash?",
         "messageOnlyFiles_many": "Trwale usunąć {{count}} plików w folderze Trash?",
         "messageOnlyFiles_other": "Trwale usunąć {{count}} pliku w folderze Trash?",
+        "messageOnlyFiles_catalog_one": "Trwale usunąć {{count}} plik w folderze Trash katalogu?",
+        "messageOnlyFiles_catalog_few": "Trwale usunąć {{count}} pliki w folderze Trash katalogu?",
+        "messageOnlyFiles_catalog_many": "Trwale usunąć {{count}} plików w folderze Trash katalogu?",
+        "messageOnlyFiles_catalog_other": "Trwale usunąć {{count}} pliku w folderze Trash katalogu?",
         "messagePhotos_one": "Trwale usunąć {{count}} zdjęcie w folderze Trash?",
         "messagePhotos_few": "Trwale usunąć {{count}} zdjęcia w folderze Trash?",
         "messagePhotos_many": "Trwale usunąć {{count}} zdjęć w folderze Trash?",
         "messagePhotos_other": "Trwale usunąć {{count}} zdjęcia w folderze Trash?",
-        "title": "Opróżnić folder Trash?"
+        "messagePhotos_catalog_one": "Trwale usunąć {{count}} zdjęcie w folderze Trash katalogu?",
+        "messagePhotos_catalog_few": "Trwale usunąć {{count}} zdjęcia w folderze Trash katalogu?",
+        "messagePhotos_catalog_many": "Trwale usunąć {{count}} zdjęć w folderze Trash katalogu?",
+        "messagePhotos_catalog_other": "Trwale usunąć {{count}} zdjęcia w folderze Trash katalogu?",
+        "title": "Opróżnić folder Trash?",
+        "title_catalog": "Opróżnić folder Trash katalogu?"
       }
     },
     "loadError": {

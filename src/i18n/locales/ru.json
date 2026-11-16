@@ -4855,6 +4855,7 @@
         "incomplete": "Корзина очищена, но некоторые файлы пока не удалось удалить; Rawtonic попробует снова при следующем запуске. {{note}}",
         "menu": "Очистить корзину…",
         "messageEmptyFolders": "Удалить пустые папки в папке Trash?",
+        "messageEmptyFolders_catalog": "Удалить пустые папки в папке Trash каталога?",
         "messageFiles_one": "С диска будет удалён {{count}} файл, включая сопроводительные файлы и XMP.",
         "messageFiles_few": "С диска будут удалены {{count}} файла, включая сопроводительные файлы и XMP.",
         "messageFiles_many": "С диска будут удалены {{count}} файлов, включая сопроводительные файлы и XMP.",
@@ -4863,11 +4864,20 @@
         "messageOnlyFiles_few": "Окончательно удалить {{count}} файла в папке Trash?",
         "messageOnlyFiles_many": "Окончательно удалить {{count}} файлов в папке Trash?",
         "messageOnlyFiles_other": "Окончательно удалить {{count}} файла в папке Trash?",
+        "messageOnlyFiles_catalog_one": "Окончательно удалить {{count}} файл в папке Trash каталога?",
+        "messageOnlyFiles_catalog_few": "Окончательно удалить {{count}} файла в папке Trash каталога?",
+        "messageOnlyFiles_catalog_many": "Окончательно удалить {{count}} файлов в папке Trash каталога?",
+        "messageOnlyFiles_catalog_other": "Окончательно удалить {{count}} файла в папке Trash каталога?",
         "messagePhotos_one": "Окончательно удалить {{count}} фото в папке Trash?",
         "messagePhotos_few": "Окончательно удалить {{count}} фото в папке Trash?",
         "messagePhotos_many": "Окончательно удалить {{count}} фото в папке Trash?",
         "messagePhotos_other": "Окончательно удалить {{count}} фото в папке Trash?",
-        "title": "Очистить папку Trash?"
+        "messagePhotos_catalog_one": "Окончательно удалить {{count}} фото в папке Trash каталога?",
+        "messagePhotos_catalog_few": "Окончательно удалить {{count}} фото в папке Trash каталога?",
+        "messagePhotos_catalog_many": "Окончательно удалить {{count}} фото в папке Trash каталога?",
+        "messagePhotos_catalog_other": "Окончательно удалить {{count}} фото в папке Trash каталога?",
+        "title": "Очистить папку Trash?",
+        "title_catalog": "Очистить папку Trash каталога?"
       }
     },
     "loadError": {
