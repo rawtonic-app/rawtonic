@@ -360,6 +360,9 @@ impl DecodeMeasures {
     pub fn of(image: &DynamicImage) -> Self {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("decode_measures");
+        if std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "measures")) {
+            return Self::default();
+        }
         let ((noise_level, airlight), image_key) = rayon::join(
             || crate::airlight::with_noise_level(image),
             || crate::image_key::measure(image),
@@ -458,7 +461,7 @@ pub fn load_base_image_measured(
                 if cancelled.as_ref().is_some_and(|cancelled| cancelled()) {
                     return Err(anyhow!("Load cancelled"));
                 }
-                if !use_fast_raw_dev && (color_nr_amount > 0.0 || sharpening_amount > 0.0) {
+                if !use_fast_raw_dev && (color_nr_amount > 0.0 || sharpening_amount > 0.0) && !std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "pre")) {
                     let start = Instant::now();
                     {
                         #[cfg(feature = "performance-profiling")]

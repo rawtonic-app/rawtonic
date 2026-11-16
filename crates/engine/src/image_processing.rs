@@ -3795,6 +3795,9 @@ impl MeasuredCa {
         if !params.auto_ca {
             return None;
         }
+        if std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "ca")) {
+            return Some(MeasuredCa(None));
+        }
         let own = params.auto_ca_versus_own.then(|| own_tca_model(params));
         image.map(|image| {
             MeasuredCa(crate::lateral_ca::estimate_for(

@@ -21,6 +21,15 @@ struct Device {
 
 static DEVICE: Mutex<Option<Device>> = Mutex::new(None);
 
+/// SCRATCH (EXT7 probe, from GDB): the registered device.
+pub fn device() -> Option<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
+    DEVICE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .map(|d| (d.device.clone(), d.queue.clone()))
+}
+
 /// One demosaic at a time on the GPU; the band buffers are large.
 static RUNNING: Mutex<Option<Pipelines>> = Mutex::new(None);
 

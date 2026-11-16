@@ -521,6 +521,14 @@ const ENERGY_BAND_PIXELS: u32 = 8 << 20;
 /// One dispatch of a color_noise_pyramid.wgsl entry point over `size`
 /// invocations (`group` per workgroup side), with `entries` (binding,
 /// resource) of the bindings it uses.
+
+/// EXT5 scratch probe (never commit): `EXT5_SKIP` = comma list of `blur0..blur4`, `pyramid`.
+fn ext5_skip(what: &str) -> bool {
+    static SKIP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SKIP.get_or_init(|| std::env::var("EXT5_SKIP").unwrap_or_default())
+        .split(',')
+        .any(|w| w == what)
+}
 fn pyramid_pass(
     context: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
@@ -530,6 +538,9 @@ fn pyramid_pass(
     size: [u32; 2],
     group: u32,
 ) {
+    if ext5_skip("pyramid") {
+        return;
+    }
     let device = &context.device;
     let buffer = params.map(|params| {
         create_buffer_init(
@@ -11290,6 +11301,9 @@ impl GpuProcessor {
                                 relative_log && (index == 2 || (index == 1 && tonal_log)),
                             ) << 2),
                     };
+                    if ext5_skip(["blur0", "blur1", "blur2", "blur3", "blur4"][index]) {
+                        return Some(output_view.clone());
+                    }
                     queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::bytes_of(&params));
 
                     let mut blur_encoder = device.create_command_encoder(&Default::default());

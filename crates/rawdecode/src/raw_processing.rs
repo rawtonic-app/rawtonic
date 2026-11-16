@@ -314,7 +314,7 @@ fn develop_internal(
         .unwrap_or((0, 0, raw_image.width, raw_image.height));
     // Hot and dead photosites (hot_pixels.rs), before anything reads the
     // mosaic's levels.
-    if is_rgb_mosaic {
+    if is_rgb_mosaic && !std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "hot")) {
         let range = (original_white_level - original_black_level).max(1.0);
         let wb = raw_image.wb_coeffs;
         let width = raw_image.width;
@@ -413,7 +413,8 @@ fn develop_internal(
         && is_rgb_mosaic
         && !fast_demosaic
         && superccd.is_none()
-        && cfa_opcodes.is_empty())
+        && cfa_opcodes.is_empty()
+        && !std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "bias")))
     .then(|| {
         // The mosaic's units (develop_rgb_mosaic: `apply_scaling` times
         // `rescale_factor`), sensor white at 1.
@@ -482,7 +483,7 @@ fn develop_internal(
         if let (RawPhotometricInterpretation::Cfa(config), rawler::RawImageData::Float(data)) =
             (&raw_image.photometric, &mut raw_image.data)
         {
-            if let Some(levels) = &clip_levels {
+            if let Some(levels) = clip_levels.as_ref().filter(|_| !std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "hl"))) {
                 #[cfg(feature = "performance-profiling")]
                 let _stage = crate::performance::PerformanceStage::new("raw_highlights");
                 let started = std::time::Instant::now();
@@ -753,7 +754,7 @@ fn develop_internal(
         let _stage = crate::performance::PerformanceStage::new("raw_develop");
         // Fast developments run in parallel thumbnail workers, which would
         // keep immediate purging on almost continuously.
-        let _purge = (!fast_demosaic).then(crate::allocator::ImmediatePurge::begin);
+        let _purge = (!fast_demosaic && !std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "purge"))).then(crate::allocator::ImmediatePurge::begin);
         // Fast developments of X-Trans mosaics bin 3 x 3 blocks (a third of
         // the size, like Bayer's half-size superpixels): rawler's Speed
         // demosaic keeps them at full size, which made the first frame of
@@ -1923,20 +1924,30 @@ fn develop_rgb_mosaic(
     raw_image.data = rawler::RawImageData::Float(Vec::new());
     let mut rgb = if bin > 1 {
         crate::demosaic::bin(&mosaic, roi_w, roi_h, &pattern, bin)
+    } else if std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "demosaic")) {
+        // EXT6 probe: timing only, wrong pixels. EXT7: `gpudev` adds GDB's
+        // GPU develop work per photo (upload, kernels, highlights, readback).
+        if std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "gpudev")) && pattern.is_bayer() {
+            let colors = [(0, 0), (0, 1), (1, 0), (1, 1)].map(|(r, c)| pattern.color(r, c) as u32);
+            crate::gd_load::run(&mosaic, roi_w, roi_h, colors);
+        }
+        mosaic.par_iter().with_min_len(16_384).map(|&v| [v, v, v]).collect()
     } else {
         crate::demosaic::demosaic_unless(&mosaic, roi_w, roi_h, &pattern, cancelled)
             .map_err(|_| anyhow!("Load cancelled"))?
     };
     let (out_w, out_h) = (roi_w / bin, roi_h / bin);
     drop(mosaic);
-    if let Some(means) = shadow_means.filter(|_| bin == 1) {
+    if let Some(means) = shadow_means.filter(|_| bin == 1 && !std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "bias"))) {
         // The means are in the mosaic's units before white balance.
         let changed = means.restore(&mut rgb, roi_w, [0, 1, 2].map(|k| wb[k]));
         log::info!("Shadow means restored on {changed} pixels");
     }
     // Tile buffers were freed on the worker threads, whose allocator heaps
     // keep those pages until they collect.
-    rayon::broadcast(|_| crate::allocator::release_freed_memory());
+    if !std::env::var("EXT6_SKIP").is_ok_and(|v| v.split(',').any(|t| t == "purge")) {
+        rayon::broadcast(|_| crate::allocator::release_freed_memory());
+    }
 
     // Camera to linear sRGB as rawler's Calibrate step, back in rawler's
     // units (the caller rescales to sensor white).
