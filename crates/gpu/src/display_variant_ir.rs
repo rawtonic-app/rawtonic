@@ -617,8 +617,10 @@ impl DisplayShader {
     }
 
     /// The display shader of a processor that renders glow and halation
-    /// through the terms pass (`with_effect_terms`); `new` when the source
-    /// has another shape (its variants then compute the effects themselves).
+    /// through the terms pass (`with_effect_terms`), its main passes split
+    /// (`with_passes`); `new` when the source has another shape (its
+    /// variants then compute the effects themselves).
+    #[cfg(test)]
     pub(crate) fn with_effect_passes(source: &str) -> Arc<Self> {
         Self::with_passes(source, true)
     }
