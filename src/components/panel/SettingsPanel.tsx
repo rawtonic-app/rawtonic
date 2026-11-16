@@ -1884,20 +1884,24 @@ export default function SettingsPanel({
                       {t('settings.controls.title')}
                     </Text>
                     <div className="space-y-8">
-                      <SettingItem
-                        label={t('settings.controls.optimization')}
-                        description={t('settings.controls.optimizationDesc')}
-                      >
-                        <PrefSegments
+                      {/* macOS tells a trackpad from a wheel per event
+                        (utils/viewerWheel); elsewhere the user says which. */}
+                      {osPlatform !== 'macos' && (
+                        <SettingItem
                           label={t('settings.controls.optimization')}
-                          options={[
-                            { value: 'mouse', label: t('settings.controls.modes.mouse') },
-                            { value: 'trackpad', label: t('settings.controls.modes.trackpad') }
-                          ]}
-                          value={(appSettings?.canvasInputMode as 'mouse' | 'trackpad') || 'mouse'}
-                          onChange={(value) => onSettingsChange({ ...appSettings, canvasInputMode: value })}
-                        />
-                      </SettingItem>
+                          description={t('settings.controls.optimizationDesc')}
+                        >
+                          <PrefSegments
+                            label={t('settings.controls.optimization')}
+                            options={[
+                              { value: 'mouse', label: t('settings.controls.modes.mouse') },
+                              { value: 'trackpad', label: t('settings.controls.modes.trackpad') }
+                            ]}
+                            value={(appSettings?.canvasInputMode as 'mouse' | 'trackpad') || 'mouse'}
+                            onChange={(value) => onSettingsChange({ ...appSettings, canvasInputMode: value })}
+                          />
+                        </SettingItem>
+                      )}
 
                       <SettingItem label={t('settings.controls.zoom')} description={t('settings.controls.zoomDesc')}>
                         <Slider

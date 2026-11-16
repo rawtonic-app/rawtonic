@@ -364,3 +364,29 @@ it('steps into the results from a photograph a filter leaves out (Develop, docke
   press('ArrowLeft');
   expect(props.handleImageSelect).toHaveBeenLastCalledWith('/s/c.dng', true);
 });
+
+it('goes to the first and last photograph with Home and End in the loupe, Develop and the grid (G36)', () => {
+  useUIStore.setState({ libraryLoupe: true });
+  press('End');
+  expect(props.handleImageSelect).toHaveBeenLastCalledWith('/s/c.dng', false);
+  expect(useLibraryStore.getState()).toMatchObject({ libraryActivePath: '/s/c.dng', multiSelectedPaths: ['/s/c.dng'] });
+  open('/s/c.dng');
+  press('Home');
+  expect(props.handleImageSelect).toHaveBeenLastCalledWith('/s/a.dng', false);
+  // Develop's filmstrip.
+  useUIStore.setState({ libraryLoupe: false, activeView: 'editor' });
+  open('/s/b.dng');
+  press('End');
+  expect(props.handleImageSelect).toHaveBeenLastCalledWith('/s/c.dng', true);
+  press('Home');
+  expect(props.handleImageSelect).toHaveBeenLastCalledWith('/s/a.dng', true);
+  // The grid.
+  useUIStore.setState({ activeView: 'library' });
+  props.handleImageSelect.mockClear();
+  press('End');
+  expect(useLibraryStore.getState().libraryActivePath).toBe('/s/c.dng');
+  // With a modifier it is not ours.
+  props.handleImageSelect.mockClear();
+  press('Home', { shiftKey: true });
+  expect(props.handleImageSelect).not.toHaveBeenCalled();
+});

@@ -393,15 +393,34 @@ pub(crate) fn restore_window_bounds(
         log::warn!("Could not measure the window frame; using the configured window size.");
         tauri::Size::Logical(_configured_size)
     });
-    #[cfg(target_os = "linux")]
-    let size = linux_restored_window_size(state.width, state.height, state.scale_factor)
+    #[cfg(not(windows))]
+    let size = restored_window_size_in_points(state.width, state.height, state.scale_factor)
         .unwrap_or(tauri::Size::Logical(_configured_size));
-    #[cfg(not(any(windows, target_os = "linux")))]
-    let size = tauri::Size::Physical(tauri::PhysicalSize::new(state.width, state.height));
+    // macOS places windows in points; the hidden window does not know its
+    // screen's scale yet (it reads 1), so physical pixels came back doubled
+    // on a Retina display (notes: reference/ux-macos-review-2026-11-16
+    // UXR4M-02). The scale saved with the pixels turns them into points.
+    #[cfg(target_os = "macos")]
+    let position =
+        restored_position_in_points(state.x, state.y, state.scale_factor).unwrap_or(position);
 
     let _ = window.set_size(size);
     #[cfg(not(windows))]
     let _ = window.set_position(position);
+}
+
+/// A saved physical position in points, from the scale saved with it.
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn restored_position_in_points(
+    x: i32,
+    y: i32,
+    scale: Option<f64>,
+) -> Option<tauri::Position> {
+    let scale = scale.filter(|scale| scale.is_finite() && *scale > 0.0)?;
+    Some(tauri::Position::Logical(tauri::LogicalPosition::new(
+        x as f64 / scale,
+        y as f64 / scale,
+    )))
 }
 
 #[cfg(any(windows, test))]
@@ -418,10 +437,11 @@ fn inner_size_for_saved_outer(
 }
 
 /// Saved sizes are physical pixels. A hidden GTK window and its monitor have
-/// not yet adopted Wayland's scale, so use the scale stored with those pixels.
+/// not yet adopted Wayland's scale, nor a hidden macOS window its Retina
+/// screen's, so use the scale stored with those pixels.
 /// Older files migrate to the configured logical size once.
-#[cfg(any(target_os = "linux", test))]
-pub(crate) fn linux_restored_window_size(
+#[cfg(any(not(windows), test))]
+pub(crate) fn restored_window_size_in_points(
     width: u32,
     height: u32,
     scale: Option<f64>,
@@ -757,7 +777,7 @@ pub(crate) fn force_webkit_dmabuf_renderer(
 
 #[cfg(test)]
 mod window_scale_tests {
-    use super::linux_restored_window_size;
+    use super::restored_window_size_in_points;
 
     #[test]
     fn saved_outer_bounds_do_not_grow_across_restarts_or_frame_styles() {
@@ -814,23 +834,48 @@ mod window_scale_tests {
     #[test]
     fn hidpi_physical_sizes_restore_without_growing_on_restart() {
         for scale in [1.0, 1.25, 2.0] {
-            let size = linux_restored_window_size(2400, 1600, Some(scale)).unwrap();
+            let size = restored_window_size_in_points(2400, 1600, Some(scale)).unwrap();
             assert_eq!(
                 size.to_physical::<u32>(scale),
                 tauri::PhysicalSize::new(2400, 1600)
             );
         }
         assert_eq!(
-            linux_restored_window_size(2400, 1600, Some(2.0)),
+            restored_window_size_in_points(2400, 1600, Some(2.0)),
             Some(tauri::Size::Logical(tauri::LogicalSize::new(1200.0, 800.0)))
         );
     }
 
     #[test]
+    fn a_retina_window_comes_back_at_its_frame_in_points() {
+        // UXR4M-02: 1200 × 800 pt at (300, 200) on a 2× display is saved as
+        // 2400 × 1600 px at (600, 400) and came back as 2400 × 1600 pt.
+        use super::restored_position_in_points;
+        assert_eq!(
+            restored_window_size_in_points(2400, 1600, Some(2.0)),
+            Some(tauri::Size::Logical(tauri::LogicalSize::new(1200.0, 800.0)))
+        );
+        assert_eq!(
+            restored_position_in_points(600, 400, Some(2.0)),
+            Some(tauri::Position::Logical(tauri::LogicalPosition::new(
+                300.0, 200.0
+            )))
+        );
+        // A second screen left of the main one has negative points.
+        assert_eq!(
+            restored_position_in_points(-2940, 100, Some(2.0)),
+            Some(tauri::Position::Logical(tauri::LogicalPosition::new(
+                -1470.0, 50.0
+            )))
+        );
+        assert_eq!(restored_position_in_points(600, 400, None), None);
+    }
+
+    #[test]
     fn legacy_or_invalid_scales_request_the_configured_size() {
-        assert_eq!(linux_restored_window_size(1200, 800, None), None);
+        assert_eq!(restored_window_size_in_points(1200, 800, None), None);
         for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-            assert_eq!(linux_restored_window_size(1200, 800, Some(scale)), None);
+            assert_eq!(restored_window_size_in_points(1200, 800, Some(scale)), None);
         }
     }
 }

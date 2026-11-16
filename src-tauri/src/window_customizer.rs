@@ -65,6 +65,7 @@ impl<R: Runtime> Plugin<R> for PinchZoomDisablePlugin {
                         full_screen::observe(window);
                         animated_frames::install(window);
                     }
+                    precise_scroll::install(view);
                 }
             }
 
@@ -357,6 +358,108 @@ mod animated_frames {
     }
 }
 
+/// Tells the page which kind of device sent the scroll events: AppKit's
+/// `hasPreciseScrollingDeltas` (trackpad, Magic Mouse) or not (a mouse
+/// wheel). WKWebView's wheel events carry no such signal (measured
+/// 2026-11-16, notes: reference/ux-macos-review-2026-11-16 UXR4M-01), and
+/// the viewer pans for the one and zooms for the other
+/// (src/utils/viewerWheel.ts). The web view's `scrollWheel:` sets
+/// `window.__rawtonicScrollPrecise` before handing the event on, only when
+/// the kind changes; the page may still see that change one event late.
+#[cfg(target_os = "macos")]
+mod precise_scroll {
+    use objc::runtime::{BOOL, Class, NO, Object, Sel, class_addMethod, object_getClass};
+    use objc::{msg_send, sel, sel_impl};
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// The web view class's superclass, whose `scrollWheel:` handles the event.
+    static SUPERCLASS: OnceLock<usize> = OnceLock::new();
+    /// The web view and kind (1 = wheel, 2 = precise) last told to a page.
+    static LAST_VIEW: AtomicUsize = AtomicUsize::new(0);
+    static LAST_KIND: AtomicUsize = AtomicUsize::new(0);
+
+    /// The script for a kind change, if the page has not been told it yet.
+    pub(super) fn script_for(
+        view: usize,
+        precise: bool,
+        last_view: &AtomicUsize,
+        last_kind: &AtomicUsize,
+    ) -> Option<&'static str> {
+        let kind = if precise { 2 } else { 1 };
+        let view_changed = last_view.swap(view, Ordering::Relaxed) != view;
+        let kind_changed = last_kind.swap(kind, Ordering::Relaxed) != kind;
+        let changed = view_changed || kind_changed;
+        changed.then_some(if precise {
+            "window.__rawtonicScrollPrecise=true"
+        } else {
+            "window.__rawtonicScrollPrecise=false"
+        })
+    }
+
+    extern "C" fn scroll_wheel(this: &Object, _: Sel, event: *mut Object) {
+        let Some(&superclass) = SUPERCLASS.get() else {
+            return;
+        };
+        // SAFETY: AppKit calls this on the main thread with a live web view
+        // and event; `superclass` is a registered class.
+        unsafe {
+            if !event.is_null() {
+                let precise: BOOL = msg_send![event, hasPreciseScrollingDeltas];
+                let view = this as *const Object as usize;
+                if let Some(script) = script_for(view, precise != NO, &LAST_VIEW, &LAST_KIND) {
+                    let source = objc2_foundation::NSString::from_str(script);
+                    let source = objc2::rc::Retained::as_ptr(&source)
+                        .cast_mut()
+                        .cast::<Object>();
+                    let nil: *mut Object = std::ptr::null_mut();
+                    let () = msg_send![this, evaluateJavaScript: source completionHandler: nil];
+                }
+            }
+            let superclass = &*(superclass as *const Class);
+            let () = msg_send![super(this, superclass), scrollWheel: event];
+        }
+    }
+
+    /// Overrides `scrollWheel:` on the web view's class (Wry's WKWebView
+    /// subclass). Main thread, live web view.
+    pub unsafe fn install(view: *mut Object) {
+        unsafe {
+            if view.is_null() || SUPERCLASS.get().is_some() {
+                return;
+            }
+            let class = object_getClass(view);
+            if class.is_null() {
+                return;
+            }
+            let selector = sel!(scrollWheel:);
+            let superclass = objc::runtime::class_getSuperclass(class);
+            if superclass.is_null() {
+                return;
+            }
+            let inherited = objc::runtime::class_getInstanceMethod(superclass, selector);
+            if inherited.is_null() {
+                return;
+            }
+            let _ = SUPERCLASS.set(superclass as usize);
+            let imp: extern "C" fn(&Object, Sel, *mut Object) = scroll_wheel;
+            if class_addMethod(
+                class as *mut Class,
+                selector,
+                std::mem::transmute::<extern "C" fn(&Object, Sel, *mut Object), objc::runtime::Imp>(
+                    imp,
+                ),
+                c"v@:@".as_ptr(),
+            ) == NO
+            {
+                log::warn!(
+                    "Trackpad scrolling over the photo zooms: the web view class already overrides scrollWheel:"
+                );
+            }
+        }
+    }
+}
+
 /// Puts the window into macOS full screen or takes it out, as ⌃⌘F and the
 /// green button do (`toggleFullScreen:`). Leaving through Tauri's
 /// `setFullscreen(false)` left the page without keyboard focus — the next F
@@ -451,5 +554,28 @@ mod tests {
     fn a_request_for_the_current_state_does_nothing() {
         let mut requests = FullScreenRequests::default();
         assert!(!requests.request(Instant::now(), true, true));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_page_hears_of_a_scroll_device_only_when_it_changes() {
+        use super::precise_scroll::script_for;
+        use std::sync::atomic::AtomicUsize;
+        let (view, kind) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        assert_eq!(
+            script_for(7, true, &view, &kind),
+            Some("window.__rawtonicScrollPrecise=true")
+        );
+        assert_eq!(script_for(7, true, &view, &kind), None);
+        assert_eq!(
+            script_for(7, false, &view, &kind),
+            Some("window.__rawtonicScrollPrecise=false")
+        );
+        assert_eq!(script_for(7, false, &view, &kind), None);
+        // Another web view's page has not been told yet.
+        assert_eq!(
+            script_for(9, false, &view, &kind),
+            Some("window.__rawtonicScrollPrecise=false")
+        );
     }
 }
