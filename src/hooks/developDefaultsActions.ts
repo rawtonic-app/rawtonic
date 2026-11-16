@@ -14,31 +14,39 @@ import {
   toolDefaultSettings,
   withCameraDefault,
   withCameraToolDefault,
+  withDevelopDefaults,
   withGlobalDefault,
   type CameraIdentity,
   type DevelopDefaults,
-  type PhotoDefaults
+  type PhotoDefaults,
+  type ResolvedDefaults
 } from '../utils/developDefaults';
 import { initialAdjustmentsFor } from '../utils/adjustments';
-import { expressPastedSettings } from '../utils/pastedVersions';
+import { effectiveVersions, expressPastedSettings } from '../utils/pastedVersions';
 import { collectPresetAdjustments } from './usePresets';
 import { showNewDevelopDefaults, updateAdjustments } from './useEditorActions';
-import { COPIED_ALONG } from '../components/studio/StudioToolCopy';
+import { COPIED_ALONG, pick } from '../components/studio/StudioToolCopy';
 
 /** A photo's settings as a default: as a style saved from it would carry
  * them (the versions its values render with stated, also those an older
  * edit leaves implicit), applied to a new edit. */
 export function photoDefaultSettings(current: Adjustments, isRaw: boolean): Record<string, unknown> {
-  const asStyle = {
-    id: 'photo',
-    name: 'photo',
-    presetType: 'style',
-    adjustments: collectPresetAdjustments(current, initialAdjustmentsFor(isRaw), {
+  const versions = effectiveVersions(current, isRaw);
+  const stated = { ...current, ...versions } as Adjustments;
+  const collected = {
+    ...collectPresetAdjustments(stated, initialAdjustmentsFor(isRaw), {
       includeMasks: false,
       includeCropTransform: false,
       presetType: 'style',
       isRaw
-    })
+    }),
+    ...versions
+  };
+  const asStyle = {
+    id: 'photo',
+    name: 'photo',
+    presetType: 'style',
+    adjustments: collected
   } as Preset;
   return presetDefaultSettings(asStyle, isRaw);
 }
@@ -144,19 +152,28 @@ export function saveToolAsCameraDefault(
  * photo, after the tool's own reset set them neutral. Nothing without a
  * default for them. */
 export function resetToolToUserDefaults(keys: string[]) {
-  const resolved = useEditorStore.getState().selectedImage?.photoDefaults?.resolved;
+  const image = useEditorStore.getState().selectedImage;
+  const resolved = image?.photoDefaults?.resolved;
   if (!resolved) return;
-  const all = new Set(keys.flatMap((key) => [key, ...(COPIED_ALONG[key] ?? [])]));
-  const picked = Object.fromEntries(
-    Object.entries(resolved.settings)
-      .filter(([key]) => all.has(key))
-      .map(([key, value]) => [key, structuredClone(value)])
-  ) as Partial<Adjustments>;
-  if (!Object.keys(picked).length) return;
-  const isRaw = !!useEditorStore.getState().selectedImage?.isRaw;
-  // As a paste of them: a response key stays the photo's while its layers
-  // (or other sliders) use it, the values re-expressed in it.
-  updateAdjustments((prev) => withToolDefaults(prev, picked, isRaw));
+  const isRaw = !!image?.isRaw;
+  updateAdjustments((prev) => withToolResetToDefaults(prev, resolved, keys, isRaw));
+}
+
+/** `prev` with the tool's `keys` that the defaults `resolved` set back to
+ * them: copied from a new edit with those defaults as a tool copy does
+ * (Blacks as amounts, their versions along), then pasted (`withToolDefaults`). */
+export function withToolResetToDefaults(
+  prev: Adjustments,
+  resolved: ResolvedDefaults,
+  keys: string[],
+  isRaw: boolean
+): Adjustments {
+  const set = keys.filter((key) =>
+    [key, ...(COPIED_ALONG[key] ?? [])].some((k) => Object.prototype.hasOwnProperty.call(resolved.settings, k))
+  );
+  if (!set.length) return prev;
+  const picked = pick(withDevelopDefaults(initialAdjustmentsFor(isRaw), resolved), set, isRaw);
+  return withToolDefaults(prev, picked, isRaw);
 }
 
 /** Asks the open photograph's camera (and defaults) once it is ready, when
