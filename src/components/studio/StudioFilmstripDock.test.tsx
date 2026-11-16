@@ -24,13 +24,19 @@ const file = (path: string): ImageFile => ({
 const many = (n: number) => Array.from({ length: n }, (_, i) => file(`/s/IMG_${String(i).padStart(4, '0')}.NEF`));
 const dockState = () => readFilmstripDock(useUIStore.getState().uiVisibility.filmstripDock);
 
-function mount(files: ImageFile[], side: 'left' | 'right' = 'left', requestThumbnails = vi.fn(), onSelect = vi.fn()) {
+function mount(
+  files: ImageFile[],
+  side: 'left' | 'right' = 'left',
+  requestThumbnails = vi.fn(),
+  onSelect = vi.fn(),
+  current = 1
+) {
   const view = render(
     <div className="studio-body">
       <StudioFilmstripDock
         side={side}
         files={files}
-        currentPath={files[1]?.path}
+        currentPath={files[current]?.path}
         onSelect={onSelect}
         onOpen={vi.fn()}
         onRate={vi.fn()}
@@ -178,5 +184,33 @@ describe('docked filmstrip', () => {
     fireEvent.pointerDown(header, { button: 0, clientX: 50, clientY: 10, pointerId: 1 });
     fireEvent.pointerUp(header, { clientX: 50, clientY: 10, pointerId: 1 });
     expect(dockState().side).toBe('bottom');
+  });
+
+  it('keeps its scroll place when hidden and shown again', () => {
+    const size = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(224);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    // jsdom does not scroll: keep the assigned place per element.
+    const places = new WeakMap<Element, number>();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+      configurable: true,
+      get(this: Element) {
+        return places.get(this) ?? 0;
+      },
+      set(this: Element, value: number) {
+        places.set(this, value);
+      }
+    });
+    try {
+      const first = mount(many(400), 'left', vi.fn(), vi.fn(), 80);
+      first.browser.scrollTop = 3000;
+      fireEvent.scroll(first.browser);
+      first.unmount();
+      const again = mount(many(400), 'left', vi.fn(), vi.fn(), 80);
+      expect(again.browser.scrollTop).toBeGreaterThan(2000);
+    } finally {
+      delete (HTMLElement.prototype as { scrollTop?: number }).scrollTop;
+      size.mockRestore();
+      height.mockRestore();
+    }
   });
 });

@@ -7560,6 +7560,10 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-dock-header,
 .studio-dock-filter {
   display: flex;
+  flex-wrap: wrap;
+  row-gap: 2px;
+  padding-top: 2px;
+  padding-bottom: 2px;
   align-items: center;
   gap: 4px;
   padding: 0 6px;
@@ -7575,6 +7579,9 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 }
 .studio-dock-header:active {
   cursor: grabbing;
+}
+.studio-dock-header strong {
+  white-space: nowrap;
 }
 .studio-dock-count {
   color: var(--studio-shade-muted, #868a90);
