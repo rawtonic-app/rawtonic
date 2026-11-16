@@ -10,6 +10,7 @@
 //! white noise, kept per file for the renderer.
 
 use image::DynamicImage;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -53,14 +54,33 @@ pub fn measure(image: &DynamicImage) -> Option<f32> {
     if width < 16 || height < 16 {
         return None;
     }
-    let data = rgb.as_raw();
+    // Bands of rows in parallel.
+    let bands: Vec<usize> = (0..height).step_by(32).collect();
+    let parts: Vec<Vec<f32>> = bands
+        .par_iter()
+        .map(|&y| residuals(rgb.as_raw(), width, height, y..(y + 32).min(height)))
+        .collect();
+    level(&parts)
+}
+
+/// The residuals of the sample rows among image `rows` of an RGB frame of
+/// `width` × `height` (at least 16 × 16), in row order.
+pub(crate) fn residuals(
+    data: &[f32],
+    width: usize,
+    height: usize,
+    rows: std::ops::Range<usize>,
+) -> Vec<f32> {
     let encoded = |x: usize, y: usize| {
         let i = (y * width + x) * 3;
         let luma = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
         (luma.max(0.0), luma.max(0.0).sqrt())
     };
-    let mut residuals: Vec<f32> = Vec::with_capacity((width / STEP) * (height / STEP));
-    for y in (1..height - 1).step_by(STEP) {
+    // Sample rows 1, 1 + STEP, … below the last row.
+    let start = rows.start.max(1);
+    let first = start + (STEP + 1 - start % STEP) % STEP;
+    let mut residuals = Vec::new();
+    for y in (first..rows.end.min(height - 1)).step_by(STEP) {
         for x in (1..width - 1).step_by(STEP) {
             let (luma, centre) = encoded(x, y);
             // Skip crushed blacks and clipped highlights: no noise there.
@@ -74,12 +94,18 @@ pub fn measure(image: &DynamicImage) -> Option<f32> {
             residuals.push((centre - 0.25 * neighbours).abs());
         }
     }
-    if residuals.len() < 1024 {
+    residuals
+}
+
+/// The level from the residuals of every sample row, in parts of any split
+/// and order: the 25th percentile does not depend on it (order_statistic).
+pub(crate) fn level(parts: &[Vec<f32>]) -> Option<f32> {
+    let count: usize = parts.iter().map(Vec::len).sum();
+    if count < 1024 {
         return None;
     }
-    let index = residuals.len() / 4;
-    let (_, p25, _) = residuals.select_nth_unstable_by(index, f32::total_cmp);
-    Some(*p25 * P25_TO_SIGMA * RESIDUAL_TO_PIXEL)
+    let p25 = crate::order_statistic::nth(parts, count / 4);
+    Some(p25 * P25_TO_SIGMA * RESIDUAL_TO_PIXEL)
 }
 
 #[cfg(test)]

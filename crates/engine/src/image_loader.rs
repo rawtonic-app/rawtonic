@@ -355,12 +355,19 @@ pub struct DecodeMeasures {
 }
 
 impl DecodeMeasures {
-    /// Measures a full decode.
+    /// Measures a full decode, in parallel, with the results of serial
+    /// measures (rawdecode's measures_reference).
     pub fn of(image: &DynamicImage) -> Self {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("decode_measures");
+        let ((noise_level, airlight), image_key) = rayon::join(
+            || crate::airlight::with_noise_level(image),
+            || crate::image_key::measure(image),
+        );
         Self {
-            noise_level: crate::noise_level::measure(image),
-            image_key: crate::image_key::measure(image),
-            airlight: crate::airlight::measure(image),
+            noise_level,
+            image_key,
+            airlight,
         }
     }
 

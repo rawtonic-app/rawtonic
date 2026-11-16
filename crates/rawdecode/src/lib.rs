@@ -20,9 +20,12 @@ pub mod gpu_util;
 pub mod highlight_reconstruction;
 pub mod hot_pixels;
 pub mod image_key;
+#[cfg(test)]
+mod measures_reference;
 pub mod mosaic_denoise;
 pub mod multi_exposure;
 pub mod noise_level;
+mod order_statistic;
 pub mod orientation;
 pub mod raw_processing;
 pub mod source_frame;

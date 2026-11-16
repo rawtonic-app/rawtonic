@@ -1045,6 +1045,7 @@ fn decode(path: &std::path::Path, repeats: u32, fast: bool) -> Result<()> {
     let mut timings = Vec::new();
     let mut size = (0, 0);
     let mut measures = None;
+    let mut measure_timings = Vec::new();
     for _ in 0..repeats {
         let now = Instant::now();
         let image = rawtonic_rawdecode::raw_processing::develop_raw_image(
@@ -1056,11 +1057,18 @@ fn decode(path: &std::path::Path, repeats: u32, fast: bool) -> Result<()> {
         )?;
         timings.push(now.elapsed().as_secs_f64() * 1000.0);
         size = (image.width(), image.height());
-        if measures.is_none() && !fast {
+        if !fast {
+            let now = Instant::now();
             measures = Some(rawtonic_engine::image_loader::DecodeMeasures::of(&image));
+            measure_timings.push(now.elapsed().as_secs_f64() * 1000.0);
         }
     }
     timings.sort_by(f64::total_cmp);
+    measure_timings.sort_by(f64::total_cmp);
+    let measures_ms = (!measure_timings.is_empty()).then(|| {
+        let n = measure_timings.len();
+        serde_json::json!({"median": measure_timings[n / 2], "min": measure_timings[0], "max": measure_timings[n - 1]})
+    });
     print(serde_json::json!({
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
@@ -1070,7 +1078,8 @@ fn decode(path: &std::path::Path, repeats: u32, fast: bool) -> Result<()> {
         "fast_demosaic": fast,
         "decode_ms": {"median": timings[timings.len() / 2], "min": timings[0], "max": timings[timings.len() - 1]},
         // What renders read from the decode (image_loader::DecodeMeasures),
-        // measured outside the timing.
+        // timed apart from the decode.
+        "measures_ms": measures_ms,
         "noise_level": measures.and_then(|m| m.noise_level),
         "image_key": measures.and_then(|m| m.image_key),
         "airlight": measures.and_then(|m| m.airlight),

@@ -21,6 +21,7 @@
 //! long edge, so the editor's preview and every export use the same value.
 
 use image::DynamicImage;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -68,23 +69,26 @@ pub fn measure(image: &DynamicImage) -> Option<ImageKey> {
     }
     let step = (width.max(height) / SAMPLES_LONG_EDGE).max(1);
     let data = rgb.as_raw();
-    let mut lumas: Vec<f32> = Vec::with_capacity((width / step + 1) * (height / step + 1));
-    for y in (step / 2..height).step_by(step) {
-        for x in (step / 2..width).step_by(step) {
-            let i = (y * width + x) * 3;
-            let luma = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
-            if luma.is_finite() {
-                lumas.push(luma.max(0.0));
-            }
-        }
-    }
+    // Rows in parallel; the percentiles below do not depend on the samples'
+    // order (order_statistic).
+    let lumas: Vec<f32> = (step / 2..height)
+        .into_par_iter()
+        .step_by(step)
+        .flat_map_iter(|y| {
+            (step / 2..width).step_by(step).filter_map(move |x| {
+                let i = (y * width + x) * 3;
+                let luma = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+                luma.is_finite().then(|| luma.max(0.0))
+            })
+        })
+        .collect();
     if lumas.len() < 256 {
         return None;
     }
     let mut key = [0.0; 3];
     for (value, p) in key.iter_mut().zip(PERCENTILES) {
         let index = ((lumas.len() - 1) as f32 * p) as usize;
-        *value = *lumas.select_nth_unstable_by(index, f32::total_cmp).1;
+        *value = crate::order_statistic::nth(&[&lumas], index);
     }
     (key[1] > 0.0).then_some(key)
 }
