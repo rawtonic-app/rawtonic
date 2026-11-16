@@ -7926,9 +7926,14 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// −50, −7.1 at −100). The slider keeps version 16 up to −50, reaches
 /// version 16's −100 at −72 and a twice as deep black point at −100
 /// (`blacks_amount_v18`; notes: benchmark-results/blt-blacks-travel-2026-11-11).
+/// 19 (2026-11-16) leaves no light rim beside strong edges at raised
+/// Shadows: its wide level no longer falls below the tonal blur's mean log
+/// luminance, so the bright side of an edge is not lifted as shadows (0.94
+/// L* rim at +100 against Camera Raw's 0.36–0.43; notes:
+/// benchmark-results/shrim-shadows-rim-2026-11-16).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 18;
+pub const TONE_VERSION: u64 = 19;
 
 /// Whites up to tone version 16: the slider value is the amount.
 pub fn whites_amount_v1(value: f64) -> f64 {

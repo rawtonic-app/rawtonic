@@ -38,10 +38,30 @@ use std::fmt::Write as _;
 const WIDTH: u32 = 512;
 const HEIGHT: u32 = 256;
 
-const DATA_FILE: &str = concat!(
+const DATA_FILE_IN_SOURCE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/data/slider_response.json"
 );
+
+/// The pinned measurement: `SLIDER_RESPONSE_FILE` if set, else the source
+/// tree's file, else `slider_response.json` beside the test executable (a
+/// test build copied to another machine, WSHRIM3).
+fn data_file() -> String {
+    if let Ok(path) = std::env::var("SLIDER_RESPONSE_FILE") {
+        return path;
+    }
+    if std::path::Path::new(DATA_FILE_IN_SOURCE).exists() {
+        return DATA_FILE_IN_SOURCE.to_string();
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("slider_response.json")))
+        .filter(|path| path.exists())
+        .map_or_else(
+            || DATA_FILE_IN_SOURCE.to_string(),
+            |path| path.display().to_string(),
+        )
+}
 
 /// Slider values: the four of the task, in the slider's own units
 /// (Exposure in EV, its ±5 range would only clip the charts).
@@ -755,6 +775,9 @@ mod color_grading;
 fn slider_response_matches_the_pinned_measurement() {
     let started = Instant::now();
     let context = context();
+    // One compile at a time on AMD's Windows Vulkan driver, and nothing
+    // compiled ahead (G76/WEFX, WSHRIM).
+    let _limit = super::DeviceCompileLimit::set(&context);
     let slot = GpuProcessorSlot::new(None);
     let charts = Charts::new();
     let recipes = renders();
@@ -797,7 +820,8 @@ fn slider_response_matches_the_pinned_measurement() {
         started.elapsed().as_secs_f64()
     );
 
-    let pinned: Option<Value> = std::fs::read_to_string(DATA_FILE)
+    let data_file = data_file();
+    let pinned: Option<Value> = std::fs::read_to_string(&data_file)
         .ok()
         .map(|text| serde_json::from_str(&text).expect("slider_response.json parses"));
     let tolerance: BTreeMap<String, f64> = pinned
@@ -820,12 +844,12 @@ fn slider_response_matches_the_pinned_measurement() {
         println!("wrote {out}");
     }
     if std::env::var("UPDATE_SLIDER_RESPONSE").is_ok_and(|v| v == "1") {
-        write_file(DATA_FILE, &tolerance, &adapter, &table);
-        println!("wrote {DATA_FILE}");
+        write_file(&data_file, &tolerance, &adapter, &table);
+        println!("wrote {data_file}");
         return;
     }
     let pinned = pinned.unwrap_or_else(|| {
-        panic!("{DATA_FILE} is missing: generate it with UPDATE_SLIDER_RESPONSE=1")
+        panic!("{data_file} is missing: generate it with UPDATE_SLIDER_RESPONSE=1")
     });
     assert_eq!(
         pinned["versions"],
@@ -879,7 +903,7 @@ fn slider_response_matches_the_pinned_measurement() {
 /// recipe versions, each metric with its full length.
 #[test]
 fn slider_response_file_covers_every_slider_at_the_current_versions() {
-    let text = std::fs::read_to_string(DATA_FILE).expect("tests/data/slider_response.json");
+    let text = std::fs::read_to_string(data_file()).expect("tests/data/slider_response.json");
     let pinned: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         pinned["versions"],

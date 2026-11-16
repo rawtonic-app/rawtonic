@@ -3622,7 +3622,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 1 << 26;
+const PREVIEW_PIPELINE_COUNT: usize = 1 << 27;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -3641,7 +3641,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// 262144, colour mixer response 2 131072,
 /// Clarity or Structure version 3 524288, lowered Dehaze of dehaze version 2
 /// 1048576, glow 2097152, Dehaze of dehaze version 3 4194304, tone version
-/// 5 or older 8388608, halation 16777216, grain 33554432.
+/// 5 or older 8388608, halation 16777216, grain 33554432, raised Shadows'
+/// level of tone version 19 67108864.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -3745,12 +3746,16 @@ const DEHAZE_V3_FEATURE: usize = 4194304;
 /// time growing faster than its size (G76/WCC2). Exports keep the code
 /// (`export_features`).
 const TONE_V5_FEATURE: usize = 8388608;
+/// Raised Shadows' level of tone version 19 (`SHADOWS_V19`, shader
+/// `shadows_v19_level`), compiled only for recipes that use it, so older
+/// recipes' pipelines keep the code they had.
+const SHADOWS_V19_FEATURE: usize = 67108864;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
 /// low bits (detail, noise reduction, tone, relight, sharpening responses)
 /// share a page. 2^15 pages, as at 2^24 variants with 2^9 slots: the page
 /// array stays the size it was when the effects got a bit each (G76/WCC8).
-const VARIANT_PAGE_BITS: u32 = 11;
+const VARIANT_PAGE_BITS: u32 = 12;
 const VARIANT_PAGE_SLOTS: usize = 1 << VARIANT_PAGE_BITS;
 const VARIANT_PAGES: usize = PREVIEW_PIPELINE_COUNT / VARIANT_PAGE_SLOTS;
 
@@ -5101,6 +5106,19 @@ fn blacks_v16(adjustments: &AllAdjustments) -> bool {
                 .any(|m| m.blacks < 0.0))
 }
 
+/// Whether the recipe raises Shadows with tone version 19's level, on the
+/// photo or a layer (`SHADOWS_V19`); its tonal blur then carries the mean
+/// log luminance (`run_blur`'s flags).
+fn shadows_v19(adjustments: &AllAdjustments) -> bool {
+    ToneVersion::from_uniform(adjustments.global.tone_version).shadows_edge_stop()
+        && (adjustments.global.shadows > 0.0
+            || adjustments
+                .mask_adjustments
+                .iter()
+                .take(adjustments.mask_count as usize)
+                .any(|m| m.shadows > 0.0))
+}
+
 /// Whether the recipe uses Clarity version 3 or Structure version 3, on the
 /// photo or a layer (`PRESENCE_V3`).
 fn presence_v3(adjustments: &AllAdjustments) -> bool {
@@ -5145,13 +5163,18 @@ fn dehaze_v3(adjustments: &AllAdjustments) -> bool {
 
 /// The tone code a feature pipeline compiles, one bit each: lowered Whites
 /// of version 12 (1), raised Shadows of version 13 (2), lowered Highlights
-/// of version 14 (4), lowered Blacks of version 16 (8).
+/// of version 14 (4), lowered Blacks of version 16 (8), raised Shadows'
+/// level of version 19 (16).
 fn tone_level(adjustments: &AllAdjustments) -> usize {
     usize::from(whites_v12(adjustments))
         | (usize::from(shadows_v13(adjustments)) << 1)
         | (usize::from(highlights_v14(adjustments)) << 2)
         | (usize::from(blacks_v16(adjustments)) << 3)
+        | (usize::from(shadows_v19(adjustments)) << 4)
 }
+
+/// `tone_level`'s values (`Range2Pipelines`, `MIXER_FEATURE_SLOTS`).
+const TONE_LEVELS: usize = 32;
 
 /// Whether lowered Whites of tone version 10 reads the small blur's mean log
 /// luminance (shader.wgsl whites_v10_offset), on the photo or a layer.
@@ -5359,6 +5382,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let highlights_v14 = highlights_v14(adjustments);
     let vibrance_v2 = vibrance_v2(adjustments);
     let blacks_v16 = blacks_v16(adjustments);
+    let shadows_v19 = shadows_v19(adjustments);
     let hsl_v2 = hsl_v2(adjustments);
     let presence_v3 = presence_v3(adjustments);
     let dehaze_v2 = dehaze_v2(adjustments);
@@ -5403,6 +5427,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if highlights_v14 { HIGHLIGHTS_V14_FEATURE } else { 0 }
         | if vibrance_v2 { VIBRANCE_V2_FEATURE } else { 0 }
         | if blacks_v16 { BLACKS_V16_FEATURE } else { 0 }
+        | if shadows_v19 { SHADOWS_V19_FEATURE } else { 0 }
         | if hsl_v2 { HSL_V2_FEATURE } else { 0 }
         | if presence_v3 { PRESENCE_V3_FEATURE } else { 0 }
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
@@ -5657,9 +5682,12 @@ fn export_variant(
     (features & ((1 << 0) | (1 << 1) | (1 << 4)) == 0).then_some(features)
 }
 
-/// `GpuProcessor::range2_pipelines`.
-type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3];
-    16]; 2]; MAIN_OUTPUTS];
+/// `GpuProcessor::range2_pipelines`, one table per main output on the heap:
+/// inline, the tables of all outputs made `GpuProcessor` too large for a
+/// test thread's stack once the tone levels doubled to 32.
+type Range2Pipelines = Vec<Range2OutputPipelines>;
+type Range2OutputPipelines =
+    [[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3]; TONE_LEVELS]; 2];
 
 /// `GpuProcessor::range2_pipelines` for colour mixer response 2 or 3 (`HSL_V2`)
 /// Clarity or Structure version 3 (`PRESENCE_V3`), lowered Dehaze of
@@ -5670,7 +5698,8 @@ type Range2Pipelines = [[[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>
 type MixerFeaturePipelines = Box<[std::sync::OnceLock<Option<wgpu::ComputePipeline>>]>;
 
 /// The slots of `MixerFeaturePipelines`, one per index of `Range2Pipelines`.
-const MIXER_FEATURE_SLOTS: usize = MAIN_OUTPUTS * 2 * 16 * 3 * 4 * 2 * 2 * 2 * 2 * 2 * 2 * 2;
+const MIXER_FEATURE_SLOTS: usize =
+    MAIN_OUTPUTS * 2 * TONE_LEVELS * 3 * 4 * 2 * 2 * 2 * 2 * 2 * 2 * 2;
 
 /// The slot in `MixerFeaturePipelines` of a `Range2Pipelines` index.
 #[allow(clippy::too_many_arguments)]
@@ -5688,7 +5717,9 @@ fn mixer_feature_slot(
     dehaze: bool,
     dehaze3: bool,
 ) -> usize {
-    ((((((((((output * 2 + usize::from(vibrance)) * 16 + tone) * 3 + sharpen) * 4 + level) * 2
+    ((((((((((output * 2 + usize::from(vibrance)) * TONE_LEVELS + tone) * 3 + sharpen) * 4
+        + level)
+        * 2
         + usize::from(long))
         * 2
         + usize::from(profile))
@@ -6942,6 +6973,7 @@ fn variant_constants(
         ),
         ("DEHAZE_V3", ((features >> 22) & 1) as f64),
         ("TONE_V5", ((features >> 23) & 1) as f64),
+        ("SHADOWS_V19", ((features >> 26) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -8032,7 +8064,7 @@ impl GpuProcessor {
             edge_pipelines: Default::default(),
             profile_pipelines: Default::default(),
             long_curve_pipelines: Default::default(),
-            range2_pipelines: Default::default(),
+            range2_pipelines: (0..MAIN_OUTPUTS).map(|_| Default::default()).collect(),
             mixer_feature_pipelines: (0..MIXER_FEATURE_SLOTS)
                 .map(|_| std::sync::OnceLock::new())
                 .collect(),
@@ -10131,6 +10163,7 @@ impl GpuProcessor {
                         ("HIGHLIGHTS_V14", on(tone & 4 != 0)),
                         ("VIBRANCE_V2", on(vibrance)),
                         ("BLACKS_V16", on(tone & 8 != 0)),
+                        ("SHADOWS_V19", on(tone & 16 != 0)),
                         ("HSL_V2", on(hsl)),
                         ("PRESENCE_V3", on(presence)),
                         ("DEHAZE_V2", on(dehaze)),
@@ -11032,6 +11065,10 @@ impl GpuProcessor {
         // raised Shadows' level turned into steps on smooth gradients.
         let relative_log =
             log_alpha && ToneVersion::from_uniform(adjustments.global.tone_version).shadow_detail();
+        // Raised Shadows of tone version 19 also reads the tonal blur's mean
+        // log luminance (shader.wgsl `shadows_v19_level`), stored as the
+        // small blur's is.
+        let tonal_log = shadows_v19(adjustments);
         let largest_beyond = ((40.0 * scale).ceil() as u32 + reach)
             .max((8.0 * scale).ceil() as u32 + small_reach)
             .saturating_sub(TILE_OVERLAP);
@@ -11125,7 +11162,8 @@ impl GpuProcessor {
                     // for each.
                     u32::from(log_alpha)
                         | (u32::from(relative_log) << 1)
-                        | (u32::from(adjustments.global.is_raw_image != 1) << 2),
+                        | (u32::from(adjustments.global.is_raw_image != 1) << 2)
+                        | (u32::from(tonal_log) << 3),
                 ];
                 let mut cache = blur_cache.lock().unwrap_or_else(|e| e.into_inner());
                 if cache.input.as_ref() != Some(input_texture_view) {
@@ -11213,9 +11251,12 @@ impl GpuProcessor {
                         full_height: height,
                         rows_above,
                         blurred_rows,
-                        flags: u32::from(log_alpha && (index == 2 || index == 3))
-                            | (u32::from(adjustments.global.is_raw_image != 1) << 1)
-                            | (u32::from(relative_log && index == 2) << 2),
+                        flags: u32::from(
+                            log_alpha && (index == 2 || index == 3 || (index == 1 && tonal_log)),
+                        ) | (u32::from(adjustments.global.is_raw_image != 1) << 1)
+                            | (u32::from(
+                                relative_log && (index == 2 || (index == 1 && tonal_log)),
+                            ) << 2),
                     };
                     queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::bytes_of(&params));
 

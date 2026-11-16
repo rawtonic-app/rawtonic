@@ -420,6 +420,34 @@ fn dehaze_version_2_compiles_only_where_dehaze_is_lowered() {
 }
 
 #[test]
+fn shadows_version_19_compiles_only_where_shadows_are_raised() {
+    let adjustments =
+        |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
+    let features =
+        |profile: serde_json::Value| preview_features(&adjustments(profile)) & SHADOWS_V19_FEATURE;
+    assert_eq!(
+        features(json!({"shadows": 30, "toneVersion": 19})),
+        SHADOWS_V19_FEATURE
+    );
+    let mut layer = local_profile(json!({"shadows": 30}));
+    layer["toneVersion"] = json!(19);
+    assert_eq!(features(layer), SHADOWS_V19_FEATURE);
+    // Older recipes, lowered Shadows and the key alone keep the shader
+    // without it.
+    assert_eq!(features(json!({"shadows": 30, "toneVersion": 18})), 0);
+    assert_eq!(features(json!({"shadows": -30, "toneVersion": 19})), 0);
+    assert_eq!(features(json!({"toneVersion": 19})), 0);
+    // Its feature pipeline is version 13's raised Shadows plus the level.
+    let raised = adjustments(json!({"shadows": 30, "toneVersion": 19}));
+    assert_eq!(tone_level(&raised), 2 | 16);
+    assert!(needs_feature_pipeline(&raised));
+    assert_eq!(
+        tone_level(&adjustments(json!({"shadows": 30, "toneVersion": 18}))),
+        2
+    );
+}
+
+#[test]
 fn dehaze_version_3_compiles_only_where_dehaze_is_used() {
     let features = |profile: serde_json::Value| {
         preview_features(&get_all_adjustments_from_json(&profile, true, Some(1)))
@@ -556,6 +584,11 @@ fn preview_features_preserve_global_and_local_effects() {
         }
         // Vibrance of version 2 is tested on its own (below the loop).
         if expected & VIBRANCE_V2_FEATURE != 0 {
+            continue;
+        }
+        // Raised Shadows' level of version 19 likewise
+        // (`shadows_version_19_compiles_only_where_shadows_are_raised`).
+        if expected & SHADOWS_V19_FEATURE != 0 {
             continue;
         }
         // Lowered Dehaze of version 2 likewise
@@ -9443,6 +9476,9 @@ fn display_tone_stage_matches_exports_for_every_tone_version() {
         RENDER_VERSION, RENDER_VERSION_KEY, TONE_VERSION, TONE_VERSION_KEY, new_edit_responses,
     };
     let context = context();
+    // One compile at a time on AMD's Windows Vulkan driver, and nothing
+    // compiled ahead (G76/WEFX, WSHRIM).
+    let _limit = DeviceCompileLimit::set(&context);
     let (width, height) = (193, 131);
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
     let view = input(&context, width, height, 23);
@@ -14537,6 +14573,30 @@ fn tone_version_13_shadows_lifts_midtones_less() {
 /// Bright plateaus (2^0.5, with ±0.15 EV texture) between dark bands 2.5 EV
 /// below them, 128 px each: strong edges with a bright side, as at skies
 /// behind branches.
+/// Two 16-bit exports that must render alike: byte for byte where each
+/// export compiles its own variant; under a compile limit (AMD's Windows
+/// Vulkan driver) an edited photo exports with its one shared Basic-panel
+/// variant (`export_display_features`), whose tone code holds every version
+/// the photo's tone version has (version 14's Highlights function for
+/// raised Highlights too, the same arithmetic as version 13's in another
+/// function), so there the two may round apart by up to one 8-bit code,
+/// the display variants' tolerance against exports (WSHRIM3: version 13
+/// against 14 at Highlights +60 on a Radeon 680M).
+fn assert_same_export(a: &[[u16; 3]], b: &[[u16; 3]], what: &str) {
+    let worst = a
+        .iter()
+        .zip(b)
+        .flat_map(|(p, q)| p.iter().zip(q).map(|(x, y)| x.abs_diff(*y)))
+        .max()
+        .unwrap_or(0);
+    let tolerance = if compiles_ahead() { 0 } else { 257 };
+    eprintln!("{what}: worst 16-bit difference {worst} (tolerance {tolerance})");
+    assert!(
+        a.len() == b.len() && worst <= tolerance,
+        "{what} differs: worst 16-bit difference {worst}, tolerance {tolerance}"
+    );
+}
+
 fn highlights_v14_edges(width: u32, height: u32) -> Vec<f32> {
     (0..height)
         .flat_map(|y| (0..width).map(move |x| (x, y)))
@@ -14556,7 +14616,12 @@ fn tone_version_14_highlights_no_light_rim() {
     let context = context();
     // 1080 rows: the base's samples at their reference size.
     let (width, height) = (1024u32, 1080u32);
-    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // One compile at a time on AMD's Windows Vulkan driver and nothing
+    // compiled ahead: `GpuProcessor::new` without the limit compiled the
+    // start variants (every feature at once among them) together, which took
+    // a Radeon 680M's driver beyond 50 GB (G76/WEFX, WSHRIM).
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
     let edges = grey_texture(
         &context,
         width,
@@ -14582,21 +14647,22 @@ fn tone_version_14_highlights_no_light_rim() {
         json!({ "whites": -80, "blacks": -40, "shadows": 50, "contrast": 30 }),
     ] {
         for view in [&edges, &textured] {
-            assert!(
-                render_raw_look(
+            assert_same_export(
+                &render_raw_look(
                     &processor,
                     view,
                     (width, height),
                     &with(&recipe, 13),
-                    (3, 2.0)
-                ) == render_raw_look(
+                    (3, 2.0),
+                ),
+                &render_raw_look(
                     &processor,
                     view,
                     (width, height),
                     &with(&recipe, 14),
-                    (3, 2.0)
+                    (3, 2.0),
                 ),
-                "{recipe} differs"
+                &format!("{recipe}"),
             );
         }
     }
@@ -14679,6 +14745,186 @@ fn tone_version_14_highlights_no_light_rim() {
         assert!(
             det_14 > 0.95 * det_13,
             "Highlights -{amount}: texture {det_14:.3} (version 13 {det_13:.3})"
+        );
+    }
+}
+
+/// Bands 128 px wide: textured shadows (about −5 EV) between bright flat
+/// plateaus (−1.5 EV), more than 30 L* apart once displayed.
+fn shadows_v19_edges(width: u32, height: u32) -> Vec<f32> {
+    (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            if (x / 128) % 2 == 0 {
+                (2.0f32).powf(-5.0 + 0.3 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos()))
+            } else {
+                (2.0f32).powf(-1.5)
+            }
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 19 leaves no light rim at strong edges"]
+fn tone_version_19_shadows_no_light_rim() {
+    let context = context();
+    // 1080 rows: the blurs at their reference size.
+    let (width, height) = (1024u32, 1080u32);
+    // One compile at a time on AMD's Windows Vulkan driver and nothing
+    // compiled ahead: `GpuProcessor::new` without the limit compiled the
+    // start variants (every feature at once among them) together, which took
+    // a Radeon 680M's driver beyond 50 GB (G76/WEFX, WSHRIM).
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let edges = grey_texture(&context, width, height, &shadows_v19_edges(width, height));
+    let textured = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Without raised Shadows version 19 renders as version 18.
+    for recipe in [
+        json!({}),
+        json!({ "shadows": -60 }),
+        json!({ "whites": -80, "blacks": -40, "highlights": -50, "contrast": 30 }),
+    ] {
+        for view in [&edges, &textured] {
+            for look in [(3, 2.0), (0, 2.0)] {
+                assert!(
+                    render_raw_look(&processor, view, (width, height), &with(&recipe, 18), look)
+                        == render_raw_look(
+                            &processor,
+                            view,
+                            (width, height),
+                            &with(&recipe, 19),
+                            look
+                        ),
+                    "{recipe} under {look:?} differs"
+                );
+            }
+        }
+    }
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &edges, (width, height), &recipe, look)
+    };
+    let neutral = render(with(&json!({}), 19));
+    let w = width as usize;
+    for amount in [50, 100] {
+        let before = render(with(&json!({ "shadows": amount }), 18));
+        let after = render(with(&json!({ "shadows": amount }), 19));
+        // Per band kind (bright plateaus, textured shadows): mean dL*
+        // within 12 px of an edge minus the mean dL* 40 px and more from it,
+        // the far mean, and on the shadows the texture there (std of L*
+        // minus the row's 9-pixel mean) against the neutral render's.
+        let measure = |img: &[[u16; 3]], bright: bool| {
+            let (mut near, mut far, mut nn, mut nf) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            let mut det = [0.0f64; 2];
+            for y in (64..height as usize - 64).step_by(4) {
+                for x in 128..w - 128 {
+                    if ((x / 128) % 2 == 1) != bright {
+                        continue;
+                    }
+                    let i = y * w + x;
+                    let edge = (x % 128).min(127 - x % 128);
+                    let d = lstar_of_codes(&img[i]) - lstar_of_codes(&neutral[i]);
+                    if edge < 12 {
+                        near += d;
+                        nn += 1.0;
+                    } else if edge >= 40 {
+                        far += d;
+                        nf += 1.0;
+                        let local = |p: &[[u16; 3]]| {
+                            let mean = (x - 4..=x + 4)
+                                .map(|k| lstar_of_codes(&p[y * w + k]))
+                                .sum::<f64>()
+                                / 9.0;
+                            (lstar_of_codes(&p[i]) - mean).powi(2)
+                        };
+                        det[0] += local(&neutral);
+                        det[1] += local(img);
+                    }
+                }
+            }
+            (near / nn - far / nf, far / nf, (det[1] / det[0]).sqrt())
+        };
+        let (rim_18, _, _) = measure(&before, true);
+        let (rim_19, _, _) = measure(&after, true);
+        let (_, lift_18, det_18) = measure(&before, false);
+        let (_, lift_19, det_19) = measure(&after, false);
+        eprintln!(
+            "Shadows +{amount}: light rim {rim_18:.2} → {rim_19:.2} L*, shadows dL* {lift_18:.2} → {lift_19:.2}, texture {det_18:.3} → {det_19:.3}"
+        );
+        // Measured on Metal: +50 0.30 → 0.15, +100 0.98 → 0.49 L* (within
+        // a few pixels of the edge the tonal blur reaches across it too).
+        assert!(
+            rim_19 < 0.6 && rim_19 < 0.6 * rim_18,
+            "Shadows +{amount}: light rim {rim_19:.2} (version 18 {rim_18:.2})"
+        );
+        assert!(
+            (lift_19 - lift_18).abs() < 0.3,
+            "Shadows +{amount}: shadows dL* {lift_19:.2} (version 18 {lift_18:.2})"
+        );
+        assert!(
+            det_19 > 0.95 * det_18,
+            "Shadows +{amount}: texture {det_19:.3} (version 18 {det_18:.3})"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 19 against version 18: GPU time of a preview render per drag step"]
+fn tone_version_19_shadows_drag_render_time() {
+    // As `tone_version_13_shadows_drag_render_time`, against version 18.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    // One compile at a time on AMD's Windows Vulkan driver and nothing
+    // compiled ahead: `GpuProcessor::new` without the limit compiled the
+    // start variants (every feature at once among them) together, which took
+    // a Radeon 680M's driver beyond 50 GB (G76/WEFX, WSHRIM).
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let view = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 18 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "shadows": 20 + 8 * step, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 18) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            18 + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
         );
     }
 }
