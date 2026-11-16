@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- **A moved session shows its thumbnails at once.** After Move the Whole Session (and its Undo and Redo) the Library developed every thumbnail again because thumbnails were remembered by the photo's full path: 7.9 s until the first screen of a 100-photo session was back on Linux. Thumbnails of photos in a session or catalog are now remembered by the library and the photo's place in it, so the session is back with its thumbnails in under half a second; after this update each library's thumbnails are made once more.
 - **Empty a catalog’s Trash folder.** Its folder menu now offers Empty Trash with the same confirmation and permanent, non-undoable deletion as sessions; photographs outside that folder are kept.
 
 - **Every menu shows each command's key, named for your keyboard.** The menu bar (macOS), the ⋯ menu (Windows, Linux) and the right-click menus show the key of each command at the row's right — single keys too (ratings, flags, views), and your own keys when you changed them. Keys are named as your keyboard layout types them: on a Swiss or German Mac, New Virtual Copy shows ⌘Ä and Rotate shows Ü, the keys that run them (before, the menu showed ⌘^, which zoomed instead); ⌘+ and ⌘- zoom on every layout. Preferences and tooltips write keys the platform's way (⇧⌘E on a Mac, Ctrl+Shift+E elsewhere).

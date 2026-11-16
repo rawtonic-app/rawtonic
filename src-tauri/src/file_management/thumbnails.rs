@@ -132,6 +132,30 @@ fn uses_tone_sliders(adjustments: &serde_json::Value) -> bool {
             })
 }
 
+/// How the thumbnail cache names the photograph `path_str` (its source file
+/// `source`): inside a session or catalog folder by that library's id and
+/// its path in the folder, so a whole-session move, its undo and redo (and
+/// another spelling of the same folder) find the thumbnails made at the old
+/// place instead of developing every photograph again (SMV1, notes:
+/// parity-gaps/G40-file-operations.md); elsewhere by its absolute path.
+/// Two copies of one session folder share an id: their photographs at one
+/// path are the same file then, and a changed one has another time stamp.
+fn cache_label(path_str: &str, source: &Path) -> String {
+    #[derive(serde::Deserialize)]
+    struct Id {
+        id: String,
+    }
+    rawtonic_catalog::layout::LibraryLayout::holding(source)
+        .and_then(|library| {
+            let id = serde_json::from_slice::<Id>(&fs::read(library.manifest()).ok()?)
+                .ok()?
+                .id;
+            let relative = Path::new(path_str).strip_prefix(library.directory()).ok()?;
+            Some(format!("library\0{id}\0{}", relative.to_string_lossy()))
+        })
+        .unwrap_or_else(|| path_str.to_string())
+}
+
 pub(crate) fn compute_thumbnail_cache_hash(
     path_str: &str,
     adjustments_bytes: &[u8],
@@ -141,7 +165,7 @@ pub(crate) fn compute_thumbnail_cache_hash(
     let img_mod_time = source_mtime(&source_path)?;
 
     let mut hasher = blake3::Hasher::new();
-    hasher.update(path_str.as_bytes());
+    hasher.update(cache_label(path_str, &source_path).as_bytes());
     hasher.update(&img_mod_time.to_le_bytes());
     hasher.update(adjustments_bytes);
     let adjustments = serde_json::from_slice::<serde_json::Value>(adjustments_bytes).ok();
@@ -2324,6 +2348,41 @@ mod thumbnail_queue_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_moved_session_keeps_its_thumbnails_and_another_session_does_not_share_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().join("Job");
+        fs::create_dir_all(session.join("Capture")).unwrap();
+        fs::write(session.join("session.json"), br#"{"id":"one"}"#).unwrap();
+        fs::write(session.join("Capture/A.RAF"), b"thumbnail-cache-fixture").unwrap();
+        let key = |session: &Path, suffix: &str| {
+            let photo = format!("{}{suffix}", session.join("Capture/A.RAF").display());
+            compute_thumbnail_cache_hash(&photo, b"null").unwrap()
+        };
+        let before = [key(&session, ""), key(&session, "?vc=1")];
+        assert_ne!(
+            before[0], before[1],
+            "a virtual copy has thumbnails of its own"
+        );
+
+        // The whole session moved (a rename keeps the file's time stamp).
+        let moved = directory.path().join("Archive/Job");
+        fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        fs::rename(&session, &moved).unwrap();
+        assert_eq!([key(&moved, ""), key(&moved, "?vc=1")], before);
+
+        // Another session (another id) at the same place does not take them.
+        fs::write(moved.join("session.json"), br#"{"id":"two"}"#).unwrap();
+        assert_ne!(key(&moved, ""), before[0]);
+
+        // Outside a library a photograph is still named by its path.
+        let loose = directory.path().join("A.RAF");
+        assert_eq!(
+            cache_label(&loose.to_string_lossy(), &loose),
+            loose.to_string_lossy()
+        );
     }
 
     #[test]
