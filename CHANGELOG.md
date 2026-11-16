@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.16 — 2026-11-16
+
 The sixteenth alpha. Develop's filmstrip can be docked beside the photo as a vertical grid, and unedited photos can start from develop defaults of your own — globally, per camera model or per camera body. For new edits, raised Shadows no longer leaves a light rim beside strong edges and radial and linear gradients fade as Camera Raw's do. On Windows with AMD graphics the first edits on a new computer wait at most about 9 s instead of 37 s, exports of new edits with noise reduction or sharpening are about a tenth faster, and the import view keeps the photograph on screen while zooming and stepping.
 
 ### Highlights
