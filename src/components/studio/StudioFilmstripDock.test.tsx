@@ -340,4 +340,66 @@ describe('docked filmstrip', () => {
       height.mockRestore();
     }
   });
+
+  it('reveals a photograph chosen while hidden by the full screen once shown again', () => {
+    let observe: ResizeObserverCallback = () => {};
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observe = callback;
+        }
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      }
+    );
+    let visibleWidth = 224;
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => visibleWidth);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    const places = new WeakMap<Element, number>();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+      configurable: true,
+      get(this: Element) {
+        return places.get(this) ?? 0;
+      },
+      set(this: Element, value: number) {
+        places.set(this, value);
+      }
+    });
+    const size = (w: number) =>
+      act(() => observe([{ contentRect: { width: w, height: 600 } } as ResizeObserverEntry], {} as ResizeObserver));
+    try {
+      const files = many(400);
+      const props = {
+        side: 'left' as const,
+        files,
+        onSelect: vi.fn(),
+        onOpen: vi.fn(),
+        onRate: vi.fn(),
+        onContextMenu: vi.fn(),
+        requestThumbnails: vi.fn()
+      };
+      const view = render(
+        <div className="studio-body">
+          <StudioFilmstripDock {...props} currentPath={files[0].path} />
+        </div>
+      );
+      const browser = view.container.querySelector<HTMLElement>('.studio-browser')!;
+      visibleWidth = 0;
+      size(0);
+      view.rerender(
+        <div className="studio-body">
+          <StudioFilmstripDock {...props} currentPath={files[399].path} />
+        </div>
+      );
+      visibleWidth = 224;
+      size(224);
+      expect(browser.scrollTop).toBeGreaterThan(190 * 92);
+    } finally {
+      delete (HTMLElement.prototype as { scrollTop?: number }).scrollTop;
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
 });

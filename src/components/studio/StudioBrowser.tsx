@@ -341,6 +341,8 @@ export default function StudioBrowser({
   const restored = useRef(false);
   const wasHidden = useRef(false);
   const handledShown = useRef(0);
+  const revealPending = useRef(false);
+  const revealedShown = useRef(0);
   const [shown, setShown] = useState(0);
   const [offset, setOffset] = useState(0);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
@@ -500,6 +502,16 @@ export default function StudioBrowser({
     const el = ref.current;
     // The docked grid reveals only once measured (and put back in place).
     if (horizontal || !currentPath || !el || (isDock && !measured)) return;
+    // Hidden (full screen): nothing can be revealed; do it when it shows again.
+    if (isDock && el.clientWidth === 0) {
+      revealPending.current = true;
+      return;
+    }
+    if (isDock && shown !== revealedShown.current) {
+      revealedShown.current = shown;
+      if (!revealPending.current) return;
+    }
+    revealPending.current = false;
     const { files, extent, columns } = reveal.current;
     const index = files.findIndex((f) => f.path === currentPath);
     if (index < 0) return;
@@ -508,7 +520,7 @@ export default function StudioBrowser({
     else if (top + extent > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top + extent - el.clientHeight);
     else return;
     setOffset(el.scrollTop);
-  }, [currentPath, horizontal, isDock, measured]);
+  }, [currentPath, horizontal, isDock, measured, shown]);
   return (
     <PerfProfiler id={film ? 'filmstrip' : 'grid'}>
       <div
