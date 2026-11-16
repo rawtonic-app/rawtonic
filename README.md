@@ -41,6 +41,15 @@ Most serious RAW software now comes with a subscription, a cloud account or both
 
 Rawtonic is a one-person project that I work on in my spare time. Some weeks a lot happens, and sometimes it takes a while until the next release or a bug fix. Thanks for your patience, and for every bug report: they decide what gets fixed first.
 
+### How it's built
+
+Rawtonic is vibe-coded: almost all of its code is written by AI coding agents (Claude and Codex) working under my direction. I decide what gets built and how it should behave, and I test it on my own photographs and hardware. What keeps that honest:
+
+- **A second model reviews every change** before it is merged into `main` (`scripts/review.sh`), on top of the automated checks (`scripts/check.sh`).
+- **Saved edits export byte for byte as before.** Every release is checked against the previous one on 120 photo × recipe pairs; a change to the look of existing edits only ever comes with a new version key for new edits.
+- **Quality claims are measured.** Tools are compared with Lightroom/Camera Raw and Capture One on real photographs; where Rawtonic falls short, the gap is recorded and the tool is not called finished.
+- **Your files are protected by design.** RAW files are never modified or deleted, and every file write goes through no-overwrite, atomic helpers.
+
 ## Download
 
 Get the latest build from the [**Releases**](https://github.com/rawtonic-app/rawtonic/releases) page.
