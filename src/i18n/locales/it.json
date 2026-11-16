@@ -5409,6 +5409,7 @@
         "noOthers": "Seleziona altre foto nella striscia immagini per applicarlo a esse"
       },
       "popover": {
+        "photoMenu": "Menu della foto…",
         "resetBrush": "Ripristina pennello",
         "resetCrop": "Ripristina ritaglio e raddrizzamento",
         "resetOpacity": "Ripristina opacità",

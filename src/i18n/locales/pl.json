@@ -5617,6 +5617,7 @@
         "noOthers": "Zaznacz inne zdjęcia na taśmie zdjęć, aby je zastosować"
       },
       "popover": {
+        "photoMenu": "Menu zdjęcia…",
         "resetBrush": "Resetuj pędzel",
         "resetCrop": "Resetuj kadrowanie i prostowanie",
         "resetOpacity": "Resetuj krycie",

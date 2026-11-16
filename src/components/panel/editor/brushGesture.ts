@@ -43,6 +43,14 @@ export function brushGestureValues(
   };
 }
 
+/** Whether a press is the context click: the right button, or on macOS
+ * Ctrl+click (also how a two-finger trackpad click can arrive), which opens
+ * the tool settings and must not paint or place a spot. Ctrl+Option stays the
+ * brush gesture; elsewhere Ctrl+click is an ordinary click. */
+export function isContextClick(event: Pick<MouseEvent, 'button' | 'ctrlKey' | 'altKey'>, osPlatform: string) {
+  return event.button === 2 || (osPlatform === 'macos' && event.button === 0 && event.ctrlKey && !event.altKey);
+}
+
 /** Whether a press starts a brush gesture rather than a stroke. */
 export function isBrushGesturePress(event: Pick<MouseEvent, 'button' | 'ctrlKey' | 'altKey'>) {
   return event.button === 0 && event.ctrlKey && event.altKey;

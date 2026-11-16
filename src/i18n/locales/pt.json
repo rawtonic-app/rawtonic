@@ -5409,6 +5409,7 @@
         "noOthers": "Selecione outras fotos na tira de filme para aplicar a elas"
       },
       "popover": {
+        "photoMenu": "Menu da foto…",
         "resetBrush": "Redefinir pincel",
         "resetCrop": "Redefinir recorte e endireitamento",
         "resetOpacity": "Redefinir opacidade",

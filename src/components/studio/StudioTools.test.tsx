@@ -272,6 +272,127 @@ describe('right-click on the photograph', () => {
   });
 });
 
+describe('brush settings at the pointer', () => {
+  const brushLayer = (mode = SubMaskMode.Additive) => {
+    withLinearLayer();
+    const brush = { ...createSubMask(Mask.Brush, image), mode };
+    useEditorStore.setState((state) => ({
+      adjustments: {
+        ...state.adjustments,
+        masks: state.adjustments.masks.map((mask) => ({ ...mask, subMasks: [brush] }))
+      },
+      activeMaskId: brush.id
+    }));
+  };
+  const field = (name: string) => screen.getByRole('textbox', { name: `${name} value (px)` });
+
+  it('keeps the ring at the right-click while open, and Enter applies a typed size and closes', () => {
+    brushLayer();
+    workspace();
+    expect(editor().toolPopoverOpen).toBe(false);
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    expect(screen.getByRole('dialog', { name: 'Brush settings' })).toBeTruthy();
+    expect(editor().toolPopoverOpen).toBe(true);
+    const size = field('Size');
+    act(() => size.focus());
+    fireEvent.change(size, { target: { value: '140' } });
+    fireEvent.keyDown(size, { key: 'Enter' });
+    // The same state the tool panel's Size writes.
+    expect(editor().brushSettings?.size).toBe(140);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(editor().toolPopoverOpen).toBe(false);
+  });
+
+  it('opens for the eraser and the spot tool, writing the spot settings the panel uses', () => {
+    brushLayer(SubMaskMode.Subtractive);
+    workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    expect(screen.getByRole('dialog', { name: 'Eraser settings' })).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    act(() => useEditorStore.setState({ isSpotToolActive: true, activeMaskContainerId: null, activeMaskId: null }));
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    expect(screen.getByRole('dialog', { name: 'Spot removal settings' })).toBeTruthy();
+    const size = field('Spot size');
+    fireEvent.focus(size);
+    fireEvent.change(size, { target: { value: '90' } });
+    fireEvent.blur(size);
+    expect(editor().spotSettings.size).toBe(90);
+  });
+
+  it('Escape keeps applied values; typed digits are dropped first, then the panel closes', () => {
+    brushLayer();
+    workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    const size = field('Size');
+    fireEvent.focus(size);
+    fireEvent.change(size, { target: { value: '150' } });
+    fireEvent.blur(size);
+    expect(editor().brushSettings?.size).toBe(150);
+    fireEvent.focus(size);
+    fireEvent.input(size, { target: { value: '99' } });
+    fireEvent.keyDown(size, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'Brush settings' })).toBeTruthy();
+    expect(editor().brushSettings?.size).toBe(150);
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(editor().brushSettings?.size).toBe(150);
+  });
+
+  it('closes on Escape after a checkbox changed, and Enter on a checkbox keeps the panel open', () => {
+    brushLayer();
+    workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    const autoMask = screen.getByRole('checkbox', { name: 'Auto mask' });
+    act(() => autoMask.focus());
+    fireEvent.click(autoMask);
+    fireEvent.input(autoMask);
+    expect(editor().brushSettings?.autoMask).toBe(true);
+    fireEvent.keyDown(autoMask, { key: 'Enter' });
+    expect(screen.getByRole('dialog', { name: 'Brush settings' })).toBeTruthy();
+    fireEvent.keyDown(autoMask, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(editor().brushSettings?.autoMask).toBe(true);
+  });
+
+  it("closes on Enter from a slider's track", () => {
+    brushLayer();
+    workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    const track = screen.getByRole('slider', { name: 'Size' });
+    act(() => track.focus());
+    fireEvent.keyDown(track, { key: 'Enter' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('reaches every value field with Tab', () => {
+    brushLayer();
+    workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    const panel = screen.getByRole('dialog', { name: 'Brush settings' });
+    const fields = within(panel)
+      .getAllByRole('textbox')
+      .filter((el) => el.classList.contains('adjustment-value'));
+    expect(fields.length).toBeGreaterThanOrEqual(3);
+    expect(panel.contains(document.activeElement)).toBe(true);
+    act(() => fields[0].focus());
+    for (let i = 1; i < fields.length; i++) {
+      fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+      expect(document.activeElement).toBe(fields[i]);
+    }
+  });
+
+  it("opens the photograph's menu from its last row, where the right-click was", () => {
+    brushLayer();
+    const menu = workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    expect(menu).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Photo menu…' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(menu).toHaveBeenCalledOnce();
+    expect(menu.mock.calls[0][0]).toMatchObject({ clientX: 400, clientY: 300 });
+  });
+});
+
 describe('select tool and closing clicks', () => {
   it("keeps the photograph's menu with the select tool, even with a layer selected", () => {
     withLinearLayer();
@@ -482,6 +603,21 @@ describe('crop tool panel', () => {
     fireEvent.click(within(panel).getByRole('button', { name: 'Reset crop and straighten' }));
     expect(editor().adjustments.aspectRatio).toBeNull();
     expect(editor().adjustments.crop).toBeNull();
+  });
+
+  it('adds a custom ratio with Enter in its fields, without closing the panel first', () => {
+    useUIStore.setState({ activePanel: Panel.Crop });
+    useSettingsStore.setState({ appSettings: { customAspectRatios: [] } as never });
+    workspace();
+    fireEvent.contextMenu(screen.getByTestId('photo'), { clientX: 400, clientY: 300 });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a crop ratio' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ratio width' }), { target: { value: '7' } });
+    const height = screen.getByRole('textbox', { name: 'Ratio height' });
+    fireEvent.change(height, { target: { value: '5' } });
+    const event = fireEvent.keyDown(height, { key: 'Enter' });
+    // Not taken by the panel: the browser goes on to submit the form.
+    expect(event).toBe(true);
+    expect(screen.getByRole('dialog', { name: 'Crop settings' })).toBeTruthy();
   });
 
   it('opens with the pointer in its title bar', () => {
