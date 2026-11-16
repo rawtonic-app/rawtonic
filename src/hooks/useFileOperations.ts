@@ -774,8 +774,12 @@ export function useFileOperations(
           // The viewer (Develop, the Library loupe or full screen) goes on to
           // the next photo (the previous one at the end), as after Move to
           // Trash and as Capture One does after Move to Selects (UXR4M-20).
+          // A move takes the files: a virtual copy's photo and its other
+          // copies go with it (a trash of a copy removes only that copy).
           const next =
-            openMoved && viewerShown(ui) ? photoAfterRemoval(sortedImageList, selectedImage.path, paths) : null;
+            openMoved && viewerShown(ui)
+              ? photoAfterRemoval(sortedImageList, selectedImage.path, paths.map(sourceOf))
+              : null;
           if (openMoved && !next) {
             if (ui.activeView === 'editor') handleBackToLibrary();
             useEditorStore.getState().setEditor({ selectedImage: null });

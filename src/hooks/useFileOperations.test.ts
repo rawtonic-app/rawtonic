@@ -585,6 +585,50 @@ describe('moving to the Trash', () => {
       expect(useLibraryStore.getState().libraryActivePath).toBe('/p/C.RAF');
     });
 
+    it('moving an open virtual copy moves its photo too: the next photo is another file', async () => {
+      // Review round 1: [X, A, A?vc] with A?vc open; the move takes A.RAF and
+      // its copies, so A.RAF is no photo to go on to.
+      const withCopy = ['/p/X.RAF', '/p/A.RAF', '/p/A.RAF?vc=abc123'].map((path) => ({ path }) as ImageFile);
+      open('/p/A.RAF?vc=abc123', { libraryLoupe: true });
+      vi.mocked(invoke).mockImplementation((command) =>
+        Promise.resolve(
+          command === Invokes.PlanMoveFiles
+            ? { crossVolume: false }
+            : command === Invokes.MoveFiles
+              ? summary({ kind: 'move', items: 1, moves: [{ from: '/p/A.RAF', to: '/p/Selects/A.RAF' }] })
+              : undefined
+        )
+      );
+      const select = vi.fn<(path: string, openInEditor?: boolean) => void>();
+      await renderHook(() =>
+        useFileOperations(
+          vi.fn(() => Promise.resolve()),
+          vi.fn(() => Promise.resolve()),
+          select,
+          vi.fn(),
+          withCopy
+        )
+      ).result.current.handleMoveToFolder(['/p/A.RAF?vc=abc123'], '/p/Selects');
+      await waitFor(() => expect(select).toHaveBeenCalledWith('/p/X.RAF', false));
+      expect(select).not.toHaveBeenCalledWith('/p/A.RAF', expect.anything());
+    });
+
+    it('trashing an open virtual copy removes only that copy: its photo comes next', async () => {
+      const withCopy = ['/p/A.RAF', '/p/A.RAF?vc=abc123'].map((path) => ({ path }) as ImageFile);
+      open('/p/A.RAF?vc=abc123', { libraryLoupe: true });
+      const select = vi.fn<(path: string, openInEditor?: boolean) => void>();
+      await renderHook(() =>
+        useFileOperations(
+          vi.fn(() => Promise.resolve()),
+          vi.fn(() => Promise.resolve()),
+          select,
+          vi.fn(),
+          withCopy
+        )
+      ).result.current.executeDelete(['/p/A.RAF?vc=abc123']);
+      expect(select).toHaveBeenCalledWith('/p/A.RAF', false);
+    });
+
     it('Move (to Selects) from the loupe goes on to the next photo too', async () => {
       open('/p/A.RAF', { libraryLoupe: true });
       vi.mocked(invoke).mockImplementation((command) =>

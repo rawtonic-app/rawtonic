@@ -411,8 +411,10 @@ export const confirmQuitWithUnsaved: AskToQuitAnyway = (failures, quit, cancel) 
 
 /** Work that quitting would stop, as the quit prompt names it (UXR4M-03):
  * every export running or waiting in the queue, and every running import
- * (ingest, catalog import, Add Folder, hot folder copies). Lightroom and
- * Capture One ask before quitting while such tasks run. */
+ * the activity centre shows (ingest, catalog import, Add Folder). Lightroom
+ * and Capture One ask before quitting while such tasks run. A hot folder is
+ * not asked about: it is kept with the library and resumes at the next
+ * start, taking the files not copied yet (its watched files never move). */
 export function runningWork(): string[] {
   const exports = useProcessStore
     .getState()
