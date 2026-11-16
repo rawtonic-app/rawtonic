@@ -72,7 +72,10 @@ it('reading a saved edit back adds no History step (HIST1)', () => {
 it('a recipe read back differs from the held one only by what the save adds (HIST1)', () => {
   const held = { ...recipe(0.5), lensDistortionParams: { k1: 0.0123456789012345 } } as Adjustments;
   const read = (values: Partial<Adjustments>) => ({ ...held, colorLabel: '', ...values }) as Adjustments;
-  expect(sameSavedEdit(held, read({ lensDistortionParams: { k1: 0.012345678901234502 } } as never))).toBe(true);
+  // One unit in the last place off, as the backend's parser may read it.
+  const k1 = 0.0123456789012345 * (1 + Number.EPSILON);
+  expect(k1).not.toBe(0.0123456789012345);
+  expect(sameSavedEdit(held, read({ lensDistortionParams: { k1 } } as never))).toBe(true);
   // An edit made meanwhile, however small, is a change.
   expect(sameSavedEdit(held, read({ lensDistortionParams: { k1: 0.0124 } } as never))).toBe(false);
   expect(sameSavedEdit(held, read({ exposure: 0.51 }))).toBe(false);
