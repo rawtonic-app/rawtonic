@@ -213,4 +213,77 @@ describe('docked filmstrip', () => {
       height.mockRestore();
     }
   });
+
+  it('keeps its scroll place while hidden by the full screen and shown again', () => {
+    let observe: ResizeObserverCallback = () => {};
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observe = callback;
+        }
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      }
+    );
+    const places = new WeakMap<Element, number>();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+      configurable: true,
+      get(this: Element) {
+        return places.get(this) ?? 0;
+      },
+      set(this: Element, value: number) {
+        places.set(this, value);
+      }
+    });
+    let visibleWidth = 224;
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => visibleWidth);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    const size = (w: number, h: number) =>
+      act(() => observe([{ contentRect: { width: w, height: h } } as ResizeObserverEntry], {} as ResizeObserver));
+    try {
+      const view = mount(many(400), 'left', vi.fn(), vi.fn(), 80);
+      Object.defineProperty(view.browser, 'clientWidth', { get: () => visibleWidth, configurable: true });
+      view.browser.scrollTop = 3000;
+      fireEvent.scroll(view.browser);
+      // display: none: no size, the browser drops the place and says so.
+      visibleWidth = 0;
+      size(0, 0);
+      places.set(view.browser, 0);
+      fireEvent.scroll(view.browser);
+      visibleWidth = 224;
+      size(224, 600);
+      expect(view.browser.scrollTop).toBeGreaterThan(2000);
+    } finally {
+      delete (HTMLElement.prototype as { scrollTop?: number }).scrollTop;
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
+
+  it('docks from the right column to the left by dragging the header', () => {
+    const { container } = mount(many(2), 'right');
+    const body = container.querySelector<HTMLElement>('.studio-body')!;
+    body.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 1000,
+        height: 500,
+        right: 1000,
+        bottom: 500,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      }) as DOMRect;
+    const header = container.querySelector<HTMLElement>('.studio-dock-header')!;
+    header.setPointerCapture = vi.fn();
+    header.releasePointerCapture = vi.fn();
+    header.hasPointerCapture = () => true;
+    fireEvent.pointerDown(header, { button: 0, clientX: 950, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(header, { clientX: 100, clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(header, { clientX: 100, clientY: 200, pointerId: 1 });
+    expect(dockState().side).toBe('left');
+  });
 });

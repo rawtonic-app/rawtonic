@@ -338,6 +338,9 @@ export default function StudioBrowser({
   const [box, setBox] = useState({ width: 800, height: 500 });
   const [measured, setMeasured] = useState(false);
   const restored = useRef(false);
+  const wasHidden = useRef(false);
+  const handledShown = useRef(0);
+  const [shown, setShown] = useState(0);
   const [offset, setOffset] = useState(0);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
   const filter = useLibraryStore((s) => s.filterCriteria);
@@ -408,12 +411,23 @@ export default function StudioBrowser({
       setBox({ width, height });
       setMeasured(true);
     }
-    const observer = new ResizeObserver(([entry]) =>
+    const observer = new ResizeObserver(([entry]) => {
+      // Hidden (display: none, as in the photograph's full screen) it has no
+      // size and the browser drops its scroll place: keep the box, and put the
+      // place back when it shows again.
+      if (!(entry.contentRect.width > 0)) {
+        wasHidden.current = true;
+        return;
+      }
       setBox({
         width: entry.contentRect.width,
         height: entry.contentRect.height
-      })
-    );
+      });
+      if (wasHidden.current) {
+        wasHidden.current = false;
+        setShown((n) => n + 1);
+      }
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -431,14 +445,15 @@ export default function StudioBrowser({
   // The docked grid comes back where it was left (once the box is measured).
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!dock || !el || restored.current || !measured) return;
+    if (!dock || !el || !measured || (restored.current && handledShown.current === shown)) return;
     restored.current = true;
+    handledShown.current = shown;
     const top = Math.floor(dockFirstIndex / columns) * extent;
     if (top > 0) {
       el.scrollTop = top;
       setOffset(el.scrollTop);
     }
-  }, [dock, columns, extent, measured]);
+  }, [dock, columns, extent, measured, shown]);
   const mountedTiles = range.end - range.start;
   const measuredTiles = useRef(0);
   useLayoutEffect(() => {
@@ -504,7 +519,8 @@ export default function StudioBrowser({
         onPointerUp={onBackgroundUp}
         onScroll={(e) => {
           setOffset(horizontal ? e.currentTarget.scrollLeft : e.currentTarget.scrollTop);
-          if (dock && restored.current) dockFirstIndex = Math.floor(e.currentTarget.scrollTop / extent) * columns;
+          if (dock && restored.current && e.currentTarget.clientWidth > 0)
+            dockFirstIndex = Math.floor(e.currentTarget.scrollTop / extent) * columns;
         }}
       >
         {!files.length ? (
