@@ -2,7 +2,7 @@ import { beforeEach, expect, it } from 'vitest';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
-import { historyFor } from './photoHistory';
+import { historyFor, sameSavedEdit } from './photoHistory';
 import { editUndoOrder } from './undoOrder';
 
 const recipe = (exposure: number): Adjustments => ({ ...INITIAL_ADJUSTMENTS, exposure });
@@ -27,6 +27,59 @@ it('a photograph keeps its History when another one is opened and back (C02)', (
   expect(historyIndex).toBe(2);
   expect(history[2]).toBe(loaded);
   expect([1, 2].map((index) => editUndoOrder(history, index))).toEqual(orders);
+});
+
+it('reading a saved edit back adds no History step (HIST1)', () => {
+  // A never-edited RAF's camera lens data, as the editor shows it.
+  const lens = { model: 3, k1: 0, tca_vr: 1.0004769346969977, table_radii: [0, 0.3629483687877655] };
+  open('/a.raf');
+  useEditorStore.getState().pushHistory({
+    ...recipe(0),
+    shadows: 100,
+    lensCorrectionMode: 'camera',
+    lensDistortionParams: lens
+  } as Adjustments);
+  open('/b.raf');
+  // As a session photograph's saved recipe reads back: with the lens stamp
+  // its save adds, its colour label (library metadata, "" without one) and
+  // the backend's key order.
+  const sorted = <T>(value: T): T =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (Object.fromEntries(
+          Object.entries(value)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, item]) => [key, sorted(item)])
+        ) as T)
+      : value;
+  const saved = {
+    ...recipe(0),
+    shadows: 100,
+    lensCorrectionMode: 'camera',
+    lensProfileFor: '["camera",1,{"model":3}]',
+    colorLabel: '',
+    hsl: sorted(INITIAL_ADJUSTMENTS.hsl),
+    colorGrading: sorted(INITIAL_ADJUSTMENTS.colorGrading),
+    // A camera's lens data as the backend's JSON parser reads it back
+    // (serde_json: 1.0004769346969977 → 1.0004769346969975).
+    lensDistortionParams: { ...lens, tca_vr: 1.0004769346969975 }
+  } as unknown as Adjustments;
+  const { history, historyIndex } = historyFor('/a.raf', saved);
+  expect(history.map((step) => step.shadows)).toEqual([0, 100]);
+  expect(historyIndex).toBe(1);
+  expect(history[1]).toBe(saved);
+});
+
+it('a recipe read back differs from the held one only by what the save adds (HIST1)', () => {
+  const held = { ...recipe(0.5), lensDistortionParams: { k1: 0.0123456789012345 } } as Adjustments;
+  const read = (values: Partial<Adjustments>) => ({ ...held, colorLabel: '', ...values }) as Adjustments;
+  // One unit in the last place off, as the backend's parser may read it.
+  const k1 = 0.0123456789012345 * (1 + Number.EPSILON);
+  expect(k1).not.toBe(0.0123456789012345);
+  expect(sameSavedEdit(held, read({ lensDistortionParams: { k1 } } as never))).toBe(true);
+  // An edit made meanwhile, however small, is a change.
+  expect(sameSavedEdit(held, read({ lensDistortionParams: { k1: 0.0124 } } as never))).toBe(false);
+  expect(sameSavedEdit(held, read({ exposure: 0.51 }))).toBe(false);
+  expect(sameSavedEdit(held, read({ lensDistortionParams: null } as never))).toBe(false);
 });
 
 it('a recipe changed while another photo was open becomes a new step (C02)', () => {
