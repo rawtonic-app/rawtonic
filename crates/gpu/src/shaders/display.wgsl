@@ -140,26 +140,32 @@ fn own_size_texel(screen: vec2<f32>) -> vec2<f32> {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var uv = in.uv;
+    var screen = in.screen;
     if (transform.box_rect.z > 0.0) {
         uv = crop_edit_uv(in.screen);
     }
-    // Side by side: left of the divider is the before pane. It shows only
-    // the before (or the background while it is on its way), never the
-    // after reaching into it at a zoom.
+    // Side by side: left of the divider is the before pane, placed like the
+    // after pane; the after never reaches into it at a zoom. While the
+    // before is on its way (on a computer that first compiles its shader:
+    // seconds) the pane shows the edited frame in the before's place
+    // rather than staying empty (G76/COLD4).
     if (transform.split.w > 0.0 && in.screen.x < transform.split.y) {
-        let screen = vec2<f32>(in.screen.x + transform.split.w, in.screen.y);
+        screen = vec2<f32>(in.screen.x + transform.split.w, in.screen.y);
         let before_uv = (screen - transform.rect.xy) / transform.rect.zw;
-        if (transform.split.x < 0.5 || before_uv.x < 0.0 || before_uv.x > 1.0 || before_uv.y < 0.0 || before_uv.y > 1.0) {
+        if (before_uv.x < 0.0 || before_uv.x > 1.0 || before_uv.y < 0.0 || before_uv.y > 1.0) {
             return transform.bg_secondary;
         }
-        return sample_before(before_uv, screen);
+        if (transform.split.x > 0.5) {
+            return sample_before(before_uv, screen);
+        }
+        uv = before_uv;
     }
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         return transform.bg_secondary;
     }
-    let split_axis = select(in.screen.x, in.screen.y, transform.split.z > 0.5);
+    let split_axis = select(screen.x, screen.y, transform.split.z > 0.5);
     if (transform.split.x > 0.5 && transform.split.w <= 0.0 && split_axis < transform.split.y) {
-        return sample_before(uv, in.screen);
+        return sample_before(uv, screen);
     }
 
     let adjusted_uv = uv * (transform.image_size / transform.texture_size);
@@ -175,7 +181,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let clamped_nearest = clamp(nearest_uv, min_uv, max_uv);
         return with_overlay(textureSample(tex, samp, clamped_nearest), uv);
     } else if (shown_at_own_size(transform.image_size)) {
-        let clamped_uv = clamp(own_size_texel(in.screen) / transform.texture_size, min_uv, max_uv);
+        let clamped_uv = clamp(own_size_texel(screen) / transform.texture_size, min_uv, max_uv);
         return with_overlay(textureSample(tex, samp, clamped_uv), uv);
     } else {
         let clamped_uv = clamp(adjusted_uv, min_uv, max_uv);

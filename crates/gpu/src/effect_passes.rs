@@ -113,6 +113,12 @@ pub(super) struct EffectPasses {
     no_colour: HighPrecisionTile,
     /// The terms features whose passes compile ahead (`compile_ahead`).
     ahead: Mutex<std::collections::HashSet<usize>>,
+    /// The colours the parts of a split main pass store (`tone_split`).
+    split_tiles: std::sync::OnceLock<[HighPrecisionTile; 2]>,
+    /// 1 x 1 textures in the split's bindings a pass leaves alone: two to
+    /// write, one to read.
+    no_split_outputs: [HighPrecisionTile; 2],
+    no_split_input: HighPrecisionTile,
 }
 
 /// The constants of a main pass: it reads the terms and leaves the finish
@@ -156,7 +162,7 @@ pub(super) const TERMS_FEATURES: usize = 8
     | SHADOWS_V19_FEATURE
     | TONE_V5_FEATURE;
 
-fn float_texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+pub(super) fn float_texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::COMPUTE,
@@ -169,7 +175,10 @@ fn float_texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-fn output_entry(binding: u32, format: wgpu::TextureFormat) -> wgpu::BindGroupLayoutEntry {
+pub(super) fn output_entry(
+    binding: u32,
+    format: wgpu::TextureFormat,
+) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::COMPUTE,
@@ -293,6 +302,8 @@ impl EffectPasses {
         };
         let no_views = one_texel("No Finish Views");
         let no_colour = one_texel("No Finish Colour");
+        let no_split_outputs = ["No Split Output 1", "No Split Output 2"].map(one_texel);
+        let no_split_input = one_texel("No Split Input");
         Self {
             display,
             float_display,
@@ -308,7 +319,47 @@ impl EffectPasses {
             no_views,
             no_colour,
             ahead: Mutex::new(std::collections::HashSet::new()),
+            split_tiles: std::sync::OnceLock::new(),
+            no_split_outputs,
+            no_split_input,
         }
+    }
+
+    /// The bindings of the tone split (`tone_split`) for one of a frame's
+    /// passes: `Some(0)` the part before the tone stage, `Some(1)` the tone
+    /// part, `Some(2)` a main pass that reads what they stored, `None` a
+    /// pass that reads none of it.
+    pub(super) fn split_entries(
+        &self,
+        processor: &GpuProcessor,
+        pass: Option<usize>,
+    ) -> [wgpu::BindGroupEntry<'_>; 4] {
+        let tiles = pass.map(|_| {
+            self.split_tiles.get_or_init(|| {
+                [
+                    processor.float_tile("Split Before Tone Tile"),
+                    processor.float_tile("Split Tone Tile"),
+                ]
+            })
+        });
+        let output = |index: usize| match tiles {
+            Some(tiles) if pass == Some(index) => &tiles[index].view,
+            _ => &self.no_split_outputs[index].view,
+        };
+        let input = |index: usize| match tiles {
+            Some(tiles) if pass == Some(index + 1) => &tiles[index].view,
+            _ => &self.no_split_input.view,
+        };
+        let entry = |binding, view| wgpu::BindGroupEntry {
+            binding,
+            resource: wgpu::BindingResource::TextureView(view),
+        };
+        [
+            entry(tone_split::OUTPUT_BINDINGS[0], output(0)),
+            entry(tone_split::INPUT_BINDINGS[0], input(0)),
+            entry(tone_split::OUTPUT_BINDINGS[1], output(1)),
+            entry(tone_split::INPUT_BINDINGS[1], input(1)),
+        ]
     }
 
     pub(super) fn terms_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
