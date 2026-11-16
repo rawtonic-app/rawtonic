@@ -99,6 +99,9 @@ pub fn open(device: &wgpu::Device, info: &wgpu::AdapterInfo, dir: &Path, build: 
         state: Mutex::new((false, loaded)),
     });
     let mut caches = CACHES.lock().unwrap_or_else(|e| e.into_inner());
+    // An entry with the same id is this device's or one of a replaced
+    // instance's (`same_device`): the new one takes its place, so a replaced
+    // device is not kept alive here.
     caches.retain(|(registered, _)| registered != device);
     caches.push((device.clone(), store));
 }
@@ -210,8 +213,37 @@ pub(crate) fn for_device(device: &wgpu::Device) -> Option<Arc<PipelineCache>> {
     let caches = CACHES.lock().unwrap_or_else(|e| e.into_inner());
     caches
         .iter()
-        .find(|(registered, _)| registered == device)
+        .find(|(registered, _)| same_device(registered, device))
         .map(|(_, cache)| Arc::clone(cache))
+}
+
+/// Whether `a` and `b` are the same device. wgpu compares devices by their
+/// id alone, and ids count per instance: the first device of every instance
+/// has the same one. A second instance (the context `attach_display`
+/// replaces, tests in one process) would otherwise get the other's cache,
+/// which wgpu-core does not know ("Cannot get non-existent resource
+/// PipelineCacheId", a panic; G76/IDLEC on a Radeon 680M). Caches are
+/// registered only on Vulkan (`open`), so the Vulkan device behind each
+/// decides there.
+fn same_device(a: &wgpu::Device, b: &wgpu::Device) -> bool {
+    if a != b {
+        return false;
+    }
+    #[cfg(not(any(target_vendor = "apple", target_arch = "wasm32")))]
+    {
+        // SAFETY: the guards are only compared by address and dropped at
+        // once; nothing is created or destroyed through them.
+        let (raw_a, raw_b) = unsafe {
+            (
+                a.as_hal::<wgpu::hal::api::Vulkan>(),
+                b.as_hal::<wgpu::hal::api::Vulkan>(),
+            )
+        };
+        if let (Some(raw_a), Some(raw_b)) = (raw_a, raw_b) {
+            return std::ptr::eq(&*raw_a, &*raw_b);
+        }
+    }
+    true
 }
 
 impl PipelineCache {
@@ -358,6 +390,24 @@ impl Fnv {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A second instance's device has the same wgpu id as the first's: it
+    /// must not get the first one's cache (G76/IDLEC: a panic in wgpu-core).
+    #[test]
+    #[ignore = "GPU: cargo test -p rawtonic-gpu --lib -- --ignored pipeline_cache::tests::a_device_of_another_instance_has_no_cache"]
+    fn a_device_of_another_instance_has_no_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let first =
+            crate::gpu_processing::GpuContext::headless_with_pipeline_cache(Some(dir.path()))
+                .unwrap();
+        if for_device(&first.device).is_none() {
+            eprintln!("SKIP: no pipeline cache on this backend");
+            return;
+        }
+        let second = crate::gpu_processing::GpuContext::headless().unwrap();
+        assert!(for_device(&second.device).is_none());
+        assert!(for_device(&first.device).is_some());
+    }
 
     #[test]
     fn a_file_round_trips_and_damage_is_rejected() {
