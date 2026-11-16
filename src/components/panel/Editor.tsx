@@ -888,6 +888,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     applyTransform(bounded.x, bounded.y, bounded.scale);
   };
 
+  const hasPhoto = !!selectedImage;
   // A trackpad pinch on macOS: WebKit sends gesture events, no wheel.
   useEffect(() => {
     const container = imageContainerRef.current;
@@ -912,7 +913,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       stop();
       container.removeEventListener('pointermove', onMove);
     };
-  }, [cancelAnimation]);
+    // The viewer exists only with a photograph (the editor renders nothing before).
+  }, [cancelAnimation, hasPhoto]);
 
   // A pinch over the before pane zooms both, as its wheel does.
   useEffect(() => {
