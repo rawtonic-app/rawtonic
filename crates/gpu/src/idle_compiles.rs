@@ -1106,6 +1106,45 @@ mod tests {
     use super::super::new_raw_edit as new_raw_edit_at_start;
     use super::*;
 
+    /// Runs this module's test `name` in a process of its own and returns
+    /// `false`, or `true` inside that process (the test then runs). These
+    /// tests set process-wide state (the compile limit, the idle helper,
+    /// memory turns, idle queues alive) that the app sets once, so in one
+    /// process they disturbed each other (G76/IDLEC: 6 of 10 failed and the
+    /// suite hung on a Radeon 680M, each passed alone). The processes run
+    /// one after another: their GPU compiles beside each other would
+    /// measure nothing the tests ask.
+    fn alone(name: &str) -> bool {
+        const ALONE: &str = "RAWTONIC_TEST_ALONE";
+        static TURN: Mutex<()> = Mutex::new(());
+        let test = format!("gpu_processing::idle_compiles::tests::{name}");
+        if std::env::var(ALONE).is_ok_and(|alone| alone == test) {
+            return true;
+        }
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                &test,
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(ALONE, &test)
+            .output()
+            .unwrap();
+        let text =
+            String::from_utf8_lossy(&output.stdout) + String::from_utf8_lossy(&output.stderr);
+        let tail = text.char_indices().rev().nth(8000).map_or(0, |(at, _)| at);
+        assert!(
+            output.status.success() && text.contains("1 passed"),
+            "{test} in its own process: {}\n{}",
+            output.status,
+            &text[tail..]
+        );
+        false
+    }
+
     fn adjustments(tone_version: f32, tonemapper_mode: u32) -> AllAdjustments {
         let mut adjustments: AllAdjustments = bytemuck::Zeroable::zeroed();
         adjustments.global.tone_version = tone_version;
@@ -1468,8 +1507,11 @@ mod tests {
     /// compile in idle time; the first Contrast frame then renders at once
     /// without a compile of its own and keeps rendering with the superset.
     #[test]
-    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::idle_compiles_serve_the_first_tone_slider"]
+    #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn idle_compiles_serve_the_first_tone_slider() {
+        if !alone("idle_compiles_serve_the_first_tone_slider") {
+            return;
+        }
         use super::super::preview_tests::{context, get_all_adjustments_from_json};
         use std::time::Instant;
         set_compile_limit(Some(1));
@@ -1549,8 +1591,11 @@ mod tests {
     /// compiles: they run while a heavy one holds the compile slot (an idle
     /// helper's, here the test's).
     #[test]
-    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::the_start_compiles_the_basic_variant_before_a_photo_is_shown"]
+    #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn the_start_compiles_the_basic_variant_before_a_photo_is_shown() {
+        if !alone("the_start_compiles_the_basic_variant_before_a_photo_is_shown") {
+            return;
+        }
         use super::super::preview_tests::context;
         use std::time::Instant;
         set_compile_limit(Some(1));
@@ -1617,8 +1662,11 @@ mod tests {
     /// for the slot), unless the idle worker has the export's own variant to
     /// compile: then the export waits for that (G76/WSMOKE19).
     #[test]
-    #[ignore = "sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_export_waits_for_its_own_variant_instead_of_stopping_it"]
+    #[ignore = "sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn an_export_waits_for_its_own_variant_instead_of_stopping_it() {
+        if !alone("an_export_waits_for_its_own_variant_instead_of_stopping_it") {
+            return;
+        }
         set_compile_limit(Some(1));
         let idle = IdleCompiles::new();
         {
@@ -1654,8 +1702,11 @@ mod tests {
     /// wait (G76/EFX; before, the idle worker compiled the deferred variant
     /// first, G76/WSMOKE19).
     #[test]
-    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_export_right_after_a_sixteen_bit_pick_waits_for_its_variant"]
+    #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn an_export_right_after_a_sixteen_bit_pick_waits_for_its_variant() {
+        if !alone("an_export_right_after_a_sixteen_bit_pick_waits_for_its_variant") {
+            return;
+        }
         use super::super::preview_tests::context;
         use std::time::Instant;
         set_compile_limit(Some(1));
@@ -1818,8 +1869,11 @@ mod tests {
     /// variant compiled waits for the idle worker to compile that one, at
     /// once, instead of compiling its own beside it.
     #[test]
-    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_edit_before_the_plan_compiled_waits_for_the_planned_variant"]
+    #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn an_edit_before_the_plan_compiled_waits_for_the_planned_variant() {
+        if !alone("an_edit_before_the_plan_compiled_waits_for_the_planned_variant") {
+            return;
+        }
         use super::super::preview_tests::context;
         use std::time::Instant;
         set_compile_limit(Some(1));
@@ -1909,8 +1963,11 @@ mod tests {
     /// and the job compiles in a later idle time through the helper's
     /// pipeline cache.
     #[test]
-    #[ignore = "GPU; sets the process-wide compile limit and idle helper, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::idle_compiles_in_a_helper_give_way"]
+    #[ignore = "GPU; sets the process-wide compile limit and idle helper, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn idle_compiles_in_a_helper_give_way() {
+        if !alone("idle_compiles_in_a_helper_give_way") {
+            return;
+        }
         use super::super::idle_compile_child::{DONE, STOPS};
         use super::super::preview_tests::get_all_adjustments_from_json;
         use std::sync::atomic::AtomicBool;
@@ -2088,8 +2145,11 @@ mod tests {
     /// helper (G76/WSMOKE20: 8.25–8.5 GB with both at once on a Radeon
     /// 680M).
     #[test]
-    #[ignore = "GPU; sets the process-wide compile limit, idle helper and turns, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_idle_helper_and_an_ai_run_take_turns"]
+    #[ignore = "GPU; sets the process-wide compile limit, idle helper and turns, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn an_idle_helper_and_an_ai_run_take_turns() {
+        if !alone("an_idle_helper_and_an_ai_run_take_turns") {
+            return;
+        }
         use super::super::idle_compile_child::STOPS;
         use super::super::preview_tests::get_all_adjustments_from_json;
         use crate::memory_turns::{AiRun, ai_run};
@@ -2180,8 +2240,11 @@ mod tests {
     /// an edited photo) compiles the variant its export renders with, and
     /// the export then compiles nothing (G76/WCC7).
     #[test]
-    #[ignore = "GPU; sets the process-wide compile limit, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::an_export_takes_the_variant_its_frame_compiled"]
+    #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn an_export_takes_the_variant_its_frame_compiled() {
+        if !alone("an_export_takes_the_variant_its_frame_compiled") {
+            return;
+        }
         use super::super::preview_tests::{context, get_all_adjustments_from_json, input};
         use std::time::Instant;
         set_compile_limit(Some(1));
@@ -2258,8 +2321,11 @@ mod tests {
     /// later Halation frame. Runs on every backend: without a pipeline
     /// cache (Metal) the worker compiles its jobs in the app.
     #[test]
-    #[ignore = "GPU; sets the process-wide compile limit and idle helper, so run it alone: cargo test -p rawtonic-gpu --lib -- --ignored --exact gpu_processing::idle_compiles::tests::a_newer_frame_replaces_one_that_waits_for_a_helper"]
+    #[ignore = "GPU; sets the process-wide compile limit and idle helper, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn a_newer_frame_replaces_one_that_waits_for_a_helper() {
+        if !alone("a_newer_frame_replaces_one_that_waits_for_a_helper") {
+            return;
+        }
         use super::super::frame_supersession::{is_superseded, supersedable};
         use super::super::preview_tests::get_all_adjustments_from_json;
         use std::sync::atomic::AtomicBool;

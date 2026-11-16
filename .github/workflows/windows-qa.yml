@@ -102,10 +102,17 @@ jobs:
           Copy-Item target\release\examples\compile_probe.exe, crates\gpu\examples\compile_probe_round*.txt probe-out
           # Code-shape candidates of a round (`src=`), on probe branches only.
           Copy-Item crates\gpu\examples\compile_probe_round*.wgsl probe-out -ErrorAction SilentlyContinue
-          # The GPU tests as one executable, for runs on the test machines.
+          # The GPU tests as one executable, for runs on the test machines,
+          # with line tables and its PDB beside it, so a panic's backtrace
+          # names files and lines (G76/IDLEC: stripped, it had no frames).
+          $env:CARGO_PROFILE_RELEASE_STRIP = "none"
+          $env:CARGO_PROFILE_RELEASE_DEBUG = "line-tables-only"
           $tests = cargo test --release --locked -p rawtonic-gpu --lib --no-run --message-format=json | ConvertFrom-Json | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.executable -and $_.target.name -eq 'rawtonic_gpu' } | Select-Object -Last 1
           if (-not $tests) { Write-Error "no GPU test executable"; exit 1 }
           Copy-Item $tests.executable probe-out\rawtonic_gpu_tests.exe
+          # The executable names its PDB by the original file name.
+          Copy-Item ([System.IO.Path]::ChangeExtension($tests.executable, 'pdb')) probe-out
+          Remove-Item Env:CARGO_PROFILE_RELEASE_STRIP, Env:CARGO_PROFILE_RELEASE_DEBUG
           # Pinned data the tests read beside the executable (slider_response_tests `data_file`).
           Copy-Item crates\gpu\tests\data\slider_response.json probe-out
           "commit $env:GITHUB_SHA" | Set-Content probe-out\PROBE-BUILD.txt
