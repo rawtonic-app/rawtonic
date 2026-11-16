@@ -2412,6 +2412,7 @@
       "ingestResumeFailed": "Nie udało się dokończyć przerwanego importu: {{error}}",
       "ingestRetry": "Importuj teraz",
       "ingestWaiting": "Zdjęcia przerwanego importu czekające na kartę lub dysk: {{n}}; import będzie kontynuowany po otwarciu biblioteki z podłączonym nośnikiem.",
+      "showImported": "Pokaż",
       "sidecarsCopied_one": "skopiowano {{count}} plik XMP",
       "sidecarsCopied_few": "skopiowano {{count}} pliki XMP",
       "sidecarsCopied_many": "skopiowano {{count}} plików XMP",
@@ -4681,6 +4682,7 @@
         "empty": "Zaznacz zdjęcie",
         "title": "Nawigator"
       },
+      "noPhotoToRate": "Nie wybrano zdjęcia: wybierz zdjęcie, aby je ocenić, oflagować lub oznaczyć kolorem.",
       "searchFailed": "Nie udało się przeszukać biblioteki: {{error}}",
       "smartAlbums": {
         "addGroup": "Grupa reguł",

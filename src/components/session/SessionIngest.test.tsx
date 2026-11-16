@@ -465,6 +465,38 @@ describe('Dropping photographs onto the window', () => {
     }
   });
 
+  // RATE2 (Lenovo WRATE2 set D): culling in the grid while the import ran,
+  // its end switched to Previous Import and emptied the selection; every
+  // rating key after it rated nothing.
+  it('keeps the view of a user who works while the import runs and offers Show instead', async () => {
+    const user = userEvent.setup();
+    const shown = vi.fn();
+    window.addEventListener(SHOW_PREVIOUS_IMPORT, shown);
+    try {
+      await open();
+      const base = vi.mocked(invoke).getMockImplementation()!;
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        // A rating key in the grid while the photographs are copied.
+        if (command === 'session_ingest')
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3' }));
+        return base(command, args);
+      });
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(toast.success).toHaveBeenCalled());
+      await act(async () => {});
+      expect(shown).not.toHaveBeenCalled();
+      const [content, options] = vi.mocked(toast.success).mock.calls.at(-1)!;
+      expect(typeof content).toBe('function');
+      const offer = options?.actions?.find((action) => action.label === 'Show');
+      expect(offer).toBeTruthy();
+      offer!.run();
+      expect(shown).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener(SHOW_PREVIOUS_IMPORT, shown);
+    }
+  });
+
   it('a folder outside the library is not a destination: the drop goes to Capture', async () => {
     const user = userEvent.setup();
     await open();

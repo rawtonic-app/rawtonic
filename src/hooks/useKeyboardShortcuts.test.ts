@@ -896,6 +896,31 @@ describe('auto-advance after a rating', () => {
     expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith('/s/c.NEF', false);
   });
 
+  // RATE2 (Lenovo WRATE2 set D): an import that ended emptied the grid's
+  // selection, and every rating key after it went nowhere without a word.
+  it('says so when a rating, flag or label key has no photo to act on', () => {
+    open('/s/a.NEF');
+    useUIStore.setState({ activeView: 'library' });
+    useEditorStore.getState().setEditor({ selectedImage: null });
+    useLibraryStore.setState({ libraryActivePath: null, multiSelectedPaths: [] });
+    for (const [code, key] of [
+      ['Digit3', '3'],
+      ['KeyP', 'p'],
+      ['Digit7', '7']
+    ]) {
+      vi.mocked(toast.info).mockClear();
+      press(code, key);
+      expect(toast.info).toHaveBeenCalledOnce();
+    }
+    expect(useLibraryStore.getState().imageRatings).toEqual({});
+    // With a photo selected the key rates it, without the hint.
+    vi.mocked(toast.info).mockClear();
+    useLibraryStore.setState({ libraryActivePath: '/s/b.NEF', multiSelectedPaths: ['/s/b.NEF'] });
+    press('Digit3', '3');
+    expect(useLibraryStore.getState().imageRatings['/s/b.NEF']).toBe(3);
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
   it('rates the selected grid photo and advances to the next one', () => {
     open('/s/a.NEF', true);
     useUIStore.setState({ activeView: 'library' });
