@@ -87,3 +87,27 @@ it('names a removal Remove', () => {
   };
   expect(step(base, { aiPatches: [patch] as Adjustments['aiPatches'] })).toBe('Remove');
 });
+
+it('names no tool for values only read back in another key order or stamped by the save (HIST1)', () => {
+  const sorted = <T,>(value: T): T =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (Object.fromEntries(
+          Object.entries(value)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, item]) => [key, sorted(item)])
+        ) as T)
+      : value;
+  const read = {
+    ...base,
+    hsl: sorted(base.hsl),
+    colorGrading: sorted(base.colorGrading),
+    lensProfileFor: '["manual",null,null,null]',
+    colorLabel: '',
+    // A camera's lens data as the backend's JSON parser reads it back
+    // (serde_json: 1.0004769346969977 → 1.0004769346969975).
+    lensDistortionParams: { tca_vr: 1.0004769346969975 }
+  } as Adjustments;
+  const shown = { ...base, lensDistortionParams: { tca_vr: 1.0004769346969977 } } as Adjustments;
+  expect(describeHistoryStep(shown, read, t, 'en')).toBe(t('studio.develop.history.other'));
+  expect(step(shown, { ...read, shadows: 100 })).toBe('Shadows +100');
+});

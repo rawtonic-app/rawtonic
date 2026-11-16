@@ -1,6 +1,7 @@
 import type { ParseKeys, TFunction } from 'i18next';
 import type { Adjustments, MaskContainer } from '../../utils/adjustments';
 import { upgradeLayerAutoMask } from '../../utils/autoMaskUpgrade';
+import { sameSavedNumber } from '../../utils/photoHistory';
 
 /** Sliders a history step names with their new value (decimals shown). */
 const SLIDERS: Record<string, [label: ParseKeys, digits: number]> = {
@@ -54,22 +55,27 @@ const TOOLS: [match: RegExp, label: ParseKeys][] = [
   [/^aiPatches$/, 'studio.develop.history.remove']
 ];
 
-/** Keys that change with an edit but say nothing about it. */
-const IGNORED = new Set(['showClipping', 'masks']);
+/** Keys that change with an edit but say nothing about it: the lens stamp a
+ * save adds and the colour label a recipe is read with (library metadata)
+ * are no edit either. */
+const IGNORED = new Set(['showClipping', 'masks', 'lensProfileFor', 'colorLabel']);
 
-/** Whether two values write out as the same JSON. Unchanged parts of a
- * recipe are the same objects from step to step, so they are compared by
- * reference and only what changed is written out: a painted layer's strokes
- * are not serialised for every step's label. */
+/** Whether two values write out as the same JSON, as a recipe read back
+ * from its save has them: whatever the order of their keys (the backend's)
+ * and with numbers the same as saved (`sameSavedNumber`). Unchanged parts
+ * of a recipe are the same objects from step to step, so they are compared
+ * by reference and only what changed is written out: a painted layer's
+ * strokes are not serialised for every step's label. */
 function same(a: unknown, b: unknown): boolean {
   if (a === b) return true;
+  if (typeof a === 'number' && typeof b === 'number') return sameSavedNumber(a, b);
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((item, i) => same(item, b[i]));
   }
   if (isPlainObject(a) && isPlainObject(b)) {
     const keysA = Object.keys(a).filter((key) => a[key] !== undefined);
     const keysB = Object.keys(b).filter((key) => b[key] !== undefined);
-    return keysA.length === keysB.length && keysA.every((key, i) => key === keysB[i] && same(a[key], b[key]));
+    return keysA.length === keysB.length && keysA.every((key) => same(a[key], b[key]));
   }
   return JSON.stringify(a) === JSON.stringify(b);
 }

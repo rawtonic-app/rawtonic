@@ -14,9 +14,47 @@ interface Kept {
    * a step still writing then is not among them. */
   written: ReadonlySet<number>;
 }
-/** A recipe without the lens stamp its save adds (`lensProfileFor`,
- * `lens_recipe::lens_profile_stamp`): the same edit before and after saving. */
-const withoutLensStamp = (recipe: Adjustments) => ({ ...recipe, lensProfileFor: undefined });
+/** A recipe without what saving and reading it back add that is no edit:
+ * the lens stamp its save adds (`lensProfileFor`,
+ * `lens_recipe::lens_profile_stamp`) and the colour label a session
+ * photograph's recipe is read with (`colorLabel`, library metadata;
+ * crates/catalog `apply_editor_metadata`): the same edit before and after
+ * saving. */
+const withoutReadStamps = (recipe: Adjustments) => ({ ...recipe, lensProfileFor: undefined, colorLabel: undefined });
+
+/** Whether two numbers are the same as a save keeps them: they may differ in
+ * their last digits, since the backend's JSON parser rounds some 17-digit
+ * decimals to the neighbouring double (a never-edited Fujifilm RAF's camera
+ * lens data reads back one unit in the last place off). */
+export const sameSavedNumber = (a: number, b: number): boolean =>
+  a === b || Math.abs(a - b) <= 1e-12 * Math.max(Math.abs(a), Math.abs(b));
+
+/** Whether two values are the same as a save keeps them (`sameSavedNumber`). */
+function sameAsSaved(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a === 'number' && typeof b === 'number') return sameSavedNumber(a, b);
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, i) => sameAsSaved(item, b[i]));
+  }
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left).filter((key) => left[key] !== undefined);
+  return (
+    keys.length === Object.keys(right).filter((key) => right[key] !== undefined).length &&
+    keys.every((key) => sameAsSaved(left[key], right[key]))
+  );
+}
+
+/** Whether `read` (a recipe as read back from its save) holds the same edit
+ * as `held` (the editor's): nobody edited it in between, so it is no step of
+ * its History. */
+export function sameSavedEdit(held: Adjustments, read: Adjustments): boolean {
+  const left = withoutReadStamps(held);
+  const right = withoutReadStamps(read);
+  return sameAdjustmentValue(left, right) || sameAsSaved(left, right);
+}
 
 /** Photographs whose History is kept (least recently left dropped first). */
 const KEPT_PHOTOS = 100;
@@ -47,7 +85,7 @@ export function historyFor(
   const entry = kept.get(path);
   if (!entry) return { history: [shown], historyIndex: 0 };
   kept.delete(path);
-  if (sameAdjustmentValue(withoutLensStamp(entry.history[entry.index]), withoutLensStamp(shown))) {
+  if (sameSavedEdit(entry.history[entry.index], shown)) {
     const history = [...entry.history];
     history[entry.index] = shown;
     setHistoryOrders(history, entry.orders);
