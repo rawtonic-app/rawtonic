@@ -14,7 +14,7 @@
 
 ### Fixes
 
-- **Windows (Vulkan): no crash when the window needs another graphics card than the one the app started on.** On computers with two graphics cards the app can set up its graphics a second time for the window; shader compiles of the first setup still running then could pick the new setup's pipeline cache and crash the app. Each setup now uses only its own cache.
+- **Windows: no crash when the window needs another graphics setup than the one the app started with.** When the first graphics device (Vulkan) cannot show the window — on computers with two graphics cards, or when the window needs DirectX 12 — the app sets up its graphics a second time; shader compiles of the first setup still running then could pick the new setup's pipeline cache and crash the app. Each setup now uses only its own cache.
 - **Import: Z and the arrow keys no longer show an empty frame on Windows.** In the import dialog's large view, Z (or a click) to 100 % and back, and stepping to the next photograph, showed nothing for a moment (65–98 ms measured on a Windows laptop after Z) before the enlarged preview or the real pixels appeared, because the webview draws a newly made image only once it has decoded it again. The photograph now stays on screen: the shown preview itself grows to the 100 % size, the full-size pixels replace it only once they are ready to draw, and when stepping the previous photograph stays up until the next one can be drawn, as in Lightroom. Measured in Chromium (the engine of Windows' webview) on Linux with the real view: 0 empty frames in 18 zooms and 6 steps (before: an empty frame after each). "100 %" now appears when its pixels are on screen.
 
 ## 0.1.0-alpha.15 — 2026-11-15

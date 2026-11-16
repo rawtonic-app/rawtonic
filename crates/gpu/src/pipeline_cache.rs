@@ -239,10 +239,15 @@ fn same_device(a: &wgpu::Device, b: &wgpu::Device) -> bool {
                 b.as_hal::<wgpu::hal::api::Vulkan>(),
             )
         };
-        if let (Some(raw_a), Some(raw_b)) = (raw_a, raw_b) {
-            return std::ptr::eq(&*raw_a, &*raw_b);
+        match (raw_a, raw_b) {
+            (Some(raw_a), Some(raw_b)) => std::ptr::eq(&*raw_a, &*raw_b),
+            // A device of another backend (the DX12 context `attach_display`
+            // may put in place of a Vulkan one) never has a cache here.
+            (None, None) => true,
+            _ => false,
         }
     }
+    #[cfg(any(target_vendor = "apple", target_arch = "wasm32"))]
     true
 }
 
@@ -406,6 +411,24 @@ mod tests {
         }
         let second = crate::gpu_processing::GpuContext::headless().unwrap();
         assert!(for_device(&second.device).is_none());
+        // Nor a device of another backend with the same id.
+        for backends in [wgpu::Backends::DX12, wgpu::Backends::GL] {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends,
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
+            let Ok(adapter) = pollster::block_on(
+                instance.request_adapter(&wgpu::RequestAdapterOptions::default()),
+            ) else {
+                continue;
+            };
+            let Ok((device, _queue)) =
+                pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            else {
+                continue;
+            };
+            assert!(for_device(&device).is_none(), "{backends:?}");
+        }
         assert!(for_device(&first.device).is_some());
     }
 
