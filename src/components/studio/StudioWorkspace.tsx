@@ -365,6 +365,8 @@ export default function StudioWorkspace(props: Props) {
   // (into ⋯) give way as the bar narrows (useFitOneRow).
   const libraryBarRef = useFitOneRow(3);
   const viewerBarRef = useFitOneRow(5);
+  // The loupe's bar only drops its words (it has no ⋯ for more).
+  const loupeBarRef = useFitOneRow(1);
   const searchFocusRequest = useUIStore((s) => s.searchFocusRequest);
   useEffect(() => {
     if (!searchFocusRequest) return;
@@ -1632,7 +1634,7 @@ export default function StudioWorkspace(props: Props) {
               {/* The Library's loupe: organise one photograph at a time
                   (rating, flags, keywords and metadata beside it); adjusting
                   it is Develop's job (D). */}
-              <div className="studio-viewer-toolbar studio-loupe-bar">
+              <div ref={loupeBarRef} className="studio-viewer-toolbar studio-loupe-bar">
                 <div className="studio-viewer-side">
                   <button
                     aria-label={t('studio.workspace.viewer.togglePanels')}
@@ -1720,14 +1722,12 @@ export default function StudioWorkspace(props: Props) {
                 <div className="studio-viewer-side is-end">
                   <ViewerCaptureInfo />
                   <button
-                    className="studio-viewer-fit"
                     title={withShortcut(t('studio.workspace.viewer.fitTitle'), ',')}
                     onClick={() => onZoom(1, true)}
                   >
                     {t('studio.workspace.viewer.fit')}
                   </button>
                   <button
-                    className="studio-viewer-fit"
                     title={withShortcut(t('studio.workspace.viewer.actualPixels'), '.')}
                     onClick={() => onZoom(1)}
                   >

@@ -1777,10 +1777,10 @@
    Camera preview, Proof margin and the zoom presets into ⋯, level 4 Fit
    and 100 % too, level 5 leaves Undo and Redo to ⌘Z/⇧⌘Z and the Edit menu.
    The cursor tools always stay. Only past level 5 may the bar wrap. */
-.studio-viewer-toolbar:not([data-wrap='true']) {
+.studio-viewer-toolbar[data-collapse]:not([data-wrap='true']) {
   flex-wrap: nowrap;
 }
-.studio-viewer-toolbar:not([data-collapse='0']) .optional-label {
+.studio-viewer-toolbar[data-collapse]:not([data-collapse='0']) .optional-label {
   display: none;
 }
 .studio-viewer-toolbar:is([data-collapse='2'], [data-collapse='3'], [data-collapse='4'], [data-collapse='5'])
@@ -6315,16 +6315,16 @@ button.studio-button.is-destructive:hover:not(:disabled) {
    keeps every control and drops the words beside icons (each keeps its
    name as tooltip and accessible name); levels 2 and 3 narrow the search
    box and the menus. Only past level 3 (the smallest window) may it wrap. */
-.studio-library-toolbar:not([data-wrap='true']),
-.studio-library-toolbar:not([data-wrap='true']) .studio-library-filters {
+.studio-library-toolbar[data-collapse]:not([data-wrap='true']),
+.studio-library-toolbar[data-collapse]:not([data-wrap='true']) .studio-library-filters {
   flex-wrap: nowrap;
 }
-.studio-library-toolbar:not([data-wrap='true']) .studio-search {
+.studio-library-toolbar[data-collapse]:not([data-wrap='true']) .studio-search {
   min-width: 190px;
 }
 /* The search group never shrinks below its controls (they would overlap the
    filters); the search box inside gives way at the levels below. */
-.studio-library-toolbar:not([data-wrap='true']) .studio-search-group {
+.studio-library-toolbar[data-collapse]:not([data-wrap='true']) .studio-search-group {
   min-width: min-content;
 }
 /* Content search's model download keeps its words and size until the bar
@@ -6345,13 +6345,15 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-library-toolbar[data-collapse='3'] .studio-search-download > span {
   display: none;
 }
-.studio-library-toolbar:not([data-collapse='0']) .studio-flag-label,
-.studio-library-toolbar:not([data-collapse='0']) .studio-metadata-toggle > span:not(.studio-filter-count),
-.studio-library-toolbar:not([data-collapse='0']) .studio-subfolders > span,
-.studio-library-toolbar:not([data-collapse='0']) .studio-clear-filters > span {
+.studio-library-toolbar[data-collapse]:not([data-collapse='0']) .studio-flag-label,
+.studio-library-toolbar[data-collapse]:not([data-collapse='0'])
+  .studio-metadata-toggle
+  > span:not(.studio-filter-count),
+.studio-library-toolbar[data-collapse]:not([data-collapse='0']) .studio-subfolders > span,
+.studio-library-toolbar[data-collapse]:not([data-collapse='0']) .studio-clear-filters > span {
   display: none;
 }
-.studio-library-toolbar:not([data-collapse='0']) .studio-library-filters {
+.studio-library-toolbar[data-collapse]:not([data-collapse='0']) .studio-library-filters {
   gap: 5px;
 }
 .studio-library-toolbar[data-collapse='2'] .studio-search,

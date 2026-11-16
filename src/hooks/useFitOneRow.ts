@@ -10,7 +10,8 @@ import { useLayoutEffect, useState } from 'react';
  * and nothing depends on fixed breakpoints. Only when the last level still
  * does not fit (the smallest window) does `data-wrap` let the bar wrap,
  * so no control is ever cut off. Returns the ref callback for the bar
- * (bars mount and unmount with their view).
+ * (bars mount and unmount with their view). The CSS keys on
+ * `[data-collapse]`, so a bar without the hook keeps its own layout.
  */
 export function useFitOneRow(levels: number): (bar: HTMLElement | null) => void {
   const [bar, setBar] = useState<HTMLElement | null>(null);
@@ -41,6 +42,10 @@ export function useFitOneRow(levels: number): (bar: HTMLElement | null) => void 
       if (frame) cancelAnimationFrame(frame);
       resized?.disconnect();
       changed.disconnect();
+      // React may reuse the node for another bar (Develop's for the loupe's):
+      // it must not keep a level it was not measured for.
+      delete bar.dataset.collapse;
+      delete bar.dataset.wrap;
     };
   }, [bar, levels]);
   return setBar;

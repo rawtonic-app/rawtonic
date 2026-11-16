@@ -33,8 +33,12 @@ if (typeof window !== 'undefined') {
   window.addEventListener('keydown', (event) => menuKeys?.(event), true);
 }
 
+/** A menu's own rows: its enabled buttons, not those of a menu inside it
+ * (Open With and Add to Album draw their own `role="menu"` lists). */
 const menuRows = (panel: Element): HTMLButtonElement[] =>
-  Array.from(panel.querySelectorAll<HTMLButtonElement>(':scope > div > button.rawtonic-menu-item:not([disabled])'));
+  Array.from(panel.querySelectorAll<HTMLButtonElement>('button:not([disabled])')).filter(
+    (button) => button.closest('[role="menu"]') === panel
+  );
 
 const panelOf = (path: string): HTMLElement | null =>
   document.querySelector<HTMLElement>(`[role="menu"][data-menu-path="${path}"]`);
@@ -43,7 +47,9 @@ const panelOf = (path: string): HTMLElement | null =>
 function focusFirstRow(path: string): void {
   if (focusFirstIn !== path) return;
   const panel = panelOf(path);
-  const first = panel && menuRows(panel)[0];
+  // A level drawn by a custom list (its own role="menu") starts in that list.
+  const inner = panel?.querySelector('[role="menu"]');
+  const first = panel && (menuRows(panel)[0] ?? (inner ? menuRows(inner)[0] : undefined));
   if (!first) return;
   focusFirstIn = null;
   first.focus({ preventScroll: true });
@@ -501,21 +507,33 @@ export function ContextMenuProvider({ children }: ContextMenuProviderProps) {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      // A field inside a menu (the keyword list's search) keeps its keys.
-      if (target?.closest('[role="menu"]') && target.closest('input,textarea,select,[contenteditable="true"]')) return;
+      const take = () => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      };
+      // A field inside a menu (the keyword list's search) keeps its keys;
+      // Escape closes the menu there and goes no further (it would leave
+      // Develop or the crop tool once the focus is back).
+      if (target?.closest('[role="menu"]') && target.closest('input,textarea,select,[contenteditable="true"]')) {
+        if (event.key === 'Escape') {
+          take();
+          hideContextMenu();
+        }
+        return;
+      }
       if (event.metaKey || event.ctrlKey) {
         // ⌘/Ctrl combos (undo, the menu bar's keys) close the menu and go on.
         hideContextMenu();
         return;
       }
-      const take = () => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      };
       const focused = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
       const row = focused?.closest('[role="menu"]') ? focused : null;
+      // The rows walked (a custom list's own menu, or the level's), and the
+      // level (with its path) that ← and Escape close.
       const panel = row?.closest<HTMLElement>('[role="menu"]') ?? panelOf('');
-      const panelPath = panel?.dataset.menuPath ?? '';
+      const level = panel?.closest<HTMLElement>('[role="menu"][data-menu-path]');
+      const panelPath = level?.dataset.menuPath ?? '';
+      const custom = !!panel && panel.dataset.menuPath === undefined;
       const rows = panel ? menuRows(panel) : [];
       const index = row ? rows.indexOf(row) : -1;
       const focusRow = (next: number) => rows[(next + rows.length) % rows.length]?.focus({ preventScroll: true });
@@ -576,7 +594,8 @@ export function ContextMenuProvider({ children }: ContextMenuProviderProps) {
           else row.click();
           return;
         case 'Tab':
-          take();
+          // A custom list (with a field) keeps Tab; a menu's rows do not.
+          if (!custom) take();
           return;
       }
       if (event.key.length === 1 && !event.altKey && rows.length) {

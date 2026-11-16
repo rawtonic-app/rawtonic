@@ -113,3 +113,69 @@ it('shows group captions that are not selectable entries', () => {
   expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Brush']);
   expect(menu.querySelector('.rawtonic-menu-group')?.textContent).toBe('Draw');
 });
+
+it('walks the rows of a custom list with its own role="menu" (Open With, albums)', async () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  );
+  render(
+    <ContextMenuProvider>
+      <Opener />
+    </ContextMenuProvider>
+  );
+  const List = () => (
+    <div role="menu" aria-label="Apps">
+      <button role="menuitem">{'First app'}</button>
+      <button role="menuitem">{'Second app'}</button>
+    </div>
+  );
+  act(() => show(10, 10, [{ label: 'Open With', submenu: [{ customComponent: List }] }], { focusFirst: true }));
+  expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Open With' }));
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  });
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'First app' })));
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  });
+  expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Second app' }));
+  // ← closes the list and goes back to its row.
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  });
+  expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Open With' }));
+});
+
+it('closes on Escape in a field inside the menu without the key reaching the app', async () => {
+  const app = vi.fn();
+  window.addEventListener('keydown', app);
+  render(
+    <ContextMenuProvider>
+      <Opener />
+    </ContextMenuProvider>
+  );
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  );
+  const Field = () => <input aria-label="Find keyword" />;
+  act(() => show(10, 10, [{ label: 'Keywords', submenu: [{ customComponent: Field }] }], { focusFirst: true }));
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  });
+  const field = await screen.findByLabelText('Find keyword');
+  field.focus();
+  act(() => {
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  await waitFor(() => expect(screen.queryByLabelText('Find keyword')).toBeNull());
+  expect(app).not.toHaveBeenCalled();
+  window.removeEventListener('keydown', app);
+});

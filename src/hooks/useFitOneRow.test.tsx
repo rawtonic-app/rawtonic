@@ -39,3 +39,14 @@ describe('useFitOneRow', () => {
     expect(getByTestId('bar').dataset.wrap).toBe('true');
   });
 });
+
+it('leaves no level on a node it lets go of (React reuses it for another bar)', () => {
+  const { getByTestId, rerender } = render(<Bar widths={[700, 400]} />);
+  const bar = getByTestId('bar');
+  expect(bar.dataset.collapse).toBe('1');
+  function Plain() {
+    return <div data-testid="bar" />;
+  }
+  rerender(<Plain />);
+  expect(getByTestId('bar').dataset.collapse).toBeUndefined();
+});
