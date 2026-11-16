@@ -478,7 +478,7 @@ describe('Dropping photographs onto the window', () => {
       vi.mocked(invoke).mockImplementation(async (command, args) => {
         // A rating key in the grid while the photographs are copied.
         if (command === 'session_ingest')
-          window.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3' }));
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3', bubbles: true }));
         return base(command, args);
       });
       drop(['/Volumes/CARD/DCIM']);
