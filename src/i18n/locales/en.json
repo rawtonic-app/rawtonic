@@ -4476,7 +4476,7 @@
         "incomplete": "The Trash was emptied, but some files could not be deleted yet; Rawtonic tries again at the next start. {{note}}",
         "menu": "Empty Trash…",
         "messageEmptyFolders": "The empty folders will be moved to the computer’s Trash.",
-        "messageEmptyFolders_catalog": "The empty folders will be moved to the computer’s Trash.",
+        "messageEmptyFolders_catalog": "The empty folders in the catalog’s Trash folder will be moved to the computer’s Trash.",
         "messageFiles_one": "{{count}} file.",
         "messageFiles_other": "{{count}} files.",
         "messageOnlyFiles_one": "{{count}} file in the Trash folder will be moved to the computer’s Trash.",

@@ -456,7 +456,7 @@ describe('emptying the session Trash', () => {
 
       vi.mocked(invoke).mockResolvedValueOnce({
         ...contents,
-        operations: [summary({ id: 'empty-trash-entry', systemTrash: 1 })]
+        operations: [summary({ id: 'empty-trash-entry', systemTrash: 1, items: 0 })]
       });
       await modal.onConfirm?.();
       expect(invoke).toHaveBeenCalledWith(Invokes.EmptySessionTrash, {
@@ -556,7 +556,7 @@ describe('emptying the session Trash', () => {
     const modal = useUIStore.getState().confirmModalState;
     vi.mocked(invoke).mockResolvedValueOnce({
       ...contents,
-      movedEntries: [a],
+      movedEntries: ['A.RAF'],
       failures: ['B.RAF: unavailable'],
       remaining: { photos: 1, files: 1, entries: 1 }
     });

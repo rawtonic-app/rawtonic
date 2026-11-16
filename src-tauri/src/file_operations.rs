@@ -1087,6 +1087,7 @@ pub struct TrashContents {
     /// Successful, independently undoable moves; a failed entry stays put.
     pub operations: Vec<OperationSummary>,
     pub failures: Vec<String>,
+    /// Successful entries relative to the library Trash (preserves the UI path spelling).
     pub moved_entries: Vec<PathBuf>,
     pub remaining: Option<Box<TrashContents>>,
 }
@@ -1162,9 +1163,17 @@ pub fn empty_trash(
         // One journal transaction per entry: failure never rolls back earlier
         // successful moves, and no failed move can fall through to purge.
         let (operations, failures) = move_trash_entries(&plan, |entry| {
-            run(app, "trash", &label, vec![Step::system_trash(entry)])
+            let entry_label = format!(
+                "Empty Trash: {}",
+                entry.file_name().unwrap_or_default().to_string_lossy()
+            );
+            run(app, "trash", &entry_label, vec![Step::system_trash(entry)])
         });
-        contents.moved_entries = operations.iter().flat_map(Operation::trashed).collect();
+        contents.moved_entries = operations
+            .iter()
+            .flat_map(Operation::trashed)
+            .filter_map(|entry| entry.strip_prefix(&plan.folder).ok().map(Path::to_path_buf))
+            .collect();
         contents.operations = operations.iter().map(OperationSummary::from).collect();
         contents.failures = failures;
         contents.remaining =
@@ -1815,7 +1824,11 @@ mod tests {
             assert!(journal.last_undoable().unwrap().is_none());
             // Nothing left to count.
             let plan = library_trash_plan(&session_path).unwrap().unwrap();
-            assert_eq!(contents_of(&plan).entries, 0);
+            let contents = contents_of(&plan);
+            assert_eq!(
+                (contents.photos, contents.files, contents.entries),
+                (0, 0, 0)
+            );
         }
     }
 
@@ -1912,7 +1925,7 @@ mod tests {
             rawtonic_catalog::Mode::Catalog,
         ] {
             let tmp = tempfile::tempdir().unwrap();
-            let dir = tmp.path().join("Library");
+            let dir = tmp.path().canonical().unwrap().join("Library");
             Library::create(&dir, "Library", mode).unwrap();
             let lib = Library::open(&dir).unwrap();
             let a = dir.join("Trash/A.RAF");

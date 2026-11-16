@@ -126,7 +126,7 @@ export default function ConfirmModal({
         <h2 className="studio-dialog-title" id="confirm-modal-title">
           {title}
         </h2>
-        <p className="m-0 whitespace-pre-wrap wrap-anywhere">{message}</p>
+        <p className="m-0 max-h-[50vh] overflow-y-auto whitespace-pre-wrap wrap-anywhere">{message}</p>
         <div className="studio-dialog-footer">
           <Button
             // The default button shows that it is: Enter cancels.

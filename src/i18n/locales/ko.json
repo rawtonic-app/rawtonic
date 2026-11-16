@@ -4354,7 +4354,7 @@
         "incomplete": "휴지통을 비웠지만 일부 파일은 아직 삭제하지 못했습니다. Rawtonic이 다음 시작 시 다시 시도합니다. {{note}}",
         "menu": "휴지통 비우기…",
         "messageEmptyFolders": "빈 폴더가 컴퓨터 휴지통으로 이동됩니다.",
-        "messageEmptyFolders_catalog": "빈 폴더가 컴퓨터 휴지통으로 이동됩니다.",
+        "messageEmptyFolders_catalog": "카탈로그 휴지통의 빈 폴더가 컴퓨터 휴지통으로 이동됩니다.",
         "messageFiles_other": "{{count}} 파일.",
         "messageOnlyFiles_one": "휴지통의 파일 {{count}}개가 컴퓨터 휴지통으로 이동됩니다.",
         "messageOnlyFiles_other": "휴지통의 파일 {{count}}개가 컴퓨터 휴지통으로 이동됩니다.",

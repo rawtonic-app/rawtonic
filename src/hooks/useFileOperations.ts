@@ -430,6 +430,7 @@ export interface TrashContents {
   note?: string | null;
   operations?: FileOperationSummary[];
   failures?: string[];
+  /** Successful entries relative to the library Trash folder. */
   movedEntries?: string[];
   remaining?: TrashContents | null;
 }
@@ -729,7 +730,12 @@ export function useFileOperations(
               entries: contents.entries
             });
             for (const operation of result?.operations ?? []) {
-              await fileAction(() => Promise.resolve(operation), 'trash');
+              // Every returned operation committed a move, including folders and sidecar-only entries.
+              await fileAction(
+                () => Promise.resolve(operation),
+                'trash',
+                () => true
+              );
             }
             if (result?.failures?.length) {
               const remaining = result.remaining;
@@ -783,7 +789,11 @@ export function useFileOperations(
             }
             const moved = (path: string) =>
               result?.movedEntries
-                ? result.movedEntries.some((entry) => sourceOf(path) === entry || isBelow(sourceOf(path), entry))
+                ? result.movedEntries.some((entry) => {
+                    const separator = trashFolder.includes('\\') && !trashFolder.includes('/') ? '\\' : '/';
+                    const movedPath = `${trashFolder}${separator}${entry.replace(/[\\/]/g, separator)}`;
+                    return sourceOf(path) === movedPath || isBelow(sourceOf(path), movedPath);
+                  })
                 : !result?.failures?.length && inTrash(path);
             // Keep selection only for entries that stayed in the library Trash.
             const { selectedImage, setEditor } = useEditorStore.getState();
