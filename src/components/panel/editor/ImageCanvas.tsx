@@ -1,3 +1,4 @@
+import { brushCursorOutlines } from './brushCursor';
 import { useState, useEffect, useRef, useCallback, memo, useMemo, type MutableRefObject } from 'react';
 import { useCropGestures, useToolGesture } from '../../../utils/cropGesture';
 import ReactCrop from 'react-image-crop';
@@ -3711,26 +3712,9 @@ const ImageCanvas = memo(
                           x={(brushGesture ? (gestureAnchor ?? cursorPreview) : cursorPreview).x}
                           y={(brushGesture ? (gestureAnchor ?? cursorPreview) : cursorPreview).y}
                         >
-                          {[brushCursorRings.outer, brushCursorRings.inner].map((radius, ring) =>
-                            ring === 0 && Math.abs(brushCursorRings.outer - brushCursorRings.inner) < 0.5 ? null : (
-                              <Group key={ring}>
-                                <Circle
-                                  radius={radius}
-                                  stroke="rgba(0, 0, 0, 0.45)"
-                                  strokeWidth={3}
-                                  strokeScaleEnabled={false}
-                                  perfectDrawEnabled={false}
-                                />
-                                <Circle
-                                  radius={radius}
-                                  stroke={ring === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.95)'}
-                                  strokeWidth={ring === 0 ? 1 : 1.5}
-                                  strokeScaleEnabled={false}
-                                  perfectDrawEnabled={false}
-                                />
-                              </Group>
-                            )
-                          )}
+                          {brushCursorOutlines(brushCursorRings.outer, brushCursorRings.inner).map((outline, i) => (
+                            <Circle key={i} {...outline} strokeScaleEnabled={false} perfectDrawEnabled={false} />
+                          ))}
                           {/* A plus for drawing, a minus for erasing. */}
                           <Line
                             points={[-4 / effectiveZoomScale, 0, 4 / effectiveZoomScale, 0]}

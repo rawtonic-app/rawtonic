@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- Heal, Clone and Remove show the brush size on the photo with a ring cursor, including the object brush; rings follow zoom and size changes and yield to existing spot handles.
+
 - **Thumbnails appear right after a fast scroll through a large folder.** In the Library grid, the filmstrip and its docked column, a fling or scrollbar drag through hundreds of photos revealed the thumbnails of every row it had passed before those of the tiles where it stopped. A screen's cached thumbnails now arrive together, are looked up apart from thumbnails still being made, and the tiles in view are shown first. Measured with cached thumbnails, release to every tile in view filled: Linux, 1,200 photos, median 245 → 60 ms; Windows laptop, about 1,160 photos, median 133 → 88 ms for scrollbar drags, wheel flings 103–131 ms after the fix.
 
 ## 0.1.0-alpha.16 — 2026-11-16
