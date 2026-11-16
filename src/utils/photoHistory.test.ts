@@ -62,7 +62,7 @@ it('reading a saved edit back adds no History step (HIST1)', () => {
     // A camera's lens data as the backend's JSON parser reads it back
     // (serde_json: 1.0004769346969977 → 1.0004769346969975).
     lensDistortionParams: { ...lens, tca_vr: 1.0004769346969975 }
-  } as Adjustments;
+  } as unknown as Adjustments;
   const { history, historyIndex } = historyFor('/a.raf', saved);
   expect(history.map((step) => step.shadows)).toEqual([0, 100]);
   expect(historyIndex).toBe(1);

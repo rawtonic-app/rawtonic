@@ -106,7 +106,7 @@ it('names no tool for values only read back in another key order or stamped by t
     // A camera's lens data as the backend's JSON parser reads it back
     // (serde_json: 1.0004769346969977 → 1.0004769346969975).
     lensDistortionParams: { tca_vr: 1.0004769346969975 }
-  } as Adjustments;
+  } as unknown as Adjustments;
   const shown = { ...base, lensDistortionParams: { tca_vr: 1.0004769346969977 } } as Adjustments;
   expect(describeHistoryStep(shown, read, t, 'en')).toBe(t('studio.develop.history.other'));
   expect(step(shown, { ...read, shadows: 100 })).toBe('Shadows +100');
