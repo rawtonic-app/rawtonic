@@ -9476,6 +9476,9 @@ fn display_tone_stage_matches_exports_for_every_tone_version() {
         RENDER_VERSION, RENDER_VERSION_KEY, TONE_VERSION, TONE_VERSION_KEY, new_edit_responses,
     };
     let context = context();
+    // One compile at a time on AMD's Windows Vulkan driver, and nothing
+    // compiled ahead (G76/WEFX, WSHRIM).
+    let _limit = DeviceCompileLimit::set(&context);
     let (width, height) = (193, 131);
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
     let view = input(&context, width, height, 23);
@@ -14589,7 +14592,12 @@ fn tone_version_14_highlights_no_light_rim() {
     let context = context();
     // 1080 rows: the base's samples at their reference size.
     let (width, height) = (1024u32, 1080u32);
-    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // One compile at a time on AMD's Windows Vulkan driver and nothing
+    // compiled ahead: `GpuProcessor::new` without the limit compiled the
+    // start variants (every feature at once among them) together, which took
+    // a Radeon 680M's driver beyond 50 GB (G76/WEFX, WSHRIM).
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
     let edges = grey_texture(
         &context,
         width,
@@ -14737,7 +14745,12 @@ fn tone_version_19_shadows_no_light_rim() {
     let context = context();
     // 1080 rows: the blurs at their reference size.
     let (width, height) = (1024u32, 1080u32);
-    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // One compile at a time on AMD's Windows Vulkan driver and nothing
+    // compiled ahead: `GpuProcessor::new` without the limit compiled the
+    // start variants (every feature at once among them) together, which took
+    // a Radeon 680M's driver beyond 50 GB (G76/WEFX, WSHRIM).
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
     let edges = grey_texture(&context, width, height, &shadows_v19_edges(width, height));
     let textured = grey_texture(
         &context,
@@ -14846,7 +14859,12 @@ fn tone_version_19_shadows_drag_render_time() {
     // As `tone_version_13_shadows_drag_render_time`, against version 18.
     let context = context();
     let (width, height) = (2560u32, 1707u32);
-    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // One compile at a time on AMD's Windows Vulkan driver and nothing
+    // compiled ahead: `GpuProcessor::new` without the limit compiled the
+    // start variants (every feature at once among them) together, which took
+    // a Radeon 680M's driver beyond 50 GB (G76/WEFX, WSHRIM).
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
     let view = grey_texture(
         &context,
         width,

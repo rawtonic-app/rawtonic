@@ -755,6 +755,9 @@ mod color_grading;
 fn slider_response_matches_the_pinned_measurement() {
     let started = Instant::now();
     let context = context();
+    // One compile at a time on AMD's Windows Vulkan driver, and nothing
+    // compiled ahead (G76/WEFX, WSHRIM).
+    let _limit = super::DeviceCompileLimit::set(&context);
     let slot = GpuProcessorSlot::new(None);
     let charts = Charts::new();
     let recipes = renders();
