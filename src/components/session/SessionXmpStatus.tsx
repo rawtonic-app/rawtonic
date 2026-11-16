@@ -80,14 +80,14 @@ const XMP_ACTIVITY = 'xmp:pending';
 export async function openPendingXmpView(
   directory: string,
   name: string,
-  select: (id: string, name: string, paths: string[], preserveEditor?: boolean) => void,
+  select: (id: string, name: string, paths: string[], preserveEditor?: boolean) => void | Promise<void>,
   preserveEditor = false
 ) {
   const asked = useLibraryStore.getState().sessionDirectory;
   const paths = await invoke<string[]>(Invokes.SessionPendingXmp, { directory });
   // Another library opened meanwhile: not its photographs.
   if (useLibraryStore.getState().sessionDirectory !== asked) return;
-  select(PENDING_XMP_VIEW_ID, name, paths, preserveEditor);
+  await select(PENDING_XMP_VIEW_ID, name, paths, preserveEditor);
 }
 
 /** The activity centre's entry while the XMP left from the last session are written. */

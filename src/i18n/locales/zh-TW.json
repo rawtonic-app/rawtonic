@@ -1207,7 +1207,7 @@
       "zoomOutTooltip": "縮小"
     },
     "quit": {
-      "exportRunning": "{{label}}（已輸出 {{done}}/{{total}}）",
+      "exportRunning": "{{label}}（正在輸出）",
       "exportWaiting": "{{label}}（等待中）",
       "keepWorking": "繼續工作",
       "quitAnyway": "仍要結束",

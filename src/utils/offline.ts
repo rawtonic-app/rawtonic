@@ -30,7 +30,7 @@ export const MISSING_VIEW_ID = 'session-missing';
 /** Fired after a relink, so the Albums tool and the session bar update. */
 export const OFFLINE_CHANGED = 'rawtonic:offline-changed';
 
-export type SelectView = (id: string, name: string, paths: string[], preserveEditor?: boolean) => void;
+export type SelectView = (id: string, name: string, paths: string[], preserveEditor?: boolean) => void | Promise<void>;
 
 /** Fired when a check found other offline photographs than the one before
  * (the library's missing flags changed; a drive followed to another mount
@@ -140,7 +140,7 @@ export async function openMissingView(
   const asked = useLibraryStore.getState().sessionDirectory;
   const entries = await offlinePhotographs(directory);
   if (useLibraryStore.getState().sessionDirectory !== asked) return entries.length;
-  select(MISSING_VIEW_ID, name, offlinePaths(entries), preserveEditor);
+  await select(MISSING_VIEW_ID, name, offlinePaths(entries), preserveEditor);
   return entries.length;
 }
 

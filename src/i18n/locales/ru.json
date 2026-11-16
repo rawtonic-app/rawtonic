@@ -1327,7 +1327,7 @@
       "zoomOutTooltip": "Уменьшить"
     },
     "quit": {
-      "exportRunning": "{{label}} (экспортировано {{done}} из {{total}})",
+      "exportRunning": "{{label}} (идёт экспорт)",
       "exportWaiting": "{{label}} (ожидает)",
       "keepWorking": "Продолжить работу",
       "quitAnyway": "Всё равно выйти",

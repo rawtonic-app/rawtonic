@@ -418,11 +418,8 @@ export function runningWork(): string[] {
     .getState()
     .exportQueue.filter((job) => job.state === 'running' || job.state === 'queued')
     .map((job) =>
-      i18n.t(job.state === 'running' ? 'modals.quit.exportRunning' : 'modals.quit.exportWaiting', {
-        label: job.label,
-        done: job.done + job.failed,
-        total: job.total
-      })
+      // The queue's snapshot counts lag the running export: no count.
+      i18n.t(job.state === 'running' ? 'modals.quit.exportRunning' : 'modals.quit.exportWaiting', { label: job.label })
     );
   const imports = useActivityStore
     .getState()

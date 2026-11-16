@@ -1327,7 +1327,7 @@
       "zoomOutTooltip": "Oddal"
     },
     "quit": {
-      "exportRunning": "{{label}} (wyeksportowano {{done}} z {{total}})",
+      "exportRunning": "{{label}} (trwa eksport)",
       "exportWaiting": "{{label}} (oczekuje)",
       "keepWorking": "Pracuj dalej",
       "quitAnyway": "Mimo to zakończ",

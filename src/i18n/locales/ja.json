@@ -1207,7 +1207,7 @@
       "zoomOutTooltip": "縮小"
     },
     "quit": {
-      "exportRunning": "{{label}}（{{total}} 枚中 {{done}} 枚書き出し済み）",
+      "exportRunning": "{{label}}（書き出し中）",
       "exportWaiting": "{{label}}（待機中）",
       "keepWorking": "作業を続ける",
       "quitAnyway": "終了する",

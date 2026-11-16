@@ -323,7 +323,7 @@ it('asks before quitting while an export runs or waits, Keep Working keeps the a
     await handleQuitRequest(ask, 1, askRunning);
     expect(ask).not.toHaveBeenCalled();
     expect(askRunning).toHaveBeenCalledWith(
-      ['12 photos as JPG (3 of 12 exported)', '12 photos as JPG (waiting)'],
+      ['12 photos as JPG (exporting)', '12 photos as JPG (waiting)'],
       expect.any(Function),
       expect.any(Function)
     );

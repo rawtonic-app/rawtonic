@@ -1274,7 +1274,7 @@
       "zoomOutTooltip": "Alejar"
     },
     "quit": {
-      "exportRunning": "{{label}} ({{done}} de {{total}} exportadas)",
+      "exportRunning": "{{label}} (exportando)",
       "exportWaiting": "{{label}} (en espera)",
       "keepWorking": "Seguir trabajando",
       "quitAnyway": "Salir de todos modos",

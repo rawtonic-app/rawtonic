@@ -1221,7 +1221,7 @@
       "zoomOutTooltip": "Zoom Out"
     },
     "quit": {
-      "exportRunning": "{{label}} ({{done}} of {{total}} exported)",
+      "exportRunning": "{{label}} (exporting)",
       "exportWaiting": "{{label}} (waiting)",
       "keepWorking": "Keep Working",
       "quitAnyway": "Quit Anyway",
