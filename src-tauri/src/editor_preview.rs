@@ -3777,20 +3777,28 @@ pub(crate) async fn generate_uncropped_preview(
 
         let full_hash = calculate_full_job_hash(&path, &adjustments_clone);
 
-        if let Ok(processed_image) = process_and_get_dynamic_image(
-            &context,
-            &gpu,
-            &develop,
-            &flipped_image,
-            full_hash,
-            RenderRequest {
-                adjustments: uncropped_adjustments,
-                mask_bitmaps: &mask_bitmaps,
-                lut,
-                roi: None,
-            },
-            "generate_uncropped_preview",
-        ) {
+        // A preview of the uncropped photo, not an export: the display
+        // variants render it (a compiled superset serves a recipe whose own
+        // variant is not ready). With the export arithmetic its own variant
+        // compiled first, holding the processor — on a cold NVIDIA cache the
+        // crop frame waited 43 s and every other frame with it
+        // (notes: reference/ux-linux-review-2026-11-16, UXR4L-02).
+        if let Ok(processed_image) =
+            gpu_processing::process_and_get_dynamic_image_with_display_shader(
+                &context,
+                &gpu,
+                &develop,
+                &flipped_image,
+                full_hash,
+                RenderRequest {
+                    adjustments: uncropped_adjustments,
+                    mask_bitmaps: &mask_bitmaps,
+                    lut,
+                    roi: None,
+                },
+                "generate_uncropped_preview",
+            )
+        {
             let (width, height) = processed_image.dimensions();
             let rgb_pixels = processed_image.to_rgb8().into_vec();
 
