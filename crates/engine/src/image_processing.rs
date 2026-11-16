@@ -4898,6 +4898,9 @@ pub struct PreparedAdjustments {
     /// features (`SPECIALIZED_EXPORT_RENDER_VERSION`); before, recipes with
     /// sharpening, highlights or noise reduction used the general shader.
     pub specialized_export: bool,
+    /// Exports compute the detail stage in a pass of their own
+    /// (`DETAIL_PASS_EXPORT_RENDER_VERSION`); before, inside the main pass.
+    pub detail_pass_export: bool,
     /// The global point curves sampled (point_curve.rs) when a channel has
     /// more than 16 points; `global.region_curve_active[1]` is 1 then.
     pub curve_table: Option<std::sync::Arc<Vec<[f32; 4]>>>,
@@ -4924,6 +4927,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
             relight_patterns,
             whole_blur_radius: false,
             specialized_export: false,
+            detail_pass_export: false,
             curve_table: None,
         }
     }
@@ -6233,9 +6237,11 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// (`image_loader::BORDER_BLACK_RENDER_VERSION`). 12 (2026-11-09) eases
 /// saturated colours near the output space's edge towards it before the
 /// clip, so fewer of them end at a channel's maximum
-/// (`GAMUT_KNEE_RENDER_VERSION`).
+/// (`GAMUT_KNEE_RENDER_VERSION`). 13 (2026-11-15) exports compute noise
+/// reduction and sharpening in a pass of their own
+/// (`DETAIL_PASS_EXPORT_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 12;
+pub const RENDER_VERSION: u64 = 13;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the
@@ -6266,6 +6272,16 @@ pub const GAMUT_MAPPING_RENDER_VERSION: u64 = 4;
 /// (`GlobalAdjustments::gamut_mapping` 2, shader `ease_into_gamut`; notes:
 /// parity-gaps/G01-base-profiles.md, tasks ATF10 and ATF10F).
 pub const GAMUT_KNEE_RENDER_VERSION: u64 = 12;
+
+/// The render version from which exports compute the detail stage (noise
+/// reduction, sharpening) in a pass of their own before the main pass, as
+/// display frames cache it, and the main pass without that code
+/// (`PreparedAdjustments::detail_pass_export`, gpu_processing.rs
+/// `export_detail_pass`): faster, and the compiler rounds a few values
+/// differently (16-bit on Metal: at most 1 of 65,535 on up to 0.16 % of a
+/// photo's pixels in the preservation corpus, up to 5 on generated noise
+/// with a tone layer; notes: benchmark-results/ext4-gpu-export-2026-11-15).
+pub const DETAIL_PASS_EXPORT_RENDER_VERSION: u64 = 13;
 
 /// The render version from which exports render with the main shader
 /// specialized for the recipe's features, as display frames do, also with
@@ -6841,6 +6857,7 @@ fn get_all_adjustments_with_locals<'a>(
         relight_patterns,
         whole_blur_radius: versions.render.whole_blur_radius(),
         specialized_export: versions.render.specialized_export(),
+        detail_pass_export: versions.render.detail_pass_export(),
         curve_table,
         uniforms: Box::new(AllAdjustments {
             global,

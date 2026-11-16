@@ -215,6 +215,7 @@ impl RenderInputs {
                 "mask_uniforms_sha256": masks,
                 "whole_blur_radius": adjustments.whole_blur_radius,
                 "specialized_export": adjustments.specialized_export,
+                "detail_pass_export": adjustments.detail_pass_export,
                 "curve_table_sha256": adjustments.curve_table.as_deref()
                     .map(|table| sha256_hex(bytemuck::cast_slice(table))),
                 "relight_surface_sha256": adjustments.relight_surface.as_deref()

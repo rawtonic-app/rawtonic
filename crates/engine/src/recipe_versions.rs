@@ -119,6 +119,11 @@ impl RenderVersion {
         self.0 >= ip::SPECIALIZED_EXPORT_RENDER_VERSION
     }
 
+    /// Exports compute the detail stage in a pass of their own.
+    pub fn detail_pass_export(self) -> bool {
+        self.0 >= ip::DETAIL_PASS_EXPORT_RENDER_VERSION
+    }
+
     /// The geometry warp computes in f32.
     pub fn f32_warp(self) -> bool {
         self.0 >= ip::F32_WARP_RENDER_VERSION
