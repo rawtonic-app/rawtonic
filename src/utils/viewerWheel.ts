@@ -16,6 +16,8 @@
  * Chromium and WebKitGTK send for a touchpad pinch — zooms.
  */
 
+import { useSettingsStore } from '../store/useSettingsStore';
+
 declare global {
   interface Window {
     /** Whether the last scroll event had precise (trackpad) deltas; set by
@@ -76,6 +78,11 @@ export function wheelAction(
   return zoom(e.deltaY);
 }
 
+/** The Controls zoom speed multiplier (Preferences ▸ Controls ▸ Zoom). */
+function currentZoomSpeed(): number {
+  return useSettingsStore.getState().appSettings?.zoomSpeedMultiplier ?? 1;
+}
+
 /** WebKit's macOS pinch: `gesturestart` / `gesturechange` with the scale
  * since the gesture began. No wheel event is sent for it. */
 export interface PinchGestureEvent extends UIEvent {
@@ -86,13 +93,16 @@ export interface PinchGestureEvent extends UIEvent {
 
 /**
  * Follows a WebKit pinch on `element`: `onZoom(factor, clientX, clientY)`
- * for each change, the factor relative to the previous change. Returns the
- * cleanup. `lastPointer` supplies the anchor when the event has none.
+ * for each change, the factor relative to the previous change, raised to the
+ * Controls zoom speed (`zoomSpeed()`; 1 follows the fingers, as the wheel's
+ * speed scales its exponent). Returns the cleanup. `lastPointer` supplies
+ * the anchor when the event has none.
  */
 export function listenForPinch(
   element: HTMLElement,
   onZoom: (factor: number, clientX: number, clientY: number) => void,
-  lastPointer: () => { x: number; y: number } | null
+  lastPointer: () => { x: number; y: number } | null,
+  zoomSpeed: () => number = currentZoomSpeed
 ): () => void {
   let previous = 1;
   const anchor = (e: PinchGestureEvent) => {
@@ -110,7 +120,8 @@ export function listenForPinch(
     event.preventDefault();
     const e = event as PinchGestureEvent;
     if (!(e.scale > 0) || !Number.isFinite(e.scale)) return;
-    const factor = e.scale / previous;
+    const speed = zoomSpeed();
+    const factor = (e.scale / previous) ** (Number.isFinite(speed) && speed > 0 ? speed : 1);
     previous = e.scale;
     if (factor === 1) return;
     const { x, y } = anchor(e);

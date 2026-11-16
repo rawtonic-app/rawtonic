@@ -55,7 +55,12 @@ describe('listenForPinch', () => {
   it('zooms by each change of a WebKit pinch about its point', () => {
     const element = document.createElement('div');
     const onZoom = vi.fn();
-    const stop = listenForPinch(element, onZoom, () => null);
+    const stop = listenForPinch(
+      element,
+      onZoom,
+      () => null,
+      () => 1
+    );
     element.dispatchEvent(gesture('gesturestart', 1));
     const change = gesture('gesturechange', 1.25);
     element.dispatchEvent(change);
@@ -70,5 +75,25 @@ describe('listenForPinch', () => {
     stop();
     element.dispatchEvent(gesture('gesturechange', 2));
     expect(onZoom).toHaveBeenCalledTimes(3);
+  });
+
+  it('scales a pinch by the zoom speed preference, as the wheel', () => {
+    const element = document.createElement('div');
+    const factors: number[] = [];
+    let speed = 0.1;
+    const stop = listenForPinch(
+      element,
+      (factor) => factors.push(factor),
+      () => null,
+      () => speed
+    );
+    element.dispatchEvent(gesture('gesturestart', 1));
+    element.dispatchEvent(gesture('gesturechange', 2));
+    speed = 3;
+    element.dispatchEvent(gesture('gesturestart', 1));
+    element.dispatchEvent(gesture('gesturechange', 2));
+    expect(factors[0]).toBeCloseTo(2 ** 0.1);
+    expect(factors[1]).toBeCloseTo(8);
+    stop();
   });
 });
