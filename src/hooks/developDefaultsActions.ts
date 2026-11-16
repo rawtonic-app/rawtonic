@@ -9,7 +9,6 @@ import { notify } from '../activity/notify';
 import type { Adjustments } from '../utils/adjustments';
 import {
   cameraName,
-  defaultSettingsOf,
   NO_DEVELOP_DEFAULTS,
   presetDefaultSettings,
   toolDefaultSettings,
@@ -21,8 +20,36 @@ import {
   type PhotoDefaults
 } from '../utils/developDefaults';
 import { initialAdjustmentsFor } from '../utils/adjustments';
+import { expressPastedSettings } from '../utils/pastedVersions';
+import { collectPresetAdjustments } from './usePresets';
 import { showNewDevelopDefaults, updateAdjustments } from './useEditorActions';
 import { COPIED_ALONG } from '../components/studio/StudioToolCopy';
+
+/** A photo's settings as a default: as a style saved from it would carry
+ * them (the versions its values render with stated, also those an older
+ * edit leaves implicit), applied to a new edit. */
+export function photoDefaultSettings(current: Adjustments, isRaw: boolean): Record<string, unknown> {
+  const asStyle = {
+    id: 'photo',
+    name: 'photo',
+    presetType: 'style',
+    adjustments: collectPresetAdjustments(current, initialAdjustmentsFor(isRaw), {
+      includeMasks: false,
+      includeCropTransform: false,
+      presetType: 'style',
+      isRaw
+    })
+  } as Preset;
+  return presetDefaultSettings(asStyle, isRaw);
+}
+
+/** `prev` with a tool's default settings `picked` as a paste of them: a
+ * response key stays the photo's while its layers (or other sliders) use
+ * it, the values re-expressed in it. */
+export const withToolDefaults = (prev: Adjustments, picked: Partial<Adjustments>, isRaw: boolean): Adjustments => ({
+  ...prev,
+  ...expressPastedSettings(picked, { recipe: prev, isRaw, replaceLayers: false, isNew: false })
+});
 
 /** The develop defaults as saved now. */
 export const currentDevelopDefaults = (): DevelopDefaults =>
@@ -88,7 +115,7 @@ export function setPhotoAsCameraDefault(
 ) {
   const next = withCameraDefault(currentDevelopDefaults(), camera, level, {
     name: photoName,
-    settings: defaultSettingsOf(current, initialAdjustmentsFor(isRaw))
+    settings: photoDefaultSettings(current, isRaw)
   });
   return saved(next, i18next.t('developDefaults.toasts.set', { name: photoName, camera: targetName(camera, level) }));
 }
@@ -125,7 +152,11 @@ export function resetToolToUserDefaults(keys: string[]) {
       .filter(([key]) => all.has(key))
       .map(([key, value]) => [key, structuredClone(value)])
   ) as Partial<Adjustments>;
-  if (Object.keys(picked).length) updateAdjustments((prev) => ({ ...prev, ...picked }));
+  if (!Object.keys(picked).length) return;
+  const isRaw = !!useEditorStore.getState().selectedImage?.isRaw;
+  // As a paste of them: a response key stays the photo's while its layers
+  // (or other sliders) use it, the values re-expressed in it.
+  updateAdjustments((prev) => withToolDefaults(prev, picked, isRaw));
 }
 
 /** Asks the open photograph's camera (and defaults) once it is ready, when

@@ -327,7 +327,9 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                   ...state.selectedImage,
                   ...image,
                   cameraCrops,
-                  ...(photoDefaults ? { photoDefaults } : {}),
+                  // None set: asked again for the menus (`useOpenPhotoCamera`),
+                  // never an earlier opening's defaults.
+                  photoDefaults: photoDefaults ?? undefined,
                   height,
                   width
                 }
