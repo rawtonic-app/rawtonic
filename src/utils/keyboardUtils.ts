@@ -215,6 +215,24 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view'
   },
   {
+    action: 'dock_filmstrip_bottom',
+    description: 'settings.keybinds.actions.dock_filmstrip_bottom',
+    defaultCombo: [],
+    section: 'view'
+  },
+  {
+    action: 'dock_filmstrip_left',
+    description: 'settings.keybinds.actions.dock_filmstrip_left',
+    defaultCombo: [],
+    section: 'view'
+  },
+  {
+    action: 'dock_filmstrip_right',
+    description: 'settings.keybinds.actions.dock_filmstrip_right',
+    defaultCombo: [],
+    section: 'view'
+  },
+  {
     // Lightroom's Survey key: the selected photographs side by side.
     action: 'toggle_multi_view',
     description: 'settings.keybinds.actions.toggle_multi_view',

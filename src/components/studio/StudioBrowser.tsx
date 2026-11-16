@@ -21,6 +21,7 @@ import { PhotoEyesBadge } from './StudioEyes';
 import type { StackMark } from '../../store/useStackStore';
 import { toggleStacks } from '../../utils/stacks';
 import { copyOf, sourceFileName } from '../../entities/photo/photoRef';
+import { dockExtent, wheelThumbnailSize } from '../../utils/filmstripDock';
 
 export function visibleRange(count: number, offset: number, viewport: number, extent: number, columns = 1) {
   const start = Math.max(0, (Math.floor(offset / extent) - 1) * columns);
@@ -50,6 +51,7 @@ const Tile = memo(function Tile({
   onRate,
   onContextMenu,
   film,
+  showName,
   stack
 }: {
   file: ImageFile;
@@ -60,6 +62,8 @@ const Tile = memo(function Tile({
   onRate(rating: number, paths: string[]): void;
   onContextMenu(event: MouseEvent, path: string): void;
   film: boolean;
+  /** The file name under the thumbnail of a docked filmstrip. */
+  showName?: boolean;
   /** Its place in a stack shown in this listing. */
   stack?: StackMark;
 }) {
@@ -195,7 +199,7 @@ const Tile = memo(function Tile({
             </span>
           )}
         </span>
-        {!film && (
+        {(!film || showName) && (
           <span className="studio-photo-name">
             {fileName}
             {copyId && <span className="studio-photo-copy">{` · ${t('studio.library.browser.virtualCopy')}`}</span>}
@@ -256,12 +260,16 @@ export default function StudioBrowser({
   onImport,
   size = 190,
   listing,
-  stackMarks
+  stackMarks,
+  dock
 }: {
   files: ImageFile[];
   /** Photos shown as part of a stack, by path. */
   stackMarks?: Map<string, StackMark>;
   film?: boolean;
+  /** The filmstrip as a vertical grid in a side column (with `film`): the
+   * cell width, file names, and the size chosen by Ctrl/⌘ + wheel. */
+  dock?: { size: number; names: boolean; onSize(size: number): void };
   /** Which listing `files` is (folder or album, search, filter, sort): a new
    * one starts at the top; photos added or removed keep the place. */
   listing?: string;
@@ -279,9 +287,24 @@ export default function StudioBrowser({
 }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
+  // The strip scrolls sideways; the docked grid and the Library grid down.
+  const horizontal = film && !dock;
+  const onDockSize = dock?.onSize;
+  const dockSize = dock?.size ?? 0;
   useEffect(() => {
     const el = ref.current;
-    if (!film || !el) return;
+    if (!dock || !el) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.defaultPrevented || !event.cancelable) return;
+      event.preventDefault();
+      onDockSize?.(wheelThumbnailSize(dockSize, event.deltaY));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [dock, dockSize, onDockSize]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!horizontal || !el) return;
     const onWheel = (event: WheelEvent) => {
       if (
         event.defaultPrevented ||
@@ -308,7 +331,7 @@ export default function StudioBrowser({
     // React's delegated wheel listener is passive; cancellation belongs here.
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [film]);
+  }, [horizontal]);
   const [box, setBox] = useState({ width: 800, height: 500 });
   const [offset, setOffset] = useState(0);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
@@ -386,9 +409,17 @@ export default function StudioBrowser({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const columns = film ? 1 : Math.max(1, Math.floor(box.width / size));
-  const extent = film ? 112 : Math.round((box.width / columns) * 0.72) + 57;
-  const range = visibleRange(files.length, offset, film ? box.width : box.height, extent, columns);
+  const columns = dock
+    ? Math.max(1, Math.floor(box.width / dock.size))
+    : horizontal
+      ? 1
+      : Math.max(1, Math.floor(box.width / size));
+  const extent = dock
+    ? dockExtent(box.width / columns, dock.names)
+    : horizontal
+      ? 112
+      : Math.round((box.width / columns) * 0.72) + 57;
+  const range = visibleRange(files.length, offset, horizontal ? box.width : box.height, extent, columns);
   const mountedTiles = range.end - range.start;
   const measuredTiles = useRef(0);
   useLayoutEffect(() => {
@@ -400,14 +431,14 @@ export default function StudioBrowser({
     requestThumbnails(files.slice(range.start, range.end).map((f) => f.path));
   }, [files, range.start, range.end, requestThumbnails]);
   useEffect(() => {
-    if (!film || !currentPath || !ref.current) return;
+    if (!horizontal || !currentPath || !ref.current) return;
     const index = files.findIndex((f) => f.path === currentPath);
     if (index < 0) return;
     const el = ref.current;
     const x = index * extent;
     if (x < el.scrollLeft || x + extent > el.scrollLeft + el.clientWidth)
       el.scrollLeft = Math.max(0, x - (el.clientWidth - extent) / 2);
-  }, [currentPath, film, files, extent, box.width]);
+  }, [currentPath, horizontal, files, extent, box.width]);
   useEffect(() => {
     if (!ref.current || film) return;
     ref.current.scrollTop = 0;
@@ -432,7 +463,7 @@ export default function StudioBrowser({
   reveal.current = { files, extent, columns };
   useEffect(() => {
     const el = ref.current;
-    if (film || !currentPath || !el) return;
+    if (horizontal || !currentPath || !el) return;
     const { files, extent, columns } = reveal.current;
     const index = files.findIndex((f) => f.path === currentPath);
     if (index < 0) return;
@@ -441,18 +472,18 @@ export default function StudioBrowser({
     else if (top + extent > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top + extent - el.clientHeight);
     else return;
     setOffset(el.scrollTop);
-  }, [currentPath, film]);
+  }, [currentPath, horizontal]);
   return (
     <PerfProfiler id={film ? 'filmstrip' : 'grid'}>
       <div
         ref={ref}
-        className={`studio-browser ${film ? 'is-filmstrip' : 'is-grid'}`}
+        className={`studio-browser ${film ? 'is-filmstrip' : 'is-grid'}${dock ? ' is-dock' : ''}`}
         role="listbox"
         aria-label={film ? t('studio.library.browser.filmstrip') : t('studio.library.browser.photographs')}
         aria-multiselectable="true"
         onPointerDown={onBackgroundDown}
         onPointerUp={onBackgroundUp}
-        onScroll={(e) => setOffset(film ? e.currentTarget.scrollLeft : e.currentTarget.scrollTop)}
+        onScroll={(e) => setOffset(horizontal ? e.currentTarget.scrollLeft : e.currentTarget.scrollTop)}
       >
         {!files.length ? (
           <div className="studio-empty">
@@ -474,8 +505,8 @@ export default function StudioBrowser({
           <div
             style={{
               position: 'relative',
-              width: film ? files.length * extent : '100%',
-              height: film ? '100%' : Math.ceil(files.length / columns) * extent
+              width: horizontal ? files.length * extent : '100%',
+              height: horizontal ? '100%' : Math.ceil(files.length / columns) * extent
             }}
           >
             {files.slice(range.start, range.end).map((file, i) => {
@@ -485,11 +516,11 @@ export default function StudioBrowser({
                   key={file.path}
                   style={{
                     position: 'absolute',
-                    left: film ? index * extent : `${((index % columns) * 100) / columns}%`,
-                    top: film ? 0 : Math.floor(index / columns) * extent,
-                    width: film ? extent : `${100 / columns}%`,
-                    height: film ? '100%' : extent,
-                    padding: film ? '6px 2px' : '8px'
+                    left: horizontal ? index * extent : `${((index % columns) * 100) / columns}%`,
+                    top: horizontal ? 0 : Math.floor(index / columns) * extent,
+                    width: horizontal ? extent : `${100 / columns}%`,
+                    height: horizontal ? '100%' : extent,
+                    padding: dock ? '2px' : film ? '6px 2px' : '8px'
                   }}
                 >
                   <Tile
@@ -503,6 +534,7 @@ export default function StudioBrowser({
                     onRate={onRate}
                     onContextMenu={onContextMenu}
                     film={film}
+                    showName={dock?.names}
                     stack={stackMarks?.get(file.path)}
                   />
                 </div>

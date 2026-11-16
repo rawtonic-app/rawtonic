@@ -73,6 +73,8 @@ import ErrorBoundary from '../ui/ErrorBoundary';
 import StudioDevelop from './StudioDevelop';
 import StudioNavigation, { type FolderActions } from './StudioNavigation';
 import StudioBrowser from './StudioBrowser';
+import StudioFilmstripDock from './StudioFilmstripDock';
+import { readFilmstripDock } from '../../utils/filmstripDock';
 import StudioFilters from './StudioFilters';
 import StudioSearchBox from './StudioSearchBox';
 import StudioToolBar from './StudioToolBar';
@@ -686,7 +688,12 @@ export default function StudioWorkspace(props: Props) {
   );
   const toolsShown = panels[toolsSide] || peek === toolsSide;
   const libraryBesideShown = develop && layout === 'split-tools' && (panels.left || peek === 'left');
-  const film = develop && panels.filmstrip;
+  // The filmstrip: under the photograph, or docked as a grid in a side column.
+  const dockSide = useUIStore((st) => readFilmstripDock(st.uiVisibility.filmstripDock).side);
+  const filmShown = develop && panels.filmstrip;
+  const film = filmShown;
+  const strip = filmShown && dockSide === 'bottom';
+  const docked = filmShown && dockSide !== 'bottom' ? dockSide : null;
   const sidesHidden = present.filter((group) => group === 'left' || group === 'right').every((group) => !panels[group]);
   const { togglePanels, showPanels } = useUIStore.getState();
   const [size, setSize] = useState(205);
@@ -1364,6 +1371,14 @@ export default function StudioWorkspace(props: Props) {
             <ErrorBoundary name={t('studio.workspace.errors.libraryTools')}>{navigation}</ErrorBoundary>
           </aside>
         )}
+        {docked === 'left' && (
+          <StudioFilmstripDock
+            side="left"
+            {...browserProps}
+            onContextMenu={externalPhoto ? externalContextMenu : onContextMenu}
+            onSelect={externalPhoto ? () => {} : props.onFilmSelect}
+          />
+        )}
         <main className="studio-center">
           {props.externalEditBar}
           {develop ? (
@@ -1584,7 +1599,7 @@ export default function StudioWorkspace(props: Props) {
                   </div>
                 </div>
               )}
-              {film && (
+              {strip && (
                 <div className="studio-filmstrip">
                   <StudioBrowser
                     {...browserProps}
@@ -1769,6 +1784,14 @@ export default function StudioWorkspace(props: Props) {
             </>
           )}
         </main>
+        {docked === 'right' && (
+          <StudioFilmstripDock
+            side="right"
+            {...browserProps}
+            onContextMenu={externalPhoto ? externalContextMenu : onContextMenu}
+            onSelect={externalPhoto ? () => {} : props.onFilmSelect}
+          />
+        )}
         {present.includes('right') && !panels.right && (
           <EdgeStrip
             edge="right"

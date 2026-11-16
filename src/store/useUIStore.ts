@@ -20,6 +20,7 @@ import {
   setPanelGroups,
   togglePanelGroups
 } from '../utils/panelLayout';
+import { readFilmstripDock, type FilmstripDock } from '../utils/filmstripDock';
 
 export type SwitcherPlacement = 'bottom' | 'right' | 'left' | 'top';
 
@@ -296,6 +297,9 @@ export interface UIState {
   togglePanels: (request: PanelRequest) => void;
   /** Shows parts of the open module's layout (the window-edge strips). */
   showPanels: (groups: PanelGroup[]) => void;
+  /** Where Develop's filmstrip sits and how its docked grid looks. A new
+   * side also shows the filmstrip (it was asked for). */
+  setFilmstripDock: (patch: Partial<FilmstripDock>) => void;
 }
 
 /** A stored Studio layout value; also reads the key from before the rename to Rawtonic. */
@@ -569,5 +573,17 @@ export const useUIStore = create<UIState>((set, get) => ({
       const module = moduleOf(state.activeView);
       const layout = setPanelGroups(readModuleLayout(state.uiVisibility.modules, module), groups, true);
       return { uiVisibility: { ...state.uiVisibility, modules: { ...state.uiVisibility.modules, [module]: layout } } };
+    }),
+  setFilmstripDock: (patch) =>
+    set((state) => {
+      const dock = { ...readFilmstripDock(state.uiVisibility.filmstripDock), ...patch };
+      const next = readFilmstripDock(dock);
+      const modules = patch.side
+        ? {
+            ...state.uiVisibility.modules,
+            develop: setPanelGroups(readModuleLayout(state.uiVisibility.modules, 'develop'), ['filmstrip'], true)
+          }
+        : state.uiVisibility.modules;
+      return { uiVisibility: { ...state.uiVisibility, filmstripDock: next, modules } };
     })
 }));
