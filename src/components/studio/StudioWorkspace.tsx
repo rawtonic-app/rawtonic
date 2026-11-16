@@ -65,7 +65,14 @@ import { ExportQueuePanel } from './StudioExportQueue';
 import { OPEN_EXPORT_QUEUE } from '../../utils/catalogEvents';
 import PreviewBuildStatus from './PreviewBuildStatus';
 import PreferencesDialog from './PreferencesDialog';
-import { PointerReadout, ProofMarginButton, ViewerCaptureInfo, ZoomPresetOptions } from './ViewerControls';
+import {
+  PointerReadout,
+  ProofMarginButton,
+  ViewerCaptureInfo,
+  ViewerOverflowMenu,
+  ZoomPresetOptions
+} from './ViewerControls';
+import { useFitOneRow } from '../../hooks/useFitOneRow';
 import { CameraPreviewButton } from './CameraPreview';
 import OfflineBadge, { OfflineCount } from './OfflineBadge';
 import StillPreviewBadge from './StillPreviewBadge';
@@ -354,6 +361,10 @@ export default function StudioWorkspace(props: Props) {
   }, [uiScale]);
   // The focus_search shortcut (Library) puts the cursor into the search field.
   const searchRef = useRef<HTMLInputElement>(null);
+  // Both bars stay one row: words, then field widths, then rare controls
+  // (into ⋯) give way as the bar narrows (useFitOneRow).
+  const libraryBarRef = useFitOneRow(3);
+  const viewerBarRef = useFitOneRow(3);
   const searchFocusRequest = useUIStore((s) => s.searchFocusRequest);
   useEffect(() => {
     if (!searchFocusRequest) return;
@@ -1114,7 +1125,7 @@ export default function StudioWorkspace(props: Props) {
     );
   };
   const libraryToolbar = (
-    <div className="studio-library-toolbar studio-controls">
+    <div ref={libraryBarRef} className="studio-library-toolbar studio-controls">
       <button
         aria-label={t('studio.workspace.viewer.togglePanels')}
         title={withShortcut(
@@ -1383,7 +1394,7 @@ export default function StudioWorkspace(props: Props) {
           {props.externalEditBar}
           {develop ? (
             <>
-              <div className="studio-viewer-toolbar">
+              <div ref={viewerBarRef} className="studio-viewer-toolbar">
                 <div className="studio-viewer-side">
                   <button
                     title={withShortcut(
@@ -1451,6 +1462,7 @@ export default function StudioWorkspace(props: Props) {
                     </option>
                     <ZoomPresetOptions />
                   </select>
+                  <ViewerOverflowMenu onZoom={(value) => onZoom(value)} />
                   <button
                     aria-label={t('studio.workspace.loupe.fullScreen')}
                     title={withShortcut(t('studio.workspace.loupe.fullScreen'), hint('toggle_fullscreen'))}

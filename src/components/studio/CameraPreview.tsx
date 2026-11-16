@@ -116,6 +116,7 @@ export function CameraPreviewButton() {
   return (
     <button
       type="button"
+      className="studio-camera-preview-toggle"
       aria-pressed={shown}
       aria-label={label}
       title={title}

@@ -5277,6 +5277,7 @@
         "fitTitle": "符合視窗",
         "hidePanels": "隱藏面板",
         "imageViewer": "影像檢視器",
+        "more": "更多檢視選項",
         "pointerReadout": "指標下的 R、G、B",
         "pointerReadoutTitle": "指標下相片的 R、G、B（sRGB，取色器的 11 × 11 平均值）。按一下可在 0–255 與 % 之間切換。",
         "proofMargin": "校樣邊距",

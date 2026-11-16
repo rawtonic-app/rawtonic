@@ -5277,6 +5277,7 @@
         "fitTitle": "ウィンドウに合わせる",
         "hidePanels": "パネルを隠す",
         "imageViewer": "画像ビューア",
+        "more": "その他の表示オプション",
         "pointerReadout": "ポインター位置のR, G, B",
         "pointerReadoutTitle": "ポインター位置の写真のR, G, B（sRGB、スポイトの11 × 11平均）。クリックで0–255と%を切り替え。",
         "proofMargin": "プルーフマージン",

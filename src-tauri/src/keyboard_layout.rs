@@ -92,7 +92,7 @@ mod carbon {
     #[link(name = "CoreFoundation", kind = "framework")]
     unsafe extern "C" {
         pub fn CFDataGetBytePtr(data: *const c_void) -> *const u8;
-        pub fn CFRelease(cf: *const c_void);
+        pub fn CFRelease(cf: *mut c_void);
     }
 
     pub const KEY_ACTION_DISPLAY: u16 = 3;
@@ -140,7 +140,7 @@ fn read_layout() -> HashMap<String, String> {
                 }
             }
         }
-        CFRelease(source.cast_const());
+        CFRelease(source);
     }
     out
 }

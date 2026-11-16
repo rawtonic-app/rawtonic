@@ -77,20 +77,21 @@ it('badges photographs with closed eyes or faces to check, never open ones', () 
   expect(screen.getAllByRole('img')).toHaveLength(2);
 });
 
-it('offers Check eyes until it is on, then filters closed eyes and those to check', async () => {
+it('shows the eyes filter only with Eye check on, then filters closed eyes and those to check (UX4-16)', async () => {
   const user = userEvent.setup();
   settings(false);
   const { rerender } = render(<StudioFilters counts={{ all: 3, picked: 0, unflagged: 3, rejected: 0 }} />);
-  const select = screen.getByLabelText('Filter by eyes');
-  expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['All eyes', 'Check eyes…']);
-  await user.selectOptions(select, 'start');
-  await waitFor(() =>
-    expect(mockInvoke).toHaveBeenCalledWith(Invokes.StartEyeCheck, { directory: '/job', download: true, resume: true })
-  );
-  expect(useSettingsStore.getState().handleSettingsChange).toHaveBeenCalledWith({ eyeCheck: true });
+  // Off (the default): no "All eyes" that means nothing yet; Preferences turns it on.
+  expect(screen.queryByLabelText('Filter by eyes')).toBeNull();
   settings(true);
   rerender(<StudioFilters counts={{ all: 3, picked: 0, unflagged: 3, rejected: 0 }} />);
-  await user.selectOptions(screen.getByLabelText('Filter by eyes'), 'closed');
+  const select = screen.getByLabelText('Filter by eyes');
+  expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
+    'All eyes',
+    'Eyes closed',
+    'Eyes to check'
+  ]);
+  await user.selectOptions(select, 'closed');
   expect(useLibraryStore.getState().filterCriteria.eyes).toBe('closed');
   await user.click(screen.getByRole('button', { name: 'Clear filters' }));
   expect(useLibraryStore.getState().filterCriteria.eyes).toBe('all');

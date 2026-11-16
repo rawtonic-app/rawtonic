@@ -5415,6 +5415,7 @@
         "fitTitle": "Fit in window",
         "hidePanels": "Hide panels",
         "imageViewer": "Photo viewer",
+        "more": "More view options",
         "pointerReadout": "R, G, B under the pointer",
         "pointerReadoutTitle": "R, G, B of the photo under the pointer (sRGB, the colour pickers' 11 × 11 average). Click to switch between 0–255 and %.",
         "proofMargin": "Proof margin",
