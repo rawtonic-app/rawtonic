@@ -61,6 +61,7 @@ import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { usableSessionFolder } from '../utils/sessionFolders';
 import { useProcessStore } from '../store/useProcessStore';
+import { createVirtualCopy } from './useVirtualCopyCommand';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import {
@@ -761,22 +762,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const conversionLabel = t('contextMenus.thumbnail.convertNegative', { count: selectionCount });
       const mergeLabel = t('contextMenus.editor.mergeHdr');
 
-      const handleCreateVirtualCopy = async (sourcePath: string) => {
-        try {
-          await invoke(Invokes.CreateVirtualCopy, {
-            sourceVirtualPath: sourcePath,
-            targetAlbumId: activeAlbumId || null
-          });
-
-          if (activeAlbumId) {
-            const sortedTree = await invoke<AlbumItem[]>(Invokes.GetAlbums);
-            setLibrary({ albumTree: sortedTree });
-          }
-          await props.refreshImageList();
-        } catch (err) {
-          notify.error(t('contextMenus.toasts.failedCreateVirtualCopy', { err }));
-        }
-      };
+      // As ⌘' does: saved edits first, then the copy selected and named.
+      const handleCreateVirtualCopy = (sourcePath: string) =>
+        createVirtualCopy(sourcePath, props.refreshImageList, props.handleImageSelect);
 
       const handleApplyAutoAdjustmentsToSelection = () => {
         if (finalSelection.length === 0) return;

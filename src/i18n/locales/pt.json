@@ -633,7 +633,10 @@
       "failedApplyAuto": "Falha ao aplicar ajustes automáticos: {{err}}",
       "failedCreateVirtualCopy": "Falha ao criar cópia virtual: {{err}}",
       "failedDuplicate": "Falha ao duplicar arquivo: {{err}}",
-      "failedRemoveImages": "Falha ao remover imagens: {{err}}"
+      "failedRemoveImages": "Falha ao remover imagens: {{err}}",
+      "virtualCopyMade": "Cópia virtual de {{name}} criada.",
+      "virtualCopyNotShown": "Esta vista não a mostra; a pasta da foto mostra.",
+      "virtualCopyNumbered": "Cópia virtual {{number}} de {{name}} criada."
     }
   },
   "contribute": {
@@ -1271,7 +1274,12 @@
       "zoomOutTooltip": "Menos Zoom"
     },
     "quit": {
+      "exportRunning": "{{label}} (a exportar)",
+      "exportWaiting": "{{label}} (em espera)",
+      "keepWorking": "Continuar a trabalhar",
       "quitAnyway": "Sair mesmo assim",
+      "runningMessage": "Ainda em curso: {{work}}. Sair interrompe-o; uma exportação pode ser retomada em Atividade no próximo arranque.",
+      "runningTitle": "Exportações ou importações em curso",
       "unsavedMessage": "Estas alterações não puderam ser salvas: {{changes}}. Se sair agora, elas serão perdidas; cancele para manter o Rawtonic aberto e tentar novamente.",
       "unsavedTitle": "Alterações não salvas"
     },
@@ -3772,6 +3780,7 @@
         "current": "Configurações atuais",
         "currentUnused": "Configurações atuais. As receitas marcadas exportam com suas próprias configurações.",
         "delete": "Excluir a receita {{name}}",
+        "deleteConfirm": "Eliminar a receita «{{name}}»?",
         "edit": "Mostrar e editar esta receita",
         "editingCurrent": "Configurações atuais, não salvas como receita.",
         "editingRecipe": "Editando a receita {{name}}. As alterações são salvas nela.",

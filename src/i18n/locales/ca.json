@@ -633,7 +633,10 @@
       "failedApplyAuto": "No s'han pogut aplicar els ajustaments automàtics: {{err}}",
       "failedCreateVirtualCopy": "No s'ha pogut crear la còpia virtual: {{err}}",
       "failedDuplicate": "No s'ha pogut duplicar el fitxer: {{err}}",
-      "failedRemoveImages": "No s'han pogut treure les imatges: {{err}}"
+      "failedRemoveImages": "No s'han pogut treure les imatges: {{err}}",
+      "virtualCopyMade": "S’ha creat una còpia virtual de {{name}}.",
+      "virtualCopyNotShown": "Aquesta vista no la mostra; la carpeta de la foto sí.",
+      "virtualCopyNumbered": "S’ha creat la còpia virtual {{number}} de {{name}}."
     }
   },
   "contribute": {
@@ -1271,7 +1274,12 @@
       "zoomOutTooltip": "Allunyar"
     },
     "quit": {
+      "exportRunning": "{{label}} (s’està exportant)",
+      "exportWaiting": "{{label}} (en espera)",
+      "keepWorking": "Continua treballant",
       "quitAnyway": "Surt igualment",
+      "runningMessage": "Encara en curs: {{work}}. Sortir ho atura; una exportació es pot reprendre des d’Activitat en el proper inici.",
+      "runningTitle": "Hi ha exportacions o importacions en curs",
       "unsavedMessage": "Aquests canvis no s’han pogut desar: {{changes}}. Si surts ara, els perdràs; cancel·la per mantenir el Rawtonic obert i torna-ho a provar.",
       "unsavedTitle": "Canvis sense desar"
     },
@@ -3772,6 +3780,7 @@
         "current": "Configuració actual",
         "currentUnused": "Configuració actual. Les receptes marcades exporten amb la seva pròpia configuració.",
         "delete": "Suprimeix la recepta {{name}}",
+        "deleteConfirm": "Vols suprimir la recepta «{{name}}»?",
         "edit": "Mostra i edita aquesta recepta",
         "editingCurrent": "Configuració actual, no desada com a recepta.",
         "editingRecipe": "S'està editant la recepta {{name}}. Els canvis s'hi desen.",

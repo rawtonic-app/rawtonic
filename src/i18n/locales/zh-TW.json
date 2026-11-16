@@ -582,7 +582,10 @@
       "failedApplyAuto": "應用自動調整失敗：{{err}}",
       "failedCreateVirtualCopy": "建立虛擬副本失敗：{{err}}",
       "failedDuplicate": "複製檔案失敗：{{err}}",
-      "failedRemoveImages": "移除影像失敗：{{err}}"
+      "failedRemoveImages": "移除影像失敗：{{err}}",
+      "virtualCopyMade": "已建立 {{name}} 的虛擬副本。",
+      "virtualCopyNotShown": "此檢視不顯示它；照片所在資料夾會顯示。",
+      "virtualCopyNumbered": "已建立 {{name}} 的虛擬副本 {{number}}。"
     }
   },
   "contribute": {
@@ -1204,7 +1207,12 @@
       "zoomOutTooltip": "縮小"
     },
     "quit": {
+      "exportRunning": "{{label}}（正在輸出）",
+      "exportWaiting": "{{label}}（等待中）",
+      "keepWorking": "繼續工作",
       "quitAnyway": "仍要結束",
+      "runningMessage": "仍在執行：{{work}}。結束會停止它；輸出可在下次啟動後從「活動」中繼續。",
+      "runningTitle": "輸出或匯入正在執行",
       "unsavedMessage": "下列變更無法儲存：{{changes}}。現在結束將遺失這些變更；取消可讓 Rawtonic 保持開啟並重試。",
       "unsavedTitle": "變更未儲存"
     },
@@ -3513,6 +3521,7 @@
         "current": "目前設定",
         "currentUnused": "目前設定。已勾選的配方依各自的設定輸出。",
         "delete": "刪除配方 {{name}}",
+        "deleteConfirm": "刪除配方「{{name}}」？",
         "edit": "檢視並編輯此配方",
         "editingCurrent": "目前設定，未儲存為配方。",
         "editingRecipe": "正在編輯配方 {{name}}，變更會儲存到其中。",

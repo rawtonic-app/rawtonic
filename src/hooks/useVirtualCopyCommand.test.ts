@@ -8,11 +8,13 @@ import { useUIStore } from '../store/useUIStore';
 import { runAppCommand } from '../utils/appCommands';
 import { buildComboMap } from '../utils/keyboardUtils';
 import { useVirtualCopyCommand } from './useVirtualCopyCommand';
+import { notify } from '../activity/notify';
+import type { ImageFile } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async (command: string) => (command === 'get_albums' ? [{ id: 'album', name: 'A' }] : undefined))
 }));
-vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
 const { flush } = vi.hoisted(() => ({ flush: vi.fn(async () => [] as string[]) }));
 vi.mock('../utils/quit', () => ({ flushBeforeQuit: flush, registerQuitFlush: vi.fn(() => vi.fn()) }));
 
@@ -73,5 +75,60 @@ it('saves pending edits first and reloads the album the copy joins', async () =>
   await vi.waitFor(() => expect(flush).toHaveBeenCalledTimes(2));
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(invoke).not.toHaveBeenCalledWith('create_virtual_copy', expect.anything());
+  hook.unmount();
+});
+
+// UXR4M-19: the copy was made but nothing showed it, so the user pressed
+// again (four hidden copies in one run). Lightroom shows the new copy
+// selected beside its photo; Develop switches to it.
+it('selects the new copy, opens it where a photo is shown and names it', async () => {
+  const copy = '/job/a.CR3?vc=abc123';
+  vi.mocked(invoke).mockImplementation(async (command: string) =>
+    command === 'create_virtual_copy' ? copy : undefined
+  );
+  const refresh = vi.fn(async () => {
+    useLibraryStore.setState({
+      imageList: [{ path: '/job/a.CR3' }, { path: copy }, { path: '/job/b.CR3' }] as ImageFile[]
+    });
+  });
+  const open = vi.fn();
+  const hook = renderHook(() => useVirtualCopyCommand(refresh, open));
+  useUIStore.setState({ activeView: 'library', libraryLoupe: false, isFullScreen: false });
+  useLibraryStore.setState({
+    multiSelectedPaths: ['/job/a.CR3'],
+    libraryActivePath: '/job/a.CR3',
+    activeAlbumId: null
+  });
+  expect(runAppCommand('virtual_copy')).toBe(true);
+  await vi.waitFor(() => expect(notify.success).toHaveBeenCalledWith('Made virtual copy 1 of a.CR3.'));
+  expect(useLibraryStore.getState().multiSelectedPaths).toEqual([copy]);
+  expect(useLibraryStore.getState().libraryActivePath).toBe(copy);
+  expect(open).not.toHaveBeenCalled();
+  // In Develop the copy opens there.
+  useUIStore.setState({ activeView: 'editor' });
+  useEditorStore.setState({ selectedImage: { path: '/job/a.CR3', isReady: true } as never });
+  expect(runAppCommand('virtual_copy')).toBe(true);
+  await vi.waitFor(() => expect(open).toHaveBeenCalledWith(copy, true));
+  hook.unmount();
+});
+
+it('says so when the view does not show the new copy', async () => {
+  vi.mocked(invoke).mockImplementation(async (command: string) =>
+    command === 'create_virtual_copy' ? '/job/a.CR3?vc=def456' : undefined
+  );
+  vi.mocked(notify.success).mockClear();
+  const refresh = vi.fn(async () => {
+    useLibraryStore.setState({ imageList: [{ path: '/job/a.CR3' }] as ImageFile[] });
+  });
+  const hook = renderHook(() => useVirtualCopyCommand(refresh));
+  useUIStore.setState({ activeView: 'library' });
+  useLibraryStore.setState({ multiSelectedPaths: ['/job/a.CR3'], activeAlbumId: null });
+  expect(runAppCommand('virtual_copy')).toBe(true);
+  await vi.waitFor(() =>
+    expect(notify.success).toHaveBeenCalledWith(
+      "Made a virtual copy of a.CR3. This view does not show it; the photo's folder does."
+    )
+  );
+  expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/job/a.CR3']);
   hook.unmount();
 });

@@ -4548,6 +4548,18 @@ body.is-dragging.is-drop-refused * {
   color: var(--studio-shade-muted, #d4e2ea);
   font-weight: 600;
 }
+/* Delete asks in the row (UXR4M-22): the question on its own line, the
+   buttons under it, as the column is narrow. */
+.studio-export-recipes li.studio-preset-confirm {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.studio-export-recipes li.studio-preset-confirm > span:first-child {
+  flex-basis: 100%;
+}
+.studio-export-recipes li.studio-preset-confirm > span:last-child {
+  flex: 1;
+}
 /* Current settings: no tick box, aligned with the recipe names. */
 .studio-export-recipes .studio-export-current {
   margin-left: 21px;

@@ -4,9 +4,10 @@
 use crate::ipc::{CommandError, ErrorCode};
 use crate::session_bridge::{after_relink, with_library};
 use rawtonic_catalog::{
-    ImportBatchInfo, Library,
+    Asset, ImportBatchInfo, Library,
     folder_sync::{SyncAction, SyncApplied, SyncOptions, SyncPlan, SyncProgress},
 };
+use rawtonic_metadata::photo_ref::PhotoRef;
 use std::{
     cell::Cell,
     path::{Path, PathBuf},
@@ -125,16 +126,32 @@ pub async fn session_previous_import(directory: String) -> Result<PreviousImport
     with_library(directory, false, |lib| {
         Ok(PreviousImport {
             batch: lib.previous_import().map_err(|e| e.to_string())?,
-            paths: lib
-                .previous_import_assets()
-                .map_err(|e| e.to_string())?
-                .into_iter()
-                .map(|asset| asset.path)
-                .collect(),
+            paths: with_copies(
+                lib,
+                lib.previous_import_assets().map_err(|e| e.to_string())?,
+            )?,
         })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Each photograph followed by its virtual copies (`<photo>?vc=<id>`), as
+/// the folder view lists them: a copy made in Previous Import shows there
+/// beside its photograph (UXR4M-19).
+fn with_copies(lib: &Library, assets: Vec<Asset>) -> Result<Vec<PathBuf>, String> {
+    let mut paths = Vec::with_capacity(assets.len());
+    for asset in assets {
+        let copies: Vec<PathBuf> = lib
+            .copies(&asset.id)
+            .map_err(|e| e.to_string())?
+            .iter()
+            .map(|copy| PathBuf::from(PhotoRef::of_path(&asset.path, Some(copy)).format()))
+            .collect();
+        paths.push(asset.path);
+        paths.extend(copies);
+    }
+    Ok(paths)
 }
 
 /// The running background pass, stopped when another one starts.
@@ -302,6 +319,15 @@ mod tests {
         let directory = lib.directory.to_string_lossy().into_owned();
         let previous = block_on(session_previous_import(directory.clone())).unwrap();
         assert_eq!(previous.paths, [capture.join("A.ARW")]);
+        // A virtual copy made in Previous Import is listed there, after its
+        // photograph (UXR4M-19).
+        let asset = lib.asset_at(&capture.join("A.ARW")).unwrap().unwrap();
+        lib.save_copy_state(&asset.id, "abc123", &serde_json::json!({}))
+            .unwrap();
+        let previous = block_on(session_previous_import(directory.clone())).unwrap();
+        let copy = format!("{}?vc=abc123", capture.join("A.ARW").display());
+        assert_eq!(previous.paths, [capture.join("A.ARW"), PathBuf::from(copy)]);
+        lib.remove_copy(&asset.id, "abc123").unwrap();
         fs::rename(capture.join("A.ARW"), capture.join("B.ARW")).unwrap();
         fs::write(capture.join("C.ARW"), vec![3u8; 210_000]).unwrap();
         let plan = lib

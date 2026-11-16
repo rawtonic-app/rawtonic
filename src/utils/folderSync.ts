@@ -248,10 +248,11 @@ export function previousImport(directory: string): Promise<PreviousImport> {
 export async function openPreviousImport(
   directory: string,
   name: string,
-  select: (id: string, name: string, paths: string[], preserveEditor?: boolean) => void,
+  select: (id: string, name: string, paths: string[], preserveEditor?: boolean) => void | Promise<void>,
   preserveEditor = false
 ): Promise<number> {
   const { paths } = await previousImport(directory);
-  select(PREVIOUS_IMPORT_VIEW_ID, name, paths, preserveEditor);
+  // Awaited: a refresh (after a new virtual copy, a trash) reads the list it set.
+  await select(PREVIOUS_IMPORT_VIEW_ID, name, paths, preserveEditor);
   return paths.length;
 }

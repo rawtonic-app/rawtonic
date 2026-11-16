@@ -440,7 +440,7 @@ function App() {
 
   const { handleRunMerge, handleRefinishMerge, handleSaveMerge, handleSaveCollage } =
     useProductivityActions(handleLibraryRefresh);
-  useVirtualCopyCommand(handleLibraryRefresh);
+  useVirtualCopyCommand(handleLibraryRefresh, handleImageSelect);
 
   const { handleEditorContextMenu, handleThumbnailContextMenu } = useAppContextMenus({
     handleImageSelect,

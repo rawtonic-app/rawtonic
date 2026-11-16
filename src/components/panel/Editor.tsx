@@ -142,6 +142,16 @@ interface EditorProps {
   transformWrapperRef: React.RefObject<TransformWrapperHandle | null>;
 }
 
+/** Whether a crop (pixels of the oriented W×H frame) is the whole frame:
+ * on an uncropped photo that is no edit, so opening Crop writes nothing
+ * until the frame, angle or ratio changes, as in Lightroom and Capture One
+ * (UXR4M-18). */
+function isWholeFrame(crop: Crop, W: number, H: number): boolean {
+  return (
+    Math.abs(crop.x) <= 1 && Math.abs(crop.y) <= 1 && Math.abs(crop.width - W) <= 1 && Math.abs(crop.height - H) <= 1
+  );
+}
+
 export default function Editor({ onContextMenu, transformWrapperRef }: EditorProps) {
   const appSettings = useSettingsStore((s) => s.appSettings);
   const osPlatform = useSettingsStore((s) => s.osPlatform);
@@ -2144,8 +2154,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       } else {
         prevCropParams.current = { rotation, aspectRatio, orientationSteps };
 
+        // Opening the tool on an uncropped photo shows the whole frame
+        // without writing it (isWholeFrame).
         if (
           nextPixelCrop &&
+          !(currentAdjCrop === null && isWholeFrame(nextPixelCrop, W, H)) &&
           (!currentAdjCrop ||
             Math.abs(currentAdjCrop.x - nextPixelCrop.x) > 1 ||
             Math.abs(currentAdjCrop.y - nextPixelCrop.y) > 1 ||
@@ -2183,7 +2196,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     const cropBaseWidth = isSwapped ? selectedImage.height : selectedImage.width;
     const cropBaseHeight = isSwapped ? selectedImage.width : selectedImage.height;
 
-    const { crop: pixelCrop } = adjustments;
+    // An uncropped photo shows its full frame (or the frame its rotation and
+    // ratio give) without that frame being written to the recipe (UXR4M-18).
+    const pixelCrop = adjustments.crop ?? getEffectiveCrop();
 
     if (pixelCrop) {
       const pct: PercentCrop = {
@@ -2197,7 +2212,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       lastValidCropRef.current = pct;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads only crop and orientationSteps from adjustments, both listed; unrelated edits must not re-derive the displayed crop
-  }, [isCropping, adjustments.crop, adjustments.orientationSteps, selectedImage, liveRotation]);
+  }, [isCropping, adjustments.crop, adjustments.orientationSteps, selectedImage, liveRotation, getEffectiveCrop]);
 
   const handleCropChange = useCallback(
     (_pixelCrop: Crop, percentCrop: PercentCrop) => {
@@ -2511,6 +2526,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       const newPixelCrop: Crop = pixelCropFromPercent(pc, baseW, baseH);
 
       setAdjustments((prev: Adjustments) => {
+        // ReactCrop reports the frame it was first given as complete: the
+        // whole frame of an uncropped photo is no crop (UXR4M-18).
+        if (prev.crop === null && isWholeFrame(newPixelCrop, baseW, baseH)) return prev;
         if (JSON.stringify(newPixelCrop) !== JSON.stringify(prev.crop)) {
           return { ...prev, crop: newPixelCrop };
         }

@@ -595,7 +595,10 @@
       "failedApplyAuto": "Fehler bei der autom. Anpassung: {{err}}",
       "failedCreateVirtualCopy": "Virtuelle Kopie fehlgeschlagen: {{err}}",
       "failedDuplicate": "Datei duplizieren fehlgeschlagen: {{err}}",
-      "failedRemoveImages": "Bilder entfernen fehlgeschlagen: {{err}}"
+      "failedRemoveImages": "Bilder entfernen fehlgeschlagen: {{err}}",
+      "virtualCopyMade": "Virtuelle Kopie von {{name}} erstellt.",
+      "virtualCopyNotShown": "Diese Ansicht zeigt sie nicht; der Ordner des Fotos zeigt sie.",
+      "virtualCopyNumbered": "Virtuelle Kopie {{number}} von {{name}} erstellt."
     }
   },
   "contribute": {
@@ -1218,7 +1221,12 @@
       "zoomOutTooltip": "Verkleinern"
     },
     "quit": {
+      "exportRunning": "{{label}} (wird exportiert)",
+      "exportWaiting": "{{label}} (wartet)",
+      "keepWorking": "Weiterarbeiten",
       "quitAnyway": "Trotzdem beenden",
+      "runningMessage": "Läuft noch: {{work}}. Beenden stoppt es; ein Export lässt sich nach dem nächsten Start unter Aktivität fortsetzen.",
+      "runningTitle": "Exporte oder Importe laufen",
       "unsavedMessage": "Diese Änderungen konnten nicht gespeichert werden: {{changes}}. Beim Beenden gehen sie verloren. Abbrechen hält Rawtonic offen, damit du es erneut versuchen kannst.",
       "unsavedTitle": "Änderungen nicht gespeichert"
     },
@@ -3613,6 +3621,7 @@
         "current": "Aktuelle Einstellungen",
         "currentUnused": "Aktuelle Einstellungen. Die angehakten Rezepte exportieren mit ihren eigenen Einstellungen.",
         "delete": "Rezept {{name}} löschen",
+        "deleteConfirm": "Das Rezept „{{name}}“ löschen?",
         "edit": "Rezept anzeigen und bearbeiten",
         "editingCurrent": "Aktuelle Einstellungen, nicht als Rezept gespeichert.",
         "editingRecipe": "Rezept {{name}} wird bearbeitet. Änderungen werden darin gespeichert.",
