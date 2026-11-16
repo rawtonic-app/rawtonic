@@ -292,6 +292,7 @@ export default function StudioBrowser({
   const ref = useRef<HTMLDivElement>(null);
   // The strip scrolls sideways; the docked grid and the Library grid down.
   const horizontal = film && !dock;
+  const isDock = Boolean(dock);
   const onDockSize = dock?.onSize;
   const dockSize = dock?.size ?? 0;
   useEffect(() => {
@@ -498,7 +499,7 @@ export default function StudioBrowser({
   useEffect(() => {
     const el = ref.current;
     // The docked grid reveals only once measured (and put back in place).
-    if (horizontal || !currentPath || !el || (dock && !measured)) return;
+    if (horizontal || !currentPath || !el || (isDock && !measured)) return;
     const { files, extent, columns } = reveal.current;
     const index = files.findIndex((f) => f.path === currentPath);
     if (index < 0) return;
@@ -507,7 +508,7 @@ export default function StudioBrowser({
     else if (top + extent > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top + extent - el.clientHeight);
     else return;
     setOffset(el.scrollTop);
-  }, [currentPath, horizontal, dock, measured, shown]);
+  }, [currentPath, horizontal, isDock, measured]);
   return (
     <PerfProfiler id={film ? 'filmstrip' : 'grid'}>
       <div

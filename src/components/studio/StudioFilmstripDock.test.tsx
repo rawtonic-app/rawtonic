@@ -311,4 +311,33 @@ describe('docked filmstrip', () => {
       height.mockRestore();
     }
   });
+
+  it('keeps the browsed place when the parent rerenders with the open photograph off screen', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(224);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    const places = new WeakMap<Element, number>();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+      configurable: true,
+      get(this: Element) {
+        return places.get(this) ?? 0;
+      },
+      set(this: Element, value: number) {
+        places.set(this, value);
+      }
+    });
+    try {
+      const files = many(400);
+      const view = mount(files, 'left', vi.fn(), vi.fn(), 0);
+      view.browser.scrollTop = 3000;
+      fireEvent.scroll(view.browser);
+      // An unrelated store change rerenders the dock with a fresh dock object.
+      act(() => useUIStore.getState().setFilmstripDock({ width: 240 }));
+      act(() => useUIStore.getState().setFilmstripDock({ names: true }));
+      expect(view.browser.scrollTop).toBe(3000);
+    } finally {
+      delete (HTMLElement.prototype as { scrollTop?: number }).scrollTop;
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
 });
