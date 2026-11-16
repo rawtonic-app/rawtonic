@@ -1219,6 +1219,48 @@ export const useKeyboardShortcuts = ({
         }
       },
       {
+        // Home / End: the first / last photograph, as in Lightroom — in the
+        // grid, the loupe, the full screen and Develop's filmstrip (in the
+        // multi view: of the selection, as its arrows step).
+        match: (e: KeyboardEvent, s: ShortcutState) =>
+          (e.code === 'Home' || e.code === 'End') &&
+          !e.altKey &&
+          !e.shiftKey &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          (viewerShown(s.ui) ? !!s.editor.selectedImage : s.ui.activeView === 'library'),
+        execute: (e: KeyboardEvent, s: ShortcutState) => {
+          e.preventDefault();
+          const last = e.code === 'End';
+          if (multiViewActive(s)) {
+            const selection = orderedSelection(
+              sortedListRef.current.map((image) => image.path),
+              s.library.multiSelectedPaths
+            );
+            const target = last ? selection[selection.length - 1] : selection[0];
+            if (target && target !== s.editor.selectedImage?.path)
+              handleImageSelect(target, s.ui.activeView === 'editor');
+            return;
+          }
+          const list = sortedListRef.current;
+          const target = (last ? list[list.length - 1] : list[0])?.path;
+          if (!target) return;
+          if (s.ui.activeView === 'editor' && viewerShown(s.ui)) {
+            if (target !== s.editor.selectedImage?.path) handleImageSelect(target, true);
+            return;
+          }
+          // The Library (grid, loupe, full screen): it becomes the selection,
+          // as a click on it would.
+          if (target === (libraryViewer(s.ui) ? s.editor.selectedImage?.path : s.library.libraryActivePath)) return;
+          s.library.setLibrary({
+            libraryActivePath: target,
+            multiSelectedPaths: [target],
+            selectionAnchorPath: target
+          });
+          handleImageSelect(target, false);
+        }
+      },
+      {
         match: (e: KeyboardEvent) => e.code === 'Escape',
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();

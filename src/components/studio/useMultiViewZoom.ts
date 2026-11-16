@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import { wheelAction } from '../../utils/viewerWheel';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -318,26 +319,25 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
   });
 
   /** The wheel over another cell (lock off): zoom (mouse wheel, pinch) or
-   * pan (trackpad scroll, Shift/Option + wheel), as the editor does. */
+   * pan (trackpad scroll, Shift/Option + wheel), as the editor does
+   * (utils/viewerWheel). */
   const onWheel = (path: string, e: WheelEvent) => {
     if (live.current.zoomLock || path === live.current.primary) return false;
     const { appSettings } = useSettingsStore.getState();
-    const trackpad = appSettings?.canvasInputMode === 'trackpad';
-    const zoomIntent = e.ctrlKey || (!trackpad && !e.shiftKey && !e.altKey);
-    const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+    const action = wheelAction(e, appSettings?.canvasInputMode, appSettings?.zoomSpeedMultiplier ?? 1);
+    if (action.kind === 'zoom') return onPinch(path, action.factor, e.clientX, e.clientY);
     return changeCell(path, (zoom, area, size) => {
-      const dpr = dprNow();
-      if (zoomIntent) {
-        const speed = (appSettings?.zoomSpeedMultiplier ?? 1) * (trackpad ? 5 : 1);
-        return zoomCell(zoom, Math.exp(-delta * 0.002 * speed), pointerIn(area, e.clientX, e.clientY), area, size, dpr);
-      }
       if (!zoom) return zoom;
-      let dx = e.deltaX;
-      let dy = e.deltaY;
-      if (!trackpad && e.shiftKey) [dx, dy] = [delta, e.altKey ? delta : 0];
-      else if (!trackpad && e.altKey) [dx, dy] = [0, delta];
-      return panCell(zoom, -dx, -dy, area, size, dpr);
+      return panCell(zoom, -action.dx, -action.dy, area, size, dprNow());
     });
+  };
+
+  /** Zoom of another cell (lock off) by `factor` about a client point. */
+  const onPinch = (path: string, factor: number, clientX: number, clientY: number) => {
+    if (live.current.zoomLock || path === live.current.primary) return false;
+    return changeCell(path, (zoom, area, size) =>
+      zoomCell(zoom, factor, pointerIn(area, clientX, clientY), area, size, dprNow())
+    );
   };
 
   // Each cell's zoom for the badges: the primary's own, the shared one with
@@ -345,5 +345,5 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
   const zoomOf = (path: string): SharedZoom | null =>
     path === primary ? primaryZoom : zoomLock ? primaryZoom : (cellZooms[path] ?? null);
 
-  return { zoomOf, cellHandlers, onWheel, cellSizes };
+  return { zoomOf, cellHandlers, onWheel, onPinch, cellSizes };
 }

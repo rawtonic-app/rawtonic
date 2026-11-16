@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { listenForPinch } from '../../utils/viewerWheel';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { Flag, Pin, PinOff, Star, X } from 'lucide-react';
@@ -331,7 +332,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
       ),
     [shown, grid, box.left, box.top]
   );
-  const { zoomOf, cellHandlers, onWheel } = useMultiViewZoom({
+  const { zoomOf, cellHandlers, onWheel, onPinch } = useMultiViewZoom({
     active,
     primary,
     shown,
@@ -341,6 +342,8 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   });
   const onWheelRef = useRef(onWheel);
   onWheelRef.current = onWheel;
+  const onPinchRef = useRef(onPinch);
+  onPinchRef.current = onPinch;
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || !active) return;
@@ -350,7 +353,31 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
       if (path && onWheelRef.current(path, e)) e.preventDefault();
     };
     stage.addEventListener('wheel', wheel, { passive: false });
-    return () => stage.removeEventListener('wheel', wheel);
+    // A macOS pinch over another cell; over the primary the editor zooms.
+    let pinchPath: string | undefined;
+    const pinchStart = (e: Event) => {
+      const cell = (e.target as Element | null)?.closest?.<HTMLElement>('.studio-mv-cell[data-path]');
+      pinchPath = cell?.dataset.path;
+    };
+    stage.addEventListener('gesturestart', pinchStart, { capture: true });
+    let pointer: { x: number; y: number } | null = null;
+    const onMove = (e: PointerEvent) => {
+      pointer = { x: e.clientX, y: e.clientY };
+    };
+    stage.addEventListener('pointermove', onMove);
+    const stopPinch = listenForPinch(
+      stage,
+      (factor, x, y) => {
+        if (pinchPath) onPinchRef.current(pinchPath, factor, x, y);
+      },
+      () => pointer
+    );
+    return () => {
+      stage.removeEventListener('wheel', wheel);
+      stage.removeEventListener('gesturestart', pinchStart, { capture: true });
+      stage.removeEventListener('pointermove', onMove);
+      stopPinch();
+    };
   }, [active]);
   const percent = useMemo(
     () => new Intl.NumberFormat(i18n.language, { style: 'percent', maximumFractionDigits: 0 }),

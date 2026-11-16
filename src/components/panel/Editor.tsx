@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, useImperativeHandle } from 'react';
+import { wheelAction, listenForPinch } from '../../utils/viewerWheel';
 import { Crop, PercentCrop } from 'react-image-crop';
 import { Loader2 } from 'lucide-react';
 import clsx from 'clsx';
@@ -875,6 +876,63 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       !showOriginal &&
       adjustments.faceRetouch?.geometry === JSON.stringify(faceRetouchGeometry(adjustments)));
 
+  /** Zooms the viewer by `factor` about a point in container pixels. */
+  const zoomAboutRef = useRef((_factor: number, _x: number, _y: number) => {});
+  zoomAboutRef.current = (factor, mouseX, mouseY) => {
+    const { scale, positionX, positionY } = transformStateRef.current;
+    const newScale = Math.max(minScaleRef.current, Math.min(maxScaleRef.current, scale * factor));
+    const ratio = newScale / scale;
+    const newX = mouseX - (mouseX - positionX) * ratio;
+    const newY = mouseY - (mouseY - positionY) * ratio;
+    const bounded = clampToBounds(newX, newY, newScale);
+    applyTransform(bounded.x, bounded.y, bounded.scale);
+  };
+
+  const hasPhoto = !!selectedImage;
+  // A trackpad pinch on macOS: WebKit sends gesture events, no wheel.
+  useEffect(() => {
+    const container = imageContainerRef.current;
+    if (!container) return;
+    let pointer: { x: number; y: number } | null = null;
+    const onMove = (e: PointerEvent) => {
+      pointer = { x: e.clientX, y: e.clientY };
+    };
+    container.addEventListener('pointermove', onMove);
+    const stop = listenForPinch(
+      container,
+      (factor, clientX, clientY) => {
+        if (cameraPreviewOnScreen(useEditorStore.getState())) return;
+        cancelAnimation();
+        if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
+        const rect = container.getBoundingClientRect();
+        zoomAboutRef.current(factor, clientX - rect.left, clientY - rect.top);
+      },
+      () => pointer
+    );
+    return () => {
+      stop();
+      container.removeEventListener('pointermove', onMove);
+    };
+    // The viewer exists only with a photograph (the editor renders nothing before).
+  }, [cancelAnimation, hasPhoto]);
+
+  // A pinch over the before pane zooms both, as its wheel does.
+  useEffect(() => {
+    const pane = beforePaneRef.current;
+    const viewer = imageContainerRef.current;
+    if (!sideBySideLayout || !pane || !viewer) return;
+    return listenForPinch(
+      pane,
+      (factor, clientX, clientY) => {
+        if (cameraPreviewOnScreen(useEditorStore.getState())) return;
+        const paneRect = pane.getBoundingClientRect();
+        const viewerRect = viewer.getBoundingClientRect();
+        zoomAboutRef.current(factor, clientX - paneRect.left, clientY - viewerRect.top);
+      },
+      () => null
+    );
+  }, [sideBySideLayout]);
+
   useEffect(() => {
     const container = imageContainerRef.current;
     if (!container) return;
@@ -929,55 +987,18 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         return;
       }
 
-      const isPinch = e.ctrlKey;
-      const isTrackpad = appSettings?.canvasInputMode === 'trackpad';
-      let zoomSpeedMult = appSettings?.zoomSpeedMultiplier ?? 1.0;
+      const action = wheelAction(e, appSettings?.canvasInputMode, appSettings?.zoomSpeedMultiplier ?? 1.0);
 
-      if (isTrackpad) {
-        zoomSpeedMult *= 5;
-      }
-
-      const isZoomIntent = isPinch || (!isTrackpad && !e.shiftKey && !e.altKey);
-
-      if (isZoomIntent) {
+      if (action.kind === 'zoom') {
         const rect = container.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-
-        const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
-        const zoomSensitivity = 0.002 * zoomSpeedMult;
-        const exponent = delta * zoomSensitivity;
-
-        let newScale = transformStateRef.current.scale * Math.exp(-exponent);
-        newScale = Math.max(minScaleRef.current, Math.min(maxScaleRef.current, newScale));
-
-        const ratio = newScale / transformStateRef.current.scale;
-        const newX = mouseX - (mouseX - transformStateRef.current.positionX) * ratio;
-        const newY = mouseY - (mouseY - transformStateRef.current.positionY) * ratio;
-
-        const bounded = clampToBounds(newX, newY, newScale);
-        applyTransform(bounded.x, bounded.y, bounded.scale);
+        zoomAboutRef.current(action.factor, e.clientX - rect.left, e.clientY - rect.top);
       } else {
         if (transformStateRef.current.scale <= 1.01) return;
 
         const { positionX: curX, positionY: curY, scale } = transformStateRef.current;
         const bounds = getTransformBounds(scale);
 
-        let dx = e.deltaX;
-        let dy = e.deltaY;
-
-        if (!isTrackpad) {
-          if (e.shiftKey && e.altKey) {
-            dx = e.deltaY !== 0 ? e.deltaY : e.deltaX;
-            dy = dx;
-          } else if (e.shiftKey) {
-            dx = e.deltaY !== 0 ? e.deltaY : e.deltaX;
-            dy = 0;
-          } else if (e.altKey) {
-            dx = 0;
-            dy = e.deltaY !== 0 ? e.deltaY : e.deltaX;
-          }
-        }
+        const { dx, dy } = action;
 
         let newX = curX - dx;
         let newY = curY - dy;

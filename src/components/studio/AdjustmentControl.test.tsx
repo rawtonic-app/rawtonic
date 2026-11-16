@@ -505,3 +505,55 @@ describe('Lightroom keyboard steps and travel', () => {
     expect(drag(HSL_TRAVEL_PT)).toBe(20);
   });
 });
+
+describe('Tab between value fields (UX4-01)', () => {
+  type Change = (value: number) => void;
+  const changes = () => ({
+    Exposure: vi.fn<Change>(),
+    Contrast: vi.fn<Change>(),
+    Hidden: vi.fn<Change>(),
+    Clarity: vi.fn<Change>()
+  });
+  const panel = (changes: Record<string, Change>) =>
+    render(
+      <div className="studio-develop">
+        <details open>
+          <summary>Light</summary>
+          <AdjustmentControl label="Exposure" value={0} min={-5} max={5} step={0.01} onChange={changes.Exposure} />
+          <AdjustmentControl label="Contrast" value={0} onChange={changes.Contrast} />
+        </details>
+        <details>
+          <summary>Closed</summary>
+          <AdjustmentControl label="Hidden" value={0} onChange={changes.Hidden} />
+        </details>
+        <details open>
+          <summary>Presence</summary>
+          <AdjustmentControl label="Clarity" value={0} onChange={changes.Clarity} />
+        </details>
+      </div>
+    );
+  const field = (name: string) => screen.getByRole('textbox', { name: `${name} value` }) as HTMLInputElement;
+
+  it('Tab commits the field and moves to the next value field, so typed digits land there', () => {
+    const change = changes();
+    panel(change);
+    const exposure = field('Exposure');
+    act(() => exposure.focus());
+    fireEvent.change(exposure, { target: { value: '1.2' } });
+    fireEvent.keyDown(exposure, { key: 'Tab' });
+    expect(change.Exposure).toHaveBeenLastCalledWith(1.2);
+    expect(document.activeElement).toBe(field('Contrast'));
+    fireEvent.change(field('Contrast'), { target: { value: '15' } });
+    // A closed tool's field is passed over.
+    fireEvent.keyDown(field('Contrast'), { key: 'Tab' });
+    expect(change.Contrast).toHaveBeenLastCalledWith(15);
+    expect(document.activeElement).toBe(field('Clarity'));
+    expect(change.Hidden).not.toHaveBeenCalled();
+    // Shift+Tab goes back; Escape reverts the field being typed.
+    fireEvent.keyDown(field('Clarity'), { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(field('Contrast'));
+    fireEvent.change(field('Contrast'), { target: { value: '80' } });
+    fireEvent.keyDown(field('Contrast'), { key: 'Escape' });
+    expect(change.Contrast).toHaveBeenCalledTimes(1);
+  });
+});

@@ -67,6 +67,23 @@ export function shownValue(value: number, step: number) {
   return String(Number(value.toFixed(digits)));
 }
 
+/**
+ * The value field `steps` fields after (or before) `field` in panel order:
+ * Tab walks value field to value field as in Lightroom, so a column of
+ * numbers is typed without the mouse (notes: reference/ux-windows-review-2026-11-16
+ * UX4-01). The sliders between them are passed over too: a focused slider
+ * leaves digits to the rating keys (`fieldOwnsKey`), so Tab must not land
+ * there. Fields of closed tools and disabled ones are passed over.
+ */
+export function nextValueField(field: HTMLInputElement, steps: 1 | -1): HTMLInputElement | null {
+  const root = field.closest('.studio-develop') ?? field.ownerDocument;
+  const fields = Array.from(root.querySelectorAll<HTMLInputElement>('input.adjustment-value')).filter(
+    (other) => other === field || (!other.disabled && !other.closest('details:not([open])'))
+  );
+  const at = fields.indexOf(field);
+  return at < 0 ? null : (fields[at + steps] ?? null);
+}
+
 /** Independent desktop control: local feedback, engine updates as input
  * arrives, at most one per 8 ms. */
 export default memo(function AdjustmentControl({
@@ -428,6 +445,15 @@ export default memo(function AdjustmentControl({
               e.altKey,
               text.trim() && Number.isFinite(typed) ? typed : pending.current
             );
+          }
+          if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const next = nextValueField(e.currentTarget, e.shiftKey ? -1 : 1);
+            if (next) {
+              e.preventDefault();
+              // Leaving commits this field (blur); the next one selects its
+              // value, so typed digits replace it.
+              next.focus();
+            }
           }
           if (e.key === 'Enter') e.currentTarget.blur();
           if (e.key === 'Escape') {
