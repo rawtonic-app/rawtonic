@@ -4476,13 +4476,19 @@
         "incomplete": "The Trash was emptied, but some files could not be deleted yet; Rawtonic tries again at the next start. {{note}}",
         "menu": "Empty Trash…",
         "messageEmptyFolders": "Remove the empty folders in the Trash folder?",
+        "messageEmptyFolders_catalog": "Remove the empty folders in the catalog’s Trash folder?",
         "messageFiles_one": "{{count}} file is removed from disk, sidecars and XMP included.",
         "messageFiles_other": "{{count}} files are removed from disk, sidecars and XMP included.",
         "messageOnlyFiles_one": "Permanently delete {{count}} file in the Trash folder?",
         "messageOnlyFiles_other": "Permanently delete {{count}} files in the Trash folder?",
+        "messageOnlyFiles_catalog_one": "Permanently delete {{count}} file in the catalog’s Trash folder?",
+        "messageOnlyFiles_catalog_other": "Permanently delete {{count}} files in the catalog’s Trash folder?",
         "messagePhotos_one": "Permanently delete {{count}} photo in the Trash folder?",
         "messagePhotos_other": "Permanently delete {{count}} photos in the Trash folder?",
-        "title": "Empty the Trash Folder?"
+        "messagePhotos_catalog_one": "Permanently delete {{count}} photo in the catalog’s Trash folder?",
+        "messagePhotos_catalog_other": "Permanently delete {{count}} photos in the catalog’s Trash folder?",
+        "title": "Empty the Trash Folder?",
+        "title_catalog": "Empty the Catalog’s Trash Folder?"
       }
     },
     "loadError": {

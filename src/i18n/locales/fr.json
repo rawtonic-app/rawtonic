@@ -4666,16 +4666,24 @@
         "incomplete": "La corbeille a été vidée, mais certains fichiers n’ont pas encore pu être supprimés ; Rawtonic réessaiera au prochain démarrage. {{note}}",
         "menu": "Vider la corbeille…",
         "messageEmptyFolders": "Supprimer les dossiers vides du dossier Trash ?",
+        "messageEmptyFolders_catalog": "Supprimer les dossiers vides du dossier Trash du catalogue ?",
         "messageFiles_one": "{{count}} fichier est effacé du disque, fichiers annexes et XMP compris.",
         "messageFiles_many": "{{count}} fichiers sont effacés du disque, fichiers annexes et XMP compris.",
         "messageFiles_other": "{{count}} fichiers sont effacés du disque, fichiers annexes et XMP compris.",
         "messageOnlyFiles_one": "Supprimer définitivement {{count}} fichier du dossier Trash ?",
         "messageOnlyFiles_many": "Supprimer définitivement {{count}} fichiers du dossier Trash ?",
         "messageOnlyFiles_other": "Supprimer définitivement {{count}} fichiers du dossier Trash ?",
+        "messageOnlyFiles_catalog_one": "Supprimer définitivement {{count}} fichier du dossier Trash du catalogue ?",
+        "messageOnlyFiles_catalog_many": "Supprimer définitivement {{count}} fichiers du dossier Trash du catalogue ?",
+        "messageOnlyFiles_catalog_other": "Supprimer définitivement {{count}} fichiers du dossier Trash du catalogue ?",
         "messagePhotos_one": "Supprimer définitivement {{count}} photo du dossier Trash ?",
         "messagePhotos_many": "Supprimer définitivement {{count}} photos du dossier Trash ?",
         "messagePhotos_other": "Supprimer définitivement {{count}} photos du dossier Trash ?",
-        "title": "Vider le dossier Trash ?"
+        "messagePhotos_catalog_one": "Supprimer définitivement {{count}} photo du dossier Trash du catalogue ?",
+        "messagePhotos_catalog_many": "Supprimer définitivement {{count}} photos du dossier Trash du catalogue ?",
+        "messagePhotos_catalog_other": "Supprimer définitivement {{count}} photos du dossier Trash du catalogue ?",
+        "title": "Vider le dossier Trash ?",
+        "title_catalog": "Vider le dossier Trash du catalogue ?"
       }
     },
     "loadError": {

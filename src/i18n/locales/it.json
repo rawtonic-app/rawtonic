@@ -4666,16 +4666,24 @@
         "incomplete": "Il cestino è stato svuotato, ma alcuni file non è ancora stato possibile eliminarli; Rawtonic riproverà al prossimo avvio. {{note}}",
         "menu": "Svuota cestino…",
         "messageEmptyFolders": "Rimuovere le cartelle vuote nella cartella Trash?",
+        "messageEmptyFolders_catalog": "Rimuovere le cartelle vuote nella cartella Trash del catalogo?",
         "messageFiles_one": "Viene rimosso dal disco {{count}} file, file accessori e XMP compresi.",
         "messageFiles_many": "Vengono rimossi dal disco {{count}} file, file accessori e XMP compresi.",
         "messageFiles_other": "Vengono rimossi dal disco {{count}} file, file accessori e XMP compresi.",
         "messageOnlyFiles_one": "Eliminare definitivamente {{count}} file nella cartella Trash?",
         "messageOnlyFiles_many": "Eliminare definitivamente {{count}} file nella cartella Trash?",
         "messageOnlyFiles_other": "Eliminare definitivamente {{count}} file nella cartella Trash?",
+        "messageOnlyFiles_catalog_one": "Eliminare definitivamente {{count}} file nella cartella Trash del catalogo?",
+        "messageOnlyFiles_catalog_many": "Eliminare definitivamente {{count}} file nella cartella Trash del catalogo?",
+        "messageOnlyFiles_catalog_other": "Eliminare definitivamente {{count}} file nella cartella Trash del catalogo?",
         "messagePhotos_one": "Eliminare definitivamente {{count}} foto nella cartella Trash?",
         "messagePhotos_many": "Eliminare definitivamente {{count}} foto nella cartella Trash?",
         "messagePhotos_other": "Eliminare definitivamente {{count}} foto nella cartella Trash?",
-        "title": "Svuotare la cartella Trash?"
+        "messagePhotos_catalog_one": "Eliminare definitivamente {{count}} foto nella cartella Trash del catalogo?",
+        "messagePhotos_catalog_many": "Eliminare definitivamente {{count}} foto nella cartella Trash del catalogo?",
+        "messagePhotos_catalog_other": "Eliminare definitivamente {{count}} foto nella cartella Trash del catalogo?",
+        "title": "Svuotare la cartella Trash?",
+        "title_catalog": "Svuotare la cartella Trash del catalogo?"
       }
     },
     "loadError": {
