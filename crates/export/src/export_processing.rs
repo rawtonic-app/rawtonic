@@ -230,7 +230,7 @@ impl ExportSettings {
             context.apply_capture(capture);
         }
         context.captured = file_date
-            .to_zoned_datetime(jiff::tz::TimeZone::system())
+            .to_zoned_datetime(rawtonic_runtime::local_time::zone())
             .datetime();
         let mut set = |token: &str, value: Option<&str>| {
             if let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) {
@@ -4204,7 +4204,7 @@ mod naming_counter_tests {
             sequence,
             width = total.to_string().len().max(1)
         );
-        let local_date = file_date.to_zoned_datetime(jiff::tz::TimeZone::system());
+        let local_date = file_date.to_zoned_datetime(rawtonic_runtime::local_time::zone());
 
         let mut result = template.to_string();
         result = result.replace("{original_filename}", stem);

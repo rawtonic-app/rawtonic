@@ -707,7 +707,7 @@ mod tests {
         assert!(exif.contains_key(crate::exif_processing::CAPTURE_CORRECTED));
         let date = pinned[0]
             .capture_date(&b)
-            .to_zoned_datetime(jiff::tz::TimeZone::system());
+            .to_zoned_datetime(rawtonic_runtime::local_time::zone());
         assert_eq!((date.day(), date.hour(), date.minute()), (31, 0, 45));
         let untouched =
             crate::export_processing::pin_photos(std::slice::from_ref(&a_path), None, None, None)

@@ -410,7 +410,7 @@ fn rules_that_cannot_be_evaluated_are_refused() {
 fn relative_dates_count_back_from_today() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = library(d.path());
-    let today = jiff::ZonedDateTime::now().date();
+    let today = rawtonic_runtime::local_time::now().date();
     let day = |n: i64| {
         let date = today.checked_sub(jiff::Span::new().days(n)).unwrap();
         format!("{date} 09:00:00")

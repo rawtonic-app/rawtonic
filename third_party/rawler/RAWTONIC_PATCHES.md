@@ -451,3 +451,7 @@ caller; it is now a debug line without a backtrace.
   no time; `local_earliest_in` and its unit test cover both).
   `tests/rawtonic_last_modified.rs` pins them; it passed with chrono before
   the change and with jiff after it.
+
+- The EXIF modification time fallback and DNG creation use Rawtonic's shared
+  local-time helper so a Windows process follows the Windows time zone even
+  when `TZ` is set.
