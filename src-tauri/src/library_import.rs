@@ -296,7 +296,7 @@ pub fn translate(develop: &Develop) -> Option<Value> {
 }
 
 fn import_warnings(photo: &Photo) -> Vec<String> {
-    let (_, layers) = crate::capture_one_layers::layers(&photo.capture_one_layers);
+    let layers = crate::capture_one_layers::report(&photo.capture_one_layers);
     let layers = layers
         .into_iter()
         .map(|line| format!("{}: {line}", photo.path.display()));

@@ -149,6 +149,31 @@ impl PhotoGeometry {
         self
     }
 
+    /// From the photo before its lens and transform corrections (the frame
+    /// another editor's imported `raster` masks are in) to the current warp,
+    /// when that corrects anything.
+    fn uncorrected_change(&self, width: u32, height: u32) -> Option<WarpChange> {
+        let now = self.warp.as_deref()?;
+        let then = GeometryParams {
+            distortion: 0.0,
+            vertical: 0.0,
+            horizontal: 0.0,
+            rotate: 0.0,
+            aspect: 0.0,
+            scale: 100.0,
+            x_offset: 0.0,
+            y_offset: 0.0,
+            lens_distortion_enabled: false,
+            guided_lines: Vec::new(),
+            guided_perspective_enabled: false,
+            ..now.clone()
+        };
+        (warp_key(&then) != self.warp_key).then(|| WarpChange {
+            now: WarpPoints::new(now, width, height),
+            then: WarpPoints::new(&then, width, height),
+        })
+    }
+
     /// From the warp a mask was made in to the current one, when they differ.
     fn warp_change(&self, params: &Value, width: u32, height: u32) -> Option<WarpChange> {
         let now = self.warp.as_deref()?;
@@ -3839,6 +3864,48 @@ fn ai_bitmap_in_frame(
     ))
 }
 
+/// A mask imported as a bitmap from another editor (`raster`: Capture
+/// One's painted, colour range and AI masks). `maskDataBase64` holds it over
+/// the photo before its lens and transform corrections (the frame Capture
+/// One paints in), in any size: it is stretched to the photo's own size when
+/// that is known, placed by the photo's orientation, flips, straightening
+/// and crop, and moved through the current corrections as the photo's
+/// content is.
+fn generate_raster_bitmap(
+    params_value: &Value,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+    geometry: &PhotoGeometry,
+) -> Option<GrayImage> {
+    let data_url = params_value.get("maskDataBase64")?.as_str()?;
+    let mut full = decode_ai_bitmap(data_url)?;
+    if let Some((w, h)) = geometry.size {
+        let (w, h) = (w.round() as u32, h.round() as u32);
+        if w > 0 && h > 0 && (w, h) != full.dimensions() {
+            full = image::imageops::resize(&full, w, h, image::imageops::FilterType::Triangle);
+        }
+    }
+    let frame = geometry.frame;
+    let tf = TransformParams {
+        rotation: frame.rotation,
+        flip_horizontal: frame.flip_horizontal,
+        flip_vertical: frame.flip_vertical,
+        orientation_steps: frame.orientation_steps,
+        width,
+        height,
+        scale,
+        crop_offset,
+    };
+    let change = geometry.uncorrected_change(full.width(), full.height());
+    Some(generate_ai_bitmap_from_full_mask(
+        &full,
+        &tf,
+        change.as_ref(),
+    ))
+}
+
 fn generate_ai_sky_bitmap(
     params_value: &Value,
     width: u32,
@@ -5026,6 +5093,14 @@ fn generate_sub_mask_bitmap(
         ),
         // A People mask is a stored bitmap like the sky's.
         "ai-sky" | "ai-people" => generate_ai_sky_bitmap(
+            &sub_mask.parameters,
+            width,
+            height,
+            scale,
+            crop_offset,
+            geometry,
+        ),
+        "raster" => generate_raster_bitmap(
             &sub_mask.parameters,
             width,
             height,
@@ -8802,6 +8877,47 @@ mod geometry_follow_tests {
             None,
         )
         .unwrap()
+    }
+
+    /// An imported raster (`raster`) is stretched to the photo's own size,
+    /// turned with the photo, and moved through its lens and transform
+    /// corrections as a bitmap made before them is.
+    #[test]
+    fn imported_rasters_fit_the_photo_and_follow_its_corrections() {
+        let small =
+            image::imageops::resize(&pattern(), 30, 20, image::imageops::FilterType::Nearest);
+        let def = ai_layer("raster", &small, json!({}));
+        let place = |adjustments: &Value, size: (u32, u32)| {
+            generate_mask_bitmap(
+                &def,
+                size.0,
+                size.1,
+                1.0,
+                (0.0, 0.0),
+                &PhotoGeometry::from_adjustments(adjustments).with_photo_size(60.0, 40.0),
+                None,
+            )
+            .unwrap()
+        };
+        let stretched =
+            image::imageops::resize(&small, 60, 40, image::imageops::FilterType::Triangle);
+        assert_turned(&place(&json!({}), (60, 40)), &stretched, "stretched");
+        let turned = apply_coarse_rotation(DynamicImage::ImageLuma8(stretched.clone()), 1)
+            .into_owned()
+            .into_luma8();
+        assert_turned(
+            &place(&json!({"orientationSteps": 1}), (40, 60)),
+            &turned,
+            "turned",
+        );
+        // With a perspective correction: where a bitmap made without
+        // corrections lands, not where it was stored.
+        let corrected = json!({"transformVertical": 40.0});
+        let made_before = ai_layer("ai-sky", &stretched, json!({"warp": {}}));
+        let expected = render(&made_before, &corrected, (60, 40), (0.0, 0.0));
+        let shown = place(&corrected, (60, 40));
+        assert_turned(&shown, &expected, "corrected");
+        assert!(shown != stretched);
     }
 
     #[test]

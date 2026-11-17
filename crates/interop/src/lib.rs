@@ -19,6 +19,7 @@ use std::{
 
 pub mod capture_one;
 pub mod capture_one_masks;
+pub mod capture_one_tiles;
 pub mod lightroom;
 pub mod lightroom_settings;
 

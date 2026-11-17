@@ -151,6 +151,7 @@ turbojpeg = { workspace = true, features = ["cmake", "require-simd"] }
 rawtonic-catalog = { path = "../crates/catalog", version = "0.1.0", features = ["test-support"] }
 rawtonic-engine = { path = "../crates/engine", version = "0.1.0", features = ["test-support"] }
 rawtonic-rawdecode = { path = "../crates/rawdecode", version = "0.1.0", features = ["test-support"] }
+rawtonic-interop = { path = "../crates/interop", version = "0.1.0", features = ["test-support"] }
 pollster = { workspace = true }
 # Test code only: the Capture One import tests build real session files and
 # read them back through `rawtonic-interop`.

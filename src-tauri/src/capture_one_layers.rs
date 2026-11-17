@@ -13,14 +13,19 @@
 //!   the smoothstep out to the ellipse (`gradientVersion` 3), inverted when
 //!   Capture One applies it outside (as drawn by default);
 //! - a filled (or cleared) mask: the whole photo at that value;
-//! - a Luma Range on a filled mask: the whole photo limited by a luma range
-//!   with Capture One's own falloff below and above.
+//! - a painted, colour range or AI mask (Capture One stores each as a
+//!   raster; notes: benchmark-results/c1l2-2026-11-17/): its pixels as a
+//!   `raster` component, over the photo before its lens and transform
+//!   corrections as Capture One paints them, named in the import report
+//!   (the strokes or colour range themselves are not kept);
+//! - a Luma Range on a filled or painted mask: that mask limited by a luma
+//!   range with Capture One's own falloff below and above.
 //!
-//! Painted, colour range and AI masks are compressed rasters Rawtonic does
-//! not read yet: such a layer is left out and named in the import report,
-//! never dropped silently, as are settings without a layer counterpart.
+//! A mask Rawtonic cannot read is left out and named in the import report,
+//! never dropped silently or guessed, as are settings without a layer
+//! counterpart.
 use rawtonic_interop::capture_one::Layer;
-use rawtonic_interop::capture_one_masks::Mask;
+use rawtonic_interop::capture_one_masks::{Coverage, Mask, Raster};
 use rawtonic_recipe::color as recipe_color;
 use rawtonic_recipe::detail;
 use rawtonic_recipe::masks;
@@ -120,9 +125,37 @@ fn sub_mask(kind: &str, invert: bool, opacity: f64, mode: &str, parameters: Valu
     })
 }
 
+/// A `raster` component of Capture One's raster; its bitmap only when
+/// `encode` (a report needs none).
+fn raster_component(raster: &Raster, encode: bool) -> Result<Value, String> {
+    use base64::Engine as _;
+    let data = if encode {
+        let values = raster.values().ok_or("mask tiles not readable")?;
+        let image = image::GrayImage::from_raw(raster.width as u32, raster.height as u32, values)
+            .ok_or("mask raster of another size")?;
+        let mut png = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut png, image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+        Value::String(format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png.into_inner())
+        ))
+    } else {
+        Value::Null
+    };
+    Ok(sub_mask(
+        "raster",
+        false,
+        100.0,
+        "additive",
+        json!({"maskDataBase64": data}),
+    ))
+}
+
 /// The components of a mask, or why it is not imported. Approximations
-/// that still import go to `notes`.
-fn components(layer: &Layer, notes: &mut Vec<String>) -> Result<Vec<Value>, String> {
+/// that still import go to `notes`; bitmaps are made only when `encode`.
+fn components(layer: &Layer, notes: &mut Vec<String>, encode: bool) -> Result<Vec<Value>, String> {
     use rawtonic_engine::recipe_versions::gradient;
     let (width, height) = layer.frame;
     let normal = |(x, y): (f64, f64)| (x / width, y / height);
@@ -196,6 +229,17 @@ fn components(layer: &Layer, notes: &mut Vec<String>) -> Result<Vec<Value>, Stri
                 }}),
             )])
         }
+        Mask::Raster { raster, ai } => {
+            notes.push(
+                if *ai {
+                    "AI mask imported as a bitmap"
+                } else {
+                    "painted or colour range mask imported as a bitmap"
+                }
+                .into(),
+            );
+            Ok(vec![raster_component(raster, encode)?])
+        }
         Mask::LumaRange {
             base,
             low,
@@ -213,8 +257,17 @@ fn components(layer: &Layer, notes: &mut Vec<String>) -> Result<Vec<Value>, Stri
             let (low, high) = (low.min(*high), low.max(*high));
             let below = percent(low - falloff_low.min(low));
             let above = percent(falloff_high.max(high) - high);
+            let base = match base {
+                Coverage::Uniform { value } => {
+                    sub_mask("all", false, *value as f64 / 2.55, "additive", json!({}))
+                }
+                Coverage::Raster { raster } => {
+                    notes.push("painted mask imported as a bitmap".into());
+                    raster_component(raster, encode)?
+                }
+            };
             Ok(vec![
-                sub_mask("all", false, *base as f64 / 2.55, "additive", json!({})),
+                base,
                 sub_mask(
                     "luma-range",
                     *invert,
@@ -234,11 +287,20 @@ fn components(layer: &Layer, notes: &mut Vec<String>) -> Result<Vec<Value>, Stri
 /// Rawtonic layers for Capture One's `layers` (bottom first), and the
 /// report lines for what was left out or approximated.
 pub fn layers(layers: &[Layer]) -> (Vec<Value>, Vec<String>) {
+    convert(layers, true)
+}
+
+/// The report lines of `layers` alone, without making their bitmaps.
+pub fn report(layers: &[Layer]) -> Vec<String> {
+    convert(layers, false).1
+}
+
+fn convert(layers: &[Layer], encode: bool) -> (Vec<Value>, Vec<String>) {
     let mut out = Vec::new();
     let mut report = Vec::new();
     for layer in layers {
         let mut notes = Vec::new();
-        match components(layer, &mut notes) {
+        match components(layer, &mut notes, encode) {
             Ok(sub_masks) => {
                 let (adjustments, left_out) = adjustments(layer);
                 if !left_out.is_empty() {
@@ -384,7 +446,7 @@ mod tests {
             layer(Mask::Uniform { value: 255 }, &[("Exposure", "1")]),
             layer(
                 Mask::LumaRange {
-                    base: 255,
+                    base: Coverage::Uniform { value: 255 },
                     low: 60.0,
                     high: 170.0,
                     falloff_low: 30.0,
@@ -408,6 +470,87 @@ mod tests {
         let near = |v: &Value, want: f64| (v.as_f64().unwrap() - want).abs() < 1e-6;
         assert!(near(&p["rangeLow"], 60.0 / 2.55) && near(&p["rangeHigh"], 170.0 / 2.55));
         assert!(near(&p["falloffLow"], 30.0 / 2.55) && near(&p["falloffHigh"], 40.0 / 2.55));
+    }
+
+    /// A 130 × 70 raster: a soft disc of up to 200 around (40, 30).
+    fn disc() -> Raster {
+        let values: Vec<u8> = (0..130 * 70)
+            .map(|i| {
+                let (x, y) = ((i % 130) as f64 - 40.0, (i / 130) as f64 - 30.0);
+                (200.0 * (1.0 - (x * x + y * y).sqrt() / 25.0)).clamp(0.0, 200.0) as u8
+            })
+            .collect();
+        Raster::from_values(130, 70, &values)
+    }
+
+    fn bitmap(sub: &Value) -> image::GrayImage {
+        use base64::Engine as _;
+        let url = sub["parameters"]["maskDataBase64"].as_str().unwrap();
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(url.strip_prefix("data:image/png;base64,").unwrap())
+            .unwrap();
+        image::load_from_memory(&png).unwrap().into_luma8()
+    }
+
+    #[test]
+    fn painted_colour_range_and_ai_masks_come_over_as_bitmaps() {
+        let raster = disc();
+        let want = raster.values().unwrap();
+        let painted = layer(
+            Mask::Raster {
+                raster: raster.clone(),
+                ai: false,
+            },
+            &[("Exposure", "-2")],
+        );
+        let ai = layer(
+            Mask::Raster {
+                raster: raster.clone(),
+                ai: true,
+            },
+            &[("Exposure", "1")],
+        );
+        let luma = layer(
+            Mask::LumaRange {
+                base: Coverage::Raster {
+                    raster: raster.clone(),
+                },
+                low: 60.0,
+                high: 170.0,
+                falloff_low: 30.0,
+                falloff_high: 210.0,
+                radius: 0.0,
+                sensitivity: 50.0,
+                invert: false,
+            },
+            &[("Exposure", "-1")],
+        );
+        let all = [painted, ai, luma];
+        let (out, report) = layers(&all);
+        assert_eq!(out.len(), 3);
+        for l in &out {
+            let sub = &l["subMasks"][0];
+            assert_eq!(
+                (sub["type"].as_str(), sub["mode"].as_str()),
+                (Some("raster"), Some("additive"))
+            );
+            let b = bitmap(sub);
+            assert_eq!(b.dimensions(), (130, 70));
+            assert_eq!(b.into_raw(), want);
+        }
+        assert_eq!(out[0]["adjustments"]["exposure"], -2.0);
+        assert_eq!(out[2]["subMasks"][1]["type"], "luma-range");
+        assert_eq!(out[2]["subMasks"][1]["mode"], "intersect");
+        assert_eq!(
+            report,
+            [
+                "Capture One layer “L”: painted or colour range mask imported as a bitmap",
+                "Capture One layer “L”: AI mask imported as a bitmap",
+                "Capture One layer “L”: painted mask imported as a bitmap",
+            ]
+        );
+        // The report alone names the same, without making the bitmaps.
+        assert_eq!(super::report(&all), report);
     }
 
     #[test]
