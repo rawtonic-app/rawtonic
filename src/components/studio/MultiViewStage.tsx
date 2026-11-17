@@ -386,9 +386,28 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
 
   const exif = useMemo(() => new Map(files.map((file) => [file.path, file.exif])), [files]);
   const selectedExif = useEditorStore((s) => s.selectedImage?.exif);
+  const [captionExif, setCaptionExif] = useState<Record<string, Record<string, string>>>({});
+  // Browsing by filename does not hydrate library EXIF. Read only visible
+  // cells, including the pinned reference, through the same reader as Library.
+  const missingExif = JSON.stringify(active ? shown.filter((path) => exif.get(path) == null) : []);
+  useEffect(() => {
+    const paths: string[] = JSON.parse(missingExif);
+    if (!paths.length) return;
+    let cancelled = false;
+    void invoke<Record<string, Record<string, string>>>(Invokes.ReadExifForPaths, { paths })
+      .then((data) => {
+        if (!cancelled) setCaptionExif(data);
+      })
+      .catch((error) => console.error('Failed to load multi-view EXIF:', error));
+    return () => {
+      cancelled = true;
+    };
+  }, [missingExif]);
 
   const caption = (path: string, g: GridCell) => {
-    const values = captureValues(path === primary && selectedExif ? selectedExif : exif.get(path));
+    const values = captureValues(
+      path === primary && selectedExif ? selectedExif : (exif.get(path) ?? captionExif[path])
+    );
     const line = captureLine(g.level, values);
     const rating = imageRatings[path] || 0;
     return (

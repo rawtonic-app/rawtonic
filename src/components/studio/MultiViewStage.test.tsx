@@ -1,6 +1,6 @@
 import '../../i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MultiViewStage from './MultiViewStage';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -277,6 +277,22 @@ describe('multi view', () => {
     expect(shown.at(-1)).toBe('more');
     expect(shown).toContain('/s/p14.CR3');
     expect(screen.getByText('and 4 more')).toBeTruthy();
+  });
+
+  it('loads missing exposure for secondary cells and keeps it when the primary changes', async () => {
+    const missing = { ...file('/s/a.CR2'), exif: null };
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === Invokes.ReadExifForPaths
+        ? { '/s/a.CR2': { PhotographicSensitivity: '400', ExposureTime: '1/250', FNumber: '5.6' } }
+        : (true as never)
+    );
+    open('/s/b.CR3', ['/s/a.CR2', '/s/b.CR3', '/s/c.CR3']);
+    const { container } = stage([missing, ...files.slice(1)]);
+    const caption = () => container.querySelector('[data-path="/s/a.CR2"] .studio-mv-caption')!;
+    await waitFor(() => expect(caption().textContent).toContain('ISO 400 · 1/250 s · f/5.6'));
+    expect(invoke).toHaveBeenCalledWith(Invokes.ReadExifForPaths, { paths: ['/s/a.CR2'] });
+    act(() => open('/s/c.CR3', ['/s/a.CR2', '/s/b.CR3', '/s/c.CR3']));
+    expect(caption().textContent).toContain('ISO 400 · 1/250 s · f/5.6');
   });
 
   it('captions grow with the cell: name and capture values', () => {
