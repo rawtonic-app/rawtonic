@@ -268,7 +268,6 @@ fn show_cells(
         );
         display.render(&context.device, &context.queue);
         let multi = display.multi_view();
-        #[cfg(feature = "performance-profiling")]
         if multi.is_zoomed() {
             log::info!("[multi_view] cells shown, drawn:{}", multi.describe());
         }
@@ -1783,7 +1782,6 @@ pub(crate) async fn set_multi_view_zoom(
             display.set_multi_view_zooms(shared, individual);
             display.render(&context.device, &context.queue);
             let multi = display.multi_view();
-            #[cfg(feature = "performance-profiling")]
             log::info!("[multi_view] zoomed cells drawn:{}", multi.describe());
             multi
                 .cells()
@@ -2907,7 +2905,6 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
         "[multi_view] {shown} of {count} zoomed regions developed in {:.1} ms",
         start.elapsed().as_secs_f64() * 1e3
     );
-    #[cfg(feature = "performance-profiling")]
     if let Some(display) = context
         .display
         .lock()
