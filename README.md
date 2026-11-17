@@ -28,7 +28,7 @@
 
 <p align="center">
   <a href="docs/images/readme-develop.jpg">
-    <img src="docs/images/readme-develop.jpg" alt="Rawtonic Develop: a Dolomites landscape in the workspace, with layers, tone controls, histogram and filmstrip" width="860">
+    <img src="docs/images/readme-develop.jpg" alt="Rawtonic Develop: a Dolomites landscape with sky and foreground layers, white balance and exposure controls, histogram and filmstrip" width="860">
   </a>
 </p>
 
@@ -110,14 +110,14 @@ Start a **project** for a portrait sitting, a wedding or a product shoot. **Inge
 
 Use a **catalog** for a growing photo collection. Imports copy into its own `Photos/year/date` folders by default; you can also keep photos in their existing folders. Albums organize photographs without moving them. Moved, renamed, added or deleted files outside Rawtonic? **Synchronize Folder** finds the changes, follows moved photos with their edits and lets you review everything before it is applied. The library menu can create a **portable copy** for another computer, make a **full verified backup**, or **restore a backup** into a new folder—including external originals and required edit resources.
 
-**Session Folders…** sets where a project's captures, selects and exports go, inside the project or on another drive. **Find Duplicates** lists photos whose files hold identical image data, even under other names, and moves only the ones you mark to the Trash; visually similar photos are not found. **Export as Catalog…** takes a job to another computer, and **Import from Catalog…** brings the edits made there back, with a review first and one Undo step.
+**Session Folders…** sets where a project's captures, selects and exports go, inside the project or on another drive. **Find Duplicates** lists photos whose files hold identical image data, even under other names, and moves only the ones you mark to the Trash; visually similar photos are not found. **Empty Trash** on a session's or catalog's Trash folder moves its contents to the computer's Trash, with Undo; deleting permanently is a separate, explicit step. **Export as Catalog…** takes a job to another computer, and **Import from Catalog…** brings the edits made there back, with a review first and one Undo step.
 
-Already have a Lightroom Classic catalog or a Capture One session or catalog? Rawtonic can import it, with ratings, labels, keywords, albums, smart collections, virtual copies, snapshots, stacks (Lightroom) and translated edits.
+Already have a Lightroom Classic catalog or a Capture One session or catalog? Rawtonic can import it, with ratings, labels, keywords, albums, smart collections, virtual copies, snapshots, stacks (Lightroom) and translated edits. Capture One's local adjustment layers come along: gradients, filled masks and Luma Ranges as editable masks, brush, colour range and AI masks as fixed bitmaps. Lightroom catalog imports keep Point Color (also on masks) and Guided Upright with its guide lines.
 
 ### 2 · Find the keepers
 
 <p align="center">
-  <a href="docs/images/readme-library.jpg"><img src="docs/images/readme-library.jpg" alt="Library workspace filtered by a Sony camera search, with landscapes, cats, ratings and picks" width="860"></a>
+  <a href="docs/images/readme-library.jpg"><img src="docs/images/readme-library.jpg" alt="Library workspace showing the album Best of the year filtered by a Sony camera search: landscapes and cats with ratings and picks" width="860"></a>
 </p>
 
 The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P and X, add colour labels, then filter down to the frames that matter. Press E or Space to see a photograph large in the **loupe**, with its keywords and metadata beside it; G goes back to the grid. A double-click (or D) opens it in Develop. Stepping through a series shows the next photo at once, from its camera JPEG. **Stacks** group a burst or bracket under one top photo (⌘/Ctrl+G; S collapses), and **Auto-Stack** builds them from the camera's burst and bracket data or from the time between shots. **Check eyes…** suggests which faces have closed eyes; it only suggests, and nothing is rated or rejected for you. Group keepers into albums and add keywords, captions and copyright while you are at it. Everything is written to standard XMP sidecars, so other software sees your ratings too.
@@ -126,6 +126,11 @@ The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P a
 
 The **Develop** room gives the photograph the space: a filmstrip (under the photo, or docked beside it as a vertical grid with its own quick filter), a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History** (⌥/Alt-click a tool group's name resets that group), copy settings across a series and save your own presets. Drag a slider to explore, move the pointer away from it while dragging for a finer drag, step it with the arrow keys, or type a number to be exact. A **second window** (Window ▸ Second Window, ⇧F) shows the photo live on another display, with its own zoom and a lock that keeps one photo while you move on. The **Profile** browser shows the open photo with every camera profile and look; hover to preview, click to apply. **Match Light** gives a series the exposure and white balance that make it look lit like a reference photo. **Develop defaults** set what unedited photos start with — globally, per camera model or per single camera body — and Reset goes back to them.
 
+<p align="center">
+  <a href="docs/images/readme-filmstrip.jpg"><img src="docs/images/readme-filmstrip.jpg" alt="Develop with the filmstrip docked to the right of the photo as a two-column grid with its quick filter, a cat photograph open" width="860"></a>
+  <br><sub>The filmstrip docked beside the photo (View ▸ Panels): a vertical grid with its own quick filter, leaving the photo the full height.</sub>
+</p>
+
 <table>
 <tr>
 <td width="50%" valign="top">
@@ -133,18 +138,18 @@ The **Develop** room gives the photograph the space: a filmstrip (under the phot
 <br><b>Colour.</b> White balance from the RAW, a colour editor, colour grading for shadows, midtones and highlights, black-and-white mixing and your own camera profiles or LUTs.
 </td>
 <td width="50%" valign="top">
-<a href="docs/images/readme-masks.jpg"><img src="docs/images/readme-masks.jpg" alt="A subject mask on a portrait shown as a red overlay, loose hair strands included"></a>
-<br><b>Local adjustments.</b> Brush, linear and radial masks, colour and luminance ranges, and one-click masks for the subject, sky, background, depth or people.
+<a href="docs/images/readme-masks.jpg"><img src="docs/images/readme-masks.jpg" alt="A one-click subject mask on a portrait shown as a red overlay, loose hair strands included"></a>
+<br><b>Local adjustments.</b> Brush, linear and radial masks, colour and luminance ranges, and one-click masks for the subject, sky, background, depth or people. Each layer can also hold its own Color editor ranges.
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
-<a href="docs/images/readme-multiview.jpg"><img src="docs/images/readme-multiview.jpg" alt="Multi view: eleven photographs (landscapes, cats and a still life), with Edit all selected enabled"></a>
+<a href="docs/images/readme-multiview.jpg"><img src="docs/images/readme-multiview.jpg" alt="Multi view: eleven photographs (landscapes, cats and a still life) with orange frames, Edit all selected enabled"></a>
 <br><b>Multi view.</b> Compare up to twelve selected photographs side by side, with a reference photo and a locked zoom, and edit them all at once.
 </td>
 <td width="50%" valign="top">
-<a href="docs/images/readme-relight.jpg"><img src="docs/images/readme-relight.jpg" alt="Relight in a before/after split: left the portrait's original warm light, right a new cool light from the other side"></a>
-<br><b>Relight</b> <i>(experimental)</i>. Light a photograph again after the shoot. Before/after split: on the left the original warm light, on the right a new cool light from the other side with the original turned down.
+<a href="docs/images/readme-relight.jpg"><img src="docs/images/readme-relight.jpg" alt="Relight in a before/after split: left the portrait's original light, right the Side light pattern added from the right, its light guide on the face"></a>
+<br><b>Relight</b> <i>(experimental)</i>. Light a photograph again after the shoot. Before/after split: on the left the original light, on the right a side light added from the right with one click on a light pattern.
 </td>
 </tr>
 </table>

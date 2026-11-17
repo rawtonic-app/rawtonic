@@ -521,6 +521,18 @@ function wheelLogRequest(params: Params) {
   return wheelLog.slice();
 }
 
+/** The webview's final Develop frame (Linux, and the browser renderer
+ * elsewhere) as the editor shows it: its JPEG in base64, with the number of
+ * frames shown so far. Native-display frames have no such image (null). */
+async function previewImage() {
+  const { finalPreviewUrl, previewFrames, selectedImage } = useEditorStore.getState();
+  if (!finalPreviewUrl) return { path: selectedImage?.path ?? null, previewFrames, jpeg: null };
+  const bytes = new Uint8Array(await (await fetch(finalPreviewUrl)).arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { path: selectedImage?.path ?? null, previewFrames, jpeg: btoa(binary) };
+}
+
 export async function handleQaRequest(method: string, params: Params): Promise<unknown> {
   const maxArray = typeof params.max_array === 'number' ? params.max_array : 50;
   switch (method) {
@@ -595,6 +607,8 @@ export async function handleQaRequest(method: string, params: Params): Promise<u
       return clearDialogAnswers();
     case 'ui.wheel_log':
       return wheelLogRequest(params);
+    case 'editor.preview_image':
+      return previewImage();
     default:
       throw new Error(`unknown method ${method}`);
   }
