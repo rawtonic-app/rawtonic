@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- **Smoother slider drags with the histogram or scopes open.** Each scope update during a drag re-rendered the histogram, curve, Levels and scope panels; the new histogram or scope image is now written straight into the page. On a 2560×1440 Linux window at 100 %, a drag with any scope open now drops as many frames as one without (before about one more per two-second drag), and the time to the next preview stays within 2 ms at p95. In the fit view a scope still adds 2–3 ms at p95 to an Exposure drag (before 2–5 ms); clipping marks and exports are unchanged.
 - Values that round to zero no longer show a minus sign in sliders, Series Match or merge readouts.
 
 - **XMP titles with translations save reliably.** Edits now handle stale duplicate properties and quoted `>` qualifiers while preserving nested foreign content.
