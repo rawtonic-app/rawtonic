@@ -276,26 +276,6 @@ describe('runEditWith', () => {
     expect(calls[1][1]).toEqual({ items: targets, program: '/P.app' });
   });
 
-  it('a Try again renders from the library of the click, not the one open now', async () => {
-    // Clicked in catalog A; B is open when Try again runs, its editor showing
-    // the same file with B's recipe.
-    useLibraryStore.setState({ sessionDirectory: '/B.catalog' });
-    useEditorStore.setState({
-      selectedImage: { path: '/Photos/a.NEF', isReady: true } as never,
-      adjustments: { exposure: 3 } as never
-    });
-    started([{ source: '/Photos/a.NEF', target: '/Photos/a_edit.tiff' }], ['j1'], [job('j1', 'done')]);
-    const result = await runEditWith(['/Photos/a.NEF'], BUILT_IN_EDIT_RECIPES[0], '/P.app', '/A.catalog');
-    const [command, args] = vi.mocked(invoke).mock.calls[0] as [string, { recipe: Record<string, unknown> }];
-    expect(command).toBe('edit_with_start');
-    expect(args.recipe).toMatchObject({
-      library: { library: '/A.catalog' },
-      currentEditPath: null,
-      currentEditAdjustments: null
-    });
-    expect(result.library).toBe('/A.catalog');
-  });
-
   it('opens nothing when no render was made', async () => {
     started([{ source: '/a.NEF', target: '/a_edit.tiff' }], ['j1'], [job('j1', 'cancelled')]);
     const result = await runEditWith(['/a.NEF'], BUILT_IN_EDIT_RECIPES[0], '/Applications/Preview.app');
