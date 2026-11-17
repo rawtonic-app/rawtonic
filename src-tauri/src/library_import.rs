@@ -587,6 +587,23 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
         let attrs = crate::preset_converter::crs_attributes(xmp);
         lightroom_lens(&attrs, path, &mut adjustments);
         clipped = lightroom_crop(&attrs, path, &mut adjustments);
+        // Guided Upright's guides, through the photo's own lens correction;
+        // Lightroom's crop, when imported, frames the corrected photo.
+        if crate::formats::is_raw_file(path) {
+            let has_crop = adjustments
+                .get(geometry::CROP.name())
+                .is_some_and(|c| !c.is_null());
+            let profile = attrs
+                .get("LensProfileEnable")
+                .is_some_and(|v| v.trim() == "1");
+            rawtonic_engine::lightroom_upright::apply(
+                &mut adjustments,
+                xmp,
+                path,
+                profile,
+                has_crop,
+            );
+        }
     }
     // Lightroom's spots, red eye corrections and mask geometry render from
     // its own geometry once they know the photo's orientation, a fact of
@@ -1200,6 +1217,19 @@ mod tests {
         assert_eq!(c1["exposure"], 0.7);
         assert!(c1["highlights"].as_f64().unwrap() < -40.0, "{c1}");
         assert!(translate(&Develop::None).is_none());
+    }
+
+    /// A catalog's Guided Upright (its develop settings as Lua) keeps its
+    /// guides on the way to the XMP the import reads them from.
+    #[test]
+    fn lightroom_catalog_guided_upright_keeps_its_guides() {
+        let lua = r#"s = { PerspectiveUpright = 5, UprightFourSegmentsCount = 2, UprightFourSegments_0 = "0.2,0.1,0.25,0.9", UprightFourSegments_1 = "0.8,0.1,0.75,0.9", UprightVersion = 151388160 }"#;
+        let xmp = rawtonic_interop::lightroom_settings::to_xmp(lua).unwrap();
+        assert_eq!(
+            rawtonic_engine::lightroom_upright::segments(&xmp),
+            vec![[0.2, 0.1, 0.25, 0.9], [0.8, 0.1, 0.75, 0.9]],
+            "{xmp}"
+        );
     }
 
     #[test]
