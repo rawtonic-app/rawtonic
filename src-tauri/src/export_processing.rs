@@ -2019,6 +2019,10 @@ fn export_photo(
                 enlarger: Some(&enlarger),
             };
             let cancelled = || ensure_export_not_cancelled(cancellation_token);
+            // A group renders at the first of its recipes still to be
+            // saved (earlier ones may have been skipped), whose file is
+            // then written while it renders when that file is a TIFF of the
+            // render unchanged (`save_group_rendering`).
             let render = rendered.take(target, |group| {
                 let outputs: Vec<_> = group
                     .iter()
@@ -2031,17 +2035,36 @@ fn export_photo(
                     .collect();
                 #[cfg(feature = "performance-profiling")]
                 let _stage = crate::performance::PerformanceStage::new("export_render");
-                render_prepared_exports(prepared, &env, "process_image_for_export", &outputs)
-            });
-            match render {
-                Some(processed) => save_rendered_export(
-                    processed?,
+                let own = group
+                    .iter()
+                    .position(|&member| member == target)
+                    .unwrap_or(group.len());
+                save_group_rendering(
                     &source_path_str,
+                    prepared,
                     &js_adjustments,
                     export_settings,
+                    &env,
                     &output,
                     &cancelled,
-                )?,
+                    "process_image_for_export",
+                    &outputs,
+                    own,
+                )
+            });
+            match render {
+                Some(processed) => match processed? {
+                    GroupRender::Saved => {}
+                    GroupRender::Failed(e) => return Err(e),
+                    GroupRender::Image(processed) => save_rendered_export(
+                        processed,
+                        &source_path_str,
+                        &js_adjustments,
+                        export_settings,
+                        &output,
+                        &cancelled,
+                    )?,
+                },
                 None => render_prepared_and_save(
                     &source_path_str,
                     prepared,

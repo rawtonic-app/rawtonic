@@ -40,6 +40,9 @@ walkdir = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 image = { workspace = true }
+# The version `image` encodes TIFFs with: exports stream their strips through
+# its encoder directly (`write_tiff_rows`).
+tiff = { version = "0.11.3", default-features = false }
 turbojpeg = { workspace = true, features = ["cmake"] }
 png = { workspace = true }
 webp = "0.3"
