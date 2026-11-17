@@ -44,7 +44,8 @@ struct PyramidParams {
     inv_s: f32,
     inv_r: f32,
     // The first output of a dispatch over part of an image (`finest_energy`
-    // in bands).
+    // in bands, `prepare_level` of a band of rows; a multiple of the
+    // workgroup size).
     offset: vec2<u32>,
     _pad: vec2<u32>,
     // Colour noise by brightness relative to the photo's (8 bins of
@@ -350,6 +351,8 @@ fn coherent_gradient(
 // coherent gradient. out_level: the prepared level (detail xy, local energy
 // z, chroma-edge ratio w); out_aux: the luminance-following part of the
 // detail (xy). color_noise.rs `ChromaPyramid::prepare`, `local_energy`.
+// From `params.offset` on: the outputs hold that band of the level, its
+// first row at their origin.
 @compute @workgroup_size(16, 16, 1)
 fn prepare_level(
     @builtin(workgroup_id) group: vec3<u32>,
@@ -358,7 +361,8 @@ fn prepare_level(
 ) {
     let size = vec2<i32>(textureDimensions(fine));
     let last = size - vec2<i32>(1);
-    let origin = vec2<i32>(group.xy) * TILE - vec2<i32>(2);
+    let band = vec2<i32>(params.offset);
+    let origin = vec2<i32>(group.xy) * TILE - vec2<i32>(2) + band;
     // Each sample's chroma detail (xy), luminance detail (z) and the
     // squared colour noise profile at the coarser level's brightness (w),
     // taken at the nearest sample inside the level.
@@ -370,7 +374,7 @@ fn prepare_level(
         tile_detail[i] = vec4<f32>(f.xy - c.xy, f.z - c.z, profile * profile);
     }
     workgroupBarrier();
-    let p = vec2<i32>(group.xy) * TILE + vec2<i32>(local.xy);
+    let p = vec2<i32>(group.xy) * TILE + vec2<i32>(local.xy) + band;
     if (p.x >= size.x || p.y >= size.y) { return; }
     let centre = (i32(local.y) + 2) * SPAN + i32(local.x) + 2;
     let own = tile_detail[centre];
@@ -408,8 +412,8 @@ fn prepare_level(
     if (params.edge2 > 0.0) {
         edge = expand(aux, p).x / params.edge2;
     }
-    textureStore(out_level, p, vec4<f32>(own.xy, energy / own.w, edge));
-    textureStore(out_aux, p, vec4<f32>(follow, 0.0, 0.0));
+    textureStore(out_level, p - band, vec4<f32>(own.xy, energy / own.w, edge));
+    textureStore(out_aux, p - band, vec4<f32>(follow, 0.0, 0.0));
 }
 
 // The finest level's chroma detail around a workgroup's 16 x 16 input

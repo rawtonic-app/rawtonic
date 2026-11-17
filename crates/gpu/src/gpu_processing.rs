@@ -257,6 +257,7 @@ pub struct ChromaPipelines {
     energy: wgpu::ComputePipeline,
     reconstruct: wgpu::ComputePipeline,
     pack: wgpu::ComputePipeline,
+    pack_band: wgpu::ComputePipeline,
     first_level: wgpu::ComputePipeline,
     reduce_level: wgpu::ComputePipeline,
     block_stats: wgpu::ComputePipeline,
@@ -304,6 +305,7 @@ impl ChromaPipelines {
             energy: pipeline("finest_energy")?,
             reconstruct: pipeline("reconstruct_level")?,
             pack: pipeline("pack_finest")?,
+            pack_band: pipeline("pack_band")?,
             first_level: pyramid_pipeline("first_level")?,
             reduce_level: pyramid_pipeline("reduce_level")?,
             block_stats: pyramid_pipeline("block_stats")?,
@@ -378,9 +380,15 @@ fn float_texture(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format,
+        // Tests read the colour noise textures back.
         usage: wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::STORAGE_BINDING
-            | wgpu::TextureUsages::COPY_DST,
+            | wgpu::TextureUsages::COPY_DST
+            | if cfg!(test) {
+                wgpu::TextureUsages::COPY_SRC
+            } else {
+                wgpu::TextureUsages::empty()
+            },
         view_formats: &[],
     });
     if let Some(data) = data {
@@ -782,8 +790,6 @@ impl GpuPyramid {
         tuning: &color_noise::Tuning,
     ) -> Result<ChromaReconstruction, String> {
         let rgba = wgpu::TextureFormat::Rgba32Float;
-        let noise = tuning.level_noise(&self.measured.noise);
-        let luma_noise = self.measured.luma_noise;
         let mut levels = Vec::new();
         let mut follow = Vec::new();
         let mut rebuilt = Vec::new();
@@ -791,48 +797,17 @@ impl GpuPyramid {
         for l in 1..color_noise::LEVELS {
             let mut encoder = context.device.create_command_encoder(&Default::default());
             let size = self.sizes[l - 1];
-            let gradient = empty_view(
-                context,
-                "Chroma coherent gradient",
-                self.sizes[l],
-                wgpu::TextureFormat::R32Float,
-            );
-            pyramid_pass(
-                context,
-                &mut encoder,
-                &pipelines.coherent_gradient,
-                None,
-                &[
-                    (0, texture_view(&self.levels[l])),
-                    (6, texture_view(&gradient)),
-                ],
-                self.sizes[l],
-                16,
-            );
+            let gradient = self.coherent_gradient(context, pipelines, &mut encoder, l);
             let prepared = empty_view(context, "Chroma prepared level", size, rgba);
             let following = empty_view(context, "Chroma luminance-following detail", size, rgba);
-            let params = PyramidParams {
-                luma2: (tuning.luma_guard * luma_noise[l]).powi(2),
-                edge2: (tuning.edge_guard * noise[l]).powi(2),
-                steepness: tuning.steepness,
-                regular: 25.0 * luma_noise[l].powi(2),
-                profile: self.measured.profile,
-                ..Default::default()
-            };
-            pyramid_pass(
+            self.prepare_level(
                 context,
+                pipelines,
                 &mut encoder,
-                &pipelines.prepare_level,
-                Some(&params),
-                &[
-                    (0, texture_view(&self.levels[l - 1])),
-                    (1, texture_view(&self.levels[l])),
-                    (2, texture_view(&gradient)),
-                    (4, texture_view(&prepared)),
-                    (5, texture_view(&following)),
-                ],
-                size,
-                16,
+                tuning,
+                (l, &gradient),
+                (&prepared, &following),
+                [0, size[1]],
             );
             levels.push(prepared);
             follow.push(following);
@@ -848,6 +823,80 @@ impl GpuPyramid {
             tuning: *tuning,
             level1: self.levels[0].clone(),
         })
+    }
+
+    /// Encodes the coherent gradient of level `l` + 1, which preparing
+    /// level `l` reads.
+    fn coherent_gradient(
+        &self,
+        context: &GpuContext,
+        pipelines: &ChromaPipelines,
+        encoder: &mut wgpu::CommandEncoder,
+        l: usize,
+    ) -> wgpu::TextureView {
+        let gradient = empty_view(
+            context,
+            "Chroma coherent gradient",
+            self.sizes[l],
+            wgpu::TextureFormat::R32Float,
+        );
+        pyramid_pass(
+            context,
+            encoder,
+            &pipelines.coherent_gradient,
+            None,
+            &[
+                (0, texture_view(&self.levels[l])),
+                (6, texture_view(&gradient)),
+            ],
+            self.sizes[l],
+            16,
+        );
+        gradient
+    }
+
+    /// Encodes the preparation of level `l` (detail, local energy,
+    /// chroma-edge ratio and luminance-following part) for `tuning`, from
+    /// the coherent `gradient` of the level below, for its `rows` [first,
+    /// count] (the first a multiple of 16) into `prepared` and `following`,
+    /// which hold those rows from their origin.
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_level(
+        &self,
+        context: &GpuContext,
+        pipelines: &ChromaPipelines,
+        encoder: &mut wgpu::CommandEncoder,
+        tuning: &color_noise::Tuning,
+        (l, gradient): (usize, &wgpu::TextureView),
+        (prepared, following): (&wgpu::TextureView, &wgpu::TextureView),
+        [first_row, rows]: [u32; 2],
+    ) {
+        let noise = tuning.level_noise(&self.measured.noise);
+        let luma_noise = self.measured.luma_noise;
+        let params = PyramidParams {
+            luma2: (tuning.luma_guard * luma_noise[l]).powi(2),
+            edge2: (tuning.edge_guard * noise[l]).powi(2),
+            steepness: tuning.steepness,
+            regular: 25.0 * luma_noise[l].powi(2),
+            offset: [0, first_row],
+            profile: self.measured.profile,
+            ..Default::default()
+        };
+        pyramid_pass(
+            context,
+            encoder,
+            &pipelines.prepare_level,
+            Some(&params),
+            &[
+                (0, texture_view(&self.levels[l - 1])),
+                (1, texture_view(&self.levels[l])),
+                (2, texture_view(gradient)),
+                (4, texture_view(prepared)),
+                (5, texture_view(following)),
+            ],
+            [self.sizes[l - 1][0], rows],
+            16,
+        );
     }
 
     /// The coarsest level smoothed by `sigma` samples (`ChromaPyramid::coarsest`);
@@ -1282,78 +1331,33 @@ impl ChromaGpu {
         let mut encoder = device.create_command_encoder(&Default::default());
         for l in (1..color_noise::LEVELS).rev() {
             let params = ColorNoiseParams {
-                source: [0; 4],
-                level: [0; 4],
-                is_raw: 0,
-                threshold2: thresholds[l] * thresholds[l],
-                steepness: tuning.steepness,
-                edge2: tuning.edge_scale2(l, thresholds[l], &noise),
-                aware_inv2: tuning.aware_inv2(l, thresholds, &noise),
-                aware_far: tuning.aware_far,
                 guide: if prepared_guide[l - 1] { 1.0 } else { 0.0 },
-                _pad: 0.0,
-                profile: pyramid.profile(),
+                ..reconstruct_params(l, thresholds, &noise, tuning, pyramid.profile())
             };
-            let buffer = create_buffer_init(
-                device,
-                &wgpu::util::BufferInitDescriptor {
-                    label: Some("Colour noise level params"),
-                    contents: bytemuck::bytes_of(&params),
-                    usage: wgpu::BufferUsages::UNIFORM,
-                },
-            );
             let coarser = if l == color_noise::LEVELS - 1 {
                 smoothed.as_ref().unwrap_or(&reconstruction.coarsest)
             } else {
                 &reconstruction.rebuilt[l]
             };
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Chroma reconstruct BG"),
-                layout: &pipelines.reconstruct.get_bind_group_layout(0),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&reconstruction.levels[l - 1]),
+            encode_reconstruct(
+                context,
+                pipelines,
+                &mut encoder,
+                &params,
+                ReconstructViews {
+                    prepared: &reconstruction.levels[l - 1],
+                    follow: &reconstruction.follow[l - 1],
+                    coarser,
+                    coarser_original: &reconstruction.originals[l - 1],
+                    original: if l == 1 {
+                        &reconstruction.level1
+                    } else {
+                        &reconstruction.originals[l - 2]
                     },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(coarser),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(
-                            &reconstruction.rebuilt[l - 1],
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&reconstruction.follow[l - 1]),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: wgpu::BindingResource::TextureView(
-                            &reconstruction.originals[l - 1],
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: wgpu::BindingResource::TextureView(if l == 1 {
-                            &reconstruction.level1
-                        } else {
-                            &reconstruction.originals[l - 2]
-                        }),
-                    },
-                ],
-            });
-            let [size, rows] = pyramid.size(l - 1);
-            let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&pipelines.reconstruct);
-            pass.set_bind_group(0, &group, &[]);
-            pass.dispatch_workgroups(size.div_ceil(16), rows.div_ceil(16), 1);
+                    rebuilt: &reconstruction.rebuilt[l - 1],
+                },
+                pyramid.size(l - 1),
+            );
         }
         let (level1, rebuilt) = (
             reconstruction.level1.clone(),
@@ -1362,6 +1366,180 @@ impl ChromaGpu {
         self.encode_pack(context, pipelines, &mut encoder, &level1, &rebuilt);
         context.queue.submit(Some(encoder.finish()));
         Ok(())
+    }
+
+    /// Rebuilds level 1 of an export from its GPU pyramid (version 11) for
+    /// `thresholds` and packs it, as [`Self::rebuild_on_gpu`] does from
+    /// [`GpuPyramid::reconstruction`], but keeps nothing: each coarse level's
+    /// textures are freed once the finer level is rebuilt, and level 1 is
+    /// prepared, rebuilt and packed in bands of rows, so its prepared,
+    /// luminance-following and rebuilt textures (about 12 bytes per photo
+    /// pixel whole) exist one band at a time. Every texel comes from the
+    /// same passes and inputs as there (notes:
+    /// benchmark-results/mem12-2026-11-17).
+    fn rebuild_export_on_gpu(
+        &mut self,
+        context: &GpuContext,
+        pipelines: &ChromaPipelines,
+        pyramid: &GpuPyramid,
+        thresholds: &[f32; color_noise::LEVELS],
+        base_sigma: f32,
+        tuning: &color_noise::Tuning,
+    ) -> Result<(), String> {
+        let rgba = wgpu::TextureFormat::Rgba32Float;
+        let noise = tuning.level_noise(&pyramid.measured.noise);
+        let profile = pyramid.measured.profile;
+        let levels = &pyramid.levels;
+        let mut coarser = pyramid
+            .coarsest(context, pipelines, base_sigma, tuning)
+            .unwrap_or_else(|| levels[color_noise::LEVELS - 1].clone());
+        for l in (2..color_noise::LEVELS).rev() {
+            let size = pyramid.sizes[l - 1];
+            let mut encoder = context.device.create_command_encoder(&Default::default());
+            let gradient = pyramid.coherent_gradient(context, pipelines, &mut encoder, l);
+            let prepared = empty_view(context, "Chroma prepared level", size, rgba);
+            let following = empty_view(context, "Chroma luminance-following detail", size, rgba);
+            pyramid.prepare_level(
+                context,
+                pipelines,
+                &mut encoder,
+                tuning,
+                (l, &gradient),
+                (&prepared, &following),
+                [0, size[1]],
+            );
+            let rebuilt = empty_view(context, "Chroma rebuilt level", size, rgba);
+            encode_reconstruct(
+                context,
+                pipelines,
+                &mut encoder,
+                &reconstruct_params(l, thresholds, &noise, tuning, profile),
+                ReconstructViews {
+                    prepared: &prepared,
+                    follow: &following,
+                    coarser: &coarser,
+                    coarser_original: &levels[l],
+                    original: &levels[l - 1],
+                    rebuilt: &rebuilt,
+                },
+                size,
+            );
+            submit_and_wait(context, encoder)?;
+            coarser = rebuilt;
+        }
+        let [width, height] = pyramid.sizes[0];
+        let band_rows = (REBUILD_BAND_TEXELS / width.max(1)).max(16) / 16 * 16;
+        let band = [width, band_rows.min(height)];
+        let prepared = empty_view(context, "Chroma prepared level 1 (band)", band, rgba);
+        let following = empty_view(context, "Chroma following level 1 (band)", band, rgba);
+        let rebuilt = empty_view(context, "Chroma rebuilt level 1 (band)", band, rgba);
+        let mut encoder = context.device.create_command_encoder(&Default::default());
+        let gradient = pyramid.coherent_gradient(context, pipelines, &mut encoder, 1);
+        let mut first_row = 0;
+        while first_row < height {
+            let rows = band[1].min(height - first_row);
+            pyramid.prepare_level(
+                context,
+                pipelines,
+                &mut encoder,
+                tuning,
+                (1, &gradient),
+                (&prepared, &following),
+                [first_row, rows],
+            );
+            let params = ColorNoiseParams {
+                level: [0, first_row, 0, 0],
+                ..reconstruct_params(1, thresholds, &noise, tuning, profile)
+            };
+            encode_reconstruct(
+                context,
+                pipelines,
+                &mut encoder,
+                &params,
+                ReconstructViews {
+                    prepared: &prepared,
+                    follow: &following,
+                    coarser: &coarser,
+                    coarser_original: &levels[1],
+                    original: &levels[0],
+                    rebuilt: &rebuilt,
+                },
+                [width, rows],
+            );
+            self.encode_pack_band(
+                context,
+                pipelines,
+                &mut encoder,
+                &levels[0],
+                &rebuilt,
+                &params,
+                rows,
+            );
+            first_row += rows;
+            let stage = std::mem::replace(
+                &mut encoder,
+                context.device.create_command_encoder(&Default::default()),
+            );
+            submit_and_wait(context, stage)?;
+        }
+        Ok(())
+    }
+
+    /// Packs `rows` rows of level 1 from `params.level`'s row on, their
+    /// reconstruction in `rebuilt` from its origin (color_noise.wgsl
+    /// `pack_band`).
+    #[allow(clippy::too_many_arguments)]
+    fn encode_pack_band(
+        &self,
+        context: &GpuContext,
+        pipelines: &ChromaPipelines,
+        encoder: &mut wgpu::CommandEncoder,
+        level1: &wgpu::TextureView,
+        rebuilt: &wgpu::TextureView,
+        params: &ColorNoiseParams,
+        rows: u32,
+    ) {
+        let device = &context.device;
+        let buffer = create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Colour noise band params"),
+                contents: bytemuck::bytes_of(params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            },
+        );
+        let group0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Chroma pack band BG0"),
+            layout: &pipelines.pack_band.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(level1),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(rebuilt),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let packed_storage = self.packed.create_view(&Default::default());
+        let group1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Chroma pack band BG1"),
+            layout: &pipelines.pack_band.get_bind_group_layout(1),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&packed_storage),
+            }],
+        });
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipelines.pack_band);
+        pass.set_bind_group(0, &group0, &[]);
+        pass.set_bind_group(1, &group1, &[]);
+        pass.dispatch_workgroups(self.packed.size().width.div_ceil(16), rows.div_ceil(16), 1);
     }
 
     /// Packs `level1` (xy) and its reconstruction `rebuilt` (xy) into the
@@ -1496,6 +1674,110 @@ fn cpu_reconstruction(
         tuning: *tuning,
     }
 }
+
+/// The uniforms of rebuilding level `l` (color_noise.wgsl
+/// `reconstruct_level`) for `thresholds`, with the plain guide.
+fn reconstruct_params(
+    l: usize,
+    thresholds: &[f32; color_noise::LEVELS],
+    noise: &[f32; color_noise::LEVELS],
+    tuning: &color_noise::Tuning,
+    profile: [f32; color_noise::PROFILE_BINS],
+) -> ColorNoiseParams {
+    ColorNoiseParams {
+        source: [0; 4],
+        level: [0; 4],
+        is_raw: 0,
+        threshold2: thresholds[l] * thresholds[l],
+        steepness: tuning.steepness,
+        edge2: tuning.edge_scale2(l, thresholds[l], noise),
+        aware_inv2: tuning.aware_inv2(l, thresholds, noise),
+        aware_far: tuning.aware_far,
+        guide: 0.0,
+        _pad: 0.0,
+        profile,
+    }
+}
+
+/// What rebuilding a level reads and writes (color_noise.wgsl
+/// `reconstruct_level`).
+struct ReconstructViews<'a> {
+    /// The prepared level and its luminance-following part (of a band of
+    /// rows when `params.level` gives its origin).
+    prepared: &'a wgpu::TextureView,
+    follow: &'a wgpu::TextureView,
+    /// The coarser level rebuilt (or the coarsest, maybe smoothed) and as
+    /// it is.
+    coarser: &'a wgpu::TextureView,
+    coarser_original: &'a wgpu::TextureView,
+    /// The level itself as it is (whole).
+    original: &'a wgpu::TextureView,
+    /// The level rebuilt (the band's rows when `prepared` holds a band).
+    rebuilt: &'a wgpu::TextureView,
+}
+
+/// Encodes rebuilding a level over `size` (its prepared texture's).
+fn encode_reconstruct(
+    context: &GpuContext,
+    pipelines: &ChromaPipelines,
+    encoder: &mut wgpu::CommandEncoder,
+    params: &ColorNoiseParams,
+    views: ReconstructViews,
+    [size, rows]: [u32; 2],
+) {
+    let device = &context.device;
+    let buffer = create_buffer_init(
+        device,
+        &wgpu::util::BufferInitDescriptor {
+            label: Some("Colour noise level params"),
+            contents: bytemuck::bytes_of(params),
+            usage: wgpu::BufferUsages::UNIFORM,
+        },
+    );
+    let view = wgpu::BindingResource::TextureView;
+    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Chroma reconstruct BG"),
+        layout: &pipelines.reconstruct.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: view(views.prepared),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: view(views.coarser),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: view(views.rebuilt),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: view(views.follow),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: view(views.coarser_original),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: view(views.original),
+            },
+        ],
+    });
+    let mut pass = encoder.begin_compute_pass(&Default::default());
+    pass.set_pipeline(&pipelines.reconstruct);
+    pass.set_bind_group(0, &group, &[]);
+    pass.dispatch_workgroups(size.div_ceil(16), rows.div_ceil(16), 1);
+}
+
+/// Level-1 texels per band of an export's level-1 rebuild
+/// ([`ChromaGpu::rebuild_export_on_gpu`]): 16 MB per Rgba32Float texture.
+const REBUILD_BAND_TEXELS: u32 = 1 << 20;
 
 /// Level 1 of the colour noise pyramid rebuilt on the CPU for a set of
 /// thresholds, packed as [`ChromaGpu::rebuild_on_cpu`] writes it.
@@ -1754,14 +2036,25 @@ fn prepare_color_noise_on_gpu(
     if chroma.key != Some(key) {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("color_noise_reconstruct");
-        chroma.rebuild_on_gpu(
-            context,
-            pipelines,
-            PyramidRef::Gpu(pyramid),
-            &thresholds,
-            base_sigma,
-            &versioned.1,
-        )?;
+        if interactive {
+            chroma.rebuild_on_gpu(
+                context,
+                pipelines,
+                PyramidRef::Gpu(pyramid),
+                &thresholds,
+                base_sigma,
+                &versioned.1,
+            )?;
+        } else {
+            chroma.rebuild_export_on_gpu(
+                context,
+                pipelines,
+                pyramid,
+                &thresholds,
+                base_sigma,
+                &versioned.1,
+            )?;
+        }
         chroma.key = Some(key);
     }
     let views = (chroma.packed_view.clone(), chroma.energy_view.clone());
@@ -4085,17 +4378,22 @@ pub struct GpuProcessor {
     deferred_display: Arc<deferred_display::DeferredDisplay>,
     high_precision_bgl: wgpu::BindGroupLayout,
     high_precision_pipeline: std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>,
-    high_precision_tile: std::sync::OnceLock<HighPrecisionTile>,
+    /// The float tiles, for [`TILE_SIZE`] and [`EXPORT_TILE_SIZE`] tiles
+    /// (`float_tile_index`).
+    high_precision_tile: FloatTiles,
     /// [`MainOutput::Deferred`]: specialized variants by features, the
     /// general pipeline, and the tile the main pass writes.
     deferred_export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     deferred_pipeline: BackgroundPipeline,
-    deferred_tile: std::sync::OnceLock<HighPrecisionTile>,
-    export_detail_tile: std::sync::OnceLock<HighPrecisionTile>,
+    deferred_tile: FloatTiles,
+    export_detail_tile: FloatTiles,
     /// `encode_deferred` into an 8-bit and a high-precision output tile.
     encode_bgls: [wgpu::BindGroupLayout; 2],
     encode_pipelines: [std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>; 2],
     tile_output_size: wgpu::Extent3d,
+    /// Whether renders that allow it run in [`EXPORT_TILE_SIZE`] tiles
+    /// (`render_tile_size`).
+    small_export_tiles: bool,
     adjustments_buffer: wgpu::Buffer,
     /// Count, then the tile-local regions of the current dispatch.
     render_regions_buffer: wgpu::Buffer,
@@ -5762,6 +6060,15 @@ fn mixer_feature_slot(
 /// table passed the tolerance check. Rebuilt only when that layer changes.
 type CurveLutEntry = Option<(Vec<u8>, bool)>;
 
+/// Float tiles of a processor for [`TILE_SIZE`] tiles and for
+/// [`EXPORT_TILE_SIZE`] tiles (`float_tile_index`), each made on its first
+/// use.
+type FloatTiles = [std::sync::OnceLock<HighPrecisionTile>; 2];
+
+fn float_tile_index(tile_size: u32) -> usize {
+    usize::from(tile_size != TILE_SIZE)
+}
+
 struct HighPrecisionTile {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
@@ -7158,6 +7465,21 @@ struct LayerSumsCache {
 /// origin); each tile's blurs cover the tile and `TILE_OVERLAP` around it.
 const TILE_SIZE: u32 = 2048;
 
+/// The tile size of renders on processors for exports only
+/// ([`GpuProcessor::for_exports`]) whose blurs have their whole radius at
+/// tile seams (`PreparedAdjustments::whole_blur_radius`, `renderVersion` 2
+/// on): a tile's float textures, blurs and readbacks (about 0.55 GB at
+/// [`TILE_SIZE`] for a large photo, committed at its first tile) take about
+/// a third. The bytes are those of [`TILE_SIZE`] tiles: those renders read
+/// beyond each tile in photo coordinates, and the 8-bit dither, keyed on
+/// the tile's, is shifted to the [`TILE_SIZE`] grid (`dither_shift`).
+/// Recipes of `renderVersion` 1 clamp their large blur at each tile's
+/// overlap, so they keep [`TILE_SIZE`] tiles. Time within 1 % (notes:
+/// benchmark-results/mem12-2026-11-17).
+/// A divisor of [`TILE_SIZE`], so windows planned in [`TILE_SIZE`] steps
+/// (`plan_render_windows`) stay on tile boundaries.
+const EXPORT_TILE_SIZE: u32 = 1024;
+
 const TILE_OVERLAP: u32 = 128;
 
 impl GpuProcessor {
@@ -7168,6 +7490,7 @@ impl GpuProcessor {
             max_height,
             include_str!("shaders/shader.wgsl"),
             true,
+            false,
         )
     }
 
@@ -7205,6 +7528,7 @@ impl GpuProcessor {
             max_height,
             include_str!("shaders/shader.wgsl"),
             false,
+            true,
         )
     }
 
@@ -7216,6 +7540,7 @@ impl GpuProcessor {
         max_height: u32,
         shader_source: &str,
         display_variants: bool,
+        small_export_tiles: bool,
     ) -> Result<Self, String> {
         let device = &context.device;
         const MAX_MASK_BINDINGS: u32 = 1;
@@ -8145,14 +8470,15 @@ impl GpuProcessor {
             high_precision_layout: high_precision_pipeline_layout,
             high_precision_bgl,
             high_precision_pipeline: std::sync::OnceLock::new(),
-            high_precision_tile: std::sync::OnceLock::new(),
+            high_precision_tile: Default::default(),
             deferred_export_pipelines: variant_table(),
             deferred_pipeline,
-            deferred_tile: std::sync::OnceLock::new(),
-            export_detail_tile: std::sync::OnceLock::new(),
+            deferred_tile: Default::default(),
+            export_detail_tile: Default::default(),
             encode_bgls: [encode_bgl, high_precision_encode_bgl],
             encode_pipelines: Default::default(),
             tile_output_size: clamped_tile_size,
+            small_export_tiles,
             adjustments_buffer,
             render_regions_buffer,
             prepared_layers_buffer,
@@ -9044,21 +9370,32 @@ impl GpuProcessor {
         })
     }
 
-    fn high_precision_tile(&self) -> &HighPrecisionTile {
-        self.high_precision_tile
-            .get_or_init(|| self.float_tile("High Precision Tile Output Texture"))
+    fn high_precision_tile(&self, tile_size: u32) -> &HighPrecisionTile {
+        self.high_precision_tile[float_tile_index(tile_size)]
+            .get_or_init(|| self.float_tile("High Precision Tile Output Texture", tile_size))
     }
 
     /// The tile a deferred main pass writes (`DEFER_OUTPUT`).
-    fn deferred_tile(&self) -> &HighPrecisionTile {
-        self.deferred_tile
-            .get_or_init(|| self.float_tile("Deferred Tile Texture"))
+    fn deferred_tile(&self, tile_size: u32) -> &HighPrecisionTile {
+        self.deferred_tile[float_tile_index(tile_size)]
+            .get_or_init(|| self.float_tile("Deferred Tile Texture", tile_size))
     }
 
     /// The detail stage of an export's tile (`export_detail_pass`).
-    fn export_detail_tile(&self) -> &HighPrecisionTile {
-        self.export_detail_tile
-            .get_or_init(|| self.float_tile("Export Detail Tile"))
+    fn export_detail_tile(&self, tile_size: u32) -> &HighPrecisionTile {
+        self.export_detail_tile[float_tile_index(tile_size)]
+            .get_or_init(|| self.float_tile("Export Detail Tile", tile_size))
+    }
+
+    /// The size of a render's tiles: [`EXPORT_TILE_SIZE`] on processors for
+    /// exports when the blurs have their whole radius at tile seams (the
+    /// bytes do not depend on the tiles then), else [`TILE_SIZE`].
+    fn render_tile_size(&self, adjustments: &crate::image_processing::PreparedAdjustments) -> u32 {
+        if self.small_export_tiles && adjustments.whole_blur_radius {
+            EXPORT_TILE_SIZE
+        } else {
+            TILE_SIZE
+        }
     }
 
     /// `encode_deferred` into an 8-bit or a high-precision output tile.
@@ -9099,13 +9436,19 @@ impl GpuProcessor {
             .map_err(Clone::clone)
     }
 
-    fn float_tile(&self, label: &str) -> HighPrecisionTile {
+    /// A float tile for tiles of `tile_size`, at most the processor's.
+    fn float_tile(&self, label: &str, tile_size: u32) -> HighPrecisionTile {
+        let side = tile_size + TILE_OVERLAP * 2;
         let texture = self
             .context
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
-                size: self.tile_output_size,
+                size: wgpu::Extent3d {
+                    width: self.tile_output_size.width.min(side),
+                    height: self.tile_output_size.height.min(side),
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -10383,6 +10726,7 @@ impl GpuProcessor {
         readback_analytics: bool,
     ) -> Result<(Vec<RenderedPixels>, u32, u32, u32, u32), String> {
         let mut request = request;
+        let tile_size = self.render_tile_size(&request.adjustments);
         if chroma.is_none() {
             // No chroma pyramid: the cross-bilateral colour noise reduction.
             request.adjustments.uniforms.global.color_noise[0] = 0.0;
@@ -10503,7 +10847,7 @@ impl GpuProcessor {
         }
         let high_precision_tile = (!deferred
             && output_precision == RenderOutputPrecision::SixteenBit)
-            .then(|| self.high_precision_tile());
+            .then(|| self.high_precision_tile(tile_size));
         let high_precision_layout = deferred || high_precision_tile.is_some();
         if readback_analytics && (output_to_display || high_precision_layout) {
             return Err("Analytics read back only 8-bit CPU renders.".to_string());
@@ -10532,7 +10876,7 @@ impl GpuProcessor {
             output_tile_view,
             bytes_per_pixel,
         ) = if deferred {
-            let tile = self.deferred_tile();
+            let tile = self.deferred_tile(tile_size);
             (
                 if force_full_preparation || force_general_pipeline {
                     self.general_pipeline(&request.adjustments, MainOutput::Deferred)?
@@ -11030,7 +11374,7 @@ impl GpuProcessor {
         let detail_fits = display_cache_bytes(
             width,
             height,
-            TILE_SIZE,
+            tile_size,
             TILE_OVERLAP,
             blur_requirements
                 .iter()
@@ -11053,7 +11397,7 @@ impl GpuProcessor {
                 .map(|output| {
                     let high_precision = output.precision == RenderOutputPrecision::SixteenBit;
                     let (texture, view, bytes_per_pixel) = if high_precision {
-                        let tile = self.high_precision_tile();
+                        let tile = self.high_precision_tile(tile_size);
                         (&tile.texture, &tile.view, 16)
                     } else {
                         (&self.tile_output_texture, &self.tile_output_texture_view, 4)
@@ -11111,10 +11455,10 @@ impl GpuProcessor {
         let whole_tile_inputs = !output_to_display
             && readback_shader == ReadbackShader::Export
             && request.roi.is_some();
-        let start_tile_x = bounds.x / TILE_SIZE;
-        let start_tile_y = bounds.y / TILE_SIZE;
-        let end_tile_x = (bounds.x + bounds.width).div_ceil(TILE_SIZE);
-        let end_tile_y = (bounds.y + bounds.height).div_ceil(TILE_SIZE);
+        let start_tile_x = bounds.x / tile_size;
+        let start_tile_y = bounds.y / tile_size;
+        let end_tile_x = (bounds.x + bounds.width).div_ceil(tile_size);
+        let end_tile_y = (bounds.y + bounds.height).div_ceil(tile_size);
 
         // Blur rows beyond the ping-pong texture's (`BlurParams::blurred_rows`),
         // for the largest radius (Clarity's base 40).
@@ -11142,15 +11486,15 @@ impl GpuProcessor {
             .saturating_sub(TILE_OVERLAP);
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {
-                let x_start_unclamped = tile_x * TILE_SIZE;
-                let y_start_unclamped = tile_y * TILE_SIZE;
+                let x_start_unclamped = tile_x * tile_size;
+                let y_start_unclamped = tile_y * tile_size;
 
                 let x_start = x_start_unclamped.max(bounds.x);
                 let y_start = y_start_unclamped.max(bounds.y);
-                let x_end = (x_start_unclamped + TILE_SIZE)
+                let x_end = (x_start_unclamped + tile_size)
                     .min(bounds.x + bounds.width)
                     .min(width);
-                let y_end = (y_start_unclamped + TILE_SIZE)
+                let y_end = (y_start_unclamped + tile_size)
                     .min(bounds.y + bounds.height)
                     .min(height);
 
@@ -11195,8 +11539,8 @@ impl GpuProcessor {
                     (
                         x_start_unclamped,
                         y_start_unclamped,
-                        (x_start_unclamped + TILE_SIZE).min(width),
-                        (y_start_unclamped + TILE_SIZE).min(height),
+                        (x_start_unclamped + tile_size).min(width),
+                        (y_start_unclamped + tile_size).min(height),
                     )
                 } else {
                     (x_start, y_start, x_end, y_end)
@@ -11441,7 +11785,7 @@ impl GpuProcessor {
                     (Some(_), previous) if export_detail.is_some() => {
                         tile.detail = previous;
                         build_detail = true;
-                        Some(self.export_detail_tile().view.clone())
+                        Some(self.export_detail_tile(tile_size).view.clone())
                     }
                     (None, previous) => {
                         tile.detail = previous;
@@ -11852,7 +12196,15 @@ impl GpuProcessor {
                     .iter()
                     .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
                     .sum();
-                let mut region_data = vec![[regions.len() as u32, 0, 0, 0]];
+                let shift = |read: u32, input_start: u32, bound: u32| {
+                    dither_shift(tile_size, whole_tile_inputs, read, input_start, bound)
+                };
+                let mut region_data = vec![[
+                    regions.len() as u32,
+                    shift(read_x, input_x_start, bounds.x),
+                    shift(read_y, input_y_start, bounds.y),
+                    0,
+                ]];
                 region_data.extend_from_slice(&regions);
                 queue.write_buffer(
                     &self.render_regions_buffer,
@@ -12447,6 +12799,33 @@ fn render_window_margin(adjustments: &AllAdjustments, width: u32, height: u32) -
         .max(aberration)
         .max(kernels)
         .saturating_add(2)
+}
+
+/// How far the dither's coordinates in a tile of `tile_size` (read from
+/// `read` on, its input from `input_start`) lie from those the same pixels
+/// have in [`TILE_SIZE`] tiles, along one axis (`bound`: the render's first
+/// pixel). shader.wgsl keys its 8-bit dither on the tile's coordinates, so
+/// renders in smaller tiles ([`EXPORT_TILE_SIZE`]) add this to dither as
+/// in [`TILE_SIZE`] tiles, byte for byte; 0 for [`TILE_SIZE`] tiles.
+fn dither_shift(
+    tile_size: u32,
+    whole_tile_inputs: bool,
+    read: u32,
+    input_start: u32,
+    bound: u32,
+) -> u32 {
+    if tile_size == TILE_SIZE {
+        return 0;
+    }
+    // The read start of the TILE_SIZE tile that holds this tile (a divisor
+    // of TILE_SIZE, so the whole tile lies in it).
+    let tile = read.max(bound) / TILE_SIZE * TILE_SIZE;
+    let large_read = if whole_tile_inputs {
+        tile
+    } else {
+        tile.max(bound)
+    };
+    input_start - large_read.saturating_sub(TILE_OVERLAP)
 }
 
 /// Splits `bounds` of a `width` x `height` photo into regions to render, each
