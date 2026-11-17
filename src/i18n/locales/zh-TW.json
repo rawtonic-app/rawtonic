@@ -4748,14 +4748,14 @@
         "FillLight": "補光",
         "filmCurve": "底片曲線",
         "HighlightRecovery": "亮部復原",
-        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
+        "legacyToneCurve": "舊版 Lightroom 處理程序的色調曲線（僅近似匯入，外觀可能不同）",
         "lens": "鏡頭與梯形校正",
         "lensProfile": "鏡頭描述檔",
         "noiseReduction": "降噪",
         "profile": "描述檔",
         "profileNamed": "描述檔「{{name}}」",
         "Shadows": "陰影",
-        "toneCurveMissingPoints": "named tone curve without explicit points",
+        "toneCurveMissingPoints": "Lightroom 中僅有名稱、沒有控制點的色調曲線",
         "upright": "Upright",
         "whiteBalance": "白平衡"
       }

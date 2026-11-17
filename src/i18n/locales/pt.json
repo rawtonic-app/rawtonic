@@ -5085,14 +5085,14 @@
         "FillLight": "luz de preenchimento",
         "filmCurve": "curva de filme",
         "HighlightRecovery": "recuperação de realces",
-        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
+        "legacyToneCurve": "curva tonal de um processo antigo do Lightroom (importada de forma aproximada; pode parecer diferente)",
         "lens": "objetiva e keystone",
         "lensProfile": "perfil de objetiva",
         "noiseReduction": "redução de ruído",
         "profile": "perfil",
         "profileNamed": "perfil «{{name}}»",
         "Shadows": "sombras",
-        "toneCurveMissingPoints": "named tone curve without explicit points",
+        "toneCurveMissingPoints": "curva tonal com nome do Lightroom, mas sem pontos",
         "upright": "Upright",
         "whiteBalance": "equilíbrio de brancos"
       }

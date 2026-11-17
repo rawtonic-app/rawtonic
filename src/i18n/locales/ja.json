@@ -4748,14 +4748,14 @@
         "FillLight": "補助光",
         "filmCurve": "フィルムカーブ",
         "HighlightRecovery": "ハイライトの復元",
-        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
+        "legacyToneCurve": "古い Lightroom プロセスのトーンカーブ（近似で読み込み、見た目が異なる場合があります）",
         "lens": "レンズとキーストーン",
         "lensProfile": "レンズプロファイル",
         "noiseReduction": "ノイズ除去",
         "profile": "プロファイル",
         "profileNamed": "プロファイル「{{name}}」",
         "Shadows": "シャドウ",
-        "toneCurveMissingPoints": "named tone curve without explicit points",
+        "toneCurveMissingPoints": "Lightroom で名前だけのトーンカーブ（ポイントなし）",
         "upright": "Upright",
         "whiteBalance": "ホワイトバランス"
       }
