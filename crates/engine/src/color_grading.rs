@@ -971,8 +971,8 @@ mod tests {
         [1, 2, 3, 4].map(|v| ColorGradingVersion::of(&json!({ "colorGradingVersion": v })))
     }
 
-    /// Writes the pinned tables to `$GRADING_TABLES` (only when a version
-    /// is added: the tables of a shipped version never change).
+    /// Writes the pinned tables to `$GRADING_TABLES`, a new file (only when
+    /// a version is added: the tables of a shipped version never change).
     #[test]
     #[ignore = "tool: needs GRADING_TABLES"]
     fn write_pinned_tables() {
@@ -985,9 +985,18 @@ mod tests {
                     .collect()
             })
             .collect();
-        std::fs::write(
-            std::env::var("GRADING_TABLES").unwrap(),
-            serde_json::to_string(&json!({ "versions": [1, 2, 3, 4], "tables": tables })).unwrap(),
+        // Never over an existing file (nor through a link): delete the old
+        // fixture by hand first.
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(std::env::var("GRADING_TABLES").unwrap())
+            .expect("GRADING_TABLES must name a file that does not exist yet");
+        file.write_all(
+            serde_json::to_string(&json!({ "versions": [1, 2, 3, 4], "tables": tables }))
+                .unwrap()
+                .as_bytes(),
         )
         .unwrap();
     }
