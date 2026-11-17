@@ -34,36 +34,38 @@ pub(crate) fn settled_quality(scale: f32) -> u8 {
     }
 }
 
-/// The largest settled frame sent lossless, in pixels: a 2560-px-wide
-/// fit view (2560 × 1707). PNG costs grow with the pixels (~22–27 ms and
-/// ~7 MB at 3.7 MP, ~50–60 ms and 13–18 MB at 8 MP on one thread), and a
-/// larger frame (a 4K window, or 1:1 on a 2× display without full-DPI
-/// rendering) stays a JPEG.
-const LOSSLESS_MAX_PIXELS: u64 = 4_500_000;
-
-/// Whether a settled browser frame of `size` px with `scale` frame px per
+/// Whether a settled browser frame with `scale` frame px per
 /// full-resolution px goes to the webview lossless (PNG) instead of as a
 /// JPEG. Against the export, every JPEG quality moved a reduced frame's
-/// fine chroma out of the ±15 % bar (q94 0.45–1.27; q98–q100 up to
-/// 1.6–2.1, 8-bit quantisation noise the noise-reduced export lacks); the
-/// lossless frame stayed within it (1.00–1.15), as the native displays do.
-/// In the app (1536 × 1024, Ryzen 5 3600X) it took ~13 ms to encode,
-/// 2.6 MB, and the decoded frame was ready ~25 ms later; drags keep their
-/// JPEG. At 100 % the frame is the whole photograph (24 MP: ~62 MB as PNG,
-/// twice the JPEG's decode time), so it stays a JPEG (notes:
-/// benchmark-results/lnxj1-2026-11-17/).
-pub(crate) fn settled_lossless(scale: f32, size: (u32, u32)) -> bool {
-    scale < 0.999 && u64::from(size.0) * u64::from(size.1) <= LOSSLESS_MAX_PIXELS
+/// fine chroma out of the ±15 % bar (q94 removed it, q98–q100 added 8-bit
+/// quantisation noise the noise-reduced export lacks); the lossless frame
+/// stayed within it, as the native displays do. A PNG costs several times a
+/// JPEG's encode, bytes and decode, growing with the frame; drags keep
+/// their JPEG. At 100 % the frame is the whole photograph (a 24 MP PNG is
+/// ~60 MB), so it stays a JPEG (docs/benchmark-results/
+/// lnxj1-linux-preview-transport-2026-11-17/REPORT.md).
+pub(crate) fn settled_lossless(scale: f32) -> bool {
+    scale < 0.999
 }
 
-/// A settled browser frame (the editor's on Linux, a multi-view cell or a
-/// Before/After snapshot) encoded as [`settled_lossless`] and
-/// [`settled_quality`] choose, so both sides of a comparison travel alike.
+/// A settled browser frame encoded as [`settled_lossless`] and
+/// [`settled_quality`] choose for its `scale`.
 pub(crate) fn encode_settled(image: &image::RgbaImage, scale: f32) -> Result<Vec<u8>, String> {
-    if settled_lossless(scale, image.dimensions()) {
-        encode_png_rgb(image)
-    } else {
-        encode_rgbx_444(image, settled_quality(scale))
+    encode_settled_like(image, scale, None)
+}
+
+/// [`encode_settled`], or as the frame it is compared with when
+/// `lossless` says how that one came (a split's before beside the editor's
+/// frame, which is a JPEG only at 100 %).
+pub(crate) fn encode_settled_like(
+    image: &image::RgbaImage,
+    scale: f32,
+    lossless: Option<bool>,
+) -> Result<Vec<u8>, String> {
+    match lossless.unwrap_or_else(|| settled_lossless(scale)) {
+        true => encode_png_rgb(image),
+        false if lossless.is_some() => encode_rgbx_444(image, ONE_TO_ONE_QUALITY),
+        false => encode_rgbx_444(image, settled_quality(scale)),
     }
 }
 
@@ -302,11 +304,18 @@ mod tests {
                 .collect();
             assert!(decoded.as_raw() == &rgb, "{width}×{height} changed");
         }
-        assert!(settled_lossless(0.25, (1536, 1024)) && settled_lossless(0.998, (2560, 1707)));
-        assert!(!settled_lossless(1.0, (1536, 1024)) && !settled_lossless(2.0, (512, 512)));
-        assert!(!settled_lossless(0.64, (3840, 2560)));
+        assert!(settled_lossless(0.25) && settled_lossless(0.998));
+        assert!(!settled_lossless(1.0) && !settled_lossless(2.0));
         let small = photo_like(64, 48);
         assert!(encode_settled(&small, 0.5).unwrap().starts_with(b"\x89PNG"));
+        // A split's before follows the after across the 100 % boundary.
+        let png = encode_settled_like(&small, 1.0, Some(true)).unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+        let jpeg = encode_settled_like(&small, 0.8, Some(false)).unwrap();
+        assert_eq!(
+            (jpeg[..2] == [0xFF, 0xD8], jpeg),
+            (true, encode_rgbx_444(&small, ONE_TO_ONE_QUALITY).unwrap())
+        );
         assert!(
             encode_settled(&small, 1.0)
                 .unwrap()

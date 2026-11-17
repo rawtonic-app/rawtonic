@@ -43,7 +43,8 @@ it('isolates secondary recipes, ignores a stale photo and releases its own URLs'
   expect(invoke).toHaveBeenCalledWith(Invokes.RenderBrowserView, {
     path: '/first.raw',
     jsAdjustments: null,
-    targetResolution: 1024
+    targetResolution: 1024,
+    lossless: null
   });
   rerender({ path: '/next.raw' });
   tick();

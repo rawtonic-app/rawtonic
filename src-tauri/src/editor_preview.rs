@@ -2296,8 +2296,7 @@ pub(crate) fn process_preview_job(
     // the JPEG dropped or added the fine chroma a photographer judges noise
     // reduction by. Drags and 100 % stay JPEG.
     #[cfg(target_os = "linux")]
-    let lossless = !is_interactive
-        && crate::preview_jpeg::settled_lossless(effective_scale, final_rgba_image.dimensions());
+    let lossless = !is_interactive && crate::preview_jpeg::settled_lossless(effective_scale);
     #[cfg(target_os = "linux")]
     let encode_result = if is_interactive {
         encode_browser_preview(final_rgba_image, jpeg_quality)
@@ -2401,6 +2400,7 @@ fn browser_interactive_divisor(preview_dim: u32, quality: &str, divisor: f32) ->
     divisor.max(preview_dim as f32 / limit)
 }
 
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn encode_browser_preview(
     image: &image::RgbaImage,
     quality: u8,

@@ -34,8 +34,16 @@ export function frameWidth(bytes: Uint8Array): number {
 
 /** An isolated developed frame. Stale completions cannot replace a newer
  * photo/recipe, and every object URL is released when superseded/unmounted. */
-export function useBrowserViewPreview(path: string | null, recipe: string | null, resolution: number, revision = '') {
-  const key = JSON.stringify([path, recipe, resolution, revision]);
+export function useBrowserViewPreview(
+  path: string | null,
+  recipe: string | null,
+  resolution: number,
+  revision = '',
+  /** Encode as the frame compared with (lossless or not); else the
+   * backend's own choice for the frame's scale. */
+  lossless: boolean | null = null
+) {
+  const key = JSON.stringify([path, recipe, resolution, revision, lossless]);
   const contentKey = JSON.stringify([path, recipe, revision]);
   const [frame, setFrame] = useState<BrowserViewFrame | null>(null);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
@@ -47,7 +55,8 @@ export function useBrowserViewPreview(path: string | null, recipe: string | null
       void invoke<ArrayBuffer>(Invokes.RenderBrowserView, {
         path,
         jsAdjustments: recipe ? JSON.parse(recipe) : null,
-        targetResolution: resolution
+        targetResolution: resolution,
+        lossless
       })
         .then((buffer) => {
           if (cancelled) return;

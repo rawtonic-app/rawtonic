@@ -360,7 +360,8 @@ export function useImageProcessing(
               return { interactivePatch: patch };
             });
           } else {
-            const blob = new Blob([buffer], { type: previewFrameType(buffer) });
+            const type = previewFrameType(buffer);
+            const blob = new Blob([buffer], { type });
             const url = URL.createObjectURL(blob);
             noteBrowserPreview(url, returnedAt, inputAt, jobId);
             retireDraftPatches();
@@ -379,7 +380,11 @@ export function useImageProcessing(
                   }
                 }, 250);
               }
-              return { finalPreviewUrl: url, previewFrames: state.previewFrames + 1 };
+              return {
+                finalPreviewUrl: url,
+                finalPreviewLossless: type === 'image/png',
+                previewFrames: state.previewFrames + 1
+              };
             });
 
             setEditor((state) => {

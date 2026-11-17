@@ -41,6 +41,8 @@ export function useBrowserBeforeFrame({
   // A snapshot compared with is the before; its list read again re-reads it.
   useEditorStore((s) => s.beforeSnapshot);
   useSnapshotStore((s) => s.snapshots);
+  // Encoded as the after it is compared with (preview_jpeg.rs encode_settled).
+  const lossless = useEditorStore((s) => s.finalPreviewLossless);
   const recipe = JSON.stringify({
     ...beforeAdjustments(adjustments),
     ...view
@@ -52,7 +54,7 @@ export function useBrowserBeforeFrame({
     64,
     Math.ceil((Math.max(size.width, size.height) * transform.scale * (window.devicePixelRatio || 1)) / 64) * 64
   );
-  return useBrowserViewPreview(active ? path : null, recipe, resolution, String(decoded));
+  return useBrowserViewPreview(active ? path : null, recipe, resolution, String(decoded), lossless);
 }
 
 /** The before frame's place holder: a spinner, or the error that stopped it. */
