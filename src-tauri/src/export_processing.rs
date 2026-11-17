@@ -1972,31 +1972,6 @@ fn export_photo(
     let alone = |target: usize| targets[target].is_explicit_file_path && item.total_paths == 1;
     let together =
         |a: usize, b: usize| with_mask_files(a) == with_mask_files(b) && !alone(a) && !alone(b);
-    // Within each run that renders together, full-size TIFFs are saved
-    // first: the group renders for its first recipe, whose file is then
-    // written while it renders, so no TIFF render is held whole beside a
-    // JPEG's (`streaming_recipes_first`). The files' names do not change:
-    // files of other formats never take each other's names. Recipes with
-    // mask files keep the asked order, as mask files of any recipe may
-    // take each other's names.
-    let images = if images
-        .iter()
-        .any(|&target| targets[target].export_settings.export_masks)
-    {
-        images
-    } else {
-        let file_streams = |target: usize| {
-            matches!(
-                targets[target].output_format.to_ascii_lowercase().as_str(),
-                "tif" | "tiff"
-            ) && matches!(
-                &prepared[with_mask_files(target) as usize],
-                Some(Ok(prepared))
-                    if render_is_file(&targets[target].export_settings, prepared.size())
-            )
-        };
-        streaming_recipes_first(&images, together, file_streams)
-    };
     let precision = |target: usize| {
         render_output_precision(
             &targets[target].output_format,
@@ -2018,6 +1993,36 @@ fn export_photo(
                 .filter(|group| group.len() > 1)
                 .map(|group| run[group].to_vec()),
         );
+    }
+    // A group whose first TIFF is a full-size one renders for it: that
+    // TIFF is saved first, its file written while the group renders, so no
+    // TIFF render is held whole beside a JPEG's (`streaming_tiff_first`;
+    // it passes only files of other formats, so every name stays). Recipes
+    // with separate mask files keep the asked order, as mask files of any
+    // recipe may take each other's names.
+    let mut images = images;
+    if !images.iter().any(|&target| with_mask_files(target)) {
+        let is_tiff = |target: usize| {
+            matches!(
+                targets[target].output_format.to_ascii_lowercase().as_str(),
+                "tif" | "tiff"
+            )
+        };
+        let file_streams = |target: usize| {
+            is_tiff(target)
+                && matches!(
+                    &prepared[with_mask_files(target) as usize],
+                    Some(Ok(prepared))
+                        if render_is_file(&targets[target].export_settings, prepared.size())
+                )
+        };
+        for group in &mut groups {
+            let Some(start) = images.iter().position(|&target| target == group[0]) else {
+                continue;
+            };
+            streaming_tiff_first(group, is_tiff, file_streams);
+            images[start..start + group.len()].copy_from_slice(group);
+        }
     }
     let mut rendered = GroupRenders::new(groups);
     let mask_source = source.filter(|_| wants_mask_source);

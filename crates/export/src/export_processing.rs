@@ -2307,28 +2307,25 @@ pub fn render_prepared_exports(
     )
 }
 
-/// The order a photo's recipes are saved in (`targets`, in the order they
-/// were asked for): within each run of recipes that render together
-/// (`together` of neighbours), those whose file streams its render
-/// (`streams`: a full-size TIFF, [`streams_into_file`]) come first, the
-/// others after them, each in its own order. A group renders for its first
-/// recipe still to be saved and only that one's file streams, so a JPEG
-/// asked for before a TIFF no longer keeps the TIFF's render whole beside
-/// the others (notes: benchmark-results/mem15-2026-11-17). Callers keep
-/// the asked order where file names could depend on it.
-pub fn streaming_recipes_first(
-    targets: &[usize],
-    together: impl Fn(usize, usize) -> bool,
+/// Reorders a render group (`group`, its recipes in the order they are
+/// saved) so that it renders for a TIFF whose file streams its render: the
+/// group's first TIFF (`is_tiff`) moves to the front when its file streams
+/// (`streams`: a full-size TIFF, [`streams_into_file`]); the recipes it
+/// passes are of other formats, whose files never take its name, and TIFFs
+/// keep their order among themselves, so every file keeps its name. A group
+/// renders for its first recipe still to be saved and only that one's file
+/// streams, so a JPEG asked for before a TIFF no longer keeps the TIFF's
+/// render whole beside the others (notes: benchmark-results/mem15-2026-11-17).
+pub fn streaming_tiff_first(
+    group: &mut [usize],
+    is_tiff: impl Fn(usize) -> bool,
     streams: impl Fn(usize) -> bool,
-) -> Vec<usize> {
-    targets
-        .chunk_by(|&a, &b| together(a, b))
-        .flat_map(|run| {
-            let (streaming, others): (Vec<usize>, Vec<usize>) =
-                run.iter().partition(|&&target| streams(target));
-            streaming.into_iter().chain(others)
-        })
-        .collect()
+) {
+    if let Some(first) = group.iter().position(|&target| is_tiff(target))
+        && streams(group[first])
+    {
+        group[..=first].rotate_right(1);
+    }
 }
 
 /// One render of a group ([`save_group_rendering`]).
@@ -4398,19 +4395,25 @@ mod render_group_tests {
     use RenderOutputPrecision::{EightBit, SixteenBit};
 
     #[test]
-    fn streaming_tiffs_are_saved_first_within_their_render_run() {
-        // 0 JPEG, 1 TIFF, 2 PNG, 3 TIFF | 4 alone | 5 JPEG, 6 TIFF
-        let together = |a: usize, b: usize| a != 4 && b != 4;
-        let streams = |t: usize| matches!(t, 1 | 3 | 6);
-        assert_eq!(
-            streaming_recipes_first(&[0, 1, 2, 3, 4, 5, 6], together, streams),
-            [1, 3, 0, 2, 4, 6, 5]
-        );
-        // Nothing streams: the asked order.
-        assert_eq!(
-            streaming_recipes_first(&[2, 0, 1], |_, _| true, |_| false),
-            [2, 0, 1]
-        );
+    fn a_group_renders_for_its_first_tiff_when_that_streams() {
+        // 0, 2 JPEG; 1 full-size TIFF; 3 resized TIFF; 5 full-size TIFF.
+        let is_tiff = |t: usize| matches!(t, 1 | 3 | 5);
+        let streams = |t: usize| matches!(t, 1 | 5);
+        let mut group = [0, 1, 2, 5];
+        streaming_tiff_first(&mut group, is_tiff, streams);
+        assert_eq!(group, [1, 0, 2, 5]);
+        // A resized TIFF before the full-size one: the TIFFs keep their
+        // order (and their names), nothing moves.
+        let mut group = [0, 3, 2, 5];
+        streaming_tiff_first(&mut group, is_tiff, streams);
+        assert_eq!(group, [0, 3, 2, 5]);
+        // Already first, or no TIFF: unchanged.
+        let mut group = [1, 0];
+        streaming_tiff_first(&mut group, is_tiff, streams);
+        assert_eq!(group, [1, 0]);
+        let mut group = [0, 2];
+        streaming_tiff_first(&mut group, is_tiff, streams);
+        assert_eq!(group, [0, 2]);
     }
 
     #[test]
