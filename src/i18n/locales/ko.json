@@ -4748,12 +4748,14 @@
         "FillLight": "보조광",
         "filmCurve": "필름 커브",
         "HighlightRecovery": "하이라이트 복구",
+        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
         "lens": "렌즈 및 키스톤",
         "lensProfile": "렌즈 프로필",
         "noiseReduction": "노이즈 감소",
         "profile": "프로필",
         "profileNamed": "프로필 “{{name}}”",
         "Shadows": "그림자",
+        "toneCurveMissingPoints": "named tone curve without explicit points",
         "upright": "Upright",
         "whiteBalance": "화이트 밸런스"
       }

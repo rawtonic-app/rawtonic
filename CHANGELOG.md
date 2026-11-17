@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Lightroom curves from before process version 2012.** Explicit non-default curves now come along on import; the old default Medium Contrast curve is left out, as in Lightroom’s newer process. Imported legacy curves are an approximation and are named in the import warning; comparison with Lightroom renders is still pending.
+
 - Values that round to zero no longer show a minus sign in sliders, Series Match or merge readouts.
 
 - **XMP titles with translations save reliably.** Edits now handle stale duplicate properties and quoted `>` qualifiers while preserving nested foreign content.
