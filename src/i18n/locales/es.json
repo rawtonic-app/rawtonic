@@ -534,12 +534,14 @@
     },
     "editWith": {
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
+      "closeLibraryFirst": "Cierra la sesión o el catálogo abierto para intentarlo de nuevo: estas fotos se editaron fuera de una biblioteca.",
       "failed": "Error en Editar con: {{error}}",
       "generatedAreas": "Editar con aún no está disponible para fotos con zonas generadas: {{names}}",
       "interrupted": "«Editar con» en {{app}} se interrumpió al cerrar Rawtonic. Vuelve a intentarlo para renderizar las fotos de nuevo.",
       "label": "Editar con",
       "notLinked": "Renderizado, pero no añadido a la biblioteca: {{error}}",
       "openIn": "Abrir en",
+      "openLibraryFirst": "Vuelve a abrir {{library}} para intentarlo de nuevo: sus fotos se procesan con los ajustes que tienen allí.",
       "recipe": "Receta",
       "rendering": "Renderizando para {{app}}…",
       "someFailed": "No se pudieron renderizar {{failed}} de {{total}} fotos.",
@@ -559,6 +561,7 @@
       "label": "Abrir con",
       "none": "Ninguna aplicación abre estos archivos",
       "other": "Otra…",
+      "pickFailed": "No se pudo elegir ese programa: {{error}}",
       "reading": "Buscando aplicaciones…",
       "unsupported": "Aún no disponible en Linux"
     },
