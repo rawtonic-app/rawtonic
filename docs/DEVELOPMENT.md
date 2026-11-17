@@ -128,6 +128,10 @@ RAW/JPEG files sharing a sidecar stem require pair-ownership resolution and are 
 
 ## Build and verify
 
+The Quality gates workflow runs `windows-app` on pushes to main and on pull requests into main that change a Cargo manifest, `Cargo.lock`, `src-tauri/`, the workflow itself or the Rust toolchain pin. It runs `cargo check -p rawtonic-app --locked --all-targets` on Windows Server 2025. Selecting the desktop crate directly checks the features it gets in its own build, since other workspace members can enable extra features. The job compiles the app and its test targets without running tests or creating a bundle. The separate `windows-core` job runs core and engine tests on main and on demand.
+
+When a changed `Cargo.lock` package depends on `windows` before or after the change, `scripts/check.sh` prints a warning pointing to `windows-app`. To run just that job on a pushed branch, use `gh workflow run ci.yml --ref <branch> -f windows_app_only=true`.
+
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
