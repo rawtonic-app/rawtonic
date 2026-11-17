@@ -1307,6 +1307,8 @@ fn cache_thumbnail(path: &Path, bytes: &[u8]) -> Result<()> {
 
 /// Camera pixels depend on the source and orientation decoder, not the RAW
 /// renderer. This key is written only after an embedded preview was decoded.
+/// Bump `embedded-raw-orientation-v1` when preview extraction or orientation
+/// changes: RAW ENGINE_VERSION intentionally does not invalidate these pixels.
 fn embedded_thumbnail_hash(path_str: &str) -> Option<String> {
     let (source, _) = parse_virtual_path(path_str);
     if !is_raw_file(&source) {
@@ -1340,7 +1342,8 @@ fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &App
         && is_raw_file(&source)
         && !settings.always_decode_raw_thumbnails.unwrap_or(false)
         && rawtonic_engine::develop_defaults::for_path(&source).is_none()
-        && !crate::preview_proxy::proxy_path(&source).is_some_and(|p| p.is_file())
+        && !(crate::preview_proxy::stands_for(&source, &serde_json::Value::Null)
+            && crate::preview_proxy::standard_header_is_current(&source, settings))
 }
 
 /// Track one current developed recipe per photo/copy. Only strict cache file
@@ -1468,7 +1471,27 @@ impl ThumbnailCacheEntry {
             &self.medium,
             &encode_thumbnail(image, settings.medium_thumbnail_resolution.unwrap_or(1280))?,
         )?;
-        if !embedded && let Err(error) = supersede_thumbnail(&directory, path_str, hash) {
+        // If a current-looking proxy could not actually be used (no GPU or
+        // damaged payload), lookup may request the developed key. Backfill it
+        // from the actual fallback pixels, so subsequent requests still hit.
+        let backfill = embedded && !embedded_thumbnail_allowed(path_str, b"null", settings);
+        if backfill {
+            for (size, width) in [
+                ("small", settings.small_thumbnail_resolution.unwrap_or(480)),
+                (
+                    "medium",
+                    settings.medium_thumbnail_resolution.unwrap_or(1280),
+                ),
+            ] {
+                cache_thumbnail(
+                    &directory.join(format!("{}_{size}.jpg", self.developed_hash)),
+                    &encode_thumbnail(image, width)?,
+                )?;
+            }
+        }
+        if (!embedded || backfill)
+            && let Err(error) = supersede_thumbnail(&directory, path_str, &self.developed_hash)
+        {
             log::warn!("Superseded thumbnail of {path_str} not removed: {error:#}");
         }
         Ok(())
@@ -2024,6 +2047,71 @@ mod source_preview_tests {
         let mut decode = settings;
         decode.always_decode_raw_thumbnails = Some(true);
         assert!(!super::embedded_thumbnail_allowed(path, b"null", &decode));
+    }
+
+    #[test]
+    fn unreadable_proxy_does_not_hide_a_cached_camera_pair() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("session.json"), br#"{"id":"stale-proxy"}"#).unwrap();
+        let source = temp.path().join("Capture/photo.ARW");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"unchanged source").unwrap();
+        let proxy = crate::preview_proxy::proxy_path(&source).unwrap();
+        std::fs::create_dir_all(proxy.parent().unwrap()).unwrap();
+        std::fs::write(&proxy, b"unreadable old proxy").unwrap();
+        let path = source.to_str().unwrap();
+        let settings = crate::AppSettings::default();
+        assert!(super::embedded_thumbnail_allowed(path, b"null", &settings));
+        let camera = super::embedded_thumbnail_hash(path).unwrap();
+        let cache = temp.path().join("thumbnails");
+        std::fs::create_dir(&cache).unwrap();
+        let mut entry = super::ThumbnailCacheEntry {
+            developed_hash: "a".repeat(64),
+            embedded_hash: Some(camera.clone()),
+            small: cache.join("unused"),
+            medium: cache.join("unused"),
+            rating: None,
+            is_edited: None,
+        };
+        entry
+            .save(path, &image::DynamicImage::new_rgb8(8, 8), true, &settings)
+            .unwrap();
+        assert_eq!(
+            super::preferred_thumbnail_hash(
+                &cache,
+                &entry.developed_hash,
+                Some(&camera),
+                super::embedded_thumbnail_allowed(path, b"null", &settings)
+            ),
+            camera
+        );
+        let image = image::DynamicImage::new_rgb8(8, 8);
+        let variant = crate::image_loader::decode_variant(&serde_json::Value::Null, path);
+        let mut key = crate::preview_proxy::current_key(&source, &settings, variant).unwrap();
+        key.engine -= 1;
+        std::fs::write(&proxy, crate::preview_proxy::encode(&image, 8, 8, key)).unwrap();
+        assert!(
+            super::embedded_thumbnail_allowed(path, b"null", &settings),
+            "stale engine header must not hide camera cache"
+        );
+        let key = crate::preview_proxy::current_key(&source, &settings, variant).unwrap();
+        let mut bytes = crate::preview_proxy::encode(&image, 8, 8, key);
+        let header_len = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+        bytes.truncate(12 + header_len);
+        std::fs::write(&proxy, bytes).unwrap();
+        assert!(!super::embedded_thumbnail_allowed(path, b"null", &settings));
+        assert!(crate::preview_proxy::read(&source, &settings).is_none());
+        // The generator falls back to camera pixels for this damaged payload.
+        // Its normal-key backfill ensures the next lookup can hit as well.
+        entry.save(path, &image, true, &settings).unwrap();
+        let selected = super::preferred_thumbnail_hash(
+            &cache,
+            &entry.developed_hash,
+            Some(&camera),
+            super::embedded_thumbnail_allowed(path, b"null", &settings),
+        );
+        assert_eq!(selected, entry.developed_hash);
+        assert!(cache.join(format!("{selected}_medium.jpg")).is_file());
     }
 
     #[test]
