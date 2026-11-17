@@ -359,7 +359,12 @@ export function useImageProcessing(
               return { interactivePatch: patch };
             });
           } else {
-            const blob = new Blob([buffer], { type: 'image/jpeg' });
+            // A settled reduced frame comes as a lossless PNG (Linux,
+            // preview_jpeg.rs settled_lossless), the others as JPEG.
+            const head = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
+            const type =
+              head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47 ? 'image/png' : 'image/jpeg';
+            const blob = new Blob([buffer], { type });
             const url = URL.createObjectURL(blob);
             noteBrowserPreview(url, returnedAt, inputAt, jobId);
             retireDraftPatches();

@@ -1,4 +1,5 @@
-//! Browser preview JPEGs (Linux drafts and frames, multi-view cells),
+//! Browser preview JPEGs (Linux drafts and frames, multi-view cells) and the
+//! lossless PNG of the editor's settled reduced frame ([`settled_lossless`]),
 //! encoded in horizontal strips on several threads. One 4:4:4 encode of a
 //! 1.5 MP drag draft took ~6.5 ms of the ~14 ms native job on a Ryzen 5
 //! 3600X (notes: benchmark-results/linux-slider-drag-2026-10-17/).
@@ -31,6 +32,45 @@ pub(crate) fn settled_quality(scale: f32) -> u8 {
     } else {
         SETTLED_QUALITY
     }
+}
+
+/// Whether the editor's settled frame with `scale` goes to the webview
+/// lossless (PNG) instead of as a JPEG. Against the export, every JPEG
+/// quality moved a reduced frame's fine chroma out of the ±15 % bar (q94
+/// 0.45–1.27; q98–q100 up to 1.6–2.1, 8-bit quantisation noise the
+/// noise-reduced export lacks); the lossless frame stays within it as the
+/// native displays do. In the app (1536 × 1024, Ryzen 5 3600X) it costs
+/// ~13 ms to encode, 2.6 MB and ~25 ms more until the frame shows; drags
+/// keep their JPEG. At 100 % the frame is the whole photograph (24 MP:
+/// ~62 MB as PNG, twice the JPEG's decode time), so it stays a JPEG (notes:
+/// benchmark-results/lnxj1-2026-11-17/).
+pub(crate) fn settled_lossless(scale: f32) -> bool {
+    scale < 0.999
+}
+
+/// `image` as an 8-bit RGB PNG (alpha ignored), with fast compression and
+/// the Up filter (the fastest of the filters at about the adaptive one's
+/// size on photographs).
+pub(crate) fn encode_png_rgb(image: &image::RgbaImage) -> Result<Vec<u8>, String> {
+    use image::ImageEncoder;
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    let rgb: Vec<u8> = image
+        .as_raw()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[r, g, b, _]| [r, g, b])
+        .collect();
+    let mut out = Vec::with_capacity(rgb.len() / 2);
+    PngEncoder::new_with_quality(&mut out, CompressionType::Fast, FilterType::Up)
+        .write_image(
+            &rgb,
+            image.width(),
+            image.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(out)
 }
 
 /// 4:4:4 MCUs are 8×8 pixels.
@@ -224,6 +264,27 @@ mod tests {
                 assert_eq!(other.dimensions(), (width, height));
             }
         }
+    }
+
+    #[test]
+    fn settled_png_is_lossless_rgb() {
+        for (width, height) in [(1536, 1029), (17, 9)] {
+            let image = photo_like(width, height);
+            let png = encode_png_rgb(&image).unwrap();
+            assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+            let decoded = image::load_from_memory(&png).unwrap().to_rgb8();
+            assert_eq!(decoded.dimensions(), (width, height));
+            let rgb: Vec<u8> = image
+                .as_raw()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|&[r, g, b, _]| [r, g, b])
+                .collect();
+            assert!(decoded.as_raw() == &rgb, "{width}×{height} changed");
+        }
+        assert!(settled_lossless(0.25) && settled_lossless(0.998));
+        assert!(!settled_lossless(1.0) && !settled_lossless(2.0));
     }
 
     #[test]

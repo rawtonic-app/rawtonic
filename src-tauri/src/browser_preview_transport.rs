@@ -99,10 +99,17 @@ pub(crate) fn serve(request: tauri::http::Request<Vec<u8>>, responder: tauri::Ur
         Some(jpeg) => (200, jpeg),
         None => (404, Vec::new()),
     };
+    // The second window shows the main window's settled frame as it came,
+    // a lossless PNG when reduced (preview_jpeg::settled_lossless).
+    let content_type = if body.starts_with(b"\x89PNG") {
+        "image/png"
+    } else {
+        "image/jpeg"
+    };
     responder.respond(
         tauri::http::Response::builder()
             .status(status)
-            .header("Content-Type", "image/jpeg")
+            .header("Content-Type", content_type)
             .header("Cache-Control", "no-store")
             .header("Access-Control-Allow-Origin", "*")
             .header("X-Content-Type-Options", "nosniff")
