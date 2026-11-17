@@ -12,14 +12,27 @@ pub const MAX_EXPORT_WORKERS: usize = 4;
 /// export.
 pub const EXPORT_WORKER_BYTES: u64 = 2 << 30;
 
+/// Free memory a batch export leaves: the app's queue starts no further
+/// photo below it, and the workers are counted on the memory above it. The
+/// editor and other apps go on using memory while an export runs: counted
+/// on all the free memory, a Radeon 680M laptop (shared graphics memory,
+/// 7.9 GB free) ran 3 workers, the app grew 1.15 -> 5.9 GB exporting 16-bit
+/// TIFFs alone and to 7.2 GB (7.8 with its webview) when Develop opened a
+/// photo meanwhile; 2 workers there take 1.25-1.5 GB less for 0-8 % more
+/// export time (notes: parity-gaps/G76, MEM8).
+pub const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
+
 /// The workers for `photos` photos on `cores` cores with `available` bytes
 /// of free memory: one for a single photo, else as many as the cores and
-/// the memory allow, at least one and at most `MAX_EXPORT_WORKERS`.
+/// the memory above `EXPORT_MEMORY_RESERVE` allow, at least one and at most
+/// `MAX_EXPORT_WORKERS`.
 pub fn export_workers(photos: usize, cores: usize, available: u64) -> usize {
     if photos <= 1 {
         return 1;
     }
-    let by_memory = usize::try_from(available / EXPORT_WORKER_BYTES).unwrap_or(usize::MAX);
+    let by_memory =
+        usize::try_from(available.saturating_sub(EXPORT_MEMORY_RESERVE) / EXPORT_WORKER_BYTES)
+            .unwrap_or(usize::MAX);
     cores.min(by_memory).clamp(1, MAX_EXPORT_WORKERS)
 }
 
@@ -107,8 +120,13 @@ mod tests {
         assert_eq!(export_workers(1, 12, 64 * gb), 1);
         assert_eq!(export_workers(20, 12, 64 * gb), 4);
         assert_eq!(export_workers(20, 2, 64 * gb), 2);
-        assert_eq!(export_workers(20, 12, 5 * gb), 2);
+        assert_eq!(export_workers(20, 12, 7 * gb), 2);
+        assert_eq!(export_workers(20, 12, 5 * gb), 1);
         assert_eq!(export_workers(20, 12, gb), 1);
+        // The memory the queue keeps free is no worker's (G76/MEM8: 7.9 GB
+        // free gave 3 workers beside the editor on a 680M laptop).
+        assert_eq!(export_workers(20, 12, 79 * gb / 10), 2);
+        assert_eq!(export_workers(20, 12, 10 * gb), 4);
     }
 
     #[test]
