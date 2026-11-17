@@ -1,6 +1,3 @@
-use chrono::FixedOffset;
-use chrono::NaiveDateTime;
-use chrono::TimeZone;
 use image::DynamicImage;
 use image::ImageBuffer;
 use image::ImageFormat;
@@ -20,7 +17,6 @@ use std::panic;
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::rc::Rc;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 use zerocopy::IntoBytes;
@@ -288,28 +284,31 @@ impl RawMetadata {
     }
   }
 
+  // Rawtonic patch (DEPC1): jiff instead of chrono (unmaintained,
+  // RUSTSEC-2026-0543), with chrono 0.4's results (pinned by
+  // tests/rawtonic_last_modified.rs).
   pub fn last_modified(&self) -> Result<Option<SystemTime>> {
     let mtime = self
       .exif
       .modify_date
       .as_ref()
-      .map(|mtime| NaiveDateTime::parse_from_str(mtime, "%Y:%m:%d %H:%M:%S"))
+      .map(|mtime| jiff::civil::DateTime::strptime("%Y:%m:%d %H:%M:%S", mtime))
       .transpose()
       .map_err(|err| RawlerError::DecoderFailed(err.to_string()))?;
     if let Some(mtime) = mtime {
       // Probe for available timezone information
       let tz = if let Some(offset) = self.exif.timezone_offset.as_ref().and_then(|x| x.get(1)) {
-        if let Some(tz) = FixedOffset::east_opt(*offset as i32 * 3600) {
-          Some(tz)
+        if offset.unsigned_abs() < 24 {
+          Some(jiff::tz::Offset::from_seconds(*offset as i32 * 3600).expect("less than a day"))
         } else {
           log::warn!("TZ Offset overflow");
           None
         }
       } else if let Some(offset) = &self.exif.offset_time {
-        match FixedOffset::from_str(offset) {
-          Ok(tz) => Some(tz),
-          Err(err) => {
-            log::warn!("Invalid fixed offset: {}", err);
+        match fixed_offset(offset) {
+          Some(tz) => Some(tz),
+          None => {
+            log::warn!("Invalid fixed offset: {}", offset);
             None
           }
         }
@@ -319,13 +318,14 @@ impl RawMetadata {
       // Any timezone? Then correct...
       if let Some(tz) = tz {
         let x = tz
-          .from_local_datetime(&mtime)
-          .earliest()
-          .ok_or(RawlerError::DecoderFailed(format!("Failed to convert datetime to local: {:?}", mtime)))?;
-        return Ok(Some(x.into()));
+          .to_timestamp(mtime)
+          .map_err(|_| RawlerError::DecoderFailed(format!("Failed to convert datetime to local: {:?}", mtime)))?;
+        return SystemTime::try_from(x)
+          .map(Some)
+          .map_err(|_| RawlerError::DecoderFailed(format!("Failed to convert datetime to local: {:?}", mtime)));
       } else {
-        match chrono::Local.from_local_datetime(&mtime).earliest() {
-          Some(ts) => return Ok(Some(ts.into())),
+        match local_earliest(mtime).and_then(|ts| SystemTime::try_from(ts).ok()) {
+          Some(ts) => return Ok(Some(ts)),
           None => {
             log::warn!("Failed to convert ts to local time");
           }
@@ -334,6 +334,91 @@ impl RawMetadata {
     }
 
     Ok(None)
+  }
+}
+
+/// Rawtonic patch (DEPC1): a UTC offset as chrono 0.4's `FixedOffset`
+/// read it: `+`, `-` or `−`, two hour digits, any colons or spaces, two
+/// minute digits (00–59), anything after; less than a day.
+fn fixed_offset(text: &str) -> Option<jiff::tz::Offset> {
+  let (negative, rest) = if let Some(rest) = text.strip_prefix('+') {
+    (false, rest)
+  } else if let Some(rest) = text.strip_prefix('-').or_else(|| text.strip_prefix('\u{2212}')) {
+    (true, rest)
+  } else {
+    return None;
+  };
+  let two = |s: &str, first: std::ops::RangeInclusive<u8>| -> Option<i32> {
+    match s.as_bytes() {
+      [a, b, ..] if first.contains(a) && b.is_ascii_digit() => Some(i32::from((a - b'0') * 10 + (b - b'0'))),
+      _ => None,
+    }
+  };
+  let hours = two(rest, b'0'..=b'9')?;
+  let minutes = two(rest[2..].trim_start_matches(|c: char| c == ':' || c.is_whitespace()), b'0'..=b'5')?;
+  let seconds = hours * 3600 + minutes * 60;
+  (seconds < 86_400).then(|| jiff::tz::Offset::from_seconds(if negative { -seconds } else { seconds }).expect("less than a day"))
+}
+
+/// Rawtonic patch (DEPC1): wall time `dt` (whole seconds) in the
+/// computer's time zone as chrono 0.4's
+/// `Local.from_local_datetime(..).earliest()` gave it (`local_earliest_in`).
+fn local_earliest(dt: jiff::civil::DateTime) -> Option<jiff::Timestamp> {
+  local_earliest_in(&jiff::tz::TimeZone::system(), dt, cfg!(windows))
+}
+
+/// Rawtonic patch (DEPC1): chrono 0.4's `earliest()` reading of `dt` in
+/// `zone`. A time the clocks passed twice, its end included, takes the
+/// offset after the change on Unix and the offset before it on Windows
+/// (chrono's backends ordered the pair differently); the first second of a
+/// skipped hour takes the offset before it; a later skipped second is none.
+fn local_earliest_in(zone: &jiff::tz::TimeZone, dt: jiff::civil::DateTime, windows: bool) -> Option<jiff::Timestamp> {
+  use jiff::tz::AmbiguousOffset;
+  let nanosecond = jiff::SignedDuration::from_nanos(1);
+  let offset = match zone.to_ambiguous_timestamp(dt).offset() {
+    AmbiguousOffset::Fold { before, after } => {
+      if windows {
+        before
+      } else {
+        after
+      }
+    }
+    AmbiguousOffset::Unambiguous { offset } => match dt.checked_sub(nanosecond).map(|p| zone.to_ambiguous_timestamp(p).offset()) {
+      // The end of a fold still counts as the fold on Windows.
+      Ok(AmbiguousOffset::Fold { before, after }) if windows && after == offset => before,
+      _ => offset,
+    },
+    AmbiguousOffset::Gap { before, .. } => {
+      let instant = before.to_timestamp(dt).ok()?;
+      let just_before = instant.checked_sub(nanosecond).ok()?;
+      (zone.to_offset(just_before) == before).then_some(before)?
+    }
+  };
+  offset.to_timestamp(dt).ok()
+}
+
+#[cfg(test)]
+mod rawtonic_local_tests {
+  /// Rawtonic patch (DEPC1): both chrono backends' readings in Zurich.
+  #[test]
+  fn local_wall_times_read_as_chrono_did_on_each_platform() {
+    let zone = jiff::tz::TimeZone::get("Europe/Zurich").unwrap();
+    let read = |text: &str, windows| {
+      let dt = jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", text).unwrap();
+      super::local_earliest_in(&zone, dt, windows).map(|t| t.as_second())
+    };
+    for (text, unix, windows) in [
+      ("2026-03-29 02:00:00", Some(1_774_746_000), Some(1_774_746_000)),
+      ("2026-03-29 02:30:00", None, None),
+      ("2026-03-29 03:00:00", Some(1_774_746_000), Some(1_774_746_000)),
+      ("2026-10-25 02:00:00", Some(1_792_890_000), Some(1_792_886_400)),
+      ("2026-10-25 02:30:00", Some(1_792_891_800), Some(1_792_888_200)),
+      ("2026-10-25 03:00:00", Some(1_792_893_600), Some(1_792_890_000)),
+      ("2026-10-25 03:00:01", Some(1_792_893_601), Some(1_792_893_601)),
+    ] {
+      assert_eq!(read(text, false), unix, "Unix {text}");
+      assert_eq!(read(text, true), windows, "Windows {text}");
+    }
   }
 }
 

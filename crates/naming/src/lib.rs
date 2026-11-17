@@ -1,6 +1,6 @@
 //! Shared, strict filename templates. No filesystem mutation happens here.
 use anyhow::{Result, bail, ensure};
-use chrono::{Datelike, NaiveDateTime, Timelike};
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -174,7 +174,7 @@ pub enum DateSource {
 #[serde(rename_all = "camelCase", default)]
 pub struct Capture {
     /// Local capture time as the camera recorded it.
-    pub captured: Option<NaiveDateTime>,
+    pub captured: Option<DateTime>,
     pub date_source: DateSource,
     /// Fraction of a second as written (EXIF SubSecTimeOriginal digits).
     pub subsec: Option<String>,
@@ -288,7 +288,7 @@ impl Capture {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Context {
-    pub captured: NaiveDateTime,
+    pub captured: DateTime,
     pub original: String,
     pub sequence: u64,
     pub sequence_start: u64,
@@ -318,7 +318,7 @@ const MONTHS: [&str; 12] = [
 impl Context {
     pub fn new(original: impl Into<String>, sequence: u64) -> Self {
         Self {
-            captured: chrono::Local::now().naive_local(),
+            captured: jiff::ZonedDateTime::now().datetime(),
             original: original.into(),
             sequence,
             sequence_start: 1,
@@ -354,16 +354,16 @@ impl Context {
             "yyyy" => format!("{:04}", dt.year()),
             "yy" => format!("{:02}", dt.year().rem_euclid(100)),
             "mm" => format!("{:02}", dt.month()),
-            "month" => MONTHS[dt.month0() as usize].into(),
-            "mon" => MONTHS[dt.month0() as usize][..3].into(),
+            "month" => MONTHS[(dt.month() - 1) as usize].into(),
+            "mon" => MONTHS[(dt.month() - 1) as usize][..3].into(),
             "dd" => format!("{:02}", dt.day()),
-            "doy" => format!("{:03}", dt.ordinal()),
-            "weekday" => dt.format("%A").to_string(),
+            "doy" => format!("{:03}", dt.day_of_year()),
+            "weekday" => dt.strftime("%A").to_string(),
             "hh" => format!("{:02}", dt.hour()),
             "MM" => format!("{:02}", dt.minute()),
             "ss" => format!("{:02}", dt.second()),
-            "date" => dt.format("%Y-%m-%d").to_string(),
-            "time" => dt.format("%H-%M-%S").to_string(),
+            "date" => dt.strftime("%Y-%m-%d").to_string(),
+            "time" => dt.strftime("%H-%M-%S").to_string(),
             "orig" => original
                 .file_name()
                 .and_then(|s| s.to_str())
@@ -422,7 +422,7 @@ fn expand(expression: &str, context: &Context) -> Result<String> {
                 .iter()
                 .find(|(key, _)| *key == format)
                 .ok_or_else(|| anyhow::anyhow!("Unknown {name} format: {format}"))?;
-            value = context.captured.format(pattern).to_string();
+            value = context.captured.strftime(pattern).to_string();
         }
         _ => bail!("Use |pad:N for non-sequence tokens"),
     }
@@ -567,8 +567,7 @@ mod tests {
     #[test]
     fn every_date_token_and_transform() {
         let mut c = Context::new("DSC01234.ARW", 12);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-10-01 14:37:08", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-10-01 14:37:08");
         c.values.insert("job".into(), "Acme / Zürich".into());
         assert_eq!(
             render(
@@ -606,9 +605,7 @@ mod tests {
 
     fn capture() -> Capture {
         Capture {
-            captured: Some(
-                NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap(),
-            ),
+            captured: Some(at("2026-03-07 09:05:02")),
             date_source: DateSource::Original,
             subsec: Some("042".into()),
             offset: Some("+02:00".into()),
@@ -702,8 +699,7 @@ mod tests {
     #[test]
     fn older_templates_and_missing_values_keep_working() {
         let mut c = Context::new("DSC_0001.ARW", 3);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-10-01 14:37:08", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-10-01 14:37:08");
         c.apply_capture(&Capture::default());
         assert_eq!(
             render("{yyyy}{mm}{dd}_{hh}{MM}{ss}_{seq:4}_{orig}", &c).unwrap(),
@@ -722,8 +718,7 @@ mod tests {
     #[test]
     fn date_and_time_formats_are_token_choices() {
         let mut c = Context::new("DSC_0001.ARW", 3);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-03-07 09:05:02");
         let render = |t: &str| render(t, &c).unwrap();
         assert_eq!(render("{date}"), "2026-03-07");
         assert_eq!(render("{date:yyyymmdd}_{time:hhMMss}"), "20260307_090502");
@@ -771,8 +766,7 @@ mod tests {
         );
         let mut c = Context::new("DSC_0001.ARW", 3);
         c.sequence_last = Some(12);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-03-07 09:05:02");
         assert_eq!(
             render(
                 &translate_legacy_export("{YYYY}{MM}{DD}_{hh}{mm}_{original_filename}_{sequence}"),
@@ -786,8 +780,7 @@ mod tests {
     #[test]
     fn folders_from_tokens_stay_inside_the_destination() {
         let mut c = Context::new("DSC_0001.ARW", 1);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-03-07 09:05:02");
         c.values.insert("job".into(), "Acme/../Zürich.".into());
         c.values.insert("format".into(), "JPEG".into());
         let folder = |t: &str, c: &Context| render_folder(t, c);
@@ -832,6 +825,113 @@ mod tests {
                 prop_assert!(!result.contains('\\'));
                 prop_assert_eq!(std::path::Path::new(&result).components().count(), 1);
             }
+        }
+    }
+
+    /// A wall time from `YYYY-MM-DD HH:MM:SS` (tests only).
+    fn at(text: &str) -> DateTime {
+        DateTime::strptime("%Y-%m-%d %H:%M:%S", text).unwrap()
+    }
+
+    /// Every date and time token and every `{date:…}`/`{time:…}` format,
+    /// pinned for years with and without padding, both ends of the
+    /// two-digit-year range, a leap day and every weekday, so a change of
+    /// the date library cannot change a file name (DEPC1).
+    #[test]
+    fn date_tokens_and_formats_are_pinned() {
+        let mut template = String::from(
+            "{yyyy}|{yy}|{mm}|{month}|{mon}|{dd}|{doy}|{weekday}|{hh}|{MM}|{ss}|{date}|{time}",
+        );
+        for (key, _) in DATE_FORMATS {
+            template.push_str(&format!("|{{date:{key}}}"));
+        }
+        for (key, _) in TIME_FORMATS {
+            template.push_str(&format!("|{{time:{key}}}"));
+        }
+        let cases = [
+            (
+                "0999-01-01 00:00:00",
+                "0999|99|01|January|Jan|01|001|Tuesday|00|00|00|0999-01-01|00-00-00|0999-01-01|09990101|990101|0999_01_01|01-01-0999|01.01.0999|01010999|01-01-0999|00-00-00|000000|00.00.00|0000",
+            ),
+            (
+                "1950-06-15 09:05:02",
+                "1950|50|06|June|Jun|15|166|Thursday|09|05|02|1950-06-15|09-05-02|1950-06-15|19500615|500615|1950_06_15|15-06-1950|15.06.1950|15061950|06-15-1950|09-05-02|090502|09.05.02|0905",
+            ),
+            (
+                "2000-02-29 23:59:59",
+                "2000|00|02|February|Feb|29|060|Tuesday|23|59|59|2000-02-29|23-59-59|2000-02-29|20000229|000229|2000_02_29|29-02-2000|29.02.2000|29022000|02-29-2000|23-59-59|235959|23.59.59|2359",
+            ),
+            (
+                "2024-12-31 12:00:01",
+                "2024|24|12|December|Dec|31|366|Tuesday|12|00|01|2024-12-31|12-00-01|2024-12-31|20241231|241231|2024_12_31|31-12-2024|31.12.2024|31122024|12-31-2024|12-00-01|120001|12.00.01|1200",
+            ),
+            (
+                "2026-03-01 07:08:09",
+                "2026|26|03|March|Mar|01|060|Sunday|07|08|09|2026-03-01|07-08-09|2026-03-01|20260301|260301|2026_03_01|01-03-2026|01.03.2026|01032026|03-01-2026|07-08-09|070809|07.08.09|0708",
+            ),
+            (
+                "2026-03-02 07:08:09",
+                "2026|26|03|March|Mar|02|061|Monday|07|08|09|2026-03-02|07-08-09|2026-03-02|20260302|260302|2026_03_02|02-03-2026|02.03.2026|02032026|03-02-2026|07-08-09|070809|07.08.09|0708",
+            ),
+            (
+                "2026-03-04 07:08:09",
+                "2026|26|03|March|Mar|04|063|Wednesday|07|08|09|2026-03-04|07-08-09|2026-03-04|20260304|260304|2026_03_04|04-03-2026|04.03.2026|04032026|03-04-2026|07-08-09|070809|07.08.09|0708",
+            ),
+            (
+                "2026-03-06 07:08:09",
+                "2026|26|03|March|Mar|06|065|Friday|07|08|09|2026-03-06|07-08-09|2026-03-06|20260306|260306|2026_03_06|06-03-2026|06.03.2026|06032026|03-06-2026|07-08-09|070809|07.08.09|0708",
+            ),
+            (
+                "2069-07-04 18:30:00",
+                "2069|69|07|July|Jul|04|185|Thursday|18|30|00|2069-07-04|18-30-00|2069-07-04|20690704|690704|2069_07_04|04-07-2069|04.07.2069|04072069|07-04-2069|18-30-00|183000|18.30.00|1830",
+            ),
+            (
+                "2100-10-09 00:00:00",
+                "2100|00|10|October|Oct|09|282|Saturday|00|00|00|2100-10-09|00-00-00|2100-10-09|21001009|001009|2100_10_09|09-10-2100|09.10.2100|09102100|10-09-2100|00-00-00|000000|00.00.00|0000",
+            ),
+            (
+                "9999-12-31 23:59:59",
+                "9999|99|12|December|Dec|31|365|Friday|23|59|59|9999-12-31|23-59-59|9999-12-31|99991231|991231|9999_12_31|31-12-9999|31.12.9999|31129999|12-31-9999|23-59-59|235959|23.59.59|2359",
+            ),
+        ];
+        let mut context = Context::new("a.arw", 1);
+        for (time, expected) in cases {
+            context.captured = at(time);
+            // `render` rejects `|` in a name; the tokens are what is pinned.
+            let rendered: Vec<String> = template
+                .split('|')
+                .map(|part| render(part, &context).unwrap())
+                .collect();
+            assert_eq!(rendered.join("|"), expected, "{time}");
+        }
+    }
+
+    /// The JSON form of a capture time and a naming context (IPC), pinned
+    /// both ways, also in the space-separated form (DEPC1).
+    #[test]
+    fn capture_times_keep_their_json_form() {
+        let capture = Capture {
+            captured: Some(at("2026-03-07 09:05:02")),
+            ..Capture::default()
+        };
+        let json = serde_json::to_value(&capture).unwrap();
+        assert_eq!(json["captured"], "2026-03-07T09:05:02");
+        assert_eq!(serde_json::from_value::<Capture>(json).unwrap(), capture);
+        let mut context = Context::new("a.arw", 1);
+        context.captured = at("2026-10-01 14:37:08");
+        let json = serde_json::to_value(&context).unwrap();
+        assert_eq!(json["captured"], "2026-10-01T14:37:08");
+        let back: Context = serde_json::from_value(json).unwrap();
+        assert_eq!(back.captured, context.captured);
+        for text in ["2026-10-01T14:37:08", "2026-10-01T14:37:08.250"] {
+            let back: Context = serde_json::from_value(serde_json::json!({
+                "captured": text, "original": "a.arw", "sequence": 1, "sequence_start": 1
+            }))
+            .unwrap();
+            assert_eq!(
+                render("{date}_{time}", &back).unwrap(),
+                "2026-10-01_14-37-08"
+            );
         }
     }
 }

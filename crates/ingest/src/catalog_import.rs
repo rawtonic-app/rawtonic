@@ -521,7 +521,7 @@ fn write_report(target: &Library, source: &Source, report: &Report) -> Result<Pa
         from_folder: &'a Path,
         set_aside: &'a [rawtonic_catalog::catalog_import::SetAside],
     }
-    let at = chrono::Utc::now();
+    let at = jiff::Timestamp::now();
     let folder = target.directory.join(IMPORT_REPORTS);
     fs::create_dir_all(&folder)?;
     let id = &source.snapshot.manifest.id;
@@ -530,9 +530,12 @@ fn write_report(target: &Library, source: &Source, report: &Report) -> Result<Pa
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
         .take(64)
         .collect();
-    let file = folder.join(format!("{} {safe}.json", at.format("%Y-%m-%d %H%M%S%.3f")));
+    let file = folder.join(format!(
+        "{} {safe}.json",
+        at.strftime("%Y-%m-%d %H%M%S%.3f")
+    ));
     let bytes = serde_json::to_vec_pretty(&Kept {
-        imported_at: at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        imported_at: at.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
         from: &source.snapshot.manifest.name,
         from_folder: &source.directory,
         set_aside: &report.set_aside,

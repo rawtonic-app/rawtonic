@@ -35,7 +35,7 @@ fn snapshots_are_taken_renamed_and_deleted_in_their_order() {
         .add_snapshot(&version, "  Warm  ", json!({"exposure": 0.5}))
         .unwrap();
     assert_eq!(first.name, "Warm");
-    assert!(chrono_like(&first.created_at), "{}", first.created_at);
+    assert!(utc_millis_like(&first.created_at), "{}", first.created_at);
     let second = lib
         .add_snapshot(&version, "Cold", json!({"exposure": -0.5}))
         .unwrap();
@@ -80,7 +80,7 @@ fn snapshots_are_taken_renamed_and_deleted_in_their_order() {
     assert!(lib.rename_snapshot(&version, &second.id, "").is_err());
 }
 
-fn chrono_like(text: &str) -> bool {
+fn utc_millis_like(text: &str) -> bool {
     text.len() == "2026-10-20T10:11:12.123Z".len() && text.ends_with('Z')
 }
 

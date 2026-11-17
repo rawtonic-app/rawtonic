@@ -266,7 +266,7 @@ impl Library {
         let database = self
             .directory
             .join(crate::layout::database_name(self.manifest.mode));
-        let date = chrono::Local::now().format("%Y%m%d");
+        let date = jiff::ZonedDateTime::now().strftime("%Y%m%d");
         let name = database
             .file_name()
             .context("No database name")?

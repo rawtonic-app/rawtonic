@@ -205,9 +205,10 @@ where
   }
   dng.root_ifd_mut().add_tag(TiffCommonTag::Software, &params.software);
 
+  // Rawtonic patch (DEPC1): jiff instead of chrono, same text.
   dng
     .root_ifd_mut()
-    .add_tag(ExifTag::ModifyDate, chrono::Local::now().format("%Y:%m:%d %H:%M:%S").to_string());
+    .add_tag(ExifTag::ModifyDate, jiff::ZonedDateTime::now().strftime("%Y:%m:%d %H:%M:%S").to_string());
 
   dng.close()?;
 

@@ -264,7 +264,7 @@ mod tests {
             "/p/Shoot_VC2024/c.raf".into(),
             "/p/c_vc3.raf".into(),
         ]);
-        let date = chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).unwrap();
+        let date = jiff::Timestamp::UNIX_EPOCH;
         let stems: Vec<String> = items
             .iter()
             .map(|(i, photo, appearance, vc)| {

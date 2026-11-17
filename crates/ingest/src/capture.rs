@@ -49,7 +49,6 @@ pub(crate) fn import_metadata(
     path: &Path,
     header: Option<Capture>,
 ) -> anyhow::Result<(rawtonic_metadata::Metadata, Option<i32>)> {
-    use chrono::Datelike;
     let read_packet = || -> anyhow::Result<rawtonic_metadata::Metadata> {
         let mut file = fs::File::open(path)?;
         let len = file.metadata()?.len();
@@ -78,7 +77,7 @@ pub(crate) fn import_metadata(
                 DateSource::Original | DateSource::Digitized | DateSource::FileDate
             )
         })
-        .map(|date| date.year());
+        .map(|date| i32::from(date.year()));
     // XMP is validated by read_xmp; validate each optional EXIF fallback
     // before adopting it, retaining valid embedded fields if one is bad.
     let camera_text = |value: Option<String>| {
@@ -124,7 +123,7 @@ fn read_capture_within(path: &Path, most: u64) -> Capture {
         let modified = fs::metadata(path).and_then(|m| m.modified());
         (capture.captured, capture.date_source) = match modified {
             Ok(time) => (Some(local(time)), DateSource::Modified),
-            Err(_) => (Some(chrono::Local::now().naive_local()), DateSource::Now),
+            Err(_) => (Some(jiff::ZonedDateTime::now().datetime()), DateSource::Now),
         };
         capture.subsec = None;
         capture.offset = None;
@@ -634,7 +633,7 @@ fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
         captured: capture
             .captured
             .filter(|_| dated)
-            .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string()),
+            .map(|time| time.strftime("%Y-%m-%d %H:%M:%S").to_string()),
         // The fraction and offset the file states beside that time (as
         // Shift Capture Time reads the file's time).
         captured_subsec: capture.subsec.clone().filter(|_| dated),
@@ -654,14 +653,18 @@ fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
     })
 }
 
-fn local(time: std::time::SystemTime) -> chrono::NaiveDateTime {
-    chrono::DateTime::<chrono::Local>::from(time).naive_local()
+/// The computer's wall time at `time` (a time outside the years
+/// -9999–9999 jiff holds: now).
+fn local(time: std::time::SystemTime) -> jiff::civil::DateTime {
+    jiff::Timestamp::try_from(time)
+        .map(|t| t.to_zoned_datetime(jiff::tz::TimeZone::system()).datetime())
+        .unwrap_or_else(|_| jiff::ZonedDateTime::now().datetime())
 }
 
 /// A date as EXIF writes it (`2026:10:01 14:37:08`; also with dashes or a
 /// `T`, and a date alone as midnight). Placeholder dates (`0000:00:00`) are
 /// none.
-pub fn parse_exif_date(text: &str) -> Option<chrono::NaiveDateTime> {
+pub fn parse_exif_date(text: &str) -> Option<jiff::civil::DateTime> {
     let text = text.trim().trim_end_matches('\0').trim();
     let normal: String = text
         .chars()
@@ -673,12 +676,12 @@ pub fn parse_exif_date(text: &str) -> Option<chrono::NaiveDateTime> {
             _ => c,
         })
         .collect();
-    chrono::NaiveDateTime::parse_from_str(&normal, "%Y-%m-%d %H:%M:%S")
+    jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", &normal)
         .ok()
         .or_else(|| {
-            chrono::NaiveDate::parse_from_str(normal.get(..10)?, "%Y-%m-%d")
+            jiff::civil::Date::strptime("%Y-%m-%d", normal.get(..10)?)
                 .ok()
-                .and_then(|d| d.and_hms_opt(0, 0, 0))
+                .map(|d| d.to_datetime(jiff::civil::Time::midnight()))
         })
 }
 
@@ -809,7 +812,7 @@ fn packet_rating(text: &str) -> Option<u8> {
 /// A Canon CRW's capture time, which it keeps outside EXIF: the CIFF
 /// TimeStamp record (0x180e, its first word the local time as seconds since
 /// 1970). Neither EXIF reader knows CIFF.
-fn crw_capture_time(bytes: &[u8]) -> Option<chrono::NaiveDateTime> {
+fn crw_capture_time(bytes: &[u8]) -> Option<jiff::civil::DateTime> {
     if bytes.get(6..14) != Some(b"HEAPCCDR") || bytes.get(..2) != Some(b"II") {
         return None;
     }
@@ -817,9 +820,9 @@ fn crw_capture_time(bytes: &[u8]) -> Option<chrono::NaiveDateTime> {
     let at = ciff_find(bytes, header, bytes.len().checked_sub(header)?, 0x180e, 0)?;
     let seconds = u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?);
     (seconds > 0)
-        .then(|| chrono::DateTime::from_timestamp(i64::from(seconds), 0))
+        .then(|| jiff::Timestamp::from_second(i64::from(seconds)).ok())
         .flatten()
-        .map(|time| time.naive_utc())
+        .map(|time| jiff::tz::Offset::UTC.to_datetime(time))
 }
 
 /// Walks a CIFF heap (its directory at its end) for a record's data offset,
@@ -1466,7 +1469,7 @@ pub(crate) mod tests {
 
     #[test]
     fn exif_dates_parse_in_their_written_forms() {
-        let at = |s| parse_exif_date(s).map(|d| d.to_string());
+        let at = |s| parse_exif_date(s).map(wall_text);
         assert_eq!(
             at("2026:10:01 14:37:08").as_deref(),
             Some("2026-10-01 14:37:08")
@@ -1478,13 +1481,40 @@ pub(crate) mod tests {
         assert_eq!(at("2026:10:01\0").as_deref(), Some("2026-10-01 00:00:00"));
         assert_eq!(at("0000:00:00 00:00:00"), None);
         assert_eq!(at("    "), None);
+        // Pinned before the date library changed (DEPC1): every written
+        // form a camera or editor uses, and what is not a date.
+        for (text, expected) in [
+            ("2026-10-01 14:37:08", Some("2026-10-01 14:37:08")),
+            ("2026:10:01T14:37:08", Some("2026-10-01 14:37:08")),
+            ("2026:10:01 14:37:08.123", Some("2026-10-01 14:37:08")),
+            ("2026:10:01 14:37:08Z", Some("2026-10-01 14:37:08")),
+            (" 2026:10:01 14:37:08 \0\0", Some("2026-10-01 14:37:08")),
+            ("2024:02:29 12:00:00", Some("2024-02-29 12:00:00")),
+            ("0001:01:01 00:00:00", Some("0001-01-01 00:00:00")),
+            ("9999:12:31 23:59:59", Some("9999-12-31 23:59:59")),
+            ("2026:10:01 24:00:00", Some("2026-10-01 00:00:00")),
+            ("2026:10:01 14:37", Some("2026-10-01 00:00:00")),
+            ("2026:10:01", Some("2026-10-01 00:00:00")),
+            ("2023:02:29 12:00:00", None),
+            ("2026:13:01 12:00:00", None),
+            ("2026:00:00 00:00:00", None),
+            ("26:10:01 14:37:08", None),
+            ("garbage", None),
+        ] {
+            assert_eq!(at(text).as_deref(), expected, "{text:?}");
+        }
+    }
+
+    /// A wall time as the library stores it, `YYYY-MM-DD HH:MM:SS`.
+    fn wall_text(time: jiff::civil::DateTime) -> String {
+        time.strftime("%Y-%m-%d %H:%M:%S").to_string()
     }
 
     #[test]
     fn reads_exif_facts_from_a_jpeg_header() {
         let capture = from_bytes(&jpeg_with_exif(&tiff_exif("2025:12:24 18:30:15")));
         assert_eq!(
-            capture.captured.map(|d| d.to_string()).as_deref(),
+            capture.captured.map(wall_text).as_deref(),
             Some("2025-12-24 18:30:15")
         );
         assert_eq!(capture.date_source, DateSource::Original);
@@ -1836,7 +1866,7 @@ pub(crate) mod tests {
         let (capture, error) = read_header(&mut file, len, limit);
         assert!(error.is_none());
         assert_eq!(
-            capture.captured.map(|d| d.to_string()).as_deref(),
+            capture.captured.map(wall_text).as_deref(),
             Some("2024-07-14 06:15:30")
         );
         assert_eq!(
@@ -1928,7 +1958,7 @@ pub(crate) mod tests {
         assert_eq!(
             (
                 capture.model.as_deref(),
-                capture.captured.map(|d| d.to_string()).as_deref()
+                capture.captured.map(wall_text).as_deref()
             ),
             (Some("RAW Huge"), Some("2024-07-14 06:15:30"))
         );
@@ -1983,7 +2013,7 @@ pub(crate) mod tests {
         let capture = from_bytes(&tiff_exif("not a date"));
         assert_eq!(capture.date_source, DateSource::FileDate);
         assert_eq!(
-            capture.captured.map(|d| d.to_string()).as_deref(),
+            capture.captured.map(wall_text).as_deref(),
             Some("2026-01-02 03:04:05")
         );
         assert_eq!(
@@ -2021,7 +2051,7 @@ pub(crate) mod tests {
         let capture = read_capture(&photo);
         assert_eq!(capture.date_source, DateSource::Original);
         assert_eq!(
-            capture.captured.map(|d| d.to_string()).as_deref(),
+            capture.captured.map(wall_text).as_deref(),
             Some("2024-05-06 07:08:09")
         );
     }
@@ -2194,7 +2224,7 @@ pub(crate) mod tests {
         let capture = from_bytes(&data);
         assert_eq!(capture.date_source, DateSource::Original);
         assert_eq!(
-            capture.captured.map(|d| d.to_string()).as_deref(),
+            capture.captured.map(wall_text).as_deref(),
             Some("2004-02-03 04:05:06")
         );
         data[0] = b'M';

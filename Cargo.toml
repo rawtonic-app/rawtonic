@@ -31,12 +31,12 @@ anyhow = "1.0.104"
 base64 = "0.23"
 blake3 = "1.8.7"
 bytemuck = "1.25"
-chrono = "0.4"
 criterion = { version = "0.8.2", default-features = false }
 flate2 = "1.1.9"
 half = "2.7.1"
 image = "0.25.10"
 imageproc = { version = "0.27.0", default-features = false }
+jiff = "1.0.0"
 jxl-encoder = "0.3.1"
 jxl-oxide = "0.12.6"
 # Lossless JPEG XL export (libjxl's fast-lossless method); its header is

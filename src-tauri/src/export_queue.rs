@@ -1645,8 +1645,8 @@ mod tests {
             ("from A".to_string(), "from B".to_string())
         );
         let year = |job: &Queued| {
-            use chrono::Datelike;
-            job.as_run()[0].capture_date(&libs.source).year()
+            let date = job.as_run()[0].capture_date(&libs.source);
+            jiff::tz::Offset::UTC.to_datetime(date).year()
         };
         assert_eq!((year(&from_a), year(&from_b)), (2020, 2021));
     }

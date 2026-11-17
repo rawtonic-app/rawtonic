@@ -883,10 +883,11 @@ impl Library {
                     Err(e) => return Some(Err(e)),
                 };
                 let time =
-                    chrono::NaiveDateTime::parse_from_str(time.as_deref()?, "%Y-%m-%d %H:%M:%S")
-                        .ok()?
-                        .and_utc()
-                        .timestamp();
+                    jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", time.as_deref()?).ok()?;
+                // Seconds since 1970 of the wall time read as UTC.
+                let time = time
+                    .duration_since(jiff::civil::date(1970, 1, 1).at(0, 0, 0, 0))
+                    .as_secs();
                 Some(Ok((
                     Frame {
                         id,

@@ -215,7 +215,7 @@ impl ExportSettings {
         original_path: &Path,
         sequence: usize,
         last_sequence: usize,
-        file_date: &chrono::DateTime<chrono::Utc>,
+        file_date: &jiff::Timestamp,
         output_format: &str,
         capture: Option<&rawtonic_naming::Capture>,
     ) -> rawtonic_naming::Context {
@@ -229,7 +229,9 @@ impl ExportSettings {
         if let Some(capture) = capture {
             context.apply_capture(capture);
         }
-        context.captured = file_date.with_timezone(&chrono::Local).naive_local();
+        context.captured = file_date
+            .to_zoned_datetime(jiff::tz::TimeZone::system())
+            .datetime();
         let mut set = |token: &str, value: Option<&str>| {
             if let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) {
                 context.values.insert(token.into(), value.into());
@@ -2173,8 +2175,8 @@ pub fn encode_with_metadata(
 
 /// Sets an export file's access and modification times to the capture time;
 /// a missing or pre-1970 capture date leaves "now".
-pub fn set_capture_file_times(dst: &Path, capture_dt: chrono::DateTime<chrono::Utc>) {
-    if capture_dt.timestamp() <= 0 {
+pub fn set_capture_file_times(dst: &Path, capture_dt: jiff::Timestamp) {
+    if capture_dt.as_second() <= 0 {
         let now = filetime::FileTime::now();
         if let Err(e) = filetime::set_file_times(dst, now, now) {
             log::warn!("Could not set timestamps on '{}': {}", dst.display(), e);
@@ -2183,8 +2185,8 @@ pub fn set_capture_file_times(dst: &Path, capture_dt: chrono::DateTime<chrono::U
     }
 
     let ft = filetime::FileTime::from_unix_time(
-        capture_dt.timestamp(),
-        capture_dt.timestamp_subsec_nanos(),
+        capture_dt.as_second(),
+        capture_dt.subsec_nanosecond().unsigned_abs(),
     );
     if let Err(e) = filetime::set_file_times(dst, ft, ft) {
         log::warn!("Could not set timestamps on '{}': {}", dst.display(), e);
@@ -3745,7 +3747,7 @@ mod naming_counter_tests {
         original_path: &std::path::Path,
         sequence: usize,
         total: usize,
-        file_date: &chrono::DateTime<chrono::Utc>,
+        file_date: &jiff::Timestamp,
     ) -> String {
         let stem = original_path
             .file_stem()
@@ -3756,16 +3758,16 @@ mod naming_counter_tests {
             sequence,
             width = total.to_string().len().max(1)
         );
-        let local_date = file_date.with_timezone(&chrono::Local);
+        let local_date = file_date.to_zoned_datetime(jiff::tz::TimeZone::system());
 
         let mut result = template.to_string();
         result = result.replace("{original_filename}", stem);
         result = result.replace("{sequence}", &sequence_str);
-        result = result.replace("{YYYY}", &local_date.format("%Y").to_string());
-        result = result.replace("{MM}", &local_date.format("%m").to_string());
-        result = result.replace("{DD}", &local_date.format("%d").to_string());
-        result = result.replace("{hh}", &local_date.format("%H").to_string());
-        result = result.replace("{mm}", &local_date.format("%M").to_string());
+        result = result.replace("{YYYY}", &local_date.strftime("%Y").to_string());
+        result = result.replace("{MM}", &local_date.strftime("%m").to_string());
+        result = result.replace("{DD}", &local_date.strftime("%d").to_string());
+        result = result.replace("{hh}", &local_date.strftime("%H").to_string());
+        result = result.replace("{mm}", &local_date.strftime("%M").to_string());
 
         result
     }
@@ -3774,9 +3776,7 @@ mod naming_counter_tests {
     /// did (`ExportSettings::naming_template` translates them).
     #[test]
     fn saved_legacy_templates_name_files_as_before() {
-        let date = chrono::DateTime::parse_from_rfc3339("2026-03-07T21:05:02Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
+        let date: jiff::Timestamp = "2026-03-07T21:05:02Z".parse().unwrap();
         let source = std::path::Path::new("/shoot/100ND750/DSC_0042.NEF");
         for template in [
             "{original_filename}",
@@ -3814,7 +3814,7 @@ mod naming_counter_tests {
             "jobName": " Acme ", "recipeName": "Web",
         }))
         .unwrap();
-        let date = chrono::Utc::now();
+        let date = jiff::Timestamp::now();
         let naming =
             settings.naming_context(std::path::Path::new("a.raf"), 4, 9, &date, "jpg", None);
         assert_eq!(
@@ -3838,7 +3838,7 @@ mod naming_counter_tests {
         settings.sequence_start = Some(98);
         let saved = serde_json::to_value(&settings).unwrap();
         let restored: ExportSettings = serde_json::from_value(saved).unwrap();
-        let date = chrono::Utc::now();
+        let date = jiff::Timestamp::now();
         let stem = |sequence, last| {
             let naming = restored.naming_context(
                 std::path::Path::new("a.raf"),

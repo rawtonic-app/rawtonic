@@ -1014,8 +1014,8 @@ pub(crate) fn import_pair(
     if options.destination.sort_by_date {
         let date = context.captured.date();
         folder = folder
-            .join(date.format("%Y").to_string())
-            .join(date.format("%Y-%m-%d").to_string());
+            .join(date.strftime("%Y").to_string())
+            .join(date.strftime("%Y-%m-%d").to_string());
         create_dir_all_with(&folder, options.destination.path(), &mut barrier)?;
     }
     ensure!(

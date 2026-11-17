@@ -26,7 +26,8 @@ use crate::CatalogError;
 use crate::Library;
 use crate::error::bail;
 use anyhow::Result;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use jiff::SignedDuration;
+use jiff::civil::DateTime;
 use rawtonic_metadata::{CaptureWrite, XmpDateTime};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -100,26 +101,38 @@ fn fraction_nanos(digits: &str) -> i128 {
     value * 10i128.pow((MAX_DIGITS - digits.len()) as u32)
 }
 
-fn parse_local(text: &str) -> Result<NaiveDateTime, TimeError> {
+fn parse_local(text: &str) -> Result<DateTime, TimeError> {
     let text = text.trim();
     for format in [LOCAL_FORMAT, "%Y:%m:%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"] {
-        if let Ok(time) = NaiveDateTime::parse_from_str(text, format) {
+        if let Ok(time) = DateTime::strptime(format, text) {
             return Ok(time);
         }
     }
     Err(TimeError::Invalid)
 }
 
-fn in_range(time: &NaiveDateTime) -> bool {
-    use chrono::Datelike;
+fn in_range(time: &DateTime) -> bool {
     (1..=9999).contains(&time.year())
 }
 
 /// Seconds since 0001-01-01 00:00:00 (proleptic Gregorian, no time zone).
-fn epoch() -> NaiveDateTime {
-    NaiveDate::from_ymd_opt(1, 1, 1)
-        .unwrap()
-        .and_time(NaiveTime::MIN)
+fn epoch() -> DateTime {
+    jiff::civil::date(1, 1, 1).at(0, 0, 0, 0)
+}
+
+/// The wall time `seconds` after 0001-01-01 00:00:00, by whole days and
+/// the time of day (jiff adds a duration to a civil time in nanoseconds,
+/// which spans only about 292 years).
+fn from_epoch(seconds: i64) -> Option<DateTime> {
+    let days = seconds.div_euclid(86_400);
+    let of_day = SignedDuration::from_secs(seconds.rem_euclid(86_400));
+    epoch()
+        .date()
+        .checked_add(jiff::Span::new().try_days(days).ok()?)
+        .ok()?
+        .to_datetime(jiff::civil::Time::midnight())
+        .checked_add(of_day)
+        .ok()
 }
 
 impl CaptureTime {
@@ -129,7 +142,7 @@ impl CaptureTime {
         let time = parse_local(local)?;
         ensure_range(&time)?;
         Ok(Self {
-            local: time.format(LOCAL_FORMAT).to_string(),
+            local: time.strftime(LOCAL_FORMAT).to_string(),
             subsec: subsec.map(fraction).transpose()?.flatten(),
             offset: offset
                 .map(|o| o.trim().trim_end_matches('\0').trim().to_string())
@@ -142,13 +155,13 @@ impl CaptureTime {
         Self::new(&self.local, self.subsec.as_deref(), self.offset.as_deref())
     }
 
-    fn wall(&self) -> Result<NaiveDateTime, TimeError> {
+    fn wall(&self) -> Result<DateTime, TimeError> {
         parse_local(&self.local)
     }
 
     /// Nanoseconds since 0001-01-01 (wall time), for exact differences.
     fn nanos(&self) -> Result<i128, TimeError> {
-        let seconds = (self.wall()? - epoch()).num_seconds() as i128;
+        let seconds = self.wall()?.duration_since(epoch()).as_secs() as i128;
         Ok(seconds * NANOS + self.subsec.as_deref().map_or(0, fraction_nanos))
     }
 
@@ -162,18 +175,14 @@ impl CaptureTime {
         let seconds = total.div_euclid(NANOS);
         let nanos = total.rem_euclid(NANOS);
         let seconds = i64::try_from(seconds).map_err(|_| TimeError::OutOfRange)?;
-        let wall = epoch()
-            .checked_add_signed(
-                chrono::TimeDelta::try_seconds(seconds).ok_or(TimeError::OutOfRange)?,
-            )
-            .ok_or(TimeError::OutOfRange)?;
+        let wall = from_epoch(seconds).ok_or(TimeError::OutOfRange)?;
         ensure_range(&wall)?;
         let subsec = (digits > 0).then(|| {
             let scaled = nanos / 10i128.pow((MAX_DIGITS - digits) as u32);
             format!("{scaled:0digits$}")
         });
         Ok(Self {
-            local: wall.format(LOCAL_FORMAT).to_string(),
+            local: wall.strftime(LOCAL_FORMAT).to_string(),
             subsec,
             offset: self.offset.clone(),
         })
@@ -244,7 +253,7 @@ impl CaptureTime {
     }
 }
 
-fn ensure_range(time: &NaiveDateTime) -> Result<(), TimeError> {
+fn ensure_range(time: &DateTime) -> Result<(), TimeError> {
     if in_range(time) {
         Ok(())
     } else {
@@ -820,9 +829,9 @@ mod tests {
             shift_nanos in -(500i128 * 365 * 86_400 * NANOS)..(500i128 * 365 * 86_400 * NANOS),
             digits in 0usize..=9,
         ) {
-            let base = NaiveDate::from_ymd_opt(1000, 1, 1).unwrap().and_time(NaiveTime::MIN);
+            let base = jiff::civil::date(1000, 1, 1).at(0, 0, 0, 0).duration_since(epoch()).as_secs();
             let at = |seconds: i64, fraction: &Option<String>| CaptureTime::new(
-                &(base + chrono::TimeDelta::seconds(seconds)).format(LOCAL_FORMAT).to_string(),
+                &from_epoch(base + seconds).unwrap().strftime(LOCAL_FORMAT).to_string(),
                 fraction.as_deref(),
                 Some("-03:30"),
             ).unwrap();
@@ -938,6 +947,43 @@ mod tests {
                 .unwrap()
                 .subsec,
             None
+        );
+    }
+
+    /// Every spelling a capture time is stored or written in is read, in
+    /// one normal form, and what is not a time is refused with its reason
+    /// (pinned before the date library changed, DEPC1).
+    #[test]
+    fn stored_spellings_are_read_in_one_form() {
+        for (text, expected) in [
+            ("2026-10-30 14:05:09", Ok("2026-10-30 14:05:09")),
+            ("2026:10:30 14:05:09", Ok("2026-10-30 14:05:09")),
+            ("2026-10-30T14:05:09", Ok("2026-10-30 14:05:09")),
+            ("  2026-10-30 14:05:09\t", Ok("2026-10-30 14:05:09")),
+            ("2026-1-3 4:5:9", Ok("2026-01-03 04:05:09")),
+            ("2024-02-29 00:00:00", Ok("2024-02-29 00:00:00")),
+            ("0001-01-01 00:00:00", Ok("0001-01-01 00:00:00")),
+            ("9999-12-31 23:59:59", Ok("9999-12-31 23:59:59")),
+            ("0000-12-31 23:59:59", Err(TimeError::OutOfRange)),
+            ("2023-02-29 00:00:00", Err(TimeError::Invalid)),
+            ("2026-10-30 24:00:00", Err(TimeError::Invalid)),
+            ("2026-10-30 14:05", Err(TimeError::Invalid)),
+            ("2026-10-30 14:05:09.5", Err(TimeError::Invalid)),
+            ("2026-10-30 14:05:09+02:00", Err(TimeError::Invalid)),
+            ("2026-10-30", Err(TimeError::Invalid)),
+            ("", Err(TimeError::Invalid)),
+        ] {
+            let read = CaptureTime::new(text, None, None).map(|t| t.local);
+            assert_eq!(read.as_deref(), expected.as_ref().map(|s| *s), "{text:?}");
+        }
+        // Across the whole EXIF range, exact to the nanosecond.
+        let first = at("0001-01-01 00:00:00", None);
+        let last = at("9999-12-31 23:59:59", Some("999999999"));
+        let s = first.shift_to("9999-12-31 23:59:59.999999999").unwrap();
+        assert_eq!(first.shifted(&s).unwrap(), last);
+        assert_eq!(
+            last.nanos().unwrap() - first.nanos().unwrap(),
+            315_537_897_599_999_999_999
         );
     }
 

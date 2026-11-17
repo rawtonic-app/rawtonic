@@ -47,7 +47,9 @@ impl Snapshot {
         let snapshot = Self {
             id: Uuid::new_v4().to_string(),
             name: clean_name(name)?,
-            created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            created_at: jiff::Timestamp::now()
+                .strftime("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
             adjustments,
         };
         snapshot.validate()?;
@@ -61,7 +63,7 @@ impl Snapshot {
         );
         ensure!(clean_name(&self.name)? == self.name, "Not a snapshot name");
         ensure!(
-            chrono::DateTime::parse_from_rfc3339(&self.created_at).is_ok(),
+            self.created_at.parse::<jiff::Timestamp>().is_ok(),
             "Not a snapshot time"
         );
         ensure!(self.adjustments.is_object(), "A snapshot holds adjustments");
@@ -456,6 +458,55 @@ impl Library {
 mod tests {
     use crate::{Library, Mode};
     use serde_json::json;
+
+    /// The times a snapshot is kept with: every spelling RFC 3339 allows
+    /// is read, a text that is no time is not (pinned before the date
+    /// library changed, DEPC1).
+    #[test]
+    fn snapshot_times_are_read_in_their_rfc3339_spellings() {
+        let snapshot = |created_at: &str| super::Snapshot {
+            id: "s1".into(),
+            name: "Warm".into(),
+            created_at: created_at.into(),
+            adjustments: json!({}),
+        };
+        for text in [
+            "2026-10-20T10:00:00.000Z",
+            "2026-10-20T10:00:00Z",
+            "2026-10-20t10:00:00z",
+            "2026-10-20 10:00:00Z",
+            "2026-10-20T10:00:00+02:00",
+            "2026-10-20T10:00:00-00:00",
+            "2026-10-20T10:00:00.123456789+00:00",
+            "2026-10-20T10:00:00.5Z",
+        ] {
+            assert!(snapshot(text).validate().is_ok(), "{text}");
+        }
+        for text in [
+            "",
+            "garbage",
+            "2026-10-20",
+            "2026-10-20T10:00:00",
+            "2026-10-20T10:00:00.Z",
+        ] {
+            assert!(snapshot(text).validate().is_err(), "{text}");
+        }
+        let taken = super::Snapshot::new("Warm", json!({})).unwrap();
+        assert!(
+            shape(&taken.created_at, "dddd-dd-ddTdd:dd:dd.dddZ"),
+            "{}",
+            taken.created_at
+        );
+    }
+
+    /// `text` has the form `pattern`, `d` standing for a digit.
+    fn shape(text: &str, pattern: &str) -> bool {
+        text.len() == pattern.len()
+            && text.bytes().zip(pattern.bytes()).all(|(t, p)| match p {
+                b'd' => t.is_ascii_digit(),
+                _ => t == p,
+            })
+    }
 
     #[test]
     fn the_first_save_takes_over_carried_snapshots_with_the_edit_or_not_at_all() {

@@ -3,7 +3,6 @@
 use crate::IngestError;
 use crate::error::ensure;
 use anyhow::Result;
-use chrono::Datelike;
 use rawtonic_catalog::Library;
 use rawtonic_metadata::{IptcKind, MAX_KEYWORDS, Metadata, iptc_field};
 use serde::{Deserialize, Serialize};
@@ -134,10 +133,13 @@ impl ImportMetadata {
     ) -> Result<Embedded> {
         let (metadata, embedded_year) = crate::capture::import_metadata(photo, header)?;
         let year = embedded_year.unwrap_or_else(|| {
-            std::fs::metadata(source)
+            let local = std::fs::metadata(source)
                 .and_then(|m| m.modified())
-                .map(|time| chrono::DateTime::<chrono::Local>::from(time).year())
-                .unwrap_or_else(|_| chrono::Local::now().year())
+                .ok()
+                .and_then(|time| jiff::Timestamp::try_from(time).ok())
+                .map(|time| time.to_zoned_datetime(jiff::tz::TimeZone::system()))
+                .unwrap_or_else(jiff::ZonedDateTime::now);
+            i32::from(local.year())
         });
         Ok(Embedded { metadata, year })
     }
