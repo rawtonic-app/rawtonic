@@ -581,3 +581,10 @@
   --studio-shade-text: #ffffff;
   --studio-shade-rgb-text: 255 255 255;
 }
+
+/* Native select menus and number steppers belong to the dark interface too,
+   including dialogs mounted outside the studio workspace. */
+select,
+input[type='number'] {
+  color-scheme: dark;
+}
