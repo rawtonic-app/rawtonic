@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- **Colour noise in the Develop view matches the export on Linux.** On Linux the fit view and the open photo's thumbnail showed 1.5–3 times the colour noise the export has at the same size, as on every computer before. With a discrete graphics card they now show the export's own colour noise reduction a moment after a change, as on Windows and Macs; integrated graphics keep the quick filter.
+- **Less colour noise in the Develop view on Linux.** With a discrete graphics card the fit view now takes the export's own colour noise reduction a moment after a change, as on Windows and Macs, and the open photo's thumbnail is redeveloped with it; before, the view kept a quick filter that left more colour noise than the export. The view is closer to the export but not yet equal on every photo. Integrated graphics keep the quick filter.
 
 - **Lightroom catalog imports keep Guided Upright.** A photo corrected with Lightroom's Guided Upright arrived uncorrected; its guide lines now become Rawtonic's Guided Upright lines on the same edges, also where Lightroom's lens profile was on, with Constrain crop unless Lightroom's own crop came along. Not yet for Sony RAWs set to another aspect ratio in the camera, which still arrive uncorrected.
 
