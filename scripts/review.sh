@@ -142,7 +142,7 @@ elif [ "$REVIEWER" = claude ]; then
     python3 -c 'import json, sys; json.dump(json.load(open(sys.argv[1]))["structured_output"], open(sys.argv[2], "w"))' "$LOG" "$OUT" ||
     { tail -n 20 "$LOG" >&2; echo "review: claude failed (logged in? usage limit?)" >&2; exit 3; }
 elif command -v codex >/dev/null 2>&1; then
-  MODEL=${RAWTONIC_REVIEW_MODEL:-gpt-6.1-sol}; EFFORT=${RAWTONIC_REVIEW_EFFORT:-high}
+  MODEL=${RAWTONIC_REVIEW_MODEL:-gpt-6.2-sol}; EFFORT=${RAWTONIC_REVIEW_EFFORT:-high}
   printf '== review: codex %s (%s, read-only) on %s\n' "$MODEL" "$EFFORT" "${PLAN:-$BASE..HEAD}"
   codex exec --sandbox read-only --ephemeral --color never -C "$(pwd -P)" \
     -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" \
