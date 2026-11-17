@@ -13,11 +13,12 @@
 //! to their reduced copy and render without their own colour noise
 //! reduction. A drag and the frames before the correction is in show the
 //! reduced filter as before; the correction's frame follows on its own
-//! (`Wanted::refresh`). Kept for the open photograph only and dropped with
-//! its source (`DevelopSession::invalidate`, `release_rebuildable`).
+//! (`Wanted::refresh`; webview previews, as on Linux, ask for it on
+//! [`READY_EVENT`]). Kept for the open photograph only and dropped with its
+//! source (`DevelopSession::invalidate`, `release_rebuildable`).
 //! Measured: notes: benchmark-results/tpx4-cached-chroma-2026-11-15/REPORT.md
 //! (CPU, Apple silicon), benchmark-results/tpx5-gpu-chroma-2026-11-15/REPORT.md
-//! (GPU, Windows).
+//! (GPU, Windows), benchmark-results/tpx6-2026-11-17/REPORT.md (GPU, Linux).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -47,15 +48,22 @@ const MAX_MS_PER_24MP: f64 = 1000.0;
 
 static TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Whether corrections are built here: not on Linux, whose previews have
-/// no native frame for the correction's frame to show in (a build's frame
-/// is rendered without an invoke to answer), while no build was too slow
-/// and the system is not short of memory.
+/// Whether corrections are built here: while no build was too slow and the
+/// system is not short of memory.
 pub(crate) fn enabled() -> bool {
-    cfg!(not(target_os = "linux"))
-        && !TOO_SLOW.load(Ordering::Relaxed)
-        && crate::memory_pressure::level_now().is_none()
+    // Profiling builds can switch it off for A/B timing runs.
+    #[cfg(feature = "performance-profiling")]
+    if std::env::var_os("RAWTONIC_NO_COLOR_NOISE_VIEW").is_some() {
+        return false;
+    }
+    !TOO_SLOW.load(Ordering::Relaxed) && crate::memory_pressure::level_now().is_none()
 }
+
+/// The event telling the editor that the open photograph's correction is in
+/// and its fit frame should be requested again: previews in the webview
+/// (Linux) are answers to the editor's requests, so the correction's frame
+/// cannot be pushed to it (`src/utils/colorNoiseView.ts`).
+pub(crate) const READY_EVENT: &str = "color-noise-view-ready";
 
 /// The colour noise settings a correction was built for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,6 +119,9 @@ pub(crate) struct Refresh {
     pub active_waveform_channel: Option<String>,
     pub mask_overlay: Option<MaskOverlayRequest>,
     pub generation: usize,
+    /// Shown on the native display; else the frame is a JPEG answer to the
+    /// editor's request, which asks again on [`READY_EVENT`].
+    pub native: bool,
 }
 
 struct Wanted {
@@ -234,6 +245,21 @@ impl ColorNoiseView {
     /// too) and returns its number.
     pub(crate) fn note_frame(&self) -> u64 {
         self.frames.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// The number of the last frame noted.
+    pub(crate) fn frames_noted(&self) -> u64 {
+        self.frames.load(Ordering::SeqCst)
+    }
+
+    /// Takes back the one frame noted after `before` (`frames_noted`): a
+    /// render nobody sees (Linux's drag-draft warm-up,
+    /// `editor_preview::warm_draft_source`) leaves the frame before it the
+    /// latest. Nothing when no frame or more than one came.
+    pub(crate) fn forget_frame(&self, before: u64) {
+        let _ =
+            self.frames
+                .compare_exchange(before + 1, before, Ordering::SeqCst, Ordering::SeqCst);
     }
 }
 
@@ -570,6 +596,12 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
     let Some((_, refresh)) = wanted.frame else {
         return;
     };
+    if !refresh.native {
+        use tauri::Emitter as _;
+        let _ = app.emit(READY_EVENT, serde_json::json!({ "path": wanted.path }));
+        crate::file_management::redevelop_thumbnail(app, &wanted.path);
+        return;
+    }
     let (responder, _) = tokio::sync::oneshot::channel();
     let job = crate::state::preview::PreviewJob {
         generation: refresh.generation,
@@ -635,6 +667,7 @@ mod tests {
             active_waveform_channel: None,
             mask_overlay: None,
             generation: 0,
+            native: true,
         }
     }
 
@@ -695,6 +728,22 @@ mod tests {
         let other = image(600, 400);
         assert!(frame_of(&other, (300, 200), 0.25).is_none());
         assert!(lock_recover(&view.corrections).is_empty());
+    }
+
+    /// A frame nobody sees (the drag-draft warm-up) keeps the frame before
+    /// it the latest; a frame shown after it does not.
+    #[test]
+    fn an_unseen_frame_leaves_the_last_shown_frame_current() {
+        let view = ColorNoiseView::default();
+        let shown = view.note_frame();
+        let before = view.frames_noted();
+        view.note_frame();
+        view.forget_frame(before);
+        assert_eq!(view.frames_noted(), shown);
+        view.note_frame();
+        view.note_frame();
+        view.forget_frame(before);
+        assert_eq!(view.frames_noted(), shown + 2);
     }
 
     /// A before asking for the edit's correction keeps the edit's frame to

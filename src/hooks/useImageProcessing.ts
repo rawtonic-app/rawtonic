@@ -52,6 +52,7 @@ import { previewBuffer } from '../utils/previewBuffer';
 import { needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import { onSharpenViewReady, type SharpenView } from '../utils/sharpenView';
+import { onColorNoiseViewReady } from '../utils/colorNoiseView';
 import { acknowledgeParameters, forgetParameterReferences, withParameterReferences } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
 import { viewerShown } from '../utils/viewerMode';
@@ -553,6 +554,27 @@ export function useImageProcessing(
       stopReady();
     };
   }, [previewQueue, currentResRef]);
+  // The export's colour noise reduction for the fit view is in: a webview
+  // preview asks for its frame again (utils/colorNoiseView; the native
+  // display shows it without a request). Not during a drag: its release
+  // renders the final frame anyway.
+  useEffect(
+    () =>
+      onColorNoiseViewReady((path) => {
+        const state = useEditorStore.getState();
+        const image = state.selectedImage;
+        const targetRes = currentResRef.current;
+        if (!canRenderSource(image) || image.path !== path || !targetRes || state.isSliderDragging) return;
+        if (nativeDisplayRef.current) return;
+        previewQueue.submit({
+          path,
+          adjustments: state.previewOverride ?? state.adjustments,
+          dragging: false,
+          targetRes
+        });
+      }),
+    [previewQueue, currentResRef]
+  );
   useEffect(
     () =>
       useRelightStore.subscribe((relight, previous) => {

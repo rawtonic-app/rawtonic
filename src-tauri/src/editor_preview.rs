@@ -2085,7 +2085,6 @@ pub(crate) fn process_preview_job(
             eligible: !is_interactive
                 && roi.is_none()
                 && !crop_edit
-                && use_wgpu_renderer
                 && source_scale >= 1.0
                 && !interim
                 && draft_dim.is_none()
@@ -2099,6 +2098,7 @@ pub(crate) fn process_preview_job(
             active_waveform_channel: active_waveform_channel.map(str::to_string),
             mask_overlay: mask_overlay.cloned(),
             generation: render_generation,
+            native: use_wgpu_renderer,
         },
     ) {
         Some(corrected) => {
@@ -2538,10 +2538,13 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 // A request within the pause goes first; the warm-up waits
                 // for the next final frame then.
                 match jobs.take_timeout(DRAFT_WARMUP_IDLE) {
-                    Some(next) => waiting = Some(next),
+                    Some(next) => {
+                        waiting = Some(next);
+                        continue;
+                    }
+                    // The colour noise correction below follows it.
                     None => warm_draft_source(&app_handle, warm),
                 }
-                continue;
             }
             // A final frame shown without its full-resolution colour noise
             // correction: built once the worker stays idle, then shown.
@@ -2636,6 +2639,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
         return;
     }
     let started = std::time::Instant::now();
+    let frames = develop.color_noise_view.frames_noted();
     let result = gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
         process_preview_job(
             app_handle,
@@ -2653,6 +2657,12 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
             warm.generation,
         )
     });
+    // Not shown: the final frame before it stays the latest for its colour
+    // noise correction (`color_noise_view`).
+    app_handle
+        .state::<DevelopSession>()
+        .color_noise_view
+        .forget_frame(frames);
     match result {
         Ok(_) => log::info!("Drag draft source prepared in {:.1?}", started.elapsed()),
         Err(e) if e.code == ErrorCode::Cancelled => {
