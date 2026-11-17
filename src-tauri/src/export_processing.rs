@@ -896,9 +896,6 @@ fn export_adjustments_as_lut(
     Ok(cube_lut)
 }
 
-/// Free memory a batch export leaves: no further photo starts below it.
-const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
-
 /// Exports keep their GPU processor (its textures and compiled pipelines)
 /// between runs until the system runs short of memory (under a compile
 /// limit not at all, `release_after_run`); one that a render holds stays,
@@ -1208,7 +1205,7 @@ pub(crate) async fn export_images_impl(
                 && !cancellation_token.load(Ordering::SeqCst)
                 && {
                     sys.refresh_memory();
-                    sys.available_memory() < EXPORT_MEMORY_RESERVE
+                    sys.available_memory() < rawtonic_export::workers::EXPORT_MEMORY_RESERVE
                 }
             {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
