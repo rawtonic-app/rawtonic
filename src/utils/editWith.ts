@@ -124,8 +124,9 @@ export interface EditWithResult {
  * renders are the same bytes; except that Edit With writes no separate mask
  * files: a recipe that exports them gets one flattened image with every
  * layer applied (the other program edits one file), not the main image of
- * such an Export. */
-export function editRequest(recipe: EditRecipe) {
+ * such an Export. `from` is the library submitted from (the one open now,
+ * or the click's for a Try again). */
+export function editRequest(recipe: EditRecipe, from: string | null = useLibraryStore.getState().sessionDirectory) {
   const exportSettings: ExportSettings = {
     ...recipe.settings,
     // An explicit file: not beside the original by template, no mask files.
@@ -142,8 +143,12 @@ export function editRequest(recipe: EditRecipe) {
     baseOriginFolders: useLibraryStore.getState().rootPaths,
     exportSettings,
     outputFormat: recipe.outputFormat,
-    ...currentEditForExport(useEditorStore.getState()),
-    library: submittedFrom(useLibraryStore.getState().sessionDirectory)
+    // The editor's recipe only while it shows the library submitted from: a
+    // retry from another library open now takes the photo's saved recipe.
+    ...(from === useLibraryStore.getState().sessionDirectory
+      ? currentEditForExport(useEditorStore.getState())
+      : { currentEditPath: null, currentEditAdjustments: null }),
+    library: submittedFrom(from)
   };
 }
 
@@ -197,6 +202,9 @@ export interface EditWithRun extends EditWithResult {
   /** The photographs whose render failed (neither done nor cancelled):
    * what Try again renders, the finished ones are kept and handed off. */
   failedPaths: string[];
+  /** The library the click was submitted from: Try again renders from it,
+   * whatever library is open by then. */
+  library: string | null;
 }
 
 /** Renders `paths` with `recipe` beside their originals, adds the renders to
@@ -205,10 +213,15 @@ export interface EditWithRun extends EditWithResult {
  * taken at the click; the pending edits and photo writes are written before
  * it is queued, where each render's recipe and metadata are snapshotted
  * once: a library opened meanwhile changes nothing. */
-export async function runEditWith(paths: string[], recipe: EditRecipe, program: string): Promise<EditWithRun> {
+export async function runEditWith(
+  paths: string[],
+  recipe: EditRecipe,
+  program: string,
+  from: string | null = useLibraryStore.getState().sessionDirectory
+): Promise<EditWithRun> {
   debouncedSetHistory.flush();
   const written = photoWritesWritten();
-  const request = editRequest(recipe);
+  const request = editRequest(recipe, from);
   const unsaved = new Set(await written);
   const notSaved = paths.filter((path) => unsaved.has(path));
   if (notSaved.length) throw new Error(`Edits not saved: ${notSaved.join(', ')}`);
@@ -227,7 +240,8 @@ export async function runEditWith(paths: string[], recipe: EditRecipe, program: 
     rendered: rendered.length,
     cancelled: cancelled.size,
     failed: failedPaths.length,
-    failedPaths
+    failedPaths,
+    library: from
   };
   if (failedPaths.length) console.warn(`Edit With in ${program}: not rendered: ${failedPaths.join(', ')}`);
   if (!rendered.length) return { ...counts, linked: 0, problems: [] };

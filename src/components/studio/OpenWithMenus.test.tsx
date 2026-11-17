@@ -18,7 +18,15 @@ vi.mock('../../activity/notify', () => ({
 }));
 vi.mock('../../utils/editWith', async (original) => ({
   ...(await original<typeof import('../../utils/editWith')>()),
-  runEditWith: vi.fn(async () => ({ rendered: 2, cancelled: 0, failed: 0, failedPaths: [], linked: 2, problems: [] }))
+  runEditWith: vi.fn(async () => ({
+    rendered: 2,
+    cancelled: 0,
+    failed: 0,
+    failedPaths: [],
+    library: null,
+    linked: 2,
+    problems: []
+  }))
 }));
 const mockInvoke = vi.mocked(invoke);
 
@@ -212,6 +220,7 @@ it('reports a cancelled batch row as information without a failure', async () =>
     cancelled: 1,
     failed: 0,
     failedPaths: [],
+    library: null,
     linked: 2,
     problems: []
   });
@@ -233,6 +242,7 @@ it('offers Try again after a failed render, which renders only the photographs t
     cancelled: 0,
     failed: 1,
     failedPaths: ['/b.NEF'],
+    library: '/A.catalog',
     linked: 1,
     problems: []
   });
@@ -252,12 +262,14 @@ it('offers Try again after a failed render, which renders only the photographs t
   const calls = vi.mocked(runEditWith).mock.calls.length;
   await retry!.run();
   expect(vi.mocked(runEditWith).mock.calls.length).toBe(calls + 1);
-  const [again, recipe, program] = vi.mocked(runEditWith).mock.lastCall!;
+  const [again, recipe, program, from] = vi.mocked(runEditWith).mock.lastCall!;
   // The finished render of a.NEF is not made a second time (WEW3: a manual
   // re-run duplicated it).
   expect(again).toEqual(['/b.NEF']);
   expect(recipe.id).toBe('builtin-tiff16-adobe');
   expect(program).toBe('/System/Applications/Preview.app');
+  // From the click's library, whichever is open when Try again is clicked.
+  expect(from).toBe('/A.catalog');
   expect(rendered).toHaveBeenCalledTimes(2);
 });
 

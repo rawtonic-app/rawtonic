@@ -82,13 +82,14 @@ async function editPhotosWith(
   program: string,
   t: TFunction,
   onRendered?: () => void | Promise<void>,
-  name = programName(program)
+  name = programName(program),
+  from?: string | null
 ) {
   const progress = notify.info(t('contextMenus.editWith.rendering', { app: name }), {
     autoClose: false
   });
   try {
-    const result = await runEditWith(paths, recipe, program);
+    const result = await runEditWith(paths, recipe, program, from);
     notify.dismiss(progress);
     await onRendered?.();
     if (result.failed > 0)
@@ -105,7 +106,8 @@ async function editPhotosWith(
             settles: true,
             run: () => {
               console.info(`Edit With in ${program}: Try again for ${result.failedPaths.join(', ')}`);
-              return editPhotosWith(result.failedPaths, recipe, program, t, onRendered, name);
+              // From the click's library, also after another was opened.
+              return editPhotosWith(result.failedPaths, recipe, program, t, onRendered, name, result.library);
             }
           }
         ]

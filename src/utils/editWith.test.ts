@@ -161,6 +161,7 @@ describe('runEditWith', () => {
       cancelled: 0,
       failed: 1,
       failedPaths: ['/s/Capture/B.NEF'],
+      library: '/s',
       linked: 2,
       problems: []
     });
@@ -195,7 +196,7 @@ describe('runEditWith', () => {
         BUILT_IN_EDIT_RECIPES[0],
         '/P.app'
       )
-    ).toEqual({ rendered: 2, cancelled: 1, failed: 0, failedPaths: [], linked: 2, problems: [] });
+    ).toMatchObject({ rendered: 2, cancelled: 1, failed: 0, failedPaths: [], linked: 2, problems: [] });
     expect(invoke).toHaveBeenCalledWith('edit_with_finish', { items: [targets[0], targets[2]], program: '/P.app' });
   });
 
@@ -273,6 +274,26 @@ describe('runEditWith', () => {
     expect(calls[0]).toEqual(['edit_with_start', { paths: [targets[0].source], recipe: atClick, program: '/P.app' }]);
     expect(calls.map((c) => c[0])).not.toContain('export_queue_cancel');
     expect(calls[1][1]).toEqual({ items: targets, program: '/P.app' });
+  });
+
+  it('a Try again renders from the library of the click, not the one open now', async () => {
+    // Clicked in catalog A; B is open when Try again runs, its editor showing
+    // the same file with B's recipe.
+    useLibraryStore.setState({ sessionDirectory: '/B.catalog' });
+    useEditorStore.setState({
+      selectedImage: { path: '/Photos/a.NEF', isReady: true } as never,
+      adjustments: { exposure: 3 } as never
+    });
+    started([{ source: '/Photos/a.NEF', target: '/Photos/a_edit.tiff' }], ['j1'], [job('j1', 'done')]);
+    const result = await runEditWith(['/Photos/a.NEF'], BUILT_IN_EDIT_RECIPES[0], '/P.app', '/A.catalog');
+    const [command, args] = vi.mocked(invoke).mock.calls[0] as [string, { recipe: Record<string, unknown> }];
+    expect(command).toBe('edit_with_start');
+    expect(args.recipe).toMatchObject({
+      library: { library: '/A.catalog' },
+      currentEditPath: null,
+      currentEditAdjustments: null
+    });
+    expect(result.library).toBe('/A.catalog');
   });
 
   it('opens nothing when no render was made', async () => {
