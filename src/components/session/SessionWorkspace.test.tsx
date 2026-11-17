@@ -851,7 +851,7 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
     })
   );
   expect(toast.warning).toHaveBeenCalledWith(
-    'Imported edits with unconverted settings from a Lightroom process before 2012: 1000.',
+    'Imported edits with settings that could not be converted: 1000.',
     { detail: warnings.join('\n'), autoClose: false }
   );
   expect(toast.success).toHaveBeenCalledWith(

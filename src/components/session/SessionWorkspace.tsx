@@ -1219,7 +1219,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         { autoClose: 8000 }
       );
       if (report.warnings?.length)
-        notify.warning(t('session.toasts.importLegacySettings', { n: report.warnings.length }), {
+        notify.warning(t('session.toasts.importUnconvertedSettings', { n: report.warnings.length }), {
           detail: report.warnings.join('\n'),
           autoClose: false
         });

@@ -4,7 +4,6 @@ import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
 import {
   MAX_COLOR_RANGES,
-  MAX_LAYER_COLOR_RANGES,
   newColorRange,
   type Adjustments,
   type ColorRange
@@ -92,7 +91,7 @@ export async function pickColorRange(path: string, target: string, x: number, y:
                   ...mask,
                   adjustments: {
                     ...mask.adjustments,
-                    colorRanges: next(colorRangesOf(mask.adjustments), MAX_LAYER_COLOR_RANGES)
+                    colorRanges: next(colorRangesOf(mask.adjustments), MAX_COLOR_RANGES)
                   }
                 }
               : mask

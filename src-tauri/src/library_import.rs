@@ -296,18 +296,24 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
                 .iter()
                 .map(|(name, develop)| (Some(name), develop)),
         )
-        .filter_map(|(snapshot, develop)| {
+        .flat_map(|(snapshot, develop)| {
             let Develop::LightroomXmp(xmp) = develop else {
-                return None;
+                return Vec::new();
             };
-            let warning = crate::preset_converter::legacy_process_warning(xmp)?;
             let context = photo
                 .copy_name
                 .iter()
                 .chain(snapshot)
                 .map(|name| format!(" ({name})"))
                 .collect::<String>();
-            Some(format!("{}{}: {warning}", photo.path.display(), context))
+            [
+                crate::preset_converter::legacy_process_warning(xmp),
+                crate::preset_converter::point_color_overflow_warning(xmp),
+            ]
+            .into_iter()
+            .flatten()
+            .map(|warning| format!("{}{}: {warning}", photo.path.display(), context))
+            .collect()
         })
         .collect()
 }
@@ -1806,6 +1812,76 @@ ProcessVersion = "15.4" }}"#
         assert_eq!(layer.len(), 1);
         assert!(layer[0]["hueShift"].as_f64().unwrap() > photo["hueShift"].as_f64().unwrap());
         assert_eq!(layer[0]["hueUniformity"], 50.0);
+    }
+
+    #[test]
+    fn lightroom_catalog_keeps_eight_point_color_swatches_and_reports_more() {
+        // Lightroom takes up to eight swatches per photo and per mask (its
+        // catalog form: tables for the photo, strings for a mask); all eight
+        // arrive in order, a ninth (only from a record edited elsewhere) is
+        // named in the import report.
+        let hue = |i: usize| 0.1 + 0.72 * i as f64;
+        let table = |i: usize| {
+            format!(
+                "{{ HueRange = {{ LowerFull = 0.33, LowerNone = 0, UpperFull = 0.67, UpperNone = 1 }}, HueShift = 0.3, LumRange = {{ LowerFull = 0.4, LowerNone = 0, UpperFull = 0.76, UpperNone = 1 }}, LumScale = 0, RangeAmount = 0.5, SatRange = {{ LowerFull = 0.52, LowerNone = 0, UpperFull = 1, UpperNone = 1 }}, SatScale = -0.5, SrcHue = {:.4}, SrcLum = 0.3, SrcSat = 0.7, Variance = 0 }}",
+                hue(i)
+            )
+        };
+        let string = |i: usize| {
+            format!(
+                "\"{:.6}, 0.700000, 0.300000, -0.300000, 0.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.520000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000\"",
+                hue(i)
+            )
+        };
+        let lua = |layer: usize| {
+            format!(
+                r#"s = {{ MaskGroupBasedCorrections = {{ {{ CorrectionActive = true, CorrectionAmount = 1,
+CorrectionMasks = {{ {{ FullX = 0.4, FullY = 0.5, MaskValue = 1, What = "Mask/Gradient", ZeroX = 0.6, ZeroY = 0.5 }} }},
+LocalPointColors = {{ {} }},
+What = "Correction" }} }},
+PointColors = {{ {} }},
+ProcessVersion = "15.4" }}"#,
+                (0..layer)
+                    .map(|i| string(i % 8))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                (0..8).map(table).collect::<Vec<_>>().join(", "),
+            )
+        };
+        let xmp = rawtonic_interop::lightroom_settings::to_xmp(&lua(8)).unwrap();
+        let develop = Develop::LightroomXmp(xmp);
+        let adjustments = translate(&develop).unwrap();
+        let hues = |ranges: &serde_json::Value| -> Vec<f64> {
+            ranges
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["hue"].as_f64().unwrap())
+                .collect()
+        };
+        let photo = hues(&adjustments["colorRanges"]);
+        let layer = hues(&adjustments["masks"][0]["adjustments"]["colorRanges"]);
+        assert_eq!(photo.len(), 8, "{photo:?}");
+        assert_eq!(layer.len(), 8, "{layer:?}");
+        // The same source colours in the same order (the shifts differ).
+        for (p, l) in photo.iter().zip(&layer) {
+            assert!((p - l).abs() < 1e-6, "{photo:?} {layer:?}");
+        }
+        let path = PathBuf::from("/photos/A.dng");
+        assert!(import_warnings(&photo("1", path.clone(), develop, None)).is_empty());
+        let nine =
+            Develop::LightroomXmp(rawtonic_interop::lightroom_settings::to_xmp(&lua(9)).unwrap());
+        let layer = translate(&nine).unwrap()["masks"][0]["adjustments"]["colorRanges"]
+            .as_array()
+            .unwrap()
+            .len();
+        assert_eq!(layer, 8);
+        let warnings = import_warnings(&photo("1", path, nine, None));
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].contains("A.dng: Point Color: could not convert 1 swatch(es)"),
+            "{warnings:?}"
+        );
     }
 
     #[test]
