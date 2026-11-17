@@ -5289,14 +5289,14 @@
         "FillLight": "заполняющий свет",
         "filmCurve": "плёночная кривая",
         "HighlightRecovery": "восстановление светов",
-        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
+        "legacyToneCurve": "тональная кривая из старого процесса Lightroom (импортирована приблизительно; вид может отличаться)",
         "lens": "объектив и keystone",
         "lensProfile": "профиль объектива",
         "noiseReduction": "шумоподавление",
         "profile": "профиль",
         "profileNamed": "профиль «{{name}}»",
         "Shadows": "тени",
-        "toneCurveMissingPoints": "named tone curve without explicit points",
+        "toneCurveMissingPoints": "тональная кривая с именем из Lightroom, но без точек",
         "upright": "Upright",
         "whiteBalance": "баланс белого"
       }

@@ -5085,14 +5085,14 @@
         "FillLight": "llum de farciment",
         "filmCurve": "corba de pel·lícula",
         "HighlightRecovery": "recuperació de llums",
-        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
+        "legacyToneCurve": "corba de to des d’un procés antic del Lightroom (importada aproximadament; pot semblar diferent)",
         "lens": "objectiu i keystone",
         "lensProfile": "perfil d’objectiu",
         "noiseReduction": "reducció de soroll",
         "profile": "perfil",
         "profileNamed": "perfil «{{name}}»",
         "Shadows": "ombres",
-        "toneCurveMissingPoints": "named tone curve without explicit points",
+        "toneCurveMissingPoints": "corba de to amb nom del Lightroom però sense punts",
         "upright": "Upright",
         "whiteBalance": "balanç de blancs"
       }

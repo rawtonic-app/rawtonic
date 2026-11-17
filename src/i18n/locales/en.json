@@ -4887,7 +4887,7 @@
         "profile": "profile",
         "profileNamed": "profile “{{name}}”",
         "Shadows": "shadows",
-        "toneCurveMissingPoints": "named tone curve without explicit points",
+        "toneCurveMissingPoints": "tone curve named in Lightroom but without its points",
         "upright": "Upright",
         "whiteBalance": "white balance"
       }

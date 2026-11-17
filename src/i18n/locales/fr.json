@@ -5085,14 +5085,14 @@
         "FillLight": "lumière d’appoint",
         "filmCurve": "courbe film",
         "HighlightRecovery": "récupération des hautes lumières",
-        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
+        "legacyToneCurve": "courbe de tons d’un ancien processus Lightroom (importée approximativement ; le rendu peut différer)",
         "lens": "objectif et keystone",
         "lensProfile": "profil d’objectif",
         "noiseReduction": "réduction du bruit",
         "profile": "profil",
         "profileNamed": "profil « {{name}} »",
         "Shadows": "ombres",
-        "toneCurveMissingPoints": "named tone curve without explicit points",
+        "toneCurveMissingPoints": "courbe de tons nommée dans Lightroom mais sans points",
         "upright": "Upright",
         "whiteBalance": "balance des blancs"
       }
