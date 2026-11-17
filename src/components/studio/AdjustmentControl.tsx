@@ -1,6 +1,6 @@
 import { memo, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { capturePendingSliderClick } from '../../store/useEditorStore';
+import { capturePendingSliderClick, useEditorStore } from '../../store/useEditorStore';
 import { selectOnFocus } from '../../utils/selectOnFocus';
 import { MIN_SEND_INTERVAL_MS } from '../../hooks/useDragSend';
 import { resolveKeySteps, stepOf, type KeySteps, type StepSet } from './sliderFeel';
@@ -246,8 +246,9 @@ export default memo(function AdjustmentControl({
       end();
       return;
     }
+    const editorDrag = useEditorStore.getState().isSliderDragging;
     end();
-    joinClick.current = capturePendingSliderClick();
+    joinClick.current = editorDrag ? capturePendingSliderClick() : null;
     clickEnd.current = setTimeout(() => {
       clickEnd.current = null;
       joinClick.current = null;

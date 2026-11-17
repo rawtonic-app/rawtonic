@@ -110,6 +110,22 @@ describe('professional adjustment control', () => {
     act(() => vi.advanceTimersByTime(500));
     expect(store().history.map((r) => r.exposure)).toEqual([4.55, 3]);
   });
+  it('does not coalesce photo history from a view-only control without an editor interaction', () => {
+    vi.useFakeTimers();
+    const store = () => useEditorStore.getState();
+    useEditorStore.setState(useEditorStore.getInitialState());
+    store().resetHistory(INITIAL_ADJUSTMENTS);
+    const edited = { ...INITIAL_ADJUSTMENTS, exposure: 2 };
+    store().setEditor({ adjustments: edited });
+    debouncedSetHistory(edited);
+    const { slider } = exposure();
+    for (let i = 0; i < 2; i++) {
+      fireEvent.pointerDown(slider, { button: 0, clientX: 84.5, clientY: 10, pointerId: 1 });
+      fireEvent.pointerUp(slider, { pointerId: 1 });
+    }
+    act(() => vi.advanceTimersByTime(600));
+    expect(store().history.map((r) => r.exposure)).toEqual([0, 2]);
+  });
   it('settles a click before a command or another label starts an interaction', () => {
     vi.useFakeTimers();
     const interactions: boolean[] = [];
