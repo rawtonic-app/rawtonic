@@ -135,9 +135,9 @@ describe('point curve keyboard', () => {
 describe('point curve reading aids (UXR1 D3)', () => {
   const histogram = {
     luma: [0, 4, 9, 4, 0],
-    red: [9, 0, 0, 0, 9],
-    green: [0, 0, 9, 0, 0],
-    blue: [0, 9, 0, 9, 0]
+    red: [9, 0, 0, 4, 9],
+    green: [0, 9, 0, 9, 0],
+    blue: [0, 0, 9, 0, 0]
   };
   afterEach(() => useEditorStore.setState({ histogram: null }));
 
@@ -152,7 +152,10 @@ describe('point curve reading aids (UXR1 D3)', () => {
     expect(container.querySelector('svg')!.firstElementChild).toBe(shown());
     fireEvent.click(screen.getByRole('button', { name: 'R' }));
     expect(shown()?.getAttribute('data-channel')).toBe('red');
-    expect(shown()?.getAttribute('d')).toMatch(/^M0 255 L/);
+    // The height of bin 3 is unique to the red histogram (the luminance bins
+    // are flat, green and blue empty), so a path left stale at another
+    // channel's bins fails here however often the channel label changes.
+    expect(shown()?.getAttribute('d')).toContain('L191.25 95.00');
     // Drawn without rendering the curve; without a histogram, nothing.
     act(() => useEditorStore.setState({ histogram: null }));
     expect(shown()?.hasAttribute('d')).toBe(false);
