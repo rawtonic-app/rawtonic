@@ -314,11 +314,19 @@ fn show_cells(
     }
     // Before the cells' renders start: theirs would slow these reads.
     show_stand_ins(app_handle, &context, bare);
-    worker.sender.send(Job {
-        generation,
-        primary,
-        cells,
-    });
+    // A newer request may have come in during the reads: this one's job
+    // never replaces it (it would be dropped as stale and leave its cells
+    // without renders).
+    if worker.generation.load(Ordering::SeqCst) == generation {
+        worker.sender.send_unless_older(
+            Job {
+                generation,
+                primary,
+                cells,
+            },
+            |job| job.generation as u64,
+        );
+    }
     true
 }
 
