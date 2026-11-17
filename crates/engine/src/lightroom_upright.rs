@@ -177,12 +177,9 @@ pub fn lines_for_file(
     // B488 neither the sensor nor the camera's frame puts both guides on
     // their edges; notes: benchmark-results/guq1-2026-11-17), so its guides
     // are left out rather than placed on other edges.
-    let sony =
-        crate::source_frame::extension_of(&path.to_string_lossy()).eq_ignore_ascii_case("arw");
-    if sony
-        && rawtonic_rawdecode::source_frame::frame(&source, 1)
-            .is_some_and(|aspect| aspect.rect != sensor)
-    {
+    if skips_unsettled_aspect_frame(path, sensor, || {
+        rawtonic_rawdecode::source_frame::frame(&source, 1).map(|aspect| aspect.rect)
+    }) {
         return Vec::new();
     }
     let [_, _, w, h] = frame.rect;
@@ -200,6 +197,17 @@ pub fn lines_for_file(
         frame.orientation,
         warp.as_ref(),
     )
+}
+
+// Keep the metadata guard separate so its fail-closed case can be tested
+// without a private RAW. Read the old aspect frame only for ARWs, as before.
+fn skips_unsettled_aspect_frame(
+    path: &Path,
+    sensor: [usize; 4],
+    aspect: impl FnOnce() -> Option<[usize; 4]>,
+) -> bool {
+    crate::source_frame::extension_of(&path.to_string_lossy()).eq_ignore_ascii_case("arw")
+        && aspect().is_some_and(|rect| rect != sensor)
 }
 
 /// Sets `guidedPerspective` from Lightroom's Guided Upright, with Rawtonic's
@@ -241,6 +249,46 @@ mod tests {
         crs:UprightFourSegmentsCount="2"
         crs:UprightFourSegments_0="0.200000000,0.100000000,0.250000000,0.900000000"
         crs:UprightFourSegments_1="0.800000000,0.100000000,0.750000000,0.900000000"/>"#;
+
+    /// B488 regression: until Lightroom's Sony aspect frame is settled,
+    /// reject its guides rather than applying lines to the wrong edges.
+    #[test]
+    fn sony_aspect_metadata_keeps_guides_out_until_the_frame_is_settled() {
+        // Synthetic metadata: 3:2 sensor, centred 16:9 in-camera frame.
+        let sensor = [0, 0, 6000, 4000];
+        let aspect = [0, 312, 6000, 3376];
+        for extension in ["arw", "ARW", "ArW"] {
+            let path = format!("synthetic.{extension}");
+            assert!(skips_unsettled_aspect_frame(
+                Path::new(&path),
+                sensor,
+                || Some(aspect)
+            ));
+            assert!(!skips_unsettled_aspect_frame(
+                Path::new(&path),
+                sensor,
+                || Some(sensor)
+            ));
+            assert!(!skips_unsettled_aspect_frame(
+                Path::new(&path),
+                sensor,
+                || None
+            ));
+        }
+        // Equal dimensions with another origin still mean another frame.
+        assert!(skips_unsettled_aspect_frame(
+            Path::new("synthetic.arw"),
+            sensor,
+            || Some([12, 8, 6000, 4000])
+        ));
+        // Other formats keep their existing guide mapping and never read
+        // Sony's old frame metadata, even when they have an aspect crop.
+        assert!(!skips_unsettled_aspect_frame(
+            Path::new("synthetic.raf"),
+            sensor,
+            || panic!("non-ARW must not read the old aspect frame")
+        ));
+    }
 
     #[test]
     fn reads_the_guides_of_guided_upright_only() {
