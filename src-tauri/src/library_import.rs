@@ -1190,7 +1190,8 @@ mod tests {
         };
         let develop = Develop::CaptureOne(vec![("Exposure".into(), "0.3".into())]);
         let path = Path::new("missing/a.NEF");
-        let (recipe, _) = recipe_for_with(&develop, &[layer.clone()], path, &lens).unwrap();
+        let (recipe, _) =
+            recipe_for_with(&develop, std::slice::from_ref(&layer), path, &lens).unwrap();
         let seen = seen.into_inner();
         assert_eq!(seen.len(), 1);
         assert_eq!(
