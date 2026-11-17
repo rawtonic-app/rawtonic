@@ -8,6 +8,11 @@ description = "Read-only readers for Lightroom Classic catalogs and Capture One 
 [lints]
 workspace = true
 
+[features]
+# Builds masks from pixel values (`capture_one_masks::Raster::from_values`)
+# for other crates' tests.
+test-support = []
+
 [dependencies]
 rusqlite = { workspace = true, features = ["bundled"] }
 flate2 = { workspace = true }

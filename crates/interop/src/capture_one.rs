@@ -471,8 +471,8 @@ mod tests {
     use crate::capture_one_masks::tests as comask;
 
     /// A session with one photograph whose variant has four layers: a
-    /// linear gradient, a radial one, a painted mask and a layer whose mask
-    /// is not in the `.comask`.
+    /// linear gradient, a radial one, a painted mask (compressed tiles) and a
+    /// layer whose mask is not in the `.comask`.
     #[test]
     fn layers_read_with_their_masks_from_a_session() {
         let dir = tempfile::tempdir().unwrap();
@@ -481,11 +481,14 @@ mod tests {
         std::fs::write(session.join("Capture/a.NEF"), b"raw").unwrap();
         std::fs::write(
             session.join("Capture/CaptureOne/Settings1665/a.NEF.comask"),
-            comask::file(&[
-                comask::linear("L", (100.0, 50.0), (100.0, 400.0)),
-                comask::radial("R", true),
-                comask::painted("P"),
-            ]),
+            comask::file_with_tiles(
+                &[
+                    comask::linear("L", (100.0, 50.0), (100.0, 400.0)),
+                    comask::radial("R", true),
+                    comask::raster("P", 0, &[(117, 0)]),
+                ],
+                &[crate::capture_one_tiles::encode(&[90; 64 * 64], 16)],
+            ),
         )
         .unwrap();
         let db = session.join("Shoot.cosessiondb");
@@ -551,13 +554,17 @@ mod tests {
                 ..
             }
         ));
-        assert!(matches!(layers[2].mask, Mask::Unsupported { .. }));
+        let Mask::Raster { raster, ai: false } = &layers[2].mask else {
+            panic!("{:?}", layers[2].mask);
+        };
+        let values = raster.values().unwrap();
+        assert_eq!((values[64 * 7360 + 2 * 64], values[0]), (90, 0));
         assert!(matches!(layers[3].mask, Mask::Unsupported { .. }));
         // The photo's own settings are not a layer's.
         let Develop::CaptureOne(own) = &lib.photos[0].develop else {
             panic!();
         };
         assert!(own.contains(&("Exposure".into(), "0.3".into())));
-        assert_eq!(lib.not_read.local_adjustments, 2);
+        assert_eq!(lib.not_read.local_adjustments, 1);
     }
 }

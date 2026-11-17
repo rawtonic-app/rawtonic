@@ -21,12 +21,18 @@
 //! - `CompositeMask` n: the next n masks combine; a Luma Range is the
 //!   layer's raster (`Map`) followed by a `LumaRange` (low, high, falloff
 //!   low end, falloff high end on 0–255, radius, sensitivity, invert).
-//! - `Map`: a raster of 64 × 64 px tiles, one code per tile: `00 v` a
-//!   uniform tile of value v, `01` another tile of the last uniform value,
-//!   `08`/`09 hi lo` a compressed tile. Compressed tiles (brushes, colour
-//!   ranges, AI masks) are not decoded; only uniform rasters (filled or
-//!   cleared masks) are read.
+//! - `Map`: a raster of 64 × 64 px tiles over the frame, row by row, one
+//!   code per tile: `00 v` a uniform tile of value v, `01` another tile of
+//!   the last uniform value, `09 hi lo` the compressed tile number hi·256 +
+//!   lo, `08` the one after the last. Brushes, colour ranges (Color Editor
+//!   "Create masked layer"), AI masks and rasterized masks are such rasters.
+//! - `Blk` (after the last mask): `Hdr` (the number of compressed tiles),
+//!   `Idx` (each tile's size, u16) and `dat` (the tiles back to back), shared
+//!   by all masks of the file; `capture_one_tiles` reads a tile.
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use crate::capture_one_tiles;
 
 /// A layer mask as far as Rawtonic reads it.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -52,9 +58,15 @@ pub enum Mask {
         /// The effect lies outside the ellipse (Capture One's default).
         outside: bool,
     },
-    /// A raster of one value limited to a Luma Range (0–255 scale).
+    /// A painted, colour range or AI mask: Capture One's raster.
+    Raster {
+        raster: Raster,
+        /// Made by Capture One's AI selection (`MaskGenerator`).
+        ai: bool,
+    },
+    /// A filled or painted mask limited to a Luma Range (0–255 scale).
     LumaRange {
-        base: u8,
+        base: Coverage,
         low: f64,
         high: f64,
         falloff_low: f64,
@@ -63,9 +75,133 @@ pub enum Mask {
         sensitivity: f64,
         invert: bool,
     },
-    /// A painted, colour-range or AI mask (compressed raster tiles), or one
-    /// in a form not read (named for the import report).
+    /// A mask in a form not read (named for the import report).
     Unsupported { what: String },
+}
+
+/// What a Luma Range limits.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum Coverage {
+    /// The same value (0–255) everywhere.
+    Uniform { value: u8 },
+    /// A painted raster.
+    Raster { raster: Raster },
+}
+
+/// The compressed tiles of a mask file, shared by its masks.
+#[derive(Debug, Default, PartialEq)]
+struct Blk {
+    /// Where each tile starts in `data`, and where the last ends.
+    offsets: Vec<usize>,
+    data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Tile {
+    Uniform(u8),
+    Coded(usize),
+}
+
+/// A raster mask as Capture One stores it: 64 × 64 px tiles over the frame,
+/// decoded on demand (`values`).
+#[derive(Clone, PartialEq, serde::Serialize)]
+pub struct Raster {
+    pub width: usize,
+    pub height: usize,
+    #[serde(skip)]
+    tiles: Vec<Tile>,
+    #[serde(skip)]
+    blk: Arc<Blk>,
+}
+
+impl std::fmt::Debug for Raster {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Raster({} × {})", self.width, self.height)
+    }
+}
+
+impl Raster {
+    /// The mask's values (0–255), row by row over `width` × `height`, or
+    /// None when a tile cannot be read.
+    pub fn values(&self) -> Option<Vec<u8>> {
+        const T: usize = capture_one_tiles::TILE;
+        let across = self.width.div_ceil(T);
+        let mut out = vec![0u8; self.width * self.height];
+        for (k, tile) in self.tiles.iter().enumerate() {
+            let (x0, y0) = ((k % across) * T, (k / across) * T);
+            let fill = match tile {
+                Tile::Uniform(v) => *v,
+                Tile::Coded(_) => 0,
+            };
+            let decoded = match tile {
+                Tile::Uniform(_) => None,
+                Tile::Coded(n) => {
+                    Some(capture_one_tiles::decode(self.blk.data.get(
+                        *self.blk.offsets.get(*n)?..*self.blk.offsets.get(*n + 1)?,
+                    )?)?)
+                }
+            };
+            for y in y0..(y0 + T).min(self.height) {
+                for x in x0..(x0 + T).min(self.width) {
+                    out[y * self.width + x] =
+                        decoded.as_ref().map_or(fill, |d| d[(y - y0) * T + x - x0]);
+                }
+            }
+        }
+        Some(out)
+    }
+
+    /// A raster of `values` (row by row over `width` × `height`), stored
+    /// as Capture One stores one (`capture_one_tiles::encode`).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn from_values(width: usize, height: usize, values: &[u8]) -> Self {
+        const T: usize = capture_one_tiles::TILE;
+        assert_eq!(values.len(), width * height);
+        let (mut tiles, mut blk) = (
+            Vec::new(),
+            Blk {
+                offsets: vec![0],
+                data: Vec::new(),
+            },
+        );
+        for ty in 0..height.div_ceil(T) {
+            for tx in 0..width.div_ceil(T) {
+                let mut tile = vec![0u8; T * T];
+                for y in 0..T.min(height - ty * T) {
+                    for x in 0..T.min(width - tx * T) {
+                        tile[y * T + x] = values[(ty * T + y) * width + tx * T + x];
+                    }
+                }
+                if tile.iter().all(|&v| v == tile[0]) {
+                    tiles.push(Tile::Uniform(tile[0]));
+                } else {
+                    tiles.push(Tile::Coded(blk.offsets.len() - 1));
+                    blk.data.extend(capture_one_tiles::encode(&tile, 16));
+                    blk.offsets.push(blk.data.len());
+                }
+            }
+        }
+        Raster {
+            width,
+            height,
+            tiles,
+            blk: Arc::new(blk),
+        }
+    }
+
+    /// Whether every tile is one of a single value (then `Some(value)`).
+    fn uniform(&self) -> Option<u8> {
+        let mut seen = None;
+        for t in &self.tiles {
+            match (t, seen) {
+                (Tile::Uniform(v), None) => seen = Some(*v),
+                (Tile::Uniform(v), Some(s)) if *v == s => {}
+                _ => return None,
+            }
+        }
+        seen
+    }
 }
 
 /// The masks of one `.comask` file.
@@ -74,6 +210,7 @@ pub struct MaskFile {
     /// Width and height of the frame the masks are drawn in.
     pub frame: (f64, f64),
     records: Vec<Record>,
+    blk: Arc<Blk>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -85,9 +222,8 @@ struct Record {
     linear: Option<Vec<f32>>,
     radial: Option<(Vec<f32>, i32)>,
     luma: Option<(Vec<f32>, i32)>,
-    /// `Some(Some(v))`: a uniform raster of `v`; `Some(None)`: compressed
-    /// tiles.
-    map: Option<Option<u8>>,
+    /// The `Map` field's bytes.
+    map: Option<Vec<u8>>,
 }
 
 /// One field: key, type byte and value bytes.
@@ -121,7 +257,8 @@ fn field_at(d: &[u8], i: usize) -> Option<(Field<'_>, usize)> {
         return None;
     }
     let key = d.get(i + 1..i + 1 + len)?;
-    if !key.iter().all(u8::is_ascii_alphabetic) || !key[0].is_ascii_uppercase() {
+    // Keys start with a capital, but for the tiles' `dat`.
+    if !key.iter().all(u8::is_ascii_alphabetic) || !(key[0].is_ascii_uppercase() || key == b"dat") {
         return None;
     }
     let mut j = i + 1 + len;
@@ -161,24 +298,37 @@ fn int_at(v: &[u8], k: usize) -> Option<i32> {
     ))
 }
 
-/// The value of a raster whose tiles are all uniform, else None.
-fn uniform_map(m: &[u8]) -> Option<u8> {
-    let (mut i, mut current, mut seen) = (0, 0u8, None::<u8>);
+/// The tiles of a `Map`, or None when its codes are not ones read.
+fn map_tiles(m: &[u8]) -> Option<Vec<Tile>> {
+    let (mut i, mut current, mut next) = (0, 0u8, None::<usize>);
+    let mut out = Vec::new();
     while i < m.len() {
         match m[i] {
             0x00 => {
                 current = *m.get(i + 1)?;
+                out.push(Tile::Uniform(current));
                 i += 2;
             }
-            0x01 => i += 1,
+            0x01 => {
+                out.push(Tile::Uniform(current));
+                i += 1;
+            }
+            0x09 => {
+                let n = ((*m.get(i + 1)? as usize) << 8) | *m.get(i + 2)? as usize;
+                out.push(Tile::Coded(n));
+                next = Some(n + 1);
+                i += 3;
+            }
+            0x08 => {
+                let n = next?;
+                out.push(Tile::Coded(n));
+                next = Some(n + 1);
+                i += 1;
+            }
             _ => return None,
         }
-        if seen.is_some_and(|s| s != current) {
-            return None;
-        }
-        seen = Some(current);
     }
-    seen
+    Some(out)
 }
 
 impl MaskFile {
@@ -189,14 +339,34 @@ impl MaskFile {
         let mut file = MaskFile::default();
         let mut i = 5;
         let mut current: Option<Record> = None;
+        let mut in_blk = false;
+        let (mut sizes, mut data) = (None::<Vec<usize>>, None::<&[u8]>);
         while i < d.len() {
             let Some((f, next)) = field_at(d, i) else {
                 i += 1;
                 continue;
             };
+            if in_blk {
+                match f.key {
+                    "Idx" => {
+                        sizes = Some(
+                            f.value
+                                .as_chunks::<2>()
+                                .0
+                                .iter()
+                                .map(|c| u16::from_le_bytes(*c) as usize)
+                                .collect(),
+                        );
+                    }
+                    "dat" => data = Some(f.value),
+                    _ => {}
+                }
+                i = next;
+                continue;
+            }
             match f.key {
                 // The compressed tiles follow the last mask.
-                "Blk" => break,
+                "Blk" => in_blk = true,
                 "Hdr" if file.frame == (0.0, 0.0) => {
                     if let (Some(w), Some(h)) = (int_at(f.value, 1), int_at(f.value, 2)) {
                         file.frame = (w as f64, h as f64);
@@ -218,7 +388,7 @@ impl MaskFile {
                                 r.radial = floats(f.value, 7).zip(int_at(f.value, 7));
                             }
                             "LumaRange" => r.luma = floats(f.value, 6).zip(int_at(f.value, 6)),
-                            "Map" => r.map = Some(uniform_map(f.value)),
+                            "Map" => r.map = Some(f.value.to_vec()),
                             _ => {}
                         }
                     }
@@ -227,7 +397,50 @@ impl MaskFile {
             i = next;
         }
         file.records.extend(current);
+        if let (Some(sizes), Some(data)) = (sizes, data) {
+            let mut offsets = vec![0];
+            for s in sizes {
+                offsets.push(offsets.last().unwrap() + s);
+            }
+            if *offsets.last().unwrap() <= data.len() {
+                file.blk = Arc::new(Blk {
+                    offsets,
+                    data: data.to_vec(),
+                });
+            }
+        }
         (file.frame.0 > 0.0 && file.frame.1 > 0.0).then_some(file)
+    }
+
+    /// A record's raster, when its tiles cover the frame and every one reads.
+    fn raster(&self, r: &Record) -> Result<Raster, &'static str> {
+        let tiles = r.map.as_deref().and_then(map_tiles).ok_or("unknown mask")?;
+        const T: usize = capture_one_tiles::TILE;
+        let (width, height) = (self.frame.0 as usize, self.frame.1 as usize);
+        if tiles.len() != width.div_ceil(T) * height.div_ceil(T) {
+            return Err("mask raster of another size");
+        }
+        let raster = Raster {
+            width,
+            height,
+            tiles,
+            blk: self.blk.clone(),
+        };
+        let readable = raster.tiles.iter().all(|t| match t {
+            Tile::Uniform(_) => true,
+            Tile::Coded(n) => self
+                .blk
+                .offsets
+                .get(*n..*n + 2)
+                .and_then(|o| self.blk.data.get(o[0]..o[1]))
+                .and_then(capture_one_tiles::decode)
+                .is_some(),
+        });
+        if readable {
+            Ok(raster)
+        } else {
+            Err("mask tiles not readable")
+        }
     }
 
     /// Whether the file holds the mask `uuid`.
@@ -249,15 +462,17 @@ impl MaskFile {
             return unsupported("missing mask");
         };
         let r = &self.records[at];
-        if r.name.contains("MaskGenerator") {
-            return unsupported("AI mask");
-        }
         if let Some(n) = r.composite {
             let parts = self.records.get(at + 1..at + 1 + n as usize);
             return match parts {
-                Some([base, range]) => match (base.map, &range.luma) {
-                    (Some(Some(value)), Some((v, invert))) if v.len() == 6 => Mask::LumaRange {
-                        base: value,
+                Some([base, range]) if base.map.is_some() => match (self.raster(base), &range.luma)
+                {
+                    (Err(why), _) => unsupported(why),
+                    (Ok(raster), Some((v, invert))) if v.len() == 6 => Mask::LumaRange {
+                        base: match raster.uniform() {
+                            Some(value) => Coverage::Uniform { value },
+                            None => Coverage::Raster { raster },
+                        },
                         low: v[0] as f64,
                         high: v[1] as f64,
                         falloff_low: v[2] as f64,
@@ -266,7 +481,6 @@ impl MaskFile {
                         sensitivity: v[5] as f64,
                         invert: *invert != 0,
                     },
-                    (Some(None), Some(_)) => unsupported("painted mask with a luma range"),
                     _ => unsupported("combined mask"),
                 },
                 _ => unsupported("combined mask"),
@@ -290,10 +504,18 @@ impl MaskFile {
                 outside: *outside != 0,
             };
         }
-        match r.map {
-            Some(Some(value)) => Mask::Uniform { value },
-            Some(None) => unsupported("painted or colour range mask"),
-            None => unsupported("unknown mask"),
+        if r.map.is_none() {
+            return unsupported("unknown mask");
+        }
+        match self.raster(r) {
+            Ok(raster) => match raster.uniform() {
+                Some(value) => Mask::Uniform { value },
+                None => Mask::Raster {
+                    raster,
+                    ai: r.name.contains("MaskGenerator"),
+                },
+            },
+            Err(why) => unsupported(why),
         }
     }
 }
@@ -401,6 +623,12 @@ pub(crate) mod tests {
 
     /// A `.comask` of a 7360 × 4912 frame with the given masks.
     pub fn file(records: &[Vec<u8>]) -> Vec<u8> {
+        file_with_tiles(records, &[])
+    }
+
+    /// `file` with compressed tiles (`capture_one_tiles::encode`) in its
+    /// `Blk`, numbered from 0.
+    pub fn file_with_tiles(records: &[Vec<u8>], tiles: &[Vec<u8>]) -> Vec<u8> {
         let mut out = vec![0x04];
         out.extend(b"XCon");
         out.extend([0xc0, 0x42, 0x06, 0xbe, 0xba, 0xfe, 0xca]);
@@ -415,8 +643,36 @@ pub(crate) mod tests {
         for r in records {
             out.extend(r);
         }
-        out.extend(field("Blk", &[]));
+        out.extend([3]);
+        out.extend(b"Blk");
+        out.extend([0x00, 0x22, 0x00]);
+        let mut hdr = (tiles.len() as u32).to_le_bytes().to_vec();
+        hdr.extend([0; 12]);
+        out.extend(field("Hdr", &hdr));
+        let sizes: Vec<u8> = tiles
+            .iter()
+            .flat_map(|t| (t.len() as u16).to_le_bytes())
+            .collect();
+        out.extend(field("Idx", &sizes));
+        out.extend(field("dat", &tiles.concat()));
         out
+    }
+
+    /// A raster mask: tile k (row by row over the 115 × 77 tiles) is the
+    /// compressed tile `coded[k]` where given, else uniform `fill`.
+    pub fn raster(uuid: &str, fill: u8, coded: &[(usize, usize)]) -> Vec<u8> {
+        let mut tiles = Vec::new();
+        let mut last = None;
+        for k in 0..115 * 77 {
+            match coded.iter().find(|c| c.0 == k) {
+                Some(&(_, n)) if last == Some(n.wrapping_sub(1)) => tiles.push(0x08),
+                Some(&(_, n)) => tiles.extend([0x09, (n >> 8) as u8, n as u8]),
+                None if k == 0 || last.is_some() => tiles.extend([0x00, fill]),
+                None => tiles.push(0x01),
+            }
+            last = coded.iter().find(|c| c.0 == k).map(|c| c.1);
+        }
+        record(5, uuid, 0, map(&tiles))
     }
 
     pub fn linear(uuid: &str, start: (f32, f32), end: (f32, f32)) -> Vec<u8> {
@@ -511,11 +767,12 @@ pub(crate) mod tests {
         );
         assert_eq!(f.mask("F"), Mask::Uniform { value: 255 });
         assert_eq!(f.mask("C"), Mask::Uniform { value: 0 });
+        // A compressed tile the file does not hold.
         assert!(matches!(f.mask("P"), Mask::Unsupported { .. }));
         assert_eq!(
             f.mask("Y"),
             Mask::LumaRange {
-                base: 255,
+                base: Coverage::Uniform { value: 255 },
                 low: 60.0,
                 high: 170.0,
                 falloff_low: 30.0,
@@ -527,6 +784,103 @@ pub(crate) mod tests {
         );
         assert!(matches!(f.mask("missing"), Mask::Unsupported { .. }));
         assert!(f.has("y") && !f.has("Z"));
+    }
+
+    /// A disc of 200 in a tile of 0.
+    fn disc_tile() -> Vec<u8> {
+        (0..64 * 64)
+            .map(|i| {
+                let (y, x) = ((i / 64) as f64 - 31.5, (i % 64) as f64 - 31.5);
+                if x * x + y * y < 400.0 { 200 } else { 0 }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn painted_rasters_read_at_their_place() {
+        use crate::capture_one_tiles::encode;
+        let disc = disc_tile();
+        let ramp: Vec<u8> = (0..64 * 64).map(|i| (i % 64 * 4) as u8).collect();
+        // Tile 0 (top left), tile 116 (second row, second column) and the
+        // last tile, which the frame cuts to 64 × 48.
+        let d = file_with_tiles(
+            &[
+                raster("P", 0, &[(0, 0), (116, 1), (115 * 77 - 1, 2)]),
+                raster("Q", 255, &[(5, 1), (6, 2)]),
+            ],
+            &[encode(&disc, 16), encode(&ramp, 64), encode(&disc, 4095)],
+        );
+        let f = MaskFile::parse(&d).unwrap();
+        let Mask::Raster { raster, ai } = f.mask("P") else {
+            panic!("{:?}", f.mask("P"));
+        };
+        assert!(!ai);
+        assert_eq!((raster.width, raster.height), (7360, 4912));
+        let v = raster.values().unwrap();
+        let at = |x: usize, y: usize| v[y * 7360 + x];
+        assert_eq!((at(31, 31), at(0, 0), at(63, 63)), (200, 0, 0));
+        assert_eq!((at(64 + 10, 64 + 3), at(64 + 63, 64)), (40, 252));
+        assert_eq!(at(7360 - 64 + 31, 4912 - 48 + 31 - 16), 200);
+        assert_eq!(at(3000, 3000), 0);
+        let Mask::Raster { raster, .. } = f.mask("Q") else {
+            panic!();
+        };
+        let v = raster.values().unwrap();
+        assert_eq!(
+            (
+                v[0],
+                v[5 * 64 + 1],
+                v[5 * 64 + 63 + 7360],
+                v[31 * 7360 + 6 * 64 + 31]
+            ),
+            (255, 4, 252, 200)
+        );
+        // A filled raster stays a filled mask.
+        let d = file_with_tiles(&[tests::raster("F", 128, &[])], &[]);
+        assert_eq!(
+            MaskFile::parse(&d).unwrap().mask("F"),
+            Mask::Uniform { value: 128 }
+        );
+    }
+
+    #[test]
+    fn painted_luma_ranges_and_unreadable_tiles() {
+        use crate::capture_one_tiles::encode;
+        let mut composite = record(4, "Y", 0xff, field("CompositeMask", &2u32.to_le_bytes()));
+        composite.extend(raster("Y", 0, &[(40, 0)]));
+        let mut range = f32s(&[60.0, 170.0, 30.0, 210.0, 0.0, 50.0]);
+        range.extend(0i32.to_le_bytes());
+        composite.extend(record(1, "Y", 1, field("LumaRange", &range)));
+        let d = file_with_tiles(
+            &[
+                composite,
+                raster("Bad", 0, &[(3, 1)]),
+                raster("Gone", 0, &[(3, 9)]),
+            ],
+            &[encode(&disc_tile(), 16), vec![0x02, 0x00, 0x91]],
+        );
+        let f = MaskFile::parse(&d).unwrap();
+        let Mask::LumaRange {
+            base: Coverage::Raster { raster },
+            low,
+            ..
+        } = f.mask("Y")
+        else {
+            panic!("{:?}", f.mask("Y"));
+        };
+        assert_eq!(low, 60.0);
+        assert_eq!(raster.values().unwrap()[31 * 7360 + 40 * 64 + 31], 200);
+        // A tile the decoder does not know, and one missing from the file:
+        // the mask is not read (and named), never guessed.
+        for uuid in ["Bad", "Gone"] {
+            assert_eq!(
+                f.mask(uuid),
+                Mask::Unsupported {
+                    what: "mask tiles not readable".into()
+                },
+                "{uuid}"
+            );
+        }
     }
 
     #[test]
@@ -547,7 +901,14 @@ fn print_real_mask_file() {
     let mut seen = std::collections::HashSet::new();
     for r in &file.records {
         if seen.insert(r.uuid.clone()) {
-            println!("{} {:?}", r.uuid, file.mask(&r.uuid));
+            match file.mask(&r.uuid) {
+                Mask::Raster { raster, ai } => {
+                    let v = raster.values().expect("readable");
+                    let sum: u64 = v.iter().map(|&x| x as u64).sum();
+                    println!("{} raster ai={ai} sum {sum}", r.uuid);
+                }
+                m => println!("{} {m:?}", r.uuid),
+            }
         }
     }
 }
