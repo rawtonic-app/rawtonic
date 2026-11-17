@@ -6,9 +6,11 @@
 //! to what a Rawtonic layer adjusts. Its mask becomes:
 //!
 //! - a linear gradient: kept normalised in the frame Capture One draws it in
-//!   (`lrNormalized`, placed like a Lightroom gradient), full effect on the
-//!   start line, none on the end line, the eased ramp between (Capture One's
-//!   smoothstep, `gradientVersion` 2);
+//!   (`lrNormalized`, placed like a Lightroom gradient, on the photo before
+//!   its lens and transform corrections as Capture One draws every mask,
+//!   `uncorrected`; notes: benchmark-results/c1l3-2026-11-17/), full effect
+//!   on the start line, none on the end line, the eased ramp between
+//!   (Capture One's smoothstep, `gradientVersion` 2);
 //! - a radial gradient: the ellipse with its inner half at full effect and
 //!   the smoothstep out to the ellipse (`gradientVersion` 3), inverted when
 //!   Capture One applies it outside (as drawn by default);
@@ -194,6 +196,7 @@ fn raster_component(raster: &Raster, encode: bool) -> Result<Value, String> {
 /// The components of a mask, or why it is not imported. Approximations
 /// that still import go to `notes`; bitmaps are made only when `encode`.
 fn components(layer: &Layer, notes: &mut Vec<String>, encode: bool) -> Result<Vec<Value>, String> {
+    use rawtonic_engine::mask_generation::UNCORRECTED;
     use rawtonic_engine::recipe_versions::gradient;
     let (width, height) = layer.frame;
     let normal = |(x, y): (f64, f64)| (x / width, y / height);
@@ -224,7 +227,7 @@ fn components(layer: &Layer, notes: &mut Vec<String>, encode: bool) -> Result<Ve
                 100.0,
                 "additive",
                 json!({"lrNormalized": {"zeroX": zx, "zeroY": zy, "fullX": fx, "fullY": fy,
-                    gradient::KEY: gradient::BELL}}),
+                    gradient::KEY: gradient::BELL, UNCORRECTED: true}}),
             )])
         }
         Mask::Radial {
@@ -264,6 +267,7 @@ fn components(layer: &Layer, notes: &mut Vec<String>, encode: bool) -> Result<Ve
                     "angle": rotation,
                     "feather": ((1.0 - inner) * 100.0).clamp(0.0, 100.0),
                     gradient::KEY: gradient::SMOOTH,
+                    UNCORRECTED: true,
                 }}),
             )])
         }
@@ -445,6 +449,16 @@ mod tests {
             (Some(3680.0), Some(736.0), Some(491.2))
         );
         assert_eq!(placed["gradientVersion"], 3);
+        // Drawn before the lens and transform corrections, as Capture One
+        // draws them (they move with the photo's content).
+        for (i, layer) in adjustments["masks"].as_array().unwrap().iter().enumerate() {
+            let p = &layer["subMasks"][0]["parameters"];
+            assert_eq!(
+                p[rawtonic_engine::mask_generation::UNCORRECTED],
+                true,
+                "{i}"
+            );
+        }
     }
 
     #[test]

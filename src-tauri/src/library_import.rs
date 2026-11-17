@@ -618,6 +618,9 @@ fn recipe_for(
         }
     }
     let mut clipped = false;
+    if let Develop::CaptureOne(entries) = develop {
+        capture_one_lens(entries, path, &mut adjustments);
+    }
     if let Develop::LightroomXmp(xmp) = develop {
         let attrs = crate::preset_converter::crs_attributes(xmp);
         lightroom_lens(&attrs, path, &mut adjustments);
@@ -663,6 +666,98 @@ fn recipe_for(
     Some((adjustments, clipped))
 }
 
+/// The lens correction a new edit of the photo at `path` gets.
+fn default_lens(path: &Path) -> Value {
+    let mut default = json!({});
+    rawtonic_engine::embedded_lens::apply_default(&mut default, path);
+    default
+}
+
+/// A profile correction the other editor applied, on Rawtonic's own lens
+/// data: left to `default` (the correction a new edit gets) where that has
+/// one, else the lens's lensfun profile found from the photo's EXIF as the
+/// Lens tool's auto-detect finds it (DSLR lenses). Returns whether a
+/// correction applies.
+fn profile_where_default_has_none(
+    default: &Value,
+    path: &Path,
+    map: &mut serde_json::Map<String, Value>,
+) -> bool {
+    if default.get(lens::CORRECTION_MODE.name()).is_some() {
+        return true;
+    }
+    let Some((maker, model, params)) = rawtonic_engine::embedded_lens::lensfun_for_photo(path)
+    else {
+        return false;
+    };
+    let Ok(params) = serde_json::to_value(params) else {
+        return false;
+    };
+    map.insert(lens::CORRECTION_MODE.name().into(), json!("auto"));
+    map.insert(lens::MAKER.name().into(), json!(maker));
+    map.insert(lens::MODEL.name().into(), json!(model));
+    map.insert(lens::DISTORTION_PARAMS.name().into(), params);
+    true
+}
+
+/// Capture One's lens correction on Rawtonic's own lens data (Capture One's
+/// profile curves in `LensGeoAbr`/`LensLightFallOff` are not used, only its
+/// amounts). Its masks are drawn on the photo before that correction and
+/// move with it (`capture_one_layers`), so the correction decides where they
+/// land: with Distortion on (the default where Capture One has a profile)
+/// the photo gets a profile correction as in `profile_where_default_has_none`
+/// with Capture One's Distortion and Light Falloff amounts (0–100 %, 100 =
+/// the profile's, as Rawtonic's); with Distortion 0 none moves the photo
+/// (`lensDistortionAmount` 0). Settings without an amount (an older
+/// session, a file without a profile) leave the default.
+fn capture_one_lens(entries: &[(String, String)], path: &Path, adjustments: &mut Value) {
+    let Some(map) = adjustments.as_object_mut() else {
+        return;
+    };
+    if map.contains_key(lens::CORRECTION_MODE.name()) {
+        return;
+    }
+    let Some((distortion, falloff)) = capture_one_lens_amounts(entries) else {
+        return;
+    };
+    if distortion == 0.0 {
+        map.insert(lens::DISTORTION_AMOUNT.name().into(), json!(0.0));
+        return;
+    }
+    if profile_where_default_has_none(&default_lens(path), path, map) {
+        if distortion != 100.0 {
+            map.insert(lens::DISTORTION_AMOUNT.name().into(), json!(distortion));
+        }
+        if let Some(falloff) = falloff.filter(|f| *f != 100.0) {
+            map.insert(lens::VIGNETTE_AMOUNT.name().into(), json!(falloff));
+        }
+    }
+}
+
+/// Capture One's Distortion and Light Falloff amounts (`curve|amount|…`,
+/// 0–100 %) where it has a lens profile; None without one or without a
+/// Distortion amount.
+fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(f64, Option<f64>)> {
+    let get = |key: &str| {
+        entries
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    };
+    let amount = |key: &str| {
+        get(key)?
+            .split('|')
+            .nth(1)?
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite())
+            .map(|v| v.clamp(0.0, 200.0))
+    };
+    get("LensIdGuid").filter(|v| !v.trim().is_empty())?;
+    Some((amount("LensGeoAbr")?, amount("LensLightFallOff")))
+}
+
 /// Lightroom's lens profile corrections on Rawtonic's own lens data
 /// (Adobe's profiles are not used: notes agent-knowledge/adobe-lens-profiles).
 /// On: the correction a new edit gets (left to the default every render
@@ -703,19 +798,9 @@ fn lightroom_lens(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
         }
     }
     // Which correction would the default be?
-    let mut default = json!({});
-    rawtonic_engine::embedded_lens::apply_default(&mut default, path);
+    let default = default_lens(path);
     if on {
-        if default.get(lens::CORRECTION_MODE.name()).is_none()
-            && let Some((maker, model, params)) =
-                rawtonic_engine::embedded_lens::lensfun_for_photo(path)
-            && let Ok(params) = serde_json::to_value(params)
-        {
-            map.insert(lens::CORRECTION_MODE.name().into(), json!("auto"));
-            map.insert(lens::MAKER.name().into(), json!(maker));
-            map.insert(lens::MODEL.name().into(), json!(model));
-            map.insert(lens::DISTORTION_PARAMS.name().into(), params);
-        }
+        profile_where_default_has_none(&default, path, map);
         return;
     }
     match default[lens::CORRECTION_MODE.name()].as_str() {
@@ -1011,6 +1096,56 @@ mod tests {
     use rawtonic_metadata::Metadata;
     use rusqlite::Connection;
     use std::fs;
+
+    /// Capture One's lens choice: its amounts, never its profile curves; a
+    /// photo whose lens Rawtonic has no profile for keeps the default.
+    #[test]
+    fn capture_one_lens_amounts_come_over_without_its_curves() {
+        let entries = |distortion: &str, falloff: &str, guid: &str| -> Vec<(String, String)> {
+            [
+                ("LensGeoAbr", distortion),
+                ("LensLightFallOff", falloff),
+                ("LensIdGuid", guid),
+            ]
+            .iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+        };
+        let curve = "0.0,0.0000;8037.0,-32.7000;22513.0,-922.2000";
+        let on = entries(
+            &format!("{curve}|100.0|1|100|-1.0"),
+            "3004.0,-0.0150|0.0|1",
+            "G",
+        );
+        assert_eq!(capture_one_lens_amounts(&on), Some((100.0, Some(0.0))));
+        let half = entries(&format!("{curve}|50.0|1|100|-1.0"), "", "G");
+        assert_eq!(capture_one_lens_amounts(&half), Some((50.0, None)));
+        // No profile in Capture One, or no amount: nothing to bring over.
+        assert_eq!(
+            capture_one_lens_amounts(&entries(&format!("{curve}|100.0|1"), "", "")),
+            None
+        );
+        assert_eq!(capture_one_lens_amounts(&entries("", "", "G")), None);
+        assert_eq!(capture_one_lens_amounts(&entries("garbage", "", "G")), None);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.NEF");
+        fs::write(&path, b"not a raw").unwrap();
+        // Distortion 0: the photo is not moved, whatever the default.
+        let off = entries(&format!("{curve}|0.0|1|100|-1.0"), "", "G");
+        let mut adjustments = json!({});
+        capture_one_lens(&off, &path, &mut adjustments);
+        assert_eq!(adjustments, json!({"lensDistortionAmount": 0.0}));
+        // On, but no profile for this lens: the default (nothing) stays.
+        let mut adjustments = json!({});
+        capture_one_lens(&on, &path, &mut adjustments);
+        assert_eq!(adjustments, json!({}));
+        // A lens mode set already is kept.
+        let mut adjustments = json!({"lensCorrectionMode": "manual"});
+        capture_one_lens(&off, &path, &mut adjustments);
+        assert_eq!(adjustments, json!({"lensCorrectionMode": "manual"}));
+    }
 
     fn photo(key: &str, path: PathBuf, develop: Develop, copy_of: Option<&str>) -> Photo {
         Photo {
@@ -2038,6 +2173,13 @@ ProcessVersion = "15.4" }}"#
     #[ignore = "tool: needs C1_IMPORT_DB and C1_IMPORT_OUT"]
     fn import_capture_one_edits() {
         let var = |k: &str| std::env::var(k).unwrap();
+        // The lens database the app loads at start (Capture One's lens
+        // correction on lensfun profiles).
+        if let Ok(db) = std::env::var("RAWTONIC_LENSFUN_DB") {
+            rawtonic_engine::lens_correction::set_global_lens_db(std::sync::Arc::new(
+                rawtonic_engine::lens_correction::load_lensfun_dir(Path::new(&db)),
+            ));
+        }
         let (source, _) = read_source(Path::new(&var("C1_IMPORT_DB"))).unwrap();
         let out = PathBuf::from(var("C1_IMPORT_OUT"));
         let mut warnings = Vec::new();
