@@ -113,9 +113,8 @@ beforeEach(() => {
       case 'session_ingest_capture_info':
         return { iso: 'ISO 200', exposure: '1/500 s', aperture: 'f/4', focalLength: '85 mm' };
       case 'session_previous_import':
-        return { batch: { id: importBatch, kind: 'ingest', created_at: '', count: 2 }, paths: [] };
+        return { batch: { id: 1, kind: 'ingest', created_at: '', count: newestBatch.length }, paths: newestBatch };
       case 'session_ingest': {
-        importBatch += 1;
         const { sources, folder } = args as { sources: string[]; folder: string | null };
         return sources.map((source) => ({
           source,
@@ -130,8 +129,8 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
-/** The newest import batch's id (`session_previous_import`). */
-let importBatch = 0;
+/** The photographs of the newest import batch (`session_previous_import`). */
+let newestBatch: string[] = [];
 
 /** The workspace with the last session reopened and the window's drop handler attached. */
 async function open(navigate = vi.fn(async () => {})) {
@@ -480,11 +479,16 @@ describe('Dropping photographs onto the window', () => {
     try {
       await open();
       const base = vi.mocked(invoke).getMockImplementation()!;
+      // A tethered capture arriving while the card copies forms its own,
+      // newer batch (only in the second half of this test).
+      let captureDuringImport = false;
       vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command !== 'session_ingest') return base(command, args);
         // A rating key in the grid while the photographs are copied.
-        if (command === 'session_ingest')
-          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3', bubbles: true }));
-        return base(command, args);
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3', bubbles: true }));
+        const results = (await base(command, args)) as { destination: string }[];
+        newestBatch = captureDuringImport ? ['/jobs/Acme/Capture/TETHER_0001.ARW'] : results.map((r) => r.destination);
+        return results;
       });
       drop(['/Volumes/CARD/DCIM']);
       await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
@@ -508,16 +512,33 @@ describe('Dropping photographs onto the window', () => {
 
       // A newer batch (a hot folder's or a tethered camera's capture): Show
       // would open other photographs, so it does nothing.
-      importBatch += 1;
+      const ours = newestBatch;
+      newestBatch = ['/jobs/Acme/Hot/H0001.ARW'];
       offer!.run();
       await act(async () => {});
       expect(shown).toHaveBeenCalledTimes(1);
+      newestBatch = ours;
+
+      // Also when that capture began while the import still ran.
+      captureDuringImport = true;
+      vi.mocked(toast.success).mockClear();
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(toast.success).toHaveBeenCalled());
+      const during = vi
+        .mocked(toast.success)
+        .mock.calls.at(-1)![1]
+        ?.actions?.find((a) => a.label === 'Show');
+      during!.run();
+      await act(async () => {});
+      expect(shown).toHaveBeenCalledTimes(1);
+      captureDuringImport = false;
 
       // The next import withdraws the last one's Show.
       vi.mocked(toast.success).mockReturnValueOnce('import-show');
       drop(['/Volumes/CARD/DCIM']);
       await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
-      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'session_ingest')).toHaveLength(2));
+      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'session_ingest')).toHaveLength(3));
       drop(['/Volumes/CARD/DCIM']);
       await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
       await waitFor(() => expect(toast.dismiss).toHaveBeenCalledWith('import-show'));

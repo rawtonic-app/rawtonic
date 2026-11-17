@@ -64,7 +64,7 @@ import {
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSessionBar } from './sessionBar';
 import { SESSION_ALBUMS_CHANGED, openSessionAlbum, type SessionAlbum } from '../studio/StudioAlbums';
-import { holdSavedView, isInside, savedView, settleSavedView, type SavedView } from '../../utils/restoreView';
+import { holdSavedView, isInside, samePath, savedView, settleSavedView, type SavedView } from '../../utils/restoreView';
 import { outermost, type CatalogFoldersView } from '../../utils/catalogFolders';
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, openMissingView, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
@@ -1950,23 +1950,26 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       });
       activity.stop();
       const directory = session.directory;
-      // Show opens this import's batch only: a newer one (the next import, a
-      // hot folder's or a tethered camera's capture) makes it do nothing, and
-      // another library open too; the notice goes when either changes here.
-      const batch =
-        endView === 'offer' ? ((await previousImport(directory).catch(() => null))?.batch?.id ?? null) : null;
+      // Show opens Previous Import only while that is this import's batch:
+      // a newer one (the next import, a hot folder's or a tethered camera's
+      // capture, also one that began while this import ran) holds other
+      // photographs, and Show then does nothing; so in another library.
+      const mine = results.find((r) => r.destination && !r.skipped && !r.error && !r.companion_of)?.destination;
       importShowNotice.current = reportIngest(results, {
         adding,
         cancelled: results.length < files.length,
         album: album?.name ?? null,
         albumError,
         show:
-          batch !== null
+          endView === 'offer' && mine
             ? () => {
                 if (useLibraryStore.getState().sessionDirectory !== directory) return;
                 void previousImport(directory)
-                  .then(({ batch: newest }) => {
-                    if (newest?.id === batch && useLibraryStore.getState().sessionDirectory === directory)
+                  .then(({ paths }) => {
+                    if (
+                      useLibraryStore.getState().sessionDirectory === directory &&
+                      paths.some((path) => samePath(path, mine))
+                    )
                       window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
                   })
                   .catch(() => {});
