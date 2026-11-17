@@ -566,29 +566,39 @@ fn recipe_for(
     layers: &[rawtonic_interop::capture_one::Layer],
     path: &Path,
 ) -> Option<(Value, bool)> {
-    let mut translated = translate(develop);
-    if let (Some(adjustments), Develop::CaptureOne(entries)) = (translated.as_mut(), develop) {
-        capture_one_lens(entries, path, adjustments);
+    recipe_for_with(
+        develop,
+        layers,
+        path,
+        &rawtonic_engine::lightroom_upright::lens_for_file,
+    )
+}
+
+/// The photo's lens correction as a recipe gives it (`lens_for_file`).
+type LensOf<'a> = &'a dyn Fn(
+    &Value,
+    &Path,
+) -> Option<(
+    rawtonic_engine::image_processing::WarpPoints,
+    u16,
+    (f64, f64),
+)>;
+
+/// `recipe_for` with the photo's lens correction from `lens`.
+fn recipe_for_with(
+    develop: &Develop,
+    c1_layers: &[rawtonic_interop::capture_one::Layer],
+    path: &Path,
+    lens: LensOf,
+) -> Option<(Value, bool)> {
+    let translated = translate(develop);
+    let edited = translated.is_some();
+    if !edited && c1_layers.is_empty() {
+        return None;
     }
-    let layers = capture_one_layers(layers, path, translated.as_ref());
-    let mut adjustments = match translated {
-        Some(adjustments) => adjustments,
-        None if !layers.is_empty() => json!({}),
-        None => return None,
-    };
-    // Capture One's local adjustment layers (`capture_one_layers`), above
-    // any the photo's settings brought.
-    if !layers.is_empty()
-        && let Some(map) = adjustments.as_object_mut()
-    {
-        let entry = map
-            .entry(rawtonic_recipe::masks::MASKS.name())
-            .or_insert_with(|| json!([]));
-        if let Some(existing) = entry.as_array_mut() {
-            existing.extend(layers);
-        } else {
-            *entry = Value::Array(layers);
-        }
+    let mut adjustments = translated.unwrap_or_else(|| json!({}));
+    if let Develop::CaptureOne(entries) = develop {
+        capture_one_lens(entries, path, &mut adjustments);
     }
     let is_raw = crate::formats::is_raw_file(path);
     let mut base = json!({});
@@ -619,6 +629,25 @@ fn recipe_for(
                 rawtonic_engine::source_frame::KEY.to_string(),
                 json!(rawtonic_engine::source_frame::VERSION),
             );
+        }
+    }
+    // Capture One's local adjustment layers (`capture_one_layers`), above
+    // any the photo's settings brought, their gradients through the lens
+    // correction of the recipe as it renders (its frame stamped above).
+    let layers = capture_one_layers(c1_layers, path, &adjustments, lens);
+    if !edited && layers.is_empty() {
+        return None;
+    }
+    if !layers.is_empty()
+        && let Some(map) = adjustments.as_object_mut()
+    {
+        let entry = map
+            .entry(rawtonic_recipe::masks::MASKS.name())
+            .or_insert_with(|| json!([]));
+        if let Some(existing) = entry.as_array_mut() {
+            existing.extend(layers);
+        } else {
+            *entry = Value::Array(layers);
         }
     }
     let mut clipped = false;
@@ -668,22 +697,21 @@ fn recipe_for(
 }
 
 /// Capture One's local adjustment layers as Rawtonic layers on the photo
-/// at `path` with the translated edit `adjustments`: their gradients, drawn
-/// by Capture One before its lens correction, moved through the lens
-/// correction that edit gives the photo (`capture_one_layers`).
+/// at `path` whose recipe is `adjustments` (as it will render: its lens
+/// choice made and its frame stamped): their gradients, drawn by Capture One
+/// before its lens correction, moved through the lens correction `lens`
+/// finds for that recipe (`capture_one_layers`).
 fn capture_one_layers(
     layers: &[rawtonic_interop::capture_one::Layer],
     path: &Path,
-    adjustments: Option<&Value>,
+    adjustments: &Value,
+    lens: LensOf,
 ) -> Vec<Value> {
     if layers.is_empty() {
         return Vec::new();
     }
-    let none = json!({});
     let lens = crate::formats::is_raw_file(path)
-        .then(|| {
-            rawtonic_engine::lightroom_upright::lens_for_file(adjustments.unwrap_or(&none), path)
-        })
+        .then(|| lens(adjustments, path))
         .flatten();
     let through = lens.as_ref().map(|(warp, orientation, size)| {
         rawtonic_engine::lightroom_upright::through_lens(warp, *orientation, *size)
@@ -1130,6 +1158,52 @@ mod tests {
     use rawtonic_metadata::Metadata;
     use rusqlite::Connection;
     use std::fs;
+
+    /// Capture One's gradients go through the lens correction of the recipe
+    /// as it renders: with its frame version stamped, so frame-dependent lens
+    /// data (an in-camera aspect frame) is the one preview and export use.
+    #[test]
+    fn capture_one_gradients_go_through_the_lens_of_the_final_recipe() {
+        use rawtonic_engine::image_processing::{GeometryParams, WarpPoints};
+        use rawtonic_interop::capture_one::Layer;
+        use rawtonic_interop::capture_one_masks::Mask;
+        let layer = Layer {
+            name: "Sky".into(),
+            enabled: true,
+            opacity: 100.0,
+            settings: vec![("Exposure".into(), "-1".into())],
+            mask: Mask::Linear {
+                start: (100.0, 50.0),
+                end: (100.0, 150.0),
+                midpoint: 0.5,
+            },
+            frame: (600.0, 400.0),
+        };
+        let seen = std::cell::RefCell::new(Vec::new());
+        let lens = |recipe: &Value, _: &Path| {
+            seen.borrow_mut().push(recipe.clone());
+            let barrel = GeometryParams {
+                distortion: 40.0,
+                ..GeometryParams::default()
+            };
+            Some((WarpPoints::new(&barrel, 600, 400), 1, (600.0, 400.0)))
+        };
+        let develop = Develop::CaptureOne(vec![("Exposure".into(), "0.3".into())]);
+        let path = Path::new("missing/a.NEF");
+        let (recipe, _) = recipe_for_with(&develop, &[layer.clone()], path, &lens).unwrap();
+        let seen = seen.into_inner();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(
+            seen[0][rawtonic_engine::source_frame::KEY],
+            json!(rawtonic_engine::source_frame::VERSION)
+        );
+        // Moved by the correction, not left where Capture One drew it.
+        let (unmoved, _) =
+            recipe_for_with(&develop, &[layer], path, &|_: &Value, _: &Path| None).unwrap();
+        let g = |r: &Value| r["masks"][0]["subMasks"][0]["parameters"]["lrNormalized"].clone();
+        assert!((g(&unmoved)["fullY"].as_f64().unwrap() - 0.125).abs() < 1e-9);
+        assert!((g(&recipe)["fullY"].as_f64().unwrap() - 0.125).abs() > 1e-4);
+    }
 
     /// Capture One's lens choice: its amounts, never its profile curves; a
     /// photo whose lens Rawtonic has no profile for keeps the default.
