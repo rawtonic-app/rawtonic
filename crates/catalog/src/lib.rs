@@ -506,6 +506,15 @@ impl Library {
             let new_path = plain(&path);
             let volume_path = volume_path.as_deref().map(plain);
             let new_id = external_root_key(Path::new(&new_path));
+            if new_id == id {
+                // The root may already be plain while its recorded mount is
+                // still verbatim. Keep its identity and all photo rows intact.
+                tx.execute(
+                    "UPDATE roots SET path=?,volume_path=? WHERE id=?",
+                    params![new_path, volume_path, id],
+                )?;
+                continue;
+            }
             // Only the folder's record changes: every photograph keeps its
             // row as it is (trashed, missing, edits, albums), moved to the
             // record under the new id.
@@ -2837,4 +2846,46 @@ pub fn library_name(directory: &Path) -> String {
 /// ([`LibraryLayout::holding`]); ordinary folders stay standalone.
 pub fn session_for(path: &Path) -> Option<PathBuf> {
     LibraryLayout::holding(path).map(LibraryLayout::into_directory)
+}
+
+#[cfg(test)]
+mod plain_volume_path_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_root_id_only_updates_the_root_record() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = Library::create(&tmp.path().join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+        let path = tmp.path().join("Photos");
+        let id = external_root_key(&path);
+        let volume = r"\\?\C:\";
+        lib.conn
+            .execute(
+                "INSERT INTO roots(id,path,external,volume_path) VALUES(?,?,1,?)",
+                params![id, path.to_string_lossy(), volume],
+            )
+            .unwrap();
+        lib.conn
+            .execute_batch(
+                "CREATE TRIGGER reject_asset_update BEFORE UPDATE ON assets
+             BEGIN SELECT RAISE(ABORT, 'photo row changed'); END;",
+            )
+            .unwrap();
+        for _ in 0..2 {
+            lib.plain_stored_paths().unwrap();
+            let stored: (String, String) = lib
+                .conn
+                .query_row(
+                    "SELECT path,volume_path FROM roots WHERE id=?",
+                    [&id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(stored.0, path.to_string_lossy());
+            assert_eq!(
+                stored.1,
+                rawtonic_fs::simplified(Path::new(volume)).to_string_lossy()
+            );
+        }
+    }
 }

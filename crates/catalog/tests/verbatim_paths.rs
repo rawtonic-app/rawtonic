@@ -118,3 +118,59 @@ fn a_catalog_with_verbatim_folders_finds_its_photographs_under_plain_paths() {
     let lib = Library::open(&catalog).unwrap();
     assert_eq!(lib.asset_at(&photo).unwrap().unwrap().id, id);
 }
+
+#[test]
+fn a_plain_root_with_a_verbatim_drive_is_migrated_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = rawtonic_fs::canonicalize(tmp.path()).unwrap();
+    let catalog = root.join("Main.catalog");
+    let photo = root.join("a.jpg");
+    fs::write(&photo, b"synthetic photograph").unwrap();
+    let lib = Library::create(&catalog, "Main", Mode::Catalog).unwrap();
+    let id = lib.add_asset(&photo).unwrap().id;
+    drop(lib);
+    let database = catalog.join(database_name(Mode::Catalog));
+    let db = Connection::open(&database).unwrap();
+    let before: (String, String, String) = db
+        .query_row(
+            "SELECT id,path,volume_path FROM roots WHERE external=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    db.execute(
+        "UPDATE roots SET volume_path=? WHERE id=?",
+        [format!(r"\\?\{}", before.2), before.0.clone()],
+    )
+    .unwrap();
+    db.execute("UPDATE assets SET trashed=1,missing=1 WHERE id=?", [&id])
+        .unwrap();
+    // Any asset UPDATE, including an otherwise harmless self-assignment,
+    // would violate the migration's promise to leave photograph rows alone.
+    db.execute_batch(
+        "CREATE TRIGGER reject_asset_update BEFORE UPDATE ON assets
+        BEGIN SELECT RAISE(ABORT, 'photo row changed'); END;",
+    )
+    .unwrap();
+    drop(db);
+    for _ in 0..2 {
+        drop(Library::open(&catalog).unwrap());
+        let db = Connection::open(&database).unwrap();
+        let after: (String, String, String) = db
+            .query_row(
+                "SELECT id,path,volume_path FROM roots WHERE external=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(after, before);
+        let state: (i64, i64) = db
+            .query_row(
+                "SELECT trashed,missing FROM assets WHERE id=?",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(state, (1, 1));
+    }
+}
