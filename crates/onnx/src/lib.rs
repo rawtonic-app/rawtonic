@@ -257,12 +257,16 @@ impl ModelKind {
     /// every model whose output from the saved graph was measured
     /// bit-identical to today's (AIW2). Not the SigLIP 2 text encoder (the
     /// content-search file keeps its weights in a separate `.data` file the
-    /// cache key does not cover, mapped to save memory) nor Moebius (only
-    /// on GPU providers, not measured on the CPU).
+    /// cache key does not cover, mapped to save memory), nor Moebius (only
+    /// on GPU providers, not measured on the CPU), nor Super Resolution
+    /// (an export step: kept out until full exports with and without the
+    /// saved graph are compared byte for byte; its session takes a few
+    /// milliseconds anyway).
     pub fn keeps_optimized_graph(self) -> bool {
         !matches!(
             self,
             ModelKind::TagText
+                | ModelKind::SuperResolution
                 | ModelKind::MoebiusUnet
                 | ModelKind::MoebiusEncoder
                 | ModelKind::MoebiusDecoder
@@ -1213,7 +1217,8 @@ mod tests {
                 ModelKind::TagText,
                 ModelKind::MoebiusUnet,
                 ModelKind::MoebiusEncoder,
-                ModelKind::MoebiusDecoder
+                ModelKind::MoebiusDecoder,
+                ModelKind::SuperResolution
             ]
         );
     }

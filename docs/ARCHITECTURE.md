@@ -425,9 +425,9 @@ content is the one switch `export_marks_generated`.
 Windows/Linux) checked once against the CPU, CPU fallback, per-model exceptions, preference `aiGpu` (ADR 0011).
 `rawtonic ai-bench` times and compares providers. `optimized`: CPU sessions keep each model's optimized graph
 (external weights, BLAKE3-checked manifest written last) in `Settings::optimized_graphs` (the app: `<cache>/ai-first-runs/onnx-graphs`,
-under the AI cache limit) and later load it with graph optimization off. Output bits measured identical for every CPU
-model of the pack except the SigLIP 2 text encoder and Moebius, which keep no graph (Mac arm64; x86 under Rosetta,
-notes: benchmark-results/aiw2-2026-11-18); GPU providers are not cached.
+under the AI cache limit) and later load it with graph optimization off. Output bits measured identical (Mac arm64; x86
+under Rosetta; notes: benchmark-results/aiw2-2026-11-18) for every CPU model of the pack that keeps one; the SigLIP 2
+text encoder, Moebius and Super Resolution (export) keep none, and GPU providers are not cached.
 
 
 ### Engine layers
