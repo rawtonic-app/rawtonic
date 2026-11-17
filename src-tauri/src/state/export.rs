@@ -34,6 +34,16 @@ pub struct ExportState {
 }
 
 impl ExportState {
+    /// Whether an export runs or the queue works through its jobs.
+    pub(crate) fn running(&self) -> bool {
+        self.runner_active.load(Ordering::SeqCst)
+            || self
+                .task_token
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some()
+    }
+
     pub fn is_held(&self) -> bool {
         self.held.load(Ordering::SeqCst)
     }

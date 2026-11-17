@@ -73,6 +73,81 @@ pub fn level_now() -> Option<Level> {
     }
 }
 
+/// Share of the physical memory the app's own memory stays within while it
+/// does work that may wait or be made again (the multi view's background
+/// decodes, held decodes, zoomed regions beyond the first): 6.3 GB of a
+/// 14 GB laptop with a Radeon 680M, whose graphics memory counts in the
+/// app's private bytes, where the multi view with seven 39–61 MP RAWs at
+/// 100 % reached 10.4 GB and blank cells for up to 23 s (G76/WG74).
+const WORK_SHARE: f64 = 0.45;
+
+/// Bytes of memory still free for work that may wait (`WORK_SHARE`): what
+/// the app's own memory (`app_memory`) may grow by below that share of the
+/// physical memory, and at most what the system has available beyond twice
+/// `low_threshold`, so that neither the app nor the system is pushed into
+/// memory pressure by it. Everything the app holds counts, an export
+/// running in it too. 0 when there is no room; None when the memory cannot
+/// be read.
+pub fn work_headroom() -> Option<u64> {
+    static SYSTEM: std::sync::Mutex<Option<sysinfo::System>> = std::sync::Mutex::new(None);
+    let mut guard = SYSTEM.lock().unwrap_or_else(|e| e.into_inner());
+    let system = guard.get_or_insert_with(sysinfo::System::new);
+    system.refresh_memory();
+    let total = system.total_memory();
+    if total == 0 {
+        return None;
+    }
+    let own = app_memory(system);
+    Some(headroom(total, system.available_memory(), own))
+}
+
+/// `work_headroom` from the physical memory `total`, the memory the system
+/// has `available` and the app's own (`own`, None when unknown).
+fn headroom(total: u64, available: u64, own: Option<u64>) -> u64 {
+    let system_room = available.saturating_sub(2 * low_threshold(total));
+    let own_room = own.map_or(u64::MAX, |own| {
+        ((total as f64 * WORK_SHARE) as u64).saturating_sub(own)
+    });
+    system_room.min(own_room)
+}
+
+/// The app's own memory: its physical footprint on macOS (graphics memory
+/// included), Private Bytes on Windows (the commit charge; an integrated
+/// GPU's shared memory counts there), resident memory on Linux.
+fn app_memory(system: &mut sysinfo::System) -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = system;
+        // SAFETY: `rusage_info_v4` is plain data, filled by the kernel for
+        // this process when the flavour matches the struct.
+        let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+        let result = unsafe {
+            libc::proc_pid_rusage(
+                std::process::id() as libc::c_int,
+                libc::RUSAGE_INFO_V4,
+                (&mut info as *mut libc::rusage_info_v4).cast(),
+            )
+        };
+        (result == 0).then_some(info.ri_phys_footprint)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let pid = sysinfo::get_current_pid().ok()?;
+        system.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::Some(&[pid]),
+            false,
+            sysinfo::ProcessRefreshKind::nothing().with_memory(),
+        );
+        system.process(pid).map(|process| {
+            if cfg!(windows) {
+                process.virtual_memory()
+            } else {
+                process.memory()
+            }
+        })
+    }
+}
+
 /// Share of the physical memory above which the app's private memory holds
 /// the GPU's idle compiles: one display variant's compile committed up to
 /// 5–6 GB on AMD's Windows Vulkan driver, and with the AI models loaded a
@@ -102,15 +177,7 @@ pub fn guard_idle_compiles(app_handle: &tauri::AppHandle) {
     let state = std::sync::Mutex::new((sysinfo::System::new(), None::<std::time::Instant>));
     rawtonic_gpu::gpu_processing::set_idle_compile_memory_guard(Box::new(move || {
         let exports = app.state::<crate::state::export::ExportState>();
-        if exports
-            .runner_active
-            .load(std::sync::atomic::Ordering::SeqCst)
-            || exports
-                .task_token
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .is_some()
-        {
+        if exports.running() {
             return Err("an export runs".into());
         }
         let since_export =
@@ -447,6 +514,22 @@ mod tests {
         assert_eq!(idle_compile_verdict(Some(GB), total, None, later), Ok(()));
         // Unknown readings do not hold.
         assert_eq!(idle_compile_verdict(None, 0, None, None), Ok(()));
+    }
+
+    #[test]
+    fn work_stays_within_the_apps_share_and_the_memory_available() {
+        let total = 14 * GB;
+        // 45 % of 14 GB = 6.3 GB for the app: 2.3 GB beside its 4 GB.
+        assert_eq!(headroom(total, 8 * GB, Some(4 * GB)), 63 * GB / 10 - 4 * GB);
+        // The system has less to spare (twice the 1 GiB threshold kept).
+        assert_eq!(
+            headroom(total, 3 * GB, Some(2 * GB)),
+            3 * GB - 2 * (1 << 30)
+        );
+        // Above its share (an export running in it): none.
+        assert_eq!(headroom(total, 6 * GB, Some(7 * GB)), 0);
+        // The app's memory not readable: what the system has to spare.
+        assert_eq!(headroom(total, 6 * GB, None), 6 * GB - 2 * (1 << 30));
     }
 
     #[test]

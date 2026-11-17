@@ -916,11 +916,15 @@ fn decode(
         // decode started as the second photograph ahead), rather than
         // decoding it again as the new head.
         let mut kept = None;
+        let mut ahead = AHEAD.lock().unwrap_or_else(|e| e.into_inner());
+        let budget = crate::multi_view_prefetch::hold_budget_beside(
+            ahead.iter().map(|kept| kept.image.as_bytes().len()).sum(),
+        );
         if (keep || asked_ahead(&source_str).0)
             && made.is_some()
             && let Ok((image, measures)) = &decoded
             && keep_ahead(
-                &mut AHEAD.lock().unwrap_or_else(|e| e.into_inner()),
+                &mut ahead,
                 MadeDecode {
                     source: source_str.to_string(),
                     key: key.clone(),
@@ -928,12 +932,13 @@ fn decode(
                     measures: *measures,
                     made: made.clone(),
                 },
-                crate::multi_view_prefetch::hold_budget(),
+                budget,
                 asked_ahead,
             )
         {
             kept = Some(Arc::clone(image));
         }
+        drop(ahead);
         let (under_way, ended) = &UNDER_WAY;
         // Its first developed frame then finds its preview base built,
         // before the decode is told ended (a step onto it waits for both,
