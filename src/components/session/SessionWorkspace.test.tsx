@@ -850,10 +850,10 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
       relinks: [{ from: '/Volumes/Old/2026', to: '/Volumes/New/2026' }]
     })
   );
-  expect(toast.warning).toHaveBeenCalledWith(
-    'Imported edits with settings that could not be converted: 1000.',
-    { detail: warnings.join('\n'), autoClose: false }
-  );
+  expect(toast.warning).toHaveBeenCalledWith('Imported edits with settings that could not be converted: 1000.', {
+    detail: warnings.join('\n'),
+    autoClose: false
+  });
   expect(toast.success).toHaveBeenCalledWith(
     expect.stringContaining('12 photos imported (5 with edits, 2 albums)'),
     expect.anything()

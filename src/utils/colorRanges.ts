@@ -2,12 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
-import {
-  MAX_COLOR_RANGES,
-  newColorRange,
-  type Adjustments,
-  type ColorRange
-} from './adjustments';
+import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
 
 /** Colour ranges of a recipe, or none. */
