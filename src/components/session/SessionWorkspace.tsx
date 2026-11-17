@@ -1848,7 +1848,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
   // Another library: the last import's Show is not for it.
   useEffect(
     () => () => {
-      notify.dismiss(importShowNotice.current ?? undefined);
+      if (importShowNotice.current != null) notify.dismiss(importShowNotice.current);
       importShowNotice.current = null;
     },
     [session?.directory]
@@ -1878,7 +1878,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     if (!session) return;
     cancelRequested.current = false;
     // The last import's Show would open this one's photographs.
-    notify.dismiss(importShowNotice.current ?? undefined);
+    if (importShowNotice.current != null) notify.dismiss(importShowNotice.current);
     importShowNotice.current = null;
     setImporting(true);
     setProgress({ current: 0, total: files.length, mbps: 0 });
