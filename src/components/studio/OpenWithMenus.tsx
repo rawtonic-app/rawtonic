@@ -20,8 +20,10 @@ import {
   type AppChoice,
   type AppChoices,
   type EditRecipe,
+  type EditWithRun,
   type OpenWithPrefs
 } from '../../utils/editWith';
+import { useLibraryStore } from '../../store/useLibraryStore';
 
 /** Asks for any application ("Other…"): an application bundle on macOS, a
  * program file on Windows, a `.desktop` file or executable on Linux. */
@@ -46,6 +48,17 @@ const otherLabel = (t: TFunction) =>
   ['windows', 'linux'].includes(useSettingsStore.getState().osPlatform)
     ? t('contextMenus.openWith.browse')
     : t('contextMenus.openWith.other');
+
+/** "Browse for a program…": the picked program, or null when the user
+ * cancelled; a picker that failed says why instead of doing nothing. */
+async function browseForProgram(t: TFunction): Promise<string | null> {
+  try {
+    return await pickApplication(t('contextMenus.openWith.chooseTitle'));
+  } catch (e) {
+    notify.error(t('contextMenus.openWith.pickFailed', { error: errorMessage(e) }));
+    return null;
+  }
+}
 
 async function displayName(program: string): Promise<string> {
   const choice = await invoke<AppChoice | null>(Invokes.OpenWithDescribe, { program }).catch(() => null);
@@ -80,8 +93,7 @@ async function editPhotosWith(
     const result = await runEditWith(paths, recipe, program);
     notify.dismiss(progress);
     await onRendered?.();
-    if (result.failed > 0)
-      notify.error(t('contextMenus.editWith.someFailed', { failed: result.failed, total: paths.length }));
+    if (result.failed > 0) offerTryAgain(result, paths.length, recipe, program, t, onRendered, name);
     if (result.cancelled > 0)
       notify.info(t('contextMenus.editWith.cancelled', { cancelled: result.cancelled, rendered: result.rendered }));
     if (result.problems.length)
@@ -95,6 +107,51 @@ async function editPhotosWith(
     } else notify.error(t('contextMenus.editWith.failed', { error: errorMessage(e) }));
   }
 }
+
+/** The notice for photographs an Edit With could not render, with Try
+ * again: it renders only those photographs (the finished renders were
+ * handed off and are not made a second time), and only while the library
+ * the click was made in is open again. In another one a photograph may have
+ * other edits, or none (a session's own folder elsewhere belongs to it only
+ * while it is open): then it says which library to open and stays. */
+function offerTryAgain(
+  result: EditWithRun,
+  total: number,
+  recipe: EditRecipe,
+  program: string,
+  t: TFunction,
+  onRendered: (() => void | Promise<void>) | undefined,
+  name: string
+) {
+  notify.error(t('contextMenus.editWith.someFailed', { failed: result.failed, total }), {
+    // Its own entry: another batch failing as often keeps its own Try again.
+    toastId: `edit-with-failed:${program}:${result.failedPaths.join('\n')}`,
+    source: 'export',
+    paths: result.failedPaths,
+    actions: [
+      {
+        label: t('activity.tryAgain'),
+        settles: true,
+        run: () => {
+          if (useLibraryStore.getState().sessionDirectory !== result.library) {
+            notify.warn(
+              result.library
+                ? t('contextMenus.editWith.openLibraryFirst', { library: libraryName(result.library) })
+                : t('contextMenus.editWith.closeLibraryFirst')
+            );
+            offerTryAgain(result, total, recipe, program, t, onRendered, name);
+            return;
+          }
+          console.info(`Edit With in ${program}: Try again for ${result.failedPaths.join(', ')}`);
+          return editPhotosWith(result.failedPaths, recipe, program, t, onRendered, name);
+        }
+      }
+    ]
+  });
+}
+
+/** A library's name as the top bar shows it: its folder. */
+const libraryName = (directory: string) => directory.split(/[\\/]/).filter(Boolean).pop() ?? directory;
 
 /** An Edit With the last quit cut short (`export_queue::EditWithRun`). */
 interface InterruptedEditWith {
@@ -176,10 +233,7 @@ function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string
     {
       icon: FolderOpen,
       label: otherLabel(t),
-      onClick: () =>
-        void pickApplication(t('contextMenus.openWith.chooseTitle'))
-          .catch(() => null)
-          .then(async (path) => path && onPick(path, await displayName(path)))
+      onClick: () => void browseForProgram(t).then(async (path) => path && onPick(path, await displayName(path)))
     }
   ];
 }
@@ -260,7 +314,7 @@ function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path:
         role="menuitem"
         className="rawtonic-menu-item"
         onClick={async () => {
-          const path = await pickApplication(t('contextMenus.openWith.chooseTitle')).catch(() => null);
+          const path = await browseForProgram(t);
           if (path) onPick(path, await displayName(path));
         }}
       >
