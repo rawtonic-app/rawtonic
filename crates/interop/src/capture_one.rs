@@ -62,6 +62,11 @@ const SETTINGS: &[(&str, &str)] = &[
     ("ZLENSPURPLEFRINGINGAMOUNT", "PurpleFringingAmount"),
     ("ZMOIRE", "Moire"),
     ("ZLENSVIGNETTING", "Vignetting"),
+    // Lens correction: `curve|amount|…` (only the amounts are read; the
+    // curves are Capture One's own profile data) and the profile's id.
+    ("ZLENSDISTORTION", "LensGeoAbr"),
+    ("ZLENSLIGHTFALLOFF", "LensLightFallOff"),
+    ("ZLENSIDGUID", "LensIdGuid"),
 ];
 
 /// A Capture One local adjustment layer.
@@ -162,7 +167,22 @@ pub fn read(session_db: &Path) -> Result<Library> {
         .collect::<rusqlite::Result<_>>()?
     };
 
-    let columns: Vec<String> = SETTINGS.iter().map(|(c, _)| format!("l.{c}")).collect();
+    // Settings columns this database has (older ones lack some).
+    let present: std::collections::HashSet<String> = {
+        let mut q = conn.prepare("SELECT name FROM pragma_table_info('ZVARIANTLAYER')")?;
+        q.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    let columns: Vec<String> = SETTINGS
+        .iter()
+        .map(|(c, _)| {
+            if present.contains(*c) {
+                format!("l.{c}")
+            } else {
+                "NULL".to_string()
+            }
+        })
+        .collect();
     let sql = format!(
         "SELECT v.Z_PK, i.Z_PK, i.ZIMAGELOCATION, i.ZIMAGEFILENAME, coalesce(i.ZISTRASHED, 0) || ',' || coalesce(v.ZISMODIFIED, 0),
                 m.ZBASIC_RATING, m.ZCOLOR_TAG_INDEX, m.ZCONTENT_KEYWORDS, m.ZSTATUS_TITLE,
