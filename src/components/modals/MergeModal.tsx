@@ -1,3 +1,4 @@
+import { formatNumber } from '../../utils/formatNumber';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, Loader2, XCircle } from 'lucide-react';
@@ -150,11 +151,11 @@ export default function MergeModal({
           <span>{fileName(f.path)}</span>
           <span>
             {f.relativeEv >= 0 ? '+' : ''}
-            {f.relativeEv.toFixed(2)} EV
+            {formatNumber(f.relativeEv, 2)} EV
             {f.alignFailed
               ? ` · ${t('modals.merge.notAligned')}`
               : f.shiftPx > 0
-                ? ` · ${f.shiftPx.toFixed(1)} px`
+                ? ` · ${formatNumber(f.shiftPx, 1)} px`
                 : ''}
             {f.ghostFraction > 0.001 ? ` · ${t('modals.merge.ghosts')} ${(f.ghostFraction * 100).toFixed(1)} %` : ''}
           </span>
@@ -177,7 +178,7 @@ export default function MergeModal({
           {frames.map((f) => (
             <li key={f.path}>
               <span>{fileName(f.path)}</span>
-              <span>{f.used ? `${f.gainEv >= 0 ? '+' : ''}${f.gainEv.toFixed(2)} EV` : t('modals.merge.notUsed')}</span>
+              <span>{f.used ? `${formatNumber(f.gainEv, 2, { signed: true })} EV` : t('modals.merge.notUsed')}</span>
             </li>
           ))}
         </>

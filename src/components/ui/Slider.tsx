@@ -1,3 +1,4 @@
+import { formatNumber } from '../../utils/formatNumber';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GLOBAL_KEYS } from './AppProperties';
@@ -589,7 +590,7 @@ const Slider = ({
               onDoubleClick={disabled ? undefined : handleReset}
               data-tooltip={disabled ? undefined : t('ui.slider.clickToEdit')}
             >
-              {decimalPlaces > 0 && numericValue === 0 ? '0' : numericValue.toFixed(decimalPlaces)}
+              {formatNumber(numericValue, decimalPlaces, { trim: numericValue === 0 })}
               {suffix && <span className="text-[10px] align-top inline-block mt-0.5 ml-0.5">{suffix}</span>}
             </span>
           )}

@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- Values that round to zero no longer show a minus sign in sliders, Series Match or merge readouts.
+
 - **XMP titles with translations save reliably.** Edits now handle stale duplicate properties and quoted `>` qualifiers while preserving nested foreign content.
 
 - **The multi view keeps showing every photo while the next one opens.** Clicking another cell or stepping in the multi view made the app window opaque until the new primary photo's first frame arrived, which hid every other cell: on a Windows laptop with slow decodes the other photos vanished for 5–44 s at a time. The window now stays clear over the multi view's cells, which always have a frame of their own; only the new primary's cell shows its preview meanwhile (Windows laptop with Radeon 680M, seven 39–61 MP RAWs zoomed, panned and stepped for 60 s: 0 empty cells instead of dozens; six 24 MP RAWs: 0).
