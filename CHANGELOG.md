@@ -72,6 +72,8 @@
 
 ### Changes
 
+- **Color Grading tints the way Lightroom's do on coloured tones** (new edits). A wheel's tint now also depends on the colour it lands on, not only on its lightness: part of the tint is applied to each colour channel by that channel's own level, as Lightroom grades, so a yellow or a blue area takes a Midtones or Highlights tint as Lightroom's renders it. The two Color Grading cases still clearly off Lightroom are now close: a strong magenta Midtones tint (hue 300°, saturation 100) and a strong green Highlights tint (hue 120°, saturation 100) on photographs the fit never saw. Edits saved before keep their look.
+
 - Updated frontend libraries (minor versions).
 
 ## 0.1.0-alpha.16 — 2026-11-16

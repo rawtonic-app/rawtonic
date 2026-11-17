@@ -41,6 +41,11 @@ use serde_json::Value;
 
 pub const GRADING_LUT_SIZE: usize = 32;
 
+/// How much of the tint `colorGradingVersion` 4 applies to each channel by
+/// its own lightness (the shader's `GRADING_CHANNEL_WEIGHT`; chosen on the
+/// fit photographs, notes: benchmark-results/cg3-2026-11-17).
+pub const GRADING_CHANNEL_WEIGHT: f32 = 0.5;
+
 /// Capacity knots at L = 0, 0.1, … 0.9, 1.
 const CAPACITY: [f32; 11] = [
     0.0, 0.0164, 0.0253, 0.0373, 0.0448, 0.0533, 0.0587, 0.0576, 0.0492, 0.0327, 0.0,
@@ -697,6 +702,132 @@ mod v3 {
         }
         out
     }
+
+    /// `colorGradingVersion` 4: version 3's tint with the four atlas hues of
+    /// every wheel refitted for the shader's tint per channel (the table
+    /// applied to each channel by its own lightness, mixed in with
+    /// `GRADING_CHANNEL_WEIGHT`; notes: benchmark-results/cg3-2026-11-17).
+    /// The refit is a correction on version 3's tables at the same places
+    /// of the model, so version 3's own code stays as it was.
+    pub(super) mod v4 {
+        use super::*;
+
+        /// Corrections of version 3's tables (same layout): Shadows and
+        /// Highlights (da, db) and the excess above saturation 50
+        /// (dL, da, db), Midtones and Global (dL, da, db), each at the two
+        /// anchors, every 15 degrees.
+        pub(super) struct Corrections {
+            pub hue: [[[[f32; 2]; 24]; 2]; 2],
+            pub excess: [[[[f32; 3]; 24]; 2]; 2],
+            pub midtones_global: [[[[f32; 3]; 24]; 2]; 2],
+        }
+
+        // Fitted values; some read like mathematical constants.
+        #[allow(clippy::approx_constant)]
+        mod tables {
+            use super::Corrections;
+            include!("color_grading_v4_tables.rs");
+        }
+        use tables::CORRECTIONS;
+
+        /// How much each wheel's correction counts at lightness `l`, as
+        /// version 3 weighs that wheel's own table there: per wheel
+        /// (Shadows, Highlights, Midtones, Global) the weights of the dark
+        /// and the light anchor's entries and of the dark and light excess.
+        pub(in super::super) fn factors(grading: &Grading, l: f32) -> [[f32; 4]; 4] {
+            let mut out = [[0.0f32; 4]; 4];
+            for (n, (model, wheel)) in [
+                (&SHADOWS, &grading.shadows),
+                (&HIGHLIGHTS, &grading.highlights),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                if wheel.saturation <= 0.0 {
+                    continue;
+                }
+                let x = balanced(model, l, grading.balance);
+                let reach = table(&model.weights, grading.blending, x) * capacity(l);
+                let scale = reach * wheel.saturation / 50.0;
+                let u =
+                    model.turn_by_balance * x + (1.0 - model.turn_by_balance) * l.clamp(0.0, 1.0);
+                let light = by_blending(model.light_anchor, grading.blending);
+                let t = ((u - model.dark_anchor) / (light - model.dark_anchor))
+                    .clamp(model.turn_from, 1.0);
+                out[n][0] = scale * (1.0 - t);
+                out[n][1] = scale * t;
+                if wheel.saturation > 50.0 {
+                    let more = ((wheel.saturation - 50.0) / 50.0).powf(EXCESS_POWER) * reach;
+                    let t = t.clamp(0.0, 1.0);
+                    out[n][2] = more * (1.0 - t);
+                    out[n][3] = more * t;
+                }
+            }
+            let x = shifted(l, grading.balance, TINT.balance);
+            let tm = logistic((x - MIDTONES[1]) / MIDTONES[2]);
+            let cap = capacity(l);
+            for (n, (weight, anchors, wheel)) in [
+                (
+                    MIDTONES[0] * (4.0 * tm * (1.0 - tm)).powf(MIDTONES[3]),
+                    MIDTONES_ANCHORS,
+                    &grading.midtones,
+                ),
+                (1.0, GLOBAL_ANCHORS, &grading.global),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                if wheel.saturation > 0.0 {
+                    let t = ((l.clamp(0.0, 1.0) - anchors[0]) / (anchors[1] - anchors[0]))
+                        .clamp(0.0, 1.0);
+                    let scale = weight * cap * wheel.saturation / 50.0;
+                    out[2 + n][0] = scale * (1.0 - t);
+                    out[2 + n][1] = scale * t;
+                }
+            }
+            out
+        }
+
+        /// The tint (dL, da, db) at display lightness `l`.
+        pub(in super::super) fn tint(grading: &Grading, l: f32) -> [f32; 3] {
+            let mut out = super::tint(grading, l);
+            let f = factors(grading, l);
+            let c = &CORRECTIONS;
+            for (n, wheel) in [&grading.shadows, &grading.highlights]
+                .into_iter()
+                .enumerate()
+            {
+                if wheel.saturation <= 0.0 {
+                    continue;
+                }
+                let (dark, light) = (
+                    at_hue(&c.hue[n][0], wheel.hue),
+                    at_hue(&c.hue[n][1], wheel.hue),
+                );
+                let (more_dark, more_light) = (
+                    at_hue(&c.excess[n][0], wheel.hue),
+                    at_hue(&c.excess[n][1], wheel.hue),
+                );
+                for k in 0..2 {
+                    out[k + 1] += f[n][0] * dark[k] + f[n][1] * light[k];
+                }
+                for k in 0..3 {
+                    out[k] += f[n][2] * more_dark[k] + f[n][3] * more_light[k];
+                }
+            }
+            for (n, wheel) in [&grading.midtones, &grading.global].into_iter().enumerate() {
+                if wheel.saturation <= 0.0 {
+                    continue;
+                }
+                let table = &c.midtones_global[n];
+                let (dark, light) = (at_hue(&table[0], wheel.hue), at_hue(&table[1], wheel.hue));
+                for k in 0..3 {
+                    out[k] += f[2 + n][0] * dark[k] + f[2 + n][1] * light[k];
+                }
+            }
+            out
+        }
+    }
 }
 
 /// The shader's grading table at L = i / (size − 1): (dL, da, db, 0), or
@@ -705,7 +836,10 @@ mod v3 {
 pub fn lut(grading: &Grading, version: ColorGradingVersion) -> [[f32; 4]; GRADING_LUT_SIZE] {
     std::array::from_fn(|i| {
         let l = i as f32 / (GRADING_LUT_SIZE - 1) as f32;
-        if version.per_channel() {
+        if version.tint_per_channel() {
+            let [dl, da, db] = v3::v4::tint(grading, l);
+            [dl, da, db, v3::luminance(grading, l)]
+        } else if version.per_channel() {
             let [dl, da, db] = v3::tint(grading, l);
             [dl, da, db, v3::luminance(grading, l)]
         } else {
@@ -791,7 +925,7 @@ mod tests {
             "global": {"hue": 300, "saturation": 10, "luminance": 5},
             "blending": 70, "balance": -30,
         }));
-        for v in versions() {
+        for v in shipped() {
             let start = std::time::Instant::now();
             let mut sum = 0.0f32;
             for _ in 0..10_000 {
@@ -833,8 +967,8 @@ mod tests {
 
     /// The versions whose tables are pinned (every version saved edits may
     /// carry; a new version is added here when it ships).
-    fn shipped() -> [ColorGradingVersion; 3] {
-        [1, 2, 3].map(|v| ColorGradingVersion::of(&json!({ "colorGradingVersion": v })))
+    fn shipped() -> [ColorGradingVersion; 4] {
+        [1, 2, 3, 4].map(|v| ColorGradingVersion::of(&json!({ "colorGradingVersion": v })))
     }
 
     /// Writes the pinned tables to `$GRADING_TABLES` (only when a version
@@ -844,11 +978,16 @@ mod tests {
     fn write_pinned_tables() {
         let tables: Vec<Vec<_>> = shipped()
             .iter()
-            .map(|&v| pinned_gradings().iter().map(|g| lut(&grading(g.clone()), v)).collect())
+            .map(|&v| {
+                pinned_gradings()
+                    .iter()
+                    .map(|g| lut(&grading(g.clone()), v))
+                    .collect()
+            })
             .collect();
         std::fs::write(
             std::env::var("GRADING_TABLES").unwrap(),
-            serde_json::to_string(&json!({ "versions": [1, 2, 3], "tables": tables })).unwrap(),
+            serde_json::to_string(&json!({ "versions": [1, 2, 3, 4], "tables": tables })).unwrap(),
         )
         .unwrap();
     }
@@ -1067,6 +1206,29 @@ mod tests {
         };
         let reach = |balance: f32| chroma(shift(&shadows(balance), v2, 0.6));
         assert!(reach(-50.0) - reach(0.0) < 0.5 * (reach(-100.0) - reach(0.0)));
+    }
+
+    /// Version 4's table is version 3's but at the corrected entries: the
+    /// Shadows and Highlights tints up to saturation 50 change at the four
+    /// atlas hues only, the Luminance sliders not at all.
+    #[test]
+    fn version_4_refits_the_atlas_hues_and_the_strong_tints() {
+        let [v3, v4] =
+            [3, 4].map(|v| ColorGradingVersion::of(&json!({ "colorGradingVersion": v })));
+        for value in [
+            json!({"shadows": {"hue": 45, "saturation": 50}, "highlights": {"hue": 255, "saturation": 30}}),
+            json!({"shadows": {"luminance": -60}, "midtones": {"luminance": 30}, "highlights": {"luminance": -100}}),
+        ] {
+            assert_eq!(lut(&grading(value.clone()), v3), lut(&grading(value), v4));
+        }
+        for value in [
+            json!({"midtones": {"hue": 300, "saturation": 100}}),
+            json!({"highlights": {"hue": 120, "saturation": 100}}),
+            json!({"shadows": {"hue": 30, "saturation": 50}}),
+            json!({"highlights": {"hue": 45, "saturation": 100}}),
+        ] {
+            assert_ne!(lut(&grading(value.clone()), v3), lut(&grading(value), v4));
+        }
     }
 
     /// Version 3's table keeps the Luminance sliders' curve apart from the

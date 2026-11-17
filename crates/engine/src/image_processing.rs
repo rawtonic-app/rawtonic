@@ -5873,13 +5873,17 @@ macro_rules! impl_apply_grading {
                 self.grading_lut = crate::color_grading::lut(&grading, version);
                 // The shader's path (`apply_grading`): 1 the table's shift;
                 // from `colorGradingVersion` 3 on limited per channel (2),
-                // with the Luminance sliders' curve per channel (3).
+                // with the Luminance sliders' curve per channel (3); from 4
+                // on the tint also per channel (4, with the curve 5).
+                let curve = self.grading_lut.iter().any(|entry| entry[3] != 0.0);
                 self.grading_active = if !version.per_channel() {
                     1
-                } else if self.grading_lut.iter().all(|entry| entry[3] == 0.0) {
-                    2
-                } else {
+                } else if version.tint_per_channel() {
+                    if curve { 5 } else { 4 }
+                } else if curve {
                     3
+                } else {
+                    2
                 };
             }
         }
@@ -6474,7 +6478,7 @@ pub const COLOR_GRADING_VERSION_KEY: &str = "colorGradingVersion";
 /// on the 24 others (notes: benchmark-results/cg2-colour-grading-2026-11-15).
 /// The photo's layers render with the photo's response. Recipes without
 /// the key keep version 1.
-pub const COLOR_GRADING_VERSION: u64 = 3;
+pub const COLOR_GRADING_VERSION: u64 = 4;
 
 /// The recipe's colour grading response, 1 when missing, never newer than
 /// this renderer knows.
@@ -9348,8 +9352,12 @@ mod editing_tool_tests {
             let prepared = get_all_adjustments_from_json(&recipe, true, None);
             // The shader's path: the table's shift, or from version 3 on
             // limited per channel with the Luminance curve per channel
-            // (this grading lowers the Highlights luminance).
-            let path = if ColorGradingVersion::of(&recipe).per_channel() {
+            // (this grading lowers the Highlights luminance), from 4 on
+            // with the tint per channel too.
+            let version = ColorGradingVersion::of(&recipe);
+            let path = if version.tint_per_channel() {
+                5
+            } else if version.per_channel() {
                 3
             } else {
                 1
@@ -9374,14 +9382,18 @@ mod editing_tool_tests {
         assert_eq!(tables(json!(2)), (of(2), of(2)));
         assert_ne!(of(2), of(3));
         assert_eq!(tables(json!(3)), (of(3), of(3)));
+        assert_ne!(of(3), of(4));
+        assert_eq!(tables(json!(4)), (of(4), of(4)));
         // Without Luminance the shader skips the curve.
-        let tint_only = get_all_adjustments_from_json(
-            &json!({"colorGrading": {"global": {"hue": 30, "saturation": 20}},
-                COLOR_GRADING_VERSION_KEY: 3}),
-            true,
-            None,
-        );
-        assert_eq!(tint_only.uniforms.global.grading_active, 2);
+        for (version, path) in [(3, 2), (4, 4)] {
+            let tint_only = get_all_adjustments_from_json(
+                &json!({"colorGrading": {"global": {"hue": 30, "saturation": 20}},
+                    COLOR_GRADING_VERSION_KEY: version}),
+                true,
+                None,
+            );
+            assert_eq!(tint_only.uniforms.global.grading_active, path);
+        }
         // Never newer than the renderer knows.
         assert_eq!(
             tables(json!(9)),
