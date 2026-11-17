@@ -5085,12 +5085,14 @@
         "FillLight": "luce di schiarita",
         "filmCurve": "curva pellicola",
         "HighlightRecovery": "recupero delle luci",
+        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
         "lens": "obiettivo e keystone",
         "lensProfile": "profilo obiettivo",
         "noiseReduction": "riduzione rumore",
         "profile": "profilo",
         "profileNamed": "profilo «{{name}}»",
         "Shadows": "ombre",
+        "toneCurveMissingPoints": "named tone curve without explicit points",
         "upright": "Upright",
         "whiteBalance": "bilanciamento del bianco"
       }

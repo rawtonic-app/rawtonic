@@ -5289,12 +5289,14 @@
         "FillLight": "światło wypełniające",
         "filmCurve": "krzywa filmowa",
         "HighlightRecovery": "odzyskiwanie świateł",
+        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
         "lens": "obiektyw i keystone",
         "lensProfile": "profil obiektywu",
         "noiseReduction": "redukcja szumu",
         "profile": "profil",
         "profileNamed": "profil „{{name}}”",
         "Shadows": "cienie",
+        "toneCurveMissingPoints": "named tone curve without explicit points",
         "upright": "Upright",
         "whiteBalance": "balans bieli"
       }

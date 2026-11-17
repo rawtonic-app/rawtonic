@@ -319,6 +319,7 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
                 .collect::<String>();
             [
                 crate::preset_converter::legacy_process_warning(xmp),
+                crate::preset_converter::tone_curve_warning(xmp),
                 crate::preset_converter::point_color_overflow_warning(xmp),
             ]
             .into_iter()
