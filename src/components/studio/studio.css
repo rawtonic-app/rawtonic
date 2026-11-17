@@ -2,7 +2,12 @@
    Per-declaration fallbacks preserve the incumbent Darkest palette exactly,
    including its subtle tints. Colour-wheel gradients encode data and stay fixed. */
 .studio-app {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif !important;
   --studio-bg: var(--studio-shade-bg, #292a2c);
   --studio-raised: var(--studio-shade-raised, #323335);
   --studio-line: var(--studio-shade-ink, #17181a);
@@ -4027,7 +4032,12 @@ body.is-dragging.is-drop-refused * {
   border-radius: 6px;
   box-shadow: 0 10px 34px #000a;
   color: var(--studio-shade-text, #e3e5e8);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-size: 12px;
 }
 .rawtonic-menu-list {
@@ -6443,7 +6453,12 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   background: var(--studio-raised);
   box-shadow: 0 8px 28px #0007;
   color: var(--studio-text);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-size: 12px;
   line-height: 1.4;
   overflow-wrap: anywhere;
@@ -6582,7 +6597,12 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   background: var(--studio-bg, var(--studio-shade-bg, #292a2c));
   color: var(--studio-text, var(--studio-shade-text, #e0e1e3));
   box-shadow: 0 18px 80px #0008;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-size: 12px;
   line-height: 1.4;
 }
