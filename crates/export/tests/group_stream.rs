@@ -1,11 +1,10 @@
-//! A recipe group's files written while the group renders
-//! (`save_group_rendering`, notes: benchmark-results/mem15-2026-11-17): the
-//! member it renders for publishes its streamed TIFF at once, later TIFFs
-//! are staged and published at their own turn, and every file has the bytes
-//! of the same recipe saved from its render held whole. Also when the
-//! group's first recipe was skipped (the member renders in its own colour
-//! space) and when a file cannot be created (the other recipes are
-//! unaffected). Needs a GPU:
+//! A recipe group's TIFF written while the group renders
+//! (`save_group_rendering`, notes: benchmark-results/mem14-2026-11-17 and
+//! mem15-2026-11-17), end to end on a prepared photo: the member the group
+//! renders for streams its file in its own colour space and depth, also when
+//! the group's first recipe was skipped, and a file that cannot be created
+//! fails alone while the other recipes get their renders. Every file has the
+//! bytes of the same recipe saved from its render held whole. Needs a GPU:
 //!
 //! cargo test -p rawtonic-export --test group_stream -- --ignored
 
@@ -15,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use image::{DynamicImage, Rgb32FImage};
 use rawtonic_engine::output_color_space::OutputColorSpace;
 use rawtonic_export::export_processing::{
-    EncodedExport, ExportOutput, ExportSettings, ExportSource, GroupFile, GroupRender,
-    PreparedExport, RenderEnv, TiffBitDepth, prepare_export_render, render_output_precision,
+    EncodedExport, ExportOutput, ExportSettings, ExportSource, GroupRender, PreparedExport,
+    RenderEnv, TiffBitDepth, prepare_export_render, render_output_precision,
     render_prepared_exports, save_group_rendering, save_rendered_export,
 };
 use rawtonic_export::output::write_new_export;
@@ -134,41 +133,26 @@ fn reference(
     (files, images)
 }
 
-/// `save_group_rendering` of `recipes` for member `own` with files at
-/// `paths` (index → path) and the members after `own` in `later` staged.
+/// `save_group_rendering` of `recipes` for member `own`, whose file is at
+/// `paths[own]`.
 fn group(
     env: &RenderEnv,
     fixture: &Fixture,
     recipes: &[Recipe],
     paths: &[PathBuf],
     own: usize,
-    later: &[usize],
 ) -> Vec<GroupRender> {
-    let outputs_of: Vec<ExportOutput> = recipes
-        .iter()
-        .zip(paths)
-        .map(|(recipe, path)| output(path, recipe.format))
-        .collect();
-    let files: Vec<GroupFile> = later
-        .iter()
-        .map(|&index| GroupFile {
-            index,
-            export_settings: &recipes[index].settings,
-            output: &outputs_of[index],
-        })
-        .collect();
     save_group_rendering(
         SOURCE,
         &fixture.prepared,
         &fixture.recipe,
         &recipes[own].settings,
         env,
-        &outputs_of[own],
+        &output(&paths[own], recipes[own].format),
         &going,
         "group-stream",
         &outputs(recipes),
         own,
-        &files,
     )
     .unwrap()
 }
@@ -177,21 +161,15 @@ fn kind(render: &GroupRender) -> &'static str {
     match render {
         GroupRender::Image(_) => "image",
         GroupRender::Saved => "saved",
-        GroupRender::Staged(_) => "staged",
         GroupRender::Failed(_) => "failed",
     }
 }
 
-/// The file of member `index` from its group render: published (staged or
-/// saved) or saved from its render at its turn.
+/// The file of a member from its group render: written while it rendered,
+/// or saved from its render at its turn.
 fn file_of(render: GroupRender, fixture: &Fixture, recipe: &Recipe, path: &Path) -> Vec<u8> {
     match render {
         GroupRender::Saved => {}
-        GroupRender::Staged(staged) => {
-            assert_eq!(staged.path(), path);
-            assert!(!path.exists(), "published only at its turn");
-            staged.publish().unwrap();
-        }
         GroupRender::Image(image) => save_rendered_export(
             image,
             SOURCE,
@@ -253,25 +231,24 @@ fn a_group_writes_each_tiff_while_it_renders_with_the_bytes_of_its_render() {
     use OutputColorSpace::{AdobeRgb, ProPhoto, Srgb};
     use TiffBitDepth::{Eight, Sixteen};
 
-    // A JPEG first, then two TIFFs in other colour spaces and depths: the
-    // TIFFs are written while the group renders, published at their turn.
+    // A TIFF first (the app saves full-size TIFFs first), then a JPEG and
+    // a TIFF in other colour spaces and depths.
     let recipes = [
-        recipe("jpg", Srgb, Eight),
         recipe("tif", AdobeRgb, Sixteen),
+        recipe("jpg", Srgb, Eight),
         recipe("tiff", ProPhoto, Eight),
     ];
-    let (expected, _) = reference(&env, &fixture, &recipes, &folder("jpeg-first-ref"));
-    let out = folder("jpeg-first");
+    let (expected, _) = reference(&env, &fixture, &recipes, &folder("tiff-first-ref"));
+    let out = folder("tiff-first");
     let paths_of = paths(&out, &recipes);
-    let renders = group(&env, &fixture, &recipes, &paths_of, 0, &[1, 2]);
+    let renders = group(&env, &fixture, &recipes, &paths_of, 0);
     assert_eq!(
         renders.iter().map(kind).collect::<Vec<_>>(),
-        ["image", "staged", "staged"]
+        ["saved", "image", "image"]
     );
-    assert_eq!(files(&out), 2, "the staged temporary files only");
     for (index, render) in renders.into_iter().enumerate() {
         let bytes = file_of(render, &fixture, &recipes[index], &paths_of[index]);
-        assert!(bytes == expected[index], "jpeg first, recipe {index}");
+        assert!(bytes == expected[index], "tiff first, recipe {index}");
     }
     assert_eq!(files(&out), 3, "no temporary file left");
 
@@ -285,10 +262,10 @@ fn a_group_writes_each_tiff_while_it_renders_with_the_bytes_of_its_render() {
     let (expected, images) = reference(&env, &fixture, &recipes, &folder("skipped-ref"));
     let out = folder("skipped");
     let paths_of = paths(&out, &recipes);
-    let renders = group(&env, &fixture, &recipes, &paths_of, 1, &[2]);
+    let renders = group(&env, &fixture, &recipes, &paths_of, 1);
     assert_eq!(
         renders.iter().map(kind).collect::<Vec<_>>(),
-        ["image", "saved", "staged"]
+        ["image", "saved", "image"]
     );
     let mut renders = renders.into_iter();
     match renders.next().unwrap() {
@@ -301,9 +278,9 @@ fn a_group_writes_each_tiff_while_it_renders_with_the_bytes_of_its_render() {
     }
     assert!(expected[1] != expected[0], "the colour spaces differ");
 
-    // The rendering member's file cannot be created (its folder is gone):
-    // it fails alone; the later TIFF still streams, the JPEG keeps its
-    // render.
+    // The streaming member's file cannot be created (its folder is gone):
+    // it fails alone, the later recipes get their renders and are saved at
+    // their turn, writable as ever.
     let recipes = [
         recipe("tif", Srgb, Sixteen),
         recipe("tif", AdobeRgb, Sixteen),
@@ -313,32 +290,15 @@ fn a_group_writes_each_tiff_while_it_renders_with_the_bytes_of_its_render() {
     let out = folder("failed");
     let mut paths_of = paths(&out, &recipes);
     paths_of[0] = dir.path().join("missing").join("0.tif");
-    let renders = group(&env, &fixture, &recipes, &paths_of, 0, &[1]);
+    let renders = group(&env, &fixture, &recipes, &paths_of, 0);
     assert_eq!(
         renders.iter().map(kind).collect::<Vec<_>>(),
-        ["failed", "staged", "image"]
+        ["failed", "image", "image"]
     );
     for (index, render) in renders.into_iter().enumerate().skip(1) {
         let bytes = file_of(render, &fixture, &recipes[index], &paths_of[index]);
         assert!(bytes == expected[index], "failed first, recipe {index}");
     }
     assert!(!paths_of[0].exists());
-
-    // A later TIFF whose file cannot be created comes back as its render,
-    // saved at its turn as any other.
-    let out = folder("failed-later");
-    let mut paths_of = paths(&out, &recipes);
-    paths_of[1] = dir.path().join("missing").join("1.tif");
-    let renders = group(&env, &fixture, &recipes, &paths_of, 0, &[1]);
-    assert_eq!(
-        renders.iter().map(kind).collect::<Vec<_>>(),
-        ["saved", "image", "image"]
-    );
-    let mut renders = renders.into_iter();
-    let first = file_of(renders.next().unwrap(), &fixture, &recipes[0], &paths_of[0]);
-    assert!(first == expected[0]);
-    let later_path = out.join("1.tif");
-    let later = file_of(renders.next().unwrap(), &fixture, &recipes[1], &later_path);
-    assert!(later == expected[1]);
     assert_eq!(files(&out), 2);
 }

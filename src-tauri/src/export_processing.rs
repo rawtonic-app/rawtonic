@@ -1765,8 +1765,8 @@ fn export_photo(
             .filter(|definition| definition.produces_bitmap())
             .take(crate::image_processing::MAX_MASKS)
             .count();
-    let plan_file = |target: usize| {
-        planned.once(target, || {
+    let plan = |target: usize| {
+        let output_path = planned.once(target, || {
             plan_output_path(
                 &targets[target],
                 &item,
@@ -1776,10 +1776,7 @@ fn export_photo(
                 mask_layers,
                 used_paths,
             )
-        })
-    };
-    let plan = |target: usize| {
-        let output_path = plan_file(target)?;
+        })?;
         if let Some(tracking) = &targets[target].tracking {
             tracking.started(item.global_index, &output_path);
         }
@@ -1973,6 +1970,33 @@ fn export_photo(
     // before their first recipe is saved: a photo keeps at most one group
     // (`render_groups`, `GroupRenders`).
     let alone = |target: usize| targets[target].is_explicit_file_path && item.total_paths == 1;
+    let together =
+        |a: usize, b: usize| with_mask_files(a) == with_mask_files(b) && !alone(a) && !alone(b);
+    // Within each run that renders together, full-size TIFFs are saved
+    // first: the group renders for its first recipe, whose file is then
+    // written while it renders, so no TIFF render is held whole beside a
+    // JPEG's (`streaming_recipes_first`). The files' names do not change:
+    // files of other formats never take each other's names. Recipes with
+    // mask files keep the asked order, as mask files of any recipe may
+    // take each other's names.
+    let images = if images
+        .iter()
+        .any(|&target| targets[target].export_settings.export_masks)
+    {
+        images
+    } else {
+        let file_streams = |target: usize| {
+            matches!(
+                targets[target].output_format.to_ascii_lowercase().as_str(),
+                "tif" | "tiff"
+            ) && matches!(
+                &prepared[with_mask_files(target) as usize],
+                Some(Ok(prepared))
+                    if render_is_file(&targets[target].export_settings, prepared.size())
+            )
+        };
+        streaming_recipes_first(&images, together, file_streams)
+    };
     let precision = |target: usize| {
         render_output_precision(
             &targets[target].output_format,
@@ -1980,9 +2004,7 @@ fn export_photo(
         )
     };
     let mut groups: Vec<Vec<usize>> = Vec::new();
-    for run in
-        images.chunk_by(|&a, &b| with_mask_files(a) == with_mask_files(b) && !alone(a) && !alone(b))
-    {
+    for run in images.chunk_by(|&a, &b| together(a, b)) {
         let Some(Ok(prepared)) = &prepared[with_mask_files(run[0]) as usize] else {
             continue;
         };
@@ -2042,45 +2064,6 @@ fn export_photo(
                     .iter()
                     .position(|&member| member == target)
                     .unwrap_or(group.len());
-                // The group's later TIFFs are written while it renders too,
-                // into temporary files published at their turn: their files
-                // are planned now. That is the file each gets at its turn
-                // (`plan_file` plans a recipe's file once; it and its mask
-                // files are reserved when planned, so the recipes before
-                // it count as written); one that cannot be planned is
-                // planned and fails at its turn as before.
-                let later_paths: Vec<(usize, std::path::PathBuf)> = group
-                    .iter()
-                    .enumerate()
-                    .skip(own.saturating_add(1))
-                    .filter(|&(_, &member)| {
-                        matches!(
-                            targets[member].output_format.to_ascii_lowercase().as_str(),
-                            "tif" | "tiff"
-                        )
-                    })
-                    .filter_map(|(index, &member)| plan_file(member).ok().map(|path| (index, path)))
-                    .collect();
-                let later_outputs: Vec<ExportOutput> = later_paths
-                    .iter()
-                    .map(|(index, path)| ExportOutput {
-                        path,
-                        format: targets[group[*index]].output_format.as_str(),
-                        exif_sidecar: &exif_sidecar,
-                        catalog: &catalog,
-                        write: &write_export_bytes,
-                        enlarger: Some(&enlarger),
-                    })
-                    .collect();
-                let later: Vec<GroupFile> = later_paths
-                    .iter()
-                    .zip(&later_outputs)
-                    .map(|((index, _), output)| GroupFile {
-                        index: *index,
-                        export_settings: &targets[group[*index]].export_settings,
-                        output,
-                    })
-                    .collect();
                 save_group_rendering(
                     &source_path_str,
                     prepared,
@@ -2092,24 +2075,11 @@ fn export_photo(
                     "process_image_for_export",
                     &outputs,
                     own,
-                    &later,
                 )
             });
             match render {
                 Some(processed) => match processed? {
                     GroupRender::Saved => {}
-                    GroupRender::Staged(staged) => {
-                        if staged.path() != output_path {
-                            return Err(format!(
-                                "The file written for '{}' was planned as '{}'.",
-                                output_path.display(),
-                                staged.path().display()
-                            ));
-                        }
-                        staged.publish().map_err(|e| {
-                            format!("Failed to write file to '{}': {}", output_path.display(), e)
-                        })?
-                    }
                     GroupRender::Failed(e) => return Err(e),
                     GroupRender::Image(processed) => save_rendered_export(
                         processed,

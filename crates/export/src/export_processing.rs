@@ -2307,40 +2307,47 @@ pub fn render_prepared_exports(
     )
 }
 
+/// The order a photo's recipes are saved in (`targets`, in the order they
+/// were asked for): within each run of recipes that render together
+/// (`together` of neighbours), those whose file streams its render
+/// (`streams`: a full-size TIFF, [`streams_into_file`]) come first, the
+/// others after them, each in its own order. A group renders for its first
+/// recipe still to be saved and only that one's file streams, so a JPEG
+/// asked for before a TIFF no longer keeps the TIFF's render whole beside
+/// the others (notes: benchmark-results/mem15-2026-11-17). Callers keep
+/// the asked order where file names could depend on it.
+pub fn streaming_recipes_first(
+    targets: &[usize],
+    together: impl Fn(usize, usize) -> bool,
+    streams: impl Fn(usize) -> bool,
+) -> Vec<usize> {
+    targets
+        .chunk_by(|&a, &b| together(a, b))
+        .flat_map(|run| {
+            let (streaming, others): (Vec<usize>, Vec<usize>) =
+                run.iter().partition(|&&target| streams(target));
+            streaming.into_iter().chain(others)
+        })
+        .collect()
+}
+
 /// One render of a group ([`save_group_rendering`]).
 pub enum GroupRender {
     Image(DynamicImage),
     /// Written into its file while the group rendered.
     Saved,
-    /// Written into its staged file while the group rendered at an earlier
-    /// recipe's turn: published at its own turn
-    /// ([`crate::output::StagedOutput::publish`]), or dropped unpublished.
-    Staged(crate::output::StagedOutput),
     /// Its file could not be written (the other renders are unaffected).
     Failed(String),
 }
 
-/// A recipe of a render group after the one it renders for, whose file is
-/// planned before the group renders ([`save_group_rendering`]).
-pub struct GroupFile<'a> {
-    /// Its index in the group's `outputs`.
-    pub index: usize,
-    pub export_settings: &'a ExportSettings,
-    pub output: &'a ExportOutput<'a>,
-}
-
 /// The renders of a recipe group ([`render_prepared_exports`] of
 /// `outputs`), rendered for its member `own` (an index into `outputs`),
-/// which is `output`'s and the first of the group still to be saved. Each
-/// file that streams its render ([`streams_into_file`]) is written while
-/// the group renders, so its render is never held whole beside the others:
-/// `output`'s is published and comes back [`GroupRender::Saved`] (or
-/// [`GroupRender::Failed`] beside the others' renders); a file of `later`
-/// (recipes after `own`, their files planned) is written into its
-/// temporary file and comes back [`GroupRender::Staged`], published at its
-/// own turn, so files are still published in the recipes' order. A later
-/// file that could not be written comes back as its render, saved at its
-/// turn as any other. `cancelled` as in [`save_rendered_export`].
+/// which is `output`'s and the first of the group still to be saved: when
+/// `output`'s file streams its render ([`streams_into_file`]) it is written
+/// while the group renders and comes back [`GroupRender::Saved`], so its
+/// render is never held whole beside the others; a failed write comes back
+/// [`GroupRender::Failed`] beside the others' renders. `cancelled` as in
+/// [`save_rendered_export`].
 #[allow(clippy::too_many_arguments)]
 pub fn save_group_rendering(
     source_path_str: &str,
@@ -2353,228 +2360,61 @@ pub fn save_group_rendering(
     debug_tag: &str,
     outputs: &[(RenderOutputPrecision, OutputColorSpace)],
     own: usize,
-    later: &[GroupFile<'_>],
 ) -> Result<Vec<GroupRender>, String> {
     let render_all = || render_prepared_exports(prepared, env, debug_tag, outputs, &mut []);
-    let own_file = GroupFile {
-        index: own,
-        export_settings,
-        output,
-    };
-    let files: Vec<StreamingFile> = std::iter::once((&own_file, true))
-        .chain(
-            later
-                .iter()
-                .filter(|file| file.index > own)
-                .map(|file| (file, false)),
-        )
-        .filter(|(file, _)| {
-            file.index < outputs.len()
-                && streams_into_file(prepared, file.export_settings, file.output)
-        })
-        .map(|(file, publish)| StreamingFile {
-            index: file.index,
-            export_settings: file.export_settings,
-            output: file.output,
-            publish,
-        })
-        .collect();
-    if files.is_empty() {
+    if own >= outputs.len() || !streams_into_file(prepared, export_settings, output) {
         return render_all().map(|images| images.into_iter().map(GroupRender::Image).collect());
     }
     let mut rendered = None;
-    let mut written = Vec::new();
-    let render = write_streaming_files(
-        &StreamingContext {
-            source_path_str,
-            size: prepared.size(),
-            js_adjustments,
-            cancelled,
-        },
-        &files,
-        outputs.iter().map(|_| None).collect(),
-        &mut |streams| {
+    let encoded = streamed_export(
+        source_path_str,
+        prepared.size(),
+        js_adjustments,
+        export_settings,
+        output,
+        cancelled,
+        |stream| {
+            let mut streams: Vec<Option<RowStream<'_>>> = outputs.iter().map(|_| None).collect();
+            streams[own] = Some(stream);
             rendered = Some(render_prepared_exports(
-                prepared, env, debug_tag, outputs, streams,
+                prepared,
+                env,
+                debug_tag,
+                outputs,
+                &mut streams,
             )?);
             Ok(())
         },
-        &mut written,
     )?;
-    if let Err(e) = render {
-        log::warn!("Export: the group render failed while its files streamed: {e}");
-    }
-    group_renders_after_streams(outputs.len(), rendered, written, cancelled, render_all)
+    let written = (output.write)(output.path, &output_extension(output), encoded);
+    group_renders_after_write(own, rendered, written, render_all)
 }
 
-/// A file of a render group written while the group renders
-/// ([`save_group_rendering`]): published at once, or staged.
-struct StreamingFile<'a> {
-    index: usize,
-    export_settings: &'a ExportSettings,
-    output: &'a ExportOutput<'a>,
-    publish: bool,
-}
-
-/// The render of a group, handed the streams of its files (by output index).
-type GroupStreamsRender<'a> = dyn FnMut(&mut [Option<RowStream<'_>>]) -> Result<(), String> + 'a;
-
-/// What every [`StreamingFile`] of a group shares.
-struct StreamingContext<'a> {
-    source_path_str: &'a str,
-    size: (u32, u32),
-    js_adjustments: &'a Value,
-    cancelled: &'a dyn Fn() -> Result<(), String>,
-}
-
-/// What became of a [`StreamingFile`]: whether its render streamed into it
-/// (`streamed`; otherwise its render is among the group's renders), and its
-/// write.
-struct StreamedFile {
-    index: usize,
-    streamed: bool,
-    outcome: FileOutcome,
-}
-
-enum FileOutcome {
-    Published(Result<(), String>),
-    Staged(Result<crate::output::StagedOutput, String>),
-}
-
-/// Opens `files` one inside the other, each writer handing its row stream
-/// on to the next, and runs `render` with all streams (`streams`, by
-/// output index) inside the last; a file that cannot be opened is left out
-/// and the render runs without its stream. Records each file's outcome in
-/// `written` and returns the render's result (a failed render fails the
-/// files it streamed into with its error). Fails only when the export is
-/// cancelled before a file opens.
-fn write_streaming_files(
-    context: &StreamingContext<'_>,
-    files: &[StreamingFile<'_>],
-    streams: Vec<Option<RowStream<'_>>>,
-    render: &mut GroupStreamsRender<'_>,
-    written: &mut Vec<StreamedFile>,
-) -> Result<Result<(), String>, String> {
-    let Some((file, rest)) = files.split_first() else {
-        let mut streams = streams;
-        return Ok(render(&mut streams));
-    };
-    let mut pending = Some(streams);
-    let mut inner: Option<Result<Result<(), String>, String>> = None;
-    let encoded = streamed_export(
-        context.source_path_str,
-        context.size,
-        context.js_adjustments,
-        file.export_settings,
-        file.output,
-        context.cancelled,
-        |stream| {
-            let mut streams: Vec<Option<RowStream<'_>>> = pending
-                .take()
-                .expect("a file's render runs once")
-                .into_iter()
-                .map(|stream| stream.map(|stream| -> RowStream<'_> { stream }))
-                .collect();
-            streams[file.index] = Some(stream);
-            let result = write_streaming_files(context, rest, streams, &mut *render, &mut *written);
-            inner = Some(result.clone());
-            result.and_then(|rendered| rendered)
-        },
-    )?;
-    let outcome = if file.publish {
-        FileOutcome::Published((file.output.write)(
-            file.output.path,
-            &output_extension(file.output),
-            encoded,
-        ))
-    } else {
-        FileOutcome::Staged(crate::output::stage_new_export(file.output.path, encoded))
-    };
-    let streamed = pending.is_none();
-    let rendered = match pending {
-        // The file could not be opened: the others render without it.
-        Some(streams) => write_streaming_files(context, rest, streams, render, written),
-        None => inner.expect("ran with the file"),
-    };
-    written.push(StreamedFile {
-        index: file.index,
-        streamed,
-        outcome,
-    });
-    rendered
-}
-
-/// The renders of a group whose files `written` streamed while it rendered
+/// The renders of a group whose member `own` streamed into its file
 /// ([`save_group_rendering`]): `rendered` when the render completed (the
-/// streamed members' entries empty). A file that streamed but failed takes
-/// its render with it: a published one comes back [`GroupRender::Failed`],
-/// a staged one is rendered again by `render_again` (with the others when
-/// the render itself failed) and saved at its turn.
-fn group_renders_after_streams(
-    outputs: usize,
+/// streamed member's entry empty), else rendered again by `render_again`
+/// for the others (the file could not be created, or the render or its
+/// write stopped part-way); `own` is [`GroupRender::Saved`] or carries its
+/// write's error.
+fn group_renders_after_write(
+    own: usize,
     rendered: Option<Vec<DynamicImage>>,
-    written: Vec<StreamedFile>,
-    cancelled: &dyn Fn() -> Result<(), String>,
+    written: Result<(), String>,
     render_again: impl FnOnce() -> Result<Vec<DynamicImage>, String>,
 ) -> Result<Vec<GroupRender>, String> {
-    let mut renders: Vec<Option<GroupRender>> = (0..outputs).map(|_| None).collect();
-    let mut lost = vec![false; outputs];
-    for file in written {
-        renders[file.index] = match file.outcome {
-            FileOutcome::Published(Ok(())) => Some(GroupRender::Saved),
-            FileOutcome::Published(Err(e)) => Some(GroupRender::Failed(e)),
-            FileOutcome::Staged(Ok(staged)) => Some(GroupRender::Staged(staged)),
-            FileOutcome::Staged(Err(e)) => {
-                if file.streamed {
-                    lost[file.index] = true;
-                }
-                log::warn!("Export: a later recipe's file is written at its turn: {e}");
-                None
-            }
+    let images = match (rendered, &written) {
+        (Some(images), _) => images,
+        (None, Ok(())) => return Err("A streamed export wrote no render.".to_string()),
+        (None, Err(_)) => render_again()?,
+    };
+    let mut renders: Vec<GroupRender> = images.into_iter().map(GroupRender::Image).collect();
+    if let Some(entry) = renders.get_mut(own) {
+        *entry = match written {
+            Ok(()) => GroupRender::Saved,
+            Err(e) => GroupRender::Failed(e),
         };
     }
-    let written_any = renders
-        .iter()
-        .any(|render| matches!(render, Some(GroupRender::Saved | GroupRender::Staged(_))));
-    if rendered.is_none() && written_any {
-        return Err("A streamed export wrote no render.".to_string());
-    }
-    let again_wanted =
-        (0..outputs).any(|i| renders[i].is_none() && (rendered.is_none() || lost[i]));
-    let again = if again_wanted {
-        // Never rendered again once the export is cancelled: those recipes
-        // fail, the files already written stand.
-        if let Err(e) = cancelled() {
-            for (index, render) in renders.iter_mut().enumerate() {
-                if render.is_none() && (rendered.is_none() || lost[index]) {
-                    *render = Some(GroupRender::Failed(e.clone()));
-                }
-            }
-            None
-        } else {
-            Some(render_again()?)
-        }
-    } else {
-        None
-    };
-    let mut rendered = rendered.map(|images| images.into_iter().map(Some).collect::<Vec<_>>());
-    let mut again = again.map(|images| images.into_iter().map(Some).collect::<Vec<_>>());
-    let take = |images: &mut Option<Vec<Option<DynamicImage>>>, index: usize| {
-        images
-            .as_mut()
-            .and_then(|images| images.get_mut(index))
-            .and_then(Option::take)
-            .ok_or_else(|| "A group render is missing a recipe's render.".to_string())
-    };
-    (0..outputs)
-        .map(|index| match renders[index].take() {
-            Some(render) => Ok(render),
-            None if rendered.is_none() || lost[index] => {
-                take(&mut again, index).map(GroupRender::Image)
-            }
-            None => take(&mut rendered, index).map(GroupRender::Image),
-        })
-        .collect()
+    Ok(renders)
 }
 
 /// Layer masks an export generates at once (each runs in parallel itself):
@@ -4558,6 +4398,22 @@ mod render_group_tests {
     use RenderOutputPrecision::{EightBit, SixteenBit};
 
     #[test]
+    fn streaming_tiffs_are_saved_first_within_their_render_run() {
+        // 0 JPEG, 1 TIFF, 2 PNG, 3 TIFF | 4 alone | 5 JPEG, 6 TIFF
+        let together = |a: usize, b: usize| a != 4 && b != 4;
+        let streams = |t: usize| matches!(t, 1 | 3 | 6);
+        assert_eq!(
+            streaming_recipes_first(&[0, 1, 2, 3, 4, 5, 6], together, streams),
+            [1, 3, 0, 2, 4, 6, 5]
+        );
+        // Nothing streams: the asked order.
+        assert_eq!(
+            streaming_recipes_first(&[2, 0, 1], |_, _| true, |_| false),
+            [2, 0, 1]
+        );
+    }
+
+    #[test]
     fn renders_of_recipes_passed_over_are_not_kept() {
         let mut renders = GroupRenders::new(vec![vec![0, 1], vec![3, 4]]);
         let render = |group: &[usize]| Ok(group.iter().map(|&t| t * 10).collect());
@@ -4851,130 +4707,33 @@ mod tiff_rows_tests {
             .map(|render| match render {
                 GroupRender::Image(image) => format!("image {}", image.as_bytes()[0]),
                 GroupRender::Saved => "saved".to_string(),
-                GroupRender::Staged(_) => "staged".to_string(),
                 GroupRender::Failed(e) => format!("failed {e}"),
             })
             .collect()
     }
 
-    fn published(index: usize, streamed: bool, result: Result<(), String>) -> StreamedFile {
-        StreamedFile {
-            index,
-            streamed,
-            outcome: FileOutcome::Published(result),
-        }
-    }
-
-    fn staged(dir: &std::path::Path, index: usize, streamed: bool, ok: bool) -> StreamedFile {
-        let outcome = if ok {
-            let path = dir.join(format!("{index}.tif"));
-            FileOutcome::Staged(Ok(
-                crate::output::stage_new_output_with(&path, |_| Ok(())).unwrap()
-            ))
-        } else {
-            FileOutcome::Staged(Err("read-only".to_string()))
-        };
-        StreamedFile {
-            index,
-            streamed,
-            outcome,
-        }
-    }
-
     /// The member that streamed (not always the group's first: earlier ones
-    /// may have been skipped) is marked saved or failed in its own place,
-    /// later members' files staged; a failed write never takes the other
-    /// recipes' renders with it.
+    /// may have been skipped) is marked saved or failed in its own place;
+    /// a failed write never takes the other recipes' renders with it.
     #[test]
     fn a_streamed_member_of_a_group_fails_alone() {
-        let dir = tempfile::tempdir().unwrap();
-        let empty = || DynamicImage::new_rgba8(0, 0);
-        let rendered = || Some(vec![image(1), empty(), image(3)]);
+        let rendered = || Some(vec![image(1), DynamicImage::new_rgba8(0, 0), image(3)]);
         let never = || -> Result<Vec<DynamicImage>, String> { panic!("rendered again") };
         let again = || Ok(vec![image(1), image(2), image(3)]);
-        let going = || Ok(());
-        type Again<'a> = &'a dyn Fn() -> Result<Vec<DynamicImage>, String>;
-        let after = |rendered, written, again: Again<'_>| {
-            group_renders_after_streams(3, rendered, written, &going, again).unwrap()
-        };
 
-        let saved = after(rendered(), vec![published(1, true, Ok(()))], &never);
+        let saved = group_renders_after_write(1, rendered(), Ok(()), never).unwrap();
         assert_eq!(kinds(&saved), ["image 1", "saved", "image 3"]);
 
         // The file failed after the render (disk full): the others keep it.
-        let failed = after(
-            rendered(),
-            vec![published(1, true, Err("full".into()))],
-            &never,
-        );
+        let failed = group_renders_after_write(1, rendered(), Err("full".into()), never).unwrap();
         assert_eq!(kinds(&failed), ["image 1", "failed full", "image 3"]);
 
-        // The file could not be created: the render ran without it.
-        let rendered_all = Some(vec![image(1), image(2), image(3)]);
-        let failed = after(
-            rendered_all,
-            vec![published(1, false, Err("read-only".into()))],
-            &never,
-        );
+        // The file could not be created, or the render stopped part-way:
+        // the others are rendered again.
+        let failed = group_renders_after_write(1, None, Err("read-only".into()), again).unwrap();
         assert_eq!(kinds(&failed), ["image 1", "failed read-only", "image 3"]);
 
-        // The render failed: the others are rendered again.
-        let failed = after(None, vec![published(1, true, Err("gpu".into()))], &again);
-        assert_eq!(kinds(&failed), ["image 1", "failed gpu", "image 3"]);
-        let lost = group_renders_after_streams(
-            3,
-            None,
-            vec![published(0, true, Err("gpu".into()))],
-            &going,
-            || Err("gpu".into()),
-        );
+        let lost = group_renders_after_write(0, None, Err("gpu".into()), || Err("gpu".into()));
         assert!(lost.is_err(), "a render that fails again fails the group");
-
-        // A later member staged its file; one whose file could not be
-        // created was rendered with the group, one whose file failed after
-        // streaming into it is rendered again.
-        let rendered_two = Some(vec![empty(), empty(), image(3)]);
-        let renders = after(
-            rendered_two,
-            vec![
-                staged(dir.path(), 1, true, true),
-                published(0, true, Ok(())),
-            ],
-            &never,
-        );
-        assert_eq!(kinds(&renders), ["saved", "staged", "image 3"]);
-        let renders = after(
-            Some(vec![empty(), image(2), image(3)]),
-            vec![
-                staged(dir.path(), 1, false, false),
-                published(0, true, Ok(())),
-            ],
-            &never,
-        );
-        assert_eq!(kinds(&renders), ["saved", "image 2", "image 3"]);
-        let renders = after(
-            Some(vec![empty(), empty(), image(3)]),
-            vec![
-                staged(dir.path(), 1, true, false),
-                published(0, true, Ok(())),
-            ],
-            &again,
-        );
-        assert_eq!(kinds(&renders), ["saved", "image 2", "image 3"]);
-
-        // Cancelled: never rendered again, the written file stands.
-        let cancelled = || Err("cancelled".to_string());
-        let renders = group_renders_after_streams(
-            3,
-            Some(vec![empty(), empty(), image(3)]),
-            vec![
-                staged(dir.path(), 1, true, false),
-                published(0, true, Ok(())),
-            ],
-            &cancelled,
-            never,
-        )
-        .unwrap();
-        assert_eq!(kinds(&renders), ["saved", "failed cancelled", "image 3"]);
     }
 }
