@@ -1,6 +1,7 @@
-import { memo, type CSSProperties } from 'react';
+import { memo, useRef, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
+import { useEditorStoreDom } from '../../hooks/useEditorStoreDom';
 import { COLOR_SPACES, COLOR_SPACE_NAMES } from '../../utils/exportRecipes';
 import { clippingChannelColour, histogramClipping } from '../../utils/clippingWarnings';
 import {
@@ -66,9 +67,72 @@ function ClippingCorner({
   );
 }
 
+const CHANNELS = ['red', 'green', 'blue'] as const;
+const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.histogram;
+
+/** The `d` of each channel's filled outline in the 256 × 84 plot (square-root
+ * scale against the tallest bin of the three), or null for an empty channel. */
+export function histogramPaths(histogram: unknown): (string | null)[] {
+  const data = histogram as Record<string, unknown> | null;
+  const bins = CHANNELS.map((channel) => histogramBins(data?.[channel]));
+  const max = Math.max(1, ...bins.flat());
+  return bins.map((values) =>
+    values.length
+      ? `M0 84 ${values.map((v, i) => `L${(i * 256) / Math.max(1, values.length - 1)} ${84 - Math.sqrt(Math.max(0, v) / max) * 80}`).join(' ')} L256 84 Z`
+      : null
+  );
+}
+
+/** The histogram's curves, drawn from the store without rendering: scope
+ * updates arrive ten times a second during drags (useEditorStoreDom). */
+const HistogramPlot = memo(function HistogramPlot() {
+  const { t } = useTranslation();
+  const svg = useRef<SVGSVGElement>(null);
+  const paths = useRef<(SVGPathElement | null)[]>([]);
+  useEditorStoreDom(
+    selectHistogram,
+    (histogram) => {
+      histogramPaths(histogram).forEach((d, i) => {
+        const path = paths.current[i];
+        if (!path) return;
+        if (d) path.setAttribute('d', d);
+        else path.removeAttribute('d');
+      });
+      svg.current?.setAttribute(
+        'aria-label',
+        histogram ? t('studio.histogram.graphAria') : t('studio.histogram.graphEmpty')
+      );
+    },
+    [t]
+  );
+  return (
+    <div className="studio-histogram-plot">
+      <svg ref={svg} viewBox="0 0 256 84" preserveAspectRatio="none" role="img">
+        {[64, 128, 192].map((x) => (
+          <line key={x} x1={x} x2={x} y1="0" y2="84" stroke="currentColor" opacity=".15" />
+        ))}
+        {CHANNELS.map((channel, i) => (
+          <path
+            key={channel}
+            ref={(el) => {
+              paths.current[i] = el;
+            }}
+            className={`histogram-${channel}`}
+          />
+        ))}
+      </svg>
+    </div>
+  );
+});
+
 export default memo(function StudioHistogram() {
   const { t } = useTranslation();
-  const histogram = useEditorStore((s) => s.histogram);
+  // Primitives only: a scope update re-renders this panel when a clipping
+  // triangle changes, not for every new histogram (the plot draws itself).
+  const shadowsLit = useEditorStore((s) => histogramClipping(s.histogram).shadows);
+  const highlightsLit = useEditorStore((s) => histogramClipping(s.histogram).highlights);
+  const shadowsColour = useEditorStore((s) => clippingChannelColour(s.histogram, 'shadows'));
+  const highlightsColour = useEditorStore((s) => clippingChannelColour(s.histogram, 'highlights'));
   const image = useEditorStore((s) => s.selectedImage);
   const clipHighlights = useEditorStore((s) => s.clipHighlights);
   const clipShadows = useEditorStore((s) => s.clipShadows);
@@ -76,9 +140,7 @@ export default memo(function StudioHistogram() {
   const proofSpace = useEditorStore((s) => s.softProofSpace);
   const proofWarning = useEditorStore((s) => s.softProofWarning);
   const setEditor = useEditorStore((s) => s.setEditor);
-  const clipped = histogramClipping(histogram);
-  const channels = ['red', 'green', 'blue'] as const;
-  const max = Math.max(1, ...channels.flatMap((channel) => histogramBins(histogram?.[channel])));
+  const clipped = { shadows: shadowsLit, highlights: highlightsLit };
   return (
     <section className="studio-histogram" aria-label={t('studio.histogram.aria')}>
       <div className="studio-clip-corners">
@@ -86,7 +148,7 @@ export default memo(function StudioHistogram() {
           side="shadows"
           on={clipShadows}
           lit={clipped.shadows}
-          colour={clippingChannelColour(histogram, 'shadows')}
+          colour={shadowsColour}
           label={clipped.shadows ? t('studio.histogram.shadowClippingLit') : t('studio.histogram.shadowClipping')}
           title={t('studio.histogram.shadowClippingTitle', {
             shortcut: 'J'
@@ -115,7 +177,7 @@ export default memo(function StudioHistogram() {
           side="highlights"
           on={clipHighlights}
           lit={clipped.highlights}
-          colour={clippingChannelColour(histogram, 'highlights')}
+          colour={highlightsColour}
           label={
             clipped.highlights ? t('studio.histogram.highlightClippingLit') : t('studio.histogram.highlightClipping')
           }
@@ -153,29 +215,7 @@ export default memo(function StudioHistogram() {
           </button>
         </div>
       )}
-      <div className="studio-histogram-plot">
-        <svg
-          viewBox="0 0 256 84"
-          preserveAspectRatio="none"
-          role="img"
-          aria-label={histogram ? t('studio.histogram.graphAria') : t('studio.histogram.graphEmpty')}
-        >
-          {[64, 128, 192].map((x) => (
-            <line key={x} x1={x} x2={x} y1="0" y2="84" stroke="currentColor" opacity=".15" />
-          ))}
-          {channels.map((channel) => {
-            const values = histogramBins(histogram?.[channel]);
-            if (!values.length) return null;
-            return (
-              <path
-                key={channel}
-                className={`histogram-${channel}`}
-                d={`M0 84 ${values.map((v, i) => `L${(i * 256) / Math.max(1, values.length - 1)} ${84 - Math.sqrt(Math.max(0, v) / max) * 80}`).join(' ')} L256 84 Z`}
-              />
-            );
-          })}
-        </svg>
-      </div>
+      <HistogramPlot />
       <div className="studio-exif-line">
         {image ? (
           <>

@@ -243,3 +243,55 @@ describe('Develop renders during a slider drag with 200 photographs selected', (
     expect(during.StudioDevelop).toBe(12);
   });
 });
+
+describe('scope updates', () => {
+  const bins = (peak: number) => Array.from({ length: 256 }, (_, i) => (i === peak ? 100 : 1));
+  const update = (peak: number) =>
+    rtl.act(() =>
+      useEditorStore.setState({
+        histogram: { red: bins(peak), green: bins(peak), blue: bins(peak), luma: bins(peak) } as never,
+        // A 1×1 PNG stands for each scope image.
+        waveform: {
+          width: 256,
+          height: 256,
+          luma: `iVBORw0KGgo${peak}`,
+          skinLineDegrees: 123,
+          vectorscopeTargets: []
+        } as never
+      })
+    );
+
+  it('redraw the histogram, the curve behind it and the scope image without rendering the panels', () => {
+    useEditorStore.setState({ isWaveformVisible: true, activeWaveformChannel: 'luma' });
+    rtl.render(<StudioDevelop />);
+    openGroups();
+    update(10);
+    const plot = () => document.querySelector('.studio-histogram-plot .histogram-red')!.getAttribute('d');
+    const curve = () => document.querySelector('.curve-histogram')!.getAttribute('d');
+    const scope = () => document.querySelector('.studio-scope-plot img')!.getAttribute('src');
+    const before = [plot(), curve(), scope()];
+    expect(before.every(Boolean)).toBe(true);
+
+    startRenderCensus();
+    update(200);
+    const during = takeRenderCensus();
+    // Ten of these a second during a drag: nothing re-renders for them.
+    for (const component of ['StudioHistogram', 'HistogramPlot', 'StudioScopes', 'PointCurve', 'StudioLevels'])
+      expect([component, during[component] ?? 0]).toEqual([component, 0]);
+    // Yet every display shows the new data.
+    const after = [plot(), curve(), scope()];
+    after.forEach((value, i) => expect(value).not.toBe(before[i]));
+    expect(scope()).toBe('data:image/png;base64,iVBORw0KGgo200');
+  });
+
+  it('re-render the histogram panel when a clipping triangle changes', () => {
+    rtl.render(<StudioDevelop />);
+    update(10);
+    startRenderCensus();
+    rtl.act(() =>
+      useEditorStore.setState((s) => ({ histogram: { ...(s.histogram as object), clippedHighlights: true } as never }))
+    );
+    expect(takeRenderCensus().StudioHistogram ?? 0).toBeGreaterThan(0);
+    expect(document.querySelector('.studio-clip-highlights')!.hasAttribute('data-clipping')).toBe(true);
+  });
+});

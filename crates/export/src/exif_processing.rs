@@ -315,7 +315,7 @@ pub fn creation_datetime_to_utc(dt: DateTime) -> Timestamp {
     } else {
         LocalRules::Unix
     };
-    creation_datetime_in(&TimeZone::system(), dt, rules)
+    creation_datetime_in(&rawtonic_runtime::local_time::zone(), dt, rules)
 }
 
 /// How a wall time at a daylight-saving change becomes an instant: as

@@ -44,6 +44,12 @@ export const CREDITS: Credit[] = [
     license: 'LGPL-2.1'
   },
   {
+    name: 'Jiff / Unicode CLDR',
+    url: 'https://github.com/BurntSushi/jiff',
+    what: 'Windows time zone names mapped to IANA identifiers.',
+    license: 'Jiff table: MIT, CLDR data: Unicode-3.0'
+  },
+  {
     name: 'Lensfun database',
     url: 'https://lensfun.github.io/',
     what: 'Lens profiles for automatic lens correction (data only; no Lensfun code).',

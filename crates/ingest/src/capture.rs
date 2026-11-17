@@ -123,7 +123,10 @@ fn read_capture_within(path: &Path, most: u64) -> Capture {
         let modified = fs::metadata(path).and_then(|m| m.modified());
         (capture.captured, capture.date_source) = match modified {
             Ok(time) => (Some(local(time)), DateSource::Modified),
-            Err(_) => (Some(jiff::ZonedDateTime::now().datetime()), DateSource::Now),
+            Err(_) => (
+                Some(rawtonic_runtime::local_time::now().datetime()),
+                DateSource::Now,
+            ),
         };
         capture.subsec = None;
         capture.offset = None;
@@ -657,8 +660,11 @@ fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
 /// -9999–9999 jiff holds: now).
 fn local(time: std::time::SystemTime) -> jiff::civil::DateTime {
     jiff::Timestamp::try_from(time)
-        .map(|t| t.to_zoned_datetime(jiff::tz::TimeZone::system()).datetime())
-        .unwrap_or_else(|_| jiff::ZonedDateTime::now().datetime())
+        .map(|t| {
+            t.to_zoned_datetime(rawtonic_runtime::local_time::zone())
+                .datetime()
+        })
+        .unwrap_or_else(|_| rawtonic_runtime::local_time::now().datetime())
 }
 
 /// A date as EXIF writes it (`2026:10:01 14:37:08`; also with dashes or a

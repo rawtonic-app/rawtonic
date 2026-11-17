@@ -371,6 +371,12 @@ pub async fn storage_clear(
     .map_err(|e| e.to_string())?
 }
 
+fn eligible_for_limit(path: &Path, category: Category, extension: &str) -> bool {
+    path.extension().is_some_and(|ext| {
+        ext == extension || (category == Category::Thumbnails && ext == "latest")
+    })
+}
+
 pub(crate) fn apply_limits(app: &tauri::AppHandle) -> Result<(), String> {
     let settings = crate::state::settings::try_current(app)?;
     let _guard = MAINTENANCE.lock().unwrap_or_else(|e| e.into_inner());
@@ -399,7 +405,7 @@ pub(crate) fn apply_limits(app: &tauri::AppHandle) -> Result<(), String> {
             &owned.root,
             &owned.directory,
             u64::from(gb) * 1_000_000_000,
-            |p| p.extension().is_some_and(|ext| ext == extension),
+            |p| eligible_for_limit(p, category, extension),
             pinned,
         )
         .map_err(|e| e.to_string())?;
@@ -434,6 +440,27 @@ pub(crate) fn start_maintenance(app: tauri::AppHandle) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn thumbnail_budget_evicts_predecessor_indexes_too() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = root.path().join("thumbnails");
+        std::fs::create_dir(&cache).unwrap();
+        for name in ["photo_small.jpg", "photo.latest", "unrelated.txt"] {
+            std::fs::write(cache.join(name), b"cache entry").unwrap();
+        }
+        super::storage_fs::evict(
+            root.path(),
+            &cache,
+            0,
+            |p| super::eligible_for_limit(p, super::Category::Thumbnails, "jpg"),
+            |_| false,
+        )
+        .unwrap();
+        assert!(!cache.join("photo_small.jpg").exists());
+        assert!(!cache.join("photo.latest").exists());
+        assert!(cache.join("unrelated.txt").exists());
+    }
 
     #[test]
     fn webview_reads_refresh_lru_and_cannot_touch_an_original() {

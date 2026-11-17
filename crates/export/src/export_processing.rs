@@ -21,9 +21,9 @@ use serde_json::Value;
 use crate::adjustment_utils::{apply_transformations_after_warp, apply_warp, crop_after_fringe};
 use crate::cache_utils::calculate_full_job_hash;
 use crate::gpu_processing::{
-    GpuContext, GpuImageCache, GpuProcessorSlot, MaskUploader, ReadbackShader, RenderOutput,
-    RenderOutputPrecision, RenderRequest, RenderSource, WarpedUpload,
-    process_and_get_dynamic_image_inner, process_and_get_dynamic_images,
+    BandPixels, GpuContext, GpuImageCache, GpuProcessorSlot, MaskUploader, ReadbackShader,
+    RenderOutput, RenderOutputPrecision, RenderRequest, RenderSource, RowBand, RowStream,
+    WarpedUpload, process_and_get_dynamic_image_inner, process_and_get_dynamic_images,
     upload_fringed_render_source, upload_render_source, upload_warped_render_source,
 };
 use crate::image_processing::{
@@ -230,7 +230,7 @@ impl ExportSettings {
             context.apply_capture(capture);
         }
         context.captured = file_date
-            .to_zoned_datetime(jiff::tz::TimeZone::system())
+            .to_zoned_datetime(rawtonic_runtime::local_time::zone())
             .datetime();
         let mut set = |token: &str, value: Option<&str>| {
             if let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) {
@@ -1179,27 +1179,58 @@ pub type ExifMap = std::collections::HashMap<String, String>;
 
 /// Writes an encoded export to a path, given the lower-case extension
 /// (`crate::output::write_new_export` in the app and the CLI).
-pub type WriteExport = dyn Fn(&Path, &str, EncodedExport) -> Result<(), String>;
+pub type WriteExport = dyn Fn(&Path, &str, EncodedExport<'_>) -> Result<(), String>;
 
 /// An encoded export, ready for its file. A TIFF is encoded into the file
 /// itself as it is written ([`EncodedExport::write_to`]), so no full-size
 /// encoded copy is held in memory (6 bytes per pixel at 16 bit, the 60 MP
-/// export's peak; notes: benchmark-results/mem13-2026-11-17). Its bytes are
-/// those of [`encode_with_metadata`].
-pub struct EncodedExport(Encoded);
+/// export's peak; notes: benchmark-results/mem13-2026-11-17); a TIFF that
+/// is its render unchanged is even rendered as it is written
+/// ([`EncodedExport::streamed_tiff`]). Its bytes are those of
+/// [`encode_with_metadata`].
+pub struct EncodedExport<'a>(Encoded<'a>);
 
-enum Encoded {
+/// Renders a photo into the stream it is given ([`RowStream`]).
+pub type StreamedRender<'a> = Box<dyn FnOnce(RowStream<'_>) -> Result<(), String> + 'a>;
+
+enum Encoded<'a> {
     Bytes(Vec<u8>),
     Tiff {
-        /// RGB, alpha dropped.
         image: DynamicImage,
+        bit_depth: TiffBitDepth,
+        color_space: OutputColorSpace,
+        metadata: Option<crate::exif_processing::ExportMetadata>,
+    },
+    Streamed {
+        size: (u32, u32),
+        render: StreamedRender<'a>,
         bit_depth: TiffBitDepth,
         color_space: OutputColorSpace,
         metadata: Option<crate::exif_processing::ExportMetadata>,
     },
 }
 
-impl EncodedExport {
+impl<'a> EncodedExport<'a> {
+    /// A TIFF of `size` whose RGBA rows `render` streams in the samples of
+    /// `bit_depth` while the file is written: the render holds a band of
+    /// rows, not the whole photo (notes: benchmark-results/mem14-2026-11-17).
+    /// A failed render fails the write (nothing is published).
+    pub fn streamed_tiff(
+        size: (u32, u32),
+        render: StreamedRender<'a>,
+        bit_depth: TiffBitDepth,
+        color_space: OutputColorSpace,
+        metadata: Option<crate::exif_processing::ExportMetadata>,
+    ) -> Self {
+        Self(Encoded::Streamed {
+            size,
+            render,
+            bit_depth,
+            color_space,
+            metadata,
+        })
+    }
+
     /// Writes the file into `file`, which starts empty at position 0.
     pub fn write_to<S: Read + Write + Seek>(self, file: &mut S) -> Result<(), String> {
         match self.0 {
@@ -1210,6 +1241,20 @@ impl EncodedExport {
                 color_space,
                 metadata,
             } => write_tiff(&image, bit_depth, color_space, metadata.as_ref(), file),
+            Encoded::Streamed {
+                size,
+                render,
+                bit_depth,
+                color_space,
+                metadata,
+            } => write_tiff_rows(
+                file,
+                size,
+                bit_depth,
+                color_space,
+                metadata.as_ref(),
+                render,
+            ),
         }
     }
 
@@ -1303,17 +1348,46 @@ pub fn save_export_image(
     generated: bool,
     output: &ExportOutput,
 ) -> Result<(), String> {
-    let extension = output
+    let extension = output_extension(output);
+    let metadata = export_file_metadata(
+        source_path_str,
+        &extension,
+        export_settings,
+        generated,
+        output,
+        image.dimensions(),
+    );
+    let encoded = encode_export(image, &extension, export_settings, metadata)?;
+    #[cfg(feature = "performance-profiling")]
+    let _write_stage = crate::performance::PerformanceStage::new("export_write");
+    (output.write)(output.path, &extension, encoded)
+}
+
+/// The lower-case extension of an export's file (its format's when the
+/// path has none).
+fn output_extension(output: &ExportOutput) -> String {
+    output
         .path
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or(output.format)
-        .to_lowercase();
+        .to_lowercase()
+}
 
-    let (width, height) = image.dimensions();
+/// The EXIF and XMP of an export file of `width` × `height` pixels with
+/// `extension` ([`crate::exif_processing::export_metadata_with`]), with
+/// Super Resolution's software note when it ran.
+fn export_file_metadata(
+    source_path_str: &str,
+    extension: &str,
+    export_settings: &ExportSettings,
+    generated: bool,
+    output: &ExportOutput,
+    (width, height): (u32, u32),
+) -> Option<crate::exif_processing::ExportMetadata> {
     let metadata = crate::exif_processing::export_metadata_with(
         source_path_str,
-        &extension,
+        extension,
         export_settings.color_space,
         export_settings.keep_metadata,
         export_settings.strip_gps,
@@ -1324,9 +1398,7 @@ pub fn save_export_image(
         output.exif_sidecar,
         output.catalog,
     );
-    let metadata = if export_settings.super_resolution
-        && crate::exif_processing::embeds_metadata(&extension)
-    {
+    if export_settings.super_resolution && crate::exif_processing::embeds_metadata(extension) {
         use crate::exif_processing::{ExportMetadata, SUPER_RESOLUTION_NOTE};
         match metadata {
             Some(metadata) => Some(metadata.with_software_note(SUPER_RESOLUTION_NOTE)),
@@ -1336,11 +1408,7 @@ pub fn save_export_image(
         }
     } else {
         metadata
-    };
-    let encoded = encode_export(image, &extension, export_settings, metadata)?;
-    #[cfg(feature = "performance-profiling")]
-    let _write_stage = crate::performance::PerformanceStage::new("export_write");
-    (output.write)(output.path, &extension, encoded)
+    }
 }
 
 /// Renders the main export file of a photo and saves it. With separate mask
@@ -1371,6 +1439,20 @@ pub fn render_and_save(
     )?;
     #[cfg(feature = "performance-profiling")]
     drop(render_stage);
+    if streams_into_file(&prepared, export_settings, output) {
+        stream_prepared_and_save(
+            source_path_str,
+            &prepared,
+            js_adjustments,
+            export_settings,
+            env,
+            output,
+            cancelled,
+        )?;
+        drop(prepared);
+        crate::gpu_processing::free_dropped_resources(&env.context.device);
+        return Ok(());
+    }
     let processed = render_prepared(&prepared, export_settings, env, output)?;
     // Its textures are not read again: freed before the resize and encode
     // (notes: benchmark-results/mem11-2026-11-17).
@@ -1414,6 +1496,17 @@ pub fn render_prepared_and_save(
     output: &ExportOutput,
     cancelled: &dyn Fn() -> Result<(), String>,
 ) -> Result<(), String> {
+    if streams_into_file(prepared, export_settings, output) {
+        return stream_prepared_and_save(
+            source_path_str,
+            prepared,
+            js_adjustments,
+            export_settings,
+            env,
+            output,
+            cancelled,
+        );
+    }
     let processed = render_prepared(prepared, export_settings, env, output)?;
     save_rendered_export(
         processed,
@@ -1423,6 +1516,97 @@ pub fn render_prepared_and_save(
         output,
         cancelled,
     )
+}
+
+/// Whether an export's file holds its render unchanged: no Super
+/// Resolution, resize, border, output sharpening or watermark.
+pub fn render_is_file(settings: &ExportSettings, (width, height): (u32, u32)) -> bool {
+    !settings.super_resolution
+        && settings.watermark.is_none()
+        && settings.output_sharpening.is_none()
+        && compute_export_geometry(width, height, settings).is_none()
+        && resize_target(width, height, settings.resize.as_ref()) == (width, height)
+}
+
+/// Whether `output`'s render of `prepared` streams into its file as it is
+/// rendered ([`EncodedExport::streamed_tiff`]): a TIFF that is its render
+/// unchanged ([`render_is_file`]).
+pub fn streams_into_file(
+    prepared: &PreparedExport,
+    settings: &ExportSettings,
+    output: &ExportOutput,
+) -> bool {
+    is_tiff(&output_extension(output)) && render_is_file(settings, prepared.size())
+}
+
+/// The streamed TIFF of an export file ([`streams_into_file`]) whose render
+/// `render` streams: its metadata is read before the render. `cancelled`
+/// runs before the render and after it, before the file is published.
+fn streamed_export<'a>(
+    source_path_str: &str,
+    size: (u32, u32),
+    js_adjustments: &Value,
+    export_settings: &ExportSettings,
+    output: &ExportOutput,
+    cancelled: &'a dyn Fn() -> Result<(), String>,
+    render: impl FnOnce(RowStream<'_>) -> Result<(), String> + 'a,
+) -> Result<EncodedExport<'a>, String> {
+    cancelled()?;
+    let generated = export_marks_generated(js_adjustments, export_settings);
+    let metadata = export_file_metadata(
+        source_path_str,
+        &output_extension(output),
+        export_settings,
+        generated,
+        output,
+        size,
+    );
+    Ok(EncodedExport::streamed_tiff(
+        size,
+        Box::new(move |stream| {
+            render(stream)?;
+            cancelled()
+        }),
+        export_settings.tiff_bit_depth,
+        export_settings.color_space,
+        metadata,
+    ))
+}
+
+/// [`render_prepared_and_save`] of a file that streams its render
+/// ([`streams_into_file`]): the same file, written while it renders.
+fn stream_prepared_and_save(
+    source_path_str: &str,
+    prepared: &PreparedExport,
+    js_adjustments: &Value,
+    export_settings: &ExportSettings,
+    env: &RenderEnv,
+    output: &ExportOutput,
+    cancelled: &dyn Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    let extension = output_extension(output);
+    let precision = render_output_precision(&extension, export_settings);
+    let encoded = streamed_export(
+        source_path_str,
+        prepared.size(),
+        js_adjustments,
+        export_settings,
+        output,
+        cancelled,
+        |stream| {
+            #[cfg(feature = "performance-profiling")]
+            let _render_stage = crate::performance::PerformanceStage::new("export_render");
+            stream_prepared_export(
+                prepared,
+                env,
+                "process_image_for_export",
+                precision,
+                export_settings.color_space,
+                stream,
+            )
+        },
+    )?;
+    (output.write)(output.path, &extension, encoded)
 }
 
 /// One recipe's render of its main export file.
@@ -1881,42 +2065,13 @@ pub fn render_prepared_export_region(
             return Err("The region lies outside the photograph.".to_string());
         }
     }
-    let mut adjustments = prepared.adjustments.clone();
-    set_output_color_space(&mut adjustments, color_space);
-    if let Some(inputs) = env.render_inputs {
-        inputs.render(
-            &adjustments,
-            prepared.lut.as_deref(),
-            prepared.size(),
-            output_precision,
-            color_space,
-        );
-    }
-    let (source, mask_bitmaps) = match &prepared.target {
-        PreparedTarget::Gpu(kept) => (RenderSource::Kept(kept), &[][..]),
-        PreparedTarget::Windows {
-            image,
-            transform_hash,
-            mask_bitmaps,
-        } => (
-            RenderSource::Image {
-                image,
-                transform_hash: *transform_hash,
-            },
-            &mask_bitmaps[..],
-        ),
-    };
+    let (source, request) = prepared.render(env, output_precision, color_space, region);
     process_and_get_dynamic_image_inner(
         env.context,
         env.processor,
         env.image_cache,
         source,
-        RenderRequest {
-            adjustments,
-            mask_bitmaps,
-            lut: prepared.lut.clone(),
-            roi: region,
-        },
+        request,
         debug_tag,
         output_precision,
         false,
@@ -1926,7 +2081,75 @@ pub fn render_prepared_export_region(
     )
 }
 
+/// [`render_prepared_export`] whose rows go to `stream` as they are read
+/// back: the same pixels, one band of rows held at a time.
+pub fn stream_prepared_export(
+    prepared: &PreparedExport,
+    env: &RenderEnv,
+    debug_tag: &str,
+    output_precision: RenderOutputPrecision,
+    color_space: OutputColorSpace,
+    stream: RowStream<'_>,
+) -> Result<(), String> {
+    let (source, request) = prepared.render(env, output_precision, color_space, None);
+    crate::gpu_processing::stream_export_image(
+        env.context,
+        env.processor,
+        env.image_cache,
+        source,
+        request,
+        debug_tag,
+        output_precision,
+        stream,
+    )
+}
+
 impl PreparedExport {
+    /// The source and request of a render in `color_space` (recorded in the
+    /// environment's render inputs).
+    fn render<'p>(
+        &'p self,
+        env: &RenderEnv,
+        output_precision: RenderOutputPrecision,
+        color_space: OutputColorSpace,
+        region: Option<rawtonic_gpu::gpu_processing::Roi>,
+    ) -> (RenderSource<'p>, RenderRequest<'p>) {
+        let mut adjustments = self.adjustments.clone();
+        set_output_color_space(&mut adjustments, color_space);
+        if let Some(inputs) = env.render_inputs {
+            inputs.render(
+                &adjustments,
+                self.lut.as_deref(),
+                self.size(),
+                output_precision,
+                color_space,
+            );
+        }
+        let (source, mask_bitmaps) = match &self.target {
+            PreparedTarget::Gpu(kept) => (RenderSource::Kept(kept), &[][..]),
+            PreparedTarget::Windows {
+                image,
+                transform_hash,
+                mask_bitmaps,
+            } => (
+                RenderSource::Image {
+                    image,
+                    transform_hash: *transform_hash,
+                },
+                &mask_bitmaps[..],
+            ),
+        };
+        (
+            source,
+            RenderRequest {
+                adjustments,
+                mask_bitmaps,
+                lut: self.lut.clone(),
+                roi: region,
+            },
+        )
+    }
+
     /// Width and height of its renders.
     pub fn size(&self) -> (u32, u32) {
         match &self.target {
@@ -2026,23 +2249,35 @@ impl<T> GroupRenders<T> {
 /// `outputs`: on the GPU with one main pass for all of them (the same pixels
 /// as one [`render_prepared_export`] each), in windows one by one. All
 /// renders are kept until returned: bound `outputs` with [`render_groups`].
+/// An output with a stream in `streams` (by index) hands its rows to it
+/// as they are read back and comes back as an empty image.
 pub fn render_prepared_exports(
     prepared: &PreparedExport,
     env: &RenderEnv,
     debug_tag: &str,
     outputs: &[(RenderOutputPrecision, OutputColorSpace)],
+    streams: &mut [Option<RowStream<'_>>],
 ) -> Result<Vec<DynamicImage>, String> {
-    let PreparedTarget::Gpu(kept) = &prepared.target else {
-        return outputs
+    let mut one_by_one = || {
+        outputs
             .iter()
-            .map(|&(precision, space)| {
-                render_prepared_export(prepared, env, debug_tag, precision, space)
+            .enumerate()
+            .map(|(index, &(precision, space))| {
+                match streams.get_mut(index).and_then(Option::take) {
+                    Some(stream) => {
+                        stream_prepared_export(prepared, env, debug_tag, precision, space, stream)
+                            .map(|()| DynamicImage::new_rgba8(0, 0))
+                    }
+                    None => render_prepared_export(prepared, env, debug_tag, precision, space),
+                }
             })
-            .collect();
+            .collect()
     };
-    if let [(precision, space)] = outputs {
-        return render_prepared_export(prepared, env, debug_tag, *precision, *space)
-            .map(|image| vec![image]);
+    let PreparedTarget::Gpu(kept) = &prepared.target else {
+        return one_by_one();
+    };
+    if outputs.len() == 1 {
+        return one_by_one();
     }
     let render_outputs: Vec<RenderOutput> = outputs
         .iter()
@@ -2068,7 +2303,94 @@ pub fn render_prepared_exports(
         },
         debug_tag,
         &render_outputs,
+        streams,
     )
+}
+
+/// One render of a group ([`save_group_rendering`]).
+pub enum GroupRender {
+    Image(DynamicImage),
+    /// Written into its file while the group rendered.
+    Saved,
+    /// Its file could not be written (the other renders are unaffected).
+    Failed(String),
+}
+
+/// The renders of a recipe group ([`render_prepared_exports`] of
+/// `outputs`), rendered for its member `own` (an index into `outputs`),
+/// which is `output`'s and the first of the group still to be saved: when
+/// `output`'s file streams its render ([`streams_into_file`]) it is written
+/// while the group renders and comes back [`GroupRender::Saved`], so its
+/// render is never held whole beside the others; a failed write comes back
+/// [`GroupRender::Failed`] beside the others' renders. `cancelled` as in
+/// [`save_rendered_export`].
+#[allow(clippy::too_many_arguments)]
+pub fn save_group_rendering(
+    source_path_str: &str,
+    prepared: &PreparedExport,
+    js_adjustments: &Value,
+    export_settings: &ExportSettings,
+    env: &RenderEnv,
+    output: &ExportOutput,
+    cancelled: &dyn Fn() -> Result<(), String>,
+    debug_tag: &str,
+    outputs: &[(RenderOutputPrecision, OutputColorSpace)],
+    own: usize,
+) -> Result<Vec<GroupRender>, String> {
+    let render_all = || render_prepared_exports(prepared, env, debug_tag, outputs, &mut []);
+    if own >= outputs.len() || !streams_into_file(prepared, export_settings, output) {
+        return render_all().map(|images| images.into_iter().map(GroupRender::Image).collect());
+    }
+    let mut rendered = None;
+    let encoded = streamed_export(
+        source_path_str,
+        prepared.size(),
+        js_adjustments,
+        export_settings,
+        output,
+        cancelled,
+        |stream| {
+            let mut streams: Vec<Option<RowStream<'_>>> = outputs.iter().map(|_| None).collect();
+            streams[own] = Some(stream);
+            rendered = Some(render_prepared_exports(
+                prepared,
+                env,
+                debug_tag,
+                outputs,
+                &mut streams,
+            )?);
+            Ok(())
+        },
+    )?;
+    let written = (output.write)(output.path, &output_extension(output), encoded);
+    group_renders_after_write(own, rendered, written, render_all)
+}
+
+/// The renders of a group whose member `own` streamed into its file
+/// ([`save_group_rendering`]): `rendered` when the render completed (the
+/// streamed member's entry empty), else rendered again by `render_again`
+/// for the others (the file could not be created, or the render or its
+/// write stopped part-way); `own` is [`GroupRender::Saved`] or carries its
+/// write's error.
+fn group_renders_after_write(
+    own: usize,
+    rendered: Option<Vec<DynamicImage>>,
+    written: Result<(), String>,
+    render_again: impl FnOnce() -> Result<Vec<DynamicImage>, String>,
+) -> Result<Vec<GroupRender>, String> {
+    let images = match (rendered, &written) {
+        (Some(images), _) => images,
+        (None, Ok(())) => return Err("A streamed export wrote no render.".to_string()),
+        (None, Err(_)) => render_again()?,
+    };
+    let mut renders: Vec<GroupRender> = images.into_iter().map(GroupRender::Image).collect();
+    if let Some(entry) = renders.get_mut(own) {
+        *entry = match written {
+            Ok(()) => GroupRender::Saved,
+            Err(e) => GroupRender::Failed(e),
+        };
+    }
+    Ok(renders)
 }
 
 /// Layer masks an export generates at once (each runs in parallel itself):
@@ -2091,11 +2413,12 @@ pub fn encode_export(
     extension: &str,
     export_settings: &ExportSettings,
     metadata: Option<crate::exif_processing::ExportMetadata>,
-) -> Result<EncodedExport, String> {
+) -> Result<EncodedExport<'static>, String> {
     if is_tiff(extension) {
-        // TIFF stores RGB; the 8- or 16-bit render matches the chosen depth.
+        // TIFF stores RGB (`write_tiff` leaves alpha out); the 8- or 16-bit
+        // render matches the chosen depth.
         return Ok(EncodedExport(Encoded::Tiff {
-            image: drop_alpha_in_place(image),
+            image,
             bit_depth: export_settings.tiff_bit_depth,
             color_space: export_settings.color_space,
             metadata,
@@ -2114,7 +2437,6 @@ pub fn encode_with_metadata(
     metadata: Option<&crate::exif_processing::ExportMetadata>,
 ) -> Result<Vec<u8>, String> {
     if is_tiff(extension) {
-        let image = drop_alpha_in_place(image);
         let mut bytes = Vec::with_capacity(tiff_capacity(&image, export_settings.tiff_bit_depth));
         write_tiff(
             &image,
@@ -2488,23 +2810,64 @@ fn write_tiff<S: Read + Write + Seek>(
     metadata: Option<&crate::exif_processing::ExportMetadata>,
     file: &mut S,
 ) -> Result<(), String> {
+    let (width, height) = image.dimensions();
+    let converted;
+    let pixels = match (tiff_bit_depth, image) {
+        (TiffBitDepth::Eight, DynamicImage::ImageRgba8(rgba)) => BandPixels::U8(rgba.as_raw()),
+        (TiffBitDepth::Sixteen, DynamicImage::ImageRgba16(rgba)) => BandPixels::U16(rgba.as_raw()),
+        (TiffBitDepth::Eight, _) => {
+            converted = DynamicImage::ImageRgba8(image.to_rgba8());
+            BandPixels::U8(converted.as_rgba8().expect("RGBA8").as_raw())
+        }
+        (TiffBitDepth::Sixteen, _) => {
+            converted = DynamicImage::ImageRgba16(image.to_rgba16());
+            BandPixels::U16(converted.as_rgba16().expect("RGBA16").as_raw())
+        }
+    };
+    write_tiff_rows(
+        file,
+        (width, height),
+        tiff_bit_depth,
+        color_space,
+        metadata,
+        |stream| {
+            stream(RowBand {
+                first_row: 0,
+                width,
+                rows: height,
+                pixels,
+            })
+        },
+    )
+}
+
+/// [`write_tiff`] of a render whose RGBA rows `render` hands to its stream
+/// top to bottom (`rawtonic_gpu::gpu_processing::RowStream`), in the
+/// samples of `tiff_bit_depth`: the strips are written as their rows come,
+/// so neither the render nor the file is held whole. Its bytes are those of
+/// the `image` crate's TIFF encoder for the RGB image (strips of the `tiff`
+/// crate's default height, the ICC profile as the only extra tag).
+fn write_tiff_rows<S: Read + Write + Seek>(
+    file: &mut S,
+    size: (u32, u32),
+    tiff_bit_depth: TiffBitDepth,
+    color_space: OutputColorSpace,
+    metadata: Option<&crate::exif_processing::ExportMetadata>,
+    render: impl FnOnce(RowStream<'_>) -> Result<(), String>,
+) -> Result<(), String> {
     {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("export_encode");
-        let image = match tiff_bit_depth {
-            TiffBitDepth::Eight if image.as_rgb8().is_some() => Cow::Borrowed(image),
-            TiffBitDepth::Sixteen if image.as_rgb16().is_some() => Cow::Borrowed(image),
-            TiffBitDepth::Eight => Cow::Owned(DynamicImage::ImageRgb8(image.to_rgb8())),
-            TiffBitDepth::Sixteen => Cow::Owned(DynamicImage::ImageRgb16(image.to_rgb16())),
-        };
         let mut writer = std::io::BufWriter::with_capacity(TIFF_WRITE_BUFFER, &mut *file);
-        let mut encoder = image::codecs::tiff::TiffEncoder::new(&mut writer);
-        encoder
-            .set_icc_profile(crate::icc_profile::for_space(color_space).to_vec())
-            .map_err(|e| e.to_string())?;
-        image
-            .write_with_encoder(encoder)
-            .map_err(|e| e.to_string())?;
+        let icc = crate::icc_profile::for_space(color_space);
+        match tiff_bit_depth {
+            TiffBitDepth::Eight => {
+                tiff_strips::<tiff::encoder::colortype::RGB8, _>(&mut writer, size, icc, render)?
+            }
+            TiffBitDepth::Sixteen => {
+                tiff_strips::<tiff::encoder::colortype::RGB16, _>(&mut writer, size, icc, render)?
+            }
+        }
         writer.flush().map_err(|e| e.to_string())?;
     }
     let Some(metadata) = metadata else {
@@ -2534,6 +2897,89 @@ fn write_tiff<S: Read + Write + Seek>(
             Ok(())
         }
     }
+}
+
+/// A TIFF sample type and its RGBA samples in a [`RowBand`].
+trait TiffSample: Copy {
+    fn of<'a>(pixels: &BandPixels<'a>) -> Option<&'a [Self]>;
+}
+
+impl TiffSample for u8 {
+    fn of<'a>(pixels: &BandPixels<'a>) -> Option<&'a [u8]> {
+        match *pixels {
+            BandPixels::U8(samples) => Some(samples),
+            BandPixels::U16(_) => None,
+        }
+    }
+}
+
+impl TiffSample for u16 {
+    fn of<'a>(pixels: &BandPixels<'a>) -> Option<&'a [u16]> {
+        match *pixels {
+            BandPixels::U16(samples) => Some(samples),
+            BandPixels::U8(_) => None,
+        }
+    }
+}
+
+/// The TIFF image of `C` (RGB) from the RGBA rows `render` streams: the
+/// calls of `image::codecs::tiff::TiffEncoder` (`new_image`, the ICC tag,
+/// `write_strip` per strip, `finish`), one strip of rows held at a time.
+fn tiff_strips<C, W>(
+    writer: W,
+    (width, height): (u32, u32),
+    icc: &[u8],
+    render: impl FnOnce(RowStream<'_>) -> Result<(), String>,
+) -> Result<(), String>
+where
+    W: Write + Seek,
+    C: tiff::encoder::colortype::ColorType,
+    C::Inner: TiffSample,
+    [C::Inner]: tiff::encoder::TiffValue,
+{
+    if width == 0 || height == 0 {
+        return Err("A TIFF needs at least one pixel.".to_string());
+    }
+    let tiff_error = |e: tiff::TiffError| e.to_string();
+    let mut encoder = tiff::encoder::TiffEncoder::new(writer).map_err(tiff_error)?;
+    let mut image = encoder.new_image::<C>(width, height).map_err(tiff_error)?;
+    image
+        .encoder()
+        .write_tag(tiff::tags::Tag::IccProfile, icc)
+        .map_err(tiff_error)?;
+    let row_samples = width as usize * 4;
+    let mut strip: Vec<C::Inner> =
+        Vec::with_capacity(usize::try_from(image.next_strip_sample_count()).unwrap_or(0));
+    let mut next_row = 0u32;
+    render(&mut |band: RowBand<'_>| {
+        let samples = C::Inner::of(&band.pixels)
+            .ok_or("The render's precision differs from the TIFF's bit depth.")?;
+        if band.width != width
+            || band.first_row != next_row
+            || band.rows > height - next_row
+            || samples.len() != row_samples * band.rows as usize
+        {
+            return Err("The render's rows do not fit the TIFF.".to_string());
+        }
+        for row in samples.chunks_exact(row_samples) {
+            strip.extend(
+                row.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .flat_map(|p| [p[0], p[1], p[2]]),
+            );
+            if strip.len() as u64 == image.next_strip_sample_count() {
+                image.write_strip(&strip).map_err(tiff_error)?;
+                strip.clear();
+            }
+        }
+        next_row += band.rows;
+        Ok(())
+    })?;
+    if next_row != height {
+        return Err("The render ended before its last row.".to_string());
+    }
+    image.finish().map_err(tiff_error)
 }
 
 /// Lossless JPEG XL with libjxl's fast-lossless method (zune-jpegxl): an
@@ -3758,7 +4204,7 @@ mod naming_counter_tests {
             sequence,
             width = total.to_string().len().max(1)
         );
-        let local_date = file_date.to_zoned_datetime(jiff::tz::TimeZone::system());
+        let local_date = file_date.to_zoned_datetime(rawtonic_runtime::local_time::zone());
 
         let mut result = template.to_string();
         result = result.replace("{original_filename}", stem);
@@ -4060,5 +4506,194 @@ mod view_state_tests {
                 "the {view} view reached an export"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tiff_rows_tests {
+    use super::*;
+
+    fn rgba(width: u32, height: u32, sixteen: bool) -> DynamicImage {
+        let sample = |x: u32, y: u32, c: u32| (x * 7919 + y * 104_729 + c * 31) % 65_521;
+        if sixteen {
+            DynamicImage::ImageRgba16(ImageBuffer::from_fn(width, height, |x, y| {
+                image::Rgba([0, 1, 2, 3].map(|c| sample(x, y, c) as u16))
+            }))
+        } else {
+            DynamicImage::ImageRgba8(ImageBuffer::from_fn(width, height, |x, y| {
+                image::Rgba([0, 1, 2, 3].map(|c| sample(x, y, c) as u8))
+            }))
+        }
+    }
+
+    /// The `image` crate's TIFF of the RGB image with the ICC profile.
+    fn image_crate_tiff(image: &DynamicImage, space: OutputColorSpace) -> Vec<u8> {
+        let rgb = if image.as_rgba16().is_some() {
+            DynamicImage::ImageRgb16(image.to_rgb16())
+        } else {
+            DynamicImage::ImageRgb8(image.to_rgb8())
+        };
+        let mut bytes = Cursor::new(Vec::new());
+        let mut encoder = image::codecs::tiff::TiffEncoder::new(&mut bytes);
+        image::ImageEncoder::set_icc_profile(
+            &mut encoder,
+            crate::icc_profile::for_space(space).to_vec(),
+        )
+        .unwrap();
+        rgb.write_with_encoder(encoder).unwrap();
+        bytes.into_inner()
+    }
+
+    fn streamed(
+        image: &DynamicImage,
+        band_rows: u32,
+        depth: TiffBitDepth,
+    ) -> Result<Vec<u8>, String> {
+        let (width, height) = image.dimensions();
+        let mut file = Cursor::new(Vec::new());
+        write_tiff_rows(
+            &mut file,
+            (width, height),
+            depth,
+            OutputColorSpace::AdobeRgb,
+            None,
+            |stream| {
+                let row = width as usize * 4;
+                let mut first_row = 0;
+                while first_row < height {
+                    let rows = band_rows.min(height - first_row);
+                    let range = first_row as usize * row..(first_row + rows) as usize * row;
+                    let pixels = match image {
+                        DynamicImage::ImageRgba16(image) => BandPixels::U16(&image.as_raw()[range]),
+                        DynamicImage::ImageRgba8(image) => BandPixels::U8(&image.as_raw()[range]),
+                        _ => unreachable!(),
+                    };
+                    stream(RowBand {
+                        first_row,
+                        width,
+                        rows,
+                        pixels,
+                    })?;
+                    first_row += rows;
+                }
+                Ok(())
+            },
+        )?;
+        Ok(file.into_inner())
+    }
+
+    /// Strips of the `tiff` crate's height (several per image here), rows
+    /// in bands that cross strip boundaries or hold the whole image: the
+    /// bytes of the `image` crate's encoder.
+    #[test]
+    fn tiffs_written_from_rows_are_the_image_crate_s_tiffs() {
+        for (sixteen, depth) in [(true, TiffBitDepth::Sixteen), (false, TiffBitDepth::Eight)] {
+            for (width, height) in [(1, 1), (37, 5), (613, 700)] {
+                let image = rgba(width, height, sixteen);
+                let expected = image_crate_tiff(&image, OutputColorSpace::AdobeRgb);
+                for band_rows in [1, 7, 256, height] {
+                    assert!(
+                        streamed(&image, band_rows, depth).unwrap() == expected,
+                        "{width}x{height} 16-bit {sixteen}, bands of {band_rows} rows"
+                    );
+                }
+                let mut file = Cursor::new(Vec::new());
+                write_tiff(&image, depth, OutputColorSpace::AdobeRgb, None, &mut file).unwrap();
+                assert!(
+                    file.into_inner() == expected,
+                    "{width}x{height} 16-bit {sixteen}, whole"
+                );
+                // An RGB render (no alpha) too.
+                let rgb = DynamicImage::ImageRgb16(image.to_rgb16());
+                let mut file = Cursor::new(Vec::new());
+                write_tiff(&rgb, depth, OutputColorSpace::AdobeRgb, None, &mut file).unwrap();
+                assert!(
+                    file.into_inner() == expected,
+                    "{width}x{height} 16-bit {sixteen}, RGB"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rows_that_do_not_fit_the_tiff_fail_its_write() {
+        let image = rgba(20, 10, true);
+        let (width, height) = image.dimensions();
+        let samples = image.as_rgba16().unwrap().as_raw();
+        let write = |bands: &[(u32, u32)], depth| {
+            let mut file = Cursor::new(Vec::new());
+            write_tiff_rows(
+                &mut file,
+                (width, height),
+                depth,
+                OutputColorSpace::Srgb,
+                None,
+                |stream| {
+                    for &(first_row, rows) in bands {
+                        let range = (first_row * width * 4) as usize
+                            ..((first_row + rows) * width * 4) as usize;
+                        stream(RowBand {
+                            first_row,
+                            width,
+                            rows,
+                            pixels: BandPixels::U16(&samples[range]),
+                        })?;
+                    }
+                    Ok(())
+                },
+            )
+        };
+        assert!(write(&[(0, 10)], TiffBitDepth::Sixteen).is_ok());
+        assert!(
+            write(&[(0, 4)], TiffBitDepth::Sixteen).is_err(),
+            "rows missing"
+        );
+        assert!(
+            write(&[(4, 6), (0, 4)], TiffBitDepth::Sixteen).is_err(),
+            "out of order"
+        );
+        assert!(
+            write(&[(0, 10)], TiffBitDepth::Eight).is_err(),
+            "other precision"
+        );
+    }
+    fn image(value: u8) -> DynamicImage {
+        DynamicImage::ImageRgba8(ImageBuffer::from_pixel(2, 1, image::Rgba([value; 4])))
+    }
+
+    fn kinds(renders: &[GroupRender]) -> Vec<String> {
+        renders
+            .iter()
+            .map(|render| match render {
+                GroupRender::Image(image) => format!("image {}", image.as_bytes()[0]),
+                GroupRender::Saved => "saved".to_string(),
+                GroupRender::Failed(e) => format!("failed {e}"),
+            })
+            .collect()
+    }
+
+    /// The member that streamed (not always the group's first: earlier ones
+    /// may have been skipped) is marked saved or failed in its own place;
+    /// a failed write never takes the other recipes' renders with it.
+    #[test]
+    fn a_streamed_member_of_a_group_fails_alone() {
+        let rendered = || Some(vec![image(1), DynamicImage::new_rgba8(0, 0), image(3)]);
+        let never = || -> Result<Vec<DynamicImage>, String> { panic!("rendered again") };
+        let again = || Ok(vec![image(1), image(2), image(3)]);
+
+        let saved = group_renders_after_write(1, rendered(), Ok(()), never).unwrap();
+        assert_eq!(kinds(&saved), ["image 1", "saved", "image 3"]);
+
+        // The file failed after the render (disk full): the others keep it.
+        let failed = group_renders_after_write(1, rendered(), Err("full".into()), never).unwrap();
+        assert_eq!(kinds(&failed), ["image 1", "failed full", "image 3"]);
+
+        // The file could not be created, or the render stopped part-way:
+        // the others are rendered again.
+        let failed = group_renders_after_write(1, None, Err("read-only".into()), again).unwrap();
+        assert_eq!(kinds(&failed), ["image 1", "failed read-only", "image 3"]);
+
+        let lost = group_renders_after_write(0, None, Err("gpu".into()), || Err("gpu".into()));
+        assert!(lost.is_err(), "a render that fails again fails the group");
     }
 }

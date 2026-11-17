@@ -73,6 +73,7 @@ A portable `qa-control` build for driving Rawtonic on Windows through the loopba
 
 ```sh
 gh workflow run windows-qa.yml --ref <branch>
+gh workflow run windows-qa.yml --ref <branch> -f profiling=true   # + performance-profiling: timing records for drag measurements
 gh run list --workflow windows-qa.yml --limit 1          # run id
 gh run download <run-id> -n windows-qa-portable -D qa-win
 ```
@@ -126,6 +127,10 @@ An **XMP pending** count means library edits are saved but sidecar synchronizati
 RAW/JPEG files sharing a sidecar stem require pair-ownership resolution and are refused. The conflict-resolution UI and full interoperability certification remain open. Session/catalog conversion is not implemented. Catalogs already support external originals, adding or copying photographs, albums, metadata, edits, volume tracking and relinking missing files. Offline RAW editing uses previously generated Standard or 1:1 preview proxies; without a cached proxy the original must be available. This is implemented in `preview_proxy.rs` and `image_loader.rs`, rather than through the catalog's reserved `smart-previews/` directory. Full verified transfer/backup/restore is implemented and tested with moved mixed libraries, edit history, virtual copies and resources. Catalog mode is functional, not feature-complete; automatic/incremental backups and project/catalog conversion remain open.
 
 ## Build and verify
+
+The Quality gates workflow runs `windows-app` on pushes to main and on pull requests into main that change a Cargo manifest, `Cargo.lock`, `src-tauri/`, the workflow itself or the Rust toolchain pin. It runs `cargo check -p rawtonic-app --locked --all-targets` on Windows Server 2025. Selecting the desktop crate directly checks the features it gets in its own build, since other workspace members can enable extra features. The job compiles the app and its test targets without running tests or creating a bundle. The separate `windows-core` job runs core and engine tests on main and on demand.
+
+When a changed `Cargo.lock` package depends on `windows` before or after the change, `scripts/check.sh` prints a warning pointing to `windows-app`. To run just that job on a pushed branch, use `gh workflow run ci.yml --ref <branch> -f windows_app_only=true`.
 
 ```sh
 cargo fmt --all --check

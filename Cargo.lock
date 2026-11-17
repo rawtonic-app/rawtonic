@@ -5375,6 +5375,7 @@ dependencies = [
  "multiversion",
  "num",
  "num_enum",
+ "rawtonic-runtime",
  "rayon",
  "rustc_version",
  "serde",
@@ -5662,6 +5663,7 @@ dependencies = [
  "serde_json",
  "skrifa",
  "tempfile",
+ "tiff",
  "turbojpeg",
  "unicode-bidi",
  "uuid",
@@ -5822,6 +5824,7 @@ dependencies = [
  "anyhow",
  "jiff 1.0.0",
  "proptest",
+ "rawtonic-runtime",
  "serde",
  "serde_json",
 ]
@@ -5869,10 +5872,12 @@ dependencies = [
 name = "rawtonic-runtime"
 version = "0.1.0"
 dependencies = [
+ "jiff 1.0.0",
  "libc",
  "libmimalloc-sys",
  "log",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

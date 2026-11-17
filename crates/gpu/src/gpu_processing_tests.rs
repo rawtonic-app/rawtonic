@@ -10385,6 +10385,7 @@ fn several_outputs_under_a_compile_limit_match_their_own_exports() {
                 None,
                 None,
                 &render_outputs,
+                &mut [],
             )
             .unwrap();
         assert_eq!(together.len(), outputs.len());
@@ -17526,6 +17527,7 @@ fn renders_from_a_kept_upload_match_fresh_uploads() {
         },
         "kept_upload_test",
         &outputs,
+        &mut [],
     )
     .expect("renders");
     assert_eq!(together.len(), recipes.len());
@@ -17535,6 +17537,155 @@ fn renders_from_a_kept_upload_match_fresh_uploads() {
         assert!(
             together.as_bytes() == expected.as_bytes(),
             "{space:?} {precision:?} of one render differs from its own render"
+        );
+    }
+}
+
+/// An export streamed row band by row band ([`stream_export_image`], and
+/// one output of a render for several, [`process_and_get_dynamic_images`])
+/// hands on exactly the rows of the collected render, top to bottom, in
+/// more than one band (two rows of tiles), at 8 and 16 bit.
+#[test]
+#[ignore = "requires a native GPU"]
+fn streamed_exports_hand_on_the_rows_of_the_collected_render() {
+    let context = context();
+    let (width, height) = (2500u32, 2200u32);
+    let source = DynamicImage::ImageRgba32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let n = ((x * 7919 + y * 104_729) % 251) as f32 / 251.0;
+        Rgba([
+            0.2 + 0.5 * x as f32 / width as f32 + 0.05 * n,
+            0.3 + 0.2 * n,
+            0.6 * y as f32 / height as f32 + 0.1 * (1.0 - n),
+            1.0,
+        ])
+    }));
+    let recipe = json!({"exposure":0.4,"contrast":15,"sharpness":40,"clarity":30,
+        "lumaNoiseReduction":20,"colorNoiseReduction":25,"colorNoiseVersion":2});
+    let adjustments = || get_all_adjustments_from_json(&recipe, true, Some(2));
+    let color_noise = Some((true, color_noise_tuning(&adjustments().global).1));
+    let processor = ProcessorSlot::new(None);
+    let cache = Mutex::new(None);
+    let kept = upload_render_source(&context, &source, 13, color_noise)
+        .unwrap()
+        .unwrap()
+        .keep();
+    let request = || RenderRequest {
+        adjustments: adjustments(),
+        mask_bitmaps: &[],
+        lut: None,
+        roi: None,
+    };
+    // The rows a stream receives, as bytes, and its bands.
+    fn collector(
+        bytes: &mut Vec<u8>,
+        bands: &mut u32,
+    ) -> impl FnMut(RowBand<'_>) -> Result<(), String> {
+        move |band: RowBand<'_>| {
+            let samples: &[u8] = match band.pixels {
+                BandPixels::U8(samples) => samples,
+                BandPixels::U16(samples) => bytemuck::cast_slice(samples),
+            };
+            let row_bytes = samples.len() / band.rows as usize;
+            assert_eq!(
+                band.first_row as usize * row_bytes,
+                bytes.len(),
+                "rows in order"
+            );
+            bytes.extend_from_slice(samples);
+            *bands += 1;
+            Ok(())
+        }
+    }
+    for precision in [
+        RenderOutputPrecision::SixteenBit,
+        RenderOutputPrecision::EightBit,
+    ] {
+        let expected = process_and_get_dynamic_image_inner(
+            &context,
+            &processor,
+            &cache,
+            RenderSource::Kept(&kept),
+            request(),
+            "stream_test",
+            precision,
+            false,
+            None,
+            None,
+            ReadbackShader::Export,
+        )
+        .expect("renders");
+        assert_eq!(expected.dimensions(), (width, height));
+        let (mut bytes, mut bands) = (Vec::new(), 0);
+        stream_export_image(
+            &context,
+            &processor,
+            &cache,
+            RenderSource::Kept(&kept),
+            request(),
+            "stream_test",
+            precision,
+            &mut collector(&mut bytes, &mut bands),
+        )
+        .expect("streams");
+        assert!(bands > 1, "{precision:?}: one band only");
+        assert!(
+            bytes == expected.as_bytes(),
+            "{precision:?}: the streamed rows differ from the render"
+        );
+
+        // The same output streamed beside a collected one of one render.
+        let other = match precision {
+            RenderOutputPrecision::SixteenBit => RenderOutputPrecision::EightBit,
+            RenderOutputPrecision::EightBit => RenderOutputPrecision::SixteenBit,
+        };
+        let output = |precision| {
+            let global = adjustments().global;
+            RenderOutput {
+                precision,
+                output_space: global.output_space,
+                output_matrix: global.output_matrix,
+            }
+        };
+        let (mut bytes, mut bands) = (Vec::new(), 0);
+        let mut stream = collector(&mut bytes, &mut bands);
+        let together = process_and_get_dynamic_images(
+            &context,
+            &processor,
+            &kept,
+            request(),
+            "stream_test",
+            &[output(precision), output(other)],
+            &mut [Some(&mut stream)],
+        )
+        .expect("renders");
+        drop(stream);
+        let other_alone = process_and_get_dynamic_image_inner(
+            &context,
+            &processor,
+            &cache,
+            RenderSource::Kept(&kept),
+            request(),
+            "stream_test",
+            other,
+            false,
+            None,
+            None,
+            ReadbackShader::Export,
+        )
+        .expect("renders");
+        assert_eq!(
+            together[0].dimensions(),
+            (0, 0),
+            "a streamed output is not kept"
+        );
+        assert!(bands > 1);
+        assert!(
+            bytes == expected.as_bytes(),
+            "{precision:?}: the streamed output of a shared render differs"
+        );
+        assert!(
+            together[1].as_bytes() == other_alone.as_bytes(),
+            "{other:?}: the collected output beside a streamed one differs"
         );
     }
 }
@@ -17657,6 +17808,7 @@ fn one_render_for_several_outputs_matches_their_own_renders() {
                 None,
                 uploaded.as_ref(),
                 &render_outputs,
+                &mut [],
                 false,
             )
             .unwrap();
@@ -23051,6 +23203,7 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
                     None,
                     None,
                     &[],
+                    &mut [],
                     true,
                 )
                 .unwrap();

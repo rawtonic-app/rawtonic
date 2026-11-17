@@ -305,7 +305,7 @@ pub fn plan_rename_with(
         if rawtonic_naming::template_tokens(&template).any(|t| DATE_TOKENS.contains(&t)) {
             naming.captured = facts
                 .date(lead_path)
-                .to_zoned_datetime(jiff::tz::TimeZone::system())
+                .to_zoned_datetime(rawtonic_runtime::local_time::zone())
                 .datetime();
         }
         let rendered = rawtonic_naming::render(&template, &naming);

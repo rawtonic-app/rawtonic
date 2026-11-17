@@ -48,6 +48,8 @@ The Windows builds with ONNX Runtime bundle Microsoft's [DirectX Shader Compiler
 Tethered shooting talks to cameras through [libgphoto2](https://github.com/gphoto/libgphoto2) 2.5.34 (libgphoto2 and libgphoto2_port, Copyright the gphoto project, Lutz Müller, Marcus Meissner and contributors), [libusb](https://libusb.info/) 1.0.30 (Linux only; Copyright Johannes Erdfelt, Daniel Drake, Peter Stuge, Nathan Hjelm, Chris Dickens and contributors) and libltdl from [GNU Libtool](https://www.gnu.org/software/libtool/) 2.6.2 (Copyright Free Software Foundation, Inc.), all GNU LGPL v2.1 or later (`licenses/LGPL-2.1.txt`). They run only in the separate helper program `rawtonic-tether`, never in the app, and are linked dynamically: the app bundle carries them as separate shared libraries (macOS: `Contents/Frameworks`, the camera driver `ptp2` and the port driver in `Contents/Resources/gphoto2`), so they can be replaced with other builds of the same versions. They are built unmodified from the upstream release tarballs by `scripts/tether/build_libgphoto2.sh` (download addresses and SHA-256 checksums in that script; every release that ships them also offers those source tarballs from the same place as the app, as release assets), configured with only the PTP camera driver and one port driver — no network (PTP/IP), serial or disk port drivers. On Linux the port driver is libgphoto2's USB driver `usb1` on libusb; on macOS it is Rawtonic's own `icc` port driver (part of Rawtonic, AGPL), which passes PTP through macOS's ImageCaptureCore, and libusb is not shipped. The helper's Rust bindings are the `gphoto2` and `gphoto2-sys` crates from [CyberTimon/libgphoto2-rs](https://github.com/CyberTimon/libgphoto2-rs) (commit 878ca523, a fork of vibe-libgphoto2-rs; MIT OR Apache-2.0, vibe-libgphoto2-rs contributors).
 
 ## Data and assets
+**Windows time zone names.** The Windows-to-IANA mapping in `crates/runtime/src/windows_zones.rs` is the table from [Jiff 1.0.0](https://docs.rs/crate/jiff/1.0.0/source/src/tz/system/windows/windows_zones.rs) (Copyright 2015 Andrew Gallant, MIT, `licenses/Jiff-MIT.txt`), derived from Unicode CLDR (Copyright Unicode, Inc., Unicode-3.0, `licenses/spdx/Unicode-3.0.txt`). Only the source header was changed.
+
 **Lensfun database** in `src-tauri/lensfun_db`: Lensfun contributors, CC BY-SA 3.0 (`src-tauri/lensfun_db/COPYING.CC_BY-SA_3.0`, `licenses/Lensfun-CC-BY-SA-3.0.txt`, https://lensfun.github.io/license/). Taken unmodified from the Lensfun repository (https://github.com/lensfun/lensfun, `data/db`) at commit 52cf1a7b0e82e07e0ecaa3391ee5106a6dd1ee54 (2026-11-11). It is shipped as separate data files; no Lensfun library code is linked. Changes to the database files are listed in their git history and stay under CC BY-SA 3.0.
 
 The Lensfun display-name index `crates/engine/src/lensfun_display_names_2026_10_18.json` is derived from our earlier bundled database (adopted 2026-10-18) (43f9e001ab66c4fcdd4f400463f13b72f94b2288), credited to Lensfun contributors under the same CC BY-SA 3.0 license; it preserves saved lens choices across database renames.
@@ -969,26 +971,40 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | Package | Version | Declared license |
 |---|---|---|
 | @asamuzakjp/css-color | 7.1.2 | MIT |
+| @asamuzakjp/css-color | 7.1.9 | MIT |
+| @asamuzakjp/dom-selector | 10.0.5 | MIT |
 | @asamuzakjp/dom-selector | 9.2.2 | MIT |
 | @babel/code-frame | 7.29.7 | MIT |
 | @babel/compat-data | 7.29.7 | MIT |
 | @babel/core | 7.29.7 | MIT |
+| @babel/generator | 7.29.12 | MIT |
 | @babel/generator | 7.29.8 | MIT |
 | @babel/helper-compilation-targets | 7.29.7 | MIT |
 | @babel/helper-globals | 7.29.7 | MIT |
 | @babel/helper-module-imports | 7.29.7 | MIT |
 | @babel/helper-module-transforms | 7.29.7 | MIT |
+| @babel/helper-string-parser | 7.29.11 | MIT |
 | @babel/helper-string-parser | 7.29.7 | MIT |
 | @babel/helper-validator-identifier | 7.29.7 | MIT |
 | @babel/helper-validator-option | 7.29.7 | MIT |
+| @babel/helpers | 7.29.10 | MIT |
 | @babel/helpers | 7.29.7 | MIT |
+| @babel/parser | 7.29.12 | MIT |
 | @babel/parser | 7.29.9 | MIT |
+| @babel/runtime | 7.29.10 | MIT |
+| @babel/runtime | 7.29.14 | MIT |
 | @babel/runtime | 7.29.7 | MIT |
 | @babel/runtime | 8.0.0 | MIT |
+| @babel/runtime | 8.1.0 | MIT |
 | @babel/template | 7.29.7 | MIT |
+| @babel/traverse | 7.29.12 | MIT |
 | @babel/traverse | 7.29.8 | MIT |
+| @babel/types | 7.29.11 | MIT |
 | @babel/types | 7.29.8 | MIT |
 | @bramus/specificity | 2.4.2 | MIT |
+| @bramus/specificity | 2.4.3 | MIT |
+| @cacheable/memory | 2.2.0 | MIT |
+| @cacheable/utils | 2.5.0 | MIT |
 | @cloudflare/kv-asset-handler | 0.5.0 | MIT OR Apache-2.0 |
 | @cloudflare/unenv-preset | 2.16.2 | MIT OR Apache-2.0 |
 | @cloudflare/vitest-plugin | 1.4.7 | MIT |
@@ -999,23 +1015,61 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | @cspotcode/source-map-support | 0.8.1 | MIT |
 | @csstools/color-helpers | 6.1.2 | MIT-0 |
 | @csstools/css-calc | 3.4.2 | MIT |
+| @csstools/css-calc | 3.4.3 | MIT |
 | @csstools/css-color-parser | 4.2.5 | MIT |
+| @csstools/css-color-parser | 4.2.7 | MIT |
 | @csstools/css-parser-algorithms | 4.0.2 | MIT |
 | @csstools/css-syntax-patches-for-csstree | 1.1.15 | MIT-0 |
+| @csstools/css-syntax-patches-for-csstree | 1.1.16 | MIT-0 |
 | @csstools/css-tokenizer | 4.0.2 | MIT |
 | @dnd-kit/accessibility | 3.1.1 | MIT |
 | @dnd-kit/core | 6.3.1 | MIT |
 | @dnd-kit/utilities | 3.2.2 | MIT |
+| @emnapi/core | 1.11.3 | MIT |
+| @emnapi/core | 2.0.0-beta.2 | MIT |
+| @emnapi/runtime | 1.11.3 | MIT |
+| @emnapi/runtime | 2.0.0-beta.2 | MIT |
+| @emnapi/wasi-threads | 1.2.3 | MIT |
+| @emnapi/wasi-threads | 2.2.0 | MIT |
+| @esbuild/aix-ppc64 | 0.28.2 | MIT |
+| @esbuild/android-arm | 0.28.2 | MIT |
+| @esbuild/android-arm64 | 0.28.2 | MIT |
+| @esbuild/android-x64 | 0.28.2 | MIT |
 | @esbuild/darwin-arm64 | 0.28.2 | MIT |
+| @esbuild/darwin-x64 | 0.28.2 | MIT |
+| @esbuild/freebsd-arm64 | 0.28.2 | MIT |
+| @esbuild/freebsd-x64 | 0.28.2 | MIT |
+| @esbuild/linux-arm | 0.28.2 | MIT |
+| @esbuild/linux-arm64 | 0.28.2 | MIT |
+| @esbuild/linux-ia32 | 0.28.2 | MIT |
+| @esbuild/linux-loong64 | 0.28.2 | MIT |
+| @esbuild/linux-mips64el | 0.28.2 | MIT |
+| @esbuild/linux-ppc64 | 0.28.2 | MIT |
+| @esbuild/linux-riscv64 | 0.28.2 | MIT |
+| @esbuild/linux-s390x | 0.28.2 | MIT |
+| @esbuild/linux-x64 | 0.28.2 | MIT |
+| @esbuild/netbsd-arm64 | 0.28.2 | MIT |
+| @esbuild/netbsd-x64 | 0.28.2 | MIT |
+| @esbuild/openbsd-arm64 | 0.28.2 | MIT |
+| @esbuild/openbsd-x64 | 0.28.2 | MIT |
+| @esbuild/openharmony-arm64 | 0.28.2 | MIT |
+| @esbuild/sunos-x64 | 0.28.2 | MIT |
+| @esbuild/win32-arm64 | 0.28.2 | MIT |
+| @esbuild/win32-ia32 | 0.28.2 | MIT |
+| @esbuild/win32-x64 | 0.28.2 | MIT |
 | @eslint-community/eslint-utils | 4.10.1 | MIT |
 | @eslint-community/regexpp | 4.12.2 | MIT |
 | @eslint/config-array | 0.23.5 | Apache-2.0 |
+| @eslint/config-array | 0.23.6 | Apache-2.0 |
 | @eslint/config-helpers | 0.7.0 | Apache-2.0 |
 | @eslint/core | 1.2.1 | Apache-2.0 |
 | @eslint/js | 10.0.1 | MIT |
 | @eslint/object-schema | 3.0.5 | Apache-2.0 |
 | @eslint/plugin-kit | 0.7.2 | Apache-2.0 |
+| @eslint/plugin-kit | 0.7.3 | Apache-2.0 |
 | @exodus/bytes | 1.16.0 | MIT |
+| @formatjs/icu-messageformat-parser | 3.5.22 | MIT |
+| @formatjs/icu-skeleton-parser | 2.1.12 | MIT |
 | @humanfs/core | 0.19.2 | Apache-2.0 |
 | @humanfs/node | 0.16.8 | Apache-2.0 |
 | @humanfs/types | 0.15.0 | Apache-2.0 |
@@ -1024,90 +1078,190 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | @img/colour | 1.1.0 | MIT |
 | @img/sharp-darwin-arm64 | 0.35.5 | Apache-2.0 |
 | @img/sharp-libvips-darwin-arm64 | 1.3.4 | LGPL-3.0-or-later |
+| @inquirer/ansi | 2.0.10 | MIT |
 | @inquirer/ansi | 2.0.7 | MIT |
 | @inquirer/checkbox | 5.2.2 | MIT |
 | @inquirer/confirm | 6.2.0 | MIT |
+| @inquirer/confirm | 6.3.5 | MIT |
 | @inquirer/core | 12.0.0 | MIT |
+| @inquirer/core | 12.0.6 | MIT |
 | @inquirer/editor | 5.3.0 | MIT |
 | @inquirer/expand | 5.1.2 | MIT |
 | @inquirer/external-editor | 3.0.4 | MIT |
+| @inquirer/figures | 2.0.10 | MIT |
 | @inquirer/figures | 2.0.8 | MIT |
 | @inquirer/input | 5.1.3 | MIT |
+| @inquirer/input | 5.1.9 | MIT |
 | @inquirer/number | 4.2.0 | MIT |
 | @inquirer/password | 5.1.2 | MIT |
+| @inquirer/password | 5.2.5 | MIT |
 | @inquirer/prompts | 8.6.0 | MIT |
 | @inquirer/rawlist | 5.3.2 | MIT |
 | @inquirer/search | 4.3.0 | MIT |
 | @inquirer/select | 5.2.2 | MIT |
+| @inquirer/select | 5.2.8 | MIT |
 | @inquirer/type | 4.0.7 | MIT |
+| @inquirer/type | 4.2.1 | MIT |
+| @isaacs/nonrecursive-glob-match | 1.0.3 | BlueOak-1.0.0 |
 | @jridgewell/gen-mapping | 0.3.13 | MIT |
 | @jridgewell/remapping | 2.3.5 | MIT |
 | @jridgewell/resolve-uri | 3.1.2 | MIT |
 | @jridgewell/sourcemap-codec | 1.6.0 | MIT |
 | @jridgewell/trace-mapping | 0.3.31 | MIT |
 | @jridgewell/trace-mapping | 0.3.9 | MIT |
+| @keyv/bigmap | 1.3.1 | MIT |
+| @keyv/serialize | 1.1.1 | MIT |
+| @napi-rs/wasm-runtime | 1.2.2 | MIT |
+| @napi-rs/wasm-runtime | 1.2.6 | MIT |
 | @oxc-project/types | 0.146.0 | MIT |
 | @oxc-project/types | 0.155.0 | MIT |
+| @oxc-project/types | 0.156.0 | MIT |
 | @poppinss/colors | 4.1.6 | MIT |
 | @poppinss/dumper | 0.6.5 | MIT |
 | @poppinss/exception | 1.2.3 | MIT |
+| @rolldown/binding-android-arm-eabi | 1.2.19 | MIT |
+| @rolldown/binding-android-arm64 | 1.2.19 | MIT |
 | @rolldown/binding-darwin-arm64 | 1.2.15 | MIT |
+| @rolldown/binding-darwin-arm64 | 1.2.19 | MIT |
 | @rolldown/binding-darwin-arm64 | 1.2.5 | MIT |
+| @rolldown/binding-darwin-x64 | 1.2.19 | MIT |
+| @rolldown/binding-freebsd-x64 | 1.2.19 | MIT |
+| @rolldown/binding-linux-arm-gnueabihf | 1.2.19 | MIT |
+| @rolldown/binding-linux-arm64-gnu | 1.2.19 | MIT |
+| @rolldown/binding-linux-arm64-musl | 1.2.19 | MIT |
+| @rolldown/binding-linux-ppc64-gnu | 1.2.19 | MIT |
+| @rolldown/binding-linux-s390x-gnu | 1.2.19 | MIT |
+| @rolldown/binding-linux-x64-gnu | 1.2.19 | MIT |
+| @rolldown/binding-linux-x64-musl | 1.2.19 | MIT |
+| @rolldown/binding-openharmony-arm64 | 1.2.19 | MIT |
+| @rolldown/binding-wasm32-wasi | 1.2.19 | MIT |
+| @rolldown/binding-win32-arm64-msvc | 1.2.19 | MIT |
+| @rolldown/binding-win32-x64-msvc | 1.2.19 | MIT |
 | @rolldown/pluginutils | 1.0.1 | MIT |
 | @sec-ant/readable-stream | 0.4.1 | MIT |
 | @sindresorhus/is | 7.2.0 | MIT |
 | @sindresorhus/merge-streams | 4.0.0 | MIT |
 | @speed-highlight/core | 1.2.24 | CC0-1.0 |
 | @swc/core | 1.16.1 | Apache-2.0 |
+| @swc/core | 1.16.21 | Apache-2.0 |
 | @swc/core-darwin-arm64 | 1.16.1 | Apache-2.0 AND MIT |
+| @swc/core-darwin-arm64 | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-darwin-x64 | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-linux-arm-gnueabihf | 1.16.21 | Apache-2.0 |
+| @swc/core-linux-arm64-gnu | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-linux-arm64-musl | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-linux-ppc64-gnu | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-linux-s390x-gnu | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-linux-x64-gnu | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-linux-x64-musl | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-win32-arm64-msvc | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-win32-ia32-msvc | 1.16.21 | Apache-2.0 AND MIT |
+| @swc/core-win32-x64-msvc | 1.16.21 | Apache-2.0 AND MIT |
 | @swc/counter | 0.1.3 | Apache-2.0 |
 | @swc/types | 0.1.28 | Apache-2.0 |
 | @tailwindcss/node | 4.3.3 | MIT |
+| @tailwindcss/node | 4.3.5 | MIT |
 | @tailwindcss/oxide | 4.3.3 | MIT |
+| @tailwindcss/oxide | 4.3.5 | MIT |
+| @tailwindcss/oxide-android-arm64 | 4.3.5 | MIT |
 | @tailwindcss/oxide-darwin-arm64 | 4.3.3 | MIT |
+| @tailwindcss/oxide-darwin-arm64 | 4.3.5 | MIT |
+| @tailwindcss/oxide-darwin-x64 | 4.3.5 | MIT |
+| @tailwindcss/oxide-freebsd-x64 | 4.3.5 | MIT |
+| @tailwindcss/oxide-linux-arm-gnueabihf | 4.3.5 | MIT |
+| @tailwindcss/oxide-linux-arm64-gnu | 4.3.5 | MIT |
+| @tailwindcss/oxide-linux-arm64-musl | 4.3.5 | MIT |
+| @tailwindcss/oxide-linux-x64-gnu | 4.3.5 | MIT |
+| @tailwindcss/oxide-linux-x64-musl | 4.3.5 | MIT |
+| @tailwindcss/oxide-wasm32-wasi | 4.3.5 | MIT |
+| @tailwindcss/oxide-win32-arm64-msvc | 4.3.5 | MIT |
+| @tailwindcss/oxide-win32-x64-msvc | 4.3.5 | MIT |
 | @tailwindcss/vite | 4.3.3 | MIT |
+| @tailwindcss/vite | 4.3.5 | MIT |
 | @tauri-apps/api | 2.12.1 | Apache-2.0 OR MIT |
+| @tauri-apps/api | 2.12.5 | Apache-2.0 OR MIT |
 | @tauri-apps/cli | 2.12.1 | Apache-2.0 OR MIT |
+| @tauri-apps/cli | 2.12.5 | Apache-2.0 OR MIT |
 | @tauri-apps/cli-darwin-arm64 | 2.12.1 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-darwin-arm64 | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-darwin-x64 | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-linux-arm-gnueabihf | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-linux-arm64-gnu | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-linux-arm64-musl | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-linux-riscv64-gnu | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-linux-x64-gnu | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-linux-x64-musl | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-win32-arm64-msvc | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-win32-ia32-msvc | 2.12.5 | Apache-2.0 OR MIT |
+| @tauri-apps/cli-win32-x64-msvc | 2.12.5 | Apache-2.0 OR MIT |
 | @tauri-apps/plugin-dialog | 2.7.2 | MIT OR Apache-2.0 |
+| @tauri-apps/plugin-dialog | 2.8.4 | MIT OR Apache-2.0 |
 | @tauri-apps/plugin-os | 2.3.2 | MIT OR Apache-2.0 |
+| @tauri-apps/plugin-os | 2.4.0 | MIT OR Apache-2.0 |
 | @tauri-apps/plugin-process | 2.3.1 | MIT OR Apache-2.0 |
+| @tauri-apps/plugin-process | 2.4.0 | MIT OR Apache-2.0 |
 | @tauri-apps/plugin-shell | 2.3.5 | MIT OR Apache-2.0 |
+| @tauri-apps/plugin-shell | 2.6.0 | MIT OR Apache-2.0 |
 | @testing-library/dom | 10.4.2 | MIT |
 | @testing-library/react | 16.3.3 | MIT |
+| @testing-library/user-event | 14.6.12 | MIT |
 | @testing-library/user-event | 14.6.7 | MIT |
+| @tybys/wasm-util | 0.10.3 | MIT |
+| @tybys/wasm-util | 0.10.5 | MIT |
 | @types/aria-query | 5.0.4 | MIT |
 | @types/chai | 5.2.3 | MIT |
 | @types/deep-eql | 4.0.2 | MIT |
 | @types/esrecurse | 4.3.1 | MIT |
+| @types/estree | 1.0.10 | MIT |
 | @types/estree | 1.0.9 | MIT |
 | @types/json-schema | 7.0.15 | MIT |
 | @types/lodash | 4.17.25 | MIT |
+| @types/lodash | 4.17.27 | MIT |
 | @types/lodash.debounce | 4.0.9 | MIT |
 | @types/lodash.throttle | 4.1.9 | MIT |
 | @types/react | 19.2.18 | MIT |
+| @types/react | 19.3.0 | MIT |
 | @types/react-dom | 19.2.4 | MIT |
+| @types/react-dom | 19.3.0 | MIT |
 | @types/react-reconciler | 0.28.9 | MIT |
 | @types/react-reconciler | 0.33.0 | MIT |
+| @types/react-reconciler | 0.34.0 | MIT |
 | @typescript-eslint/eslint-plugin | 8.67.0 | MIT |
+| @typescript-eslint/eslint-plugin | 8.72.2 | MIT |
 | @typescript-eslint/parser | 8.67.0 | MIT |
+| @typescript-eslint/parser | 8.72.2 | MIT |
 | @typescript-eslint/project-service | 8.67.0 | MIT |
+| @typescript-eslint/project-service | 8.72.2 | MIT |
 | @typescript-eslint/scope-manager | 8.67.0 | MIT |
+| @typescript-eslint/scope-manager | 8.72.2 | MIT |
 | @typescript-eslint/tsconfig-utils | 8.67.0 | MIT |
+| @typescript-eslint/tsconfig-utils | 8.72.2 | MIT |
 | @typescript-eslint/type-utils | 8.67.0 | MIT |
+| @typescript-eslint/type-utils | 8.72.2 | MIT |
 | @typescript-eslint/types | 8.67.0 | MIT |
+| @typescript-eslint/types | 8.72.2 | MIT |
 | @typescript-eslint/typescript-estree | 8.67.0 | MIT |
+| @typescript-eslint/typescript-estree | 8.72.2 | MIT |
 | @typescript-eslint/utils | 8.67.0 | MIT |
+| @typescript-eslint/utils | 8.72.2 | MIT |
 | @typescript-eslint/visitor-keys | 8.67.0 | MIT |
+| @typescript-eslint/visitor-keys | 8.72.2 | MIT |
 | @uiw/color-convert | 2.10.3 | MIT |
+| @uiw/color-convert | 2.10.4 | MIT |
 | @uiw/react-color-wheel | 2.10.3 | MIT |
+| @uiw/react-color-wheel | 2.10.4 | MIT |
 | @uiw/react-drag-event-interactive | 2.10.3 | MIT |
+| @uiw/react-drag-event-interactive | 2.10.4 | MIT |
 | @vitejs/plugin-react | 6.1.0 | MIT |
+| @vitejs/plugin-react | 6.3.0 | MIT |
 | @vitest/mocker | 5.0.3 | MIT |
 | @vitest/mocker | 5.0.5 | MIT |
+| @vitest/mocker | 5.1.0 | MIT |
 | @vitest/spy | 5.0.3 | MIT |
 | @vitest/spy | 5.0.5 | MIT |
+| @vitest/spy | 5.1.0 | MIT |
 | acorn | 8.18.0 | MIT |
+| acorn | 8.19.0 | MIT |
 | acorn-jsx | 5.3.2 | MIT |
 | ajv | 6.15.0 | MIT |
 | ansi-regex | 5.0.1 | MIT |
@@ -1117,11 +1271,15 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | assertion-error | 2.0.1 | MIT |
 | balanced-match | 4.0.4 | MIT |
 | baseline-browser-mapping | 2.11.27 | Apache-2.0 |
+| baseline-browser-mapping | 2.11.35 | Apache-2.0 |
 | bidi-js | 1.1.0 | MIT |
 | blake3-wasm | 2.1.5 | MIT |
 | brace-expansion | 5.0.12 | MIT |
 | browserslist | 4.29.3 | MIT |
+| browserslist | 4.29.5 | MIT |
+| cacheable | 2.5.0 | MIT |
 | caniuse-lite | 1.0.30001814 | CC-BY-4.0 |
+| caniuse-lite | 1.0.30001820 | CC-BY-4.0 |
 | chai | 6.3.0 | MIT |
 | chalk | 5.6.2 | MIT |
 | chardet | 2.2.0 | MIT |
@@ -1138,6 +1296,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | css-tree | 3.2.1 | MIT |
 | csstype | 3.2.3 | MIT |
 | data-urls | 7.0.0 | MIT |
+| data-urls | 8.0.0 | MIT |
 | debug | 4.4.3 | MIT |
 | decimal.js | 10.6.0 | MIT |
 | deep-is | 0.1.4 | MIT |
@@ -1145,13 +1304,17 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | detect-libc | 2.1.2 | Apache-2.0 |
 | dom-accessibility-api | 0.5.16 | MIT |
 | electron-to-chromium | 1.5.444 | ISC |
+| electron-to-chromium | 1.5.473 | ISC |
 | enhanced-resolve | 5.24.5 | MIT |
+| enhanced-resolve | 5.27.0 | MIT |
 | entities | 8.1.0 | BSD-2-Clause |
+| entities | 9.0.0 | BSD-2-Clause |
 | error-stack-parser-es | 1.0.5 | MIT |
 | es-module-lexer | 2.3.2 | MIT |
 | esbuild | 0.28.2 | MIT |
 | escalade | 3.2.0 | MIT |
 | escape-string-regexp | 4.0.0 | MIT |
+| eslint | 10.15.0 | MIT |
 | eslint | 10.9.0 | MIT |
 | eslint-plugin-i18next | 6.1.5 | ISC |
 | eslint-plugin-react-hooks | 7.1.1 | MIT |
@@ -1174,28 +1337,41 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | fast-wrap-ansi | 0.2.2 | MIT |
 | fdir | 6.5.0 | MIT |
 | figures | 6.1.0 | MIT |
+| file-entry-cache | 11.1.5 | MIT |
 | file-entry-cache | 8.0.0 | MIT |
 | find-up | 5.0.0 | MIT |
 | flat-cache | 4.0.1 | MIT |
+| flat-cache | 6.1.23 | MIT |
 | flatted | 3.4.4 | ISC |
 | framer-motion | 13.1.1 | MIT |
+| framer-motion | 13.5.1 | MIT |
 | fsevents | 2.3.3 | MIT |
 | gensync | 1.0.0-beta.2 | MIT |
 | get-east-asian-width | 1.6.0 | MIT |
 | get-stream | 9.0.1 | MIT |
 | glob | 13.0.6 | BlueOak-1.0.0 |
+| glob | 14.0.3 | BlueOak-1.0.0 |
 | glob-parent | 6.0.2 | ISC |
 | graceful-fs | 4.2.11 | ISC |
+| graceful-fs | 4.2.12 | BlueOak-1.0.0 |
+| hashery | 1.5.1 | MIT |
 | hermes-estree | 0.25.1 | MIT |
 | hermes-parser | 0.25.1 | MIT |
+| hookified | 1.15.1 | MIT |
+| hookified | 2.2.0 | MIT |
 | html-encoding-sniffer | 7.0.0 | MIT |
 | html-parse-stringify | 4.0.1 | MIT |
 | human-signals | 8.0.1 | Apache-2.0 |
 | i18next | 26.4.0 | MIT |
+| i18next | 26.7.2 | MIT |
+| i18next | 27.1.5 | MIT |
 | i18next-cli | 1.71.0 | MIT |
+| i18next-cli | 1.88.0 | MIT |
 | i18next-resources-for-ts | 2.1.0 | MIT |
+| i18next-resources-for-ts | 2.1.2 | MIT |
 | iconv-lite | 0.7.3 | MIT |
 | ignore | 5.3.2 | MIT |
+| ignore | 7.0.16 | MIT |
 | ignore | 7.0.6 | MIT |
 | imurmurhash | 0.1.4 | MIT |
 | inquirer | 14.1.0 | MIT |
@@ -1208,9 +1384,11 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | is-unicode-supported | 2.1.0 | MIT |
 | isexe | 2.0.0 | ISC |
 | its-fine | 2.0.0 | MIT |
+| its-fine | 2.1.1 | MIT |
 | jiti | 2.7.0 | MIT |
 | js-tokens | 4.0.0 | MIT |
 | jsdom | 30.1.1 | MIT |
+| jsdom | 30.1.3 | MIT |
 | jsesc | 3.1.0 | MIT |
 | json-buffer | 3.0.1 | MIT |
 | json-schema-traverse | 0.4.1 | MIT |
@@ -1218,13 +1396,25 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | json5 | 2.2.3 | MIT |
 | jsonc-parser | 3.3.1 | MIT |
 | keyv | 4.5.4 | MIT |
+| keyv | 5.6.0 | MIT |
 | kleur | 4.1.5 | MIT |
 | konva | 10.3.1 | MIT |
+| konva | 10.9.1 | MIT |
 | levn | 0.4.1 | MIT |
 | lightningcss | 1.32.0 | MPL-2.0 |
 | lightningcss | 1.33.0 | MPL-2.0 |
+| lightningcss-android-arm64 | 1.33.0 | MPL-2.0 |
 | lightningcss-darwin-arm64 | 1.32.0 | MPL-2.0 |
 | lightningcss-darwin-arm64 | 1.33.0 | MPL-2.0 |
+| lightningcss-darwin-x64 | 1.33.0 | MPL-2.0 |
+| lightningcss-freebsd-x64 | 1.33.0 | MPL-2.0 |
+| lightningcss-linux-arm-gnueabihf | 1.33.0 | MPL-2.0 |
+| lightningcss-linux-arm64-gnu | 1.33.0 | MPL-2.0 |
+| lightningcss-linux-arm64-musl | 1.33.0 | MPL-2.0 |
+| lightningcss-linux-x64-gnu | 1.33.0 | MPL-2.0 |
+| lightningcss-linux-x64-musl | 1.33.0 | MPL-2.0 |
+| lightningcss-win32-arm64-msvc | 1.33.0 | MPL-2.0 |
+| lightningcss-win32-x64-msvc | 1.33.0 | MPL-2.0 |
 | locate-path | 6.0.0 | MIT |
 | lodash.debounce | 4.0.8 | MIT |
 | lodash.throttle | 4.1.1 | MIT |
@@ -1232,24 +1422,32 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | lru-cache | 11.5.3 | BlueOak-1.0.0 |
 | lru-cache | 5.1.1 | ISC |
 | lucide-react | 1.33.0 | ISC |
+| lucide-react | 1.73.0 | ISC |
 | lz-string | 1.5.0 | MIT |
 | magic-string | 0.30.21 | MIT |
 | magic-string | 1.2.2 | MIT |
 | magic-string | 1.4.2 | MIT |
 | magic-string | 1.4.3 | MIT |
+| magic-string | 1.4.5 | MIT |
 | mdn-data | 2.27.1 | CC0-1.0 |
+| messageformat | 4.1.0 | Apache-2.0 |
 | mimic-function | 5.0.1 | MIT |
 | miniflare | 5.20261019.2-beta | MIT |
 | minimatch | 10.2.6 | BlueOak-1.0.0 |
+| minimatch | 11.0.4 | BlueOak-1.0.0 |
 | minipass | 7.1.3 | BlueOak-1.0.0 |
 | motion-dom | 13.1.1 | MIT |
+| motion-dom | 13.5.1 | MIT |
 | motion-utils | 13.0.0 | MIT |
+| motion-utils | 13.5.0 | MIT |
 | ms | 2.1.3 | MIT |
 | mute-stream | 3.0.0 | ISC |
+| nano-spawn | 2.1.0 | MIT |
 | nanoid | 3.3.18 | MIT |
 | nanoid | 3.3.20 | MIT |
 | natural-compare | 1.4.0 | MIT |
 | node-releases | 2.0.57 | MIT |
+| node-releases | 2.0.63 | MIT |
 | npm-run-path | 6.0.0 | MIT |
 | obug | 2.2.1 | MIT |
 | obug | 3.0.0 | MIT |
@@ -1260,41 +1458,57 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | p-locate | 5.0.0 | MIT |
 | parse-ms | 4.0.0 | MIT |
 | parse5 | 8.0.1 | MIT |
+| parse5 | 8.1.0 | MIT |
 | path-exists | 4.0.0 | MIT |
 | path-key | 3.1.1 | MIT |
 | path-key | 4.0.0 | MIT |
 | path-scurry | 2.0.2 | BlueOak-1.0.0 |
+| path-scurry | 3.0.0 | BlueOak-1.0.0 |
 | path-to-regexp | 6.3.0 | MIT |
 | pathe | 2.0.3 | MIT |
 | picocolors | 1.1.1 | ISC |
 | picomatch | 4.0.7 | MIT |
 | postcss | 8.5.26 | MIT |
 | postcss | 8.5.31 | MIT |
+| postcss | 8.5.32 | MIT |
 | prelude-ls | 1.2.1 | MIT |
+| prettier | 3.10.1 | MIT |
 | prettier | 3.9.6 | MIT |
 | pretty-format | 27.5.1 | MIT |
 | pretty-ms | 9.3.0 | MIT |
 | punycode | 2.3.1 | MIT |
+| qified | 0.10.1 | MIT |
 | react | 19.2.8 | MIT |
+| react | 19.3.1 | MIT |
 | react-dom | 19.2.8 | MIT |
+| react-dom | 19.3.1 | MIT |
 | react-i18next | 17.0.12 | MIT |
+| react-i18next | 17.1.13 | MIT |
+| react-i18next | 18.0.2 | MIT |
 | react-image-crop | 11.1.2 | ISC |
 | react-is | 17.0.2 | MIT |
 | react-konva | 19.2.5 | MIT |
+| react-konva | 19.3.2 | MIT |
 | react-reconciler | 0.33.0 | MIT |
+| react-reconciler | 0.34.0 | MIT |
 | react-toastify | 11.1.0 | MIT |
+| react-toastify | 11.2.0 | MIT |
 | readdirp | 5.1.1 | MIT |
 | require-from-string | 2.0.2 | MIT |
 | requireindex | 1.1.0 | MIT |
 | restore-cursor | 5.1.0 | MIT |
 | rolldown | 1.2.15 | MIT |
+| rolldown | 1.2.19 | MIT |
 | rolldown | 1.2.5 | MIT |
 | run-async | 4.0.6 | MIT |
 | safer-buffer | 2.1.2 | MIT |
 | saxes | 6.0.0 | ISC |
 | scheduler | 0.27.0 | MIT |
+| scheduler | 0.28.0 | MIT |
 | semver | 6.3.1 | ISC |
+| semver | 6.3.2 | ISC |
 | semver | 7.8.5 | ISC |
+| semver | 7.8.6 | ISC |
 | sharp | 0.35.5 | Apache-2.0 |
 | shebang-command | 2.0.0 | MIT |
 | shebang-regex | 3.0.0 | MIT |
@@ -1308,38 +1522,53 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | strip-final-newline | 4.0.0 | MIT |
 | supports-color | 10.2.2 | MIT |
 | tailwindcss | 4.3.3 | MIT |
+| tailwindcss | 4.3.5 | MIT |
 | tapable | 2.3.3 | MIT |
+| tapable | 2.3.4 | MIT |
 | tinybench | 6.2.0 | MIT |
 | tinybench | 6.2.2 | MIT |
+| tinybench | 6.2.3 | MIT |
 | tinyexec | 1.3.1 | MIT |
 | tinyglobby | 0.2.17 | MIT |
 | tldts | 7.4.16 | MIT |
+| tldts | 7.4.19 | MIT |
 | tldts-core | 7.4.16 | MIT |
+| tldts-core | 7.4.20 | MIT |
 | tough-cookie | 6.0.2 | BSD-3-Clause |
 | tr46 | 6.0.0 | MIT |
+| tr46 | 7.0.0 | MIT |
 | ts-api-utils | 2.5.0 | MIT |
 | tslib | 2.8.1 | 0BSD |
+| tslib | 2.9.1 | 0BSD |
 | type-check | 0.4.0 | MIT |
 | typescript | 5.9.3 | Apache-2.0 |
 | typescript | 6.0.3 | Apache-2.0 |
 | typescript-eslint | 8.67.0 | MIT |
+| typescript-eslint | 8.72.2 | MIT |
 | undici | 7.30.1 | MIT |
 | undici | 8.11.2 | MIT |
+| undici | 8.12.3 | MIT |
 | unenv | 2.0.0-rc.24 | MIT |
 | unicorn-magic | 0.3.0 | MIT |
 | update-browserslist-db | 1.3.3 | MIT |
+| update-browserslist-db | 1.3.4 | MIT |
 | uri-js | 4.4.1 | BSD-2-Clause |
 | use-sync-external-store | 1.6.0 | MIT |
+| use-sync-external-store | 1.7.0 | MIT |
 | uuid | 14.0.2 | MIT |
+| uuid | 14.0.3 | MIT |
 | vite | 8.2.2 | MIT |
 | vite | 8.3.5 | MIT |
+| vite | 8.3.8 | MIT |
 | vitest | 5.0.3 | MIT |
 | vitest | 5.0.5 | MIT |
+| vitest | 5.1.0 | MIT |
 | w3c-xmlserializer | 6.0.0 | MIT |
 | webidl-conversions | 8.0.1 | BSD-2-Clause |
 | whatwg-mimetype | 5.0.0 | MIT |
 | whatwg-url | 16.0.1 | MIT |
 | whatwg-url | 17.1.2 | MIT |
+| whatwg-url | 17.3.0 | MIT |
 | which | 2.0.2 | ISC |
 | which-command | 0.1.0 | MIT |
 | why-is-node-running | 3.2.1 | MIT |
@@ -1351,11 +1580,15 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | xmlchars | 2.2.0 | MIT |
 | yallist | 3.1.1 | ISC |
 | yaml | 2.9.0 | ISC |
+| yaml | 2.9.1 | ISC |
 | yocto-queue | 0.1.0 | MIT |
+| yocto-spinner | 1.2.2 | MIT |
 | yoctocolors | 2.2.0 | MIT |
 | youch | 4.1.0-beta.10 | MIT |
 | youch-core | 0.3.3 | MIT |
 | zod | 4.6.5 | MIT |
 | zod | 4.6.6 | MIT |
+| zod | 4.6.7 | MIT |
 | zod-validation-error | 4.0.2 | MIT |
 | zustand | 5.0.15 | MIT |
+| zustand | 5.1.0 | MIT |

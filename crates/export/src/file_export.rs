@@ -306,11 +306,15 @@ impl FileExporter {
         if let Some(inputs) = &self.render_inputs {
             inputs.clear();
         }
+        // The app reads the EXIF map its loader cached for the source; it is
+        // extracted the same way here, once and before the develop: the
+        // extraction reads the whole source file (123 MB for an uncompressed
+        // 60 MP RAW), which beside the render raised the export's peak
+        // (notes: benchmark-results/mem14-2026-11-17).
+        let exif = source_exif(job.source, job.capture.as_ref());
+        let exif_sidecar = || exif.clone();
         let developed = self.develop(job)?;
         let source_path_str = developed.path.as_str();
-        // The app reads the EXIF map its loader cached for the source; it is
-        // extracted the same way here.
-        let exif_sidecar = || source_exif(job.source, job.capture.as_ref());
         let catalog = || job.catalog.clone();
         let write =
             |path: &Path, _extension: &str, encoded: EncodedExport| write_new_export(path, encoded);
@@ -387,7 +391,7 @@ mod tests {
         );
         // Its file times follow the corrected date.
         let date = crate::exif_processing::capture_date_with(&source, &|| Some(corrected.clone()));
-        let local = date.to_zoned_datetime(jiff::tz::TimeZone::system());
+        let local = date.to_zoned_datetime(rawtonic_runtime::local_time::zone());
         assert_eq!((local.day(), local.hour(), local.minute()), (31, 0, 30));
     }
 }

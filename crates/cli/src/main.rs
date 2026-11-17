@@ -1500,9 +1500,11 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
     }
     let values = PageValues {
         job: args.job,
-        date: args
-            .date
-            .unwrap_or_else(|| jiff::ZonedDateTime::now().strftime("%Y-%m-%d").to_string()),
+        date: args.date.unwrap_or_else(|| {
+            rawtonic_runtime::local_time::now()
+                .strftime("%Y-%m-%d")
+                .to_string()
+        }),
         count: total,
     };
     let written =
