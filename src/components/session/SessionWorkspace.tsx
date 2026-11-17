@@ -2480,7 +2480,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                       filters: [
                         {
                           name: t('session.import.filterName'),
-                          extensions: ['lrcat', 'cosessiondb']
+                          extensions: ['lrcat', 'cosessiondb', 'cocatalog', 'cocatalogdb']
                         }
                       ]
                     }).then((value) => {

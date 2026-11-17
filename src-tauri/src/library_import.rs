@@ -36,11 +36,18 @@ fn read_source(path: &Path) -> Result<(Source, &'static str), String> {
         .unwrap_or_default();
     let result = if name.ends_with(".lrcat") {
         rawtonic_interop::lightroom::read(path).map(|lib| (lib, "lightroom"))
-    } else if name.ends_with(".cosessiondb") {
+    } else if name.ends_with(".cosessiondb") || name.ends_with(".cocatalogdb") {
         rawtonic_interop::capture_one::read(path).map(|lib| (lib, "captureOne"))
+    } else if name.ends_with(".cocatalog") {
+        // A Capture One catalog is a folder (a package on macOS) holding
+        // `<name>.cocatalogdb`.
+        let mut name = path.file_stem().unwrap_or_default().to_os_string();
+        name.push(".cocatalogdb");
+        let db = path.join(name);
+        rawtonic_interop::capture_one::read(&db).map(|lib| (lib, "captureOne"))
     } else {
         return Err(
-            "Choose a Lightroom Classic catalog (.lrcat) or a Capture One session (.cosessiondb)."
+            "Choose a Lightroom Classic catalog (.lrcat), a Capture One session (.cosessiondb) or a Capture One catalog (.cocatalog)."
                 .into(),
         );
     };
@@ -101,7 +108,7 @@ fn preview(source: &Source, kind: &'static str) -> ImportPreview {
         photos: originals().count(),
         copies: source.photos.len() - originals().count(),
         edited: originals()
-            .filter(|p| !matches!(p.develop, Develop::None))
+            .filter(|p| !matches!(p.develop, Develop::None) || !p.capture_one_layers.is_empty())
             .count(),
         albums: source
             .albums
@@ -289,6 +296,10 @@ pub fn translate(develop: &Develop) -> Option<Value> {
 }
 
 fn import_warnings(photo: &Photo) -> Vec<String> {
+    let (_, layers) = crate::capture_one_layers::layers(&photo.capture_one_layers);
+    let layers = layers
+        .into_iter()
+        .map(|line| format!("{}: {line}", photo.path.display()));
     std::iter::once((None, &photo.develop))
         .chain(
             photo
@@ -309,6 +320,7 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
                 .collect::<String>();
             Some(format!("{}{}: {warning}", photo.path.display(), context))
         })
+        .chain(layers)
         .collect()
 }
 
@@ -549,8 +561,31 @@ struct Imported {
 /// mode) as Lightroom's lens profile switch and amounts decide
 /// (`lightroom_lens`); its crop and straightening become `crop` and
 /// `rotation` in the photo's own frame (`rawtonic_engine::lightroom_crop`).
-fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
-    let mut adjustments = translate(develop)?;
+fn recipe_for(
+    develop: &Develop,
+    layers: &[rawtonic_interop::capture_one::Layer],
+    path: &Path,
+) -> Option<(Value, bool)> {
+    let (layers, _) = crate::capture_one_layers::layers(layers);
+    let mut adjustments = match translate(develop) {
+        Some(adjustments) => adjustments,
+        None if !layers.is_empty() => json!({}),
+        None => return None,
+    };
+    // Capture One's local adjustment layers (`capture_one_layers`), above
+    // any the photo's settings brought.
+    if !layers.is_empty()
+        && let Some(map) = adjustments.as_object_mut()
+    {
+        let entry = map
+            .entry(rawtonic_recipe::masks::MASKS.name())
+            .or_insert_with(|| json!([]));
+        if let Some(existing) = entry.as_array_mut() {
+            existing.extend(layers);
+        } else {
+            *entry = Value::Array(layers);
+        }
+    }
     let is_raw = crate::formats::is_raw_file(path);
     let mut base = json!({});
     rawtonic_engine::image_processing::apply_render_default(&mut base);
@@ -747,7 +782,7 @@ fn lightroom_crop(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
 
 /// Registers one photograph with its translated edit and snapshots.
 fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imported)> {
-    let recipe = recipe_for(&photo.develop, &photo.path);
+    let recipe = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path);
     let mut imported = Imported {
         translated: recipe.is_some(),
         ai_masks: recipe
@@ -814,7 +849,7 @@ fn import_snapshots(
         // A snapshot at Lightroom's defaults is the photo as it develops
         // without an edit.
         let (adjustments, was_clipped) =
-            recipe_for(develop, &photo.path).unwrap_or((json!({}), false));
+            recipe_for(develop, &[], &photo.path).unwrap_or((json!({}), false));
         clipped += usize::from(was_clipped);
         catalog.add_snapshot(version, name, adjustments)?;
     }
@@ -882,7 +917,7 @@ fn import_copy(
         }
     }
     let id = id.ok_or_else(|| anyhow::anyhow!("No free name for the virtual copy"))?;
-    let recipe = recipe_for(&photo.develop, &photo.path);
+    let recipe = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path);
     let mut imported = Imported {
         translated: recipe.is_some(),
         ai_masks: recipe
@@ -986,6 +1021,7 @@ mod tests {
             copy_name: None,
             snapshots: Vec::new(),
             uid: None,
+            capture_one_layers: Vec::new(),
         }
     }
 
@@ -1945,6 +1981,50 @@ ProcessVersion = "15.4" }}"#
             .unwrap();
         }
         println!("{}x{}", full.width(), full.height());
+    }
+
+    /// Writes the edit the import makes for every photograph and variant of
+    /// the Capture One session or catalog `$C1_IMPORT_DB` to
+    /// `$C1_IMPORT_OUT/<variant>.json` (as imported, geometry pending) and
+    /// the import report's lines to `$C1_IMPORT_OUT/warnings.txt`.
+    #[test]
+    #[ignore = "tool: needs C1_IMPORT_DB and C1_IMPORT_OUT"]
+    fn import_capture_one_edits() {
+        let var = |k: &str| std::env::var(k).unwrap();
+        let (source, _) = read_source(Path::new(&var("C1_IMPORT_DB"))).unwrap();
+        let out = PathBuf::from(var("C1_IMPORT_OUT"));
+        let mut warnings = Vec::new();
+        for photo in &source.photos {
+            let (recipe, _) = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path)
+                .unwrap_or((json!({}), false));
+            rawtonic_export::output::write_new_output(
+                out.join(format!("{}.json", photo.key)),
+                recipe.to_string(),
+            )
+            .unwrap();
+            warnings.extend(import_warnings(photo));
+        }
+        rawtonic_export::output::write_new_output(out.join("warnings.txt"), warnings.join("\n"))
+            .unwrap();
+        println!(
+            "{} photos, not read {:?}",
+            source.photos.len(),
+            source.not_read
+        );
+    }
+
+    /// A catalog folder named with dots (`Wedding.2026.cocatalog`) is read
+    /// from the database inside it (`Wedding.2026.cocatalogdb`).
+    #[test]
+    fn capture_one_catalogs_with_dotted_names_are_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = dir.path().join("Wedding.2026.cocatalog");
+        let db = capture_one_session(dir.path(), "Wedding.2026");
+        fs::create_dir_all(&catalog).unwrap();
+        fs::copy(&db, catalog.join("Wedding.2026.cocatalogdb")).unwrap();
+        let (source, kind) = read_source(&catalog).unwrap();
+        assert_eq!(kind, "captureOne");
+        assert_eq!(source.name, "Wedding.2026");
     }
 
     #[test]

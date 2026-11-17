@@ -31,6 +31,7 @@ mod camera_crop;
 mod camera_preview;
 mod camera_profile;
 mod camera_tethering;
+mod capture_one_layers;
 mod capture_time;
 mod catalog_subset;
 mod collage;
