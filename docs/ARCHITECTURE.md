@@ -542,6 +542,8 @@ as heal spots, synced to the same camera through `lightroom_retouch`'s pending f
 `src-tauri/src/spot_removal.rs` with face boxes from `rawtonic_faces`), lightroom_retouch (imported Lightroom spots and
 red eyes placed from Lightroom's geometry on the base image), lightroom_crop (Lightroom's crop and straighten as
 `crop`/`rotation` in the photo's frame, from the sensor area `rawdecode::source_frame::frame_and_sensor` reads),
+lightroom_upright (Lightroom's Guided Upright guides as `guidedPerspective` lines, through the photo's lens correction
+when Lightroom's profile was on),
 face_retouch, mask_generation rasterisation + masks definitions + mask_parameters (brush strokes a preview request
 refers to by token), cache_utils hashes, lut, source_frame (a recipe's frame version, the frames a file's versions
 develop alike, a Reset's recipe), camera_crop (that aspect ratio as the crop of new recipes, ADR 0020 option C),
