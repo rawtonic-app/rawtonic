@@ -269,7 +269,7 @@ impl IFD {
     for _ in 0..entry_count {
       //let embedded = reader.read_u32()?;
       let tag = reader.read_u16()?;
-      if tag == LegacyTiffRootTag::SubIFDs.into() || sub_tags.contains(&tag) {
+      if tag == Into::<u16>::into(LegacyTiffRootTag::SubIFDs) || sub_tags.contains(&tag) {
         let entry = Entry::parse(&mut reader, base, corr, tag)?;
         match entry.value {
           Value::Long(offsets) => {
