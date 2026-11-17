@@ -1931,14 +1931,31 @@ fn export_photo(
     // mask layers, or without them when they go to separate files.
     let with_mask_files = |target: usize| targets[target].export_settings.export_masks;
     let mut prepared: [Option<Result<PreparedExport, String>>; 2] = [None, None];
-    for &target in &images {
+    // Only separate mask files need source pixels after rendering; else the
+    // last develop takes the source, so it is freed once on the GPU.
+    let wants_mask_source = images.iter().any(|&target| with_mask_files(target));
+    let first_of_kind = |index: usize| {
+        images
+            .iter()
+            .position(|&other| with_mask_files(other) == with_mask_files(images[index]))
+            == Some(index)
+    };
+    let last_develop = (0..images.len()).rev().find(|&index| first_of_kind(index));
+    let mut source = Some(source);
+    for (index, &target) in images.iter().enumerate() {
         let masks = with_mask_files(target);
         if prepared[masks as usize].is_none() {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("export_prepare");
+            let this_source = if !wants_mask_source && Some(index) == last_develop {
+                source.take()
+            } else {
+                source.clone()
+            }
+            .expect("the source until the last develop");
             prepared[masks as usize] = Some(prepare_export_render(
                 &source_path_str,
-                source.clone(),
+                this_source,
                 &main_export_adjustments(&js_adjustments, &targets[target].export_settings),
                 &versions,
                 &env,
@@ -1979,11 +1996,7 @@ fn export_photo(
         );
     }
     let mut rendered = GroupRenders::new(groups);
-    // Only separate mask files need source pixels after rendering.
-    let mask_source = images
-        .iter()
-        .any(|&target| with_mask_files(target))
-        .then_some(source);
+    let mask_source = source.filter(|_| wants_mask_source);
 
     let exif_sidecar = || pinned.exif(original_path);
     let catalog = || pinned.metadata.clone();

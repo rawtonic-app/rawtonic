@@ -22,9 +22,9 @@ use crate::adjustment_utils::{apply_transformations_after_warp, apply_warp, crop
 use crate::cache_utils::calculate_full_job_hash;
 use crate::gpu_processing::{
     GpuContext, GpuImageCache, GpuProcessorSlot, MaskUploader, ReadbackShader, RenderOutput,
-    RenderOutputPrecision, RenderRequest, RenderSource, process_and_get_dynamic_image_inner,
-    process_and_get_dynamic_images, upload_fringed_render_source, upload_render_source,
-    upload_warped_render_source,
+    RenderOutputPrecision, RenderRequest, RenderSource, WarpedUpload,
+    process_and_get_dynamic_image_inner, process_and_get_dynamic_images,
+    upload_fringed_render_source, upload_render_source, upload_warped_render_source,
 };
 use crate::image_processing::{
     AllAdjustments, MAX_MASKS, PreparedAdjustments, get_all_adjustments_with_masks,
@@ -1323,12 +1323,16 @@ pub fn render_and_save(
     )?;
     #[cfg(feature = "performance-profiling")]
     drop(render_stage);
-    render_prepared_and_save(
+    let processed = render_prepared(&prepared, export_settings, env, output)?;
+    // Its textures are not read again: freed before the resize and encode
+    // (notes: benchmark-results/mem11-2026-11-17).
+    drop(prepared);
+    crate::gpu_processing::free_dropped_resources(&env.context.device);
+    save_rendered_export(
+        processed,
         source_path_str,
-        &prepared,
         js_adjustments,
         export_settings,
-        env,
         output,
         cancelled,
     )
@@ -1362,23 +1366,7 @@ pub fn render_prepared_and_save(
     output: &ExportOutput,
     cancelled: &dyn Fn() -> Result<(), String>,
 ) -> Result<(), String> {
-    let actual_output_format = output
-        .path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or(output.format);
-
-    #[cfg(feature = "performance-profiling")]
-    let render_stage = crate::performance::PerformanceStage::new("export_render");
-    let processed = render_prepared_export(
-        prepared,
-        env,
-        "process_image_for_export",
-        render_output_precision(actual_output_format, export_settings),
-        export_settings.color_space,
-    )?;
-    #[cfg(feature = "performance-profiling")]
-    drop(render_stage);
+    let processed = render_prepared(prepared, export_settings, env, output)?;
     save_rendered_export(
         processed,
         source_path_str,
@@ -1386,6 +1374,30 @@ pub fn render_prepared_and_save(
         export_settings,
         output,
         cancelled,
+    )
+}
+
+/// One recipe's render of its main export file.
+fn render_prepared(
+    prepared: &PreparedExport,
+    export_settings: &ExportSettings,
+    env: &RenderEnv,
+    output: &ExportOutput,
+) -> Result<DynamicImage, String> {
+    let actual_output_format = output
+        .path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or(output.format);
+
+    #[cfg(feature = "performance-profiling")]
+    let _render_stage = crate::performance::PerformanceStage::new("export_render");
+    render_prepared_export(
+        prepared,
+        env,
+        "process_image_for_export",
+        render_output_precision(actual_output_format, export_settings),
+        export_settings.color_space,
     )
 }
 
@@ -1564,28 +1576,41 @@ pub fn prepare_export_render(
     // warp before it stays on the GPU too (notes: parity-gaps/G43, tasks
     // BX7, GW). The warp keeps the frame's size.
     let (source_w, source_h) = source.base().dimensions();
+    let (photo_w, photo_h) = source.pristine.dimensions();
     let after_fringe = crop_after_fringe(js_adjustments, source_w, source_h);
+    // The pixels the transform reads. Only parametric mask layers read the
+    // photo again (as decoded); otherwise this export's references go with
+    // the upload, so a source loaded for this export alone is freed before
+    // the warped frame is allocated (notes: benchmark-results/mem11-2026-11-17).
+    let ExportSource {
+        pristine, patched, ..
+    } = source;
+    let mask_source = mask_definitions
+        .iter()
+        .any(MaskDefinition::requires_warped_image)
+        .then(|| pristine.clone());
+    let base = patched.unwrap_or(pristine);
     let mut transform_path = "gpu_warp";
-    let on_gpu = after_fringe
-        .map(|(window, offset)| {
-            upload_warped_render_source(
-                context,
-                source.base(),
-                js_adjustments,
-                is_raw,
-                window,
-                unique_hash,
-                color_noise,
-            )
-            .map(|uploaded| uploaded.map(|uploaded| (uploaded, window, offset)))
-        })
-        .transpose()?
-        .flatten();
-    let (warped, fringed) = match on_gpu {
-        Some(uploaded) => (None, Some(uploaded)),
-        None => {
+    let (base, on_gpu) = match after_fringe {
+        Some((window, offset)) => match upload_warped_render_source(
+            context,
+            base,
+            js_adjustments,
+            is_raw,
+            window,
+            unique_hash,
+            color_noise,
+        )? {
+            WarpedUpload::Uploaded(uploaded) => (None, Some((uploaded, window, offset))),
+            WarpedUpload::NotOnGpu(base) => (Some(base), None),
+        },
+        None => (Some(base), None),
+    };
+    let (warped, fringed) = match (on_gpu, &base) {
+        (Some(uploaded), _) => (None, Some(uploaded)),
+        (None, Some(base)) => {
             transform_path = "gpu_fringe";
-            let warped = apply_warp(Cow::Borrowed(source.base()), js_adjustments, is_raw)?;
+            let warped = apply_warp(Cow::Borrowed(&**base), js_adjustments, is_raw)?;
             let fringed = after_fringe
                 .map(|(window, offset)| {
                     upload_fringed_render_source(
@@ -1602,6 +1627,7 @@ pub fn prepare_export_render(
                 .flatten();
             (Some(warped), fringed)
         }
+        (None, None) => unreachable!("the source unless uploaded"),
     };
     let (transformed_image, uploaded, (img_w, img_h), unscaled_crop_offset) = match fringed {
         Some((uploaded, [_, _, width, height], offset)) => {
@@ -1619,12 +1645,11 @@ pub fn prepare_export_render(
     #[cfg(feature = "performance-profiling")]
     drop(transform_stage);
 
-    let warped_image = mask_definitions
-        .iter()
-        .any(MaskDefinition::requires_warped_image)
-        .then(|| prepare_parametric_mask_source(&source.pristine, is_raw, 1.0, js_adjustments))
+    let warped_image = mask_source
+        .as_deref()
+        .map(|pristine| prepare_parametric_mask_source(pristine, is_raw, 1.0, js_adjustments))
         .transpose()?;
-    let (photo_w, photo_h) = source.pristine.dimensions();
+    drop(mask_source);
     let mask_geometry =
         PhotoGeometry::from_adjustments(js_adjustments).with_decoded_size(photo_w, photo_h);
     if let Some(inputs) = env.render_inputs {
@@ -1702,7 +1727,7 @@ pub fn prepare_export_render(
     // The GPU holds the pixels now. A source shared with the editor stays
     // alive there; a source loaded for this export is freed (0.6 GB at 50 MP).
     drop(transformed_image);
-    drop(source);
+    drop(base);
     crate::allocator::release_freed_memory();
 
     // Layers are independent: generated side by side, as some (Auto Mask
