@@ -479,6 +479,14 @@ impl ColorGradingVersion {
     pub fn per_channel(self) -> bool {
         self.0 >= 3
     }
+
+    /// The tint also applied to each channel by its own lightness, mixed in
+    /// with the shader's `GRADING_CHANNEL_WEIGHT`, so a tint depends on the
+    /// colour it lands on as Camera Raw's does; the four atlas hues of every
+    /// wheel refitted for it (`colorGradingVersion` 4).
+    pub fn tint_per_channel(self) -> bool {
+        self.0 >= 4
+    }
 }
 
 /// The film grain (`grainVersion` 3).

@@ -3957,6 +3957,72 @@ fn gamut_knee_timing_probe() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; compares the colour grading responses"]
+fn colour_grading_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size; the variants alternate within one
+    // process and the dragged wheel moves a little every frame (all four
+    // wheels set, with Luminance: the costliest path of each version).
+    let variants = [("none", 0u64), ("v2", 2), ("v3", 3), ("v4", 4)];
+    let (width, height, frames) = (2304, 1728, 40);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 3);
+    let mut times = vec![Vec::new(); variants.len()];
+    for frame in 0..frames + 2 {
+        for (i, (_, version)) in variants.iter().enumerate() {
+            let profile = if *version == 0 {
+                json!({})
+            } else {
+                json!({"colorGradingVersion": version, "colorGrading": {
+                    "shadows": {"hue": 220.0 + 0.01 * frame as f64, "saturation": 60, "luminance": -20},
+                    "midtones": {"hue": 120, "saturation": 30, "luminance": 10},
+                    "highlights": {"hue": 40, "saturation": 80, "luminance": -30},
+                    "global": {"hue": 300, "saturation": 10},
+                    "blending": 50, "balance": 10
+                }})
+            };
+            let adjustments = get_all_adjustments_from_json(&profile, true, None);
+            // Versions 2, 3 and 4 take shader paths 1, 3 and 5.
+            assert_eq!(
+                adjustments.uniforms.global.grading_active,
+                [0, 0, 1, 3, 5][*version as usize]
+            );
+            let start = Instant::now();
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            context
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if frame >= 2 {
+                times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (i, (name, ..)) in variants.iter().enumerate() {
+        let t = &mut times[i];
+        t.sort_by(f64::total_cmp);
+        println!(
+            "{}",
+            json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"p90_ms":t[t.len() * 9 / 10],"min_ms":t[0],"frames":frames})
+        );
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; compares the colour mixer responses"]
 fn colour_mixer_version_timing_probe() {
     let context = context();

@@ -1660,6 +1660,61 @@ pub(crate) fn naming_capture(
     rawtonic_ingest::naming_capture(original, metadata)
 }
 
+/// A photo's render `groups` (their recipes consecutive in `images`, the
+/// order the recipes are saved in) reordered so that a group whose first
+/// TIFF is a full-size one (`full_size`) renders for it: that TIFF is saved
+/// first, its file written while the group renders, so no TIFF render is
+/// held whole beside a JPEG's (`streaming_tiff_first`; notes:
+/// benchmark-results/mem15-2026-11-17). It passes only files of other
+/// formats, so every name stays; only in a group whose recipes all have the
+/// same destination (a file could otherwise take the name of another
+/// recipe's subfolder), and never when a recipe writes separate mask files
+/// (mask files of any recipe may take each other's names).
+fn render_groups_for_streaming_tiffs(
+    targets: &[ExportTarget],
+    images: &mut [usize],
+    groups: &mut [Vec<usize>],
+    full_size: impl Fn(usize) -> bool,
+) {
+    if images
+        .iter()
+        .any(|&target| targets[target].export_settings.export_masks)
+    {
+        return;
+    }
+    let is_tiff = |target: usize| {
+        matches!(
+            targets[target].output_format.to_ascii_lowercase().as_str(),
+            "tif" | "tiff"
+        )
+    };
+    let destination = |target: usize| {
+        let (t, settings) = (&targets[target], &targets[target].export_settings);
+        (
+            &t.output_folder_or_file,
+            &t.base_origin_folders,
+            &settings.destination_type,
+            &settings.subfolder,
+            settings.preserve_folders,
+        )
+    };
+    for group in groups {
+        if group
+            .iter()
+            .any(|&target| destination(target) != destination(group[0]))
+        {
+            continue;
+        }
+        let Some(start) = images.iter().position(|&target| target == group[0]) else {
+            continue;
+        };
+        streaming_tiff_first(group, is_tiff, |target| {
+            is_tiff(target) && full_size(target)
+        });
+        images[start..start + group.len()].copy_from_slice(group);
+    }
+}
+
 /// Each of `targets` in turn: its file is planned right before it is
 /// exported, so it sees the files the recipes before it wrote (their mask
 /// files too), as when each recipe was an export of its own.
@@ -1970,6 +2025,8 @@ fn export_photo(
     // before their first recipe is saved: a photo keeps at most one group
     // (`render_groups`, `GroupRenders`).
     let alone = |target: usize| targets[target].is_explicit_file_path && item.total_paths == 1;
+    let together =
+        |a: usize, b: usize| with_mask_files(a) == with_mask_files(b) && !alone(a) && !alone(b);
     let precision = |target: usize| {
         render_output_precision(
             &targets[target].output_format,
@@ -1977,9 +2034,7 @@ fn export_photo(
         )
     };
     let mut groups: Vec<Vec<usize>> = Vec::new();
-    for run in
-        images.chunk_by(|&a, &b| with_mask_files(a) == with_mask_files(b) && !alone(a) && !alone(b))
-    {
+    for run in images.chunk_by(|&a, &b| together(a, b)) {
         let Some(Ok(prepared)) = &prepared[with_mask_files(run[0]) as usize] else {
             continue;
         };
@@ -1994,6 +2049,14 @@ fn export_photo(
                 .map(|group| run[group].to_vec()),
         );
     }
+    let mut images = images;
+    render_groups_for_streaming_tiffs(targets, &mut images, &mut groups, |target| {
+        matches!(
+            &prepared[with_mask_files(target) as usize],
+            Some(Ok(prepared))
+                if render_is_file(&targets[target].export_settings, prepared.size())
+        )
+    });
     let mut rendered = GroupRenders::new(groups);
     let mask_source = source.filter(|_| wants_mask_source);
 
@@ -2878,7 +2941,7 @@ fn estimate_sizes(
 mod tests {
     use super::{
         ExportTarget, PhotoItem, PlannedFiles, crashed_export_error, export_in_turn, is_open_edit,
-        plan_output_path,
+        plan_output_path, render_groups_for_streaming_tiffs,
     };
 
     /// Exercise the app's layer export, including real PNG encoding and
@@ -3356,6 +3419,102 @@ mod tests {
         assert!(!super::stopped_short([]));
     }
     use std::path::Path;
+
+    /// A photo's full-size TIFF is saved first within its render group
+    /// (it then streams), but never where that could change a file's name
+    /// or folder (MEM15 review round 3): a JPEG whose subfolder `{orig}` is
+    /// `Photo.tiff/` before a TIFF named `{orig_base}` keeps today's order,
+    /// so the JPEG makes its folder and the TIFF becomes `Photo_1.tiff`.
+    #[test]
+    fn a_full_size_tiff_goes_first_only_where_names_and_folders_stay() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = |format: &str, settings: serde_json::Value| ExportTarget {
+            output_folder_or_file: dir.path().to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(settings).unwrap(),
+            output_format: format.to_string(),
+            tracking: None,
+        };
+        let settings = |extra: serde_json::Value| {
+            let mut settings = serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+                "tiffBitDepth": 16,
+            });
+            settings
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            settings
+        };
+        let order = |targets: &[ExportTarget]| {
+            let mut images = vec![0, 1];
+            let mut groups = vec![vec![0, 1]];
+            render_groups_for_streaming_tiffs(targets, &mut images, &mut groups, |_| true);
+            assert_eq!(groups[0], images, "the group renders in the saved order");
+            images
+        };
+
+        // Same folder: the TIFF goes first.
+        let same = [
+            target("jpg", settings(serde_json::json!({}))),
+            target("tiff", settings(serde_json::json!({}))),
+        ];
+        assert_eq!(order(&same), [1, 0]);
+        // Mask files: the asked order.
+        let masks = [
+            target("jpg", settings(serde_json::json!({"exportMasks": true}))),
+            target("tiff", settings(serde_json::json!({}))),
+        ];
+        assert_eq!(order(&masks), [0, 1]);
+
+        // Round 3's case: today's order and today's names.
+        let r3 = [
+            target("jpg", settings(serde_json::json!({"subfolder": "{orig}"}))),
+            target(
+                "tiff",
+                settings(serde_json::json!({"filenameTemplate": "{orig_base}"})),
+            ),
+        ];
+        let saved = order(&r3);
+        assert_eq!(saved, [0, 1]);
+        let item = PhotoItem {
+            global_index: 0,
+            image_path_str: "/photos/Photo.tiff",
+            appearance_count: 1,
+            explicit_vc: None,
+            total_paths: 2,
+        };
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let date = jiff::Timestamp::now();
+        let mut written = Vec::new();
+        let results = export_in_turn(
+            saved,
+            |t| {
+                plan_output_path(
+                    &r3[t],
+                    &item,
+                    Path::new("/photos/Photo.tiff"),
+                    &date,
+                    None,
+                    0,
+                    &used,
+                )
+            },
+            |_, path| {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(path)
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
+                written.push(path.strip_prefix(dir.path()).unwrap().to_path_buf());
+                Ok(())
+            },
+        );
+        assert!(results.iter().all(|(_, r)| r.is_ok()), "{results:?}");
+        assert_eq!(written[0].parent().unwrap(), Path::new("Photo.tiff"));
+        assert_eq!(written[1], Path::new("Photo_1.tiff"));
+    }
 
     /// A later recipe of the same photo names its file after the earlier
     /// ones wrote theirs, mask files included (UT batch export, F10 review):
