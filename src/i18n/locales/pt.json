@@ -534,12 +534,14 @@
     },
     "editWith": {
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
+      "closeLibraryFirst": "Feche a sessão ou o catálogo aberto para tentar de novo: estas fotos foram editadas fora de uma biblioteca.",
       "failed": "Editar com falhou: {{error}}",
       "generatedAreas": "Editar com ainda não está disponível para fotografias com áreas geradas: {{names}}",
       "interrupted": "«Editar com» em {{app}} foi interrompido ao fechar o Rawtonic. Tente novamente para renderizar as fotos outra vez.",
       "label": "Editar com",
       "notLinked": "Renderizado, mas não adicionado à biblioteca: {{error}}",
       "openIn": "Abrir em",
+      "openLibraryFirst": "Abra {{library}} novamente para tentar de novo: as fotos são processadas com as edições que têm lá.",
       "recipe": "Receita",
       "rendering": "A renderizar para {{app}}…",
       "someFailed": "Não foi possível renderizar {{failed}} de {{total}} fotografias.",
@@ -559,6 +561,7 @@
       "label": "Abrir com",
       "none": "Nenhuma aplicação abre estes ficheiros",
       "other": "Outra…",
+      "pickFailed": "Não foi possível escolher esse programa: {{error}}",
       "reading": "A procurar aplicações…",
       "unsupported": "Ainda não disponível no Linux"
     },
@@ -1096,6 +1099,7 @@
       "people": "Pessoas",
       "quickEraser": "Borracha Rápida",
       "radial": "Radial",
+      "raster": "Máscara importada",
       "retouch": "Retoque",
       "sky": "Céu",
       "subject": "Motivo"

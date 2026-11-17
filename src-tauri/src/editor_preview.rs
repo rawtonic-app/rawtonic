@@ -3080,23 +3080,9 @@ async fn show_still(
             false => Activation::None,
         };
     }
-    let (app, wanted, raw) = (app_handle.clone(), path.to_string(), source.clone());
+    let (app, wanted) = (app_handle.clone(), path.to_string());
     let thumbnail = tokio::task::spawn_blocking(move || {
-        let file = crate::file_management::cached_medium_thumbnail(&app, &wanted)?;
-        let bytes = std::fs::read(file).ok()?;
-        let mut image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)
-            .ok()?
-            .to_rgba8();
-        gpu_processing::srgb_to_display(space, &mut image);
-        // A never-edited RAW's thumbnail is its camera JPEG: framed like the
-        // development, as the embedded JPEG replacing it will be (header
-        // tags of the memory-mapped file only; never a cloud file not
-        // downloaded yet).
-        let developed = (never_edited && crate::preview_proxy::source_available(&raw))
-            .then(|| crate::embedded_still::frame_of(&raw))
-            .flatten()
-            .and_then(|frame| frame.size);
-        Some(crate::embedded_still::framed(image, developed))
+        thumbnail_still(&app, &wanted, space, never_edited, None)
     })
     .await
     .ok()
@@ -3140,6 +3126,50 @@ async fn show_still(
     } else {
         Activation::None
     }
+}
+
+/// `path`'s cached medium thumbnail as it is stored now (developed with its
+/// stored recipe, turned and cropped as shown; nothing is generated),
+/// display-encoded in `space`. A never-edited RAW's thumbnail is its camera
+/// JPEG: with `frame_camera_jpeg` it is framed like the development (header
+/// tags of the memory-mapped file only, up to ~0.1 s; never a cloud file not
+/// downloaded yet), else it keeps its own shape (within 3 % of the
+/// development's, `embedded_still::framed`). Decoded at the smallest scale
+/// that covers `area` (device px; None: at full size). Blocking: a file
+/// read and a JPEG decode.
+pub(crate) fn thumbnail_still(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    space: rawtonic_engine::output_color_space::OutputColorSpace,
+    frame_camera_jpeg: bool,
+    area: Option<(u32, u32)>,
+) -> Option<crate::embedded_still::Still> {
+    #[cfg(feature = "performance-profiling")]
+    let start = std::time::Instant::now();
+    let file = crate::file_management::cached_medium_thumbnail(app_handle, path)?;
+    let bytes = std::fs::read(file).ok()?;
+    #[cfg(feature = "performance-profiling")]
+    let read = start.elapsed();
+    let mut image = crate::embedded_still::decode_jpeg_for(&bytes, area)?;
+    gpu_processing::srgb_to_display(space, &mut image);
+    #[cfg(feature = "performance-profiling")]
+    let decoded = start.elapsed();
+    let (raw, _) = parse_virtual_path(path);
+    let developed = (frame_camera_jpeg && crate::preview_proxy::source_available(&raw))
+        .then(|| crate::embedded_still::frame_of(&raw))
+        .flatten()
+        .and_then(|frame| frame.size);
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({
+            "stage": "thumbnail_still", "read_ms": read.as_secs_f64() * 1e3,
+            "decode_ms": (decoded - read).as_secs_f64() * 1e3,
+            "frame_ms": (start.elapsed() - decoded).as_secs_f64() * 1e3,
+            "width": image.width(), "height": image.height(),
+        })
+    );
+    Some(crate::embedded_still::framed(image, developed))
 }
 
 /// Presents `still` as the frame of `path` (`present_if_current`; with

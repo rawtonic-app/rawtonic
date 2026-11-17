@@ -76,6 +76,43 @@ pub(crate) fn largest_embedded_jpeg(raw: &[u8]) -> Option<&[u8]> {
         .find(decodable)
 }
 
+/// `jpeg` (its `header`) decoded to RGBA at libjpeg-turbo's `factor`.
+fn decompress_scaled(
+    jpeg: &[u8],
+    header: &turbojpeg::DecompressHeader,
+    factor: turbojpeg::ScalingFactor,
+) -> Option<RgbaImage> {
+    let scaled = header.scaled(factor);
+    let mut decompressor = turbojpeg::Decompressor::new().ok()?;
+    decompressor.set_scaling_factor(factor).ok()?;
+    let mut pixels = vec![0u8; 4 * scaled.width * scaled.height];
+    decompressor
+        .decompress(
+            jpeg,
+            turbojpeg::Image {
+                pixels: &mut pixels[..],
+                width: scaled.width,
+                pitch: 4 * scaled.width,
+                height: scaled.height,
+                format: turbojpeg::PixelFormat::RGBA,
+            },
+        )
+        .ok()?;
+    RgbaImage::from_raw(scaled.width as u32, scaled.height as u32, pixels)
+}
+
+/// A JPEG (shown as stored, without turning) decoded at the smallest
+/// libjpeg-turbo scale that still covers its fit into `area` (None: at
+/// full size).
+pub(crate) fn decode_jpeg_for(jpeg: &[u8], area: Option<(u32, u32)>) -> Option<RgbaImage> {
+    let header = turbojpeg::read_header(jpeg).ok()?;
+    let size = (header.width as u32, header.height as u32);
+    let factor = area.map_or(turbojpeg::ScalingFactor::ONE, |area| {
+        decode_scale(size, fit(area, size))
+    });
+    decompress_scaled(jpeg, &header, factor)
+}
+
 /// The libjpeg-turbo scale (k/8) that decodes a JPEG of `size` to the
 /// smallest size still covering `want` on both sides; at most 1.
 pub(crate) fn decode_scale(size: (u32, u32), want: (u32, u32)) -> turbojpeg::ScalingFactor {
@@ -208,24 +245,7 @@ pub(crate) fn decode(
         let shown = if turned { (size.1, size.0) } else { size };
         let want = fit(viewport, shown);
         let want = if turned { (want.1, want.0) } else { want };
-        let factor = decode_scale(size, want);
-        let scaled = header.scaled(factor);
-        let mut decompressor = turbojpeg::Decompressor::new().ok()?;
-        decompressor.set_scaling_factor(factor).ok()?;
-        let mut pixels = vec![0u8; 4 * scaled.width * scaled.height];
-        decompressor
-            .decompress(
-                jpeg,
-                turbojpeg::Image {
-                    pixels: &mut pixels[..],
-                    width: scaled.width,
-                    pitch: 4 * scaled.width,
-                    height: scaled.height,
-                    format: turbojpeg::PixelFormat::RGBA,
-                },
-            )
-            .ok()?;
-        let image = RgbaImage::from_raw(scaled.width as u32, scaled.height as u32, pixels)?;
+        let image = decompress_scaled(jpeg, &header, decode_scale(size, want))?;
         rawtonic_rawdecode::orientation::apply_orientation(
             DynamicImage::ImageRgba8(image),
             rawler::Orientation::from_u16(orientation),
@@ -461,6 +481,25 @@ mod tests {
         data.extend(small);
         data.extend(large);
         data
+    }
+
+    #[test]
+    fn a_jpeg_is_decoded_at_the_smallest_scale_covering_its_area() {
+        let file = jpeg(1280, 960);
+        // 1280 × 960 fit into 528 × 352 is 469 × 352: 3/8 (480 × 360) covers it.
+        let image = decode_jpeg_for(&file, Some((528, 352))).unwrap();
+        assert_eq!(image.dimensions(), (480, 360));
+        let left = image.get_pixel(60, 180).0;
+        let right = image.get_pixel(420, 180).0;
+        assert!(left[0] > 180 && left[2] < 60 && right[2] > 180 && right[0] < 60);
+        assert_eq!(
+            decode_jpeg_for(&file, None).unwrap().dimensions(),
+            (1280, 960)
+        );
+        // Never enlarged: an area larger than the JPEG decodes it whole.
+        let image = decode_jpeg_for(&file, Some((4000, 3000))).unwrap();
+        assert_eq!(image.dimensions(), (1280, 960));
+        assert!(decode_jpeg_for(b"not a jpeg", Some((10, 10))).is_none());
     }
 
     #[test]

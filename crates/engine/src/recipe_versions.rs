@@ -1049,6 +1049,11 @@ pub mod gradient {
     /// Radial: a bell that runs out just beyond the ellipse; linear: eased
     /// at both lines.
     pub const BELL: u32 = 2;
+    /// Radial only: full coverage inside radius × (1 − feather), then the
+    /// smoothstep of the straight ramp down to zero on the ellipse (Capture
+    /// One's radial gradient, measured on its renders; notes:
+    /// benchmark-results/c1l1-2026-11-17/).
+    pub const SMOOTH: u32 = 3;
 }
 
 /// Versions of a brush line's dabs (`dabVersion`, missing = 1).

@@ -194,6 +194,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
             copy_name: copy_name.filter(|n| !n.trim().is_empty()),
             uid: uid.filter(|u| !u.trim().is_empty()),
             snapshots: snapshots.remove(&id).unwrap_or_default(),
+            capture_one_layers: Vec::new(),
         });
     }
     drop(q);
