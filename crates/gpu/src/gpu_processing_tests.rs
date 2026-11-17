@@ -868,10 +868,11 @@ fn invalid_shader_source_fails_processor_construction() {
         "{}\nconst BROKEN_CONSTANT: f32 = ;\n",
         include_str!("shaders/shader.wgsl")
     );
-    let error = match GpuProcessor::with_shader_source(context.clone(), 64, 64, &broken, true) {
-        Ok(_) => panic!("an invalid image-processing shader must not build a processor"),
-        Err(error) => error,
-    };
+    let error =
+        match GpuProcessor::with_shader_source(context.clone(), 64, 64, &broken, true, TILE_SIZE) {
+            Ok(_) => panic!("an invalid image-processing shader must not build a processor"),
+            Err(error) => error,
+        };
     assert!(error.contains("Image Processing Shader"), "{error}");
 
     // A failed pipeline is reported too, and the scopes do not swallow later work.
@@ -21379,6 +21380,234 @@ fn portable_grain_is_the_same_on_every_gpu() {
                 "{name} {size}/{roughness}: {worst:.1} codes from the CPU evaluation (grain {spread:.0})"
             );
         }
+    }
+}
+
+/// An export rebuilds level 1 in bands of rows and frees each coarse
+/// level as it goes (`rebuild_export_on_gpu`); it packs the same bits as
+/// the rebuild display frames keep (`rebuild_on_gpu`), with and without
+/// the coarsest level's smoothing, over several bands and a short last one.
+/// An export processor renders in tiles of `EXPORT_TILE_SIZE`, shifting
+/// the 8-bit dither to the `TILE_SIZE` grid (`dither_shift`): its exports
+/// are the bytes of a processor's `TILE_SIZE` tiles, 8- and 16-bit, of the
+/// whole photo and of a region that starts inside a tile.
+#[test]
+#[ignore = "requires a native GPU"]
+fn exports_in_smaller_tiles_render_the_bytes_of_large_tiles() {
+    let context = context();
+    // 5 x 3 tiles of 1024, 3 x 2 of 2048.
+    let (width, height) = (4300, 2300);
+    let photo = DynamicImage::ImageRgba32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let n = ((x * 7919 + y * 104_729) % 251) as f32 / 251.0;
+        Rgba([
+            0.2 + 0.5 * x as f32 / width as f32 + 0.05 * n,
+            0.3 + 0.2 * n,
+            0.6 * y as f32 / height as f32 + 0.1 * (1.0 - n),
+            1.0,
+        ])
+    }));
+    let recipe = json!({"exposure":0.4,"contrast":15,"clarity":30,"structure":20,
+        "sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,
+        "flareAmount":30,"vignetteAmount":-20});
+    let region = Roi {
+        x: 1100,
+        y: 700,
+        width: 2100,
+        height: 1500,
+    };
+    for precision in [
+        RenderOutputPrecision::EightBit,
+        RenderOutputPrecision::SixteenBit,
+    ] {
+        for roi in [None, Some(region)] {
+            let render = |slot: &GpuProcessorSlot| {
+                process_and_get_dynamic_image_inner(
+                    &context,
+                    slot,
+                    &Mutex::new(None),
+                    RenderSource::Image {
+                        image: &photo,
+                        transform_hash: 1,
+                    },
+                    RenderRequest {
+                        adjustments: get_all_adjustments_from_json(&recipe, true, None),
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi,
+                    },
+                    "export_test",
+                    precision,
+                    false,
+                    None,
+                    None,
+                    ReadbackShader::Export,
+                )
+                .expect("renders")
+            };
+            let large = render(&ProcessorSlot::new(None));
+            let small = render(&ProcessorSlot::background(None));
+            assert!(
+                large.as_bytes() == small.as_bytes(),
+                "{precision:?} {roi:?}: the export processor's tiles change the bytes"
+            );
+        }
+    }
+}
+
+/// An export rebuilds level 1 in bands of rows and frees each coarse
+/// level as it goes (`rebuild_export_on_gpu`); it packs the same bits as
+/// the rebuild display frames keep (`rebuild_on_gpu`), with and without
+/// the coarsest level's smoothing, over several bands and a short last one.
+#[test]
+#[ignore = "mem12 temp"]
+fn mem12_tile_size_probe() {
+    let context = context();
+    let (width, height) = (4300, 2300);
+    let photo = DynamicImage::ImageRgba32F(ImageBuffer::from_fn(width, height, move |x, y| {
+        let n = ((x * 7919 + y * 104_729) % 251) as f32 / 251.0;
+        Rgba([
+            0.2 + 0.5 * x as f32 / width as f32 + 0.05 * n,
+            0.3 + 0.2 * n,
+            0.6 * y as f32 / height as f32 + 0.1 * (1.0 - n),
+            1.0,
+        ])
+    }));
+    for (name, recipe, version) in [
+        (
+            "all",
+            json!({"exposure":0.4,"contrast":15,"clarity":30,"sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,"colorNoiseVersion":2,"flareAmount":30,"vignetteAmount":-20}),
+            Some(2),
+        ),
+        (
+            "all-v-none",
+            json!({"exposure":0.4,"contrast":15,"clarity":30,"sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,"colorNoiseVersion":2,"flareAmount":30,"vignetteAmount":-20}),
+            None,
+        ),
+        ("clarity", json!({"clarity":30}), Some(2)),
+        ("sharp", json!({"sharpness":40}), Some(2)),
+        ("luma", json!({"lumaNoiseReduction":20}), Some(2)),
+        (
+            "color",
+            json!({"colorNoiseReduction":25,"colorNoiseVersion":2}),
+            Some(2),
+        ),
+        ("flare", json!({"flareAmount":30}), Some(2)),
+        ("vignette", json!({"vignetteAmount":-20}), Some(2)),
+        ("expo", json!({"exposure":0.4,"contrast":15}), Some(2)),
+    ] {
+        let render = |slot: &GpuProcessorSlot| {
+            process_and_get_dynamic_image_inner(
+                &context,
+                slot,
+                &Mutex::new(None),
+                RenderSource::Image {
+                    image: &photo,
+                    transform_hash: 1,
+                },
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(&recipe, true, version),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                "export_test",
+                RenderOutputPrecision::EightBit,
+                false,
+                None,
+                None,
+                ReadbackShader::Export,
+            )
+            .expect("renders")
+        };
+        let a = render(&ProcessorSlot::new(None));
+        let b = render(&ProcessorSlot::background(None));
+        let diff = a
+            .as_bytes()
+            .iter()
+            .zip(b.as_bytes())
+            .filter(|(x, y)| x != y)
+            .count();
+        let worst = a
+            .as_bytes()
+            .iter()
+            .zip(b.as_bytes())
+            .map(|(x, y)| (*x as i32 - *y as i32).abs())
+            .max()
+            .unwrap();
+        println!("MEM12 {name}: {diff} bytes differ, worst {worst}");
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn an_export_rebuilds_colour_noise_level_1_in_bands_bit_exactly() {
+    use rawtonic_engine::color_noise;
+    let context = context();
+    let pipelines = ChromaPipelines::new(&context.device).unwrap();
+    // Level 1: 1501 x 1251, bands of 688 rows (the last of 563).
+    let (width, height) = (3001u32, 2501u32);
+    let image = chroma_noise_frame(width, height);
+    let texture = create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
+    let view = texture.create_view(&Default::default());
+    let tuning = color_noise::Tuning::for_version(11);
+    let pyramid = GpuPyramid::build(&context, &pipelines, &view, width, height, true)
+        .unwrap()
+        .unwrap();
+    let [lw, lh] = pyramid.sizes[0];
+    assert!(lh > (REBUILD_BAND_TEXELS / lw) / 16 * 16, "one band only");
+    let packed = |chroma: &ChromaGpu| {
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &chroma.packed,
+            wgpu::Origin3d::ZERO,
+            chroma.packed.size(),
+            8,
+        )
+        .unwrap()
+    };
+    for amount in [0.25f32, 0.9] {
+        let settings = color_noise::Settings {
+            amount,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        let noise = tuning.level_noise(&pyramid.measured.noise);
+        let thresholds = tuning.thresholds(settings, &noise);
+        let base_sigma = tuning.base_sigma(settings);
+        let chroma = || {
+            ChromaGpu::from_gpu_pyramid(&context, &pipelines, &view, width, height, true, &pyramid)
+                .unwrap()
+        };
+        let mut kept = chroma();
+        kept.rebuild_on_gpu(
+            &context,
+            &pipelines,
+            PyramidRef::Gpu(&pyramid),
+            &thresholds,
+            base_sigma,
+            &tuning,
+        )
+        .unwrap();
+        let mut banded = chroma();
+        banded
+            .rebuild_export_on_gpu(
+                &context,
+                &pipelines,
+                &pyramid,
+                &thresholds,
+                base_sigma,
+                &tuning,
+            )
+            .unwrap();
+        let (kept, banded) = (packed(&kept), packed(&banded));
+        assert_eq!(kept.len(), lw as usize * lh as usize * 8);
+        let differing = kept
+            .chunks_exact(8)
+            .zip(banded.chunks_exact(8))
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(differing, 0, "amount {amount}: {differing} texels differ");
     }
 }
 

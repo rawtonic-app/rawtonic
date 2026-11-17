@@ -16,7 +16,9 @@ struct ColorNoiseParams {
     source_y: u32,
     full_width: u32,
     full_height: u32,
-    // Level-1 window the packed texture holds (origin) and level 1's size.
+    // Level-1 window the packed texture holds (origin) and level 1's size;
+    // `reconstruct_level` and `pack_band` of a band of rows: the band's
+    // origin (`level_x`, `level_y`).
     level_x: u32,
     level_y: u32,
     level_width: u32,
@@ -160,11 +162,15 @@ fn finest_energy(@builtin(global_invocation_id) id: vec3<u32>) {
 // `rebuilt_detail`, `expand_aware`).
 @compute @workgroup_size(16, 16, 1)
 fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
+    // A band (`params.level_x`, `level_y` on) reads the prepared level and
+    // its following part from the band's textures (`t`) and writes the
+    // band's own; the level itself fills the fifth texture.
     let dims = vec2<i32>(textureDimensions(first_texture));
-    if (i32(id.x) >= dims.x || i32(id.y) >= dims.y) { return; }
-    let p = vec2<i32>(id.xy);
-    let level = textureLoad(first_texture, p, 0);
-    let follow = textureLoad(third_texture, p, 0).xy;
+    let t = vec2<i32>(id.xy);
+    let p = t + vec2<i32>(i32(params.level_x), i32(params.level_y));
+    if (t.x >= dims.x || t.y >= dims.y || any(p >= vec2<i32>(textureDimensions(fifth_texture)))) { return; }
+    let level = textureLoad(first_texture, t, 0);
+    let follow = textureLoad(third_texture, t, 0).xy;
     let n = vec2<i32>(textureDimensions(second_texture)) - vec2<i32>(1);
     let k = max(gain(level.z, params.threshold2, params.steepness), gain(level.w, params.edge2, params.steepness));
     var r = expand(second_texture, p, n, vec2<i32>(0)).xy;
@@ -176,7 +182,7 @@ fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
         let f = textureLoad(fifth_texture, p, 0).xy;
         var g = f;
         if (params.guide > 0.5) {
-            g = textureLoad(third_texture, p, 0).zw;
+            g = textureLoad(third_texture, t, 0).zw;
         }
         let rel = profile_at(plain.z);
         let inv2 = params.aware_inv2 / (rel * rel);
@@ -232,7 +238,7 @@ fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
             detail = f - ca / sw;
         }
     }
-    textureStore(output_f32, id.xy, vec4<f32>(r + k * detail + (1.0 - k) * follow, 0.0, 0.0));
+    textureStore(output_f32, t, vec4<f32>(r + k * detail + (1.0 - k) * follow, 0.0, 0.0));
 }
 
 // first_texture: level 1 (xy); second_texture: level 1 rebuilt (xy).
@@ -243,4 +249,16 @@ fn pack_finest(@builtin(global_invocation_id) id: vec3<u32>) {
     let g = textureLoad(first_texture, vec2<i32>(id.xy), 0).xy;
     let r = textureLoad(second_texture, vec2<i32>(id.xy), 0).xy;
     textureStore(output_packed, id.xy, vec4<f32>(g, r));
+}
+
+// `pack_finest` of a band of level 1 (rows `params.level_y` on), its
+// rebuilt rows (second_texture) at their own origin.
+@compute @workgroup_size(16, 16, 1)
+fn pack_band(@builtin(global_invocation_id) id: vec3<u32>) {
+    let t = vec2<i32>(id.xy);
+    let p = t + vec2<i32>(i32(params.level_x), i32(params.level_y));
+    if (any(t >= vec2<i32>(textureDimensions(second_texture))) || any(p >= vec2<i32>(textureDimensions(first_texture)))) { return; }
+    let g = textureLoad(first_texture, p, 0).xy;
+    let r = textureLoad(second_texture, t, 0).xy;
+    textureStore(output_packed, p, vec4<f32>(g, r));
 }
