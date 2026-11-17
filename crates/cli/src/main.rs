@@ -1286,15 +1286,26 @@ fn export(args: ExportArgs) -> Result<()> {
     // number of workers, each in a thread pool of its own
     // (`rawtonic_export::workers`). One at a time while the render inputs
     // are recorded, which each export replaces.
+    let available = available_memory();
     let workers = if inputs.is_some() {
         1
     } else {
         rawtonic_export::workers::export_workers(
             jobs.len(),
             rawtonic_export::workers::available_cores(),
-            available_memory(),
+            available,
         )
     };
+    // Large photos start only while their memory fits beside the photos in
+    // flight (`ExportBudget`).
+    let budget = rawtonic_export::workers::ExportBudget::new(
+        if std::env::var_os("RAWTONIC_QA_BUDGET_OFF").is_some() {
+            u64::MAX
+        } else {
+            available
+        },
+    );
+    let precision = rawtonic_export::export_processing::render_output_precision(&format, &settings);
     let pools = rawtonic_export::workers::lane_pools(
         workers,
         rawtonic_export::workers::available_cores(),
@@ -1306,6 +1317,13 @@ fn export(args: ExportArgs) -> Result<()> {
         let (photo, output) = &jobs[i];
         let recipe = &recipes[i];
         let (source, sidecar) = parse_virtual_path(photo);
+        let _memory = budget.admit(
+            i,
+            rawtonic_export::workers::source_pixels(&source)
+                .map_or(rawtonic_export::workers::EXPORT_WORKER_BYTES, |pixels| {
+                    rawtonic_export::workers::photo_export_bytes(pixels, &[precision])
+                }),
+        );
         let library = library_of(&source);
         if let Some(resource) = recipe
             .as_ref()
@@ -1383,6 +1401,13 @@ fn export(args: ExportArgs) -> Result<()> {
 fn available_memory() -> u64 {
     let mut system = sysinfo::System::new();
     system.refresh_memory();
+    // MEM10 ceiling experiment only (scratch build): a simulated free memory.
+    if let Some(mb) = std::env::var("RAWTONIC_QA_AVAILABLE_MB")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        return mb << 20;
+    }
     system.available_memory()
 }
 

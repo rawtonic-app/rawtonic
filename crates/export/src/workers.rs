@@ -1,6 +1,8 @@
 //! How many photos a batch export renders at once, for the app's export
 //! queue and the CLI alike, and the thread pools they run in.
 
+use rawtonic_gpu::gpu_processing::RenderOutputPrecision;
+
 /// Export workers at most. The GPU renders one photo at a time and is the
 /// slowest stage; four keep it busy while they load, upload and encode the
 /// other photos. Measured on 20 RAWs with two recipes (M5 Pro): 4 workers
@@ -34,6 +36,99 @@ pub fn export_workers(photos: usize, cores: usize, available: u64) -> usize {
         usize::try_from(available.saturating_sub(EXPORT_MEMORY_RESERVE) / EXPORT_WORKER_BYTES)
             .unwrap_or(usize::MAX);
     cores.min(by_memory).clamp(1, MAX_EXPORT_WORKERS)
+}
+
+/// Bytes a photo of `pixels` holds per pixel while it exports, besides its
+/// renders: its decode, developed source and GPU upload, and the encode.
+pub const SOURCE_BYTES_PER_PIXEL: u64 = 44;
+
+/// Bytes a photo of `pixels` takes at its peak while it exports into
+/// `outputs` renders (RGBA, 4 bytes a pixel at 8 bit, 8 at 16 bit).
+pub fn photo_export_bytes(pixels: u64, outputs: &[RenderOutputPrecision]) -> u64 {
+    let renders: u64 = outputs
+        .iter()
+        .map(|precision| match precision {
+            RenderOutputPrecision::EightBit => 4,
+            RenderOutputPrecision::SixteenBit => 8,
+        })
+        .sum();
+    pixels.saturating_mul(SOURCE_BYTES_PER_PIXEL + renders)
+}
+
+/// The pixels of the photo at `path` from its header, without decoding it:
+/// a RAW's sensor size, another image's size. None when it cannot be read.
+pub fn source_pixels(path: &std::path::Path) -> Option<u64> {
+    let pixels = |width: usize, height: usize| (width as u64).checked_mul(height as u64);
+    if let Ok((width, height)) = image::image_dimensions(path) {
+        return pixels(width as usize, height as usize);
+    }
+    std::panic::catch_unwind(|| {
+        let source = rawler::rawsource::RawSource::new(path).ok()?;
+        let decoder = rawler::get_decoder(&source).ok()?;
+        let raw = decoder
+            .raw_image(&source, &rawler::decoders::RawDecodeParams::default(), true)
+            .ok()?;
+        pixels(raw.width, raw.height)
+    })
+    .ok()
+    .flatten()
+}
+
+/// The memory photos of a batch export may hold together: a photo starts
+/// when its estimate (`photo_export_bytes`) fits beside the photos in flight,
+/// or when none is; photos start in their order.
+pub struct ExportBudget {
+    limit: u64,
+    state: std::sync::Mutex<BudgetState>,
+    changed: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct BudgetState {
+    held: u64,
+    next: usize,
+}
+
+impl ExportBudget {
+    /// `available` bytes of free memory, of which `EXPORT_MEMORY_RESERVE`
+    /// stays free.
+    pub fn new(available: u64) -> Self {
+        Self {
+            limit: available.saturating_sub(EXPORT_MEMORY_RESERVE),
+            state: Default::default(),
+            changed: Default::default(),
+        }
+    }
+
+    /// Waits until photo `index` (0, 1, … in order) may take `bytes`, and
+    /// holds them until the returned guard drops.
+    pub fn admit(&self, index: usize, bytes: u64) -> BudgetHold<'_> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        while state.next != index || (state.held > 0 && state.held + bytes > self.limit) {
+            state = self.changed.wait(state).unwrap_or_else(|e| e.into_inner());
+        }
+        state.next += 1;
+        state.held += bytes;
+        self.changed.notify_all();
+        BudgetHold {
+            budget: self,
+            bytes,
+        }
+    }
+}
+
+/// A photo's share of an `ExportBudget`.
+pub struct BudgetHold<'a> {
+    budget: &'a ExportBudget,
+    bytes: u64,
+}
+
+impl Drop for BudgetHold<'_> {
+    fn drop(&mut self) {
+        let mut state = self.budget.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.held -= self.bytes;
+        self.budget.changed.notify_all();
+    }
 }
 
 /// The available cores, 1 when unknown.
