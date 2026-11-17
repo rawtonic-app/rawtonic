@@ -9174,12 +9174,28 @@ impl GpuProcessor {
     /// (an import) was lost: Basic-panel edits right after opening waited
     /// 15–44 s on a Radeon 680M, and the first Glow frame 6.5 s for two
     /// detail-cache passes (G76/WSMOKE18). The first photo shown replaces
-    /// the plan if its own differs. Nothing without a compile limit.
+    /// the plan if its own differs.
+    ///
+    /// Without a compile limit the variant every Basic-panel edit of that
+    /// edit renders with (`idle_compiles::serving_features`) compiles after
+    /// the first display variant, beside the ones `START_PREVIEW_FEATURES`
+    /// holds: on a fresh NVIDIA driver cache (RTX 3080, Linux) a
+    /// photographer who edits at once otherwise waited for each edit's own
+    /// variant until the all-features one was ready (first Highlights
+    /// 1.2 s; 8.5 s before the tone split; notes:
+    /// benchmark-results/few1-2026-11-16).
     pub fn compile_ahead_for_new_raw(&self, tonemapper_override: Option<u32>) {
+        let adjustments = &new_raw_edit(tonemapper_override);
         let Some(idle) = &self.idle_compiles else {
+            if self.compiles_ahead {
+                let features = preview_features(adjustments);
+                self.compile_preview_variant_after_start(idle_compiles::serving_features(
+                    features,
+                    adjustments,
+                ));
+            }
             return;
         };
-        let adjustments = &new_raw_edit(tonemapper_override);
         log::info!(
             "GPU idle compiles planned at start for a new RAW edit (+{:.2} s since start)",
             since_start()

@@ -577,10 +577,12 @@ each photo shown; small pipelines such as the RAW default variant and the detail
 `CompileWeight`), each in a helper process (`idle_compile_child.rs`; `rawtonic-app --gpu-idle-compile JOB
 FOLDER`, `src-tauri/src/gpu_idle_helper.rs`) that is killed when a compile or export waits for the slot; the app takes
 the finished variant through the pipeline cache the helper left; a frame's variant no plan covers compiles in a helper
-too, `IdleCompiles::for_frame`); there a display variant is the main pass between two small passes of the same display
-source (`effect_passes.rs`: a terms pass for glow and halation before it; with grain, and for exports that encode per
-output, a finish pass after it with grain, the warnings, the output encoding and the histogram's image), and exports
-render through the same passes;
+too, `IdleCompiles::for_frame`), and exports render through the display passes; without a compile limit the Basic-panel
+variant of a new RAW edit compiles ahead after the first display variant (`compile_ahead_for_new_raw`). On every device a
+display variant is the main pass between two small passes of the same display source (`effect_passes.rs`: a terms pass
+for glow and halation before it; with grain, and for exports that encode per output, a finish pass after it with grain,
+the warnings, the output encoding and the histogram's image), its main pass split at the tone stage into two parts
+before it (`tone_split.rs`); exports without a compile limit keep their own one-pass export variants;
 `memory_turns`: on an integrated GPU under a compile limit an idle compile, an export and a masking network on the CPU
 take turns (`src-tauri/src/ai_lifecycle.rs` `turn`, `export_turn`).
 

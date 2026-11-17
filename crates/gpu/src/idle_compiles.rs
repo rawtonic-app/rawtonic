@@ -1174,6 +1174,9 @@ mod tests {
     /// (`planned_jobs`; G76/WCC7, WCC8).
     #[test]
     fn exports_take_the_variant_the_editor_compiles() {
+        // The plan with one main pass (display variants without the effect
+        // passes, forced: every device has them since G76/FEW1).
+        effect_passes::FORCED.with(|forced| forced.set(Some(false)));
         let shown = new_raw_edit(serde_json::json!({}));
         let opened = preview_features(&shown);
         let plan = idle_plan(opened, &shown);
@@ -1218,6 +1221,9 @@ mod tests {
     /// `basic` with Glow covers it, and the shown photo's own.
     #[test]
     fn export_variants_compile_although_a_wider_one_serves_the_frames() {
+        // The plan with one main pass (display variants without the effect
+        // passes, forced: every device has them since G76/FEW1).
+        effect_passes::FORCED.with(|forced| forced.set(Some(false)));
         let check = |adjustments: &AllAdjustments, compiled: usize| {
             let features = preview_features(adjustments);
             let (plan, exact) = planned_jobs(features, adjustments);
@@ -1257,6 +1263,9 @@ mod tests {
     /// no extra entry.
     #[test]
     fn glow_after_basic_edits_is_planned() {
+        // The plan with one main pass (display variants without the effect
+        // passes, forced: every device has them since G76/FEW1).
+        effect_passes::FORCED.with(|forced| forced.set(Some(false)));
         let shown = new_raw_edit(serde_json::json!({}));
         let opened = preview_features(&shown);
         let (jobs, _) = planned_jobs(opened, &shown);
@@ -1308,6 +1317,9 @@ mod tests {
     /// with raised Shadows' level, `SHADOWS_V19_FEATURE`).
     #[test]
     fn the_start_plans_what_a_new_raw_edit_plans() {
+        // The plan with one main pass (display variants without the effect
+        // passes, forced: every device has them since G76/FEW1).
+        effect_passes::FORCED.with(|forced| forced.set(Some(false)));
         // Without a look set for every RAW in Preferences: the RAW look.
         let at_start = new_raw_edit_at_start(None);
         assert_eq!(at_start.global.tonemapper_mode, 3);
@@ -1356,8 +1368,8 @@ mod tests {
             assert_eq!(export_display_features(&edited), serving, "{edit}");
             assert_eq!(planned_jobs(shown, &edited), (vec![serving], serving));
         }
-        effect_passes::FORCED.with(|forced| forced.set(None));
         // Without them grain is the main shader's.
+        effect_passes::FORCED.with(|forced| forced.set(Some(false)));
         let grain = get_all_adjustments_from_json(&json!({"grainAmount":30}), true, Some(3));
         assert_ne!(preview_features(&grain) & GRAIN_FEATURE, 0);
     }
