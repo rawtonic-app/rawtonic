@@ -96,6 +96,17 @@ pub(crate) fn may_start(since_interaction: Duration, busy: bool, short_of_memory
     !busy && !short_of_memory && since_interaction >= QUIET
 }
 
+/// Whether a background decode of a photograph of `pixels` (None: not
+/// known) fits in the memory free for such work (`headroom`, None: not
+/// known) at its peak (`multi_view::DECODE_BYTES_PER_PIXEL`).
+fn decode_fits(pixels: Option<u64>, headroom: Option<u64>) -> bool {
+    headroom.is_none_or(|room| {
+        pixels.unwrap_or(crate::multi_view::UNKNOWN_PIXELS)
+            * crate::multi_view::DECODE_BYTES_PER_PIXEL
+            <= room
+    })
+}
+
 #[derive(Default)]
 struct Queue {
     generation: usize,
@@ -246,10 +257,29 @@ fn held_bytes(held: &VecDeque<HeldDecode>) -> usize {
     held.iter().map(|h| h.image.as_bytes().len()).sum()
 }
 
-/// Bytes of decodes held at most: an eighth of the physical memory (3 GB
-/// of 24 GB: five to ten 24–61 MP decodes), none while the system is short
-/// of memory (each preview is then written right after its decode).
+/// Bytes of decodes held at most, beside none held yet ([`hold_budget_beside`]).
 pub(crate) fn hold_budget() -> usize {
+    hold_budget_beside(0)
+}
+
+/// Bytes of decodes a holder with `held` bytes held may hold at most: an
+/// eighth of the physical memory (3 GB of 24 GB: five to ten 24–61 MP
+/// decodes), within what it holds and the memory free for such work
+/// (`memory_pressure::work_headroom`: an export running beside it, the
+/// zoom's regions and the open photograph come first; G76/WSMOKE25, a
+/// 14 GB laptop held nine cells' decodes during an export, 8.6 GB), none
+/// while the system is short of memory (each preview is then written right
+/// after its decode).
+pub(crate) fn hold_budget_beside(held: usize) -> usize {
+    let cap = hold_cap();
+    match crate::memory_pressure::work_headroom() {
+        Some(room) => cap.min(held.saturating_add(usize::try_from(room).unwrap_or(usize::MAX))),
+        None => cap,
+    }
+}
+
+/// [`hold_budget_beside`] without the memory free now.
+fn hold_cap() -> usize {
     #[cfg(feature = "performance-profiling")]
     if let Some(mb) = std::env::var("RAWTONIC_MV_HOLD_MB")
         .ok()
@@ -338,6 +368,7 @@ pub(crate) fn offer_decode(
     let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
     let accepted = {
         let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        let budget = hold_budget_beside(held_bytes(&held));
         offer(
             &queue,
             &mut held,
@@ -353,7 +384,7 @@ pub(crate) fn offer_decode(
                 settings: Arc::new(settings.clone()),
                 proxy_key,
             },
-            hold_budget(),
+            budget,
         )
     };
     if accepted {
@@ -831,6 +862,32 @@ fn accept(queue: &Queue, held: &mut VecDeque<HeldDecode>, mut decoded: HeldDecod
     true
 }
 
+/// Lets decodes not written yet go, the farthest from the primary first,
+/// until the held ones fit `budget`; each back to the front of `todo`
+/// (decoded again later). Whether any went.
+fn let_unwritten_go(
+    held: &mut VecDeque<HeldDecode>,
+    todo: &mut VecDeque<String>,
+    budget: usize,
+) -> bool {
+    let before = held.len();
+    while held_bytes(held) > budget
+        && let Some(at) = held
+            .iter()
+            .enumerate()
+            .filter(|(_, h)| !h.written)
+            .max_by_key(|(_, h)| h.rank)
+            .map(|(at, _)| at)
+    {
+        if let Some(gone) = held.remove(at)
+            && !todo.contains(&gone.path)
+        {
+            todo.push_front(gone.path);
+        }
+    }
+    held.len() < before
+}
+
 /// Lets every held decode go, those still to be written back to the front
 /// of `todo` (decoded again later).
 fn let_all_go(held: &mut VecDeque<HeldDecode>, todo: &mut VecDeque<String>) -> bool {
@@ -870,8 +927,8 @@ fn next_step(queue: &mut Queue) -> Option<Step> {
         .front()
         .and_then(|path| crate::multi_view::full_size_of(path))
         .map_or(0, |(w, h)| w as usize * h as usize * 3 * size_of::<f32>());
-    let budget = hold_budget();
-    let freed = match queue.todo.front() {
+    let budget = hold_budget_beside(held_bytes(&held));
+    let mut freed = match queue.todo.front() {
         // Kept while they fit (looked at again now and then: none under
         // memory pressure).
         None => make_room(&mut held, 0, budget, None),
@@ -879,6 +936,10 @@ fn next_step(queue: &mut Queue) -> Option<Step> {
         // decode then, and let go if it does not fit).
         Some(front) => make_room(&mut held, next, budget, Some(queue.rank(front))),
     };
+    // Still above the budget (the memory free for it shrank: an export, the
+    // zoom's regions): those not written yet go too, the farthest first,
+    // and are decoded again later.
+    freed |= let_unwritten_go(&mut held, &mut queue.todo, budget);
     let to_write = held.iter().any(|h| !h.written);
     let step = if write_next(
         to_write,
@@ -927,11 +988,28 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                     // open beside it sat at the warning level for minutes.
                     let short_of_memory = crate::memory_pressure::level_now()
                         == Some(crate::memory_pressure::Level::Critical);
-                    if may_start(quiet, busy, short_of_memory) {
+                    // An export goes first: its workers were counted on the
+                    // memory free when it started.
+                    let exporting = app_handle
+                        .state::<crate::state::export::ExportState>()
+                        .running();
+                    let no_room = match &step {
+                        Step::Decode(path, _) => !decode_fits(
+                            crate::multi_view::full_size_of(path)
+                                .map(|(w, h)| u64::from(w) * u64::from(h)),
+                            crate::memory_pressure::work_headroom(),
+                        ),
+                        Step::Write => false,
+                    };
+                    if !exporting && !no_room && may_start(quiet, busy, short_of_memory) {
                         waiting_for = "";
                         break step;
                     }
-                    let reason = if short_of_memory {
+                    let reason = if exporting {
+                        "an export runs"
+                    } else if no_room {
+                        "memory for the next decode"
+                    } else if short_of_memory {
                         "memory pressure"
                     } else if busy {
                         "zoom, Edit all selected or the primary's decode"
@@ -1059,7 +1137,8 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                     }
                     // Back within the budget: a decode that did not fit
                     // beside nearer ones goes now.
-                    make_room(&mut held, 0, hold_budget(), None)
+                    let budget = hold_budget_beside(held_bytes(&held));
+                    make_room(&mut held, 0, budget, None)
                 };
                 drop(image);
                 if trimmed {
@@ -1632,6 +1711,40 @@ pub(crate) mod tests {
         // The written one has its previews; the others are made again, first.
         assert_eq!(Vec::from(todo.clone()), paths(&["b", "d", "c"]));
         assert!(!let_all_go(&mut all, &mut todo));
+    }
+
+    #[test]
+    fn above_a_shrunk_budget_unwritten_decodes_go_the_farthest_first() {
+        const UNIT: usize = 12 << 20;
+        let mut all: VecDeque<HeldDecode> = [
+            held("a", 1, false, 1),
+            held("b", 1, false, 3),
+            held("c", 1, false, 2),
+        ]
+        .into();
+        let mut todo: VecDeque<String> = paths(&["d"]).into();
+        // Within the budget: nothing goes.
+        assert!(!let_unwritten_go(&mut all, &mut todo, 3 * UNIT));
+        // Room for one: b (farthest), then c go, made again later, the
+        // nearer first.
+        assert!(let_unwritten_go(&mut all, &mut todo, UNIT));
+        assert_eq!(
+            all.iter().map(|h| h.key.as_str()).collect::<Vec<_>>(),
+            ["a"]
+        );
+        assert_eq!(Vec::from(todo), paths(&["c", "b", "d"]));
+    }
+
+    #[test]
+    fn a_background_decode_waits_for_memory_for_its_peak() {
+        let mp = 1_000_000;
+        // 61 MP at 40 B/px: 2.44 GB.
+        assert!(decode_fits(Some(61 * mp), Some(3_000_000_000)));
+        assert!(!decode_fits(Some(61 * mp), Some(2_000_000_000)));
+        // Size not known: counted as 61 MP.
+        assert!(!decode_fits(None, Some(2_000_000_000)));
+        // Memory not readable: as before.
+        assert!(decode_fits(Some(61 * mp), None));
     }
 
     #[test]
