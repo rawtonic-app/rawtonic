@@ -2967,7 +2967,9 @@ mod tests {
                 .map(|x| format!("<rdf:li>{x}</rdf:li>"))
                 .collect()
         };
-        let strs = |list: &[String]| list.iter().map(String::as_str).collect::<Vec<_>>();
+        fn strs(list: &[String]) -> Vec<&str> {
+            list.iter().map(String::as_str).collect()
+        }
         format!(
             r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
  <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">

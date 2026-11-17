@@ -1859,13 +1859,13 @@ ProcessVersion = "15.4" }}"#,
                 .map(|r| r["hue"].as_f64().unwrap())
                 .collect()
         };
-        let photo = hues(&adjustments["colorRanges"]);
+        let photo_hues = hues(&adjustments["colorRanges"]);
         let layer = hues(&adjustments["masks"][0]["adjustments"]["colorRanges"]);
-        assert_eq!(photo.len(), 8, "{photo:?}");
+        assert_eq!(photo_hues.len(), 8, "{photo_hues:?}");
         assert_eq!(layer.len(), 8, "{layer:?}");
         // The same source colours in the same order (the shifts differ).
-        for (p, l) in photo.iter().zip(&layer) {
-            assert!((p - l).abs() < 1e-6, "{photo:?} {layer:?}");
+        for (p, l) in photo_hues.iter().zip(&layer) {
+            assert!((p - l).abs() < 1e-6, "{photo_hues:?} {layer:?}");
         }
         let path = PathBuf::from("/photos/A.dng");
         assert!(import_warnings(&photo("1", path.clone(), develop, None)).is_empty());
