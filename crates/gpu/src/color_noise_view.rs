@@ -1,24 +1,27 @@
-//! The export's colour noise reduction for reduced views, on the GPU.
+//! The export's render input for reduced views, on the GPU.
 //!
 //! A reduced view (the Develop fit view) renders from a reduced copy of the
 //! photograph, and the colour noise filter run on that copy leaves
 //! 1.5–3 × the chroma noise the export shows at the same size (notes:
-//! benchmark-results/tpx-thumb-parity-2026-11-12/REPORT.md, TPX3). The app
-//! therefore adds what the full-resolution filter changes, reduced to the
-//! view's size, to the view's reduced copy (`color_noise::
-//! reduced_correction` on the CPU, TPX4). On a Radeon 680M laptop that CPU
-//! build took 2.1–2.9 s with +1.3–1.85 GB of private memory (G17/WTPX4).
+//! benchmark-results/tpx-thumb-parity-2026-11-12/REPORT.md, TPX3); its
+//! edge-fringe pass at the view's scale also leaves out what the export's
+//! full-resolution pass does to colour noise (up to 1.9 × the export's on
+//! noisy photos, TPX7). The app therefore renders a final fit frame from
+//! the export's own render input reduced to the view's size.
 //!
-//! Here the same correction comes from the export's own GPU filter: the
-//! source is uploaded as an export uploads it, its chroma pyramid built,
-//! measured and rebuilt on the GPU as for an export (`colorNoiseVersion`
-//! 11, [`prepare_color_noise_on_gpu`]), and a pass whose colour noise code
-//! is the image-processing shader's own (`shaders/color_noise_view.wgsl`
-//! plus that section of `shader.wgsl`) writes the filtered pixel minus the
-//! input pixel band by band. Each band is read back and fed to a streaming
-//! Lanczos3 ([`rawtonic_engine::lanczos::SignedRowStream`], the values of
-//! `lanczos::resize_signed`), so the full-resolution difference never
-//! exists whole. Measured: notes: benchmark-results/tpx5-gpu-chroma-2026-11-15/REPORT.md.
+//! Here that input is made as the export makes it: the source is uploaded
+//! with the recipe's warp and edge-fringe pass as an export uploads it, its
+//! chroma pyramid built, measured and rebuilt on the GPU as for an export
+//! (`colorNoiseVersion` 11, [`prepare_color_noise_on_gpu`]), and a pass whose
+//! colour noise code is the image-processing shader's own
+//! (`shaders/color_noise_view.wgsl` plus that section of `shader.wgsl`)
+//! writes the filtered pixel band by band (the input pixel at Color 0).
+//! Each band is read back and fed to a streaming Lanczos3
+//! ([`rawtonic_engine::lanczos::SignedRowStream`], the values of
+//! `lanczos::resize_signed`), so the full-resolution result never exists
+//! whole on the CPU. Measured: notes:
+//! benchmark-results/tpx5-gpu-chroma-2026-11-15/REPORT.md (the filter),
+//! benchmark-results/tpx7-2026-11-17/REPORT.md (the render input).
 
 use std::sync::{Arc, Mutex};
 
@@ -27,7 +30,7 @@ use rawtonic_engine::lanczos::SignedRowStream;
 
 use super::*;
 
-/// Input pixels per band of the difference pass: its output texture and
+/// Input pixels per band of the band pass: its output texture and
 /// readback buffer are 16 bytes per pixel each (32 MB apiece).
 const BAND_PIXELS: u32 = 2 << 20;
 
@@ -43,12 +46,19 @@ struct ViewParams {
     color_noise_guide_k2: f32,
     color_noise_speck: f32,
     color_noise_reduction: f32,
-    _pad: [f32; 2],
+    /// [`OUTPUT_FILTERED`] or [`OUTPUT_INPUT`].
+    output_mode: u32,
+    _pad: f32,
     source_window: [u32; 4],
     tile_offset: [u32; 2],
     is_raw: u32,
     row_offset: u32,
 }
+
+/// The pass writes the filtered pixel (`ViewParams::output_mode`).
+const OUTPUT_FILTERED: u32 = 1;
+/// The pass writes the input pixel (no colour noise reduction: Color 0).
+const OUTPUT_INPUT: u32 = 2;
 
 /// The functions of `shader.wgsl` the colour noise section calls.
 const HELPERS: [&str; 9] = [
@@ -77,7 +87,7 @@ fn function_of<'a>(source: &'a str, name: &str) -> Result<&'a str, String> {
 
 /// The pass's source: its bindings and entry point, the image-processing
 /// shader's colour noise section and the helpers it calls, as they stand
-/// there (so the difference is the export's filter).
+/// there (so the filtered pixel is the export's).
 pub(super) fn shader_source() -> Result<String, String> {
     const MAIN: &str = include_str!("shaders/shader.wgsl");
     const BEGIN: &str = "// --- Multi-scale colour noise reduction";
@@ -109,7 +119,7 @@ pub(super) fn shader_source() -> Result<String, String> {
 struct ViewPipelines {
     device: Arc<wgpu::Device>,
     chroma: ChromaPipelines,
-    delta: wgpu::ComputePipeline,
+    band: wgpu::ComputePipeline,
     /// Stands in for the luminance noise reduction's blur (never read).
     blur: wgpu::TextureView,
 }
@@ -125,13 +135,13 @@ fn pipelines(context: &GpuContext) -> Result<Arc<ViewPipelines>, String> {
     }
     let device = &context.device;
     let module = create_shader(device, "Colour Noise View Shader", &shader_source()?)?;
-    let delta = create_compute_pipeline(
+    let band = create_compute_pipeline(
         device,
         &wgpu::ComputePipelineDescriptor {
-            label: Some("color_noise_delta"),
+            label: Some("color_noise_view_band"),
             layout: None,
             module: &module,
-            entry_point: Some("color_noise_delta"),
+            entry_point: Some("color_noise_view_band"),
             compilation_options: Default::default(),
             cache: None,
         },
@@ -149,7 +159,7 @@ fn pipelines(context: &GpuContext) -> Result<Arc<ViewPipelines>, String> {
     let made = Arc::new(ViewPipelines {
         device: Arc::clone(device),
         chroma: ChromaPipelines::new(device)?,
-        delta,
+        band,
         blur,
     });
     *slot = Some(Arc::clone(&made));
@@ -174,31 +184,74 @@ fn wait_for_compiles(stop: &(dyn Fn() -> bool + Sync)) -> bool {
     !stop()
 }
 
-/// What the export's colour noise reduction (`global`'s, version 11)
-/// changes in `image` (the render source, linear for a RAW), resampled to
-/// `width` x `height` (Lanczos3, signed): the GPU counterpart of
-/// `color_noise::reduced_correction`. None when the recipe has no
-/// multi-scale colour noise reduction of version 11, the image is too
-/// small to filter, or `stop` returned true between two steps (a newer
-/// frame came: the caller wants again). It never runs beside a shader
-/// compile: each step waits for a running one.
-pub fn reduced_correction(
+/// The CPU work of a build (the streaming reduction), run by the caller:
+/// below the editor's priority, while the GPU calls stay on the calling
+/// thread (a starved thread inside wgpu holds locks the editor's frames
+/// wait for: G17/TPX6, drags stalled while a build took 7.9 s under load).
+pub type CpuRunner<'a> = &'a (dyn Fn(&mut (dyn FnMut() + Send)) + Sync);
+
+/// Uploads `source` as the export uploads its render input (export_processing
+/// `prepare_export_render`): the recipe's warp and edge-fringe pass at full
+/// resolution on the GPU (`upload_warped_render_source`), else the warp on
+/// the CPU and the pass on the GPU (`upload_fringed_render_source`), else
+/// both on the CPU. Uncropped: the crop follows the fit view's own base.
+/// None beyond the GPU's texture size.
+fn upload_render_input(
     context: &GpuContext,
-    image: &DynamicImage,
+    source: &Arc<DynamicImage>,
+    recipe: &serde_json::Value,
+    is_raw: bool,
+) -> Result<Option<UploadedImage>, String> {
+    let (width, height) = source.dimensions();
+    let window = [0, 0, width, height];
+    let source = match upload_warped_render_source(
+        context,
+        Arc::clone(source),
+        recipe,
+        is_raw,
+        window,
+        0,
+        None,
+    )? {
+        WarpedUpload::Uploaded(uploaded) => return Ok(Some(uploaded)),
+        WarpedUpload::NotOnGpu(source) => source,
+    };
+    let warped = rawtonic_engine::adjustment_utils::apply_warp(&*source, recipe, is_raw)?;
+    if let Some(uploaded) = upload_fringed_render_source(context, &warped, recipe, window, 0, None)?
+    {
+        return Ok(Some(uploaded));
+    }
+    let fringed = rawtonic_engine::edge_fringe::apply_for_recipe(warped, recipe, 1.0)?;
+    upload_render_source(context, &fringed, 0, None)
+}
+
+/// The export's render input of the RAW decode `source` with `recipe`
+/// ([`upload_render_input`]: warp and edge-fringe pass at full resolution)
+/// after its colour noise reduction (`global`'s, version 11; none at Color
+/// 0), resampled to `width` x `height` (Lanczos3, signed, streamed: the
+/// full-resolution result never exists whole on the CPU). A Develop fit
+/// view renders from it at Color 0 instead of its own reduced, warped and
+/// fringe-treated copy, whose fringe pass at the view's scale leaves up to
+/// 1.9 × the export's colour noise on noisy photos and whose correction from
+/// the bare decode missed the export's by 30–40 % of cells (notes:
+/// benchmark-results/tpx7-2026-11-17/REPORT.md). None for a recipe whose
+/// colour noise reduction is on but not version 11, beyond the texture
+/// size, or when `stop` returned true between two steps (a newer frame
+/// came: the caller wants again). It never runs beside a shader compile:
+/// each step waits for a running one. `cpu` runs the CPU work.
+pub fn reduced_render_input(
+    context: &GpuContext,
+    source: &Arc<DynamicImage>,
+    recipe: &serde_json::Value,
     global: &crate::image_processing::GlobalAdjustments,
     (width, height): (u32, u32),
     stop: &(dyn Fn() -> bool + Sync),
+    cpu: CpuRunner<'_>,
 ) -> Result<Option<image::Rgb32FImage>, String> {
     let mut global = *global;
     let versioned = color_noise_tuning(&global);
-    if !versioned.1.gpu_pyramid {
-        return Ok(None);
-    }
-    let Some(settings) = color_noise_settings(&mut global) else {
-        return Ok(None);
-    };
-    let (source_width, source_height) = image.dimensions();
-    if width == 0 || height == 0 {
+    let settings = color_noise_settings(&mut global);
+    if (settings.is_some() && !versioned.1.gpu_pyramid) || width == 0 || height == 0 {
         return Ok(None);
     }
     let is_raw = global.is_raw_image != 0;
@@ -206,51 +259,62 @@ pub fn reduced_correction(
     if !wait_for_compiles(stop) {
         return Ok(None);
     }
-    let device = &context.device;
-    let texture = create_input_texture(device, &context.queue, image, INPUT_UPLOAD_BAND_ROWS)?;
-    let input = texture.create_view(&Default::default());
-    if !wait_for_compiles(stop) {
-        return Ok(None);
-    }
-    let Some(pyramid) = GpuPyramid::build(
-        context,
-        &pipelines.chroma,
-        &input,
-        source_width,
-        source_height,
-        is_raw,
-    )?
-    else {
+    let Some(uploaded) = upload_render_input(context, source, recipe, is_raw)? else {
         return Ok(None);
     };
+    let (source_width, source_height) = (uploaded.0.width, uploaded.0.height);
+    let input = &uploaded.0.texture_view;
     if !wait_for_compiles(stop) {
         return Ok(None);
     }
-    let (thresholds, base_sigma, _) =
-        color_noise_thresholds(&mut global, settings, &pyramid.measured.noise, &versioned);
-    let [lw, lh] = pyramid.sizes[0];
-    global.color_noise_window = [0, 0, lw, lh];
-    let mut chroma = ChromaGpu::from_gpu_pyramid(
-        context,
-        &pipelines.chroma,
-        &input,
-        source_width,
-        source_height,
-        is_raw,
-        &pyramid,
-    )?;
-    chroma.rebuild_on_gpu(
-        context,
-        &pipelines.chroma,
-        PyramidRef::Gpu(&pyramid),
-        &thresholds,
-        base_sigma,
-        &versioned.1,
-    )?;
-    // As an export: only level 1 and its reconstruction stay.
-    chroma.reconstruction = None;
-    drop(pyramid);
-
+    let chroma = match settings {
+        Some(settings) => {
+            let Some(pyramid) = GpuPyramid::build(
+                context,
+                &pipelines.chroma,
+                input,
+                source_width,
+                source_height,
+                is_raw,
+            )?
+            else {
+                return Ok(None);
+            };
+            if !wait_for_compiles(stop) {
+                return Ok(None);
+            }
+            let (thresholds, base_sigma, _) =
+                color_noise_thresholds(&mut global, settings, &pyramid.measured.noise, &versioned);
+            let [lw, lh] = pyramid.sizes[0];
+            global.color_noise_window = [0, 0, lw, lh];
+            let mut chroma = ChromaGpu::from_gpu_pyramid(
+                context,
+                &pipelines.chroma,
+                input,
+                source_width,
+                source_height,
+                is_raw,
+                &pyramid,
+            )?;
+            chroma.rebuild_on_gpu(
+                context,
+                &pipelines.chroma,
+                PyramidRef::Gpu(&pyramid),
+                &thresholds,
+                base_sigma,
+                &versioned.1,
+            )?;
+            // As an export: only level 1 and its reconstruction stay.
+            chroma.reconstruction = None;
+            Some(chroma)
+        }
+        None => None,
+    };
+    let output_mode = if chroma.is_some() {
+        OUTPUT_FILTERED
+    } else {
+        OUTPUT_INPUT
+    };
     let params = |row_offset: u32| ViewParams {
         color_noise: global.color_noise,
         color_noise_window: global.color_noise_window,
@@ -260,15 +324,17 @@ pub fn reduced_correction(
         color_noise_guide_k2: global.color_noise_guide_k2,
         color_noise_speck: global.color_noise_speck,
         color_noise_reduction: global.color_noise_reduction,
-        _pad: [0.0; 2],
+        output_mode,
+        _pad: 0.0,
         source_window: [0, 0, source_width, source_height],
         tile_offset: [0, 0],
         is_raw: u32::from(is_raw),
         row_offset,
     };
+    let device = &context.device;
     let band_rows = (BAND_PIXELS / source_width.max(1)).clamp(16, source_height.max(16)) / 16 * 16;
     let output = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Colour noise view difference"),
+        label: Some("Colour noise view band"),
         size: wgpu::Extent3d {
             width: source_width,
             height: band_rows,
@@ -282,7 +348,17 @@ pub fn reduced_correction(
         view_formats: &[],
     });
     let output_view = output.create_view(&Default::default());
-    let mut stream = SignedRowStream::new(source_width, source_height, width, height);
+    let (packed, energy) = match &chroma {
+        Some(chroma) => (&chroma.packed_view, &chroma.energy_view),
+        // Never read without the filter.
+        None => (&pipelines.blur, &pipelines.blur),
+    };
+    let mut stream = Some(SignedRowStream::new(
+        source_width,
+        source_height,
+        width,
+        height,
+    ));
     let mut rgb = Vec::new();
     let mut top = 0;
     while top < source_height {
@@ -300,19 +376,19 @@ pub fn reduced_correction(
         );
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Colour noise view BG"),
-            layout: &pipelines.delta.get_bind_group_layout(0),
+            layout: &pipelines.band.get_bind_group_layout(0),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: texture_view(&input),
+                    resource: texture_view(input),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: texture_view(&chroma.packed_view),
+                    resource: texture_view(packed),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: texture_view(&chroma.energy_view),
+                    resource: texture_view(energy),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -331,7 +407,7 @@ pub fn reduced_correction(
         let mut encoder = device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&pipelines.delta);
+            pass.set_pipeline(&pipelines.band);
             pass.set_bind_group(0, &group, &[]);
             pass.dispatch_workgroups(source_width.div_ceil(16), rows.div_ceil(16), 1);
         }
@@ -359,8 +435,17 @@ pub fn reduced_correction(
                 }
             }
         })?;
-        stream.push_rows(&rgb);
+        if stop() {
+            return Ok(None);
+        }
+        cpu(&mut || {
+            if let Some(stream) = stream.as_mut() {
+                stream.push_rows(&rgb);
+            }
+        });
         top += rows;
     }
-    Ok(stream.finish())
+    let mut reduced = None;
+    cpu(&mut || reduced = stream.take().and_then(SignedRowStream::finish));
+    Ok(reduced)
 }
