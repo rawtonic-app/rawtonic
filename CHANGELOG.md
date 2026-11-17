@@ -65,6 +65,10 @@
 - **Tab moves from value field to value field in Develop.** Typing a number in a slider's field and pressing Tab (Shift+Tab back) now commits it and selects the next tool's value (the next open one), so a column of numbers can be typed without the mouse, as in Lightroom; Enter commits, Esc reverts. Before, Tab went to the next slider and the typed digits did not reach a field.
 - **Home and End go to the first and last photo** in the Library grid, the loupe, full screen and Develop's filmstrip (in a multi view, of the selection).
 
+### Changes
+
+- Updated frontend libraries (minor versions).
+
 ## 0.1.0-alpha.16 — 2026-11-16
 
 The sixteenth alpha. Develop's filmstrip can be docked beside the photo as a vertical grid, and unedited photos can start from develop defaults of your own — globally, per camera model or per camera body. For new edits, raised Shadows no longer leaves a light rim beside strong edges and radial and linear gradients fade as Camera Raw's do. On Windows with AMD graphics the first edits on a new computer wait at most about 9 s instead of 37 s, exports of new edits with noise reduction or sharpening are about a tenth faster, and the import view keeps the photograph on screen while zooming and stepping.
