@@ -18508,28 +18508,26 @@ fn render_source(
     .unwrap()
 }
 
-/// The reduced views' correction (`color_noise_view`) is the export's own
-/// colour noise reduction: the source plus its full-size difference,
-/// rendered at Color 0, is the export's render at Color 25 / 50 (up to
-/// the 16-bit float input of the second render); reduced, it is that
-/// difference resampled (`lanczos::resize_signed`); a stop ends it.
+/// The fit view's render input (`color_noise_view::reduced_render_input`)
+/// is the export's: at full size and rendered at Color 0 it is the export's
+/// render at Color 25 / 50 (up to the 16-bit float input of the second
+/// render); reduced, it is that input resampled (`lanczos::resize_signed`);
+/// at Color 0 it is the export's edge-fringe pass of the source; a stop
+/// ends it, and a colour noise reduction below version 11 has none.
 #[test]
 #[ignore = "requires a native GPU"]
-fn color_noise_view_correction_is_the_exports_filter() {
+fn fit_view_render_input_is_the_exports() {
     let context = context();
-    let image = chroma_noise_frame(2300, 300);
+    let image = Arc::new(chroma_noise_frame(2300, 300));
+    let cpu: color_noise_view::CpuRunner<'_> = &|work| work();
+    let input = |recipe: &serde_json::Value, dims, stop: &(dyn Fn() -> bool + Sync)| {
+        let global = get_all_adjustments_from_json(recipe, true, Some(1)).global;
+        color_noise_view::reduced_render_input(&context, &image, recipe, &global, dims, stop, cpu)
+            .unwrap()
+    };
     for color in [25, 50] {
         let recipe = json!({ "colorNoiseReduction": color, "colorNoiseVersion": 11 });
-        let global = get_all_adjustments_from_json(&recipe, true, Some(1)).global;
-        let full =
-            color_noise_view::reduced_correction(&context, &image, &global, (2300, 300), &|| false)
-                .unwrap()
-                .expect("a correction");
-        let mut corrected = image.to_rgb32f();
-        corrected
-            .iter_mut()
-            .zip(full.iter())
-            .for_each(|(v, d)| *v = half::f16::from_f32(*v).to_f32() + d);
+        let full = input(&recipe, (2300, 300), &|| false).expect("a render input");
         let export = render_source(
             &context,
             &image,
@@ -18539,7 +18537,7 @@ fn color_noise_view_correction_is_the_exports_filter() {
         .to_rgba16();
         let view = render_source(
             &context,
-            &DynamicImage::ImageRgb32F(corrected),
+            &DynamicImage::ImageRgb32F(full.clone()),
             json!({ "colorNoiseVersion": 11 }),
             RenderOutputPrecision::SixteenBit,
         )
@@ -18562,39 +18560,49 @@ fn color_noise_view_correction_is_the_exports_filter() {
         }
         let n = (export.width() * export.height() * 3) as f64;
         println!(
-            "Color {color}: view correction vs export: max {worst}, mean {:.3}; filter changed mean {:.1} levels",
+            "Color {color}: view input vs export: max {worst}, mean {:.3}; filter changed mean {:.1} levels",
             sum as f64 / n,
             changed as f64 / n
         );
-        // Measured on the RTX 3080 (Vulkan): max 7, mean 2.4 at Color 25
-        // while the filter moves pixels by 516 levels on average: the 16-bit
-        // float rounding of the corrected input, nothing of the filter.
+        // Measured on the RTX 3080 (Vulkan, TPX5's difference form): max 7,
+        // mean 2.4 at Color 25 while the filter moves pixels by 516 levels on
+        // average: the 16-bit float rounding of the second render's input.
         assert!(sum as f64 / n < 4.0, "mean {}", sum as f64 / n);
         assert!(changed as f64 / n > 100.0 * (sum as f64 / n).max(1.0));
         assert!(worst < 64, "max {worst}");
-        let reduced =
-            color_noise_view::reduced_correction(&context, &image, &global, (800, 104), &|| false)
-                .unwrap()
-                .unwrap();
+        let reduced = input(&recipe, (800, 104), &|| false).unwrap();
         let expected = rawtonic_engine::lanczos::resize_signed(&full, 800, 104);
         assert_eq!(reduced.as_raw(), expected.as_raw());
-        assert!(
-            color_noise_view::reduced_correction(&context, &image, &global, (800, 104), &|| true)
-                .unwrap()
-                .is_none()
-        );
+        assert!(input(&recipe, (800, 104), &|| true).is_none());
     }
-    let off = get_all_adjustments_from_json(
-        &json!({ "colorNoiseReduction": 0, "colorNoiseVersion": 11 }),
-        true,
-        Some(1),
-    )
-    .global;
-    assert!(
-        color_noise_view::reduced_correction(&context, &image, &off, (800, 104), &|| false)
-            .unwrap()
-            .is_none()
+    // Color 0: the source after the export's edge-fringe pass (into the
+    // input texture there; here read back, `apply_for_recipe`), in f16.
+    let fringe = json!({ "colorNoiseReduction": 0, "colorNoiseVersion": 11, "fringeVersion": 6 });
+    let full = input(&fringe, (2300, 300), &|| false).expect("a render input");
+    rawtonic_engine::edge_fringe::gpu::register(
+        Arc::clone(&context.device),
+        Arc::clone(&context.queue),
     );
+    let cpu_pass = rawtonic_engine::edge_fringe::apply_for_recipe(
+        std::borrow::Cow::Borrowed(&*image),
+        &fringe,
+        1.0,
+    )
+    .unwrap()
+    .to_rgb32f();
+    let plain = image.to_rgb32f();
+    let (mut worst, mut moved) = (0f32, 0f32);
+    for ((v, c), p) in full.iter().zip(cpu_pass.iter()).zip(plain.iter()) {
+        worst = worst.max((v - c).abs() / c.abs().max(0.01));
+        moved = moved.max((c - p).abs());
+    }
+    println!(
+        "Color 0: view input vs the fringe pass read back: max relative {worst:.5}; the pass moved up to {moved:.4}"
+    );
+    assert!(moved > 0.01, "the fringe pass changed nothing ({moved})");
+    assert!(worst < 0.01, "max relative {worst}");
+    let older = json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 10 });
+    assert!(input(&older, (800, 104), &|| false).is_none());
 }
 
 #[test]
@@ -22179,9 +22187,20 @@ fn gpu_warp_display_and_export_develop_the_same_input() {
         let read_back = upload_fringed_render_source(&context, &warped, &recipe, window, 0, None)
             .unwrap()
             .expect("runs into the texture");
-        let on_gpu = upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
-            .unwrap()
-            .expect("warps on the GPU");
+        let on_gpu = match upload_warped_render_source(
+            &context,
+            Arc::new(image.clone()),
+            &recipe,
+            true,
+            window,
+            0,
+            None,
+        )
+        .unwrap()
+        {
+            WarpedUpload::Uploaded(uploaded) => uploaded,
+            WarpedUpload::NotOnGpu(_) => panic!("warps on the GPU"),
+        };
         for (path, uploaded) in [("read back", read_back), ("on the GPU", on_gpu)] {
             let texels = read_texture_data_roi(
                 &context.device,
@@ -22256,9 +22275,17 @@ fn a_failing_gpu_warp_fails_the_render() {
     );
     let window = [0, 0, w, h];
     failed(
-        upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
-            .map(|_| ())
-            .unwrap_err(),
+        upload_warped_render_source(
+            &context,
+            Arc::new(image.clone()),
+            &recipe,
+            true,
+            window,
+            0,
+            None,
+        )
+        .map(|_| ())
+        .unwrap_err(),
     );
     // Warped on the CPU: unaffected.
     let saved = at_render_version(&recipe, 6);
@@ -24023,29 +24050,49 @@ fn tpx5_color_noise_cost() {
             );
         }
     }
-    // The reduced views' GPU correction (`color_noise_view`) at the Develop
-    // fit view's pre-warp sizes (fit 1536 and 2070 of a 6000 px photo).
-    let mut r = recipe.clone();
-    r["colorNoiseReduction"] = 50.into();
-    let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
-    rawtonic_engine::baseline_exposure::apply_base_look(
-        &mut a.global,
-        &raw,
-        measures.as_ref(),
-        None,
-    );
+    // The fit view's render input (`color_noise_view`: warp, edge-fringe
+    // pass and colour noise reduction as the export makes them) at the
+    // Develop fit view's pre-crop sizes (fit 1536 and 2070 of a 6000 px
+    // photo), at Color 0 and 50; `TPX7_RECIPE` (a recipe file, e.g. the
+    // app's own with its lens corrections) in place of this one.
+    let full = Arc::new(full);
+    let view_recipe: serde_json::Value = match std::env::var_os("TPX7_RECIPE") {
+        Some(path) => serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap(),
+        None => recipe.clone(),
+    };
     color_noise_view::ready(&context).unwrap();
     let (w, h) = (full.width(), full.height());
-    for rep in 0..reps {
-        for dim in [1920u32, 2588] {
-            let size = (dim, (u64::from(dim) * u64::from(h) / u64::from(w)) as u32);
-            let t = std::time::Instant::now();
-            let delta =
-                color_noise_view::reduced_correction(&context, &full, &a.global, size, &|| false)
-                    .unwrap()
-                    .unwrap();
-            eprintln!("TIME rep {rep} view correction {size:?} {:?}", t.elapsed());
-            drop(delta);
+    for c in [0, 50] {
+        let mut r = view_recipe.clone();
+        r["colorNoiseReduction"] = c.into();
+        let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
+        rawtonic_engine::baseline_exposure::apply_base_look(
+            &mut a.global,
+            &raw,
+            measures.as_ref(),
+            None,
+        );
+        for rep in 0..reps {
+            for dim in [1920u32, 2588] {
+                let size = (dim, (u64::from(dim) * u64::from(h) / u64::from(w)) as u32);
+                let t = std::time::Instant::now();
+                let input = color_noise_view::reduced_render_input(
+                    &context,
+                    &full,
+                    &r,
+                    &a.global,
+                    size,
+                    &|| false,
+                    &|work| work(),
+                )
+                .unwrap()
+                .unwrap();
+                eprintln!(
+                    "TIME rep {rep} color {c} view render input {size:?} {:?}",
+                    t.elapsed()
+                );
+                drop(input);
+            }
         }
     }
 }

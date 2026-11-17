@@ -402,27 +402,27 @@ fn warp_with(
         return Ok(result);
     }
     scoped(&device, || {
-        let warp = Prepared::new(&device, u, source, out, flags)?;
+        let warp = Prepared::new(&device, &queue, u, source, out, flags)?;
         warp.read_back(&queue, &mut result)?;
         warp.check(&queue)
     })?;
     Ok(result)
 }
 
-/// The warp of `adjustments` on `image` (its whole decode) into a new
-/// buffer of the warped frame on `device` (RGB f32 rows of the same size,
-/// `STORAGE | COPY_SRC`): the pixels [`warp`] gives for the whole frame,
-/// left on the GPU. `None` where this warp does not run on the GPU (a
-/// recipe before `renderVersion` 7 or without a warp, a frame the GPU
-/// cannot hold: [`runs_for`]). Returns once the warp is done. `is_raw` as
+/// The whole decode `image` on `device` for the warp of `adjustments`
+/// ([`UploadedFrame::warp_into_buffer`]). `None` where this warp does not
+/// run on the GPU (a recipe before `renderVersion` 7 or without a warp, a
+/// frame the GPU cannot hold: [`runs_for`]). Nothing reads `image` after
+/// this returns, so a caller holding the only copy can free it before the
+/// warped frame is allocated. `is_raw` as
 /// `image_processing::apply_geometry_warp`.
-pub fn warp_into_buffer(
-    device: &Arc<wgpu::Device>,
+pub fn upload_frame<'a>(
+    device: &'a Arc<wgpu::Device>,
     queue: &wgpu::Queue,
     image: &image::DynamicImage,
     adjustments: &serde_json::Value,
     is_raw: bool,
-) -> Result<Option<wgpu::Buffer>, String> {
+) -> Result<Option<UploadedFrame<'a>>, String> {
     let Some(source) = image.as_rgb32f() else {
         return Ok(None);
     };
@@ -436,35 +436,68 @@ pub fn warp_into_buffer(
     }
     let source = SourceRows::whole(source.as_raw(), width, height);
     let out = OutputRows::whole(width, height);
-    scoped(device, || {
-        let warp = Prepared::new(device, &u, &source, out, 0)?;
-        let frame = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Warped frame"),
-            size: u64::from(width) * u64::from(height) * 12,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-        // A band before: done before the next is submitted, so two bands
-        // at most wait in the queue ahead of a display frame.
-        let mut in_flight: Option<std::sync::mpsc::Receiver<()>> = None;
-        for (row0, rows) in warp.bands() {
-            let mut encoder = device.create_command_encoder(&Default::default());
-            warp.encode(&mut encoder, row0, rows, &frame, row0);
-            queue.submit(Some(encoder.finish()));
-            let (sender, done) = std::sync::mpsc::channel();
-            queue.on_submitted_work_done(move || {
-                let _ = sender.send(());
+    let warp = scoped(device, || Prepared::new(device, queue, &u, &source, out, 0))?;
+    Ok(Some(UploadedFrame {
+        warp,
+        width,
+        height,
+    }))
+}
+
+/// A decoded frame on the GPU with its warp's table and uniforms
+/// ([`upload_frame`]).
+pub struct UploadedFrame<'a> {
+    warp: Prepared<'a>,
+    width: u32,
+    height: u32,
+}
+
+impl UploadedFrame<'_> {
+    /// The warp into a new buffer of the warped frame (RGB f32 rows of the
+    /// same size, `STORAGE | COPY_SRC`): the pixels [`warp`] gives for the
+    /// whole frame, left on the GPU. Returns once the warp is done; the
+    /// uploaded frame is freed before it returns.
+    pub fn warp_into_buffer(self, queue: &wgpu::Queue) -> Result<wgpu::Buffer, String> {
+        let Self {
+            warp,
+            width,
+            height,
+        } = self;
+        let device = warp.device;
+        let frame = scoped(device, || {
+            let frame = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Warped frame"),
+                size: u64::from(width) * u64::from(height) * 12,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
             });
-            if let Some(previous) = in_flight.replace(done) {
-                wait_for(device, &previous)?;
+            // A band before: done before the next is submitted, so two bands
+            // at most wait in the queue ahead of a display frame.
+            let mut in_flight: Option<std::sync::mpsc::Receiver<()>> = None;
+            for (row0, rows) in warp.bands() {
+                let mut encoder = device.create_command_encoder(&Default::default());
+                warp.encode(&mut encoder, row0, rows, &frame, row0);
+                queue.submit(Some(encoder.finish()));
+                let (sender, done) = std::sync::mpsc::channel();
+                queue.on_submitted_work_done(move || {
+                    let _ = sender.send(());
+                });
+                if let Some(previous) = in_flight.replace(done) {
+                    wait_for(device, &previous)?;
+                }
             }
-        }
-        if let Some(last) = in_flight {
-            wait_for(device, &last)?;
-        }
-        warp.check(queue)?;
-        Ok(Some(frame))
-    })
+            if let Some(last) = in_flight {
+                wait_for(device, &last)?;
+            }
+            warp.check(queue)?;
+            Ok(frame)
+        })?;
+        // The source frame is idle: freed now, before the caller's next
+        // full-size allocation.
+        drop(warp);
+        let _ = device.poll(wgpu::PollType::Poll);
+        Ok(frame)
+    }
 }
 
 /// Every fourth row (0, 4, 8, …) of a warped frame in `buffer` (RGB f32,
@@ -542,6 +575,52 @@ fn map<T>(
     Ok(value)
 }
 
+/// Bytes of the warp's source written per submission.
+const SOURCE_UPLOAD_BAND_BYTES: usize = 32 << 20;
+
+/// `pixels` in a new storage buffer, written in bands of
+/// [`SOURCE_UPLOAD_BAND_BYTES`] with one band in flight. A buffer mapped at
+/// creation without `MAP_WRITE` is filled through a staging copy of its
+/// whole size (12 bytes a pixel more while the source uploads: 0.7 GB at
+/// 60 MP; notes: benchmark-results/mem11-2026-11-17).
+fn upload_source(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    pixels: &[f32],
+) -> Result<wgpu::Buffer, String> {
+    let bytes: &[u8] = bytemuck::cast_slice(pixels);
+    // As `create_buffer_init`: a buffer's size is a multiple of
+    // COPY_BUFFER_ALIGNMENT and not zero (f32 data is always aligned).
+    let size = (bytes.len() as wgpu::BufferAddress).max(wgpu::COPY_BUFFER_ALIGNMENT);
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Warp source"),
+        size,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut in_flight: Option<std::sync::mpsc::Receiver<()>> = None;
+    for (index, band) in bytes.chunks(SOURCE_UPLOAD_BAND_BYTES).enumerate() {
+        queue.write_buffer(
+            &buffer,
+            (index * SOURCE_UPLOAD_BAND_BYTES) as wgpu::BufferAddress,
+            band,
+        );
+        // A write stays staged until a submission executes it.
+        queue.submit(std::iter::empty());
+        let (sender, done) = std::sync::mpsc::channel();
+        queue.on_submitted_work_done(move || {
+            let _ = sender.send(());
+        });
+        if let Some(previous) = in_flight.replace(done) {
+            wait_for(device, &previous)?;
+        }
+    }
+    if let Some(last) = in_flight {
+        wait_for(device, &last)?;
+    }
+    Ok(buffer)
+}
+
 /// A warp with its source, table and uniforms on the GPU, dispatched in
 /// bands of output rows.
 struct Prepared<'a> {
@@ -557,6 +636,7 @@ struct Prepared<'a> {
 impl<'a> Prepared<'a> {
     fn new(
         device: &'a Arc<wgpu::Device>,
+        queue: &wgpu::Queue,
         u: &WarpUniforms,
         source: &SourceRows,
         out: OutputRows,
@@ -582,11 +662,7 @@ impl<'a> Prepared<'a> {
             pipeline: pipeline_for(device),
             base,
             out,
-            input: init(
-                "Warp source",
-                bytemuck::cast_slice(source.pixels),
-                wgpu::BufferUsages::STORAGE,
-            ),
+            input: upload_source(device, queue, source.pixels)?,
             table: init(
                 "Warp lens table",
                 bytemuck::cast_slice(&table_data),

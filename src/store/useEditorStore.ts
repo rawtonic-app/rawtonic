@@ -482,6 +482,30 @@ export const debouncedSetHistory = Object.assign(
   }
 );
 
+/** Capture only this click's still-pending history entry. A following click
+ * at the same track position can replace it with a double-click reset,
+ * without holding draft rendering or touching a later edit/another photo. */
+export function capturePendingSliderClick() {
+  const captured = useEditorStore.getState();
+  return () => {
+    const current = useEditorStore.getState();
+    if (
+      captured.historyPending &&
+      current.selectedImage?.path === captured.selectedImage?.path &&
+      current.adjustments === captured.adjustments &&
+      current.history === captured.history &&
+      current.historyPending &&
+      !current.isSliderDragging &&
+      !heldHistory
+    ) {
+      scheduledHistory.cancel();
+      // Carry the click into the following interaction. If that press is
+      // cancelled before a reset, the first click remains undoable.
+      heldHistory = current.adjustments;
+    }
+  };
+}
+
 /** The photograph open last (`previousPhoto`) and its size. */
 let lastOpened: { path: string; size: { width: number; height: number } | null } | null = null;
 

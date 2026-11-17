@@ -31,7 +31,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 | `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | none | `lib` | `core:test` |
 | `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
-| `interop` | other editors' settings → ours | `metadata` | `lightroom`, `capture_one` | `-p rawtonic-interop` |
+| `interop` | other editors' settings → ours | `metadata` | `lightroom`, `capture_one`, `capture_one_masks` (`.comask` layer masks), `capture_one_tiles` (their compressed raster tiles) | `-p rawtonic-interop` |
 | `tether` | camera tethering helper (ADR 0012) | `fs` | `protocol`, `staging`, `client` | `--mock` camera |
 | `contribute` | scrubbing, relay client (ADR 0017) | `fs` | `scrub`, `payload`, `crash`, `native` | panic/abort tests; Windows crash-in-event-log test |
 | `merge` | HDR, panorama, focus stack, DNG | `engine`, `rawdecode`, `rawler` | `hdr`, `panorama`, `dng` | `examples/` |
@@ -542,6 +542,8 @@ as heal spots, synced to the same camera through `lightroom_retouch`'s pending f
 `src-tauri/src/spot_removal.rs` with face boxes from `rawtonic_faces`), lightroom_retouch (imported Lightroom spots and
 red eyes placed from Lightroom's geometry on the base image), lightroom_crop (Lightroom's crop and straighten as
 `crop`/`rotation` in the photo's frame, from the sensor area `rawdecode::source_frame::frame_and_sensor` reads),
+lightroom_upright (Lightroom's Guided Upright guides as `guidedPerspective` lines, through the photo's lens correction
+when Lightroom's profile was on),
 face_retouch, mask_generation rasterisation + masks definitions + mask_parameters (brush strokes a preview request
 refers to by token), cache_utils hashes, lut, source_frame (a recipe's frame version, the frames a file's versions
 develop alike, a Reset's recipe), camera_crop (that aspect ratio as the crop of new recipes, ADR 0020 option C),
@@ -657,9 +659,10 @@ Moved modules stay reachable under their old `crate::<module>` names through tho
 rawtonic_…::{…}` line in `lib.rs`. Don't add empty crates pretending a separation exists.
 
 `lib.rs` is wiring only: module declarations, `run()` and `generate_handler!`; the Develop source/preview pipeline lives
-in `editor_preview.rs` (the fit view's export colour noise reduction from a full-resolution correction built in the
-background: `color_noise_view.rs`; on the CPU on Apple silicon, elsewhere by the export's GPU filter in
-`rawtonic_gpu::gpu_processing::color_noise_view`, off on integrated or compile-limited GPUs), start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
+in `editor_preview.rs` (final fit frames render from the export's own render input — warp, edge-fringe pass and
+colour noise reduction at full resolution, reduced — built in the background: `color_noise_view.rs` over
+`rawtonic_gpu::gpu_processing::color_noise_view::reduced_render_input`, off on integrated GPUs other than Apple
+silicon and on compile-limited ones), start-up services in `startup.rs`, merges in `merges.rs` over rawtonic-merge, Open With / Edit
 With in `open_with.rs` (programs from LaunchServices on macOS and from the shell's association handlers on Windows,
 `open_with/windows_shell.rs` with its plain-data part in `open_with/handlers.rs`; disabled on Linux; Edit With queues one export per photo
 through the export queue, snapshotted at the click like any queued export, to `NAME_edit.<ext>` beside the original,

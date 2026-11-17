@@ -36,11 +36,18 @@ fn read_source(path: &Path) -> Result<(Source, &'static str), String> {
         .unwrap_or_default();
     let result = if name.ends_with(".lrcat") {
         rawtonic_interop::lightroom::read(path).map(|lib| (lib, "lightroom"))
-    } else if name.ends_with(".cosessiondb") {
+    } else if name.ends_with(".cosessiondb") || name.ends_with(".cocatalogdb") {
         rawtonic_interop::capture_one::read(path).map(|lib| (lib, "captureOne"))
+    } else if name.ends_with(".cocatalog") {
+        // A Capture One catalog is a folder (a package on macOS) holding
+        // `<name>.cocatalogdb`.
+        let mut name = path.file_stem().unwrap_or_default().to_os_string();
+        name.push(".cocatalogdb");
+        let db = path.join(name);
+        rawtonic_interop::capture_one::read(&db).map(|lib| (lib, "captureOne"))
     } else {
         return Err(
-            "Choose a Lightroom Classic catalog (.lrcat) or a Capture One session (.cosessiondb)."
+            "Choose a Lightroom Classic catalog (.lrcat), a Capture One session (.cosessiondb) or a Capture One catalog (.cocatalog)."
                 .into(),
         );
     };
@@ -101,7 +108,7 @@ fn preview(source: &Source, kind: &'static str) -> ImportPreview {
         photos: originals().count(),
         copies: source.photos.len() - originals().count(),
         edited: originals()
-            .filter(|p| !matches!(p.develop, Develop::None))
+            .filter(|p| !matches!(p.develop, Develop::None) || !p.capture_one_layers.is_empty())
             .count(),
         albums: source
             .albums
@@ -289,6 +296,10 @@ pub fn translate(develop: &Develop) -> Option<Value> {
 }
 
 fn import_warnings(photo: &Photo) -> Vec<String> {
+    let layers = crate::capture_one_layers::report(&photo.capture_one_layers);
+    let layers = layers
+        .into_iter()
+        .map(|line| format!("{}: {line}", photo.path.display()));
     std::iter::once((None, &photo.develop))
         .chain(
             photo
@@ -315,6 +326,7 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
             .map(|warning| format!("{}{}: {warning}", photo.path.display(), context))
             .collect()
         })
+        .chain(layers)
         .collect()
 }
 
@@ -555,8 +567,45 @@ struct Imported {
 /// mode) as Lightroom's lens profile switch and amounts decide
 /// (`lightroom_lens`); its crop and straightening become `crop` and
 /// `rotation` in the photo's own frame (`rawtonic_engine::lightroom_crop`).
-fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
-    let mut adjustments = translate(develop)?;
+fn recipe_for(
+    develop: &Develop,
+    layers: &[rawtonic_interop::capture_one::Layer],
+    path: &Path,
+) -> Option<(Value, bool)> {
+    recipe_for_with(
+        develop,
+        layers,
+        path,
+        &rawtonic_engine::lightroom_upright::lens_for_file,
+    )
+}
+
+/// The photo's lens correction as a recipe gives it (`lens_for_file`).
+type LensOf<'a> = &'a dyn Fn(
+    &Value,
+    &Path,
+) -> Option<(
+    rawtonic_engine::image_processing::WarpPoints,
+    u16,
+    (f64, f64),
+)>;
+
+/// `recipe_for` with the photo's lens correction from `lens`.
+fn recipe_for_with(
+    develop: &Develop,
+    c1_layers: &[rawtonic_interop::capture_one::Layer],
+    path: &Path,
+    lens: LensOf,
+) -> Option<(Value, bool)> {
+    let translated = translate(develop);
+    let edited = translated.is_some();
+    if !edited && c1_layers.is_empty() {
+        return None;
+    }
+    let mut adjustments = translated.unwrap_or_else(|| json!({}));
+    if let Develop::CaptureOne(entries) = develop {
+        capture_one_lens(entries, path, &mut adjustments);
+    }
     let is_raw = crate::formats::is_raw_file(path);
     let mut base = json!({});
     rawtonic_engine::image_processing::apply_render_default(&mut base);
@@ -588,11 +637,47 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
             );
         }
     }
+    // Capture One's local adjustment layers (`capture_one_layers`), above
+    // any the photo's settings brought, their gradients through the lens
+    // correction of the recipe as it renders (its frame stamped above).
+    let layers = capture_one_layers(c1_layers, path, &adjustments, lens);
+    if !edited && layers.is_empty() {
+        return None;
+    }
+    if !layers.is_empty()
+        && let Some(map) = adjustments.as_object_mut()
+    {
+        let entry = map
+            .entry(rawtonic_recipe::masks::MASKS.name())
+            .or_insert_with(|| json!([]));
+        if let Some(existing) = entry.as_array_mut() {
+            existing.extend(layers);
+        } else {
+            *entry = Value::Array(layers);
+        }
+    }
     let mut clipped = false;
     if let Develop::LightroomXmp(xmp) = develop {
         let attrs = crate::preset_converter::crs_attributes(xmp);
         lightroom_lens(&attrs, path, &mut adjustments);
         clipped = lightroom_crop(&attrs, path, &mut adjustments);
+        // Guided Upright's guides, through the photo's own lens correction;
+        // Lightroom's crop, when imported, frames the corrected photo.
+        if crate::formats::is_raw_file(path) {
+            let has_crop = adjustments
+                .get(geometry::CROP.name())
+                .is_some_and(|c| !c.is_null());
+            let profile = attrs
+                .get("LensProfileEnable")
+                .is_some_and(|v| v.trim() == "1");
+            rawtonic_engine::lightroom_upright::apply(
+                &mut adjustments,
+                xmp,
+                path,
+                profile,
+                has_crop,
+            );
+        }
     }
     // Lightroom's spots, red eye corrections and mask geometry render from
     // its own geometry once they know the photo's orientation, a fact of
@@ -606,7 +691,139 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
         rawtonic_engine::lightroom_retouch::set_orientation(&mut adjustments, orientation);
         rawtonic_engine::lightroom_masks::set_orientation(&mut adjustments, orientation);
     }
+    // Capture One's raster masks are in the unrotated sensor frame: they
+    // record the file's EXIF orientation that turns them into the photo's.
+    if crate::capture_one_layers::needs_orientation(&adjustments)
+        && let Ok(bytes) = std::fs::read(path)
+    {
+        let orientation = crate::image_loader::source_orientation(&bytes, &path.to_string_lossy());
+        crate::capture_one_layers::set_orientation(&mut adjustments, orientation);
+    }
     Some((adjustments, clipped))
+}
+
+/// Capture One's local adjustment layers as Rawtonic layers on the photo
+/// at `path` whose recipe is `adjustments` (as it will render: its lens
+/// choice made and its frame stamped): their gradients, drawn by Capture One
+/// before its lens correction, moved through the lens correction `lens`
+/// finds for that recipe (`capture_one_layers`).
+fn capture_one_layers(
+    layers: &[rawtonic_interop::capture_one::Layer],
+    path: &Path,
+    adjustments: &Value,
+    lens: LensOf,
+) -> Vec<Value> {
+    if layers.is_empty() {
+        return Vec::new();
+    }
+    let lens = crate::formats::is_raw_file(path)
+        .then(|| lens(adjustments, path))
+        .flatten();
+    let through = lens.as_ref().map(|(warp, orientation, size)| {
+        rawtonic_engine::lightroom_upright::through_lens(warp, *orientation, *size)
+    });
+    match &through {
+        Some(through) => crate::capture_one_layers::layers(layers, through).0,
+        None => {
+            crate::capture_one_layers::layers(layers, &crate::capture_one_layers::uncorrected).0
+        }
+    }
+}
+
+/// The lens correction a new edit of the photo at `path` gets.
+fn default_lens(path: &Path) -> Value {
+    let mut default = json!({});
+    rawtonic_engine::embedded_lens::apply_default(&mut default, path);
+    default
+}
+
+/// A profile correction the other editor applied, on Rawtonic's own lens
+/// data: left to `default` (the correction a new edit gets) where that has
+/// one, else the lens's lensfun profile found from the photo's EXIF as the
+/// Lens tool's auto-detect finds it (DSLR lenses). Returns whether a
+/// correction applies.
+fn profile_where_default_has_none(
+    default: &Value,
+    path: &Path,
+    map: &mut serde_json::Map<String, Value>,
+) -> bool {
+    if default.get(lens::CORRECTION_MODE.name()).is_some() {
+        return true;
+    }
+    let Some((maker, model, params)) = rawtonic_engine::embedded_lens::lensfun_for_photo(path)
+    else {
+        return false;
+    };
+    let Ok(params) = serde_json::to_value(params) else {
+        return false;
+    };
+    map.insert(lens::CORRECTION_MODE.name().into(), json!("auto"));
+    map.insert(lens::MAKER.name().into(), json!(maker));
+    map.insert(lens::MODEL.name().into(), json!(model));
+    map.insert(lens::DISTORTION_PARAMS.name().into(), params);
+    true
+}
+
+/// Capture One's lens correction on Rawtonic's own lens data (Capture One's
+/// profile curves in `LensGeoAbr`/`LensLightFallOff` are not used, only its
+/// amounts). Its masks are drawn on the photo before that correction and
+/// move with it (`capture_one_layers`), so the correction decides where they
+/// land. With Distortion or Light Falloff above 0 (Capture One's defaults
+/// where it has a profile: Distortion 100, Light Falloff 0) the photo gets a
+/// profile correction as in `profile_where_default_has_none`, each amount
+/// (0–100 %, 100 = the profile's, as Rawtonic's) as Capture One set it; with
+/// both at 0 neither corrects (amounts 0, whatever the default). Settings
+/// without an amount (an older session, a file without a profile) leave the
+/// default.
+fn capture_one_lens(entries: &[(String, String)], path: &Path, adjustments: &mut Value) {
+    let Some(map) = adjustments.as_object_mut() else {
+        return;
+    };
+    if map.contains_key(lens::CORRECTION_MODE.name()) {
+        return;
+    }
+    let Some((distortion, falloff)) = capture_one_lens_amounts(entries) else {
+        return;
+    };
+    let corrects = |amount: Option<f64>| amount.is_some_and(|a| a > 0.0);
+    if (corrects(distortion) || corrects(falloff))
+        && !profile_where_default_has_none(&default_lens(path), path, map)
+    {
+        return;
+    }
+    for (key, amount) in [
+        (lens::DISTORTION_AMOUNT.name(), distortion),
+        (lens::VIGNETTE_AMOUNT.name(), falloff),
+    ] {
+        if let Some(amount) = amount.filter(|a| *a != 100.0) {
+            map.insert(key.into(), json!(amount));
+        }
+    }
+}
+
+/// Capture One's Distortion and Light Falloff amounts (`curve|amount|…`,
+/// 0–100 %) where it has a lens profile; None without one or without
+/// either amount.
+fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(Option<f64>, Option<f64>)> {
+    let get = |key: &str| {
+        entries
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    };
+    let amount = |key: &str| {
+        get(key)?
+            .split('|')
+            .nth(1)?
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite())
+            .map(|v| v.clamp(0.0, 200.0))
+    };
+    get("LensIdGuid").filter(|v| !v.trim().is_empty())?;
+    let amounts = (amount("LensGeoAbr"), amount("LensLightFallOff"));
+    (amounts.0.is_some() || amounts.1.is_some()).then_some(amounts)
 }
 
 /// Lightroom's lens profile corrections on Rawtonic's own lens data
@@ -649,19 +866,9 @@ fn lightroom_lens(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
         }
     }
     // Which correction would the default be?
-    let mut default = json!({});
-    rawtonic_engine::embedded_lens::apply_default(&mut default, path);
+    let default = default_lens(path);
     if on {
-        if default.get(lens::CORRECTION_MODE.name()).is_none()
-            && let Some((maker, model, params)) =
-                rawtonic_engine::embedded_lens::lensfun_for_photo(path)
-            && let Ok(params) = serde_json::to_value(params)
-        {
-            map.insert(lens::CORRECTION_MODE.name().into(), json!("auto"));
-            map.insert(lens::MAKER.name().into(), json!(maker));
-            map.insert(lens::MODEL.name().into(), json!(model));
-            map.insert(lens::DISTORTION_PARAMS.name().into(), params);
-        }
+        profile_where_default_has_none(&default, path, map);
         return;
     }
     match default[lens::CORRECTION_MODE.name()].as_str() {
@@ -736,7 +943,7 @@ fn lightroom_crop(attrs: &HashMap<String, String>, path: &Path, adjustments: &mu
 
 /// Registers one photograph with its translated edit and snapshots.
 fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imported)> {
-    let recipe = recipe_for(&photo.develop, &photo.path);
+    let recipe = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path);
     let mut imported = Imported {
         translated: recipe.is_some(),
         ai_masks: recipe
@@ -803,7 +1010,7 @@ fn import_snapshots(
         // A snapshot at Lightroom's defaults is the photo as it develops
         // without an edit.
         let (adjustments, was_clipped) =
-            recipe_for(develop, &photo.path).unwrap_or((json!({}), false));
+            recipe_for(develop, &[], &photo.path).unwrap_or((json!({}), false));
         clipped += usize::from(was_clipped);
         catalog.add_snapshot(version, name, adjustments)?;
     }
@@ -871,7 +1078,7 @@ fn import_copy(
         }
     }
     let id = id.ok_or_else(|| anyhow::anyhow!("No free name for the virtual copy"))?;
-    let recipe = recipe_for(&photo.develop, &photo.path);
+    let recipe = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path);
     let mut imported = Imported {
         translated: recipe.is_some(),
         ai_masks: recipe
@@ -958,6 +1165,121 @@ mod tests {
     use rusqlite::Connection;
     use std::fs;
 
+    /// Capture One's gradients go through the lens correction of the recipe
+    /// as it renders: with its frame version stamped, so frame-dependent lens
+    /// data (an in-camera aspect frame) is the one preview and export use.
+    #[test]
+    fn capture_one_gradients_go_through_the_lens_of_the_final_recipe() {
+        use rawtonic_engine::image_processing::{GeometryParams, WarpPoints};
+        use rawtonic_interop::capture_one::Layer;
+        use rawtonic_interop::capture_one_masks::Mask;
+        let layer = Layer {
+            name: "Sky".into(),
+            enabled: true,
+            opacity: 100.0,
+            settings: vec![("Exposure".into(), "-1".into())],
+            mask: Mask::Linear {
+                start: (100.0, 50.0),
+                end: (100.0, 150.0),
+                midpoint: 0.5,
+            },
+            frame: (600.0, 400.0),
+        };
+        let seen = std::cell::RefCell::new(Vec::new());
+        let lens = |recipe: &Value, _: &Path| {
+            seen.borrow_mut().push(recipe.clone());
+            let barrel = GeometryParams {
+                distortion: 40.0,
+                ..GeometryParams::default()
+            };
+            Some((WarpPoints::new(&barrel, 600, 400), 1, (600.0, 400.0)))
+        };
+        let develop = Develop::CaptureOne(vec![("Exposure".into(), "0.3".into())]);
+        let path = Path::new("missing/a.NEF");
+        let (recipe, _) =
+            recipe_for_with(&develop, std::slice::from_ref(&layer), path, &lens).unwrap();
+        let seen = seen.into_inner();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(
+            seen[0][rawtonic_engine::source_frame::KEY],
+            json!(rawtonic_engine::source_frame::VERSION)
+        );
+        // Moved by the correction, not left where Capture One drew it.
+        let (unmoved, _) =
+            recipe_for_with(&develop, &[layer], path, &|_: &Value, _: &Path| None).unwrap();
+        let g = |r: &Value| r["masks"][0]["subMasks"][0]["parameters"]["lrNormalized"].clone();
+        assert!((g(&unmoved)["fullY"].as_f64().unwrap() - 0.125).abs() < 1e-9);
+        assert!((g(&recipe)["fullY"].as_f64().unwrap() - 0.125).abs() > 1e-4);
+    }
+
+    /// Capture One's lens choice: its amounts, never its profile curves; a
+    /// photo whose lens Rawtonic has no profile for keeps the default.
+    #[test]
+    fn capture_one_lens_amounts_come_over_without_its_curves() {
+        let entries = |distortion: &str, falloff: &str, guid: &str| -> Vec<(String, String)> {
+            [
+                ("LensGeoAbr", distortion),
+                ("LensLightFallOff", falloff),
+                ("LensIdGuid", guid),
+            ]
+            .iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+        };
+        let curve = "0.0,0.0000;8037.0,-32.7000;22513.0,-922.2000";
+        let on = entries(
+            &format!("{curve}|100.0|1|100|-1.0"),
+            "3004.0,-0.0150|0.0|1",
+            "G",
+        );
+        assert_eq!(
+            capture_one_lens_amounts(&on),
+            Some((Some(100.0), Some(0.0)))
+        );
+        let half = entries(&format!("{curve}|50.0|1|100|-1.0"), "", "G");
+        assert_eq!(capture_one_lens_amounts(&half), Some((Some(50.0), None)));
+        let falloff_only = entries("", "3004.0,-0.0150|40.0|1", "G");
+        assert_eq!(
+            capture_one_lens_amounts(&falloff_only),
+            Some((None, Some(40.0)))
+        );
+        // No profile in Capture One, or no amount: nothing to bring over.
+        assert_eq!(
+            capture_one_lens_amounts(&entries(&format!("{curve}|100.0|1"), "", "")),
+            None
+        );
+        assert_eq!(capture_one_lens_amounts(&entries("", "", "G")), None);
+        assert_eq!(capture_one_lens_amounts(&entries("garbage", "", "G")), None);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.NEF");
+        fs::write(&path, b"not a raw").unwrap();
+        // Both amounts 0: the photo is neither moved nor brightened,
+        // whatever the default.
+        let off = entries(
+            &format!("{curve}|0.0|1|100|-1.0"),
+            "3004.0,-0.0150|0.0|1",
+            "G",
+        );
+        let mut adjustments = json!({});
+        capture_one_lens(&off, &path, &mut adjustments);
+        assert_eq!(
+            adjustments,
+            json!({"lensDistortionAmount": 0.0, "lensVignetteAmount": 0.0})
+        );
+        // On, but no profile for this lens: the default (nothing) stays.
+        for on in [&on, &falloff_only] {
+            let mut adjustments = json!({});
+            capture_one_lens(on, &path, &mut adjustments);
+            assert_eq!(adjustments, json!({}));
+        }
+        // A lens mode set already is kept.
+        let mut adjustments = json!({"lensCorrectionMode": "manual"});
+        capture_one_lens(&off, &path, &mut adjustments);
+        assert_eq!(adjustments, json!({"lensCorrectionMode": "manual"}));
+    }
+
     fn photo(key: &str, path: PathBuf, develop: Develop, copy_of: Option<&str>) -> Photo {
         Photo {
             key: key.into(),
@@ -975,6 +1297,7 @@ mod tests {
             copy_name: None,
             snapshots: Vec::new(),
             uid: None,
+            capture_one_layers: Vec::new(),
         }
     }
 
@@ -1206,6 +1529,19 @@ mod tests {
         assert_eq!(c1["exposure"], 0.7);
         assert!(c1["highlights"].as_f64().unwrap() < -40.0, "{c1}");
         assert!(translate(&Develop::None).is_none());
+    }
+
+    /// A catalog's Guided Upright (its develop settings as Lua) keeps its
+    /// guides on the way to the XMP the import reads them from.
+    #[test]
+    fn lightroom_catalog_guided_upright_keeps_its_guides() {
+        let lua = r#"s = { PerspectiveUpright = 5, UprightFourSegmentsCount = 2, UprightFourSegments_0 = "0.2,0.1,0.25,0.9", UprightFourSegments_1 = "0.8,0.1,0.75,0.9", UprightVersion = 151388160 }"#;
+        let xmp = rawtonic_interop::lightroom_settings::to_xmp(lua).unwrap();
+        assert_eq!(
+            rawtonic_engine::lightroom_upright::segments(&xmp),
+            vec![[0.2, 0.1, 0.25, 0.9], [0.8, 0.1, 0.75, 0.9]],
+            "{xmp}"
+        );
     }
 
     #[test]
@@ -1722,6 +2058,45 @@ mod tests {
         }
     }
 
+    /// Capture One's raster masks (unrotated sensor frame) record the
+    /// photo file's EXIF orientation on import.
+    #[test]
+    fn capture_one_rasters_are_imported_with_the_photos_orientation() {
+        use rawtonic_interop::capture_one_masks::{Mask, Raster};
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("IMG_2.jpg");
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let mut metadata = little_exif::metadata::Metadata::new();
+        metadata.set_tag(little_exif::exif_tag::ExifTag::Orientation(vec![8]));
+        metadata
+            .write_to_vec(&mut jpeg, little_exif::filetype::FileExtension::JPEG)
+            .unwrap();
+        fs::write(&path, &jpeg).unwrap();
+        let mut values = vec![0u8; 16 * 8];
+        values[3] = 200;
+        let layer = rawtonic_interop::capture_one::Layer {
+            name: "Brush".into(),
+            enabled: true,
+            opacity: 100.0,
+            settings: vec![("Exposure".into(), "1".into())],
+            mask: Mask::Raster {
+                raster: Raster::from_values(16, 8, &values),
+                ai: false,
+            },
+            frame: (16.0, 8.0),
+        };
+        let (recipe, _) = recipe_for(&Develop::None, &[layer], &path).unwrap();
+        let sub = &recipe["masks"][0]["subMasks"][0];
+        assert_eq!(sub["type"], "raster");
+        assert_eq!(sub["parameters"]["sourceOrientation"], 8);
+    }
+
     #[test]
     fn lightroom_spots_and_red_eyes_are_imported_with_the_photos_orientation() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1991,6 +2366,57 @@ ProcessVersion = "15.4" }}"#,
             .unwrap();
         }
         println!("{}x{}", full.width(), full.height());
+    }
+
+    /// Writes the edit the import makes for every photograph and variant of
+    /// the Capture One session or catalog `$C1_IMPORT_DB` to
+    /// `$C1_IMPORT_OUT/<variant>.json` (as imported, geometry pending) and
+    /// the import report's lines to `$C1_IMPORT_OUT/warnings.txt`.
+    #[test]
+    #[ignore = "tool: needs C1_IMPORT_DB and C1_IMPORT_OUT"]
+    fn import_capture_one_edits() {
+        let var = |k: &str| std::env::var(k).unwrap();
+        // The lens database the app loads at start (Capture One's lens
+        // correction on lensfun profiles).
+        if let Ok(db) = std::env::var("RAWTONIC_LENSFUN_DB") {
+            rawtonic_engine::lens_correction::set_global_lens_db(std::sync::Arc::new(
+                rawtonic_engine::lens_correction::load_lensfun_dir(Path::new(&db)),
+            ));
+        }
+        let (source, _) = read_source(Path::new(&var("C1_IMPORT_DB"))).unwrap();
+        let out = PathBuf::from(var("C1_IMPORT_OUT"));
+        let mut warnings = Vec::new();
+        for photo in &source.photos {
+            let (recipe, _) = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path)
+                .unwrap_or((json!({}), false));
+            rawtonic_export::output::write_new_output(
+                out.join(format!("{}.json", photo.key)),
+                recipe.to_string(),
+            )
+            .unwrap();
+            warnings.extend(import_warnings(photo));
+        }
+        rawtonic_export::output::write_new_output(out.join("warnings.txt"), warnings.join("\n"))
+            .unwrap();
+        println!(
+            "{} photos, not read {:?}",
+            source.photos.len(),
+            source.not_read
+        );
+    }
+
+    /// A catalog folder named with dots (`Wedding.2026.cocatalog`) is read
+    /// from the database inside it (`Wedding.2026.cocatalogdb`).
+    #[test]
+    fn capture_one_catalogs_with_dotted_names_are_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = dir.path().join("Wedding.2026.cocatalog");
+        let db = capture_one_session(dir.path(), "Wedding.2026");
+        fs::create_dir_all(&catalog).unwrap();
+        fs::copy(&db, catalog.join("Wedding.2026.cocatalogdb")).unwrap();
+        let (source, kind) = read_source(&catalog).unwrap();
+        assert_eq!(kind, "captureOne");
+        assert_eq!(source.name, "Wedding.2026");
     }
 
     #[test]

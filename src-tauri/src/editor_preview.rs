@@ -413,8 +413,10 @@ fn reduced_base_dims((full_width, full_height): (u32, u32), scale: f32) -> (u32,
 /// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
 /// in only until the photograph's decode is in, so its warp does not
 /// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
-/// `correction`: the full-resolution colour noise correction added to the
-/// reduced copy before it is warped (`color_noise_view`).
+/// `render_input`: the export's render input reduced to this base's
+/// pre-crop size (`color_noise_view`: warp, edge-fringe pass and colour
+/// noise reduction at full resolution), which stands in for the base's own
+/// reduction, retouching, warp and edge-fringe pass.
 #[allow(clippy::too_many_arguments)]
 fn build_reduced_preview_base(
     source: &DynamicImage,
@@ -425,20 +427,25 @@ fn build_reduced_preview_base(
     preview_dim: u32,
     scale: f32,
     interim: bool,
-    correction: Option<&image::Rgb32FImage>,
+    render_input: Option<&image::Rgb32FImage>,
 ) -> Result<preview_cache::PreviewBase, String> {
     let scale = scale.min(source_scale);
     let (width, height) = reduced_base_dims((full_width, full_height), scale);
-    let reduced = if width < source.width() || height < source.height() {
-        Cow::Owned(resample_f32_image(source, width, height))
-    } else {
-        Cow::Borrowed(source)
-    };
-    let reduced = match correction {
-        Some(delta) => Cow::Owned(DynamicImage::ImageRgb32F(
-            rawtonic_engine::color_noise::add_reduced_correction(reduced.to_rgb32f(), delta),
+    let reduced = match render_input {
+        Some(input) => Cow::Owned(DynamicImage::ImageRgb32F(
+            if input.dimensions() == (width, height) {
+                input.clone()
+            } else {
+                // Ringing cut at 0, as `resample_f32_image` cuts it.
+                let mut resized = rawtonic_engine::lanczos::resize_signed(input, width, height);
+                resized.iter_mut().for_each(|v| *v = v.max(0.0));
+                resized
+            },
         )),
-        None => reduced,
+        None if width < source.width() || height < source.height() => {
+            Cow::Owned(resample_f32_image(source, width, height))
+        }
+        None => Cow::Borrowed(source),
     };
     // The actual scale after rounding to whole pixels.
     let scale = reduced.width() as f32 / full_width as f32;
@@ -453,7 +460,8 @@ fn build_reduced_preview_base(
             }
         }
     }
-    let retouched = if crate::image_loader::has_base_retouch(adjustments) {
+    let retouched = if render_input.is_none() && crate::image_loader::has_base_retouch(adjustments)
+    {
         Cow::Owned(
             crate::image_loader::composite_patches_on_scaled_image(&reduced, adjustments, scale)
                 .map_err(|e| format!("Failed to composite retouching: {e}"))?,
@@ -461,21 +469,24 @@ fn build_reduced_preview_base(
     } else {
         reduced
     };
-    if source_scale >= 1.0 {
-        #[cfg(feature = "performance-profiling")]
-        let _stage = crate::performance::PerformanceStage::new("preview_base_ca_share");
-        share_lateral_ca(source, &retouched, adjustments);
-    }
-    let warped = {
-        #[cfg(feature = "performance-profiling")]
-        let _stage = crate::performance::PerformanceStage::new("preview_base_warp");
-        if interim {
-            crate::image_processing::apply_geometry_warp_interim(retouched, &scaled, is_raw)?
-        } else {
-            apply_geometry_warp(retouched, &scaled, is_raw)?
+    let warped = if render_input.is_some() {
+        // Warped and fringe-treated already, at full resolution.
+        retouched
+    } else {
+        if source_scale >= 1.0 {
+            #[cfg(feature = "performance-profiling")]
+            let _stage = crate::performance::PerformanceStage::new("preview_base_ca_share");
+            share_lateral_ca(source, &retouched, adjustments);
         }
-    };
-    let warped = {
+        let warped = {
+            #[cfg(feature = "performance-profiling")]
+            let _stage = crate::performance::PerformanceStage::new("preview_base_warp");
+            if interim {
+                crate::image_processing::apply_geometry_warp_interim(retouched, &scaled, is_raw)?
+            } else {
+                apply_geometry_warp(retouched, &scaled, is_raw)?
+            }
+        };
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("preview_base_fringe");
         rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, scale)?
@@ -1684,10 +1695,11 @@ struct FitColorNoise<'a> {
     number: Option<u64>,
 }
 
-/// The base a final fit frame renders from at Color 0 with the export's
-/// colour noise reduction in it (`color_noise_view::corrected_base`), when
-/// its base is a reduced copy of the full decode and the recipe's colour
-/// noise reduction applies; None renders the frame as before.
+/// The base a final fit frame renders from at Color 0: the export's render
+/// input reduced (warp, edge-fringe pass and colour noise reduction at full
+/// resolution, `color_noise_view::corrected_base`), when its base is a
+/// reduced copy of the full decode and the recipe is one that input stands
+/// for (`color_noise_view::applies`); None renders the frame as before.
 fn fit_color_noise_base(
     develop: &DevelopSession,
     loaded_image: &LoadedImage,
@@ -1697,7 +1709,7 @@ fn fit_color_noise_base(
 ) -> Option<Arc<DynamicImage>> {
     if !frame.eligible
         || !crate::color_noise_view::enabled()
-        || !crate::color_noise_view::applies(adjustments, loaded_image.is_raw)
+        || !crate::color_noise_view::applies(adjustments, frame.adjustments, loaded_image.is_raw)
     {
         return None;
     }
@@ -1717,10 +1729,12 @@ fn fit_color_noise_base(
             number: frame.number,
             source: &loaded_image.image,
             path: &loaded_image.path,
+            recipe: frame.adjustments,
+            is_raw: loaded_image.is_raw,
             base: frame.base,
             reduced_dims: reduced_base_dims(frame.full_dims, scale.min(1.0)),
         },
-        |delta| {
+        |input| {
             build_reduced_preview_base(
                 &loaded_image.image,
                 1.0,
@@ -1730,7 +1744,7 @@ fn fit_color_noise_base(
                 frame.base_dim,
                 scale,
                 false,
-                Some(delta),
+                Some(input),
             )
             .map(|base| base.image)
         },
@@ -2069,9 +2083,9 @@ pub(crate) fn process_preview_job(
         crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     final_adjustments.global.detail_scale = effective_scale;
-    // A final fit frame of the full decode shows the export's colour noise
-    // reduction: from the base with the full-resolution correction added,
-    // rendered at Color 0 (`color_noise_view`).
+    // A final fit frame of the full decode shows the export's render input
+    // reduced (warp, edge-fringe pass and colour noise reduction at full
+    // resolution), rendered at Color 0 (`color_noise_view`).
     let (processing_image, render_transform_hash) = match fit_color_noise_base(
         &develop,
         &loaded_image,
@@ -2085,7 +2099,6 @@ pub(crate) fn process_preview_job(
             eligible: !is_interactive
                 && roi.is_none()
                 && !crop_edit
-                && use_wgpu_renderer
                 && source_scale >= 1.0
                 && !interim
                 && draft_dim.is_none()
@@ -2099,6 +2112,7 @@ pub(crate) fn process_preview_job(
             active_waveform_channel: active_waveform_channel.map(str::to_string),
             mask_overlay: mask_overlay.cloned(),
             generation: render_generation,
+            native: use_wgpu_renderer,
         },
     ) {
         Some(corrected) => {
@@ -2538,10 +2552,13 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 // A request within the pause goes first; the warm-up waits
                 // for the next final frame then.
                 match jobs.take_timeout(DRAFT_WARMUP_IDLE) {
-                    Some(next) => waiting = Some(next),
+                    Some(next) => {
+                        waiting = Some(next);
+                        continue;
+                    }
+                    // The colour noise correction below follows it.
                     None => warm_draft_source(&app_handle, warm),
                 }
-                continue;
             }
             // A final frame shown without its full-resolution colour noise
             // correction: built once the worker stays idle, then shown.
@@ -2636,6 +2653,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
         return;
     }
     let started = std::time::Instant::now();
+    let frames = develop.color_noise_view.frames_noted();
     let result = gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
         process_preview_job(
             app_handle,
@@ -2653,6 +2671,12 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
             warm.generation,
         )
     });
+    // Not shown: the final frame before it stays the latest for its colour
+    // noise correction (`color_noise_view`).
+    app_handle
+        .state::<DevelopSession>()
+        .color_noise_view
+        .forget_frame(frames);
     match result {
         Ok(_) => log::info!("Drag draft source prepared in {:.1?}", started.elapsed()),
         Err(e) if e.code == ErrorCode::Cancelled => {
@@ -3070,23 +3094,9 @@ async fn show_still(
             false => Activation::None,
         };
     }
-    let (app, wanted, raw) = (app_handle.clone(), path.to_string(), source.clone());
+    let (app, wanted) = (app_handle.clone(), path.to_string());
     let thumbnail = tokio::task::spawn_blocking(move || {
-        let file = crate::file_management::cached_medium_thumbnail(&app, &wanted)?;
-        let bytes = std::fs::read(file).ok()?;
-        let mut image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)
-            .ok()?
-            .to_rgba8();
-        gpu_processing::srgb_to_display(space, &mut image);
-        // A never-edited RAW's thumbnail is its camera JPEG: framed like the
-        // development, as the embedded JPEG replacing it will be (header
-        // tags of the memory-mapped file only; never a cloud file not
-        // downloaded yet).
-        let developed = (never_edited && crate::preview_proxy::source_available(&raw))
-            .then(|| crate::embedded_still::frame_of(&raw))
-            .flatten()
-            .and_then(|frame| frame.size);
-        Some(crate::embedded_still::framed(image, developed))
+        thumbnail_still(&app, &wanted, space, never_edited, None)
     })
     .await
     .ok()
@@ -3130,6 +3140,50 @@ async fn show_still(
     } else {
         Activation::None
     }
+}
+
+/// `path`'s cached medium thumbnail as it is stored now (developed with its
+/// stored recipe, turned and cropped as shown; nothing is generated),
+/// display-encoded in `space`. A never-edited RAW's thumbnail is its camera
+/// JPEG: with `frame_camera_jpeg` it is framed like the development (header
+/// tags of the memory-mapped file only, up to ~0.1 s; never a cloud file not
+/// downloaded yet), else it keeps its own shape (within 3 % of the
+/// development's, `embedded_still::framed`). Decoded at the smallest scale
+/// that covers `area` (device px; None: at full size). Blocking: a file
+/// read and a JPEG decode.
+pub(crate) fn thumbnail_still(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    space: rawtonic_engine::output_color_space::OutputColorSpace,
+    frame_camera_jpeg: bool,
+    area: Option<(u32, u32)>,
+) -> Option<crate::embedded_still::Still> {
+    #[cfg(feature = "performance-profiling")]
+    let start = std::time::Instant::now();
+    let file = crate::file_management::cached_medium_thumbnail(app_handle, path)?;
+    let bytes = std::fs::read(file).ok()?;
+    #[cfg(feature = "performance-profiling")]
+    let read = start.elapsed();
+    let mut image = crate::embedded_still::decode_jpeg_for(&bytes, area)?;
+    gpu_processing::srgb_to_display(space, &mut image);
+    #[cfg(feature = "performance-profiling")]
+    let decoded = start.elapsed();
+    let (raw, _) = parse_virtual_path(path);
+    let developed = (frame_camera_jpeg && crate::preview_proxy::source_available(&raw))
+        .then(|| crate::embedded_still::frame_of(&raw))
+        .flatten()
+        .and_then(|frame| frame.size);
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({
+            "stage": "thumbnail_still", "read_ms": read.as_secs_f64() * 1e3,
+            "decode_ms": (decoded - read).as_secs_f64() * 1e3,
+            "frame_ms": (start.elapsed() - decoded).as_secs_f64() * 1e3,
+            "width": image.width(), "height": image.height(),
+        })
+    );
+    Some(crate::embedded_still::framed(image, developed))
 }
 
 /// Presents `still` as the frame of `path` (`present_if_current`; with

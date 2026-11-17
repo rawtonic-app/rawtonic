@@ -18,6 +18,8 @@ use std::{
 };
 
 pub mod capture_one;
+pub mod capture_one_masks;
+pub mod capture_one_tiles;
 pub mod lightroom;
 pub mod lightroom_settings;
 
@@ -55,6 +57,9 @@ pub struct Photo {
     /// first (Lightroom's develop snapshots).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub snapshots: Vec<(String, Develop)>,
+    /// Capture One's local adjustment layers, the bottom one first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub capture_one_layers: Vec<capture_one::Layer>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,6 +130,8 @@ pub struct Stack {
 #[serde(rename_all = "camelCase")]
 pub struct NotRead {
     pub smart_albums: usize,
+    /// Local adjustment layers whose mask is not read (Capture One's
+    /// painted, colour range and AI masks).
     pub local_adjustments: usize,
     /// Photos whose folder the library no longer records.
     pub unlocated: usize,

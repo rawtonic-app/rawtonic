@@ -534,12 +534,14 @@
     },
     "editWith": {
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
+      "closeLibraryFirst": "Tanca la sessió o el catàleg obert per tornar-ho a provar: aquestes fotos es van editar fora d’una biblioteca.",
       "failed": "Edita amb ha fallat: {{error}}",
       "generatedAreas": "Edita amb encara no està disponible per a fotos amb zones generades: {{names}}",
       "interrupted": "«Edita amb» a {{app}} es va interrompre en sortir de Rawtonic. Torna-ho a provar per tornar a renderitzar les fotos.",
       "label": "Edita amb",
       "notLinked": "Renderitzat, però no afegit a la biblioteca: {{error}}",
       "openIn": "Obre a",
+      "openLibraryFirst": "Torna a obrir {{library}} per tornar-ho a provar: les seves fotos es processen amb els ajustos que hi tenen.",
       "recipe": "Recepta",
       "rendering": "S’està renderitzant per a {{app}}…",
       "someFailed": "No s’han pogut renderitzar {{failed}} de {{total}} fotos.",
@@ -559,6 +561,7 @@
       "label": "Obre amb",
       "none": "Cap aplicació obre aquests fitxers",
       "other": "Altra…",
+      "pickFailed": "No s'ha pogut triar aquest programa: {{error}}",
       "reading": "S’estan cercant aplicacions…",
       "unsupported": "Encara no disponible a Linux"
     },
@@ -1096,6 +1099,7 @@
       "people": "Persones",
       "quickEraser": "Goma d'esborrar ràpida",
       "radial": "Radial",
+      "raster": "Màscara importada",
       "retouch": "Retoc",
       "sky": "Cel",
       "subject": "Subjecte"

@@ -149,6 +149,31 @@ impl PhotoGeometry {
         self
     }
 
+    /// From the photo before its lens and transform corrections (the frame
+    /// another editor's imported `raster` masks are in) to the current warp,
+    /// when that corrects anything.
+    fn uncorrected_change(&self, width: u32, height: u32) -> Option<WarpChange> {
+        let now = self.warp.as_deref()?;
+        let then = GeometryParams {
+            distortion: 0.0,
+            vertical: 0.0,
+            horizontal: 0.0,
+            rotate: 0.0,
+            aspect: 0.0,
+            scale: 100.0,
+            x_offset: 0.0,
+            y_offset: 0.0,
+            lens_distortion_enabled: false,
+            guided_lines: Vec::new(),
+            guided_perspective_enabled: false,
+            ..now.clone()
+        };
+        (warp_key(&then) != self.warp_key).then(|| WarpChange {
+            now: WarpPoints::new(now, width, height),
+            then: WarpPoints::new(&then, width, height),
+        })
+    }
+
     /// From the warp a mask was made in to the current one, when they differ.
     fn warp_change(&self, params: &Value, width: u32, height: u32) -> Option<WarpChange> {
         let now = self.warp.as_deref()?;
@@ -938,12 +963,18 @@ impl RadialMaskParameters {
     /// Coverage at elliptical distance `dist` (1 = on the ellipse).
     fn coverage(&self, dist: f32) -> f32 {
         let feather = self.feather.clamp(0.0, 1.0);
-        if GradientVersion::of(self.gradient_version).bell() && feather > 0.0 {
+        let version = GradientVersion::of(self.gradient_version);
+        if version.bell() && feather > 0.0 {
             return bell_falloff(dist, feather);
         }
         // Preserve the exact arithmetic of every existing radial mask.
         let inner_bound = 1.0 - feather;
-        (1.0 - (dist - inner_bound) / (1.0 - inner_bound).max(0.01)).clamp(0.0, 1.0)
+        let ramp = (1.0 - (dist - inner_bound) / (1.0 - inner_bound).max(0.01)).clamp(0.0, 1.0);
+        if version.smooth() {
+            eased_ramp(ramp)
+        } else {
+            ramp
+        }
     }
 }
 
@@ -958,8 +989,11 @@ impl GradientVersion {
     }
 
     fn bell(self) -> bool {
-        self.0
-            .is_some_and(|v| v >= crate::recipe_versions::gradient::BELL)
+        self.0 == Some(crate::recipe_versions::gradient::BELL)
+    }
+
+    fn smooth(self) -> bool {
+        self.0 == Some(crate::recipe_versions::gradient::SMOOTH)
     }
 }
 
@@ -3830,6 +3864,66 @@ fn ai_bitmap_in_frame(
     ))
 }
 
+/// A `raster` component's key for the photo file's EXIF orientation (1–8;
+/// absent: 1), which turns its sensor-frame bitmap into the photo's own frame.
+pub const SOURCE_ORIENTATION: &str = "sourceOrientation";
+
+/// A mask imported as a bitmap from another editor (`raster`: Capture
+/// One's painted, colour range and AI masks). `maskDataBase64` holds it over
+/// the photo before its lens and transform corrections and before its EXIF
+/// orientation (the frame Capture One paints in; `SOURCE_ORIENTATION`), in
+/// any size: it is turned by that orientation, stretched to the photo's own size when
+/// that is known, placed by the photo's orientation, flips, straightening
+/// and crop, and moved through the current corrections as the photo's
+/// content is.
+fn generate_raster_bitmap(
+    params_value: &Value,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+    geometry: &PhotoGeometry,
+) -> Option<GrayImage> {
+    let data_url = params_value.get("maskDataBase64")?.as_str()?;
+    let mut full = decode_ai_bitmap(data_url)?;
+    // Painted in the unrotated sensor frame; the photo's own frame is the
+    // decode, which the file's EXIF orientation has turned.
+    use image::imageops::{flip_horizontal, flip_vertical, rotate90, rotate180, rotate270};
+    full = match params_value.get(SOURCE_ORIENTATION).and_then(Value::as_u64) {
+        Some(2) => flip_horizontal(&full),
+        Some(3) => rotate180(&full),
+        Some(4) => flip_vertical(&full),
+        Some(5) => flip_horizontal(&rotate90(&full)),
+        Some(6) => rotate90(&full),
+        Some(7) => flip_horizontal(&rotate270(&full)),
+        Some(8) => rotate270(&full),
+        _ => full,
+    };
+    if let Some((w, h)) = geometry.size {
+        let (w, h) = (w.round() as u32, h.round() as u32);
+        if w > 0 && h > 0 && (w, h) != full.dimensions() {
+            full = image::imageops::resize(&full, w, h, image::imageops::FilterType::Triangle);
+        }
+    }
+    let frame = geometry.frame;
+    let tf = TransformParams {
+        rotation: frame.rotation,
+        flip_horizontal: frame.flip_horizontal,
+        flip_vertical: frame.flip_vertical,
+        orientation_steps: frame.orientation_steps,
+        width,
+        height,
+        scale,
+        crop_offset,
+    };
+    let change = geometry.uncorrected_change(full.width(), full.height());
+    Some(generate_ai_bitmap_from_full_mask(
+        &full,
+        &tf,
+        change.as_ref(),
+    ))
+}
+
 fn generate_ai_sky_bitmap(
     params_value: &Value,
     width: u32,
@@ -4580,6 +4674,12 @@ struct LumaRangeParameters {
     range_high: f32,
     #[serde(default = "default_luma_falloff")]
     falloff: f32,
+    /// Separate falloffs below `rangeLow` and above `rangeHigh` (percent;
+    /// Capture One keeps one per side). Absent: `falloff` on both sides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    falloff_low: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    falloff_high: Option<f32>,
     /// Lightroom's Luminance Range from an imported preset: zero, full,
     /// full, zero points (0–1) in the photo's luminance percentiles, which is
     /// what Camera Raw selects by (the share of the photo covered follows
@@ -4638,16 +4738,28 @@ fn default_luma_falloff() -> f32 {
 }
 
 /// Coverage of a tone (percent of white) in a luma range.
+#[cfg(test)]
 fn luma_range_coverage(tone: f32, low: f32, high: f32, falloff: f32) -> f32 {
-    let (low, high) = if low <= high {
-        (low, high)
+    luma_range_coverage_sided(tone, low, high, falloff, falloff)
+}
+
+/// [`luma_range_coverage`] with its own falloff below and above the range.
+fn luma_range_coverage_sided(
+    tone: f32,
+    low: f32,
+    high: f32,
+    falloff_low: f32,
+    falloff_high: f32,
+) -> f32 {
+    let (low, high, falloff_low, falloff_high) = if low <= high {
+        (low, high, falloff_low, falloff_high)
     } else {
-        (high, low)
+        (high, low, falloff_high, falloff_low)
     };
-    let distance = if tone < low {
-        low - tone
+    let (distance, falloff) = if tone < low {
+        (low - tone, falloff_low)
     } else if tone > high {
-        tone - high
+        (tone - high, falloff_high)
     } else {
         return 1.0;
     };
@@ -4673,6 +4785,8 @@ fn generate_luma_range_bitmap(
         params.range_high.clamp(0.0, 100.0),
     );
     let falloff = params.falloff.clamp(0.0, 100.0);
+    let falloff_low = params.falloff_low.map_or(falloff, |f| f.clamp(0.0, 100.0));
+    let falloff_high = params.falloff_high.map_or(falloff, |f| f.clamp(0.0, 100.0));
     let percentiles = params.lr_range.map(|_| luma_percentiles(&source.image));
     Some(luma_mask(
         width,
@@ -4687,7 +4801,7 @@ fn generate_luma_range_bitmap(
                     table[((luma * 4.0) as usize).min(1023)],
                     range.map(|v| v.clamp(0.0, 1.0)),
                 ),
-                _ => luma_range_coverage(luma / 2.55, low, high, falloff),
+                _ => luma_range_coverage_sided(luma / 2.55, low, high, falloff_low, falloff_high),
             };
             (coverage > 0.0).then_some(coverage)
         },
@@ -4997,6 +5111,14 @@ fn generate_sub_mask_bitmap(
         ),
         // A People mask is a stored bitmap like the sky's.
         "ai-sky" | "ai-people" => generate_ai_sky_bitmap(
+            &sub_mask.parameters,
+            width,
+            height,
+            scale,
+            crop_offset,
+            geometry,
+        ),
+        "raster" => generate_raster_bitmap(
             &sub_mask.parameters,
             width,
             height,
@@ -8048,6 +8170,49 @@ mod parallel_shape_tests {
     }
 
     #[test]
+    fn luma_range_falloffs_can_differ_below_and_above() {
+        // Capture One's 30–60–170–210 (of 255): 30 below, 40 above.
+        let (low, high) = (60.0 / 2.55, 170.0 / 2.55);
+        let (fl, fh) = (30.0 / 2.55, 40.0 / 2.55);
+        let half_below = luma_range_coverage_sided(low - fl / 2.0, low, high, fl, fh);
+        let half_above = luma_range_coverage_sided(high + fh / 2.0, low, high, fl, fh);
+        assert!((half_below - 0.5).abs() < 1e-5 && (half_above - 0.5).abs() < 1e-5);
+        assert_eq!(
+            luma_range_coverage_sided(low - fl - 0.1, low, high, fl, fh),
+            0.0
+        );
+        assert!(luma_range_coverage_sided(high + fl + 1.0, low, high, fl, fh) > 0.0);
+        // Swapped bounds swap their falloffs with them.
+        assert_eq!(
+            luma_range_coverage_sided(high + fh / 2.0, high, low, fh, fl),
+            half_above
+        );
+    }
+
+    #[test]
+    fn smooth_radial_eases_the_straight_ramp() {
+        let radial = |version: Option<u32>| RadialMaskParameters {
+            feather: 0.5,
+            gradient_version: version,
+            ..Default::default()
+        };
+        let straight = radial(None);
+        let smooth = radial(Some(crate::recipe_versions::gradient::SMOOTH));
+        for (dist, ramp) in [
+            (0.2, 1.0),
+            (0.5, 1.0),
+            (0.6, 0.8),
+            (0.75, 0.5),
+            (0.9, 0.2),
+            (1.0, 0.0),
+        ] {
+            assert!((straight.coverage(dist) - ramp).abs() < 1e-5);
+            let eased = ramp * ramp * (3.0 - 2.0 * ramp);
+            assert!((smooth.coverage(dist) - eased).abs() < 1e-5, "{dist}");
+        }
+    }
+
+    #[test]
     fn luma_range_selects_tones_and_follows_the_photos_orientation() {
         // Left half black, right half white.
         let mut image = image::RgbImage::new(8, 4);
@@ -8730,6 +8895,66 @@ mod geometry_follow_tests {
             None,
         )
         .unwrap()
+    }
+
+    /// An imported raster (`raster`) is stretched to the photo's own size,
+    /// turned with the photo, and moved through its lens and transform
+    /// corrections as a bitmap made before them is.
+    #[test]
+    fn imported_rasters_fit_the_photo_and_follow_its_corrections() {
+        let small =
+            image::imageops::resize(&pattern(), 30, 20, image::imageops::FilterType::Nearest);
+        let def = ai_layer("raster", &small, json!({}));
+        let place = |adjustments: &Value, size: (u32, u32)| {
+            generate_mask_bitmap(
+                &def,
+                size.0,
+                size.1,
+                1.0,
+                (0.0, 0.0),
+                &PhotoGeometry::from_adjustments(adjustments).with_photo_size(60.0, 40.0),
+                None,
+            )
+            .unwrap()
+        };
+        let stretched =
+            image::imageops::resize(&small, 60, 40, image::imageops::FilterType::Triangle);
+        assert_turned(&place(&json!({}), (60, 40)), &stretched, "stretched");
+        let turned = apply_coarse_rotation(DynamicImage::ImageLuma8(stretched.clone()), 1)
+            .into_owned()
+            .into_luma8();
+        assert_turned(
+            &place(&json!({"orientationSteps": 1}), (40, 60)),
+            &turned,
+            "turned",
+        );
+        // Painted on the unrotated sensor of a photo with EXIF orientation
+        // 6: turned a quarter into the photo's own (decoded) frame.
+        let sensor = image::imageops::resize(&small, 40, 60, image::imageops::FilterType::Nearest);
+        let def6 = ai_layer(
+            "raster",
+            &image::imageops::rotate270(&sensor),
+            json!({"sourceOrientation": 6}),
+        );
+        let shown6 = generate_mask_bitmap(
+            &def6,
+            40,
+            60,
+            1.0,
+            (0.0, 0.0),
+            &PhotoGeometry::from_adjustments(&json!({})).with_photo_size(40.0, 60.0),
+            None,
+        )
+        .unwrap();
+        assert_turned(&shown6, &sensor, "EXIF orientation 6");
+        // With a perspective correction: where a bitmap made without
+        // corrections lands, not where it was stored.
+        let corrected = json!({"transformVertical": 40.0});
+        let made_before = ai_layer("ai-sky", &stretched, json!({"warp": {}}));
+        let expected = render(&made_before, &corrected, (60, 40), (0.0, 0.0));
+        let shown = place(&corrected, (60, 40));
+        assert_turned(&shown, &expected, "corrected");
+        assert!(shown != stretched);
     }
 
     #[test]
