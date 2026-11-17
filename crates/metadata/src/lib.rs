@@ -472,7 +472,16 @@ fn parse_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     let mut pick: Option<i8> = None;
     let mut flat = Vec::new();
     let mut hierarchical = Vec::new();
-    for node in doc.descendants().filter(|n| n.is_element()) {
+    for node in doc.descendants().filter(|n| {
+        n.is_element()
+            && (packet_property(*n)
+                || (n.has_tag_name((RDF, "Description"))
+                    && n.parent().is_some_and(|root| {
+                        root.has_tag_name((RDF, "RDF"))
+                            && doc.descendants().find(|x| x.has_tag_name((RDF, "RDF")))
+                                == Some(root)
+                    })))
+    }) {
         let name = node.tag_name();
         for attr in node.attributes() {
             match (attr.namespace(), attr.name()) {
@@ -1242,7 +1251,6 @@ fn merge_packet(
     out.push_str("</rdf:Description>\n");
     out.push_str(&base[close..]);
     // Refuse to persist if our preservation logic produced malformed XML.
-    roxmltree::Document::parse(&out)?;
     read_xmp(&out)?;
     Ok(out)
 }
@@ -1420,7 +1428,7 @@ mod tests {
     fn packet_edges_keep_foreign_subtrees_and_duplicates() {
         let nested = "<f:box><dc:title><rdf:Alt><rdf:li xml:lang='fr'>Nested</rdf:li></rdf:Alt></dc:title></f:box>";
         let source = format!(
-            "<rdf:RDF xmlns:rdf='{RDF}' xmlns:dc='{DC}' xmlns:f='urn:foreign'><rdf:Description dc:title='stale'>{nested}<dc:title>stale</dc:title><dc:title><rdf:Alt><rdf:li xml:lang='x-default' f:q='qualifier'>Old</rdf:li><rdf:li xml:lang='fr'>French</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF>"
+            "<rdf:RDF xmlns:rdf='{RDF}' xmlns:dc='{DC}' xmlns:f='urn:foreign'><rdf:Description dc:title='stale'><dc:title>stale</dc:title><dc:title><rdf:Alt><rdf:li xml:lang='x-default' f:q='qualifier'>Old</rdf:li><rdf:li xml:lang='fr'>French</rdf:li></rdf:Alt></dc:title>{nested}</rdf:Description></rdf:RDF>"
         );
         let metadata = Metadata {
             title: "New".into(),
@@ -1429,6 +1437,7 @@ mod tests {
         let out = merge_xmp(Some(&source), &metadata, None).unwrap();
         assert!(out.contains(nested), "{out}");
         assert!(!out.contains("stale"), "{out}");
+        assert_eq!(read_xmp(&out).unwrap().0.title, "New");
         assert!(out.contains("f:q='qualifier'>New</rdf:li>"), "{out}");
         roxmltree::Document::parse(&out).unwrap();
     }
@@ -1461,7 +1470,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_generated_xml_leaves_sidecar_untouched() {
+    fn invalid_metadata_leaves_sidecar_untouched() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("image.xmp");
         let source = merge_xmp(None, &Metadata::default(), None).unwrap();
