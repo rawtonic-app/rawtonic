@@ -1,55 +1,58 @@
-//! The export's colour noise reduction in the Develop fit view. A fit view
-//! renders from a reduced copy of the photograph, and the colour noise
-//! filter run on that copy leaves 1.5–3 × the chroma noise the export
-//! shows at the same size (its finest level is one of the export's coarse
-//! levels; nothing tuned on the reduced frame reached the export: notes:
-//! benchmark-results/tpx-thumb-parity-2026-11-12/REPORT.md, TPX3). So the
-//! filter runs once per photograph and colour noise setting on the full
-//! decode, in the background after the frame is shown (on the CPU on Apple
-//! silicon, elsewhere the export's own GPU filter:
-//! `rawtonic_gpu::gpu_processing::color_noise_view`), and
-//! what it changes is kept at the fit view's (pre-warp) resolution
-//! (`color_noise::reduced_correction`): the fit view's final frames add it
-//! to their reduced copy and render without their own colour noise
-//! reduction. A drag and the frames before the correction is in show the
-//! reduced filter as before; the correction's frame follows on its own
+//! The export's render input in the Develop fit view. A fit view renders
+//! from a reduced copy of the photograph, and the colour noise filter run on
+//! that copy leaves 1.5–3 × the chroma noise the export shows at the same
+//! size (its finest level is one of the export's coarse levels: notes:
+//! benchmark-results/tpx-thumb-parity-2026-11-12/REPORT.md, TPX3); its warp
+//! and edge-fringe pass at the view's scale also leave out what the
+//! export's full-resolution pass does to a noisy photo's colour noise (up to
+//! 1.9 × the export's at Color 0; TPX7). So the export's render input — the
+//! full decode warped, through the edge-fringe pass and the colour noise
+//! filter at full resolution, as an export uploads it — is made once per
+//! photograph, geometry and colour noise setting, in the background after
+//! the frame is shown, on the GPU
+//! (`rawtonic_gpu::gpu_processing::color_noise_view::reduced_render_input`),
+//! and kept at the fit view's pre-crop resolution: the fit view's final
+//! frames render from it at Color 0 instead of their own reduced, warped and
+//! fringe-treated copy. A drag and the frames before it is in show the
+//! reduced copy as before; the input's frame follows on its own
 //! (`Wanted::refresh`; webview previews, as on Linux, ask for it on
 //! [`READY_EVENT`]). Kept for the open photograph only and dropped with its
 //! source (`DevelopSession::invalidate`, `release_rebuildable`).
 //! Measured: notes: benchmark-results/tpx4-cached-chroma-2026-11-15/REPORT.md
-//! (CPU, Apple silicon), benchmark-results/tpx5-gpu-chroma-2026-11-15/REPORT.md
-//! (GPU, Windows), benchmark-results/tpx6-2026-11-17/REPORT.md (GPU, Linux).
+//! (the design, Apple silicon), benchmark-results/tpx5-gpu-chroma-2026-11-15/REPORT.md
+//! (GPU), benchmark-results/tpx6-2026-11-17/REPORT.md (Linux),
+//! benchmark-results/tpx7-2026-11-17/REPORT.md (the render input instead
+//! of a correction of the bare decode).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use image::{DynamicImage, GenericImageView as _, Rgb32FImage};
-use rawtonic_engine::color_noise;
 use rawtonic_engine::image_processing::{AllAdjustments, GlobalAdjustments};
 use tauri::Manager as _;
 
 use crate::app_state::MaskOverlayRequest;
 use crate::state::lock::lock_recover;
 
-/// Quiet time after a final frame before the correction is built: a typed
+/// Quiet time after a final frame before the render input is built: a typed
 /// value or a click on a slider is often followed by another.
 pub(crate) const BUILD_IDLE: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// The largest correction kept (pixels): a fit view of a tightly cropped
-/// photograph reduces less; beyond this the view keeps its own filter.
+/// The largest render input kept (pixels): a fit view of a tightly cropped
+/// photograph reduces less; beyond this the view keeps its own base.
 const MAX_PIXELS: u64 = 6_000_000;
 
 /// Builds slower than this per 24 MP stop them for the session: the
-/// fit view keeps its quick filter. On a Radeon 680M laptop (Ryzen CPU) the
-/// CPU build of a 24 MP correction took 2.1–2.9 s with +1.3–1.85 GB of
+/// fit view keeps its own base and quick filter. On a Radeon 680M laptop (Ryzen CPU) the
+/// CPU build of a 24 MP colour noise correction took 2.1–2.9 s with +1.3–1.85 GB of
 /// private memory and a drag right after stuttered (gaps up to 402 ms;
 /// G17/WTPX4); an M5 Pro takes 0.4 s, the GPU build there (TPX5) less.
 const MAX_MS_PER_24MP: f64 = 1000.0;
 
 static TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Whether corrections are built here: while no build was too slow and the
-/// system is not short of memory.
+/// Whether render inputs are built here: while no build was too slow and
+/// the system is not short of memory.
 pub(crate) fn enabled() -> bool {
     // Profiling builds can switch it off for A/B timing runs.
     #[cfg(feature = "performance-profiling")]
@@ -59,58 +62,74 @@ pub(crate) fn enabled() -> bool {
     !TOO_SLOW.load(Ordering::Relaxed) && crate::memory_pressure::level_now().is_none()
 }
 
-/// The event telling the editor that the open photograph's correction is in
+/// The event telling the editor that the open photograph's render input is in
 /// and its fit frame should be requested again: previews in the webview
-/// (Linux) are answers to the editor's requests, so the correction's frame
+/// (Linux) are answers to the editor's requests, so the render input's frame
 /// cannot be pushed to it (`src/utils/colorNoiseView.ts`).
 pub(crate) const READY_EVENT: &str = "color-noise-view-ready";
 
-/// The colour noise settings a correction was built for.
+/// The colour noise settings and the geometry a render input was built for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Key {
     amount: u32,
     detail: u32,
     smoothness: u32,
     version: u64,
+    /// [`geometry_key`] of the recipe.
+    geometry: u64,
+}
+
+/// What of `recipe` the render input depends on besides the colour noise
+/// setting: the warp (lens inputs, automatic CA, perspective,
+/// distortion) and the edge-fringe treatment. Rotation, orientation, crop
+/// and lens blur follow the input in the fit view's base.
+fn geometry_key(recipe: &serde_json::Value, is_raw: bool) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_string(&rawtonic_engine::image_processing::geometry_params_for(
+        recipe, is_raw,
+    ))
+    .unwrap_or_default()
+    .hash(&mut hasher);
+    rawtonic_engine::recipe_versions::FringeVersion::of(recipe)
+        .enabled()
+        .hash(&mut hasher);
+    recipe
+        .get(rawtonic_engine::edge_fringe::VERSION_KEY)
+        .map(serde_json::Value::to_string)
+        .hash(&mut hasher);
+    hasher.finish()
 }
 
 impl Key {
-    fn of(global: &GlobalAdjustments) -> (Self, color_noise::Settings, color_noise::Tuning) {
-        let settings = color_noise::Settings {
-            amount: global.color_noise_reduction,
-            detail: global.noise_detail[2],
-            smoothness: global.noise_detail[3],
-        };
-        let (version, tuning) = crate::gpu_processing::color_noise_tuning(global);
-        (
-            Self {
-                amount: settings.amount.to_bits(),
-                detail: settings.detail.to_bits(),
-                smoothness: settings.smoothness.to_bits(),
-                version,
-            },
-            settings,
-            tuning,
-        )
+    fn of(global: &GlobalAdjustments, recipe: &serde_json::Value, is_raw: bool) -> Self {
+        Self {
+            amount: global.color_noise_reduction.to_bits(),
+            detail: global.noise_detail[2].to_bits(),
+            smoothness: global.noise_detail[3].to_bits(),
+            version: crate::gpu_processing::color_noise_tuning(global).0,
+            geometry: geometry_key(recipe, is_raw),
+        }
     }
 }
 
-struct Correction {
+struct RenderInput {
     source: Weak<DynamicImage>,
     /// The photograph's (virtual) path, for its thumbnail.
     path: String,
     key: Key,
-    delta: Arc<Rgb32FImage>,
+    /// The export's render input at the fit view's pre-crop size.
+    input: Arc<Rgb32FImage>,
 }
 
-/// A fit view's base with the correction added, for the base it replaces.
+/// A fit view's base made from a render input, for the base it replaces.
 struct CorrectedBase {
     base: Weak<DynamicImage>,
-    delta: Weak<Rgb32FImage>,
+    input: Weak<Rgb32FImage>,
     image: Arc<DynamicImage>,
 }
 
-/// The final frame to render again once its correction is in.
+/// The final frame to render again once its render input is in.
 pub(crate) struct Refresh {
     pub adjustments: serde_json::Value,
     pub target_resolution: Option<u32>,
@@ -128,10 +147,10 @@ struct Wanted {
     source: Weak<DynamicImage>,
     path: String,
     key: Key,
-    settings: color_noise::Settings,
-    tuning: color_noise::Tuning,
     /// The recipe's adjustments (the GPU build takes its uniforms).
     global: GlobalAdjustments,
+    /// The recipe (its warp and edge-fringe pass).
+    recipe: serde_json::Value,
     dims: (u32, u32),
     /// The preview frame it was wanted for (`ColorNoiseView::note_frame`)
     /// and that frame to render again; None for the split view's before.
@@ -145,29 +164,29 @@ struct Builds {
     running: bool,
 }
 
-/// Corrections (and corrected bases) kept: the edit's and the split view's
-/// before when its colour noise setting differs.
+/// Render inputs (and the bases made from them) kept: the edit's and the
+/// split view's before when its setting differs.
 const KEPT: usize = 2;
 
 /// The split view's last before request (`editor_preview::
-/// render_split_before`), rendered again when a correction comes in.
+/// render_split_before`), rendered again when a render input comes in.
 pub(crate) struct SplitBeforeRequest {
     pub path: String,
     pub adjustments: serde_json::Value,
     pub target_resolution: Option<u32>,
 }
 
-/// The open photograph's corrections, the fit view bases they made and what
-/// to build next. Part of `DevelopSession`.
+/// The open photograph's render inputs, the fit view bases they made and
+/// what to build next. Part of `DevelopSession`.
 #[derive(Default)]
 pub struct ColorNoiseView {
-    corrections: Mutex<Vec<Correction>>,
+    inputs: Mutex<Vec<RenderInput>>,
     corrected: Mutex<Vec<CorrectedBase>>,
     builds: Mutex<Builds>,
-    /// Preview frames rendered so far (`note_frame`): a correction's frame
+    /// Preview frames rendered so far (`note_frame`): a render input's frame
     /// follows only when none came after the one it was wanted for.
     frames: AtomicU64,
-    /// Changes with every correction stored or dropped (`revision`).
+    /// Changes with every render input stored or dropped (`revision`).
     revision: AtomicU64,
     split_before: Mutex<Option<SplitBeforeRequest>>,
 }
@@ -181,9 +200,9 @@ fn keep_last<T>(list: &mut Vec<T>, item: T) {
 }
 
 impl ColorNoiseView {
-    /// Drops the corrections and their bases (memory; rebuilt on demand).
+    /// Drops the render inputs and their bases (memory; rebuilt on demand).
     pub fn clear(&self) {
-        lock_recover(&self.corrections).clear();
+        lock_recover(&self.inputs).clear();
         lock_recover(&self.corrected).clear();
         self.revision.fetch_add(1, Ordering::SeqCst);
     }
@@ -192,7 +211,7 @@ impl ColorNoiseView {
         !lock_recover(&self.builds).wanted.is_empty()
     }
 
-    /// Wants a correction; one wanted for the same photograph and setting
+    /// Wants a render input; one wanted for the same photograph and setting
     /// merges with it: the larger size, and the edit's frame to render
     /// again whichever asked last (a before asks for none).
     fn want(&self, mut wanted: Wanted) {
@@ -214,29 +233,32 @@ impl ColorNoiseView {
         keep_last(&mut builds.wanted, wanted);
     }
 
-    fn store(&self, wanted: &Wanted, delta: Rgb32FImage) {
-        let mut corrections = lock_recover(&self.corrections);
-        corrections.retain(|c| Weak::ptr_eq(&c.source, &wanted.source) && c.key != wanted.key);
+    fn store(&self, wanted: &Wanted, mut input: Rgb32FImage) {
+        // Ringing cut at 0, as the view's own reduction
+        // (`resample_f32_image`) cuts it.
+        input.iter_mut().for_each(|v| *v = v.max(0.0));
+        let mut inputs = lock_recover(&self.inputs);
+        inputs.retain(|c| Weak::ptr_eq(&c.source, &wanted.source) && c.key != wanted.key);
         keep_last(
-            &mut corrections,
-            Correction {
+            &mut inputs,
+            RenderInput {
                 source: wanted.source.clone(),
                 path: wanted.path.clone(),
                 key: wanted.key,
-                delta: Arc::new(delta),
+                input: Arc::new(input),
             },
         );
         self.revision.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// A number that changes whenever the corrections do: a split view's
+    /// A number that changes whenever the render inputs do: a split view's
     /// before rendered with another is stale.
     pub(crate) fn revision(&self) -> u64 {
         self.revision.load(Ordering::SeqCst)
     }
 
     /// Remembers the split view's before request, to render it again when
-    /// a correction comes in.
+    /// a render input comes in.
     pub(crate) fn note_split_before(&self, request: SplitBeforeRequest) {
         *lock_recover(&self.split_before) = Some(request);
     }
@@ -263,33 +285,51 @@ impl ColorNoiseView {
     }
 }
 
-/// A final fit frame of a full decode that the correction applies to.
+/// A final fit frame of a full decode that a render input stands in for.
 pub(crate) struct FitFrame<'a> {
     /// Its number (`ColorNoiseView::note_frame`); None for the split view's
     /// before.
     pub number: Option<u64>,
     pub source: &'a Arc<DynamicImage>,
     pub path: &'a str,
+    /// The frame's recipe.
+    pub recipe: &'a serde_json::Value,
+    pub is_raw: bool,
     /// The frame's reduced base (warped, cropped) and the size of its
     /// pre-warp reduction (`editor_preview::build_reduced_preview_base`).
     pub base: &'a Arc<DynamicImage>,
     pub reduced_dims: (u32, u32),
 }
 
-/// Whether the recipe's colour noise reduction is the multi-scale filter
-/// with nothing a local layer adds to it.
-pub(crate) fn applies(adjustments: &AllAdjustments, is_raw: bool) -> bool {
+/// Whether a render input stands in for a RAW's fit view base with
+/// `adjustments` (of `recipe`): the export's colour noise reduction is off
+/// or the multi-scale filter the GPU build runs (version 11), with nothing a
+/// local layer adds to it, and there is something the view's own base
+/// leaves out (the filter or an edge-fringe pass); not with retouching
+/// composited into the base (AI patches, spots), which the view composites
+/// at its own scale.
+pub(crate) fn applies(
+    adjustments: &AllAdjustments,
+    recipe: &serde_json::Value,
+    is_raw: bool,
+) -> bool {
     let global = &adjustments.global;
+    let filtered = global.color_noise_reduction > 0.0;
     is_raw
-        && global.color_noise[0] > 0.0
-        && global.color_noise_reduction > 0.0
+        && (!filtered
+            || (global.color_noise[0] > 0.0
+                && crate::gpu_processing::color_noise_tuning(global)
+                    .1
+                    .gpu_pyramid))
+        && (filtered || rawtonic_engine::recipe_versions::FringeVersion::of(recipe).enabled())
+        && !crate::image_loader::has_base_retouch(recipe)
         && adjustments.mask_adjustments
             [..(adjustments.mask_count as usize).min(adjustments.mask_adjustments.len())]
             .iter()
             .all(|mask| mask.color_noise_reduction == 0.0)
 }
 
-/// The size a correction for a reduction to `dims` is built at: `dims`,
+/// The size a render input for a reduction to `dims` is built at: `dims`,
 /// within [`MAX_PIXELS`].
 fn build_dims(dims: (u32, u32)) -> Option<(u32, u32)> {
     let pixels = u64::from(dims.0) * u64::from(dims.1);
@@ -298,8 +338,8 @@ fn build_dims(dims: (u32, u32)) -> Option<(u32, u32)> {
 
 /// The base a final fit `frame` renders from instead of its own, with the
 /// colour noise reduction already in (the frame then renders at Color 0),
-/// built with `build` from the correction; None when there is no
-/// correction for this photograph, setting and size yet: then one is wanted
+/// built with `build` from the render input; None when there is no
+/// render input for this photograph, setting, geometry and size yet: then one is wanted
 /// (built after [`BUILD_IDLE`], `after_final_frame`), its frame rendered
 /// from `refresh` (the split view's before: rendered again,
 /// `SplitBeforeRequest`).
@@ -311,29 +351,28 @@ pub(crate) fn corrected_base(
     refresh: impl FnOnce() -> Refresh,
 ) -> Option<Arc<DynamicImage>> {
     let dims = build_dims(frame.reduced_dims)?;
-    let (key, settings, tuning) = Key::of(global);
+    let key = Key::of(global, frame.recipe, frame.is_raw);
     let source = Arc::downgrade(frame.source);
-    let delta = {
-        let mut corrections = lock_recover(&view.corrections);
-        // Another photograph's corrections go as soon as this one shows.
-        let before = corrections.len();
-        corrections.retain(|c| Weak::ptr_eq(&c.source, &source));
-        if corrections.len() != before {
+    let input = {
+        let mut inputs = lock_recover(&view.inputs);
+        // Another photograph's render inputs go as soon as this one shows.
+        let before = inputs.len();
+        inputs.retain(|c| Weak::ptr_eq(&c.source, &source));
+        if inputs.len() != before {
             view.revision.fetch_add(1, Ordering::SeqCst);
         }
-        corrections
+        inputs
             .iter()
-            .find(|c| c.key == key && c.delta.width() >= dims.0 && c.delta.height() >= dims.1)
-            .map(|c| Arc::clone(&c.delta))
+            .find(|c| c.key == key && c.input.width() >= dims.0 && c.input.height() >= dims.1)
+            .map(|c| Arc::clone(&c.input))
     };
-    let Some(delta) = delta else {
+    let Some(input) = input else {
         view.want(Wanted {
             source,
             path: frame.path.to_string(),
             key,
-            settings,
-            tuning,
             global: *global,
+            recipe: frame.recipe.clone(),
             dims,
             frame: frame.number.map(|number| (number, refresh())),
         });
@@ -343,20 +382,20 @@ pub(crate) fn corrected_base(
         let corrected = lock_recover(&view.corrected);
         if let Some(c) = corrected.iter().find(|c| {
             Weak::ptr_eq(&c.base, &Arc::downgrade(frame.base))
-                && Weak::ptr_eq(&c.delta, &Arc::downgrade(&delta))
+                && Weak::ptr_eq(&c.input, &Arc::downgrade(&input))
         }) {
             return Some(Arc::clone(&c.image));
         }
     }
-    match build(&delta) {
+    match build(&input) {
         Ok(image) if image.dimensions() == frame.base.dimensions() => {
             let mut corrected = lock_recover(&view.corrected);
-            corrected.retain(|c| c.delta.strong_count() > 0);
+            corrected.retain(|c| c.input.strong_count() > 0);
             keep_last(
                 &mut corrected,
                 CorrectedBase {
                     base: Arc::downgrade(frame.base),
-                    delta: Arc::downgrade(&delta),
+                    input: Arc::downgrade(&input),
                     image: Arc::clone(&image),
                 },
             );
@@ -377,7 +416,7 @@ pub(crate) fn corrected_base(
     }
 }
 
-/// The preview worker after a final frame: when a correction is wanted and
+/// The preview worker after a final frame: when a render input is wanted and
 /// no request comes within [`BUILD_IDLE`], it is built in the background;
 /// a request that comes is returned (the next final frame wants again).
 pub(crate) fn after_final_frame<T>(
@@ -395,7 +434,7 @@ pub(crate) fn after_final_frame<T>(
     None
 }
 
-/// After the split view's before rendered: a correction it wanted is built
+/// After the split view's before rendered: a render input it wanted is built
 /// once no preview frame came within [`BUILD_IDLE`] (a before alone, as
 /// when a snapshot is chosen, renders no frame that would start it).
 pub(crate) fn after_split_before(app_handle: &tauri::AppHandle) {
@@ -456,7 +495,8 @@ fn start_build(app_handle: &tauri::AppHandle) {
 
 /// Every core below the editor's priority, as preview proxy builds
 /// (`proxy_worker`): the editor's frames and the next photograph's decode
-/// go first.
+/// go first. Only the build's CPU work runs here; its GPU calls stay on the
+/// build thread at normal priority (`reduced_render_input`'s `cpu`).
 fn pool() -> &'static rayon::ThreadPool {
     static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
     POOL.get_or_init(|| {
@@ -469,17 +509,14 @@ fn pool() -> &'static rayon::ThreadPool {
     })
 }
 
-/// Where corrections are built: on the CPU on Apple silicon (0.4 s at 24 MP
-/// on an M5 Pro, TPX4), elsewhere on the GPU, where a Radeon 680M laptop's
-/// CPU took 2.1–2.9 s (WTPX4) and its GPU runs the export's filter in less
-/// (TPX5).
-const ON_CPU: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+/// Apple silicon's GPU is integrated but shares the machine's memory
+/// bandwidth and is no Radeon 680M: the 1 s guard decides there.
+const APPLE_SILICON: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
 
-/// The GPU build of `wanted`'s correction and when it started (after the
+/// The GPU build of `wanted`'s render input and when it started (after the
 /// pass's pipelines are ready: their compile is no build's time); None when
 /// a newer frame came meanwhile (`stop`; its final frame wants again),
-/// for recipes the GPU pass does not take (`colorNoiseVersion` below 11:
-/// the fit view keeps its quick filter) and on errors (logged).
+/// for recipes the GPU pass does not take and on errors (logged).
 fn on_gpu(
     app: &tauri::AppHandle,
     source: &DynamicImage,
@@ -493,12 +530,12 @@ fn on_gpu(
         .is_some_and(|(_, adapter)| {
             adapter.get_info().device_type == wgpu::DeviceType::IntegratedGpu
         });
-    if integrated || rawtonic_gpu::gpu_processing::compiles_limited() {
+    if (integrated && !APPLE_SILICON) || rawtonic_gpu::gpu_processing::compiles_limited() {
         // On a Radeon 680M laptop (integrated, compile limit) the GPU build
         // took 1.9–2.9 s on opening a 24 MP photo and 0.86–1.12 s per typed
         // change, with +1.07–1.68 GB of private memory (WTPX5B): over the
         // bar from the first build, so it never runs there; an RTX 3080
-        // takes 0.3 s (G17/TPX5).
+        // takes 0.5–0.6 s with the warp and edge-fringe pass (G17/TPX7).
         TOO_SLOW.store(true, Ordering::Relaxed);
         log::info!("Colour noise view: off on this GPU (integrated or compile-limited)");
         return None;
@@ -518,26 +555,25 @@ fn on_gpu(
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     let started = std::time::Instant::now();
-    let delta = pool()
-        .install(|| {
-            color_noise_view::reduced_correction(
-                &context,
-                source,
-                &wanted.global,
-                wanted.dims,
-                stop,
-            )
-        })
-        .inspect_err(|e| log::warn!("Colour noise view: GPU build failed: {e}"))
-        .ok()??;
-    Some((Some(delta), started))
+    let input = color_noise_view::reduced_render_input(
+        &context,
+        source,
+        &wanted.recipe,
+        &wanted.global,
+        wanted.dims,
+        stop,
+        &|work| pool().install(work),
+    )
+    .inspect_err(|e| log::warn!("Colour noise view: GPU build failed: {e}"))
+    .ok()??;
+    Some((Some(input), started))
 }
 
 fn build(app: &tauri::AppHandle, wanted: Wanted) {
     let develop = app.state::<crate::state::develop::DevelopSession>();
     let view = &develop.color_noise_view;
-    // A newer frame came: its final frame finds the correction or wants its
-    // own.
+    // A newer frame came: its final frame finds the render input or wants
+    // its own.
     let current = |frame: &Option<(u64, Refresh)>| {
         frame
             .as_ref()
@@ -550,20 +586,11 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         return;
     };
     let (w, h) = wanted.dims;
-    let delta = if ON_CPU {
-        let started = std::time::Instant::now();
-        let delta = pool().install(|| {
-            color_noise::reduced_correction(&source, wanted.settings, &wanted.tuning, w, h)
-        });
-        Some((delta, started))
-    } else {
-        on_gpu(app, &source, &wanted, &|| !current(&wanted.frame))
-    };
-    let Some((delta, started)) = delta else {
+    let Some((input, started)) = on_gpu(app, &source, &wanted, &|| !current(&wanted.frame)) else {
         return;
     };
     log::info!(
-        "Colour noise view: correction of {}x{} at {}x{} in {:.0} ms",
+        "Colour noise view: render input of {}x{} at {}x{} in {:.0} ms",
         source.width(),
         source.height(),
         w,
@@ -576,11 +603,11 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         log::warn!("Colour noise view: too slow here, off for this session");
     }
     drop(source);
-    let Some(delta) = delta else {
+    let Some(input) = input else {
         return;
     };
-    view.store(&wanted, delta);
-    // The full-resolution filter's buffers (about 1 GB at 24 MP) go back.
+    view.store(&wanted, input);
+    // The build's buffers go back.
     pool().broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
     rawtonic_runtime::allocator::release_freed_memory();
     // Shown only while the frame it was wanted for is the latest: after a
@@ -625,24 +652,25 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
     crate::file_management::redevelop_thumbnail(app, &wanted.path);
 }
 
-/// The open photograph's correction for its thumbnail, rendered from the
-/// preview proxy with it added and at Color 0: when `path` is the
-/// photograph a correction was built for and `adjustments` (the
-/// thumbnail's recipe) has that colour noise setting.
+/// The open photograph's render input for its thumbnail, which renders
+/// from it at Color 0 in place of its warped proxy: when `path` is the
+/// photograph it was built for and `adjustments` (the thumbnail's
+/// recipe, `recipe`) has that colour noise setting and geometry.
 pub(crate) fn for_thumbnail(
     view: &ColorNoiseView,
     path: &str,
     adjustments: &AllAdjustments,
+    recipe: &serde_json::Value,
     is_raw: bool,
 ) -> Option<Arc<Rgb32FImage>> {
-    if !applies(adjustments, is_raw) {
+    if !applies(adjustments, recipe, is_raw) {
         return None;
     }
-    let key = Key::of(&adjustments.global).0;
-    lock_recover(&view.corrections)
+    let key = Key::of(&adjustments.global, recipe, is_raw);
+    lock_recover(&view.inputs)
         .iter()
         .find(|c| c.path == path && c.key == key)
-        .map(|c| Arc::clone(&c.delta))
+        .map(|c| Arc::clone(&c.input))
 }
 
 #[cfg(test)]
@@ -650,12 +678,25 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
-    fn global(amount: f32) -> GlobalAdjustments {
-        let mut global = GlobalAdjustments::default();
-        global.color_noise_reduction = amount;
-        global.noise_detail = [0.0, 0.0, 0.5, 0.5];
-        global.color_noise = [10.0, 0.0, 0.0, 0.0];
-        global
+    fn recipe(amount: u32) -> serde_json::Value {
+        serde_json::json!({
+            "colorNoiseReduction": amount,
+            "colorNoiseVersion": 11,
+            "fringeVersion": 6,
+        })
+    }
+
+    fn all(amount: u32) -> AllAdjustments {
+        *rawtonic_engine::image_processing::get_all_adjustments_from_json(
+            &recipe(amount),
+            true,
+            None,
+        )
+        .uniforms
+    }
+
+    fn global(amount: u32) -> GlobalAdjustments {
+        all(amount).global
     }
 
     fn refresh() -> Refresh {
@@ -675,25 +716,97 @@ mod tests {
         Arc::new(DynamicImage::ImageRgb32F(Rgb32FImage::new(w, h)))
     }
 
+    fn wanted_for(
+        source: &Arc<DynamicImage>,
+        recipe: serde_json::Value,
+        frame: Option<(u64, Refresh)>,
+        dims: (u32, u32),
+    ) -> Wanted {
+        let global =
+            rawtonic_engine::image_processing::get_all_adjustments_from_json(&recipe, true, None)
+                .global;
+        Wanted {
+            source: Arc::downgrade(source),
+            path: "a.raw".into(),
+            key: Key::of(&global, &recipe, true),
+            global,
+            recipe,
+            dims,
+            frame,
+        }
+    }
+
     #[test]
-    fn corrections_beyond_the_cap_are_not_built() {
+    fn render_inputs_beyond_the_cap_are_not_built() {
         assert_eq!(build_dims((2588, 1725)), Some((2588, 1725)));
         assert_eq!(build_dims((4000, 3000)), None);
         assert_eq!(build_dims((0, 10)), None);
     }
 
-    /// A frame without its correction wants one and renders as before; once
-    /// the correction is in, the frame's base is built once with it and
-    /// reused; another setting, a larger reduction or another photograph
-    /// does not take it.
+    /// RAWs whose colour noise filter is version 11 or off, with an
+    /// edge-fringe pass or the filter, without retouching in the base.
     #[test]
-    fn fit_frames_use_only_their_own_correction() {
+    fn render_inputs_stand_in_where_the_view_leaves_out_the_exports_passes() {
+        let of = |recipe: serde_json::Value, is_raw| {
+            let all = rawtonic_engine::image_processing::get_all_adjustments_from_json(
+                &recipe, is_raw, None,
+            );
+            applies(&all, &recipe, is_raw)
+        };
+        assert!(of(recipe(25), true));
+        assert!(of(recipe(0), true), "Color 0 with the edge-fringe pass");
+        assert!(!of(recipe(25), false));
+        assert!(!of(
+            serde_json::json!({"colorNoiseReduction": 0, "colorNoiseVersion": 11}),
+            true
+        ));
+        assert!(of(
+            serde_json::json!({"colorNoiseReduction": 25, "colorNoiseVersion": 11}),
+            true
+        ));
+        assert!(!of(
+            serde_json::json!({"colorNoiseReduction": 25, "colorNoiseVersion": 10, "fringeVersion": 6}),
+            true
+        ));
+        let mut patched = recipe(25);
+        patched["aiPatches"] = serde_json::json!([{"id": "p"}]);
+        assert!(crate::image_loader::has_base_retouch(&patched));
+        assert!(!of(patched, true));
+    }
+
+    /// The geometry is part of the key: another warp or edge-fringe
+    /// treatment does not take another's render input; a crop or rotation
+    /// (after the input) does.
+    #[test]
+    fn render_inputs_follow_the_warp_not_the_crop() {
+        let key = |recipe: &serde_json::Value| Key::of(&global(25), recipe, true);
+        let base = recipe(25);
+        let mut warped = base.clone();
+        warped["transformDistortion"] = serde_json::json!(20);
+        let mut fringe = base.clone();
+        fringe["fringeVersion"] = serde_json::json!(4);
+        let mut rotated = base.clone();
+        rotated["rotation"] = serde_json::json!(2.5);
+        rotated["crop"] =
+            serde_json::json!({"x": 10.0, "y": 10.0, "width": 300.0, "height": 200.0});
+        assert_ne!(key(&base), key(&warped));
+        assert_ne!(key(&base), key(&fringe));
+        assert_eq!(key(&base), key(&rotated));
+    }
+
+    /// A frame without its render input wants one and renders as before;
+    /// once it is in, the frame's base is built once from it and reused;
+    /// another setting, a larger reduction or another photograph does not
+    /// take it.
+    #[test]
+    fn fit_frames_use_only_their_own_render_input() {
         let view = ColorNoiseView::default();
         let (source, base) = (image(600, 400), image(200, 133));
         let builds = Cell::new(0);
         let corrected = image(200, 133);
         let frame_of = |source: &Arc<DynamicImage>, dims, amount| {
             let number = Some(view.note_frame());
+            let recipe = recipe(amount);
             corrected_base(
                 &view,
                 &global(amount),
@@ -701,6 +814,8 @@ mod tests {
                     number,
                     source,
                     path: "a.raw",
+                    recipe: &recipe,
+                    is_raw: true,
                     base: &base,
                     reduced_dims: dims,
                 },
@@ -711,23 +826,23 @@ mod tests {
                 refresh,
             )
         };
-        assert!(frame_of(&source, (300, 200), 0.25).is_none());
+        assert!(frame_of(&source, (300, 200), 25).is_none());
         let wanted = lock_recover(&view.builds).wanted.pop().unwrap();
         assert_eq!(wanted.dims, (300, 200));
         view.store(&wanted, Rgb32FImage::new(300, 200));
 
-        let shown = frame_of(&source, (300, 200), 0.25).unwrap();
+        let shown = frame_of(&source, (300, 200), 25).unwrap();
         assert!(Arc::ptr_eq(&shown, &corrected));
-        assert!(frame_of(&source, (280, 187), 0.25).is_some());
-        assert_eq!(builds.get(), 1, "the corrected base is kept");
+        assert!(frame_of(&source, (280, 187), 25).is_some());
+        assert_eq!(builds.get(), 1, "the base made from it is kept");
         assert!(lock_recover(&view.builds).wanted.is_empty());
 
-        assert!(frame_of(&source, (300, 200), 0.5).is_none());
-        assert!(frame_of(&source, (310, 207), 0.25).is_none());
-        // Another photograph drops the correction.
+        assert!(frame_of(&source, (300, 200), 50).is_none());
+        assert!(frame_of(&source, (310, 207), 25).is_none());
+        // Another photograph drops the render input.
         let other = image(600, 400);
-        assert!(frame_of(&other, (300, 200), 0.25).is_none());
-        assert!(lock_recover(&view.corrections).is_empty());
+        assert!(frame_of(&other, (300, 200), 25).is_none());
+        assert!(lock_recover(&view.inputs).is_empty());
     }
 
     /// A frame nobody sees (the drag-draft warm-up) keeps the frame before
@@ -746,24 +861,19 @@ mod tests {
         assert_eq!(view.frames_noted(), shown + 2);
     }
 
-    /// A before asking for the edit's correction keeps the edit's frame to
-    /// render again, and the larger size.
+    /// A before asking for the edit's render input keeps the edit's frame
+    /// to render again, and the larger size.
     #[test]
-    fn a_before_wanting_the_same_correction_keeps_the_edits_frame() {
+    fn a_before_wanting_the_same_render_input_keeps_the_edits_frame() {
         let view = ColorNoiseView::default();
         let source = image(600, 400);
-        let wanted = |frame, dims| Wanted {
-            source: Arc::downgrade(&source),
-            path: "a.raw".into(),
-            key: Key::of(&global(0.25)).0,
-            settings: Key::of(&global(0.25)).1,
-            tuning: Key::of(&global(0.25)).2,
-            global: global(0.25),
-            dims,
-            frame,
-        };
-        view.want(wanted(Some((3, refresh())), (300, 200)));
-        view.want(wanted(None, (310, 207)));
+        view.want(wanted_for(
+            &source,
+            recipe(25),
+            Some((3, refresh())),
+            (300, 200),
+        ));
+        view.want(wanted_for(&source, recipe(25), None, (310, 207)));
         let builds = lock_recover(&view.builds);
         assert_eq!(builds.wanted.len(), 1);
         assert_eq!(builds.wanted[0].dims, (310, 207));
@@ -771,50 +881,49 @@ mod tests {
     }
 
     #[test]
-    fn thumbnails_take_the_correction_of_their_photograph_and_setting() {
+    fn thumbnails_take_the_render_input_of_their_photograph_and_setting() {
         let view = ColorNoiseView::default();
         let source = image(600, 400);
-        let wanted = Wanted {
-            source: Arc::downgrade(&source),
-            path: "a.raw".into(),
-            key: Key::of(&global(0.25)).0,
-            settings: Key::of(&global(0.25)).1,
-            tuning: Key::of(&global(0.25)).2,
-            global: global(0.25),
-            dims: (300, 200),
-            frame: Some((1, refresh())),
-        };
+        let wanted = wanted_for(&source, recipe(25), Some((1, refresh())), (300, 200));
         view.store(&wanted, Rgb32FImage::new(300, 200));
-        let all = |amount| AllAdjustments {
-            global: global(amount),
-            ..Default::default()
+        let thumb = |path, amount, is_raw| {
+            for_thumbnail(&view, path, &all(amount), &recipe(amount), is_raw)
         };
-        assert!(for_thumbnail(&view, "a.raw", &all(0.25), true).is_some());
-        assert!(for_thumbnail(&view, "a.raw", &all(0.5), true).is_none());
+        assert!(thumb("a.raw", 25, true).is_some());
+        assert!(thumb("a.raw", 50, true).is_none());
         // The split view's before with another setting keeps its own beside
         // the edit's; a third setting replaces the oldest.
-        let other = |amount| Wanted {
-            key: Key::of(&global(amount)).0,
-            frame: None,
-            path: "a.raw".into(),
-            source: Arc::downgrade(&source),
-            settings: Key::of(&global(amount)).1,
-            tuning: Key::of(&global(amount)).2,
-            global: global(amount),
-            dims: (300, 200),
-        };
         let revision = view.revision();
-        view.store(&other(0.5), Rgb32FImage::new(300, 200));
+        view.store(
+            &wanted_for(&source, recipe(50), None, (300, 200)),
+            Rgb32FImage::new(300, 200),
+        );
         assert_ne!(view.revision(), revision);
-        assert!(for_thumbnail(&view, "a.raw", &all(0.25), true).is_some());
-        assert!(for_thumbnail(&view, "a.raw", &all(0.5), true).is_some());
-        view.store(&other(0.75), Rgb32FImage::new(300, 200));
-        assert!(for_thumbnail(&view, "a.raw", &all(0.25), true).is_none());
-        assert!(for_thumbnail(&view, "a.raw", &all(0.5), true).is_some());
+        assert!(thumb("a.raw", 25, true).is_some());
+        assert!(thumb("a.raw", 50, true).is_some());
+        view.store(
+            &wanted_for(&source, recipe(75), None, (300, 200)),
+            Rgb32FImage::new(300, 200),
+        );
+        assert!(thumb("a.raw", 25, true).is_none());
+        assert!(thumb("a.raw", 50, true).is_some());
         view.store(&wanted, Rgb32FImage::new(300, 200));
-        assert!(for_thumbnail(&view, "b.raw", &all(0.25), true).is_none());
-        assert!(for_thumbnail(&view, "a.raw", &all(0.25), false).is_none());
+        assert!(thumb("b.raw", 25, true).is_none());
+        assert!(thumb("a.raw", 25, false).is_none());
         view.clear();
-        assert!(for_thumbnail(&view, "a.raw", &all(0.25), true).is_none());
+        assert!(thumb("a.raw", 25, true).is_none());
+    }
+
+    /// The stored render input has no negative values (Lanczos ringing),
+    /// as the view's own reduction.
+    #[test]
+    fn stored_render_inputs_cut_ringing_at_zero() {
+        let view = ColorNoiseView::default();
+        let source = image(600, 400);
+        let mut input = Rgb32FImage::new(4, 4);
+        input.put_pixel(1, 1, image::Rgb([-0.01, 0.5, 0.2]));
+        view.store(&wanted_for(&source, recipe(25), None, (4, 4)), input);
+        let kept = for_thumbnail(&view, "a.raw", &all(25), &recipe(25), true).unwrap();
+        assert_eq!(kept.get_pixel(1, 1).0, [0.0, 0.5, 0.2]);
     }
 }

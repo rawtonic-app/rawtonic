@@ -407,11 +407,12 @@ pub(crate) fn develop_thumbnail(
         }
         (_, metadata) => (metadata, adjustments),
     };
-    // The open photograph's full-resolution colour noise correction
-    // (`color_noise_view`): its thumbnail from the preview proxy with the
-    // correction added, rendered at Color 0, as the Develop fit view.
-    // Not with AI Denoise: the correction was made from the denoised
-    // decode, the proxy stands for the photograph without it.
+    // The open photograph's render input (`color_noise_view`: the export's
+    // warp, edge-fringe pass and colour noise reduction at full resolution,
+    // reduced): its thumbnail renders from it at Color 0 in place of the
+    // warped preview proxy, as the Develop fit view. Not with AI Denoise:
+    // the input was made from the denoised decode, the proxy stands for the
+    // photograph without it.
     let color_noise = (is_raw
         && gpu_context.is_some()
         && !adjustments.is_null()
@@ -422,16 +423,17 @@ pub(crate) fn develop_thumbnail(
             &app_handle.state::<DevelopSession>().color_noise_view,
             path_str,
             &get_all_adjustments_from_json(&adjustments, is_raw, tm),
+            &adjustments,
             is_raw,
         )
     })
     .flatten();
     let (proxy, color_noise) = match (proxy, color_noise) {
-        (None, Some(delta)) => match stored_proxy(&source_path, &adjustments, &settings) {
-            Some(proxy) => (Some(proxy), Some(delta)),
+        (None, Some(input)) => match stored_proxy(&source_path, &adjustments, &settings) {
+            Some(proxy) => (Some(proxy), Some(input)),
             None => (None, None),
         },
-        (proxy, delta) => (proxy, delta),
+        (proxy, input) => (proxy, input),
     };
     let preloaded_image = preloaded_image.filter(|_| color_noise.is_none());
     if is_raw
@@ -453,10 +455,10 @@ pub(crate) fn develop_thumbnail(
 
         let base_cache_hash = crate::cache_utils::calculate_thumbnail_base_hash(&meta.adjustments);
         let base_cache_hash = match &color_noise {
-            Some(delta) => {
+            Some(input) => {
                 let mut hasher = DefaultHasher::new();
                 base_cache_hash.hash(&mut hasher);
-                (Arc::as_ptr(delta) as usize).hash(&mut hasher);
+                (Arc::as_ptr(input) as usize).hash(&mut hasher);
                 hasher.finish()
             }
             None => base_cache_hash,
@@ -520,15 +522,7 @@ pub(crate) fn develop_thumbnail(
                 Cow::Borrowed(img)
             } else if let Some(proxy) = &proxy {
                 raw_scale_factor = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
-                match &color_noise {
-                    Some(delta) => Cow::Owned(DynamicImage::ImageRgb32F(
-                        rawtonic_engine::color_noise::add_reduced_correction(
-                            proxy.image.to_rgb32f(),
-                            delta,
-                        ),
-                    )),
-                    None => Cow::Borrowed(&proxy.image),
-                }
+                Cow::Borrowed(&proxy.image)
             } else {
                 let mmap_guard;
                 let vec_guard;
@@ -588,8 +582,16 @@ pub(crate) fn develop_thumbnail(
             // imported form, as for exports (`lightroom_masks`).
             let decoded_size = (raw_scale_factor == 1.0).then(|| pristine_source.dimensions());
 
-            let warped_image = apply_geometry_warp(composite_image, &meta.adjustments, is_raw)
-                .map_err(anyhow::Error::msg)?;
+            // The scale of the warped image to the photograph.
+            let mut warped_scale_factor = raw_scale_factor;
+            let warped_image = match (&color_noise, &proxy) {
+                (Some(input), Some(proxy)) => {
+                    warped_scale_factor = input.width() as f32 / proxy.full_width.max(1) as f32;
+                    Cow::Owned(DynamicImage::ImageRgb32F((**input).clone()))
+                }
+                _ => apply_geometry_warp(composite_image, &meta.adjustments, is_raw)
+                    .map_err(anyhow::Error::msg)?,
+            };
 
             let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, &meta.adjustments);
 
@@ -605,7 +607,7 @@ pub(crate) fn develop_thumbnail(
                 && c.width > 0.0
                 && c.height > 0.0
             {
-                let crop_max_dim_loaded = c.width.max(c.height) * raw_scale_factor as f64;
+                let crop_max_dim_loaded = c.width.max(c.height) * warped_scale_factor as f64;
                 let full_max_dim = full_w.max(full_h) as f64;
                 if crop_max_dim_loaded > 0.0 {
                     processing_dim = ((target_res as f64 * full_max_dim / crop_max_dim_loaded)
@@ -630,7 +632,7 @@ pub(crate) fn develop_thumbnail(
                 (coarse_rotated_image.into_owned(), 1.0)
             };
 
-            let total_scale = gpu_scale * raw_scale_factor;
+            let total_scale = gpu_scale * warped_scale_factor;
 
             // Keep a separate sampling source before orientation/flip/crop and
             // lens blur. Its scale maps saved full-resolution picker coordinates
@@ -1397,7 +1399,7 @@ pub fn refresh_thumbnail(app_handle: &AppHandle, path: &str) {
 }
 
 /// Develops `path`'s thumbnails again even where they are cached (the
-/// open photograph's colour noise correction came in,
+/// open photograph's render input came in,
 /// `color_noise_view::for_thumbnail`) and tells the frontend.
 pub(crate) fn redevelop_thumbnail(app_handle: &AppHandle, path: &str) {
     develop_thumbnail_again(app_handle, path, true);
