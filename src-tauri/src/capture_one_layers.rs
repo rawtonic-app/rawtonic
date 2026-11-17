@@ -6,11 +6,9 @@
 //! to what a Rawtonic layer adjusts. Its mask becomes:
 //!
 //! - a linear gradient: kept normalised in the frame Capture One draws it in
-//!   (`lrNormalized`, placed like a Lightroom gradient, on the photo before
-//!   its lens and transform corrections as Capture One draws every mask,
-//!   `uncorrected`; notes: benchmark-results/c1l3-2026-11-17/), full effect
-//!   on the start line, none on the end line, the eased ramp between
-//!   (Capture One's smoothstep, `gradientVersion` 2);
+//!   (`lrNormalized`, placed like a Lightroom gradient), full effect on the
+//!   start line, none on the end line, the eased ramp between (Capture One's
+//!   smoothstep, `gradientVersion` 2);
 //! - a radial gradient: the ellipse with its inner half at full effect and
 //!   the smoothstep out to the ellipse (`gradientVersion` 3), inverted when
 //!   Capture One applies it outside (as drawn by default);
@@ -22,6 +20,13 @@
 //!   (the strokes or colour range themselves are not kept);
 //! - a Luma Range on a filled or painted mask: that mask limited by a luma
 //!   range with Capture One's own falloff below and above.
+//!
+//! Capture One draws gradients, like its painted masks, on the photo before
+//! its lens correction (notes: benchmark-results/c1l3-2026-11-17/). A
+//! gradient's points are moved once, at the import, to where the photo's
+//! lens correction shows them (`Through`): an ordinary gradient on the
+//! corrected photo then, edited and drawn as any (a straight Capture One
+//! line stays straight rather than following the correction's bow).
 //!
 //! A mask Rawtonic cannot read is left out and named in the import report,
 //! never dropped silently or guessed, as are settings without a layer
@@ -195,11 +200,20 @@ fn raster_component(raster: &Raster, encode: bool) -> Result<Value, String> {
 
 /// The components of a mask, or why it is not imported. Approximations
 /// that still import go to `notes`; bitmaps are made only when `encode`.
-fn components(layer: &Layer, notes: &mut Vec<String>, encode: bool) -> Result<Vec<Value>, String> {
-    use rawtonic_engine::mask_generation::UNCORRECTED;
+fn components(
+    layer: &Layer,
+    notes: &mut Vec<String>,
+    encode: bool,
+    through: Through,
+) -> Result<Vec<Value>, String> {
     use rawtonic_engine::recipe_versions::gradient;
     let (width, height) = layer.frame;
-    let normal = |(x, y): (f64, f64)| (x / width, y / height);
+    // A point of Capture One's frame (pixels) where the photo's lens
+    // correction shows it, normalised (as drawn where it cannot place it).
+    let normal = |(x, y): (f64, f64)| {
+        let n = (x / width, y / height);
+        through(n.0, n.1).unwrap_or(n)
+    };
     let framed = width > 0.0 && height > 0.0;
     match &layer.mask {
         Mask::Uniform { value } => Ok(vec![sub_mask(
@@ -227,7 +241,7 @@ fn components(layer: &Layer, notes: &mut Vec<String>, encode: bool) -> Result<Ve
                 100.0,
                 "additive",
                 json!({"lrNormalized": {"zeroX": zx, "zeroY": zy, "fullX": fx, "fullY": fy,
-                    gradient::KEY: gradient::BELL, UNCORRECTED: true}}),
+                    gradient::KEY: gradient::BELL}}),
             )])
         }
         Mask::Radial {
@@ -247,16 +261,34 @@ fn components(layer: &Layer, notes: &mut Vec<String>, encode: bool) -> Result<Ve
             if *reserved != 0.0 {
                 notes.push(format!("radial gradient value {reserved} not read"));
             }
+            // The ellipse's centre and axis ends where the lens correction
+            // shows them: its axes and turn there.
+            let (sin, cos) = rotation.to_radians().sin_cos();
+            let pixel = |p: (f64, f64)| {
+                let (x, y) = normal(p);
+                (x * width, y * height)
+            };
+            let axis = |(dx, dy): (f64, f64)| {
+                let a = pixel((center.0 + dx, center.1 + dy));
+                let b = pixel((center.0 - dx, center.1 - dy));
+                ((a.0 - b.0) / 2.0, (a.1 - b.1) / 2.0)
+            };
+            let (ax, ay) = axis((radius_x * cos, radius_x * sin));
+            let (bx, by) = axis((-radius_y * sin, radius_y * cos));
+            let (radius_x, radius_y) = (ax.hypot(ay), bx.hypot(by));
+            let turn = ay.atan2(ax).to_degrees();
+            let center = pixel(*center);
             // Lightroom's form: opposite corners of the ellipse's rectangle
             // turned by the angle, which placement projects back onto the
             // turned axes (`lightroom_masks::placed_parameters`).
-            let (sin, cos) = rotation.to_radians().sin_cos();
+            let (sin, cos) = turn.to_radians().sin_cos();
             let (ox, oy) = (
                 radius_x * cos - radius_y * sin,
                 radius_x * sin + radius_y * cos,
             );
-            let (left, top) = normal((center.0 - ox, center.1 - oy));
-            let (right, bottom) = normal((center.0 + ox, center.1 + oy));
+            let at = |(x, y): (f64, f64)| (x / width, y / height);
+            let (left, top) = at((center.0 - ox, center.1 - oy));
+            let (right, bottom) = at((center.0 + ox, center.1 + oy));
             Ok(vec![sub_mask(
                 "radial",
                 *outside,
@@ -264,10 +296,9 @@ fn components(layer: &Layer, notes: &mut Vec<String>, encode: bool) -> Result<Ve
                 "additive",
                 json!({"lrNormalized": {
                     "top": top, "left": left, "bottom": bottom, "right": right,
-                    "angle": rotation,
+                    "angle": turn,
                     "feather": ((1.0 - inner) * 100.0).clamp(0.0, 100.0),
                     gradient::KEY: gradient::SMOOTH,
-                    UNCORRECTED: true,
                 }}),
             )])
         }
@@ -328,21 +359,31 @@ fn components(layer: &Layer, notes: &mut Vec<String>, encode: bool) -> Result<Ve
 
 /// Rawtonic layers for Capture One's `layers` (bottom first), and the
 /// report lines for what was left out or approximated.
-pub fn layers(layers: &[Layer]) -> (Vec<Value>, Vec<String>) {
-    convert(layers, true)
+pub fn layers(layers: &[Layer], through: Through) -> (Vec<Value>, Vec<String>) {
+    convert(layers, true, through)
+}
+
+/// Where the photo's lens correction shows a point of the photo before it
+/// (both normalised to the unrotated frame; `lightroom_upright::through_lens`),
+/// None where it cannot place it.
+pub type Through<'a> = &'a dyn Fn(f64, f64) -> Option<(f64, f64)>;
+
+/// No lens correction: points stay where they are drawn.
+pub fn uncorrected(x: f64, y: f64) -> Option<(f64, f64)> {
+    Some((x, y))
 }
 
 /// The report lines of `layers` alone, without making their bitmaps.
 pub fn report(layers: &[Layer]) -> Vec<String> {
-    convert(layers, false).1
+    convert(layers, false, &uncorrected).1
 }
 
-fn convert(layers: &[Layer], encode: bool) -> (Vec<Value>, Vec<String>) {
+fn convert(layers: &[Layer], encode: bool, through: Through) -> (Vec<Value>, Vec<String>) {
     let mut out = Vec::new();
     let mut report = Vec::new();
     for layer in layers {
         let mut notes = Vec::new();
-        match components(layer, &mut notes, encode) {
+        match components(layer, &mut notes, encode, through) {
             Ok(sub_masks) => {
                 let (adjustments, left_out) = adjustments(layer);
                 if !left_out.is_empty() {
@@ -372,6 +413,54 @@ fn convert(layers: &[Layer], encode: bool) -> (Vec<Value>, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The conversion on a photo without lens correction.
+    fn layers(layers: &[Layer]) -> (Vec<Value>, Vec<String>) {
+        super::layers(layers, &uncorrected)
+    }
+
+    /// Gradients drawn before the lens correction arrive where the
+    /// correction shows their points: here a correction that spreads the
+    /// photo by 2 % about its centre.
+    #[test]
+    fn gradients_arrive_where_the_lens_correction_shows_them() {
+        let spread = |x: f64, y: f64| Some((0.5 + (x - 0.5) * 1.02, 0.5 + (y - 0.5) * 1.02));
+        let (out, _) = super::layers(
+            &[
+                layer(
+                    Mask::Linear {
+                        start: (3680.0, 491.2),
+                        end: (3680.0, 2456.0),
+                        midpoint: 0.5,
+                    },
+                    &[("Exposure", "-1")],
+                ),
+                layer(
+                    Mask::Radial {
+                        center: (1840.0, 1228.0),
+                        rotation: 0.0,
+                        radius_x: 736.0,
+                        radius_y: 491.2,
+                        reserved: 0.0,
+                        inner: 0.5,
+                        outside: false,
+                    },
+                    &[("Exposure", "1")],
+                ),
+            ],
+            &spread,
+        );
+        let near = |v: &Value, want: f64| (v.as_f64().unwrap() - want).abs() < 1e-9;
+        let g = &out[0]["subMasks"][0]["parameters"]["lrNormalized"];
+        assert!(near(&g["fullX"], 0.5) && near(&g["fullY"], 0.5 - 0.4 * 1.02));
+        assert!(near(&g["zeroX"], 0.5) && near(&g["zeroY"], 0.5));
+        let g = &out[1]["subMasks"][0]["parameters"]["lrNormalized"];
+        // Centre 0.25 → 0.245, half-axes 0.1 → 0.102 of each side.
+        assert!(near(&g["left"], 0.245 - 0.102) && near(&g["right"], 0.245 + 0.102));
+        assert!(near(&g["top"], 0.245 - 0.102) && near(&g["bottom"], 0.245 + 0.102));
+        assert!(g["angle"].as_f64().unwrap().abs() < 1e-9);
+        assert!(g.get("uncorrected").is_none());
+    }
 
     fn layer(mask: Mask, settings: &[(&str, &str)]) -> Layer {
         Layer {
@@ -449,16 +538,6 @@ mod tests {
             (Some(3680.0), Some(736.0), Some(491.2))
         );
         assert_eq!(placed["gradientVersion"], 3);
-        // Drawn before the lens and transform corrections, as Capture One
-        // draws them (they move with the photo's content).
-        for (i, layer) in adjustments["masks"].as_array().unwrap().iter().enumerate() {
-            let p = &layer["subMasks"][0]["parameters"];
-            assert_eq!(
-                p[rawtonic_engine::mask_generation::UNCORRECTED],
-                true,
-                "{i}"
-            );
-        }
     }
 
     #[test]

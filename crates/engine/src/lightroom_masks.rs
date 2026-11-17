@@ -85,22 +85,16 @@ pub fn set_orientation(adjustments: &mut Value, orientation: u16) {
 
 /// A placed gradient keeps the falloff version its import recorded in the
 /// pending geometry (none before 2026-11-15: the straight ramp, as such a
-/// component rendered when it was imported) and whether it is drawn before
-/// the lens and transform corrections (`mask_generation::UNCORRECTED`,
-/// Capture One's gradients).
+/// component rendered when it was imported).
 trait WithGradientVersion {
     fn with_gradient_version(self, g: &Value) -> Self;
 }
 
 impl WithGradientVersion for Value {
     fn with_gradient_version(mut self, g: &Value) -> Self {
-        for key in [
-            crate::recipe_versions::gradient::KEY,
-            crate::mask_generation::UNCORRECTED,
-        ] {
-            if let Some(value) = g.get(key) {
-                self[key] = value.clone();
-            }
+        let key = crate::recipe_versions::gradient::KEY;
+        if let Some(version) = g.get(key) {
+            self[key] = version.clone();
         }
         self
     }

@@ -566,8 +566,12 @@ fn recipe_for(
     layers: &[rawtonic_interop::capture_one::Layer],
     path: &Path,
 ) -> Option<(Value, bool)> {
-    let (layers, _) = crate::capture_one_layers::layers(layers);
-    let mut adjustments = match translate(develop) {
+    let mut translated = translate(develop);
+    if let (Some(adjustments), Develop::CaptureOne(entries)) = (translated.as_mut(), develop) {
+        capture_one_lens(entries, path, adjustments);
+    }
+    let layers = capture_one_layers(layers, path, translated.as_ref());
+    let mut adjustments = match translated {
         Some(adjustments) => adjustments,
         None if !layers.is_empty() => json!({}),
         None => return None,
@@ -618,9 +622,6 @@ fn recipe_for(
         }
     }
     let mut clipped = false;
-    if let Develop::CaptureOne(entries) = develop {
-        capture_one_lens(entries, path, &mut adjustments);
-    }
     if let Develop::LightroomXmp(xmp) = develop {
         let attrs = crate::preset_converter::crs_attributes(xmp);
         lightroom_lens(&attrs, path, &mut adjustments);
@@ -666,6 +667,35 @@ fn recipe_for(
     Some((adjustments, clipped))
 }
 
+/// Capture One's local adjustment layers as Rawtonic layers on the photo
+/// at `path` with the translated edit `adjustments`: their gradients, drawn
+/// by Capture One before its lens correction, moved through the lens
+/// correction that edit gives the photo (`capture_one_layers`).
+fn capture_one_layers(
+    layers: &[rawtonic_interop::capture_one::Layer],
+    path: &Path,
+    adjustments: Option<&Value>,
+) -> Vec<Value> {
+    if layers.is_empty() {
+        return Vec::new();
+    }
+    let none = json!({});
+    let lens = crate::formats::is_raw_file(path)
+        .then(|| {
+            rawtonic_engine::lightroom_upright::lens_for_file(adjustments.unwrap_or(&none), path)
+        })
+        .flatten();
+    let through = lens.as_ref().map(|(warp, orientation, size)| {
+        rawtonic_engine::lightroom_upright::through_lens(warp, *orientation, *size)
+    });
+    match &through {
+        Some(through) => crate::capture_one_layers::layers(layers, through).0,
+        None => {
+            crate::capture_one_layers::layers(layers, &crate::capture_one_layers::uncorrected).0
+        }
+    }
+}
+
 /// The lens correction a new edit of the photo at `path` gets.
 fn default_lens(path: &Path) -> Value {
     let mut default = json!({});
@@ -704,12 +734,13 @@ fn profile_where_default_has_none(
 /// profile curves in `LensGeoAbr`/`LensLightFallOff` are not used, only its
 /// amounts). Its masks are drawn on the photo before that correction and
 /// move with it (`capture_one_layers`), so the correction decides where they
-/// land: with Distortion on (the default where Capture One has a profile)
-/// the photo gets a profile correction as in `profile_where_default_has_none`
-/// with Capture One's Distortion and Light Falloff amounts (0–100 %, 100 =
-/// the profile's, as Rawtonic's); with Distortion 0 none moves the photo
-/// (`lensDistortionAmount` 0). Settings without an amount (an older
-/// session, a file without a profile) leave the default.
+/// land. With Distortion or Light Falloff above 0 (Capture One's defaults
+/// where it has a profile: Distortion 100, Light Falloff 0) the photo gets a
+/// profile correction as in `profile_where_default_has_none`, each amount
+/// (0–100 %, 100 = the profile's, as Rawtonic's) as Capture One set it; with
+/// both at 0 neither corrects (amounts 0, whatever the default). Settings
+/// without an amount (an older session, a file without a profile) leave the
+/// default.
 fn capture_one_lens(entries: &[(String, String)], path: &Path, adjustments: &mut Value) {
     let Some(map) = adjustments.as_object_mut() else {
         return;
@@ -720,24 +751,26 @@ fn capture_one_lens(entries: &[(String, String)], path: &Path, adjustments: &mut
     let Some((distortion, falloff)) = capture_one_lens_amounts(entries) else {
         return;
     };
-    if distortion == 0.0 {
-        map.insert(lens::DISTORTION_AMOUNT.name().into(), json!(0.0));
+    let corrects = |amount: Option<f64>| amount.is_some_and(|a| a > 0.0);
+    if (corrects(distortion) || corrects(falloff))
+        && !profile_where_default_has_none(&default_lens(path), path, map)
+    {
         return;
     }
-    if profile_where_default_has_none(&default_lens(path), path, map) {
-        if distortion != 100.0 {
-            map.insert(lens::DISTORTION_AMOUNT.name().into(), json!(distortion));
-        }
-        if let Some(falloff) = falloff.filter(|f| *f != 100.0) {
-            map.insert(lens::VIGNETTE_AMOUNT.name().into(), json!(falloff));
+    for (key, amount) in [
+        (lens::DISTORTION_AMOUNT.name(), distortion),
+        (lens::VIGNETTE_AMOUNT.name(), falloff),
+    ] {
+        if let Some(amount) = amount.filter(|a| *a != 100.0) {
+            map.insert(key.into(), json!(amount));
         }
     }
 }
 
 /// Capture One's Distortion and Light Falloff amounts (`curve|amount|…`,
-/// 0–100 %) where it has a lens profile; None without one or without a
-/// Distortion amount.
-fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(f64, Option<f64>)> {
+/// 0–100 %) where it has a lens profile; None without one or without
+/// either amount.
+fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(Option<f64>, Option<f64>)> {
     let get = |key: &str| {
         entries
             .iter()
@@ -755,7 +788,8 @@ fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(f64, Option
             .map(|v| v.clamp(0.0, 200.0))
     };
     get("LensIdGuid").filter(|v| !v.trim().is_empty())?;
-    Some((amount("LensGeoAbr")?, amount("LensLightFallOff")))
+    let amounts = (amount("LensGeoAbr"), amount("LensLightFallOff"));
+    (amounts.0.is_some() || amounts.1.is_some()).then_some(amounts)
 }
 
 /// Lightroom's lens profile corrections on Rawtonic's own lens data
@@ -1118,9 +1152,17 @@ mod tests {
             "3004.0,-0.0150|0.0|1",
             "G",
         );
-        assert_eq!(capture_one_lens_amounts(&on), Some((100.0, Some(0.0))));
+        assert_eq!(
+            capture_one_lens_amounts(&on),
+            Some((Some(100.0), Some(0.0)))
+        );
         let half = entries(&format!("{curve}|50.0|1|100|-1.0"), "", "G");
-        assert_eq!(capture_one_lens_amounts(&half), Some((50.0, None)));
+        assert_eq!(capture_one_lens_amounts(&half), Some((Some(50.0), None)));
+        let falloff_only = entries("", "3004.0,-0.0150|40.0|1", "G");
+        assert_eq!(
+            capture_one_lens_amounts(&falloff_only),
+            Some((None, Some(40.0)))
+        );
         // No profile in Capture One, or no amount: nothing to bring over.
         assert_eq!(
             capture_one_lens_amounts(&entries(&format!("{curve}|100.0|1"), "", "")),
@@ -1132,15 +1174,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.NEF");
         fs::write(&path, b"not a raw").unwrap();
-        // Distortion 0: the photo is not moved, whatever the default.
-        let off = entries(&format!("{curve}|0.0|1|100|-1.0"), "", "G");
+        // Both amounts 0: the photo is neither moved nor brightened,
+        // whatever the default.
+        let off = entries(
+            &format!("{curve}|0.0|1|100|-1.0"),
+            "3004.0,-0.0150|0.0|1",
+            "G",
+        );
         let mut adjustments = json!({});
         capture_one_lens(&off, &path, &mut adjustments);
-        assert_eq!(adjustments, json!({"lensDistortionAmount": 0.0}));
+        assert_eq!(
+            adjustments,
+            json!({"lensDistortionAmount": 0.0, "lensVignetteAmount": 0.0})
+        );
         // On, but no profile for this lens: the default (nothing) stays.
-        let mut adjustments = json!({});
-        capture_one_lens(&on, &path, &mut adjustments);
-        assert_eq!(adjustments, json!({}));
+        for on in [&on, &falloff_only] {
+            let mut adjustments = json!({});
+            capture_one_lens(on, &path, &mut adjustments);
+            assert_eq!(adjustments, json!({}));
+        }
         // A lens mode set already is kept.
         let mut adjustments = json!({"lensCorrectionMode": "manual"});
         capture_one_lens(&off, &path, &mut adjustments);

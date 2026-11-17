@@ -149,6 +149,54 @@ fn lens_warp(adjustments: &Value, path: &Path, width: u32, height: u32) -> WarpP
     WarpPoints::new(&lens_only, width, height)
 }
 
+/// Points another editor keeps on the photo before its lens correction
+/// (normalised to the unrotated frame, as Capture One's gradients), moved
+/// to where the lens correction of `warp` (built for the frame `size` shown
+/// with EXIF `orientation`) shows that content, normalised the same way.
+/// None for a point the correction cannot place.
+pub fn through_lens(
+    warp: &WarpPoints,
+    orientation: u16,
+    (width, height): (f64, f64),
+) -> impl Fn(f64, f64) -> Option<(f64, f64)> + '_ {
+    // `orient_point`'s inverse: 6 and 8 undo each other, the others
+    // themselves.
+    let back = match orientation {
+        6 => 8,
+        8 => 6,
+        o => o,
+    };
+    move |x, y| {
+        let (nx, ny) = crate::lightroom_retouch::orient_point(orientation, x, y);
+        let (ox, oy) = warp.to_output((nx * width) as f32, (ny * height) as f32)?;
+        let (ux, uy) = crate::lightroom_retouch::orient_point(
+            back,
+            f64::from(ox) / width,
+            f64::from(oy) / height,
+        );
+        (ux.is_finite() && uy.is_finite()).then_some((ux, uy))
+    }
+}
+
+/// The lens correction `adjustments` gives the RAW at `path` (as
+/// `lens_warp`), with the developed frame's EXIF orientation and its size as
+/// shown, for `through_lens`; None when the RAW cannot be read.
+pub fn lens_for_file(adjustments: &Value, path: &Path) -> Option<(WarpPoints, u16, (f64, f64))> {
+    let source = rawler::rawsource::RawSource::new(path).ok()?;
+    let (frame, _) = rawtonic_rawdecode::source_frame::frame_and_sensor(
+        &source,
+        rawtonic_rawdecode::source_frame::VERSION,
+    )?;
+    let [_, _, w, h] = frame.rect;
+    let (w, h) = if (5..=8).contains(&frame.orientation) {
+        (h, w)
+    } else {
+        (w, h)
+    };
+    let warp = lens_warp(adjustments, path, w as u32, h as u32);
+    Some((warp, frame.orientation, (w as f64, h as f64)))
+}
+
 /// Lightroom's Guided Upright guides in `xmp` as Rawtonic guide lines for the
 /// RAW at `path` whose translated recipe is `adjustments` (`profile`:
 /// Lightroom's lens profile was on); none when the edit has no Guided
@@ -249,6 +297,45 @@ mod tests {
         crs:UprightFourSegmentsCount="2"
         crs:UprightFourSegments_0="0.200000000,0.100000000,0.250000000,0.900000000"
         crs:UprightFourSegments_1="0.800000000,0.100000000,0.750000000,0.900000000"/>"#;
+
+    /// Points kept before the lens correction land where the correction
+    /// shows their content, in the unrotated frame whatever the photo's
+    /// EXIF orientation; without a correction they stay.
+    #[test]
+    fn points_before_the_lens_go_through_it_in_any_orientation() {
+        let barrel = GeometryParams {
+            distortion: 40.0,
+            ..GeometryParams::default()
+        };
+        for orientation in 1..=8u16 {
+            let size = if orientation >= 5 {
+                (400.0, 600.0)
+            } else {
+                (600.0, 400.0)
+            };
+            let warp_none =
+                WarpPoints::new(&GeometryParams::default(), size.0 as u32, size.1 as u32);
+            let same = through_lens(&warp_none, orientation, size);
+            let (x, y) = same(0.2, 0.7).unwrap();
+            assert!(
+                (x - 0.2).abs() < 1e-5 && (y - 0.7).abs() < 1e-5,
+                "{orientation}"
+            );
+            // The same content point, moved by the same radial correction:
+            // as far from the centre in either orientation.
+            let warp = WarpPoints::new(&barrel, size.0 as u32, size.1 as u32);
+            let moved = through_lens(&warp, orientation, size);
+            let (mx, my) = moved(0.1, 0.15).unwrap();
+            let warp_upright = WarpPoints::new(&barrel, 600, 400);
+            let upright = through_lens(&warp_upright, 1, (600.0, 400.0));
+            let (ux, uy) = upright(0.1, 0.15).unwrap();
+            assert!(
+                (mx - ux).abs() < 1e-4 && (my - uy).abs() < 1e-4,
+                "{orientation}: {mx},{my} vs {ux},{uy}"
+            );
+            assert!((mx - 0.1).abs() > 1e-3, "{orientation} did not move");
+        }
+    }
 
     /// B488 regression: until Lightroom's Sony aspect frame is settled,
     /// reject its guides rather than applying lines to the wrong edges.

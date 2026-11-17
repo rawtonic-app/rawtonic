@@ -3167,34 +3167,10 @@ fn generate_radial_bitmap(
     scale: f32,
     crop_offset: (f32, f32),
 ) -> GrayImage {
-    let mut mask = GrayImage::new(width, height);
-    if width > 0 {
-        fill_rows(&mut mask, radial_coverage(params_value, scale, crop_offset));
-    }
-    mask
-}
-
-/// Each pixel of `mask` set by `coverage` at its coordinates, rows in
-/// parallel.
-fn fill_rows(mask: &mut GrayImage, coverage: impl Fn(f32, f32) -> u8 + Sync) {
-    let width = mask.width() as usize;
-    mask.par_chunks_mut(width).enumerate().for_each(|(y, row)| {
-        let y = y as f32;
-        for (x, pixel) in row.iter_mut().enumerate() {
-            *pixel = coverage(x as f32, y);
-        }
-    });
-}
-
-/// A radial component's coverage (0–255) at a point of the frame at `scale`
-/// with `crop_offset`.
-fn radial_coverage(
-    params_value: &Value,
-    scale: f32,
-    crop_offset: (f32, f32),
-) -> impl Fn(f32, f32) -> u8 + Sync + use<> {
     let params: RadialMaskParameters =
         serde_json::from_value(params_value.clone()).unwrap_or_default();
+    let mut mask = GrayImage::new(width, height);
+
     let center_x = (params.center_x as f32 * scale - crop_offset.0) as i32;
     let center_y = (params.center_y as f32 * scale - crop_offset.1) as i32;
     let radius_x = params.radius_x as f32 * scale;
@@ -3202,20 +3178,30 @@ fn radial_coverage(
     let rotation_rad = params.rotation * PI / 180.0;
     let cos_rot = rotation_rad.cos();
     let sin_rot = rotation_rad.sin();
-    move |x, y| {
-        let dy = y - center_y as f32;
-        let dx = x - center_x as f32;
 
-        let rot_dx = dx * cos_rot + dy * sin_rot;
-        let rot_dy = -dx * sin_rot + dy * cos_rot;
+    // Rows in parallel; every pixel is computed exactly as before.
+    if width > 0 {
+        mask.par_chunks_mut(width as usize)
+            .enumerate()
+            .for_each(|(y, row)| {
+                let dy = y as f32 - center_y as f32;
+                for (x, pixel) in row.iter_mut().enumerate() {
+                    let dx = x as f32 - center_x as f32;
 
-        let norm_x = rot_dx / radius_x.max(0.01);
-        let norm_y = rot_dy / radius_y.max(0.01);
+                    let rot_dx = dx * cos_rot + dy * sin_rot;
+                    let rot_dy = -dx * sin_rot + dy * cos_rot;
 
-        let dist = (norm_x.powi(2) + norm_y.powi(2)).sqrt();
+                    let norm_x = rot_dx / radius_x.max(0.01);
+                    let norm_y = rot_dy / radius_y.max(0.01);
 
-        (params.coverage(dist) * 255.0) as u8
+                    let dist = (norm_x.powi(2) + norm_y.powi(2)).sqrt();
+
+                    *pixel = (params.coverage(dist) * 255.0) as u8;
+                }
+            });
     }
+
+    mask
 }
 
 fn generate_linear_bitmap(
@@ -3225,24 +3211,9 @@ fn generate_linear_bitmap(
     scale: f32,
     crop_offset: (f32, f32),
 ) -> GrayImage {
-    let mut mask = GrayImage::new(width, height);
-    if width > 0
-        && let Some(coverage) = linear_coverage(params_value, scale, crop_offset)
-    {
-        fill_rows(&mut mask, coverage);
-    }
-    mask
-}
-
-/// A linear component's coverage (0–255) at a point of the frame at `scale`
-/// with `crop_offset`; None for a gradient without a direction.
-fn linear_coverage(
-    params_value: &Value,
-    scale: f32,
-    crop_offset: (f32, f32),
-) -> Option<impl Fn(f32, f32) -> u8 + Sync + use<>> {
     let params: LinearMaskParameters =
         serde_json::from_value(params_value.clone()).unwrap_or_default();
+    let mut mask = GrayImage::new(width, height);
 
     let start_x = params.start_x as f32 * scale - crop_offset.0;
     let start_y = params.start_y as f32 * scale - crop_offset.1;
@@ -3256,8 +3227,8 @@ fn linear_coverage(
 
     let len_sq = line_vec_x.powi(2) + line_vec_y.powi(2);
 
-    if len_sq < 0.01 {
-        return None;
+    if len_sq < 0.01 || width == 0 {
+        return mask;
     }
 
     let perp_vec_x = -line_vec_y / len_sq.sqrt();
@@ -3266,74 +3237,34 @@ fn linear_coverage(
     let half_width = range.max(0.01);
     let end_half_width = range_end.map_or(half_width, |range_end| range_end.max(0.01));
 
-    Some(move |x: f32, y: f32| {
-        let pixel_vec_y = y - start_y;
-        let pixel_vec_x = x - start_x;
+    // Rows in parallel; every pixel is computed exactly as before.
+    mask.par_chunks_mut(width as usize)
+        .enumerate()
+        .for_each(|(y_u, row)| {
+            let pixel_vec_y = y_u as f32 - start_y;
+            for (x_u, pixel) in row.iter_mut().enumerate() {
+                let pixel_vec_x = x_u as f32 - start_x;
 
-        let dist_perp = pixel_vec_x * perp_vec_x + pixel_vec_y * perp_vec_y;
+                let dist_perp = pixel_vec_x * perp_vec_x + pixel_vec_y * perp_vec_y;
 
-        // Negative distances lie on the start (100%) side.
-        let t = if dist_perp > 0.0 {
-            dist_perp / end_half_width
-        } else {
-            dist_perp / half_width
-        };
+                // Negative distances lie on the start (100%) side.
+                let t = if dist_perp > 0.0 {
+                    dist_perp / end_half_width
+                } else {
+                    dist_perp / half_width
+                };
 
-        let intensity = if let Some(band) = &params.band {
-            band.coverage(dist_perp, scale)
-        } else {
-            // Preserve the exact arithmetic of every existing linear mask.
-            params.ramp_coverage((0.5 - t * 0.5).clamp(0.0, 1.0))
-        };
-        (intensity.clamp(0.0, 1.0) * 255.0) as u8
-    })
-}
+                let intensity = if let Some(band) = &params.band {
+                    band.coverage(dist_perp, scale)
+                } else {
+                    // Preserve the exact arithmetic of every existing linear mask.
+                    params.ramp_coverage((0.5 - t * 0.5).clamp(0.0, 1.0))
+                };
+                *pixel = (intensity.clamp(0.0, 1.0) * 255.0) as u8;
+            }
+        });
 
-/// A radial or linear component's key: drawn on the photo before its lens
-/// and transform corrections (Capture One's gradients, notes:
-/// benchmark-results/c1l3-2026-11-17/), so it moves through them as the
-/// photo's content does, as `raster` masks do.
-pub const UNCORRECTED: &str = "uncorrected";
-
-/// A radial or linear component drawn before the lens and transform
-/// corrections (`UNCORRECTED`), in the frame `width` × `height` at `scale`
-/// with `crop_offset`: each pixel takes the shape's coverage where the
-/// uncorrected photo has that pixel's content. None when it is not such a
-/// component, the photo's size is unknown, or the corrections move nothing
-/// (it is then drawn as any shape).
-fn uncorrected_shape(
-    kind: &str,
-    params: &Value,
-    width: u32,
-    height: u32,
-    scale: f32,
-    crop_offset: (f32, f32),
-    geometry: &PhotoGeometry,
-) -> Option<GrayImage> {
-    if params.get(UNCORRECTED).and_then(Value::as_bool) != Some(true) {
-        return None;
-    }
-    let (own_w, own_h) = geometry.size?;
-    let own = (own_w.round() as u32, own_h.round() as u32);
-    let change = geometry.uncorrected_change(own.0, own.1)?;
-    // The shape on the photo's own frame (full resolution, before its
-    // orientation, flips and straightening).
-    let unturned = Shown {
-        geometry: SourceGeometry::default(),
-        size: geometry.size,
-    };
-    let shape = shape_as_shown(kind, params, unturned, 1.0);
-    let tf = TransformParams::new(&geometry.frame, width, height, scale, crop_offset);
-    Some(match kind {
-        "radial" => {
-            let coverage = radial_coverage(&shape, 1.0, (0.0, 0.0));
-            sample_own_frame(&tf, own, Some(&change), |x, y| Some(coverage(x, y)))
-        }
-        _ => {
-            let coverage = linear_coverage(&shape, 1.0, (0.0, 0.0))?;
-            sample_own_frame(&tf, own, Some(&change), |x, y| Some(coverage(x, y)))
-        }
-    })
+    mask
 }
 
 /// Brush strokes blend in order onto an empty mask, so the mask after N strokes
@@ -3805,51 +3736,13 @@ struct TransformParams {
     pub crop_offset: (f32, f32),
 }
 
-impl TransformParams {
-    fn new(
-        frame: &SourceGeometry,
-        width: u32,
-        height: u32,
-        scale: f32,
-        crop_offset: (f32, f32),
-    ) -> Self {
-        Self {
-            rotation: frame.rotation,
-            flip_horizontal: frame.flip_horizontal,
-            flip_vertical: frame.flip_vertical,
-            orientation_steps: frame.orientation_steps,
-            width,
-            height,
-            scale,
-            crop_offset,
-        }
-    }
-}
-
 fn generate_ai_bitmap_from_full_mask(
     full_mask_image: &GrayImage,
     tf: &TransformParams,
     warp_change: Option<&WarpChange>,
 ) -> GrayImage {
-    sample_own_frame(tf, full_mask_image.dimensions(), warp_change, |x, y| {
-        Some(full_mask_image.get_pixel(x as u32, y as u32)[0])
-    })
-}
-
-/// The frame `tf` describes, each pixel the `value` of the point of the
-/// photo's own frame (`own` pixels, full resolution before orientation)
-/// it shows; through `warp_change` for values kept in another lens or
-/// transform warp. Points outside the own frame stay 0.
-fn sample_own_frame(
-    tf: &TransformParams,
-    (full_mask_w, full_mask_h): (u32, u32),
-    warp_change: Option<&WarpChange>,
-    value: impl Fn(f32, f32) -> Option<u8> + Sync,
-) -> GrayImage {
+    let (full_mask_w, full_mask_h) = full_mask_image.dimensions();
     let mut final_mask = GrayImage::new(tf.width, tf.height);
-    if tf.width == 0 {
-        return final_mask;
-    }
 
     let angle_rad = tf.rotation.to_radians();
     let cos_a = angle_rad.cos();
@@ -3866,68 +3759,65 @@ fn sample_own_frame(
     let center_x = scaled_coarse_rotated_w / 2.0;
     let center_y = scaled_coarse_rotated_h / 2.0;
 
-    final_mask
-        .par_chunks_mut(tf.width as usize)
-        .enumerate()
-        .for_each(|(y_out, row)| {
-            for (x_out, pixel) in row.iter_mut().enumerate() {
-                let x_uncrop = x_out as f32 + tf.crop_offset.0;
-                let y_uncrop = y_out as f32 + tf.crop_offset.1;
+    for y_out in 0..tf.height {
+        for x_out in 0..tf.width {
+            let x_uncrop = x_out as f32 + tf.crop_offset.0;
+            let y_uncrop = y_out as f32 + tf.crop_offset.1;
 
-                let x_centered = x_uncrop - center_x;
-                let y_centered = y_uncrop - center_y;
+            let x_centered = x_uncrop - center_x;
+            let y_centered = y_uncrop - center_y;
 
-                let (x_unrotated, y_unrotated) = nearest_when_straightened(
-                    x_centered * cos_a + y_centered * sin_a + center_x,
-                    -x_centered * sin_a + y_centered * cos_a + center_y,
-                    tf.rotation,
-                );
+            let (x_unrotated, y_unrotated) = nearest_when_straightened(
+                x_centered * cos_a + y_centered * sin_a + center_x,
+                -x_centered * sin_a + y_centered * cos_a + center_y,
+                tf.rotation,
+            );
 
-                // Pixel indices, as `apply_flip` and `apply_coarse_rotation` move
-                // them: index i of n lands on n − 1 − i.
-                let x_unflipped = if tf.flip_horizontal {
-                    scaled_coarse_rotated_w - 1.0 - x_unrotated
-                } else {
-                    x_unrotated
-                };
-                let y_unflipped = if tf.flip_vertical {
-                    scaled_coarse_rotated_h - 1.0 - y_unrotated
-                } else {
-                    y_unrotated
-                };
+            // Pixel indices, as `apply_flip` and `apply_coarse_rotation` move
+            // them: index i of n lands on n − 1 − i.
+            let x_unflipped = if tf.flip_horizontal {
+                scaled_coarse_rotated_w - 1.0 - x_unrotated
+            } else {
+                x_unrotated
+            };
+            let y_unflipped = if tf.flip_vertical {
+                scaled_coarse_rotated_h - 1.0 - y_unrotated
+            } else {
+                y_unrotated
+            };
 
-                let (x_unrotated_coarse, y_unrotated_coarse) = match tf.orientation_steps {
-                    0 => (x_unflipped, y_unflipped),
-                    1 => (y_unflipped, scaled_coarse_rotated_w - 1.0 - x_unflipped),
-                    2 => (
-                        scaled_coarse_rotated_w - 1.0 - x_unflipped,
-                        scaled_coarse_rotated_h - 1.0 - y_unflipped,
-                    ),
-                    3 => (scaled_coarse_rotated_h - 1.0 - y_unflipped, x_unflipped),
-                    _ => (x_unflipped, y_unflipped),
-                };
+            let (x_unrotated_coarse, y_unrotated_coarse) = match tf.orientation_steps {
+                0 => (x_unflipped, y_unflipped),
+                1 => (y_unflipped, scaled_coarse_rotated_w - 1.0 - x_unflipped),
+                2 => (
+                    scaled_coarse_rotated_w - 1.0 - x_unflipped,
+                    scaled_coarse_rotated_h - 1.0 - y_unflipped,
+                ),
+                3 => (scaled_coarse_rotated_h - 1.0 - y_unflipped, x_unflipped),
+                _ => (x_unflipped, y_unflipped),
+            };
 
-                let x_src = x_unrotated_coarse / tf.scale;
-                let y_src = y_unrotated_coarse / tf.scale;
-                // A mask made in another lens or transform warp: its pixel for
-                // this point of the current warped frame.
-                let Some((x_src, y_src)) = (match warp_change {
-                    Some(change) => change.map(x_src, y_src),
-                    None => Some((x_src, y_src)),
-                }) else {
-                    continue;
-                };
+            let x_src = x_unrotated_coarse / tf.scale;
+            let y_src = y_unrotated_coarse / tf.scale;
+            // A mask made in another lens or transform warp: its pixel for
+            // this point of the current warped frame.
+            let Some((x_src, y_src)) = (match warp_change {
+                Some(change) => change.map(x_src, y_src),
+                None => Some((x_src, y_src)),
+            }) else {
+                continue;
+            };
 
-                if x_src >= 0.0
-                    && x_src < full_mask_w as f32
-                    && y_src >= 0.0
-                    && y_src < full_mask_h as f32
-                    && let Some(v) = value(x_src, y_src)
-                {
-                    *pixel = v;
-                }
+            if x_src >= 0.0
+                && x_src < full_mask_w as f32
+                && y_src >= 0.0
+                && y_src < full_mask_h as f32
+            {
+                let pixel = full_mask_image.get_pixel(x_src as u32, y_src as u32);
+                final_mask.put_pixel(x_out, y_out, *pixel);
             }
-        });
+        }
+    }
 
     final_mask
 }
@@ -3955,7 +3845,17 @@ fn ai_bitmap_in_frame(
     geometry: &PhotoGeometry,
 ) -> Option<GrayImage> {
     let full_mask = decode_ai_bitmap(data_url)?;
-    let tf = TransformParams::new(&geometry.frame, width, height, scale, crop_offset);
+    let frame = geometry.frame;
+    let tf = TransformParams {
+        rotation: frame.rotation,
+        flip_horizontal: frame.flip_horizontal,
+        flip_vertical: frame.flip_vertical,
+        orientation_steps: frame.orientation_steps,
+        width,
+        height,
+        scale,
+        crop_offset,
+    };
     let change = geometry.warp_change(params_value, full_mask.width(), full_mask.height());
     Some(generate_ai_bitmap_from_full_mask(
         &full_mask,
@@ -4005,7 +3905,17 @@ fn generate_raster_bitmap(
             full = image::imageops::resize(&full, w, h, image::imageops::FilterType::Triangle);
         }
     }
-    let tf = TransformParams::new(&geometry.frame, width, height, scale, crop_offset);
+    let frame = geometry.frame;
+    let tf = TransformParams {
+        rotation: frame.rotation,
+        flip_horizontal: frame.flip_horizontal,
+        flip_vertical: frame.flip_vertical,
+        orientation_steps: frame.orientation_steps,
+        width,
+        height,
+        scale,
+        crop_offset,
+    };
     let change = geometry.uncorrected_change(full.width(), full.height());
     Some(generate_ai_bitmap_from_full_mask(
         &full,
@@ -5128,25 +5038,20 @@ fn generate_sub_mask_bitmap(
     let drawn = |kind: &str| shape_as_shown(kind, &sub_mask.parameters, geometry.shown(), scale);
 
     match sub_mask.mask_type.as_str() {
-        kind @ ("radial" | "linear") => Some(
-            uncorrected_shape(
-                kind,
-                &sub_mask.parameters,
-                width,
-                height,
-                scale,
-                crop_offset,
-                geometry,
-            )
-            .unwrap_or_else(|| {
-                let generate = if kind == "radial" {
-                    generate_radial_bitmap
-                } else {
-                    generate_linear_bitmap
-                };
-                generate(&drawn(kind), width, height, scale, crop_offset)
-            }),
-        ),
+        "radial" => Some(generate_radial_bitmap(
+            &drawn("radial"),
+            width,
+            height,
+            scale,
+            crop_offset,
+        )),
+        "linear" => Some(generate_linear_bitmap(
+            &drawn("linear"),
+            width,
+            height,
+            scale,
+            crop_offset,
+        )),
         "brush" | "clone" | "heal" | "liquify" | "retouch" => Some(generate_brush_bitmap(
             &sub_mask.parameters,
             width,
@@ -9050,97 +8955,6 @@ mod geometry_follow_tests {
         let shown = place(&corrected, (60, 40));
         assert_turned(&shown, &expected, "corrected");
         assert!(shown != stretched);
-    }
-
-    /// Gradients drawn before the lens and transform corrections
-    /// (`UNCORRECTED`, Capture One's) land where a raster mask of the same
-    /// gradient lands: they move through the corrections with the photo's
-    /// content; without corrections they are drawn as any gradient.
-    #[test]
-    fn uncorrected_gradients_follow_the_corrections_like_rasters() {
-        let (w, h) = (120u32, 80u32);
-        let frame = json!({"width": w, "height": h, "rotation": 0.0, "flipHorizontal": false,
-            "flipVertical": false, "orientationSteps": 0});
-        let shapes = [
-            (
-                "linear",
-                json!({"startX": 10.0, "startY": 20.0, "endX": 110.0, "endY": 32.0,
-                "range": 40.0, "frame": frame}),
-            ),
-            (
-                "radial",
-                json!({"centerX": 40.0, "centerY": 30.0, "radiusX": 45.0, "radiusY": 25.0,
-                "rotation": 20.0, "feather": 0.6, "frame": frame}),
-            ),
-        ];
-        let layer = |kind: &str, parameters: Value| -> MaskDefinition {
-            serde_json::from_value(json!({
-                "id": "m", "name": "m", "visible": true, "invert": false, "opacity": 100.0,
-                "adjustments": {}, "subMasks": [{"id": "a", "type": kind, "visible": true,
-                "mode": "additive", "parameters": parameters}]
-            }))
-            .unwrap()
-        };
-        let draw = |def: &MaskDefinition, adjustments: &Value, size: (u32, u32)| {
-            generate_mask_bitmap(
-                def,
-                size.0,
-                size.1,
-                1.0,
-                (0.0, 0.0),
-                &PhotoGeometry::from_adjustments(adjustments)
-                    .with_photo_size(f64::from(w), f64::from(h)),
-                None,
-            )
-            .unwrap()
-        };
-        for (kind, plain) in shapes {
-            let mut uncorrected = plain.clone();
-            uncorrected[UNCORRECTED] = json!(true);
-            let (plain, uncorrected) = (layer(kind, plain), layer(kind, uncorrected));
-            let as_drawn = draw(&plain, &json!({}), (w, h));
-            assert!(
-                draw(&uncorrected, &json!({}), (w, h)) == as_drawn,
-                "{kind} uncorrected"
-            );
-            let raster = layer("raster", json!({"maskDataBase64": data_url(&as_drawn)}));
-            // The raster is read at whole pixels, the gradient exactly: they
-            // differ by at most the gradient's step between neighbours.
-            let step = (0..h)
-                .flat_map(|y| (1..w).map(move |x| (x, y)))
-                .map(|(x, y)| as_drawn.get_pixel(x, y)[0].abs_diff(as_drawn.get_pixel(x - 1, y)[0]))
-                .chain(
-                    (1..h)
-                        .flat_map(|y| (0..w).map(move |x| (x, y)))
-                        .map(|(x, y)| {
-                            as_drawn.get_pixel(x, y)[0].abs_diff(as_drawn.get_pixel(x, y - 1)[0])
-                        }),
-                )
-                .max()
-                .unwrap();
-            for (corrections, size) in [
-                (json!({"transformDistortion": 30.0}), (w, h)),
-                (
-                    json!({"transformVertical": 30.0, "orientationSteps": 1, "rotation": 3.0}),
-                    (h, w),
-                ),
-            ] {
-                let moved = draw(&uncorrected, &corrections, size);
-                let expected = draw(&raster, &corrections, size);
-                let worst = moved
-                    .pixels()
-                    .zip(expected.pixels())
-                    .map(|(a, b)| a[0].abs_diff(b[0]))
-                    .max()
-                    .unwrap();
-                assert!(
-                    worst <= step + 1,
-                    "{kind} {corrections}: off by {worst} (step {step})"
-                );
-                let stayed = draw(&plain, &corrections, size);
-                assert!(moved != stayed, "{kind} {corrections} did not move");
-            }
-        }
     }
 
     #[test]
