@@ -307,7 +307,11 @@ mod tests {
         assert!(!settled_lossless(0.64, (3840, 2560)));
         let small = photo_like(64, 48);
         assert!(encode_settled(&small, 0.5).unwrap().starts_with(b"\x89PNG"));
-        assert!(encode_settled(&small, 1.0).unwrap().starts_with(&[0xFF, 0xD8]));
+        assert!(
+            encode_settled(&small, 1.0)
+                .unwrap()
+                .starts_with(&[0xFF, 0xD8])
+        );
     }
 
     #[test]
