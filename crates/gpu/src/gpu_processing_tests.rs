@@ -10371,6 +10371,9 @@ fn a_compile_limit_refuses_only_export_variants_over_the_ceiling() {
 
 #[test]
 fn effects_compile_only_where_a_recipe_has_them() {
+    // One main pass (forced): with the effect passes grain is the finish
+    // pass's alone and sets no bit.
+    effect_passes::FORCED.with(|forced| forced.set(Some(false)));
     let features = |profile: serde_json::Value| {
         preview_features(&get_all_adjustments_from_json(&profile, true, Some(1))) & EFFECTS_FEATURES
     };
