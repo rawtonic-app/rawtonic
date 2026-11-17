@@ -351,6 +351,14 @@
           "RawtonicMsiFragment"
         ]
       }
+    },
+    "linux": {
+      "deb": {
+        "desktopTemplate": "../packaging/linux/rawtonic.desktop.hbs"
+      },
+      "rpm": {
+        "desktopTemplate": "../packaging/linux/rawtonic.desktop.hbs"
+      }
     }
   },
   "version": "0.1.0-alpha.16",

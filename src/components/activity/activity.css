@@ -43,6 +43,13 @@
 .activity-slot-count {
   font-variant-numeric: tabular-nums;
 }
+.activity-slot-attention {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
 .activity-ring {
   flex-shrink: 0;
 }
