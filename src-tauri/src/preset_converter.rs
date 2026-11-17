@@ -1777,11 +1777,16 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             }
             adjustments.insert(masks::CURVES.name().into(), full);
         }
-        let swatches: Vec<String> = seq_items(correction, "LocalPointColors")
-            .into_iter()
-            .filter_map(|p| p.text().map(str::to_string))
-            .collect();
-        let ranges = point_color_ranges_from(&swatches, &[], 4);
+        // The layer's Point Color, with its own variance list as the
+        // photo's (`LocalColorVariance`, one number per swatch).
+        let texts = |name: &str| -> Vec<String> {
+            seq_items(correction, name)
+                .into_iter()
+                .filter_map(|p| p.text().map(str::to_string))
+                .collect()
+        };
+        let ranges =
+            point_color_ranges_from(&texts("LocalPointColors"), &texts("LocalColorVariance"), 4);
         if !ranges.is_empty() {
             adjustments.insert(
                 recipe_color::COLOR_RANGES.name().into(),
@@ -2892,6 +2897,62 @@ mod tests {
         assert!((-20.0..-3.0).contains(&saturation), "{saturation}");
         let width = range["hueRange"].as_f64().unwrap();
         assert!((10.0..60.0).contains(&width), "{width}");
+    }
+
+    #[test]
+    fn layer_point_colors_become_the_layers_colour_ranges() {
+        // A mask's Point Color (`crs:LocalPointColors`, with its own
+        // `crs:LocalColorVariance`) takes the photo's mapping, at most four
+        // ranges per layer; swatches outside their plateau are ignored.
+        let swatch = "0.500000, 0.700000, 0.300000, 0.150000, -0.130000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.520000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000";
+        let ignored = "3.700000, 0.300000, 0.300000, 0.000000, -1.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.500000, 0.600000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000";
+        let items = |list: &[&str]| -> String {
+            list.iter()
+                .map(|x| format!("<rdf:li>{x}</rdf:li>"))
+                .collect()
+        };
+        let xmp = format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+  <crs:PointColors><rdf:Seq>{photo}</rdf:Seq></crs:PointColors>
+  <crs:MaskGroupBasedCorrections><rdf:Seq>
+   <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Left" crs:CorrectionAmount="1">
+    <crs:CorrectionMasks><rdf:Seq>
+     <rdf:li><rdf:Description crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.6" crs:ZeroY="0.5" crs:FullX="0.4" crs:FullY="0.5"/></rdf:li>
+    </rdf:Seq></crs:CorrectionMasks>
+    <crs:LocalPointColors><rdf:Seq>{layer}</rdf:Seq></crs:LocalPointColors>
+    <crs:LocalColorVariance><rdf:Seq>{variance}</rdf:Seq></crs:LocalColorVariance>
+   </rdf:Description></rdf:li>
+  </rdf:Seq></crs:MaskGroupBasedCorrections>
+ </rdf:Description></rdf:RDF></x:xmpmeta>"#,
+            photo = items(&[swatch]),
+            layer = items(&[ignored, swatch, swatch, swatch, swatch, swatch]),
+            variance = items(&["0", "-0.4", "0", "0", "0", "0"]),
+        );
+        let adjustments = convert_xmp_to_preset(&xmp).unwrap().adjustments;
+        let without_id = |range: &serde_json::Value| {
+            let mut range = range.clone();
+            range.as_object_mut().unwrap().remove("id");
+            range
+        };
+        let photo = without_id(&adjustments["colorRanges"][0]);
+        let layer = adjustments["masks"][0]["adjustments"]["colorRanges"]
+            .as_array()
+            .unwrap();
+        assert_eq!(layer.len(), 4, "at most four ranges per layer");
+        // The first valid swatch carries the variance of its own position.
+        let mut expected = photo.clone();
+        for key in [
+            "hueUniformity",
+            "saturationUniformity",
+            "lightnessUniformity",
+        ] {
+            expected[key] = json!(40.0);
+        }
+        assert_eq!(without_id(&layer[0]), expected);
+        for range in &layer[1..] {
+            assert_eq!(without_id(range), photo);
+        }
     }
 
     #[test]
