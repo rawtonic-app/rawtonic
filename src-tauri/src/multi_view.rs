@@ -347,7 +347,7 @@ fn show_stand_ins(
     let stills = Mutex::new(Vec::with_capacity(count));
     std::thread::scope(|scope| {
         for _ in 0..STAND_IN_THREADS.min(count) {
-            scope.spawn(|| {
+            rawtonic_runtime::spawn_scoped_render_thread(scope, "multi-view-stand-in", || {
                 loop {
                     let Some((path, area)) = queue.lock().unwrap_or_else(|e| e.into_inner()).next()
                     else {
