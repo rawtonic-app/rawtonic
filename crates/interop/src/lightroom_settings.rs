@@ -290,10 +290,13 @@ pub fn to_xmp(text: &str) -> Option<String> {
         });
     let entries: Vec<(Option<String>, Lua)> = entries
         .into_iter()
-        .map(|(key, value)| match (key.as_deref(), value) {
-            (Some("Look"), Lua::Table(look)) => (key, look_by_name(look)),
-            (Some("ConvertToGrayscale"), _) if let Some(gray) = treatment => (key, Lua::Bool(gray)),
-            (_, value) => (key, value),
+        .flat_map(|(key, value)| match (key.as_deref(), value) {
+            (Some("Look"), Lua::Table(look)) => vec![(key, look_by_name(look))],
+            (Some("ConvertToGrayscale"), _) if let Some(gray) = treatment => {
+                vec![(key, Lua::Bool(gray))]
+            }
+            (Some("PointColors"), Lua::Table(swatches)) => point_colors(swatches),
+            (_, value) => vec![(key, value)],
         })
         .collect();
     description_body(&mut out, &entries);
@@ -302,6 +305,75 @@ pub fn to_xmp(text: &str) -> Option<String> {
     }
     out.push_str("</rdf:RDF></x:xmpmeta>");
     Some(out)
+}
+
+/// The photo's Point Color as the sidecar holds it. The catalog keeps each
+/// swatch as a table (`SrcHue`, `HueShift`, `HueRange = { LowerNone, … }`,
+/// `Variance`, …; Lightroom Classic 15.6), the sidecar as one string of 19
+/// numbers per swatch (`crs:PointColors`, notes: reference/point-color.md)
+/// and the variances as `crs:ColorVariance`. A mask's swatches
+/// (`LocalPointColors`, `LocalColorVariance`) are strings in the catalog
+/// too and pass unchanged. Swatches already in string form pass as they are.
+fn point_colors(swatches: Vec<(Option<String>, Lua)>) -> Vec<(Option<String>, Lua)> {
+    let key = |k: &str| Some(k.to_string());
+    let tables: Vec<&[(Option<String>, Lua)]> = swatches
+        .iter()
+        .filter_map(|(_, v)| match v {
+            Lua::Table(fields) if !Lua::is_list(fields) => Some(fields.as_slice()),
+            _ => None,
+        })
+        .collect();
+    if tables.is_empty() {
+        return vec![(key("PointColors"), Lua::Table(swatches))];
+    }
+    let num = |fields: &[(Option<String>, Lua)], name: &str| match field(fields, name) {
+        Some(Lua::Num(n)) => Some(*n),
+        _ => None,
+    };
+    let mut strings = Vec::new();
+    let mut variances = Vec::new();
+    for fields in tables {
+        let mut numbers = Vec::with_capacity(19);
+        for name in [
+            "SrcHue",
+            "SrcSat",
+            "SrcLum",
+            "HueShift",
+            "SatScale",
+            "LumScale",
+            "RangeAmount",
+        ] {
+            numbers.push(num(fields, name));
+        }
+        for range in ["HueRange", "SatRange", "LumRange"] {
+            let Some(Lua::Table(points)) = field(fields, range) else {
+                numbers.push(None);
+                continue;
+            };
+            for point in ["LowerNone", "LowerFull", "UpperFull", "UpperNone"] {
+                numbers.push(num(points, point));
+            }
+        }
+        // A swatch missing a number is left out (the importer needs all 19).
+        let Some(numbers) = numbers.into_iter().collect::<Option<Vec<f64>>>() else {
+            continue;
+        };
+        let text: Vec<String> = numbers.iter().map(|n| format!("{n:.6}")).collect();
+        strings.push((None, Lua::Str(text.join(", "))));
+        let variance = num(fields, "Variance").unwrap_or(0.0);
+        variances.push((None, Lua::Str(format!("{variance:.6}"))));
+    }
+    vec![
+        (key("PointColors"), Lua::Table(strings)),
+        (key("ColorVariance"), Lua::Table(variances)),
+    ]
+}
+
+fn field<'a>(fields: &'a [(Option<String>, Lua)], name: &str) -> Option<&'a Lua> {
+    fields
+        .iter()
+        .find(|(k, _)| k.as_deref() == Some(name))
+        .map(|(_, v)| v)
 }
 
 /// The black-and-white treatment a creative profile sets
@@ -534,5 +606,66 @@ WhiteBalance = "As Shot",
         roxmltree::Document::parse(&scalars).expect("well-formed");
         // Without a look, the photo's own treatment.
         assert!(scalars.contains(r#"crs:ConvertToGrayscale="true""#));
+    }
+
+    /// Point Color in the shape Lightroom Classic 15.6 stored it in a
+    /// catalog after importing a sidecar holding it (values written for
+    /// this test): the photo's swatches as tables, a mask's as strings.
+    pub(crate) const POINT_COLORS: &str = r#"s = { MaskGroupBasedCorrections = { { CorrectionActive = true,
+CorrectionAmount = 1,
+CorrectionMasks = { { FullX = 0.4,
+FullY = 0.5,
+MaskActive = true,
+MaskValue = 1,
+What = "Mask/Gradient",
+ZeroX = 0.6,
+ZeroY = 0.5 } },
+CorrectionName = "lpc1",
+LocalColorVariance = { "0.200000",
+"-0.500000" },
+LocalPointColors = { "0.532900, 0.510200, 0.375800, 0.600000, 0.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.330200, 1.000000, 1.000000, 0.000000, 0.465912, 0.825912, 1.000000",
+"1.393400, 0.500400, 0.089100, 0.000000, -1.000000, 0.200000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.320400, 1.000000, 1.000000, 0.000000, 0.158174, 0.518174, 1.000000" },
+What = "Correction" } },
+PointColors = { { HueRange = { LowerFull = 0.33,
+LowerNone = 0,
+UpperFull = 0.67,
+UpperNone = 1 },
+HueShift = 0.3,
+LumRange = { LowerFull = 0.47,
+LowerNone = 0,
+UpperFull = 0.83,
+UpperNone = 1 },
+LumScale = 0,
+RangeAmount = 0.5,
+SatRange = { LowerFull = 0.33,
+LowerNone = 0,
+UpperFull = 1,
+UpperNone = 1 },
+SatScale = -0.5,
+SrcHue = 0.5329,
+SrcLum = 0.3758,
+SrcSat = 0.5102,
+Variance = -0.3 } },
+ProcessVersion = "15.4" }"#;
+
+    #[test]
+    fn writes_point_colors_as_the_sidecar_holds_them() {
+        let xmp = to_xmp(POINT_COLORS).unwrap();
+        roxmltree::Document::parse(&xmp).expect("well-formed");
+        assert!(xmp.contains("<crs:PointColors><rdf:Seq><rdf:li>0.532900, 0.510200, 0.375800, 0.300000, -0.500000, 0.000000, 0.500000, 0.000000, 0.330000, 0.670000, 1.000000, 0.000000, 0.330000, 1.000000, 1.000000, 0.000000, 0.470000, 0.830000, 1.000000</rdf:li></rdf:Seq></crs:PointColors>"), "{xmp}");
+        assert!(xmp.contains(
+            "<crs:ColorVariance><rdf:Seq><rdf:li>-0.300000</rdf:li></rdf:Seq></crs:ColorVariance>"
+        ));
+        // A mask's swatches and variances stay one string each (not pairs).
+        assert!(xmp.contains(
+            "<crs:LocalPointColors><rdf:Seq><rdf:li>0.532900, 0.510200, 0.375800, 0.600000,"
+        ));
+        assert!(xmp.contains("<crs:LocalColorVariance><rdf:Seq><rdf:li>0.200000</rdf:li><rdf:li>-0.500000</rdf:li></rdf:Seq></crs:LocalColorVariance>"));
+        // A swatch missing a number is left out with its variance; an
+        // empty list writes nothing.
+        let partial = to_xmp("s = { PointColors = { { SrcHue = 1, Variance = 0.5 } } }").unwrap();
+        assert!(!partial.contains("rdf:li"), "{partial}");
+        let empty = to_xmp("s = { PointColors = {  }, Exposure2012 = 0 }").unwrap();
+        assert!(!empty.contains("PointColors"));
     }
 }

@@ -1777,6 +1777,38 @@ mod tests {
     }
 
     #[test]
+    fn lightroom_catalog_point_color_reaches_the_photo_and_its_mask() {
+        // Lightroom Classic 15.6 keeps the photo's swatches as tables and a
+        // mask's as strings in its catalog (values written for this test).
+        let swatch = "0.532900, 0.510200, 0.375800, 0.600000, 0.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.330200, 1.000000, 1.000000, 0.000000, 0.465912, 0.825912, 1.000000";
+        let lua = format!(
+            r#"s = {{ MaskGroupBasedCorrections = {{ {{ CorrectionActive = true, CorrectionAmount = 1,
+CorrectionMasks = {{ {{ FullX = 0.4, FullY = 0.5, MaskValue = 1, What = "Mask/Gradient", ZeroX = 0.6, ZeroY = 0.5 }} }},
+LocalColorVariance = {{ "-0.500000" }},
+LocalPointColors = {{ "{swatch}" }},
+What = "Correction" }} }},
+PointColors = {{ {{ HueRange = {{ LowerFull = 0.33, LowerNone = 0, UpperFull = 0.67, UpperNone = 1 }},
+HueShift = 0.3, LumRange = {{ LowerFull = 0.47, LowerNone = 0, UpperFull = 0.83, UpperNone = 1 }},
+LumScale = 0, RangeAmount = 0.5,
+SatRange = {{ LowerFull = 0.33, LowerNone = 0, UpperFull = 1, UpperNone = 1 }},
+SatScale = -0.5, SrcHue = 0.5329, SrcLum = 0.3758, SrcSat = 0.5102, Variance = -0.3 }} }},
+ProcessVersion = "15.4" }}"#
+        );
+        let xmp = rawtonic_interop::lightroom_settings::to_xmp(&lua).unwrap();
+        let adjustments = translate(&Develop::LightroomXmp(xmp)).unwrap();
+        let photo = &adjustments["colorRanges"][0];
+        assert!(photo["hueShift"].as_f64().unwrap() > 0.0, "{photo}");
+        assert!(photo["saturation"].as_f64().unwrap() < 0.0, "{photo}");
+        assert_eq!(photo["hueUniformity"], 30.0);
+        let layer = adjustments["masks"][0]["adjustments"]["colorRanges"]
+            .as_array()
+            .unwrap();
+        assert_eq!(layer.len(), 1);
+        assert!(layer[0]["hueShift"].as_f64().unwrap() > photo["hueShift"].as_f64().unwrap());
+        assert_eq!(layer[0]["hueUniformity"], 50.0);
+    }
+
+    #[test]
     fn lightroom_masks_are_imported_with_the_photos_orientation() {
         let tmp = tempfile::tempdir().unwrap();
         let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();

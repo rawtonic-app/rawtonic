@@ -4,9 +4,11 @@
 
 ### Fixes
 
-- **Quieter activity warnings and predictable slider resets.** Warnings and failures stay as a dot and count in the top bar; double-clicking a Develop slider resets it in one undo step. Linux uses the system interface font, and packaged desktop entries offer supported photos in Open With.
+- **Point Color from Lightroom catalogs.** A catalog import dropped each photo's Point Color swatches (Lightroom keeps them in a different form there than in XMP); they now become Color editor ranges as presets already did. A mask's own swatch variance (`LocalColorVariance`) now carries over too.
+
 - **Less memory while exporting and editing on laptops with little free memory.** A batch export counted every free gigabyte as room for one more photo in flight, although it keeps 2 GB free for the editor and other apps. On a 14 GB laptop with shared graphics memory (Radeon 680M) three 16-bit TIFFs were exported at once and the app reached 7.8 GB when a photo was opened in Develop meanwhile. The free memory the export keeps is now left out when it counts how many photos to export at once: two there, 1.25–1.5 GB less, for 0–8 % more export time. Computers with plenty of free memory still export four at once.
 - **Dark native controls and tidier Import actions.** Native select menus and number steppers follow the dark interface, and Import’s Maximize button sits beside Close.
+- **Quieter activity warnings and predictable slider resets.** Warnings and failures stay as a dot and count in the top bar; double-clicking a Develop slider resets it in one undo step. Linux uses the system interface font, and packaged desktop entries offer supported photos in Open With.
 
 - **Empty Trash keeps photos recoverable.** Sessions and catalogs move their Trash contents to the computer’s Trash, with Undo for each moved entry. If a move fails, the remaining entries stay in the library Trash; permanent deletion requires a separate confirmation with Cancel focused.
 - **Culling while an import runs keeps your place.** When an import ended, the Library switched to Previous Import and emptied the selection, so every rating key pressed after that rated nothing, with no message. If you pressed a key, clicked or scrolled while the import ran, the view, selection and open photo now stay as they are, and the import's notice offers **Show** to open the new photos. A rating, flag or label key with no photo selected now says so.
