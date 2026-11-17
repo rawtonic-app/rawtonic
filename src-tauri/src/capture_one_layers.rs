@@ -173,8 +173,16 @@ fn components(layer: &Layer, notes: &mut Vec<String>) -> Result<Vec<Value>, Stri
             if *reserved != 0.0 {
                 notes.push(format!("radial gradient value {reserved} not read"));
             }
-            let (left, top) = normal((center.0 - radius_x, center.1 - radius_y));
-            let (right, bottom) = normal((center.0 + radius_x, center.1 + radius_y));
+            // Lightroom's form: opposite corners of the ellipse's rectangle
+            // turned by the angle, which placement projects back onto the
+            // turned axes (`lightroom_masks::placed_parameters`).
+            let (sin, cos) = rotation.to_radians().sin_cos();
+            let (ox, oy) = (
+                radius_x * cos - radius_y * sin,
+                radius_x * sin + radius_y * cos,
+            );
+            let (left, top) = normal((center.0 - ox, center.1 - oy));
+            let (right, bottom) = normal((center.0 + ox, center.1 + oy));
             Ok(vec![sub_mask(
                 "radial",
                 *outside,
@@ -337,6 +345,37 @@ mod tests {
             (Some(3680.0), Some(736.0), Some(491.2))
         );
         assert_eq!(placed["gradientVersion"], 3);
+    }
+
+    #[test]
+    fn rotated_radials_keep_their_radii() {
+        let (out, _) = layers(&[layer(
+            Mask::Radial {
+                center: (3000.0, 2000.0),
+                rotation: 30.0,
+                radius_x: 200.0,
+                radius_y: 100.0,
+                reserved: 0.0,
+                inner: 0.5,
+                outside: false,
+            },
+            &[("Exposure", "1")],
+        )]);
+        let mut adjustments = json!({"masks": out});
+        assert!(rawtonic_engine::lightroom_masks::place(
+            &mut adjustments,
+            7360.0,
+            4912.0,
+            Some(1)
+        ));
+        let placed = &adjustments["masks"][0]["subMasks"][0]["parameters"];
+        let near = |k: &str, want: f64| (placed[k].as_f64().unwrap() - want).abs() < 0.02;
+        assert!(
+            near("centerX", 3000.0) && near("centerY", 2000.0),
+            "{placed}"
+        );
+        assert!(near("radiusX", 200.0) && near("radiusY", 100.0), "{placed}");
+        assert!(near("rotation", 30.0), "{placed}");
     }
 
     #[test]

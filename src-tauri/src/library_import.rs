@@ -41,9 +41,9 @@ fn read_source(path: &Path) -> Result<(Source, &'static str), String> {
     } else if name.ends_with(".cocatalog") {
         // A Capture One catalog is a folder (a package on macOS) holding
         // `<name>.cocatalogdb`.
-        let db = path
-            .join(path.file_stem().unwrap_or_default())
-            .with_extension("cocatalogdb");
+        let mut name = path.file_stem().unwrap_or_default().to_os_string();
+        name.push(".cocatalogdb");
+        let db = path.join(name);
         rawtonic_interop::capture_one::read(&db).map(|lib| (lib, "captureOne"))
     } else {
         return Err(
@@ -2011,6 +2011,20 @@ ProcessVersion = "15.4" }}"#
             source.photos.len(),
             source.not_read
         );
+    }
+
+    /// A catalog folder named with dots (`Wedding.2026.cocatalog`) is read
+    /// from the database inside it (`Wedding.2026.cocatalogdb`).
+    #[test]
+    fn capture_one_catalogs_with_dotted_names_are_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = dir.path().join("Wedding.2026.cocatalog");
+        let db = capture_one_session(dir.path(), "Wedding.2026");
+        fs::create_dir_all(&catalog).unwrap();
+        fs::copy(&db, catalog.join("Wedding.2026.cocatalogdb")).unwrap();
+        let (source, kind) = read_source(&catalog).unwrap();
+        assert_eq!(kind, "captureOne");
+        assert_eq!(source.name, "Wedding.2026");
     }
 
     #[test]
