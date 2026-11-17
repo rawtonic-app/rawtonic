@@ -16,5 +16,6 @@ describe('formatNumber', () => {
     expect(formatNumber(1.6, 2)).toBe('1.60');
     expect(formatNumber(-0.4)).toBe('0');
     expect(formatNumber(-0.6)).toBe('-1');
+    expect(formatNumber(-0.00000001, 6)).toBe('0.000000');
   });
 });

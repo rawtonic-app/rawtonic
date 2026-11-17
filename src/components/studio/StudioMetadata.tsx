@@ -1,3 +1,4 @@
+import { formatNumber } from '../../utils/formatNumber';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
@@ -793,12 +794,12 @@ export function StudioExif() {
           {lat !== null && lon !== null && (
             <div className="studio-exif-gps">
               <span>
-                {lat.toFixed(6)}, {lon.toFixed(6)}
+                {formatNumber(lat, 6)}, {formatNumber(lon, 6)}
                 {exif.GPSAltitude ? ` · ${exif.GPSAltitude}` : ''}
               </span>
               <button
                 title={t('studio.metadata.exif.copyPosition')}
-                onClick={() => void navigator.clipboard?.writeText(`${lat.toFixed(6)}, ${lon.toFixed(6)}`)}
+                onClick={() => void navigator.clipboard?.writeText(`${formatNumber(lat, 6)}, ${formatNumber(lon, 6)}`)}
               >
                 {t('studio.metadata.exif.copy')}
               </button>
