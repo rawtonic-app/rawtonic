@@ -60,6 +60,7 @@ export function maskKindLabel(t: TFunction, kind: MaskKind) {
  * subtracts or adds on an inverted layer (`erasesFromLayer`). */
 export function maskComponentLabel(t: TFunction, sub: SubMask, layerInverted = false) {
   if (sub.type === Mask.All) return t('studio.masks.kinds.all');
+  if (sub.type === Mask.Raster) return sub.name || t('masks.types.raster');
   if (erasesFromLayer(sub, layerInverted)) return t('studio.masks.erase');
   const kind = kindOf(sub);
   return kind ? maskKindLabel(t, kind) : sub.name || sub.type;

@@ -3864,10 +3864,15 @@ fn ai_bitmap_in_frame(
     ))
 }
 
+/// A `raster` component's key for the photo file's EXIF orientation (1–8;
+/// absent: 1), which turns its sensor-frame bitmap into the photo's own frame.
+pub const SOURCE_ORIENTATION: &str = "sourceOrientation";
+
 /// A mask imported as a bitmap from another editor (`raster`: Capture
 /// One's painted, colour range and AI masks). `maskDataBase64` holds it over
-/// the photo before its lens and transform corrections (the frame Capture
-/// One paints in), in any size: it is stretched to the photo's own size when
+/// the photo before its lens and transform corrections and before its EXIF
+/// orientation (the frame Capture One paints in; `SOURCE_ORIENTATION`), in
+/// any size: it is turned by that orientation, stretched to the photo's own size when
 /// that is known, placed by the photo's orientation, flips, straightening
 /// and crop, and moved through the current corrections as the photo's
 /// content is.
@@ -3881,6 +3886,19 @@ fn generate_raster_bitmap(
 ) -> Option<GrayImage> {
     let data_url = params_value.get("maskDataBase64")?.as_str()?;
     let mut full = decode_ai_bitmap(data_url)?;
+    // Painted in the unrotated sensor frame; the photo's own frame is the
+    // decode, which the file's EXIF orientation has turned.
+    use image::imageops::{flip_horizontal, flip_vertical, rotate90, rotate180, rotate270};
+    full = match params_value.get(SOURCE_ORIENTATION).and_then(Value::as_u64) {
+        Some(2) => flip_horizontal(&full),
+        Some(3) => rotate180(&full),
+        Some(4) => flip_vertical(&full),
+        Some(5) => flip_horizontal(&rotate90(&full)),
+        Some(6) => rotate90(&full),
+        Some(7) => flip_horizontal(&rotate270(&full)),
+        Some(8) => rotate270(&full),
+        _ => full,
+    };
     if let Some((w, h)) = geometry.size {
         let (w, h) = (w.round() as u32, h.round() as u32);
         if w > 0 && h > 0 && (w, h) != full.dimensions() {
@@ -8910,6 +8928,25 @@ mod geometry_follow_tests {
             &turned,
             "turned",
         );
+        // Painted on the unrotated sensor of a photo with EXIF orientation
+        // 6: turned a quarter into the photo's own (decoded) frame.
+        let sensor = image::imageops::resize(&small, 40, 60, image::imageops::FilterType::Nearest);
+        let def6 = ai_layer(
+            "raster",
+            &image::imageops::rotate270(&sensor),
+            json!({"sourceOrientation": 6}),
+        );
+        let shown6 = generate_mask_bitmap(
+            &def6,
+            40,
+            60,
+            1.0,
+            (0.0, 0.0),
+            &PhotoGeometry::from_adjustments(&json!({})).with_photo_size(40.0, 60.0),
+            None,
+        )
+        .unwrap();
+        assert_turned(&shown6, &sensor, "EXIF orientation 6");
         // With a perspective correction: where a bitmap made without
         // corrections lands, not where it was stored.
         let corrected = json!({"transformVertical": 40.0});

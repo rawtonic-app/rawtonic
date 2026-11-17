@@ -652,6 +652,14 @@ fn recipe_for(
         rawtonic_engine::lightroom_retouch::set_orientation(&mut adjustments, orientation);
         rawtonic_engine::lightroom_masks::set_orientation(&mut adjustments, orientation);
     }
+    // Capture One's raster masks are in the unrotated sensor frame: they
+    // record the file's EXIF orientation that turns them into the photo's.
+    if crate::capture_one_layers::needs_orientation(&adjustments)
+        && let Ok(bytes) = std::fs::read(path)
+    {
+        let orientation = crate::image_loader::source_orientation(&bytes, &path.to_string_lossy());
+        crate::capture_one_layers::set_orientation(&mut adjustments, orientation);
+    }
     Some((adjustments, clipped))
 }
 
@@ -1780,6 +1788,45 @@ mod tests {
         ] {
             assert!(smart_rule(&rules("intersect", vec![unknown])).is_none());
         }
+    }
+
+    /// Capture One's raster masks (unrotated sensor frame) record the
+    /// photo file's EXIF orientation on import.
+    #[test]
+    fn capture_one_rasters_are_imported_with_the_photos_orientation() {
+        use rawtonic_interop::capture_one_masks::{Mask, Raster};
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("IMG_2.jpg");
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let mut metadata = little_exif::metadata::Metadata::new();
+        metadata.set_tag(little_exif::exif_tag::ExifTag::Orientation(vec![8]));
+        metadata
+            .write_to_vec(&mut jpeg, little_exif::filetype::FileExtension::JPEG)
+            .unwrap();
+        fs::write(&path, &jpeg).unwrap();
+        let mut values = vec![0u8; 16 * 8];
+        values[3] = 200;
+        let layer = rawtonic_interop::capture_one::Layer {
+            name: "Brush".into(),
+            enabled: true,
+            opacity: 100.0,
+            settings: vec![("Exposure".into(), "1".into())],
+            mask: Mask::Raster {
+                raster: Raster::from_values(16, 8, &values),
+                ai: false,
+            },
+            frame: (16.0, 8.0),
+        };
+        let (recipe, _) = recipe_for(&Develop::None, &[layer], &path).unwrap();
+        let sub = &recipe["masks"][0]["subMasks"][0];
+        assert_eq!(sub["type"], "raster");
+        assert_eq!(sub["parameters"]["sourceOrientation"], 8);
     }
 
     #[test]

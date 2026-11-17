@@ -125,6 +125,44 @@ fn sub_mask(kind: &str, invert: bool, opacity: f64, mode: &str, parameters: Valu
     })
 }
 
+/// The `raster` components' parameters in `adjustments` that lack the
+/// photo's EXIF orientation.
+fn rasters_without_orientation(adjustments: &mut Value) -> Vec<&mut Value> {
+    let key = rawtonic_engine::mask_generation::SOURCE_ORIENTATION;
+    adjustments[masks::MASKS.name()]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+        .filter_map(|layer| layer[masks::SUB_MASKS.name()].as_array_mut())
+        .flatten()
+        .filter(|sub| sub["type"] == "raster")
+        .map(|sub| &mut sub[masks::PARAMETERS.name()])
+        .filter(|p| p.get(key).is_none())
+        .collect()
+}
+
+/// Whether imported raster masks still need the photo's EXIF orientation
+/// (`set_orientation`).
+pub fn needs_orientation(adjustments: &Value) -> bool {
+    let key = rawtonic_engine::mask_generation::SOURCE_ORIENTATION;
+    adjustments[masks::MASKS.name()]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|layer| layer[masks::SUB_MASKS.name()].as_array())
+        .flatten()
+        .any(|sub| sub["type"] == "raster" && sub[masks::PARAMETERS.name()].get(key).is_none())
+}
+
+/// Records the photo file's EXIF `orientation` in its imported raster masks:
+/// Capture One paints in the unrotated sensor frame.
+pub fn set_orientation(adjustments: &mut Value, orientation: u16) {
+    let key = rawtonic_engine::mask_generation::SOURCE_ORIENTATION;
+    for p in rasters_without_orientation(adjustments) {
+        p[key] = json!(orientation);
+    }
+}
+
 /// A `raster` component of Capture One's raster; its bitmap only when
 /// `encode` (a report needs none).
 fn raster_component(raster: &Raster, encode: bool) -> Result<Value, String> {
@@ -551,6 +589,19 @@ mod tests {
         );
         // The report alone names the same, without making the bitmaps.
         assert_eq!(super::report(&all), report);
+        // The file's EXIF orientation goes with each raster, once.
+        let mut adjustments = json!({"masks": out});
+        assert!(needs_orientation(&adjustments));
+        set_orientation(&mut adjustments, 6);
+        set_orientation(&mut adjustments, 8);
+        assert!(!needs_orientation(&adjustments));
+        assert_eq!(
+            adjustments["masks"][2]["subMasks"][0]["parameters"]["sourceOrientation"],
+            6
+        );
+        assert!(
+            adjustments["masks"][2]["subMasks"][1]["parameters"]["sourceOrientation"].is_null()
+        );
     }
 
     #[test]
