@@ -805,6 +805,90 @@ mod tests {
         }
     }
 
+    /// Gradings whose whole tables are pinned per version in
+    /// `tests/data/grading_tables.json`: every wheel, hues on and off the
+    /// fitted grid, saturations below and above 50, the Luminance sliders,
+    /// Blending 0 / 100 and Balance ±50 / ±100.
+    fn pinned_gradings() -> Vec<Value> {
+        vec![
+            json!({
+                "shadows": {"hue": 220, "saturation": 50, "luminance": -20},
+                "midtones": {"hue": 120, "saturation": 30, "luminance": 10},
+                "highlights": {"hue": 40, "saturation": 60, "luminance": -40},
+                "global": {"hue": 300, "saturation": 10, "luminance": 5},
+                "blending": 70, "balance": -30,
+            }),
+            json!({"shadows": {"hue": 120, "saturation": 100},
+                "highlights": {"hue": 300, "saturation": 75}, "blending": 100, "balance": 100}),
+            json!({"shadows": {"luminance": 60}, "highlights": {"luminance": -100}}),
+            json!({"midtones": {"hue": 300, "saturation": 100},
+                "global": {"hue": 30, "saturation": 40, "luminance": -20}, "blending": 0, "balance": -50}),
+            json!({"highlights": {"hue": 120, "saturation": 100}, "balance": -100}),
+            json!({"shadows": {"hue": 30, "saturation": 25, "luminance": -30},
+                "midtones": {"hue": 210, "saturation": 50, "luminance": 40},
+                "highlights": {"hue": 75, "saturation": 85, "luminance": 20},
+                "global": {"hue": 255, "saturation": 20}, "blending": 20, "balance": 50}),
+        ]
+    }
+
+    /// The versions whose tables are pinned (every version saved edits may
+    /// carry; a new version is added here when it ships).
+    fn shipped() -> [ColorGradingVersion; 3] {
+        [1, 2, 3].map(|v| ColorGradingVersion::of(&json!({ "colorGradingVersion": v })))
+    }
+
+    /// Writes the pinned tables to `$GRADING_TABLES` (only when a version
+    /// is added: the tables of a shipped version never change).
+    #[test]
+    #[ignore = "tool: needs GRADING_TABLES"]
+    fn write_pinned_tables() {
+        let tables: Vec<Vec<_>> = shipped()
+            .iter()
+            .map(|&v| pinned_gradings().iter().map(|g| lut(&grading(g.clone()), v)).collect())
+            .collect();
+        std::fs::write(
+            std::env::var("GRADING_TABLES").unwrap(),
+            serde_json::to_string(&json!({ "versions": [1, 2, 3], "tables": tables })).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Saved edits keep their colour grading: every shipped version's whole
+    /// table for the pinned gradings, bit for bit on Apple silicon (where
+    /// the tables were written and the preservation exports run) and within
+    /// float rounding of other platforms' maths libraries elsewhere.
+    /// Versions 1 and 2 share the shader path (`grading_active` 1), which
+    /// the preservation exports cover with version-1 recipes, so this pins
+    /// what is left of a version-2 export: its table.
+    #[test]
+    fn the_shipped_tables_are_frozen() {
+        let pinned: Value =
+            serde_json::from_str(include_str!("../tests/data/grading_tables.json")).unwrap();
+        let exact = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+        for (n, &version) in shipped().iter().enumerate() {
+            assert_eq!(pinned["versions"][n], json!(version.get()));
+            for (k, g) in pinned_gradings().into_iter().enumerate() {
+                let table = lut(&grading(g), version);
+                let want = &pinned["tables"][n][k];
+                for (i, row) in table.iter().enumerate() {
+                    for (c, &value) in row.iter().enumerate() {
+                        let expected = want[i][c].as_f64().unwrap() as f32;
+                        let ok = if exact {
+                            value.to_bits() == expected.to_bits()
+                        } else {
+                            (value - expected).abs() <= 2.0e-6
+                        };
+                        assert!(
+                            ok,
+                            "version {} grading {k} entry {i}.{c}: {value} != {expected}",
+                            version.get()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     use super::*;
     use serde_json::json;
 
