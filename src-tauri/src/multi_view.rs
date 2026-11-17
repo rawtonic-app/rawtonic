@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -1593,8 +1593,20 @@ impl Drop for Admitted<'_> {
             .unwrap_or_else(|e| e.into_inner());
         under_way.0 -= 1;
         under_way.1 -= self.bytes;
+        HEAVY_UNDER_WAY.fetch_sub(self.bytes, Ordering::SeqCst);
         self.gate.done.notify_all();
     }
+}
+
+/// Bytes the regions admitted by a [`HeavyGate`] and not done were admitted
+/// with.
+static HEAVY_UNDER_WAY: AtomicU64 = AtomicU64::new(0);
+
+/// [`HEAVY_UNDER_WAY`]: the decodes held for 1:1 previews are not let go
+/// for memory these regions take only while they are made (they would be
+/// decoded again for the next pan or step).
+pub(crate) fn heavy_under_way() -> u64 {
+    HEAVY_UNDER_WAY.load(Ordering::SeqCst)
 }
 
 impl HeavyGate {
@@ -1613,6 +1625,7 @@ impl HeavyGate {
                 crate::memory_pressure::work_headroom(),
             ) {
                 *under_way = (count + 1, reserved + bytes);
+                HEAVY_UNDER_WAY.fetch_add(bytes, Ordering::SeqCst);
                 return Some(Admitted { gate: self, bytes });
             }
             under_way = self

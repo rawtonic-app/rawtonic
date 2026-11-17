@@ -273,7 +273,12 @@ pub(crate) fn hold_budget() -> usize {
 pub(crate) fn hold_budget_beside(held: usize) -> usize {
     let cap = hold_cap();
     match crate::memory_pressure::work_headroom() {
-        Some(room) => cap.min(held.saturating_add(usize::try_from(room).unwrap_or(usize::MAX))),
+        // The zoom's regions under way take their memory only while they
+        // are made: it stays counted as free here.
+        Some(room) => {
+            let room = room.saturating_add(crate::multi_view::heavy_under_way());
+            cap.min(held.saturating_add(usize::try_from(room).unwrap_or(usize::MAX)))
+        }
         None => cap,
     }
 }
