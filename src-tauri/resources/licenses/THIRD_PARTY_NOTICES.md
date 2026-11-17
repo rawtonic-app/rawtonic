@@ -1362,6 +1362,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | human-signals | 8.0.1 | Apache-2.0 |
 | i18next | 26.4.0 | MIT |
 | i18next | 26.7.2 | MIT |
+| i18next | 27.1.5 | MIT |
 | i18next-cli | 1.71.0 | MIT |
 | i18next-cli | 1.88.0 | MIT |
 | i18next-resources-for-ts | 2.1.0 | MIT |
