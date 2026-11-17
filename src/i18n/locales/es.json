@@ -3962,7 +3962,7 @@
         "clear": "Quitar protección",
         "feather": "Difuminado",
         "featherAria": "Difuminado del pincel de protección",
-        "hint": "Pinta sobre pecas, lunares y marcas de belleza que el retoque debe dejar como están. Mantén Alt (Opción) para borrar; [ y ] cambian el tamaño.",
+        "hint": "Pinta sobre pecas, lunares y marcas de belleza que el retoque debe dejar como están. Mantén Alt (Opción) para borrar; {{smaller}} y {{larger}} cambian el tamaño.",
         "modes": {
           "erase": "Borrar",
           "off": "Desactivado",

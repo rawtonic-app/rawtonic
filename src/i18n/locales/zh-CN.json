@@ -3695,7 +3695,7 @@
         "clear": "清除保护",
         "feather": "羽化",
         "featherAria": "保护画笔羽化",
-        "hint": "涂抹修饰时应保持原样的雀斑、痣和美人痣。按住 Alt（Option）擦除；[ 和 ] 调整大小。",
+        "hint": "涂抹修饰时应保持原样的雀斑、痣和美人痣。按住 Alt（Option）擦除；{{smaller}} 和 {{larger}} 调整大小。",
         "modes": {
           "erase": "擦除",
           "off": "关闭",
