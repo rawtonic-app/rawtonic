@@ -1,5 +1,4 @@
 //! Writing export files: never over an existing file.
-#[cfg(any(unix, test))]
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -20,7 +19,17 @@ pub fn output_folder(path: &Path) -> Option<&Path> {
 /// new file (the umask's), not the temporary file's owner-only ones.
 pub fn write_new_output(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
     use std::io::Write;
-    let path = path.as_ref();
+    write_new_output_with(path.as_ref(), |file| file.write_all(bytes.as_ref()))
+}
+
+/// [`write_new_output`] with the file's content written by `fill` into the
+/// temporary file (empty, at position 0), so a large file is streamed in
+/// rather than built in memory. When `fill` fails, the temporary file is
+/// removed and nothing is published.
+pub fn write_new_output_with(
+    path: &Path,
+    fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
     let parent = output_folder(path).ok_or_else(|| io::Error::other("Missing output folder"))?;
     let prefix = rawtonic_fs::temp::prefix_for(path);
     let mut builder = tempfile::Builder::new();
@@ -31,11 +40,23 @@ pub fn write_new_output(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::
         builder.permissions(fs::Permissions::from_mode(0o666));
     }
     let mut temp = builder.tempfile_in(parent)?;
-    temp.write_all(bytes.as_ref())?;
+    fill(temp.as_file_mut())?;
     temp.as_file().sync_all()?;
     rawtonic_fs::no_clobber::persist(temp, path)?;
     rawtonic_fs::sync_dir(parent)?;
     Ok(())
+}
+
+/// Writes an export file to a new file at `path` (never over an existing
+/// one), a TIFF encoded straight into the temporary file.
+pub fn write_new_export(
+    path: &Path,
+    encoded: crate::export_processing::EncodedExport,
+) -> Result<(), String> {
+    write_new_output_with(path, |file| {
+        encoded.write_to(file).map_err(io::Error::other)
+    })
+    .map_err(|e| format!("Failed to write file to '{}': {}", path.display(), e))
 }
 
 #[cfg(test)]
@@ -59,5 +80,18 @@ mod tests {
                 fs::metadata(&plain).unwrap().permissions().mode() & 0o777
             );
         }
+    }
+
+    #[test]
+    fn a_file_whose_writing_fails_is_never_published() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.tif");
+        let failed = write_new_output_with(&path, |file| {
+            file.write_all(b"half a file")?;
+            Err(io::Error::other("encoder failed"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 }

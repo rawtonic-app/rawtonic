@@ -600,7 +600,8 @@ mod tests {
     #[test]
     fn spellings_of_one_folder_have_one_key() {
         assert_eq!(folder_key("/Users/a/Shoot/"), folder_key("/Users/a/Shoot"));
-        assert_eq!(folder_key("/"), "/");
+        // A root keeps the native separator after Windows normalization.
+        assert_eq!(folder_key("/"), std::path::MAIN_SEPARATOR_STR);
         assert_ne!(folder_key("/Users/a/Shoot"), folder_key("/Users/a/Shoot2"));
         if cfg!(windows) {
             assert_eq!(folder_key(r"C:\Users\A\R\"), folder_key(r"c:\users\a\r"));

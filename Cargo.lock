@@ -5805,6 +5805,7 @@ name = "rawtonic-metadata"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "quick-xml",
  "rawtonic-fs",
  "rawtonic-recipe",
  "roxmltree",

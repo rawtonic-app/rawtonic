@@ -4,6 +4,10 @@
 
 ### Fixes
 
+- Values that round to zero no longer show a minus sign in sliders, Series Match or merge readouts.
+
+- **XMP titles with translations save reliably.** Edits now handle stale duplicate properties and quoted `>` qualifiers while preserving nested foreign content.
+
 - **The multi view keeps showing every photo while the next one opens.** Clicking another cell or stepping in the multi view made the app window opaque until the new primary photo's first frame arrived, which hid every other cell: on a Windows laptop with slow decodes the other photos vanished for 5–44 s at a time. The window now stays clear over the multi view's cells, which always have a frame of their own; only the new primary's cell shows its preview meanwhile (Windows laptop with Radeon 680M, seven 39–61 MP RAWs zoomed, panned and stepped for 60 s: 0 empty cells instead of dozens; six 24 MP RAWs: 0).
 - **Less memory in the multi view with large RAWs.** Zoomed into several 40–60 MP photos, the multi view decoded and enlarged them several at a time and kept up to an eighth of the memory in decodes regardless of what else ran, so the app grew past 10 GB on a 14 GB laptop and 20 GB on a 24 GB Mac. It now starts such work only while the app stays within about 45 % of the memory and the system keeps memory free, one at a time when memory is short, and the background preparation of 1:1 previews waits while an export runs (Mac mini M4 Pro, seven 36–61 MP RAWs, pan or step every 3 s: 20.4 GB → 13.0–13.6 GB, regions as fast; 14 GB laptop with Radeon 680M: 10.4 → 7.8–8.8 GB, an export beside it 101 → 69 s).
 - **Eight Color Editor ranges in every mask.** A mask held at most four Color Editor ranges, so a Lightroom catalog or preset with more Point Color swatches in a mask (Lightroom allows eight) lost the fifth to eighth without a word. Masks now hold eight, as the photo does, and imports bring all of them over; a record with even more swatches (only possible outside Lightroom) is named in the import report. Saved edits render as before.
@@ -23,6 +27,7 @@
 
 - **Exports of large RAWs use less memory.** Each photo in an export freed its copies late: the developed photo stayed in memory after it was on the graphics card, the lens and geometry correction held four full-size copies at once, and the colour noise reduction's working layers stayed allocated through the render. They are now freed as soon as they are no longer read. On a Mac, a 60 MP 16-bit TIFF peaks 0.3 GB lower (3.3 → 3.0 GB) and a folder of four 24–60 MP RAWs 2 GB lower (8.0 → 5.9 GB), in the same time and with byte-identical files.
 - **Exports need less memory again.** The colour noise reduction of an export now rebuilds its finest level in strips instead of all at once, and an export renders in smaller pieces. On a Mac, a single 16-bit TIFF peaks 0.3–0.5 GB lower (24 MP 1.78 → 1.42 GB, 60 MP 3.1 → 2.6 GB), in the same time and with byte-identical files (8- and 16-bit).
+- **TIFF exports are written straight into their file.** A TIFF export was first built whole in memory (360 MB for a 60 MP 16-bit TIFF) and then written; it is now written into its file as it is encoded, still under a temporary name until it is complete. On a Mac, a 60 MP 16-bit TIFF peaks 0.3 GB lower (2.7 → 2.4 GB), in the same time and with byte-identical files (8- and 16-bit).
 - **Less memory while exporting and editing on laptops with little free memory.** A batch export counted every free gigabyte as room for one more photo in flight, although it keeps 2 GB free for the editor and other apps. On a 14 GB laptop with shared graphics memory (Radeon 680M) three 16-bit TIFFs were exported at once and the app reached 7.8 GB when a photo was opened in Develop meanwhile. The free memory the export keeps is now left out when it counts how many photos to export at once: two there, 1.25–1.5 GB less, for 0–8 % more export time. Computers with plenty of free memory still export four at once.
 - **Dark native controls and tidier Import actions.** Native select menus and number steppers follow the dark interface, and Import’s Maximize button sits beside Close.
 - **Quieter activity warnings and predictable slider resets.** Warnings and failures stay as a dot and count in the top bar; double-clicking a Develop slider resets it in one undo step. Linux uses the system interface font, and packaged desktop entries offer supported photos in Open With.
@@ -64,6 +69,10 @@
 - **Tab moves from value field to value field in Develop.** Typing a number in a slider's field and pressing Tab (Shift+Tab back) now commits it and selects the next tool's value (the next open one), so a column of numbers can be typed without the mouse, as in Lightroom; Enter commits, Esc reverts. Before, Tab went to the next slider and the typed digits did not reach a field.
 - **Home and End go to the first and last photo** in the Library grid, the loupe, full screen and Develop's filmstrip (in a multi view, of the selection).
 - Dates are now read, written and converted with the jiff library instead of chrono, which is no longer maintained (RUSTSEC-2026-0543). File names, stored dates, capture-time corrections and exported files are unchanged; on Linux the system Trash keeps recording when an item was deleted.
+
+### Changes
+
+- Updated frontend libraries (minor versions).
 
 ## 0.1.0-alpha.16 — 2026-11-16
 

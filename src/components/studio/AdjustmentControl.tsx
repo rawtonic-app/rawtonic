@@ -1,3 +1,4 @@
+import { formatNumber } from '../../utils/formatNumber';
 import { memo, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { capturePendingSliderClick, useEditorStore } from '../../store/useEditorStore';
@@ -68,7 +69,7 @@ export function boundedValue(value: number, min: number, max: number, step: numb
  * precision, so a stored 1.6009 reads 1.6 and fits the field. */
 export function shownValue(value: number, step: number) {
   const digits = Math.min(6, Math.max(0, -Math.floor(Math.log10(step / 10))));
-  return String(Number(value.toFixed(digits)));
+  return formatNumber(value, digits, { trim: true });
 }
 
 /**

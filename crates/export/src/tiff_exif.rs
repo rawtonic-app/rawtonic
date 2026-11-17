@@ -10,6 +10,7 @@
 //! over metadata with the same tag, so the image structure cannot change.
 
 use std::collections::BTreeMap;
+use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 
 use little_exif::endian::Endian;
 use little_exif::exif_tag::{ExifTag, TagType};
@@ -95,10 +96,57 @@ pub fn append_exif(
     metadata: &Metadata,
     xmp: Option<&[u8]>,
 ) -> Result<(), String> {
-    let order = match tiff.get(0..4) {
+    append_exif_to(&mut Cursor::new(tiff), metadata, xmp).map_err(|e| e.to_string())
+}
+
+/// Why [`append_exif_to`] failed.
+#[derive(Debug)]
+pub enum AppendError {
+    /// The file is not a TIFF this module can extend, or the metadata does
+    /// not fit: nothing was written, the file is unchanged.
+    Metadata(String),
+    /// Reading or writing the file failed; it may be partly changed.
+    Io(io::Error),
+}
+
+impl std::fmt::Display for AppendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppendError::Metadata(e) => f.write_str(e),
+            AppendError::Io(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl From<String> for AppendError {
+    fn from(e: String) -> Self {
+        AppendError::Metadata(e)
+    }
+}
+
+impl From<&str> for AppendError {
+    fn from(e: &str) -> Self {
+        AppendError::Metadata(e.to_string())
+    }
+}
+
+/// [`append_exif`] on a classic TIFF in a file (or any seekable stream
+/// starting at the TIFF's first byte): reads the header and IFD0, appends the
+/// new directories at the end and points the header at the new IFD0, so a
+/// TIFF streamed into its file gets its metadata without being read back
+/// whole. Leaves the file unchanged on [`AppendError::Metadata`].
+pub fn append_exif_to<S: Read + Write + Seek>(
+    file: &mut S,
+    metadata: &Metadata,
+    xmp: Option<&[u8]>,
+) -> Result<(), AppendError> {
+    let len = file.seek(SeekFrom::End(0)).map_err(AppendError::Io)?;
+    let base = usize::try_from(len).map_err(|_| "TIFF exceeds 4 GiB")?;
+    let header = read_at(file, 0, 8.min(base))?;
+    let order = match header.get(0..4) {
         Some([0x49, 0x49, 0x2a, 0x00]) => ByteOrder(true),
         Some([0x4d, 0x4d, 0x00, 0x2a]) => ByteOrder(false),
-        _ => return Err("not a classic TIFF".to_string()),
+        _ => return Err("not a classic TIFF".into()),
     };
     let endian = if order.is_little() {
         Endian::Little
@@ -106,21 +154,31 @@ pub fn append_exif(
         Endian::Big
     };
 
-    let ifd0_offset = order.read_u32(tiff, 4).ok_or("TIFF header is truncated")? as usize;
+    let ifd0_offset = order
+        .read_u32(&header, 4)
+        .ok_or("TIFF header is truncated")? as usize;
+    let count_bytes = read_at(file, ifd0_offset, 2.min(base.saturating_sub(ifd0_offset)))?;
     let entry_count = order
-        .read_u16(tiff, ifd0_offset)
+        .read_u16(&count_bytes, 0)
         .ok_or("IFD0 is out of bounds")? as usize;
+    // IFD0's table relative to its offset: the count, the entries, the next pointer.
+    let table_len = 2 + entry_count * 12 + 4;
+    let table = read_at(
+        file,
+        ifd0_offset,
+        table_len.min(base.saturating_sub(ifd0_offset)),
+    )?;
     let next_ifd = order
-        .read_u32(tiff, ifd0_offset + 2 + entry_count * 12)
+        .read_u32(&table, 2 + entry_count * 12)
         .ok_or("IFD0 is truncated")?;
 
     let mut ifd0 = BTreeMap::new();
     for i in 0..entry_count {
-        let at = ifd0_offset + 2 + i * 12;
-        let tag = order.read_u16(tiff, at).ok_or("IFD0 is truncated")?;
-        let field_type = order.read_u16(tiff, at + 2).ok_or("IFD0 is truncated")?;
-        let count = order.read_u32(tiff, at + 4).ok_or("IFD0 is truncated")?;
-        let value: [u8; 4] = tiff
+        let at = 2 + i * 12;
+        let tag = order.read_u16(&table, at).ok_or("IFD0 is truncated")?;
+        let field_type = order.read_u16(&table, at + 2).ok_or("IFD0 is truncated")?;
+        let count = order.read_u32(&table, at + 4).ok_or("IFD0 is truncated")?;
+        let value: [u8; 4] = table
             .get(at + 8..at + 12)
             .and_then(|b| b.try_into().ok())
             .ok_or("IFD0 is truncated")?;
@@ -157,7 +215,7 @@ pub fn append_exif(
             XMP_TAG,
             Entry {
                 field_type: TYPE_BYTE,
-                count: u32::try_from(xmp.len()).map_err(|_| "XMP packet too large".to_string())?,
+                count: u32::try_from(xmp.len()).map_err(|_| "XMP packet too large")?,
                 value: EntryValue::Data(xmp.to_vec()),
             },
         );
@@ -167,7 +225,6 @@ pub fn append_exif(
     }
 
     // Build everything in a separate tail so a failure leaves the file intact.
-    let base = tiff.len();
     let mut tail = Vec::new();
     let mut place = |entries: &BTreeMap<u16, Entry>, next: u32| -> Result<u32, String> {
         if (base + tail.len()) % 2 == 1 {
@@ -189,9 +246,26 @@ pub fn append_exif(
     }
     let new_ifd0 = place(&ifd0, next_ifd)?;
 
-    tiff.extend_from_slice(&tail);
-    tiff[4..8].copy_from_slice(&order.u32_bytes(new_ifd0));
-    Ok(())
+    let mut write = || -> io::Result<()> {
+        file.seek(SeekFrom::Start(len))?;
+        file.write_all(&tail)?;
+        file.seek(SeekFrom::Start(4))?;
+        file.write_all(&order.u32_bytes(new_ifd0))?;
+        file.seek(SeekFrom::End(0)).map(drop)
+    };
+    write().map_err(AppendError::Io)
+}
+
+/// Up to `len` bytes of `file` from `at` (fewer at its end).
+fn read_at<S: Read + Seek>(file: &mut S, at: usize, len: usize) -> Result<Vec<u8>, AppendError> {
+    let mut bytes = Vec::with_capacity(len);
+    file.seek(SeekFrom::Start(at as u64))
+        .map_err(AppendError::Io)?;
+    file.by_ref()
+        .take(len as u64)
+        .read_to_end(&mut bytes)
+        .map_err(AppendError::Io)?;
+    Ok(bytes)
 }
 
 fn pointer_entry(offset: u32, order: ByteOrder) -> Entry {
@@ -274,7 +348,6 @@ fn encode_ifd(
 mod tests {
     use super::*;
     use little_exif::rational::uR64;
-    use std::io::Cursor;
 
     fn encoded_tiff() -> (Vec<u8>, image::ImageBuffer<image::Rgb<u16>, Vec<u16>>) {
         let pixels = image::ImageBuffer::from_fn(5, 3, |x, y| {
