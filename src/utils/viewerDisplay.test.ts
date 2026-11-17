@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CROP_ROTATE_BAND_PX,
+  windowClearOverNative,
   clampViewerZoom,
   cropModeBox,
   cropModeMarginPx,
@@ -160,5 +161,24 @@ describe('crop mode margin', () => {
 
   it('ignores a proof margin that is not a number', () => {
     expect(cropModeMarginPx(1600, 1000, Number.NaN)).toBe(CROP_ROTATE_BAND_PX);
+  });
+});
+
+describe('windowClearOverNative', () => {
+  const base = { viewerOn: true, nativeRenderer: true, firstFrame: false, holdingFrame: false, nativeMultiView: false };
+
+  it('stays opaque in the single view until the photograph has a native frame', () => {
+    expect(windowClearOverNative(base)).toBe(false);
+    expect(windowClearOverNative({ ...base, firstFrame: true })).toBe(true);
+    expect(windowClearOverNative({ ...base, holdingFrame: true })).toBe(true);
+  });
+
+  it("keeps the multi view's native cells visible while the next primary opens", () => {
+    expect(windowClearOverNative({ ...base, nativeMultiView: true })).toBe(true);
+  });
+
+  it('is opaque outside the viewer or without the native renderer', () => {
+    expect(windowClearOverNative({ ...base, nativeMultiView: true, viewerOn: false })).toBe(false);
+    expect(windowClearOverNative({ ...base, nativeMultiView: true, nativeRenderer: false })).toBe(false);
   });
 });
