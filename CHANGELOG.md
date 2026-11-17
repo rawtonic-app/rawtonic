@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- XMP sidecar edits preserve title, caption, rights and IPTC language alternatives; clearing the displayed default preserves translations.
+
 - Multi-view cells now load missing exposure metadata even when the photo has not been opened as primary.
 
 - **Capture One imports correct the lens as Capture One did.** A Capture One photo with lens distortion correction on (Capture One's default where it knows the lens) arrived uncorrected when Rawtonic has no default correction for that camera, for example a Nikon D800 with the 24–70 mm f/2.8G: the photo sat up to 4 % of its radius away from Capture One's (about 180 px in the corners at 36 MP). The import now turns on Rawtonic's own profile for that lens with Capture One's Distortion and Light Falloff amounts (none where Capture One had both at 0); the photo then sits within 1 % of the radius of Capture One's (Rawtonic frames the corrected photo about 1 % wider). Capture One draws gradients on the photo before the lens correction, so the import moves their points through the correction. On the 36 MP test photo with lens correction on, painted, colour range and rasterized gradient layers cover the same part of the photo as in Capture One (overlap 98 %, edges within 1.1 px); a linear gradient's mask stays within 2.3 % (0.3 % on average) of a copy that follows the correction exactly, because a straight Rawtonic gradient cannot follow the correction's slight bow.
