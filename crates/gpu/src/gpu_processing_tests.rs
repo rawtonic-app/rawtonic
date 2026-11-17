@@ -869,7 +869,7 @@ fn invalid_shader_source_fails_processor_construction() {
         include_str!("shaders/shader.wgsl")
     );
     let error =
-        match GpuProcessor::with_shader_source(context.clone(), 64, 64, &broken, true, TILE_SIZE) {
+        match GpuProcessor::with_shader_source(context.clone(), 64, 64, &broken, true, false) {
             Ok(_) => panic!("an invalid image-processing shader must not build a processor"),
             Err(error) => error,
         };
@@ -21383,118 +21383,82 @@ fn portable_grain_is_the_same_on_every_gpu() {
     }
 }
 
-/// An export rebuilds level 1 in bands of rows and frees each coarse
-/// level as it goes (`rebuild_export_on_gpu`); it packs the same bits as
-/// the rebuild display frames keep (`rebuild_on_gpu`), with and without
-/// the coarsest level's smoothing, over several bands and a short last one.
-/// An export processor renders in tiles of `EXPORT_TILE_SIZE`, shifting
-/// the 8-bit dither to the `TILE_SIZE` grid (`dither_shift`): its exports
-/// are the bytes of a processor's `TILE_SIZE` tiles, 8- and 16-bit, of the
-/// whole photo and of a region that starts inside a tile.
+/// An export processor renders recipes whose blurs have their whole radius
+/// at tile seams (`renderVersion` 2 on) in tiles of `EXPORT_TILE_SIZE`,
+/// shifting the 8-bit dither to the `TILE_SIZE` grid (`dither_shift`), and
+/// older recipes, whose large blur stops at each tile's overlap, in
+/// `TILE_SIZE` tiles: its exports are the bytes of a processor's `TILE_SIZE`
+/// tiles, 8- and 16-bit, of the whole photo and of a region that starts
+/// inside a tile, also with Clarity's blur radius beyond the overlap (a
+/// short side above 3456 pixels).
 #[test]
 #[ignore = "requires a native GPU"]
 fn exports_in_smaller_tiles_render_the_bytes_of_large_tiles() {
     let context = context();
-    // 5 x 3 tiles of 1024, 3 x 2 of 2048.
-    let (width, height) = (4300, 2300);
-    let photo = DynamicImage::ImageRgba32F(ImageBuffer::from_fn(width, height, |x, y| {
-        let n = ((x * 7919 + y * 104_729) % 251) as f32 / 251.0;
-        Rgba([
-            0.2 + 0.5 * x as f32 / width as f32 + 0.05 * n,
-            0.3 + 0.2 * n,
-            0.6 * y as f32 / height as f32 + 0.1 * (1.0 - n),
-            1.0,
-        ])
-    }));
-    let recipe = json!({"exposure":0.4,"contrast":15,"clarity":30,"structure":20,
-        "sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,
-        "flareAmount":30,"vignetteAmount":-20});
+    let photo = |width: u32, height: u32| {
+        DynamicImage::ImageRgba32F(ImageBuffer::from_fn(width, height, move |x, y| {
+            let n = ((x * 7919 + y * 104_729) % 251) as f32 / 251.0;
+            Rgba([
+                0.2 + 0.5 * x as f32 / width as f32 + 0.05 * n,
+                0.3 + 0.2 * n,
+                0.6 * y as f32 / height as f32 + 0.1 * (1.0 - n),
+                1.0,
+            ])
+        }))
+    };
+    let recipe = |render_version: u64| {
+        json!({"exposure":0.4,"contrast":15,"clarity":60,"structure":20,
+            "sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,
+            "flareAmount":30,"vignetteAmount":-20,"renderVersion":render_version})
+    };
     let region = Roi {
         x: 1100,
         y: 700,
         width: 2100,
         height: 1500,
     };
-    for precision in [
-        RenderOutputPrecision::EightBit,
-        RenderOutputPrecision::SixteenBit,
-    ] {
-        for roi in [None, Some(region)] {
-            let render = |slot: &GpuProcessorSlot| {
-                process_and_get_dynamic_image_inner(
-                    &context,
-                    slot,
-                    &Mutex::new(None),
-                    RenderSource::Image {
-                        image: &photo,
-                        transform_hash: 1,
-                    },
-                    RenderRequest {
-                        adjustments: get_all_adjustments_from_json(&recipe, true, None),
-                        mask_bitmaps: &[],
-                        lut: None,
-                        roi,
-                    },
-                    "export_test",
-                    precision,
-                    false,
-                    None,
-                    None,
-                    ReadbackShader::Export,
-                )
-                .expect("renders")
-            };
-            let large = render(&ProcessorSlot::new(None));
-            let small = render(&ProcessorSlot::background(None));
-            assert!(
-                large.as_bytes() == small.as_bytes(),
-                "{precision:?} {roi:?}: the export processor's tiles change the bytes"
-            );
-        }
-    }
-}
-
-/// An export rebuilds level 1 in bands of rows and frees each coarse
-/// level as it goes (`rebuild_export_on_gpu`); it packs the same bits as
-/// the rebuild display frames keep (`rebuild_on_gpu`), with and without
-/// the coarsest level's smoothing, over several bands and a short last one.
-#[test]
-#[ignore = "mem12 temp"]
-fn mem12_tile_size_probe() {
-    let context = context();
-    let (width, height) = (4300, 2300);
-    let photo = DynamicImage::ImageRgba32F(ImageBuffer::from_fn(width, height, move |x, y| {
-        let n = ((x * 7919 + y * 104_729) % 251) as f32 / 251.0;
-        Rgba([
-            0.2 + 0.5 * x as f32 / width as f32 + 0.05 * n,
-            0.3 + 0.2 * n,
-            0.6 * y as f32 / height as f32 + 0.1 * (1.0 - n),
-            1.0,
-        ])
-    }));
-    for (name, recipe, version) in [
+    // 5 x 3 tiles of 1024 (3 x 2 of 2048), and 6 x 4 (3 x 2) with Clarity's
+    // radius of 134 pixels.
+    for (photo, render_version, precision, roi) in [
+        (photo(4300, 2300), 2, RenderOutputPrecision::EightBit, None),
         (
-            "all",
-            json!({"exposure":0.4,"contrast":15,"clarity":30,"sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,"colorNoiseVersion":2,"flareAmount":30,"vignetteAmount":-20}),
-            Some(2),
+            photo(4300, 2300),
+            2,
+            RenderOutputPrecision::EightBit,
+            Some(region),
         ),
         (
-            "all-v-none",
-            json!({"exposure":0.4,"contrast":15,"clarity":30,"sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,"colorNoiseVersion":2,"flareAmount":30,"vignetteAmount":-20}),
+            photo(4300, 2300),
+            2,
+            RenderOutputPrecision::SixteenBit,
             None,
         ),
-        ("clarity", json!({"clarity":30}), Some(2)),
-        ("sharp", json!({"sharpness":40}), Some(2)),
-        ("luma", json!({"lumaNoiseReduction":20}), Some(2)),
         (
-            "color",
-            json!({"colorNoiseReduction":25,"colorNoiseVersion":2}),
-            Some(2),
+            photo(4300, 2300),
+            2,
+            RenderOutputPrecision::SixteenBit,
+            Some(region),
         ),
-        ("flare", json!({"flareAmount":30}), Some(2)),
-        ("vignette", json!({"vignetteAmount":-20}), Some(2)),
-        ("expo", json!({"exposure":0.4,"contrast":15}), Some(2)),
+        (
+            photo(5300, 3620),
+            2,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        ),
+        (
+            photo(5300, 3620),
+            1,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        ),
+        (
+            photo(5300, 3620),
+            1,
+            RenderOutputPrecision::EightBit,
+            Some(region),
+        ),
     ] {
+        let recipe = recipe(render_version);
         let render = |slot: &GpuProcessorSlot| {
             process_and_get_dynamic_image_inner(
                 &context,
@@ -21505,13 +21469,13 @@ fn mem12_tile_size_probe() {
                     transform_hash: 1,
                 },
                 RenderRequest {
-                    adjustments: get_all_adjustments_from_json(&recipe, true, version),
+                    adjustments: get_all_adjustments_from_json(&recipe, true, None),
                     mask_bitmaps: &[],
                     lut: None,
-                    roi: None,
+                    roi,
                 },
                 "export_test",
-                RenderOutputPrecision::EightBit,
+                precision,
                 false,
                 None,
                 None,
@@ -21519,25 +21483,21 @@ fn mem12_tile_size_probe() {
             )
             .expect("renders")
         };
-        let a = render(&ProcessorSlot::new(None));
-        let b = render(&ProcessorSlot::background(None));
-        let diff = a
-            .as_bytes()
-            .iter()
-            .zip(b.as_bytes())
-            .filter(|(x, y)| x != y)
-            .count();
-        let worst = a
-            .as_bytes()
-            .iter()
-            .zip(b.as_bytes())
-            .map(|(x, y)| (*x as i32 - *y as i32).abs())
-            .max()
-            .unwrap();
-        println!("MEM12 {name}: {diff} bytes differ, worst {worst}");
+        let large = render(&ProcessorSlot::new(None));
+        let small = render(&ProcessorSlot::background(None));
+        assert!(
+            large.as_bytes() == small.as_bytes(),
+            "renderVersion {render_version} {}x{} {precision:?} {roi:?}: the export processor's tiles change the bytes",
+            photo.width(),
+            photo.height()
+        );
     }
 }
 
+/// An export rebuilds level 1 in bands of rows and frees each coarse
+/// level as it goes (`rebuild_export_on_gpu`); it packs the same bits as
+/// the rebuild display frames keep (`rebuild_on_gpu`), with and without
+/// the coarsest level's smoothing, over several bands and a short last one.
 #[test]
 #[ignore = "requires a native GPU"]
 fn an_export_rebuilds_colour_noise_level_1_in_bands_bit_exactly() {
@@ -24446,7 +24406,11 @@ fn version_13_exports_match_version_12_within_rounding() {
             }
         }
     }
-    assert!(processor.export_detail_tile.get().is_some());
+    assert!(
+        processor.export_detail_tile[float_tile_index(TILE_SIZE)]
+            .get()
+            .is_some()
+    );
     assert_eq!(checked, 20);
 }
 

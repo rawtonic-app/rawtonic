@@ -4378,19 +4378,22 @@ pub struct GpuProcessor {
     deferred_display: Arc<deferred_display::DeferredDisplay>,
     high_precision_bgl: wgpu::BindGroupLayout,
     high_precision_pipeline: std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>,
-    high_precision_tile: std::sync::OnceLock<HighPrecisionTile>,
+    /// The float tiles, for [`TILE_SIZE`] and [`EXPORT_TILE_SIZE`] tiles
+    /// (`float_tile_index`).
+    high_precision_tile: FloatTiles,
     /// [`MainOutput::Deferred`]: specialized variants by features, the
     /// general pipeline, and the tile the main pass writes.
     deferred_export_pipelines: VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     deferred_pipeline: BackgroundPipeline,
-    deferred_tile: std::sync::OnceLock<HighPrecisionTile>,
-    export_detail_tile: std::sync::OnceLock<HighPrecisionTile>,
+    deferred_tile: FloatTiles,
+    export_detail_tile: FloatTiles,
     /// `encode_deferred` into an 8-bit and a high-precision output tile.
     encode_bgls: [wgpu::BindGroupLayout; 2],
     encode_pipelines: [std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>; 2],
     tile_output_size: wgpu::Extent3d,
-    /// The render tiles' size ([`TILE_SIZE`] or [`EXPORT_TILE_SIZE`]).
-    tile_size: u32,
+    /// Whether renders that allow it run in [`EXPORT_TILE_SIZE`] tiles
+    /// (`render_tile_size`).
+    small_export_tiles: bool,
     adjustments_buffer: wgpu::Buffer,
     /// Count, then the tile-local regions of the current dispatch.
     render_regions_buffer: wgpu::Buffer,
@@ -6057,6 +6060,15 @@ fn mixer_feature_slot(
 /// table passed the tolerance check. Rebuilt only when that layer changes.
 type CurveLutEntry = Option<(Vec<u8>, bool)>;
 
+/// Float tiles of a processor for [`TILE_SIZE`] tiles and for
+/// [`EXPORT_TILE_SIZE`] tiles (`float_tile_index`), each made on its first
+/// use.
+type FloatTiles = [std::sync::OnceLock<HighPrecisionTile>; 2];
+
+fn float_tile_index(tile_size: u32) -> usize {
+    usize::from(tile_size != TILE_SIZE)
+}
+
 struct HighPrecisionTile {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
@@ -7453,12 +7465,16 @@ struct LayerSumsCache {
 /// origin); each tile's blurs cover the tile and `TILE_OVERLAP` around it.
 const TILE_SIZE: u32 = 2048;
 
-/// The tile size of processors for exports only ([`GpuProcessor::for_exports`]):
-/// a tile's textures and readbacks (about 0.55 GB at [`TILE_SIZE`] for a
-/// large photo, committed at its first tile) take about a third. The bytes
-/// are those of [`TILE_SIZE`] tiles: every stage reads beyond the tile in
-/// photo coordinates, and the 8-bit dither, keyed on the tile's, is shifted
-/// to the [`TILE_SIZE`] grid (`dither_shift`). Time within 1 % (notes:
+/// The tile size of renders on processors for exports only
+/// ([`GpuProcessor::for_exports`]) whose blurs have their whole radius at
+/// tile seams (`PreparedAdjustments::whole_blur_radius`, `renderVersion` 2
+/// on): a tile's float textures, blurs and readbacks (about 0.55 GB at
+/// [`TILE_SIZE`] for a large photo, committed at its first tile) take about
+/// a third. The bytes are those of [`TILE_SIZE`] tiles: those renders read
+/// beyond each tile in photo coordinates, and the 8-bit dither, keyed on
+/// the tile's, is shifted to the [`TILE_SIZE`] grid (`dither_shift`).
+/// Recipes of `renderVersion` 1 clamp their large blur at each tile's
+/// overlap, so they keep [`TILE_SIZE`] tiles. Time within 1 % (notes:
 /// benchmark-results/mem12-2026-11-17).
 /// A divisor of [`TILE_SIZE`], so windows planned in [`TILE_SIZE`] steps
 /// (`plan_render_windows`) stay on tile boundaries.
@@ -7474,7 +7490,7 @@ impl GpuProcessor {
             max_height,
             include_str!("shaders/shader.wgsl"),
             true,
-            TILE_SIZE,
+            false,
         )
     }
 
@@ -7512,7 +7528,7 @@ impl GpuProcessor {
             max_height,
             include_str!("shaders/shader.wgsl"),
             false,
-            EXPORT_TILE_SIZE,
+            true,
         )
     }
 
@@ -7524,7 +7540,7 @@ impl GpuProcessor {
         max_height: u32,
         shader_source: &str,
         display_variants: bool,
-        tile_size: u32,
+        small_export_tiles: bool,
     ) -> Result<Self, String> {
         let device = &context.device;
         const MAX_MASK_BINDINGS: u32 = 1;
@@ -8356,8 +8372,8 @@ impl GpuProcessor {
             },
         );
 
-        let clamped_tile_width = max_width.min(tile_size + TILE_OVERLAP * 2);
-        let clamped_tile_height = max_height.min(tile_size + TILE_OVERLAP * 2);
+        let clamped_tile_width = max_width.min(TILE_SIZE + TILE_OVERLAP * 2);
+        let clamped_tile_height = max_height.min(TILE_SIZE + TILE_OVERLAP * 2);
 
         let clamped_tile_size = wgpu::Extent3d {
             width: clamped_tile_width,
@@ -8454,15 +8470,15 @@ impl GpuProcessor {
             high_precision_layout: high_precision_pipeline_layout,
             high_precision_bgl,
             high_precision_pipeline: std::sync::OnceLock::new(),
-            high_precision_tile: std::sync::OnceLock::new(),
+            high_precision_tile: Default::default(),
             deferred_export_pipelines: variant_table(),
             deferred_pipeline,
-            deferred_tile: std::sync::OnceLock::new(),
-            export_detail_tile: std::sync::OnceLock::new(),
+            deferred_tile: Default::default(),
+            export_detail_tile: Default::default(),
             encode_bgls: [encode_bgl, high_precision_encode_bgl],
             encode_pipelines: Default::default(),
             tile_output_size: clamped_tile_size,
-            tile_size,
+            small_export_tiles,
             adjustments_buffer,
             render_regions_buffer,
             prepared_layers_buffer,
@@ -9354,21 +9370,32 @@ impl GpuProcessor {
         })
     }
 
-    fn high_precision_tile(&self) -> &HighPrecisionTile {
-        self.high_precision_tile
-            .get_or_init(|| self.float_tile("High Precision Tile Output Texture"))
+    fn high_precision_tile(&self, tile_size: u32) -> &HighPrecisionTile {
+        self.high_precision_tile[float_tile_index(tile_size)]
+            .get_or_init(|| self.float_tile("High Precision Tile Output Texture", tile_size))
     }
 
     /// The tile a deferred main pass writes (`DEFER_OUTPUT`).
-    fn deferred_tile(&self) -> &HighPrecisionTile {
-        self.deferred_tile
-            .get_or_init(|| self.float_tile("Deferred Tile Texture"))
+    fn deferred_tile(&self, tile_size: u32) -> &HighPrecisionTile {
+        self.deferred_tile[float_tile_index(tile_size)]
+            .get_or_init(|| self.float_tile("Deferred Tile Texture", tile_size))
     }
 
     /// The detail stage of an export's tile (`export_detail_pass`).
-    fn export_detail_tile(&self) -> &HighPrecisionTile {
-        self.export_detail_tile
-            .get_or_init(|| self.float_tile("Export Detail Tile"))
+    fn export_detail_tile(&self, tile_size: u32) -> &HighPrecisionTile {
+        self.export_detail_tile[float_tile_index(tile_size)]
+            .get_or_init(|| self.float_tile("Export Detail Tile", tile_size))
+    }
+
+    /// The size of a render's tiles: [`EXPORT_TILE_SIZE`] on processors for
+    /// exports when the blurs have their whole radius at tile seams (the
+    /// bytes do not depend on the tiles then), else [`TILE_SIZE`].
+    fn render_tile_size(&self, adjustments: &crate::image_processing::PreparedAdjustments) -> u32 {
+        if self.small_export_tiles && adjustments.whole_blur_radius {
+            EXPORT_TILE_SIZE
+        } else {
+            TILE_SIZE
+        }
     }
 
     /// `encode_deferred` into an 8-bit or a high-precision output tile.
@@ -9409,13 +9436,19 @@ impl GpuProcessor {
             .map_err(Clone::clone)
     }
 
-    fn float_tile(&self, label: &str) -> HighPrecisionTile {
+    /// A float tile for tiles of `tile_size`, at most the processor's.
+    fn float_tile(&self, label: &str, tile_size: u32) -> HighPrecisionTile {
+        let side = tile_size + TILE_OVERLAP * 2;
         let texture = self
             .context
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
-                size: self.tile_output_size,
+                size: wgpu::Extent3d {
+                    width: self.tile_output_size.width.min(side),
+                    height: self.tile_output_size.height.min(side),
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -10693,6 +10726,7 @@ impl GpuProcessor {
         readback_analytics: bool,
     ) -> Result<(Vec<RenderedPixels>, u32, u32, u32, u32), String> {
         let mut request = request;
+        let tile_size = self.render_tile_size(&request.adjustments);
         if chroma.is_none() {
             // No chroma pyramid: the cross-bilateral colour noise reduction.
             request.adjustments.uniforms.global.color_noise[0] = 0.0;
@@ -10813,7 +10847,7 @@ impl GpuProcessor {
         }
         let high_precision_tile = (!deferred
             && output_precision == RenderOutputPrecision::SixteenBit)
-            .then(|| self.high_precision_tile());
+            .then(|| self.high_precision_tile(tile_size));
         let high_precision_layout = deferred || high_precision_tile.is_some();
         if readback_analytics && (output_to_display || high_precision_layout) {
             return Err("Analytics read back only 8-bit CPU renders.".to_string());
@@ -10842,7 +10876,7 @@ impl GpuProcessor {
             output_tile_view,
             bytes_per_pixel,
         ) = if deferred {
-            let tile = self.deferred_tile();
+            let tile = self.deferred_tile(tile_size);
             (
                 if force_full_preparation || force_general_pipeline {
                     self.general_pipeline(&request.adjustments, MainOutput::Deferred)?
@@ -11340,7 +11374,7 @@ impl GpuProcessor {
         let detail_fits = display_cache_bytes(
             width,
             height,
-            self.tile_size,
+            tile_size,
             TILE_OVERLAP,
             blur_requirements
                 .iter()
@@ -11363,7 +11397,7 @@ impl GpuProcessor {
                 .map(|output| {
                     let high_precision = output.precision == RenderOutputPrecision::SixteenBit;
                     let (texture, view, bytes_per_pixel) = if high_precision {
-                        let tile = self.high_precision_tile();
+                        let tile = self.high_precision_tile(tile_size);
                         (&tile.texture, &tile.view, 16)
                     } else {
                         (&self.tile_output_texture, &self.tile_output_texture_view, 4)
@@ -11421,10 +11455,10 @@ impl GpuProcessor {
         let whole_tile_inputs = !output_to_display
             && readback_shader == ReadbackShader::Export
             && request.roi.is_some();
-        let start_tile_x = bounds.x / self.tile_size;
-        let start_tile_y = bounds.y / self.tile_size;
-        let end_tile_x = (bounds.x + bounds.width).div_ceil(self.tile_size);
-        let end_tile_y = (bounds.y + bounds.height).div_ceil(self.tile_size);
+        let start_tile_x = bounds.x / tile_size;
+        let start_tile_y = bounds.y / tile_size;
+        let end_tile_x = (bounds.x + bounds.width).div_ceil(tile_size);
+        let end_tile_y = (bounds.y + bounds.height).div_ceil(tile_size);
 
         // Blur rows beyond the ping-pong texture's (`BlurParams::blurred_rows`),
         // for the largest radius (Clarity's base 40).
@@ -11452,15 +11486,15 @@ impl GpuProcessor {
             .saturating_sub(TILE_OVERLAP);
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {
-                let x_start_unclamped = tile_x * self.tile_size;
-                let y_start_unclamped = tile_y * self.tile_size;
+                let x_start_unclamped = tile_x * tile_size;
+                let y_start_unclamped = tile_y * tile_size;
 
                 let x_start = x_start_unclamped.max(bounds.x);
                 let y_start = y_start_unclamped.max(bounds.y);
-                let x_end = (x_start_unclamped + self.tile_size)
+                let x_end = (x_start_unclamped + tile_size)
                     .min(bounds.x + bounds.width)
                     .min(width);
-                let y_end = (y_start_unclamped + self.tile_size)
+                let y_end = (y_start_unclamped + tile_size)
                     .min(bounds.y + bounds.height)
                     .min(height);
 
@@ -11505,8 +11539,8 @@ impl GpuProcessor {
                     (
                         x_start_unclamped,
                         y_start_unclamped,
-                        (x_start_unclamped + self.tile_size).min(width),
-                        (y_start_unclamped + self.tile_size).min(height),
+                        (x_start_unclamped + tile_size).min(width),
+                        (y_start_unclamped + tile_size).min(height),
                     )
                 } else {
                     (x_start, y_start, x_end, y_end)
@@ -11751,7 +11785,7 @@ impl GpuProcessor {
                     (Some(_), previous) if export_detail.is_some() => {
                         tile.detail = previous;
                         build_detail = true;
-                        Some(self.export_detail_tile().view.clone())
+                        Some(self.export_detail_tile(tile_size).view.clone())
                     }
                     (None, previous) => {
                         tile.detail = previous;
@@ -12163,7 +12197,7 @@ impl GpuProcessor {
                     .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
                     .sum();
                 let shift = |read: u32, input_start: u32, bound: u32| {
-                    dither_shift(self.tile_size, whole_tile_inputs, read, input_start, bound)
+                    dither_shift(tile_size, whole_tile_inputs, read, input_start, bound)
                 };
                 let mut region_data = vec![[
                     regions.len() as u32,
