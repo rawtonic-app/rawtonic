@@ -3011,7 +3011,7 @@
         "title": "AI results"
       },
       "compiledModels": {
-        "description": "Model preparation: first-run markers and the optimized AI graphs that make later AI masks start faster (about 1 GB for Subject; the AI result limit applies to them too). Clearing makes preparation run again on the next use; compiled weights inside downloaded models are included in their size.",
+        "description": "Model preparation: first-run markers and the optimized AI graphs that make later AI masks start faster (about 1 GB for Subject; kept within the AI result limit, as a separate allowance beside the AI results). Clearing makes preparation run again on the next use; compiled weights inside downloaded models are included in their size.",
         "title": "Prepared AI models"
       },
       "decoded": {

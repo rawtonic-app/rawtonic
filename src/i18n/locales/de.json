@@ -2858,7 +2858,7 @@
         "title": "KI-Ergebnisse"
       },
       "compiledModels": {
-        "description": "Modellvorbereitung: Markierungen und die optimierten KI-Graphen, mit denen spätere KI-Masken schneller starten (etwa 1 GB für Motiv; das Limit für KI-Ergebnisse gilt auch für sie). Nach dem Leeren wird die Vorbereitung bei der nächsten Verwendung wiederholt. Kompilierte Gewichte im Modellordner zählen zu dessen Größe.",
+        "description": "Modellvorbereitung: Markierungen und die optimierten KI-Graphen, mit denen spätere KI-Masken schneller starten (etwa 1 GB für Motiv; im Rahmen des Limits für KI-Ergebnisse, als eigenes Kontingent neben den KI-Ergebnissen). Nach dem Leeren wird die Vorbereitung bei der nächsten Verwendung wiederholt. Kompilierte Gewichte im Modellordner zählen zu dessen Größe.",
         "title": "Vorbereitete KI-Modelle"
       },
       "decoded": {

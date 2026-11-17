@@ -253,6 +253,22 @@ impl ModelKind {
         }
     }
 
+    /// Whether CPU sessions keep this model's optimized graph (`optimized`):
+    /// every model whose output from the saved graph was measured
+    /// bit-identical to today's (AIW2). Not the SigLIP 2 text encoder (the
+    /// content-search file keeps its weights in a separate `.data` file the
+    /// cache key does not cover, mapped to save memory) nor Moebius (only
+    /// on GPU providers, not measured on the CPU).
+    pub fn keeps_optimized_graph(self) -> bool {
+        !matches!(
+            self,
+            ModelKind::TagText
+                | ModelKind::MoebiusUnet
+                | ModelKind::MoebiusEncoder
+                | ModelKind::MoebiusDecoder
+        )
+    }
+
     /// Options for `provider` when it runs this model, each a measurement.
     pub fn provider_options(self, provider: Provider) -> &'static [(&'static str, &'static str)] {
         match (self, provider) {
@@ -710,6 +726,7 @@ fn session_with(
     threads: Option<usize>,
 ) -> Result<Session> {
     if device.is_none()
+        && kind.keeps_optimized_graph()
         && let Some(dir) = settings().optimized_graphs
     {
         match optimized::Entry::new(&dir, path, kind) {
@@ -1181,6 +1198,23 @@ mod tests {
         assert_eq!(
             candidates(ModelKind::Subject, &settings(false), Some(Provider::Cpu)),
             vec![Provider::Cpu]
+        );
+    }
+
+    #[test]
+    fn models_with_unmeasured_or_external_weights_keep_no_optimized_graph() {
+        let excluded: Vec<ModelKind> = ModelKind::ALL
+            .into_iter()
+            .filter(|k| !k.keeps_optimized_graph())
+            .collect();
+        assert_eq!(
+            excluded,
+            [
+                ModelKind::TagText,
+                ModelKind::MoebiusUnet,
+                ModelKind::MoebiusEncoder,
+                ModelKind::MoebiusDecoder
+            ]
         );
     }
 

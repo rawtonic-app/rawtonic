@@ -421,8 +421,11 @@ pub(crate) fn apply_limits(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     }
     // The optimized graphs (about 1 GB for the Subject model) are rebuilt
-    // on the next use: under the AI cache limit too, least recently used
-    // first. Removing one file of an entry makes the next use rebuild it.
+    // on the next use: kept within the AI cache limit as an allowance of
+    // their own (Storage says so), least recently used first. Not one
+    // shared budget: denoised results filling it would evict the graphs,
+    // and each model's next session would save its graph again for
+    // nothing. Removing one file of an entry makes the next use rebuild it.
     let ai_gb = settings.ai_cache_limit_gb.unwrap_or(5);
     if ai_gb > 0
         && let Some(owned) = app_owned(app, Category::CompiledModels)?

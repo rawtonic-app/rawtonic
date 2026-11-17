@@ -116,8 +116,19 @@ impl Entry {
         Self::for_runtime(dir, source, kind, ort::info())
     }
 
-    /// `new` for the runtime build `runtime` describes.
+    /// `new` for the runtime build `runtime` describes. A cache folder (or
+    /// its parent) that is a link is refused: the cache writes and removes
+    /// files only in a folder of the app's own.
     fn for_runtime(dir: &Path, source: &Path, kind: ModelKind, runtime: &str) -> Result<Self> {
+        for folder in [Some(dir), dir.parent()].into_iter().flatten() {
+            if let Ok(meta) = fs::symlink_metadata(folder) {
+                ensure!(
+                    meta.is_dir() && !meta.file_type().is_symlink(),
+                    "{} is a link or not a folder",
+                    folder.display()
+                );
+            }
+        }
         let meta = fs::metadata(source).with_context(|| format!("reading {}", source.display()))?;
         let text = key_text(source, &meta, kind, runtime);
         let key = blake3::hash(text.as_bytes()).to_hex()[..32].to_string();
@@ -258,9 +269,10 @@ impl Entry {
     }
 
     /// Files of this key that no manifest names and that are older than a
-    /// save can take, and our stale temporary files.
+    /// save can take, and this key's stale temporary files: only names that
+    /// start with the key (32 hex digits) are ever removed.
     fn remove_leftovers(&self, now: SystemTime) {
-        rawtonic_fs::temp::sweep_folder(&self.dir, now);
+        let temp = format!("{}{}-", rawtonic_fs::temp::TEMP_PREFIX, self.key);
         let named: Vec<String> = fs::read_to_string(self.manifest_path())
             .ok()
             .and_then(|text| Manifest::parse(&text).ok())
@@ -271,6 +283,10 @@ impl Entry {
         };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with(&temp) {
+                let _ = rawtonic_fs::temp::remove_stale(&entry.path(), now);
+                continue;
+            }
             if !self.is_entry_file(&name) || named.contains(&name) {
                 continue;
             }
@@ -479,8 +495,10 @@ fn digest(path: &Path) -> Result<String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
+/// Syncs a file to disk (through a handle with write access: Windows'
+/// `FlushFileBuffers` needs one).
 fn sync_file(path: &Path) -> io::Result<()> {
-    fs::File::open(path)?.sync_all()
+    fs::OpenOptions::new().write(true).open(path)?.sync_all()
 }
 
 /// Marks a file used (its modification time) for the cache limit's
@@ -766,6 +784,46 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_cache_folder_is_refused_and_other_temporary_files_stay() {
+        let dir = scratch("links");
+        let source = dir.join("model.onnx");
+        fs::write(&source, b"source model").unwrap();
+        let photos = dir.join("photos");
+        fs::create_dir(&photos).unwrap();
+        std::os::unix::fs::symlink(&photos, dir.join("linked")).unwrap();
+        let error = test_entry(&dir.join("linked"), &source, ModelKind::Subject)
+            .err()
+            .expect("refused");
+        assert!(format!("{error:#}").contains("link"), "{error:#}");
+        let error = test_entry(
+            &dir.join("linked").join("graphs"),
+            &source,
+            ModelKind::Subject,
+        )
+        .err()
+        .expect("refused");
+        assert!(format!("{error:#}").contains("link"), "{error:#}");
+
+        // Another job's old temporary file in the cache folder stays.
+        let cache = dir.join("cache");
+        fs::create_dir(&cache).unwrap();
+        let other = cache.join(format!("{}photo.jpg-x", rawtonic_fs::temp::TEMP_PREFIX));
+        fs::write(&other, b"other").unwrap();
+        let entry = test_entry(&cache, &source, ModelKind::Subject).unwrap();
+        let ours = cache.join(format!(
+            "{}{}-1.onnx-part",
+            rawtonic_fs::temp::TEMP_PREFIX,
+            entry.key
+        ));
+        fs::write(&ours, b"ours").unwrap();
+        entry.remove_leftovers(SystemTime::now() + rawtonic_fs::temp::STALE_AGE * 2);
+        assert!(other.exists());
+        assert!(!ours.exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn manifest_file_names_are_checked() {
         let dir = scratch("names");
@@ -785,8 +843,8 @@ mod tests {
     /// The real models: outputs of a session from the saved graph, also
     /// after a damaged entry was rebuilt, bit-identical to a session that
     /// optimizes the pack's file, as today. Needs `ORT_DYLIB_PATH` and the
-    /// pack in `AI_MODELS`; `AI_ONLY` limits the files (comma-separated
-    /// prefixes; default BiRefNet, Sky and MI-GAN).
+    /// pack in `AI_MODELS` (every model that keeps its graph); `AI_ONLY`
+    /// limits the files (comma-separated prefixes).
     ///
     /// cargo test -p rawtonic-onnx --lib optimized::tests::real -- --ignored --nocapture
     #[test]
@@ -796,7 +854,7 @@ mod tests {
         use std::time::Instant;
         let models = PathBuf::from(std::env::var("AI_MODELS").expect("AI_MODELS"));
         let only: Vec<String> = std::env::var("AI_ONLY")
-            .unwrap_or_else(|_| "birefnet,skyseg,migan".to_string())
+            .unwrap_or_default()
             .split(',')
             .map(str::to_string)
             .collect();
@@ -815,10 +873,12 @@ mod tests {
         let mut tested = 0;
         for path in model_files(&models, false).unwrap() {
             let name = path.file_name().unwrap().to_string_lossy().to_string();
-            if !only.iter().any(|o| name.starts_with(o.as_str())) {
+            let kind = ModelKind::from_file_name(&name).unwrap();
+            if !kind.keeps_optimized_graph()
+                || !only.is_empty() && !only.iter().any(|o| name.starts_with(o.as_str()))
+            {
                 continue;
             }
-            let kind = ModelKind::from_file_name(&name).unwrap();
             let cache = scratch(&format!("real-{name}"));
             let entry = Entry::new(&cache, &path, kind).unwrap();
             let timed = |what: &str, f: &dyn Fn() -> ort::session::Session| {
