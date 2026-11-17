@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import {
+  replaceLumaRange,
   LUMA_CLICK_WIDTH,
   LUMA_EDGE_SNAP,
   lumaRangeFromSample,
@@ -171,5 +172,18 @@ describe('sampling tones on the photo', () => {
     });
     expect(await sampleLumaRange('l', { x: 5, y: 5 }, false)).toBe(false);
     expect(range()).toMatchObject({ rangeLow: 70, rangeHigh: 90 });
+  });
+});
+
+describe('editing an imported luma range', () => {
+  it("lets a new falloff replace Capture One's separate falloffs below and above", () => {
+    const imported = { rangeLow: 24, rangeHigh: 67, falloff: 14, falloffLow: 12, falloffHigh: 16 };
+    expect(replaceLumaRange(imported, { falloff: 30 })).toEqual({ rangeLow: 24, rangeHigh: 67, falloff: 30 });
+    // Moving the range alone keeps them.
+    expect(replaceLumaRange(imported, { rangeLow: 20 })).toEqual({ ...imported, rangeLow: 20 });
+    // A Lightroom range in percentiles gives way to any edit.
+    expect(
+      replaceLumaRange({ rangeLow: 10, rangeHigh: 90, falloff: 10, lrRange: [0, 0.1, 0.9, 1] }, { rangeHigh: 80 })
+    ).toEqual({ rangeLow: 10, rangeHigh: 80, falloff: 10 });
   });
 });

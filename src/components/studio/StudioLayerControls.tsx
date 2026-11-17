@@ -7,6 +7,7 @@ import { featherOf, type RadialParams } from '../../utils/radialMask';
 import AdjustmentControl from './AdjustmentControl';
 import { DEFAULT_BRUSH_SIZE } from '../../utils/brushSize';
 import { createSubMask, DEFAULT_LUMA_RANGE } from '../../utils/maskUtils';
+import { replaceLumaRange } from '../../utils/lumaSample';
 import { MASK_VERSION } from '../../utils/adjustments';
 import { Mask } from '../panel/right/Masks';
 import { warnIfComponentStartsLayer } from './layerLimitToast';
@@ -67,8 +68,7 @@ export default function StudioLayerControls({
     updateLayer((subs) =>
       subs.map((sub) => {
         if (sub.type !== Mask.LumaRange) return sub;
-        const { lrRange: _imported, ...parameters } = (sub.parameters ?? {}) as Record<string, unknown>;
-        return { ...sub, parameters: { ...parameters, ...patch } };
+        return { ...sub, parameters: replaceLumaRange((sub.parameters ?? {}) as Record<string, unknown>, patch) };
       })
     );
   const setBand = (band?: { width: number; feather: number }) =>

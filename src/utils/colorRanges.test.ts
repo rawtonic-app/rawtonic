@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { applyColorPick, invalidatePendingColorPicks, pickColorRange } from './colorRanges';
-import { INITIAL_ADJUSTMENTS, MAX_LAYER_COLOR_RANGES, type MaskContainer } from './adjustments';
+import { INITIAL_ADJUSTMENTS, MAX_COLOR_RANGES, type MaskContainer } from './adjustments';
 import { useEditorStore } from '../store/useEditorStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
 
@@ -60,13 +60,14 @@ it('re-samples an existing range in place', async () => {
 it('edits the layer the picker was started on, up to its limit', async () => {
   useEditorStore.setState({ colorPickerLayer: 'L1' });
   vi.mocked(invoke).mockResolvedValue([20, 200, 40]);
-  for (let i = 0; i < MAX_LAYER_COLOR_RANGES + 2; i++) {
+  for (let i = 0; i < MAX_COLOR_RANGES + 2; i++) {
     useEditorStore.setState({ colorPickerLayer: 'L1' });
     await pickColorRange('/a.cr3', 'new', 0.5, 0.5);
   }
   const state = useEditorStore.getState();
   expect(state.adjustments.colorRanges ?? []).toHaveLength(0);
-  expect(state.adjustments.masks[0].adjustments.colorRanges).toHaveLength(MAX_LAYER_COLOR_RANGES);
+  expect(state.adjustments.masks[0].adjustments.colorRanges).toHaveLength(MAX_COLOR_RANGES);
+  expect(MAX_COLOR_RANGES).toBe(8);
 });
 
 it('ignores samples for another photograph', async () => {

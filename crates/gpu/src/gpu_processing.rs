@@ -1770,6 +1770,8 @@ fn prepare_color_noise_on_gpu(
         // texture's memory) are not kept beside the packed level 1.
         chroma.reconstruction = None;
         cache.chroma_levels = None;
+        // Freed before the render allocates its output.
+        free_dropped_resources(&context.device);
     }
     Ok(Some(views))
 }
@@ -12211,46 +12213,74 @@ pub fn upload_fringed_render_source(
     )))
 }
 
+/// Frees the GPU resources dropped since the last poll. wgpu keeps a
+/// dropped buffer or texture allocated until a poll finds the submissions
+/// that used it done; a full-size one dropped between two stages of an
+/// export otherwise stays beside the next stage's allocations (the colour
+/// noise levels held 1.4 GB through a 60 MP render; notes:
+/// benchmark-results/mem11-2026-11-17). Waits for the queued GPU work.
+pub fn free_dropped_resources(device: &wgpu::Device) {
+    let _ = device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(std::time::Duration::from_secs(5)),
+    });
+}
+
+/// What [`upload_warped_render_source`] made of its source.
+pub enum WarpedUpload {
+    /// The warped, fringe-corrected photo in a render's input texture.
+    Uploaded(UploadedImage),
+    /// Not on the GPU: the source handed back for the CPU path.
+    NotOnGpu(Arc<DynamicImage>),
+}
+
 /// [`upload_fringed_render_source`] of `source` before its warp, where the
 /// recipe's warp runs on the GPU (`renderVersion` 7,
-/// `warp_gpu::warp_into_buffer`): the edge-fringe pass reads its bands from
+/// `warp_gpu::upload_frame`): the edge-fringe pass reads its bands from
 /// the warped frame there, so the photo goes up once as decoded and the
 /// warped frame is neither read back nor uploaded again. The texels equal
 /// those of [`upload_fringed_render_source`] of the same warp read back
-/// (`apply_warp`). `None` where any of it does not run on the GPU. `is_raw`
-/// as `apply_warp`.
+/// (`apply_warp`). [`WarpedUpload::NotOnGpu`] where any of it does not run
+/// on the GPU. `is_raw` as `apply_warp`. Once the photo is on the GPU this
+/// reference to `source` is dropped, so a source no one else holds is freed
+/// before the warped frame is allocated (12 bytes a pixel; notes:
+/// benchmark-results/mem11-2026-11-17).
 pub fn upload_warped_render_source(
     context: &GpuContext,
-    source: &DynamicImage,
+    source: Arc<DynamicImage>,
     adjustments: &serde_json::Value,
     is_raw: bool,
     window: [u32; 4],
     transform_hash: u64,
     color_noise: Option<(bool, color_noise::Tuning)>,
-) -> Result<Option<UploadedImage>, String> {
+) -> Result<WarpedUpload, String> {
     let [_, _, width, height] = window;
     let max_dim = context.limits.max_texture_dimension_2d;
     if width > max_dim
         || height > max_dim
         || color_noise.is_some_and(|(_, tuning)| !tuning.gpu_pyramid)
-        || !rawtonic_engine::edge_fringe::runs_into_texture(source, adjustments)
+        || !rawtonic_engine::edge_fringe::runs_into_texture(&source, adjustments)
     {
-        return Ok(None);
+        return Ok(WarpedUpload::NotOnGpu(source));
     }
     #[cfg(feature = "performance-profiling")]
     let warp_stage = crate::performance::PerformanceStage::new("transform_warp_gpu");
-    let warped = rawtonic_engine::warp_gpu::warp_into_buffer(
+    let uploaded = rawtonic_engine::warp_gpu::upload_frame(
         &context.device,
         &context.queue,
-        source,
+        &source,
         adjustments,
         is_raw,
     )?;
+    let Some(uploaded) = uploaded else {
+        return Ok(WarpedUpload::NotOnGpu(source));
+    };
+    let source_size = source.dimensions();
+    drop(source);
+    rawtonic_runtime::allocator::release_freed_memory();
+    let warped = uploaded.warp_into_buffer(&context.queue)?;
     #[cfg(feature = "performance-profiling")]
     drop(warp_stage);
-    let Some(warped) = warped else {
-        return Ok(None);
-    };
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("transform_fringe");
     let texture = gpu_scoped(&context.device, || {
@@ -12259,7 +12289,7 @@ pub fn upload_warped_render_source(
             &context.device,
             &context.queue,
             &warped,
-            source.dimensions(),
+            source_size,
             adjustments,
             window,
             &texture,
@@ -12267,8 +12297,9 @@ pub fn upload_warped_render_source(
         .map(|()| texture)
     })??;
     drop(warped);
+    free_dropped_resources(&context.device);
     let texture_view = texture.create_view(&Default::default());
-    Ok(Some(UploadedImage(
+    Ok(WarpedUpload::Uploaded(UploadedImage(
         Box::new(GpuImageCache {
             texture,
             texture_view,

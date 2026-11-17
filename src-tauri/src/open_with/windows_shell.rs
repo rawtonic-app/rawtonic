@@ -37,7 +37,7 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{ERROR_SUCCESS, S_OK},
+        Foundation::{ERROR_SUCCESS, HWND, S_OK},
         Graphics::Gdi::{
             BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS,
             DeleteDC, DeleteObject, GetDIBits, GetObjectW, HBITMAP,
@@ -59,17 +59,18 @@ use windows::{
         UI::{
             Shell::{
                 ASSOC_FILTER_NONE, ASSOCF_NOTRUNCATE, ASSOCSTR, ASSOCSTR_EXECUTABLE,
-                ASSOCSTR_FRIENDLYAPPNAME, AssocQueryStringW, BHID_DataObject, ExtractIconExW,
-                FOS_FORCEFILESYSTEM, FOS_NODEREFERENCELINKS, FOS_PATHMUSTEXIST, FileOpenDialog,
-                IAssocHandler, IFileOpenDialog, IShellItem, SEE_MASK_CLASSNAME,
-                SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHAssocEnumHandlers,
-                SHCreateItemFromParsingName, SHELLEXECUTEINFOW, SHLoadIndirectString,
-                SIGDN_FILESYSPATH, ShellExecuteExW,
+                ASSOCSTR_FRIENDLYAPPNAME, AssocQueryStringW, BHID_DataObject,
+                Common::COMDLG_FILTERSPEC, ExtractIconExW, FILEOPENDIALOGOPTIONS,
+                FOS_DONTADDTORECENT, FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_NODEREFERENCELINKS,
+                FOS_NOVALIDATE, FOS_PATHMUSTEXIST, FileOpenDialog, IAssocHandler, IFileOpenDialog,
+                IShellItem, SEE_MASK_CLASSNAME, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC,
+                SHAssocEnumHandlers, SHCreateItemFromParsingName, SHELLEXECUTEINFOW,
+                SHLoadIndirectString, SIGDN_FILESYSPATH, ShellExecuteExW,
             },
             WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO, SW_SHOWNORMAL},
         },
     },
-    core::{HSTRING, PCWSTR, PWSTR, w},
+    core::{GUID, HSTRING, PCWSTR, PWSTR, w},
 };
 
 pub const SUPPORTED: bool = true;
@@ -417,10 +418,42 @@ fn is_alias(program: &str) -> bool {
     attributes != INVALID_FILE_ATTRIBUTES && attributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
 }
 
-pub fn pick(title: &str) -> Result<Option<AppChoice>, String> {
+/// How "Browse for a program…" asks. Neither `FOS_FILEMUSTEXIST` nor the
+/// dialog's own check of the picked file (`FOS_NOVALIDATE` turns it off):
+/// both open the file, which fails for an app execution alias (WEW3: Paint's
+/// `…\WindowsApps\mspaint.exe` was refused with "file cannot be accessed").
+/// `describe` checks the pick instead, without opening it. The pick changes
+/// neither the process's working folder nor Windows' recent files.
+const PICK_OPTIONS: FILEOPENDIALOGOPTIONS = FILEOPENDIALOGOPTIONS(
+    FOS_FORCEFILESYSTEM.0
+        | FOS_PATHMUSTEXIST.0
+        | FOS_NODEREFERENCELINKS.0
+        | FOS_NOVALIDATE.0
+        | FOS_NOCHANGEDIR.0
+        | FOS_DONTADDTORECENT.0,
+);
+
+/// The program picker's own place for the folder it was last left in, apart
+/// from the app's photo and folder dialogs (which share the default one), so
+/// it reopens among programs, not in the last photo folder (WEW3).
+const PICK_CLIENT: GUID = GUID::from_u128(0x6f0b_5c3e_9a41_4d7e_b2a8_0e5f_3c1d_7a92);
+
+/// Where the program picker starts the first time: the programs folder.
+fn programs_folder() -> Option<PathBuf> {
+    std::env::var_os("ProgramFiles")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_dir())
+}
+
+/// "Browse for a program…": Windows' file dialog for program files, owned by
+/// the app window `owner` (modal to it, on top of it), starting among the
+/// programs. None when the user cancels.
+pub fn pick(title: &str, owner: Option<isize>) -> Result<Option<AppChoice>, String> {
     shell_thread(|| {
         // SAFETY: COM is initialized on this thread; owned interfaces and
-        // strings remain alive until the dialog is released.
+        // strings remain alive until the dialog is released. `owner` is the
+        // app's live main window (a window of another thread may own a
+        // dialog; the shell disables it while the dialog is shown).
         unsafe {
             let dialog: IFileOpenDialog =
                 CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)
@@ -428,12 +461,32 @@ pub fn pick(title: &str) -> Result<Option<AppChoice>, String> {
             dialog
                 .SetTitle(&HSTRING::from(title))
                 .map_err(|e| e.to_string())?;
-            // Do not request FILEMUSTEXIST: it validates by opening the
-            // target, which fails for an app execution alias.
+            dialog.SetOptions(PICK_OPTIONS).map_err(|e| e.to_string())?;
             dialog
-                .SetOptions(FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NODEREFERENCELINKS)
+                .SetClientGuid(&PICK_CLIENT)
                 .map_err(|e| e.to_string())?;
-            if let Err(e) = dialog.Show(None) {
+            let (name, spec) = (HSTRING::from("Programs"), HSTRING::from("*.exe"));
+            dialog
+                .SetFileTypes(&[COMDLG_FILTERSPEC {
+                    pszName: PCWSTR(name.as_ptr()),
+                    pszSpec: PCWSTR(spec.as_ptr()),
+                }])
+                .map_err(|e| e.to_string())?;
+            if let Some(folder) = programs_folder() {
+                // The first time only: afterwards the folder it was left in.
+                match SHCreateItemFromParsingName::<_, _, IShellItem>(
+                    &HSTRING::from(folder.as_os_str()),
+                    None,
+                ) {
+                    Ok(item) => {
+                        if let Err(e) = dialog.SetDefaultFolder(&item) {
+                            log::warn!("Browse for a program: no start folder: {e}");
+                        }
+                    }
+                    Err(e) => log::warn!("Browse for a program: no start folder: {e}"),
+                }
+            }
+            if let Err(e) = dialog.Show(owner.map(HWND).unwrap_or_default()) {
                 if e.code().0 as u32 == 0x800704c7 {
                     return Ok(None);
                 }
@@ -444,6 +497,7 @@ pub fn pick(title: &str) -> Result<Option<AppChoice>, String> {
                 item.GetDisplayName(SIGDN_FILESYSPATH)
                     .map_err(|e| e.to_string())?,
             );
+            log::info!("Browse for a program: picked {path}");
             describe(&path)
                 .map(Some)
                 .ok_or_else(|| format!("{path} is not a program file."))
@@ -734,6 +788,21 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The picker never opens the picked file to check it (that refuses an
+    /// app execution alias) and offers program files only, from the
+    /// programs folder.
+    #[test]
+    fn the_program_picker_accepts_aliases_and_starts_among_programs() {
+        assert_ne!(PICK_OPTIONS.0 & FOS_NOVALIDATE.0, 0);
+        assert_eq!(
+            PICK_OPTIONS.0 & windows::Win32::UI::Shell::FOS_FILEMUSTEXIST.0,
+            0
+        );
+        assert_ne!(PICK_OPTIONS.0 & FOS_NOCHANGEDIR.0, 0);
+        let folder = programs_folder().expect("Windows has a programs folder");
+        assert!(folder.join("Windows NT").is_dir() || folder.join("Common Files").is_dir());
+    }
 
     /// The shell of this Windows system lists programs for a JPEG, with
     /// names and icons, and Rawtonic's test binary is not among them.

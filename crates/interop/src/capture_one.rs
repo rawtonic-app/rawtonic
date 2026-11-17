@@ -10,7 +10,12 @@
 //! columns are named like Capture One's style keys (`ZEXPOSURE` →
 //! `Exposure`) and are returned as such, so the style translation applies.
 //! Albums are `AlbumCollection` entities (`ZENTITIES`), smart albums are
-//! counted; local adjustment layers are counted, not read.
+//! counted. Local adjustment layers are `LocalAdjustmentsLayer` rows of
+//! `ZVARIANTLAYER` (`ZVARIANT`, bottom first by `ZINDEX`, with name,
+//! opacity, on/off and the same settings columns); their masks are in the
+//! photograph's `.comask` (`capture_one_masks`). The reader works on a
+//! session's `.cosessiondb` and a catalog's `.cocatalogdb` alike.
+use crate::capture_one_masks::{self, Mask, MaskFile};
 use crate::{Album, Develop, Library, NotRead, Photo, open_copy};
 use anyhow::{Context, Result};
 use rawtonic_fs::Canonical;
@@ -57,7 +62,27 @@ const SETTINGS: &[(&str, &str)] = &[
     ("ZLENSPURPLEFRINGINGAMOUNT", "PurpleFringingAmount"),
     ("ZMOIRE", "Moire"),
     ("ZLENSVIGNETTING", "Vignetting"),
+    // Lens correction: `curve|amount|…` (only the amounts are read; the
+    // curves are Capture One's own profile data) and the profile's id.
+    ("ZLENSDISTORTION", "LensGeoAbr"),
+    ("ZLENSLIGHTFALLOFF", "LensLightFallOff"),
+    ("ZLENSIDGUID", "LensIdGuid"),
 ];
+
+/// A Capture One local adjustment layer.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Layer {
+    pub name: String,
+    pub enabled: bool,
+    /// 0–100.
+    pub opacity: f64,
+    /// Its settings as style entries (`Exposure` …), as the photo's.
+    pub settings: Vec<(String, String)>,
+    pub mask: Mask,
+    /// Width and height of the frame the mask's geometry is drawn in.
+    pub frame: (f64, f64),
+}
 
 /// `ZVARIANTMETADATA` IPTC columns and Rawtonic's IPTC keys.
 const IPTC_COLUMNS: &[(&str, &str)] = &[
@@ -142,7 +167,22 @@ pub fn read(session_db: &Path) -> Result<Library> {
         .collect::<rusqlite::Result<_>>()?
     };
 
-    let columns: Vec<String> = SETTINGS.iter().map(|(c, _)| format!("l.{c}")).collect();
+    // Settings columns this database has (older ones lack some).
+    let present: std::collections::HashSet<String> = {
+        let mut q = conn.prepare("SELECT name FROM pragma_table_info('ZVARIANTLAYER')")?;
+        q.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    let columns: Vec<String> = SETTINGS
+        .iter()
+        .map(|(c, _)| {
+            if present.contains(*c) {
+                format!("l.{c}")
+            } else {
+                "NULL".to_string()
+            }
+        })
+        .collect();
     let sql = format!(
         "SELECT v.Z_PK, i.Z_PK, i.ZIMAGELOCATION, i.ZIMAGEFILENAME, coalesce(i.ZISTRASHED, 0) || ',' || coalesce(v.ZISMODIFIED, 0),
                 m.ZBASIC_RATING, m.ZCOLOR_TAG_INDEX, m.ZCONTENT_KEYWORDS, m.ZSTATUS_TITLE,
@@ -247,17 +287,46 @@ pub fn read(session_db: &Path) -> Result<Library> {
             copy_name: None,
             snapshots: Vec::new(),
             uid: Some(format!("{}#{variant}", origin.display())),
+            capture_one_layers: Vec::new(),
         });
     }
     drop(rows);
     drop(q);
 
+    let mut layers = read_layers(&conn, entity("LocalAdjustmentsLayer"))?;
+    let mut mask_files: HashMap<PathBuf, Option<MaskFile>> = HashMap::new();
+    let mut unread_layers = 0;
+    for photo in &mut photos {
+        let Some(found) = photo
+            .key
+            .parse::<i64>()
+            .ok()
+            .and_then(|v| layers.remove(&v))
+        else {
+            continue;
+        };
+        for (uuid, mut layer) in found {
+            let file = capture_one_masks::candidates(&photo.path, &session)
+                .into_iter()
+                .find_map(|p| {
+                    let parsed = mask_files.entry(p.clone()).or_insert_with(|| {
+                        std::fs::read(&p).ok().and_then(|d| MaskFile::parse(&d))
+                    });
+                    parsed.as_ref().filter(|f| f.has(&uuid)).cloned()
+                });
+            if let Some(file) = file {
+                layer.mask = file.mask(&uuid);
+                layer.frame = file.frame;
+            }
+            if matches!(layer.mask, Mask::Unsupported { .. }) {
+                unread_layers += 1;
+            }
+            photo.capture_one_layers.push(layer);
+        }
+    }
+
     let mut not_read = NotRead {
-        local_adjustments: conn.query_row(
-            "SELECT count(*) FROM ZVARIANTLAYER WHERE Z_ENT = ?",
-            [entity("LocalAdjustmentsLayer")],
-            |r| r.get::<_, i64>(0),
-        )? as usize,
+        local_adjustments: unread_layers,
         unlocated,
         ..Default::default()
     };
@@ -346,4 +415,176 @@ pub fn read(session_db: &Path) -> Result<Library> {
         stacks: Vec::new(),
         not_read,
     })
+}
+
+/// The local adjustment layers by variant (`Z_PK`), bottom first, each with
+/// its mask UUID; masks are filled in from the `.comask` by the caller.
+fn read_layers(
+    conn: &rusqlite::Connection,
+    entity: i64,
+) -> Result<HashMap<i64, Vec<(String, Layer)>>> {
+    let present: std::collections::HashSet<String> = {
+        let mut q = conn.prepare("SELECT name FROM pragma_table_info('ZVARIANTLAYER')")?;
+        q.query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    let column = |c: &str| {
+        if present.contains(c) {
+            format!("l.{c}")
+        } else {
+            "NULL".to_string()
+        }
+    };
+    let settings: Vec<String> = SETTINGS.iter().map(|(c, _)| column(c)).collect();
+    let sql = format!(
+        "SELECT {}, {}, {}, {}, {}, {} FROM ZVARIANTLAYER l WHERE l.Z_ENT = ?
+         ORDER BY {}, l.Z_PK",
+        column("ZVARIANT"),
+        column("ZNAME"),
+        column("ZMASKUUID"),
+        column("ZOPACITY"),
+        column("ZENABLED"),
+        settings.join(", "),
+        column("ZINDEX"),
+    );
+    let mut out: HashMap<i64, Vec<(String, Layer)>> = HashMap::new();
+    let mut q = conn.prepare(&sql)?;
+    let mut rows = q.query([entity])?;
+    while let Some(r) = rows.next()? {
+        let Some(variant) = r.get::<_, Option<i64>>(0)? else {
+            continue;
+        };
+        let uuid: Option<String> = r.get(2)?;
+        let mut values = Vec::new();
+        for (index, (_, key)) in SETTINGS.iter().enumerate() {
+            let value = match r.get_ref(5 + index)? {
+                ValueRef::Integer(v) => v.to_string(),
+                ValueRef::Real(v) => v.to_string(),
+                ValueRef::Text(t) => String::from_utf8_lossy(t).into_owned(),
+                ValueRef::Null | ValueRef::Blob(_) => continue,
+            };
+            values.push((key.to_string(), value));
+        }
+        let layer = Layer {
+            name: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            enabled: r.get::<_, Option<i64>>(4)?.unwrap_or(1) != 0,
+            opacity: r
+                .get::<_, Option<f64>>(3)?
+                .unwrap_or(100.0)
+                .clamp(0.0, 100.0),
+            settings: values,
+            mask: Mask::Unsupported {
+                what: "missing mask".into(),
+            },
+            frame: (0.0, 0.0),
+        };
+        out.entry(variant)
+            .or_default()
+            .push((uuid.unwrap_or_default(), layer));
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capture_one_masks::tests as comask;
+
+    /// A session with one photograph whose variant has four layers: a
+    /// linear gradient, a radial one, a painted mask (compressed tiles) and a
+    /// layer whose mask is not in the `.comask`.
+    #[test]
+    fn layers_read_with_their_masks_from_a_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("Shoot");
+        std::fs::create_dir_all(session.join("Capture/CaptureOne/Settings1665")).unwrap();
+        std::fs::write(session.join("Capture/a.NEF"), b"raw").unwrap();
+        std::fs::write(
+            session.join("Capture/CaptureOne/Settings1665/a.NEF.comask"),
+            comask::file_with_tiles(
+                &[
+                    comask::linear("L", (100.0, 50.0), (100.0, 400.0)),
+                    comask::radial("R", true),
+                    comask::raster("P", 0, &[(117, 0)]),
+                ],
+                &[crate::capture_one_tiles::encode(&[90; 64 * 64], 16)],
+            ),
+        )
+        .unwrap();
+        let db = session.join("Shoot.cosessiondb");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        let settings: Vec<String> = SETTINGS
+            .iter()
+            .map(|(c, _)| format!("{c} VARCHAR"))
+            .collect();
+        conn.execute_batch(&format!(
+            "CREATE TABLE ZENTITIES (Z_ENT INTEGER, ZNAME VARCHAR);
+             INSERT INTO ZENTITIES VALUES(20,'VariantCombinedLayer'),(23,'LocalAdjustmentsLayer');
+             CREATE TABLE ZPATHLOCATION (Z_PK INTEGER PRIMARY KEY, ZMACROOT VARCHAR, ZRELATIVEPATH VARCHAR, ZISRELATIVE BOOLEAN);
+             INSERT INTO ZPATHLOCATION VALUES(1,NULL,'Capture',1);
+             CREATE TABLE ZIMAGE (Z_PK INTEGER PRIMARY KEY, ZIMAGELOCATION INTEGER, ZIMAGEFILENAME VARCHAR, ZISTRASHED BOOLEAN);
+             INSERT INTO ZIMAGE VALUES(1,1,'a.NEF',0);
+             CREATE TABLE ZVARIANT (Z_PK INTEGER PRIMARY KEY, ZINDEX INTEGER, ZIMAGE INTEGER, ZCOMBINEDSETTINGS INTEGER, ZISMODIFIED BOOLEAN);
+             INSERT INTO ZVARIANT VALUES(7,0,1,100,1);
+             CREATE TABLE ZVARIANTMETADATA (Z_PK INTEGER PRIMARY KEY, ZLAYER INTEGER, ZBASIC_RATING INTEGER,
+               ZCOLOR_TAG_INDEX INTEGER, ZCONTENT_KEYWORDS VARCHAR, ZSTATUS_TITLE VARCHAR, ZCONTENT_DESCRIPTION VARCHAR,
+               ZCONTACT_CREATOR VARCHAR, ZSTATUS_COPYRIGHTNOTICE VARCHAR, {});
+             CREATE TABLE ZCOLLECTION (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZNAME VARCHAR, ZPARENT INTEGER,
+               ZCOLLECTIONINDEX INTEGER, ZSMARTCRITERIA VARCHAR);
+             CREATE TABLE ZIMAGEINCOLLECTION (Z_PK INTEGER PRIMARY KEY, ZCOLLECTION INTEGER, ZIMAGE INTEGER);
+             CREATE TABLE ZVARIANTINCOLLECTION (Z_PK INTEGER PRIMARY KEY, ZCOLLECTION INTEGER, ZVARIANT INTEGER);
+             CREATE TABLE ZVARIANTLAYER (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZVARIANT INTEGER, ZINDEX INTEGER,
+               ZNAME VARCHAR, ZMASKUUID VARCHAR, ZOPACITY FLOAT, ZENABLED INTEGER, {});
+             INSERT INTO ZVARIANTLAYER (Z_ENT, Z_PK, ZVARIANT, ZEXPOSURE) VALUES(20,100,7,0.3);
+             INSERT INTO ZVARIANTLAYER (Z_ENT, Z_PK, ZVARIANT, ZINDEX, ZNAME, ZMASKUUID, ZOPACITY, ZENABLED, ZEXPOSURE, ZCONTRAST)
+               VALUES(23,201,7,1,'Sky','L',60.0,1,-1.2,30.0),(23,202,7,0,'Vignette','R',100.0,0,1.0,NULL),
+                     (23,203,7,2,'Face','P',100.0,1,0.5,NULL),(23,204,7,3,'Lost','X',100.0,1,0.5,NULL);",
+            IPTC_COLUMNS
+                .iter()
+                .map(|(c, _)| format!("{c} VARCHAR"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            settings.join(", ")
+        ))
+        .unwrap();
+        drop(conn);
+        let lib = read(&db).unwrap();
+        let layers = &lib.photos[0].capture_one_layers;
+        let names: Vec<&str> = layers.iter().map(|l| l.name.as_str()).collect();
+        // Bottom first.
+        assert_eq!(names, ["Vignette", "Sky", "Face", "Lost"]);
+        assert!(!layers[0].enabled && layers[1].enabled);
+        assert_eq!(layers[1].opacity, 60.0);
+        assert!(
+            layers[1]
+                .settings
+                .contains(&("Exposure".into(), "-1.2".into()))
+        );
+        assert!(
+            layers[1]
+                .settings
+                .contains(&("Contrast".into(), "30.0".into()))
+        );
+        assert_eq!(layers[1].frame, (7360.0, 4912.0));
+        assert!(matches!(layers[0].mask, Mask::Radial { outside: true, .. }));
+        assert!(matches!(
+            layers[1].mask,
+            Mask::Linear {
+                start: (100.0, 50.0),
+                ..
+            }
+        ));
+        let Mask::Raster { raster, ai: false } = &layers[2].mask else {
+            panic!("{:?}", layers[2].mask);
+        };
+        let values = raster.values().unwrap();
+        assert_eq!((values[64 * 7360 + 2 * 64], values[0]), (90, 0));
+        assert!(matches!(layers[3].mask, Mask::Unsupported { .. }));
+        // The photo's own settings are not a layer's.
+        let Develop::CaptureOne(own) = &lib.photos[0].develop else {
+            panic!();
+        };
+        assert!(own.contains(&("Exposure".into(), "0.3".into())));
+        assert_eq!(lib.not_read.local_adjustments, 1);
+    }
 }

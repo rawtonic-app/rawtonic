@@ -423,7 +423,7 @@ struct MaskAdjustments {
     _pad_end6: f32,
     _pad_end7: f32,
     grading_lut: array<vec4<f32>, 32>,
-    color_ranges: array<vec4<f32>, 16>,
+    color_ranges: array<vec4<f32>, 32>,
     moire: vec4<f32>,
     luminance_curve: array<Point, 16>,
     luminance_curve_count: u32,

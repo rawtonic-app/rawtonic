@@ -16,6 +16,7 @@ import {
   Bandage,
   Spline,
   MopSparkles,
+  FileImage,
   type LucideIcon
 } from 'lucide-react';
 import i18n from 'i18next';
@@ -38,6 +39,8 @@ export enum Mask {
   LumaRange = 'luma-range',
   QuickEraser = 'quick-eraser',
   Radial = 'radial',
+  /** A mask imported as its pixels (Capture One's painted, colour range and AI masks). */
+  Raster = 'raster',
   Clone = 'clone',
   Heal = 'heal',
   Liquify = 'liquify',
@@ -162,6 +165,7 @@ export function formatMaskTypeName(type: string) {
   if (type === Mask.Luminance) return i18n.t('masks.types.luminance');
   if (type === Mask.LumaRange) return 'Luma range';
   if (type === Mask.Radial) return i18n.t('masks.types.radial');
+  if (type === Mask.Raster) return i18n.t('masks.types.raster');
   if (type === Mask.Clone) return i18n.t('masks.types.clone');
   if (type === Mask.Heal) return i18n.t('masks.types.heal');
   if (type === Mask.Liquify) return i18n.t('masks.types.liquify');
@@ -188,6 +192,7 @@ export const MASK_ICON_MAP: Record<Mask, LucideIcon> = {
   [Mask.LumaRange]: Sun,
   [Mask.QuickEraser]: Eraser,
   [Mask.Radial]: Circle,
+  [Mask.Raster]: FileImage,
   [Mask.Clone]: Stamp,
   [Mask.Heal]: Bandage,
   [Mask.Liquify]: Spline,

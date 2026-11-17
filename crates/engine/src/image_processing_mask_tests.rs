@@ -147,7 +147,7 @@ fn old_mask_adjustments(
         _pad_end6: 0.0,
         _pad_end7: 0.0,
         grading_lut: [[0.0; 4]; GRADING_LUT_SIZE],
-        color_ranges: [[0.0; 4]; 16],
+        color_ranges: [[0.0; 4]; 32],
         moire: if is_visible("details") {
             moire_settings(adj)
         } else {
@@ -158,7 +158,7 @@ fn old_mask_adjustments(
         _pad_luminance: [0; 3],
     };
     if is_visible("color") && tool_on("colorRanges") {
-        let ranges = pack_color_ranges(&adj["colorRanges"], 4);
+        let ranges = pack_color_ranges(&adj["colorRanges"], 8);
         mask.color_range_count = ranges.len() as u32;
         for (i, range) in ranges.iter().enumerate() {
             mask.color_ranges[i * 4..i * 4 + 4].copy_from_slice(range);

@@ -11,10 +11,10 @@ use serde_json::Value;
 
 use crate::exif_processing::{capture_date_with, read_exif_data_from_bytes};
 use crate::export_processing::{
-    Enlarger, ExportOutput, ExportSettings, RenderEnv, prepare_export_source, render_and_save,
-    set_capture_file_times,
+    Enlarger, ExportOutput, ExportSettings, ExportSource, RenderEnv, prepare_export_source,
+    process_image_for_export_pipeline, render_and_save, set_capture_file_times,
 };
-use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorSlot};
+use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorSlot, RenderOutputPrecision};
 use crate::output::write_new_output;
 use crate::render_inputs::RenderInputs;
 use rawtonic_engine::ai_selections::{SelectionDetector, detect_missing};
@@ -23,6 +23,8 @@ use rawtonic_engine::formats::is_raw_file;
 use rawtonic_engine::image_loader::{
     BaseImageOptions, ai_denoise_settings, load_base_image_measured,
 };
+use rawtonic_engine::output_color_space::OutputColorSpace;
+use rawtonic_engine::recipe_versions::RecipeVersions;
 use rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser;
 
 /// One export: `output` must not exist; its extension, else `format`,
@@ -102,6 +104,15 @@ fn source_exif(
     Some(map)
 }
 
+/// A source decoded and prepared for its render ([`FileExporter::develop`]).
+struct Developed {
+    path: String,
+    recipe: Value,
+    versions: RecipeVersions,
+    is_raw: bool,
+    source: ExportSource,
+}
+
 /// A GPU context with the processor and source cache that consecutive
 /// exports reuse, as the app keeps them in its state.
 pub struct FileExporter {
@@ -173,10 +184,9 @@ impl FileExporter {
         self
     }
 
-    pub fn export(&self, job: &FileExport) -> Result<(), String> {
-        if let Some(inputs) = &self.render_inputs {
-            inputs.clear();
-        }
+    /// `job`'s source decoded and prepared for its render, with its recipe
+    /// normalized: what [`Self::export`] and [`Self::render_reference`] render.
+    fn develop(&self, job: &FileExport) -> Result<Developed, String> {
         let source_path_str = job.source.to_string_lossy().to_string();
 
         let mut js_adjustments = job.recipe.clone().unwrap_or(Value::Null);
@@ -238,22 +248,65 @@ impl FileExporter {
         if let Some(inputs) = &self.render_inputs {
             inputs.source(&source);
         }
+        Ok(Developed {
+            path: source_path_str,
+            recipe: js_adjustments,
+            versions,
+            is_raw,
+            source,
+        })
+    }
 
-        // The app's default preferences: no forced tone mapper.
+    /// The render environment of this exporter's GPU state, with the app's
+    /// default preferences (no forced tone mapper).
+    fn with_env<R>(&self, render: impl FnOnce(&RenderEnv) -> R) -> R {
         let tonemapper_override = |_is_raw: bool| None;
         let load_lut = |path: &str| {
             rawtonic_engine::lut::parse_lut_file(path)
                 .ok()
                 .map(Arc::new)
         };
-        let env = RenderEnv {
+        render(&RenderEnv {
             context: &self.context,
             processor: &self.processor,
             image_cache: &self.image_cache,
             tonemapper_override: &tonemapper_override,
             load_lut: &load_lut,
             render_inputs: self.render_inputs.as_deref(),
-        };
+        })
+    }
+
+    /// The export render of `job`'s source and recipe, 16-bit sRGB, before
+    /// any output step (resize, output sharpening, borders, encoding): the
+    /// reference measurement harnesses compare reduced views with, on the
+    /// export's own path (decode, lens defaults, warp, edge-fringe pass,
+    /// GPU render) — a reference rendered from the bare decode left out
+    /// the warp, automatic CA and edge-fringe pass (notes:
+    /// benchmark-results/tpx7-2026-11-17/REPORT.md). Equals a 16-bit sRGB
+    /// TIFF export of `job` without output steps (`crates/cli/tests/reference_render.rs`).
+    pub fn render_reference(&self, job: &FileExport) -> Result<image::DynamicImage, String> {
+        let developed = self.develop(job)?;
+        self.with_env(|env| {
+            process_image_for_export_pipeline(
+                &developed.path,
+                developed.source,
+                &developed.recipe,
+                &developed.versions,
+                env,
+                developed.is_raw,
+                "reference",
+                RenderOutputPrecision::SixteenBit,
+                OutputColorSpace::Srgb,
+            )
+        })
+    }
+
+    pub fn export(&self, job: &FileExport) -> Result<(), String> {
+        if let Some(inputs) = &self.render_inputs {
+            inputs.clear();
+        }
+        let developed = self.develop(job)?;
+        let source_path_str = developed.path.as_str();
         // The app reads the EXIF map its loader cached for the source; it is
         // extracted the same way here.
         let exif_sidecar = || source_exif(job.source, job.capture.as_ref());
@@ -262,24 +315,26 @@ impl FileExporter {
             write_new_output(path, bytes)
                 .map_err(|e| format!("Failed to write file to '{}': {}", path.display(), e))
         };
-        render_and_save(
-            &source_path_str,
-            source,
-            &js_adjustments,
-            &versions,
-            &job.settings,
-            &env,
-            is_raw,
-            &ExportOutput {
-                path: job.output,
-                format: job.format,
-                exif_sidecar: &exif_sidecar,
-                catalog: &catalog,
-                write: &write,
-                enlarger: self.enlarger.as_deref(),
-            },
-            &|| Ok(()),
-        )?;
+        self.with_env(|env| {
+            render_and_save(
+                source_path_str,
+                developed.source,
+                &developed.recipe,
+                &developed.versions,
+                &job.settings,
+                env,
+                developed.is_raw,
+                &ExportOutput {
+                    path: job.output,
+                    format: job.format,
+                    exif_sidecar: &exif_sidecar,
+                    catalog: &catalog,
+                    write: &write,
+                    enlarger: self.enlarger.as_deref(),
+                },
+                &|| Ok(()),
+            )
+        })?;
         if job.settings.preserve_timestamps {
             set_capture_file_times(job.output, capture_date_with(job.source, &exif_sidecar));
         }

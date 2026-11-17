@@ -16,7 +16,7 @@ import {
   type LucideIcon
 } from 'lucide-react';
 import { OPTION_HEADER, OPTION_SEPARATOR, type Option } from '../ui/AppProperties';
-import { Mask, type SubMask } from '../panel/right/Masks';
+import { MASK_ICON_MAP, Mask, type SubMask } from '../panel/right/Masks';
 import { erasesFromLayer, kindOf, type MaskKind } from '../../utils/maskKinds';
 
 /** Everything a layer or a component can be made from, in three groups as in
@@ -49,6 +49,7 @@ export const MASK_KIND_ICONS: Record<MaskKind, LucideIcon> = {
 export function componentIcon(sub: SubMask | undefined, layerInverted = false): LucideIcon | null {
   if (!sub) return null;
   if (sub.type === Mask.All) return Square;
+  if (sub.type === Mask.Raster) return MASK_ICON_MAP[Mask.Raster];
   if (erasesFromLayer(sub, layerInverted)) return Eraser;
   const kind = kindOf(sub);
   return kind ? MASK_KIND_ICONS[kind] : null;

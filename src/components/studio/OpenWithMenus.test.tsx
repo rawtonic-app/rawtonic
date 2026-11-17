@@ -6,6 +6,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { EditWithSubMenu, OpenWithSubMenu, offerInterruptedEditWith } from './OpenWithMenus';
 import { runEditWith, type AppChoices } from '../../utils/editWith';
 import { useSettingsStore } from '../../store/useSettingsStore';
+import { useLibraryStore } from '../../store/useLibraryStore';
 import { submitPhotoWrite } from '../../utils/photoWrites';
 import i18n from 'i18next';
 import packaged from './fixtures/openWithPackaged.json';
@@ -18,7 +19,15 @@ vi.mock('../../activity/notify', () => ({
 }));
 vi.mock('../../utils/editWith', async (original) => ({
   ...(await original<typeof import('../../utils/editWith')>()),
-  runEditWith: vi.fn(async () => ({ rendered: 2, cancelled: 0, failed: 0, linked: 2, problems: [] }))
+  runEditWith: vi.fn(async () => ({
+    rendered: 2,
+    cancelled: 0,
+    failed: 0,
+    failedPaths: [],
+    library: null,
+    linked: 2,
+    problems: []
+  }))
 }));
 const mockInvoke = vi.mocked(invoke);
 
@@ -207,7 +216,15 @@ it('edits the selection with the remembered recipe in the chosen program', async
 
 it('reports a cancelled batch row as information without a failure', async () => {
   const { notify } = await import('../../activity/notify');
-  vi.mocked(runEditWith).mockResolvedValueOnce({ rendered: 2, cancelled: 1, failed: 0, linked: 2, problems: [] });
+  vi.mocked(runEditWith).mockResolvedValueOnce({
+    rendered: 2,
+    cancelled: 1,
+    failed: 0,
+    failedPaths: [],
+    library: null,
+    linked: 2,
+    problems: []
+  });
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
     if (command === 'edit_with_apps') return apps;
@@ -216,6 +233,105 @@ it('reports a cancelled batch row as information without a failure', async () =>
   fireEvent.click(await screen.findByRole('menuitem', { name: /Preview/ }));
   await vi.waitFor(() => expect(notify.info).toHaveBeenCalledWith('1 cancelled, 2 rendered.'));
   expect(notify.error).not.toHaveBeenCalled();
+});
+
+it('offers Try again after a failed render, which renders only the photographs that failed', async () => {
+  const { notify } = await import('../../activity/notify');
+  vi.mocked(notify.error).mockClear();
+  vi.mocked(runEditWith).mockResolvedValueOnce({
+    rendered: 1,
+    cancelled: 0,
+    failed: 1,
+    failedPaths: ['/b.NEF'],
+    library: '/A.catalog',
+    linked: 1,
+    problems: []
+  });
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'edit_with_apps') return apps;
+  });
+  useLibraryStore.setState({ sessionDirectory: '/A.catalog' });
+  const rendered = vi.fn();
+  render(<EditWithSubMenu paths={['/a.NEF', '/b.NEF']} hideContextMenu={vi.fn()} onRendered={rendered} />);
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Preview/ }));
+  await vi.waitFor(() => expect(notify.error).toHaveBeenCalled());
+  const [text, options] = vi.mocked(notify.error).mock.lastCall!;
+  expect(text).toBe('1 of 2 photographs could not be rendered.');
+  expect(options?.paths).toEqual(['/b.NEF']);
+  const retry = options?.actions?.find((action) => action.label === 'Try again');
+  expect(retry).toBeDefined();
+  const calls = vi.mocked(runEditWith).mock.calls.length;
+  await retry!.run();
+  expect(vi.mocked(runEditWith).mock.calls.length).toBe(calls + 1);
+  const [again, recipe, program] = vi.mocked(runEditWith).mock.lastCall!;
+  // The finished render of a.NEF is not made a second time (WEW3: a manual
+  // re-run duplicated it).
+  expect(again).toEqual(['/b.NEF']);
+  expect(recipe.id).toBe('builtin-tiff16-adobe');
+  expect(program).toBe('/System/Applications/Preview.app');
+  expect(rendered).toHaveBeenCalledTimes(2);
+  useLibraryStore.setState({ sessionDirectory: null });
+});
+
+it('Try again waits until the library of the click is open again', async () => {
+  const { notify } = await import('../../activity/notify');
+  vi.mocked(notify.error).mockClear();
+  vi.mocked(notify.warn).mockClear();
+  const failed = {
+    rendered: 1,
+    cancelled: 0,
+    failed: 1,
+    failedPaths: ['/Capture/b.NEF'],
+    library: '/Shoots/A.session',
+    linked: 1,
+    problems: []
+  };
+  vi.mocked(runEditWith).mockResolvedValueOnce(failed);
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'edit_with_apps') return apps;
+  });
+  useLibraryStore.setState({ sessionDirectory: '/Shoots/A.session' });
+  render(<EditWithSubMenu paths={['/Capture/a.NEF', '/Capture/b.NEF']} hideContextMenu={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Preview/ }));
+  await vi.waitFor(() => expect(notify.error).toHaveBeenCalledTimes(1));
+  const calls = vi.mocked(runEditWith).mock.calls.length;
+  // Another library is open: its edits (or none) would be rendered, so the
+  // retry says which one to open and stays offered.
+  useLibraryStore.setState({ sessionDirectory: '/Other.catalog' });
+  await vi.mocked(notify.error).mock.lastCall![1]!.actions![0].run();
+  expect(vi.mocked(runEditWith).mock.calls.length).toBe(calls);
+  expect(notify.warn).toHaveBeenCalledWith(
+    'Open A.session again to try again: its photos are rendered with the edits they have there.'
+  );
+  expect(notify.error).toHaveBeenCalledTimes(2);
+  const [, again] = vi.mocked(notify.error).mock.lastCall!;
+  expect(again?.paths).toEqual(['/Capture/b.NEF']);
+  // Back in the click's library it renders the failed photograph.
+  useLibraryStore.setState({ sessionDirectory: '/Shoots/A.session' });
+  await again!.actions![0].run();
+  expect(vi.mocked(runEditWith).mock.lastCall![0]).toEqual(['/Capture/b.NEF']);
+  useLibraryStore.setState({ sessionDirectory: null });
+});
+
+it('on Windows says why Browse for a program… failed instead of doing nothing', async () => {
+  const { notify } = await import('../../activity/notify');
+  useSettingsStore.setState({ osPlatform: 'windows' });
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_apps') return apps;
+    if (command === 'open_with_pick') throw 'C:\\x\\tool.txt is not a program file.';
+  });
+  try {
+    render(<OpenWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Browse for a program…/ }));
+    await vi.waitFor(() =>
+      expect(notify.error).toHaveBeenCalledWith('Could not choose that program: C:\\x\\tool.txt is not a program file.')
+    );
+    expect(mockInvoke).not.toHaveBeenCalledWith('open_with_open', expect.anything());
+  } finally {
+    useSettingsStore.setState({ osPlatform: '' });
+  }
 });
 
 it('says Edit With is not available for photographs with generated areas', async () => {

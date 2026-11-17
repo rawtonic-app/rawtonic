@@ -566,19 +566,23 @@ pub async fn open_with_describe(program: String) -> Option<AppChoice> {
     .flatten()
 }
 
-/// Windows' generic picker tries to open aliases to validate them. Pick
-/// their path without dereferencing; launch validation happens at handoff.
+/// "Browse for a program…" on Windows: the program file picker, owned by
+/// the window it was asked from (`windows_shell::pick`).
 #[tauri::command]
-pub async fn open_with_pick(title: String) -> Result<Option<AppChoice>, String> {
+pub async fn open_with_pick(
+    title: String,
+    window: tauri::WebviewWindow,
+) -> Result<Option<AppChoice>, String> {
     #[cfg(windows)]
     {
-        tauri::async_runtime::spawn_blocking(move || windows_shell::pick(&title))
+        let owner = window.hwnd().ok().map(|hwnd| hwnd.0 as isize);
+        tauri::async_runtime::spawn_blocking(move || windows_shell::pick(&title, owner))
             .await
             .map_err(|e| e.to_string())?
     }
     #[cfg(not(windows))]
     {
-        let _ = title;
+        let _ = (title, window);
         Ok(None)
     }
 }
@@ -680,6 +684,7 @@ pub async fn edit_with_start(
 ) -> Result<EditWithStart, CommandError> {
     // Kept with each job: a quit ends them, and the next start offers this
     // Edit With again (`export_queue::take_interrupted_edits`).
+    log::info!("Edit With in {program}: {} photo(s)", paths.len());
     recipe.edit_with = Some(crate::export_queue::EditWithRun {
         id: uuid::Uuid::new_v4().to_string(),
         program,
@@ -700,7 +705,19 @@ pub async fn edit_with_start(
         )
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(|e| e.to_string())?
+    .inspect_err(|e| log::warn!("Edit With not started: {e:?}"))?;
+    for (target, job) in targets.iter().zip(&jobs) {
+        log::info!(
+            "Edit With: {} renders to {} (job {job}, library {})",
+            target.source,
+            target.target,
+            target
+                .library
+                .as_deref()
+                .unwrap_or("none: folder browsing, not stacked")
+        );
+    }
     crate::export_queue::started(&app);
     Ok(EditWithStart { targets, jobs })
 }
@@ -973,11 +990,24 @@ pub async fn edit_with_finish(
             .map(|item| PathBuf::from(&item.target))
             .collect();
         if let Some(missing) = renders.iter().find(|file| !file.is_file()) {
+            log::warn!(
+                "Edit With in {program}: {} was not rendered",
+                missing.display()
+            );
             return Err(format!("{} was not rendered.", missing.display()));
         }
         let result = link_renders(&items);
+        log::info!(
+            "Edit With in {program}: {} render(s), {} stacked in a library",
+            items.len(),
+            result.linked
+        );
+        for problem in &result.problems {
+            log::warn!("Edit With: not added to the library: {problem}");
+        }
         watch(&app, &items);
-        open_in(&app, &program, &renders)?;
+        open_in(&app, &program, &renders)
+            .inspect_err(|e| log::warn!("Edit With: {program} did not open the renders: {e}"))?;
         if result.problems.is_empty() {
             crate::export_queue::handed_off(
                 &app.state::<crate::state::export::ExportState>(),

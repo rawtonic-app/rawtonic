@@ -18508,28 +18508,26 @@ fn render_source(
     .unwrap()
 }
 
-/// The reduced views' correction (`color_noise_view`) is the export's own
-/// colour noise reduction: the source plus its full-size difference,
-/// rendered at Color 0, is the export's render at Color 25 / 50 (up to
-/// the 16-bit float input of the second render); reduced, it is that
-/// difference resampled (`lanczos::resize_signed`); a stop ends it.
+/// The fit view's render input (`color_noise_view::reduced_render_input`)
+/// is the export's: at full size and rendered at Color 0 it is the export's
+/// render at Color 25 / 50 (up to the 16-bit float input of the second
+/// render); reduced, it is that input resampled (`lanczos::resize_signed`);
+/// at Color 0 it is the export's edge-fringe pass of the source; a stop
+/// ends it, and a colour noise reduction below version 11 has none.
 #[test]
 #[ignore = "requires a native GPU"]
-fn color_noise_view_correction_is_the_exports_filter() {
+fn fit_view_render_input_is_the_exports() {
     let context = context();
-    let image = chroma_noise_frame(2300, 300);
+    let image = Arc::new(chroma_noise_frame(2300, 300));
+    let cpu: color_noise_view::CpuRunner<'_> = &|work| work();
+    let input = |recipe: &serde_json::Value, dims, stop: &(dyn Fn() -> bool + Sync)| {
+        let global = get_all_adjustments_from_json(recipe, true, Some(1)).global;
+        color_noise_view::reduced_render_input(&context, &image, recipe, &global, dims, stop, cpu)
+            .unwrap()
+    };
     for color in [25, 50] {
         let recipe = json!({ "colorNoiseReduction": color, "colorNoiseVersion": 11 });
-        let global = get_all_adjustments_from_json(&recipe, true, Some(1)).global;
-        let full =
-            color_noise_view::reduced_correction(&context, &image, &global, (2300, 300), &|| false)
-                .unwrap()
-                .expect("a correction");
-        let mut corrected = image.to_rgb32f();
-        corrected
-            .iter_mut()
-            .zip(full.iter())
-            .for_each(|(v, d)| *v = half::f16::from_f32(*v).to_f32() + d);
+        let full = input(&recipe, (2300, 300), &|| false).expect("a render input");
         let export = render_source(
             &context,
             &image,
@@ -18539,7 +18537,7 @@ fn color_noise_view_correction_is_the_exports_filter() {
         .to_rgba16();
         let view = render_source(
             &context,
-            &DynamicImage::ImageRgb32F(corrected),
+            &DynamicImage::ImageRgb32F(full.clone()),
             json!({ "colorNoiseVersion": 11 }),
             RenderOutputPrecision::SixteenBit,
         )
@@ -18562,39 +18560,49 @@ fn color_noise_view_correction_is_the_exports_filter() {
         }
         let n = (export.width() * export.height() * 3) as f64;
         println!(
-            "Color {color}: view correction vs export: max {worst}, mean {:.3}; filter changed mean {:.1} levels",
+            "Color {color}: view input vs export: max {worst}, mean {:.3}; filter changed mean {:.1} levels",
             sum as f64 / n,
             changed as f64 / n
         );
-        // Measured on the RTX 3080 (Vulkan): max 7, mean 2.4 at Color 25
-        // while the filter moves pixels by 516 levels on average: the 16-bit
-        // float rounding of the corrected input, nothing of the filter.
+        // Measured on the RTX 3080 (Vulkan, TPX5's difference form): max 7,
+        // mean 2.4 at Color 25 while the filter moves pixels by 516 levels on
+        // average: the 16-bit float rounding of the second render's input.
         assert!(sum as f64 / n < 4.0, "mean {}", sum as f64 / n);
         assert!(changed as f64 / n > 100.0 * (sum as f64 / n).max(1.0));
         assert!(worst < 64, "max {worst}");
-        let reduced =
-            color_noise_view::reduced_correction(&context, &image, &global, (800, 104), &|| false)
-                .unwrap()
-                .unwrap();
+        let reduced = input(&recipe, (800, 104), &|| false).unwrap();
         let expected = rawtonic_engine::lanczos::resize_signed(&full, 800, 104);
         assert_eq!(reduced.as_raw(), expected.as_raw());
-        assert!(
-            color_noise_view::reduced_correction(&context, &image, &global, (800, 104), &|| true)
-                .unwrap()
-                .is_none()
-        );
+        assert!(input(&recipe, (800, 104), &|| true).is_none());
     }
-    let off = get_all_adjustments_from_json(
-        &json!({ "colorNoiseReduction": 0, "colorNoiseVersion": 11 }),
-        true,
-        Some(1),
-    )
-    .global;
-    assert!(
-        color_noise_view::reduced_correction(&context, &image, &off, (800, 104), &|| false)
-            .unwrap()
-            .is_none()
+    // Color 0: the source after the export's edge-fringe pass (into the
+    // input texture there; here read back, `apply_for_recipe`), in f16.
+    let fringe = json!({ "colorNoiseReduction": 0, "colorNoiseVersion": 11, "fringeVersion": 6 });
+    let full = input(&fringe, (2300, 300), &|| false).expect("a render input");
+    rawtonic_engine::edge_fringe::gpu::register(
+        Arc::clone(&context.device),
+        Arc::clone(&context.queue),
     );
+    let cpu_pass = rawtonic_engine::edge_fringe::apply_for_recipe(
+        std::borrow::Cow::Borrowed(&*image),
+        &fringe,
+        1.0,
+    )
+    .unwrap()
+    .to_rgb32f();
+    let plain = image.to_rgb32f();
+    let (mut worst, mut moved) = (0f32, 0f32);
+    for ((v, c), p) in full.iter().zip(cpu_pass.iter()).zip(plain.iter()) {
+        worst = worst.max((v - c).abs() / c.abs().max(0.01));
+        moved = moved.max((c - p).abs());
+    }
+    println!(
+        "Color 0: view input vs the fringe pass read back: max relative {worst:.5}; the pass moved up to {moved:.4}"
+    );
+    assert!(moved > 0.01, "the fringe pass changed nothing ({moved})");
+    assert!(worst < 0.01, "max relative {worst}");
+    let older = json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 10 });
+    assert!(input(&older, (800, 104), &|| false).is_none());
 }
 
 #[test]
@@ -22179,9 +22187,20 @@ fn gpu_warp_display_and_export_develop_the_same_input() {
         let read_back = upload_fringed_render_source(&context, &warped, &recipe, window, 0, None)
             .unwrap()
             .expect("runs into the texture");
-        let on_gpu = upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
-            .unwrap()
-            .expect("warps on the GPU");
+        let on_gpu = match upload_warped_render_source(
+            &context,
+            Arc::new(image.clone()),
+            &recipe,
+            true,
+            window,
+            0,
+            None,
+        )
+        .unwrap()
+        {
+            WarpedUpload::Uploaded(uploaded) => uploaded,
+            WarpedUpload::NotOnGpu(_) => panic!("warps on the GPU"),
+        };
         for (path, uploaded) in [("read back", read_back), ("on the GPU", on_gpu)] {
             let texels = read_texture_data_roi(
                 &context.device,
@@ -22256,9 +22275,17 @@ fn a_failing_gpu_warp_fails_the_render() {
     );
     let window = [0, 0, w, h];
     failed(
-        upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
-            .map(|_| ())
-            .unwrap_err(),
+        upload_warped_render_source(
+            &context,
+            Arc::new(image.clone()),
+            &recipe,
+            true,
+            window,
+            0,
+            None,
+        )
+        .map(|_| ())
+        .unwrap_err(),
     );
     // Warped on the CPU: unaffected.
     let saved = at_render_version(&recipe, 6);
@@ -24023,29 +24050,49 @@ fn tpx5_color_noise_cost() {
             );
         }
     }
-    // The reduced views' GPU correction (`color_noise_view`) at the Develop
-    // fit view's pre-warp sizes (fit 1536 and 2070 of a 6000 px photo).
-    let mut r = recipe.clone();
-    r["colorNoiseReduction"] = 50.into();
-    let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
-    rawtonic_engine::baseline_exposure::apply_base_look(
-        &mut a.global,
-        &raw,
-        measures.as_ref(),
-        None,
-    );
+    // The fit view's render input (`color_noise_view`: warp, edge-fringe
+    // pass and colour noise reduction as the export makes them) at the
+    // Develop fit view's pre-crop sizes (fit 1536 and 2070 of a 6000 px
+    // photo), at Color 0 and 50; `TPX7_RECIPE` (a recipe file, e.g. the
+    // app's own with its lens corrections) in place of this one.
+    let full = Arc::new(full);
+    let view_recipe: serde_json::Value = match std::env::var_os("TPX7_RECIPE") {
+        Some(path) => serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap(),
+        None => recipe.clone(),
+    };
     color_noise_view::ready(&context).unwrap();
     let (w, h) = (full.width(), full.height());
-    for rep in 0..reps {
-        for dim in [1920u32, 2588] {
-            let size = (dim, (u64::from(dim) * u64::from(h) / u64::from(w)) as u32);
-            let t = std::time::Instant::now();
-            let delta =
-                color_noise_view::reduced_correction(&context, &full, &a.global, size, &|| false)
-                    .unwrap()
-                    .unwrap();
-            eprintln!("TIME rep {rep} view correction {size:?} {:?}", t.elapsed());
-            drop(delta);
+    for c in [0, 50] {
+        let mut r = view_recipe.clone();
+        r["colorNoiseReduction"] = c.into();
+        let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
+        rawtonic_engine::baseline_exposure::apply_base_look(
+            &mut a.global,
+            &raw,
+            measures.as_ref(),
+            None,
+        );
+        for rep in 0..reps {
+            for dim in [1920u32, 2588] {
+                let size = (dim, (u64::from(dim) * u64::from(h) / u64::from(w)) as u32);
+                let t = std::time::Instant::now();
+                let input = color_noise_view::reduced_render_input(
+                    &context,
+                    &full,
+                    &r,
+                    &a.global,
+                    size,
+                    &|| false,
+                    &|work| work(),
+                )
+                .unwrap()
+                .unwrap();
+                eprintln!(
+                    "TIME rep {rep} color {c} view render input {size:?} {:?}",
+                    t.elapsed()
+                );
+                drop(input);
+            }
         }
     }
 }
@@ -24299,4 +24346,167 @@ fn version_13_exports_with_current_detail_responses_match_version_12_within_roun
         }
     }
     assert_eq!(checked, 4);
+}
+
+/// A mask layer holds eight colour editor ranges, as the photo does
+/// (Lightroom's Point Color: eight swatches per photo and per mask). Through
+/// a layer that covers the whole frame they render as the photo's own
+/// ranges, ranges five to eight included, in the general shader and in the
+/// recipe's specialized variant.
+#[test]
+#[ignore = "requires a native GPU; compares eight layer colour ranges with the photo's"]
+fn layer_colour_ranges_five_to_eight_render_as_the_photos() {
+    let context = context();
+    let (width, height) = (640, 64);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 5);
+    // Ranges one to four do nothing in `five_to_eight`, so only five to
+    // eight can change the layer's pixels there.
+    let ranges = |active_from: usize| -> Vec<serde_json::Value> {
+        (0..8)
+            .map(|i| {
+                let on = i >= active_from;
+                json!({"id": format!("r{i}"), "hue": i as f64 * 45.0 + 10.0, "chroma": 0.1,
+                    "lightness": 0.6, "hueRange": 30, "chromaRange": 100, "lightnessRange": 100,
+                    "smoothness": 50, "hueShift": if on { 40 } else { 0 },
+                    "saturation": if on { -50 } else { 0 },
+                    "lightnessShift": if on { 20 } else { 0 }})
+            })
+            .collect()
+    };
+    let render = |profile: &serde_json::Value, general: bool| -> Vec<u8> {
+        processor
+            .force_general_pipeline
+            .store(general, Ordering::Relaxed);
+        let masks = generated_profile_masks(profile, width, height);
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(profile, true, Some(1)),
+                    mask_bitmaps: &masks,
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        let RenderedPixels::U8(pixels) = pixels else {
+            unreachable!()
+        };
+        pixels
+    };
+    let delta = |a: &[u8], b: &[u8]| -> (u8, usize) {
+        assert_eq!(a.len(), b.len());
+        let max = a.iter().zip(b).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
+        (max, a.iter().zip(b).filter(|(x, y)| x != y).count())
+    };
+    for general in [true, false] {
+        let neutral = render(&json!({}), general);
+        for (name, active_from) in [("five_to_eight", 4), ("all_eight", 0)] {
+            let all = ranges(active_from);
+            let photo = render(&json!({"colorRanges": all}), general);
+            let layer = render(
+                &json!({"masks": [local_mask("eight", json!({"colorRanges": all}))]}),
+                general,
+            );
+            let first_four = render(
+                &json!({"masks": [local_mask("four", json!({"colorRanges": all[..4]}))]}),
+                general,
+            );
+            let (max, _) = delta(&layer, &photo);
+            assert!(max <= 1, "{name}, general {general}: layer vs photo {max}");
+            let (_, changed) = delta(&layer, &first_four);
+            assert!(
+                changed * 20 > layer.len(),
+                "{name}, general {general}: ranges five to eight changed only {changed} of {} samples",
+                layer.len()
+            );
+            if active_from == 4 {
+                // The Oklab round trip of a range pass rounds by a level at most.
+                let (max, _) = delta(&first_four, &neutral);
+                assert!(max <= 1, "{name}: one to four are no-ops, {max}");
+            }
+            println!(
+                "{name} general={general}: layer vs photo max {max}, five to eight change {changed} of {} samples",
+                layer.len()
+            );
+        }
+    }
+    processor
+        .force_general_pipeline
+        .store(false, Ordering::Relaxed);
+}
+
+/// Display frame time of colour editor ranges in a mask layer: a layer with
+/// four ranges (the earlier limit) and with eight, beside the photo's eight.
+/// Prints the median GPU completion time per profile (synthetic input; not
+/// pointer-to-photon).
+#[test]
+#[ignore = "native GPU timing probe; synthetic input, not a portable acceptance benchmark"]
+fn layer_colour_ranges_timing_probe() {
+    let context = context();
+    let (width, height) = (2304, 1728);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 3);
+    let ranges: Vec<_> = (0..8)
+        .map(|i| {
+            json!({"id": format!("r{i}"), "hue": i as f64 * 45.0, "chroma": 0.1,
+            "lightness": 0.6, "hueShift": 30, "saturation": 20, "hueUniformity": 40})
+        })
+        .collect();
+    let layer = |n: usize| json!({"masks": [local_mask("ranges", json!({"exposure": 0.2, "colorRanges": ranges[..n]}))]});
+    let profiles = [
+        ("layer_0", layer(0)),
+        ("layer_4", layer(4)),
+        ("layer_8", layer(8)),
+        ("photo_8", json!({"colorRanges": ranges})),
+    ];
+    let masks: Vec<_> = profiles
+        .iter()
+        .map(|(_, p)| generated_profile_masks(p, width, height))
+        .collect();
+    let mut times: Vec<Vec<f64>> = vec![Vec::new(); profiles.len()];
+    for round in 0..40 {
+        for (i, (_, profile)) in profiles.iter().enumerate() {
+            // A different exposure per frame defeats the unchanged-frame reuse.
+            let mut profile = profile.clone();
+            profile["exposure"] = json!(round as f64 * 0.001);
+            let start = Instant::now();
+            processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: get_all_adjustments_from_json(&profile, true, Some(2)),
+                        mask_bitmaps: &masks[i],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            context
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if round >= 5 {
+                times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for ((name, _), mut t) in profiles.iter().zip(times) {
+        t.sort_by(f64::total_cmp);
+        println!(
+            "{}",
+            json!({"probe": "layer_colour_ranges", "profile": name, "width": width,
+                "height": height, "frames": t.len(), "median_ms": t[t.len() / 2],
+                "p90_ms": t[t.len() * 9 / 10]})
+        );
+    }
 }
