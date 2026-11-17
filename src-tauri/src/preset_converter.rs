@@ -506,6 +506,56 @@ fn legacy_process(attrs: &HashMap<String, String>) -> bool {
         && !MODERN_CONTROLS.into_iter().any(nonzero)
 }
 
+// All import paths (sidecars, presets and catalog Lua converted to XMP) use
+// this selector. Keep a sole family even when the process version disagrees.
+// Legacy base tone differs from PV2012: importing its explicit curve in our
+// usual working space remains an approximation, like the legacy sliders.
+fn tone_curve_family(xmp: &str, attrs: &HashMap<String, String>) -> Vec<(String, &'static str)> {
+    let present = |base: &str| {
+        ["", "Red", "Green", "Blue"]
+            .iter()
+            .any(|suffix| xmp.contains(&format!("<crs:{base}{suffix}>")))
+    };
+    let legacy = present("ToneCurve");
+    let modern = present("ToneCurvePV2012");
+    let old = if legacy != modern {
+        legacy
+    } else {
+        legacy_process(attrs)
+    };
+    let base = if old { "ToneCurve" } else { "ToneCurvePV2012" };
+    [
+        ("", "luma"),
+        ("Red", "red"),
+        ("Green", "green"),
+        ("Blue", "blue"),
+    ]
+    .into_iter()
+    .map(|(suffix, channel)| (format!("{base}{suffix}"), channel))
+    .collect()
+}
+
+/// Names are descriptive metadata, never a source of proprietary curve data.
+pub fn tone_curve_warning(xmp: &str) -> Option<String> {
+    let attrs = crs_attributes(xmp);
+    let family = tone_curve_family(xmp, &attrs);
+    let base = &family[0].0;
+    let name_key = if base == "ToneCurve" {
+        "ToneCurveName"
+    } else {
+        "ToneCurveName2012"
+    };
+    let name = attrs.get(name_key).or_else(|| {
+        // A name without any points still needs to be reported.
+        attrs
+            .get("ToneCurveName")
+            .filter(|_| !xmp.contains("<crs:ToneCurve"))
+    })?;
+    (!name.is_empty() && extract_tone_curve_points(xmp, base).is_none()).then(|| {
+        format!("Lightroom tone curve '{name}' has no explicit points; could not convert it.")
+    })
+}
+
 fn changed_legacy_controls(attrs: &HashMap<String, String>) -> Vec<&'static str> {
     LEGACY_CONTROLS
         .into_iter()
@@ -979,16 +1029,13 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         );
     }
 
-    let curve_mappings = [
-        ("ToneCurvePV2012", "luma"),
-        ("ToneCurvePV2012Red", "red"),
-        ("ToneCurvePV2012Green", "green"),
-        ("ToneCurvePV2012Blue", "blue"),
-    ];
-    for (xmp_curve, rr_curve) in curve_mappings {
-        if let Some(points) = extract_tone_curve_points(xmp_content, xmp_curve) {
+    for (xmp_curve, rr_curve) in tone_curve_family(xmp_content, &attrs) {
+        if let Some(points) = extract_tone_curve_points(xmp_content, &xmp_curve) {
             curves_map.insert(rr_curve.to_string(), Value::Array(points));
         }
+    }
+    if let Some(warning) = tone_curve_warning(xmp_content) {
+        log::warn!("{warning}");
     }
     if !curves_map.is_empty() {
         // Imported curves render whole, however many points they have, in
@@ -1925,6 +1972,83 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn legacy_tone_curve_family_selection() {
+        // Synthetic photographer edits, not a reproduction of a named Adobe curve.
+        let legacy = "<crs:ToneCurve><rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>128, 110</rdf:li><rdf:li>255, 255</rdf:li></rdf:Seq></crs:ToneCurve>";
+        let modern = legacy
+            .replace("ToneCurve", "ToneCurvePV2012")
+            .replace("128, 110", "128, 128");
+        for (pv, name, curves, expected) in [
+            ("5.7", "Medium Contrast", format!("{legacy}{modern}"), 110.0),
+            ("6.7", "Medium Contrast", format!("{legacy}{modern}"), 128.0),
+            ("5.0", "Custom", legacy.to_string(), 110.0),
+            ("", "Custom", legacy.to_string(), 110.0),
+            ("", "Custom", modern.clone(), 128.0),
+            ("5.7", "Custom", modern.clone(), 128.0),
+        ] {
+            let process = if pv.is_empty() {
+                String::new()
+            } else {
+                format!("crs:ProcessVersion=\"{pv}\"")
+            };
+            let xmp = format!(
+                "<rdf:Description {process} crs:ToneCurveName=\"{name}\">{curves}</rdf:Description>"
+            );
+            let preset = super::convert_xmp_to_preset(&xmp).unwrap();
+            let c = &preset.adjustments["curves"];
+            assert!(
+                (rendered(c["luma"].as_array().unwrap(), 128.0) - expected).abs() < 0.3,
+                "{xmp}"
+            );
+            assert_eq!(
+                c["version"],
+                rawtonic_engine::point_curve::WIDE_CURVE_VERSION
+            );
+        }
+        for pv in ["5.7", "6.7"] {
+            let lua = format!(
+                "s = {{ ProcessVersion = \"{pv}\", ToneCurve = {{0, 0, 128, 110, 255, 255}}, ToneCurvePV2012 = {{0, 0, 128, 128, 255, 255}}, ToneCurveRed = {{0, 0, 128, 150, 255, 255}}, ToneCurvePV2012Red = {{0, 0, 255, 255}} }}"
+            );
+            let xmp = rawtonic_interop::lightroom_settings::to_xmp(&lua).unwrap();
+            let preset = super::convert_xmp_to_preset(&xmp).unwrap();
+            let expected = if pv == "5.7" { 110.0 } else { 128.0 };
+            assert!(
+                (rendered(
+                    preset.adjustments["curves"]["luma"].as_array().unwrap(),
+                    128.0
+                ) - expected)
+                    .abs()
+                    < 0.3
+            );
+            let red = if pv == "5.7" { 150.0 } else { 128.0 };
+            assert!(
+                (rendered(
+                    preset.adjustments["curves"]["red"].as_array().unwrap(),
+                    128.0
+                ) - red)
+                    .abs()
+                    < 0.3
+            );
+        }
+    }
+
+    #[test]
+    fn named_tone_curve_without_points_is_reported() {
+        for (pv, key) in [("5.7", "ToneCurveName"), ("6.7", "ToneCurveName2012")] {
+            let xmp =
+                format!("<rdf:Description crs:ProcessVersion=\"{pv}\" crs:{key}=\"Custom\"/>");
+            assert!(
+                super::convert_xmp_to_preset(&xmp)
+                    .unwrap()
+                    .adjustments
+                    .get("curves")
+                    .is_none()
+            );
+            assert!(super::tone_curve_warning(&xmp).unwrap().contains("Custom"));
+        }
+    }
+
     #[test]
     fn legacy_process_exposure_and_warnings_from_lua_and_xmp() {
         for version in [Some("5.0"), Some("5.7"), None] {

@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- Old Lightroom edits keep their tone curve on import.
+
 - Values that round to zero no longer show a minus sign in sliders, Series Match or merge readouts.
 
 - **XMP titles with translations save reliably.** Edits now handle stale duplicate properties and quoted `>` qualifiers while preserving nested foreign content.
