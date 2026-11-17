@@ -9,7 +9,8 @@
  * `wheelDelta = -3 × delta` (measured 2026-11-16 with CoreGraphics events in
  * a WKWebView, notes: reference/ux-macos-review-2026-11-16 UXR4M-01). So the
  * desktop app reads AppKit's own answer (`hasPreciseScrollingDeltas`) and
- * hands it to the page whenever it changes (`window.__rawtonicScrollPrecise`,
+ * hands it to the page when it changes, at each trackpad gesture's start and
+ * at least twice a second (`window.__rawtonicScrollPrecise`,
  * src-tauri/src/window_customizer.rs `precise_scroll`). Where no such report
  * exists (Windows, Linux, the browser dev server) the Controls preference
  * "Input Device Optimization" decides, and a wheel with ctrlKey — what

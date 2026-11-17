@@ -4125,7 +4125,7 @@
         "clear": "Usuń ochronę",
         "feather": "Wtapianie",
         "featherAria": "Wtapianie pędzla ochronnego",
-        "hint": "Zamaluj piegi, znamiona i pieprzyki, które retusz ma pozostawić bez zmian. Przytrzymaj Alt (Option), aby wymazać; [ i ] zmieniają rozmiar.",
+        "hint": "Zamaluj piegi, znamiona i pieprzyki, które retusz ma pozostawić bez zmian. Przytrzymaj Alt (Option), aby wymazać; {{smaller}} i {{larger}} zmieniają rozmiar.",
         "modes": {
           "erase": "Wymaż",
           "off": "Wyłączony",

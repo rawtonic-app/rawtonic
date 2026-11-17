@@ -563,6 +563,31 @@ describe('Capture One tool keys', () => {
     fireEvent.keyDown(document.body, { key: ']', altKey: true });
     expect(editor().brushSettings?.size).toBe(stepBrushSize(size, 1));
   });
+
+  it('size the brush with the keys bound to Rotate on a Swiss or German layout, never turning the photograph', () => {
+    // MSMOKE1 (Swiss German Mac): the physical [ ] keys type ü and ¨; they
+    // carry Rotate left/right, which turned the photo (a History step) while
+    // the brush was active.
+    withLinearLayer();
+    workspace();
+    const rotate = vi.fn();
+    window.addEventListener('keydown', rotate);
+    fireEvent.click(screen.getByRole('button', { name: 'Brush' }));
+    const size = editor().brushSettings?.size ?? 50;
+    const recipe = editor().adjustments;
+    fireEvent.keyDown(document.body, { key: '¨', code: 'BracketRight' });
+    expect(editor().brushSettings?.size).toBe(stepBrushSize(size, 1));
+    fireEvent.keyDown(document.body, { key: 'ü', code: 'BracketLeft' });
+    fireEvent.keyDown(document.body, { key: 'ü', code: 'BracketLeft' });
+    expect(editor().brushSettings?.size).toBe(stepBrushSize(stepBrushSize(stepBrushSize(size, 1), -1), -1));
+    // With Shift (è on that layout) the hardness, as Shift+[ elsewhere.
+    const hardness = editor().brushSettings?.hardness ?? 50;
+    fireEvent.keyDown(document.body, { key: 'è', code: 'BracketLeft', shiftKey: true });
+    expect(editor().brushSettings?.hardness).toBe(Math.max(0, hardness - 10));
+    expect(rotate).not.toHaveBeenCalled();
+    expect(editor().adjustments).toBe(recipe);
+    window.removeEventListener('keydown', rotate);
+  });
 });
 
 describe('layer selector in the viewer bar', () => {

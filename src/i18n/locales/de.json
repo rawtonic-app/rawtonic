@@ -3798,7 +3798,7 @@
         "clear": "Schutz entfernen",
         "feather": "Weiche Kante",
         "featherAria": "Weiche Kante des Schutzpinsels",
-        "hint": "Male über Sommersprossen, Leberflecke und Schönheitsflecke, die die Retusche unverändert lassen soll. Alt (Wahl) gedrückt halten zum Radieren; [ und ] ändern die Größe.",
+        "hint": "Male über Sommersprossen, Leberflecke und Schönheitsflecke, die die Retusche unverändert lassen soll. Alt (Wahl) gedrückt halten zum Radieren; {{smaller}} und {{larger}} ändern die Größe.",
         "modes": {
           "erase": "Radieren",
           "off": "Aus",

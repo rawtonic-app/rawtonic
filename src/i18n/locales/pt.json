@@ -3962,7 +3962,7 @@
         "clear": "Remover proteção",
         "feather": "Suavização",
         "featherAria": "Suavização do pincel de proteção",
-        "hint": "Pinte sobre sardas, sinais e pintas que o retoque deve deixar como estão. Mantenha Alt (Option) para apagar; [ e ] alteram o tamanho.",
+        "hint": "Pinte sobre sardas, sinais e pintas que o retoque deve deixar como estão. Mantenha Alt (Option) para apagar; {{smaller}} e {{larger}} alteram o tamanho.",
         "modes": {
           "erase": "Apagar",
           "off": "Desligado",

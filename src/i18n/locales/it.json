@@ -3962,7 +3962,7 @@
         "clear": "Rimuovi protezione",
         "feather": "Sfumatura",
         "featherAria": "Sfumatura del pennello di protezione",
-        "hint": "Dipingi su lentiggini, nei e segni di bellezza che il ritocco deve lasciare come sono. Tieni premuto Alt (Opzione) per cancellare; [ e ] cambiano la dimensione.",
+        "hint": "Dipingi su lentiggini, nei e segni di bellezza che il ritocco deve lasciare come sono. Tieni premuto Alt (Opzione) per cancellare; {{smaller}} e {{larger}} cambiano la dimensione.",
         "modes": {
           "erase": "Cancella",
           "off": "Disattivato",

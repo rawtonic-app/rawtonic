@@ -3962,7 +3962,7 @@
         "clear": "Treu la protecció",
         "feather": "Difuminat",
         "featherAria": "Difuminat del pinzell de protecció",
-        "hint": "Pinta sobre pigues, lunars i marques de bellesa que el retoc ha de deixar com són. Mantén Alt (Opció) per esborrar; [ i ] canvien la mida.",
+        "hint": "Pinta sobre pigues, lunars i marques de bellesa que el retoc ha de deixar com són. Mantén Alt (Opció) per esborrar; {{smaller}} i {{larger}} canvien la mida.",
         "modes": {
           "erase": "Esborra",
           "off": "Desactivat",

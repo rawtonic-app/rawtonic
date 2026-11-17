@@ -364,37 +364,69 @@ mod animated_frames {
 /// 2026-11-16, notes: reference/ux-macos-review-2026-11-16 UXR4M-01), and
 /// the viewer pans for the one and zooms for the other
 /// (src/utils/viewerWheel.ts). The web view's `scrollWheel:` sets
-/// `window.__rawtonicScrollPrecise` before handing the event on, only when
-/// the kind changes; the page may still see that change one event late.
+/// `window.__rawtonicScrollPrecise` before handing the event on: when the
+/// kind or the web view changes, at the start of every trackpad gesture and
+/// at least every `RESEND` otherwise. A page that lost the report (reloaded,
+/// or a script dropped while it loaded) would else read every trackpad
+/// scroll as a mouse wheel until the device changed (MSMOKE1 2026-11-16,
+/// notes: parity-gaps/G62; UXF5). The page may still see a change one
+/// event late.
 #[cfg(target_os = "macos")]
 mod precise_scroll {
     use objc::runtime::{BOOL, Class, NO, Object, Sel, class_addMethod, object_getClass};
     use objc::{msg_send, sel, sel_impl};
+    use std::cell::RefCell;
     use std::sync::OnceLock;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
 
     /// The web view class's superclass, whose `scrollWheel:` handles the event.
     static SUPERCLASS: OnceLock<usize> = OnceLock::new();
-    /// The web view and kind (1 = wheel, 2 = precise) last told to a page.
-    static LAST_VIEW: AtomicUsize = AtomicUsize::new(0);
-    static LAST_KIND: AtomicUsize = AtomicUsize::new(0);
+    /// A mouse wheel's report is repeated after this long without one.
+    pub(super) const RESEND: Duration = Duration::from_millis(500);
+    /// `NSEventPhaseBegan` and `NSEventPhaseMayBegin`: fingers on the trackpad.
+    const GESTURE_START: usize = 1 | 32;
 
-    /// The script for a kind change, if the page has not been told it yet.
-    pub(super) fn script_for(
+    thread_local! {
+        /// What the page was last told (AppKit calls on the main thread).
+        static REPORTS: RefCell<Reports> = RefCell::new(Reports::default());
+    }
+
+    /// The last report: to which web view, which kind, when.
+    #[derive(Default)]
+    pub(super) struct Reports {
         view: usize,
-        precise: bool,
-        last_view: &AtomicUsize,
-        last_kind: &AtomicUsize,
-    ) -> Option<&'static str> {
-        let kind = if precise { 2 } else { 1 };
-        let view_changed = last_view.swap(view, Ordering::Relaxed) != view;
-        let kind_changed = last_kind.swap(kind, Ordering::Relaxed) != kind;
-        let changed = view_changed || kind_changed;
-        changed.then_some(if precise {
-            "window.__rawtonicScrollPrecise=true"
-        } else {
-            "window.__rawtonicScrollPrecise=false"
-        })
+        precise: Option<bool>,
+        at: Option<Instant>,
+    }
+
+    impl Reports {
+        /// The script for this event, if the page is to be told now.
+        pub(super) fn script_for(
+            &mut self,
+            view: usize,
+            precise: bool,
+            phase: usize,
+            now: Instant,
+        ) -> Option<&'static str> {
+            let gesture_start = precise && phase & GESTURE_START != 0;
+            let due = self
+                .at
+                .is_none_or(|at| now.saturating_duration_since(at) >= RESEND);
+            let tell = self.view != view || self.precise != Some(precise) || gesture_start || due;
+            if !tell {
+                return None;
+            }
+            *self = Self {
+                view,
+                precise: Some(precise),
+                at: Some(now),
+            };
+            Some(if precise {
+                "window.__rawtonicScrollPrecise=true"
+            } else {
+                "window.__rawtonicScrollPrecise=false"
+            })
+        }
     }
 
     extern "C" fn scroll_wheel(this: &Object, _: Sel, event: *mut Object) {
@@ -407,7 +439,25 @@ mod precise_scroll {
             if !event.is_null() {
                 let precise: BOOL = msg_send![event, hasPreciseScrollingDeltas];
                 let view = this as *const Object as usize;
-                if let Some(script) = script_for(view, precise != NO, &LAST_VIEW, &LAST_KIND) {
+                let phase: usize = msg_send![event, phase];
+                // QA builds: what AppKit delivered, to set beside what the
+                // page received (`ui.wheel_log`, docs/testing/qa-control.md).
+                #[cfg(feature = "qa-control")]
+                {
+                    let momentum: usize = msg_send![event, momentumPhase];
+                    let dx: f64 = msg_send![event, scrollingDeltaX];
+                    let dy: f64 = msg_send![event, scrollingDeltaY];
+                    log::info!(
+                        "[QA] scrollWheel precise={} phase={phase} momentum={momentum} dx={dx} dy={dy}",
+                        precise != NO
+                    );
+                }
+                let script = REPORTS.with(|reports| {
+                    reports
+                        .borrow_mut()
+                        .script_for(view, precise != NO, phase, Instant::now())
+                });
+                if let Some(script) = script {
                     let source = objc2_foundation::NSString::from_str(script);
                     let source = objc2::rc::Retained::as_ptr(&source)
                         .cast_mut()
@@ -558,24 +608,30 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn the_page_hears_of_a_scroll_device_only_when_it_changes() {
-        use super::precise_scroll::script_for;
-        use std::sync::atomic::AtomicUsize;
-        let (view, kind) = (AtomicUsize::new(0), AtomicUsize::new(0));
-        assert_eq!(
-            script_for(7, true, &view, &kind),
-            Some("window.__rawtonicScrollPrecise=true")
-        );
-        assert_eq!(script_for(7, true, &view, &kind), None);
-        assert_eq!(
-            script_for(7, false, &view, &kind),
-            Some("window.__rawtonicScrollPrecise=false")
-        );
-        assert_eq!(script_for(7, false, &view, &kind), None);
+    fn the_page_hears_of_a_scroll_device_when_it_changes_and_at_each_gesture() {
+        use super::precise_scroll::{RESEND, Reports};
+        const TRUE: Option<&str> = Some("window.__rawtonicScrollPrecise=true");
+        const FALSE: Option<&str> = Some("window.__rawtonicScrollPrecise=false");
+        let t = Instant::now();
+        let ms = |n: u64| t + Duration::from_millis(n);
+        let mut reports = Reports::default();
+        // A trackpad gesture as AppKit sends it (MSMOKE1 recording):
+        // began, changed ×3, ended, then momentum without a phase.
+        assert_eq!(reports.script_for(7, true, 1, ms(0)), TRUE);
+        assert_eq!(reports.script_for(7, true, 4, ms(16)), None);
+        assert_eq!(reports.script_for(7, true, 4, ms(32)), None);
+        assert_eq!(reports.script_for(7, true, 8, ms(48)), None);
+        assert_eq!(reports.script_for(7, true, 0, ms(64)), None);
+        // The next gesture tells the page again: a page that reloaded
+        // since, or dropped the script while loading, learns it at once.
+        assert_eq!(reports.script_for(7, true, 32, ms(100)), TRUE);
+        assert_eq!(reports.script_for(7, true, 1, ms(110)), TRUE);
+        // A mouse wheel: at the change, then again after `RESEND`.
+        assert_eq!(reports.script_for(7, false, 0, ms(200)), FALSE);
+        assert_eq!(reports.script_for(7, false, 0, ms(230)), None);
+        let later = 200 + RESEND.as_millis() as u64;
+        assert_eq!(reports.script_for(7, false, 0, ms(later)), FALSE);
         // Another web view's page has not been told yet.
-        assert_eq!(
-            script_for(9, false, &view, &kind),
-            Some("window.__rawtonicScrollPrecise=false")
-        );
+        assert_eq!(reports.script_for(9, false, 0, ms(later + 1)), FALSE);
     }
 }

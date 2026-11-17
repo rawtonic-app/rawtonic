@@ -3962,7 +3962,7 @@
         "clear": "Effacer la protection",
         "feather": "Contour progressif",
         "featherAria": "Contour progressif du pinceau de protection",
-        "hint": "Peignez sur les taches de rousseur, grains de beauté et mouches que la retouche doit laisser intacts. Maintenez Alt (Option) pour effacer ; [ et ] changent la taille.",
+        "hint": "Peignez sur les taches de rousseur, grains de beauté et mouches que la retouche doit laisser intacts. Maintenez Alt (Option) pour effacer ; {{smaller}} et {{larger}} changent la taille.",
         "modes": {
           "erase": "Effacer",
           "off": "Désactivé",

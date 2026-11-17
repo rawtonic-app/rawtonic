@@ -11,6 +11,7 @@ import { submitPhotoWrite } from '../utils/photoWrites';
 import { followRenamedPaths } from '../utils/pathKeyedState';
 import { useDuplicatesDialog } from '../utils/duplicates';
 import '../i18n';
+import i18n from 'i18next';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => undefined) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
@@ -81,6 +82,26 @@ it('keeps an export failure under Needs attention with Try again and the photogr
     .getState()
     .setExportQueue({ jobs: [job({ state: 'failed', done: 2, failed: 1, failures })], held: true });
   expect(entry('export:j1')).toBeUndefined();
+});
+
+it('says an export interrupted at the last quit in the interface language, though reported before it was applied', async () => {
+  // At launch the queue's first snapshot arrives while the page is still in
+  // English; the macOS language follows (MSMOKE1: German UI, English entry).
+  useProcessStore.getState().setExportQueue({ jobs: [job({ state: 'interrupted', done: 1 })], held: true });
+  expect(entry('export:j1')).toMatchObject({ status: 'warning', title: 'Export interrupted: 3 photos as JPG' });
+  try {
+    await i18n.changeLanguage('de');
+    const shown = entry('export:j1')!;
+    expect(shown.title).toBe('Export unterbrochen: 3 photos as JPG');
+    expect(shown.actions?.map((a) => a.label)).toEqual(['Fortsetzen']);
+
+    // Dismissed, it stays dismissed when the language changes again.
+    useActivityStore.getState().dismiss('export:j1');
+    await i18n.changeLanguage('en');
+    expect(entry('export:j1')).toBeUndefined();
+  } finally {
+    await i18n.changeLanguage('en');
+  }
 });
 
 it('offers no Try again for a failed Edit With render: it is never resumed', () => {

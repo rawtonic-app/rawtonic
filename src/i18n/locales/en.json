@@ -3798,7 +3798,7 @@
         "clear": "Clear protection",
         "feather": "Feather",
         "featherAria": "Protection brush feather",
-        "hint": "Paint over freckles, moles and beauty marks the retouch should leave as they are. Hold Alt (Option) to erase; [ and ] change the size.",
+        "hint": "Paint over freckles, moles and beauty marks the retouch should leave as they are. Hold Alt (Option) to erase; {{smaller}} and {{larger}} change the size.",
         "modes": {
           "erase": "Erase",
           "off": "Off",
