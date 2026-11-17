@@ -869,18 +869,21 @@ fn accept(queue: &Queue, held: &mut VecDeque<HeldDecode>, mut decoded: HeldDecod
 
 /// Lets decodes not written yet go, the farthest from the primary first,
 /// until the held ones fit `budget`; each back to the front of `todo`
-/// (decoded again later). Whether any went.
+/// (decoded again later). The oldest one not written stays: it is written
+/// next (`Step::Write`) and may go after, so a full budget never decodes
+/// and drops the same photograph over and over. Whether any went.
 fn let_unwritten_go(
     held: &mut VecDeque<HeldDecode>,
     todo: &mut VecDeque<String>,
     budget: usize,
 ) -> bool {
     let before = held.len();
+    let written_next = held.iter().find(|h| !h.written).map(|h| h.key.clone());
     while held_bytes(held) > budget
         && let Some(at) = held
             .iter()
             .enumerate()
-            .filter(|(_, h)| !h.written)
+            .filter(|(_, h)| !h.written && Some(&h.key) != written_next.as_ref())
             .max_by_key(|(_, h)| h.rank)
             .map(|(at, _)| at)
     {
@@ -1722,22 +1725,29 @@ pub(crate) mod tests {
     fn above_a_shrunk_budget_unwritten_decodes_go_the_farthest_first() {
         const UNIT: usize = 12 << 20;
         let mut all: VecDeque<HeldDecode> = [
-            held("a", 1, false, 1),
+            held("w", 1, true, 0),
             held("b", 1, false, 3),
+            held("a", 1, false, 1),
             held("c", 1, false, 2),
         ]
         .into();
         let mut todo: VecDeque<String> = paths(&["d"]).into();
         // Within the budget: nothing goes.
-        assert!(!let_unwritten_go(&mut all, &mut todo, 3 * UNIT));
-        // Room for one: b (farthest), then c go, made again later, the
-        // nearer first.
+        assert!(!let_unwritten_go(&mut all, &mut todo, 4 * UNIT));
+        // Over it: c, then a go (the farthest first; made again later, the
+        // nearer first). b, the oldest not written, stays though farthest:
+        // it is written next. The written one is make_room's to let go.
         assert!(let_unwritten_go(&mut all, &mut todo, UNIT));
-        assert_eq!(
-            all.iter().map(|h| h.key.as_str()).collect::<Vec<_>>(),
-            ["a"]
-        );
-        assert_eq!(Vec::from(todo), paths(&["c", "b", "d"]));
+        let keys =
+            |all: &VecDeque<HeldDecode>| all.iter().map(|h| h.key.clone()).collect::<Vec<_>>();
+        assert_eq!(keys(&all), ["w", "b"]);
+        assert_eq!(Vec::from(todo.clone()), paths(&["a", "c", "d"]));
+        // A full budget with photographs still queued: the one not written
+        // stays and is written next instead of another decode, so no
+        // photograph is decoded and dropped over and over.
+        assert!(!let_unwritten_go(&mut all, &mut todo, 0));
+        assert_eq!(keys(&all), ["w", "b"]);
+        assert!(write_next(true, held_bytes(&all), true, UNIT, UNIT));
     }
 
     #[test]
