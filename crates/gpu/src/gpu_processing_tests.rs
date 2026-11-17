@@ -21603,8 +21603,10 @@ fn an_export_rebuilds_colour_noise_level_1_in_bands_bit_exactly() {
         let (kept, banded) = (packed(&kept), packed(&banded));
         assert_eq!(kept.len(), lw as usize * lh as usize * 8);
         let differing = kept
-            .chunks_exact(8)
-            .zip(banded.chunks_exact(8))
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .zip(banded.as_chunks::<8>().0)
             .filter(|(a, b)| a != b)
             .count();
         assert_eq!(differing, 0, "amount {amount}: {differing} texels differ");
