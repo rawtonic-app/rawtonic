@@ -416,6 +416,36 @@ impl MultiView {
         };
     }
 
+    /// Keeps `rgba` (display-encoded RGBA8, `width` × `height`, the whole
+    /// photograph as shown) as `path`'s stand-in (key 0, shown to fit) until
+    /// its cell's own render replaces it: a cached image, so that a cell
+    /// shows its photograph at once rather than the background. Never over a
+    /// texture the cell already has. Whether it was kept.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn stand_in(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bindings: &DisplayBindings,
+        path: &str,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> bool {
+        if self.cell(path).is_none()
+            || self.primary() == Some(path)
+            || self.textures.contains_key(path)
+            || width == 0
+            || height == 0
+            || rgba.len() != width as usize * height as usize * 4
+        {
+            return false;
+        }
+        let texture = Self::uploaded_texture(device, queue, bindings, width, height, rgba);
+        self.textures.insert(path.to_string(), texture);
+        true
+    }
+
     /// The live frame of `path` (the primary's preview, `width` × `height`
     /// of `source`) stays on screen as its cell's frame when another
     /// photograph becomes the primary, until the cell's own render replaces
@@ -946,6 +976,64 @@ mod tests {
         let pixels = present(&gpu, &multi, None);
         assert!(close(pixel(&pixels, 105, 50), [255, 255, 0]));
         assert!(close(pixel(&pixels, 35, 50), [255, 0, 0]));
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; a cached image stands in until the cell's render"]
+    fn a_cached_image_stands_in_for_a_cell_until_its_render() {
+        let gpu = offscreen();
+        let mut multi = layout(&gpu);
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        let magenta = solid(10, 8, [255, 0, 255]);
+        let stand_in = |multi: &mut MultiView, path: &str| {
+            multi.stand_in(&gpu.device, &gpu.queue, &bindings, path, 10, 8, &magenta)
+        };
+        assert!(stand_in(&mut multi, "pending"));
+        assert_eq!(
+            multi.texture_key("pending"),
+            Some(0),
+            "waits for its own render"
+        );
+        assert!(!stand_in(&mut multi, "a"), "never over a cell's texture");
+        assert!(
+            !stand_in(&mut multi, "primary"),
+            "the primary is drawn live"
+        );
+        assert!(!stand_in(&mut multi, "gone"), "not shown");
+        assert!(
+            !multi.stand_in(&gpu.device, &gpu.queue, &bindings, "c", 10, 9, &magenta),
+            "a size its pixels do not have"
+        );
+        let pixels = present(&gpu, &multi, None);
+        assert!(
+            close(pixel(&pixels, 170, 75), [255, 0, 255]),
+            "stand-in shown"
+        );
+        assert!(
+            close(pixel(&pixels, 35, 50), [255, 0, 0]),
+            "a keeps its render"
+        );
+        // The cell's own render replaces it in place.
+        multi.upload(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "pending",
+            7,
+            whole(10, 8),
+            CellLayer::Whole,
+            10,
+            8,
+            &solid(10, 8, [0, 255, 255]),
+        );
+        assert_eq!(multi.texture_key("pending"), Some(7));
+        assert!(!stand_in(&mut multi, "pending"), "never over its render");
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 170, 75), [0, 255, 255]));
     }
 
     #[test]

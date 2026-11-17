@@ -249,7 +249,7 @@ fn show_cells(
     };
     let worker = worker(app_handle);
     let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let zoomed = {
+    let (zoomed, bare) = {
         let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
         let Some(display) = display.as_mut() else {
             return false;
@@ -267,7 +267,20 @@ fn show_cells(
                 .collect(),
         );
         display.render(&context.device, &context.queue);
-        display.multi_view().is_zoomed()
+        let multi = display.multi_view();
+        let bare: Vec<(String, (u32, u32))> = cells
+            .iter()
+            .filter(|cell| primary.as_deref() != Some(cell.path.as_str()))
+            .filter(|cell| multi.texture_key(&cell.path).is_none())
+            .map(|cell| {
+                let [_, _, width, height] = cell.area;
+                (
+                    cell.path.clone(),
+                    (width.ceil() as u32, height.ceil() as u32),
+                )
+            })
+            .collect();
+        (multi.is_zoomed(), bare)
     };
     if cells.is_empty() {
         *worker.memory.lock().unwrap_or_else(|e| e.into_inner()) = Memory::default();
@@ -299,12 +312,93 @@ fn show_cells(
     if file_changed || zoomed {
         refresh_regions(&region_worker(app_handle), file_changed, zoomed);
     }
+    // Before the cells' renders start: theirs would slow these reads.
+    show_stand_ins(app_handle, &context, bare);
     worker.sender.send(Job {
         generation,
         primary,
         cells,
     });
     true
+}
+
+/// Threads that read and decode the cached thumbnails standing in for cells
+/// (one per cell of a 12-up).
+const STAND_IN_THREADS: usize = 12;
+
+/// The cells that have nothing to show yet (`paths`, with their cell's
+/// size in device px) show their
+/// photograph's cached thumbnail at once, all in one frame (as Lightroom's
+/// Survey shows its stored previews), until their own render replaces it in
+/// place; a cell without one stays empty until then. Nothing is generated,
+/// and a cell rendered meanwhile keeps its render.
+fn show_stand_ins(
+    app_handle: &tauri::AppHandle,
+    context: &GpuContext,
+    paths: Vec<(String, (u32, u32))>,
+) {
+    if paths.is_empty() {
+        return;
+    }
+    let start = Instant::now();
+    let count = paths.len();
+    let space = context.display_space;
+    let queue = Mutex::new(paths.into_iter());
+    let stills = Mutex::new(Vec::with_capacity(count));
+    std::thread::scope(|scope| {
+        for _ in 0..STAND_IN_THREADS.min(count) {
+            scope.spawn(|| {
+                loop {
+                    let Some((path, area)) = queue.lock().unwrap_or_else(|e| e.into_inner()).next()
+                    else {
+                        return;
+                    };
+                    // Unframed: framing a camera JPEG reads the RAW (up to
+                    // ~0.1 s); the cell's render replaces it in place.
+                    let still = crate::editor_preview::thumbnail_still(
+                        app_handle,
+                        &path,
+                        space,
+                        false,
+                        Some(area),
+                    );
+                    match still {
+                        Some(still) => stills
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push((path, still)),
+                        None => log::info!("[multi_view] {path}: no cached thumbnail to stand in"),
+                    }
+                }
+            });
+        }
+    });
+    let stills = stills.into_inner().unwrap_or_else(|e| e.into_inner());
+    let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(display) = display.as_mut() else {
+        return;
+    };
+    let mut shown = 0;
+    for (path, still) in &stills {
+        let (width, height) = still.image.dimensions();
+        if display.stand_in_cell(
+            &context.device,
+            &context.queue,
+            path,
+            width,
+            height,
+            still.image.as_raw(),
+        ) {
+            shown += 1;
+        }
+    }
+    if shown > 0 {
+        display.render(&context.device, &context.queue);
+    }
+    log::info!(
+        "[multi_view] {shown} of {count} cells show their cached thumbnail after {:.1} ms",
+        start.elapsed().as_secs_f64() * 1e3
+    );
 }
 
 /// CPU memory of the prepared bases (and parametric mask sources) kept so

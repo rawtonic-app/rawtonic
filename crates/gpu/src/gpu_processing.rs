@@ -3058,6 +3058,24 @@ impl WgpuDisplay {
         self.multi = multi;
     }
 
+    /// Shows a cached image of `path`'s whole photograph (display-encoded
+    /// RGBA8) in its cell until the cell's own render arrives; never over a
+    /// texture the cell has (`MultiView::stand_in`). Whether it was kept.
+    pub fn stand_in_cell(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> bool {
+        let mut multi = std::mem::take(&mut self.multi);
+        let kept = multi.stand_in(device, queue, &self.bindings(), path, width, height, rgba);
+        self.multi = multi;
+        kept
+    }
+
     /// Copies a developed whole photograph (`source`, its top left
     /// `width` × `height`) on the GPU as `path`'s cell frame, rendered for
     /// `key` and covering `extent` (the second window: the main window's
