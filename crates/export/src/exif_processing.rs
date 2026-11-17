@@ -244,9 +244,25 @@ pub fn fmt_date_str(s: String) -> String {
 /// display, and readers such as ImageIO drop dates in that form.
 pub fn exif_datetime(s: &str) -> String {
     match parse_creation_datetime(s) {
-        Some(dt) => dt.strftime("%Y:%m:%d %H:%M:%S").to_string(),
+        Some(dt) => {
+            let mut text = dt.strftime("%Y:%m:%d %H:%M:%S").to_string();
+            // A leap second stays one: jiff reads `:60` as `:59`, chrono
+            // kept it (DEPC1).
+            if dt.second() == 59 && leap_second(clean_creation_datetime_str(s)) {
+                text.replace_range(text.len() - 2.., "60");
+            }
+            text
+        }
         None => clean_creation_datetime_str(s).to_string(),
     }
+}
+
+/// `text` (a date and time) says second 60.
+fn leap_second(text: &str) -> bool {
+    text.split([' ', 'T'])
+        .nth(1)
+        .and_then(|time| time.split(':').nth(2))
+        .is_some_and(|seconds| seconds.get(..2) == Some("60"))
 }
 
 pub fn normalize_creation_datetime(s: &str) -> Option<String> {
@@ -2021,6 +2037,19 @@ pub fn record_lightroom_orientation(recipe: &mut Value, source: &Path) {
 
 #[cfg(test)]
 mod tests {
+
+    /// chrono kept a leap second when it wrote the EXIF form (DEPC1).
+    #[test]
+    fn a_leap_second_is_written_as_it_was_read() {
+        for (kept, written) in [
+            ("2016:12:31 23:59:60", "2016:12:31 23:59:60"),
+            ("2016-12-31 23:59:60", "2016:12:31 23:59:60"),
+            ("2016-12-31T23:59:60.5", "2016:12:31 23:59:60"),
+            ("2016:12:31 23:59:59", "2016:12:31 23:59:59"),
+        ] {
+            assert_eq!(super::exif_datetime(kept), written, "{kept}");
+        }
+    }
 
     /// chrono 0.4's readings of local wall times at both daylight-saving
     /// changes of 2026 in Zurich, for each of its backends (DEPC1). Unix
