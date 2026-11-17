@@ -237,6 +237,9 @@ impl Entry {
         );
         fs::create_dir_all(&self.dir)
             .with_context(|| format!("creating {}", self.dir.display()))?;
+        // Before the space check: an interrupted save of any key (an older
+        // runtime or model) may be what fills the disk.
+        sweep_staging(&self.dir, SystemTime::now());
         drop(
             rawtonic_fs::temp::file_for(&self.manifest_path())
                 .with_context(|| format!("{} takes no file", self.dir.display()))?,
@@ -506,6 +509,25 @@ fn sync_file(path: &Path) -> io::Result<()> {
 fn touch(path: &Path, now: SystemTime) {
     if let Ok(file) = fs::OpenOptions::new().write(true).open(path) {
         let _ = file.set_modified(now);
+    }
+}
+
+/// Removes the stale temporary files of every entry's saves in `dir`
+/// (`<prefix>K…` with `K` 32 hex digits): Storage keeps dot-prefixed
+/// staging files, and an older key's are never swept by its own saves.
+fn sweep_staging(dir: &Path, now: SystemTime) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let ours = name
+            .strip_prefix(rawtonic_fs::temp::TEMP_PREFIX)
+            .and_then(|rest| rest.get(..32))
+            .is_some_and(|key| key.bytes().all(|b| b.is_ascii_hexdigit()));
+        if ours && !is_linked(dir) {
+            let _ = rawtonic_fs::temp::remove_stale(&entry.path(), now);
+        }
     }
 }
 
@@ -853,6 +875,20 @@ mod tests {
         // Another job's old temporary file in the cache folder stays.
         let cache = dir.join("cache");
         fs::create_dir(&cache).unwrap();
+
+        // An older key's stale staging file goes with the next save of any
+        // key; one not yet stale stays.
+        let old_key = cache.join(format!(
+            "{}{}-2.onnx-part",
+            rawtonic_fs::temp::TEMP_PREFIX,
+            "0123456789abcdef0123456789abcdef"
+        ));
+        fs::write(&old_key, b"old").unwrap();
+        sweep_staging(&cache, SystemTime::now());
+        assert!(old_key.exists());
+        sweep_staging(&cache, SystemTime::now() + rawtonic_fs::temp::STALE_AGE * 2);
+        assert!(!old_key.exists());
+
         let other = cache.join(format!("{}photo.jpg-x", rawtonic_fs::temp::TEMP_PREFIX));
         fs::write(&other, b"other").unwrap();
         let entry = test_entry(&cache, &source, ModelKind::Subject).unwrap();

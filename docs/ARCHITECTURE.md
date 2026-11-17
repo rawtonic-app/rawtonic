@@ -427,7 +427,7 @@ Windows/Linux) checked once against the CPU, CPU fallback, per-model exceptions,
 (external weights, BLAKE3-checked manifest written last) in `Settings::optimized_graphs` (the app: `<cache>/ai-first-runs/onnx-graphs`,
 under the AI cache limit) and later load it with graph optimization off. Output bits measured identical (Mac arm64; x86
 under Rosetta; notes: benchmark-results/aiw2-2026-11-18) for every CPU model of the pack that keeps one; the SigLIP 2
-text encoder, Moebius and Super Resolution (export) keep none, and GPU providers are not cached.
+text encoder, Moebius and the export steps Super Resolution and AI Denoise keep none, and GPU providers are not cached.
 
 
 ### Engine layers
