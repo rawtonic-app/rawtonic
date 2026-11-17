@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Dark native controls and tidier Import actions.** Native select menus and number steppers follow the dark interface, and Import’s Maximize button sits beside Close.
+
 - **Empty Trash keeps photos recoverable.** Sessions and catalogs move their Trash contents to the computer’s Trash, with Undo for each moved entry. If a move fails, the remaining entries stay in the library Trash; permanent deletion requires a separate confirmation with Cancel focused.
 - **Culling while an import runs keeps your place.** When an import ended, the Library switched to Previous Import and emptied the selection, so every rating key pressed after that rated nothing, with no message. If you pressed a key, clicked or scrolled while the import ran, the view, selection and open photo now stay as they are, and the import's notice offers **Show** to open the new photos. A rating, flag or label key with no photo selected now says so.
 - **Rating keys work with on-screen keyboards, remote desktop and automation tools.** Key presses that arrive without the key's physical code (Windows on-screen keyboard, remote desktop, AutoHotkey and other tools that send keys without a scan code) were ignored for the digits, arrows, Home/End, Delete and other named keys, so stars typed with 1–5 were never set while P and X worked. Such a key now acts by the key it typed.
