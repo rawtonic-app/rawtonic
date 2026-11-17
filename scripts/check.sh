@@ -1,6 +1,6 @@
 #!/bin/sh
 # Every quality gate, run locally before a merge into main (the same checks
-# as CI, which runs on Linux after the merge). Stops at the first failure.
+# as Linux CI after the merge). Stops at the first failure.
 # Usage: scripts/check.sh [--quick] [--brief] [--changed] [--bench]
 #   --quick    skip the Rust test suite
 #   --brief    one line per step; a failing step prints only its last 40 lines
@@ -32,6 +32,9 @@ FRONTEND=1; RUST=1; RUST_PKGS=''; DEPS=1; RELAY=1
 # run must start and end on that commit with a clean tree.
 START_HEAD=$(git rev-parse HEAD)
 START_CLEAN=0; [ -n "$(git status --porcelain)" ] || START_CLEAN=1
+if ! python3 scripts/windows_lock_warning.py; then
+  echo "warning: could not inspect Cargo.lock for Windows dependency changes" >&2
+fi
 if [ "$CHANGED" = 1 ]; then
   eval "$(python3 scripts/changed_scope.py)"
   printf 'changed scope: frontend=%s rust=%s deps=%s relay=%s packages=%s\n' \

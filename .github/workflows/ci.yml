@@ -1,21 +1,33 @@
 # Quality gates on Linux after every merge into main (and on demand), and the
-# core and engine crate tests on Windows. Before a merge the same checks run
+# core tests and desktop compile check on Windows. Before a merge the Linux gates run
 # locally: scripts/check.sh (which also runs shellcheck when installed). macOS
 # is checked there.
 name: Quality gates
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/Cargo.toml'
+      - Cargo.lock
+      - 'src-tauri/**'
+      - .github/workflows/ci.yml
+      - rust-toolchain.toml
   workflow_dispatch:
     inputs:
       windows_only:
         description: Run only the Windows core job (for a branch under test)
         type: boolean
         default: false
+      windows_app_only:
+        description: Run only the Windows desktop compile check
+        type: boolean
+        default: false
 # Merges come in bursts; each run checks the whole of main, so a newer push
 # makes the older run redundant (every merge already passed scripts/check.sh).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.windows_only }}-${{ inputs.windows_app_only }}
   cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
@@ -25,7 +37,7 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
 jobs:
   verify:
-    if: ${{ !inputs.windows_only }}
+    if: ${{ github.event_name != 'pull_request' && !inputs.windows_only && !inputs.windows_app_only }}
     runs-on: ubuntu-24.04
     steps:
       # The runner image's preinstalled SDKs we do not use, ~30 GB.
@@ -86,9 +98,9 @@ jobs:
   # The file-safety and core crates on Windows (G77): rename over existing or
   # open files, sharing violations, read-only attributes, reserved names, long
   # paths and the recycle bin behave differently there. GPU tests are
-  # #[ignore]d and stay out; the desktop crate is built by the Windows
-  # installer and QA workflows.
+  # #[ignore]d and stay out.
   windows-core:
+    if: ${{ github.event_name != 'pull_request' && !inputs.windows_app_only }}
     runs-on: windows-2025
     timeout-minutes: 90
     env:
@@ -122,3 +134,21 @@ jobs:
           cargo test --locked --doc
           -p rawtonic-fs -p rawtonic-fileops -p rawtonic-catalog -p rawtonic-ingest
           -p rawtonic-metadata -p rawtonic-naming
+
+  # Check the desktop's dependency features in its own build, as the
+  # installer does. Checking the workspace can unify in additional features.
+  windows-app:
+    if: ${{ !inputs.windows_only || inputs.windows_app_only }}
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
+          rustc --version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-app
+      - name: Check desktop crate
+        run: cargo check -p rawtonic-app --locked --all-targets
