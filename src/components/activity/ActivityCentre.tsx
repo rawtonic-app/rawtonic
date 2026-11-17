@@ -254,12 +254,13 @@ export default function ActivityCentre() {
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-label={`${t('activity.title')}: ${summary}`}
-          title={`${summary}\n${lead.title}`}
+          title={`${summary}${running.length ? `\n${lead.title}` : ''}`}
           onClick={() => setOpen((shown) => !shown)}
         >
           {running.length > 0 && <ProgressRing fraction={runningFraction(running)} />}
           {running.length > 1 && <span className="activity-slot-count">{running.length}</span>}
-          <span className="activity-slot-text">{lead.title}</span>
+          {running.length > 0 && <span className="activity-slot-text">{lead.title}</span>}
+          {attention.length > 0 && <span className="activity-slot-count">{attention.length}</span>}
           {attention.length > 0 && <span className={`activity-dot is-${failure ? 'failure' : 'warning'}`} />}
         </button>
       )}

@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Quieter activity warnings and predictable slider resets.** Warnings stay as a dot and count in the top bar; double-clicking a Develop slider resets it in one undo step. Linux uses the system interface font, and packaged desktop entries offer supported photos in Open With.
+
 - **Dark native controls and tidier Import actions.** Native select menus and number steppers follow the dark interface, and Import’s Maximize button sits beside Close.
 
 - **Empty Trash keeps photos recoverable.** Sessions and catalogs move their Trash contents to the computer’s Trash, with Undo for each moved entry. If a move fails, the remaining entries stay in the library Trash; permanent deletion requires a separate confirmation with Cancel focused.

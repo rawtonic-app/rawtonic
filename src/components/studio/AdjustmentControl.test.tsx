@@ -64,6 +64,113 @@ describe('professional adjustment control', () => {
     fireEvent.pointerUp(slider, { pointerId: 1 });
     expect(change).toHaveBeenLastCalledWith(-3);
   });
+  it('folds both clicks and the reset into one interaction, and settles a single click', () => {
+    vi.useFakeTimers();
+    const commits: number[] = [];
+    let current = 4.55;
+    const interaction = vi.fn((active: boolean) => {
+      if (!active) commits.push(current);
+    });
+    render(
+      <AdjustmentControl
+        label="Exposure"
+        value={current}
+        min={-5}
+        max={5}
+        step={0.01}
+        onChange={(v) => {
+          current = v;
+        }}
+        onInteraction={interaction}
+      />
+    );
+    const slider = screen.getByRole('slider');
+    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(box);
+    slider.setPointerCapture = vi.fn();
+    const click = () => {
+      fireEvent.pointerDown(slider, { button: 0, clientX: 84.5, clientY: 10, pointerId: 1 });
+      fireEvent.pointerUp(slider, { pointerId: 1 });
+    };
+    click();
+    act(() => vi.advanceTimersByTime(100));
+    click();
+    fireEvent.doubleClick(slider);
+    expect(commits).toEqual([0]);
+    expect(interaction.mock.calls).toEqual([[true], [false]]);
+    act(() => vi.advanceTimersByTime(600));
+    expect(commits).toEqual([0]);
+    click();
+    act(() => vi.advanceTimersByTime(500));
+    expect(commits).toEqual([0, 3]);
+  });
+  it('settles a click before a command or another label starts an interaction', () => {
+    vi.useFakeTimers();
+    const interactions: boolean[] = [];
+    render(
+      <AdjustmentControl
+        label="Exposure"
+        value={0}
+        min={-5}
+        max={5}
+        step={0.01}
+        onChange={() => {}}
+        onInteraction={(active) => interactions.push(active)}
+      />
+    );
+    const slider = screen.getByRole('slider');
+    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(box);
+    slider.setPointerCapture = vi.fn();
+    const click = () => {
+      fireEvent.pointerDown(slider, { button: 0, clientX: 84.5, clientY: 10, pointerId: 1 });
+      fireEvent.pointerUp(slider, { pointerId: 1 });
+    };
+    click();
+    fireEvent.keyDown(slider, { key: 'z', ctrlKey: true });
+    expect(interactions).toEqual([true, false]);
+    click();
+    fireEvent.pointerDown(document.body);
+    expect(interactions).toEqual([true, false, true, false]);
+    act(() => vi.advanceTimersByTime(600));
+    expect(interactions).toHaveLength(4);
+  });
+  it('keeps two quick clicks at different positions as separate steps', () => {
+    vi.useFakeTimers();
+    const commits: number[] = [];
+    let current = 0;
+    render(
+      <AdjustmentControl
+        label="Exposure"
+        value={0}
+        min={-5}
+        max={5}
+        step={0.01}
+        onChange={(v) => {
+          current = v;
+        }}
+        onInteraction={(active) => {
+          if (!active) commits.push(current);
+        }}
+      />
+    );
+    const slider = screen.getByRole('slider');
+    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(box);
+    slider.setPointerCapture = vi.fn();
+    for (const x of [84.5, 24.5]) {
+      fireEvent.pointerDown(slider, { button: 0, clientX: x, clientY: 10, pointerId: 1 });
+      fireEvent.pointerUp(slider, { pointerId: 1 });
+    }
+    act(() => vi.advanceTimersByTime(500));
+    expect(commits).toEqual([3, -3]);
+  });
+  it('settles a track click before focus leaves for another control', () => {
+    vi.useFakeTimers();
+    const { slider } = exposure();
+    fireEvent.pointerDown(slider, { button: 0, clientX: 84.5, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(slider, { pointerId: 1 });
+    fireEvent.blur(slider);
+    expect(slider.closest('.adjustment-control')!.classList.contains('is-active')).toBe(false);
+    act(() => vi.advanceTimersByTime(600));
+  });
   it('moves less per pixel the farther the pointer is from the track', () => {
     const { slider, change } = exposure();
     fireEvent.pointerDown(slider, { button: 0, clientX: 54.5, clientY: 10, pointerId: 1 });

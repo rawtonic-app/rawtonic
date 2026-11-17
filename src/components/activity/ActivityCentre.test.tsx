@@ -38,6 +38,9 @@ it('keeps a dot for a failure until it is dismissed, red before amber', () => {
   render(<ActivityCentre />);
   act(() => void store().report('warning', { id: 'w', source: 'xmp', title: '3 XMP not updated' }));
   expect(slot()!.querySelector('.activity-dot.is-warning')).toBeTruthy();
+  expect(slot()!.textContent).toBe('1');
+  expect(slot()!.querySelector('.activity-slot-text')).toBeNull();
+  expect(slot()!.title).toBe('1 item needs attention');
   act(() => void store().report('failure', { id: 'f', source: 'export', title: '1 photo did not export' }));
   expect(slot()!.querySelector('.activity-dot.is-failure')).toBeTruthy();
   expect(slot()!.getAttribute('aria-label')).toBe('Activity: 2 items need attention');
