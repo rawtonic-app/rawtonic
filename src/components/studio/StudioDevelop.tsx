@@ -70,7 +70,8 @@ import StudioProfileBrowser from './StudioProfileBrowser';
 import StudioWhiteBalance from './StudioWhiteBalance';
 import type { CurveChannel, TatTarget } from '../../utils/targetedAdjustment';
 import { pointCurveValue, renderedLuminancePoints, renderedPoints } from '../../utils/pointCurve';
-import StudioHistogram from './StudioHistogram';
+import StudioHistogram, { histogramBins } from './StudioHistogram';
+import { useEditorStoreDom } from '../../hooks/useEditorStoreDom';
 import StudioScopes from './StudioScopes';
 import { PerfProfiler } from '../../hooks/usePerformanceDiagnostics';
 import StudioLayers, { NewLayerButton } from './StudioLayers';
@@ -291,6 +292,42 @@ const SPLIT_LABELS = {
 /** Height of the split handles' strip under the plot, in curve units. */
 const SPLIT_STRIP = 16;
 
+const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.histogram;
+
+/** The `d` of the photo's histogram behind the curve (square-root scale,
+ * 255 × 240), the shown channel's; the RGB and Luminance curves show the
+ * luminance one. Null without one. */
+export function curveHistogramPath(histogram: unknown, channel: string): string | null {
+  const data = histogram as Record<string, unknown> | null;
+  if (!data) return null;
+  const values = histogramBins(
+    channel === 'red' || channel === 'green' || channel === 'blue' ? data[channel] : data.luma
+  );
+  if (!values.length) return null;
+  const max = Math.max(1, ...values);
+  const last = Math.max(1, values.length - 1);
+  return `M0 255 ${values
+    .map((v, i) => `L${((i * 255) / last).toFixed(2)} ${(255 - Math.sqrt(Math.max(0, v) / max) * 240).toFixed(2)}`)
+    .join(' ')} L255 255 Z`;
+}
+
+/** The photo's histogram behind the curve (both reference editors), drawn
+ * from the store without rendering the curve: scope updates arrive ten
+ * times a second during drags (useEditorStoreDom). */
+const CurveHistogram = memo(function CurveHistogram({ channel }: { channel: string }) {
+  const path = useRef<SVGPathElement>(null);
+  useEditorStoreDom(
+    selectHistogram,
+    (histogram) => {
+      const d = curveHistogramPath(histogram, channel);
+      if (d) path.current?.setAttribute('d', d);
+      else path.current?.removeAttribute('d');
+    },
+    [channel]
+  );
+  return <path ref={path} className="curve-histogram" data-channel={channel === 'luminance' ? 'luma' : channel} />;
+});
+
 export function PointCurve({
   curves,
   region,
@@ -354,7 +391,6 @@ export function PointCurve({
     onInteraction(false);
   };
   const [splitEdit, setSplitEdit] = useState<SplitKey | null>(null);
-  const histogram = useEditorStore((s) => s.histogram);
   // Curves without a Luminance curve start it neutral.
   const points = dragged ??
     curves[channel] ?? [
@@ -393,18 +429,6 @@ export function PointCurve({
       }).join(' '),
     [rendered]
   );
-  // The photo's histogram behind the curve (both reference editors), the
-  // shown channel's; the RGB and Luminance curves show the luminance one.
-  const histogramValues =
-    histogram && (channel === 'red' || channel === 'green' || channel === 'blue' ? histogram[channel] : histogram.luma);
-  const histogramPath = useMemo(() => {
-    if (!histogramValues?.length) return null;
-    const max = Math.max(1, ...histogramValues);
-    const last = Math.max(1, histogramValues.length - 1);
-    return `M0 255 ${histogramValues
-      .map((v, i) => `L${((i * 255) / last).toFixed(2)} ${(255 - Math.sqrt(Math.max(0, v) / max) * 240).toFixed(2)}`)
-      .join(' ')} L255 255 Z`;
-  }, [histogramValues]);
   const splits = channel === 'luma' && region && onRegionChange ? region : null;
   const setSplit = (key: SplitKey, value: number) => {
     if (!region || !onRegionChange) return;
@@ -500,13 +524,7 @@ export function PointCurve({
         onPointerCancel={end}
         onLostPointerCapture={end}
       >
-        {histogramPath && (
-          <path
-            d={histogramPath}
-            className="curve-histogram"
-            data-channel={channel === 'luminance' ? 'luma' : channel}
-          />
-        )}
+        <CurveHistogram channel={channel} />
         {[64, 128, 192].map((p) => (
           <g key={p} className="curve-grid">
             <line x1={p} x2={p} y1="0" y2="255" />

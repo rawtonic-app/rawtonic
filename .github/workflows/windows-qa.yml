@@ -7,6 +7,11 @@
 name: Windows QA build
 on:
   workflow_dispatch:
+    inputs:
+      profiling:
+        description: Also build performance-profiling (timing records in the app log, the frontend's drag records)
+        type: boolean
+        default: false
 jobs:
   qa-build:
     runs-on: windows-2025
@@ -47,7 +52,12 @@ jobs:
         run: |
           $cfg = Join-Path $env:RUNNER_TEMP 'qa-config.json'
           [IO.File]::WriteAllText($cfg, (@{ identifier = 'cc.rawtonic.qa'; productName = 'Rawtonic QA' } | ConvertTo-Json))
-          npm run tauri -- build --no-bundle --ci --config $cfg --features qa-control -- --locked
+          $features = 'qa-control'
+          if ('${{ inputs.profiling }}' -eq 'true') {
+            $features = 'qa-control,performance-profiling'
+            $env:VITE_RAWTONIC_PERF = '1'
+          }
+          npm run tauri -- build --no-bundle --ci --config $cfg --features $features -- --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Assemble the portable QA folder
         run: |

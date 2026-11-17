@@ -152,8 +152,10 @@ describe('point curve reading aids (UXR1 D3)', () => {
     expect(container.querySelector('svg')!.firstElementChild).toBe(shown());
     fireEvent.click(screen.getByRole('button', { name: 'R' }));
     expect(shown()?.getAttribute('data-channel')).toBe('red');
+    expect(shown()?.getAttribute('d')).toMatch(/^M0 255 L/);
+    // Drawn without rendering the curve; without a histogram, nothing.
     act(() => useEditorStore.setState({ histogram: null }));
-    expect(shown()).toBeNull();
+    expect(shown()?.hasAttribute('d')).toBe(false);
   });
 
   it('shows a crosshair through the dragged point only while it is dragged', () => {

@@ -73,6 +73,7 @@ A portable `qa-control` build for driving Rawtonic on Windows through the loopba
 
 ```sh
 gh workflow run windows-qa.yml --ref <branch>
+gh workflow run windows-qa.yml --ref <branch> -f profiling=true   # + performance-profiling: timing records for drag measurements
 gh run list --workflow windows-qa.yml --limit 1          # run id
 gh run download <run-id> -n windows-qa-portable -D qa-win
 ```
