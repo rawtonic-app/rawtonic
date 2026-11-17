@@ -156,6 +156,11 @@ export interface RecipeKeys {
   lensBlurEnabled?: boolean;
   lutIsSceneReferred?: boolean;
   lutPath?: string | null;
+  /**
+   * How the recipe reads its .cube (lut.rs LUT_VERSION): 2 = over the domain the file names (DOMAIN_MIN/MAX,
+   * LUT_3D_INPUT_RANGE), 1 (missing) = a 3D table over 0–1.
+   */
+  lutVersion?: number;
   lutName?: string | null;
   lutData?: string | null;
   lensBlurDepthMap?: string | null;

@@ -4732,7 +4732,7 @@
         "incomplete": "La tabla está incompleta o dañada ({{found}} de {{expected}} valores).",
         "noTable": "El archivo no contiene ninguna tabla LUT.",
         "notACube": "Las entradas de la tabla ({{entries}}) no forman un cubo.",
-        "readDifferently": "Una tabla 3D con un dominio distinto de 0–1 no es compatible en esta forma.",
+        "readDifferently": "Las versiones anteriores de la app leen de otra forma la tabla 3D de este archivo.",
         "tableSize": "El tamaño de tabla {{size}} está fuera de 2–{{max}}.",
         "tooDeep": "Las carpetas anidadas a más de {{max}} niveles no se importan.",
         "unreadable": "El archivo no se puede leer como LUT."

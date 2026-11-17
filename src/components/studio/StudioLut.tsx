@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
 import AdjustmentControl from './AdjustmentControl';
+import { LUT_VERSION } from '../../utils/adjustments';
 
 interface LutEntry {
   name: string;
@@ -124,7 +125,8 @@ export default function StudioLut({
       lutData: null,
       lutSize: 0,
       lutIntensity: 100,
-      lutIsSceneReferred: false
+      lutIsSceneReferred: false,
+      lutVersion: LUT_VERSION
     }));
 
   const importLuts = async (folder: boolean) => {

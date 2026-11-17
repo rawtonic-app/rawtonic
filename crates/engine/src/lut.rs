@@ -15,15 +15,30 @@ pub struct Lut {
     /// The stage a colour passes before the table (a .cube's 1D shaper or
     /// input range); `None`: the table spans the unit cube.
     pub shaper: Option<Shaper>,
+    /// The stage a .cube names that the earlier reader ignored (a 3D
+    /// table's `DOMAIN_MIN`/`DOMAIN_MAX`, a `LUT_3D_INPUT_RANGE` or a 1D
+    /// shaper before `LUT_3D_SIZE`): recipes with [`LUT_VERSION`] 2 read
+    /// the table through it ([`Lut::stage`]), as the file's specification
+    /// does; earlier recipes without it, as they were made.
+    pub file_stage: Option<Shaper>,
 }
+
+/// The recipe key naming how a recipe reads its .cube (`lutVersion`).
+pub const LUT_VERSION_KEY: &str = "lutVersion";
+/// The newest reading: 2 (2026-11-18) reads a 3D .cube over the domain it
+/// names (`DOMAIN_MIN`/`DOMAIN_MAX`, `LUT_3D_INPUT_RANGE`; a colour outside
+/// it is clamped to its edge) and a 1D shaper before `LUT_3D_SIZE`, which
+/// the earlier reader ignored ([`Lut::file_stage`]); 1 (missing key) reads
+/// such a table over 0–1. Every other LUT renders alike in both.
+pub const LUT_VERSION: u64 = 2;
 
 /// Why a LUT file is not read, for the import report: `kind` and its
 /// values are what the app translates; the English text is the log's.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum LutIssue {
-    /// A 3D table the earlier reader reads over 0–1 although the file
-    /// names another domain (saved edits keep that reading).
+    /// A 3D table the earlier reader (which saved edits keep) reads with
+    /// other values than the .cube specification.
     ReadDifferently,
     TableSize {
         size: usize,
@@ -54,7 +69,7 @@ impl std::fmt::Display for LutIssue {
         match self {
             Self::ReadDifferently => write!(
                 f,
-                "A 3D table with a domain other than 0–1 (DOMAIN_MIN/MAX or LUT_3D_INPUT_RANGE) is not supported"
+                "The file's 3D table reads differently in earlier versions of the app"
             ),
             Self::TableSize { size, max } => write!(f, "Table size {size} is outside 2–{max}"),
             Self::NoTable => write!(f, "Neither LUT_3D_SIZE nor LUT_1D_SIZE found in the file"),
@@ -138,30 +153,39 @@ pub fn parse_lut_bytes(extension: &str, bytes: Vec<u8>) -> anyhow::Result<Lut> {
 
 /// Reads a .cube file. A file the earlier reader took (a 3D table:
 /// `LUT_3D_SIZE` and its data, other lines ignored) is read exactly as it
-/// was, so saved edits render as before, `DOMAIN_MIN`/`DOMAIN_MAX`
-/// included (ignored by that reader); anything else goes to
-/// [`parse_cube_full`] (1D tables, shapers, domains).
+/// was, so saved edits render as before; a stage that reader ignored
+/// (`DOMAIN_MIN`/`DOMAIN_MAX`, a `LUT_3D_INPUT_RANGE` or a 1D shaper before
+/// `LUT_3D_SIZE`) is kept beside it as [`Lut::file_stage`], which recipes
+/// with [`LUT_VERSION`] 2 read. Anything else goes to [`parse_cube_full`]
+/// (1D tables, shapers, domains).
 fn parse_cube(bytes: Vec<u8>) -> anyhow::Result<Lut> {
-    parse_cube_3d(BufReader::new(Cursor::new(&bytes)))
-        .or_else(|_| parse_cube_full(BufReader::new(Cursor::new(&bytes))))
+    let Ok(earlier) = parse_cube_3d(BufReader::new(Cursor::new(&bytes))) else {
+        return parse_cube_full(BufReader::new(Cursor::new(&bytes)));
+    };
+    Ok(match parse_cube_full(BufReader::new(Cursor::new(&bytes))) {
+        Ok(full) if full.size == earlier.size && full.data == earlier.data => Lut {
+            file_stage: full.shaper,
+            ..earlier
+        },
+        _ => earlier,
+    })
 }
 
-/// A LUT to import, by its file extension: as [`parse_lut_bytes`], but a
-/// .cube that the earlier reader takes differently from the full reading
-/// (a 3D table with a domain other than 0–1, which that reader ignores) is
-/// refused, so no new edit depends on that reading.
+/// A LUT to import, by its file extension: as [`parse_lut_bytes`], read as
+/// a new edit reads it ([`LUT_VERSION`]). A .cube that the specification
+/// refuses is refused (with its reason) although the earlier reader took
+/// it, and one that reader reads with another table is refused, so no new
+/// edit depends on the earlier reading.
 pub fn parse_lut_bytes_for_import(extension: &str, bytes: Vec<u8>) -> anyhow::Result<Lut> {
     if extension != "cube" {
         return parse_lut_bytes(extension, bytes);
     }
-    match (
-        parse_cube_3d(BufReader::new(Cursor::new(&bytes))),
-        parse_cube_full(BufReader::new(Cursor::new(&bytes))),
-    ) {
-        (Ok(earlier), Ok(full)) if earlier == full => Ok(earlier),
-        (Ok(_), _) => Err(LutIssue::ReadDifferently.into()),
-        (Err(_), full) => full,
+    let full = parse_cube_full(BufReader::new(Cursor::new(&bytes)))?;
+    let lut = parse_cube(bytes)?;
+    if lut.read_as(true) != full {
+        return Err(LutIssue::ReadDifferently.into());
     }
+    Ok(lut)
 }
 
 /// The 3D .cube reader before 1D tables, shapers and domains (unchanged).
@@ -261,6 +285,7 @@ fn parse_cube_3d(reader: impl BufRead) -> anyhow::Result<Lut> {
         size: lut_size,
         data,
         shaper: None,
+        file_stage: None,
     })
 }
 
@@ -429,6 +454,7 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
         size: n,
         data: data[entries_1d * 3..].to_vec(),
         shaper,
+        file_stage: None,
     };
     match (shaper, size_3d) {
         // As written (the parser before 1D tables read these).
@@ -606,10 +632,30 @@ fn bake(size: u32, transform: impl Fn([f32; 3]) -> [f32; 3]) -> Lut {
         size,
         data,
         shaper: None,
+        file_stage: None,
     }
 }
 
 impl Lut {
+    /// The stage before the table for a recipe: its own shaper, else with
+    /// `file_stage` (`lutVersion` 2) the stage the earlier reader ignored.
+    pub fn stage(&self, file_stage: bool) -> Option<&Shaper> {
+        self.shaper
+            .as_ref()
+            .or(self.file_stage.as_ref().filter(|_| file_stage))
+    }
+
+    /// The table as a recipe reads it ([`Lut::stage`]), its stage as the
+    /// shaper: what [`Lut::sample`] and the pipeline sample.
+    pub fn read_as(&self, file_stage: bool) -> Lut {
+        Lut {
+            size: self.size,
+            data: self.data.clone(),
+            shaper: self.stage(file_stage).cloned(),
+            file_stage: None,
+        }
+    }
+
     /// The table at `rgb` (unit cube, clamped; after the shaper when there
     /// is one) by tetrahedral interpolation, as the shader reads it
     /// (`sample_lut_tetrahedral` of `lut_table_input`).
@@ -717,6 +763,7 @@ fn parse_3dl(reader: impl BufRead) -> anyhow::Result<Lut> {
         size,
         data,
         shaper: None,
+        file_stage: None,
     })
 }
 
@@ -741,6 +788,7 @@ fn parse_hald(image: DynamicImage) -> anyhow::Result<Lut> {
         size,
         data,
         shaper: None,
+        file_stage: None,
     })
 }
 
@@ -833,10 +881,10 @@ mod tests {
     }
 
     #[test]
-    fn a_3d_domain_is_read_as_before_and_refused_on_import() {
+    fn a_3d_domain_is_read_as_before_by_earlier_recipes_and_by_the_spec_on_import() {
         // An identity table over -0.25..1.25. The earlier reader ignored
-        // the domain; saved edits keep that reading, a new import refuses
-        // the file rather than depend on it.
+        // the domain; saved edits (`lutVersion` 1) keep that reading, new
+        // edits (2) and the import read it over its domain.
         let text = table_3d(
             17,
             "DOMAIN_MIN -0.25 -0.25 -0.25\nDOMAIN_MAX 1.25 1.25 1.25\n",
@@ -846,13 +894,157 @@ mod tests {
         );
         let lut = cube(&text).unwrap();
         assert_eq!(lut.size, 17);
+        assert_eq!(lut.shaper, None);
         assert!(close(lut.sample([0.0; 3]), [-0.25; 3], 1e-6));
-        assert!(import(&text).unwrap_err().to_string().contains("domain"));
-        // Over the unit domain both readings agree: imported as written.
+        assert!(close(lut.read_as(false).sample([0.0; 3]), [-0.25; 3], 1e-6));
+        let spec = lut.read_as(true);
+        for rgb in probes() {
+            assert!(close(spec.sample(rgb), rgb, 2e-6), "{rgb:?}");
+        }
+        assert_eq!(import(&text).unwrap(), lut);
+        // Over the unit domain both readings agree: no stage of the file's.
         let unit = table_3d(9, "DOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n", 0.0, 1.0, |rgb| {
             rgb
         });
+        assert_eq!(cube(&unit).unwrap().file_stage, None);
         assert_eq!(import(&unit).unwrap().data, cube(&unit).unwrap().data);
+        // A value the specification refuses, which the earlier reader took:
+        // saved edits keep it, an import gives the specification's reason.
+        let reversed = table_3d(2, "DOMAIN_MIN 1 0 0\nDOMAIN_MAX 0 1 1\n", 0.0, 1.0, |rgb| {
+            rgb
+        });
+        assert!(cube(&reversed).is_ok());
+        assert_eq!(
+            import(&reversed)
+                .unwrap_err()
+                .downcast::<LutIssue>()
+                .unwrap(),
+            LutIssue::DomainOrder
+        );
+    }
+
+    /// The .cube specification's reading of a 3D table over `lo..hi` (per
+    /// channel), written independently of the parser and the shader: the
+    /// input clamped to the domain and mapped onto the grid, then
+    /// interpolated between the 8 corners of its cell (trilinear).
+    fn spec_reference(
+        size: usize,
+        data: &[f32],
+        (lo, hi): ([f32; 3], [f32; 3]),
+        rgb: [f32; 3],
+    ) -> [f32; 3] {
+        let n = size - 1;
+        let at: [(usize, f32); 3] = std::array::from_fn(|c| {
+            let t = ((rgb[c] - lo[c]) / (hi[c] - lo[c])).clamp(0.0, 1.0) * n as f32;
+            let i = (t.floor() as usize).min(n - 1);
+            (i, t - i as f32)
+        });
+        let mut out = [0.0f32; 3];
+        for corner in 0..8 {
+            let pick = |c: usize| (corner >> c) & 1;
+            let weight: f32 = (0..3)
+                .map(|c| if pick(c) == 1 { at[c].1 } else { 1.0 - at[c].1 })
+                .product();
+            let [r, g, b] = std::array::from_fn(|c| at[c].0 + pick(c));
+            let i = ((b * size + g) * size + r) * 3;
+            for c in 0..3 {
+                out[c] += weight * data[i + c];
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_3d_table_over_its_domain_matches_the_specification() {
+        // A colour look that mixes channels (affine, so trilinear and
+        // tetrahedral interpolation both reproduce it inside the domain),
+        // and a curved one compared at its grid points, over a 33³ probe
+        // grid reaching beyond each domain on both sides.
+        let affine = |[r, g, b]: [f32; 3]| {
+            [
+                0.8 * r + 0.15 * g + 0.05 * b + 0.02,
+                0.1 * r + 0.7 * g + 0.2 * b,
+                0.05 * r + 0.25 * g + 0.6 * b - 0.01,
+            ]
+        };
+        let curved = |[r, g, b]: [f32; 3]| [r * r, g.abs().sqrt(), 0.5 * b + 0.3 * r * g];
+        let cases: [(&str, [f32; 3], [f32; 3]); 4] = [
+            (
+                "DOMAIN_MIN 0 0 0\nDOMAIN_MAX 1.5 1.5 1.5\n",
+                [0.0; 3],
+                [1.5; 3],
+            ),
+            (
+                "DOMAIN_MIN -0.1 -0.1 -0.1\nDOMAIN_MAX 1.1 1.1 1.1\n",
+                [-0.1; 3],
+                [1.1; 3],
+            ),
+            (
+                "DOMAIN_MIN -0.2 0 0.1\nDOMAIN_MAX 1 2 0.9\n",
+                [-0.2, 0.0, 0.1],
+                [1.0, 2.0, 0.9],
+            ),
+            ("LUT_3D_INPUT_RANGE -0.05 1.25\n", [-0.05; 3], [1.25; 3]),
+        ];
+        let size = 17;
+        let tolerance = 1.0 / 1023.0;
+        for (header, lo, hi) in cases {
+            for (name, look) in [
+                ("affine", &affine as &dyn Fn([f32; 3]) -> [f32; 3]),
+                ("curved", &curved),
+            ] {
+                let mut text = format!("TITLE \"t\"\n{header}LUT_3D_SIZE {size}\n");
+                let grid =
+                    |c: usize, i: usize| lo[c] + (hi[c] - lo[c]) * i as f32 / (size - 1) as f32;
+                for b in 0..size {
+                    for g in 0..size {
+                        for r in 0..size {
+                            let [x, y, z] = look([grid(0, r), grid(1, g), grid(2, b)]);
+                            text.push_str(&format!("{x:.7} {y:.7} {z:.7}\n"));
+                        }
+                    }
+                }
+                let lut = import(&text).unwrap();
+                // Saved edits keep the earlier reading over 0–1.
+                assert_eq!(lut.shaper, None, "{header}");
+                let spec = lut.read_as(true);
+                let mut worst = 0.0f32;
+                let probe = |i: usize, c: usize| {
+                    let span = hi[c] - lo[c];
+                    lo[c] - 0.2 * span + 1.4 * span * i as f32 / 32.0
+                };
+                for b in 0..33 {
+                    for g in 0..33 {
+                        for r in 0..33 {
+                            let rgb = [probe(r, 0), probe(g, 1), probe(b, 2)];
+                            let got = spec.sample(rgb);
+                            let want = if name == "affine" {
+                                look(std::array::from_fn(|c| rgb[c].clamp(lo[c], hi[c])))
+                            } else {
+                                spec_reference(size, &lut.data, (lo, hi), rgb)
+                            };
+                            // The curved look: interpolation inside a cell
+                            // is the implementation's (tetrahedral); the
+                            // specification's reading is compared where
+                            // the probe sits on the table's grid (or is
+                            // clamped onto its faces).
+                            let on_grid = (0..3).all(|c| {
+                                let t = ((rgb[c] - lo[c]) / (hi[c] - lo[c])).clamp(0.0, 1.0)
+                                    * (size - 1) as f32;
+                                (t - t.round()).abs() < 1e-4
+                            });
+                            if name == "affine" || on_grid {
+                                for c in 0..3 {
+                                    worst = worst.max((got[c] - want[c]).abs());
+                                }
+                            }
+                        }
+                    }
+                }
+                eprintln!("{header:?} {name}: worst {worst}");
+                assert!(worst <= tolerance, "{header} {name}: {worst}");
+            }
+        }
     }
 
     /// The curve a .cube's 1D table describes at `x`: its entries over
@@ -1041,10 +1233,15 @@ mod tests {
         assert!(close(lut.sample([0.3, 0.6, 1.0]), [0.3, 0.6, 1.0], 2e-6));
         assert!(close(lut.sample([0.3, -0.5, 1.5]), [0.3, 0.0, 1.0], 2e-6));
         // Before the size the earlier reader ignored the line: saved edits
-        // keep that reading, an import refuses it.
+        // keep that reading, new edits and the import read its range.
         let before = table_3d(9, "LUT_3D_INPUT_RANGE -0.25 1.25\n", -0.25, 1.25, |rgb| rgb);
-        assert_eq!(cube(&before).unwrap().shaper, None);
-        assert!(import(&before).is_err());
+        let lut = cube(&before).unwrap();
+        assert_eq!(lut.shaper, None);
+        assert!(close(lut.sample([0.0; 3]), [-0.25; 3], 1e-6));
+        for rgb in probes() {
+            assert!(close(lut.read_as(true).sample(rgb), rgb, 2e-6), "{rgb:?}");
+        }
+        assert_eq!(import(&before).unwrap(), lut);
     }
 
     #[test]

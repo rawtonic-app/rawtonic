@@ -408,6 +408,24 @@ export const effectiveGrainStructure = (adjustments: Partial<Adjustments>): Grai
  * (missing key) the earlier one. */
 export const GRAIN_VERSION = 3;
 
+/** How a recipe reads its .cube (crates/engine/src/lut.rs `LUT_VERSION`): 2
+ * over the domain the file names (`DOMAIN_MIN`/`DOMAIN_MAX`,
+ * `LUT_3D_INPUT_RANGE`) and through a shaper before `LUT_3D_SIZE`; 1 (missing
+ * key) a 3D table over 0–1 as the earlier reader did. Other LUTs render alike
+ * in both. */
+export const LUT_VERSION = 2;
+
+/** The LUT reading goes with its LUT wherever one is copied (paste, presets,
+ * Edit all selected): the source's, else — presets and recipes from before
+ * the key — the earlier reading (1). */
+export const withLutVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>
+): T & Pick<Partial<Adjustments>, 'lutVersion'> => {
+  if (!picked.lutPath || (picked.lutVersion !== undefined && picked.lutVersion !== null)) return picked;
+  return { ...picked, lutVersion: source?.lutVersion ?? 1 };
+};
+
 /** Film grain (version 3) has no structures; its Colour sets how independent
  * the dye layers are. */
 export const isFilmGrain = (adjustments: Partial<Adjustments>): boolean =>
@@ -1697,7 +1715,8 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         aiDenoiseVersion: AI_DENOISE_VERSION,
         renderVersion: RENDER_VERSION,
         sourceFrameVersion: SOURCE_FRAME_VERSION,
-        grainVersion: GRAIN_VERSION
+        grainVersion: GRAIN_VERSION,
+        lutVersion: LUT_VERSION
       }
     : {
         ...INITIAL_ADJUSTMENTS,
@@ -1717,7 +1736,8 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
         sourceFrameVersion: SOURCE_FRAME_VERSION,
-        grainVersion: GRAIN_VERSION
+        grainVersion: GRAIN_VERSION,
+        lutVersion: LUT_VERSION
       };
 
 /** Whether a saved recipe is new: empty (Library Reset saves `{}`, or only
@@ -2181,10 +2201,13 @@ export const withColourVersions = <T extends Partial<Adjustments>>(picked: T, so
  * before the keys renders with version 1 wherever it is previewed or
  * applied. */
 export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
-  withColorGradingVersion(
-    withHslVersion(
-      withBwVersion(
-        withVibranceVersion(withDetailVersions(withWhiteBalanceVersions(preset, preset), preset), preset),
+  withLutVersion(
+    withColorGradingVersion(
+      withHslVersion(
+        withBwVersion(
+          withVibranceVersion(withDetailVersions(withWhiteBalanceVersions(preset, preset), preset), preset),
+          preset
+        ),
         preset
       ),
       preset
@@ -2481,6 +2504,9 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
           : {})
       },
       lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
+      // A saved recipe's own LUT reading; without the key the earlier one
+      // where it has a LUT, else the newest (a new edit's).
+      lutVersion: loadedAdjustments.lutVersion ?? (loadedAdjustments.lutPath ? 1 : LUT_VERSION),
       colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
       toneVersion: loadedToneVersion(loadedAdjustments),
       clarityVersion: loadedClarityVersion(loadedAdjustments),
@@ -2732,7 +2758,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         Effect.LutPath,
         Effect.LutSize,
         Effect.LutData,
-        Effect.LutIsSceneReferred
+        Effect.LutIsSceneReferred,
+        'lutVersion'
       ]
     }
   ],

@@ -42,6 +42,8 @@ import {
   AI_DENOISE_VERSION,
   withAiDenoiseVersion,
   withDiffractionVersion,
+  withLutVersion,
+  LUT_VERSION,
   withSharpenVersion,
   withLumaNoiseVersion,
   pastedAdjustments,
@@ -339,6 +341,23 @@ describe('RAW detail defaults', () => {
     expect(withDiffractionVersion({ diffractionCorrection: true, diffractionVersion: 2 }).diffractionVersion).toBe(2);
     // Nothing to carry when the correction is not copied on.
     expect('diffractionVersion' in withDiffractionVersion({ exposure: 1 } as Partial<Adjustments>)).toBe(false);
+  });
+
+  it('carry the LUT reading with a copied, preset or loaded LUT', () => {
+    // A LUT from before the key reads a 3D table over 0–1 (version 1), also
+    // pasted onto a photo whose recipe says 2.
+    expect(withLutVersion({ lutPath: '/a.cube' }).lutVersion).toBe(1);
+    expect(withLutVersion({ lutPath: '/a.cube' }, { lutVersion: 2 }).lutVersion).toBe(2);
+    expect(withLutVersion({ lutPath: '/a.cube', lutVersion: 2 }).lutVersion).toBe(2);
+    expect(withPresetVersions({ lutPath: '/a.cube' }).lutVersion).toBe(1);
+    expect('lutVersion' in withLutVersion({ lutPath: null })).toBe(false);
+    // New edits and recipes without a LUT read new LUTs per the .cube spec.
+    expect(initialAdjustmentsFor(true).lutVersion).toBe(LUT_VERSION);
+    expect(initialAdjustmentsFor(false).lutVersion).toBe(LUT_VERSION);
+    const loaded = { ...INITIAL_ADJUSTMENTS } as Adjustments;
+    expect(normalizeLoadedAdjustments(loaded).lutVersion).toBe(LUT_VERSION);
+    expect(normalizeLoadedAdjustments({ ...loaded, lutPath: '/a.cube' }).lutVersion).toBe(1);
+    expect(normalizeLoadedAdjustments({ ...loaded, lutPath: '/a.cube', lutVersion: 2 }).lutVersion).toBe(2);
   });
 
   it('keep the AI Denoise version a saved recipe rendered with', () => {

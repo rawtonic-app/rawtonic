@@ -4732,7 +4732,7 @@
         "incomplete": "La tabella è incompleta o danneggiata ({{found}} valori su {{expected}}).",
         "noTable": "Il file non contiene alcuna tabella LUT.",
         "notACube": "Le voci della tabella ({{entries}}) non formano un cubo.",
-        "readDifferently": "Una tabella 3D con un dominio diverso da 0–1 non è supportata in questa forma.",
+        "readDifferently": "Le versioni precedenti dell’app leggono diversamente la tabella 3D di questo file.",
         "tableSize": "La dimensione di tabella {{size}} è fuori da 2–{{max}}.",
         "tooDeep": "Le cartelle annidate oltre {{max}} livelli non vengono importate.",
         "unreadable": "Il file non può essere letto come LUT."

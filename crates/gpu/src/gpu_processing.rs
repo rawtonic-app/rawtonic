@@ -5238,6 +5238,8 @@ struct DisplayRenderState {
     /// that differ only after their 16th point have equal uniforms.
     curve_table: Option<Arc<Vec<[f32; 4]>>>,
     lut: Option<std::sync::Weak<Lut>>,
+    /// Whether the LUT is read through its file's stage (`lutVersion`).
+    lut_file_stage: bool,
     pipeline: wgpu::ComputePipeline,
     mask_layers: usize,
 }
@@ -5255,6 +5257,7 @@ impl DisplayRenderState {
                 (Some(a), Some(b)) => a.ptr_eq(b),
                 _ => false,
             }
+            && self.lut_file_stage == other.lut_file_stage
             && self.pipeline == other.pipeline
             && self.mask_layers == other.mask_layers
     }
@@ -11100,6 +11103,7 @@ impl GpuProcessor {
                     adjustments: boxed_uniforms(&request.adjustments.uniforms),
                     curve_table: request.adjustments.curve_table.clone(),
                     lut: request.lut.as_ref().map(Arc::downgrade),
+                    lut_file_stage: request.adjustments.lut_file_stage,
                     pipeline: output_pipeline.clone(),
                     mask_layers: request.mask_bitmaps.len().min(MAX_MASKS),
                 });
@@ -11188,7 +11192,7 @@ impl GpuProcessor {
         let lut_shaper = request
             .lut
             .as_ref()
-            .and_then(|lut| lut.shaper.as_ref())
+            .and_then(|lut| lut.stage(request.adjustments.lut_file_stage))
             .map(|shaper| {
                 create_buffer_init(
                     device,

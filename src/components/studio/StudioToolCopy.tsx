@@ -29,8 +29,8 @@ const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
  * recipe's colour noise filter makes of them, Shadows what its tone-slider
  * response makes of it. */
 export const COPIED_ALONG: Partial<Record<string, string[]>> = {
-  // A LUT selection includes its baked table and input space.
-  lutPath: ['lutName', 'lutSize', 'lutData', 'lutIsSceneReferred'],
+  // A LUT selection includes its baked table, input space and reading.
+  lutPath: ['lutName', 'lutSize', 'lutData', 'lutIsSceneReferred', 'lutVersion'],
   colorNoiseReduction: ['colorNoiseVersion'],
   colorNoiseDetail: ['colorNoiseVersion'],
   colorNoiseSmoothness: ['colorNoiseVersion'],
