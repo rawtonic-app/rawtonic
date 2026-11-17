@@ -607,7 +607,14 @@ pub(crate) fn flush_staged(path: PathBuf) -> Result<()> {
 /// `+00:00` offset and the fraction in groups of three digits (none when
 /// zero), as receipts always said it.
 fn receipt_time() -> String {
-    chrono::Utc::now().to_rfc3339()
+    let now = jiff::Timestamp::now();
+    let fraction = match now.subsec_nanosecond() {
+        0 => String::new(),
+        n if n % 1_000_000 == 0 => format!(".{:03}", n / 1_000_000),
+        n if n % 1_000 == 0 => format!(".{:06}", n / 1_000),
+        n => format!(".{n:09}"),
+    };
+    format!("{}{fraction}+00:00", now.strftime("%Y-%m-%dT%H:%M:%S"))
 }
 
 #[cfg(test)]

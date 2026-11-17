@@ -7,8 +7,10 @@ use std::time::Duration;
 
 use crate::formats::is_raw_file;
 use crate::output_color_space::OutputColorSpace;
-use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone, Utc};
 use exif::Exif;
+use jiff::Timestamp;
+use jiff::civil::DateTime;
+use jiff::tz::{AmbiguousOffset, Offset, TimeZone};
 use little_exif::exif_tag::ExifTag;
 use little_exif::filetype::FileExtension;
 use little_exif::ifd::ExifTagGroup;
@@ -233,7 +235,7 @@ pub fn clean_creation_datetime_str(s: &str) -> &str {
 
 pub fn fmt_date_str(s: String) -> String {
     if let Some(dt) = parse_creation_datetime(&s) {
-        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+        return dt.strftime("%Y-%m-%d %H:%M:%S").to_string();
     }
     clean_creation_datetime_str(&s).to_string()
 }
@@ -242,7 +244,7 @@ pub fn fmt_date_str(s: String) -> String {
 /// display, and readers such as ImageIO drop dates in that form.
 pub fn exif_datetime(s: &str) -> String {
     match parse_creation_datetime(s) {
-        Some(dt) => dt.format("%Y:%m:%d %H:%M:%S").to_string(),
+        Some(dt) => dt.strftime("%Y:%m:%d %H:%M:%S").to_string(),
         None => clean_creation_datetime_str(s).to_string(),
     }
 }
@@ -253,7 +255,7 @@ pub fn normalize_creation_datetime(s: &str) -> Option<String> {
     Some(format!("{} {}", date.replace(':', "-"), time))
 }
 
-pub fn parse_creation_datetime(s: &str) -> Option<NaiveDateTime> {
+pub fn parse_creation_datetime(s: &str) -> Option<DateTime> {
     let clean = clean_creation_datetime_str(s);
     if clean.is_empty() {
         return None;
@@ -261,13 +263,14 @@ pub fn parse_creation_datetime(s: &str) -> Option<NaiveDateTime> {
 
     let normalized = normalize_creation_datetime(clean);
     for candidate in std::iter::once(clean).chain(normalized.as_deref()) {
+        let candidate = &*nanosecond_fraction(candidate);
         for format in [
             "%Y:%m:%d %H:%M:%S",
             "%Y:%m:%d %H:%M:%S%.f",
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%d %H:%M:%S%.f",
         ] {
-            if let Ok(dt) = NaiveDateTime::parse_from_str(candidate, format) {
+            if let Ok(dt) = DateTime::strptime(format, candidate) {
                 return Some(dt);
             }
         }
@@ -276,20 +279,58 @@ pub fn parse_creation_datetime(s: &str) -> Option<NaiveDateTime> {
     None
 }
 
-pub fn creation_datetime_to_utc(dt: NaiveDateTime) -> DateTime<Utc> {
-    match Local.from_local_datetime(&dt) {
-        LocalResult::Single(local_dt) | LocalResult::Ambiguous(local_dt, _) => {
-            local_dt.with_timezone(&Utc)
+/// `text` with a fraction of a second after its last `.` cut to nine
+/// digits (nanoseconds; further digits are dropped, as they always were).
+fn nanosecond_fraction(text: &str) -> std::borrow::Cow<'_, str> {
+    match text.rsplit_once('.') {
+        Some((_, digits)) if digits.len() > 9 && digits.bytes().all(|b| b.is_ascii_digit()) => {
+            text[..text.len() - (digits.len() - 9)].into()
         }
-        LocalResult::None => DateTime::from_naive_utc_and_offset(dt, Utc),
+        _ => text.into(),
     }
 }
 
-pub fn parse_creation_field(field: &exif::Field) -> Option<DateTime<Utc>> {
+/// The instant of a capture time without a UTC offset: the camera's wall
+/// time in the computer's time zone (`creation_datetime_in`).
+pub fn creation_datetime_to_utc(dt: DateTime) -> Timestamp {
+    creation_datetime_in(&TimeZone::system(), dt)
+}
+
+/// The instant of wall time `dt` in `zone`, read as Rawtonic always read
+/// it (chrono 0.4 until 2026-11, pinned by tests/local_capture_time.rs): a
+/// time the clocks passed twice takes the offset after the change (its
+/// later instant), the first moment of a time the clocks skipped takes the
+/// offset before it, and a later moment the clocks skipped is read as UTC.
+/// Outside the instants jiff holds, the nearest one.
+pub fn creation_datetime_in(zone: &TimeZone, dt: DateTime) -> Timestamp {
+    let offset = match zone.to_ambiguous_timestamp(dt).offset() {
+        AmbiguousOffset::Unambiguous { offset } => offset,
+        AmbiguousOffset::Fold { after, .. } => after,
+        AmbiguousOffset::Gap { before, .. } => {
+            let gap_start = before.to_timestamp(dt).ok().filter(|instant| {
+                instant
+                    .checked_sub(jiff::SignedDuration::from_nanos(1))
+                    .is_ok_and(|just_before| zone.to_offset(just_before) == before)
+            });
+            if gap_start.is_some() {
+                before
+            } else {
+                Offset::UTC
+            }
+        }
+    };
+    offset.to_timestamp(dt).unwrap_or(if dt.year() < 0 {
+        Timestamp::MIN
+    } else {
+        Timestamp::MAX
+    })
+}
+
+pub fn parse_creation_field(field: &exif::Field) -> Option<Timestamp> {
     parse_creation_datetime(&field.display_value().to_string()).map(creation_datetime_to_utc)
 }
 
-pub fn parse_raw_creation_date(date_str: Option<&str>) -> Option<DateTime<Utc>> {
+pub fn parse_raw_creation_date(date_str: Option<&str>) -> Option<Timestamp> {
     parse_creation_datetime(date_str?).map(creation_datetime_to_utc)
 }
 
@@ -819,7 +860,7 @@ pub fn extract_metadata(file_bytes: &[u8]) -> Option<HashMap<String, String>> {
 pub fn try_capture_date_with(
     path: &Path,
     exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
-) -> Option<DateTime<Utc>> {
+) -> Option<Timestamp> {
     if let Some(map) = exif_sidecar()
         && let Some(dt_str) = map.get("DateTimeOriginal").or(map.get("CreateDate"))
         && let Some(dt) = parse_creation_datetime(dt_str)
@@ -864,7 +905,7 @@ pub fn try_capture_date_with(
 pub fn capture_date_with(
     path: &Path,
     exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
-) -> DateTime<Utc> {
+) -> Timestamp {
     if let Some(dt) = try_capture_date_with(path, exif_sidecar) {
         return dt;
     }
@@ -872,8 +913,8 @@ pub fn capture_date_with(
     fs::metadata(path)
         .ok()
         .and_then(|m| m.created().ok())
-        .map(DateTime::<Utc>::from)
-        .unwrap_or_else(Utc::now)
+        .and_then(|time| Timestamp::try_from(time).ok())
+        .unwrap_or_else(Timestamp::now)
 }
 
 pub fn copy_full_exif_from_source(

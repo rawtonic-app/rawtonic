@@ -209,7 +209,7 @@ pub(crate) fn setup_logging(app_handle: &tauri::AppHandle, file_name: &str) {
         .format(|out, message, record| {
             out.finish(format_args!(
                 "{} [{}] {}",
-                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                jiff::ZonedDateTime::now().strftime("%Y-%m-%d %H:%M:%S"),
                 record.level(),
                 message
             ))

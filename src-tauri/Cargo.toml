@@ -83,7 +83,7 @@ tauri-plugin-os = "2.4.0"
 log = { workspace = true }
 fern = "0.7"
 little_exif = { workspace = true }
-chrono = { workspace = true }
+jiff = { workspace = true }
 tokenizers = { version = "0.23.1", default-features = false, features = ["onig"] }
 once_cell = "1.21"
 futures = "0.3.34"
@@ -111,7 +111,7 @@ reqwest = { workspace = true, features = ["json", "rustls"] }
 # The system Trash through `trash` on Windows and Linux; macOS uses
 # NSFileManager directly (file_operations.rs).
 [target.'cfg(any(windows, all(unix, not(target_os = "macos"))))'.dependencies]
-trash = "5.2.6"
+trash = "5.4.0"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "=0.56.0", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_EnhancedStorage", "Win32_Storage_FileSystem", "Win32_Security", "Win32_System_Com", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }

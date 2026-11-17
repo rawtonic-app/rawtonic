@@ -79,7 +79,7 @@ pub fn sidecar_capture(source: &Path) -> Option<crate::exif_processing::CaptureF
         [
             (
                 "DateTimeOriginal",
-                Some(corrected.format("%Y-%m-%d %H:%M:%S").to_string()),
+                Some(corrected.strftime("%Y-%m-%d %H:%M:%S").to_string()),
             ),
             ("SubSecTimeOriginal", field(&shown, "SubSecTimeOriginal")),
             ("OffsetTimeOriginal", field(&shown, "OffsetTimeOriginal")),
@@ -388,8 +388,7 @@ mod tests {
         );
         // Its file times follow the corrected date.
         let date = crate::exif_processing::capture_date_with(&source, &|| Some(corrected.clone()));
-        use chrono::{Datelike, Timelike};
-        let local = date.with_timezone(&chrono::Local);
+        let local = date.to_zoned_datetime(jiff::tz::TimeZone::system());
         assert_eq!((local.day(), local.hour(), local.minute()), (31, 0, 30));
     }
 }

@@ -47,7 +47,9 @@ impl Snapshot {
         let snapshot = Self {
             id: Uuid::new_v4().to_string(),
             name: clean_name(name)?,
-            created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            created_at: jiff::Timestamp::now()
+                .strftime("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
             adjustments,
         };
         snapshot.validate()?;
@@ -61,7 +63,7 @@ impl Snapshot {
         );
         ensure!(clean_name(&self.name)? == self.name, "Not a snapshot name");
         ensure!(
-            chrono::DateTime::parse_from_rfc3339(&self.created_at).is_ok(),
+            self.created_at.parse::<jiff::Timestamp>().is_ok(),
             "Not a snapshot time"
         );
         ensure!(self.adjustments.is_object(), "A snapshot holds adjustments");

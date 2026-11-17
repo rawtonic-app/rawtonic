@@ -32,7 +32,7 @@ anyhow = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 tempfile = { workspace = true }
-chrono = { workspace = true, features = ["serde"] }
+jiff = { workspace = true }
 # Free memory, for the number of export workers (as the app).
 sysinfo = "0.39.6"
 

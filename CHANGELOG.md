@@ -63,6 +63,7 @@
 - **The window comes back at its own size on a Retina Mac.** The window's size and place were restored as twice their size after every relaunch on a Retina or scaled display; they now come back as they were left.
 - **Tab moves from value field to value field in Develop.** Typing a number in a slider's field and pressing Tab (Shift+Tab back) now commits it and selects the next tool's value (the next open one), so a column of numbers can be typed without the mouse, as in Lightroom; Enter commits, Esc reverts. Before, Tab went to the next slider and the typed digits did not reach a field.
 - **Home and End go to the first and last photo** in the Library grid, the loupe, full screen and Develop's filmstrip (in a multi view, of the selection).
+- Dates are now read, written and converted with the jiff library instead of chrono, which is no longer maintained (RUSTSEC-2026-0543). File names, stored dates, capture-time corrections and exported files are unchanged; on Linux the system Trash keeps recording when an item was deleted.
 
 ## 0.1.0-alpha.16 — 2026-11-16
 

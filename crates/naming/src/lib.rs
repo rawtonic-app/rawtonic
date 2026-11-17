@@ -1,6 +1,6 @@
 //! Shared, strict filename templates. No filesystem mutation happens here.
 use anyhow::{Result, bail, ensure};
-use chrono::{Datelike, NaiveDateTime, Timelike};
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -174,7 +174,7 @@ pub enum DateSource {
 #[serde(rename_all = "camelCase", default)]
 pub struct Capture {
     /// Local capture time as the camera recorded it.
-    pub captured: Option<NaiveDateTime>,
+    pub captured: Option<DateTime>,
     pub date_source: DateSource,
     /// Fraction of a second as written (EXIF SubSecTimeOriginal digits).
     pub subsec: Option<String>,
@@ -288,7 +288,7 @@ impl Capture {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Context {
-    pub captured: NaiveDateTime,
+    pub captured: DateTime,
     pub original: String,
     pub sequence: u64,
     pub sequence_start: u64,
@@ -318,7 +318,7 @@ const MONTHS: [&str; 12] = [
 impl Context {
     pub fn new(original: impl Into<String>, sequence: u64) -> Self {
         Self {
-            captured: chrono::Local::now().naive_local(),
+            captured: jiff::ZonedDateTime::now().datetime(),
             original: original.into(),
             sequence,
             sequence_start: 1,
@@ -354,16 +354,16 @@ impl Context {
             "yyyy" => format!("{:04}", dt.year()),
             "yy" => format!("{:02}", dt.year().rem_euclid(100)),
             "mm" => format!("{:02}", dt.month()),
-            "month" => MONTHS[dt.month0() as usize].into(),
-            "mon" => MONTHS[dt.month0() as usize][..3].into(),
+            "month" => MONTHS[(dt.month() - 1) as usize].into(),
+            "mon" => MONTHS[(dt.month() - 1) as usize][..3].into(),
             "dd" => format!("{:02}", dt.day()),
-            "doy" => format!("{:03}", dt.ordinal()),
-            "weekday" => dt.format("%A").to_string(),
+            "doy" => format!("{:03}", dt.day_of_year()),
+            "weekday" => dt.strftime("%A").to_string(),
             "hh" => format!("{:02}", dt.hour()),
             "MM" => format!("{:02}", dt.minute()),
             "ss" => format!("{:02}", dt.second()),
-            "date" => dt.format("%Y-%m-%d").to_string(),
-            "time" => dt.format("%H-%M-%S").to_string(),
+            "date" => dt.strftime("%Y-%m-%d").to_string(),
+            "time" => dt.strftime("%H-%M-%S").to_string(),
             "orig" => original
                 .file_name()
                 .and_then(|s| s.to_str())
@@ -422,7 +422,7 @@ fn expand(expression: &str, context: &Context) -> Result<String> {
                 .iter()
                 .find(|(key, _)| *key == format)
                 .ok_or_else(|| anyhow::anyhow!("Unknown {name} format: {format}"))?;
-            value = context.captured.format(pattern).to_string();
+            value = context.captured.strftime(pattern).to_string();
         }
         _ => bail!("Use |pad:N for non-sequence tokens"),
     }
@@ -567,8 +567,7 @@ mod tests {
     #[test]
     fn every_date_token_and_transform() {
         let mut c = Context::new("DSC01234.ARW", 12);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-10-01 14:37:08", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-10-01 14:37:08");
         c.values.insert("job".into(), "Acme / Zürich".into());
         assert_eq!(
             render(
@@ -606,9 +605,7 @@ mod tests {
 
     fn capture() -> Capture {
         Capture {
-            captured: Some(
-                NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap(),
-            ),
+            captured: Some(at("2026-03-07 09:05:02")),
             date_source: DateSource::Original,
             subsec: Some("042".into()),
             offset: Some("+02:00".into()),
@@ -702,8 +699,7 @@ mod tests {
     #[test]
     fn older_templates_and_missing_values_keep_working() {
         let mut c = Context::new("DSC_0001.ARW", 3);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-10-01 14:37:08", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-10-01 14:37:08");
         c.apply_capture(&Capture::default());
         assert_eq!(
             render("{yyyy}{mm}{dd}_{hh}{MM}{ss}_{seq:4}_{orig}", &c).unwrap(),
@@ -722,8 +718,7 @@ mod tests {
     #[test]
     fn date_and_time_formats_are_token_choices() {
         let mut c = Context::new("DSC_0001.ARW", 3);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-03-07 09:05:02");
         let render = |t: &str| render(t, &c).unwrap();
         assert_eq!(render("{date}"), "2026-03-07");
         assert_eq!(render("{date:yyyymmdd}_{time:hhMMss}"), "20260307_090502");
@@ -771,8 +766,7 @@ mod tests {
         );
         let mut c = Context::new("DSC_0001.ARW", 3);
         c.sequence_last = Some(12);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-03-07 09:05:02");
         assert_eq!(
             render(
                 &translate_legacy_export("{YYYY}{MM}{DD}_{hh}{mm}_{original_filename}_{sequence}"),
@@ -786,8 +780,7 @@ mod tests {
     #[test]
     fn folders_from_tokens_stay_inside_the_destination() {
         let mut c = Context::new("DSC_0001.ARW", 1);
-        c.captured =
-            NaiveDateTime::parse_from_str("2026-03-07 09:05:02", "%Y-%m-%d %H:%M:%S").unwrap();
+        c.captured = at("2026-03-07 09:05:02");
         c.values.insert("job".into(), "Acme/../Zürich.".into());
         c.values.insert("format".into(), "JPEG".into());
         let folder = |t: &str, c: &Context| render_folder(t, c);
@@ -836,8 +829,8 @@ mod tests {
     }
 
     /// A wall time from `YYYY-MM-DD HH:MM:SS` (tests only).
-    fn at(text: &str) -> NaiveDateTime {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").unwrap()
+    fn at(text: &str) -> DateTime {
+        DateTime::strptime("%Y-%m-%d %H:%M:%S", text).unwrap()
     }
 
     /// Every date and time token and every `{date:…}`/`{time:…}` format,

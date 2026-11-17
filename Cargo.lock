@@ -885,10 +885,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link",
 ]
 
@@ -1704,7 +1702,7 @@ dependencies = [
  "anstream",
  "anstyle",
  "env_filter",
- "jiff",
+ "jiff 0.2.35",
  "log",
 ]
 
@@ -2997,9 +2995,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "668b7183bd07af9a4885f5c35b0cc5c83c4607a913c16b7e17291832910d2dcc"
 dependencies = [
  "defmt",
- "jiff-core",
- "jiff-static",
- "jiff-tzdb-platform",
+ "jiff-core 0.1.0",
+ "jiff-static 0.2.35",
+ "jiff-tzdb-platform 0.1.3",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde_core",
+ "windows-link",
+]
+
+[[package]]
+name = "jiff"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cc767b5763de45e810109520123bb2829a653f3a7ed9be40b2bc4f81158f595"
+dependencies = [
+ "jiff-core 1.0.0",
+ "jiff-static 1.0.0",
+ "jiff-tzdb-platform 1.0.0",
  "log",
  "portable-atomic",
  "portable-atomic-util",
@@ -3017,15 +3031,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "jiff-core"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "894f7ac42105f584100691b3bf6e6b92dd12fcfa225f6c397f95c8a94b47b68f"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "jiff-static"
 version = "0.2.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a69dcb3a21cfb32ce1cd056169337ca284af0766dd766e7878819b251a49204"
 dependencies = [
- "jiff-core",
+ "jiff-core 0.1.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "jiff-static"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "955491488dc99b572ea6d67b172dcd98787d00744b1fb44a5689b4e6413695a6"
+dependencies = [
+ "jiff-core 1.0.0",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -3035,12 +3070,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "142bd39932ad231f10513df9ab62661fead8719872150b7ad02a2df79f4e141e"
 
 [[package]]
+name = "jiff-tzdb"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12e71a1b68a875a44a33bb7a1dd84392cb77145a3367a552a3cfe6a4f5cf3afc"
+
+[[package]]
 name = "jiff-tzdb-platform"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8"
 dependencies = [
- "jiff-tzdb",
+ "jiff-tzdb 0.1.8",
+]
+
+[[package]]
+name = "jiff-tzdb-platform"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc65b284afcfa8f6cf189c7274c805505314a7ab975c60e1f548bff56525420e"
+dependencies = [
+ "jiff-tzdb 1.0.0",
 ]
 
 [[package]]
@@ -5308,7 +5358,6 @@ dependencies = [
  "backtrace",
  "bitstream-io",
  "byteorder",
- "chrono",
  "clap",
  "enumn",
  "env_logger",
@@ -5316,6 +5365,7 @@ dependencies = [
  "hex",
  "image",
  "itertools 0.14.0",
+ "jiff 1.0.0",
  "jxl-oxide",
  "lazy_static",
  "libflate",
@@ -5349,7 +5399,6 @@ dependencies = [
  "base64 0.23.1",
  "blake3",
  "bytemuck",
- "chrono",
  "dirs",
  "fern",
  "flate2",
@@ -5361,6 +5410,7 @@ dependencies = [
  "image_hasher",
  "imageproc",
  "imgref",
+ "jiff 1.0.0",
  "jxl-oxide",
  "kamadak-exif",
  "libc",
@@ -5439,7 +5489,7 @@ name = "rawtonic-catalog"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
+ "jiff 1.0.0",
  "log",
  "proptest",
  "rawtonic-catalog",
@@ -5463,9 +5513,9 @@ name = "rawtonic-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "clap",
  "image",
+ "jiff 1.0.0",
  "libc",
  "mimalloc",
  "rawtonic-catalog",
@@ -5577,7 +5627,6 @@ dependencies = [
  "anyhow",
  "blake3",
  "bytemuck",
- "chrono",
  "crc32fast",
  "criterion",
  "filetime",
@@ -5586,6 +5635,7 @@ dependencies = [
  "half",
  "harfrust",
  "image",
+ "jiff 1.0.0",
  "jxl-encoder",
  "jxl-oxide",
  "kamadak-exif",
@@ -5693,8 +5743,8 @@ name = "rawtonic-ingest"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "image",
+ "jiff 1.0.0",
  "kamadak-exif",
  "libc",
  "log",
@@ -5769,7 +5819,7 @@ name = "rawtonic-naming"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
+ "jiff 1.0.0",
  "proptest",
  "serde",
  "serde_json",
@@ -6534,7 +6584,7 @@ dependencies = [
  "hex",
  "indexmap 1.9.3",
  "indexmap 2.14.0",
- "jiff",
+ "jiff 0.2.35",
  "schemars 0.9.0",
  "schemars 1.2.2",
  "serde_core",
@@ -7833,11 +7883,11 @@ dependencies = [
 
 [[package]]
 name = "trash"
-version = "5.2.6"
+version = "5.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7602e0c7d66ec2d92a8c917219fbc7894039efa2063b9064260110828a356f46"
+checksum = "7363f9516b65bd2e855f4e6c3338b1a98efc2773c25349c958908897e1170ded"
 dependencies = [
- "chrono",
+ "jiff 1.0.0",
  "libc",
  "log",
  "objc2",
@@ -7846,7 +7896,8 @@ dependencies = [
  "percent-encoding",
  "scopeguard",
  "urlencoding",
- "windows 0.56.0",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]

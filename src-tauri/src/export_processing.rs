@@ -519,13 +519,13 @@ impl PinnedPhoto {
     }
 
     /// The capture date of `source` (`exif`), for its files' times.
-    pub(crate) fn capture_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
+    pub(crate) fn capture_date(&self, source: &Path) -> jiff::Timestamp {
         exif_processing::capture_date_with(source, &|| self.exif(source))
     }
 
     /// The capture date of `source` before it is decoded, for its names:
     /// the snapshot's, else the file's own (`capture_date_with`).
-    pub(crate) fn naming_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
+    pub(crate) fn naming_date(&self, source: &Path) -> jiff::Timestamp {
         exif_processing::capture_date_with(source, &|| {
             self.corrected(
                 self.exif
@@ -1543,7 +1543,7 @@ fn plan_output_path(
     target: &ExportTarget,
     item: &PhotoItem,
     source_path: &Path,
-    file_date: &chrono::DateTime<chrono::Utc>,
+    file_date: &jiff::Timestamp,
     capture: Option<&rawtonic_naming::Capture>,
     mask_layers: usize,
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
@@ -3366,7 +3366,7 @@ mod tests {
             total_paths: 2,
         };
         let used = std::sync::Mutex::new(std::collections::HashSet::new());
-        let date = chrono::Utc::now();
+        let date = jiff::Timestamp::now();
         let mut written = Vec::new();
         let results = export_in_turn(
             [0, 1],
@@ -3432,7 +3432,7 @@ mod tests {
             explicit_vc: None,
             total_paths: 2,
         };
-        let date = chrono::Utc::now();
+        let date = jiff::Timestamp::now();
         let planned = PlannedFiles::default();
         let plan = || plan_output_path(&target, &item, &source, &date, None, 0, &used);
         let first = planned.once(0, plan).unwrap();
@@ -3473,7 +3473,7 @@ mod tests {
             }
         }
         let used = std::sync::Mutex::new(std::collections::HashSet::new());
-        let date = chrono::Utc::now();
+        let date = jiff::Timestamp::now();
         let plan = |t: &ExportTarget, index, path: &str| {
             let planned = plan_output_path(
                 t,

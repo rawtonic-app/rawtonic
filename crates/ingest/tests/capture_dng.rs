@@ -58,7 +58,10 @@ fn reads_capture_facts_of_a_raw_through_the_raw_decoder() {
         let capture = rawtonic_ingest::capture::read_capture(&path);
         assert_eq!(capture.date_source, DateSource::Original, "{name}");
         assert_eq!(
-            capture.captured.map(|d| d.to_string()).as_deref(),
+            capture
+                .captured
+                .map(|d| d.strftime("%Y-%m-%d %H:%M:%S").to_string())
+                .as_deref(),
             Some("2024-07-14 06:15:30"),
             "{name}"
         );

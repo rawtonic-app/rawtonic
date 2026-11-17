@@ -71,7 +71,10 @@ pub(crate) fn capture_from_exif(exif: &HashMap<String, String>) -> Capture {
             let subsec = get("SubSecTimeOriginal")
                 .and_then(|s| format!("0.{}", s.trim()).parse::<f64>().ok())
                 .unwrap_or(0.0);
-            dt.and_utc().timestamp() as f64 + subsec
+            // Whole seconds since 1970 of the wall time read as UTC (floor).
+            let since = dt.duration_since(jiff::civil::date(1970, 1, 1).at(0, 0, 0, 0));
+            let seconds = since.as_secs() - i64::from(since.subsec_nanos() < 0);
+            seconds as f64 + subsec
         });
     let shutter = get("ExposureTime")
         .and_then(|v| number(&v))

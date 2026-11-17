@@ -72,7 +72,7 @@ pub struct ProofSheetPreview {
 }
 
 fn today() -> String {
-    chrono::Local::now().format("%Y-%m-%d").to_string()
+    jiff::ZonedDateTime::now().strftime("%Y-%m-%d").to_string()
 }
 
 impl ProofSheetRequest {

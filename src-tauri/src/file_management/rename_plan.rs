@@ -6,7 +6,7 @@
 //! Part of `file_management` (ADR 0009).
 use super::parse_virtual_path;
 use crate::formats::{is_raw_file, is_supported_image_file};
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use rawtonic_metadata::photo_ref::PhotoRef;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -184,7 +184,7 @@ fn effective_template(template: &str, names: usize) -> String {
 #[derive(Default)]
 pub struct PhotoFacts {
     companions: HashMap<PathBuf, Option<PathBuf>>,
-    dates: HashMap<PathBuf, DateTime<Utc>>,
+    dates: HashMap<PathBuf, Timestamp>,
     captures: HashMap<PathBuf, rawtonic_naming::Capture>,
 }
 
@@ -196,7 +196,7 @@ impl PhotoFacts {
             .clone()
     }
 
-    fn date(&mut self, photo: &Path) -> DateTime<Utc> {
+    fn date(&mut self, photo: &Path) -> Timestamp {
         *self
             .dates
             .entry(photo.to_path_buf())
@@ -305,8 +305,8 @@ pub fn plan_rename_with(
         if rawtonic_naming::template_tokens(&template).any(|t| DATE_TOKENS.contains(&t)) {
             naming.captured = facts
                 .date(lead_path)
-                .with_timezone(&chrono::Local)
-                .naive_local();
+                .to_zoned_datetime(jiff::tz::TimeZone::system())
+                .datetime();
         }
         let rendered = rawtonic_naming::render(&template, &naming);
         let invalid = rendered.is_err();

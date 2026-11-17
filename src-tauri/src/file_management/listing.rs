@@ -323,7 +323,7 @@ pub(crate) fn assign_group_ids(
             .filter(|candidates| candidates.len() >= 2)
             .flat_map(|candidates| candidates.iter().map(|c| c.source_path.clone()))
             .collect();
-        let exif_dates: HashMap<PathBuf, Option<chrono::DateTime<chrono::Utc>>> = groupable_paths
+        let exif_dates: HashMap<PathBuf, Option<jiff::Timestamp>> = groupable_paths
             .par_iter()
             .map(|p| {
                 (

@@ -158,13 +158,14 @@ fn edit(numbers: &mut Numbers) -> Value {
 /// A synthetic photograph `i`: its folder and file name, facts, metadata.
 fn photograph(i: u32, numbers: &mut Numbers, words: &[String]) -> (String, CaptureFacts, Metadata) {
     let day = i / 100; // 100 photographs a day, one folder a day
-    let date =
-        chrono::NaiveDate::from_ymd_opt(2023, 1, 1).unwrap() + chrono::Days::new(u64::from(day));
+    let date = jiff::civil::date(2023, 1, 1)
+        .checked_add(jiff::Span::new().days(i64::from(day)))
+        .unwrap();
     let (make, model) = CAMERAS[numbers.below(CAMERAS.len())];
     let jpeg = numbers.below(10) == 0;
     let name = format!(
         "{}/DSC{:05}.{}",
-        date.format("%Y-%m-%d"),
+        date.strftime("%Y-%m-%d"),
         i % 100_000,
         if jpeg { "JPG" } else { "ARW" }
     );
@@ -172,7 +173,7 @@ fn photograph(i: u32, numbers: &mut Numbers, words: &[String]) -> (String, Captu
     let facts = CaptureFacts {
         captured: Some(format!(
             "{} {:02}:{:02}:{:02}",
-            date.format("%Y-%m-%d"),
+            date.strftime("%Y-%m-%d"),
             8 + i % 12,
             i % 60,
             (i * 7) % 60

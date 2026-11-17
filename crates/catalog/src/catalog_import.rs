@@ -111,7 +111,9 @@ pub struct Baseline {
 const RECORDED: &str = "@recorded";
 
 fn now() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    jiff::Timestamp::now()
+        .strftime("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string()
 }
 
 /// Of the records `candidates` of one photograph (in order of preference),

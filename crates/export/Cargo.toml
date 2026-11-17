@@ -29,7 +29,7 @@ rawtonic-naming = { path = "../naming", version = "0.1.0" }
 rawler = { workspace = true }
 kamadak-exif = { workspace = true }
 little_exif = { workspace = true }
-chrono = { workspace = true }
+jiff = { workspace = true }
 crc32fast = "1.5"
 md-5 = "0.11"
 roxmltree = { workspace = true }

@@ -291,7 +291,7 @@ struct Compiler<'a> {
     expanding: HashSet<String>,
     /// Groups and smart albums expanded so far (`expand`).
     expansions: usize,
-    today: chrono::NaiveDate,
+    today: jiff::civil::Date,
     /// The condition reads `metadata m` / `roots r`.
     metadata: bool,
     roots: bool,
@@ -388,35 +388,34 @@ fn ai_test(bits: u32) -> String {
     )
 }
 
-fn day(value: &Value) -> Result<chrono::NaiveDate> {
+fn day(value: &Value) -> Result<jiff::civil::Date> {
     let text = value.as_str().context("Dates are `YYYY-MM-DD`")?;
-    chrono::NaiveDate::parse_from_str(text.get(..10).unwrap_or(text), "%Y-%m-%d")
+    jiff::civil::Date::strptime("%Y-%m-%d", text.get(..10).unwrap_or(text))
         .with_context(|| format!("{text} is not a date (`YYYY-MM-DD`)"))
 }
 
 /// The first day of the period `{amount, unit}` ending today.
-fn since(value: &Value, today: chrono::NaiveDate) -> Result<chrono::NaiveDate> {
+fn since(value: &Value, today: jiff::civil::Date) -> Result<jiff::civil::Date> {
     let amount = value
         .get("amount")
         .and_then(Value::as_u64)
         .filter(|n| (1..=10_000).contains(n))
         .context("A period needs an amount of 1–10000")? as u32;
     let unit = value.get("unit").and_then(Value::as_str).unwrap_or("days");
-    let months = |n: u32| {
-        today
-            .checked_sub_months(chrono::Months::new(n))
-            .context("Period too long")
-    };
+    // Calendar arithmetic: a month back from a longer month ends on the
+    // shorter month's last day.
+    let back = |span: jiff::Span| today.checked_sub(span).context("Period too long");
+    let next_day = |date: jiff::civil::Date| date.tomorrow().context("Period too long");
+    let months = |n: u32| back(jiff::Span::new().months(i64::from(n)));
+    let days = |n: u32| back(jiff::Span::new().days(i64::from(n)));
     // "In the last 1 day" is today.
-    Ok(match unit {
-        "days" => today - chrono::Days::new(u64::from(amount) - 1),
-        "weeks" => today - chrono::Days::new(u64::from(amount) * 7 - 1),
-        "months" => months(amount)? + chrono::Days::new(1),
-        "years" => {
-            months(amount.checked_mul(12).context("Period too long")?)? + chrono::Days::new(1)
-        }
+    match unit {
+        "days" => days(amount - 1),
+        "weeks" => days(amount * 7 - 1),
+        "months" => next_day(months(amount)?),
+        "years" => next_day(months(amount.checked_mul(12).context("Period too long")?)?),
         other => bail!("Unknown period {other}"),
-    })
+    }
 }
 
 /// SQL text for a `LIKE`-free substring test ignoring case
@@ -433,7 +432,7 @@ impl<'a> Compiler<'a> {
             params: Vec::new(),
             expanding: HashSet::new(),
             expansions: 0,
-            today: chrono::Local::now().date_naive(),
+            today: jiff::ZonedDateTime::now().date(),
             metadata: false,
             roots: false,
             duplicates: false,
@@ -674,7 +673,7 @@ impl<'a> Compiler<'a> {
 
     fn date_column_inner(&mut self, column: &str, op: Op, value: &Value) -> Result<String> {
         let day_of = format!("substr({column},1,10)");
-        let text = |d: chrono::NaiveDate| d.format("%Y-%m-%d").to_string();
+        let text = |d: jiff::civil::Date| d.strftime("%Y-%m-%d").to_string();
         Ok(match op {
             Op::Is | Op::IsNot => {
                 self.push(text(day(value)?));
@@ -1793,12 +1792,12 @@ mod tests {
     use super::*;
     use crate::Mode;
 
-    fn date(text: &str) -> chrono::NaiveDate {
+    fn date(text: &str) -> jiff::civil::Date {
         day(&serde_json::json!(text)).unwrap()
     }
 
-    fn text(d: chrono::NaiveDate) -> String {
-        d.format("%Y-%m-%d").to_string()
+    fn text(d: jiff::civil::Date) -> String {
+        d.strftime("%Y-%m-%d").to_string()
     }
 
     /// Dates and periods of a search, pinned before the date library

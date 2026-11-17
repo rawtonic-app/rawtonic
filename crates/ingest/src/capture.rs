@@ -49,7 +49,6 @@ pub(crate) fn import_metadata(
     path: &Path,
     header: Option<Capture>,
 ) -> anyhow::Result<(rawtonic_metadata::Metadata, Option<i32>)> {
-    use chrono::Datelike;
     let read_packet = || -> anyhow::Result<rawtonic_metadata::Metadata> {
         let mut file = fs::File::open(path)?;
         let len = file.metadata()?.len();
@@ -78,7 +77,7 @@ pub(crate) fn import_metadata(
                 DateSource::Original | DateSource::Digitized | DateSource::FileDate
             )
         })
-        .map(|date| date.year());
+        .map(|date| i32::from(date.year()));
     // XMP is validated by read_xmp; validate each optional EXIF fallback
     // before adopting it, retaining valid embedded fields if one is bad.
     let camera_text = |value: Option<String>| {
@@ -124,7 +123,7 @@ fn read_capture_within(path: &Path, most: u64) -> Capture {
         let modified = fs::metadata(path).and_then(|m| m.modified());
         (capture.captured, capture.date_source) = match modified {
             Ok(time) => (Some(local(time)), DateSource::Modified),
-            Err(_) => (Some(chrono::Local::now().naive_local()), DateSource::Now),
+            Err(_) => (Some(jiff::ZonedDateTime::now().datetime()), DateSource::Now),
         };
         capture.subsec = None;
         capture.offset = None;
@@ -634,7 +633,7 @@ fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
         captured: capture
             .captured
             .filter(|_| dated)
-            .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string()),
+            .map(|time| time.strftime("%Y-%m-%d %H:%M:%S").to_string()),
         // The fraction and offset the file states beside that time (as
         // Shift Capture Time reads the file's time).
         captured_subsec: capture.subsec.clone().filter(|_| dated),
@@ -654,14 +653,18 @@ fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
     })
 }
 
-fn local(time: std::time::SystemTime) -> chrono::NaiveDateTime {
-    chrono::DateTime::<chrono::Local>::from(time).naive_local()
+/// The computer's wall time at `time` (a time outside the years
+/// -9999–9999 jiff holds: now).
+fn local(time: std::time::SystemTime) -> jiff::civil::DateTime {
+    jiff::Timestamp::try_from(time)
+        .map(|t| t.to_zoned_datetime(jiff::tz::TimeZone::system()).datetime())
+        .unwrap_or_else(|_| jiff::ZonedDateTime::now().datetime())
 }
 
 /// A date as EXIF writes it (`2026:10:01 14:37:08`; also with dashes or a
 /// `T`, and a date alone as midnight). Placeholder dates (`0000:00:00`) are
 /// none.
-pub fn parse_exif_date(text: &str) -> Option<chrono::NaiveDateTime> {
+pub fn parse_exif_date(text: &str) -> Option<jiff::civil::DateTime> {
     let text = text.trim().trim_end_matches('\0').trim();
     let normal: String = text
         .chars()
@@ -673,12 +676,12 @@ pub fn parse_exif_date(text: &str) -> Option<chrono::NaiveDateTime> {
             _ => c,
         })
         .collect();
-    chrono::NaiveDateTime::parse_from_str(&normal, "%Y-%m-%d %H:%M:%S")
+    jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", &normal)
         .ok()
         .or_else(|| {
-            chrono::NaiveDate::parse_from_str(normal.get(..10)?, "%Y-%m-%d")
+            jiff::civil::Date::strptime("%Y-%m-%d", normal.get(..10)?)
                 .ok()
-                .and_then(|d| d.and_hms_opt(0, 0, 0))
+                .map(|d| d.to_datetime(jiff::civil::Time::midnight()))
         })
 }
 
@@ -809,7 +812,7 @@ fn packet_rating(text: &str) -> Option<u8> {
 /// A Canon CRW's capture time, which it keeps outside EXIF: the CIFF
 /// TimeStamp record (0x180e, its first word the local time as seconds since
 /// 1970). Neither EXIF reader knows CIFF.
-fn crw_capture_time(bytes: &[u8]) -> Option<chrono::NaiveDateTime> {
+fn crw_capture_time(bytes: &[u8]) -> Option<jiff::civil::DateTime> {
     if bytes.get(6..14) != Some(b"HEAPCCDR") || bytes.get(..2) != Some(b"II") {
         return None;
     }
@@ -817,9 +820,9 @@ fn crw_capture_time(bytes: &[u8]) -> Option<chrono::NaiveDateTime> {
     let at = ciff_find(bytes, header, bytes.len().checked_sub(header)?, 0x180e, 0)?;
     let seconds = u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?);
     (seconds > 0)
-        .then(|| chrono::DateTime::from_timestamp(i64::from(seconds), 0))
+        .then(|| jiff::Timestamp::from_second(i64::from(seconds)).ok())
         .flatten()
-        .map(|time| time.naive_utc())
+        .map(|time| jiff::tz::Offset::UTC.to_datetime(time))
 }
 
 /// Walks a CIFF heap (its directory at its end) for a record's data offset,
@@ -1503,8 +1506,8 @@ pub(crate) mod tests {
     }
 
     /// A wall time as the library stores it, `YYYY-MM-DD HH:MM:SS`.
-    fn wall_text(time: chrono::NaiveDateTime) -> String {
-        time.format("%Y-%m-%d %H:%M:%S").to_string()
+    fn wall_text(time: jiff::civil::DateTime) -> String {
+        time.strftime("%Y-%m-%d %H:%M:%S").to_string()
     }
 
     #[test]

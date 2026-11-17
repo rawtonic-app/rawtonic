@@ -434,3 +434,18 @@ facts read a file's first MiB before more (`rawtonic-ingest`
 RAF logged `I/O error: failed to fill whole buffer` and a backtrace, while
 the facts read on and equal a whole-file read. The error still reaches the
 caller; it is now a debug line without a backtrace.
+
+## jiff instead of chrono (2026-11-17, DEPC1)
+
+- `Cargo.toml`, `src/decoders/mod.rs` (`RawMetadata::last_modified`,
+  `fixed_offset`, `local_earliest`), `src/dng/convert.rs` (DNG
+  `ModifyDate`): chrono 0.4 is unmaintained (RUSTSEC-2026-0543), so dates
+  use jiff 1.0. The results are chrono's: the EXIF form
+  `%Y:%m:%d %H:%M:%S`, an `OffsetTime` read as chrono's `FixedOffset` read
+  it (sign incl. U+2212, two hour digits, any colons or spaces, two minute
+  digits, anything after, less than a day), and local wall time as
+  chrono's `earliest()` gave it at daylight-saving changes (a repeated hour
+  takes the offset after the change, the first second of a skipped hour
+  the offset before it, a later second of it is no time).
+  `tests/rawtonic_last_modified.rs` pins them; it passed with chrono before
+  the change and with jiff after it.

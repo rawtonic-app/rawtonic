@@ -13,8 +13,8 @@ use rawtonic_export::exif_processing::{exif_datetime, parse_raw_creation_date};
 use rawtonic_export::export_processing::ExportSettings;
 
 /// Seconds and nanoseconds since 1970 of an instant.
-fn unix(time: chrono::DateTime<chrono::Utc>) -> (i64, u32) {
-    (time.timestamp(), time.timestamp_subsec_nanos())
+fn unix(time: jiff::Timestamp) -> (i64, u32) {
+    (time.as_second(), time.subsec_nanosecond() as u32)
 }
 
 #[test]
