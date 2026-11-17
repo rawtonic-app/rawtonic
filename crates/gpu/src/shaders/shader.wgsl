@@ -4993,10 +4993,50 @@ fn apply_grading_limited(display: vec3<f32>, layer: u32, mode: u32) -> vec3<f32>
     return clamp(graded, min(display, vec3<f32>(0.0)), max(display, vec3<f32>(1.0)));
 }
 
+// How much of the tint per channel `grading_active` 4 and 5 mix in
+// (colorGradingVersion 4; color_grading::GRADING_CHANNEL_WEIGHT).
+const GRADING_CHANNEL_WEIGHT: f32 = 0.5;
+
+// `grading_active` 4 and 5 (colorGradingVersion 4; notes:
+// benchmark-results/cg3-2026-11-17): version 3's path (5 with the Luminance
+// curve per channel) plus part of the tint applied to each channel by its
+// own lightness: each channel moves as the same channel of a grey of that
+// channel's level would, so a tint depends on the colour it lands on (a
+// yellow pixel's low blue channel takes the darker tones' tint), as Camera
+// Raw's does. For a grey both are the same, so a grey renders as the table
+// says. Its own function, so that versions 1 to 3 keep their code.
+fn apply_grading_tint_per_channel(display: vec3<f32>, layer: u32, mode: u32) -> vec3<f32> {
+    let linear = display_to_linear(display);
+    let lab = linear_srgb_to_oklab(linear);
+    let root = sign(linear) * pow(abs(linear), vec3<f32>(1.0 / 3.0));
+    var base = lab;
+    if (mode == 5u) {
+        let curved = root + vec3<f32>(
+            grading_luminance(layer, root.x),
+            grading_luminance(layer, root.y),
+            grading_luminance(layer, root.z),
+        );
+        base = linear_srgb_to_oklab(curved * curved * curved);
+    }
+    let shift = grading_shift(layer, lab.x);
+    let whole = oklab_to_linear_srgb(lab + shift);
+    let per_channel = vec3<f32>(
+        oklab_to_linear_srgb(vec3<f32>(root.x, 0.0, 0.0) + grading_shift(layer, root.x)).x,
+        oklab_to_linear_srgb(vec3<f32>(root.y, 0.0, 0.0) + grading_shift(layer, root.y)).y,
+        oklab_to_linear_srgb(vec3<f32>(root.z, 0.0, 0.0) + grading_shift(layer, root.z)).z,
+    );
+    let graded_linear = oklab_to_linear_srgb(base + shift) + GRADING_CHANNEL_WEIGHT * (per_channel - whole);
+    let graded = linear_to_display(graded_linear);
+    return clamp(graded, min(display, vec3<f32>(0.0)), max(display, vec3<f32>(1.0)));
+}
+
 fn apply_grading(display: vec3<f32>, layer: u32) -> vec3<f32> {
     var mode = adjustments.global.grading_active;
     if (layer != 0u) {
         mode = adjustments.mask_adjustments[layer - 1u].grading_active;
+    }
+    if (mode >= 4u) {
+        return apply_grading_tint_per_channel(display, layer, mode);
     }
     if (mode >= 2u) {
         return apply_grading_limited(display, layer, mode);

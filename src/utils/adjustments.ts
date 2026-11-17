@@ -748,8 +748,10 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * tint as Camera Raw does); 3 = the graded colour limited per channel to
    * sRGB, the Luminance sliders as a curve per channel, what Camera Raw
    * changes in Shadows and Highlights tints above saturation 50, own hue
-   * tables for Midtones and Global. Wheels without saturation and luminance
-   * render alike in all. 1 or missing on recipes that graded before it. Photo-wide:
+   * tables for Midtones and Global; 4 = version 3 with part of the tint
+   * applied to each channel by its own lightness, so a tint depends on the
+   * colour it lands on as Camera Raw's does. Wheels without saturation and
+   * luminance render alike in all. 1 or missing on recipes that graded before it. Photo-wide:
    * the layers' grading renders with the photo's. */
   colorGradingVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
@@ -1572,8 +1574,8 @@ export const BW_VERSION = 2;
 export const HSL_VERSION = 3;
 
 /** The colour grading response new edits start with (notes:
- * benchmark-results/cg2-colour-grading-2026-11-15). */
-export const COLOR_GRADING_VERSION = 3;
+ * benchmark-results/cg3-2026-11-17). */
+export const COLOR_GRADING_VERSION = 4;
 
 /** The sharpening response new edits start with (notes: reference/detail.md). */
 export const SHARPEN_VERSION = 8;
